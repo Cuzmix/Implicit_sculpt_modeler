@@ -6,7 +6,6 @@ import "core:math/linalg"
 
 import "../camera"
 import "../gizmo"
-import "../sculpt"
 import "../ui"
 
 // Drawing over the viewport through the kit, in the main pane's coordinates Viewport_Input
@@ -132,6 +131,9 @@ draw_hold_history :: proc(app: ^App, o: Overlay) {
 	}
 }
 
+// How much of the brush ring a pen at the edge of its hover range fades away.
+HOVER_FADE :: 0.7
+
 // Draws the brush circle, the move gizmo or the gesture being dragged over the viewport,
 // under the panels in the layer kit_frame kept over the viewport image, then the brush
 // pie over everything. Runs after the tools have handled this frame's input, so the
@@ -187,7 +189,9 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			break
 		}
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
-			color := overlay_color(brush_ring_color(app, input.primary))
+			// A pen hovering high shows the brush faintly, and clearer as it nears the
+			// screen, as Procreate's hover preview does, so the ring says how close it is.
+			color := overlay_color(brush_ring_color(app, input.primary) * {1, 1, 1, 1 - HOVER_FADE * input.pen_hover})
 			center := input.mouse_pos
 			if app.stroke.active && app.brush.lazy_px > 0 {
 				// The brush trails the cursor: draw it where it is, on its string.
@@ -371,17 +375,17 @@ pie_label_room :: proc(r, mid, step, height: f32) -> f32 {
 }
 
 // Draws the open pie over everything, so it shows whole even near the viewport's edge.
-// The brush pie's slices show the key's number near the middle and the name further
-// out, with a band on the brush in use; a user pie's show the command's icon over its
-// label, a band on one that is on now, dimmed when it cannot run, and "Empty" for an
-// empty slot.
+// Each slice shows its command's icon over its label, a band on one that is on now (the
+// brush in use), dimmed when it cannot run, and "Empty" for an empty slot.
 draw_pie :: proc(app: ^App, o: Overlay) {
 	p := app.ui.pie
 	if !p.open do return
 	ctx := o.ctx
 	t := ctx.theme
 	n := pie_slot_count(app, p.which)
-	lens := p.which == 0 && app.kit.chrome == .Lens
+	// The brush pie is drawn as round 2's: the slice pointed at stands out, and the middle
+	// names it; a user pie keeps the plain ring.
+	lens := p.which == 0
 	step := 2 * math.PI / f32(n)
 	GAP :: 0.02 // radians between slices
 	ARC :: 12 // segments along each edge of a slice
@@ -414,8 +418,6 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		if lens {
 			slot = pie_slot(app, 0, i)
 			on = slot.id != .None && command_checked(app, slot.id, slot.arg)
-		} else if p.which == 0 {
-			on = sculpt.Brush_Kind(i) == app.brush.kind
 		} else {
 			slot = app.kit.pies[p.which - 1][i]
 			on = slot.id != .None && command_checked(app, slot.id, slot.arg)
@@ -431,21 +433,6 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		label := at(o, p.center + r * pt * angle_dir(mid))
 		font := ui.Font.Semibold if hover else ui.Font.Regular
 		color := (t.accent if lens else t.on_accent) if hover else t.text
-		if p.which == 0 && !lens {
-			// Fifteen names round the ring leave the top and bottom ones a slice's chord
-			// apart side by side, so the key's number sits near the middle and the name
-			// further out, fitted to the room its neighbours leave it.
-			number := at(o, p.center + (PIE_INNER + 0.24 * (PIE_OUTER - PIE_INNER)) * pt * angle_dir(mid))
-			ui.text(ctx, fmt.tprint(i + 1), number.x, number.y, t.small_size, t.on_accent if hover else t.text_secondary, font, .Center)
-			out: f32 = PIE_INNER + 0.68 * (PIE_OUTER - PIE_INNER)
-			name := at(o, p.center + out * pt * angle_dir(mid))
-			room := pie_label_room(out, mid, step, t.text_size + 4)
-			// A name too wide for its room steps down to the small size before it is cut.
-			text := BRUSHES[sculpt.Brush_Kind(i)].name
-			size := t.text_size if ui.text_width(ctx, text, t.text_size, font) <= room else t.small_size
-			ui.text(ctx, ui.text_fit(ctx, text, size, room, font), name.x, name.y, size, color, font, .Center)
-			continue
-		}
 		if !usable do color = ui.color_fade(t.text_secondary, 0.5)
 		// Eight slices leave each label about a slice's chord across, and a little more: a
 		// label lies flat while the slice turns, so the side slices have more room than that.

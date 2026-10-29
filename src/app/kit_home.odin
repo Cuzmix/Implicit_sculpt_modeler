@@ -6,24 +6,25 @@ import "core:path/filepath"
 import "../render"
 import "../ui"
 
-// The Home screen: a page over the whole window, as a tablet sculpting app's home, with
-// the new scene starters down one side and the scenes to go back to as pictures beside
-// them: Recent, the scenes saved or opened lately (each picture read from the start of
-// its file, as a desktop modeller's splash shows its recent files), and Autosaves, the
-// newest autosave of each earlier session. A tap opens; with work to lose, a first tap
-// arms the tile and a second opens it, as Earlier saves does. A long press (or a
-// right-click) offers to take a scene off Recent or delete an autosave. Escape, Back or
-// the close button go back to the scene. It owns nothing of the scene: opening is a file
-// request and a new scene a command, both run at the next frame.
+// The Home screen: a page over the whole window, as a tablet sculpting app's home. On a
+// window LENS_HOME_WIDE wide or more it is round 2's page (lens_home.odin); a narrower one
+// stacks the new scene starters over the scenes to go back to, as pictures: Recent, the
+// scenes saved or opened lately (each picture read from the start of its file, as a
+// desktop modeller's splash shows its recent files), and Autosaves, the newest autosave of
+// each earlier session. A tap opens; with work to lose, a first tap arms the tile and a
+// second opens it, as Earlier saves does. A long press (or a right-click) offers to take a
+// scene off Recent or delete an autosave. Escape, Back or the close button go back to the
+// scene. It owns nothing of the scene: opening is a file request and a new scene a
+// command, both run at the next frame.
 
 // The clay the starters' balls are drawn in.
 @(private = "file")
 HOME_CLAY :: ui.Color{196, 190, 182, 255}
 
-// Classic's new scene tiles' glyphs, in NEW_SCENES' order: Lucide's circle, user-round,
+// The narrow page's new scene tiles' glyphs, in NEW_SCENES' order: Lucide's circle, user-round,
 // user, person-standing, hand and cat.
 @(rodata)
-HOME_SHAPE_GLYPHS := [CLASSIC_NEW_SCENES]rune{0xe07a, 0xe46d, 0xe19f, 0xe21e, 0xe1d7, 0xe390}
+HOME_SHAPE_GLYPHS := [NARROW_HOME_STARTS]rune{0xe07a, 0xe46d, 0xe19f, 0xe21e, 0xe1d7, 0xe390}
 
 ICON_HOME :: rune(0xe0f8) // house
 ICON_FILE_GONE :: rune(0xe0d1) // file-x
@@ -35,12 +36,6 @@ HOME_TILE_MIN :: 200
 HOME_TILE_MAX :: 280
 @(private = "file")
 HOME_GAP :: 12
-// The new scene column on a wide window, and the width under which the page stacks.
-@(private = "file")
-HOME_SIDE_W :: 236
-@(private = "file")
-HOME_WIDE :: 700
-
 kit_home :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -65,24 +60,11 @@ kit_home :: proc(app: ^App) {
 	ui.end(ctx)
 
 	room := area.y + area.h - (ctx.last_rect.y + ctx.last_rect.h) - 14 - PAD
-	if k.chrome == .Lens && width >= LENS_HOME_WIDE {
-		// Lens's page (lens_home.odin), which scrolls as a whole.
+	if width >= LENS_HOME_WIDE {
+		// The page of round 2's home2 screen (lens_home.odin), which scrolls as a whole.
 		scroll := kit_scroll_begin(ctx, "home grid", &k.home_scroll, owner, width - 10, room, HOME_GAP)
 		lens_home_body(app, width - 10)
 		kit_scroll_end(ctx, scroll)
-	} else if width >= HOME_WIDE {
-		ui.begin(ctx, "home columns", {direction = .Row, gap = 28})
-		ui.begin(ctx, "home new", {direction = .Column, gap = 8, width = HOME_SIDE_W})
-		home_new_section(app, HOME_SIDE_W, 2)
-		ui.end(ctx)
-		right := width - HOME_SIDE_W - 28
-		ui.begin(ctx, "home scenes", {direction = .Column, gap = 10, width = right})
-		home_tabs(app, right)
-		scroll := kit_scroll_begin(ctx, "home grid", &k.home_scroll, owner, right - 10, room - t.target - 10, HOME_GAP)
-		home_grid(app, right - 10)
-		kit_scroll_end(ctx, scroll)
-		ui.end(ctx)
-		ui.end(ctx)
 	} else {
 		// Narrow (a phone, a tablet's split view): one column that scrolls as a whole.
 		scroll := kit_scroll_begin(ctx, "home grid", &k.home_scroll, owner, width - 10, room, HOME_GAP)
@@ -103,7 +85,7 @@ home_new_section :: proc(app: ^App, width: f32, per_row: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.caption(ctx, "NEW SCENE")
-	for i in 0 ..< CLASSIC_NEW_SCENES {
+	for i in 0 ..< NARROW_HOME_STARTS {
 		if i % per_row == 0 do ui.begin(ctx, fmt.tprintf("home new row %d", i / per_row), {direction = .Row, gap = 4})
 		// A first tap with work to lose arms it, and its name asks.
 		armed := new_scene_armed(app, i)
@@ -112,7 +94,7 @@ home_new_section :: proc(app: ^App, width: f32, per_row: int) {
 			command_run(app, .New_Scene, i)
 			if !new_scene_armed(app, i) do home_close(app)
 		}
-		if i % per_row == per_row - 1 || i == CLASSIC_NEW_SCENES - 1 do ui.end(ctx)
+		if i % per_row == per_row - 1 || i == NARROW_HOME_STARTS - 1 do ui.end(ctx)
 	}
 	ui.spacer(ctx, 4)
 	if command_button(app, .Open_Scene, label = "Open a file...", glyph = ui.ICON_OPEN, width = width) do home_close(app)
@@ -165,7 +147,8 @@ home_when :: proc(at: i64) -> string {
 	return fmt.tprintf("%d days ago", s / 86400)
 }
 
-// Whether opening another scene would lose work: the same test the top bar's star makes.
+// Whether opening another scene would lose work: the scene holds changes its file does not
+// (the top bar's "Unsaved changes"), and it is a file or has work in it.
 home_work_to_lose :: proc(app: ^App) -> bool {
 	return scene_unsaved(app) && (app.scene_path != "" || scene_has_work(app))
 }

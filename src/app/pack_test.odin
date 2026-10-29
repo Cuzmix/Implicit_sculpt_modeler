@@ -302,10 +302,7 @@ pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
 	testing.expect_value(t, p.values.strength, f32(0.6))
 	preset_revert(&a)
 	testing.expect(t, !preset_changed(&a))
-	dock_put(&a, 2, .Draw, stone)
-	dock_put(&a, 3, .Clay, noisy)
-	testing.expect_value(t, a.kit.dock[2], Dock_Slot{kind = .Clay, preset = stone})
-	testing.expect_value(t, dock_slot_label(&a, a.kit.dock[3]), "Noisy Draw")
+	testing.expect_value(t, dock_slot_label(&a, Dock_Slot{kind = .Draw, preset = noisy}), "Noisy Draw")
 	testing.expect(t, settings_save(&a, settings))
 
 	b: App
@@ -315,8 +312,6 @@ pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.library.packs[0].presets, 2)
 	testing.expect_value(t, b.library.skipped, 0)
 	testing.expect_value(t, preset_ref(&b, b.brush.preset), "brush-set/Stone Clay")
-	testing.expect_value(t, preset_ref(&b, b.kit.dock[2].preset), "brush-set/Stone Clay")
-	testing.expect_value(t, preset_ref(&b, b.kit.dock[3].preset), "brush-set/Noisy Draw")
 	written, _ := os.read_entire_file(LIBRARY + "/brush-set/brushes.txt", context.temp_allocator)
 	testing.expect_value(t, strings.count(string(written), "\n"), 2)
 
@@ -324,7 +319,7 @@ pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
 	testing.expect(t, preset_save_new(&b))
 	testing.expect_value(t, preset_name(&b.presets[0]), "Stone Clay 1")
 	testing.expect_value(t, b.brush.preset, 1)
-	preset_use(&b, b.kit.dock[2].preset)
+	preset_use(&b, preset_by_ref(&b, "brush-set/Stone Clay"))
 
 	// Version 2 has Stone Clay still and no Noisy Draw.
 	testing.expect_value(t, pack_install_finish(&b, pack_unpack(v2, b.library.folder), replace = true), "")
@@ -332,14 +327,11 @@ pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
 	testing.expect(t, preset_changed(&b))
 	preset_revert(&b)
 	testing.expect_value(t, b.brush.strengths[.Clay], f32(0.9))
-	testing.expect_value(t, preset_ref(&b, b.kit.dock[2].preset), "brush-set/Stone Clay")
-	testing.expect_value(t, b.kit.dock[3], Dock_Slot{kind = .Draw})
 
-	// Remove sends the brush back to plain Clay, with its own strength, and the slot to Clay.
+	// Remove sends the brush back to plain Clay, with its own strength.
 	testing.expect(t, pack_remove(&b, 0))
 	testing.expect_value(t, b.brush.preset, 0)
 	testing.expect_value(t, b.brush.kind, sculpt.Brush_Kind.Clay)
-	testing.expect_value(t, b.kit.dock[2], Dock_Slot{kind = .Clay})
 	testing.expect_value(t, preset_by_ref(&b, "brush-set/Stone Clay"), 0)
 	testing.expect_value(t, preset_name(&b.presets[0]), "Stone Clay 1")
 	free_all(context.temp_allocator)

@@ -152,54 +152,6 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	return clicked
 }
 
-// A row of `count` dots, `chosen` lit, each `cell` points wide: the pages of the bar
-// above them. Each dot's tap reaches a little past it up and down, short of the bar.
-// `name` is the row's id and the dots' tooltip. Returns the dot tapped, or -1.
-page_dots :: proc(ctx: ^Context, name: string, count, chosen: int, cell: f32 = 28) -> int {
-	ctx.controls += 1
-	t := ctx.theme
-	base := id_of(ctx, name)
-	picked := -1
-	for i in 0 ..< count {
-		r := place(ctx, {cell, 16})
-		id := salt(base, u64(100 + i))
-		hovered, _, clicked, _ := interact(ctx, id, {r.x, r.y - 4, r.w, r.h + 8})
-		if clicked do picked = i
-		on := tween(ctx, salt(id, 1), 1 if i == chosen else 0, t.indicator_time)
-		h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time)
-		color := color_mix(color_mix(t.text_tertiary, t.text_secondary, h), t.accent, on)
-		fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, 3 + on, color)
-		tip(ctx, id, r, name)
-	}
-	return picked
-}
-
-// Lines of small text that are one control, as tall as they need and at least a touch
-// target: the object's readout under the top bar. The first line is in the semibold face.
-// `name` is its id and tooltip. Returns true when clicked; call secondary after it for
-// what its long press does.
-readout :: proc(ctx: ^Context, name: string, lines: []string, keys := "") -> bool {
-	ctx.controls += 1
-	t := ctx.theme
-	PADDING :: 8
-	LINE :: 16
-	w: f32 = 0
-	for l, i in lines do w = max(w, text_width(ctx, l, t.small_size, .Semibold if i == 0 else .Regular))
-	cell := place(ctx, {w + 2 * PADDING, max(f32(len(lines)) * LINE + 2 * PADDING, t.target)})
-	id := id_of(ctx, name)
-	hovered, held, clicked, _ := interact(ctx, id, cell)
-	mark := vertex_mark(ctx)
-	scale := feedback(ctx, id, cell, t.radius_medium, hovered, held)
-	y := cell.y + (cell.h - f32(len(lines)) * LINE) * 0.5 + LINE * 0.5
-	for l, i in lines {
-		text(ctx, l, cell.x + PADDING, y, t.small_size, t.text if i == 0 else t.text_secondary, .Semibold if i == 0 else .Regular)
-		y += LINE
-	}
-	press_scale(ctx, mark, cell, scale)
-	tip(ctx, id, cell, label_text(name), keys)
-	return clicked
-}
-
 // One label of a chip.
 Chip_Part :: struct {
 	text:   string,
@@ -505,8 +457,11 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 // Dragging anywhere on the pill moves the value by how far the pointer moves, so a
 // finger never hides the knob it moves and a press never jumps the value. Returns true
 // when the value changed. With `reset`, a long press that moved nothing (or a right-click)
-// puts the value back to it, and a drag held on after it goes on from there.
-vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil) -> bool {
+// puts the value back to it, and a drag held on after it goes on from there. A press the
+// system or a palm cancels puts the value back to where the press found it. The pen's roll
+// sweeps it as it does a slider, unless `roll` is off for a caller that reads the roll its
+// own way (the off-hand island doubles the size by a quarter turn).
+vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil, roll := true) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	W :: 44
@@ -517,7 +472,11 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 	f := slider_fraction(value^, lo, hi, scale)
 	changed := false
 	if pressed do ctx.press_value = f
-	if to, ok := reset.?; ok && secondary(ctx) {
+	if ctx.active == id && ctx.input.cancel {
+		v := slider_value(ctx.press_value, lo, hi, scale)
+		changed = v != value^
+		value^, f = v, ctx.press_value
+	} else if to, ok := reset.?; ok && secondary(ctx) {
 		changed = value^ != to
 		value^ = to
 		f = slider_fraction(to, lo, hi, scale)
@@ -534,20 +493,18 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 			}
 			f = nf
 		}
-	} else if nf, rolled := pen_roll(ctx, hovered, f); rolled {
+	} else if nf, rolled := pen_roll(ctx, hovered && roll, f); rolled {
 		if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		f = slider_fraction(value^, lo, hi, scale)
 	}
 	fill_rect(ctx, r, W * 0.5, t.surface)
 	stroke_rect(ctx, r, W * 0.5, t.border, 1)
 	cx := r.x + W * 0.5
-	// An icon names it when the label would not fit the pill; the tooltip says it in full.
-	if glyph != 0 {
-		icon(ctx, glyph, {cx, r.y + 20}, t.icon_small, t.text_tertiary)
-		tip(ctx, id, r, label_text(s), keys)
-	} else {
-		text(ctx, label_text(s), cx, r.y + 20, t.caption_size, t.text_tertiary, .Semibold, .Center)
-	}
+	// An icon names it when the label would not fit the pill; the tooltip says it in full,
+	// with its keys, for the mouse or the pen resting on it.
+	if glyph != 0 do icon(ctx, glyph, {cx, r.y + 20}, t.icon_small, t.text_tertiary)
+	else do text(ctx, label_text(s), cx, r.y + 20, t.caption_size, t.text_tertiary, .Semibold, .Center)
+	tip(ctx, id, r, label_text(s), keys)
 	top := r.y + 40
 	fill_rect(ctx, {cx - 2, top, 4, track}, 2, t.track)
 	knob_y := top + track * (1 - f)
@@ -1191,18 +1148,6 @@ value_row :: proc(ctx: ^Context, s: string, value: string) {
 	r := place(ctx, {w, math.ceil(t.small_size * 1.7)})
 	text(ctx, shown, r.x, r.y + r.h * 0.5, t.small_size, t.text_secondary)
 	text(ctx, value, r.x + r.w, r.y + r.h * 0.5, t.small_size, t.text, .Regular, .Right)
-}
-
-// A thin track across the column's width filled to `fraction` (0 to 1) in the accent: a
-// value's place in its range, shown without a knob where nothing here takes the pointer.
-gauge :: proc(ctx: ^Context, fraction: f32) {
-	t := ctx.theme
-	w := fill_width(ctx)
-	if w <= 0 do w = 120
-	r := place(ctx, {w, 12})
-	track := Rect{r.x, r.y + 4, r.w, 4}
-	fill_rect(ctx, track, 2, t.track)
-	fill_rect(ctx, {track.x, track.y, track.w * clamp(fraction, 0, 1), track.h}, 2, t.accent)
 }
 
 // A line through recent samples across the column's width, `height` points tall, `lo`

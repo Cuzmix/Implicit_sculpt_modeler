@@ -26,11 +26,6 @@ NAV_HEAD_COLOR :: [4]f32{0.36, 0.36, 0.37, 1}
 // 3D app has them.
 NAV_AXIS_COLORS := [3]ui.Color{{226, 72, 72, 255}, {98, 196, 86, 255}, {76, 128, 236, 255}}
 
-// Where the panels under the head start, from the top of the safe area: the view bar.
-nav_head_bottom :: proc() -> f32 {
-	return TOP_BAR_H + 4 + NAV_HEAD_H + 8
-}
-
 // A head made from a sphere: a skull longer front to back than across, a jaw narrowing
 // to the chin, a nose, brow, eye sockets, cheekbones, a mouth, ears and the start of
 // the neck, so that each of the six sides looks different from the others. Facing +Z with +Y up, about a unit across.
@@ -100,17 +95,14 @@ nav_head_side :: proc(rotation: matrix[3, 3]f32, at: [2]f32, aspect: f32) -> (si
 	return side, true
 }
 
-// Lays the head out under the top bar at the right, with the axis triad at its foot,
+// Lays the head out under the top bar on the pen side, with the axis triad at its foot,
 // and answers a tap (a view from that side) or a drag (a turn) on it. Records where it
 // is drawn, in physical pixels, for the renderer to size its texture.
 kit_nav_head :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	// In Lens, left of what stands at the top of the pen side, as the view bar it sat over
-	// is gone.
-	offset := [2]f32{BAR_EDGE, TOP_BAR_H + 4}
-	if k.chrome == .Lens do offset = {lens_nav_offset(app), TOP_BAR_H + 6}
-	ui.begin_anchored(ctx, "navigation head", .End, .Start, offset, {direction = .Column})
+	// Left of what stands at the top of the pen side.
+	ui.begin_anchored(ctx, "navigation head", .End, .Start, {lens_nav_offset(app), TOP_BAR_H + 6}, {direction = .Column})
 	a := ui.area(ctx, "navigation head", {NAV_HEAD_W, NAV_HEAD_H})
 	ui.end(ctx)
 	// On whole pixels, so its texture shows pixel for pixel.

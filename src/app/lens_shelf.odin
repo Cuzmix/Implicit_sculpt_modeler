@@ -9,13 +9,12 @@ import "../sculpt"
 import "../ui"
 
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
-// centre with All at their end, then after a divider the tool strip Classic's bottom bar
-// has (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its
-// pages (Sculpt, Paint, Move, Curve in Sculpt; Model in Model: shelf_pages_of), which
-// replace the old mode switch: each page is
+// centre with All at their end, then after a divider the tool strip
+// (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its pages
+// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model: shelf_pages_of), which replace
+// the old mode switch: each page is
 // a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
-// the tools. A finger or a pen swiped sideways along the shelf turns its page, as the
-// Classic dock's pages turn; the wheel over it does the same for a mouse. A tap on a tile picks
+// the tools. A finger or a pen swiped sideways along the shelf turns its page; the wheel over it does the same for a mouse. A tap on a tile picks
 // it; a long press shows its quick settings above it, so the hand never covers them; All
 // (or B) opens the brush picker, a large sheet of stroke previews over the shelf, whose
 // cards can be dragged onto a tile to keep them there. The shelf is laid out as "dock",
@@ -166,6 +165,10 @@ shelf_label :: proc(s: Bar_Slot) -> string {
 SHELF_SIDE_ROOM :: 170
 // The shelf's padding, round its tiles.
 SHELF_PAD :: 4
+// How fast a turned page settles (per second, of what is left), and how far it starts
+// from (of the row's width).
+SHELF_SLIDE_RATE :: 16
+SHELF_SLIDE_FROM :: 0.35
 // The fewest brushes and tools the shelf gives up the other's room for: brushes down to
 // six before tools go below three, then brushes down to three before the last tools go.
 SHELF_KEEP_BRUSHES :: 6
@@ -242,7 +245,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Past the first or the last page the row gives a little, as a scroll view's edge does.
 	if (offset > 0 && sh.page == first) || (offset < 0 && sh.page == last) do offset *= 0.3
 	slide := offset + sh.slide
-	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge if focus else t.edge + 22}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge + dock_lift(app)}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
 	adding := k.bars_edit && !focus
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
@@ -283,8 +286,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	}
 	if ui.brush_tile(ctx, "All##shelf all", ui.ICON_GRID, k.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
 	sheet_anchor = ctx.last_rect
-	// The tools, the same on every page and kept by the workspace's layout, as Classic's
-	// bottom bar keeps them.
+	// The tools, the same on every page and kept by the workspace's layout.
 	sh.tools = m
 	if m > 0 || (adding && tools_here) do ui.divider(ctx, 32)
 	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
@@ -294,7 +296,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// screen's next page does; it only shows, so it takes no press.
 	if slide != 0 && brushes_at.w > 0 do shelf_peek(app, brushes_at, slide, -1 if slide > 0 else 1)
 	// The page just turned slides in the rest of the way.
-	sh.slide = 0 if ctx.reduced_motion || abs(sh.slide) < 0.5 else sh.slide * math.exp(-ctx.input.dt * DOCK_SLIDE_RATE)
+	sh.slide = 0 if ctx.reduced_motion || abs(sh.slide) < 0.5 else sh.slide * math.exp(-ctx.input.dt * SHELF_SLIDE_RATE)
 	// The picker centres over the whole shelf, which stays in sight under it, so a card can
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
@@ -309,7 +311,7 @@ shelf_turn :: proc(app: ^App, by: int) -> bool {
 	to := Shelf_Page(clamp(int(sh.page) + by, int(first), int(last)))
 	if to == sh.page do return false
 	w := sh.row.w
-	sh.slide = (1 if to > sh.page else -1) * w * DOCK_SLIDE_FROM
+	sh.slide = (1 if to > sh.page else -1) * w * SHELF_SLIDE_FROM
 	sh.page, sh.quick = to, false
 	sh.turns += 1
 	return true
@@ -374,13 +376,12 @@ lens_shelf_pages :: proc(app: ^App, shift: f32) {
 	ui.end(ctx)
 }
 
-// Opens the brush picker, or closes it: in Lens over the shelf, in Classic as the brush
-// bar's Brushes button opens the browser.
+// Opens the brush picker over the shelf, or closes it.
 brush_picker_toggle :: proc(app: ^App) {
 	k := &app.kit
 	was := k.browser
 	kit_floats_close(k)
-	k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock if k.chrome == .Lens else .Bar, 0, true
+	k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
 }
 
 // A long-pressed tile's quick settings, over it: the brush's name with its favourite star,

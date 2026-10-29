@@ -7,7 +7,7 @@ import "../geom"
 import "../sculpt"
 import "../ui"
 
-// The Objects card: the view bar's Objects button opens it beside the bar, as ZBrush for
+// The Objects card: the Objects card command opens it beside the view rail, as ZBrush for
 // iPad's quick-access Subtools card. A strip of dots on top drags it (holding them puts it
 // back in the Scene palette), a big title, four buttons (Add, Duplicate, New folder and
 // More), then the objects as tall rows with a picture of each (object_thumbs.odin), its

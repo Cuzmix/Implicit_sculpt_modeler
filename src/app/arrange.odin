@@ -4,20 +4,20 @@ import "core:fmt"
 import "core:strings"
 import "../ui"
 
-// Arrange (Lens): the one mode in which the interface's layout is changed, grown from
-// Customise bars (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is
-// on, a head under the top bar names the workspace being arranged and offers which bars
-// show, a drawer of every panel with where it goes, Reset bars, Revert, Save as new and
-// Done; both columns show where a panel can be dropped, and a hidden bar shows as an
-// outline in its place with Show. What is arranged is the current workspace's live layout:
-// the switcher's dot says it has changed, and Save keeps it.
+// Arrange: the one mode in which the interface's layout is changed, grown from Customise
+// bars (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the
+// top bar and the Library (lens_arrange.odin) offer which bars show, where every panel
+// goes, Reset zone, Revert, Save as new and Done; both columns show where a panel can be
+// dropped, and a hidden bar shows as an outline in its place with Show. What is arranged
+// is the current workspace's live layout: the switcher's dot says it has changed, and
+// Save keeps it.
 
-// The bars as the head names them, in the order it lists them.
+// The bars as the Library's Show chips name them, in the order it lists them.
 @(rodata)
 ZONE_NAMES := [Zone]string {
-	.Brush_Bar  = "Brush bar",
-	.View_Bar   = "View bar",
-	.Dock       = "Dock",
+	.Brush_Bar  = "Off-hand island",
+	.View_Bar   = "View rail",
+	.Dock       = "Shelf",
 	.Wheel      = "Wheel",
 	.Action_Bar = "Next steps",
 }
@@ -64,41 +64,6 @@ arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
 	if r, ok := ref.(Kit_Window); ok && r == .Inspector do app.kit.objects_card = false
 }
 
-// While arranging: the head under the top bar (Classic; Lens has the top bar's controls
-// and the Library instead, lens_arrange.odin).
-kit_arrange_head :: proc(app: ^App) {
-	k := &app.kit
-	if !k.bars_edit || k.chrome == .Lens do return
-	ctx := &k.ctx
-	t := ctx.theme
-	w := &k.workspaces
-	ui.begin_anchored(ctx, "customise bars", .Center, .Start, {0, kit_top()}, {direction = .Column, gap = 6, padding = 8, radius = t.radius_large, background = .Raised})
-	// Three short rows, so the head fits between the columns: what this is with Done,
-	// which bars show, and what is done with panels and the layout.
-	ui.begin(ctx, "arrange top", {direction = .Row, gap = 8, center = true})
-	ui.begin(ctx, "customise bars text", {direction = .Column, padding = 4})
-	name := workspace_name(k, w.current) if len(w.list) > 0 else "Sculpt"
-	ui.label(ctx, fmt.tprintf("Arranging %s%s", name, " (changed)" if w.modified else ""), t.text_size, t.text, .Semibold)
-	ui.label(ctx, "Tap a ringed button to change it, + to add one.", t.small_size, t.text_secondary)
-	ui.end(ctx)
-	if ui.button(ctx, "Done", .Flat, .Accent) do k.bars_edit = false
-	ui.end(ctx)
-	ui.begin(ctx, "arrange layout", {direction = .Row, gap = 6, center = true})
-	if ui.button(ctx, "Panels", .Bordered, glyph = ui.ICON_PANEL) {
-		was := k.arrange_drawer
-		k.arrange_drawer = !was
-	}
-	k.arrange_drawer_at = ctx.last_rect
-	changed := false
-	for which in Bar_Which do changed ||= bar_changed(app, which)
-	if ui.button(ctx, "Reset bars", .Bordered, enabled = changed) do bars_reset(k)
-	_ = command_button(app, .Workspace_Revert, label = "Revert", variant = .Bordered)
-	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered)
-	ui.end(ctx)
-	arrange_show_chips(app)
-	ui.end(ctx)
-}
-
 // The Show chips: one for each bar, lit while the workspace shows it.
 arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
@@ -119,24 +84,10 @@ arrange_show_chips :: proc(app: ^App) {
 // Shows or hides zone `z` in the current layout, closing what floated from it.
 zone_toggle :: proc(k: ^Kit_State, z: Zone) {
 	k.hidden ~= {z}
-	if z in k.hidden {
-		kit_floats_close(k)
-		k.bar_scrub = {}
-	}
+	if z in k.hidden do kit_floats_close(k)
 }
 
-// The drawer of panels, under its button: each with where it is, to be changed with a tap.
-kit_arrange_drawer :: proc(app: ^App) {
-	k := &app.kit
-	if !k.bars_edit do k.arrange_drawer = false
-	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "arrange panels", &k.arrange_drawer, k.arrange_drawer_at, .Below, {direction = .Column, gap = 6, padding = 10, width = 420}) do return
-	defer ui.popover_end(ctx)
-	arrange_panel_rows(app)
-}
-
-// Every panel with where it is, to be changed with a tap: the drawer's, and Lens's
-// Library > Panels.
+// Every panel with where it is, to be changed with a tap: the Library's Panels tab.
 arrange_panel_rows :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
@@ -171,8 +122,8 @@ kit_arrange_ghosts :: proc(app: ^App) {
 		offset := [2]f32{t.edge, t.edge}
 		size := [2]f32{132, 132}
 		#partial switch z {
-		case .Dock:       x, y, offset, size = .Center, .End, {0, t.edge + DOCK_LIFT}, {420, t.target + 16}
-		case .Action_Bar: x, y, offset, size = .Center, .End, {0, t.edge + DOCK_LIFT + t.target + 32}, {300, t.target}
+		case .Dock:       x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app)}, {420, t.target + 16}
+		case .Action_Bar: x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app) + t.target + 32}, {300, t.target}
 		}
 		if ctx.mirror && x != .Center do x = .End if x == .Start else .Start
 		size = {min(size.x, area.w - 32), min(size.y, area.h - 32)}

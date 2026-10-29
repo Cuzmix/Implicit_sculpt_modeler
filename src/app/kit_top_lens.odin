@@ -11,7 +11,7 @@ import "../ui"
 // (spaces.odin); Search, History and Settings at the right. Home, Save, Import, Export and
 // Help are in the menu, the passes on the pane. Returns the menu button and the Search
 // field, which the menu and the command palette open under.
-kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
+kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -32,10 +32,14 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	menu_anchor = ctx.last_rect
 	file_w := top_file_block(app)
 	top_divider(ctx)
+	// A long press (or a right-click) on either opens the History panel, to go back or
+	// forward many steps.
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
+	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
+	if ui.secondary(ctx) do k.history = true
 	// What the ends take, the middle gets: the space tabs where they fit, else the workspace chip; Search
 	// shrinks to its icon before the switcher goes to a chip.
 	left := 6 + 3 * t.target + file_w + 13 + 2 * 4
@@ -82,11 +86,11 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	return
 }
 
-// Whether the Lens layout is focused: its workspace hides the view bar, as the built-in
+// Whether the layout is focused: its workspace hides the view bar, as the built-in
 // Focus does (screen focus2). The top bar is then three islands over the view, and the
 // view's chips, the rail and the shelf's page names stand aside.
 lens_focus :: proc(k: ^Kit_State) -> bool {
-	return k.chrome == .Lens && zone_hidden(k, .View_Bar)
+	return zone_hidden(k, .View_Bar)
 }
 
 // How far the islands stand in from the top of the safe area, in points.
@@ -108,10 +112,14 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		k.menu_scroll = 0
 	}
 	menu_anchor = ctx.last_rect
+	// A long press (or a right-click) on either opens the History panel, to go back or
+	// forward many steps.
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
+	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
+	if ui.secondary(ctx) do k.history = true
 	ui.end(ctx)
 
 	ui.begin_anchored(ctx, "focus middle", .Center, .Start, {0, ISLAND_TOP}, island)

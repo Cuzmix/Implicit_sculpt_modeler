@@ -395,7 +395,8 @@ brush_item_current :: proc(app: ^App) -> Brush_Item {
 	return {what = .Slot, slot = {kind = app.brush.kind, preset = app.brush.preset}}
 }
 
-// The brush browser, over its button on the dock or beside the brush bar.
+// The brush browser, under the menu while a workspace hides the shelf (the brush picker
+// takes its place over the shelf otherwise).
 kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -435,8 +436,8 @@ kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	}
 }
 
-// The grid's height: the room under the top bar beside the brush bar, or above the dock
-// when the dock's button opened it, less what the browser holds besides the grid.
+// The grid's height: the room under the top bar, or above `anchor` when it opens above
+// it, less what the browser holds besides the grid.
 @(private = "file")
 brush_palette_room :: proc(ctx: ^ui.Context, popover_h: f32, anchor: ui.Rect, side: ui.Side) -> f32 {
 	body, _ := ui.prev_layout(ctx, "brush palette grid well")

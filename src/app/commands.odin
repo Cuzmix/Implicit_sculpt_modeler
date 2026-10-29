@@ -235,7 +235,6 @@ Command_Id :: enum u8 {
 	Render_Preview, // grid.odin
 	View_Window, // view_window.odin
 	View_Windows_Close,
-	Chrome_Classic, // kit_bars.odin
 	Clean_View, // lens_view.odin
 	View_Layout_Menu, // lens_chrome.odin
 	Pass_Menu, // passes.odin
@@ -844,7 +843,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Colors_Card = {
 		label = "Colors",
-		help = "Opens the Colors card beside the brush bar: Disc, Classic, Harmony, Value and Palettes, the colours picked last, Fill and the Eyedropper.",
+		help = "Opens the Colors card beside the off-hand island: Disc, Classic, Harmony, Value and Palettes, the colours picked last, Fill and the Eyedropper.",
 		icon = ICON_COLOUR,
 		run = proc(app: ^App, _: int) {colors_card_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.colors_card},
@@ -1517,7 +1516,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Objects_Card = {
 		label = "Objects card",
-		help = "Opens the card listing every object with its picture, beside the view bar; hold its dots to put it back in the Scene palette.",
+		help = "Opens the card listing every object with its picture, beside the view rail; hold its dots to put it back in the Scene palette.",
 		icon = ICON_OBJECTS,
 		run = proc(app: ^App, _: int) {objects_card_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.objects_card},
@@ -1907,7 +1906,7 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			w := &app.kit.workspaces
 			b, built_in := workspace_built_in(w.current)
-			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b, w.chrome))
+			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b))
 		},
 	},
 	.Workspace_Rename = {
@@ -2037,12 +2036,6 @@ COMMANDS := [Command_Id]Command {
 		// With three open it still runs, to say why no fourth opens.
 		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
 	},
-	.Chrome_Classic = {
-		label = "Classic layout",
-		help = "Lays the interface out as it was before Lens, after ZBrush for iPad: the brush bar, the modifier wheel and the dock; again, goes back to Lens (Settings > Interface > Layout).",
-		run = proc(app: ^App, _: int) {app.kit.chrome = .Lens if app.kit.chrome == .Classic else .Classic},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.chrome == .Classic},
-	},
 	.Clean_View = {
 		label = "Clean view",
 		help = "Hides every control so you can judge the form, keeping only the dial unless Settings > Interface says otherwise; again, Escape or a four-finger tap brings them back.",
@@ -2104,12 +2097,12 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Customise_Bars = {
 		label = "Arrange the interface",
-		help = "Turns on Arrange: tap a ringed button on the right bar, the bottom bar or the dock to put another command there, move it or remove it, or + to add one; choose which bars show and where each panel goes; Done ends it.",
+		help = "Turns on Arrange: tap a ringed button on the view rail, the shelf or its tools to put another command there, move it or remove it, or + to add one; choose which bars show and where each panel goes; Done ends it.",
 		icon = ICON_CUSTOMISE,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			k.bars_edit = !k.bars_edit
-			// The bars show whole: Settings, over the right bar's side, closes (saving).
+			// The bars show whole: Settings, over the view rail's side, closes (saving).
 			if k.bars_edit && k.settings do settings_close(app)
 			kit_floats_close(k)
 		},
@@ -2245,7 +2238,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_W, {.Ctrl}, false}, .Group_Shortcut, 0},
 	{{sdl.K_W, {.Shift}, false}, .Polygroups, 0},
 	{{sdl.K_W, {}, false}, .Tool_Move, 0},
-	{{sdl.K_B, {}, false}, .Tool_Sculpt, 0},
+	{{sdl.K_B, {}, false}, .Brush_Picker, 0},
 	{{sdl.K_C, {}, false}, .Tool_Curve, 0},
 	{{sdl.K_I, {}, false}, .Tool_Insert, 0},
 	{{sdl.K_1, {.Alt}, false}, .View_Pass, 0},
@@ -2312,7 +2305,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_D, {}, false}, .Level_Up, 0},
 	{{sdl.K_F11, {}, false}, .Stats, 0},
 	{{sdl.K_F1, {}, false}, .Help, 0},
-	{{sdl.K_TAB, {}, false}, .Inspector, 0},
+	{{sdl.K_TAB, {}, false}, .Clean_View, 0},
 	{{sdl.K_K, {.Ctrl}, false}, .Command_Palette, 0},
 	{{sdl.K_SLASH, {}, false}, .Command_Palette, 0},
 	{{sdl.K_Q, {}, false}, .Pie, 0},
@@ -2665,7 +2658,7 @@ New_Start :: struct {
 	name:  string,
 }
 
-// The starts in New scene's argument order: Classic's six first, as they always were, so a
+// The starts in New scene's argument order: the first six as they always were, so a
 // key, a bar button or a script that names one by its number still starts it, then the
 // ones Lens's Home added after round 2's home2 screen.
 @(rodata)
@@ -2682,8 +2675,8 @@ NEW_SCENES := [?]New_Start {
 	{.Empty, {}, "Empty scene"},
 }
 
-// How many of NEW_SCENES Classic's Home and menu offer.
-CLASSIC_NEW_SCENES :: 6
+// How many of NEW_SCENES the narrow Home page offers: the six first meshes.
+NARROW_HOME_STARTS :: 6
 
 // New scene's arguments as scripts and the keys name them: a mesh's shape, Voxels or Empty.
 new_start_key :: proc(arg: int) -> string {

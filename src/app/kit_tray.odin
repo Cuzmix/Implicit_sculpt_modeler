@@ -1,28 +1,21 @@
 package main
 
 import "core:fmt"
-import "core:math"
 
 import "../ui"
 
 // The palette tray, on the right where the inspector was: the tool's palette, the
 // object's and the scene's, each a list of sections shown one at a time, as ZBrush for
-// iPad's Tool palette does. A wide window lists every palette down the tray's left, with
-// the open one's sections under it; a narrow one keeps the content's width and puts the
-// same list in a select over it. Search's Show where opens the palette holding a
+// iPad's Tool palette does. The stack's Palettes card puts every palette's sections in a
+// select over the content (kit_tray_select). Search's Show where opens the palette holding a
 // command and marks its control (tray_show).
 
 // How many sections the tray has: Kit_Section's first ones, before the Stats panel's.
 TRAY_SECTIONS :: int(Kit_Section.Background) + 1
 
-// The list's width, the gap after it (where its scroll bar goes), and the narrowest safe
-// area with room for it beside the content.
-TRAY_NAV_W :: 164
-TRAY_NAV_GAP :: 12
-TRAY_NAV_MIN_W :: 1180
-
-// How long Show where marks a control, in seconds.
-TRAY_MARK_TIME :: 1.8
+// The narrowest safe area where the columns stand beside the view rather than pop over it
+// (columns_narrow).
+COLUMNS_MIN_W :: 1180
 
 // A section a palette offers: what it is and what the list calls it.
 Tray_Section :: struct {
@@ -103,16 +96,6 @@ palette_title :: proc(app: ^App, tab: Kit_Tab) -> string {
 	return ""
 }
 
-@(private = "file")
-palette_glyph :: proc(app: ^App, tab: Kit_Tab) -> rune {
-	switch tab {
-	case .Tool:   return TOOL_ICONS[app.tool]
-	case .Object: return ICON_REMESH
-	case .Scene:  return ICON_OBJECTS
-	}
-	return 0
-}
-
 // Shows section `sec` of palette `tab` from its top, fading it in when it changes.
 tray_pick :: proc(app: ^App, tab: Kit_Tab, sec: Kit_Section) {
 	k := &app.kit
@@ -125,7 +108,7 @@ tray_open :: proc(app: ^App, sec: Kit_Section) {
 	side_panel_close(app)
 	app.kit.inspector, app.kit.list_reveal = true, 3
 	tray_pick(app, section_palette(sec), sec)
-	if app.kit.chrome == .Lens do stack_reveal(app, sec)
+	stack_reveal(app, sec)
 }
 
 // Where each command's control is in the tray, for search's Show where: the section
@@ -223,68 +206,7 @@ tray_mark :: proc(app: ^App, id: Command_Id, arg: int) {
 	if k.in_tray && k.pointed.id == id && k.pointed.arg == arg do ui.mark_next(&k.ctx)
 }
 
-// The ring round the control Show where points at, pulsing twice and then fading, with
-// the body scrolled to bring it into view as it appears. Called after the content,
-// inside its scrolling body.
-tray_mark_draw :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	if k.pointed.id == .None do return
-	age := f32(ctx.time - k.pointed.since)
-	if age > TRAY_MARK_TIME {
-		k.pointed = {}
-		return
-	}
-	m := ctx.marked
-	if !m.found do return
-	if age < 0.4 {
-		body := k.inspector_body
-		if m.rect.y + m.rect.h > body.y + body.h do k.scroll = clamp(k.scroll + m.rect.y + m.rect.h - (body.y + body.h) + 12, 0, k.inspector_limit)
-		if m.rect.y < body.y do k.scroll = clamp(k.scroll - (body.y - m.rect.y) - 12, 0, k.inspector_limit)
-	}
-	pulse := 0.5 + 0.5 * math.cos(age * 2 * math.PI * 2 / (TRAY_MARK_TIME * 0.6))
-	fade := clamp((TRAY_MARK_TIME - age) / 0.4, 0, 1)
-	r := m.rect
-	ui.stroke_rect(ctx, {r.x - 3, r.y - 3, r.w + 6, r.h + 6}, t.radius_medium + 3, ui.color_fade(t.accent, fade * (0.55 + 0.45 * pulse)), 2)
-}
-
-// The list beside the content on a wide window: each palette, and under the open one
-// its sections; a tap on a palette opens it on the section it last showed. `owner` is the
-// root container a press on the tray lands in. Returns the list's natural height.
-kit_tray_list :: proc(app: ^App, height: f32, owner: ui.Id) -> f32 {
-	k := &app.kit
-	ctx := &k.ctx
-	scroll := kit_scroll_begin(ctx, "tray list", &k.list_scroll, owner, TRAY_NAV_W, height, 0)
-	for tab in Kit_Tab {
-		// The open palette is lit itself only when it has no sections to light instead.
-		lit := tab == k.tab && len(tray_sections(app, tab)) == 0
-		if row := ui.list_row(ctx, fmt.tprintf("%s##palette %v", palette_title(app, tab), tab), selected = lit, glyph = palette_glyph(app, tab)); row.clicked {
-			tray_pick(app, tab, tray_section(app, tab))
-		}
-		if tab != k.tab do continue
-		shown := tray_section(app, tab)
-		for s in tray_sections(app, tab) {
-			row := ui.tree_row(ctx, fmt.tprintf("%s##section", s.title), selected = s.section == shown, depth = 1)
-			if row.clicked do tray_pick(app, tab, s.section)
-			// A section opened from elsewhere (Show where, a long press on a bar) is
-			// scrolled into the list's view.
-			if k.list_reveal > 0 && s.section == shown {
-				at := scroll.at
-				if row.rect.y + row.rect.h > at.y + at.h do k.list_scroll += row.rect.y + row.rect.h - (at.y + at.h)
-				if row.rect.y < at.y do k.list_scroll -= at.y - row.rect.y
-				k.list_scroll = clamp(k.list_scroll, 0, scroll.limit)
-			}
-		}
-	}
-	// The list's height is last frame's, so a palette just opened takes a frame or two to
-	// scroll as far as it can.
-	if k.list_reveal > 0 do k.list_reveal -= 1
-	kit_scroll_end(ctx, scroll)
-	return scroll.natural
-}
-
-// The same list in a select over the content, on a window too narrow for it beside:
+// The palettes' sections in a select over the content:
 // every palette's sections as "Palette: Section", and a palette without any by name.
 kit_tray_select :: proc(app: ^App) {
 	k := &app.kit

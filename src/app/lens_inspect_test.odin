@@ -31,7 +31,7 @@ inspect_shows_four_panes_and_leaves_the_layout :: proc(t: ^testing.T) {
 	// Focus hides the side bars the same way.
 	k.focus_mode = true
 	testing.expect(t, zone_hidden(k, .Brush_Bar) && zone_hidden(k, .View_Bar) && zone_hidden(k, .Action_Bar))
-	testing.expect(t, lens_focus(k) == (k.chrome == .Lens))
+	testing.expect(t, lens_focus(k))
 	workspaces_frame(k)
 	testing.expect(t, !k.workspaces.modified, "Focus lit the workspace's dot")
 	// A layout put in place ends both.
