@@ -1668,6 +1668,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
+		// The person's docks, and where each one shown was laid out, for touch_check.
+		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
+		for i in 0 ..< USER_DOCKS do if k.docks[i].used {
+			r := ui.prev_rect(&k.ctx, PLACE_BAR_ROOTS[user_dock_place(i)])
+			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
+		}
+		fmt.println()
 		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)

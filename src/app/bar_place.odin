@@ -32,6 +32,11 @@ Place_Bar :: enum u8 {
 	Offhand,
 	Rail,
 	Shelf,
+	// The person's own docks (user_docks.odin), columns as the island and the rail are.
+	Dock_1,
+	Dock_2,
+	Dock_3,
+	Dock_4,
 }
 
 @(rodata)
@@ -39,6 +44,10 @@ PLACE_BAR_NAMES := [Place_Bar]string {
 	.Offhand = "offhand",
 	.Rail    = "rail",
 	.Shelf   = "shelf",
+	.Dock_1  = "dock1",
+	.Dock_2  = "dock2",
+	.Dock_3  = "dock3",
+	.Dock_4  = "dock4",
 }
 
 // Each bar's root, which hit tests, keep-clear rules and Arrange's outline find it by.
@@ -47,14 +56,24 @@ PLACE_BAR_ROOTS := [Place_Bar]string {
 	.Offhand = "brush bar",
 	.Rail    = "view bar",
 	.Shelf   = "dock",
+	.Dock_1  = "user dock 1",
+	.Dock_2  = "user dock 2",
+	.Dock_3  = "user dock 3",
+	.Dock_4  = "user dock 4",
 }
 
-// The edge each bar's Default stands on, in layout terms.
+// The edge each bar's Default stands on, in layout terms. A dock of the person's has no
+// home: it is made floating (user_dock_new) and never stays Default, so it never stands on
+// an edge it was not put on.
 @(rodata)
 PLACE_BAR_HOME := [Place_Bar]Bar_Edge {
 	.Offhand = .Left,
 	.Rail    = .Right,
 	.Shelf   = .Bottom,
+	.Dock_1  = .Float,
+	.Dock_2  = .Float,
+	.Dock_3  = .Float,
+	.Dock_4  = .Float,
 }
 
 // The edges each bar may stand on: the columns down the sides, the shelf along the bottom.
@@ -98,6 +117,7 @@ bar_place_shown :: proc(k: ^Kit_State, b: Place_Bar) -> bool {
 	case .Offhand: return .Brush_Bar not_in k.hidden
 	case .Rail:    return .View_Bar not_in k.hidden
 	case .Shelf:   return .Dock not_in k.hidden
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return user_dock_shown(k, int(b) - int(Place_Bar.Dock_1))
 	}
 	return false
 }
@@ -127,6 +147,8 @@ bar_place_anchor :: proc(app: ^App, b: Place_Bar, size: [2]f32) -> (x, y: ui.Anc
 	ctx := &k.ctx
 	area := ui.safe_area(ctx)
 	p := k.places[b]
+	// A dock only a hand-written layout left at Default floats in the middle.
+	if p.edge == .Default && PLACE_BAR_HOME[b] == .Float do p = {edge = .Float, at = user_dock_middle(k)}
 	y = .Start
 	switch p.edge {
 	case .Bottom:
@@ -198,7 +220,8 @@ bar_place_side :: proc(app: ^App, b: Place_Bar) -> ui.Side {
 	case .Right:          return .Left
 	case .Bottom:         return .Above_Center
 	case .Float:
-		r := ui.prev_rect(&k.ctx, PLACE_BAR_ROOTS[b])
+		// Asked from inside the bar, by its buttons.
+		r := ui.prev_root_rect(&k.ctx, PLACE_BAR_ROOTS[b])
 		area := ui.safe_area(&k.ctx)
 		start_half := r.x + r.w * 0.5 < area.x + area.w * 0.5
 		if k.ctx.mirror do start_half = !start_half
@@ -276,10 +299,17 @@ bar_place_set :: proc(app: ^App, b: Place_Bar, to: Bar_Place) {
 	}
 }
 
+// Whether bar `b`'s place is worth keeping: every built-in bar's is, a dock's only while
+// the dock is in use.
+bar_place_kept :: proc(k: ^Kit_State, b: Place_Bar) -> bool {
+	i := int(b) - int(Place_Bar.Dock_1)
+	return i < 0 || k.docks[i].used
+}
+
 // The layout's place lines: one for each bar not at Default.
 bar_places_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	for p, b in k.places {
-		if p.edge == .Default do continue
+		if p.edge == .Default || !bar_place_kept(k, b) do continue
 		fmt.sbprintfln(out, "bar_place %s %v %g %g %g", PLACE_BAR_NAMES[b], p.edge, p.along, p.at.x, p.at.y)
 	}
 }
@@ -307,6 +337,7 @@ bar_place_read :: proc(k: ^Kit_State, f: []string) {
 bar_places_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
 	for p, b in k.places {
+		if !bar_place_kept(k, b) do continue
 		if strings.builder_len(out) > 0 do strings.write_byte(&out, ',')
 		edge := strings.to_lower(fmt.tprint(p.edge), context.temp_allocator)
 		switch p.edge {

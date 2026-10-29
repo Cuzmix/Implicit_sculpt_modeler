@@ -4361,6 +4361,112 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
         "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
 
 
+ARRANGE_DOCKS_TAB, DOCK_NEW = (542, 180), (520, 260)
+# A new dock floats in the middle, or beside the Library when that would cover it: its
+# first button (or, while empty, its +) is there.
+DOCK_ONE_ADD = (841, 417)
+
+
+@scenario
+def dock_new_from_the_library():
+    """Library > Docks > New dock makes Dock 1 floating in the middle with Arrange still on; its + picks Frame all in Search, and after Done a tap on the dock's button frames the scene."""
+    s = Script()
+    s.wait(6)
+    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.wait(6)
+    s.ftap(*DOCK_NEW)
+    s.wait(8)
+    s.ftap(*DOCK_ONE_ADD)
+    s.wait(8)
+    s.type("frame all")
+    s.wait(4)
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*LENS_ARRANGE["done"])
+    s.wait(8)
+    s.ftap(*DOCK_ONE_ADD)
+    s.wait(10)
+    return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:icons:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
+                                                          "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 814) < 2, "dabs": near(0)}
+
+
+def dock_made(s):
+    """Library > Docks > New dock, from Arrange with the Library open."""
+    s.wait(6)
+    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.wait(6)
+    s.ftap(*DOCK_NEW)
+    s.wait(8)
+
+
+# The new dock's tag, over its top-left, and its row's controls in Library > Docks.
+DOCK_ONE_TAG, DOCK_ROW_TILES, DOCK_ROW_DELETE = (848, 386), (677, 260), (751, 260)
+
+
+@scenario
+def dock_carried_to_the_left_edge():
+    """The mouse drags a new dock's tag to the left edge: the dock stands there, and the island, which held that edge, floats where the dock was."""
+    s = Script()
+    dock_made(s)
+    s.mouse_drag(line(DOCK_ONE_TAG, ARRANGE_LEFT_MID, 30))
+    s.wait(6)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({
+        "bar_places": lambda v: v.startswith("offhand:float:814,390,") and ",dock1:left:" in v, "bar_carries": near(1),
+        "layout_user_dock_1": lambda v: float(v.split(",")[0]) < 40, "layout_brush_bar": lambda v: float(v.split(",")[0]) > 800, "dabs": near(0)})
+
+
+@scenario
+def dock_tiles_then_delete():
+    """A dock's row in Library > Docks: Tiles widens it to a tile's width, and Delete takes it away with a note."""
+    def run(delete):
+        s = Script()
+        dock_made(s)
+        s.ftap(*DOCK_ROW_TILES)
+        s.wait(6)
+        if not delete:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:tiles:0"), "layout_user_dock_1": lambda v: float(v.split(",")[2]) >= 70, "dabs": near(0)})
+        s.ftap(*DOCK_ROW_DELETE)
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def dock_new_left_handed_by_pen():
+    """Left-handed, the pen taps Library > Docks > New dock: the Library stands right of the middle, so the new dock floats left of it, and stays in the window."""
+    s = Script()
+    s.wait(6)
+    s.add("pnear")
+    for x, y in [(1440 - ARRANGE_DOCKS_TAB[0], ARRANGE_DOCKS_TAB[1]), (1440 - DOCK_NEW[0], DOCK_NEW[1])]:
+        s.add(f"pdown:{x},{y}")
+        s.wait(2)
+        s.add("pup")
+        s.wait(6)
+    def dock(v):
+        x, _, w, _ = (float(n) for n in v.split(","))
+        return 0 <= x and x + w <= 1440 - 790
+    return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({"user_docks": is_text("1:icons:0"), "layout_user_dock_1": dock, "dabs": near(0)})
+
+
+@scenario
+def dock_stays_with_its_space():
+    """A dock made in Sculpt is Sculpt's layout's: Model has none, and back in Sculpt it is there again."""
+    a = LENS_ARRANGE
+    def run(back):
+        s = Script()
+        dock_made(s)
+        s.ftap(*a["done"])
+        s.wait(8)
+        s.ftap(*SPACE_TABS["model"])
+        s.wait(10)
+        if not back:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
+        s.ftap(*SPACE_TABS["sculpt"])
+        s.wait(10)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:icons:0"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def lens_arrange_place_stays_with_its_space():
     """The rail moved to the left in Sculpt stays there after a trip to Model and back, and Model's layout has its rail on the right."""

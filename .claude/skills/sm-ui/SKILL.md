@@ -62,6 +62,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
   (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge). Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
+  User docks (`user_docks.odin`): `Kit_State.docks[i]` is `Bar_Which.Dock_1 + i`'s list, `Place_Bar.Dock_1 + i`'s place and
+  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float,
+  never left at Default (`user_docks_settle`). Ask `user_dock_shown`, and from inside a container find a root with
+  `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
   Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,

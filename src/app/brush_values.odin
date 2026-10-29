@@ -400,7 +400,7 @@ kit_value_menu :: proc(app: ^App) {
 		bar_pop_toggle(app, .Section, at, side, BRUSH_VALUE_SECTIONS[v])
 		return
 	}
-	column := which == .Offhand || which == .View_Rail
+	column := bar_column(which)
 	earlier, later := "Move up", "Move down"
 	if !column do earlier, later = "Move left", "Move right"
 	if ui.menu_item(ctx, earlier, glyph = ui.ICON_CHEVRON_UP if column else ICON_CHEVRON_LEFT, enabled = slot > 0) do p.slot = bar_move(app, which, slot, -1)
