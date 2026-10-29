@@ -44,7 +44,7 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	start := time.tick_now()
 	defer ring_push(&app.stats.cursor_ms, time.duration_milliseconds(time.tick_since(start)))
 	center := input.mouse_pos
-	if app.stroke.active && app.brush.lazy_px > 0 do center = app.stroke.pos
+	if app.stroke.active && stroke_trails(app) do center = app.stroke.pos
 	origin, dir := mouse_ray(app.camera, center, input.size)
 	index, hit, face, ok := scene_raycast_surface(app, origin, dir)
 	if !ok do return

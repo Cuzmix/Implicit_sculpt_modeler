@@ -198,6 +198,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Neither changes a Draw stroke, but both are kept with it.
 	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
 	a.brush.spacing, a.brush.color_spray = 0.6, 0.4
+	a.brush.smoothing, a.brush.pressure_smoothing, a.brush.catch_up = 3, 5, true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -220,6 +221,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	testing.expect_value(t, b.replay.take.brushes[0].spacing, 0.6)
 	testing.expect_value(t, b.replay.take.brushes[0].color_spray, 0.4)
+	testing.expect_value(t, b.replay.take.brushes[0].smoothing, 3)
+	testing.expect_value(t, b.replay.take.brushes[0].pressure_smoothing, 5)
+	testing.expect(t, b.replay.take.brushes[0].catch_up)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -232,7 +236,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 39
+	BRUSH :: 64 + 48
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -252,6 +256,24 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 13 had no stabiliser after the spacing and colour spray: the one brush ends
+	// 64 + 39 bytes after the header's 16, and follows the pointer as it came.
+	thirteen := make([dynamic]u8, context.temp_allocator)
+	append(&thirteen, ..data[:16 + 64 + 39])
+	append(&thirteen, ..data[16 + BRUSH:])
+	thirteen[len(STROKES_MAGIC)] = 13
+	testing.expect(t, os.write_entire_file(path, thirteen[:]) == nil)
+	m: App
+	defer replay_destroy(&m.replay)
+	defer results_destroy(&m)
+	testing.expect(t, strokes_load(&m, path))
+	if len(m.replay.take.brushes) == 1 {
+		testing.expect_value(t, m.replay.take.brushes[0].smoothing, 1)
+		testing.expect_value(t, m.replay.take.brushes[0].pressure_smoothing, 1)
+		testing.expect(t, !m.replay.take.brushes[0].catch_up)
+		testing.expect_value(t, m.replay.take.brushes[0].spacing, 0.6)
+	}
+
 	eleven := make([dynamic]u8, context.temp_allocator)
 	append(&eleven, ..data[:16 + 64 + 31])
 	append(&eleven, ..frames_before_roll(data[16 + BRUSH:]))
@@ -893,4 +915,58 @@ color_spray_varies_the_paint_and_repeats_with_its_seed :: proc(t: ^testing.T) {
 	testing.expect(t, len(plain) > 0 && len(plain) == len(sprayed))
 	testing.expect(t, !slice.equal(plain, sprayed))
 	testing.expect(t, slice.equal(sprayed, object_sculptor(objs[2]).color[:]))
+}
+
+// A stroke along `path`, one sample a frame with the pressures `pressures`, left held
+// (no release) when `held`.
+@(private = "file")
+stroke_pressed :: proc(app: ^App, path: [][2]f32, pressures: []f32, held := false) {
+	for p, i in path {
+		samples := []Input_Sample{{pos = p, pressure = pressures[i], kind = .Press if i == 0 else .Move}}
+		_ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = p, hovered = true, primary = true, press = i == 0, samples = samples})
+	}
+	if !held do _ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = path[len(path) - 1], hovered = true})
+}
+
+// With the lazy string on, a stroke ends a string's length short of where the pen lifted;
+// Catch up on lift carries it on to there.
+@(test)
+catch_up_ends_the_stroke_under_the_pen :: proc(t: ^testing.T) {
+	path := [?][2]f32{{420, 400}, {450, 400}, {480, 400}, {510, 400}, {540, 400}, {570, 400}}
+	full := [?]f32{1, 1, 1, 1, 1, 1}
+	short, caught: App
+	defer stroke_scene_free(&short)
+	defer stroke_scene_free(&caught)
+	_, _ = stroke_sphere(&short), stroke_sphere(&caught)
+	for app in ([]^App{&short, &caught}) {
+		app.brush.lazy_px, app.brush.join = 40, true
+		app.brush.catch_up = app == &caught
+		stroke_pressed(app, path[:], full[:])
+	}
+	testing.expect(t, short.stroke_end.valid && caught.stroke_end.valid)
+	testing.expectf(t, abs(short.stroke_end.pos.x - 530) < 0.5, "short: %v", short.stroke_end.pos)
+	testing.expectf(t, linalg.length(caught.stroke_end.pos - path[len(path) - 1]) < 1, "caught: %v", caught.stroke_end.pos)
+	testing.expect_value(t, len(caught.history.done), 1)
+}
+
+// Smoothing follows the mean of the pointer's last few positions, and Pressure smoothing
+// the mean of the pen's last few pressures: a jump to the side and a sudden lift both
+// arrive a share at a time.
+@(test)
+smoothing_follows_the_mean_of_the_last_samples :: proc(t: ^testing.T) {
+	path := [?][2]f32{{420, 400}, {450, 400}, {480, 400}, {510, 400}, {540, 440}}
+	pressures := [?]f32{1, 1, 1, 1, 0.2}
+	app: App
+	defer stroke_scene_free(&app)
+	_ = stroke_sphere(&app)
+	app.brush.smoothing, app.brush.pressure_smoothing = 4, 2
+	stroke_pressed(&app, path[:], pressures[:], held = true)
+	// The mean of the last four positions and of the last two pressures.
+	testing.expectf(t, linalg.length(app.stroke.pos - [2]f32{495, 410}) < 1e-3, "pos %v", app.stroke.pos)
+	testing.expectf(t, abs(app.stroke.pressure - 0.6) < 1e-5, "pressure %v", app.stroke.pressure)
+	// Off, the brush is where the pointer is.
+	app.brush.smoothing, app.brush.pressure_smoothing = 1, 1
+	stroke_pressed(&app, path[:], pressures[:], held = true)
+	testing.expect_value(t, app.stroke.pos, path[len(path) - 1])
+	testing.expect_value(t, app.stroke.pressure, 0.2)
 }

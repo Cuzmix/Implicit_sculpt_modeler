@@ -539,6 +539,7 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 	case .Stroke:
 		line := STROKE_MODE_NAMES[b.stroke]
 		if b.lazy_px >= 0.5 do line = fmt.tprintf("%s · lazy %.0f px", line, b.lazy_px)
+		if n := steady_count(b.smoothing); n > 1 do line = fmt.tprintf("%s · smoothing %d", line, n)
 		return line
 	case .Paint_Color:
 		return hex_text(b.color)

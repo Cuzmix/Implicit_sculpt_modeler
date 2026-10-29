@@ -1204,6 +1204,33 @@ def circle_point(centre, radius, degrees):
     return (round(centre[0] + radius * math.cos(a), 2), round(centre[1] + radius * math.sin(a), 2))
 
 
+def jagged_pen_stroke(s):
+    """A pen stroke across the model that zigzags 12 px either side of its line every
+    sample, as a shaky hand or a noisy tablet draws it, at full pressure."""
+    path = [(x, y + (12 if k % 2 else -12)) for k, (x, y) in enumerate(line((640, 450), (960, 450), 32))]
+    pen_stroke(s, path, pressure=1)
+
+
+@scenario
+def smoothing_steadies_a_shaky_pen_stroke():
+    """Smoothing 8 averages a zigzag pen stroke into a steady line, and Catch up on lift
+    carries it on to where the pen lifted: about 23 dabs along the 320 px line, where the
+    zigzag itself, 830 px long, takes 56."""
+    s = Script()
+    jagged_pen_stroke(s)
+    return s, ["--script=set smoothing 8"], camera_still({"dabs": lambda v: 22 <= int(v) <= 24, "undo_steps": near(1)})
+
+
+@scenario
+def smoothing_without_catch_up_ends_short():
+    """Without Catch up on lift the same smoothed stroke ends where the averaged brush was
+    when the pen lifted, half the eight samples (about 40 px) short of the pen: three dabs
+    fewer."""
+    s = Script()
+    jagged_pen_stroke(s)
+    return s, ["--script=set smoothing 8; set catch_up off"], camera_still({"dabs": lambda v: 19 <= int(v) <= 21, "undo_steps": near(1)})
+
+
 @scenario
 def pen_samples_between_frames_follow_the_curve():
     """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (63 of them at 15 px apart) rather than its chords (about 57)."""

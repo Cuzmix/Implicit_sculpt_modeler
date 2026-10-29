@@ -193,8 +193,9 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			// screen, as Procreate's hover preview does, so the ring says how close it is.
 			color := overlay_color(brush_ring_color(app, input.primary) * {1, 1, 1, 1 - HOVER_FADE * input.pen_hover})
 			center := input.mouse_pos
-			if app.stroke.active && app.brush.lazy_px > 0 {
-				// The brush trails the cursor: draw it where it is, on its string.
+			if app.stroke.active && stroke_trails(app) {
+				// The brush trails the cursor (the lazy string, the smoothing's lag): draw it
+				// where it is, with the rope to the pointer.
 				center = app.stroke.pos
 				overlay_line(o, center, input.mouse_pos, color, 1)
 			}
