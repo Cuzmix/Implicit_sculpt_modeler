@@ -3158,6 +3158,38 @@ def model_spine_grows_along_the_path():
                   (run(("ctrl",)), LENS_1440 + [f"--script={base}; model_action spine"], {"cage_faces": near(18), "cage_points": near(20), "cage_broken": near(0), "undo_steps": near(1)})])
 
 @scenario
+def model_topo_pen_retopologises_a_sphere():
+    """Topo pen on the sphere: four taps drop four dots and a drag over them makes a one-face cage, "Retopo of" the sphere (one undo step); a drag from its right edge grows a quad; a Ctrl drag from a border grows the whole border; a corner dragged onto the next welds; a Ctrl tap on a face deletes it; Shift and a drag from a border point relaxes the border; a Ctrl tap on a dot takes it away."""
+    use = LENS_1440 + ["--script=frame_all; model_action topo"]
+    def base(s):
+        for p in ((680, 410), (760, 410), (760, 490), (680, 490)):
+            s.mouse_drag([p])
+        s.mouse_drag([(680, 410), (720, 410), (760, 410), (760, 450), (760, 490), (720, 490), (680, 490)])
+        return s
+    def grown(s):
+        base(s).mouse_drag(line((760, 450), (840, 450), 4))
+        return s
+    dots = Script()
+    for p in ((680, 410), (760, 410), (760, 490)):
+        dots.mouse_drag([p])
+    dots.mouse_drag([(760, 410)], keys=("ctrl",))
+    weld = grown(Script())
+    weld.mouse_drag(line((840, 410), (762, 410), 4))
+    whole = grown(Script())
+    whole.mouse_drag(line((720, 490), (720, 560), 4), keys=("ctrl",))
+    delete = grown(Script())
+    delete.mouse_drag([(800, 450)], keys=("ctrl",))
+    relax = grown(Script())
+    relax.mouse_drag([(762, 412), (770, 420), (780, 430), (770, 420)], keys=("shift",))
+    return Steps([(base(Script()), use + ["--check-mesh"], {"cages": near(1), "cage_faces": near(1), "cage_points": near(4), "topo_pen_faces": near(1), "topo_pen_dots": near(0), "undo_steps": near(1), "cage_broken": near(0), "selected_material": is_text("Custom")}),
+                  (grown(Script()), use, {"cage_faces": near(2), "cage_points": near(6), "topo_pen_extends": near(1), "undo_steps": near(2)}),
+                  (whole, use, {"cage_faces": near(8), "cage_points": near(12), "topo_pen_extends": near(2), "cage_broken": near(0)}),
+                  (weld, use, {"cage_faces": near(2), "cage_points": near(5), "topo_pen_welds": near(1)}),
+                  (delete, use, {"cage_faces": near(1), "cage_points": near(4), "undo_steps": near(3)}),
+                  (relax, use, {"topo_pen_relaxes": near(1), "cage_points": near(6), "undo_steps": near(3)}),
+                  (dots, use, {"topo_pen_dots": near(2), "cages": near(0), "undo_steps": near(0)})])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()

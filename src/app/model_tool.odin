@@ -61,6 +61,7 @@ Model_Action :: enum u8 {
 	Knife,
 	Align,
 	Spine,
+	Topo,
 }
 
 @(rodata)
@@ -91,6 +92,7 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Knife          = "Knife",
 	.Align          = "Align parts",
 	.Spine          = "Spine",
+	.Topo           = "Topo pen",
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -122,6 +124,7 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Knife          = "knife cut",
 	.Align          = "align parts",
 	.Spine          = "spine",
+	.Topo           = "topo pen",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -153,6 +156,7 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Knife          = "",
 	.Align          = "faces the same way, so the part passes into the other",
 	.Spine          = "an arc from the faces to where the pen lifts, in place of the path drawn",
+	.Topo           = "a tap takes a dot away or deletes a face; a drag from a border edge grows the whole border",
 }
 
 // What each action's help line says it does.
@@ -184,6 +188,7 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Knife          = "Draw a stroke across the cage, starting beside it if you like: each face it crosses is cut along it. Or tap edges in turn to cut a path between them; a tap off the cage ends it",
 	.Align          = "Press on a part and lift over a face of another part: they join face to face, centre on centre, the edges lined up. Tap the part just joined to turn it a step; Alt and a tap flips it",
 	.Spine          = "Press on a face and draw a path: the target grows along it in steps about its edges long, turning as the path turns, and a pen's pressure sets its size along the way",
+	.Topo           = "Retopologise a sculpt: tap to drop dots on it, drag over three or four points to make a face, drag a point to move it (lift on another to weld), drag a border edge to grow a quad; Shift and a drag relaxes",
 }
 
 // What kind of element each action takes.
@@ -221,6 +226,7 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Knife          = .Edge,
 	.Align          = .Face,
 	.Spine          = .Face,
+	.Topo           = .Point,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
@@ -303,6 +309,7 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Knife          = {.Single},
 	.Align          = {.Island},
 	.Spine          = FACE_TARGETS,
+	.Topo           = {.Single},
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -335,6 +342,7 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Knife          = .Single,
 	.Align          = .Island,
 	.Spine          = .Single,
+	.Topo           = .Single,
 }
 
 // ZModeler's flat island tolerance.
@@ -394,6 +402,7 @@ Model_Drag :: struct {
 
 // The Model tool's own state, beside the primitive Add cage makes.
 model_tool_free :: proc(m: ^Model_Tool) {
+	model_topo_free(&m.topo)
 	if m.drag.before != nil do history_snapshot_drop(m.drag.before)
 	delete(m.hover.items)
 	delete(m.hover.images)
@@ -515,6 +524,8 @@ segment_distance :: proc(p, a, b: [2]f32) -> (distance, along: f32) {
 model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	m := &app.model
 	d := &m.drag
+	// The Topo pen works on the sculpt under the cage, with gestures of its own.
+	if m.action == .Topo && d.state == .None do return model_topo_frame(app, input)
 	switch d.state {
 	case .Dragging:
 		obj := object_by_id(app, d.object)
@@ -1738,6 +1749,11 @@ MODEL_CHECK_BEND :: 0.01
 draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	m := &app.model
 	d := &m.drag
+	if m.action == .Topo {
+		draw_topo_overlay(app, o, input)
+		overlay_label(o, fmt.tprintf("%s · %d dot%s", MODEL_ACTION_NAMES[.Topo], len(m.topo.dots), "" if len(m.topo.dots) == 1 else "s"), input.mouse_pos + {0, -36})
+		return
+	}
 	element := MODEL_ACTION_ELEMENT[m.action]
 	// Each shown cage's selection, under the hover.
 	picked := make([dynamic]u32, context.temp_allocator)
