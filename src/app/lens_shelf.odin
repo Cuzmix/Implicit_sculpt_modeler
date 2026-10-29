@@ -10,8 +10,9 @@ import "../ui"
 
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
 // centre with All at their end, then after a divider the tool strip
-// (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its five
-// pages (Sculpt, Paint, Move, Curve, Model), which replace the old mode switch: each page is
+// (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its pages
+// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model: shelf_pages_of), which replace
+// the old mode switch: each page is
 // a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
 // the tools. A finger or a pen swiped sideways along the shelf turns its page; the wheel over it does the same for a mouse. A tap on a tile picks
 // it; a long press shows its quick settings above it, so the hand never covers them; All
@@ -91,6 +92,13 @@ Shelf :: struct {
 	drops:    int,
 	turns:    int,
 	swipes:   int,
+}
+
+// The pages space `s` shows, first to last: Model's own, and Sculpt's for the others
+// (Render turns the view, and a brush picked there goes back to Sculpt).
+shelf_pages_of :: proc(s: Space) -> (first, last: Shelf_Page) {
+	if s == .Model do return .Model, .Model
+	return .Sculpt, .Curve
 }
 
 // The bar that holds page `p`.
@@ -194,6 +202,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
+	first, last := shelf_pages_of(k.spaces.current)
+	if sh.page < first || sh.page > last do sh.page = first
 	which := shelf_which(sh.page)
 	used := bar_used(app, which)
 	tools := bar_used(app, .Tools)
@@ -233,7 +243,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	shelf_wheel(app, shelf_at, &turn)
 	if turn != 0 && shelf_turn(app, turn) do sh.swipes += 1
 	// Past the first or the last page the row gives a little, as a scroll view's edge does.
-	if (offset > 0 && sh.page == min(Shelf_Page)) || (offset < 0 && sh.page == max(Shelf_Page)) do offset *= 0.3
+	if (offset > 0 && sh.page == first) || (offset < 0 && sh.page == last) do offset *= 0.3
 	slide := offset + sh.slide
 	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge + dock_lift(app)}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
 	adding := k.bars_edit && !focus
@@ -297,7 +307,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 // brushes sliding in from the side they come from. Returns whether it turned.
 shelf_turn :: proc(app: ^App, by: int) -> bool {
 	sh := &app.kit.shelf
-	to := Shelf_Page(clamp(int(sh.page) + by, 0, len(Shelf_Page) - 1))
+	first, last := shelf_pages_of(app.kit.spaces.current)
+	to := Shelf_Page(clamp(int(sh.page) + by, int(first), int(last)))
 	if to == sh.page do return false
 	w := sh.row.w
 	sh.slide = (1 if to > sh.page else -1) * w * SHELF_SLIDE_FROM
@@ -330,7 +341,8 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	i := int(k.shelf.page) + page_by
-	if i < 0 || i >= len(Shelf_Page) do return
+	first, last := shelf_pages_of(k.spaces.current)
+	if i < int(first) || i > int(last) do return
 	page := Shelf_Page(i)
 	used := bar_used(app, shelf_which(page))
 	ui.begin_at(ctx, "shelf peek", {at.x, at.y}, {direction = .Row, gap = 0, width = at.w, height = at.h, clip = true, inert = true})
@@ -350,7 +362,8 @@ lens_shelf_pages :: proc(app: ^App, shift: f32) {
 	t := ctx.theme
 	sh := &k.shelf
 	ui.begin_anchored(ctx, "dock pages", .Center, .End, {shift, max(t.edge - 10, 2)}, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
-	for p in Shelf_Page {
+	first, last := shelf_pages_of(k.spaces.current)
+	for p in first ..= last {
 		name := SHELF_PAGE_NAMES[p]
 		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
 		a := ui.area(ctx, fmt.tprintf("%s page##shelf", name), {w, 24})

@@ -106,12 +106,12 @@ a_layout_keeps_its_grid_and_single_writes_none :: proc(t: ^testing.T) {
 		testing.expectf(t, grid_panes(&k.grid) == 1, "%s was read", bad)
 	}
 
-	// Inspect is the four panes: curvature, normals and a front silhouette.
-	kit_layout_put(k, built_in_layout(.Inspect))
+	// Inspect's panes are four: curvature, normals and a front silhouette.
+	kit_layout_put(k, INSPECT_PANES)
 	testing.expect_value(t, grid_shape_name(&k.grid), "Four")
 	testing.expect_value(t, k.grid.views[0].pass, Second_Pass.Curvature)
 	testing.expect_value(t, k.grid.views[2], Second_View{camera = .Front, pass = .Silhouette})
-	testing.expect(t, kit_layout_text(k) == built_in_layout(.Inspect), "Inspect does not read back to itself")
+	testing.expect(t, strings.contains(kit_layout_text(k), INSPECT_PANES), "Inspect's panes do not read back to themselves")
 }
 
 @(test)

@@ -587,6 +587,9 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.
 	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
+	// Render is for looking: a press there turns the view, so no stroke lands while the
+	// light or the look is being set; picking focus and the lights' own presses stay.
+	if app.kit.spaces.current == .Render && !app.ui.focus_armed && !lights_take_press(app, mouse, input.size) do return .Orbit, false
 	if d.pointer == .Finger && finger_model_now(app) == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled
