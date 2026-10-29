@@ -6967,6 +6967,68 @@ def pen_hover_wobble_moves_no_size():
     return s, [], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
 
 
+# A point on the default sphere right of and above its middle, and empty space above the
+# model, clear of the panels, at 1600 x 900.
+PEN_MODEL_POINT = (930, 380)
+PEN_EMPTY_POINT = (1150, 170)
+
+
+def pen_rolls(s, degrees, frames=2):
+    for deg in degrees:
+        s.add(f"proll:{deg}")
+        s.wait(frames)
+
+
+@scenario
+def pen_roll_twists_the_view_about_the_point():
+    """The pen hovering over the model and turned 100 degrees clockwise twists the view clockwise by the 90 past the first ROLL_ENGAGE (10), about the point under its tip, which stays where it was on screen (Nomad's twist)."""
+    s = Script()
+    pen_hover(s, *PEN_MODEL_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    hit = lambda st: tuple(float(v) for v in st["pen_roll_hit"].split(","))
+    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0),
+                   "@hit_on_model": lambda st: 0.9 < math.dist(hit(st), (0, 0, 0)) < 1.2,
+                   "@hit_stays_put": lambda st: math.dist(on_screen(st, hit(st)), on_screen(None, hit(st))) < 2e-3}
+
+
+@scenario
+def pen_roll_carried_across_twists_nothing():
+    """A hand that turns the pen a little all the way as it carries it across the model (60 degrees over 300 points) twists nothing: the turn counts again from nothing every 40 points."""
+    s = Script()
+    s.add("pnear")
+    for i, (x, y) in enumerate(line((650, 450), (950, 450), 20)):
+        s.add(f"pmove:{x:g},{y:g}")
+        s.add(f"proll:{3 * i}")
+        s.wait(1)
+    s.wait(4)
+    return s, [], camera_still({"pen_rolls": near(0), "dabs": near(0)})
+
+
+@scenario
+def pen_roll_over_empty_space_zooms_when_set():
+    """With Roll over empty space set to Zoom toward the tip, the pen hovering over empty space and turned 100 degrees clockwise comes closer, by 2 to the 90/180 past the first ROLL_ENGAGE, and rolls nothing."""
+    s = Script()
+    pen_hover(s, *PEN_EMPTY_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    return s, ["--script=set pen_roll_empty zoom"], {"pen_rolls": near(1), "pen_roll_area": is_text("empty"),
+                                                   "camera_distance": near(3.5 / 2 ** 0.5, 0.02), "camera_roll": near(0)}
+
+
+@scenario
+def pencil_double_tap_over_empty_space_frames():
+    """The pencil hovering over empty space and double-tapped frames the model (Frame, the empty-space default); over the model it does what the iPad asks, and Smooth latches."""
+    empty = Script()
+    pen_hover(empty, *PEN_EMPTY_POINT, frames=4)
+    empty.add("pdtap")
+    empty.wait(6)
+    model = Script()
+    pen_hover(model, *PEN_MODEL_POINT, frames=4)
+    model.add("pdtap")
+    model.wait(6)
+    return Steps([(empty, [], {"camera_distance": lambda v: abs(float(v) - 3.5) > 1e-3, "rail_latched": is_text("none")}),
+                  (model, [], camera_still({"rail_latched": is_text("smooth")}))])
+
+
 def pen_away(s, frames):
     """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
     s.wait(frames)
