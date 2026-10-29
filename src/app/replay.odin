@@ -252,7 +252,7 @@ STROKES_MAGIC :: "SCSTROKE"
 // its falloff's Hardness and shape after those; 27: its No back and forth, Directional,
 // Size fixed in the scene and the world size of a pixel after those; 28: Clay strips' tip,
 // Trim dynamic's angle and switch and Flatten's plane height and depth after those.
-STROKES_VERSION :: u32(28)
+STROKES_VERSION :: u32(29)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -318,6 +318,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, b.size_ref)
 		geom.byte_put(&out, [5]f32{b.tip_roundness, b.tip_scale, b.trim_angle, b.plane_height, b.plane_depth})
 		geom.byte_put(&out, u8(b.trim_dynamic))
+		geom.byte_put(&out, u8(b.grab_outline))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -521,6 +522,10 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 			shaped = geom.byte_get(&r, [5]f32)
 			trim_dynamic = geom.byte_get(&r, u8)
 		}
+		// Nor, before version 29, Past the outline: from version 17 Grab always took hold
+		// past the outline, and before it never.
+		outline := u8(1 if version >= 17 else 0)
+		if version >= 29 do outline = geom.byte_get(&r, u8)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
@@ -529,7 +534,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight, volume) || volume < 0 || volume > 1 || !finite(hooked[0], hooked[1]) || abs(hooked[0]) > 1 || hooked[1] < 0 || hooked[1] > 1 || hook_elastic > 1 || normal_weight < 0 || normal_weight > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) || !curve_ok(pressure_size_curve) || !finite(size_floor) || size_floor < 0 || size_floor > 1 || stable > 1 || int(smooth_mode) >= len(sculpt.Smooth_Mode) do return false
 		if !finite(sampled[0], sampled[1]) || sampled[0] < 0 || sampled[0] > sculpt.STABILIZE_MAX || sampled[1] < 0 || sampled[1] > 1 || one_pass > 1 || !finite(hardness) || hardness < 0 || hardness > sculpt.HARDNESS_MAX || projected > 1 || ways[0] > 1 || ways[1] > 1 || ways[2] > 1 || !finite(size_ref) || size_ref < 0 do return false
-		if !finite(shaped[0], shaped[1], shaped[2], shaped[3], shaped[4]) || shaped[0] < 0 || shaped[0] > 1 || (shaped[1] != 0 && shaped[1] < sculpt.CLAY_TIP_SCALE_MIN) || shaped[1] > 1 || shaped[2] < 0 || shaped[2] > 160 || shaped[3] < 0 || shaped[3] > 1 || shaped[4] < 0 || shaped[4] > 1 || trim_dynamic > 1 do return false
+		if !finite(shaped[0], shaped[1], shaped[2], shaped[3], shaped[4]) || shaped[0] < 0 || shaped[0] > 1 || (shaped[1] != 0 && shaped[1] < sculpt.CLAY_TIP_SCALE_MIN) || shaped[1] > 1 || shaped[2] < 0 || shaped[2] > 160 || shaped[3] < 0 || shaped[3] > 1 || shaped[4] < 0 || shaped[4] > 1 || trim_dynamic > 1 || outline > 1 do return false
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
@@ -543,6 +548,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.one_way, b.directional, b.size_world, b.size_ref = ways[0] == 1, ways[1] == 1, ways[2] == 1, size_ref
 		b.tip_roundness, b.tip_scale, b.trim_angle, b.plane_height, b.plane_depth = shaped[0], shaped[1], shaped[2], shaped[3], shaped[4]
 		b.trim_dynamic = trim_dynamic == 1
+		b.grab_outline = outline == 1
 		b.pressures[b.kind].own = false
 		b.lazy_px = clamp(lazy, 0, MAX_RADIUS_PX)
 		b.front_only, b.stroke, b.symmetry = front == 1, Stroke_Mode(stroke), transmute(sculpt.Symmetry)symmetry
