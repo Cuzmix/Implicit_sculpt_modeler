@@ -78,7 +78,8 @@ pencil_gestures_follow_where_the_pen_points :: proc(t: ^testing.T) {
 	testing.expect_value(t, pen_area_now(&app), Pen_Area.Empty)
 	testing.expect_value(t, pencil_slot_here(&app, .Pen_Double_Tap), Gesture_Slot.Pen_Double_Tap_Empty)
 	testing.expect_value(t, pencil_slot_here(&app, .Pen_Squeeze), Gesture_Slot.Pen_Squeeze_Empty)
-	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button_2), Gesture_Slot.Pen_Button_2)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button_2), Gesture_Slot.Pen_Button_2_Empty)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button), Gesture_Slot.Pen_Button_Empty)
 	testing.expect_value(t, app.nav.gestures[.Pen_Double_Tap_Empty], Pie_Slot{.Frame_All, 0})
 	// With no alpha turning with the pen, the roll over the model twists the view.
 	testing.expect_value(t, pen_roll_action(&app, .Model), Roll_Action.Twist)
@@ -99,9 +100,9 @@ grab_twist_counts_past_the_engage :: proc(t: ^testing.T) {
 	testing.expect_value(t, grab_twist_angle(&app, -150), 0)
 }
 
-// A double-tap or squeeze over a place of the interface the last layout noted runs that
-// place's slot, the last noted first; over a panel no place claims, the panels'; and the
-// places start on their own commands or As over empty space.
+// A double-tap, squeeze or second button over a place of the interface the last layout
+// noted runs that place's slot, the last noted first; over a panel no place claims, the
+// panels'; and the places start on their own commands or As over empty space.
 @(test)
 pencil_gestures_follow_the_interface_places :: proc(t: ^testing.T) {
 	app: App
@@ -113,7 +114,14 @@ pencil_gestures_follow_the_interface_places :: proc(t: ^testing.T) {
 	testing.expect_value(t, pen_area_now(&app), Pen_Area.Shelf)
 	testing.expect_value(t, pencil_slot_here(&app, .Pen_Double_Tap), Gesture_Slot.Pen_Double_Tap_Shelf)
 	pen_zone(&app, {90, 790, 20, 20}, .Colors)
-	testing.expect_value(t, pencil_slot_here(&app, .Pen_Squeeze), Gesture_Slot.Pen_Squeeze_Colors)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Double_Tap), Gesture_Slot.Pen_Double_Tap_Colors)
+	// As over empty space runs the empty-space slot in its place; the side button over the
+	// interface is its right click, the slot over the model.
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Squeeze), Gesture_Slot.Pen_Squeeze_Empty)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button_2), Gesture_Slot.Pen_Button_2_Empty)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button), Gesture_Slot.Pen_Button)
+	app.nav.gestures[.Pen_Button_2_Colors] = {.Wireframe, 0}
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button_2), Gesture_Slot.Pen_Button_2_Colors)
 	app.kit.ctx.input.mouse = {600, 800}
 	testing.expect_value(t, pen_area_now(&app), Pen_Area.Empty)
 	g := app.nav.gestures
@@ -123,5 +131,10 @@ pencil_gestures_follow_the_interface_places :: proc(t: ^testing.T) {
 	testing.expect_value(t, g[.Pen_Double_Tap_Colors], Pie_Slot{.Swap_Colors, 0})
 	for area in Pen_Area.Shelf ..= Pen_Area.Colors do testing.expect(t, gesture_lists(g[PEN_AREA_SLOTS[area][1]].id))
 	testing.expect_value(t, g[.Pen_Squeeze_Panels], Pie_Slot{.Pen_As_Empty, 0})
+	// The buttons start as they always were everywhere: the side button's pie, the second
+	// the middle button.
+	testing.expect_value(t, g[.Pen_Button_Empty], g[.Pen_Button])
+	defaults := GESTURE_DEFAULTS
+	for slot in PEN_BUTTON_2_SLOTS do testing.expect(t, defaults[slot].id == .None || defaults[slot].id == .Pen_As_Empty)
 	free_all(context.temp_allocator)
 }

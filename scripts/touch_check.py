@@ -7403,6 +7403,41 @@ def pencil_squeeze_over_a_panel_does_the_empty_space_action():
     return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "pie_open": near(-1), "settings_open": near(1)})
 
 
+@scenario
+def pen_side_button_over_empty_space_runs_its_own():
+    """With the side button over empty space set to Pie 1, it opens Pie 1 there, and over the model it still opens the brush pie."""
+    write_settings("gesture_map Pen_Button_Empty Pie:1\n")
+    empty = Script()
+    pen_hover(empty, *PEN_EMPTY_POINT, frames=4)
+    empty.add("pright")
+    empty.wait(6)
+    model = Script()
+    pen_hover(model, *PEN_MODEL_POINT, frames=4)
+    model.add("pright")
+    model.wait(6)
+    args = [f"--settings-file={settings_file()}"]
+    return Steps([(empty, args, camera_still({"pie_open": near(1), "dabs": near(0)})),
+                  (model, args, camera_still({"pie_open": near(0), "dabs": near(0)}))])
+
+
+@scenario
+def pen_second_button_follows_the_place_under_it():
+    """With the second button over empty space set to Wireframe, pressing it over the shelf turns wireframe on (the shelf's As over empty space); over the model, where it is Nothing, it stays the middle button and turns nothing on."""
+    write_settings("gesture_map Pen_Button_2_Empty Wireframe\n")
+    shelf = Script()
+    pen_hover(shelf, *PEN_SHELF_TILE, frames=4)
+    shelf.add("pbutton:2")
+    shelf.wait(4)
+    model = Script()
+    pen_hover(model, *PEN_MODEL_POINT, frames=4)
+    model.add("pbutton:2")
+    model.wait(4)
+    args = [f"--settings-file={settings_file()}"]
+    # The model first: the settings file keeps wireframe as the run leaves it.
+    return Steps([(model, args, camera_still({"wireframe": near(0), "dabs": near(0)})),
+                  (shelf, args, camera_still({"wireframe": near(1), "dabs": near(0), "shelf_page": is_text("Sculpt")}))])
+
+
 def pen_away(s, frames):
     """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
     s.wait(frames)

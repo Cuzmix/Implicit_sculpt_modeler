@@ -2289,9 +2289,11 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Pen_As_Empty = {
 		label = "As over empty space",
-		help = "Does what the pencil's double-tap or squeeze does over empty space (Settings > Pen, Where the pen points).",
+		help = "Does what the pencil's double-tap, squeeze or second button does over empty space (Settings > Pen, Where the pen points).",
 		icon = ui.ICON_PENCIL,
-		run = proc(app: ^App, _: int) {_ = gesture_run(app, .Pen_Squeeze_Empty if app.pencil.running == 1 else .Pen_Double_Tap_Empty)},
+		// pencil_slot_here runs the empty-space slot in its place; held anywhere else (a
+		// settings file can put it on any slot), it does nothing rather than loop.
+		run = proc(app: ^App, _: int) {},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",

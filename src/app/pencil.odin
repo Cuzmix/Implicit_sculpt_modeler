@@ -253,12 +253,15 @@ pencil_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 		}
 		return true
 	}
-	second := app.nav.gestures[.Pen_Button_2].id != .None
+	// The second button's slot where the pen points; mapped to nothing there, it stays the
+	// middle button.
+	here := pencil_slot_here(app, .Pen_Button_2)
+	second := app.nav.gestures[here].id != .None && app.nav.gestures[here].id != .Pen_As_Empty
 	#partial switch e.type {
 	case .PEN_DOWN:
 		p.eraser = e.ptouch.eraser
 	case .PEN_BUTTON_DOWN:
-		if second && e.pbutton.button == PEN_BUTTON_SECOND do p.pending = .Pen_Button_2
+		if second && e.pbutton.button == PEN_BUTTON_SECOND do p.pending = here
 	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
 		// SDL presses the middle button for the second barrel button; mapped, it is the
 		// gesture's and never the middle button's drag.
@@ -295,7 +298,8 @@ pencil_frame :: proc(app: ^App) {
 	p.pending = nil
 	if !ok do return
 	p.running = 1 if slot == .Pen_Squeeze else 0
-	// Double-tap and squeeze each mean their own thing over empty space (pen_roll.odin).
+	// Double-tap and squeeze each mean their own thing where the pen points (pen_roll.odin);
+	// the second button's slot was chosen as it went down.
 	_ = gesture_run(app, pencil_slot_here(app, slot))
 }
 
@@ -382,19 +386,15 @@ pencil_tilt_take :: proc(app: ^App, axis: sdl.PenAxis, value: f32) {
 	}
 }
 
-// Settings > Pen's PENCIL AND BUTTONS: what the second button runs and what the eraser end
-// sculpts with. Double-tap and squeeze are chosen where the pen points (settings_pen_areas).
+// Settings > Pen's PENCIL AND BUTTONS: what the eraser end sculpts with. The buttons,
+// double-tap and squeeze are chosen where the pen points (settings_pen_areas).
 settings_pen_buttons :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
-	ui.label(ctx, GESTURE_SLOT_NAMES[.Pen_Button_2])
-	gesture_select(app, .Pen_Button_2)
-	ui.paragraph(ctx, "The second button is the barrel button nearer the top on tablets that have two. The Apple Pencil's double-tap and squeeze are under Where the pen points.")
 	ui.label(ctx, "Eraser end")
 	uses := [len(Eraser_Use)]string{"As the tip", "Smooth", "Invert", "Mask"}
 	if picked := ui.tabs(ctx, "Eraser end", uses[:], int(n.eraser)); picked >= 0 do n.eraser = Eraser_Use(picked)
-	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the modifier wheel's sector does.")
-	for note in gesture_notes(app) do if strings.contains(note, "second button") do ui.paragraph(ctx, note, color = ctx.theme.warning)
+	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the modifier wheel's sector does. The side and second buttons, the Apple Pencil's double-tap and squeeze, and the roll are under Where the pen points.")
 }
 
 // Pushes a scripted double-tap or squeeze, as the iPad's bridge sends one.

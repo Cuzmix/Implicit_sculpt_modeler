@@ -165,8 +165,8 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pen_Empty        = "pen mouse empty space waits for the model",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
-	.Pen_Buttons      = "pen second button barrel eraser end flip",
-	.Pen_Areas        = "apple pencil pen roll barrel twist turn hover model empty space double tap squeeze where",
+	.Pen_Buttons      = "pen barrel eraser end flip",
+	.Pen_Areas        = "apple pencil pen roll barrel twist turn hover model empty space double tap squeeze where side second button",
 	.Palm             = "palm rejection ignore the hand pen near",
 	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
 	.Shapes           = "shapes mask hide clip apply",
@@ -534,12 +534,11 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
-	case .Pen_Buttons:
-		n.gestures[.Pen_Button_2] = d.gestures[.Pen_Button_2]
-		n.eraser = d.eraser
+	case .Pen_Buttons:     n.eraser = d.eraser
 	case .Pen_Areas:
 		n.pen_roll, n.grab_twist = d.pen_roll, d.grab_twist
 		for slots in PEN_AREA_SLOTS do for slot in slots do n.gestures[slot] = d.gestures[slot]
+		n.gestures[.Pen_Button_Empty] = d.gestures[.Pen_Button_Empty]
 	case .Palm:            n.palm_rejection = d.palm_rejection
 	case .Gesture_Switches:
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
