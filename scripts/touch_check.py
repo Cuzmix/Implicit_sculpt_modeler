@@ -407,6 +407,23 @@ def radial_stroke_lays_its_copies():
     return s, [], {"symmetry": is_text("none+radial8y"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 
 
+@scenario
+def shift_blurs_and_ctrl_erases_while_painting():
+    """With the brushes on the Paint channel, a Draw stroke paints, Shift's stroke over it
+    blurs the paint and Ctrl's takes it off: two undo steps, the last named Blur or Erase,
+    and none of them a Smooth."""
+    def run(keys, last):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((590, 400), (710, 450), 12))
+        s.wait(4)
+        s.mouse_drag(line((580, 420), (720, 430), 12), keys=keys)
+        s.wait(4)
+        return s, ["--script=set paint_channel color"], {"undo_steps": near(2, 0), "last_step": is_text(last),
+                                                         "paint_dial": is_text("1"), "painted_vertices": lambda v: int(v) > 0}
+    return Steps([run(("shift",), "Blur"), run(("ctrl",), "Erase")])
+
+
 # The Colors card beside the off-hand island at 1600 x 900 (COLORS opens it): its header's buttons, its tabs, the
 # first swatch of the default palette (Skin) under the Disc and the Value tab's hex field.
 COLORS_CARD = {"main": (102, 173), "secondary": (150, 173), "swap": (198, 173), "fill": (246, 173), "gradient": (294, 173),

@@ -134,7 +134,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `Brush.channel` (`Channel{Sculpt, Both, Color}`, zero = Sculpt) makes any sculpting kind paint too:
   `paint_channel_dab` runs `paint_dab` on a copy of the `Dab` (not inverted) before the move and zeroes the partials;
   `.Color` returns before moving. The app sets it only for the held brush (`brush_channel`, Both drops to Sculpt in HD,
-  dyntopo or voxels; a Colour stroke there is refused in stroke start). Polygroups
+  dyntopo or voxels; a Colour stroke there is refused in stroke start). `Brush.blur` (Paint): a Jacobi step like Smooth's,
+  `job_blur_targets` (coverage-weighted neighbour colour into `Sculptor.blur_to`) then `job_blur_apply`; the app's `painting`
+  turns Shift into a blurring Paint stroke (`Stroke.blur`) and Ctrl into an erasing one (`stroke_brush`, `paint_dial`). Polygroups
   (`src/sculpt/groups.odin`): `Sculptor.groups{tris []u16, vertex, lead, edited}`; `sculptor_group_command(.Visible | .Masked |
   .Creases | .Clear | .Pieces | .Normals | .Merge_Similar)` (Pieces and Normals are `groups_by_creases` with no limit or
   `from_seed`; `.Uv_Charts` is refused there and runs as `levels_group_uv_charts`: base triangle → its quad's chart,
