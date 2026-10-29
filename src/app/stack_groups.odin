@@ -60,27 +60,49 @@ stack_join_target :: proc(s: ^Lens_Stack, c: Stack_Card) -> (Stack_Card, bool) {
 }
 
 // Joins card `c`'s group to the docked group above it, its cards becoming that group's
-// last tabs and `c` the one shown. The joined card's own state as a card goes: its fold,
-// height, size and scroll are the host's from now on.
+// last tabs and `c` the one shown (Join the card above).
 stack_join :: proc(k: ^Kit_State, c: Stack_Card) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	host, ok := stack_join_target(s, c)
 	if !ok do return false
+	return stack_join_at(k, c, false, host, len(stack_group(s, host)))
+}
+
+// Joins card `c` to the group `host` begins, as its tabs from `slot` on (between its tabs,
+// never before the host, so a join never changes a group's host): `c` alone when `tab`
+// (taken out of its own group first), else c's whole group. `c` becomes the tab shown. A
+// joined card's own state as a card goes: its fold, height, size and scroll are the
+// host's from now on. False when there is nothing to join: into its own group, or into a
+// tab.
+stack_join_at :: proc(k: ^Kit_State, c: Stack_Card, tab: bool, host: Stack_Card, slot: int) -> bool {
+	s := &k.stack
+	if !s.set do stack_default(k)
+	src := stack_host(s, c)
+	if host in s.joined || src == host do return false
+	if tab && len(stack_group(s, src)) > 1 do stack_take_out(k, c, open = false)
+	if !tab && c != src do return false
 	run := stack_group(s, c)
-	stack_order_place(s, run, host)
-	for x in run do stack_tab_reset(s, x)
-	s.joined += {c}
+	tabs := stack_group(s, host)
+	stack_order_place(s, run, tabs[clamp(slot, 1, len(tabs)) - 1], exact = true)
+	for x in run {
+		if s.tab == x do s.tab = host
+		stack_tab_reset(s, x)
+		s.joined += {x}
+		// A tab is in or out of the stack as its group is.
+		if host in s.hidden do s.hidden += {x}
+		else do s.hidden -= {x}
+	}
 	s.open += {host}
 	s.shown[host] = c
-	if s.tab == c do s.tab = host
 	s.joins += 1
 	return true
 }
 
-// Takes card `c` out of its group: it becomes a card of its own, open, right after the
-// group. When it was the host, the next tab takes the group's place as a card.
-stack_take_out :: proc(k: ^Kit_State, c: Stack_Card) -> bool {
+// Takes card `c` out of its group: it becomes a card of its own, open unless `open` is
+// false, right after the group. When it was the host, the next tab takes the group's
+// place as a card.
+stack_take_out :: proc(k: ^Kit_State, c: Stack_Card, open := true) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	host := stack_host(s, c)
@@ -109,7 +131,23 @@ stack_take_out :: proc(k: ^Kit_State, c: Stack_Card) -> bool {
 		s.joined -= {c}
 	}
 	s.shown[c] = c
-	s.open += {c}
+	if open do s.open += {c}
+	s.joins += 1
+	return true
+}
+
+// Ungroup: every tab of the group `host` begins becomes a card of its own where it is, the
+// host keeping its fold and float, the others folded.
+stack_ungroup :: proc(k: ^Kit_State, host: Stack_Card) -> bool {
+	s := &k.stack
+	if !s.set do stack_default(k)
+	group := stack_group(s, host)
+	if host in s.joined || len(group) < 2 do return false
+	for x in group[1:] {
+		s.joined -= {x}
+		s.shown[x] = x
+	}
+	s.shown[host] = host
 	s.joins += 1
 	return true
 }
@@ -131,11 +169,12 @@ stack_tab_reset :: proc(s: ^Lens_Stack, c: Stack_Card) {
 }
 
 // Takes `cards` out of the stack's order and puts them back, in their order, right after
-// the group of card `after` (whose other cards stay where they are).
+// the group of card `after` (whose other cards stay where they are), or right after
+// `after` itself when `exact`.
 @(private = "file")
-stack_order_place :: proc(s: ^Lens_Stack, cards: []Stack_Card, after: Stack_Card) {
+stack_order_place :: proc(s: ^Lens_Stack, cards: []Stack_Card, after: Stack_Card, exact := false) {
 	last := after
-	for x in stack_group(s, stack_host(s, after)) do if !slice.contains(cards, x) do last = x
+	if !exact do for x in stack_group(s, stack_host(s, after)) do if !slice.contains(cards, x) do last = x
 	rest := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
 	for x in s.order do if !slice.contains(cards, x) do append(&rest, x)
 	at := 0
@@ -171,9 +210,19 @@ stack_tab_row :: proc(app: ^App, host: Stack_Card, width: f32) {
 		if c == shown do chosen = i
 	}
 	ui.begin(ctx, "stack tab row", {direction = .Column, padding = STACK_TAB_PAD, width = width})
-	picked := ui.tabs(ctx, "stack tabs", names, chosen, glyphs = glyphs, keys = tips if natural > room else nil)
+	// Each tab is a drag source too (stack_carry.odin): carried out of the row, it goes
+	// alone.
+	dragged := -1
+	picked := ui.tabs(ctx, "stack tabs", names, chosen, glyphs = glyphs, keys = tips if natural > room else nil, dragged = &dragged)
+	// Where each tab is, for a carry's drop between them: ui.tabs shares its row out
+	// evenly inside its well's padding.
+	row := ui.last_ended(ctx)
+	w := (row.w - 6) / f32(len(group))
+	for c, i in group do s.tabs_at[c] = ui.clipped(ctx, {row.x + 3 + f32(i) * w, row.y, w, row.h})
 	ui.end(ctx)
+	s.row_at[host] = ui.clipped(ctx, ui.last_ended(ctx))
 	if picked >= 0 do stack_show_tab(s, group[picked])
+	if dragged >= 0 && s.carry == nil do s.carry = Stack_Carry{card = group[dragged], tab = true}
 }
 
 // The height the tab row takes in a floating card or the strip's panel: the tabs' well,

@@ -77,7 +77,7 @@ Lens_Stack :: struct {
 	hidden:  bit_set[Stack_Card], // left out of the stack: not drawn, docked or floating
 	windows: [Stack_Card]ui.Window,
 	shut:    bit_set[Kit_Section],
-	carry:   Maybe(Stack_Card),
+	carry:   Maybe(Stack_Carry),
 	menu:    bool,
 	menu_of: Stack_Card,
 	menu_at: ui.Rect,
@@ -116,6 +116,20 @@ Lens_Stack :: struct {
 	joined: bit_set[Stack_Card],
 	shown:  [Stack_Card]Stack_Card,
 	joins:  int,
+	// Drop targets (stack_carry.odin), this frame's only: the cards laid out, each one's
+	// rect as the panel shows it (clipped where the column scrolls), its header, its tab
+	// row and each tab; the target under a carry and, for the exit stats, the drops that
+	// changed the stack.
+	seen:    bit_set[Stack_Card],
+	drop_at: [Stack_Card]ui.Rect,
+	head_at: [Stack_Card]ui.Rect,
+	row_at:  [Stack_Card]ui.Rect,
+	tabs_at: [Stack_Card]ui.Rect,
+	target:  Stack_Target,
+	drops:   int,
+	// A carry put down with Escape stays down until the press that began it ends, as the
+	// grip or tab still held would start it again.
+	carry_off: bool,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
@@ -264,7 +278,6 @@ kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 		if c in s.floated || c in s.hidden || c in s.joined do continue
 		stack_card(app, c, width, false)
 	}
-	stack_carry_update(app)
 }
 
 // Floating card `c`, where it was put, if it floats now: a card of its own over the view,
@@ -359,9 +372,12 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 	if !floating {
 		ui.end(ctx)
 		s.rects[c] = ui.last_ended(ctx)
+		s.drop_at[c] = ui.clipped(ctx, s.rects[c])
 	} else {
 		s.rects[c] = ui.prev_rect(ctx, fmt.tprintf("stack card %v", c))
+		s.drop_at[c] = s.rects[c]
 	}
+	s.seen += {c}
 }
 
 // Card `c`'s content, `inner` wide: in the stack, on a floating card, or over the view from
@@ -419,7 +435,7 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 		g := ui.area(ctx, "stack grip", {18, t.target})
 		ui.icon(ctx, ui.ICON_GRIP, {g.rect.x + 9, g.rect.y + g.rect.h * 0.5}, t.icon_small, t.accent if g.held else (t.text if g.hovered else t.text_tertiary))
 		ui.tip(ctx, g.id, g.rect, "Drag to move it in the stack, or out to float it")
-		if g.held && s.carry == nil && linalg.length(ctx.input.mouse - ctx.press_mouse) > t.slop do s.carry = c
+		if g.held && s.carry == nil && linalg.length(ctx.input.mouse - ctx.press_mouse) > t.slop do s.carry = Stack_Carry{card = c}
 		extras += 18
 	}
 	head := ui.area(ctx, "stack title", {max(inner - extras, t.target), t.target})
@@ -463,6 +479,7 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 	}
 	if ui.icon_button(ctx, "Panel options", ui.ICON_MORE) do stack_menu_open(app, v, ctx.last_rect)
 	ui.end(ctx)
+	s.head_at[c] = ui.clipped(ctx, ui.last_ended(ctx))
 }
 
 // The card's title: the tool's name on the first while the tool is not the brush, the
@@ -633,75 +650,6 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 	return ""
 }
 
-// Follows the card its grip carries: a line where it would go in the stack while held;
-// let go there it moves, and let go well clear of the stack it floats where it was let go.
-@(private = "file")
-stack_carry_update :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	s := &k.stack
-	c, ok := s.carry.?
-	if !ok do return
-	in_ := ctx.input
-	if in_.cancel {
-		s.carry = nil
-		return
-	}
-	at, outside := stack_drop_at(app, in_.mouse, c)
-	if .Left in in_.down {
-		if !outside {
-			y := stack_drop_y(app, at, c)
-			r := s.rects[c]
-			ui.fill_rect(ctx, {r.x, y - 1.5, r.w, 3}, 1.5, t.accent)
-		}
-		return
-	}
-	s.carry = nil
-	if outside {
-		stack_float(app, c, in_.mouse)
-		return
-	}
-	stack_move_to(app, c, at)
-}
-
-// Where among the other docked cards card `carried` let go at `p` lands (how many of them
-// are above it), and whether `p` is well clear of the stack, to float the card.
-@(private = "file")
-stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, outside: bool) {
-	s := &app.kit.stack
-	lo, hi: [2]f32
-	first := true
-	for c in s.order {
-		if c in s.floated || c in s.hidden || c in s.joined do continue
-		r := s.rects[c]
-		if r.w <= 0 do continue
-		if c != carried && p.y > r.y + r.h * 0.5 do at += 1
-		a, b := [2]f32{r.x, r.y}, [2]f32{r.x + r.w, r.y + r.h}
-		lo, hi = (a if first else linalg.min(lo, a)), (b if first else linalg.max(hi, b))
-		first = false
-	}
-	REACH :: 48
-	outside = first || p.x < lo.x - REACH || p.x > hi.x + REACH || p.y > hi.y + REACH
-	return
-}
-
-// The y of the line between the docked cards (but `carried`) where slot `at` is.
-@(private = "file")
-stack_drop_y :: proc(app: ^App, at: int, carried: Stack_Card) -> f32 {
-	s := &app.kit.stack
-	i := 0
-	last: f32 = 0
-	for c in s.order {
-		if c in s.floated || c in s.hidden || c in s.joined || c == carried do continue
-		r := s.rects[c]
-		if i == at do return r.y - COLUMN_GAP * 0.5
-		last = r.y + r.h + COLUMN_GAP * 0.5
-		i += 1
-	}
-	return last
-}
-
 // Moves card `c` to slot `at` of the docked cards (the order keeps the floating ones where
 // they were).
 stack_move_to :: proc(app: ^App, c: Stack_Card, at: int) {
@@ -788,6 +736,10 @@ kit_stack_menu :: proc(app: ^App) {
 	}
 	if len(group) > 1 && ui.menu_item(ctx, "Take out of the group", glyph = ICON_SPLIT) {
 		stack_take_out(k, tab)
+		s.menu = false
+	}
+	if len(group) > 1 && ui.menu_item(ctx, "Ungroup", glyph = ICON_SPLIT) {
+		stack_ungroup(k, c)
 		s.menu = false
 	}
 	// The look's cards hold the settings used most; the rest are their tray sections'.
