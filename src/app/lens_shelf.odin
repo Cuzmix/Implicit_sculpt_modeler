@@ -102,6 +102,7 @@ Shelf :: struct {
 	drops:    int,
 	turns:    int,
 	swipes:   int,
+	active:   bool, // the active brush's tile showed beside the shelf (shelf_active_item)
 }
 
 // The pages space `s` shows, first to last: Sculpt's four, and Model's and Render's own.
@@ -263,6 +264,21 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	m := len(tools) if tools_here else 0
 	if focus do n = min(n, SHELF_FOCUS)
 	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
+	// A brush picked from All, Search or the pie that is not among the tiles shown gets its
+	// own tile beside the shelf, so what the pen holds is always in sight; the shelf gives it
+	// room as it does its tools.
+	active, active_on := shelf_active_item(app, used[:n], tools[:m], k.bars_edit)
+	if active_on {
+		room = max(room - SHELF_ACTIVE_W, 0)
+		n, m = shelf_fit(len(used) if lens_palm(app) == 0 else min(len(used), SHELF_TABLET), m, room, k.bars_edit && !focus)
+		if focus do n = min(n, SHELF_FOCUS)
+		// The tile and the shelf stand centred together, so the tile keeps clear of the dial.
+		if k.places[.Shelf].edge == .Default {
+			off := SHELF_ACTIVE_W * 0.5 * (-1 if ctx.mirror else 1)
+			place_at.x += off
+			pages_at.x += off
+		}
+	}
 
 	if !focus do lens_shelf_pages(app, pages_x, pages_y, pages_at)
 	// A sideways drag that starts on any of the shelf's buttons turns the page: the shelf
@@ -338,7 +354,60 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// The picker centres over the whole shelf, which stays in sight under it, so a card can
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
+	sh.active = active_on
+	if active_on do shelf_active_tile(app, active)
 	return
+}
+
+// The width the active brush's tile takes beside the shelf: the tile, its padding and the
+// gap between them.
+SHELF_ACTIVE_W :: ui.BRUSH_TILE.x + 2 * SHELF_PAD + 6
+
+// The item the active brush's tile shows, and whether it shows: the brush, preset or curve
+// tool held, when the shelf is not being arranged and no tile shown (`tiles`, `tools`) is
+// lit for it already. A tool such as Move or Model lights its own button, so it shows none.
+shelf_active_item :: proc(app: ^App, tiles, tools: []Bar_Slot, arranging: bool) -> (it: Brush_Item, shows: bool) {
+	if arranging do return
+	page := app.kit.shelf.page
+	if page == .Model || page == .Render do return
+	it = brush_item_current(app)
+	if it.what == .Tool && it.tool == .Model do return
+	if !brush_item_on(app, it) do return
+	for s in tiles do if bar_lit(app, s) do return
+	for s in tools do if bar_lit(app, s) do return
+	return it, true
+}
+
+// The active brush's tile, beside the shelf on the off-hand side (its first tile's side),
+// lit as the brush held is: a tap or a long press shows its quick settings over it, as a
+// long press on a shelf tile does. Laid out where the shelf stood last frame, so the shelf
+// itself never moves for it.
+@(private = "file")
+shelf_active_tile :: proc(app: ^App, it: Brush_Item) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	sh := &k.shelf
+	strip := ui.prev_rect(ctx, "dock")
+	if strip.w <= 0 do return
+	area := ui.safe_area(ctx)
+	w := SHELF_ACTIVE_W - 6
+	x := strip.x + strip.w + 6 if ctx.mirror else strip.x - 6 - w
+	// Against the window's edge (a shelf moved there in Arrange), it goes on the other side.
+	if x < area.x || x + w > area.x + area.w do x = strip.x - 6 - w if ctx.mirror else strip.x + strip.w + 6
+	ui.begin_at(ctx, "shelf active", {x, strip.y}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, height = strip.h})
+	name := fmt.tprintf("%s##shelf active", brush_item_name(app, it))
+	tapped := ui.brush_tile(ctx, name, brush_item_icon(it), true, brush_item_hint(app, it))
+	at := ctx.last_rect
+	if tapped || (ctx.last_id != 0 && ui.secondary(ctx)) {
+		if it.what == .Slot {
+			kit_floats_close(k)
+			sh.quick, sh.quick_at = true, at
+		} else {
+			brush_item_settings(app, it)
+		}
+	}
+	ui.end(ctx)
 }
 
 // Turns the shelf `by` pages (on from Curve, back from Sculpt, it stays), the new page's
@@ -481,7 +550,8 @@ SHEET_COLUMNS :: 4
 // categories down its left in the app's order, then a search field, the shelf's page names
 // (which narrow All to what each page is for), Install pack and Close, then every brush as
 // a card showing its stroke on clay. A tap on a card picks it and closes the sheet, a long
-// press shows its settings, and a drag carries it onto a shelf tile to keep it there.
+// press shows its settings, a swipe up or down scrolls the cards, and a drag that starts
+// sideways carries a card onto a shelf tile to keep it there.
 kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -523,7 +593,9 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	pick, settings: Maybe(Brush_Item)
 	for l, i in list {
 		if i % SHEET_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush sheet row %d", i / SHEET_COLUMNS), {direction = .Row, gap = 10})
-		a := ui.area(ctx, fmt.tprintf("%s##sheet %s", l.name, l.key), {card_w, CARD_H})
+		// A card does not take the drag on the press, so a finger or a pen swiped up or down
+		// over the cards scrolls the grid (drag = false); one going sideways first carries it.
+		a := ui.area(ctx, fmt.tprintf("%s##sheet %s", l.name, l.key), {card_w, CARD_H}, drag = false)
 		on := brush_item_on(app, l.item)
 		ui.fill_rect(ctx, a.rect, t.radius_large, t.accent_soft if on else t.surface)
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_large, t.fill_hover)
@@ -533,8 +605,10 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)
 		if _, fav := brush_favorite(p, l.key); fav do ui.icon(ctx, ICON_HEART, {a.rect.x + a.rect.w - 16, a.rect.y + a.rect.h - 16}, t.icon_small - 2, t.warning)
 		ui.tip(ctx, a.id, a.rect, l.name, brush_item_hint(app, l.item))
-		// A drag past the slop carries the card toward the shelf; it is no tap then.
-		if a.held && sh.carry == nil && math.abs(ctx.input.mouse.y - ctx.press_mouse.y) + math.abs(ctx.input.mouse.x - ctx.press_mouse.x) > t.slop * 2 {
+		// A drag past the slop carries the card toward the shelf; it is no tap then. A finger
+		// or a pen has to start it sideways (claim_drag across), as up and down scrolls the
+		// grid; a mouse, which scrolls with the wheel, carries it whichever way it goes.
+		if a.held && sh.carry == nil && ui.claim_drag(ctx, 0) && math.abs(ctx.input.mouse.y - ctx.press_mouse.y) + math.abs(ctx.input.mouse.x - ctx.press_mouse.x) > t.slop * 2 {
 			if s, ok := shelf_slot_of(l.item); ok {
 				sh.carry, sh.carry_at = s, ctx.input.mouse
 				ui.press_used(ctx)
@@ -546,7 +620,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	}
 	if len(list) == 0 do ui.paragraph(ctx, "No brush has that in its name." if brush_query(p) != "" else "Nothing here yet.", inner)
 	kit_scroll_end(ctx, scroll)
-	ui.label(ctx, "Drag a brush onto the shelf to keep it there. Long press for its settings.", t.small_size, t.text_secondary)
+	ui.label(ctx, "Swipe up or down to see more. Drag a brush sideways, then onto the shelf, to keep it there. Long press for its settings.", t.small_size, t.text_secondary)
 	ui.end(ctx)
 	if it, ok := pick.?; ok {
 		brush_item_pick(app, it)
