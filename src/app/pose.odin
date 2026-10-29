@@ -39,6 +39,7 @@ POSE_WHAT := [gizmo.Mode]string {
 	.Move  = "Pose: Move",
 	.Turn  = "Pose: Turn",
 	.Scale = "Pose: Scale",
+	.All   = "Pose", // never a drag's (drag_mode)
 }
 
 // Whether the selected object's mask leaves a shown vertex free, and its checksum, kept
@@ -112,6 +113,7 @@ pose_of :: proc(h: gizmo.Handle, from, to: Transform, pivot, axis: Vec3, degrees
 		p.kind, p.axis, p.angle = .Turn, linalg.normalize0(to_local_dir(from, axis)), linalg.to_radians(degrees)
 	case .Scale:
 		p.kind, p.factor = .Scale, to.scale / from.scale
+	case .All: // drag_mode never gives it: each handle does one of the three
 	}
 	return
 }

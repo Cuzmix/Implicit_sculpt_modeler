@@ -19,9 +19,10 @@ import "../png_write"
 import "../render"
 import "../sculpt"
 import "../poly"
+import "../usd"
 import "../voxel"
 
-// Files: meshes in and out as OBJ, PLY or STL (and out as glTF and USD), and whole scenes saved and opened in the
+// Files: meshes in and out as OBJ, PLY, STL, glTF and USD, and whole scenes saved and opened in the
 // native format. A request comes from a File menu dialog, a shortcut or a flag and runs
 // at the start of a frame (file_take), as a Scene_Command does.
 
@@ -87,7 +88,7 @@ pending: struct {
 when ODIN_PLATFORM_SUBTARGET == .Android {
 	MESH_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
-	MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF)", "obj;ply;stl;glb;gltf"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}, {"glTF", "glb;gltf"}}
+	MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD)", "obj;ply;stl;glb;gltf;usd;usda;usdc;usdz"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}, {"glTF", "glb;gltf"}, {"USD", "usd;usda;usdc;usdz"}}
 }
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
@@ -466,7 +467,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 // anything else says what a drop takes.
 file_drop :: proc(app: ^App, path: string) {
 	if mesh_file_kind(path, nil) == .None {
-		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, .glb or .gltf files to import them", filepath.base(path))
+		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, glTF or USD files to import them", filepath.base(path))
 		return
 	}
 	// Never over a dialog's answer, which would be lost.
@@ -514,7 +515,7 @@ scene_remember_path :: proc(app: ^App, path: string) {
 	versions_refresh(app)
 }
 
-// Reads a mesh file (OBJ, PLY, STL or glTF) into new objects beside the others, sized
+// Reads a mesh file (OBJ, PLY, STL, glTF or USD) into new objects beside the others, sized
 // like a sphere together (each part's place in the file is kept for export: see
 // Object.file), with its vertex colours as polypaint and its groups as polygroups. A
 // file of several meshes makes an object of each, in a new folder named after the file.
@@ -596,25 +597,28 @@ Mesh_Kind :: enum u8 {
 	PLY,
 	STL,
 	GLTF, // .glb, or .gltf with its buffers inside or beside it
+	USD,  // .usda, .usdc, .usd (either) or a .usdz package
 }
 
 // Which reader a mesh file takes: by its extension, or for a content:// URI from
 // Android's picker, which has none, by its bytes (a PLY file starts with "ply", an STL
 // file with "solid" or with a triangle count its length matches, a binary glTF with
-// "glTF" and a text one is JSON naming its "asset", and anything else is tried as OBJ
-// text).
+// "glTF" and a text one is JSON naming its "asset", USD by usd.recognised, and anything
+// else is tried as OBJ text).
 mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
 	case ".obj": return .OBJ
 	case ".ply": return .PLY
 	case ".stl": return .STL
 	case ".glb", ".gltf": return .GLTF
+	case ".usd", ".usda", ".usdc", ".usdz": return .USD
 	}
 	if !strings.has_prefix(path, "content://") do return .None
 	text := string(data)
 	switch {
 	case strings.has_prefix(text, "ply"): return .PLY
 	case strings.has_prefix(text, geom.GLB_MAGIC): return .GLTF
+	case usd.recognised(data): return .USD
 	case strings.has_prefix(strings.trim_left_space(text[:min(len(text), 64)]), "{") && strings.contains(text[:min(len(text), 4096)], `"asset"`): return .GLTF
 	case strings.has_prefix(text, "solid"): return .STL
 	case len(data) >= geom.STL_HEADER && geom.STL_HEADER + geom.STL_ROW * int((^u32le)(&data[80])^) == len(data): return .STL
@@ -626,6 +630,7 @@ mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 Mesh_File_Info :: struct {
 	cleaned: geom.Mesh_Clean_Report, // summed over the parts
 	skipped: geom.Gltf_Skipped,
+	usd:     usd.Skipped,
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
 }
@@ -668,6 +673,8 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 			return bytes, true
 		}
 		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside)
+	case .USD:
+		info.usd, failed, line = usd.read(parts, data)
 	case .OBJ, .None:
 		failed, line = geom.mesh_read_obj_parts(parts, data, pool)
 	}
@@ -722,7 +729,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	read := time.tick_now()
 	kind := mesh_file_kind(path, data)
 	if kind == .None {
-		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb and .gltf files import", name)
+		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc and .usdz files import", name)
 		return
 	}
 	info, failed, line := mesh_file_parse(&m.parts, data, kind, &app.pool, path)
@@ -776,7 +783,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	cleaned := info.cleaned
 	// Every corner of an STL file comes on its own, and a glTF's primitives each bring
 	// their own vertices, so welding them is no news.
-	if kind == .STL || kind == .GLTF do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
+	if kind == .STL || kind == .GLTF || kind == .USD do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
 	if flipped > 0 do strings.write_string(&note, "; turned outward")
 	colored, grouped := false, false
@@ -788,6 +795,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	if info.merged > 0 do strings.write_string(&note, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
 	else if grouped do strings.write_string(&note, "; its groups are polygroups")
 	if info.skipped.compressed > 0 do strings.write_string(&note, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
+	if info.usd.composed > 0 do strings.write_string(&note, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
 	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&note, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
 	file_note(app, !closed, "%s", strings.to_string(note))
 	return m, true

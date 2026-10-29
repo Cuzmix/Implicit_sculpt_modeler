@@ -3692,7 +3692,7 @@ def lens_dial_stays_over_a_floating_card():
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
 LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
-               "symmetry_grip": (1218, 470), "layers_corner": (738, 340)}
+               "symmetry_grip": (1218, 524), "layers_corner": (738, 340)}
 
 
 @scenario
@@ -7200,9 +7200,11 @@ def pen_roll_twists_the_view_about_the_point():
     """The pen hovering over the model and turned 100 degrees clockwise twists the view clockwise by the 90 past the first ROLL_ENGAGE (10), about the point under its tip, which stays where it was on screen (Nomad's twist)."""
     s = Script()
     pen_hover(s, *PEN_MODEL_POINT, frames=4)
-    pen_rolls(s, range(0, 101, 10))
+    # In 2 degree steps, a frame each, as a hand turns a pencil reporting 120 times a second.
+    pen_rolls(s, range(0, 101, 2), frames=1)
+    s.wait(2)
     hit = lambda st: tuple(float(v) for v in st["pen_roll_hit"].split(","))
-    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0),
+    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0), "roll_hint": is_text("Twist_90°"),
                    "@hit_on_model": lambda st: 0.9 < math.dist(hit(st), (0, 0, 0)) < 1.2,
                    "@hit_stays_put": lambda st: math.dist(on_screen(st, hit(st)), on_screen(None, hit(st))) < 2e-3}
 
@@ -7275,6 +7277,58 @@ def pen_roll_while_grabbing_twists_what_it_holds():
                                                                         "mesh_sum": lambda v: seen.setdefault("twisted", float(v)) is not None})),
         (pen_grab_with_roll(90), ["--script=brush grab; set pen_grab_twist off"], camera_still({"undo_steps": near(1),
                                                                         "mesh_sum": lambda v: abs(float(v) - seen["twisted"]) > 1e-3}))])
+
+
+# The shelf's Flatten tile (the middle of the shelf on every page), the top bar's Undo
+# and the navigation head (left of the open Brush card), at 1600 x 900.
+PEN_SHELF_TILE = (780, 833)
+PEN_UNDO = (217, 26)
+PEN_NAV_HEAD = (1185, 88)
+
+
+@scenario
+def pen_roll_over_the_shelf_turns_its_page():
+    """The pen hovering over the shelf and turned 100 degrees clockwise turns two pages on, a page for each 40 degrees past the first ROLL_ENGAGE: Sculpt to Move."""
+    s = Script()
+    pen_hover(s, *PEN_SHELF_TILE, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(4)
+    return s, [], camera_still({"shelf_page": is_text("Move"), "dabs": near(0), "pen_rolls": near(0), "roll_hint": is_text("Page:_Move")})
+
+
+@scenario
+def pen_roll_over_undo_scrubs_history():
+    """After three strokes, the pen hovering over Undo and turned 70 degrees anticlockwise undoes all three, a step for each 20 degrees past the first ROLL_ENGAGE, and 20 degrees back clockwise redoes one."""
+    s = Script()
+    for y in (300, 450, 600):
+        s.fdrag(line((700, y), (760, y), 10))
+        s.wait(26)
+    pen_hover(s, *PEN_UNDO, frames=4)
+    pen_rolls(s, range(0, -71, -5), frames=1)
+    pen_rolls(s, range(-65, -44, 5), frames=1)
+    s.wait(4)
+    return s, [], {"undo_steps": near(1), "redo_steps": near(2), "dabs": lambda v: int(v) > 0}
+
+
+@scenario
+def pen_roll_over_the_navigation_head_spins_the_view():
+    """The pen hovering over the navigation head and turned 100 degrees clockwise spins the view 90 degrees about the up axis, past the first ROLL_ENGAGE, and twists nothing."""
+    s = Script()
+    pen_hover(s, *PEN_NAV_HEAD, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(4)
+    return s, [], {"camera_yaw": near(wrap(0.6 + math.radians(90)), 2e-3), "camera_pitch": near(0.35), "camera_roll": near(0), "pen_rolls": near(0)}
+
+
+@scenario
+def pen_roll_over_settings_scrolls_it():
+    """Settings > Pen open, the pen hovering over a paragraph and turned 100 degrees clockwise scrolls the body down, as a mouse wheel does."""
+    s = Script()
+    open_settings(s, "pen")
+    pen_hover(s, 900, 480, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(20)
+    return s, [], camera_still({"settings_open": near(1), "settings_scroll": lambda v: float(v) > 100, "dabs": near(0)})
 
 
 def pen_away(s, frames):
@@ -10602,7 +10656,12 @@ GIZMO_CENTER = MIDDLE
 GIZMO_X_ARM = (GIZMO_CENTER[0] + 38, GIZMO_CENTER[1] + 8)
 GIZMO_XY_SQUARE = (GIZMO_CENTER[0] + 29, GIZMO_CENTER[1] - 27)
 GIZMO_Y_RING = (GIZMO_CENTER[0], GIZMO_CENTER[1] + 31)
-GIZMO_CHIPS = {"move": (694, 776), "turn": (759, 776), "scale": (823, 776), "snap": (888, 776), "pivot": (951, 776)}
+GIZMO_CHIPS = {"move": (670, 766), "turn": (736, 766), "scale": (799, 766), "all": (856, 766), "snap": (911, 766), "pivot": (973, 766)}
+# The All gizmo (W four times): the X arm's arrow out past the view ring, the Y arm's scale
+# knob, and the view ring up and to the left, clear of the axis rings.
+GIZMO_ALL_X_ARROW = (GIZMO_CENTER[0] + 99, GIZMO_CENTER[1] + 21)
+GIZMO_ALL_Y_KNOB = (GIZMO_CENTER[0], GIZMO_CENTER[1] - 54)
+GIZMO_ALL_VIEW_RING = (GIZMO_CENTER[0] - 68, GIZMO_CENTER[1] - 68)
 
 
 def transform_is(test):
@@ -10611,7 +10670,7 @@ def transform_is(test):
 
 
 def gizmo_mode(s, presses):
-    """The Move tool (W), then W again `presses` times: Turn, then Scale."""
+    """The Move tool (W), then W again `presses` times: Turn, then Scale, then All."""
     for _ in range(presses + 1):
         s.press("w")
 
@@ -10697,16 +10756,47 @@ def gizmo_ctrl_snaps_the_move():
 
 @scenario
 def gizmo_chips_switch_the_mode():
-    """With the Move tool on, the action bar shows the gizmo's chips: Turn and Scale pick
-    the mode, Snap latches."""
-    turn, scale = Script(), Script()
-    for sc, chip in ((turn, "turn"), (scale, "scale")):
+    """With the Move tool on, the action bar shows the gizmo's chips: Turn, Scale and All
+    pick the mode, Snap latches."""
+    turn, scale, all_ = Script(), Script(), Script()
+    for sc, chip in ((turn, "turn"), (scale, "scale"), (all_, "all")):
         sc.press("w")
         click(sc, GIZMO_CHIPS[chip])
         click(sc, GIZMO_CHIPS["snap"])
     return Steps([
         (turn, [], camera_still({"action_bar": is_text("gizmo"), "gizmo_mode": is_text("turn"), "gizmo_snap": near(1)})),
         (scale, [], camera_still({"gizmo_mode": is_text("scale"), "gizmo_snap": near(1)})),
+        (all_, [], camera_still({"gizmo_mode": is_text("all"), "gizmo_snap": near(1)})),
+    ])
+
+
+@scenario
+def gizmo_all_moves_turns_and_scales():
+    """The All gizmo (W four times) does the three with no switching: the mouse on the X
+    arrow moves the sphere along x only, a finger on the Y knob scales it evenly about its
+    middle, and the mouse round the view ring turns it, each one undo step; Ctrl+Z after
+    all three puts it back."""
+    arrow, knob, ring, undone = Script(), Script(), Script(), Script()
+    for sc in (arrow, knob, ring, undone):
+        gizmo_mode(sc, 3)
+    for sc in (arrow, undone):
+        sc.mouse_drag(line(GIZMO_ALL_X_ARROW, (GIZMO_ALL_X_ARROW[0] + 40, GIZMO_ALL_X_ARROW[1] + 8), 6))
+    for sc in (knob, undone):
+        sc.fdrag(line(GIZMO_ALL_Y_KNOB, (GIZMO_ALL_Y_KNOB[0], GIZMO_ALL_Y_KNOB[1] - 60), 9))
+        sc.wait(4)
+    for sc in (ring, undone):
+        sc.mouse_drag(line(GIZMO_ALL_VIEW_RING, (GIZMO_ALL_VIEW_RING[0] + 40, GIZMO_ALL_VIEW_RING[1] - 30), 6))
+    for _ in range(3):
+        undone.press("z", ("ctrl",))
+    along_x = transform_is(lambda x, y, z, rx, ry, rz, sc: x > 0.05 and (y, z, rx, ry, rz, sc) == (0, 0, 0, 0, 0, 1))
+    grew = transform_is(lambda x, y, z, rx, ry, rz, sc: 1.5 < sc < 3 and (x, y, z, rx, ry, rz) == (0, 0, 0, 0, 0, 0))
+    turned = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(rx) + abs(ry) + abs(rz) > 5 and (x, y, z, sc) == (0, 0, 0, 1))
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    return Steps([
+        (arrow, [], camera_still({"gizmo_mode": is_text("all"), "gizmo_last": is_text("x"), "transform": along_x, "undo_steps": near(1)})),
+        (knob, [], camera_still(gizmo_where({"gizmo_last": is_text("scale"), "transform": grew, "undo_steps": near(1), "dabs": near(0)}))),
+        (ring, [], camera_still(gizmo_where({"gizmo_last": is_text("turn_view"), "transform": turned, "undo_steps": near(1)}))),
+        (undone, [], camera_still({"gizmo_drags": near(3), "transform": home, "transform_undo": near(0), "redo_steps": near(3)})),
     ])
 
 

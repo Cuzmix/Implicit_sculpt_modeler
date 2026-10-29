@@ -30,11 +30,14 @@ Handle :: enum u8 {
 	Scale, // the centre disc and the circle round it
 }
 
-// What the gizmo's handles do: move, turn or scale.
+// What the gizmo's handles do: move, turn or scale, or all three at once (as ZBrush's,
+// Nomad's and Blender's Transform gizmos do), whose handles are laid out so none covers
+// another: arrows outside the rings, scale knobs inside them.
 Mode :: enum u8 {
 	Move,
 	Turn,
 	Scale,
+	All,
 }
 
 AXES := [3]Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
@@ -76,21 +79,32 @@ Screen :: struct {
 	ring_front: [4][RING_POINTS]bool,
 	ring_ok:    [4]bool,
 	arm_px:     f32, // an arm's length on screen, which the scale circle's radius is too
+	// The All mode's arrow tips, out past the rings, and its scale knobs on the arms
+	// inside them; set only for that mode.
+	ends:       [3]Vec2,
+	end_ok:     [3]bool,
+	knobs:      [3]Vec2,
 	ok:         bool,
 }
 
 // Projects the gizmo at `center` whose arms are `arm` long in the world, seen from the
 // direction `toward_eye` (from the centre to the eye, or the view's own in parallel
-// projection), on a viewport of `size`, whose arms are `arm_px` long on screen.
-screen :: proc(view_proj: Mat4, center: Vec3, arm: f32, toward_eye: Vec3, size: Vec2, arm_px: f32) -> (s: Screen) {
+// projection), on a viewport of `size`, whose arms are `arm_px` long on screen. The All
+// mode draws its rings smaller and its arms longer (ALL_RING, ALL_ARM).
+screen :: proc(view_proj: Mat4, center: Vec3, arm: f32, toward_eye: Vec3, size: Vec2, arm_px: f32, mode := Mode.Move) -> (s: Screen) {
 	s.center, s.ok = project(view_proj, center, size)
 	if !s.ok do return
 	s.arm_px = arm_px
+	radius := arm * ALL_RING if mode == .All else arm
 	for axis, i in AXES {
 		s.tips[i], s.tip_ok[i] = project(view_proj, center + axis * arm, size)
-		s.rings[i], s.ring_front[i], s.ring_ok[i] = ring(view_proj, center, axis, arm, toward_eye, size)
+		s.rings[i], s.ring_front[i], s.ring_ok[i] = ring(view_proj, center, axis, radius, toward_eye, size)
+		if mode == .All {
+			s.ends[i], s.end_ok[i] = project(view_proj, center + axis * (arm * ALL_ARM), size)
+			s.knobs[i], _ = project(view_proj, center + axis * (arm * KNOB_AT), size)
+		}
 	}
-	s.rings[3], _, s.ring_ok[3] = ring(view_proj, center, toward_eye, arm * VIEW_RING_SCALE, toward_eye, size)
+	s.rings[3], _, s.ring_ok[3] = ring(view_proj, center, toward_eye, radius * VIEW_RING_SCALE, toward_eye, size)
 	for &f in s.ring_front[3] do f = true
 	return
 }
@@ -135,8 +149,39 @@ pick :: proc(s: Screen, mode: Mode, mouse: Vec2, radius: f32) -> Handle {
 		dist := linalg.length(d)
 		if dist <= SCALE_DISC_PX * k + grow do return .Scale
 		consider(&best, &best_dist, .Scale, abs(dist - s.arm_px))
+	case .All:
+		// The middle moves in the view plane, as in Move. Where handles cross (a ring over
+		// an arm), the later considered wins a tie: the arms over the rings, and a knob over
+		// the arm it sits on, a finger's grow included, so the knob is as easy to land on as
+		// the centre.
+		if abs(d.x) <= CENTER_PX * k + grow && abs(d.y) <= CENTER_PX * k + grow do return .View
+		for i in 0 ..< 4 {
+			if !s.ring_ok[i] do continue
+			consider(&best, &best_dist, Handle(int(Handle.Turn_X) + i), ring_distance(mouse, s.rings[i][:]))
+		}
+		for i in 0 ..< 3 {
+			q, ok := square_of(s, i)
+			if !ok do continue
+			dist: f32 = 0
+			if !inside_quad(mouse, q) do dist = quad_distance(mouse, q)
+			consider(&best, &best_dist, Handle(int(Handle.YZ) + i), dist)
+		}
+		for i in 0 ..< 3 {
+			if !all_arm_shows(s, i) do continue
+			consider(&best, &best_dist, Handle(int(Handle.X) + i), segment_distance(mouse, s.center, s.ends[i]))
+		}
+		for i in 0 ..< 3 {
+			if !all_arm_shows(s, i) do continue
+			consider(&best, &best_dist, .Scale, max(linalg.length(mouse - s.knobs[i]) - (KNOB_PX * k + grow), 0))
+		}
 	}
 	return best
+}
+
+// Whether the All mode's arm `i` shows, with its arrow and knob: as an arm does, and its
+// arrow's tip projected.
+all_arm_shows :: proc(s: Screen, i: int) -> bool {
+	return arm_shows(s, i) && s.end_ok[i]
 }
 
 // Whether arm `i` shows: its tip projected and it does not point at the eye.

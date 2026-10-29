@@ -608,6 +608,15 @@ colors_disc :: proc(app: ^App, inner: f32) {
 	} else {
 		c.drag = 0
 	}
+	// The pen's roll over the Disc turns the hue round the ring, as far as the pen turns:
+	// clockwise moves the hue's mark clockwise.
+	if roll := ui.hover_roll(ctx, a.id, a.hovered); roll != 0 {
+		hsv := c.hsv
+		hsv.x -= roll / 360
+		hsv.x -= math.floor(hsv.x)
+		colors_set_hsv(app, hsv)
+		ui.roll_hint(ctx, fmt.tprintf("Hue %.0f°", hsv.x * 360))
+	}
 	hue_ring(ctx, centre, outer - RING, outer)
 	// The disc as a grid of the square mapped into it, coloured at each point.
 	N :: 16

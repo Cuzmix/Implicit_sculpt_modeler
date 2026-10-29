@@ -80,7 +80,7 @@ Options :: struct {
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb or .gltf file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc or .usdz file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
@@ -1523,7 +1523,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
-		fmt.printfln("pen_rolls=%d pen_roll_area=%s pen_roll_hit=%.4f,%.4f,%.4f", tw.rolls, strings.to_lower(fmt.tprint(tw.area), context.temp_allocator), h.x, h.y, h.z)
+		hint, _ := strings.replace_all(string(app.kit.ctx.roll_hint[:app.kit.ctx.roll_hint_len]), " ", "_", context.temp_allocator)
+		fmt.printfln("pen_rolls=%d pen_roll_area=%s pen_roll_hit=%.4f,%.4f,%.4f roll_hint=%s", tw.rolls, strings.to_lower(fmt.tprint(tw.area), context.temp_allocator), h.x, h.y, h.z, hint if hint != "" else "none")
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		last_step := "none"

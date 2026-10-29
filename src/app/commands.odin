@@ -752,7 +752,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Gizmo = {
 		label = "Gizmo",
-		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle. With a mask on the one object selected, they pose its unmasked part instead.",
+		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle; All shows the three at once, its arrows moving, its rings turning and its white knobs scaling. With a mask on the one object selected, they pose its unmasked part instead.",
 		icon = ui.ICON_MOVE,
 		args = len(gizmo.Mode),
 		run = proc(app: ^App, arg: int) {
@@ -2484,6 +2484,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)
 		return fmt.tprintf("Workspace: your own %d", arg - len(Built_In) + 1)
 	case .Gizmo:
+		if gizmo.Mode(arg) == .All do return "Move, turn and scale gizmo"
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
 		return fmt.tprintf("Pie %d", arg + 1)

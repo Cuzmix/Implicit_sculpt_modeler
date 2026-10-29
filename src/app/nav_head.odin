@@ -117,6 +117,12 @@ kit_nav_head :: proc(app: ^App) {
 	ui.image(ctx, r, KIT_NAV_HEAD_IMAGE)
 	nav_axes_draw(app, r)
 
+	// The pen's roll over it spins the view about the scene's up axis, clockwise turning
+	// the model clockwise seen from above, as a turntable under the model would.
+	if roll := ui.hover_roll(ctx, a.id, a.hovered); roll != 0 {
+		camera.orbit_spin(&app.camera, math.to_radians(roll))
+		ui.roll_hint(ctx, "Spin")
+	}
 	n := &k.nav
 	if a.pressed {
 		n.from, n.last, n.turned = a.mouse, a.mouse, false
