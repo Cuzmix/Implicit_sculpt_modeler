@@ -308,7 +308,7 @@ palette_lists :: proc(id: Command_Id) -> bool {
 	if !LINK_AVAILABLE && (id == .Send_To_Blender || id == .Get_From_Blender) do return false
 	// A developer's screen: only in builds made for developers (diagnostics.odin).
 	if id == .Input_Diagnostics do return DIAGNOSTICS
-	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred
+	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred && id != .Pen_As_Empty
 }
 
 // Where a menu's own heading names what a label leaves out ("Delete" under the object's

@@ -617,6 +617,7 @@ colors_disc :: proc(app: ^App, inner: f32) {
 		colors_set_hsv(app, hsv)
 		ui.roll_hint(ctx, fmt.tprintf("Hue %.0f°", hsv.x * 360))
 	}
+	pen_zone(app, a.rect, .Colors)
 	hue_ring(ctx, centre, outer - RING, outer)
 	// The disc as a grid of the square mapped into it, coloured at each point.
 	N :: 16

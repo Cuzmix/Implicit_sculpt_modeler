@@ -430,6 +430,7 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 		tl.marking = false
 	}
 	if a.held && !tl.picked && linalg.length(a.mouse - ctx.press_mouse) > ctx.theme.slop do tl.scrubbing = true
+	pen_zone(app, r, .History)
 	// The pen's roll over the bar scrubs it a step for every ROLL_HISTORY_STEP degrees,
 	// clockwise on toward the latest.
 	if roll := ui.hover_roll(ctx, a.id, a.hovered); roll != 0 && enabled && total > 0 {

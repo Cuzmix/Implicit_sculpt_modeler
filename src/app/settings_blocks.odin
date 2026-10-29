@@ -539,7 +539,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.eraser = d.eraser
 	case .Pen_Areas:
 		n.pen_roll, n.grab_twist = d.pen_roll, d.grab_twist
-		for slot in ([?]Gesture_Slot{.Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}) do n.gestures[slot] = d.gestures[slot]
+		for slots in PEN_AREA_SLOTS do for slot in slots do n.gestures[slot] = d.gestures[slot]
 	case .Palm:            n.palm_rejection = d.palm_rejection
 	case .Gesture_Switches:
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll

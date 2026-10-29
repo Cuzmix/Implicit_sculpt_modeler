@@ -330,6 +330,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
 	if adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
 	ui.end(ctx)
+	pen_zone(app, shelf_at, .Shelf, shelf_id)
 	// The pen's roll over the shelf, where no value chip on it took the roll, turns its
 	// page as a swipe does: a page for every SHELF_ROLL_PAGE degrees, clockwise the next.
 	if roll := ui.area_roll(ctx, shelf_id, shelf_at, shelf_id); roll != 0 {

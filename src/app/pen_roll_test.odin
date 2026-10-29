@@ -98,3 +98,30 @@ grab_twist_counts_past_the_engage :: proc(t: ^testing.T) {
 	app.nav.grab_twist = false
 	testing.expect_value(t, grab_twist_angle(&app, -150), 0)
 }
+
+// A double-tap or squeeze over a place of the interface the last layout noted runs that
+// place's slot, the last noted first; over a panel no place claims, the panels'; and the
+// places start on their own commands or As over empty space.
+@(test)
+pencil_gestures_follow_the_interface_places :: proc(t: ^testing.T) {
+	app: App
+	app.nav = NAV_DEFAULT
+	app.device.pointer = .Pen
+	app.pencil.about = true
+	app.kit.ctx.input.mouse = {100, 800}
+	pen_zone(&app, {0, 760, 400, 80}, .Shelf)
+	testing.expect_value(t, pen_area_now(&app), Pen_Area.Shelf)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Double_Tap), Gesture_Slot.Pen_Double_Tap_Shelf)
+	pen_zone(&app, {90, 790, 20, 20}, .Colors)
+	testing.expect_value(t, pencil_slot_here(&app, .Pen_Squeeze), Gesture_Slot.Pen_Squeeze_Colors)
+	app.kit.ctx.input.mouse = {600, 800}
+	testing.expect_value(t, pen_area_now(&app), Pen_Area.Empty)
+	g := app.nav.gestures
+	testing.expect_value(t, g[.Pen_Double_Tap_Shelf], Pie_Slot{.Brush_Picker, 0})
+	testing.expect_value(t, g[.Pen_Double_Tap_History], Pie_Slot{.History_Panel, 0})
+	testing.expect_value(t, g[.Pen_Double_Tap_Nav_Head], Pie_Slot{.Reset_Camera, 0})
+	testing.expect_value(t, g[.Pen_Double_Tap_Colors], Pie_Slot{.Swap_Colors, 0})
+	for area in Pen_Area.Shelf ..= Pen_Area.Colors do testing.expect(t, gesture_lists(g[PEN_AREA_SLOTS[area][1]].id))
+	testing.expect_value(t, g[.Pen_Squeeze_Panels], Pie_Slot{.Pen_As_Empty, 0})
+	free_all(context.temp_allocator)
+}
