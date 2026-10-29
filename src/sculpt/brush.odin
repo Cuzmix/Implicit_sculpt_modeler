@@ -156,6 +156,9 @@ Brush :: struct {
 	// edges a radius, up to SMOOTH_PASSES_MAX, so a dab evens out about the same share of
 	// the brush whatever the density (smooth_passes).
 	smooth_stable: bool,
+	// Smooth: how it evens out (smooth_all.odin's modes): Relax only across the surface,
+	// Polish keeping the volume by the HC Laplacian (where Smooth all's Polish is Taubin's).
+	smooth_mode:   Smooth_Mode,
 	// Grab: pick up only what faces the same way as the surface pressed (Nomad's Same
 	// side), and move only what faces the way it is dragged out (Blender's Silhouette).
 	same_side:  bool,
@@ -181,6 +184,13 @@ Smooth_Only :: enum u8 {
 	Valleys,
 	Peaks,
 }
+
+// Polish's HC Laplacian weights (Vollmer, Mencl and Muller 1999), as Blender's Surface
+// Smooth's defaults: how far each step is pulled back toward where the dab began
+// (alpha) and how much of that pull is the vertex's own rather than its neighbours'
+// (beta).
+POLISH_ALPHA :: 0.5
+POLISH_BETA :: 0.5
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
 Layer_Height :: struct {
@@ -258,6 +268,12 @@ Sculptor :: struct {
 	partials:    [dynamic]Partial,
 	offsets:     [dynamic]u32, // per hit leaf: start of its slots in smooth_to
 	smooth_to:   [dynamic]Vec3,
+	// Polish: per slot, where each vertex was when the dab began and its HC push-back.
+	smooth_from: [dynamic]Vec3,
+	smooth_b:    [dynamic]Vec3,
+	// Polish: the hit leaves' owned ranges sorted by their first vertex, to find a
+	// neighbour's slot (smooth_slot).
+	smooth_ranges: [dynamic]Smooth_Range,
 	blur_to:     [dynamic][4]f32, // Paint's blur: the colour each slot mixes toward
 
 	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush,
@@ -346,6 +362,9 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.partials = make([dynamic]Partial, 0, 256, allocator)
 	s.offsets = make([dynamic]u32, 0, 256, allocator)
 	s.smooth_to = make([dynamic]Vec3, 0, 16384, allocator)
+	s.smooth_from = make([dynamic]Vec3, 0, 0, allocator)
+	s.smooth_b = make([dynamic]Vec3, 0, 0, allocator)
+	s.smooth_ranges = make([dynamic]Smooth_Range, 0, 0, allocator)
 	s.blur_to = make([dynamic][4]f32, 0, 0, allocator)
 	s.stale = make([]Stale, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
@@ -394,6 +413,9 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.partials)
 	delete(s.offsets)
 	delete(s.smooth_to)
+	delete(s.smooth_from)
+	delete(s.smooth_b)
+	delete(s.smooth_ranges)
 	delete(s.blur_to)
 	delete(s.stale)
 	delete(s.dirty_nodes)
@@ -1086,9 +1108,21 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 			if edges > 0 do scale = smooth_stable_scale(brush.radius, f32(length / edges))
 		}
 		rates := smooth_passes(brush.strength * scale)
+		if brush.smooth_mode == .Polish && len(rates) > 0 {
+			resize(&s.smooth_from, int(total))
+			resize(&s.smooth_b, int(total))
+			clear(&s.smooth_ranges)
+			for leaf, i in s.hit {
+				first, last := owned(s, leaf)
+				append(&s.smooth_ranges, Smooth_Range{first, last, s.offsets[i]})
+				copy(s.smooth_from[s.offsets[i]:][:last - first], s.mesh.positions[first:last])
+			}
+			slice.sort_by(s.smooth_ranges[:], proc(a, b: Smooth_Range) -> bool {return a.first < b.first})
+		}
 		for rate in rates {
 			d.rate = rate
 			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
+			if brush.smooth_mode == .Polish do jobs.parallel_for(pool, len(s.hit), &d, job_polish_targets)
 			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
 		}
 	}
@@ -1344,12 +1378,72 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	out := s.smooth_to[s.offsets[i]:]
+	polish := d.brush.smooth_mode == .Polish
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 {
+			// Outside the brush a vertex stays, so it pushes nothing back.
+			if polish do s.smooth_b[s.offsets[i] + v - first] = {}
+			continue
+		}
+		q := smooth_target(s, v)
+		out[v - first] = q
+		if polish {
+			slot := s.offsets[i] + v - first
+			s.smooth_b[slot] = q - (POLISH_ALPHA * s.smooth_from[slot] + (1 - POLISH_ALPHA) * m.positions[v])
+		}
+	}
+	s.partials[i].touched = shared_inside(d, s.hit[i])
+}
+
+// A hit leaf's owned vertices and where their slots start.
+Smooth_Range :: struct {
+	first, last, offset: u32,
+}
+
+// The slot of vertex `v` among the hit leaves' owned vertices, or false when no hit leaf
+// owns it.
+@(private)
+smooth_slot :: proc(s: ^Sculptor, v: u32) -> (u32, bool) {
+	r := s.smooth_ranges[:]
+	lo, hi := 0, len(r)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if r[mid].last <= v {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo < len(r) && r[lo].first <= v do return r[lo].offset + v - r[lo].first, true
+	return 0, false
+}
+
+// Polish's second step: each target pulled back by its own push-back and its
+// neighbours', so the surface keeps its volume (Smooth_Mode.Polish).
+@(private)
+job_polish_targets :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		if linalg.dot(delta, delta) >= d.r2 do continue
-		out[v - first] = smooth_target(s, v)
+		around: Vec3
+		n: f32
+		for f in faces_of(s, v) {
+			for k in u32(0) ..< 3 {
+				w := m.indices[3 * f + k]
+				if w == v do continue
+				if slot, ok := smooth_slot(s, w); ok do around += s.smooth_b[slot]
+				n += 1
+			}
+		}
+		slot := s.offsets[i] + v - first
+		if n > 0 do around /= n
+		s.smooth_to[slot] -= POLISH_BETA * s.smooth_b[slot] + (1 - POLISH_BETA) * around
 	}
-	s.partials[i].touched = shared_inside(d, s.hit[i])
 }
 
 // Where Smooth moves vertex `v` toward: the middle of its triangles' corners, or on an
@@ -1417,7 +1511,13 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		if d2 < d.r2 {
 			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 && smooth_takes(d.brush.smooth_only, targets[v - first] - m.positions[v], m.normals[v]) {
 				t := clamp(d.rate * dab_weight(d, delta, d2), 0, 1) * w
-				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
+				step := targets[v - first] - m.positions[v]
+				if d.brush.smooth_mode == .Relax {
+					// Only across the surface: the part along the normal would change the shape.
+					n := linalg.normalize0(m.normals[v])
+					step -= n * linalg.dot(step, n)
+				}
+				m.positions[v] += step * t
 				moved += 1
 			}
 		}

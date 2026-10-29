@@ -173,6 +173,7 @@ SETTINGS := [?]Setting {
 	{"hook_elastic", B + offset_of(Brush_Settings, hook_elastic), bool, 0, 0},
 	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
 	{"smooth_stable", B + offset_of(Brush_Settings, smooth_stable), bool, 0, 0},
+	{"smooth_mode", B + offset_of(Brush_Settings, smooth_mode), sculpt.Smooth_Mode, 0, 0},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},

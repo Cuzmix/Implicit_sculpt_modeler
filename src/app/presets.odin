@@ -62,6 +62,7 @@ Preset_Values :: struct {
 	hook_rake:        f32,
 	hook_elastic:     bool,
 	smooth_stable:    bool, // Smooth's Stable (Brush_Settings.smooth_stable)
+	smooth_mode:      sculpt.Smooth_Mode, // Smooth, Relax or Polish
 }
 
 Brush_Preset :: struct {
@@ -85,7 +86,7 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		smooth_only = b.smooth_only, grab_mode = b.grab_mode, grab_normal = b.grab_normal, grab_same_side = b.grab_same_side,
 		grab_silhouette = b.grab_silhouette, grab_topological = b.grab_topological, elastic_volume = b.elastic_volume,
 		hook_pinch = b.hook_pinch, hook_rake = b.hook_rake, hook_elastic = b.hook_elastic,
-		smooth_stable = b.smooth_stable,
+		smooth_stable = b.smooth_stable, smooth_mode = b.smooth_mode,
 	}
 }
 
@@ -102,7 +103,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.grab_topological = v.grab_topological
 	if v.kind == .Elastic do b.elastic_volume = v.elastic_volume
 	if v.kind == .Snake_Hook do b.hook_pinch, b.hook_rake, b.hook_elastic = v.hook_pinch, v.hook_rake, v.hook_elastic
-	if v.kind == .Smooth do b.smooth_stable = v.smooth_stable
+	if v.kind == .Smooth do b.smooth_stable, b.smooth_mode = v.smooth_stable, v.smooth_mode
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -193,7 +194,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.kind == .Grab && (a.grab_mode != b.grab_mode || a.grab_normal != b.grab_normal || a.grab_same_side != b.grab_same_side || a.grab_silhouette != b.grab_silhouette || a.grab_topological != b.grab_topological) do return false
 	if a.kind == .Elastic && (a.grab_mode != b.grab_mode || a.elastic_volume != b.elastic_volume) do return false
 	if a.kind == .Snake_Hook && (a.hook_pinch != b.hook_pinch || a.hook_rake != b.hook_rake || a.hook_elastic != b.hook_elastic) do return false
-	if a.kind == .Smooth && (a.smooth_only != b.smooth_only || a.smooth_stable != b.smooth_stable) do return false
+	if a.kind == .Smooth && (a.smooth_only != b.smooth_only || a.smooth_stable != b.smooth_stable || a.smooth_mode != b.smooth_mode) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -322,7 +323,7 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // lines from before Elastic's Volume take the default; lines from before Snake hook's
 // Pinch, Rake and Elastic tip have none of them. After those come named values, each
 // `key=value`, so a value added later needs no new length and a build that does not know a
-// key skips just that value: smooth_stable=1 (Smooth's Stable).
+// key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
 	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
 	kind, kind_ok := brush_by_name(f[2])
@@ -373,6 +374,9 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		key, _, value := strings.partition(word, "=")
 		switch key {
 		case "smooth_stable": v.smooth_stable = value == "1"
+		case "smooth_mode":
+			// A mode this build does not know smooths plainly.
+			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
 		}
 	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
@@ -389,7 +393,8 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// builds from before them, which skip a line of a length they do not know, keep every
 	// other preset.
 	stable := v.kind == .Smooth && v.smooth_stable
-	named := stable
+	smooth_mode := v.kind == .Smooth && v.smooth_mode != .Smooth
+	named := stable || smooth_mode
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -404,6 +409,7 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if volume do fmt.sbprintf(out, " %g", v.elastic_volume)
 	if hook do fmt.sbprintf(out, " %g %g %d", v.hook_pinch, v.hook_rake, bit(v.hook_elastic))
 	if stable do fmt.sbprintf(out, " smooth_stable=1")
+	if smooth_mode do fmt.sbprintf(out, " smooth_mode=%v", v.smooth_mode)
 	strings.write_byte(out, '\n')
 }
 

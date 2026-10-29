@@ -61,6 +61,7 @@ Brush_Settings :: struct {
 	hook_elastic:      bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	smooth_stable:     bool, // Smooth's passes follow the mesh's density (sculpt.Brush.smooth_stable)
+	smooth_mode:       sculpt.Smooth_Mode, // how Smooth evens out: Smooth, Relax or Polish
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	// Spray: how far each dab's paint colour strays from the brush's, 0 to 1 (Colour spray).
@@ -1247,6 +1248,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
 		smooth_stable = kind == .Smooth && app.brush.smooth_stable,
+		// Alt while smoothing polishes, as ZBrush's alternate smooth, for keys to hand.
+		smooth_mode = (.Polish if input.alt else app.brush.smooth_mode) if kind == .Smooth else .Smooth,
 		feather    = app.brush.feather,
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,

@@ -221,4 +221,12 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	append(&later, "from_later=7")
 	_, w, _, ok = preset_parse(later[:])
 	testing.expect(t, ok && w.kind == .Smooth && w.smooth_stable)
+	// ...and its mode after that.
+	v.smooth_mode = .Polish
+	strings.builder_reset(&out)
+	preset_line(&out, "Even", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "smooth_mode=Polish")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.smooth_mode == .Polish && w.smooth_stable)
 }
