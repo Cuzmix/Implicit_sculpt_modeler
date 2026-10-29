@@ -269,6 +269,11 @@ Kit_State :: struct {
 	layer:      Maybe(ui.Layer),
 	// The outliner's context menu: open, on which object, where.
 	object_menu:    bool,
+	// The object menu's state (object_menu.odin) beyond its place: waiting on the scene change
+	// that selects its object, and for the exit stats its object's type and rows.
+	object_menu_wait: bool,
+	object_menu_type: Object_Type,
+	object_menu_rows: int,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
@@ -1660,50 +1665,6 @@ brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	command_run(app, .Brush, int(kind))
 	side_panel_close(app)
 	k.inspector, k.tab, k.scroll = true, .Tool, 0
-}
-
-// Opens the object menu on object `id`, `side` of `at`.
-object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side) {
-	k := &app.kit
-	k.object_menu, k.object_menu_id, k.object_menu_at, k.object_menu_side = true, id, at, side
-}
-
-// The object's context menu: at the pointer from the Scene palette, above the status chip.
-@(private = "file")
-kit_object_menu :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	// The object it was opened on has gone (deleted, undone): the menu goes with it.
-	found := false
-	for obj in app.scene.objects do found ||= obj.id == k.object_menu_id
-	if !found do k.object_menu = false
-	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = 232}) do return
-	picked := command_menu_item(app, .Focus_Selected, label = "Focus")
-	if command_menu_item(app, .Duplicate_Object) do picked = true
-	if command_menu_item(app, .Rename_Object) do picked = true
-	if command_menu_item(app, .Solo_Object) do picked = true
-	if command_menu_item(app, .Ghost_Object) do picked = true
-	if command_menu_item(app, .Hide_Object) do picked = true
-	// Where it can go in the tree: a new folder, each other folder, or out of its own.
-	ui.divider(ctx, across = true)
-	if command_menu_item(app, .New_Folder) do picked = true
-	if obj := object_by_id(app, k.object_menu_id); obj != nil {
-		for &f in app.scene.folders {
-			if f.id == obj.folder do continue
-			if ui.menu_item(ctx, fmt.tprintf("Move to %s##into %d", folder_label(&f), f.id), glyph = ui.ICON_FOLDER) {
-				app.ui.scene_command = {kind = .Arrange, arrange = .Into_Folder, id = obj.id, folder = f.id}
-				picked = true
-			}
-		}
-		if obj.folder != 0 && ui.menu_item(ctx, "Take out of folder", glyph = ui.ICON_FOLDER) {
-			app.ui.scene_command = {kind = .Arrange, arrange = .Out_Of_Folder, id = obj.id}
-			picked = true
-		}
-	}
-	ui.divider(ctx, across = true)
-	if command_menu_item(app, .Delete_Object, tone = .Danger) do picked = true
-	if picked do k.object_menu = false
-	ui.popover_end(ctx)
 }
 
 // Opens folder `id`'s menu at `at`.

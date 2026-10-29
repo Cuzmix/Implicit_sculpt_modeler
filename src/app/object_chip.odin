@@ -52,14 +52,13 @@ object_chip_of :: proc(app: ^App) -> (c: Object_Chip) {
 			c.count += 1
 		}
 	}
-	switch {
-	case obj.voxel != nil:
-		c.glyph, c.tag = ICON_VOXEL_CLAY, "Voxel clay"
-	case obj.cage != nil:
-		c.glyph, c.tag = ICON_CAGE, "Cage"
+	kind := object_type(obj)
+	c.glyph, c.tag = OBJECT_TYPE_ICONS[kind], OBJECT_TYPE_NAMES[kind]
+	switch kind {
+	case .Voxel_Clay:
+	case .Cage:
 		if s := obj.cage.look.smooth; s > 0 do badge(&c, fmt.tprintf("Smooth %d", s))
-	case:
-		c.glyph, c.tag = ICON_SCULPT_MESH, "Sculpt mesh"
+	case .Sculpt_Mesh:
 		if n := len(obj.levels.levels); n > 1 do badge(&c, fmt.tprintf("L%d", obj.levels.current + 1))
 		if object_in_hd(obj) do badge(&c, "HD")
 		if object_dynamic(obj) do badge(&c, "Dynamic")

@@ -928,7 +928,9 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 // shortcut in the accent colour (a key the user chose), `keys_muted` fainter (none).
 // `trailing` puts the icon at the right end in place of the shortcut, as iPad menus have
 // it. Returns true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false) -> bool {
+// `tag`, when given, is a small pill at the right end in `tag_color` (where the row
+// belongs, say), in place of the shortcut.
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -959,6 +961,12 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 		icon(ctx, ICON_CHECK, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, t.accent)
 	} else if glyph != 0 && trailing {
 		icon(ctx, glyph, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	} else if tag != "" {
+		tw := text_width(ctx, tag, t.caption_size, .Semibold) + 12
+		pill := Rect{right - tw, vis.y + vis.h * 0.5 - 10, tw, 20}
+		fade: f32 = 1 if enabled else 0.4
+		stroke_rect(ctx, pill, t.radius_small, color_fade(tag_color, fade), 1)
+		text(ctx, tag, pill.x + 6, pill.y + 10, t.caption_size, color_fade(tag_color, fade), .Semibold)
 	} else if keys != "" {
 		color := t.accent if keys_accent else (color_fade(t.text_tertiary, 0.6) if keys_muted else t.text_tertiary)
 		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, color, .Semibold if keys_accent else .Regular, .Right)

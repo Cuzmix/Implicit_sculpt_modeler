@@ -168,6 +168,7 @@ Command_Id :: enum u8 {
 	Ghost_Object,
 	Show_All_Objects,
 	Solo_Object,
+	Lock_Object,
 	New_Folder,
 	Objects_Card,
 	Copy_Object,
@@ -1520,6 +1521,13 @@ COMMANDS := [Command_Id]Command {
 			off, _ := scene_view_counts(app)
 			return off > 0 || app.scene.solo
 		},
+	},
+	.Lock_Object = {
+		label = "Lock object",
+		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene palette unlocks it.",
+		icon = ICON_LOCK,
+		run = proc(app: ^App, _: int) {view_command(app, .Lock)},
+		enabled = has_object,
 	},
 	.Solo_Object = {
 		label = "Solo",
