@@ -169,6 +169,7 @@ Command_Id :: enum u8 {
 	Show_All_Objects,
 	Solo_Object,
 	Lock_Object,
+	Object_Menu,
 	New_Folder,
 	Objects_Card,
 	Copy_Object,
@@ -1529,6 +1530,13 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {view_command(app, .Lock)},
 		enabled = has_object,
 	},
+	.Object_Menu = {
+		label = "Object menu",
+		help = "Opens the menu of the object under the pointer (the scene's menu over empty space), or the selected object's under its chip when the pointer is not on the view: what a right click and the pen's side button open.",
+		icon = ui.ICON_MENU,
+		run = proc(app: ^App, _: int) {object_menu_here(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
+	},
 	.Solo_Object = {
 		label = "Solo",
 		help = "Shows only the selected object, and whichever is selected next, until Solo is off again; the others keep their eyes as they were.",
@@ -2194,7 +2202,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Brush_Pie = {
 		label = "Brush pie",
-		help = "Opens the brush pie at the pointer, for a tap on a brush: what Space and a right click open.",
+		help = "Opens the brush pie at the pointer, for a tap on a brush: what Space opens, and a right click with Settings > Keys > Right click opens set to Brush pie.",
 		icon = ui.ICON_PIE,
 		run = proc(app: ^App, _: int) {pie_toggle(app, 0)},
 		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},

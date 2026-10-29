@@ -157,7 +157,9 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Two_Hold   = {.Undo, 0},
 	.Three_Hold = {.Redo, 0},
 	.Four_Hold  = {},
-	.Pen_Button = {.Brush_Pie, 0},
+	// The side button opens the menu of what the pen points at, as a right click does (a
+	// settings file from before version 8 keeps the brush pie it opened then).
+	.Pen_Button = {.Object_Menu, 0},
 	.One_Tap    = {},
 	// Unmapped, the second button stays SDL's middle button, which the mouse scheme drags.
 	.Pen_Button_2   = {},
@@ -180,9 +182,9 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Pen_Squeeze_Nav_Head    = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Colors   = {.Swap_Colors, 0},
 	.Pen_Squeeze_Colors      = {.Pen_As_Empty, 0},
-	// The buttons start as they always were, the side button the brush pie and the second
-	// the middle button, everywhere.
-	.Pen_Button_Empty        = {.Brush_Pie, 0},
+	// The side button opens the scene menu over empty space; the second button starts as it
+	// always was, the middle button, everywhere.
+	.Pen_Button_Empty        = {.Object_Menu, 0},
 	.Pen_Button_2_Empty      = {},
 	.Pen_Button_2_Shelf      = {.Pen_As_Empty, 0},
 	.Pen_Button_2_Panels     = {.Pen_As_Empty, 0},
@@ -198,7 +200,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 // too.
 @(rodata)
 GESTURE_CHOICES := [?]Pie_Slot {
-	{.Undo, 0}, {.Redo, 0}, {.Clean_View, 0}, {.Brush_Pie, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
+	{.Undo, 0}, {.Redo, 0}, {.Clean_View, 0}, {.Brush_Pie, 0}, {.Object_Menu, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
 	{.Inspector, 0}, {.Objects_Card, 0}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
 	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.View_Back, 0}, {.View_Forward, 0}, {.Ortho_Toggle, 0},
 	{.Wireframe, 0}, {.Polygroups, 0}, {.Floor_Grid, 0}, {.Transparency, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0}, {.Local_Symmetry, 0}, {.Radial_Symmetry, 0}, {.Brush_Subtract, 0}, {.Brush_Add, 0}, {.Paint_Channel, 0}, {.Swap_Colors, 0},
@@ -295,8 +297,14 @@ gesture_notes :: proc(app: ^App) -> []string {
 	if g[.One_Tap].id != .None && app.nav.double_tap {
 		append(&out, "A one-finger tap waits 0.3 s before it runs, in case a second tap makes it a double tap (Double tap to frame, above).")
 	}
-	if g[.Pen_Button] != {.Brush_Pie, 0} || g[.Pen_Button_Empty] != {.Brush_Pie, 0} {
-		append(&out, "The pen's side button no longer opens the brush pie everywhere: Space, the mouse's right click and Search still do.")
+	// The side button's default opens the object menu, which the chip, a right click and a
+	// finger held still open too; anything else leaves one of its menus to those.
+	defaults := GESTURE_DEFAULTS
+	pie := Pie_Slot{.Brush_Pie, 0}
+	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_Empty}) {
+		if g[slot] == defaults[slot] || g[slot] == pie do continue
+		append(&out, "The pen's side button no longer opens the object menu or the brush pie everywhere: the object chip, Space, a right click and Search still do.")
+		break
 	}
 	second_mapped := false
 	for slot in PEN_BUTTON_2_SLOTS do if g[slot].id != .None && g[slot].id != .Pen_As_Empty do second_mapped = true
@@ -309,7 +317,6 @@ gesture_notes :: proc(app: ^App) -> []string {
 	}
 	// The default hold and the lift have always shared the start; a command of the user's
 	// own there is worth saying.
-	defaults := GESTURE_DEFAULTS
 	if g[.Two_Hold].id != .None && g[.Two_Hold] != defaults[.Two_Hold] && app.nav.lift_one_orbit {
 		append(&out, "Hold two fingers and Lift one of two fingers to turn start alike: lifting one before the ring fills turns the view.")
 	}

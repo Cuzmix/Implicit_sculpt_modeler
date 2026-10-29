@@ -44,8 +44,10 @@ settings_path :: proc() -> string {
 // the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
 // (workspaces.odin). 6: each space its own dial, `dial_sector` lines being Sculpt's and
 // `dial_space` lines Model's and Render's. 7: Clay stopped starting on its own Clay
-// response and follows the global pressure as every other brush does.
-SETTINGS_VERSION :: 7
+// response and follows the global pressure as every other brush does. 8: the pen's side
+// button opens the object menu, over the model and over empty space, where it opened the
+// brush pie.
+SETTINGS_VERSION :: 8
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -333,6 +335,7 @@ SETTINGS := [?]Setting {
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
 	{"mouse_scheme", N + offset_of(Nav_Prefs, mouse_scheme), Mouse_Scheme, 0, 0},
+	{"right_click", N + offset_of(Nav_Prefs, right_click), Right_Click, 0, 0},
 	{"limit_pitch", N + offset_of(Nav_Prefs, limit_pitch), bool, 0, 0},
 	{"turntable_roll", N + offset_of(Nav_Prefs, turntable_roll), bool, 0, 0},
 	{"orbit_speed", N + offset_of(Nav_Prefs, orbit_speed), f32, 0.25, 4},
@@ -652,6 +655,9 @@ settings_load :: proc(app: ^App, path: string) {
 	fixed_lights := false
 	// Before size had a pressure curve of its own it took the strength's.
 	size_curve_seen := false
+	// The pen's side button slots a gesture_map line set, which version 8's new default
+	// leaves alone.
+	pen_button_seen: bit_set[Gesture_Slot]
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -951,6 +957,7 @@ settings_load :: proc(app: ^App, path: string) {
 			// defaults ("gesture" alone is the Ctrl+Shift drag's tool).
 			slot, slot_ok := reflect.enum_from_name(Gesture_Slot, f[1])
 			if len(f) != 3 || !slot_ok do continue
+			pen_button_seen += {slot}
 			if f[2] == "none" {
 				app.nav.gestures[slot] = {}
 			} else if id, arg, ok := command_from_name(f[2]); ok && gesture_lists(id) {
@@ -1006,6 +1013,12 @@ settings_load :: proc(app: ^App, path: string) {
 	// fifth and its strength to almost nothing, so Clay seemed to do nothing. It goes back
 	// on the global pressure once; a response changed since stays.
 	if version < 7 && pressure_is_old_clay(b.pressures[.Clay]) do b.pressures[.Clay] = {}
+	// The pen's side button opened the brush pie before version 8, a default every file then
+	// holds by having no line for it: it keeps the pie, so only a fresh install's button
+	// opens the object menu.
+	if version < 8 {
+		for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_Empty}) do if slot not_in pen_button_seen do app.nav.gestures[slot] = {.Brush_Pie, 0}
+	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)

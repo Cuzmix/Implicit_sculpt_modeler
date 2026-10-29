@@ -553,7 +553,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Finger_Sculpts:  n.palm_rejection, n.finger_model, n.tap_switches = d.palm_rejection, d.finger_model, d.tap_switches
 	case .Keys:
 		bind_reset_all(app)
-		n.mouse_scheme = d.mouse_scheme
+		n.mouse_scheme, n.right_click = d.mouse_scheme, d.right_click
 		k.keys_query = {}
 	case .Statistics:      k.stats, k.stats_advanced = false, false
 	case .Frame_Rate:

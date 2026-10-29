@@ -172,6 +172,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", command = .Focus_Selected},
 	{group = "VIEW", command = .Frame_All},
 	{group = "VIEW", command = .Solo_Object},
+	{group = "VIEW", command = .Object_Menu},
+	{group = "VIEW", what = "Menu of an object, or of the scene", how = "Hold one finger still on empty space, or on an object with the Move or Model tool"},
 	{group = "HISTORY", command = .Undo},
 	{group = "HISTORY", command = .Redo},
 	{group = "HISTORY", what = "Go to a step (History panel)", how = "Tap it on the bar, or drag along it"},
