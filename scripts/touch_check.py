@@ -1485,14 +1485,54 @@ def x_symmetry_stroke_across_the_middle_by_pen():
 
 @scenario
 def grab_pulls_the_outline_from_outside():
-    """Grab pressed with the mouse 26 px past the sphere's right edge (within the brush
-    ring) takes hold of the nearest surface and pulls it out to the right, one undo step,
-    where any other brush pressed there turns the view (look with --screens: a bulge on the
-    outline)."""
+    """With Past the outline on, Grab pressed with the mouse 26 px past the sphere's right
+    edge (within the brush ring) takes hold of the nearest surface and pulls it out to the
+    right, one undo step (look with --screens: a bulge on the outline)."""
     s = Script()
     s.mouse_drag(line((1040, 450), (1160, 450), 12))
     s.wait(2)
-    return s, ["--script=brush grab"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("grab")})
+    return s, ["--script=brush grab; set grab_outline on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("grab")})
+
+
+def ring_past_the_edge(brush):
+    """A mouse drag pressed 26 px past the sphere's right edge with a ring 200 px across."""
+    s = Script()
+    s.mouse_drag(line((1040, 450), (1160, 450), 12))
+    s.wait(2)
+    return s, [f"--script=set orbit_style turntable; brush {brush}; set radius_px 200"], {
+        "dabs": near(0), "undo_steps": near(0), "camera_yaw": near(wrap(0.6 - 120 * 0.008), 2e-3)}
+
+
+@scenario
+def big_ring_past_the_edge_turns_the_view():
+    """A brush ring 200 px across pressed with the mouse 26 px past the sphere's right edge,
+    so most of the ring lies over the sphere, turns the view and sculpts nothing: only the
+    pointer itself on the model starts a stroke."""
+    return ring_past_the_edge("draw")
+
+
+@scenario
+def grab_past_the_edge_turns_the_view():
+    """Grab pressed 26 px past the sphere's edge with Past the outline off (the default)
+    turns the view as every other brush does there."""
+    return ring_past_the_edge("grab")
+
+
+@scenario
+def pen_big_ring_past_the_edge_turns_the_view():
+    """The pen pressed 26 px past the sphere's right edge with a ring 200 px across turns the
+    view, as ZBrush's Pencil does off the model, and sculpts nothing."""
+    s = Script()
+    s.add("pnear")
+    s.wait(1)
+    s.add("pdown:1040,450")
+    for x, y in past_slop((1040, 450), (1160, 450), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(3)
+    return s, ["--script=set orbit_style turntable; set radius_px 200"], {"dabs": near(0), "undo_steps": near(0), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.3}
 
 
 @scenario
@@ -7071,6 +7111,68 @@ def pen_hover_wobble_moves_no_size():
         s.add(f"proll:{deg}")
         s.wait(2)
     return s, [], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+# A point on the default sphere right of and above its middle, and empty space above the
+# model, clear of the panels, at 1600 x 900.
+PEN_MODEL_POINT = (930, 380)
+PEN_EMPTY_POINT = (1150, 170)
+
+
+def pen_rolls(s, degrees, frames=2):
+    for deg in degrees:
+        s.add(f"proll:{deg}")
+        s.wait(frames)
+
+
+@scenario
+def pen_roll_twists_the_view_about_the_point():
+    """The pen hovering over the model and turned 100 degrees clockwise twists the view clockwise by the 90 past the first ROLL_ENGAGE (10), about the point under its tip, which stays where it was on screen (Nomad's twist)."""
+    s = Script()
+    pen_hover(s, *PEN_MODEL_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    hit = lambda st: tuple(float(v) for v in st["pen_roll_hit"].split(","))
+    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0),
+                   "@hit_on_model": lambda st: 0.9 < math.dist(hit(st), (0, 0, 0)) < 1.2,
+                   "@hit_stays_put": lambda st: math.dist(on_screen(st, hit(st)), on_screen(None, hit(st))) < 2e-3}
+
+
+@scenario
+def pen_roll_carried_across_twists_nothing():
+    """A hand that turns the pen a little all the way as it carries it across the model (60 degrees over 300 points) twists nothing: the turn counts again from nothing every 40 points."""
+    s = Script()
+    s.add("pnear")
+    for i, (x, y) in enumerate(line((650, 450), (950, 450), 20)):
+        s.add(f"pmove:{x:g},{y:g}")
+        s.add(f"proll:{3 * i}")
+        s.wait(1)
+    s.wait(4)
+    return s, [], camera_still({"pen_rolls": near(0), "dabs": near(0)})
+
+
+@scenario
+def pen_roll_over_empty_space_zooms_when_set():
+    """With Roll over empty space set to Zoom toward the tip, the pen hovering over empty space and turned 100 degrees clockwise comes closer, by 2 to the 90/180 past the first ROLL_ENGAGE, and rolls nothing."""
+    s = Script()
+    pen_hover(s, *PEN_EMPTY_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    return s, ["--script=set pen_roll_empty zoom"], {"pen_rolls": near(1), "pen_roll_area": is_text("empty"),
+                                                   "camera_distance": near(3.5 / 2 ** 0.5, 0.02), "camera_roll": near(0)}
+
+
+@scenario
+def pencil_double_tap_over_empty_space_frames():
+    """The pencil hovering over empty space and double-tapped frames the model (Frame, the empty-space default); over the model it does what the iPad asks, and Smooth latches."""
+    empty = Script()
+    pen_hover(empty, *PEN_EMPTY_POINT, frames=4)
+    empty.add("pdtap")
+    empty.wait(6)
+    model = Script()
+    pen_hover(model, *PEN_MODEL_POINT, frames=4)
+    model.add("pdtap")
+    model.wait(6)
+    return Steps([(empty, [], {"camera_distance": lambda v: abs(float(v) - 3.5) > 1e-3, "rail_latched": is_text("none")}),
+                  (model, [], camera_still({"rail_latched": is_text("smooth")}))])
 
 
 def pen_away(s, frames):

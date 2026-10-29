@@ -308,6 +308,7 @@ symmetry_controls :: proc(app: ^App) {
 		app.brush.radial_on = true
 	}
 	_ = ui.switch_row(ctx, "Feather", &app.brush.feather)
+	_ = ui.switch_row(ctx, "Show the symmetry line", &app.kit.symmetry_line)
 }
 
 // Section `sec` of the tray, wherever its palette lists it: its title and what draws it

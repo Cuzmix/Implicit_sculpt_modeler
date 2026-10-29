@@ -19,6 +19,7 @@ Settings_Block :: enum u8 {
 	Motion,
 	Starting,
 	Brush_Ring,
+	Symmetry_Line,
 	Column_Popovers,
 	View_Grid,
 	Bars,
@@ -40,6 +41,7 @@ Settings_Block :: enum u8 {
 	Pen_Tips,
 	Pen_Predict,
 	Pen_Buttons,
+	Pen_Areas,
 	Palm,
 	Gesture_Switches,
 	Shapes,
@@ -79,6 +81,7 @@ SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
+	{.Symmetry_Line, "SYMMETRY"},
 	{.Column_Popovers, "PANELS"},
 	{.View_Grid, "VIEW GRID"},
 	{.Bars, "BARS"},
@@ -104,6 +107,7 @@ SETTINGS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 	// It draws its own caption.
 	{.Gesture_Map, ""},
+	{.Pen_Areas, "WHERE THE PEN POINTS"},
 }
 @(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
@@ -142,6 +146,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
+	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.Column_Popovers  = "columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock",
@@ -160,7 +165,8 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pen_Empty        = "pen mouse empty space waits for the model",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
-	.Pen_Buttons      = "apple pencil double tap squeeze second button barrel eraser end flip",
+	.Pen_Buttons      = "pen second button barrel eraser end flip",
+	.Pen_Areas        = "apple pencil pen roll barrel twist turn hover model empty space double tap squeeze where",
 	.Palm             = "palm rejection ignore the hand pen near",
 	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
 	.Shapes           = "shapes mask hide clip apply",
@@ -241,6 +247,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Brush_Ring:
 		_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 		ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	case .Symmetry_Line:
+		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
+		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
 	case .Column_Popovers:
 		_ = ui.switch_row(ctx, "Columns pop over a narrow window", &k.column_popovers)
 		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
@@ -373,6 +382,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "While a stroke draws, the brush ring runs ahead to where the pen will be when the screen shows it, so it keeps up with a fast stroke. Only the ring: the stroke goes where the pen went.")
 	case .Pen_Buttons:
 		settings_pen_buttons(app)
+	case .Pen_Areas:
+		settings_pen_areas(app)
 	case .Palm:
 		_ = ui.switch_row(ctx, "Ignore the hand while the pen is near", &n.palm_rejection)
 		ui.paragraph(ctx, "A single finger does nothing while the pen is near the screen; two fingers still move the view.")
@@ -494,6 +505,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Motion:          k.ctx.reduced_motion = false
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
+	case .Symmetry_Line:   k.symmetry_line = true
 	case .Column_Popovers: k.column_popovers = true
 	case .View_Grid:       k.panes_work = true
 	case .Bars:
@@ -520,8 +532,11 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:
-		for slot in PENCIL_SLOTS do n.gestures[slot] = d.gestures[slot]
+		n.gestures[.Pen_Button_2] = d.gestures[.Pen_Button_2]
 		n.eraser = d.eraser
+	case .Pen_Areas:
+		n.pen_roll = d.pen_roll
+		for slot in ([?]Gesture_Slot{.Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}) do n.gestures[slot] = d.gestures[slot]
 	case .Palm:            n.palm_rejection = d.palm_rejection
 	case .Gesture_Switches:
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll

@@ -72,3 +72,59 @@ symmetry_label :: proc(app: ^App) -> string {
 	if b.radial_on do fmt.sbprintf(&planes, "+radial%d%c", b.radial_count, names[int(b.radial_axis)])
 	return strings.to_string(planes)
 }
+
+// Whether the selected brush has any symmetry on: a mirror plane or radial copies.
+symmetry_on :: proc(app: ^App) -> bool {
+	return app.brush.symmetry != {} || app.brush.radial_on
+}
+
+// Where the selected brush's mirror planes cut the selected object, in its own space, as
+// Nomad draws its plane's thin line across the model (Settings > Interface > Show the
+// symmetry line), and with Radial the box the axis is drawn across. Worked out again only
+// when the work, the object, its level or the symmetry changes, so a frame costs only the
+// drawing; through a stroke the line keeps the shape the stroke began on.
+Symmetry_Lines :: struct {
+	valid:    bool,
+	object:   int,
+	sculptor: ^sculpt.Sculptor,
+	serial:   u64,
+	edits:    u64,
+	symmetry: sculpt.Symmetry,
+	center:   Vec3,
+	box:      geom.Aabb, // the object's shown surface, for the radial axis
+	cuts:     [sculpt.Axis]sculpt.Section,
+}
+
+symmetry_lines_destroy :: proc(l: ^Symmetry_Lines) {
+	for &cut in l.cuts do sculpt.section_destroy(&cut)
+	l^ = {}
+}
+
+// The selected object's symmetry lines, brought up to date, or nil when the selected
+// object has none to show (no symmetry, a voxel object, nothing selected).
+symmetry_lines :: proc(app: ^App) -> (^Object, ^Symmetry_Lines) {
+	obj := selected_object(app)
+	if obj == nil || obj.voxel != nil || !symmetry_on(app) do return nil, nil
+	l := &app.sym_lines
+	s := object_sculptor(obj)
+	sym := brush_symmetry(app, obj)
+	if l.valid && l.object == obj.id && l.sculptor == s && l.serial == app.history.serial && l.edits == app.scene_edits && l.symmetry == sym.symmetry && l.center == sym.sym_center {
+		return obj, l
+	}
+	l.valid, l.object, l.sculptor, l.serial, l.edits = true, obj.id, s, app.history.serial, app.scene_edits
+	l.symmetry, l.center = sym.symmetry, sym.sym_center
+	l.box = geom.AABB_EMPTY
+	for ch in s.chunks {
+		if ch.bounds.lo.x > ch.bounds.hi.x do continue
+		geom.aabb_grow(&l.box, ch.bounds.lo)
+		geom.aabb_grow(&l.box, ch.bounds.hi)
+	}
+	for axis in sculpt.Axis {
+		sculpt.section_clear(&l.cuts[axis])
+		if axis not_in sym.symmetry do continue
+		normal: Vec3
+		normal[int(axis)] = 1
+		sculpt.sculptor_plane_section(s, sym.sym_center, normal, &l.cuts[axis])
+	}
+	return obj, l
+}

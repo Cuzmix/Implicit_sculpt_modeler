@@ -20,7 +20,9 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 - Files (`src/app/files.odin`, README "Files"): OBJ, PLY and STL in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
   `mesh_read_stl`, `mesh_write_*`, `src/geom/mesh_file.odin`; `mesh_file_kind` picks a `Mesh_Kind` by extension, or
   by the bytes for an Android content:// URI; `export_check.py FILE.stl` checks the layout and Blender's import), an
-  import cleanup (`mesh_clean`, `mesh_normalize`, `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
+  import cleanup (`mesh_clean`, `mesh_normalize`, `mesh_edges`, `mesh_flip`), vertex colours in (`colors:
+  ^[dynamic]geom.Vertex_Color` on the OBJ and PLY readers and `mesh_clean`, which carries them through the weld; the app
+  hands them to `object_build_from` as `Surface.color` via `mesh_import_surface`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
   per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
   and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`. Since v22 the

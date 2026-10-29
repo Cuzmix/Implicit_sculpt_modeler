@@ -6,6 +6,7 @@ import "core:math/linalg"
 
 import "../camera"
 import "../gizmo"
+import "../sculpt"
 import "../ui"
 
 // Drawing over the viewport through the kit, in the main pane's coordinates Viewport_Input
@@ -170,6 +171,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	switch app.tool {
 	case .Brush:
+		draw_symmetry_lines(app, o, input.size)
 		draw_shape_pending(app, o, input.size)
 		if app.clip.active {
 			draw_clip(app, o, input.size)
@@ -203,6 +205,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 				// Off the model a ring fixed in the scene is drawn as it would be at the view's
 				// middle.
 				flat := app.brush.radius_px * brush_size_scale(app, camera.orbit_world_per_px(app.camera, app.camera.target, input.size.y), input.size.y)
+				draw_mirror_rings(app, o, input.size, brush_ring_color(app, input.primary) * {1, 1, 1, 1 - HOVER_FADE * input.pen_hover}, flat)
 				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, flat, color, 1.5)
 				// A focal shift moves where the brush works: an inner ring where it falls to
 				// half strength, as the reference app's cursor shows it.
@@ -341,24 +344,131 @@ RING_POINTS :: 64
 @(private = "file")
 draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color, scale: f32 = 1) -> bool {
 	c := app.cursor
-	if !c.ok do return false
+	if !c.ok || !app.kit.surface_ring do return false
 	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
-	// Two directions across the surface, square to its normal and to each other.
-	u := linalg.normalize(linalg.cross(c.normal, Vec3{0, 1, 0} if abs(c.normal.y) < 0.9 else Vec3{1, 0, 0}))
-	v := linalg.cross(c.normal, u)
-	points: [RING_POINTS][2]f32
-	for &p, i in points {
-		a := 2 * math.PI * f32(i) / RING_POINTS
-		ok: bool
-		p, ok = gizmo.project(view_proj, c.at + (u * math.cos(a) + v * math.sin(a)) * (c.radius * scale), size)
-		if !ok do return false
-	}
-	overlay_polyline(o, points[:], color, 1.5 if scale == 1 else 1, closed = true)
+	if !draw_lying_ring(o, view_proj, size, c.at, c.normal, c.radius * scale, color, 1.5 if scale == 1 else 1, RING_POINTS) do return false
 	if scale != 1 do return true
 	middle, middle_ok := gizmo.project(view_proj, c.at, size)
 	tip, tip_ok := gizmo.project(view_proj, c.at + c.normal * (c.radius * 0.5), size)
 	if middle_ok && tip_ok do overlay_line(o, middle, tip, color, 1.5)
 	return true
+}
+
+// A circle of `radius` about `at` in the plane square to `normal`, seen through
+// `view_proj` with `count` points (at most RING_POINTS); false, drawing nothing, when part
+// of it is behind the eye.
+@(private = "file")
+draw_lying_ring :: proc(o: Overlay, view_proj: matrix[4, 4]f32, size: [2]f32, at, normal: Vec3, radius: f32, color: ui.Color, width: f32, count: int) -> bool {
+	// Two directions across the surface, square to its normal and to each other.
+	u := linalg.normalize(linalg.cross(normal, Vec3{0, 1, 0} if abs(normal.y) < 0.9 else Vec3{1, 0, 0}))
+	v := linalg.cross(normal, u)
+	points: [RING_POINTS][2]f32
+	n := clamp(count, 3, RING_POINTS)
+	for &p, i in points[:n] {
+		a := 2 * math.PI * f32(i) / f32(n)
+		ok: bool
+		p, ok = gizmo.project(view_proj, at + (u * math.cos(a) + v * math.sin(a)) * radius, size)
+		if !ok do return false
+	}
+	overlay_polyline(o, points[:n], color, width, closed = true)
+	return true
+}
+
+// How much of the brush ring's colour its symmetry copies keep, and those on a side of
+// the model turned away from the viewer, which the model hides.
+MIRROR_RING_FADE :: 0.6
+MIRROR_RING_AWAY :: 0.45
+// More copies than this (Radial's many) are drawn with fewer points each, so a 256-copy
+// brush costs about what eight smooth rings do.
+MIRROR_RINGS_SMOOTH :: 8
+
+// The brush ring's symmetry copies (Brush_Cursor.images), each a dimmer ring with a dot
+// at its middle, as ZBrush marks the mirrored brush: lying on the surface as the ring
+// does, or flat on the screen `flat` across while the ring is.
+@(private = "file")
+draw_mirror_rings :: proc(app: ^App, o: Overlay, size: [2]f32, base: [4]f32, flat: f32) {
+	c := &app.cursor
+	if !c.ok || len(c.images) == 0 do return
+	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
+	points := RING_POINTS if len(c.images) <= MIRROR_RINGS_SMOOTH else 24
+	for img in c.images {
+		middle, ok := gizmo.project(view_proj, img.at, size)
+		if !ok do continue
+		fade: f32 = MIRROR_RING_FADE
+		if linalg.dot(img.normal, camera.orbit_toward(app.camera, img.at)) > 0 do fade *= MIRROR_RING_AWAY
+		color := overlay_color(base * {1, 1, 1, fade})
+		if !app.kit.surface_ring || !draw_lying_ring(o, view_proj, size, img.at, img.normal, c.radius, color, 1, points) {
+			overlay_circle(o, middle, flat, color, 1)
+		}
+		overlay_disc(o, middle, 3, color)
+	}
+}
+
+// How far apart, in pixels, the symmetry line's drawn points are at the least: the cut
+// through a dense mesh has points much closer than a pixel, which would only cost.
+SYMMETRY_LINE_STEP_PX :: 2
+
+// The symmetry line (Symmetry_Lines): where each mirror plane cuts the selected object,
+// in the plane's axis colour, leaving out the parts on faces turned away from the viewer,
+// which the model hides; with Radial, its axis across the object's box.
+@(private = "file")
+draw_symmetry_lines :: proc(app: ^App, o: Overlay, size: [2]f32) {
+	if !app.kit.symmetry_line do return
+	obj, l := symmetry_lines(app)
+	if l == nil do return
+	t := obj.transform
+	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
+	colors := GIZMO_AXIS_COLORS
+	for axis in sculpt.Axis {
+		sec := &l.cuts[axis]
+		color := overlay_color(colors[int(axis)] * {1, 1, 1, 0.9})
+		for line in sec.lines do draw_section_line(app, o, view_proj, size, t, sec.points[line.first:][:line.count], line.closed, color)
+	}
+	if b := app.brush; b.radial_on && l.box.lo.x <= l.box.hi.x {
+		// The axis through the symmetry's centre, from one side of the box to the other.
+		a := int(b.radial_axis)
+		from, to := l.center, l.center
+		from[a], to[a] = l.box.lo[a], l.box.hi[a]
+		p, p_ok := gizmo.project(view_proj, to_world(t, from), size)
+		q, q_ok := gizmo.project(view_proj, to_world(t, to), size)
+		if p_ok && q_ok do overlay_line(o, p, q, overlay_color(colors[a] * {1, 1, 1, 0.9}), 1.5)
+	}
+}
+
+// One polyline of a symmetry line, in runs over the faces turned toward the viewer.
+@(private = "file")
+draw_section_line :: proc(app: ^App, o: Overlay, view_proj: matrix[4, 4]f32, size: [2]f32, t: Transform, points: []sculpt.Section_Point, closed: bool, color: ui.Color) {
+	run := make([dynamic][2]f32, 0, 64, context.temp_allocator)
+	tail: [2]f32
+	tail_kept := true
+	flush :: proc(o: Overlay, run: ^[dynamic][2]f32, tail: [2]f32, tail_kept: bool, color: ui.Color) {
+		if !tail_kept do append(run, tail)
+		if len(run) >= 2 do overlay_polyline(o, run[:], color, 1.5)
+		clear(run)
+	}
+	n := len(points)
+	segments := n if closed else n - 1
+	prev, prev_ok := gizmo.project(view_proj, to_world(t, points[0].at), size)
+	for i in 0 ..< segments {
+		j := (i + 1) % n
+		w := to_world(t, points[j].at)
+		next, next_ok := gizmo.project(view_proj, w, size)
+		facing := linalg.dot(to_world_dir(t, points[i].normal), camera.orbit_toward(app.camera, w)) < 0
+		if !(facing && prev_ok && next_ok) {
+			flush(o, &run, tail, tail_kept, color)
+			tail_kept = true
+		} else {
+			if len(run) == 0 do append(&run, prev)
+			if linalg.length(next - run[len(run) - 1]) >= SYMMETRY_LINE_STEP_PX {
+				append(&run, next)
+				tail_kept = true
+			} else {
+				tail, tail_kept = next, false
+			}
+		}
+		prev, prev_ok = next, next_ok
+	}
+	flush(o, &run, tail, tail_kept, color)
 }
 
 // How wide, in points, a label centred `r` points out at angle `mid` can be before it
