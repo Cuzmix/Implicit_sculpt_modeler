@@ -461,6 +461,12 @@ kit_workspace_menu :: proc(app: ^App) {
 			// Delete asks first: it is no step in the History, so nothing undoes it.
 			if command_menu_item(app, .Workspace_Delete, tone = .Danger) do w.menu = true
 		}
+		// The views that were workspaces before spaces: they change what shows, not the
+		// layout, so they sit after the layout's actions, where those who looked for the
+		// old Focus and Inspect find them.
+		ui.divider(ctx, across = true)
+		picked ||= command_menu_item(app, .Focus_Mode)
+		picked ||= command_menu_item(app, .Inspect_Mode)
 	}
 	if picked do w.menu = false
 }

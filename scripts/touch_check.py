@@ -2170,25 +2170,27 @@ def pinned_sections_stack_in_the_right_column():
         "panel_pins": is_text("layers,camera")})
 
 
-# The top bar's workspace pill at 1600 x 900: its Sculpt segment, current at the start, which
-# opens the switcher's menu, and the rows of that menu: the four built-ins, then Save, Save
-# as new, Export, Import, Revert and Reset.
-WORKSPACE_CHIP = (616, 26)
-WORKSPACE_ROWS = {"sculpt": 97, "focus": 141, "inspect": 185, "studio": 229, "save": 274, "save_as": 318, "export": 362, "import": 406, "revert": 450, "reset": 494}
+# The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
+# opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
+# Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
+# the views Focus mode and Inspect.
+SPACE_TABS = {"sculpt": (630, 26), "model": (720, 26), "render": (811, 26), "chevron": (881, 26)}
+WORKSPACE_CHIP = SPACE_TABS["sculpt"]
+WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
 TOP_UNDO, TOP_SEARCH = (91, 33), (1411, 33)
 
 
 @scenario
-def workspace_switcher_picks_focus():
-    """The switcher's menu, then Focus: the side bars and the action bar go, the tray closes, and the menu with them."""
+def workspace_menu_turns_focus_on():
+    """The lit tab's menu, then Focus mode: the side bars and the action bar go and the menu with them, and the layout is unchanged."""
     s = Script()
     s.ftap(*WORKSPACE_CHIP)
     s.wait(10)
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["focus"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Focus"), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
-                                "workspace_menu": near(0), "window_inspector": lambda v: v.startswith("0,"), "workspace_modified": near(0)})
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "focus_mode": near(1), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
+                                "workspace_menu": near(0), "workspace_modified": near(0)})
 
 
 @scenario
@@ -2216,7 +2218,7 @@ def a_changed_workspace_shows_its_mark():
 
 @scenario
 def focus_moves_undo_and_search_to_the_top_bar():
-    """In Focus a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
+    """In Focus (an older script's `workspace focus`) a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
@@ -2224,38 +2226,61 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s.wait(4)
     s.ftap(*TOP_SEARCH)
     s.wait(10)
-    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Focus")}
+    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Sculpt"), "focus_mode": near(1)}
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
-# workspace pill's segments and its "+" in the middle, the Search field at the right.
+# space tabs in the middle, the Search field at the right.
 LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (217, 26), (267, 26)
-LENS_PILL = {"sculpt": (617, 26), "focus": (684, 26), "inspect": (755, 26), "studio": (828, 26), "plus": (884, 26)}
 LENS_SEARCH = (1340, 26)
 # The Lens menu's first row, Home.
 LENS_MENU_HOME = (120, 82)
 
 
 @scenario
-def lens_pill_switches_workspace():
-    """In the Lens top bar a tap on Focus in the workspace pill switches to Focus, with no menu."""
+def space_tab_switches_to_model():
+    """A tap on the Model tab goes to Model with the Model tool and Model's layout, with no menu."""
     s = Script()
-    s.ftap(*LENS_PILL["focus"])
+    s.ftap(*SPACE_TABS["model"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Focus"), "workspace_menu": near(0), "workspace_switches": near(1)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"), "workspace": is_text("Model"),
+                                "workspace_menu": near(0), "space_switches": near(1)})
 
 
 @scenario
-def lens_pill_current_segment_and_plus_open_the_menu():
-    """A tap on the current workspace in the pill opens the switcher's menu, a second closes it, and "+" opens it again."""
+def space_lit_tab_and_chevron_open_the_menu():
+    """A tap on the lit tab opens its layouts, a second closes them, and the chevron opens them again."""
     s = Script()
-    s.ftap(*LENS_PILL["sculpt"])
+    s.ftap(*SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*LENS_PILL["sculpt"])
+    s.ftap(*SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*LENS_PILL["plus"])
+    s.ftap(*SPACE_TABS["chevron"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "workspace_menu": near(1), "workspace_switches": near(0)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "workspace_menu": near(1), "space_switches": near(0)})
+
+
+@scenario
+def space_tab_gives_back_the_brush():
+    """Inflate in hand, the Model tab, then the Sculpt tab: Sculpt comes back with Inflate and the Brush tool."""
+    s = Script()
+    s.ftap(*SPACE_TABS["model"])
+    s.wait(10)
+    s.ftap(*SPACE_TABS["sculpt"])
+    s.wait(10)
+    return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
+                                                        "workspace": is_text("Sculpt"), "space_switches": near(2)})
+
+
+@scenario
+def a_press_in_render_turns_the_view():
+    """In Render a drag across the model turns the view and lays no dab, since Render keeps no brush in hand."""
+    s = Script()
+    s.ftap(*SPACE_TABS["render"])
+    s.wait(10)
+    s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
+    s.wait(6)
+    return s, [], {"dabs": near(0), "space": is_text("render"), "workspace": is_text("Render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 @scenario
@@ -2458,7 +2483,9 @@ def lens_left_handed_mirrors_the_chrome():
 # page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
               "move_tool": (957, 833), "curve_remesh": (780, 833)}
-LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
+# Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
+LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
+LENS_MODEL_TAB = (645, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
@@ -2495,9 +2522,9 @@ def lens_shelf_page_names_turn_the_page():
 
 @scenario
 def lens_shelf_model_page_adds_a_cage():
-    """The Model page holds the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes the Model tool with Inset."""
+    """The Model space's shelf is the Model page: the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes Inset."""
     s = Script()
-    s.ftap(*LENS_SHELF_PAGES["model"])
+    s.ftap(*LENS_MODEL_TAB)
     s.wait(10)
     s.ftap(*LENS_MODEL_TILES["cube"])
     s.wait(10)
@@ -2514,7 +2541,7 @@ def model_cage_refuses_a_brush_stroke():
     s = Script()
     s.mouse_drag(line((720, 450), (780, 470), 8))
     s.wait(10)
-    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; brush clay"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
                                                                                        "last_op": lambda v: "is_a_cage" in v}
 
 
@@ -3266,13 +3293,12 @@ LENS_FOCUS = {"workspace": (770, 33), "symmetry": (838, 33), "layout": (1460, 33
 def lens_focus_draws_islands():
     """Focus in Lens: the top bar becomes islands, X symmetry is a chip there, and Passes opens its menu."""
     s = Script()
-    s.ftap(*LENS_PILL["focus"])
     s.wait(6)
     s.ftap(*LENS_FOCUS["symmetry"])
     s.wait(4)
     s.ftap(*LENS_FOCUS["passes"])
     s.wait(6)
-    return s, [], camera_still({"workspace": is_text("Focus"), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+    return s, ["--script=focus_mode on"], camera_still({"workspace": is_text("Sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
 
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
@@ -3439,44 +3465,46 @@ def lens_context_bar_extracts_the_mask():
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
 
-# Lens's Inspect workspace at 1440x900: its segment in the top bar's pill, the main pane's
-# pass chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
-LENS_INSPECT = {"workspace": (675, 26), "pass_chip": (186, 77), "curvature": (260, 444)}
+# Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
+# chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
+LENS_INSPECT = {"tab": (550, 26), "inspect": (550, 451), "pass_chip": (186, 77), "curvature": (260, 444)}
 
 
 @scenario
 def lens_pass_popover_groups_the_passes():
-    """In Inspect, which opens no panels over its four panes, the pass chip's popover picks Curvature from DIAGNOSTICS."""
+    """Inspect from the lit tab's menu, then the main pane's pass chip: its popover picks Curvature from DIAGNOSTICS."""
     s = Script()
-    s.ftap(*LENS_INSPECT["workspace"])
+    s.ftap(*LENS_INSPECT["tab"])
+    s.wait(10)
+    s.ftap(*LENS_INSPECT["inspect"])
     s.wait(12)
     s.ftap(*LENS_INSPECT["pass_chip"])
     s.wait(8)
     s.ftap(*LENS_INSPECT["curvature"])
     s.wait(8)
-    return s, LENS_1440, camera_still({"workspace": is_text("Inspect"), "pass": is_text("Curvature"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"workspace": is_text("Sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
-# Lens's Studio at 1440x900: its pill, then on its stack Light 1's Intensity thumb, Add
-# light, the Gold sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (747, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
+# Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
+# Gold sphere of the Material card, and Undo on the top bar.
+LENS_STUDIO = {"workspace": (732, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
 
 
 @scenario
 def lens_studio_stack_shows_lights_material_environment():
-    """Studio in Lens shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
+    """Render shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(*LENS_STUDIO["workspace"])
     s.wait(20)
     s.ftap(*LENS_STUDIO["gold"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"workspace": is_text("Studio"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
+    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
 
 @scenario
 def lens_lights_card_picks_and_adds():
-    """On Studio's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
+    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
     def run(add):
         s = Script()
         s.ftap(*LENS_STUDIO["workspace"])
@@ -3676,20 +3704,20 @@ def save_as_new_workspace_is_remembered():
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["save_as"])
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(5),
-        "@saved": saved_line("workspace 4 Workspace%201")})
+        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(4),
+        "@saved": saved_line("workspace 3 Workspace%201")})
 
 
 @scenario
 def the_current_workspace_comes_back():
-    """A settings file naming Inspect as current starts in Inspect: no panels over the view grid's four panes."""
+    """A settings file from before spaces naming Inspect as current starts in Sculpt with Inspect on: the view grid's four panes, the brush bar and dock aside."""
     with open(settings_file(), "w") as f:
-        f.write("workspace_current 2\n")
+        f.write("version 3\nworkspace_current 2\n")
     s = Script()
     s.add("move:800,450")
     s.wait(10)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
-                                                                     "column_left": is_text("none"), "zones_hidden": is_text("brush_bar,dock"),
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "inspect_mode": near(1),
+                                                                     "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"),
                                                                      "grid": is_text("Four")})
 
 
@@ -7127,14 +7155,14 @@ def workspace_file():
 
 @scenario
 def workspace_file_carries_a_layout():
-    """Inspect exported to a file and imported in a fresh run comes back as a workspace of one's own, "Inspect 2", with Inspect's hidden bars and its four panes, unchanged from what it saved."""
+    """Sculpt with four panes exported to a file and imported in a fresh run comes back as a workspace of one's own, "Sculpt 2", with its four panes, unchanged from what it saved."""
     path = workspace_file()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
         os.remove(path)
-    return Steps([(Script(), ["--script=workspace inspect", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
-                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Inspect%202"), "workspace_imports": near(1), "workspace_count": near(5),
-                                                               "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"), "grid": is_text("Four")})])
+    return Steps([(Script(), ["--script=view_grid four", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
+                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt%202"), "workspace_imports": near(1), "workspace_count": near(4),
+                                                               "workspace_modified": near(0), "space": is_text("sculpt"), "grid": is_text("Four")})])
 
 
 @scenario
@@ -7144,7 +7172,7 @@ def workspace_file_damaged_is_refused():
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("SCULPT_WORKSPACE 9\nname Future\nlayout open\n")
-    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(4)}
+    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(3)}
 
 
 @scenario

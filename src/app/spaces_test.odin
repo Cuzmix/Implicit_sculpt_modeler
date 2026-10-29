@@ -158,3 +158,24 @@ a_settings_file_from_before_spaces_moves_its_workspaces :: proc(t: ^testing.T) {
 	testing.expect(t, k.inspect.on, "Inspect current did not come back as the view")
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
 }
+
+// A script written before spaces names the old workspaces: Focus and Inspect turn their
+// views on, Studio is Render's layout, and the new names read as they say.
+@(test)
+old_workspace_names_in_a_script_still_run :: proc(t: ^testing.T) {
+	s := script_parse("workspace focus\nworkspace inspect\nworkspace studio\nspace_switch model\nfocus_mode off", "old")
+	defer script_destroy(&s)
+	testing.expect_value(t, len(s.errors), 0)
+	if !testing.expect_value(t, len(s.statements), 5) do return
+	st := s.statements
+	testing.expect_value(t, st[0].command, Command_Id.Focus_Mode)
+	testing.expect_value(t, st[0].toggle, Script_Toggle.On)
+	testing.expect_value(t, st[1].command, Command_Id.Inspect_Mode)
+	testing.expect_value(t, st[1].toggle, Script_Toggle.On)
+	testing.expect_value(t, st[2].command, Command_Id.Workspace)
+	testing.expect_value(t, st[2].arg, int(Built_In.Render))
+	testing.expect_value(t, st[3].command, Command_Id.Space_Switch)
+	testing.expect_value(t, Space(st[3].arg), Space.Model)
+	testing.expect_value(t, st[4].command, Command_Id.Focus_Mode)
+	testing.expect_value(t, st[4].toggle, Script_Toggle.Off)
+}
