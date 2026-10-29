@@ -77,7 +77,11 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Settings_Tab do return "Settings"
 	if e.id == .Show_Section {
 		sec := Kit_Section(e.arg)
-		if c := stack_card_of(app, sec); c != .Palettes && c != .Brush do return fmt.tprintf("Panel · %s card", STACK_CARD_NAMES[c])
+		if c := stack_card_of(app, sec); c != .Palettes && c != .Brush {
+			// A tab says which group's card holds it.
+			if s := &app.kit.stack; s.set && c in s.joined do return fmt.tprintf("Panel · %s tab of %s", STACK_CARD_NAMES[c], stack_title(app, stack_host(s, c)))
+			return fmt.tprintf("Panel · %s card", STACK_CARD_NAMES[c])
+		}
 		return fmt.tprintf("Panel · %s palette", palette_name(section_palette(sec)))
 	}
 	s := Bar_Slot{e.id, e.arg}

@@ -310,7 +310,8 @@ stack_strip_shown :: proc(app: ^App) -> bool {
 STACK_STRIP_W :: 44 + 2 * 4
 
 // The stack as a strip of tabs beside the rail, one for each docked card in the stack's
-// order; a tap opens that card over the view, beside the strip, and another closes it.
+// order (a group's with a count of its tabs); a tap opens that card over the view, beside
+// the strip, and another closes it.
 kit_stack_strip :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -318,11 +319,19 @@ kit_stack_strip :: proc(app: ^App) {
 	if !s.set do stack_default(k)
 	ui.begin(ctx, "stack strip", {direction = .Column, gap = 2, padding = 4, width = STACK_STRIP_W, radius = ctx.theme.radius_large, background = .Panel, center = true})
 	defer ui.end(ctx)
+	t := ctx.theme
 	for c in s.order {
-		if c in s.floated || c in s.hidden do continue
+		if c in s.floated || c in s.hidden || c in s.joined do continue
 		on := s.tab_open && s.tab == c
-		pressed := ui.icon_button(ctx, fmt.tprintf("%s##stack tab", stack_title(app, c)), STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), selected = on)
+		v := stack_shown(s, c)
+		pressed := ui.icon_button(ctx, fmt.tprintf("%s##stack tab %v", stack_title(app, v), c), panel_kind_icon(app, v), selected = on)
 		s.strip_at[c] = ctx.last_rect
+		if n := len(stack_group(s, c)); n > 1 {
+			r := ctx.last_rect
+			at := [2]f32{r.x + r.w - 8, r.y + 8}
+			ui.fill_circle(ctx, at, 7, t.accent)
+			ui.text(ctx, fmt.tprint(n), at.x, at.y, t.small_size - 2, t.on_accent, .Semibold, .Center)
+		}
 		if pressed {
 			if on {
 				s.tab_open = false
@@ -350,20 +359,22 @@ kit_stack_tab :: proc(app: ^App) {
 	if !ui.popover_begin(ctx, "stack tab", &s.tab_open, s.tab_at, .Left, {direction = .Column, gap = 6, padding = PADDING, width = width}) do return
 	defer ui.popover_end(ctx)
 	c := s.tab
+	v := stack_shown(s, c)
 	ui.begin(ctx, "stack tab head", {direction = .Row, center = true, width = inner})
 	title := ui.area(ctx, "stack tab title", {inner - 2 * t.target, t.target})
 	y := title.rect.y + title.rect.h * 0.5
-	ui.icon(ctx, STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), {title.rect.x + 9, y}, t.icon_small, t.text_secondary)
-	ui.text(ctx, stack_title(app, c), title.rect.x + 26, y, t.text_size, t.text, .Semibold)
+	ui.icon(ctx, panel_kind_icon(app, v), {title.rect.x + 9, y}, t.icon_small, t.text_secondary)
+	ui.text(ctx, stack_title(app, v), title.rect.x + 26, y, t.text_size, t.text, .Semibold)
 	if ui.icon_button(ctx, "Float", ui.ICON_PANEL) {
 		stack_float(app, c)
 		s.tab_open = false
 	}
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do s.tab_open = false
 	ui.end(ctx)
+	stack_tab_row(app, c, inner)
 	area := ui.safe_area(ctx)
-	room := max(area.y + area.h - s.tab_at.y - 2 * PADDING - t.target - 6 - 16, 160)
+	room := max(area.y + area.h - s.tab_at.y - 2 * PADDING - t.target - 6 - 16 - stack_tab_row_h(app, c), 160)
 	scroll := kit_scroll_begin(ctx, "stack tab body", &s.scrolls[c], owner, inner, room, 6)
-	panel_body(app, c, inner)
+	panel_body(app, v, inner)
 	kit_scroll_end(ctx, scroll)
 }

@@ -16,16 +16,75 @@ import "../ui"
 // (Gesture_Slot's _Empty slots), as Procreate Dreams lets a squeeze mean another thing over
 // its timeline. A roll over a slider is the slider's own (ui.hover_roll), before any of this.
 
-// Where the pen points, for what its gestures do there.
+// Where the pen points, for what its gestures do there. The roll is chosen for the model
+// and empty space (Nav_Prefs.pen_roll); each place of the interface rolls its own way
+// (ui.area_roll) and gives double-tap and squeeze their own slots.
 Pen_Area :: enum u8 {
 	Model, // the model under the tip, in the view
-	Empty, // the view's empty space, or anywhere a gesture has no place of its own
+	Empty, // the view's empty space
+	Shelf,
+	Panels, // any panel, card or bar that is no place below
+	History, // Undo, Redo and History in the top bar, and the History panel's bar
+	Nav_Head,
+	Colors, // the Colors card's Disc
 }
 
 @(rodata)
 PEN_AREA_NAMES := [Pen_Area]string {
-	.Model = "Over the model",
-	.Empty = "Over empty space",
+	.Model    = "Over the model",
+	.Empty    = "Over empty space",
+	.Shelf    = "Over the shelf",
+	.Panels   = "Over a panel",
+	.History  = "Over Undo, Redo or History",
+	.Nav_Head = "Over the navigation head",
+	.Colors   = "Over the colour Disc",
+}
+
+// What the roll does over each place of the interface, said under its choices.
+@(rodata)
+PEN_AREA_ROLLS := [Pen_Area]string {
+	.Model    = "",
+	.Empty    = "",
+	.Shelf    = "Roll turns the shelf's page, every 40 degrees.",
+	.Panels   = "Roll sets a slider, steps a choice or a row of tabs every 30 degrees, and scrolls the panel elsewhere.",
+	.History  = "Roll scrubs History, a step every 20 degrees, clockwise redoing.",
+	.Nav_Head = "Roll spins the view about the up axis.",
+	.Colors   = "Roll turns the hue round the ring.",
+}
+
+// The pencil's double-tap and squeeze slots over each place.
+@(rodata)
+PEN_AREA_SLOTS := [Pen_Area][2]Gesture_Slot {
+	.Model    = {.Pen_Double_Tap, .Pen_Squeeze},
+	.Empty    = {.Pen_Double_Tap_Empty, .Pen_Squeeze_Empty},
+	.Shelf    = {.Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf},
+	.Panels   = {.Pen_Double_Tap_Panels, .Pen_Squeeze_Panels},
+	.History  = {.Pen_Double_Tap_History, .Pen_Squeeze_History},
+	.Nav_Head = {.Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head},
+	.Colors   = {.Pen_Double_Tap_Colors, .Pen_Squeeze_Colors},
+}
+
+// A place of the interface as the last layout put it: where, and the anchored container
+// it is in, which must be the one under the pointer for the pen to point at it.
+Pen_Zone :: struct {
+	rect: ui.Rect,
+	root: ui.Id,
+	area: Pen_Area,
+}
+
+PEN_ZONES_MAX :: 8
+
+// Notes that `rect`, in the container being laid out or in the root `owner` named for a
+// place laid out after its container ended, is `area`'s, for the pencil's gestures to find
+// the next frame (pen_area_now).
+pen_zone :: proc(app: ^App, rect: ui.Rect, area: Pen_Area, owner: Maybe(ui.Id) = nil) {
+	k := &app.kit
+	if k.pen_zone_count >= PEN_ZONES_MAX do return
+	n := len(k.ctx.stack)
+	root := k.ctx.stack[n - 1].root if n > 0 else 0
+	if id, ok := owner.?; ok do root = id
+	k.pen_zones[k.pen_zone_count] = {rect, root, area}
+	k.pen_zone_count += 1
 }
 
 // What the pen's roll does while it hovers a place.
@@ -52,7 +111,7 @@ ROLL_ACTION_NAMES := [Roll_Action]string {
 	.History     = "Undo and redo",
 }
 
-ROLL_DEFAULTS :: [Pen_Area]Roll_Action{.Model = .Twist, .Empty = .Twist}
+ROLL_DEFAULTS :: [Pen_Area]Roll_Action{.Model = .Twist, .Empty = .Twist, .Shelf ..= .Colors = .Nothing}
 
 // How far the hovering pen may travel, in points, while its roll has not yet passed
 // ui.ROLL_ENGAGE: further, and the turn counts again from nothing, so a hand that turns
@@ -223,27 +282,33 @@ pen_roll_apply :: proc(app: ^App, tw: ^Pen_Twist, degrees: f32, size: [2]f32) {
 	}
 }
 
-// Where the pen points now, for a double-tap or squeeze: over the model in the view, or
-// anywhere else. A pen out of hover range points nowhere the app can tell, and counts as
-// over the model, the gesture's first choice.
+// Where the pen points now, for a double-tap or squeeze: a place of the interface the last
+// layout noted (pen_zone), the last noted first as it is drawn on top; any other panel;
+// the model in the view; or empty space. A pen out of hover range points nowhere the app
+// can tell, and counts as over the model, the gesture's first choice.
 pen_area_now :: proc(app: ^App) -> Pen_Area {
 	d := &app.device
 	p := &app.pencil
+	k := &app.kit
 	if d.pointer != .Pen || !p.about do return .Model
+	mouse := k.ctx.input.mouse
+	#reverse for z in k.pen_zones[:k.pen_zone_count] {
+		if z.root == k.ctx.pointer_root && ui.rect_contains(z.rect, mouse) do return z.area
+	}
+	if ui.wants_pointer(&k.ctx) do return .Panels
 	size := app.pen_twist.size
 	pos := viewport_point(app, d.mouse)
 	inside := pos.x >= 0 && pos.y >= 0 && pos.x <= size.x && pos.y <= size.y
-	if !inside || ui.wants_pointer(&app.kit.ctx) do return .Empty
+	if !inside do return .Empty
 	if _, ok := pen_model_hit(app, pos, size); ok do return .Model
 	return .Empty
 }
 
 // The gesture slot a double-tap or squeeze runs where the pen points now.
 pencil_slot_here :: proc(app: ^App, slot: Gesture_Slot) -> Gesture_Slot {
-	if pen_area_now(app) != .Empty do return slot
 	#partial switch slot {
-	case .Pen_Double_Tap: return .Pen_Double_Tap_Empty
-	case .Pen_Squeeze:    return .Pen_Squeeze_Empty
+	case .Pen_Double_Tap: return PEN_AREA_SLOTS[pen_area_now(app)][0]
+	case .Pen_Squeeze:    return PEN_AREA_SLOTS[pen_area_now(app)][1]
 	}
 	return slot
 }
@@ -253,18 +318,30 @@ pencil_slot_here :: proc(app: ^App, slot: Gesture_Slot) -> Gesture_Slot {
 settings_pen_areas :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
-	names := [len(Pen_Area)]string{"Over the model", "Over empty space"}
-	if picked := ui.tabs(ctx, "Where the pen points", names[:], int(app.kit.pen_area)); picked >= 0 do app.kit.pen_area = Pen_Area(picked)
+	names: [len(Pen_Area)]string
+	for a in Pen_Area do names[a] = PEN_AREA_NAMES[a]
+	// The model and empty space as tabs, where the roll is a choice; the interface's
+	// places, which roll their own way, in a list beside them.
+	view := [2]string{names[Pen_Area.Model], names[Pen_Area.Empty]}
+	if picked := ui.tabs(ctx, "Where the pen points", view[:], int(app.kit.pen_area) if app.kit.pen_area <= .Empty else -1); picked >= 0 do app.kit.pen_area = Pen_Area(picked)
+	places := make([]string, len(Pen_Area) - 1, context.temp_allocator)
+	places[0] = "Over the interface..."
+	for a in Pen_Area.Shelf ..= Pen_Area.Colors do places[int(a) - 1] = names[a]
+	shown := max(int(app.kit.pen_area) - 1, 0)
+	if picked := ui.select(ctx, "Over the interface##pen area", places, shown, roll_count = 0); picked >= 1 do app.kit.pen_area = Pen_Area(picked + 1)
 	area := app.kit.pen_area
-	ui.label(ctx, "Roll")
-	rolls: [len(Roll_Action)]string
-	for a in Roll_Action do rolls[a] = ROLL_ACTION_NAMES[a]
-	if picked := ui.select(ctx, fmt.tprintf("Roll %s##pen area", PEN_AREA_NAMES[area]), rolls[:], int(n.pen_roll[area])); picked >= 0 do n.pen_roll[area] = Roll_Action(picked)
-	taps := [Pen_Area][2]Gesture_Slot{.Model = {.Pen_Double_Tap, .Pen_Squeeze}, .Empty = {.Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}}
+	if area <= .Empty {
+		ui.label(ctx, "Roll")
+		rolls: [len(Roll_Action)]string
+		for a in Roll_Action do rolls[a] = ROLL_ACTION_NAMES[a]
+		if picked := ui.select(ctx, fmt.tprintf("Roll %s##pen area", PEN_AREA_NAMES[area]), rolls[:], int(n.pen_roll[area])); picked >= 0 do n.pen_roll[area] = Roll_Action(picked)
+	} else {
+		ui.paragraph(ctx, PEN_AREA_ROLLS[area])
+	}
 	ui.label(ctx, "Pencil double-tap")
-	gesture_select(app, taps[area][0])
+	gesture_select(app, PEN_AREA_SLOTS[area][0])
 	ui.label(ctx, "Pencil squeeze")
-	gesture_select(app, taps[area][1])
+	gesture_select(app, PEN_AREA_SLOTS[area][1])
 	ui.paragraph(ctx, "Turn the pen about its own length while it hovers, past the first 10 degrees, and it does this where it points: Twist the view keeps the point under the tip where it is and turns the picture as far as the pen turns, holding level as it passes. Over a slider the roll always sets the slider. A brush whose alpha turns with the pen keeps the roll over the model. Roll needs a pen that reports it (Apple Pencil Pro, some Windows pens).")
 	_ = ui.switch_row(ctx, "Roll while grabbing twists what you hold", &n.grab_twist)
 	ui.paragraph(ctx, "While Grab or Elastic drags, turning the pen past the first 10 degrees turns what it holds about where it took hold, as far as the pen turns, the middle fully and the brush's edge not at all; a symmetric copy turns the mirrored way.")

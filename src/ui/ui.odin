@@ -776,6 +776,12 @@ rect_union :: proc(a, b: Rect) -> Rect {
 	return {x0, y0, x1 - x0, y1 - y0}
 }
 
+// The part of `r` the current clip shows (a scrolled panel's visible part), in points.
+clipped :: proc(ctx: ^Context, r: Rect) -> Rect {
+	d := px(ctx)
+	return rect_intersect(r, {ctx.clip.x / d, ctx.clip.y / d, ctx.clip.w / d, ctx.clip.h / d})
+}
+
 rect_intersect :: proc(a, b: Rect) -> Rect {
 	x0, y0 := max(a.x, b.x), max(a.y, b.y)
 	x1, y1 := min(a.x + a.w, b.x + b.w), min(a.y + a.h, b.y + b.h)

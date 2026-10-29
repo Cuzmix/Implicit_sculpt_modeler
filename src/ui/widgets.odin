@@ -286,7 +286,11 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // use). Returns the option chosen this frame, or -1.
 // `tints`, when given, light the chosen option in its own colour (a soft fill, a line and
 // the text in the colour), as the app's working spaces are told apart.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil) -> int {
+// With `dragged`, the options are drag sources too, as a thumb_row with `drags` is: a mouse
+// drags one at once, a finger or the pen once it has held past the long press (so a swipe
+// still scrolls the panel round the row), and `dragged^` is the option carried past the
+// slop; a press that went further than the slop is no tap.
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil, dragged: ^int = nil) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
@@ -307,7 +311,16 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		if w <= 0 do w = text_width(ctx, shown, t.text_size, .Semibold) + 28 + (t.icon_small + 6 if has_glyph else 0)
 		r := place(ctx, {w, item_h})
 		id := id_of(ctx, option)
-		hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, r))
+		hovered, held, clicked, pressed := interact(ctx, id, hit_area(ctx, r))
+		if dragged != nil {
+			clicked &&= ctx.long.travel <= t.slop
+			if held {
+				mouse := ctx.input.pointer == .Mouse
+				if pressed && mouse do _ = claim_drag(ctx, -1)
+				long_won := !mouse && held_long(ctx)
+				if (mouse || long_won) && ctx.long.travel > t.slop do dragged^ = i
+			}
+		}
 		if clicked do picked = i
 		over ||= hovered
 		on := i == chosen
