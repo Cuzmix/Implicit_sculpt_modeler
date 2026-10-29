@@ -1299,6 +1299,18 @@ def smooth_stable_flattens_the_sphere():
 
 
 @scenario
+def clay_hard_and_projected():
+    """Clay starts Projected; with every brush at Hardness 50 a stroke across the sphere
+    is one undo step (look with --screens: a flat-topped band with soft edges, and the
+    Falloff section's Hardness at 50% and Projected picked)."""
+    s = Script()
+    s.mouse_drag(line((640, 400), (900, 470), 14))
+    s.wait(2)
+    return s, ["--script=brush clay; hardness 50"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("clay"),
+                                                                 "brush_hardness": near(0.5), "brush_projected": near(1)})
+
+
+@scenario
 def draw_over_itself_does_not_build_up():
     """Draw (Accumulate off by default) scribbled back and forth four times over the same
     stretch of the sphere is one undo step (look with --screens: one even ridge, no taller

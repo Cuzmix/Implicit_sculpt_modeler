@@ -547,6 +547,8 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 		f := b.falloffs[b.kind]
 		line := "Drawn curve" if f.drawn else "The brush's own"
 		if f.focal != 0 do line = fmt.tprintf("%s · focal %.0f", line, f.focal)
+		if f.hardness != 0 do line = fmt.tprintf("%s · hard %.0f%%", line, f.hardness * 100)
+		if f.projected do line = fmt.tprintf("%s · projected", line)
 		return line
 	case .Samples:
 		parts := make([dynamic]string, 0, 3, context.temp_allocator)

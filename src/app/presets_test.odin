@@ -229,4 +229,20 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	testing.expect_value(t, f[len(f) - 1], "smooth_mode=Polish")
 	_, w, _, ok = preset_parse(f)
 	testing.expect(t, ok && w.smooth_mode == .Polish && w.smooth_stable)
+	// A Clay preset is Projected unless it says sphere; Hardness is a named value too.
+	v = {kind = .Clay, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE, projected = true}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	strings.builder_reset(&out)
+	preset_line(&out, "Wide", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 21)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.falloff.projected && w.falloff.hardness == 0)
+	v.falloff.projected, v.falloff.hardness = false, 0.5
+	strings.builder_reset(&out)
+	preset_line(&out, "Wide", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "shape=sphere")
+	testing.expect_value(t, f[len(f) - 2], "hardness=0.5")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && !w.falloff.projected && w.falloff.hardness == 0.5)
 }

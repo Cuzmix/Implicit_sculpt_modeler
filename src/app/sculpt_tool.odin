@@ -139,11 +139,14 @@ STROKE_MODE_NAMES := [Stroke_Mode]string {
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
-// rim in: sculpt.falloff_set_shaped), reshaped by its focal shift.
+// rim in: sculpt.falloff_set_shaped), reshaped by its hardness and focal shift, and
+// measured round a ball or across the view (sculpt.Brush.projected).
 Falloff_Setting :: struct {
-	drawn: bool,
-	curve: geom.Curve,
-	focal: f32, // sculpt.FOCAL_MIN to FOCAL_MAX; 0 leaves the shape as it is
+	drawn:     bool,
+	curve:     geom.Curve,
+	focal:     f32, // sculpt.FOCAL_MIN to FOCAL_MAX; 0 leaves the shape as it is
+	hardness:  f32, // 0 to sculpt.HARDNESS_MAX: the share of the radius at full strength
+	projected: bool, // Falloff shape Projected rather than Sphere
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -1242,6 +1245,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3
 	if app.brush.front_only do facing = to_local_dir(t, -camera.orbit_toward(app.camera, to_world(t, hit)))
+	projected: Vec3
+	if app.brush.falloffs[own].projected do projected = to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, hit)))
 	through: Vec3
 	if kind == .Grab && app.brush.grab_depth do through = to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, hit)))
 	sym := brush_symmetry(app, selected_object(app))
@@ -1260,6 +1265,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		alpha    = alpha,
 		alpha_up = up,
 		falloff_shape = brush_falloff(app, own),
+		projected = projected,
 		facing   = facing,
 		color    = brush_color_bytes(app),
 		blur     = app.stroke.blur,
@@ -1289,12 +1295,14 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 // for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	f := app.brush.falloffs[kind]
-	if !f.drawn && f.focal == 0 do return nil
-	// Only what shapes the table counts: an undrawn curve is not read.
+	if !f.drawn && f.focal == 0 && f.hardness == 0 do return nil
+	// Only what shapes the table counts: an undrawn curve is not read, and the shape is
+	// the dab's to apply.
 	if !f.drawn do f.curve = {}
+	f.projected = false
 	table := &app.falloff_tables[kind]
 	if table.shape != f || !table.built {
-		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal)
+		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal, f.hardness)
 		table.shape, table.built = f, true
 	}
 	return &table.falloff
@@ -1313,7 +1321,15 @@ brush_defaults :: proc() -> Brush_Settings {
 	b.pressures[.Clay] = {own = true, pressure = PRESSURE_RESPONSES[1].pressure}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
+	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
 	return b
+}
+
+// Whether brush `kind` starts with its falloff Projected (Falloff_Setting.projected):
+// Clay and Flatten, whose footprint is then the ring on screen however the surface curves
+// away, as a flat stamp should be.
+projected_default :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return kind == .Clay || kind == .Flatten
 }
 
 // Whether Accumulate does anything for brush `kind`: the kinds that push along the normal

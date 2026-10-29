@@ -386,7 +386,10 @@ kit_falloff :: proc(app: ^App) {
 	}
 	ui.paragraph(ctx, "The centre is on the left and the rim on the right. Drag a handle to draw your own; each brush keeps its own.")
 	focal_slider(app)
-	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. The cursor's inner ring shows where it works at half strength.")
+	hard := shape.hardness * 100
+	if ui.slider(ctx, "Hardness", &hard, 0, sculpt.HARDNESS_MAX * 100, .Linear, fmt.tprintf("%.0f%%", hard)) do shape.hardness = math.round(hard) / 100
+	if picked := ui.tabs(ctx, "falloff shape", {"Sphere", "Projected"}, 1 if shape.projected else 0); picked >= 0 do shape.projected = picked == 1
+	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. Hardness keeps that much of the radius at full strength. The cursor's inner ring shows where it works at half strength. Projected measures the falloff across the view, so the brush covers the ring on screen however the surface curves away; Grab, Elastic, Cloth, Snake hook and alphas stay Sphere.")
 }
 
 // ZBrush's Samples: how a dab reads the surface under it. Stabilize orientation and
