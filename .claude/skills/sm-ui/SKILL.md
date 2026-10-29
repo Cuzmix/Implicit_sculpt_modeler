@@ -36,11 +36,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens (the Sculpt Workspace Directions mock; spec `notes/lens/mock-layout-design.md`). The Classic
   layout (ZBrush-iPad bars, the dock, `--chrome`) is gone; never add a second chrome: `settings_load` passes over old
-  `chrome`, `panes_under_panels`, `dock*` and `right_rail` lines. `kit_layout` (`new_ui.odin`) lays out in order: top
-  bar `kit_top_bar` (`kit_top_lens.odin`): Menu, file block (`file_status`, fixed width so Undo/Redo never move),
-  Undo, Redo | space tabs `top_space_tabs` (laid inline with spacers: a `begin_at` inside the bar loses hits to it) | Search field,
-  History, Settings; `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
-  a compact shelf. Then `kit_view_chips` ("points"), `kit_offhand` (the island, "brush bar": Size and Strength
+  `chrome`, `panes_under_panels`, `dock*` and `right_rail` lines. `kit_layout` (`new_ui.odin`) lays out in order: the
+  chip bar `kit_top_bar` (`kit_top_lens.odin`, root "top bar", floating `TOP_BAR_INSET` in and `TOP_BAR_TOP` down;
+  `TOP_BAR_H` stays the room it takes): Menu, file block (`file_status`, fixed width so Undo/Redo never move) | Undo,
+  Redo | space tabs `top_space_tabs` | the object chip `top_object_chip` (`object_chip.odin`, shrunk by
+  `object_chip_fit`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
+  loses hits to it); its width budget counts the row's 13 gaps; `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
+  a compact shelf. Then `kit_view_chips` ("points", skipped while a pane is maximised: `view_chips=`), `kit_offhand` (the island, "brush bar": Size and Strength
   `ui.vslider`s, long press = Pen section, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_view_rail`
   ("view bar", `Bar_Which.View_Rail`), the shelf `kit_shelf` (`lens_shelf.odin`, "dock", pages row "dock pages"),
   the action bar, the picker `kit_brush_sheet` (`k.browser` at `.Dock`; at `.Bar`, with the shelf hidden, the
