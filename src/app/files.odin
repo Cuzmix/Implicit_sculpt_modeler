@@ -501,25 +501,33 @@ scene_remember_path :: proc(app: ^App, path: string) {
 }
 
 // Reads an OBJ, PLY or STL file into a new object beside the others, sized like a sphere
-// (its place in the file is kept for export: see Object.file). Returns false only on a
-// GPU failure.
+// (its place in the file is kept for export: see Object.file), its vertex colours as
+// polypaint. Returns false only on a GPU failure.
 scene_import :: proc(app: ^App, path: string) -> bool {
 	m, read := mesh_import_read(app, path, fmt.tprintf("Imported %s", filepath.base(path)))
 	if !read do return true
+	defer delete(m.colors)
 	stem := filepath.stem(path)
-	if !scene_add_mesh(app, m.mesh, stem if stem != "" else "Import", m.file, {position = next_free_position(app), scale = 1}, m.start) do return false
+	if !scene_add_mesh(app, m.mesh, stem if stem != "" else "Import", m.file, {position = next_free_position(app), scale = 1}, m.start, surface = mesh_import_surface(m)) do return false
 	// After the new object's stats reset.
 	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
 	return true
 }
 
 // A mesh file read for a new object: the cleaned mesh, centred and sized like a sphere,
-// where it sat in its file, and how long reading took.
+// its vertex colours (one a vertex, or none; the caller deletes them once the object is
+// built), where it sat in its file, and how long reading took.
 Mesh_Import :: struct {
 	mesh:              geom.Mesh,
+	colors:            [dynamic]geom.Vertex_Color,
 	file:              Transform,
 	start:             time.Tick,
 	read_ms, parse_ms: f64,
+}
+
+// The polypaint an imported mesh's object starts with: its vertex colours, if any.
+mesh_import_surface :: proc(m: Mesh_Import) -> Surface {
+	return {color = m.colors[:] if len(m.colors) > 0 else nil}
 }
 
 Mesh_Kind :: enum u8 {
@@ -551,15 +559,19 @@ mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 
 // Parses and cleans a mesh file's bytes, as Import and a content pack's install both
 // do; a nil pool runs it on the calling thread. `line` names the line of a parse error
-// (0 for none).
-mesh_file_parse :: proc(data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
+// (0 for none). `colors`, when given, receives the vertex colours the file has (one a
+// cleaned vertex), and is left empty on a failure.
+mesh_file_parse :: proc(data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, colors: ^[dynamic]geom.Vertex_Color = nil) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
 	switch kind {
-	case .PLY: mesh, failed, line = geom.mesh_read_ply(data, pool)
+	case .PLY: mesh, failed, line = geom.mesh_read_ply(data, pool, colors)
 	case .STL: mesh, failed, line = geom.mesh_read_stl(data, pool)
-	case .OBJ, .None: mesh, failed, line = geom.mesh_read_obj(data, pool)
+	case .OBJ, .None: mesh, failed, line = geom.mesh_read_obj(data, pool, colors = colors)
 	}
-	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, pool)
-	if failed != .None do geom.mesh_destroy(&mesh)
+	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, pool, colors)
+	if failed != .None {
+		geom.mesh_destroy(&mesh)
+		if colors != nil do clear(colors)
+	}
 	return
 }
 
@@ -584,8 +596,9 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 		file_note(app, true, "Cannot import %s: only .obj, .ply and .stl files import", name)
 		return
 	}
-	mesh, cleaned, failed, line := mesh_file_parse(data, kind, &app.pool)
+	mesh, cleaned, failed, line := mesh_file_parse(data, kind, &app.pool, &m.colors)
 	if failed != .None {
+		delete(m.colors)
 		if line > 0 {
 			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
 		} else {
@@ -616,6 +629,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	if kind == .STL do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
 	if flipped do strings.write_string(&note, "; turned outward")
+	if len(m.colors) > 0 do strings.write_string(&note, "; its vertex colours are its polypaint")
 	file_note(app, !closed, "%s", strings.to_string(note))
 	m.mesh, m.file = mesh, {position = center, scale = radius}
 	return m, true
