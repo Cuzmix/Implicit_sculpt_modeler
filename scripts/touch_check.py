@@ -3180,12 +3180,12 @@ def lens_shelf_model_page_adds_a_cage():
 
 @scenario
 def model_cage_refuses_a_brush_stroke():
-    """A stroke across a cage sculpts nothing: a cage is edited in Model mode, and the stroke says so."""
+    """A stroke across a cage sculpts nothing: a cage is edited in Model mode, which the offer line over the dock says (Make sculptable), so the stroke adds no note."""
     s = Script()
     s.mouse_drag(line((720, 450), (780, 470), 8))
     s.wait(10)
     return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; brush clay"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
-                                                                                       "last_op": lambda v: "is_a_cage" in v}
+                                                                                       "offer": is_text("Apply_Cage"), "last_op": is_text("none")}
 
 
 @scenario
@@ -11725,6 +11725,50 @@ def finger_hold_with_a_brush_still_sculpts():
     s.ftap(*EMPTY)
     s.wait(6)
     return s, [], camera_still({"object_menu": near(0), "scene_menu": near(0), "dabs": lambda v: int(v) > 0})
+
+
+# PR 7: offers. The offer line's fix button, over the dock at the default 1600x900 for a
+# new cage in Sculpt ("Make sculptable").
+OFFER_FIX = (928, 764)
+
+
+@scenario
+def offer_line_makes_a_cage_sculptable():
+    """A cage taken to Sculpt rings the object chip in amber and puts an offer over the dock; its Make sculptable makes it a mesh to sculpt, one undo step, and the offer goes."""
+    def run(fix):
+        s = Script()
+        s.wait(3)
+        s.press("1", ("ctrl",))
+        s.wait(6)
+        if not fix:
+            return s, ["--script=add_cage cube"], camera_still({"offer": is_text("Apply_Cage"), "space": is_text("sculpt"), "dabs": near(0)})
+        s.ftap(*OFFER_FIX)
+        s.wait(8)
+        return s, ["--script=add_cage cube"], camera_still({"offer": is_text("None"), "offer_fixes": near(1), "object_chip": lambda v: v.startswith("Full,Sculpt_mesh"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def offer_line_gives_a_mesh_a_cage_in_model():
+    """The starting sphere taken to Model, whose tool edits cages, is offered one; the Move tool there needs none."""
+    def run(move):
+        s = Script()
+        s.press("2", ("ctrl",))
+        s.wait(6)
+        if move:
+            s.press("w")
+            s.wait(4)
+            return s, [], camera_still({"offer": is_text("None"), "space": is_text("model"), "tool": is_text("move")})
+        return s, [], camera_still({"offer": lambda v: v in ("Retopologize", "Edit_Cage"), "space": is_text("model"), "tool": is_text("model")})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def offer_line_converts_clay_for_a_mesh_brush():
+    """Voxel clay under Crease, a brush that needs a mesh, is offered Convert to mesh; under Clay, a voxel brush, nothing."""
+    def run(brush, want):
+        return Script(), ["--voxels=64", f"--script=brush {brush}"], {"offer": is_text(want), "voxel_objects": near(1)}
+    return Steps([run("crease", "Convert_To_Mesh"), run("clay", "None")])
 
 
 def main(argv):
