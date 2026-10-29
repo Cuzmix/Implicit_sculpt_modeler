@@ -14,11 +14,11 @@ import "../ui"
 
 // A selected sphere at the world's middle with no GPU buffers, the Draw brush held.
 @(private = "file")
-stroke_sphere :: proc(app: ^App) -> ^Object {
+stroke_sphere :: proc(app: ^App, subdivisions := 4) -> ^Object {
 	obj := new(Object)
 	obj.id = 1
 	obj.transform = {scale = 1}
-	sculpt.levels_init(&obj.levels, geom.icosphere(4), nil, 64)
+	sculpt.levels_init(&obj.levels, geom.icosphere(subdivisions), nil, 64)
 	append(&app.scene.objects, obj)
 	app.scene.selected = 0
 	app.camera = camera.orbit_default()
@@ -238,6 +238,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Neither changes a Draw stroke, but both are kept with it.
 	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
 	a.brush.spacing, a.brush.color_spray = 0.6, 0.4
+	a.brush.smoothing, a.brush.pressure_smoothing, a.brush.catch_up = 3, 5, true
+	// Nor these a Spray stroke.
+	a.brush.even_strength, a.brush.scene_spacing, a.brush.feather = true, true, true
 	a.brush.paint_dial = true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
@@ -261,6 +264,10 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	testing.expect_value(t, b.replay.take.brushes[0].spacing, 0.6)
 	testing.expect_value(t, b.replay.take.brushes[0].color_spray, 0.4)
+	testing.expect_value(t, b.replay.take.brushes[0].smoothing, 3)
+	testing.expect_value(t, b.replay.take.brushes[0].pressure_smoothing, 5)
+	testing.expect(t, b.replay.take.brushes[0].catch_up)
+	testing.expect(t, b.replay.take.brushes[0].even_strength && b.replay.take.brushes[0].scene_spacing && b.replay.take.brushes[0].feather)
 	testing.expect(t, b.replay.take.brushes[0].paint_dial)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -274,7 +281,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 40
+	BRUSH :: 64 + 52
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -294,6 +301,44 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 15 had no Even strength, Scene spacing or Feather after the stabiliser: the
+	// one brush ends 64 + 49 bytes after the header's 16, and lays every dab at the
+	// brush's strength, spaced on screen.
+	fifteen := make([dynamic]u8, context.temp_allocator)
+	append(&fifteen, ..data[:16 + 64 + 49])
+	append(&fifteen, ..data[16 + BRUSH:])
+	fifteen[len(STROKES_MAGIC)] = 15
+	testing.expect(t, os.write_entire_file(path, fifteen[:]) == nil)
+	q: App
+	defer replay_destroy(&q.replay)
+	defer results_destroy(&q)
+	testing.expect(t, strokes_load(&q, path))
+	if len(q.replay.take.brushes) == 1 {
+		qb := q.replay.take.brushes[0]
+		testing.expect(t, !qb.even_strength && !qb.scene_spacing && !qb.feather)
+		testing.expect_value(t, qb.smoothing, 3)
+		testing.expect(t, qb.paint_dial)
+	}
+
+	// Version 14 had no stabiliser after the paint dial: the one brush ends 64 + 40 bytes
+	// after the header's 16, and follows the pointer as it came.
+	fourteen := make([dynamic]u8, context.temp_allocator)
+	append(&fourteen, ..data[:16 + 64 + 40])
+	append(&fourteen, ..data[16 + BRUSH:])
+	fourteen[len(STROKES_MAGIC)] = 14
+	testing.expect(t, os.write_entire_file(path, fourteen[:]) == nil)
+	m: App
+	defer replay_destroy(&m.replay)
+	defer results_destroy(&m)
+	testing.expect(t, strokes_load(&m, path))
+	if len(m.replay.take.brushes) == 1 {
+		testing.expect_value(t, m.replay.take.brushes[0].smoothing, 1)
+		testing.expect_value(t, m.replay.take.brushes[0].pressure_smoothing, 1)
+		testing.expect(t, !m.replay.take.brushes[0].catch_up)
+		testing.expect_value(t, m.replay.take.brushes[0].spacing, 0.6)
+		testing.expect(t, m.replay.take.brushes[0].paint_dial)
+	}
+
 	// Version 13 had no paint dial after the colour spray: the one brush ends 64 + 39 bytes
 	// after the header's 16, and Smooth and Invert sculpted whatever the brush painted.
 	thirteen := make([dynamic]u8, context.temp_allocator)
@@ -301,14 +346,15 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&thirteen, ..data[16 + BRUSH:])
 	thirteen[len(STROKES_MAGIC)] = 13
 	testing.expect(t, os.write_entire_file(path, thirteen[:]) == nil)
-	q: App
-	defer replay_destroy(&q.replay)
-	defer results_destroy(&q)
-	testing.expect(t, strokes_load(&q, path))
-	testing.expect_value(t, len(q.replay.take.brushes), 1)
-	if len(q.replay.take.brushes) == 1 {
-		testing.expect(t, !q.replay.take.brushes[0].paint_dial)
-		testing.expect_value(t, q.replay.take.brushes[0].color_spray, 0.4)
+	q13: App
+	defer replay_destroy(&q13.replay)
+	defer results_destroy(&q13)
+	testing.expect(t, strokes_load(&q13, path))
+	testing.expect_value(t, len(q13.replay.take.brushes), 1)
+	if len(q13.replay.take.brushes) == 1 {
+		testing.expect(t, !q13.replay.take.brushes[0].paint_dial)
+		testing.expect_value(t, q13.replay.take.brushes[0].color_spray, 0.4)
+		testing.expect_value(t, q13.replay.take.brushes[0].smoothing, 1)
 	}
 
 	eleven := make([dynamic]u8, context.temp_allocator)
@@ -321,7 +367,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	defer results_destroy(&l)
 	testing.expect(t, strokes_load(&l, path))
 	if len(l.replay.take.brushes) == 1 {
-		testing.expect_value(t, l.replay.take.brushes[0].spacing, DAB_SPACING)
+		testing.expect_value(t, l.replay.take.brushes[0].spacing, SPACING_REFERENCE)
 		testing.expect_value(t, l.replay.take.brushes[0].color_spray, 0)
 		testing.expect_value(t, l.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	}
@@ -952,4 +998,91 @@ color_spray_varies_the_paint_and_repeats_with_its_seed :: proc(t: ^testing.T) {
 	testing.expect(t, len(plain) > 0 && len(plain) == len(sprayed))
 	testing.expect(t, !slice.equal(plain, sprayed))
 	testing.expect(t, slice.equal(sprayed, object_sculptor(objs[2]).color[:]))
+}
+
+// A stroke along `path`, one sample a frame with the pressures `pressures`, left held
+// (no release) when `held`.
+@(private = "file")
+stroke_pressed :: proc(app: ^App, path: [][2]f32, pressures: []f32, held := false) {
+	for p, i in path {
+		samples := []Input_Sample{{pos = p, pressure = pressures[i], kind = .Press if i == 0 else .Move}}
+		_ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = p, hovered = true, primary = true, press = i == 0, samples = samples})
+	}
+	if !held do _ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = path[len(path) - 1], hovered = true})
+}
+
+// With the lazy string on, a stroke ends a string's length short of where the pen lifted;
+// Catch up on lift carries it on to there.
+@(test)
+catch_up_ends_the_stroke_under_the_pen :: proc(t: ^testing.T) {
+	path := [?][2]f32{{420, 400}, {450, 400}, {480, 400}, {510, 400}, {540, 400}, {570, 400}}
+	full := [?]f32{1, 1, 1, 1, 1, 1}
+	short, caught: App
+	defer stroke_scene_free(&short)
+	defer stroke_scene_free(&caught)
+	_, _ = stroke_sphere(&short), stroke_sphere(&caught)
+	for app in ([]^App{&short, &caught}) {
+		app.brush.lazy_px, app.brush.join = 40, true
+		app.brush.catch_up = app == &caught
+		stroke_pressed(app, path[:], full[:])
+	}
+	testing.expect(t, short.stroke_end.valid && caught.stroke_end.valid)
+	testing.expectf(t, abs(short.stroke_end.pos.x - 530) < 0.5, "short: %v", short.stroke_end.pos)
+	testing.expectf(t, linalg.length(caught.stroke_end.pos - path[len(path) - 1]) < 1, "caught: %v", caught.stroke_end.pos)
+	testing.expect_value(t, len(caught.history.done), 1)
+}
+
+// Smoothing follows the mean of the pointer's last few positions, and Pressure smoothing
+// the mean of the pen's last few pressures: a jump to the side and a sudden lift both
+// arrive a share at a time.
+@(test)
+smoothing_follows_the_mean_of_the_last_samples :: proc(t: ^testing.T) {
+	path := [?][2]f32{{420, 400}, {450, 400}, {480, 400}, {510, 400}, {540, 440}}
+	pressures := [?]f32{1, 1, 1, 1, 0.2}
+	app: App
+	defer stroke_scene_free(&app)
+	_ = stroke_sphere(&app)
+	app.brush.smoothing, app.brush.pressure_smoothing = 4, 2
+	stroke_pressed(&app, path[:], pressures[:], held = true)
+	// The mean of the last four positions and of the last two pressures.
+	testing.expectf(t, linalg.length(app.stroke.pos - [2]f32{495, 410}) < 1e-3, "pos %v", app.stroke.pos)
+	testing.expectf(t, abs(app.stroke.pressure - 0.6) < 1e-5, "pressure %v", app.stroke.pressure)
+	// Off, the brush is where the pointer is.
+	app.brush.smoothing, app.brush.pressure_smoothing = 1, 1
+	stroke_pressed(&app, path[:], pressures[:], held = true)
+	testing.expect_value(t, app.stroke.pos, path[len(path) - 1])
+	testing.expect_value(t, app.stroke.pressure, 0.2)
+}
+
+// With Even strength a straight Draw stroke rises as high at any spacing from a tenth to
+// half the radius as at the old default's quarter (within 2%), where without it the
+// height follows how closely the dabs pile up. Y symmetry's feathering leaves the stroke,
+// which runs well above the plane, as high as without symmetry.
+@(test)
+even_strength_keeps_a_strokes_height_across_spacings :: proc(t: ^testing.T) {
+	path := make([dynamic][2]f32, context.temp_allocator)
+	for x := f32(430); x <= 570; x += 4 do append(&path, [2]f32{x, 400})
+	rise :: proc(path: [][2]f32, spacing: f32, even: bool, symmetry := sculpt.Symmetry{.Y}) -> f32 {
+		app := new(App)
+		defer free(app)
+		defer stroke_scene_free(app)
+		obj := stroke_sphere(app, 6)
+		app.brush.radius_px, app.brush.spacing, app.brush.even_strength = 40, spacing, even
+		app.brush.strengths[.Draw] = 0.05
+		app.brush.feather, app.brush.symmetry = true, symmetry
+		before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+		stroke_pressed(app, path, slice.repeat([]f32{1}, len(path), context.temp_allocator))
+		top: f32
+		for p, i in object_mesh(obj).positions do top = max(top, linalg.length(p) - linalg.length(before[i]))
+		return top
+	}
+	reference := rise(path[:], SPACING_REFERENCE, true)
+	alone := rise(path[:], SPACING_REFERENCE, true, {})
+	testing.expectf(t, reference > 0 && reference == alone, "with symmetry %v, without %v", reference, alone)
+	for spacing in ([?]f32{0.1, 0.15, 0.2, 0.3, 0.4, 0.5}) {
+		h := rise(path[:], spacing, true)
+		testing.expectf(t, abs(h / reference - 1) < 0.02, "spacing %v: height %v, at the reference %v", spacing, h, reference)
+	}
+	// Unevened, dabs a tenth of the radius apart pile up about two and a half times as high.
+	testing.expect(t, rise(path[:], 0.1, false) > 2 * reference)
 }

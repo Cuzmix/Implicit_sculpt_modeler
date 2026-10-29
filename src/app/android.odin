@@ -15,9 +15,11 @@ MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
 
 // A tablet app's standard output goes nowhere, so log lines go through SDL_Log, which
 // writes them to logcat on Android (`adb logcat -s SDL/APP`) and to the system log on the
-// iPad. Elsewhere the console logger.
+// iPad, and on the iPad to a file in Files as well (ios_log_open). Elsewhere the console
+// logger.
 platform_logger :: proc() -> log.Logger {
 	when MOBILE {
+		when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_open()
 		return log.Logger{procedure = system_logger_proc, lowest_level = .Info when !ODIN_DEBUG else .Debug}
 	} else {
 		return log.create_console_logger(.Info when !ODIN_DEBUG else .Debug)
@@ -26,6 +28,7 @@ platform_logger :: proc() -> log.Logger {
 
 platform_logger_destroy :: proc(logger: log.Logger) {
 	when !MOBILE do log.destroy_console_logger(logger)
+	when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_close()
 }
 
 @(private = "file")
@@ -43,6 +46,7 @@ system_logger_proc :: proc(data: rawptr, level: log.Level, text: string, options
 	n := copy(buf[:len(buf) - 1], text)
 	buf[n] = 0
 	sdl.LogMessage(i32(sdl.LogCategory.APPLICATION), priority, "%s", cstring(&buf[0]))
+	when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_write(level, string(buf[:n]))
 }
 
 // Hints that must be set before SDL_Init.
@@ -78,5 +82,7 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	@(default_calling_convention = "c")
 	foreign {
 		sculpt_android_pen_lean_start :: proc(event_type: u32) ---
+		// The same, from then on, for the pen's older samples of each move (pen_samples.odin).
+		sculpt_android_samples_start :: proc(event_type: u32) ---
 	}
 }

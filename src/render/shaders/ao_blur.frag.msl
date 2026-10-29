@@ -1,0 +1,141 @@
+// SDL_shadercross 1ff05bec5739 from ao_blur.frag.spv sha256 8418bdcbcc0f9561f215b107d665d2826cd0d711910d0291c89c7207d01a47a8
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Blur_Uniforms_std140
+{
+    float4x4 inv_proj;
+    float4 size;
+    float4 params;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+float view_z(float depth, constant SLANG_ParameterGroup_Blur_Uniforms_std140& Blur_Uniforms)
+{
+    float4 _98 = Blur_Uniforms.inv_proj * float4(0.0, 0.0, depth, 1.0);
+    return _98.z / _98.w;
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> ao_map, sampler ao_mapSmplr)
+{
+    uint2 _vecSize = uint2(ao_map.get_width(0u), ao_map.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(ao_map.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Blur_Uniforms_std140& Blur_Uniforms [[buffer(0)]], texture2d<float> view_color [[texture(0)]], texture2d<float> ao_map [[texture(1)]], texture2d<float> view_depth [[texture(2)]], sampler view_colorSmplr [[sampler(0)]], sampler ao_mapSmplr [[sampler(1)]], sampler view_depthSmplr [[sampler(2)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 _58 = int2(gl_FragCoord.xy);
+    int2 _62 = int3(_58, 0).xy;
+    float4 _70 = view_color.read(uint2(_62), 0);
+    float4 _75 = view_depth.read(uint2(_62), 0);
+    if (_75.x >= 1.0)
+    {
+        out.entryPointParam_main = _70;
+        return out;
+    }
+    float _84 = view_z(_75.x, Blur_Uniforms);
+    int scale = int(Blur_Uniforms.size.z);
+    int2 _109 = texture_size(ao_map, ao_mapSmplr);
+    int2 _138 = int2(Blur_Uniforms.size.xy) - int2(1);
+    int2 _140 = _58 / int2(scale);
+    int y = -2;
+    float sum = 0.0;
+    float weight = 0.0;
+    float ao;
+    float strength;
+    for (;;)
+    {
+        bool _22_ladder_break = false;
+        do
+        {
+            if (!(y <= 1))
+            {
+                _22_ladder_break = true;
+                break;
+            }
+            int x = -2;
+            ao = sum;
+            strength = weight;
+            for (;;)
+            {
+                bool _27_ladder_break = false;
+                do
+                {
+                    if (!(x <= 1))
+                    {
+                        _27_ladder_break = true;
+                        break;
+                    }
+                    int2 _162 = clamp(_140 + int2(x, y), int2(0), _109 - int2(1));
+                    float4 _177 = view_depth.read(uint2(int3(clamp((_162 * int2(scale)) + int2(scale / 2), int2(0), _138), 0).xy), 0);
+                    if (_177.x >= 1.0)
+                    {
+                        break;
+                    }
+                    float _190 = fast::max(1.0 - (abs(view_z(_177.x, Blur_Uniforms) - _84) / Blur_Uniforms.params.y), 0.0);
+                    float4 _196 = ao_map.read(uint2(int3(_162, 0).xy), 0);
+                    ao += (_190 * _196.x);
+                    strength += _190;
+                    break;
+                } while(false);
+                if (_27_ladder_break)
+                {
+                    break;
+                }
+                x++;
+                continue;
+            }
+            break;
+        } while(false);
+        if (_22_ladder_break)
+        {
+            break;
+        }
+        y++;
+        sum = ao;
+        weight = strength;
+        continue;
+    }
+    if (weight > 0.0)
+    {
+        ao = fast::min(sum / weight, 1.0);
+    }
+    else
+    {
+        ao = 1.0;
+    }
+    bool _17;
+    if (Blur_Uniforms.params.z >= 0.0)
+    {
+        _17 = gl_FragCoord.x >= Blur_Uniforms.params.z;
+    }
+    else
+    {
+        _17 = false;
+    }
+    if (_17)
+    {
+        strength = Blur_Uniforms.params.w;
+    }
+    else
+    {
+        strength = Blur_Uniforms.params.x;
+    }
+    out.entryPointParam_main = float4(_70.xyz * mix(1.0, (ao * ao) * (3.0 - (2.0 * ao)), strength), _70.w);
+    return out;
+}
+

@@ -161,3 +161,34 @@ JNIEXPORT void JNICALL Java_io_github_cuzmix_sculpt_SculptActivity_nativePenLean
 	e.user.data2 = (void *)(uintptr_t)o.u;
 	SDL_PushEvent(&e);
 }
+
+/*
+ * The stylus's older samples, which SDL's Java side leaves out: SculptActivity sends each
+ * historical sample of a move, oldest first, before SDL sees the event, and they go on to
+ * the app as SDL user events of the type it registered (src/app/pen_samples.odin): the
+ * offset from the event's own sample in data1, the pressure and AXIS_TILT in data2, the
+ * AXIS_ORIENTATION's bits in the code. Nothing is sent until the app gives the type.
+ */
+static SDL_AtomicU32 pen_sample_type;
+
+void sculpt_android_samples_start(Uint32 event_type)
+{
+	SDL_SetAtomicU32(&pen_sample_type, event_type);
+}
+
+JNIEXPORT void JNICALL Java_io_github_cuzmix_sculpt_SculptActivity_nativePenSample(JNIEnv *env, jclass cls, jfloat dx, jfloat dy, jfloat pressure, jfloat tilt, jfloat orientation)
+{
+	(void)env;
+	(void)cls;
+	Uint32 type = SDL_GetAtomicU32(&pen_sample_type);
+	if (type == 0) return;
+	union { float f; Uint32 u; } x = {dx}, y = {dy}, p = {pressure}, t = {tilt}, o = {orientation};
+	SDL_Event e;
+	SDL_zero(e);
+	e.type = type;
+	e.user.timestamp = SDL_GetTicksNS();
+	e.user.data1 = (void *)(uintptr_t)((Uint64)x.u | (Uint64)y.u << 32);
+	e.user.data2 = (void *)(uintptr_t)((Uint64)p.u | (Uint64)t.u << 32);
+	e.user.code = (Sint32)o.u;
+	SDL_PushEvent(&e);
+}

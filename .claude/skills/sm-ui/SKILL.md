@@ -144,7 +144,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   tool left (`Space_Tool`), the shelf page and the workspace slot of the space left, puts `to`'s back, and turns the
   views off. Every workspace slot belongs to one space (`workspace_space`; built-ins = `Built_In` = `Space`); the
   menu lists only the current space's. Focus and Inspect are views, not layouts (`k.focus_mode`, `inspect_set`,
-  `zone_hidden` adds their zones), so they never set the modified dot. Settings v4 maps the v3 slots
+  `zone_hidden` adds their zones), so they never set the modified dot. Settings v5 maps the older slots
   (`workspace_slot_v3`) and `command_from_name` / the script parser map `Workspace:Focus/Inspect/Studio`. Commands
   `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
   inspect_mode=`.

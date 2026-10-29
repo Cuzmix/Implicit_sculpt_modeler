@@ -48,7 +48,7 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point, frame loop, `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys and pointer (`device.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU or the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`); `shaders/` Slang with committed `.spv` |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU or the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`); `shaders/` Slang with committed `.spv` and `.msl` (`shaders.odin` picks per platform) |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
@@ -62,7 +62,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist` and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |

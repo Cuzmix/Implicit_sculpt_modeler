@@ -202,7 +202,7 @@ command_name :: proc(id: Command_Id, arg := 0) -> string {
 command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) {
 	head, _, tail := strings.partition(name, ":")
 	// The workspaces that became views or a space's layout when spaces came (settings
-	// version 4), so a bar, key, gesture or pie that named one keeps working.
+	// version 5), so a bar, key, gesture or pie that named one keeps working.
 	if head == "Workspace" {
 		switch tail {
 		case "Focus":   return .Focus_Mode, 0, true

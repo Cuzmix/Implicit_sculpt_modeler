@@ -73,7 +73,7 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
+LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)

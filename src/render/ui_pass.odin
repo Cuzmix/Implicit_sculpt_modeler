@@ -5,8 +5,8 @@ import "core:log"
 
 import sdl "vendor:sdl3"
 
-UI_VERT_SPV :: #load("shaders/ui.vert.spv")
-UI_FRAG_SPV :: #load("shaders/ui.frag.spv")
+UI_VERT_CODE :: #load("shaders/ui.vert" + SHADER_EXT)
+UI_FRAG_CODE :: #load("shaders/ui.frag" + SHADER_EXT)
 
 // One corner of an interface triangle, as the app's interface kit makes them (it mirrors
 // ui.Vertex; render does not import the kit). Matches ui.vert.slang.
@@ -233,12 +233,12 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: sdl.GPUTextureFormat) ->
 	}
 	if slot < 0 do return nil
 	vert := gpu_create_shader(r.device, {
-		code_size = len(UI_VERT_SPV), code = raw_data(UI_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX, num_uniform_buffers = 1,
+		code_size = len(UI_VERT_CODE), code = raw_data(UI_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX, num_uniform_buffers = 1,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(UI_FRAG_SPV), code = raw_data(UI_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
+		code_size = len(UI_FRAG_CODE), code = raw_data(UI_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)

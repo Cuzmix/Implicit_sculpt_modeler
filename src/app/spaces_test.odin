@@ -121,9 +121,10 @@ names_of_the_old_workspaces_still_read :: proc(t: ^testing.T) {
 	testing.expect(t, ok && id == .Space_Switch && arg == int(Space.Render))
 }
 
-// A file from before spaces: four built-ins (Sculpt, Focus, Inspect, Studio) then the own
-// ones. Studio's changes become Render's, the own ones move down a slot, a changed Focus
-// becomes an own workspace, and Inspect current comes back as Sculpt with Inspect on.
+// A file from before spaces (version 3, and 4, the brush engine's spacing): four built-ins
+// (Sculpt, Focus, Inspect, Studio) then the own ones. Studio's changes become Render's, the
+// own ones move down a slot, a changed Focus becomes an own workspace, and Inspect current
+// comes back as Sculpt with Inspect on.
 @(test)
 a_settings_file_from_before_spaces_moves_its_workspaces :: proc(t: ^testing.T) {
 	path := "build/spaces_old_test.txt"
@@ -132,31 +133,33 @@ a_settings_file_from_before_spaces_moves_its_workspaces :: proc(t: ^testing.T) {
 	focus := "hidden Brush_Bar View_Bar\nopen Stats\n"
 	studio := "open Thumbnail Stats\n"
 	mine := "open Colors\n"
-	text := strings.concatenate({
-		"version 3\n",
-		"workspace_saved 1 ", preset_escape(focus), "\n",
-		"workspace_saved 3 ", preset_escape(studio), "\n",
-		"workspace 4 Mine\n",
-		"workspace_saved 4 ", preset_escape(mine), "\n",
-		"workspace_current 2\n",
-	}, context.temp_allocator)
-	_ = os.write_entire_file(path, transmute([]u8)text)
-	a := new(App)
-	defer free(a)
-	panels_default(&a.kit)
-	workspaces_init(&a.kit)
-	defer workspaces_destroy(&a.kit)
-	settings_load(a, path)
-	k := &a.kit
-	w := &k.workspaces
-	testing.expect_value(t, workspace_name(k, len(Built_In)), "Mine")
-	testing.expect(t, w.list[len(Built_In)].saved == mine)
-	testing.expect(t, w.list[int(Built_In.Render)].saved == studio)
-	testing.expect_value(t, workspace_name(k, len(Built_In) + 1), "Focus")
-	testing.expect(t, w.list[len(Built_In) + 1].saved == focus)
-	testing.expect_value(t, w.current, int(Built_In.Sculpt))
-	testing.expect(t, k.inspect.on, "Inspect current did not come back as the view")
-	testing.expect_value(t, k.spaces.current, Space.Sculpt)
+	for version in ([]string{"version 3\n", "version 4\n"}) {
+		text := strings.concatenate({
+			version,
+			"workspace_saved 1 ", preset_escape(focus), "\n",
+			"workspace_saved 3 ", preset_escape(studio), "\n",
+			"workspace 4 Mine\n",
+			"workspace_saved 4 ", preset_escape(mine), "\n",
+			"workspace_current 2\n",
+		}, context.temp_allocator)
+		_ = os.write_entire_file(path, transmute([]u8)text)
+		a := new(App)
+		panels_default(&a.kit)
+		workspaces_init(&a.kit)
+		settings_load(a, path)
+		k := &a.kit
+		w := &k.workspaces
+		testing.expect_value(t, workspace_name(k, len(Built_In)), "Mine")
+		testing.expect(t, w.list[len(Built_In)].saved == mine)
+		testing.expect(t, w.list[int(Built_In.Render)].saved == studio)
+		testing.expect_value(t, workspace_name(k, len(Built_In) + 1), "Focus")
+		testing.expect(t, w.list[len(Built_In) + 1].saved == focus)
+		testing.expect_value(t, w.current, int(Built_In.Sculpt))
+		testing.expect(t, k.inspect.on, "Inspect current did not come back as the view")
+		testing.expect_value(t, k.spaces.current, Space.Sculpt)
+		workspaces_destroy(k)
+		free(a)
+	}
 }
 
 // A script written before spaces names the old workspaces: Focus and Inspect turn their

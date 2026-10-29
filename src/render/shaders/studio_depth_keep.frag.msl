@@ -1,0 +1,19 @@
+// SDL_shadercross 1ff05bec5739 from studio_depth_keep.frag.spv sha256 9850cb5ec8220cde809fb6b13cf23c465f7c5e05908af7b0657c65aea3f43929
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+fragment main0_out main0(texture2d<float> view_depth [[texture(0)]], sampler view_depthSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float4 _26 = view_depth.read(uint2(int3(int2(gl_FragCoord.xy), 0).xy), 0);
+    out.entryPointParam_main = float4(_26.x, 0.0, 0.0, 0.0);
+    return out;
+}
+

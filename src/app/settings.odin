@@ -40,9 +40,10 @@ settings_path :: proc() -> string {
 
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
-// 3: the default look became Lens. 4: spaces: the built-in workspaces became Sculpt,
-// Model and Render, and Focus and Inspect views (workspaces.odin).
-SETTINGS_VERSION :: 4
+// 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
+// the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
+// (workspaces.odin).
+SETTINGS_VERSION :: 5
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -155,6 +156,9 @@ SETTINGS := [?]Setting {
 	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
 	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
 	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},
+	{"smoothing", B + offset_of(Brush_Settings, smoothing), f32, 1, STEADY_MAX},
+	{"pressure_smoothing", B + offset_of(Brush_Settings, pressure_smoothing), f32, 1, STEADY_MAX},
+	{"catch_up", B + offset_of(Brush_Settings, catch_up), bool, 0, 0},
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
 	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},
 	{"connected", B + offset_of(Brush_Settings, connected), bool, 0, 0},
@@ -169,6 +173,9 @@ SETTINGS := [?]Setting {
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
+	{"stroke_even", B + offset_of(Brush_Settings, even_strength), bool, 0, 0},
+	{"stroke_scene_spacing", B + offset_of(Brush_Settings, scene_spacing), bool, 0, 0},
+	{"symmetry_feather", B + offset_of(Brush_Settings, feather), bool, 0, 0},
 	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
@@ -325,6 +332,7 @@ SETTINGS := [?]Setting {
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
 	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
 	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
+	{"predict_cursor", N + offset_of(Nav_Prefs, predict_cursor), bool, 0, 0},
 	{"pen_eraser", N + offset_of(Nav_Prefs, eraser), Eraser_Use, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
@@ -897,6 +905,9 @@ settings_load :: proc(app: ^App, path: string) {
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
 	// So too Studio, the look every file before version 3 holds: Lens replaces it once.
 	if version < 3 && app.kit.look == .Studio do app.kit.look = .Lens
+	// And the old default spacing, which every file before version 4 holds whether or not
+	// anyone set it: the closer default takes its place, Even strength keeping the height.
+	if version < 4 && app.brush.spacing == SPACING_REFERENCE do app.brush.spacing = DAB_SPACING
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)

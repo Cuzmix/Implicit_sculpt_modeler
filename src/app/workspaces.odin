@@ -66,7 +66,7 @@ Workspaces :: struct {
 	// Workspace files written and read (workspace_file.odin), for the exit stats.
 	exports:  int,
 	imports:  int,
-	// A settings file from before spaces (version 3) had Focus and Inspect workspaces:
+	// A settings file from before spaces (version 4 or older) had Focus and Inspect workspaces:
 	// one saved with changes becomes an own workspace once the file is read (its layout
 	// here, heap, until then), and one that was current becomes its view toggle.
 	views_saved:   [2]string,
@@ -490,7 +490,7 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	spaces_save(k, out)
 }
 
-// Settings before version 4 had four built-ins in slots 0 to 3 (Sculpt, Focus, Inspect,
+// Settings before version 5 had four built-ins in slots 0 to 3 (Sculpt, Focus, Inspect,
 // Studio) before the own ones: Sculpt stays, Studio is Render's, the own ones move down
 // one, and Focus and Inspect are views now (`view` 1 and 2) with no slot.
 @(private = "file")
@@ -504,7 +504,7 @@ workspace_slot_v3 :: proc(old: int) -> (slot, view: int) {
 	return old - 1, 0
 }
 
-// How many slots the settings had before version 4.
+// How many slots the settings had before version 5.
 WORKSPACE_SLOTS_V3 :: 4 + WORKSPACE_OWN
 
 // Reads one workspace line (`f` split by spaces) of a settings file of `version`. A slot
@@ -514,7 +514,7 @@ workspaces_load_line :: proc(k: ^Kit_State, f: []string, version: int) {
 	if len(f) < 2 || len(w.list) == 0 do return
 	slot := -1
 	for i in 0 ..< max(WORKSPACE_SLOTS, WORKSPACE_SLOTS_V3) do if f[1] == fmt.tprint(i) do slot = i
-	if version < 4 && slot >= 0 {
+	if version < 5 && slot >= 0 {
 		view: int
 		slot, view = workspace_slot_v3(slot)
 		if view > 0 {

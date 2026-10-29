@@ -423,7 +423,7 @@ kit_shelf_quick :: proc(app: ^App) {
 			shown += 1
 		}
 		ui.end(ctx)
-		_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
+		kit_stabiliser(app, full = false)
 	}
 	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = 6})
 	pinned := command_checked(app, .Pin_Section, int(Kit_Section.Stroke))

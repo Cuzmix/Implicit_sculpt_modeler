@@ -568,6 +568,10 @@ Kit_Event_Kind :: enum u8 {
 	Pencil_Only, // the iPad's Only Draw with Apple Pencil turned on (`value` 1) or off (0)
 	Pen_Distance, // how far the pen hovers from then on, 0 to 1
 	Pen_Tilt, // the pen's lean from then on, degrees across and down in `at`
+	// One of the pen's samples between frames, as a platform's bridge sends it
+	// (pen_samples.odin): at `at`, pressing `value` hard (below 0 for as the next), ahead
+	// of the frame's next pen move, which it is sent as an offset from.
+	Pen_Coalesced,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -611,6 +615,13 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "ptilt": ev.kind = .Pen_Tilt
 				case:         ev.kind = .Pen_Erase_Down
 				}
+			case "pcoal":
+				// FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:PRESSURE.
+				ok = len(parts) == 3 || len(parts) == 4
+				if ok do ev.at, ok = point(parts[2])
+				ev.value = -1
+				if ok && len(parts) == 4 do ev.value, ok = strconv.parse_f32(parts[3])
+				ev.kind = .Pen_Coalesced
 			case "pdtap", "psqueeze":
 				// An optional preferred action: FRAME:pdtap:switch_previous.
 				ok = len(parts) <= 3
@@ -688,7 +699,7 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		_ = sdl.PushEvent(&e)
 	}
 	SCRIPTED_MOUSE :: sdl.MouseID(1)
-	for ev in k.events {
+	for ev, at_event in k.events {
 		if ev.frame + k.events_offset != k.frame do continue
 		// The window it goes to, its scale and size, and the pointer the buttons press at.
 		target, d := window, &app.device
@@ -815,8 +826,23 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				pencil_push(app, .Squeeze_Began, preferred)
 				pencil_push(app, .Squeeze_Ended, preferred)
 			}
+		case .Pen_Coalesced:
+			// Sent as an offset from the frame's next pen move, as the bridges send it.
+			for next in k.events[at_event + 1:] {
+				if next.frame != ev.frame || next.window != ev.window do continue
+				if next.kind != .Pen_Move && next.kind != .Pen_Down do continue
+				if t := app.pen_samples.event_type; t != 0 {
+					e = pen_sample_event(t, {offset = (ev.at - next.at) * scale, pressure = ev.value, lean = app.pen_tilt})
+					push(e)
+				}
+				break
+			}
 		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down:
 			if ev.kind != .Pen_Up {
+				// SDL reports the pen's own motion, then the mouse motion it makes of it.
+				e.pmotion = {type = .PEN_MOTION, timestamp = now, windowID = win, which = 1, x = at.x, y = at.y}
+				push(e)
+				e = {}
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
 				push(e)
 			}

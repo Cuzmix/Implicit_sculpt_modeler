@@ -1,0 +1,206 @@
+// SDL_shadercross 1ff05bec5739 from render_atrous.frag.spv sha256 9925bb31d909c91dc08f7950dac7a8b7a5c8e0d39104c0cfa6b4bd88507e2204
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SLANG_ParameterGroup_Atrous_Uniforms_std140
+{
+    float4 params;
+};
+
+constant spvUnsafeArray<float, 3> _267 = spvUnsafeArray<float, 3>({ 0.375, 0.25, 0.0625 });
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> src, sampler srcSmplr)
+{
+    uint2 _vecSize = uint2(src.get_width(0u), src.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(src.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 light_at(int2 px, texture2d<float> src, sampler srcSmplr, constant SLANG_ParameterGroup_Atrous_Uniforms_std140& Atrous_Uniforms, texture2d<float> guide_albedo, sampler guide_albedoSmplr)
+{
+    int2 _109 = int3(px, 0).xy;
+    float4 _113 = src.read(uint2(_109), 0);
+    if (Atrous_Uniforms.params.z < 0.5)
+    {
+        return _113.xyz;
+    }
+    float3 mean = _113.xyz / float3(fast::max(_113.w, 1.0));
+    float4 _138 = guide_albedo.read(uint2(_109), 0);
+    float3 _100;
+    if (_138.w > 0.0)
+    {
+        _100 = mean / fast::max(_138.xyz, float3(0.0199999995529651641845703125));
+    }
+    else
+    {
+        _100 = mean;
+    }
+    return _100;
+}
+
+static inline __attribute__((always_inline))
+float luminance(float3 c)
+{
+    return dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Atrous_Uniforms_std140& Atrous_Uniforms [[buffer(0)]], texture2d<float> src [[texture(0)]], texture2d<float> guide_albedo [[texture(1)]], texture2d<float> guide_normal [[texture(2)]], sampler srcSmplr [[sampler(0)]], sampler guide_albedoSmplr [[sampler(1)]], sampler guide_normalSmplr [[sampler(2)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 _63 = int2(gl_FragCoord.xy);
+    int2 _94 = texture_size(src, srcSmplr) - int2(1);
+    float3 centre = light_at(_63, src, srcSmplr, Atrous_Uniforms, guide_albedo, guide_albedoSmplr);
+    int2 _155 = int3(_63, 0).xy;
+    float4 _159 = guide_albedo.read(uint2(_155), 0);
+    if (_159.w <= 0.0)
+    {
+        out.entryPointParam_main = float4(centre, 1.0);
+        return out;
+    }
+    float4 _172 = guide_normal.read(uint2(_155), 0);
+    float4 gn = _172;
+    if (Atrous_Uniforms.params.w > 0.5)
+    {
+        float4 _179 = gn;
+        float3 _184 = fast::normalize(_179.xyz + float3(0.0, 0.0, 9.9999999747524270787835121154785e-07));
+        gn.x = _184.x;
+        gn.y = _184.y;
+        gn.z = _184.z;
+    }
+    int _196 = int(Atrous_Uniforms.params.x);
+    float _197 = luminance(centre);
+    int y = -2;
+    float3 sum = float3(0.0);
+    float total = 0.0;
+    float3 sum_1;
+    float total_1;
+    for (;;)
+    {
+        bool _32_ladder_break = false;
+        do
+        {
+            if (!(y <= 2))
+            {
+                _32_ladder_break = true;
+                break;
+            }
+            int x = -2;
+            sum_1 = sum;
+            total_1 = total;
+            for (;;)
+            {
+                bool _37_ladder_break = false;
+                do
+                {
+                    if (!(x <= 2))
+                    {
+                        _37_ladder_break = true;
+                        break;
+                    }
+                    int2 _230 = clamp(_63 + (int2(x, y) * int2(_196)), int2(0), _94);
+                    int2 _233 = int3(_230, 0).xy;
+                    float4 _237 = guide_albedo.read(uint2(_233), 0);
+                    if (_237.w <= 0.0)
+                    {
+                        break;
+                    }
+                    float4 _245 = guide_normal.read(uint2(_233), 0);
+                    float4 qn = _245;
+                    if (Atrous_Uniforms.params.w > 0.5)
+                    {
+                        float4 _251 = qn;
+                        float3 _255 = fast::normalize(_251.xyz + float3(0.0, 0.0, 9.9999999747524270787835121154785e-07));
+                        qn.x = _255.x;
+                        qn.y = _255.y;
+                        qn.z = _255.z;
+                    }
+                    float3 c = light_at(_230, src, srcSmplr, Atrous_Uniforms, guide_albedo, guide_albedoSmplr);
+                    float3 da = _159.xyz - _237.xyz;
+                    float _314 = luminance(c);
+                    float w = ((((_267[abs(x)] * _267[abs(y)]) * powr(fast::max(dot(gn.xyz, qn.xyz), 0.0), 64.0)) * exp((-abs(gn.w - qn.w)) / (((0.00999999977648258209228515625 * gn.w) * float(_196)) + 9.9999999747524270787835121154785e-07))) * exp((-dot(da, da)) / 0.00999999977648258209228515625)) * exp((-(abs(_314 - _197) / ((0.5 * (_314 + _197)) + 0.001000000047497451305389404296875))) / Atrous_Uniforms.params.y);
+                    sum_1 += (c * w);
+                    total_1 += w;
+                    break;
+                } while(false);
+                if (_37_ladder_break)
+                {
+                    break;
+                }
+                x++;
+                continue;
+            }
+            break;
+        } while(false);
+        if (_32_ladder_break)
+        {
+            break;
+        }
+        y++;
+        sum = sum_1;
+        total = total_1;
+        continue;
+    }
+    if (total > 0.0)
+    {
+        sum /= float3(total);
+    }
+    else
+    {
+        sum = centre;
+    }
+    out.entryPointParam_main = float4(sum, 1.0);
+    return out;
+}
+

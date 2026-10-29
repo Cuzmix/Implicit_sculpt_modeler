@@ -45,7 +45,7 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -146,6 +146,8 @@ App :: struct {
 	stroke_scale_from: f32,
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
+	pen_samples: Pen_Samples, // the pen's samples between frames, which SDL leaves out
+	predict:     Cursor_Predict, // where the pointer will be when the frame shows (cursor_lead)
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	// How far the hovering pen is above the screen, 0 touching to 1 at the edge of its
@@ -622,7 +624,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true}
+	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
@@ -638,6 +640,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	settings_load(&app, settings)
 	app.graphics_loaded = app.graphics
 	pencil_init(&app, window)
+	pen_samples_init(&app, window)
 	// The benchmarks measure the viewport filling the window, so their numbers stay
 	// comparable whatever grid a workspace keeps.
 	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.tree = grid_preset_tree(.Single)
@@ -832,7 +835,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				}
 			}
 			if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held = false
-			if pencil_event(&app, &e) do continue
+			if pencil_event(&app, &e) || pen_samples_event(&app, &e) do continue
 			device_event(&app.device, &e)
 			dab_wait_event(&app, &e, window)
 			touch_event(&app, &e, window)
@@ -852,19 +855,23 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.autosave.background = true
 				app.preview.background = true
 			case .MOUSE_MOTION:
-				pen := e.motion.which == sdl.PEN_MOUSEID
-				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
+				// The pen's samples between frames (pen_samples.odin) go in ahead of its own.
+				if e.motion.which == sdl.PEN_MOUSEID do pen_samples_motion(&app, {e.motion.x, e.motion.y})
+				else do append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, 1, .Move, {}})
 			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
 				if e.button.button == sdl.BUTTON_LEFT {
-					pen := e.button.which == sdl.PEN_MOUSEID
-					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, app.pen_pressure if pen else 1, .Press if e.button.down else .Release, app.pen_tilt if pen else {}})
+					kind := Sample_Kind.Press if e.button.down else .Release
+					if e.button.which == sdl.PEN_MOUSEID do pen_samples_button(&app, {e.button.x, e.button.y}, kind)
+					else do append(&app.samples, Input_Sample{{e.button.x, e.button.y}, 1, kind, {}})
 				}
 			case .PEN_AXIS:
 				#partial switch e.paxis.axis {
 				case .PRESSURE:
 					app.pen_pressure = e.paxis.value
+					pen_samples_axes(&app)
 				case .XTILT, .YTILT:
 					pencil_tilt_take(&app, e.paxis.axis, e.paxis.value)
+					pen_samples_axes(&app)
 				case .ROTATION:
 					pen_roll_take(&app, e.paxis.value)
 				case .DISTANCE:
@@ -879,6 +886,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		device_frame_end(&app.device)
 		pencil_frame(&app)
+		pen_samples_frame_end(&app)
 		// Nothing below may change the scene while the autosave thread reads it.
 		autosave_guard(&app)
 
@@ -954,6 +962,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		sculpted.dabs += waited_dab.dabs
 		sculpted.raycast_ms += waited_dab.raycast_ms
 		sculpted.brush_ms += waited_dab.brush_ms
+		cursor_predict_frame(&app, input)
 		cursor_update(&app, input)
 		draw_viewport_overlay(&app, input)
 		// No pass is open yet, so a pack matcap first shown this frame can be uploaded
@@ -1257,7 +1266,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// And a --turntable run until its last frame is written.
 			if (opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app))) && !replaying && !turntable_recording(&app) do app.running = false
 		}
-		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), sculpted.dabs) {
+		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), f64(submitted_ns - app.device.input_at) / 1e6, sculpted.dabs) {
 			app.running = false
 			if !gpubench_write(&app, &bench) do return false
 		}
@@ -1801,6 +1810,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
 	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
+	fmt.printfln("present_mode=%s present_offers=%s", render.renderer_present_name(&app.renderer), present_offers(&app))
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
@@ -1812,6 +1822,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("ui_text_lines=%d ui_text_layouts=%d ui_text_reads=%d", len(cache.runs), cache.misses, cache.hits)
 	}
 	if app.stats.cursor_ms.count > 0 do print_stat("cursor_ms", app.stats.cursor_ms)
+	if p := app.pen_samples; p.frames > 0 {
+		fmt.printfln("samples_frames=%d samples_frame_mean=%.2f samples_frame_max=%d samples_coalesced=%d", p.frames, f64(p.total) / f64(p.frames), p.most, p.coalesced)
+	}
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
 		print_stat("brush_ms", app.stats.brush_ms)

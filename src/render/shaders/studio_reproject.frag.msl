@@ -1,0 +1,237 @@
+// SDL_shadercross 1ff05bec5739 from studio_reproject.frag.spv sha256 2c5e9cfde56a6c43de123a19b0e7e2a9c652563f35bba0af231fe9c45c737483
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Reproject_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    float4x4 prev_view_proj;
+    float4x4 prev_inv_view_proj;
+    float4 params;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
+{
+    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(view_depth.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Reproject_Uniforms_std140& Reproject_Uniforms)
+{
+    float2 uv = frag / size;
+    float4 _155 = Reproject_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
+    return _155.xyz / float3(_155.w);
+}
+
+static inline __attribute__((always_inline))
+float3 normal_at(int2 px, float2 frag, float d, float3 p, float2 size, texture2d<float> view_depth, sampler view_depthSmplr, constant SLANG_ParameterGroup_Reproject_Uniforms_std140& Reproject_Uniforms)
+{
+    int2 hi = int2(size) - int2(1);
+    float4 _195 = view_depth.read(uint2(int3(clamp(px - int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _204 = view_depth.read(uint2(int3(clamp(px + int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _214 = view_depth.read(uint2(int3(clamp(px - int2(0, 1), int2(0), hi), 0).xy), 0);
+    float4 _223 = view_depth.read(uint2(int3(clamp(px + int2(0, 1), int2(0), hi), 0).xy), 0);
+    float3 px_r;
+    if (abs(_204.x - d) < abs(d - _195.x))
+    {
+        px_r = world_at(frag + float2(1.0, 0.0), _204.x, size, Reproject_Uniforms) - p;
+    }
+    else
+    {
+        px_r = p - world_at(frag - float2(1.0, 0.0), _195.x, size, Reproject_Uniforms);
+    }
+    float3 px_d;
+    if (abs(_223.x - d) < abs(d - _214.x))
+    {
+        px_d = world_at(frag + float2(0.0, 1.0), _223.x, size, Reproject_Uniforms) - p;
+    }
+    else
+    {
+        px_d = p - world_at(frag - float2(0.0, 1.0), _214.x, size, Reproject_Uniforms);
+    }
+    return fast::normalize(cross(px_d, px_r));
+}
+
+static inline __attribute__((always_inline))
+float3 prev_world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Reproject_Uniforms_std140& Reproject_Uniforms)
+{
+    float2 uv = frag / size;
+    float4 _408 = Reproject_Uniforms.prev_inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
+    return _408.xyz / float3(_408.w);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Reproject_Uniforms_std140& Reproject_Uniforms [[buffer(0)]], texture2d<float> view_depth [[texture(0)]], texture2d<float> prev_depth [[texture(1)]], texture2d<float> prev_accum [[texture(2)]], sampler view_depthSmplr [[sampler(0)]], sampler prev_depthSmplr [[sampler(1)]], sampler prev_accumSmplr [[sampler(2)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 _105 = float2(texture_size(view_depth, view_depthSmplr));
+    int2 _110 = int2(gl_FragCoord.xy);
+    float4 _118 = view_depth.read(uint2(int3(_110, 0).xy), 0);
+    if (_118.x >= 1.0)
+    {
+        out.entryPointParam_main = float4(0.0);
+        return out;
+    }
+    float3 p = world_at(gl_FragCoord.xy, _118.x, _105, Reproject_Uniforms);
+    float3 _163 = normal_at(_110, gl_FragCoord.xy, _118.x, p, _105, view_depth, view_depthSmplr, Reproject_Uniforms);
+    float _272 = length(world_at(gl_FragCoord.xy + float2(1.0, 0.0), _118.x, _105, Reproject_Uniforms) - p);
+    float _277 = length(p - world_at(gl_FragCoord.xy, 0.0, _105, Reproject_Uniforms));
+    float _282 = (0.5 * _272) + (0.0030000000260770320892333984375 * _277);
+    float _287 = (0.100000001490116119384765625 * _277) + (4.0 * _272);
+    float4 _291 = Reproject_Uniforms.prev_view_proj * float4(p, 1.0);
+    float _292 = _291.w;
+    if (_292 <= 0.0)
+    {
+        out.entryPointParam_main = float4(0.0);
+        return out;
+    }
+    float2 at = (float2(((_291.x / _292) * 0.5) + 0.5, 0.5 - ((_291.y / _292) * 0.5)) * _105) - float2(0.5);
+    int2 _311 = int2(floor(at));
+    float2 _313 = at - float2(_311);
+    int2 _316 = int2(_105) - int2(1);
+    int y = 0;
+    float4 sum = float4(0.0);
+    float total = 0.0;
+    float4 sum_1;
+    float total_1;
+    bool _19;
+    float _20;
+    float _21;
+    bool _22;
+    for (;;)
+    {
+        bool _33_ladder_break = false;
+        do
+        {
+            if (!(y <= 1))
+            {
+                _33_ladder_break = true;
+                break;
+            }
+            int x = 0;
+            sum_1 = sum;
+            total_1 = total;
+            for (;;)
+            {
+                bool _38_ladder_break = false;
+                do
+                {
+                    if (!(x <= 1))
+                    {
+                        _38_ladder_break = true;
+                        break;
+                    }
+                    int2 q = _311 + int2(x, y);
+                    if (any(q < int2(0)))
+                    {
+                        _19 = true;
+                    }
+                    else
+                    {
+                        _19 = any(q > _316);
+                    }
+                    if (_19)
+                    {
+                        break;
+                    }
+                    if (x == 1)
+                    {
+                        _20 = _313.x;
+                    }
+                    else
+                    {
+                        _20 = 1.0 - _313.x;
+                    }
+                    if (y == 1)
+                    {
+                        _21 = _313.y;
+                    }
+                    else
+                    {
+                        _21 = 1.0 - _313.y;
+                    }
+                    float w = _20 * _21;
+                    if (w <= 0.0)
+                    {
+                        break;
+                    }
+                    int2 _378 = int3(q, 0).xy;
+                    float4 _383 = prev_depth.read(uint2(_378), 0);
+                    if (_383.x >= 1.0)
+                    {
+                        break;
+                    }
+                    float3 off = prev_world_at(float2(q) + float2(0.5), _383.x, _105, Reproject_Uniforms) - p;
+                    if (abs(dot(_163, off)) > _282)
+                    {
+                        _22 = true;
+                    }
+                    else
+                    {
+                        _22 = length(off) > _287;
+                    }
+                    if (_22)
+                    {
+                        break;
+                    }
+                    float4 _432 = prev_accum.read(uint2(_378), 0);
+                    sum_1 += (_432 * w);
+                    total_1 += w;
+                    break;
+                } while(false);
+                if (_38_ladder_break)
+                {
+                    break;
+                }
+                x++;
+                continue;
+            }
+            break;
+        } while(false);
+        if (_33_ladder_break)
+        {
+            break;
+        }
+        y++;
+        sum = sum_1;
+        total = total_1;
+        continue;
+    }
+    if (total <= 0.0)
+    {
+        out.entryPointParam_main = float4(0.0);
+        return out;
+    }
+    float4 _466 = sum / float4(total);
+    float4 kept = _466;
+    float2 _479 = _466.xy * fast::min(1.0, Reproject_Uniforms.params.x / fast::max(_466.y, 9.9999999747524270787835121154785e-07));
+    kept.x = _479.x;
+    kept.y = _479.y;
+    float2 _26;
+    if (Reproject_Uniforms.params.z > 0.5)
+    {
+        _26 = kept.zw * fast::min(1.0, Reproject_Uniforms.params.y / fast::max(kept.w, 9.9999999747524270787835121154785e-07));
+    }
+    else
+    {
+        _26 = float2(0.0);
+    }
+    kept.z = _26.x;
+    kept.w = _26.y;
+    out.entryPointParam_main = kept;
+    return out;
+}
+

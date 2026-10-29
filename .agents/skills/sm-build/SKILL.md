@@ -8,7 +8,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 ## One entry point
 | Command (Windows; Linux is `./build.sh <mode>`) | What it does |
 |---|---|
-| `build.bat check` | `odin check` of all fifteen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`. No link, no shaders, no `build\`. The gate: run it first and last |
+| `build.bat check` | `odin check` of all fifteen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`, `boundary_check.py` and `shaders_msl.py --check` (each `.spv` has a current `.msl`). No link, no shaders, no `build\`. The gate: run it first and last |
 | `build.bat` | the debug app, `-debug`, into `build\sculpt.exe`; `ODIN_DEBUG` wraps the allocator in `mem.Tracking_Allocator` and the process exits 1 on any leak or bad free; copies `SDL3.dll` from `deps\odin\vendor\sdl3` next to it |
 | `build.bat release` | `-o:speed -no-bounds-check`: the only build whose timings count (sm-perf) |
 | `build.bat test` | `odin test` on geom, poly, camera, sculpt, voxel, jobs, gizmo, png_write, zip, ui, luau and app in that order, stopping at the first failing package; render has no tests, and app's need no window (they test pure logic such as the command registry); the runner tracks memory, so a leak fails a test |
@@ -36,7 +36,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 - Shaders: Slang sources (`src/render/shaders/*.slang`, sm-render) compile to the committed `.spv` with slangc:
   `build.sh` uses `deps/slang/bin/slangc` (setup_deps takes it from the LunarG Vulkan SDK `VULKAN_SDK`, checked
   against `VULKAN_SDK_SHA256` in `scripts/versions.env`), `build.bat` `deps\slang\bin\slangc.exe` or one on PATH (the
-  Vulkan SDK installs it); without one the committed `.spv` are used as they are.
+  Vulkan SDK installs it); without one the committed `.spv` are used as they are. When `deps/shadercross` exists
+  (`python scripts/build_shadercross.py`, which `setup_deps.sh` runs: CMake, git and a C++ compiler; three pinned builds,
+  SPIRV-Cross and SDL3 static, then the tool), each new `.spv` also becomes its `.msl` (`python scripts/shaders_msl.py`;
+  `--all` remakes every one). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
 - VS Code: `.vscode/tasks.json` (check, builds, tests, an Odin problem matcher) and `launch.json` (cppvsdbg on the PDBs;
   the "GPU validation" configuration sets `SDL_ASSERT=break`).
 

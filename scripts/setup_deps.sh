@@ -62,4 +62,9 @@ fi
 # Luau, the language of script plugins, built from source (scripts/build_luau.py)
 python3 "$ROOT/scripts/build_luau.py"
 
+# SDL_shadercross, which turns each .spv build.sh makes into the Metal source the iPad build
+# embeds (scripts/build_shadercross.py, scripts/shaders_msl.py). Shader authors need it as they
+# need slangc: `check` fails when a .spv changed without its .msl.
+python3 "$ROOT/scripts/build_shadercross.py"
+
 echo "Dependencies ready in $DEPS"

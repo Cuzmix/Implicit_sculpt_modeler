@@ -1,0 +1,146 @@
+// SDL_shadercross 1ff05bec5739 from textured.vert.spv sha256 ee35cbefb66172caa229fd75da6c330db9d826f9e0a34c206f419462224e71e5
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Mesh_Varyings
+{
+    float3 view_normal;
+    float3 view_pos;
+    float mask;
+    float4 paint;
+    float3 group;
+    float3 mesh_pos;
+    uint slot;
+    float2 uv;
+    float4 view_tangent;
+};
+
+struct Mesh_Vertex_Out
+{
+    float4 position;
+    Mesh_Varyings v;
+};
+
+struct _Array_std140_vector_uint_4_4
+{
+    uint4 data[4];
+};
+
+struct SLANG_ParameterGroup_Frame_Uniforms_std140
+{
+    float4x4 view_proj;
+    float4x4 view;
+    float4x4 model;
+    float4 options;
+    _Array_std140_vector_uint_4_4 slot_group;
+};
+
+struct main0_out
+{
+    float3 entryPointParam_main_v_view_normal [[user(locn0)]];
+    float3 entryPointParam_main_v_view_pos [[user(locn1)]];
+    float entryPointParam_main_v_mask [[user(locn2)]];
+    float4 entryPointParam_main_v_paint [[user(locn3)]];
+    float3 entryPointParam_main_v_group [[user(locn4)]];
+    float3 entryPointParam_main_v_mesh_pos [[user(locn5)]];
+    uint entryPointParam_main_v_slot [[user(locn6)]];
+    float2 entryPointParam_main_v_uv [[user(locn7)]];
+    float4 entryPointParam_main_v_view_tangent [[user(locn8)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 in_position [[attribute(0)]];
+    float2 in_normal_oct [[attribute(1)]];
+    float4 in_tangent [[attribute(2)]];
+    float2 in_uv [[attribute(3)]];
+};
+
+static inline __attribute__((always_inline))
+float3 oct_decode(float2 e)
+{
+    float3 _78 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
+    float3 v = _78;
+    if (_78.z < 0.0)
+    {
+        float _61;
+        if (e.x >= 0.0)
+        {
+            _61 = 1.0;
+        }
+        else
+        {
+            _61 = -1.0;
+        }
+        float _62;
+        if (e.y >= 0.0)
+        {
+            _62 = 1.0;
+        }
+        else
+        {
+            _62 = -1.0;
+        }
+        float2 _104 = (float2(1.0) - abs(e.yx)) * float2(_61, _62);
+        v.x = _104.x;
+        v.y = _104.y;
+    }
+    return fast::normalize(v);
+}
+
+static inline __attribute__((always_inline))
+void decode_normal_mask(float2 normal_oct, thread float3& normal, thread float& mask)
+{
+    int2 _48 = int2(round(fast::max(normal_oct, float2(-1.0)) * 32767.0));
+    normal = oct_decode(float2(_48 & int2(-16)) / float2(32767.0));
+    mask = float(((_48.x & 15) << 4) | (_48.y & 15)) / 255.0;
+}
+
+vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Frame_Uniforms_std140& Frame_Uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    Mesh_Vertex_Out o;
+    float _17 = o.v.mask;
+    float3 in_normal;
+    decode_normal_mask(in.in_normal_oct, in_normal, _17);
+    o.v.mask = _17;
+    o.v.paint = float4(0.0);
+    o.v.group = float3(-1.0);
+    o.v.slot = 0u;
+    float4 _158 = Frame_Uniforms.model * float4(in.in_position, 1.0);
+    o.position = Frame_Uniforms.view_proj * _158;
+    float3x3 _182 = float3x3(Frame_Uniforms.view[0].xyz, Frame_Uniforms.view[1].xyz, Frame_Uniforms.view[2].xyz) * float3x3(Frame_Uniforms.model[0].xyz, Frame_Uniforms.model[1].xyz, Frame_Uniforms.model[2].xyz);
+    float _184 = length(_182[0]);
+    float3x3 _194 = float3x3(_182[0] / float3(_184), _182[1] / float3(_184), _182[2] / float3(_184));
+    o.v.view_normal = _194 * in_normal;
+    float _18;
+    if (in.in_tangent.w < 0.0)
+    {
+        _18 = -1.0;
+    }
+    else
+    {
+        _18 = 1.0;
+    }
+    o.v.view_tangent = float4(_194 * in.in_tangent.xyz, _18);
+    o.v.view_pos = (Frame_Uniforms.view * _158).xyz;
+    o.v.mesh_pos = in.in_position;
+    o.v.uv = in.in_uv;
+    out.gl_Position = o.position;
+    out.entryPointParam_main_v_view_normal = o.v.view_normal;
+    out.entryPointParam_main_v_view_pos = o.v.view_pos;
+    out.entryPointParam_main_v_mask = o.v.mask;
+    out.entryPointParam_main_v_paint = o.v.paint;
+    out.entryPointParam_main_v_group = o.v.group;
+    out.entryPointParam_main_v_mesh_pos = o.v.mesh_pos;
+    out.entryPointParam_main_v_slot = o.v.slot;
+    out.entryPointParam_main_v_uv = o.v.uv;
+    out.entryPointParam_main_v_view_tangent = o.v.view_tangent;
+    return out;
+}
+

@@ -1,0 +1,229 @@
+// SDL_shadercross 1ff05bec5739 from floor.frag.spv sha256 36e84be3612bb74ec3ca31b53b20f6baa6ab3d95935e601bc7db53e51f67169a
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Fragment_Out
+{
+    float4 color;
+    float depth;
+};
+
+struct SLANG_ParameterGroup_Floor_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    float4x4 view_proj;
+    float4 plane;
+    float4 grid;
+    float4 center;
+};
+
+constant spvUnsafeArray<float3, 3> _258 = spvUnsafeArray<float3, 3>({ float3(0.86000001430511474609375, 0.300000011920928955078125, 0.300000011920928955078125), float3(0.4199999868869781494140625, 0.800000011920928955078125, 0.36000001430511474609375), float3(0.319999992847442626953125, 0.519999980926513671875, 0.949999988079071044921875) });
+
+struct main0_out
+{
+    float4 entryPointParam_main_color [[color(0)]];
+    float gl_FragDepth [[depth(any)]];
+};
+
+struct main0_in
+{
+    float2 in_ndc [[user(locn0)]];
+};
+
+static inline __attribute__((always_inline))
+float2 _fwidth(float2 x)
+{
+    return fwidth(x);
+}
+
+static inline __attribute__((always_inline))
+float lines(float2 cells, float2 per_pixel)
+{
+    float2 off = abs(fract(cells - float2(0.5)) - float2(0.5)) / fast::max(per_pixel, float2(9.9999999747524270787835121154785e-07));
+    return 1.0 - fast::min(fast::min(off.x, off.y), 1.0);
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Floor_Uniforms_std140& Floor_Uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    float4 _84 = Floor_Uniforms.inv_view_proj * float4(in.in_ndc, 0.0, 1.0);
+    float4 _88 = Floor_Uniforms.inv_view_proj * float4(in.in_ndc, 1.0, 1.0);
+    float3 from = _84.xyz / float3(_84.w);
+    float3 _8 = from;
+    float3 dir = (_88.xyz / float3(_88.w)) - from;
+    float3 _9 = dir;
+    int k = int(Floor_Uniforms.plane.x + 0.5);
+    bool _112 = abs(_9[k]) < 9.999999717180685365747194737196e-10;
+    float across;
+    if (_112)
+    {
+        across = 9.999999717180685365747194737196e-10;
+    }
+    else
+    {
+        across = _9[k];
+    }
+    float t = (Floor_Uniforms.plane.y - _8[k]) / across;
+    float3 hit = from + (dir * t);
+    float3 _12 = hit;
+    int i;
+    if (k == 0)
+    {
+        i = 1;
+    }
+    else
+    {
+        i = 0;
+    }
+    int j;
+    if (k == 2)
+    {
+        j = 1;
+    }
+    else
+    {
+        j = 2;
+    }
+    float2 uv = float2(_12[i], _12[j]);
+    float2 minor_cells = uv / float2(Floor_Uniforms.grid.x);
+    float2 minor_px = _fwidth(minor_cells);
+    float2 uv_px = _fwidth(uv);
+    float2 major_px = minor_px / float2(5.0);
+    float _227 = fast::max((lines(minor_cells, minor_px) * (1.0 - smoothstep(0.119999997317790985107421875, 0.300000011920928955078125, fast::max(minor_px.x, minor_px.y)))) * 0.2199999988079071044921875, (lines(minor_cells / float2(5.0), major_px) * (1.0 - smoothstep(0.119999997317790985107421875, 0.300000011920928955078125, fast::max(major_px.x, major_px.y)))) * 0.449999988079071044921875);
+    float alpha;
+    bool _20;
+    float3 color;
+    if (Floor_Uniforms.grid.z > 0.5)
+    {
+        float2 off = abs(uv) / fast::max(uv_px, float2(9.9999999747524270787835121154785e-07));
+        float along_j = 1.0 - fast::min(off.x / 1.5, 1.0);
+        float along_i = 1.0 - fast::min(off.y / 1.5, 1.0);
+        if (along_j > 0.0)
+        {
+            _20 = true;
+        }
+        else
+        {
+            _20 = along_i > 0.0;
+        }
+        if (_20)
+        {
+            if (along_j >= along_i)
+            {
+                color = _258[j];
+            }
+            else
+            {
+                color = _258[i];
+            }
+            alpha = fast::max(_227, fast::max(along_i, along_j) * 0.89999997615814208984375);
+        }
+        else
+        {
+            color = float3(0.62000000476837158203125);
+            alpha = _227;
+        }
+    }
+    else
+    {
+        color = float3(0.62000000476837158203125);
+        alpha = _227;
+    }
+    float alpha_1 = alpha * (1.0 - smoothstep(0.550000011920928955078125, 1.0, length(uv - float2(Floor_Uniforms.center[i], Floor_Uniforms.center[j])) / fast::max(Floor_Uniforms.grid.y, 9.9999999747524270787835121154785e-07)));
+    float4 _300 = Floor_Uniforms.view_proj * float4(hit, 1.0);
+    float depth = _300.z / _300.w;
+    if (_112)
+    {
+        _20 = true;
+    }
+    else
+    {
+        _20 = t < 0.0;
+    }
+    if (_20)
+    {
+        _20 = true;
+    }
+    else
+    {
+        _20 = t > 1.0;
+    }
+    if (_20)
+    {
+        _20 = true;
+    }
+    else
+    {
+        _20 = depth < 0.0;
+    }
+    if (_20)
+    {
+        _20 = true;
+    }
+    else
+    {
+        _20 = depth > 1.0;
+    }
+    if (_20)
+    {
+        _20 = true;
+    }
+    else
+    {
+        _20 = alpha_1 <= 0.00200000009499490261077880859375;
+    }
+    if (_20)
+    {
+        discard_fragment();
+    }
+    Fragment_Out o;
+    o.depth = depth;
+    o.color = float4(color, alpha_1);
+    out.entryPointParam_main_color = o.color;
+    out.gl_FragDepth = o.depth;
+    return out;
+}
+

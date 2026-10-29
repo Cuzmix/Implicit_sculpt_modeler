@@ -1,0 +1,46 @@
+// SDL_shadercross 1ff05bec5739 from ui.vert.spv sha256 4703eefd75044d1861e1246130424385bfcce6db525692747e965be2f1a23f53
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Vertex_Out
+{
+    float4 position;
+    float2 uv;
+    float4 color;
+};
+
+struct SLANG_ParameterGroup_Ui_Vertex_Uniforms_std140
+{
+    float4 target;
+};
+
+struct main0_out
+{
+    float2 entryPointParam_main_uv [[user(locn0)]];
+    float4 entryPointParam_main_color [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float2 v_pos [[attribute(0)]];
+    float2 v_uv [[attribute(1)]];
+    float4 v_color [[attribute(2)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Ui_Vertex_Uniforms_std140& Ui_Vertex_Uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    Vertex_Out o;
+    o.uv = in.v_uv;
+    o.color = in.v_color;
+    float2 ndc = ((in.v_pos / Ui_Vertex_Uniforms.target.xy) * 2.0) - float2(1.0);
+    o.position = float4(ndc.x, -ndc.y, 0.0, 1.0);
+    out.gl_Position = o.position;
+    out.entryPointParam_main_uv = o.uv;
+    out.entryPointParam_main_color = o.color;
+    return out;
+}
+

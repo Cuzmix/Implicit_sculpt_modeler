@@ -1,0 +1,2071 @@
+// SDL_shadercross 1ff05bec5739 from render_trace.comp.spv sha256 c73164cc6c8c11b862505b60942d4514e8df27ac1a7f60df2f5db55260f352c2
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Hit
+{
+    float t;
+    uint tri;
+    uint item;
+    float2 uv;
+};
+
+struct Surface
+{
+    float3 diffuse;
+    float3 f0;
+    float a;
+};
+
+struct _Array_std140_vector_float_4_8
+{
+    float4 data[8];
+};
+
+struct SLANG_ParameterGroup_Render_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    _Array_std140_vector_float_4_8 light_pos;
+    _Array_std140_vector_float_4_8 light_color;
+    _Array_std140_vector_float_4_8 light_spot;
+    _Array_std140_vector_float_4_8 light_shape;
+    _Array_std140_vector_float_4_8 light_size;
+    float4 rig_x;
+    float4 rig_y;
+    float4 rig_z;
+    float4 env_x;
+    float4 env_y;
+    float4 env_z;
+    float4 env;
+    float4 scene;
+    uint4 counts;
+    uint4 extra;
+    float4 lens_eye;
+    float4 lens_right;
+    float4 lens_up;
+    float4 lens_fwd;
+};
+
+struct Node_std430_logical
+{
+    float3 lo;
+    uint first;
+    float3 hi;
+    uint count;
+};
+
+struct Node_std430
+{
+    packed_float3 lo;
+    uint first;
+    packed_float3 hi;
+    uint count;
+};
+
+struct StructuredBuffer
+{
+    Node_std430 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint4 _member0[1];
+};
+
+struct _Array_std430_vector_uint_4_4
+{
+    uint4 data[4];
+};
+
+struct _Array_std430_vector_float_4_16
+{
+    float4 data[16];
+};
+
+struct Item_std430
+{
+    float4x4 model;
+    float4x4 inv_model;
+    float4 color;
+    float4 surface;
+    uint4 offs;
+    _Array_std430_vector_uint_4_4 slot_group;
+    _Array_std430_vector_float_4_16 slot_color;
+    _Array_std430_vector_float_4_16 slot_surface;
+    uint4 tex;
+};
+
+struct StructuredBuffer_2
+{
+    Item_std430 _member0[1];
+};
+
+struct StructuredBuffer_3
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_4
+{
+    float _member0[1];
+};
+
+struct Tex_Vertex
+{
+    float3 n;
+    float4 t;
+    float2 uv;
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> prev, sampler prevSmplr)
+{
+    uint2 _vecSize = uint2(prev.get_width(0u), prev.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(prev.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+uint pcg_next(thread uint& rng)
+{
+    uint s = rng;
+    rng = (s * 747796405u) + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+
+static inline __attribute__((always_inline))
+float rnd(thread uint& rng)
+{
+    uint _338 = pcg_next(rng);
+    return float(_338 >> uint(8)) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float3 safe_inverse(float3 d)
+{
+    return float3(1.0) / select(d, float3(9.9999996826552253889678874634872e-21), d == float3(0.0));
+}
+
+static inline __attribute__((always_inline))
+float enters(thread const Node_std430_logical& n, float3 o, float3 inv, float t_max)
+{
+    if (n.lo.x > n.hi.x)
+    {
+        return -1.0;
+    }
+    float3 t0 = (n.lo - o) * inv;
+    float3 t1 = (n.hi - o) * inv;
+    float3 _781 = fast::min(t0, t1);
+    float3 _782 = fast::max(t0, t1);
+    float _788 = fast::max(fast::max(_781.x, _781.y), fast::max(_781.z, 0.0));
+    bool _757;
+    if (_788 <= fast::min(_782.x, fast::min(_782.y, _782.z)))
+    {
+        _757 = _788 < t_max;
+    }
+    else
+    {
+        _757 = false;
+    }
+    float _758;
+    if (_757)
+    {
+        _758 = _788;
+    }
+    else
+    {
+        _758 = -1.0;
+    }
+    return _758;
+}
+
+static inline __attribute__((always_inline))
+float3 vertex0(uint v, const device StructuredBuffer_4& positions)
+{
+    uint _1161 = 3u * v;
+    return float3(positions._member0[_1161], positions._member0[_1161 + 1u], positions._member0[_1161 + 2u]);
+}
+
+static inline __attribute__((always_inline))
+bool trace(float3 o, float3 d, float t_max, bool _any, thread Hit& hit, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, const device StructuredBuffer& nodes, const device StructuredBuffer_1& chunks, const device StructuredBuffer_2& items, const device StructuredBuffer_3& order, const device StructuredBuffer_3& indices, const device StructuredBuffer_4& positions)
+{
+    hit.t = t_max;
+    hit.tri = 0u;
+    hit.item = 0u;
+    hit.uv = float2(0.0);
+    if (Render_Uniforms.extra.y != 0u)
+    {
+        return false;
+    }
+    float3 _684 = safe_inverse(d);
+    spvUnsafeArray<uint, 114> stack;
+    stack[0] = Render_Uniforms.extra.x;
+    uint4 ch = uint4(0u);
+    float3 om = float3(0.0);
+    float3 inv_m = float3(0.0);
+    uint base = 0u;
+    float3 dm = float3(0.0);
+    uint item = 0u;
+    bool found = false;
+    int top = 1;
+    uint j;
+    uint _552;
+    bool found_1;
+    int top_1;
+    Node_std430_logical _557;
+    float3 dm_1;
+    Node_std430_logical _559;
+    Node_std430_logical _560;
+    Node_std430_logical _561;
+    Node_std430_logical _562;
+    Node_std430_logical _563;
+    bool _564;
+    bool _565;
+    bool _566;
+    bool _567;
+    bool _568;
+    for (;;)
+    {
+        if (!(top > 0))
+        {
+            break;
+        }
+        int _715 = top;
+        int top_2 = _715 - 1;
+        uint e = stack[top_2];
+        if ((e & 2147483648u) == 0u)
+        {
+            _557.lo = float3(nodes._member0[e].lo);
+            _557.first = nodes._member0[e].first;
+            _557.hi = float3(nodes._member0[e].hi);
+            _557.count = nodes._member0[e].count;
+            if (enters(_557, o, _684, hit.t) < 0.0)
+            {
+                top = top_2;
+                continue;
+            }
+            if (_557.count == 0u)
+            {
+                uint a = Render_Uniforms.extra.x + _557.first;
+                uint b = a + 1u;
+                _559.lo = float3(nodes._member0[a].lo);
+                _559.first = nodes._member0[a].first;
+                _559.hi = float3(nodes._member0[a].hi);
+                _559.count = nodes._member0[a].count;
+                float _839 = enters(_559, o, _684, hit.t);
+                _560.lo = float3(nodes._member0[b].lo);
+                _560.first = nodes._member0[b].first;
+                _560.hi = float3(nodes._member0[b].hi);
+                _560.count = nodes._member0[b].count;
+                float _858 = enters(_560, o, _684, hit.t);
+                bool _859 = _839 >= 0.0;
+                if (_859)
+                {
+                    found_1 = _858 >= 0.0;
+                }
+                else
+                {
+                    found_1 = false;
+                }
+                if (found_1)
+                {
+                    int top_3 = top_2 + 1;
+                    bool _869 = _839 < _858;
+                    if (_869)
+                    {
+                        j = b;
+                    }
+                    else
+                    {
+                        j = a;
+                    }
+                    stack[top_2] = j;
+                    if (_869)
+                    {
+                        _552 = a;
+                    }
+                    else
+                    {
+                        _552 = b;
+                    }
+                    stack[top_3] = _552;
+                    top_1 = top_3 + 1;
+                }
+                else
+                {
+                    if (_859)
+                    {
+                        stack[top_2] = a;
+                        top_1 = top_2 + 1;
+                    }
+                    else
+                    {
+                        if (_858 >= 0.0)
+                        {
+                            stack[top_2] = b;
+                            top_1 = top_2 + 1;
+                        }
+                        else
+                        {
+                            top_1 = top_2;
+                        }
+                    }
+                }
+                dm_1 = dm;
+            }
+            else
+            {
+                uint item_1 = chunks._member0[_557.first].w >> uint(20);
+                float3 _945 = float3x3(items._member0[item_1].inv_model[0].xyz, items._member0[item_1].inv_model[1].xyz, items._member0[item_1].inv_model[2].xyz) * d;
+                stack[top_2] = 2147483648u;
+                ch = chunks._member0[_557.first];
+                om = (items._member0[item_1].inv_model * float4(o, 1.0)).xyz;
+                inv_m = safe_inverse(_945);
+                base = items._member0[item_1].offs.x;
+                dm_1 = _945;
+                item = item_1;
+                top_1 = top_2 + 1;
+            }
+            dm = dm_1;
+            top = top_1;
+            continue;
+        }
+        uint _966 = ch.x + (e & 2147483647u);
+        _561.lo = float3(nodes._member0[_966].lo);
+        _561.first = nodes._member0[_966].first;
+        _561.hi = float3(nodes._member0[_966].hi);
+        _561.count = nodes._member0[_966].count;
+        if (enters(_561, om, inv_m, hit.t) < 0.0)
+        {
+            top = top_2;
+            continue;
+        }
+        if (_561.count == 0u)
+        {
+            uint b_1 = _561.first + 1u;
+            uint _997 = ch.x + _561.first;
+            _562.lo = float3(nodes._member0[_997].lo);
+            _562.first = nodes._member0[_997].first;
+            _562.hi = float3(nodes._member0[_997].hi);
+            _562.count = nodes._member0[_997].count;
+            float _1018 = enters(_562, om, inv_m, hit.t);
+            uint _1019 = ch.x + b_1;
+            _563.lo = float3(nodes._member0[_1019].lo);
+            _563.first = nodes._member0[_1019].first;
+            _563.hi = float3(nodes._member0[_1019].hi);
+            _563.count = nodes._member0[_1019].count;
+            float _1040 = enters(_563, om, inv_m, hit.t);
+            bool _1041 = _1018 >= 0.0;
+            if (_1041)
+            {
+                found_1 = _1040 >= 0.0;
+            }
+            else
+            {
+                found_1 = false;
+            }
+            if (found_1)
+            {
+                int top_4 = top_2 + 1;
+                bool _1051 = _1018 < _1040;
+                if (_1051)
+                {
+                    j = b_1;
+                }
+                else
+                {
+                    j = _561.first;
+                }
+                stack[top_2] = 2147483648u | j;
+                if (_1051)
+                {
+                    _552 = _561.first;
+                }
+                else
+                {
+                    _552 = b_1;
+                }
+                stack[top_4] = 2147483648u | _552;
+                top_1 = top_4 + 1;
+            }
+            else
+            {
+                if (_1041)
+                {
+                    stack[top_2] = 2147483648u | _561.first;
+                    top_1 = top_2 + 1;
+                }
+                else
+                {
+                    if (_1040 >= 0.0)
+                    {
+                        stack[top_2] = 2147483648u | b_1;
+                        top_1 = top_2 + 1;
+                    }
+                    else
+                    {
+                        top_1 = top_2;
+                    }
+                }
+            }
+            top = top_1;
+            continue;
+        }
+        found_1 = found;
+        j = _561.first;
+        for (;;)
+        {
+            bool _623_ladder_break = false;
+            do
+            {
+                if (!(j < (_561.first + _561.count)))
+                {
+                    _623_ladder_break = true;
+                    break;
+                }
+                uint at = ch.y + j;
+                uint _1104 = at >> uint(1);
+                if ((at & 1u) == 0u)
+                {
+                    _552 = order._member0[_1104] & 65535u;
+                }
+                else
+                {
+                    _552 = order._member0[_1104] >> uint(16);
+                }
+                uint tri = ch.z + _552;
+                uint _1125 = 3u * tri;
+                uint _1130 = _1125 + 1u;
+                uint _1133 = _1125 + 2u;
+                if (indices._member0[_1125] == indices._member0[_1130])
+                {
+                    _564 = true;
+                }
+                else
+                {
+                    _564 = indices._member0[_1130] == indices._member0[_1133];
+                }
+                if (_564)
+                {
+                    _565 = true;
+                }
+                else
+                {
+                    _565 = indices._member0[_1125] == indices._member0[_1133];
+                }
+                if (_565)
+                {
+                    break;
+                }
+                float3 p0 = vertex0(base + indices._member0[_1125], positions);
+                float3 e1 = vertex0(base + indices._member0[_1130], positions) - p0;
+                float3 e2 = vertex0(base + indices._member0[_1133], positions) - p0;
+                float3 _1186 = cross(dm, e2);
+                float _1187 = dot(e1, _1186);
+                if (_1187 == 0.0)
+                {
+                    break;
+                }
+                float f = 1.0 / _1187;
+                float3 tv = om - p0;
+                float u = dot(tv, _1186) * f;
+                if (u < 0.0)
+                {
+                    _566 = true;
+                }
+                else
+                {
+                    _566 = u > 1.0;
+                }
+                if (_566)
+                {
+                    break;
+                }
+                float3 _1206 = cross(tv, e1);
+                float v = dot(dm, _1206) * f;
+                if (v < 0.0)
+                {
+                    _567 = true;
+                }
+                else
+                {
+                    _567 = (u + v) > 1.0;
+                }
+                if (_567)
+                {
+                    break;
+                }
+                float t = dot(e2, _1206) * f;
+                if (t <= 0.0)
+                {
+                    _568 = true;
+                }
+                else
+                {
+                    _568 = t >= hit.t;
+                }
+                if (_568)
+                {
+                    break;
+                }
+                hit.t = t;
+                hit.tri = tri;
+                hit.item = item;
+                hit.uv = float2(u, v);
+                if (_any)
+                {
+                    return true;
+                }
+                found_1 = true;
+                break;
+            } while(false);
+            if (_623_ladder_break)
+            {
+                break;
+            }
+            j++;
+            continue;
+        }
+        found = found_1;
+        top = top_2;
+        continue;
+    }
+    return found;
+}
+
+static inline __attribute__((always_inline))
+float cone_pdf(float cos_max)
+{
+    return 1.0 / (6.283185482025146484375 * fast::max(1.0 - cos_max, 1.0000000116860974230803549289703e-07));
+}
+
+static inline __attribute__((always_inline))
+float sphere_hit(float3 o, float3 d, float3 c, float r)
+{
+    float3 oc = o - c;
+    float _1402 = dot(oc, d);
+    float disc = (_1402 * _1402) - (dot(oc, oc) - (r * r));
+    if (disc < 0.0)
+    {
+        return -1.0;
+    }
+    float _1411 = sqrt(disc);
+    float _1412 = -_1402;
+    float t_1 = _1412 - _1411;
+    float t;
+    if (t_1 < 0.0)
+    {
+        t = _1412 + _1411;
+    }
+    else
+    {
+        t = t_1;
+    }
+    return t;
+}
+
+static inline __attribute__((always_inline))
+float sphere_cone(int i, float3 p, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms)
+{
+    float3 d = Render_Uniforms.light_pos.data[i].xyz - p;
+    float _1438 = dot(d, d);
+    float _1444 = Render_Uniforms.light_size.data[i].x * Render_Uniforms.light_size.data[i].x;
+    if (_1438 <= _1444)
+    {
+        return 2.0;
+    }
+    return sqrt(1.0 - (_1444 / _1438));
+}
+
+static inline __attribute__((always_inline))
+float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
+{
+    float k;
+    if (shape.y > 0.0)
+    {
+        float x = d2 / (shape.y * shape.y);
+        float _1516 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = _1516 * _1516;
+    }
+    else
+    {
+        k = 1.0;
+    }
+    if (pos.w > 1.5)
+    {
+        k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+    }
+    return k;
+}
+
+static inline __attribute__((always_inline))
+float light_falloff(int i, float d2, float3 l, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms)
+{
+    return light_window(Render_Uniforms.light_pos.data[i], Render_Uniforms.light_shape.data[i], Render_Uniforms.light_spot.data[i], d2, l);
+}
+
+static inline __attribute__((always_inline))
+float power_weight(float a, float b)
+{
+    float _1554 = a * a;
+    return _1554 / fast::max(_1554 + (b * b), 1.0000000031710768509710513471353e-30);
+}
+
+static inline __attribute__((always_inline))
+float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms)
+{
+    int i = 0;
+    float3 sum = float3(0.0);
+    float3 radiance;
+    bool _1285;
+    float pdf_dir;
+    bool _1287;
+    for (;;)
+    {
+        bool _1290_ladder_break = false;
+        do
+        {
+            if (!(i < 8))
+            {
+                _1290_ladder_break = true;
+                break;
+            }
+            if (Render_Uniforms.light_size.data[i].w <= 0.0)
+            {
+                break;
+            }
+            float3 radiance_1 = Render_Uniforms.light_color.data[i].xyz * Render_Uniforms.light_size.data[i].y;
+            if (Render_Uniforms.light_pos.data[i].w < 0.5)
+            {
+                if (!escaped)
+                {
+                    _1285 = true;
+                }
+                else
+                {
+                    _1285 = dot(d, Render_Uniforms.light_pos.data[i].xyz) < Render_Uniforms.light_size.data[i].x;
+                }
+                if (_1285)
+                {
+                    break;
+                }
+                pdf_dir = cone_pdf(Render_Uniforms.light_size.data[i].x);
+                radiance = radiance_1;
+            }
+            else
+            {
+                float t = sphere_hit(o, d, Render_Uniforms.light_pos.data[i].xyz, Render_Uniforms.light_size.data[i].x);
+                float cos_max = sphere_cone(i, o, Render_Uniforms);
+                if (t <= 0.0)
+                {
+                    _1285 = true;
+                }
+                else
+                {
+                    _1285 = t >= t_hit;
+                }
+                if (_1285)
+                {
+                    _1287 = true;
+                }
+                else
+                {
+                    _1287 = cos_max > 1.0;
+                }
+                if (_1287)
+                {
+                    break;
+                }
+                float3 to = Render_Uniforms.light_pos.data[i].xyz - o;
+                pdf_dir = cone_pdf(cos_max);
+                radiance = radiance_1 * light_falloff(i, dot(to, to), fast::normalize(to), Render_Uniforms);
+            }
+            sum += (radiance * power_weight(pdf_bsdf, Render_Uniforms.light_size.data[i].w * pdf_dir));
+            break;
+        } while(false);
+        if (_1290_ladder_break)
+        {
+            break;
+        }
+        i++;
+        continue;
+    }
+    return sum;
+}
+
+static inline __attribute__((always_inline))
+float2 panorama_uv(float3 d)
+{
+    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
+}
+
+static inline __attribute__((always_inline))
+float3 lobe(float3 dir, float3 toward, float3 color, float sharp, float rough)
+{
+    float _1703 = mix(sharp, 3.0, sqrt(rough));
+    return ((color * powr(fast::max(dot(dir, toward), 0.0), _1703)) * (_1703 + 2.0)) / float3(sharp + 2.0);
+}
+
+static inline __attribute__((always_inline))
+float3 studio(float3 dir, float rough)
+{
+    float w = 0.07999999821186065673828125 + (0.89999997615814208984375 * rough);
+    return (((mix(float3(0.070000000298023223876953125, 0.064999997615814208984375, 0.0599999986588954925537109375), float3(0.4000000059604644775390625, 0.430000007152557373046875, 0.4799999892711639404296875), float3(smoothstep(-w, w, dir.y))) + (float3(0.12999999523162841796875, 0.119999997317790985107421875, 0.10999999940395355224609375) * exp((-abs(dir.y)) / (0.0599999986588954925537109375 + (0.5 * rough))))) + lobe(dir, float3(-0.655904233455657958984375, 0.743358075618743896484375, 0.13118083775043487548828125), float3(4.0, 3.7999999523162841796875, 3.5), 300.0, rough)) + lobe(dir, float3(0.8447818756103515625, 0.3285262882709503173828125, -0.42239093780517578125), float3(1.60000002384185791015625, 1.7999999523162841796875, 2.099999904632568359375), 600.0, rough)) + lobe(dir, float3(0.09396819770336151123046875, -0.3288886845111846923828125, 0.939681947231292724609375), float3(0.5), 4.0, rough);
+}
+
+static inline __attribute__((always_inline))
+float3 environment(float3 d, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, texture2d<float> environment_map, sampler environment_mapSmplr)
+{
+    if (Render_Uniforms.env.x > 0.5)
+    {
+        float4 _1638 = environment_map.sample(environment_mapSmplr, panorama_uv(transpose(float3x3(Render_Uniforms.env_x.xyz, Render_Uniforms.env_y.xyz, Render_Uniforms.env_z.xyz)) * d), level(0.0));
+        return _1638.xyz * Render_Uniforms.env.y;
+    }
+    return studio(transpose(float3x3(Render_Uniforms.rig_x.xyz, Render_Uniforms.rig_y.xyz, Render_Uniforms.rig_z.xyz)) * d, 0.25) * (0.699999988079071044921875 * Render_Uniforms.rig_x.w);
+}
+
+static inline __attribute__((always_inline))
+float3x3 env_frame(constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms)
+{
+    float3x3 _1772;
+    if (Render_Uniforms.env.x > 0.5)
+    {
+        _1772 = float3x3(Render_Uniforms.env_x.xyz, Render_Uniforms.env_y.xyz, Render_Uniforms.env_z.xyz);
+    }
+    else
+    {
+        _1772 = float3x3(Render_Uniforms.rig_x.xyz, Render_Uniforms.rig_y.xyz, Render_Uniforms.rig_z.xyz);
+    }
+    return _1772;
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_1(texture2d<float> env_table, sampler env_tableSmplr)
+{
+    uint2 _vecSize = uint2(env_table.get_width(0u), env_table.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(env_table.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float env_pdf(float3 d, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, texture2d<float> env_table, sampler env_tableSmplr)
+{
+    float3 _1808 = transpose(env_frame(Render_Uniforms)) * d;
+    int2 _1809 = texture_size_1(env_table, env_tableSmplr);
+    float4 _1842 = env_table.read(uint2(int3(min(int2(panorama_uv(_1808) * float2(_1809)), (_1809 - int2(1))), 0).xy), 0);
+    float _1844 = _1808.y;
+    return _1842.z / fast::max(sqrt(fast::max(1.0 - (_1844 * _1844), 0.0)), 9.9999997473787516355514526367188e-05);
+}
+
+static inline __attribute__((always_inline))
+float3 oct_decode(float2 e)
+{
+    float3 _2007 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
+    float3 v = _2007;
+    if (_2007.z < 0.0)
+    {
+        float _1991;
+        if (e.x >= 0.0)
+        {
+            _1991 = 1.0;
+        }
+        else
+        {
+            _1991 = -1.0;
+        }
+        float _1992;
+        if (e.y >= 0.0)
+        {
+            _1992 = 1.0;
+        }
+        else
+        {
+            _1992 = -1.0;
+        }
+        float2 _2031 = (float2(1.0) - abs(e.yx)) * float2(_1991, _1992);
+        v.x = _2031.x;
+        v.y = _2031.y;
+    }
+    return fast::normalize(v);
+}
+
+static inline __attribute__((always_inline))
+float3 normal_decode(uint w)
+{
+    return oct_decode(float2(int2(int(w << uint(16)) >> 16, int(w) >> 16) & int2(-16)) / float2(32767.0));
+}
+
+static inline __attribute__((always_inline))
+float3 vertex_normal(uint v, const device StructuredBuffer_3& attributes)
+{
+    return normal_decode(attributes._member0[v]);
+}
+
+static inline __attribute__((always_inline))
+uint2 vertex_paint(uint v, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, const device StructuredBuffer_3& attributes)
+{
+    uint at = Render_Uniforms.counts.w + (2u * v);
+    return uint2(attributes._member0[at], attributes._member0[at + 1u]);
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 group_color(uint g)
+{
+    float light;
+    if ((g & 1u) == 0u)
+    {
+        light = 0.75;
+    }
+    else
+    {
+        light = 0.550000011920928955078125;
+    }
+    return mix(float3(1.0), fast::clamp(abs((fract(float3(fract((float(g) * 0.61803400516510009765625) + 0.119999997317790985107421875)) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.550000011920928955078125)) * light;
+}
+
+static inline __attribute__((always_inline))
+Tex_Vertex tex_vertex(uint at, const device StructuredBuffer_3& textured)
+{
+    Tex_Vertex v;
+    v.n = normal_decode(textured._member0[at + 3u]);
+    uint _2323 = at + 4u;
+    uint _2326 = at + 5u;
+    v.t = fast::max(float4(float(int(textured._member0[_2323] << uint(16)) >> 16), float(int(textured._member0[_2323]) >> 16), float(int(textured._member0[_2326] << uint(16)) >> 16), float(int(textured._member0[_2326]) >> 16)) / float4(32767.0), float4(-1.0));
+    v.uv = float2(as_type<float>(textured._member0[at + 6u]), as_type<float>(textured._member0[at + 7u]));
+    return v;
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_2(texture2d<float> map0, sampler map0Smplr)
+{
+    uint2 _vecSize = uint2(map0.get_width(0u), map0.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map0.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_3(texture2d<float> map1, sampler map1Smplr)
+{
+    uint2 _vecSize = uint2(map1.get_width(0u), map1.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map1.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_4(texture2d<float> map2, sampler map2Smplr)
+{
+    uint2 _vecSize = uint2(map2.get_width(0u), map2.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map2.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_5(texture2d<float> map3, sampler map3Smplr)
+{
+    uint2 _vecSize = uint2(map3.get_width(0u), map3.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map3.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_6(texture2d<float> map4, sampler map4Smplr)
+{
+    uint2 _vecSize = uint2(map4.get_width(0u), map4.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map4.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_7(texture2d<float> map5, sampler map5Smplr)
+{
+    uint2 _vecSize = uint2(map5.get_width(0u), map5.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map5.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_8(texture2d<float> map6, sampler map6Smplr)
+{
+    uint2 _vecSize = uint2(map6.get_width(0u), map6.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map6.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_9(texture2d<float> map7, sampler map7Smplr)
+{
+    uint2 _vecSize = uint2(map7.get_width(0u), map7.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map7.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_10(texture2d<float> map8, sampler map8Smplr)
+{
+    uint2 _vecSize = uint2(map8.get_width(0u), map8.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(map8.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float4 map_at(uint slot, uint kind, float2 uv, float lod, texture2d<float> map0, sampler map0Smplr, texture2d<float> map1, sampler map1Smplr, texture2d<float> map2, sampler map2Smplr, texture2d<float> map3, sampler map3Smplr, texture2d<float> map4, sampler map4Smplr, texture2d<float> map5, sampler map5Smplr, texture2d<float> map6, sampler map6Smplr, texture2d<float> map7, sampler map7Smplr, texture2d<float> map8, sampler map8Smplr)
+{
+    switch ((slot * 3u) + kind)
+    {
+        case 0u:
+        {
+            float2 _2534 = float2(texture_size_2(map0, map0Smplr));
+            float4 _2544 = map0.sample(map0Smplr, uv, level(fast::max(lod + (0.5 * log2(_2534.x * _2534.y)), 0.0)));
+            return _2544;
+        }
+        case 1u:
+        {
+            float2 _2566 = float2(texture_size_3(map1, map1Smplr));
+            float4 _2576 = map1.sample(map1Smplr, uv, level(fast::max(lod + (0.5 * log2(_2566.x * _2566.y)), 0.0)));
+            return _2576;
+        }
+        case 2u:
+        {
+            float2 _2598 = float2(texture_size_4(map2, map2Smplr));
+            float4 _2608 = map2.sample(map2Smplr, uv, level(fast::max(lod + (0.5 * log2(_2598.x * _2598.y)), 0.0)));
+            return _2608;
+        }
+        case 3u:
+        {
+            float2 _2630 = float2(texture_size_5(map3, map3Smplr));
+            float4 _2640 = map3.sample(map3Smplr, uv, level(fast::max(lod + (0.5 * log2(_2630.x * _2630.y)), 0.0)));
+            return _2640;
+        }
+        case 4u:
+        {
+            float2 _2662 = float2(texture_size_6(map4, map4Smplr));
+            float4 _2672 = map4.sample(map4Smplr, uv, level(fast::max(lod + (0.5 * log2(_2662.x * _2662.y)), 0.0)));
+            return _2672;
+        }
+        case 5u:
+        {
+            float2 _2694 = float2(texture_size_7(map5, map5Smplr));
+            float4 _2704 = map5.sample(map5Smplr, uv, level(fast::max(lod + (0.5 * log2(_2694.x * _2694.y)), 0.0)));
+            return _2704;
+        }
+        case 6u:
+        {
+            float2 _2726 = float2(texture_size_8(map6, map6Smplr));
+            float4 _2736 = map6.sample(map6Smplr, uv, level(fast::max(lod + (0.5 * log2(_2726.x * _2726.y)), 0.0)));
+            return _2736;
+        }
+        case 7u:
+        {
+            float2 _2758 = float2(texture_size_9(map7, map7Smplr));
+            float4 _2768 = map7.sample(map7Smplr, uv, level(fast::max(lod + (0.5 * log2(_2758.x * _2758.y)), 0.0)));
+            return _2768;
+        }
+        case 8u:
+        {
+            float2 _2790 = float2(texture_size_10(map8, map8Smplr));
+            float4 _2800 = map8.sample(map8Smplr, uv, level(fast::max(lod + (0.5 * log2(_2790.x * _2790.y)), 0.0)));
+            return _2800;
+        }
+        default:
+        {
+            break;
+        }
+    }
+    return float4(0.0);
+}
+
+static inline __attribute__((always_inline))
+float glsl_mod(float x, float y)
+{
+    return x - (y * floor(x / y));
+}
+
+static inline __attribute__((always_inline))
+float3 uv_checker(float2 uv)
+{
+    float2 c = uv * 8.0;
+    float2 _2929 = fract(c);
+    float _2930 = _2929.x;
+    float _2933 = _2929.y;
+    float2 _2939 = floor(c);
+    float _2940 = _2939.x;
+    float _2941 = _2939.y;
+    return ((mix(float3(1.0), fast::clamp(abs((fract(float3((_2940 + 0.5) / 8.0) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.3499999940395355224609375)) * mix(0.699999988079071044921875, 1.0, (_2941 + 0.5) / 8.0)) * mix(1.0, 0.7200000286102294921875, glsl_mod(_2940 + _2941, 2.0))) * (1.0 - (0.5 * step(fast::min(fast::min(_2930, 1.0 - _2930), fast::min(_2933, 1.0 - _2933)), 0.014999999664723873138427734375)));
+}
+
+static inline __attribute__((always_inline))
+float3 panorama_dir(float2 uv)
+{
+    float theta = uv.y * 3.1415927410125732421875;
+    float phi = (uv.x - 0.5) * 6.283185482025146484375;
+    float _3188 = sin(theta);
+    return float3(sin(phi) * _3188, cos(theta), (-cos(phi)) * _3188);
+}
+
+static inline __attribute__((always_inline))
+float3 env_sample(thread float& pdf, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, thread uint& rng, texture2d<float> env_table, sampler env_tableSmplr)
+{
+    int2 _3125 = texture_size_1(env_table, env_tableSmplr);
+    int _3126 = _3125.x;
+    int count = _3126 * _3125.y;
+    float _3129 = rnd(rng);
+    float u = _3129 * float(count);
+    int _3134 = min(int(u), (count - 1));
+    float4 _3143 = env_table.read(uint2(int3(int2(_3134 - _3126 * (_3134 / _3126), _3134 / _3126), 0).xy), 0);
+    int i;
+    float4 e;
+    if (fract(u) >= _3143.x)
+    {
+        int i_1 = int(_3143.y);
+        float4 _3158 = env_table.read(uint2(int3(int2(i_1 - _3126 * (i_1 / _3126), i_1 / _3126), 0).xy), 0);
+        i = i_1;
+        e = _3158;
+    }
+    else
+    {
+        i = _3134;
+        e = _3143;
+    }
+    float _3172 = rnd(rng);
+    float _3173 = rnd(rng);
+    float3 local = panorama_dir((float2(float(i - _3126 * (i / _3126)), float(i / _3126)) + float2(_3172, _3173)) / float2(_3125));
+    float _3199 = local.y;
+    pdf = e.z / fast::max(sqrt(fast::max(1.0 - (_3199 * _3199), 0.0)), 9.9999997473787516355514526367188e-05);
+    return env_frame(Render_Uniforms) * local;
+}
+
+static inline __attribute__((always_inline))
+float ggx_d(float n_dot_h, float a)
+{
+    float a2 = a * a;
+    float d = ((n_dot_h * n_dot_h) * (a2 - 1.0)) + 1.0;
+    return a2 / ((3.1415927410125732421875 * d) * d);
+}
+
+static inline __attribute__((always_inline))
+float ggx_lambda(float c, float a)
+{
+    float _3272 = fast::max(c * c, 9.9999999392252902907785028219223e-09);
+    return 0.5 * ((-1.0) + sqrt(1.0 + (((a * a) * (1.0 - _3272)) / _3272)));
+}
+
+static inline __attribute__((always_inline))
+float3 fresnel(float3 f0, float c)
+{
+    return f0 + ((float3(1.0) - f0) * powr(1.0 - fast::clamp(c, 0.0, 1.0), 5.0));
+}
+
+static inline __attribute__((always_inline))
+float luminance(float3 c)
+{
+    return dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+}
+
+static inline __attribute__((always_inline))
+float specular_chance(thread const Surface& s, float n_dot_v)
+{
+    float3 fv = fresnel(s.f0, n_dot_v);
+    float es = luminance(fv);
+    float ed = luminance(s.diffuse * (float3(1.0) - fv));
+    if (ed <= 0.0)
+    {
+        return 1.0;
+    }
+    return fast::clamp(es / fast::max(es + ed, 9.9999999747524270787835121154785e-07), 0.0500000007450580596923828125, 0.949999988079071044921875);
+}
+
+static inline __attribute__((always_inline))
+float3 bsdf_eval(thread const Surface& s, float3 n, float3 v, float3 l, thread float& pdf)
+{
+    pdf = 0.0;
+    float _3231 = dot(n, l);
+    float _3232 = dot(n, v);
+    bool _3224;
+    if (_3231 <= 0.0)
+    {
+        _3224 = true;
+    }
+    else
+    {
+        _3224 = _3232 <= 0.0;
+    }
+    if (_3224)
+    {
+        return float3(0.0);
+    }
+    float3 _3245 = fast::normalize(v + l);
+    float D = ggx_d(fast::max(dot(n, _3245), 0.0), s.a);
+    float _3300 = 1.0 + ggx_lambda(_3232, s.a);
+    float _3315 = specular_chance(s, _3232);
+    pdf = (_3315 * (D / ((_3300 * 4.0) * _3232))) + (((1.0 - _3315) * _3231) / 3.1415927410125732421875);
+    return (((s.diffuse * (float3(1.0) - fresnel(s.f0, _3232))) / float3(3.1415927410125732421875)) + (fresnel(s.f0, fast::max(dot(v, _3245), 0.0)) * (D / ((((_3300 + ggx_lambda(_3231, s.a)) * 4.0) * _3232) * _3231)))) * _3231;
+}
+
+static inline __attribute__((always_inline))
+float3 offset_ray(float3 p, float3 n)
+{
+    int3 _3417 = int3(n * 256.0);
+    int _3393;
+    if (p.x < 0.0)
+    {
+        _3393 = -_3417.x;
+    }
+    else
+    {
+        _3393 = _3417.x;
+    }
+    int _3429 = _3393;
+    if (p.y < 0.0)
+    {
+        _3393 = -_3417.y;
+    }
+    else
+    {
+        _3393 = _3417.y;
+    }
+    int _3443 = _3393;
+    if (p.z < 0.0)
+    {
+        _3393 = -_3417.z;
+    }
+    else
+    {
+        _3393 = _3417.z;
+    }
+    float _3394;
+    if (abs(p.x) < 0.03125)
+    {
+        _3394 = p.x + (1.52587890625e-05 * n.x);
+    }
+    else
+    {
+        _3394 = as_type<float>(as_type<int>(p.x) + _3429);
+    }
+    float _3395;
+    if (abs(p.y) < 0.03125)
+    {
+        _3395 = p.y + (1.52587890625e-05 * n.y);
+    }
+    else
+    {
+        _3395 = as_type<float>(as_type<int>(p.y) + _3443);
+    }
+    float _3396;
+    if (abs(p.z) < 0.03125)
+    {
+        _3396 = p.z + (1.52587890625e-05 * n.z);
+    }
+    else
+    {
+        _3396 = as_type<float>(as_type<int>(p.z) + _3393);
+    }
+    return float3(_3394, _3395, _3396);
+}
+
+static inline __attribute__((always_inline))
+void basis(float3 n, thread float3& t, thread float3& b)
+{
+    float s;
+    if (n.z >= 0.0)
+    {
+        s = 1.0;
+    }
+    else
+    {
+        s = -1.0;
+    }
+    float a = (-1.0) / (s + n.z);
+    float c = (n.x * n.y) * a;
+    t = float3(1.0 + (((s * n.x) * n.x) * a), s * c, (-s) * n.x);
+    b = float3(c, s + ((n.y * n.y) * a), -n.y);
+}
+
+static inline __attribute__((always_inline))
+float3 sample_cone(float3 axis, float cos_max, thread uint& rng)
+{
+    float3 t;
+    float3 b;
+    basis(axis, t, b);
+    float _3622 = rnd(rng);
+    float c = 1.0 - (_3622 * (1.0 - cos_max));
+    float _3629 = sqrt(fast::max(1.0 - (c * c), 0.0));
+    float _3630 = rnd(rng);
+    float phi = 6.283185482025146484375 * _3630;
+    return fast::normalize(((t * (_3629 * cos(phi))) + (b * (_3629 * sin(phi)))) + (axis * c));
+}
+
+static inline __attribute__((always_inline))
+float3 direct_light(thread const Surface& s, float3 p, float3 ng, float3 n, float3 v, constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms, thread uint& rng, const device StructuredBuffer& nodes, const device StructuredBuffer_1& chunks, const device StructuredBuffer_2& items, const device StructuredBuffer_3& order, const device StructuredBuffer_3& indices, const device StructuredBuffer_4& positions, texture2d<float> environment_map, sampler environment_mapSmplr, texture2d<float> env_table, sampler env_tableSmplr)
+{
+    float pick = rnd(rng);
+    bool _3051;
+    if (pick < Render_Uniforms.env.z)
+    {
+        float pdf_env;
+        float3 l_1 = env_sample(pdf_env, Render_Uniforms, rng, env_table, env_tableSmplr);
+        if (dot(ng, l_1) <= 0.0)
+        {
+            return float3(0.0);
+        }
+        float pdf_bsdf;
+        float3 _3215 = bsdf_eval(s, n, v, l_1, pdf_bsdf);
+        if (luminance(_3215) <= 0.0)
+        {
+            return float3(0.0);
+        }
+        float3 radiance_1 = environment(l_1, Render_Uniforms, environment_map, environment_mapSmplr);
+        float pdf_light = Render_Uniforms.env.z * pdf_env;
+        if (luminance(radiance_1) <= 0.0)
+        {
+            _3051 = true;
+        }
+        else
+        {
+            _3051 = pdf_light <= 0.0;
+        }
+        if (_3051)
+        {
+            return float3(0.0);
+        }
+        Hit shadow;
+        bool _3497 = trace(offset_ray(p, ng), l_1, 3.0000000054977557577780399428115e+38, true, shadow, Render_Uniforms, nodes, chunks, items, order, indices, positions);
+        if (_3497)
+        {
+            return float3(0.0);
+        }
+        return (_3215 * radiance_1) * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
+    }
+    int k = 0;
+    int i;
+    for (;;)
+    {
+        bool _3078_ladder_break = false;
+        do
+        {
+            if (!(k < 8))
+            {
+                i = -1;
+                _3078_ladder_break = true;
+                break;
+            }
+            if (Render_Uniforms.light_size.data[k].w > 0.0)
+            {
+                _3051 = pick < Render_Uniforms.light_size.data[k].z;
+            }
+            else
+            {
+                _3051 = false;
+            }
+            if (_3051)
+            {
+                i = k;
+                _3078_ladder_break = true;
+                break;
+            }
+            break;
+        } while(false);
+        if (_3078_ladder_break)
+        {
+            break;
+        }
+        k++;
+        continue;
+    }
+    if (i < 0)
+    {
+        return float3(0.0);
+    }
+    float3 radiance_2 = Render_Uniforms.light_color.data[i].xyz * Render_Uniforms.light_size.data[i].y;
+    float3 l;
+    float3 radiance;
+    float pdf_dir;
+    float dist;
+    if (Render_Uniforms.light_pos.data[i].w < 0.5)
+    {
+        float3 _3570 = sample_cone(Render_Uniforms.light_pos.data[i].xyz, Render_Uniforms.light_size.data[i].x, rng);
+        l = _3570;
+        pdf_dir = cone_pdf(Render_Uniforms.light_size.data[i].x);
+        dist = 3.0000000054977557577780399428115e+38;
+        radiance = radiance_2;
+    }
+    else
+    {
+        float cos_max = sphere_cone(i, p, Render_Uniforms);
+        if (cos_max > 1.0)
+        {
+            return float3(0.0);
+        }
+        float3 to = Render_Uniforms.light_pos.data[i].xyz - p;
+        float3 _3662 = fast::normalize(to);
+        float3 l_2 = sample_cone(_3662, cos_max, rng);
+        float dist_1 = sphere_hit(p, l_2, Render_Uniforms.light_pos.data[i].xyz, Render_Uniforms.light_size.data[i].x);
+        if (dist_1 <= 0.0)
+        {
+            return float3(0.0);
+        }
+        l = l_2;
+        pdf_dir = cone_pdf(cos_max);
+        dist = dist_1;
+        radiance = radiance_2 * light_falloff(i, dot(to, to), _3662, Render_Uniforms);
+    }
+    if (dot(ng, l) <= 0.0)
+    {
+        _3051 = true;
+    }
+    else
+    {
+        _3051 = luminance(radiance) <= 0.0;
+    }
+    if (_3051)
+    {
+        return float3(0.0);
+    }
+    float pdf_bsdf_1;
+    float3 _3699 = bsdf_eval(s, n, v, l, pdf_bsdf_1);
+    if (luminance(_3699) <= 0.0)
+    {
+        return float3(0.0);
+    }
+    float pdf_light_1 = Render_Uniforms.light_size.data[i].w * pdf_dir;
+    Hit shadow_1;
+    bool _3712 = trace(offset_ray(p, ng), l, dist, true, shadow_1, Render_Uniforms, nodes, chunks, items, order, indices, positions);
+    if (_3712)
+    {
+        return float3(0.0);
+    }
+    return (_3699 * radiance) * (power_weight(pdf_light_1, pdf_bsdf_1) / pdf_light_1);
+}
+
+static inline __attribute__((always_inline))
+void basis_1(float3 n, thread float3& t, thread float3& b)
+{
+    float s;
+    if (n.z >= 0.0)
+    {
+        s = 1.0;
+    }
+    else
+    {
+        s = -1.0;
+    }
+    float a = (-1.0) / (s + n.z);
+    float c = (n.x * n.y) * a;
+    t = float3(1.0 + (((s * n.x) * n.x) * a), s * c, (-s) * n.x);
+    b = float3(c, s + ((n.y * n.y) * a), -n.y);
+}
+
+static inline __attribute__((always_inline))
+float3 sample_vndf(float3 ve, float a, float2 u)
+{
+    float3 _3821 = fast::normalize(float3(a * ve.x, a * ve.y, ve.z));
+    float _3822 = _3821.x;
+    float _3824 = _3821.y;
+    float lensq = (_3822 * _3822) + (_3824 * _3824);
+    float3 t1;
+    if (lensq > 0.0)
+    {
+        t1 = float3(-_3824, _3822, 0.0) * rsqrt(lensq);
+    }
+    else
+    {
+        t1 = float3(1.0, 0.0, 0.0);
+    }
+    float _3841 = sqrt(u.x);
+    float phi = 6.283185482025146484375 * u.y;
+    float p1 = _3841 * cos(phi);
+    float s = 0.5 * (1.0 + _3821.z);
+    float _3853 = 1.0 - (p1 * p1);
+    float p2 = ((1.0 - s) * sqrt(fast::max(_3853, 0.0))) + (s * (_3841 * sin(phi)));
+    float3 nh = ((t1 * p1) + (cross(_3821, t1) * p2)) + (_3821 * sqrt(fast::max(_3853 - (p2 * p2), 0.0)));
+    return fast::normalize(float3(a * nh.x, a * nh.y, fast::max(nh.z, 0.0)));
+}
+
+static inline __attribute__((always_inline))
+bool bsdf_sample(thread const Surface& s, float3 n, float3 v, thread float3& l, thread uint& rng)
+{
+    float3 t;
+    float3 b;
+    basis_1(n, t, b);
+    float _3789 = rnd(rng);
+    float _3790 = rnd(rng);
+    float _3792 = rnd(rng);
+    if (_3792 < specular_chance(s, fast::max(dot(n, v), 9.9999997473787516355514526367188e-05)))
+    {
+        float3 hl = sample_vndf(float3(dot(v, t), dot(v, b), dot(v, n)), s.a, float2(_3789, _3790));
+        l = reflect(-v, ((t * hl.x) + (b * hl.y)) + (n * hl.z));
+    }
+    else
+    {
+        float _3892 = sqrt(_3789);
+        float phi = 6.283185482025146484375 * _3790;
+        l = fast::normalize(((t * (_3892 * cos(phi))) + (b * (_3892 * sin(phi)))) + (n * sqrt(fast::max(1.0 - _3789, 0.0))));
+    }
+    return dot(n, l) > 0.0;
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Render_Uniforms_std140& Render_Uniforms [[buffer(0)]], const device StructuredBuffer_4& positions [[buffer(1)]], const device StructuredBuffer_3& indices [[buffer(2)]], const device StructuredBuffer_3& attributes [[buffer(3)]], const device StructuredBuffer& nodes [[buffer(4)]], const device StructuredBuffer_3& order [[buffer(5)]], const device StructuredBuffer_1& chunks [[buffer(6)]], const device StructuredBuffer_2& items [[buffer(7)]], const device StructuredBuffer_3& textured [[buffer(8)]], texture2d<float> prev [[texture(0)]], texture2d<float> environment_map [[texture(1)]], texture2d<float> env_table [[texture(2)]], texture2d<float> prev_albedo [[texture(3)]], texture2d<float> prev_normal [[texture(4)]], texture2d<float> map0 [[texture(5)]], texture2d<float> map1 [[texture(6)]], texture2d<float> map2 [[texture(7)]], texture2d<float> map3 [[texture(8)]], texture2d<float> map4 [[texture(9)]], texture2d<float> map5 [[texture(10)]], texture2d<float> map6 [[texture(11)]], texture2d<float> map7 [[texture(12)]], texture2d<float> map8 [[texture(13)]], texture2d<float, access::write> next [[texture(14)]], texture2d<float, access::write> guide_albedo [[texture(15)]], texture2d<float, access::write> guide_normal [[texture(16)]], sampler prevSmplr [[sampler(0)]], sampler environment_mapSmplr [[sampler(1)]], sampler env_tableSmplr [[sampler(2)]], sampler prev_albedoSmplr [[sampler(3)]], sampler prev_normalSmplr [[sampler(4)]], sampler map0Smplr [[sampler(5)]], sampler map1Smplr [[sampler(6)]], sampler map2Smplr [[sampler(7)]], sampler map3Smplr [[sampler(8)]], sampler map4Smplr [[sampler(9)]], sampler map5Smplr [[sampler(10)]], sampler map6Smplr [[sampler(11)]], sampler map7Smplr [[sampler(12)]], sampler map8Smplr [[sampler(13)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    int2 _227 = texture_size(prev, prevSmplr);
+    int _258 = int(gl_GlobalInvocationID.x);
+    int _274 = int(gl_GlobalInvocationID.y + Render_Uniforms.counts.y);
+    int2 px = int2(_258, _274);
+    int _276 = _227.x;
+    bool _7;
+    uint rng;
+    if (_258 >= _276)
+    {
+        _7 = true;
+    }
+    else
+    {
+        _7 = _274 >= _227.y;
+    }
+    if (_7)
+    {
+        return;
+    }
+    rng = ((uint((_274 * _276) + _258) * 9781u) + (Render_Uniforms.counts.x * 6271u)) + 1u;
+    uint _304 = pcg_next(rng);
+    rng ^= (Render_Uniforms.counts.x * 2654435761u);
+    uint _333 = pcg_next(rng);
+    float _334 = rnd(rng);
+    float _344 = rnd(rng);
+    bool first = Render_Uniforms.counts.x == 0u;
+    float2 jitter;
+    if (first)
+    {
+        jitter = float2(0.5);
+    }
+    else
+    {
+        jitter = float2(_334, _344);
+    }
+    float2 uv = (float2(px) + jitter) / float2(_227);
+    float2 ndc = float2((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0));
+    float4 _376 = Render_Uniforms.inv_view_proj * float4(ndc, 0.0, 1.0);
+    float4 _379 = Render_Uniforms.inv_view_proj * float4(ndc, 1.0, 1.0);
+    float3 o_1 = _376.xyz / float3(_376.w);
+    float3 _389 = fast::normalize((_379.xyz / float3(_379.w)) - o_1);
+    float2 ndc_dx = ndc + float2(2.0 / float(_276), 0.0);
+    float4 _397 = Render_Uniforms.inv_view_proj * float4(ndc_dx, 0.0, 1.0);
+    float4 _400 = Render_Uniforms.inv_view_proj * float4(ndc_dx, 1.0, 1.0);
+    float3 o_dx = _397.xyz / float3(_397.w);
+    float3 _410 = fast::normalize((_400.xyz / float3(_400.w)) - o_dx);
+    bool lens = Render_Uniforms.lens_eye.w > 0.0;
+    float2 disc;
+    float r;
+    float phi;
+    float3 o;
+    float3 d;
+    if (lens)
+    {
+        float _418 = rnd(rng);
+        float _419 = rnd(rng);
+        float2 u = (float2(_418, _419) * 2.0) - float2(1.0);
+        if (any(u != float2(0.0)))
+        {
+            float _429 = u.x;
+            float _431 = u.y;
+            bool wide = abs(_429) > abs(_431);
+            if (wide)
+            {
+                r = _429;
+            }
+            else
+            {
+                r = _431;
+            }
+            if (wide)
+            {
+                phi = 0.785398185253143310546875 * (_431 / _429);
+            }
+            else
+            {
+                phi = 1.57079637050628662109375 - (0.785398185253143310546875 * (_429 / _431));
+            }
+            disc = float2(cos(phi), sin(phi)) * r;
+        }
+        else
+        {
+            disc = float2(0.0);
+        }
+        float _466 = dot(_389, Render_Uniforms.lens_fwd.xyz);
+        float3 e = o_1 + (_389 * (dot(Render_Uniforms.lens_eye.xyz - o_1, Render_Uniforms.lens_fwd.xyz) / _466));
+        float3 from = e + (((Render_Uniforms.lens_right.xyz * disc.x) + (Render_Uniforms.lens_up.xyz * disc.y)) * Render_Uniforms.lens_eye.w);
+        float3 _499 = fast::normalize((e + (_389 * (Render_Uniforms.lens_right.w / _466))) - from);
+        o = from + (_499 * (dot(o_1 - from, Render_Uniforms.lens_fwd.xyz) / dot(_499, Render_Uniforms.lens_fwd.xyz)));
+        d = _499;
+    }
+    else
+    {
+        o = o_1;
+        d = _389;
+    }
+    float pdf_bsdf = 0.0;
+    int _515 = int(Render_Uniforms.counts.z);
+    r = 0.0;
+    float4 guide_a = float4(0.0);
+    float4 guide_n = float4(0.0);
+    int bounce = 0;
+    float3 weight = float3(1.0);
+    float3 radiance = float3(0.0);
+    float4 guide_a_1;
+    float4 guide_n_1;
+    Hit hit;
+    float3 radiance_1;
+    float3 ng;
+    float3 n;
+    float3 n_1;
+    float3 albedo;
+    float3 albedo_1;
+    float3 albedo_2;
+    float2 surf;
+    float3 n_2;
+    float lod;
+    bool _51;
+    float _52;
+    float3 n_3;
+    bool _54;
+    float3 albedo_3;
+    bool _56;
+    float3 albedo_4;
+    Surface s;
+    float3 l;
+    for (;;)
+    {
+        float3 radiance_2;
+        float3 _3957;
+        float3 _3958;
+        bool _88_ladder_break = false;
+        do
+        {
+            if (!(bounce <= _515))
+            {
+                _88_ladder_break = true;
+                break;
+            }
+            bool met = trace(o, d, 3.0000000054977557577780399428115e+38, false, hit, Render_Uniforms, nodes, chunks, items, order, indices, positions);
+            bool _1259 = bounce > 0;
+            if (_1259)
+            {
+                if (met)
+                {
+                    phi = hit.t;
+                }
+                else
+                {
+                    phi = 3.0000000054977557577780399428115e+38;
+                }
+                radiance_1 = radiance + (weight * lights_met(o, d, phi, !met, pdf_bsdf, Render_Uniforms));
+            }
+            else
+            {
+                radiance_1 = radiance;
+            }
+            if (!met)
+            {
+                if (_1259)
+                {
+                    if (Render_Uniforms.env.z > 0.0)
+                    {
+                        phi = power_weight(pdf_bsdf, Render_Uniforms.env.z * env_pdf(d, Render_Uniforms, env_table, env_tableSmplr));
+                    }
+                    else
+                    {
+                        phi = 1.0;
+                    }
+                    radiance = radiance_1 + ((weight * environment(d, Render_Uniforms, environment_map, environment_mapSmplr)) * phi);
+                }
+                else
+                {
+                    radiance = radiance_1;
+                }
+                _88_ladder_break = true;
+                break;
+            }
+            bool _1870 = bounce == 0;
+            if (_1870)
+            {
+                phi = 1.0;
+            }
+            else
+            {
+                phi = r;
+            }
+            if (bounce == _515)
+            {
+                r = phi;
+                radiance = radiance_1;
+                _88_ladder_break = true;
+                break;
+            }
+            float4x4 model = items._member0[hit.item].model;
+            float w0 = (1.0 - hit.uv.x) - hit.uv.y;
+            uint _1922 = items._member0[hit.item].offs.x + indices._member0[3u * hit.tri];
+            float3 p0 = vertex0(_1922, positions);
+            uint _1924 = items._member0[hit.item].offs.x + indices._member0[(3u * hit.tri) + 1u];
+            float3 p1 = vertex0(_1924, positions);
+            uint _1926 = items._member0[hit.item].offs.x + indices._member0[(3u * hit.tri) + 2u];
+            float3 p2 = vertex0(_1926, positions);
+            float3 p = (model * float4(((p0 * w0) + (p1 * hit.uv.x)) + (p2 * hit.uv.y), 1.0)).xyz;
+            float3 _1940 = p1 - p0;
+            float3 _1941 = p2 - p0;
+            float3x3 _1949 = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
+            float3 _1950 = _1949 * cross(_1940, _1941);
+            float3 _1951 = fast::normalize(_1950);
+            if (dot(_1951, d) > 0.0)
+            {
+                ng = -_1951;
+            }
+            else
+            {
+                ng = _1951;
+            }
+            float3 _2055 = fast::normalize(_1949 * (((vertex_normal(_1922, attributes) * w0) + (vertex_normal(_1924, attributes) * hit.uv.x)) + (vertex_normal(_1926, attributes) * hit.uv.y)));
+            if (dot(_2055, ng) < 0.0)
+            {
+                n = -_2055;
+            }
+            else
+            {
+                n = _2055;
+            }
+            float3 v = -d;
+            if (dot(n, v) <= 0.0)
+            {
+                n_1 = ng;
+            }
+            else
+            {
+                n_1 = n;
+            }
+            if ((items._member0[hit.item].offs.y & 7u) != 0u)
+            {
+                uint group = vertex_paint(_1922, Render_Uniforms, attributes).y & 65535u;
+                if ((items._member0[hit.item].offs.y & 4u) != 0u)
+                {
+                    disc = items._member0[hit.item].surface.xy;
+                    uint k = 1u;
+                    albedo = items._member0[hit.item].color.xyz;
+                    for (;;)
+                    {
+                        bool _123_ladder_break = false;
+                        do
+                        {
+                            if (!(k < 16u))
+                            {
+                                _123_ladder_break = true;
+                                break;
+                            }
+                            uint4 _47 = items._member0[hit.item].slot_group.data[k >> uint(2)];
+                            if (_47[k & 3u] == group)
+                            {
+                                disc = items._member0[hit.item].slot_surface.data[k].xy;
+                                albedo = items._member0[hit.item].slot_color.data[k].xyz;
+                            }
+                            break;
+                        } while(false);
+                        if (_123_ladder_break)
+                        {
+                            break;
+                        }
+                        k++;
+                        continue;
+                    }
+                }
+                else
+                {
+                    disc = items._member0[hit.item].surface.xy;
+                    albedo = items._member0[hit.item].color.xyz;
+                }
+                if ((items._member0[hit.item].offs.y & 1u) != 0u)
+                {
+                    float4 _2174 = unpack_unorm4x8_to_float(vertex_paint(_1922, Render_Uniforms, attributes).x);
+                    float4 _2177 = unpack_unorm4x8_to_float(vertex_paint(_1924, Render_Uniforms, attributes).x);
+                    float4 _2180 = unpack_unorm4x8_to_float(vertex_paint(_1926, Render_Uniforms, attributes).x);
+                    float4 paint = ((float4(srgb_decode(_2174.xyz), _2174.w) * w0) + (float4(srgb_decode(_2177.xyz), _2177.w) * hit.uv.x)) + (float4(srgb_decode(_2180.xyz), _2180.w) * hit.uv.y);
+                    albedo_1 = mix(albedo, paint.xyz, float3(paint.w));
+                }
+                else
+                {
+                    albedo_1 = albedo;
+                }
+                if ((items._member0[hit.item].offs.y & 2u) != 0u)
+                {
+                    albedo_2 = group_color(group);
+                }
+                else
+                {
+                    albedo_2 = albedo_1;
+                }
+                albedo = albedo_2;
+            }
+            else
+            {
+                disc = items._member0[hit.item].surface.xy;
+                albedo = items._member0[hit.item].color.xyz;
+            }
+            if ((items._member0[hit.item].offs.y & 8u) != 0u)
+            {
+                uint at = items._member0[hit.item].tex.y + (3u * (hit.tri - items._member0[hit.item].tex.x));
+                Tex_Vertex t0 = tex_vertex(items._member0[hit.item].tex.z + (8u * textured._member0[at]), textured);
+                Tex_Vertex t1 = tex_vertex(items._member0[hit.item].tex.z + (8u * textured._member0[at + 1u]), textured);
+                Tex_Vertex t2 = tex_vertex(items._member0[hit.item].tex.z + (8u * textured._member0[at + 2u]), textured);
+                uint slot = items._member0[hit.item].tex.w & 15u;
+                uint view = (items._member0[hit.item].tex.w >> uint(4)) & 15u;
+                uint maps = items._member0[hit.item].tex.w >> uint(8);
+                float2 _2383 = t0.uv;
+                float2 _2385 = t1.uv;
+                float2 _2390 = t2.uv;
+                float2 uv_up = ((_2383 * w0) + (_2385 * hit.uv.x)) + (_2390 * hit.uv.y);
+                float2 uv_1 = float2(uv_up.x, 1.0 - uv_up.y);
+                if (_1870)
+                {
+                    float2 u1 = _2385 - _2383;
+                    float2 u2 = _2390 - _2383;
+                    lod = log2(fast::max(length((o_dx + (_410 * hit.t)) - p) * sqrt(abs((u1.x * u2.y) - (u1.y * u2.x)) / fast::max(length(cross(_1949 * _1940, _1949 * _1941)), 1.0000000031710768509710513471353e-30)), 9.9999999600419720025001879548654e-13));
+                }
+                else
+                {
+                    lod = -6.0;
+                }
+                float _2432 = length(model[0].xyz);
+                float3x3 turn = float3x3(_1949[0] / float3(_2432), _1949[1] / float3(_2432), _1949[2] / float3(_2432));
+                float3 _2455 = turn * (((t0.n * w0) + (t1.n * hit.uv.x)) + (t2.n * hit.uv.y));
+                float4 tw = ((t0.t * w0) + (t1.t * hit.uv.x)) + (t2.t * hit.uv.y);
+                float3 _2469 = turn * tw.xyz;
+                float3 _2470 = fast::normalize(_2455);
+                bool _2471 = view == 1u;
+                if (_2471)
+                {
+                    _7 = true;
+                }
+                else
+                {
+                    _7 = view == 2u;
+                }
+                if (_7)
+                {
+                    _51 = (maps & 4u) != 0u;
+                }
+                else
+                {
+                    _51 = false;
+                }
+                if (_51)
+                {
+                    float3 tn = (map_at(slot, 2u, uv_1, lod, map0, map0Smplr, map1, map1Smplr, map2, map2Smplr, map3, map3Smplr, map4, map4Smplr, map5, map5Smplr, map6, map6Smplr, map7, map7Smplr, map8, map8Smplr).xyz * 2.0) - float3(1.0);
+                    if (tw.w < 0.0)
+                    {
+                        _52 = -1.0;
+                    }
+                    else
+                    {
+                        _52 = 1.0;
+                    }
+                    float3 m = ((_2469 * tn.x) + ((cross(_2455, _2469) * _52) * tn.y)) + (_2455 * tn.z);
+                    if (dot(m, m) > 0.0)
+                    {
+                        albedo_1 = fast::normalize(m);
+                    }
+                    else
+                    {
+                        albedo_1 = _2470;
+                    }
+                }
+                else
+                {
+                    albedo_1 = _2470;
+                }
+                if (dot(_1950, d) > 0.0)
+                {
+                    albedo_2 = -albedo_1;
+                }
+                else
+                {
+                    albedo_2 = albedo_1;
+                }
+                if (dot(albedo_2, v) > 0.0)
+                {
+                    n_2 = albedo_2;
+                }
+                else
+                {
+                    n_2 = ng;
+                }
+                float3 _2858 = reflect(-v, n_2);
+                float _2860 = dot(ng, _2858);
+                if (_2860 < 0.0)
+                {
+                    n_3 = fast::normalize(v + fast::normalize(_2858 - (ng * (_2860 - 0.001000000047497451305389404296875))));
+                }
+                else
+                {
+                    n_3 = n_2;
+                }
+                if (_2471)
+                {
+                    _54 = (maps & 1u) != 0u;
+                }
+                else
+                {
+                    _54 = false;
+                }
+                if (_54)
+                {
+                    albedo_3 = items._member0[hit.item].color.xyz * map_at(slot, 0u, uv_1, lod, map0, map0Smplr, map1, map1Smplr, map2, map2Smplr, map3, map3Smplr, map4, map4Smplr, map5, map5Smplr, map6, map6Smplr, map7, map7Smplr, map8, map8Smplr).xyz;
+                }
+                else
+                {
+                    albedo_3 = albedo;
+                }
+                if (_2471)
+                {
+                    _56 = (maps & 2u) != 0u;
+                }
+                else
+                {
+                    _56 = false;
+                }
+                if (_56)
+                {
+                    float3 orm = map_at(slot, 1u, uv_1, lod, map0, map0Smplr, map1, map1Smplr, map2, map2Smplr, map3, map3Smplr, map4, map4Smplr, map5, map5Smplr, map6, map6Smplr, map7, map7Smplr, map8, map8Smplr).xyz;
+                    surf = float2(orm.z, fast::max(orm.y, 0.039999999105930328369140625));
+                }
+                else
+                {
+                    surf = disc;
+                }
+                if (view == 3u)
+                {
+                    albedo_4 = albedo_3 * uv_checker(uv_1);
+                }
+                else
+                {
+                    albedo_4 = albedo_3;
+                }
+                n_2 = n_3;
+                albedo_1 = albedo_4;
+            }
+            else
+            {
+                n_2 = n_1;
+                surf = disc;
+                albedo_1 = albedo;
+            }
+            if (_1870)
+            {
+                guide_a_1 = float4(albedo_1, 1.0);
+                guide_n_1 = float4(n_2, hit.t);
+            }
+            else
+            {
+                guide_a_1 = guide_a;
+                guide_n_1 = guide_n;
+            }
+            float _3020 = fast::clamp(surf.x, 0.0, 1.0);
+            s.diffuse = albedo_1 * (1.0 - _3020);
+            s.f0 = mix(float3(0.039999999105930328369140625), albedo_1, float3(_3020));
+            s.a = fast::max(surf.y * surf.y, 0.001000000047497451305389404296875);
+            Surface _61 = s;
+            float3 _3042 = direct_light(_61, p, ng, n_2, v, Render_Uniforms, rng, nodes, chunks, items, order, indices, positions, environment_map, environment_mapSmplr, env_table, env_tableSmplr);
+            radiance_2 = radiance_1 + (weight * _3042);
+            Surface _63 = s;
+            bool _3730 = bsdf_sample(_63, n_2, v, l, rng);
+            if (!_3730)
+            {
+                _7 = true;
+            }
+            else
+            {
+                _7 = dot(l, ng) <= 0.0;
+            }
+            if (_7)
+            {
+                r = phi;
+                guide_a = guide_a_1;
+                guide_n = guide_n_1;
+                radiance = radiance_2;
+                _88_ladder_break = true;
+                break;
+            }
+            Surface _64 = s;
+            float3 _3939 = bsdf_eval(_64, n_2, v, l, pdf_bsdf);
+            if (pdf_bsdf <= 0.0)
+            {
+                r = phi;
+                guide_a = guide_a_1;
+                guide_n = guide_n_1;
+                radiance = radiance_2;
+                _88_ladder_break = true;
+                break;
+            }
+            float3 _3954 = weight;
+            float3 weight_1 = _3954 * (_3939 / float3(pdf_bsdf));
+            _3957 = offset_ray(p, ng);
+            _3958 = l;
+            if (bounce >= 2)
+            {
+                float _3967 = fast::clamp(fast::max(weight_1.x, fast::max(weight_1.y, weight_1.z)), 0.0500000007450580596923828125, 0.949999988079071044921875);
+                float _3968 = rnd(rng);
+                if (_3968 > _3967)
+                {
+                    r = phi;
+                    guide_a = guide_a_1;
+                    guide_n = guide_n_1;
+                    radiance = radiance_2;
+                    _88_ladder_break = true;
+                    break;
+                }
+                weight = weight_1 / float3(_3967);
+            }
+            else
+            {
+                weight = weight_1;
+            }
+            break;
+        } while(false);
+        if (_88_ladder_break)
+        {
+            break;
+        }
+        o = _3957;
+        d = _3958;
+        r = phi;
+        guide_a = guide_a_1;
+        guide_n = guide_n_1;
+        bounce++;
+        radiance = radiance_2;
+        continue;
+    }
+    float lum = luminance(radiance);
+    if (lum > 16.0)
+    {
+        radiance *= (16.0 / lum);
+    }
+    if (first)
+    {
+        guide_a_1 = float4(0.0);
+    }
+    else
+    {
+        float4 _4019 = prev.read(uint2(int3(px, 0).xy), 0);
+        guide_a_1 = _4019;
+    }
+    uint2 _4022 = uint2(px);
+    next.write(guide_a_1 + float4(radiance, r), uint2(_4022));
+    if (lens)
+    {
+        if (first)
+        {
+            guide_n_1 = float4(0.0);
+        }
+        else
+        {
+            float4 _4043 = prev_albedo.read(uint2(int3(px, 0).xy), 0);
+            guide_n_1 = _4043;
+        }
+        float4 prev_n;
+        if (first)
+        {
+            prev_n = float4(0.0);
+        }
+        else
+        {
+            float4 _4055 = prev_normal.read(uint2(int3(px, 0).xy), 0);
+            prev_n = _4055;
+        }
+        float done = float(Render_Uniforms.counts.x);
+        float4 _4061 = guide_a;
+        float hits_before = guide_n_1.w * done;
+        float hits = hits_before + _4061.w;
+        if (hits > 0.0)
+        {
+            guide_a = float4(((guide_n_1.xyz * hits_before) + (guide_a.xyz * _4061.w)) / float3(hits), hits / (done + 1.0));
+            guide_n = ((prev_n * hits_before) + (guide_n * _4061.w)) / float4(hits);
+        }
+        guide_albedo.write(guide_a, uint2(_4022));
+        guide_normal.write(guide_n, uint2(_4022));
+    }
+    else
+    {
+        if (first)
+        {
+            guide_albedo.write(guide_a, uint2(_4022));
+            guide_normal.write(guide_n, uint2(_4022));
+        }
+    }
+}
+

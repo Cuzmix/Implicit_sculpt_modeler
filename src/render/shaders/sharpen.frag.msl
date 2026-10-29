@@ -1,0 +1,106 @@
+// SDL_shadercross 1ff05bec5739 from sharpen.frag.spv sha256 1cf0840b1af5897bdec06a7096de32ca98fff55a9f872f5481f956da61542d7e
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Sharpen_Uniforms_std140
+{
+    float4 params;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> graded, sampler gradedSmplr)
+{
+    uint2 _vecSize = uint2(graded.get_width(0u), graded.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(graded.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 saturate0(float3 x)
+{
+    return fast::clamp(x, float3(0.0), float3(1.0));
+}
+
+static inline __attribute__((always_inline))
+float3 at(int2 p, texture2d<float> graded, sampler gradedSmplr)
+{
+    float4 _65 = graded.read(uint2(int3(clamp(p, int2(0), texture_size(graded, gradedSmplr) - int2(1)), 0).xy), 0);
+    return saturate0(_65.xyz);
+}
+
+static inline __attribute__((always_inline))
+float lattice_noise(int2 p, uint seed)
+{
+    uint h = ((uint(p.x) * 2376512323u) ^ (uint(p.y) * 3625334849u)) ^ (seed * 3407524639u);
+    uint h_1 = (h ^ (h >> uint(15))) * 739982445u;
+    uint h_2 = (h_1 ^ (h_1 >> uint(12))) * 695872825u;
+    return (float(h_2 ^ (h_2 >> uint(15))) / 2147483648.0) - 1.0;
+}
+
+static inline __attribute__((always_inline))
+float grain_at(float2 px, float size, uint seed)
+{
+    float2 at_1 = px / float2(size);
+    int2 _218 = int2(floor(at_1));
+    float2 f = at_1 - float2(_218);
+    float2 f_1 = (f * f) * (float2(3.0) - (f * 2.0));
+    float _265 = f_1.x;
+    return mix(mix(lattice_noise(_218, seed), lattice_noise(_218 + int2(1, 0), seed), _265), mix(lattice_noise(_218 + int2(0, 1), seed), lattice_noise(_218 + int2(1), seed), _265), f_1.y);
+}
+
+static inline __attribute__((always_inline))
+float gradient_noise(float2 px)
+{
+    return fract(52.98291778564453125 * fract(dot(px, float2(0.067110560834407806396484375, 0.005837149918079376220703125))));
+}
+
+static inline __attribute__((always_inline))
+float3 grain_and_dither(float3 e, float2 px, float strength, float size, uint seed)
+{
+    float3 _189;
+    if (strength > 0.0)
+    {
+        float _201 = fast::clamp(dot(e, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)), 0.0, 1.0);
+        _189 = e + float3(((((0.119999997317790985107421875 * strength) * 4.0) * _201) * (1.0 - _201)) * grain_at(px, size, seed));
+    }
+    else
+    {
+        _189 = e;
+    }
+    return _189 + float3((gradient_noise(px) - 0.5) / 255.0);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Sharpen_Uniforms_std140& Sharpen_Uniforms [[buffer(0)]], texture2d<float> graded [[texture(0)]], sampler gradedSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 _14 = int2(gl_FragCoord.xy);
+    float3 a = at(_14 + int2(-1), graded, gradedSmplr);
+    float3 b = at(_14 + int2(0, -1), graded, gradedSmplr);
+    float3 c = at(_14 + int2(1, -1), graded, gradedSmplr);
+    float3 d = at(_14 + int2(-1, 0), graded, gradedSmplr);
+    float3 e = at(_14, graded, gradedSmplr);
+    float3 f = at(_14 + int2(1, 0), graded, gradedSmplr);
+    float3 g = at(_14 + int2(-1, 1), graded, gradedSmplr);
+    float3 h = at(_14 + int2(0, 1), graded, gradedSmplr);
+    float3 i = at(_14 + int2(1), graded, gradedSmplr);
+    float3 _104 = fast::min(fast::min(fast::min(d, e), fast::min(f, b)), h);
+    float3 lo = _104 + fast::min(_104, fast::min(fast::min(a, c), fast::min(g, i)));
+    float3 _113 = fast::max(fast::max(fast::max(d, e), fast::max(f, b)), h);
+    float3 hi = _113 + fast::max(_113, fast::max(fast::max(a, c), fast::max(g, i)));
+    float3 w = (sqrt(saturate0(fast::min(lo, float3(2.0) - hi) / fast::max(hi, float3(9.9999997473787516355514526367188e-06)))) * smoothstep(float3(0.0058823530562222003936767578125), float3(0.01568627543747425079345703125), (hi - lo) * 0.5)) * ((-1.0) / mix(8.0, 5.0, fast::clamp(Sharpen_Uniforms.params.x, 0.0, 1.0)));
+    float4 _168 = graded.read(uint2(int3(_14, 0).xy), 0);
+    out.entryPointParam_main = float4(grain_and_dither(saturate0(((w * (((b + d) + f) + h)) + e) / (float3(1.0) + (w * 4.0))), gl_FragCoord.xy, Sharpen_Uniforms.params.y, Sharpen_Uniforms.params.z, as_type<uint>(Sharpen_Uniforms.params.w)), _168.w);
+    return out;
+}
+

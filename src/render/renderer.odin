@@ -402,16 +402,17 @@ Material_Uniforms :: struct {
 #assert(offset_of(Material_Uniforms, pass) == 880)
 #assert(offset_of(Material_Uniforms, maps) == 640)
 
-MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
-MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
-TEXTURED_VERT_SPV :: #load("shaders/textured.vert.spv")
-TEXTURED_FRAG_SPV :: #load("shaders/textured.frag.spv")
-CLEAR_VERT_SPV :: #load("shaders/clear.vert.spv")
-CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
-FLOOR_VERT_SPV :: #load("shaders/floor.vert.spv")
-FLOOR_FRAG_SPV :: #load("shaders/floor.frag.spv")
+MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT)
+MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT)
+TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT)
+TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT)
+CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT)
+CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT)
+FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT)
+FLOOR_FRAG_CODE :: #load("shaders/floor.frag" + SHADER_EXT)
 
-// SDL_GPU's device, on its Vulkan backend (the shaders are SPIR-V only).
+// SDL_GPU's device: on its Metal backend on Apple's platforms, its Vulkan one elsewhere,
+// taking the shader code this build embeds (SHADER_FORMAT, shaders.odin).
 @(private = "file")
 sdl_device_create :: proc(r: ^Renderer, debug: bool) {
 	when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -427,7 +428,7 @@ sdl_device_create :: proc(r: ^Renderer, debug: bool) {
 		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false)
 		r.device = gpu_create_device_with_properties(props)
 	} else {
-		r.device = gpu_create_device({.SPIRV}, debug, nil)
+		r.device = gpu_create_device(SHADER_FORMAT, debug, nil)
 		r.anisotropy = true
 	}
 }
@@ -553,6 +554,22 @@ renderer_set_vsync :: proc(r: ^Renderer, vsync: bool) -> bool {
 	return true
 }
 
+// Which present modes besides vsync the main window offers: what Unlimited and Limit can
+// use there, which the exit stats report so a run on a tablet shows its driver's.
+renderer_present_offers :: proc(r: ^Renderer) -> (mailbox, immediate: bool) {
+	return gpu_window_supports_present_mode(r.device, r.window, .MAILBOX), gpu_window_supports_present_mode(r.device, r.window, .IMMEDIATE)
+}
+
+// The present mode in use, as the exit stats and the Stats panel name it.
+renderer_present_name :: proc(r: ^Renderer) -> string {
+	switch r.present_mode {
+	case .VSYNC:     return "vsync"
+	case .MAILBOX:   return "mailbox"
+	case .IMMEDIATE: return "immediate"
+	}
+	return "unknown"
+}
+
 // Waits for the GPU, then releases everything the renderer created, in reverse order.
 renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
@@ -634,22 +651,22 @@ mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 // polygroup slots. Every mesh pipeline samples the MatCap and the environment.
 @(private)
 create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false) -> ^sdl.GPUGraphicsPipeline {
-	vert_spv, frag_spv := MESH_VERT_SPV, MESH_FRAG_SPV
-	if textured do vert_spv, frag_spv = TEXTURED_VERT_SPV, TEXTURED_FRAG_SPV
+	vert_spv, frag_code := MESH_VERT_CODE, MESH_FRAG_CODE
+	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_FRAG_CODE
 	vert := gpu_create_shader(r.device, {
 		code_size           = len(vert_spv),
 		code                = raw_data(vert_spv),
-		entrypoint          = "main",
-		format              = {.SPIRV},
+		entrypoint          = SHADER_ENTRY,
+		format              = SHADER_FORMAT,
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
 		num_storage_buffers = 0 if textured else 1,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size           = len(frag_spv),
-		code                = raw_data(frag_spv),
-		entrypoint          = "main",
-		format              = {.SPIRV},
+		code_size           = len(frag_code),
+		code                = raw_data(frag_code),
+		entrypoint          = SHADER_ENTRY,
+		format              = SHADER_FORMAT,
 		stage               = .FRAGMENT,
 		num_samplers        = 5 if textured else 2,
 		num_uniform_buffers = 1 if textured else 2,
@@ -742,12 +759,12 @@ BLEND_OVER :: sdl.GPUColorTargetBlendState {
 @(private)
 create_floor_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(FLOOR_VERT_SPV), code = raw_data(FLOOR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
+		code_size = len(FLOOR_VERT_CODE), code = raw_data(FLOOR_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(FLOOR_FRAG_SPV), code = raw_data(FLOOR_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_uniform_buffers = 1,
+		code_size = len(FLOOR_FRAG_CODE), code = raw_data(FLOOR_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)
@@ -778,12 +795,12 @@ create_floor_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl
 @(private)
 create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
+		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_FRAG_SPV), code = raw_data(CLEAR_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
+		code_size = len(CLEAR_FRAG_CODE), code = raw_data(CLEAR_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)

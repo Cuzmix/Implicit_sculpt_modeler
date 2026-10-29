@@ -29,6 +29,54 @@ brush_half_radius :: proc(app: ^App) -> f32 {
 	return 1
 }
 
+// The pointer's lead for the brush ring (cursor_lead): where it was a frame ago while
+// pressed, how far it moved since, and the platform's own prediction where it gives one.
+Cursor_Predict :: struct {
+	down:     bool,
+	last:     [2]f32,
+	velocity: [2]f32, // pixels a frame
+	// The iPad's predicted touch, from the pen's newest sample (pen_samples.odin), and how
+	// many frames ago it came: 1 means since the frame before this one.
+	platform:     [2]f32,
+	platform_age: int,
+}
+
+// The most the ring leads the pointer: past this a prediction is more guess than motion.
+PREDICT_MAX_PX :: 48
+
+// Moves the prediction on by this frame's pointer. Called once a frame before the ring is
+// placed.
+cursor_predict_frame :: proc(app: ^App, input: Viewport_Input) {
+	p := &app.predict
+	p.platform_age += 1
+	if !input.primary {
+		p.down, p.velocity = false, {}
+		return
+	}
+	if p.down do p.velocity = input.mouse_pos - p.last
+	p.down, p.last = true, input.mouse_pos
+}
+
+// How far ahead of the pointer the brush ring is drawn: by the iPad's predicted touch when
+// it gave one this frame, else by one frame of the pointer's motion, as the frame is shown
+// about a frame after its samples; never past PREDICT_MAX_PX. Only while a stroke draws
+// with the ring on the pointer, never under a trailing brush, and only the ring: dabs go
+// where the pointer went.
+cursor_lead :: proc(app: ^App) -> [2]f32 {
+	p := app.predict
+	if !app.nav.predict_cursor || !app.stroke.active || stroke_trails(app) || !p.down do return {}
+	lead := p.platform if p.platform_age == 1 else p.velocity
+	if l := linalg.length(lead); l > PREDICT_MAX_PX do lead *= PREDICT_MAX_PX / l
+	return lead
+}
+
+// Where the brush ring's middle is drawn: the brush itself while it trails the pointer
+// (the lazy string, the smoothing's lag), else the pointer led by its prediction.
+ring_center :: proc(app: ^App, input: Viewport_Input) -> [2]f32 {
+	if app.stroke.active && stroke_trails(app) do return app.stroke.pos
+	return input.mouse_pos + cursor_lead(app)
+}
+
 // Finds the surface under the brush ring's middle for this frame's overlay: a raycast,
 // then the falloff-weighted normal of the vertices the brush would reach, as a dab works
 // out the way it pushes. Runs after the tools, so it sees this frame's stroke; the normals
@@ -43,9 +91,7 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	if brush_alpha(app) != nil && held_brush(input) do return
 	start := time.tick_now()
 	defer ring_push(&app.stats.cursor_ms, time.duration_milliseconds(time.tick_since(start)))
-	center := input.mouse_pos
-	if app.stroke.active && app.brush.lazy_px > 0 do center = app.stroke.pos
-	origin, dir := mouse_ray(app.camera, center, input.size)
+	origin, dir := mouse_ray(app.camera, ring_center(app, input), input.size)
 	index, hit, face, ok := scene_raycast_surface(app, origin, dir)
 	if !ok do return
 	obj := app.scene.objects[index]
