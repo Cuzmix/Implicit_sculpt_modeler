@@ -54,8 +54,8 @@ UI = {
     "menu": (33, 26), "undo": (217, 26), "redo": (267, 26), "search": (1340, 26), "history": (1520, 26), "settings": (1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
-    # The view chips over the view's top-left corner, and the object chip under them.
-    "camera_chip": (75, 77), "pass_chip": (187, 77), "status": (120, 125),
+    # The view chips over the view's top-left corner, and the chip bar's object chip.
+    "camera_chip": (75, 77), "pass_chip": (187, 77), "status": (700, 28),
     # The navigation head, left of the panel stack.
     "nav_head": (1185, 90),
     # The view rail down the right edge: the tray (the panel stack), then its view tools.
@@ -2236,8 +2236,9 @@ def saved_line(line):
 
 # The view rail's Panels button, which shows and hides the stack of cards.
 INSPECTOR_CLOSE = UI["inspector"]
-# The Stats window's title, where it starts (Settings > Performance or F11 opens it).
-STATS_TITLE = (156, 196)
+# The Stats window's title, where it starts under the view chips (Settings > Performance or F11
+# opens it).
+STATS_TITLE = (156, 148)
 
 
 @scenario
@@ -2293,7 +2294,7 @@ def pinned_sections_stack_in_the_right_column():
 # opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
 # Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
 # the views Focus mode and Inspect.
-SPACE_TABS = {"sculpt": (630, 26), "model": (720, 26), "render": (811, 26), "chevron": (881, 26)}
+SPACE_TABS = {"sculpt": (357, 26), "model": (447, 26), "render": (538, 26), "chevron": (609, 26)}
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
@@ -2508,7 +2509,7 @@ def a_stroke_under_the_tray_fades_it():
 # the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
-LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (120, 125)
+LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (700, 28)
 LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421), "mini": (1403, 470)}
 LENS_1440 = ["--width=1440", "--height=900"]
 LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
@@ -2548,9 +2549,9 @@ def lens_camera_chip_opens_the_camera_menu():
 
 @scenario
 def lens_object_chip_opens_the_scene_palette():
-    """A tap on the object chip opens the stack's Scene card."""
+    """A long press on the chip bar's object chip opens the stack's Scene card."""
     s = Script()
-    s.ftap(*LENS_CHIP_OBJECT)
+    long_press(s, *LENS_CHIP_OBJECT)
     s.wait(10)
     return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,"), "stack": lambda v: "Scene+" in v.split(",")})
 
@@ -2604,7 +2605,7 @@ LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "la
               "move_tool": (957, 833), "curve_remesh": (780, 833)}
 # Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
-LENS_MODEL_TAB = (645, 26)
+LENS_MODEL_TAB = (447, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
@@ -3586,7 +3587,7 @@ def lens_context_bar_extracts_the_mask():
 
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
-LENS_INSPECT = {"tab": (550, 26), "inspect": (550, 451), "pass_chip": (186, 77), "curvature": (260, 444)}
+LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77), "curvature": (260, 444)}
 
 
 @scenario
@@ -3606,7 +3607,7 @@ def lens_pass_popover_groups_the_passes():
 
 # Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
 # Gold sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (732, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
+LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
 
 
 @scenario
@@ -5605,12 +5606,25 @@ def keys_come_back_from_settings():
 
 @scenario
 def status_chip_tap_and_long_press():
-    """A tap on the object's status shows the Scene palette's objects; a long press on it opens the object menu."""
+    """A long press on the chip bar's object chip shows the Scene palette's objects; a tap on it opens the object menu."""
     s = Script()
+    long_press(s, *STATUS_CHIP)
+    s.wait(6)
     s.ftap(*STATUS_CHIP)
     s.wait(6)
-    long_press(s, *STATUS_CHIP)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "scene", "object_menu": near(1)})
+
+@scenario
+def object_chip_names_the_type_and_its_badges():
+    """The chip bar's object chip names a sculpt mesh with its level once subdivided, a cage as a cage, and shrinks to the name in a narrow window."""
+    def run(what):
+        if what == "mesh":
+            return Script(), ["--script=subdivide"], {"object_chip": is_text("Full,Sculpt_mesh,L2")}
+        if what == "cage":
+            return Script(), ["--script=add_cage cube"], {"object_chip": lambda v: v.startswith("Full,Cage")}
+        return Script(), ["--width=1000", "--height=760"], {"object_chip": is_text("Name,Sculpt_mesh")}
+    return Steps([run("mesh"), run("cage"), run("narrow")])
+
 
 # Touch step 3: double tap, lifting one of two fingers, holding fingers for undo.
 
@@ -7547,7 +7561,7 @@ def view_window_keys_stay_the_main_windows():
 
 @scenario
 def view_pane_maximises_and_restores():
-    """Maximise on the view pane fills the grid's room with it; Restore brings the two panes back."""
+    """Maximise on the view pane fills the grid's room with it and the main view's chips stand aside; Restore brings the two panes and the chips back."""
     def run(restore):
         s = Script()
         s.wait(4)
@@ -7557,7 +7571,9 @@ def view_pane_maximises_and_restores():
             s.ftap(*GRID_PANE_RESTORE)
             s.wait(8)
         size = (lambda v: 780 < int(v.split("x")[0]) < 820) if restore else (lambda v: int(v.split("x")[0]) > 1000)
-        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0)}))
+        # The main view's chips stand aside while the pane covers it, so they never sit on its head.
+        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0),
+                                                                     "view_chips": near(1 if restore else 0)}))
     return Steps([run(False), run(True)])
 
 
