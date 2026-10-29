@@ -347,6 +347,15 @@ brush_stroke_finish :: proc(app: ^App) {
 		app.grab_refine.splits += sculpt.sculptor_grab_refine(object_sculptor(obj))
 		app.grab_refine.ms += time.duration_milliseconds(time.tick_since(start))
 	}
+	// A Snake hook or Cloth stroke under dynamic topology splits what it stretched at its
+	// end, in the stroke's undo step, as a grab does at the release.
+	if object_sculptor(obj).dyn != nil {
+		start := time.tick_now()
+		if splits := sculpt.sculptor_stretch_repair(object_sculptor(obj)); splits > 0 {
+			app.stretch_repair.splits += splits
+			app.stretch_repair.ms += time.duration_milliseconds(time.tick_since(start))
+		}
+	}
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {
@@ -478,6 +487,26 @@ smooth_command :: proc(app: ^App, steps: int) {
 	report(app, Kit_Section.Deform, {.Undo} if changed else {}, "Smoothed %s: %d step%s on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "" if steps <= 1 else "s", "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
 	if changed do adjust_set(app, .Smooth_All, {}, obj.id)
 	if t := run.timing; on_gpu do report_detail(app, "GPU: upload %.1f ms (%.0f MB), compute %.1f ms, readback %.1f ms.", t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
+}
+
+// Remove stretching on the selected object, under dynamic topology, as an undo step of
+// its own; the Dynamic topology section shows what it did.
+remove_stretching_command :: proc(app: ^App, _: int) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil || !object_dynamic(obj) do return
+	s := object_sculptor(obj)
+	start := time.tick_now()
+	sculpt.sculptor_stroke_begin(s)
+	splits, detail := sculpt.sculptor_remove_stretching(s)
+	changed := sculpt.sculptor_stroke_end(s)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	if changed do history_record(app, obj, .Stroke, "Remove stretching")
+	if splits == 0 {
+		report(app, Kit_Section.Topology, {}, "No edge of %s is longer than twice its median, so nothing split (%.0f ms)", object_label(obj), ms)
+		return
+	}
+	report(app, Kit_Section.Topology, {.Undo}, "Split %s edges of %s down to %.3g (%.0f ms)", count_label(splits), object_label(obj), detail, ms)
 }
 
 // Whether Smooth all may run as a compute shader. The trial promises the GPU's result equals

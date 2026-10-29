@@ -694,3 +694,110 @@ dyn_detail_follows_the_falloff :: proc(t: ^testing.T) {
 	follow, follow_centre, follow_rim := count(t, true)
 	testing.expectf(t, follow > 0 && follow < plain && follow_centre > 0 && follow_rim * plain_centre < plain_rim * follow_centre, "splits %d plain (centre +%d, rim +%d), %d following the falloff (centre +%d, rim +%d)", plain, plain_centre, plain_rim, follow, follow_centre, follow_rim)
 }
+
+// The edges of the shown triangles longer than `limit` whose middle `near` accepts.
+@(private = "file")
+long_edges :: proc(s: ^Sculptor, limit: f32, near: proc(mid: Vec3) -> bool = nil) -> int {
+	m := s.mesh
+	count := 0
+	for n in s.nodes do for f in n.tri_first ..< n.tri_first + n.tri_count {
+		for k in u32(0) ..< 3 {
+			a, b := m.indices[3 * f + k], m.indices[3 * f + (k + 1) % 3]
+			if a > b do continue // each edge once, from its lower end (the mesh is closed)
+			pa, pb := m.positions[a], m.positions[b]
+			if near != nil && !near((pa + pb) * 0.5) do continue
+			if linalg.length(pa - pb) > limit * 1.0001 do count += 1
+		}
+	}
+	return count
+}
+
+// A horn pulled out with Snake hook under dynamic topology leaves long edges from its
+// last pulls; the repair at the stroke's end splits them all down to the detail size, in
+// the stroke's undo step, keeping the surface whole.
+@(test)
+dyn_snake_hook_repairs_its_stretch :: proc(t: ^testing.T) {
+	sp := dyn_make(t, 3)
+	defer dyn_free(sp)
+	s := &sp.sculptor
+	triangles := sculptor_triangle_count(s)
+	b := Brush{kind = .Snake_Hook, radius = 0.3, strength = 1, drag = {0, 0, 0.12}, detail = 0.3}
+	at := Vec3{0, 0, 1}
+	sculptor_stroke_begin(s)
+	for _ in 0 ..< 6 {
+		_ = apply_dab(s, b, at)
+		at += b.drag
+	}
+	up :: proc(mid: Vec3) -> bool {return mid.z > 0.9}
+	before := long_edges(s, 0.09, up)
+	splits := sculptor_stretch_repair(s)
+	after := long_edges(s, 0.09, up)
+	testing.expectf(t, before > 0 && splits > 0 && after == 0, "%d long edges before the repair, %d splits, %d long after", before, splits, after)
+	if !expect_valid(t, s) do return
+	testing.expect(t, sculptor_stroke_end(s), "the stroke should be an undo step")
+	testing.expect(t, sculptor_undo(s), "undo failed")
+	testing.expect_value(t, sculptor_triangle_count(s), triangles)
+	if !expect_valid(t, s) do return
+	// Nothing noted, nothing repaired.
+	testing.expect_value(t, sculptor_stretch_repair(s), 0)
+}
+
+// Cloth splits nothing while it simulates; at the stroke's end the repair brings what it
+// moved to the detail size.
+@(test)
+dyn_cloth_repairs_at_the_end :: proc(t: ^testing.T) {
+	sp := dyn_make(t, 3)
+	defer dyn_free(sp)
+	s := &sp.sculptor
+	triangles := sculptor_triangle_count(s)
+	before := slice.clone(s.mesh.positions[:], context.temp_allocator)
+	sculptor_stroke_begin(s)
+	_ = sculptor_cloth_begin(s, {kind = .Cloth, radius = 0.4, strength = 1, detail = 0.15}, {0, 0, 1}, .Drag)
+	moved := 0
+	for i in 1 ..= 5 do moved = sculptor_cloth_step(s, {0, 0.05 * f32(i), 0}, {0, -1, 0})
+	edits, _ := sculptor_dyn_edits(s)
+	testing.expectf(t, moved > 0 && edits == 0, "%d simulated, %d splits while simulating", moved, edits)
+	splits := sculptor_stretch_repair(s)
+	sculptor_cloth_end(s)
+	testing.expect(t, sculptor_stroke_end(s), "the stroke should be an undo step")
+	testing.expectf(t, splits > 0, "%d splits", splits)
+	if !expect_valid(t, s) do return
+	testing.expect(t, sculptor_undo(s), "undo failed")
+	testing.expect_value(t, sculptor_triangle_count(s), triangles)
+	if !expect_valid(t, s) do return
+	same := true
+	for n in s.nodes do for v in n.vert_first ..< n.vert_first + n.vert_count do if s.mesh.positions[v] != before[v] do same = false
+	testing.expect(t, same, "undo should put every vertex back")
+}
+
+// Remove stretching splits the slivers a pull without dynamic topology's detail left,
+// over the whole object, down to twice its median edge; fully masked parts keep theirs;
+// one undo takes it back.
+@(test)
+dyn_remove_stretching :: proc(t: ^testing.T) {
+	for masked in ([2]bool{false, true}) {
+		sp := dyn_make(t, 3)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		sculptor_stroke_begin(s)
+		at := Vec3{0, 0, 1}
+		for _ in 0 ..< 6 {
+			_ = apply_dab(s, {kind = .Snake_Hook, radius = 0.3, strength = 1, drag = {0, 0, 0.12}}, at)
+			at += {0, 0, 0.12}
+		}
+		_ = sculptor_stroke_end(s)
+		if masked do _ = sculptor_mask_command(s, .Fill)
+		triangles := sculptor_triangle_count(s)
+		sculptor_stroke_begin(s)
+		splits, detail := sculptor_remove_stretching(s)
+		_ = sculptor_stroke_end(s)
+		if masked {
+			testing.expectf(t, splits == 0, "masked: %d splits", splits)
+			continue
+		}
+		testing.expectf(t, splits > 0 && detail > 0 && long_edges(s, detail) == 0, "%d splits down to %v, %d edges longer", splits, detail, long_edges(s, detail))
+		if !expect_valid(t, s) do return
+		testing.expect(t, sculptor_undo(s), "undo failed")
+		testing.expect_value(t, sculptor_triangle_count(s), triangles)
+	}
+}
