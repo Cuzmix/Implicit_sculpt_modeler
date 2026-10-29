@@ -624,6 +624,8 @@ settings_load :: proc(app: ^App, path: string) {
 	version := 0
 	// A file from before each light had its own space fixed the whole set to the scene.
 	fixed_lights := false
+	// Before size had a pressure curve of its own it took the strength's.
+	size_curve_seen := false
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -682,6 +684,21 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
+		case "pressure_size_curve":
+			if len(f) == 5 {
+				b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
+				size_curve_seen = true
+			}
+		case "pressure_own":
+			// pressure_own <brush> <strength 0|1> <size 0|1> <strength curve> <size curve>,
+			// for the brushes that keep their own pressure.
+			if len(f) == 12 {
+				if kind, ok := brush_by_name(f[1]); ok {
+					p := &b.pressures[kind]
+					p.own, p.strength, p.size = true, f[2] == "1", f[3] == "1"
+					p.strength_curve, p.size_curve = curve(f[4:8], geom.CURVE_LINEAR), curve(f[8:12], geom.CURVE_LINEAR)
+				}
+			}
 		case "material":
 			if name := strings.join(f[1:], " ", context.temp_allocator); strings.contains_rune(name, '/') {
 				if j := pack_material_by_ref(app, preset_unescape(name)); j >= 0 do app.material = PACK_MATERIAL + j
@@ -897,6 +914,7 @@ settings_load :: proc(app: ^App, path: string) {
 		}
 	}
 	if fixed_lights do lights_fixed_set(app, &app.start_lights, true)
+	if !size_curve_seen do b.pressure_size_curve = b.pressure_curve
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
@@ -982,6 +1000,13 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
+	c = b.pressure_size_curve
+	fmt.sbprintfln(&out, "pressure_size_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
+	for p, kind in b.pressures {
+		if !p.own do continue
+		a, z := p.strength_curve, p.size_curve
+		fmt.sbprintfln(&out, "pressure_own %v %d %d %g %g %g %g %g %g %g %g", kind, bit(p.strength), bit(p.size), a.c1.x, a.c1.y, a.c2.x, a.c2.y, z.c1.x, z.c1.y, z.c2.x, z.c2.y)
+	}
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	// The starting lights, every one of them, so a light added later starts as it was set.
 	for s in ([2]string{"light_count", "light_ambient"}) {

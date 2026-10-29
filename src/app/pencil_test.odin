@@ -4,6 +4,7 @@ import "core:math"
 import "core:os"
 import "core:testing"
 
+import "../geom"
 import "../sculpt"
 
 // What SDL 3.4's UIKit driver makes of an azimuth and an altitude (degrees), as
@@ -193,4 +194,46 @@ pencil_tilt_from_android :: proc(t: ^testing.T) {
 	// Laid flat it stops short of 90 degrees rather than overflowing.
 	flat := pencil_tilt_android(math.PI / 2, 0)
 	testing.expect(t, flat.y < -88 && flat.y > -90)
+}
+
+// Size and strength go through curves of their own, and a brush with Use global off keeps
+// its own pressure, starting from the global one; the settings file keeps both, and one
+// from before the size had a curve gives it the strength's.
+@(test)
+pressure_curves_apart_and_per_brush :: proc(t: ^testing.T) {
+	path := "build/pressure_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 40
+	a.brush.pressure_strength, a.brush.pressure_size = true, true
+	a.brush.pressure_curve, a.brush.pressure_size_curve = geom.CURVE_LINEAR, PRESSURE_PRESETS[2].curve
+	firm := geom.curve_at(PRESSURE_PRESETS[2].curve, 0.5)
+	testing.expect(t, abs(brush_radius_px(&a, 0.5, {}) - 40 * firm) < 1e-3 && abs(pressure_curved(&a, 0.5) - 0.5) < 1e-3)
+	// Clay keeps its own: it starts as the global one, then its size stops following the pen.
+	brush_pressure_own(&a.brush, .Clay, true)
+	testing.expect_value(t, a.brush.pressures[.Clay].pressure, brush_pressure(&a.brush, .Draw))
+	a.brush.pressures[.Clay].size = false
+	a.brush.kind = .Clay
+	testing.expect_value(t, brush_radius_px(&a, 0.5, {}), 40)
+	a.brush.kind = .Draw
+	testing.expect(t, brush_radius_px(&a, 0.5, {}) < 40)
+
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	testing.expect_value(t, b.brush.pressure_size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, b.brush.pressures[.Clay].own && !b.brush.pressures[.Clay].size && b.brush.pressures[.Clay].strength)
+	testing.expect_value(t, b.brush.pressures[.Clay].size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, !b.brush.pressures[.Draw].own)
+
+	// A file from before: no size curve line.
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("version 4\npressure_curve 0.1 0.6 0.4 0.95\n")) == nil)
+	c: App
+	defer results_destroy(&c)
+	settings_load(&c, path)
+	testing.expect_value(t, c.brush.pressure_size_curve, c.brush.pressure_curve)
+	testing.expect_value(t, c.brush.pressure_curve, PRESSURE_PRESETS[1].curve)
+	free_all(context.temp_allocator)
 }

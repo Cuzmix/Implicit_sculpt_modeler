@@ -553,10 +553,12 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 		return app.alphas[b.alpha].name
 	case .Pen:
 		parts := make([dynamic]string, 0, 3, context.temp_allocator)
-		if b.pressure_size do append(&parts, "size")
-		if b.pressure_strength do append(&parts, "strength")
-		if len(parts) == 0 do return "pressure off"
-		return fmt.tprintf("pressure → %s", strings.join(parts[:], ", ", context.temp_allocator))
+		p := brush_pressure(b, b.kind)
+		if p.size do append(&parts, "size")
+		if p.strength do append(&parts, "strength")
+		own := " (own)" if b.pressures[b.kind].own else ""
+		if len(parts) == 0 do return fmt.tprintf("pressure off%s", own)
+		return fmt.tprintf("pressure → %s%s", strings.join(parts[:], ", ", context.temp_allocator), own)
 	case .Options:
 		parts := make([dynamic]string, 0, 3, context.temp_allocator)
 		if b.front_only do append(&parts, "front faces")
