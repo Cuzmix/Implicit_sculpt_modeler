@@ -1667,6 +1667,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		changed := 0
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
+		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
 		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)

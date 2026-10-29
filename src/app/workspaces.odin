@@ -162,6 +162,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	// workspace.
 	stack_layout_save(k, &out)
 	stack_sizes_save(k, &out)
+	bar_places_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
@@ -177,6 +178,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	panels_default(k)
 	stack_default(k)
 	k.hidden = {}
+	k.places = {}
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
 	// One view unless the layout names a grid; the layout steps named another layout.
@@ -192,6 +194,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
 			pass_layout_read(k, f)
+		case "bar_place":
+			bar_place_read(k, f)
 		case "thumbnail":
 			if len(f) < 3 do continue
 			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c

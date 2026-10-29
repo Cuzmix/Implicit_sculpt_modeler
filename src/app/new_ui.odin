@@ -204,6 +204,7 @@ Kit_State :: struct {
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
+	places:     [Place_Bar]Bar_Place, // where the island and the rail stand (bar_place.odin), the layout's
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the

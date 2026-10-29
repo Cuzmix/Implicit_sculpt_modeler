@@ -266,7 +266,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	ctx := &k.ctx
 	t := ctx.theme
 	look := bar_look(k, which, slot)
-	side := bar_side(which)
+	side := bar_side(app, which)
 	name := fmt.tprintf("%s##value %v %d", BRUSH_VALUE_NAMES[v], which, slot)
 	enabled := k.bars_edit || value_enabled(app, v)
 	lit := bar_pop_showing(app, .Value) && k.bar_pop.value == v

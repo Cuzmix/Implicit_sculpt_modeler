@@ -92,7 +92,7 @@ bar_pop_showing :: proc(app: ^App, kind: Bar_Pop_Kind) -> bool {
 bar_menu_toggle :: proc(app: ^App, kind: Bar_Pop_Kind) {
 	k := &app.kit
 	at, side := k.bar_at[kind], k.bar_side[kind]
-	if at.w <= 0 do at, side = ui.prev_rect(&k.ctx, "view bar"), .Left
+	if at.w <= 0 do at, side = ui.prev_rect(&k.ctx, "view bar"), bar_place_side(app, .Rail)
 	bar_pop_toggle(app, kind, at, side)
 }
 
@@ -101,18 +101,30 @@ kit_top :: proc() -> f32 {
 	return TOP_BAR_H + 16
 }
 
-// How far in from the safe area's left edge the panels start, clear of the off-hand island
-// (laid out as "brush bar").
+// How far in from the safe area's left edge (in layout terms) the panels start, clear of
+// the bar standing on it: the off-hand island (laid out as "brush bar") where it is as it
+// comes, or whichever Arrange put there.
 kit_left :: proc(app: ^App) -> f32 {
-	bar, _ := ui.prev_layout(&app.kit.ctx, "brush bar")
-	return BAR_EDGE + bar.x + 8
+	return BAR_EDGE + kit_edge_width(app, .Left) + 8
 }
 
-// How far in from the safe area's right edge the panels on the right start, clear of
-// the view rail (laid out as "view bar").
+// How far in from the safe area's right edge the panels on the right start, clear of the
+// bar standing on it: the view rail (laid out as "view bar") as it comes.
 kit_right :: proc(app: ^App) -> f32 {
-	bar, _ := ui.prev_layout(&app.kit.ctx, "view bar")
-	return BAR_EDGE + bar.x + 8
+	return BAR_EDGE + kit_edge_width(app, .Right) + 8
+}
+
+// How wide the bar on `edge` was laid out last frame; 0 for none (a floating bar stands
+// on neither).
+@(private = "file")
+kit_edge_width :: proc(app: ^App, edge: Bar_Edge) -> f32 {
+	k := &app.kit
+	w: f32 = 0
+	for b in Place_Bar do if bar_place_edge(k, b) == edge {
+		bar, _ := ui.prev_layout(&k.ctx, PLACE_BAR_ROOTS[b])
+		w = max(w, bar.x)
+	}
+	return w
 }
 
 // Where a card under the top bar (the first-run tip, the recovery offer) goes: under the
