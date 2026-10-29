@@ -453,8 +453,10 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 // finger never hides the knob it moves and a press never jumps the value. Returns true
 // when the value changed. With `reset`, a long press that moved nothing (or a right-click)
 // puts the value back to it, and a drag held on after it goes on from there. A press the
-// system or a palm cancels puts the value back to where the press found it.
-vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil) -> bool {
+// system or a palm cancels puts the value back to where the press found it. The pen's roll
+// sweeps it as it does a slider, unless `roll` is off for a caller that reads the roll its
+// own way (the off-hand island doubles the size by a quarter turn).
+vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil, roll := true) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	W :: 44
@@ -486,7 +488,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 			}
 			f = nf
 		}
-	} else if nf, rolled := pen_roll(ctx, hovered, f); rolled {
+	} else if nf, rolled := pen_roll(ctx, hovered && roll, f); rolled {
 		if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		f = slider_fraction(value^, lo, hi, scale)
 	}

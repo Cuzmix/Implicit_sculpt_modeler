@@ -42,11 +42,11 @@ kit_offhand :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {LENS_EDGE, brush_bar_top(app)}, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
-	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK)
+	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
 	if island_roll(app) do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, app.pen_roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK)
+	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
 	if island_roll(app) do strength^ = clamp(strength^ + app.pen_roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	ui.end(ctx)
@@ -66,7 +66,8 @@ ROLL_SIZE_DOUBLE :: 150
 ROLL_STRENGTH_FULL :: 300
 
 // Whether the pen hovers on the slider just drawn, touching nothing, while it turned about
-// its own length this frame (App.pen_roll): the slider's value then follows the turn.
+// its own length this frame (App.pen_roll): the slider's value then follows the turn, by
+// these figures rather than the kit's sweep, which its sliders are told to leave alone.
 @(private = "file")
 island_roll :: proc(app: ^App) -> bool {
 	ctx := &app.kit.ctx
