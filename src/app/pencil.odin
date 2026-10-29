@@ -295,7 +295,8 @@ pencil_frame :: proc(app: ^App) {
 	p.pending = nil
 	if !ok do return
 	p.running = 1 if slot == .Pen_Squeeze else 0
-	_ = gesture_run(app, slot)
+	// Double-tap and squeeze each mean their own thing over empty space (pen_roll.odin).
+	_ = gesture_run(app, pencil_slot_here(app, slot))
 }
 
 // Follow the Pencil setting: what the iPad's preferred action for the gesture running
@@ -381,16 +382,14 @@ pencil_tilt_take :: proc(app: ^App, axis: sdl.PenAxis, value: f32) {
 	}
 }
 
-// Settings > Pen's PENCIL AND BUTTONS: what double-tap, squeeze and the second button
-// run, and what the eraser end sculpts with.
+// Settings > Pen's PENCIL AND BUTTONS: what the second button runs and what the eraser end
+// sculpts with. Double-tap and squeeze are chosen where the pen points (settings_pen_areas).
 settings_pen_buttons :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
-	for slot in ([?]Gesture_Slot{.Pen_Double_Tap, .Pen_Squeeze, .Pen_Button_2}) {
-		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
-		gesture_select(app, slot)
-	}
-	ui.paragraph(ctx, "Double-tap and squeeze come from an Apple Pencil (squeeze from the Pro). Follow the Pencil setting does what the iPad's Settings > Apple Pencil asks: the palette at the tip opens the brush pie, the eraser turns Smooth on or off. Off there turns them off here too. The second button is the barrel button nearer the top on tablets that have two.")
+	ui.label(ctx, GESTURE_SLOT_NAMES[.Pen_Button_2])
+	gesture_select(app, .Pen_Button_2)
+	ui.paragraph(ctx, "The second button is the barrel button nearer the top on tablets that have two. The Apple Pencil's double-tap and squeeze are under Where the pen points.")
 	ui.label(ctx, "Eraser end")
 	uses := [len(Eraser_Use)]string{"As the tip", "Smooth", "Invert", "Mask"}
 	if picked := ui.tabs(ctx, "Eraser end", uses[:], int(n.eraser)); picked >= 0 do n.eraser = Eraser_Use(picked)

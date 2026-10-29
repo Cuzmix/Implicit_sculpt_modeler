@@ -52,6 +52,10 @@ Brush_Settings :: struct {
 	grab_silhouette:   bool,
 	// Grab's falloff measured along the surface (sculpt.Brush.topological).
 	grab_topological:  bool,
+	// Grab and Elastic take hold from a press just past the model's outline too, at the
+	// nearest surface within the ring (Nomad's Move); off, a press off the model turns the
+	// view for them as for every brush, as ZBrush's Move does.
+	grab_outline:      bool,
 	// Elastic: how much of its volume the pulled solid keeps, 0 to 1 (sculpt.Brush.volume).
 	elastic_volume:    f32,
 	// Snake hook: Pinch (below 0 Magnify), Rake and the Elastic tip (sculpt.Brush.hook_*).
@@ -611,10 +615,10 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	index, hit, ok := scene_raycast(app, origin, dir)
-	// Grab takes hold from just past the silhouette too, as Nomad's Move does: the nearest
-	// point of the surface within the brush ring.
+	// With Past the outline on, Grab takes hold from just past the silhouette too, as
+	// Nomad's Move does: the nearest point of the surface within the brush ring.
 	from := hit
-	if !ok && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
+	if !ok && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
 		index, hit, ok = scene_grab_near(app, origin, dir, input.size)
 		if ok {
 			facing := camera.orbit_toward(app.camera, hit)
