@@ -84,6 +84,7 @@ BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Paint_Color, "Colour", kit_brush_colors, nil},
 	{.Recall, "History brush", kit_recall, proc(app: ^App) -> bool {return app.brush.kind == .History}},
 	{.Falloff, "Falloff", kit_falloff, nil},
+	{.Samples, "Samples", kit_samples, nil},
 	{.Alpha, "Alpha", kit_alpha_section, nil},
 	{.Pen, "Pen", kit_pen, nil},
 	{.Options, "Options", kit_brush_options, nil},
@@ -386,6 +387,27 @@ kit_falloff :: proc(app: ^App) {
 	ui.paragraph(ctx, "The centre is on the left and the rim on the right. Drag a handle to draw your own; each brush keeps its own.")
 	focal_slider(app)
 	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. The cursor's inner ring shows where it works at half strength.")
+}
+
+// ZBrush's Samples: how a dab reads the surface under it. Stabilize orientation and
+// Sample radius grey out on brushes that do not work along the area under them, and
+// Accumulate on those it does nothing for.
+@(private = "file")
+kit_samples :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.brush
+	area := samples_apply(b.kind)
+	steady := b.stabilize * 100
+	if ui.slider(ctx, "Stabilize orientation", &steady, 0, sculpt.STABILIZE_MAX * 100, .Linear, fmt.tprintf("%.0f%%", steady), enabled = area && !b.lock_plane) {
+		b.stabilize = math.round(steady) / 100
+	}
+	sample := max(b.sample_radius, sculpt.SAMPLE_RADIUS_MIN) * 100
+	if ui.slider(ctx, "Sample radius", &sample, sculpt.SAMPLE_RADIUS_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", sample), enabled = area) {
+		b.sample_radius = math.round(sample) / 100
+	}
+	accumulate := !b.no_accumulate[b.kind]
+	if ui.switch_row(ctx, "Accumulate", &accumulate, accumulate_applies(b.kind)) do b.no_accumulate[b.kind] = !accumulate
+	ui.paragraph(ctx, "Stabilize orientation keeps that much of the direction and plane the stroke has worked along so far, so a stroke over rough ground stays steady (Lock plane keeps all of it). Sample radius is how much of the brush reads that direction: less follows a narrow ridge. Accumulate off: going over the same place within a stroke adds nothing more, as ZBrush's and Nomad's Draw; each brush keeps its own.")
 }
 
 // The brush's focal shift as a slider, in whole steps (Falloff_Setting.focal).

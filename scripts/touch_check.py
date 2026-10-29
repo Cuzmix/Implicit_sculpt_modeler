@@ -1299,6 +1299,21 @@ def smooth_stable_flattens_the_sphere():
 
 
 @scenario
+def draw_over_itself_does_not_build_up():
+    """Draw (Accumulate off by default) scribbled back and forth four times over the same
+    stretch of the sphere is one undo step (look with --screens: one even ridge, no taller
+    lump where the stroke turned and doubled back)."""
+    s = Script()
+    path = []
+    for i in range(4):
+        a, b = ((700, 450), (900, 450)) if i % 2 == 0 else ((900, 450), (700, 450))
+        path += line(a, b, 12)
+    s.mouse_drag(path)
+    s.wait(2)
+    return s, ["--script=brush draw"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(1), "brush_kind": is_text("draw")})
+
+
+@scenario
 def grab_under_dynamic_topology_refines_the_pull():
     """Grab on a sphere with dynamic topology, dragged from the middle out past the right
     edge: at the release the stretched triangles split down to the detail size, in the same
@@ -8519,7 +8534,7 @@ HISTORY_DELETE_OLDER = (977, 722)
 # Search's History brush row, under its three commands, while "history brush" is typed.
 SEARCH_HISTORY_BRUSH = (625, 294)
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
-HISTORY_DRAWN_SUM = 7.81
+HISTORY_DRAWN_SUM = 9.41
 
 
 @scenario

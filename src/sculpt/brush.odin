@@ -156,6 +156,15 @@ Brush :: struct {
 	// edges a radius, up to SMOOTH_PASSES_MAX, so a dab evens out about the same share of
 	// the brush whatever the density (smooth_passes).
 	smooth_stable: bool,
+	// ZBrush's Samples. Stabilize orientation: 0 to 0.95, how much of the stroke's mean
+	// area normal and plane each dab keeps rather than taking its own (steady_apply), for
+	// the kinds that work along the area. Sample radius: the share of the radius the area
+	// is sampled over, 0 meaning all of it. No accumulate (Accumulate off): a Draw or
+	// Inflate stroke going over itself raises each vertex only as far as one pass would
+	// (the stroke's height per vertex, as Layer keeps it).
+	stabilize:     f32,
+	sample_radius: f32,
+	no_accumulate: bool,
 	// Smooth: how it evens out (smooth_all.odin's modes): Relax only across the surface,
 	// Polish keeping the volume by the HC Laplacian (where Smooth all's Polish is Taubin's).
 	smooth_mode:   Smooth_Mode,
@@ -334,6 +343,7 @@ Sculptor :: struct {
 	topo:         Topo_State,
 	// Lock plane's plane for the stroke under way, and Connected's flood (filters.odin).
 	locked:       Locked_Plane,
+	steady:       Locked_Plane, // Stabilize orientation's running mean, as `locked` is kept
 	connected:    Connected_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
@@ -855,6 +865,7 @@ Dab :: struct {
 	au, av, an: Vec3,
 	connected: bool, // Connected's flood ran for this dab (connected_weight)
 	rate:     f32, // Smooth: this pass's share of the step toward the neighbours (smooth_passes)
+	inv_sample2: f32, // 1 / (the sample radius)²: the area is sampled inside it (job_area)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
@@ -1017,6 +1028,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
 	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph && brush.kind != .History) || brush.alpha != nil {
+		sample := brush.radius * (clamp(brush.sample_radius, SAMPLE_RADIUS_MIN, 1) if brush.sample_radius > 0 else 1)
+		d.inv_sample2 = 1 / (sample * sample)
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -1026,7 +1039,13 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		}
 		d.normal = linalg.normalize0(d.normal)
 		if weight > 0 do d.plane /= weight
-		if brush.lock_plane && brush_locks_plane(brush.kind, brush.alpha != nil) do lock_plane_apply(s, &d, img, own, weight)
+		if brush_locks_plane(brush.kind, brush.alpha != nil) {
+			if brush.lock_plane {
+				lock_plane_apply(s, &d, img, own, weight)
+			} else if brush.stabilize > 0 {
+				steady_apply(s, &d, img, own, weight, min(brush.stabilize, STABILIZE_MAX))
+			}
+		}
 		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if brush.alpha != nil do alpha_frame(&d)
 	}
@@ -1043,10 +1062,20 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	switch brush.kind {
 	case .Draw:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+		if brush.no_accumulate {
+			layer_heights_fit(s)
+			jobs.parallel_for(pool, len(s.hit), &d, job_draw_once)
+		} else {
+			jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+		}
 	case .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+		if brush.no_accumulate {
+			layer_heights_fit(s)
+			jobs.parallel_for(pool, len(s.hit), &d, job_inflate_once)
+		} else {
+			jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+		}
 	case .Clay:
 		d.amount = sign
 		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
@@ -1062,13 +1091,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_crease)
 	case .Layer:
-		if len(s.layer) < len(s.mesh.positions) {
-			// Dynamic topology adds vertices; the new entries belong to no stroke.
-			grown := make([]Layer_Height, len(s.mesh.positions) + len(s.mesh.positions) / 4, s.history.allocator)
-			copy(grown, s.layer)
-			delete(s.layer, s.history.allocator)
-			s.layer = grown
-		}
+		layer_heights_fit(s)
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
 	case .Snake_Hook:
@@ -1234,8 +1257,8 @@ job_area :: proc(data: rawptr, i: int) {
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 {
-			w := falloff(d2 * d.inv_r2) * connected_weight(d, v)
+		if d2 * d.inv_sample2 < 1 {
+			w := falloff(d2 * d.inv_sample2) * connected_weight(d, v)
 			normals += m.normals[v] * w
 			centers += m.positions[v] * w
 			weight += w
@@ -1246,20 +1269,38 @@ job_area :: proc(data: rawptr, i: int) {
 	p.touched = shared_inside(d, s.hit[i])
 }
 
-@(private) job_draw :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw)}
-@(private) job_inflate :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate)}
-@(private) job_clay :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Clay)}
-@(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten)}
-@(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch)}
-@(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
-@(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
-@(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph)}
-@(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History)}
+@(private) job_draw :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw, false)}
+@(private) job_inflate :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate, false)}
+@(private) job_draw_once :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw, true)}
+@(private) job_inflate_once :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate, true)}
+
+// The smallest Sample radius, and the most of the stroke's mean a dab may keep under
+// Stabilize orientation (at 1 it would be Lock plane, which has its own switch).
+SAMPLE_RADIUS_MIN :: 0.25
+STABILIZE_MAX :: 0.95
+
+// Makes the per-vertex stroke heights (Layer, and Draw and Inflate with Accumulate off)
+// cover every vertex: dynamic topology adds vertices, whose new entries belong to no stroke.
+@(private)
+layer_heights_fit :: proc(s: ^Sculptor) {
+	if len(s.layer) >= len(s.mesh.positions) do return
+	grown := make([]Layer_Height, len(s.mesh.positions) + len(s.mesh.positions) / 4, s.history.allocator)
+	copy(grown, s.layer)
+	delete(s.layer, s.history.allocator)
+	s.layer = grown
+}
+@(private) job_clay :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Clay, false)}
+@(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten, false)}
+@(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch, false)}
+@(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease, false)}
+@(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer, false)}
+@(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph, false)}
+@(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History, false)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
 @(private)
-displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
+displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 	s := d.s
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
@@ -1273,7 +1314,18 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 		if d2 < d.r2 {
 			w := dab_weight(d, delta, d2) * shield(fade, mask, v) * facing_weight(d, m.normals[:], v)
 			if w > 0 {
-				when K == .Draw {
+				when ONCE {
+					// Accumulate off: raise the vertex to this dab's height if it is above
+					// what the stroke has given it so far, so going over the same place
+					// again adds nothing (both signs, for Ctrl's dig).
+					l := &s.layer[v]
+					h := l.height if l.stroke == s.layer_stroke else 0
+					want := d.amount * w
+					next := max(h, want) if d.amount > 0 else min(h, want)
+					way := d.normal if K == .Draw else m.normals[v]
+					p += way * (next - h)
+					l^ = {s.layer_stroke, next}
+				} else when K == .Draw {
 					p += d.normal * (d.amount * w)
 				} else when K == .Inflate {
 					p += m.normals[v] * (d.amount * w)

@@ -252,6 +252,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.pressures[a.brush.kind].size, a.brush.pressures[a.brush.kind].size_curve = true, PRESSURE_PRESETS[2].curve
 	a.brush.pressures[a.brush.kind].size_floor = 0.3
 	a.brush.smooth_stable, a.brush.smooth_mode = true, .Relax
+	a.brush.stabilize, a.brush.sample_radius, a.brush.no_accumulate[a.brush.kind] = 0.5, 0.75, true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -288,7 +289,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].hook_elastic)
 	{
 		rb := b.replay.take.brushes[0]
-		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable && rb.smooth_mode == .Relax)
+		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable && rb.smooth_mode == .Relax && rb.stabilize == 0.5 && rb.sample_radius == 0.75 && rb.no_accumulate[rb.kind])
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -302,7 +303,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 95
+	BRUSH :: 64 + 104
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -322,6 +323,22 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 24 had no Samples after the Smooth mode: the one brush ends 64 + 95 bytes
+	// after the header's 16, samples the whole radius afresh and builds up.
+	twentyfour := make([dynamic]u8, context.temp_allocator)
+	append(&twentyfour, ..data[:16 + 64 + 95])
+	append(&twentyfour, ..data[16 + BRUSH:])
+	twentyfour[len(STROKES_MAGIC)] = 24
+	testing.expect(t, os.write_entire_file(path, twentyfour[:]) == nil)
+	sa: App
+	defer replay_destroy(&sa.replay)
+	defer results_destroy(&sa)
+	testing.expect(t, strokes_load(&sa, path))
+	if len(sa.replay.take.brushes) == 1 {
+		sb := sa.replay.take.brushes[0]
+		testing.expect(t, sb.stabilize == 0 && sb.sample_radius == 1 && !sb.no_accumulate[sb.kind] && sb.smooth_mode == .Relax)
+	}
+
 	// Version 23 had no Smooth mode after Stable: the one brush ends 64 + 94 bytes after
 	// the header's 16, and smooths plainly.
 	twentythree := make([dynamic]u8, context.temp_allocator)
