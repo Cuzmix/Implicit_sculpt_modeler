@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The Mac app's Info.plist, copied into Sculpt.app/Contents by `./build.sh mac`, which also
+	sets LSMinimumSystemVersion from MAC_MIN, CFBundleVersion from the build number, the
+	toolchain's DT* keys and, through actool, the icon's. The bundle ID is the iPad's and
+	Android's, so the Mac App Store can later list the iPad and Mac apps as one.
+	NSHighResolutionCapable gives the Retina backing store SDL asks for; the category places
+	the app under Graphics & Design.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.cuzmix.sculpt</string>
+	<key>CFBundleExecutable</key>
+	<string>Sculpt</string>
+	<key>CFBundleName</key>
+	<string>Sculpt</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sculpt</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.4</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

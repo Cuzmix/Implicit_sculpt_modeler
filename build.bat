@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|android|androidrun|all|clean]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|maccheck|android|androidrun|all|clean]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
@@ -15,9 +15,11 @@ if "%MODE%"=="" set MODE=debug
 set COMMON=-collection:deps="%DEPS%" -vet -strict-style -warnings-as-errors
 rem The oldest iPadOS the iPad build runs on; build.sh says why.
 set IOS_MIN=17.4
+set MAC_MIN=14.4
 if "%MODE%"=="check" goto check
 if "%MODE%"=="all" goto all
 if "%MODE%"=="iphonecheck" goto iphonecheck
+if "%MODE%"=="maccheck" goto maccheck
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
 rem The app links Luau for script plugins and ufbx for FBX import, which setup_deps builds
@@ -79,6 +81,14 @@ rem linking, so iOS-only compile errors show up here too.
 if not exist "%ROOT%build\ios" mkdir "%ROOT%build\ios"
 "%ODIN%" build "%ROOT%src\app" -target:darwin_arm64 -subtarget:iphone -build-mode:obj -use-single-module -minimum-os-version:%IOS_MIN% -out:"%ROOT%build\ios\sculpt.o" %COMMON% -o:speed -no-bounds-check || exit /b 1
 echo iphonecheck: app compiles for the iPad (arm64, iPadOS %IOS_MIN%)
+exit /b 0
+
+:maccheck
+rem The app for the Mac (Apple silicon) as the object build.sh mac links on a Mac, so
+rem Mac-only compile errors show up here too.
+if not exist "%ROOT%build\mac" mkdir "%ROOT%build\mac"
+"%ODIN%" build "%ROOT%src\app" -target:darwin_arm64 -build-mode:obj -use-single-module -minimum-os-version:%MAC_MIN% -out:"%ROOT%build\mac\sculpt.o" %COMMON% -o:speed -no-bounds-check || exit /b 1
+echo maccheck: app compiles for the Mac (Apple silicon, macOS %MAC_MIN%)
 exit /b 0
 
 :debug
@@ -161,22 +171,23 @@ exit /b 1
 :all
 rem Everything that builds, stopping at the first failure: check, the release app (so
 rem release-only errors show) and then the debug one, which build\sculpt.exe is left as, the
-rem tests, the iPad compile check, and the Android APK when Android Studio's SDK is there.
+rem tests, the iPad and Mac compile checks, and the Android APK when Android Studio's SDK is there.
 rem Smoke and the touch scenarios need a display: scripts\gate.py runs them.
 call "%~f0" check || goto fail
 call "%~f0" release || goto fail
 call "%~f0" debug || goto fail
 call "%~f0" test || goto fail
 call "%~f0" iphonecheck || goto fail
+call "%~f0" maccheck || goto fail
 set "SDK=%ANDROID_HOME%"
 if not defined SDK set "SDK=%LOCALAPPDATA%\Android\Sdk"
 if not exist "%SDK%\platform-tools" goto all_no_android
 call "%~f0" android || goto fail
-echo all: check, release, debug, test, iphonecheck and android done; build\sculpt.exe is the debug app
+echo all: check, release, debug, test, iphonecheck, maccheck and android done; build\sculpt.exe is the debug app
 exit /b 0
 
 :all_no_android
-echo all: check, release, debug, test and iphonecheck done; no Android SDK in %SDK%, so no APK; build\sculpt.exe is the debug app
+echo all: check, release, debug, test, iphonecheck and maccheck done; no Android SDK in %SDK%, so no APK; build\sculpt.exe is the debug app
 exit /b 0
 
 :clean

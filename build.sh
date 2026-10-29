@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios|iosupload|all|clean] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|maccheck|check|android|androidrun|ios|iosupload|mac|macnotarize|all|clean] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -34,8 +34,14 @@
 #           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
 #   iosupload macOS only: send the signed build/ios/Sculpt.ipa to App Store Connect for
 #           TestFlight (ASC_KEY_ID, ASC_ISSUER_ID and the API key's .p8)
+#   maccheck compile the app for the Mac (Apple silicon) to an object file, as `mac` does,
+#           without Xcode or linking, so Mac-only compile errors show up anywhere
+#   mac     macOS with Xcode only: build the Mac app (mac/, README.md "Mac") into
+#           build/mac/Sculpt-mac.zip, signed ad hoc, or with the Developer ID certificate
+#           SCULPT_MAC_IDENTITY names (.github/workflows/mac.yml runs it on GitHub's Mac)
+#   macnotarize macOS only: notarize and staple that Developer ID build (ASC_KEY_ID, ...)
 #   all     everything that builds, stopping at the first failure: check, release, then
-#           debug (build/sculpt is left as the debug app), test, iphonecheck, wincheck,
+#           debug (build/sculpt is left as the debug app), test, iphonecheck, maccheck, wincheck,
 #           androidcheck, and the Android APK when the Android SDK is there; smoke and the
 #           touch scenarios need a display, so scripts/gate.py runs them
 #   clean   remove build/ and the Android build's outputs; deps/ stays
@@ -112,6 +118,89 @@ ios_object() {
 		-minimum-os-version:"$IOS_MIN" -out:"$ROOT/build/ios/sculpt.o" \
 		-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check \
 		${defines[@]+"${defines[@]}"}
+}
+
+# The oldest macOS the Mac app runs on: as on the iPad, Odin's thread waits use the public
+# os_sync_wait_on_address from 14.4, which keeps the Mac App Store open to the same build.
+MAC_MIN=14.4
+
+# The app for the Mac (Apple silicon) as one object, which `mac` links and `maccheck` stops
+# at. SCULPT_DIAGNOSTICS and SCULPT_VERSION as for the iPad.
+mac_object() {
+	mkdir -p "$ROOT/build/mac"
+	local defines=()
+	if [ "${SCULPT_DIAGNOSTICS:-}" = 1 ]; then defines+=(-define:SCULPT_DIAGNOSTICS=true); fi
+	if [ -n "${SCULPT_VERSION:-}" ]; then defines+=("-define:SCULPT_VERSION=$SCULPT_VERSION"); fi
+	"$ODIN" build "$ROOT/src/app" -target:darwin_arm64 -build-mode:obj -use-single-module \
+		-minimum-os-version:"$MAC_MIN" -out:"$ROOT/build/mac/sculpt.o" \
+		-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check \
+		${defines[@]+"${defines[@]}"}
+}
+
+# Writes into the Info.plist at $1 the keys Xcode puts in every app it builds, naming the
+# SDK ($2: iphoneos or macosx) and the Xcode it was built with: the App Store's upload checks
+# read them, and these builds use Xcode's clang without an Xcode project.
+apple_plist_keys() {
+	local plist=$1 sdk=$2
+	local sdk_version sdk_build xcode_version xcode_build
+	sdk_version=$(xcrun -sdk "$sdk" --show-sdk-version)
+	sdk_build=$(xcrun -sdk "$sdk" --show-sdk-build-version)
+	# DTXcode is the version's digits, major then minor then patch: 26.0 is 2600.
+	xcode_version=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\)\.\([0-9]\)\(\.\([0-9]\)\)\{0,1\}.*/\1\2\40/p' | cut -c1-4)
+	xcode_build=$(xcodebuild -version | sed -n 's/^Build version //p')
+	plutil -replace DTPlatformName -string "$sdk" "$plist"
+	plutil -replace DTPlatformVersion -string "$sdk_version" "$plist"
+	plutil -replace DTPlatformBuild -string "$sdk_build" "$plist"
+	plutil -replace DTSDKName -string "$sdk$sdk_version" "$plist"
+	plutil -replace DTSDKBuild -string "$sdk_build" "$plist"
+	plutil -replace DTXcode -string "$xcode_version" "$plist"
+	plutil -replace DTXcodeBuild -string "$xcode_build" "$plist"
+	plutil -replace DTCompiler -string com.apple.compilers.llvm.clang.1_0 "$plist"
+	plutil -replace BuildMachineOSBuild -string "$(sw_vers -buildVersion)" "$plist"
+}
+
+# The app icon for platform $1 (iphoneos or macosx), compiled into the folder $2 and its keys
+# merged into the Info.plist at $3; the rest are actool's flags. An asset catalog is made in
+# build/ from the one 1024-point picture, assets/icon/sculpt-1024.png, which actool turns
+# into the icon files (Assets.car, and AppIcon.icns on the Mac); the App Store refuses an
+# app without them.
+apple_icon() {
+	local platform=$1 dest=$2 plist=$3
+	shift 3
+	local icon="$ROOT/assets/icon/sculpt-1024.png" catalog="$ROOT/build/icon-$platform/Assets.xcassets"
+	[ -f "$icon" ] || { echo "app icon missing: $icon"; exit 1; }
+	rm -rf "$catalog"
+	mkdir -p "$catalog/AppIcon.appiconset"
+	cp "$icon" "$catalog/AppIcon.appiconset/AppIcon.png"
+	printf '{"info":{"author":"xcode","version":1}}\n' > "$catalog/Contents.json"
+	local os=ios
+	[ "$platform" = macosx ] && os=macos
+	printf '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"%s","size":"1024x1024"}],"info":{"author":"xcode","version":1}}\n' "$os" \
+		> "$catalog/AppIcon.appiconset/Contents.json"
+	xcrun actool "$catalog" --compile "$dest" --platform "$platform" --app-icon AppIcon \
+		--output-partial-info-plist "$ROOT/build/icon-$platform/icon.plist" \
+		--errors --warnings --output-format human-readable-text "$@"
+	/usr/libexec/PlistBuddy -c "Merge $ROOT/build/icon-$platform/icon.plist" "$plist"
+}
+
+# Every Metal shader through Apple's own compiler for SDK $1 (iphoneos or macosx), into
+# build/$2/msl, so a translation error stops the build here rather than on the device, where
+# SDL compiles each from source when the app first makes its pipeline (scripts/shaders_msl.py
+# made them). A shader whose source and compiler match those it last passed with (its .sum
+# beside its .air, which the workflows keep in their caches) is not checked again.
+metal_check() {
+	local sdk=$1 out="$ROOT/build/$2/msl"
+	mkdir -p "$out"
+	local metal_version
+	metal_version=$(xcrun -sdk "$sdk" metal --version 2>&1 | head -n 1)
+	for msl in "$ROOT"/src/render/shaders/*.msl; do
+		local air sum
+		air="$out/$(basename "$msl" .msl)"
+		sum=$({ echo "$metal_version"; cat "$msl"; } | shasum -a 256 | cut -d' ' -f1)
+		if [ -f "$air.air" ] && [ "$(cat "$air.sum" 2> /dev/null)" = "$sum" ]; then continue; fi
+		xcrun -sdk "$sdk" metal -x metal -c "$msl" -o "$air.air"
+		echo "$sum" > "$air.sum"
+	done
 }
 
 mkdir -p "$ROOT/build"
@@ -216,14 +305,14 @@ case "$mode" in
 		;;
 	all)
 		# One mode per run of this script, as a person would run them, so each keeps its own setup.
-		for step in check release debug test iphonecheck wincheck androidcheck; do
+		for step in check release debug test iphonecheck maccheck wincheck androidcheck; do
 			"$ROOT/build.sh" "$step"
 		done
 		if [ -d "${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools" ]; then
 			"$ROOT/build.sh" android
-			echo "all: check, release, debug, test, iphonecheck, wincheck, androidcheck and android done; build/sculpt is the debug app"
+			echo "all: check, release, debug, test, iphonecheck, maccheck, wincheck, androidcheck and android done; build/sculpt is the debug app"
 		else
-			echo "all: check, release, debug, test, iphonecheck, wincheck and androidcheck done; no Android SDK, so no APK; build/sculpt is the debug app"
+			echo "all: check, release, debug, test, iphonecheck, maccheck, wincheck and androidcheck done; no Android SDK, so no APK; build/sculpt is the debug app"
 		fi
 		;;
 	iphonecheck)
@@ -232,8 +321,9 @@ case "$mode" in
 		;;
 	ios)
 		# SDL3 as a static library, the app's object, stb_truetype and ios/sculpt_ios.m (the
-		# file dialogs SDL lacks on iOS), linked by Xcode's clang into Sculpt.app, then zipped
-		# unsigned: AltStore signs it with the person's Apple Account on the iPad.
+		# file dialogs SDL lacks on iOS), linked by Xcode's clang into Sculpt.app, then zipped:
+		# unsigned for AltStore to sign with the person's Apple Account on the iPad, or signed
+		# here for the App Store.
 		[ "$(uname)" = Darwin ] || { echo "ios needs macOS with Xcode; ./build.sh iphonecheck compiles the app for the iPad anywhere"; exit 1; }
 		[ -f "$DEPS/sdl3-src/CMakeLists.txt" ] || { echo "SDL source missing: clone SDL_TAG (scripts/versions.env) into deps/sdl3-src"; exit 1; }
 		[ -f "$DEPS/ufbx-src/ufbx.c" ] || { echo "ufbx source missing: clone UFBX_TAG (scripts/versions.env) into deps/ufbx-src"; exit 1; }
@@ -242,20 +332,7 @@ case "$mode" in
 		app="$out/Payload/Sculpt.app"
 		cc=(xcrun -sdk iphoneos clang -target "arm64-apple-ios$IOS_MIN")
 		[ -f "$out/sdl/lib/libSDL3.a" ] || "$ROOT/scripts/sdl_ios.sh" "$IOS_MIN" "$DEPS/sdl3-src" "$out"
-		# Every Metal shader through Apple's own compiler, so a translation error stops the
-		# build here rather than on the iPad, where SDL compiles each from source when the app
-		# first makes its pipeline (scripts/shaders_msl.py made them). A shader whose source and
-		# compiler match those it last passed with (its .sum beside its .air, which the iPad
-		# workflow keeps in its cache) is not checked again.
-		mkdir -p "$out/msl"
-		metal_version=$(xcrun -sdk iphoneos metal --version 2>&1 | head -n 1)
-		for msl in "$ROOT"/src/render/shaders/*.msl; do
-			air="$out/msl/$(basename "$msl" .msl)"
-			sum=$({ echo "$metal_version"; cat "$msl"; } | shasum -a 256 | cut -d' ' -f1)
-			if [ -f "$air.air" ] && [ "$(cat "$air.sum" 2> /dev/null)" = "$sum" ]; then continue; fi
-			xcrun -sdk iphoneos metal -x metal -c "$msl" -o "$air.air"
-			echo "$sum" > "$air.sum"
-		done
+		metal_check iphoneos ios
 		ios_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
 		# ufbx with the app's shim round it, for FBX import (src/fbx).
@@ -273,38 +350,8 @@ case "$mode" in
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
-		# The App Store's upload checks name the SDK and Xcode an app was built with, keys Xcode
-		# writes into every app it builds; this build is Xcode's clang without its project, so
-		# they are written here from the same tools.
-		sdk_version=$(xcrun -sdk iphoneos --show-sdk-version)
-		sdk_build=$(xcrun -sdk iphoneos --show-sdk-build-version)
-		# DTXcode is the version's digits, major then minor then patch: 26.0 is 2600.
-		xcode_version=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\)\.\([0-9]\)\(\.\([0-9]\)\)\{0,1\}.*/\1\2\40/p' | cut -c1-4)
-		xcode_build=$(xcodebuild -version | sed -n 's/^Build version //p')
-		plutil -replace DTPlatformName -string iphoneos "$app/Info.plist"
-		plutil -replace DTPlatformVersion -string "$sdk_version" "$app/Info.plist"
-		plutil -replace DTPlatformBuild -string "$sdk_build" "$app/Info.plist"
-		plutil -replace DTSDKName -string "iphoneos$sdk_version" "$app/Info.plist"
-		plutil -replace DTSDKBuild -string "$sdk_build" "$app/Info.plist"
-		plutil -replace DTXcode -string "$xcode_version" "$app/Info.plist"
-		plutil -replace DTXcodeBuild -string "$xcode_build" "$app/Info.plist"
-		plutil -replace DTCompiler -string com.apple.compilers.llvm.clang.1_0 "$app/Info.plist"
-		plutil -replace BuildMachineOSBuild -string "$(sw_vers -buildVersion)" "$app/Info.plist"
-		# The app icon: an asset catalog made here from the one 1024-point picture
-		# (assets/icon/sculpt-1024.png), which Xcode's actool turns into the icon files and the
-		# CFBundleIcons keys merged into Info.plist; the App Store refuses an app without one.
-		icon="$ROOT/assets/icon/sculpt-1024.png"
-		[ -f "$icon" ] || { echo "app icon missing: $icon"; exit 1; }
-		rm -rf "$out/Assets.xcassets"
-		mkdir -p "$out/Assets.xcassets/AppIcon.appiconset"
-		cp "$icon" "$out/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
-		printf '{"info":{"author":"xcode","version":1}}\n' > "$out/Assets.xcassets/Contents.json"
-		printf '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}\n' \
-			> "$out/Assets.xcassets/AppIcon.appiconset/Contents.json"
-		xcrun actool "$out/Assets.xcassets" --compile "$app" --platform iphoneos --target-device ipad \
-			--minimum-deployment-target "$IOS_MIN" --app-icon AppIcon --output-partial-info-plist "$out/icon.plist" \
-			--errors --warnings --output-format human-readable-text
-		/usr/libexec/PlistBuddy -c "Merge $out/icon.plist" "$app/Info.plist"
+		apple_plist_keys "$app/Info.plist" iphoneos
+		apple_icon iphoneos "$app" "$app/Info.plist" --target-device ipad --minimum-deployment-target "$IOS_MIN"
 		plutil -lint "$app/Info.plist"
 		# The privacy manifest: the "required reason" APIs the app and SDL call (sm-store).
 		cp "$ROOT/ios/PrivacyInfo.xcprivacy" "$app/PrivacyInfo.xcprivacy"
@@ -338,6 +385,76 @@ case "$mode" in
 		[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] || { echo "set ASC_KEY_ID and ASC_ISSUER_ID (App Store Connect > Users and Access > Integrations)"; exit 1; }
 		[ -f "$ROOT/build/ios/Sculpt.ipa" ] || { echo "no build/ios/Sculpt.ipa: run SCULPT_SIGN_IDENTITY=... SCULPT_PROFILE=... ./build.sh ios first"; exit 1; }
 		xcrun altool --upload-app --type ios --file "$ROOT/build/ios/Sculpt.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+		;;
+	maccheck)
+		mac_object
+		echo "maccheck: app compiles for the Mac (Apple silicon, macOS $MAC_MIN)"
+		;;
+	mac)
+		# The Mac app as the iPad's is made: SDL3 as a static library, the app's object,
+		# stb_truetype and ufbx linked by Xcode's clang into Sculpt.app, with the icon, the
+		# privacy manifest and the toolchain's keys, then zipped as build/mac/Sculpt-mac.zip.
+		# SDL has the Mac's file dialogs, so no native code of the app's own is needed. With
+		# SCULPT_MAC_IDENTITY (a Developer ID Application certificate in the keychain) it is
+		# signed with the hardened runtime for notarizing (`macnotarize`); without, signed ad
+		# hoc, which Apple silicon needs to run it at all, for this Mac or one that allows it.
+		[ "$(uname)" = Darwin ] || { echo "mac needs macOS with Xcode; ./build.sh maccheck compiles the app for the Mac anywhere"; exit 1; }
+		[ -f "$DEPS/sdl3-src/CMakeLists.txt" ] || { echo "SDL source missing: clone SDL_TAG (scripts/versions.env) into deps/sdl3-src"; exit 1; }
+		[ -f "$DEPS/ufbx-src/ufbx.c" ] || { echo "ufbx source missing: clone UFBX_TAG (scripts/versions.env) into deps/ufbx-src"; exit 1; }
+		command -v pkg-config > /dev/null || { echo "pkg-config missing: brew install pkgconf"; exit 1; }
+		out="$ROOT/build/mac"
+		app="$out/Sculpt.app"
+		cc=(xcrun -sdk macosx clang -target "arm64-apple-macos$MAC_MIN")
+		[ -f "$out/sdl/lib/libSDL3.a" ] || "$ROOT/scripts/sdl_mac.sh" "$MAC_MIN" "$DEPS/sdl3-src" "$out"
+		metal_check macosx mac
+		mac_object
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
+		rm -rf "$app"
+		mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
+		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
+		read -r -a sdl_libs <<< "$libs"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		plist="$app/Contents/Info.plist"
+		cp "$ROOT/mac/Info.plist" "$plist"
+		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"
+		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$plist"
+		apple_plist_keys "$plist" macosx
+		apple_icon macosx "$app/Contents/Resources" "$plist" --minimum-deployment-target "$MAC_MIN"
+		plutil -lint "$plist"
+		# The same privacy manifest as the iPad's: the same code calls the same APIs.
+		cp "$ROOT/ios/PrivacyInfo.xcprivacy" "$app/Contents/Resources/PrivacyInfo.xcprivacy"
+		if [ -n "${SCULPT_MAC_IDENTITY:-}" ]; then
+			[ "${SCULPT_DIAGNOSTICS:-}" != 1 ] || { echo "a signed release cannot be a developer build: unset SCULPT_DIAGNOSTICS"; exit 1; }
+			codesign --force --options runtime --timestamp --sign "$SCULPT_MAC_IDENTITY" "$app"
+		else
+			codesign --force --sign - "$app"
+		fi
+		codesign --verify --strict "$app"
+		rm -f "$out/Sculpt-mac.zip"
+		ditto -c -k --keepParent "$app" "$out/Sculpt-mac.zip"
+		if [ -n "${SCULPT_MAC_IDENTITY:-}" ]; then
+			echo "mac: build/mac/Sculpt-mac.zip (Developer ID; ./build.sh macnotarize next)"
+		else
+			echo "mac: build/mac/Sculpt-mac.zip (signed ad hoc: Control-click > Open on another Mac)"
+		fi
+		;;
+	macnotarize)
+		# Sends the Developer ID build to Apple's notary service with the App Store Connect API
+		# key iosupload uses, waits for its verdict, staples the ticket to Sculpt.app and zips
+		# it again: Gatekeeper then opens it on any Mac, offline too.
+		[ "$(uname)" = Darwin ] || { echo "macnotarize needs macOS with Xcode"; exit 1; }
+		[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] || { echo "set ASC_KEY_ID and ASC_ISSUER_ID (App Store Connect > Users and Access > Integrations)"; exit 1; }
+		key="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+		[ -f "$key" ] || { echo "the API key is not at $key"; exit 1; }
+		out="$ROOT/build/mac"
+		[ -f "$out/Sculpt-mac.zip" ] || { echo "no build/mac/Sculpt-mac.zip: run SCULPT_MAC_IDENTITY=... ./build.sh mac first"; exit 1; }
+		xcrun notarytool submit "$out/Sculpt-mac.zip" --key "$key" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+		xcrun stapler staple "$out/Sculpt.app"
+		rm -f "$out/Sculpt-mac.zip"
+		ditto -c -k --keepParent "$out/Sculpt.app" "$out/Sculpt-mac.zip"
+		echo "macnotarize: build/mac/Sculpt-mac.zip is notarized and stapled"
 		;;
 	*) echo "unknown mode: $mode"; exit 1 ;;
 esac

@@ -198,6 +198,24 @@
 			}
 		},
 		{
+			"label": "Mac: compile check",
+			"detail": "the app compiled for the Mac (Apple silicon) to an object, without a Mac",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["maccheck"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "maccheck"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
 			"label": "iPad: build on GitHub and download",
 			"detail": "scripts/ipad_build.py: the pushed branch built on GitHub's Mac, saved as build\\ios\\Sculpt.ipa for AltStore",
 			"type": "process",
