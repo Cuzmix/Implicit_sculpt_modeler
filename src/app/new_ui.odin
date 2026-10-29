@@ -175,6 +175,7 @@ Kit_State :: struct {
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
+	symmetry_line: bool, // the mirror planes' lines show across the selected object (symmetry.odin)
 	panes_work:   bool, // a press in a view pane works there (grid_work)
 	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
 	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
@@ -919,6 +920,7 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
+	k.symmetry_line = true
 	k.panes_work = true
 	k.column_popovers = true
 	k.clean_dial = true

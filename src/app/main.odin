@@ -313,6 +313,7 @@ App :: struct {
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
+	sym_lines:       Symmetry_Lines, // where the mirror planes cut the selected object, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
 	see_through:     bool,
@@ -527,6 +528,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
+	defer symmetry_lines_destroy(&app.sym_lines)
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)

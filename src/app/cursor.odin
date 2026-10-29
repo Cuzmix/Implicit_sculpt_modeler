@@ -11,12 +11,21 @@ import "../sculpt"
 // circle of the brush's radius in the plane the surface faces there, so its tilt shows
 // which way the brush will push before a stroke starts (Settings > Interface > Lay the
 // brush ring on the surface). Worked out each frame by cursor_update and drawn by the
-// overlay; off the model the ring stays the flat circle on the screen.
+// overlay; off the model the ring stays the flat circle on the screen. With symmetry on,
+// the ring's copies at every mirrored and turned image of the brush, as ZBrush shows its
+// mirrored cursor, so where the other side will move shows before a stroke starts.
 Brush_Cursor :: struct {
 	ok:     bool, // the ring's middle is over the model this frame
 	at:     Vec3, // where, in world space
 	normal: Vec3, // the way the surface faces there, unit length (the brush's area normal)
 	radius: f32, // the brush's radius there, in world units
+	images: [dynamic; sculpt.SYM_IMAGES_MAX]Cursor_Image, // the symmetry's copies, the ring itself left out
+}
+
+// One of the brush ring's symmetry copies, in world space.
+Cursor_Image :: struct {
+	at:     Vec3,
+	normal: Vec3,
 }
 
 // How far out from the middle, in radii, the brush in use falls to half strength, while its
@@ -84,7 +93,9 @@ ring_center :: proc(app: ^App, input: Viewport_Input) -> [2]f32 {
 cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	c := &app.cursor
 	c.ok = false
-	if !app.kit.surface_ring || app.tool != .Brush || !(input.hovered || input.dragging) || app.ui.pie.open do return
+	clear(&c.images)
+	// The symmetry's copies need the surface under the pointer even with the ring flat.
+	if !(app.kit.surface_ring || symmetry_on(app)) || app.tool != .Brush || !(input.hovered || input.dragging) || app.ui.pie.open do return
 	// The gestures, the S/U adjust and the Drag rectangle stamp draw their own outlines,
 	// and an alpha's square stays flat on the screen.
 	if app.clip.active || app.mask_shape.active || app.ui.adjust.kind != .None || (app.stroke.active && app.stroke.rect) do return
@@ -103,5 +114,14 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 		normal = linalg.normalize0(to_world_dir(t, n))
 	}
 	if normal == {} do return
-	c^ = {ok = true, at = hit, normal = normal, radius = radius}
+	c.ok, c.at, c.normal, c.radius = true, hit, normal, radius
+	if !symmetry_on(app) do return
+	// Each image as a dab takes it, in the object's own space, then back to the world.
+	sym := brush_symmetry(app, obj)
+	local, local_n := to_local(t, hit), to_local_dir(t, normal)
+	for img, i in sculpt.symmetry_images(sym) {
+		if i == 0 do continue
+		at := to_world(t, sculpt.sym_point(img, sym.sym_center, local))
+		append(&c.images, Cursor_Image{at, linalg.normalize0(to_world_dir(t, img.turn * local_n))})
+	}
 }

@@ -19,6 +19,7 @@ Settings_Block :: enum u8 {
 	Motion,
 	Starting,
 	Brush_Ring,
+	Symmetry_Line,
 	Column_Popovers,
 	View_Grid,
 	Bars,
@@ -79,6 +80,7 @@ SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
+	{.Symmetry_Line, "SYMMETRY"},
 	{.Column_Popovers, "PANELS"},
 	{.View_Grid, "VIEW GRID"},
 	{.Bars, "BARS"},
@@ -142,6 +144,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
+	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.Column_Popovers  = "columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock",
@@ -241,6 +244,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Brush_Ring:
 		_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 		ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	case .Symmetry_Line:
+		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
+		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
 	case .Column_Popovers:
 		_ = ui.switch_row(ctx, "Columns pop over a narrow window", &k.column_popovers)
 		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
@@ -494,6 +500,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Motion:          k.ctx.reduced_motion = false
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
+	case .Symmetry_Line:   k.symmetry_line = true
 	case .Column_Popovers: k.column_popovers = true
 	case .View_Grid:       k.panes_work = true
 	case .Bars:
