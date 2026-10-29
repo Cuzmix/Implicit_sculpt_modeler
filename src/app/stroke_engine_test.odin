@@ -247,6 +247,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.grab_same_side, a.brush.grab_silhouette, a.brush.grab_topological = true, true, true
 	a.brush.elastic_volume = 0.3
 	a.brush.hook_pinch, a.brush.hook_rake, a.brush.hook_elastic = -0.5, 0.25, true
+	// The brush's own pressure, which the file keeps as the one it worked with.
+	brush_pressure_own(&a.brush, a.brush.kind, true)
+	a.brush.pressures[a.brush.kind].size, a.brush.pressures[a.brush.kind].size_curve = true, PRESSURE_PRESETS[2].curve
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -281,6 +284,10 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].hook_pinch, -0.5)
 	testing.expect_value(t, b.replay.take.brushes[0].hook_rake, 0.25)
 	testing.expect(t, b.replay.take.brushes[0].hook_elastic)
+	{
+		rb := b.replay.take.brushes[0]
+		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve)
+	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -293,7 +300,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 73
+	BRUSH :: 64 + 89
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -313,6 +320,22 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 20 had no size pressure curve after the Elastic tip: the one brush ends
+	// 64 + 73 bytes after the header's 16, and its size takes the strength's curve.
+	twenty := make([dynamic]u8, context.temp_allocator)
+	append(&twenty, ..data[:16 + 64 + 73])
+	append(&twenty, ..data[16 + BRUSH:])
+	twenty[len(STROKES_MAGIC)] = 20
+	testing.expect(t, os.write_entire_file(path, twenty[:]) == nil)
+	pc: App
+	defer replay_destroy(&pc.replay)
+	defer results_destroy(&pc)
+	testing.expect(t, strokes_load(&pc, path))
+	if len(pc.replay.take.brushes) == 1 {
+		pb := pc.replay.take.brushes[0]
+		testing.expect(t, pb.pressure_size && pb.pressure_size_curve == pb.pressure_curve && pb.hook_elastic)
+	}
+
 	// Version 19 had no Snake hook Pinch, Rake or Elastic tip after Elastic's Volume: the
 	// one brush ends 64 + 64 bytes after the header's 16, and has none of them.
 	nineteen := make([dynamic]u8, context.temp_allocator)

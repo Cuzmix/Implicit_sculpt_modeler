@@ -390,31 +390,38 @@ focal_slider :: proc(app: ^App) {
 @(private = "file")
 kit_pen :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	// Two pages, so neither holds more than the section's five controls.
-	pages := [2]string{"Pressure", "Lean"}
-	if picked := ui.tabs(ctx, "pen page", pages[:], int(app.kit.pen_lean)); picked >= 0 do app.kit.pen_lean = picked == 1
-	if app.kit.pen_lean {
+	// Three pages, so none holds more than the section's five controls: what pressure does
+	// to the strength, to the size, and the pen's lean.
+	pages := [3]string{"Strength", "Size", "Lean"}
+	if picked := ui.tabs(ctx, "pen page", pages[:], app.kit.pen_page); picked >= 0 do app.kit.pen_page = picked
+	if app.kit.pen_page == 2 {
 		kit_tilt(app)
 		return
 	}
-	_ = ui.switch_row(ctx, "Pressure changes strength", &app.brush.pressure_strength)
-	_ = ui.switch_row(ctx, "Pressure changes size", &app.brush.pressure_size)
+	size := app.kit.pen_page == 1
+	b := &app.brush
+	strength_on, size_on, strength_curve, size_curve := pressure_edit(b)
+	_ = ui.switch_row(ctx, "Pressure changes size" if size else "Pressure changes strength", size_on if size else strength_on)
+	curve := size_curve if size else strength_curve
+	counts :: proc(app: ^App, size: bool, x: f32) -> f32 {return pressure_sized(app, x) if size else pressure_curved(app, x)}
 	dot: Maybe([2]f32)
 	if app.pen_seen {
 		x := clamp(app.pen_pressure, 0, 1)
-		dot = [2]f32{x, pressure_curved(app, x)}
+		dot = [2]f32{x, counts(app, size, x)}
 	}
-	_ = kit_curve_editor(ctx, "pressure curve", &app.brush.pressure_curve, &app.ui.curve_handle, false, dot)
+	_ = kit_curve_editor(ctx, "pressure curve", curve, &app.ui.curve_handle, false, dot)
 	names: [len(PRESSURE_PRESETS)]string
 	chosen := -1
 	for p, i in PRESSURE_PRESETS {
 		names[i] = string(p.label)
-		if app.brush.pressure_curve == p.curve do chosen = i
+		if curve^ == p.curve do chosen = i
 	}
-	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do app.brush.pressure_curve = PRESSURE_PRESETS[picked].curve
-	ui.paragraph(ctx, "Along: how hard the pen presses. Up: what that counts as.")
+	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do curve^ = PRESSURE_PRESETS[picked].curve
+	global := !b.pressures[b.kind].own
+	if ui.switch_row(ctx, "Use global", &global) do brush_pressure_own(b, b.kind, !global)
+	ui.paragraph(ctx, fmt.tprintf("Along: how hard the pen presses. Up: what that counts as for the %s. With Use global off, %s keeps its own pressure.", "size" if size else "strength", BRUSHES[b.kind].name))
 	if app.pen_seen {
-		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, pressure_curved(app, app.pen_pressure)))
+		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, counts(app, size, app.pen_pressure)))
 	} else {
 		ui.paragraph(ctx, "No pen seen yet; a mouse always presses fully.")
 	}

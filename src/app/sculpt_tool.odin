@@ -17,9 +17,14 @@ Brush_Settings :: struct {
 	radius_px:         f32,
 	strengths:         [sculpt.Brush_Kind]f32, // each brush's own (brush_strength)
 	falloffs:          [sculpt.Brush_Kind]Falloff_Setting, // each brush's own, too
+	// What pen pressure does, for every brush that uses the global setting (brush_pressure):
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
-	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
+	pressure_curve:    geom.Curve, // what each pen pressure counts as for the strength (geom.curve_at)
+	pressure_size_curve: geom.Curve, // and for the size
+	// Each brush's own pressure, used in place of the global one where `own` is set (Use
+	// global off), as ZBrush and Nomad let a brush keep its own curves.
+	pressures:         [sculpt.Brush_Kind]Pressure_Own,
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	// 0 to 1 each: how much a pen laid down toward the paper grows the brush (up to twice
 	// its size) and lightens it (down to nothing), as a pencil's side shades wide and soft.
@@ -1200,7 +1205,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		own = app.brush.kind
 	}
 	strength := app.brush.strengths[own]
-	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
+	if brush_pressure(&app.brush, app.brush.kind).strength do strength *= pressure_curved(app, pressure)
 	strength *= 1 - app.brush.tilt_soften * lean_of(tilt)
 	strength *= app.stroke.scale
 	turn: matrix[3, 3]f32
@@ -1267,8 +1272,8 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 
 brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 	r := app.brush.radius_px * (1 + app.brush.tilt_size * lean_of(tilt))
-	if !app.brush.pressure_size do return r
-	return r * max(pressure_curved(app, pressure), MIN_PRESSURE_SIZE)
+	if !brush_pressure(&app.brush, app.brush.kind).size do return r
+	return r * max(pressure_sized(app, pressure), MIN_PRESSURE_SIZE)
 }
 
 // How far a pen leaning `tilt` (degrees across and down, as SDL reports it) is laid
@@ -1282,9 +1287,51 @@ lean_of :: proc(tilt: [2]f32) -> f32 {
 	return clamp(off / LEAN_FULL, 0, 1)
 }
 
-// What a pen pressure counts as, through the pressure curve. A mouse's 1 stays 1.
+// What pen pressure does to a brush: whether it scales the strength and the size, and
+// the curve each goes through (geom.curve_at), kept apart so a brush can, say, grow with
+// pressure gently while its strength comes in hard.
+Pressure :: struct {
+	strength:       bool,
+	size:           bool,
+	strength_curve: geom.Curve,
+	size_curve:     geom.Curve,
+}
+
+// A brush's own pressure, and whether it uses it rather than the global one.
+Pressure_Own :: struct {
+	own:            bool,
+	using pressure: Pressure,
+}
+
+// The pressure brush `kind` works with: its own when it keeps one, else the global one.
+brush_pressure :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Pressure {
+	if b.pressures[kind].own do return b.pressures[kind].pressure
+	return {b.pressure_strength, b.pressure_size, b.pressure_curve, b.pressure_size_curve}
+}
+
+// Gives brush `kind` its own pressure (own) starting from the global one, or puts it back
+// on the global one, leaving its own as it was for the next time.
+brush_pressure_own :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, own: bool) {
+	p := &b.pressures[kind]
+	if own && !p.own do p.pressure = brush_pressure(b, kind)
+	p.own = own
+}
+
+// Where the pressure the held brush works with is edited: its own or the global one.
+pressure_edit :: proc(b: ^Brush_Settings) -> (strength, size: ^bool, strength_curve, size_curve: ^geom.Curve) {
+	if p := &b.pressures[b.kind]; p.own do return &p.strength, &p.size, &p.strength_curve, &p.size_curve
+	return &b.pressure_strength, &b.pressure_size, &b.pressure_curve, &b.pressure_size_curve
+}
+
+// What a pen pressure counts as for the held brush's strength, through its curve. A
+// mouse's 1 stays 1.
 pressure_curved :: proc(app: ^App, pressure: f32) -> f32 {
-	return geom.curve_at(app.brush.pressure_curve, pressure)
+	return geom.curve_at(brush_pressure(&app.brush, app.brush.kind).strength_curve, pressure)
+}
+
+// ...and for its size.
+pressure_sized :: proc(app: ^App, pressure: f32) -> f32 {
+	return geom.curve_at(brush_pressure(&app.brush, app.brush.kind).size_curve, pressure)
 }
 
 // World-space ray through a viewport point (origin at the top-left).

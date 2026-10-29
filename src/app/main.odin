@@ -629,7 +629,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
