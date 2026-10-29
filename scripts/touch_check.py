@@ -9547,6 +9547,72 @@ def stack_tab_carried_left_handed_by_pen():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "dabs": near(0)})
 
 
+# The strip of icons at 1440x900 (the palettes as icons, or panes beside the main view):
+# each docked card's icon, 50 points apart from Brush's.
+STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools", "Palettes"])}
+
+
+def stack_icon_carry(s, frm, to, rest, mouse=False):
+    """Carries the strip's icon `frm` onto `to` (held past the long press first, unless by
+    mouse), rests there `rest` frames and lets go."""
+    a, b = STACK_ICONS[frm], STACK_ICONS[to] if isinstance(to, str) else to
+    if mouse:
+        s.mouse_drag(line(a, b, 8) + [b] * rest)
+    else:
+        s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * rest)
+    s.wait(8)
+
+
+@scenario
+def stack_icon_rested_on_another_joins_it():
+    """With the palettes as icons, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
+    def run(mouse):
+        s = Script()
+        palette_run(s, "palettes as icons")
+        stack_icon_carry(s, "Layers", "Brush", 40, mouse)
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_density": is_text("icons"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_icon_resting_fills_the_ring():
+    """Layers' icon resting on Brush's, still held, shows the ring filling and the hint to hold; nothing has changed yet."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    a, b = STACK_ICONS["Layers"], STACK_ICONS["Brush"]
+    s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * 16, lift=False)
+    s.wait(2)
+    return s, LENS_1440, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_let_go_early_reorders():
+    """Layers' icon let go over Brush's before the ring fills moves Layers to the top of the strip instead; passing over an icon never joins it."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    stack_icon_carry(s, "Layers", "Brush", 3)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_carried_with_panes():
+    """With panes beside the main view (the palettes as panels), the strip reorders the same way: Scene's icon let go over Symmetry's goes there."""
+    s = Script()
+    stack_icon_carry(s, "Scene", "Symmetry", 3)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,Scene,Symmetry,Layers"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_carried_clear_floats():
+    """Shown as icons, as panels, then as icons again (the cards' places left behind), Layers' icon carried well clear of the strip floats its card there."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    palette_run(s, "palettes as icons")
+    palette_run(s, "palettes as icons")
+    stack_icon_carry(s, "Layers", (400, 400), 3)
+    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_density": is_text("icons"), "stack_drops": near(1), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 

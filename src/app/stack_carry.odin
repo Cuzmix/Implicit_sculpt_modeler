@@ -11,7 +11,9 @@ import "../ui"
 // out of a group's row carries that tab alone. While it is held, the target under the
 // pointer shows: a group's header or tab row joins it (a mark where the tab would go),
 // the line between the docked cards moves it there, and well clear of the stack it floats
-// where it is let go. A pill over the pointer says which. The targets are the rects laid
+// where it is let go. A pill over the pointer says which. In the strip of icons, an icon
+// carried past the others reorders the strip, and one resting on another icon for twice the
+// long press (a ring fills round it) joins that group. The targets are the rects laid
 // out this frame (`seen`), tested front to back: floating groups first, then the docked
 // stack, so a floating group over the docked cards takes the drop. Escape, or a cancelled
 // touch, drops nothing.
@@ -31,10 +33,11 @@ Stack_Target_Kind :: enum u8 {
 }
 
 Stack_Target :: struct {
-	kind: Stack_Target_Kind,
-	host: Stack_Card,
-	slot: int,
-	at:   int,
+	kind:  Stack_Target_Kind,
+	host:  Stack_Card,
+	slot:  int,
+	at:    int,
+	strip: bool, // the line is between the strip's icons
 }
 
 // Called before the stack and its floating cards are laid out: the targets are this
@@ -42,7 +45,7 @@ Stack_Target :: struct {
 // joined) is no target.
 stack_frame_begin :: proc(k: ^Kit_State) {
 	s := &k.stack
-	s.seen = {}
+	s.seen, s.strip_seen = {}, {}
 	s.drop_at, s.head_at, s.row_at, s.tabs_at = {}, {}, {}, {}
 }
 
@@ -75,6 +78,7 @@ stack_carry_update :: proc(app: ^App) {
 		s.carry_off = .Left in in_.down
 		return
 	}
+	stack_dwell_update(k, in_.mouse)
 	target := stack_carry_target(app, in_.mouse, carry)
 	s.target = target
 	if .Left in in_.down {
@@ -96,6 +100,7 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 		if c == src do return {}
 		return {kind = .Join, host = c, slot = stack_tab_slot(s, c, p)}
 	}
+	if t, ok := stack_strip_target(app, p, carry); ok do return t
 	// A docked header is a band map: its top quarter (and a folded card's bottom one) is the
 	// line, so folded cards still reorder; its middle and the tab row join.
 	for c in s.order {
@@ -116,6 +121,56 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 	if outside do return {kind = .Float}
 	if !carry.tab && src not_in s.floated && at == stack_docked_place(s, src) do return {}
 	return {kind = .Line, at = at}
+}
+
+// Over the strip of icons (or near it): resting on another group's icon long enough joins
+// it, anywhere else the line between the icons; false away from the strip.
+@(private = "file")
+stack_strip_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> (Stack_Target, bool) {
+	k := &app.kit
+	s := &k.stack
+	if s.strip_seen == {} do return {}, false
+	src := stack_host(s, carry.card)
+	lo, hi: [2]f32
+	first := true
+	at := 0
+	for c in s.order {
+		if c not_in s.strip_seen do continue
+		r := s.strip_at[c]
+		if (carry.tab || c != src) && p.y > r.y + r.h * 0.5 do at += 1
+		a, b := [2]f32{r.x, r.y}, [2]f32{r.x + r.w, r.y + r.h}
+		lo, hi = (a if first else linalg.min(lo, a)), (b if first else linalg.max(hi, b))
+		first = false
+	}
+	REACH :: 48
+	if p.x < lo.x - REACH || p.x > hi.x + REACH || p.y < lo.y - REACH || p.y > hi.y + REACH do return {}, false
+	if s.dwell_on && s.dwell != src && stack_dwell(k) >= 1 do return {kind = .Join, host = s.dwell, slot = len(stack_group(s, s.dwell))}, true
+	if !carry.tab && src not_in s.floated && at == stack_docked_place(s, src) do return {}, true
+	return {kind = .Line, at = at, strip = true}, true
+}
+
+// Follows the strip's icon under `p`: the rest starts again on another icon, or once the
+// pointer strays past the slop, so passing over an icon never joins it.
+@(private = "file")
+stack_dwell_update :: proc(k: ^Kit_State, p: [2]f32) {
+	s := &k.stack
+	under: Maybe(Stack_Card)
+	for c in s.order do if c in s.strip_seen && ui.rect_contains(s.strip_at[c], p) do under = c
+	c, ok := under.?
+	if !ok {
+		s.dwell_on = false
+		return
+	}
+	if !s.dwell_on || s.dwell != c || linalg.length(p - s.dwell_at) > k.ctx.theme.slop {
+		s.dwell, s.dwell_on, s.dwell_from, s.dwell_at = c, true, k.ctx.time, p
+	}
+}
+
+// How far the rest on an icon has come toward joining it, 1 once it would: twice the long
+// press, so it is never a tap's or a pass's.
+stack_dwell :: proc(k: ^Kit_State) -> f32 {
+	if !k.stack.dwell_on do return 0
+	return f32(k.ctx.time - k.stack.dwell_from) / (2 * k.ctx.theme.long_press)
 }
 
 // The tab slot of group `host` under `p`: after the last tab whose middle `p` is past, and
@@ -179,13 +234,17 @@ stack_carry_draw :: proc(app: ^App, carry: Stack_Carry, target: Stack_Target, p:
 	switch target.kind {
 	case .None:
 	case .Line:
-		x, w: f32
-		for c in s.order {
-			if c in s.floated || c in s.hidden || c in s.joined || c not_in s.seen do continue
-			x, w = s.drop_at[c].x, s.drop_at[c].w
-			break
+		x, w, y: f32
+		if target.strip {
+			x, w, y = stack_strip_line(s, target.at, carry.card if carry.tab else src)
+		} else {
+			for c in s.order {
+				if c in s.floated || c in s.hidden || c in s.joined || c not_in s.seen do continue
+				x, w = s.drop_at[c].x, s.drop_at[c].w
+				break
+			}
+			y = stack_drop_y(app, target.at, carry.card if carry.tab else src)
 		}
-		y := stack_drop_y(app, target.at, carry.card if carry.tab else src)
 		ui.fill_rect(ctx, {x, y - 1.5, w, 3}, 1.5, t.accent)
 		hint = "Move here"
 	case .Join:
@@ -200,6 +259,15 @@ stack_carry_draw :: proc(app: ^App, carry: Stack_Carry, target: Stack_Target, p:
 		hint = fmt.tprintf("Join %s", stack_title(app, stack_shown(s, host)))
 	case .Float:
 		hint = "Float here"
+	}
+	// Resting on another icon of the strip: the icon grows a little and the ring fills
+	// round it toward joining its group.
+	if s.dwell_on && s.dwell != src && s.dwell in s.strip_seen {
+		r := s.strip_at[s.dwell]
+		g := ui.Rect{r.x - r.w * 0.04, r.y - r.h * 0.04, r.w * 1.08, r.h * 1.08}
+		ui.stroke_rect(ctx, g, t.radius_medium, t.accent, 2)
+		ui.hold_ring(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, r.w * 0.5 + 8, stack_dwell(k))
+		if target.kind != .Join do hint = fmt.tprintf("Hold to join %s", stack_title(app, stack_shown(s, s.dwell)))
 	}
 	name := stack_title(app, carry.card if carry.tab else stack_shown(s, src))
 	text := fmt.tprintf("%s · %s", name, hint) if hint != "" else name
@@ -229,6 +297,22 @@ stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, ou
 	}
 	REACH :: 48
 	outside = first || p.x < lo.x - REACH || p.x > hi.x + REACH || p.y > hi.y + REACH
+	return
+}
+
+// Where the line between the strip's icons (but `carried`'s) at slot `at` goes: its x,
+// width and y.
+@(private = "file")
+stack_strip_line :: proc(s: ^Lens_Stack, at: int, carried: Stack_Card) -> (x, w, y: f32) {
+	i := 0
+	for c in s.order {
+		if c not_in s.strip_seen || c == carried do continue
+		r := s.strip_at[c]
+		x, w = r.x, r.w
+		if i == at do return x, w, r.y - 1
+		y = r.y + r.h + 1
+		i += 1
+	}
 	return
 }
 

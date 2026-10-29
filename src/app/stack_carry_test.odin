@@ -115,3 +115,32 @@ stack_carry_targets_from_the_rects :: proc(t: ^testing.T) {
 	testing.expect_value(t, stack_carry_target(app, {1200, 300}, layers), Stack_Target{kind = .Join, host = .Tools, slot = 1})
 	free_all(context.temp_allocator)
 }
+
+// In the strip of icons: let go over another icon at once, the strip reorders there;
+// rested on it for twice the long press, the carry joins its group; its own place changes
+// nothing; well away from the strip it floats.
+@(test)
+stack_strip_targets_reorder_then_join :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	stack_default(k)
+	s := &k.stack
+	k.ctx.theme.long_press = 0.25
+	y: f32 = 73
+	for c in s.order {
+		if c in s.hidden do continue
+		s.strip_at[c] = {1326, y, 44, 44}
+		s.strip_seen += {c}
+		y += 50
+	}
+	layers := Stack_Carry{card = .Layers}
+	testing.expect_value(t, stack_carry_target(app, {1348, 95}, layers), Stack_Target{kind = .Line, at = 0, strip = true})
+	testing.expect_value(t, stack_carry_target(app, {1348, 195}, layers), Stack_Target{})
+	s.dwell, s.dwell_on, s.dwell_from = .Brush, true, -1
+	testing.expect_value(t, stack_carry_target(app, {1348, 95}, layers), Stack_Target{kind = .Join, host = .Brush, slot = 1})
+	s.dwell_from = k.ctx.time - 0.3
+	testing.expect_value(t, stack_carry_target(app, {1348, 95}, layers).kind, Stack_Target_Kind.Line)
+	testing.expect_value(t, stack_carry_target(app, {400, 400}, layers), Stack_Target{kind = .Float})
+	free_all(context.temp_allocator)
+}

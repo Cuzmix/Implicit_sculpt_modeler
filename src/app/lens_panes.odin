@@ -326,6 +326,16 @@ kit_stack_strip :: proc(app: ^App) {
 		v := stack_shown(s, c)
 		pressed := ui.icon_button(ctx, fmt.tprintf("%s##stack tab %v", stack_title(app, v), c), panel_kind_icon(app, v), selected = on)
 		s.strip_at[c] = ctx.last_rect
+		s.strip_seen += {c}
+		// An icon carried past the slop carries its group (stack_carry.odin): a mouse's at
+		// once, a finger's or the pen's once it has held past the long press, so a tap still
+		// opens it and a quick swipe does nothing.
+		long := ui.held_long(ctx)
+		if ctx.active == ctx.last_id && s.carry == nil && !s.carry_off && ctx.long.travel > t.slop && (ctx.input.pointer == .Mouse || long) {
+			s.carry = Stack_Carry{card = c}
+		}
+		// A press that carried is no tap.
+		if s.carry != nil do pressed = false
 		if n := len(stack_group(s, c)); n > 1 {
 			r := ctx.last_rect
 			at := [2]f32{r.x + r.w - 8, r.y + 8}
