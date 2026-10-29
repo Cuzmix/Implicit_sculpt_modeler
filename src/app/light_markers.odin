@@ -263,6 +263,19 @@ light_marker_pressed :: proc(app: ^App, at, size: [2]f32) -> bool {
 	return lights_section_shown(app) && (light_marker_pick(app, at, size) >= 0 || light_gizmo_pick(app, at, size) != .None)
 }
 
+// The Place highlight command (Render's dial holds it): switches Place highlight, and on
+// opens the Lights section, since a press is the lights' only while it shows. Run while
+// the switch is on but the section is closed, it opens the section rather than switching
+// off, so the press after it does what the lit sector says.
+light_place_command :: proc(app: ^App) {
+	if app.ui.light_place && !lights_section_shown(app) {
+		tray_open(app, .Lights)
+		return
+	}
+	app.ui.light_place = !app.ui.light_place
+	if app.ui.light_place do tray_open(app, .Lights)
+}
+
 // Whether a press at `at` is the lights' rather than a tool's: on a marker, or anywhere
 // with Place highlight on (a press off the model still turns the view).
 lights_take_press :: proc(app: ^App, at, size: [2]f32) -> bool {

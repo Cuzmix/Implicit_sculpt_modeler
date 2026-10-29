@@ -203,7 +203,7 @@ Kit_State :: struct {
 	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
-	dial:       [4]Dial_Sector, // what its sectors do, clockwise from the top
+	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -918,7 +918,7 @@ kit_init :: proc(app: ^App) {
 	k.column_popovers = true
 	k.clean_dial = true
 	k.rail_side, k.wheel_size = .Left, .Medium
-	k.dial = DIAL_DEFAULT
+	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
 	bars_reset(k)
 	grid_reset(&k.grid)

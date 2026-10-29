@@ -368,7 +368,7 @@ def value_bars(island=(), strip=()):
     """Arguments that start the run with the island holding `island` and the shelf's tools
     `strip`, each a list of (value, look) or a command name, through the scenario's settings
     file."""
-    lines = ["version 5"]
+    lines = ["version 6"]
     for zone, items in (("offhand_island", island), ("bottom_tools", strip)):
         if not items:
             continue
@@ -2664,6 +2664,53 @@ def a_press_in_render_turns_the_view():
     return s, [], {"dabs": near(0), "space": is_text("render"), "workspace": is_text("Render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
+# Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
+# Exposure chip, the dial's top sector (Place highlight in Render) and left sector (the
+# Select action in Model), and a press on the model.
+RENDER_EXPOSURE_CHIP = (864, 830)
+DIAL_TOP, DIAL_LEFT = (78, 778), (35, 822)
+ON_MODEL = (520, 330)
+
+
+@scenario
+def render_exposure_chip_scrubs_the_exposure():
+    """In Render the shelf shows Render's page; a finger dragged 50 points up from its Exposure chip raises the exposure, opens nothing and turns nothing."""
+    s = Script()
+    s.ftap(*SPACE_TABS["render"])
+    s.wait(10)
+    x, y = RENDER_EXPOSURE_CHIP
+    s.fdrag(line((x, y), (x, y - 50), 20))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "shelf_page": is_text("Render"), "value_scrubs": near(1),
+                                "bar_pop": is_text("none"), "exposure": lambda v: float(v) > 0.2})
+
+
+@scenario
+def render_dial_places_a_highlight():
+    """In Render the dial's top sector switches Place highlight on; a press on the model then moves the picked light, not the view."""
+    s = Script()
+    s.ftap(*SPACE_TABS["render"])
+    s.wait(10)
+    s.ftap(*DIAL_TOP)
+    s.wait(6)
+    s.fdrag(line(ON_MODEL, (ON_MODEL[0] + 30, ON_MODEL[1] + 20), 10))
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "light_place": near(1), "light_moves": near(1),
+                                "dial_sectors": is_text("Place_Light,Brush_Pie,Brush_Value:Exposure,Pick_Focus")})
+
+
+@scenario
+def model_dial_picks_select():
+    """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
+    s = Script()
+    s.ftap(*SPACE_TABS["model"])
+    s.wait(10)
+    s.ftap(*DIAL_LEFT)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+                                "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
+
+
 @scenario
 def lens_search_field_opens_the_palette():
     """A tap on the Lens top bar's Search field opens the command palette."""
@@ -4007,6 +4054,25 @@ def lens_arrange_reset_zone():
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
                                                                          "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_arrange_dial_is_the_spaces():
+    """In Model, Library > Dial changes Model's dial: Hide on its bottom sector is Model's alone, which the settings file keeps as a dial_space line."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(*a["dial_tab"])
+    s.wait(6)
+    s.ftap(*a["bottom"])
+    s.wait(6)
+    s.ftap(*a["hide"])
+    s.wait(6)
+    s.ftap(*a["done"])
+    s.wait(8)
+    return s, LENS_1440 + ["--script=space_switch model; customise_bars", f"--settings-file={settings_file()}"], camera_still({
+        "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "dial_spaces": near(1), "dabs": near(0),
+        "@saved": saved_line("dial_space Model 2 modifier Hide")})
 
 
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;

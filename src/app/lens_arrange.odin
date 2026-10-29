@@ -73,7 +73,10 @@ arrange_zone_rect :: proc(app: ^App, z: Arrange_Zone) -> ui.Rect {
 arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 	k := &app.kit
 	#partial switch z {
-	case .Shelf: return fmt.tprintf("Shelf · page %d of %d", int(k.shelf.page) + 1, len(Shelf_Page))
+	case .Shelf:
+		// Counted among the pages the space shows.
+		first, last := shelf_pages_of(k.spaces.current)
+		return fmt.tprintf("Shelf · page %d of %d", int(k.shelf.page) - int(first) + 1, int(last) - int(first) + 1)
 	case .Rail:  return fmt.tprintf("Rail · %d", len(bar_used(app, .View_Rail)))
 	}
 	return ARRANGE_ZONE_NAMES[z]
@@ -93,7 +96,7 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	case .Offhand:
 		return
 	case .Dial:
-		k.dial, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULT, .Medium, 0, {}
+		k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
 	case .Shelf:
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
 		k.tools = bar_fresh(.Tools)
@@ -218,23 +221,26 @@ kit_library :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
-// Library > Dial: what each sector does, then the dial's size, what its sectors show,
-// and whether it stays in clean view.
+// Library > Dial: what each sector of the current space's dial does, then the dial's
+// size, what its sectors show, and whether it stays in clean view (those three are every
+// space's).
 @(private = "file")
 library_dial :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.caption(ctx, "DIAL SECTORS (CLOCKWISE FROM THE TOP)")
+	space := k.spaces.current
+	dial := dial_of(k)
+	ui.caption(ctx, fmt.tprintf("%s DIAL SECTORS (CLOCKWISE FROM THE TOP)", strings.to_upper(SPACE_NAMES[space], context.temp_allocator)))
 	for place, i in DIAL_PLACES {
 		ui.begin(ctx, fmt.tprintf("dial sector %d", i), {direction = .Row, center = true, gap = 8, width = width})
 		r := ui.place(ctx, {110, t.target})
 		ui.text(ctx, place, r.x, r.y + r.h * 0.5, t.text_size, t.text)
 		options := make([dynamic]string, 0, 8, context.temp_allocator)
-		for m in Modifier do append(&options, MODIFIER_NAMES[m])
+		for m in Modifier do append(&options, modifier_name(app, m))
 		append(&options, "Brush pie")
 		chosen := 0
-		switch v in k.dial[i] {
+		switch v in dial[i] {
 		case Modifier: chosen = int(v)
 		case Bar_Slot:
 			chosen = len(Modifier)
@@ -248,18 +254,19 @@ library_dial :: proc(app: ^App, width: f32) {
 		switch {
 		case picked < 0 || picked == chosen:
 		case picked < len(Modifier):
-			k.dial[i] = Modifier(picked)
+			dial[i] = Modifier(picked)
 		case picked == len(Modifier):
-			k.dial[i] = Bar_Slot{.Brush_Pie, 0}
+			dial[i] = Bar_Slot{.Brush_Pie, 0}
 		case picked == len(options) - 1:
 			palette_open(app)
 			k.palette_for = Dial_Pick(i)
 		}
 		ui.end(ctx)
 	}
-	// Smooth and Mask have no gesture, so a dial without them leaves only the keys.
+	// Smooth and Mask have no gesture, so a Sculpt dial without them leaves only the keys;
+	// the other spaces' dials hold what those spaces use instead.
 	missing := make([dynamic]string, 0, 2, context.temp_allocator)
-	for m in ([]Modifier{.Smooth, .Mask}) do if !dial_has(k, m) do append(&missing, MODIFIER_NAMES[m])
+	if space == .Sculpt do for m in ([]Modifier{.Smooth, .Mask}) do if !dial_has(k, m) do append(&missing, MODIFIER_NAMES[m])
 	if len(missing) > 0 {
 		ui.paragraph(ctx, fmt.tprintf("No sector holds %s now: on a tablet without a keyboard nothing else does.", strings.join(missing[:], " or ", context.temp_allocator)))
 	}

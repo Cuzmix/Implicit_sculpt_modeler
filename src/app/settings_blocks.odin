@@ -503,7 +503,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
-		k.dial = DIAL_DEFAULT
+		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options = false
 	case .Pies, .Mouse, .Blender_Link:
 	case .Panel_Places:    windows_reset(k)

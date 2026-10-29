@@ -31,8 +31,8 @@ import "../sculpt"
 // per cage face, shown orange; the face actions' Selected target works on it wherever
 // the press lands on that cage, as Blender's edit mode works on its selection.
 //
-// Modifiers: Ctrl (the wheel's Invert sector) gives the action's variant, ZModeler's Alt;
-// Shift (the Smooth sector) snaps the drag to steps of a quarter of the mean edge.
+// Modifiers: Ctrl (the dial's Alt sector, Invert in Sculpt) gives the action's variant, ZModeler's Alt;
+// Shift (the Snap sector, Smooth in Sculpt) snaps the drag to steps of a quarter of the mean edge.
 
 Model_Action :: enum u8 {
 	Extrude,

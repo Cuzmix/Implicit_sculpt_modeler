@@ -15,7 +15,9 @@ import "../ui"
 // (Bar_List.looks). A Slider is the island's tall slider; a Chip is the icon over the
 // number, a tap opening the value's popover and a drag across the bar scrubbing it, as
 // ZBrush for iPad's sliders scrub; an Icon is the icon alone. A long press on any of them
-// opens its menu: how it shows, the brush's section, its moves and Remove.
+// opens its menu: how it shows, the brush's section, its moves and Remove. Exposure is the
+// view's, not the brush's, and is one of them so that Render's shelf and dial hold it as
+// they hold the brush's values (PR 3b).
 
 Brush_Value :: enum u8 {
 	Size,
@@ -24,6 +26,7 @@ Brush_Value :: enum u8 {
 	Spacing,
 	Lazy,
 	Pressure,
+	Exposure, // the view's exposure, in stops: last, as keys and gestures name values by name
 }
 
 Value_Look :: enum u8 {
@@ -40,10 +43,11 @@ BRUSH_VALUE_NAMES := [Brush_Value]string {
 	.Spacing     = "Spacing",
 	.Lazy        = "Lazy",
 	.Pressure    = "Pressure",
+	.Exposure    = "Exposure",
 }
 
 // Lucide's nearest glyphs: a radius, a gauge, a lens's focus, dabs in a row, the line
-// trailing the pen, and a pen's weighted line.
+// trailing the pen, a pen's weighted line, and an aperture's blades.
 @(rodata)
 BRUSH_VALUE_ICONS := [Brush_Value]rune {
 	.Size        = rune(0xe532), // radius
@@ -52,6 +56,7 @@ BRUSH_VALUE_ICONS := [Brush_Value]rune {
 	.Spacing     = rune(0xe0ba), // ellipsis
 	.Lazy        = rune(0xe38f), // spline
 	.Pressure    = rune(0xe5f7), // signature
+	.Exposure    = rune(0xe044), // aperture
 }
 
 @(rodata)
@@ -70,10 +75,12 @@ BRUSH_VALUE_SECTIONS := [Brush_Value]Kit_Section {
 	.Spacing     = .Stroke,
 	.Lazy        = .Stroke,
 	.Pressure    = .Pen,
+	.Exposure    = .Material,
 }
 
 // The values the popover's steps set, a tap each: the sizes doubling, the strength in
-// quarters, the focal shift either way, the usual spacings and lazy strings.
+// quarters, the focal shift either way, the usual spacings and lazy strings, and a stop
+// down, none and a stop up.
 @(rodata)
 VALUE_STEPS := [Brush_Value][]f32 {
 	.Size        = {12, 24, 48, 96, 192},
@@ -82,6 +89,7 @@ VALUE_STEPS := [Brush_Value][]f32 {
 	.Spacing     = {0.05, 0.1, 0.2, 0.5},
 	.Lazy        = {0, 10, 30, 60},
 	.Pressure    = {},
+	.Exposure    = {-1, 0, 1},
 }
 
 // A value item's width and height on a column bar, and how far a scrub must go to take
@@ -111,6 +119,7 @@ value_range :: proc(v: Brush_Value) -> (lo, hi: f32, scale: ui.Scale) {
 	case .Spacing:     return MIN_SPACING, MAX_SPACING, .Logarithmic
 	case .Lazy:        return 0, LAZY_MAX_PX, .Linear
 	case .Pressure:    return 0, 1, .Linear
+	case .Exposure:    return -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear
 	}
 	return 0, 1, .Linear
 }
@@ -125,12 +134,14 @@ value_get :: proc(app: ^App, v: Brush_Value) -> f32 {
 	case .Spacing:     return b.spacing if b.spacing > 0 else DAB_SPACING
 	case .Lazy:        return b.lazy_px
 	case .Pressure:    return 1 if b.pressure_size || b.pressure_strength else 0
+	case .Exposure:    return app.exposure
 	}
 	return 0
 }
 
 // Sets the value, within its range and in the steps its section's slider takes (the focal
-// shift in whole steps). Pressure is its popover's two switches, not a number.
+// shift in whole steps, the exposure in tenths of a stop, as its slider's text shows it).
+// Pressure is its popover's two switches, not a number.
 value_set :: proc(app: ^App, v: Brush_Value, to: f32) {
 	lo, hi, _ := value_range(v)
 	x := clamp(to, lo, hi)
@@ -142,6 +153,7 @@ value_set :: proc(app: ^App, v: Brush_Value, to: f32) {
 	case .Spacing:     b.spacing = x
 	case .Lazy:        b.lazy_px = x
 	case .Pressure:
+	case .Exposure:    app.exposure = math.round(x * 10) / 10
 	}
 }
 
@@ -161,6 +173,7 @@ value_text :: proc(app: ^App, v: Brush_Value) -> string {
 	case .Spacing:     return fmt.tprintf("%.0f%%", x * 100)
 	case .Lazy:        return "off" if x < 0.5 else fmt.tprintf("%.0f px", x)
 	case .Pressure:    return "on" if x > 0 else "off"
+	case .Exposure:    return fmt.tprintf("%+.1f stops", x)
 	}
 	return ""
 }
@@ -172,6 +185,7 @@ value_short :: proc(app: ^App, v: Brush_Value) -> string {
 	case .Size:     return fmt.tprintf("%.0f", x)
 	case .Strength: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0")
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
+	case .Exposure: return fmt.tprintf("%+.1f", x)
 	}
 	return value_text(app, v)
 }
@@ -189,6 +203,7 @@ value_step_text :: proc(v: Brush_Value, x: f32) -> string {
 	case .Strength: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0")
 	case .Spacing:  return fmt.tprintf("%.0f%%", x * 100)
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
+	case .Exposure: return fmt.tprintf("%+.0f", x) if x != 0 else "0"
 	}
 	return fmt.tprintf("%.0f", x)
 }
@@ -378,8 +393,10 @@ kit_value_menu :: proc(app: ^App) {
 		}
 	}
 	ui.divider(ctx, across = true)
-	if ui.menu_item(ctx, "Brush settings", glyph = ui.ICON_PANEL) {
+	// Exposure is the view's: its slider is in Material's More options, opened with it.
+	if ui.menu_item(ctx, "Material settings" if v == .Exposure else "Brush settings", glyph = ui.ICON_PANEL) {
 		at, side := p.at, p.side
+		if v == .Exposure do k.more[.Material] = true
 		bar_pop_toggle(app, .Section, at, side, BRUSH_VALUE_SECTIONS[v])
 		return
 	}

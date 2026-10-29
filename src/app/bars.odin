@@ -22,12 +22,13 @@ Bar_Slot :: Pie_Slot
 Bar_Which :: enum u8 {
 	Tools, // the shelf's tool strip, after All (lens_shelf.odin)
 	View_Rail, // the view rail, down the pen side (lens_chrome.odin)
-	// The shelf's five pages (lens_shelf.odin), in Shelf_Page's order.
+	// The shelf's six pages (lens_shelf.odin), in Shelf_Page's order.
 	Shelf_Sculpt,
 	Shelf_Paint,
 	Shelf_Move,
 	Shelf_Curve,
 	Shelf_Model,
+	Shelf_Render,
 	Brush_Pie, // the brush pie (pie.odin): eight slots, clockwise from the top
 	// The off-hand island (lens_chrome.odin): the brush's values and any command, down the
 	// off-hand side. Last, as settings name bars by zone and the shelf's pages count from
@@ -53,6 +54,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Move   = "shelf_move",
 	.Shelf_Curve  = "shelf_curve",
 	.Shelf_Model  = "shelf_model",
+	.Shelf_Render = "shelf_render",
 	.Brush_Pie    = "brush_pie",
 	.Offhand      = "offhand_island",
 }
@@ -130,7 +132,7 @@ bar_lists_reset :: proc(k: ^Kit_State) {
 // A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	switch which {
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model:
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render:
 		page, _ := shelf_page_of(which)
 		return shelf_fresh(page)
 	case .View_Rail:
@@ -155,7 +157,7 @@ bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 // The list behind the strip, the view rail, a shelf page or the brush pie.
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	switch which {
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model:
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render:
 		page, _ := shelf_page_of(which)
 		return &k.shelf.lists[page]
 	case .View_Rail: return &k.view_rail
@@ -177,7 +179,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
 	case .Tools:     return TOOLS_MAX
 	case .View_Rail: return VIEW_RAIL_MAX
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model: return SHELF_MAX
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	}
@@ -296,6 +298,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Shelf_Move:   return "The Move shelf"
 	case .Shelf_Curve:  return "The Curve shelf"
 	case .Shelf_Model:  return "The Model shelf"
+	case .Shelf_Render: return "The Render shelf"
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The off-hand island"
 	}
@@ -377,6 +380,8 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
+	// A tile has room for one word of a look's name.
+	case .Viewport_Look: return "Studio" if Look_Preset(s.arg) == .Sculpt_Studio else LOOK_PRESET_NAMES[Look_Preset(s.arg)]
 	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
 	}
 	return command_label(s.id, s.arg)

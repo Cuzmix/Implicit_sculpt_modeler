@@ -210,6 +210,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Live_Occlusion   = "ambient occlusion ao ssao gtao live shadows creases",
 	.Render_Mode      = "render mode path trace tracing cycles rendered view global illumination gi bounce final full quality",
 	.Pick_Focus       = "depth of field dof focus point eyedropper lens camera blur bokeh aperture",
+	.Place_Light      = "light highlight place move key light specular marmoset keyshot",
 	.Focus_Pivot      = "depth of field dof focus pivot reset lens camera",
 	.Finish_Reset     = "finish tone curve grade vignette grain white balance reset camera post",
 	.Viewport_Look    = "look matcap shading style preset viewport sculpt studio classic grey",
@@ -575,8 +576,8 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 	case Dial_Pick:
 		palette_close(app)
 		if e.kind != .Command || !bar_lists(e.id) do return
-		k.dial[int(slot)] = Bar_Slot{e.id, e.arg}
-		report(app, nil, {}, "The dial's %s sector now runs %s", strings.to_lower(DIAL_PLACES[int(slot)], context.temp_allocator), pie_slot_label({e.id, e.arg}))
+		dial_of(k)[int(slot)] = Bar_Slot{e.id, e.arg}
+		report(app, nil, {}, "%s's dial's %s sector now runs %s", SPACE_NAMES[k.spaces.current], strings.to_lower(DIAL_PLACES[int(slot)], context.temp_allocator), pie_slot_label({e.id, e.arg}))
 		return
 	}
 	palette_close(app)

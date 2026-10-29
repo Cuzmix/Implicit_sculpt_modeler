@@ -120,11 +120,11 @@ wheel_sectors_by_angle :: proc(t: ^testing.T) {
 	testing.expect_value(t, ui.wheel_sector_at(c, {105, 100}, 132, 44), -1)
 	testing.expect_value(t, ui.wheel_sector_at(c, {162, 162}, 132, 44), -1)
 	r := Modifier_Rail{center = c, outer = 132, hole = 44}
-	m, ok := rail_hit(&r, DIAL_DEFAULT, {100, 50})
+	m, ok := rail_hit(&r, DIAL_DEFAULTS[.Sculpt], {100, 50})
 	testing.expect(t, ok && m == .Smooth)
-	m, ok = rail_hit(&r, DIAL_DEFAULT, {50, 100})
+	m, ok = rail_hit(&r, DIAL_DEFAULTS[.Sculpt], {50, 100})
 	testing.expect(t, ok && m == .Mask)
-	_, ok = rail_hit(&r, DIAL_DEFAULT, {150, 100})
+	_, ok = rail_hit(&r, DIAL_DEFAULTS[.Sculpt], {150, 100})
 	testing.expect(t, !ok)
 }
 
@@ -291,7 +291,7 @@ wheel_sectors_turn_with_the_wheel :: proc(t: ^testing.T) {
 	testing.expect_value(t, ui.wheel_sector_at(c, {100, 150}, 132, 44, math.PI / 2), 1)
 	testing.expect_value(t, ui.wheel_sector_at(c, {100, 50}, 132, 44, -math.PI / 2), 1)
 	r := Modifier_Rail{center = c, outer = 132, hole = 44, turn = math.PI / 2}
-	m, ok := rail_hit(&r, DIAL_DEFAULT, {150, 100})
+	m, ok := rail_hit(&r, DIAL_DEFAULTS[.Sculpt], {150, 100})
 	testing.expect(t, ok && m == .Smooth)
 }
 
