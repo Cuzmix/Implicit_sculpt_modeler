@@ -64,6 +64,7 @@ Script_Verb :: enum u8 {
 	Knife,
 	Environment,
 	Render_Focus,
+	Hardness,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -95,6 +96,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Knife         = {"knife", "x, y or z to cut away the + side of the middle, -x, -y or -z the - side"},
 	.Environment   = {"environment", "a panorama file (Radiance .hdr, PNG or JPEG, twice as wide as tall) to light with, picking Image"},
 	.Render_Focus  = {"render_focus", "three numbers, the point x y z for depth of field to focus on, or pivot to focus on what the view turns about"},
+	.Hardness      = {"hardness", "a number from 0 to 95: every brush's hardness, in percent of the radius"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -510,6 +512,8 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		return st.flip || numbers(st, args, 3, -1e4, 1e4)
 	case .Focal:
 		return numbers(st, args, 1, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
+	case .Hardness:
+		return numbers(st, args, 1, 0, sculpt.HARDNESS_MAX * 100)
 	case .Project:
 		if len(args) != 1 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -575,6 +579,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Focal:
 		for &f in app.brush.falloffs do f.focal = st.numbers[0]
+		return "", true
+	case .Hardness:
+		for &f in app.brush.falloffs do f.hardness = st.numbers[0] / 100
 		return "", true
 	case .Alpha:
 		if !alpha_select(app, st.text) do return fmt.tprintf("no alpha is named %q and no image could be read there", st.text), true
@@ -678,7 +685,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

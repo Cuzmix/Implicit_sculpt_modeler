@@ -112,6 +112,13 @@ Brush :: struct {
 	// Replaces the round falloff with this one (falloff_set_curve); nil keeps the
 	// built-in smooth one. Every brush uses it, Grab included; an alpha replaces it.
 	falloff_shape: ^Falloff,
+	// Falloff shape Projected, as Blender's: the view direction in the mesh's space, along
+	// which the falloff is measured as a circle seen down the view rather than a ball, out
+	// to a radius either side of the centre in depth (a cylinder), so the brush's footprint
+	// is the ring on screen however the surface curves away. Zero is Sphere. Grab, Elastic,
+	// Cloth and Snake hook, which drag what they pick up, and any brush with an alpha (laid
+	// on the area already), keep the ball.
+	projected: Vec3,
 	// Snake_Hook: how far this dab drags what is under it, in the mesh's space.
 	drag:     Vec3,
 	// Snake_Hook, as Blender's: Pinch draws what the hook drags in toward the line it is
@@ -743,6 +750,10 @@ falloff :: #force_inline proc(x2: f32) -> f32 {
 
 FALLOFF_STEPS :: 256
 
+// The most Hardness takes: past it the ring the falloff is squeezed into is thinner than
+// the table's cells near the rim, and the edge would step.
+HARDNESS_MAX :: 0.95
+
 // The most a straight row of dabs `spacing` radii apart piles up anywhere along its middle
 // line, with the falloff `shape` (nil: the built-in one), as Blender's
 // paint_stroke_integrate_overlap measures it: the sum of the dabs' weights at a point,
@@ -786,6 +797,16 @@ falloff_set_curve :: proc(f: ^Falloff, curve: geom.Curve) {
 FOCAL_MIN :: -100
 FOCAL_MAX :: 100
 
+// Whether a dab of `brush` measures its falloff Projected (Brush.projected): not the kinds
+// that drag what they pick up, nor with an alpha.
+projects :: #force_inline proc(brush: Brush) -> bool {
+	if brush.projected == {} || brush.alpha != nil do return false
+	#partial switch brush.kind {
+	case .Grab, .Elastic, .Cloth, .Snake_Hook: return false
+	}
+	return true
+}
+
 // Fills the table with the falloff `curve` (nil: the built-in falloff) reshaped by `focal`
 // (FOCAL_MIN to FOCAL_MAX): the weight at distance d radii is the base's at d^p, with
 // p = 2^(-focal/50), so focal 0 is the base itself, 100 reads it at d^(1/4), a point, and
@@ -793,12 +814,19 @@ FOCAL_MAX :: 100
 // rim, and falls as d grows. A strong positive shift is steeper at the very tip than the
 // table can follow: inside its first cell (a sixteenth of the radius) the point is rounded
 // off, which a dab never shows, where more entries would only round it a little less.
-falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32) {
+// Hardness (0 to 1, Blender's) comes first: the inner `hardness` share of the radius
+// works at full strength and the shape is squeezed into the ring outside it.
+falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32, hardness: f32 = 0) {
 	p := math.pow(2, -clamp(focal, FOCAL_MIN, FOCAL_MAX) / 50)
+	hard := clamp(hardness, 0, HARDNESS_MAX)
 	for &w, i in f.table {
 		// Squared distances stay as they are where nothing reshapes them, so the built-in
 		// table matches falloff itself exactly.
 		x2 := f32(i) / FALLOFF_STEPS
+		if hard > 0 {
+			x := max(math.sqrt(x2) - hard, 0) / (1 - hard)
+			x2 = x * x
+		}
 		if focal != 0 do x2 = math.pow(x2, p)
 		if c, drawn := curve.?; drawn {
 			w = geom.curve_at(c, 1 - math.sqrt(x2))
@@ -843,8 +871,15 @@ alpha_frame :: proc(d: ^Dab) {
 @(private)
 dab_weight :: #force_inline proc(d: ^Dab, delta: Vec3, d2: f32) -> f32 {
 	if d.alpha == nil {
-		if d.brush.falloff_shape != nil do return falloff_drawn(d.brush.falloff_shape, d2 * d.inv_r2)
-		return falloff(d2 * d.inv_r2)
+		x2 := d2 * d.inv_r2
+		if d.view != {} {
+			// Projected: the distance across the view line, within a radius of depth.
+			h := linalg.dot(delta, d.view)
+			if h * h >= 1 do return 0
+			x2 -= h * h
+		}
+		if d.brush.falloff_shape != nil do return falloff_drawn(d.brush.falloff_shape, x2)
+		return falloff(x2)
 	}
 	h := linalg.dot(delta, d.an)
 	return alpha_sample(d.alpha, linalg.dot(delta, d.au), linalg.dot(delta, d.av)) * falloff(h * h)
@@ -864,6 +899,7 @@ Dab :: struct {
 	alpha:    ^Alpha,
 	au, av, an: Vec3,
 	connected: bool, // Connected's flood ran for this dab (connected_weight)
+	view:     Vec3, // Projected: the view direction over the radius, zero for Sphere (dab_weight)
 	rate:     f32, // Smooth: this pass's share of the step toward the neighbours (smooth_passes)
 	inv_sample2: f32, // 1 / (the sample radius)²: the area is sampled inside it (job_area)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
@@ -956,6 +992,7 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	b.rake_axis = m * b.rake_axis
 	if img.flipped do b.rake_axis = -b.rake_axis
 	b.facing = m * b.facing
+	b.projected = m * b.projected
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }
@@ -1001,12 +1038,20 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	// Elastic tip reaches as the Elastic brush does.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
 	if brush.kind == .Snake_Hook && brush.hook_elastic do reach = ELASTIC_REACH * brush.radius
+	// Projected reaches a cylinder a radius round the view line and a radius deep each
+	// way, whose rim corners lie √2 radii out.
+	view: Vec3
+	if projects(brush) {
+		view = linalg.normalize(brush.projected) / brush.radius
+		reach = math.SQRT_TWO * brush.radius
+	}
 	d := Dab {
 		s      = s,
 		brush  = brush,
 		center = center,
 		r2     = reach * reach,
 		inv_r2 = 1 / (brush.radius * brush.radius),
+		view   = view,
 	}
 	clear(&s.hit)
 	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)

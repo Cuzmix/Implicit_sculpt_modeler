@@ -692,6 +692,17 @@ settings_load :: proc(app: ^App, path: string) {
 				b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
 				size_curve_seen = true
 			}
+		case "hardness":
+			// hardness <brush> <0 to sculpt.HARDNESS_MAX>, for the brushes with one.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].hardness = clamp(number(f[2], 0), 0, sculpt.HARDNESS_MAX)
+			}
+		case "falloff_shape":
+			// falloff_shape <brush> sphere|projected, for every brush; a file from before
+			// keeps each brush's default.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok && (f[2] == "sphere" || f[2] == "projected") do b.falloffs[kind].projected = f[2] == "projected"
+			}
 		case "accumulate":
 			// accumulate <brush> <0|1>, for every brush.
 			if len(f) == 3 {
@@ -1005,6 +1016,8 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
 		if f.focal != 0 do fmt.sbprintfln(&out, "focal %v %g", kind, f.focal)
+		if f.hardness != 0 do fmt.sbprintfln(&out, "hardness %v %g", kind, f.hardness)
+		fmt.sbprintfln(&out, "falloff_shape %v %s", kind, "projected" if f.projected else "sphere")
 		fmt.sbprintfln(&out, "accumulate %v %d", kind, bit(!b.no_accumulate[kind]))
 	}
 	c := b.pressure_curve

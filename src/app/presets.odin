@@ -193,7 +193,8 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	round := proc(app: ^App, i: int) -> int {return i if i >= 0 && i < len(app.alphas) else -1}
 	if a.kind != b.kind || a.strength != b.strength || a.falloff.drawn != b.falloff.drawn do return false
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
-	if a.falloff.focal != b.falloff.focal do return false
+	if a.falloff.focal != b.falloff.focal || a.falloff.hardness != b.falloff.hardness do return false
+	if a.kind != .Elastic && a.falloff.projected != b.falloff.projected do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
 	if steady_count(a.smoothing) != steady_count(b.smoothing) || steady_count(a.pressure_smoothing) != steady_count(b.pressure_smoothing) do return false
 	if flags & {.Grab, .Cloth} == {} && a.lock_plane != b.lock_plane do return false
@@ -335,8 +336,9 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // Pinch, Rake and Elastic tip have none of them. After those come named values, each
 // `key=value`, so a value added later needs no new length and a build that does not know a
 // key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish,
-// stabilize=, sample_radius= and accumulate=0|1 (the Samples section). A line without
-// accumulate= accumulates.
+// stabilize=, sample_radius= and accumulate=0|1 (the Samples section), hardness= and
+// shape=sphere|projected (the Falloff section's). A line without accumulate= accumulates,
+// and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
 	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
 	kind, kind_ok := brush_by_name(f[2])
@@ -353,7 +355,7 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 	for x in ([4]f32{curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y}) do if x < 0 || x > 1 do curve = FALLOFF_SMOOTH_CURVE
 	v = {
 		kind = kind, strength = clamp(number(f[3], BRUSHES[kind].strength), MIN_STRENGTH, 1),
-		falloff = {drawn = f[4] == "1", curve = curve},
+		falloff = {drawn = f[4] == "1", curve = curve, projected = projected_default(kind)},
 		alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
 		lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
 		spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
@@ -390,6 +392,8 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		case "stabilize": v.stabilize = clamp(number(value, 0), 0, sculpt.STABILIZE_MAX)
 		case "sample_radius": v.sample_radius = clamp(number(value, 1), sculpt.SAMPLE_RADIUS_MIN, 1)
 		case "accumulate": v.no_accumulate = value == "0"
+		case "hardness": v.falloff.hardness = clamp(number(value, 0), 0, sculpt.HARDNESS_MAX)
+		case "shape": if value == "sphere" || value == "projected" do v.falloff.projected = value == "projected"
 		case "smooth_mode":
 			// A mode this build does not know smooths plainly.
 			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
@@ -412,7 +416,8 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	smooth_mode := v.kind == .Smooth && v.smooth_mode != .Smooth
 	sampled := v.stabilize > 0 || v.sample_radius > 0 && v.sample_radius < 1
 	one_pass := accumulate_applies(v.kind) && v.no_accumulate
-	named := stable || smooth_mode || sampled || one_pass
+	shape := v.falloff.projected != projected_default(v.kind)
+	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -431,6 +436,8 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if v.stabilize > 0 do fmt.sbprintf(out, " stabilize=%g", v.stabilize)
 	if v.sample_radius > 0 && v.sample_radius < 1 do fmt.sbprintf(out, " sample_radius=%g", v.sample_radius)
 	if one_pass do fmt.sbprintf(out, " accumulate=0")
+	if v.falloff.hardness > 0 do fmt.sbprintf(out, " hardness=%g", v.falloff.hardness)
+	if shape do fmt.sbprintf(out, " shape=%s", "projected" if v.falloff.projected else "sphere")
 	strings.write_byte(out, '\n')
 }
 
@@ -439,19 +446,20 @@ preset_name_set :: proc(p: ^Brush_Preset, name: string) {
 	copy(p.name[:PRESET_NAME_MAX - 1], preset_name_fit(name))
 }
 
-// Whether the plain brush's strength, falloff or focal shift differ from a fresh install's.
+// Whether the plain brush's strength or falloff (its curve, focal shift, hardness and
+// shape) differ from a fresh install's.
 brush_reset_needed :: proc(app: ^App) -> bool {
 	b := &app.brush
 	f := b.falloffs[b.kind]
-	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0)
+	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0 || f.hardness != 0 || f.projected != projected_default(b.kind))
 }
 
-// Puts the plain brush's strength, falloff and focal shift back to a fresh install's.
+// Puts the plain brush's strength and falloff back to a fresh install's.
 brush_reset :: proc(app: ^App) {
 	b := &app.brush
 	if b.preset != 0 do return
 	b.strengths[b.kind] = BRUSHES[b.kind].strength
-	b.falloffs[b.kind] = {}
+	b.falloffs[b.kind] = {projected = projected_default(b.kind)}
 }
 
 // A name as one word of settings.txt: % and white space escaped as %25, %20, %09.
