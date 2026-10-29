@@ -48,6 +48,7 @@ Brush_Kind :: enum {
 	Paint,   // polypaint: colour the surface with Brush.color (paint.odin; inverted takes the paint off)
 	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
 	History, // bring the surface back toward how it was before an earlier step (recall.odin)
+	Elastic, // drag as an elastic solid pulled at the press would move: Grab's arrays, Kelvinlet weights (elastic.odin)
 }
 
 Axis :: enum u8 {
@@ -149,6 +150,9 @@ Brush :: struct {
 	// only what joins the press and its falloff follows the surface round a fold. Unless
 	// `through` is set; it wins over `connected`.
 	topological: bool,
+	// Elastic: how much of its volume the solid keeps as it stretches, 0 to 1, Poisson's
+	// ratio over its physical limit of a half (elastic.odin).
+	volume: f32,
 	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.
@@ -824,7 +828,7 @@ Dab :: struct {
 // mask). Positions and BVH bounds are current when it returns; vertex normals catch up
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
-	if brush.kind == .Grab || brush.kind == .Cloth do return 0
+	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth do return 0
 	moved := 0
 	images := symmetry_images(brush)
 	b := brush
@@ -1028,7 +1032,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	case .History:
 		if len(s.recall) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), &d, job_history)
-	case .Grab, .Mask, .Paint, .Cloth:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
 		// Jacobi step: every target is computed from unmoved positions first.

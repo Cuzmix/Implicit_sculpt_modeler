@@ -1284,6 +1284,17 @@ def move_topological_preset_grabs_along_the_surface():
 
 
 @scenario
+def elastic_pulls_like_rubber():
+    """Elastic dragged up and out from the sphere's front is one undo step, the press
+    following the pointer and the surround sliding after it well past the ring (look with
+    --screens: a broad smooth shift of the surface, no edge where the ring was)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (880, 380), 8))
+    s.wait(2)
+    return s, ["--script=brush elastic"], camera_still({"dabs": lambda v: int(v) > 3, "undo_steps": near(1), "brush_kind": is_text("elastic")})
+
+
+@scenario
 def predicted_ring_leads_a_fast_pen():
     """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
     past the frames the script waits for, into the ten the run adds): the brush ring is
@@ -5152,15 +5163,15 @@ def browser_picks_a_preset():
 
 @scenario
 def browser_picks_a_built_in_preset():
-    """The brush picker's Move category lists Grab and the library's moves alphabetically:
-    a tap on the third, Move all depth, puts the brush on it (Grab reaching through the
-    depth) and closes the browser."""
+    """The brush picker's Move category lists Elastic, Grab and the library's moves
+    alphabetically: a tap on the fourth, Move all depth, puts the brush on it (Grab
+    reaching through the depth) and closes the browser."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
     s.ftap(*BROWSER_CATEGORY["move"])
     s.wait(6)
-    s.ftap(*browser_tile(2, 0))
+    s.ftap(*browser_tile(3, 0))
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})

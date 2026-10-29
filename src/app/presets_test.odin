@@ -185,6 +185,16 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f), 31)
 	_, w, _, ok = preset_parse(f)
 	testing.expect(t, ok && w.grab_topological)
+	testing.expect_value(t, w.elastic_volume, ELASTIC_VOLUME_DEFAULT)
+	// An Elastic preset keeps its Volume when it is not the default.
+	v.kind, v.grab_topological, v.elastic_volume = .Elastic, false, 0.25
+	strings.builder_reset(&out)
+	preset_line(&out, "Rubber", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 32)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Elastic && !w.grab_topological)
+	testing.expect_value(t, w.elastic_volume, 0.25)
 	f[26] = "Sideways"
 	_, _, _, ok = preset_parse(f)
 	testing.expect(t, !ok)

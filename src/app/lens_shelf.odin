@@ -601,7 +601,7 @@ lens_stroke_preview :: proc(ctx: ^ui.Context, r: ui.Rect, it: Brush_Item, app: ^
 	case .Flatten, .Layer:        shape, width = .Flat, 0.22
 	case .Pinch:                  shape, width = .Vee, 0.09
 	case .Crease:                 shape, width = .Vee, 0.07
-	case .Grab, .Snake_Hook:      shape, width = .Hook, 0.18
+	case .Grab, .Snake_Hook, .Elastic: shape, width = .Hook, 0.18
 	case .Cloth:                  shape, width = .Ripple, 0.14
 	case .Mask:                   body = {58, 63, 71, 255}
 	case .Paint:

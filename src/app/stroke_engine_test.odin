@@ -245,6 +245,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Nor Grab's modes.
 	a.brush.grab_mode, a.brush.grab_normal = .Surface, 0.75
 	a.brush.grab_same_side, a.brush.grab_silhouette, a.brush.grab_topological = true, true, true
+	a.brush.elastic_volume = 0.3
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -275,6 +276,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].grab_mode, Grab_Mode.Surface)
 	testing.expect_value(t, b.replay.take.brushes[0].grab_normal, 0.75)
 	testing.expect(t, b.replay.take.brushes[0].grab_same_side && b.replay.take.brushes[0].grab_silhouette && b.replay.take.brushes[0].grab_topological)
+	testing.expect_value(t, b.replay.take.brushes[0].elastic_volume, 0.3)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -287,7 +289,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 60
+	BRUSH :: 64 + 64
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -307,6 +309,22 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 18 had no Elastic Volume after Topological: the one brush ends 64 + 60 bytes
+	// after the header's 16, and takes the default.
+	eighteen := make([dynamic]u8, context.temp_allocator)
+	append(&eighteen, ..data[:16 + 64 + 60])
+	append(&eighteen, ..data[16 + BRUSH:])
+	eighteen[len(STROKES_MAGIC)] = 18
+	testing.expect(t, os.write_entire_file(path, eighteen[:]) == nil)
+	ev: App
+	defer replay_destroy(&ev.replay)
+	defer results_destroy(&ev)
+	testing.expect(t, strokes_load(&ev, path))
+	if len(ev.replay.take.brushes) == 1 {
+		testing.expect_value(t, ev.replay.take.brushes[0].elastic_volume, ELASTIC_VOLUME_DEFAULT)
+		testing.expect(t, ev.replay.take.brushes[0].grab_topological)
+	}
+
 	// Version 17 had no Topological after Grab's Normal weight: the one brush ends 64 + 59
 	// bytes after the header's 16, and grabs by straight distance.
 	seventeen := make([dynamic]u8, context.temp_allocator)

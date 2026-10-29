@@ -90,6 +90,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Paint      = .Paint,
 	.Cloth      = .Cloth,
 	.History    = .History,
+	.Elastic    = .Move,
 }
 
 // The browser's own state, in Kit_State.
