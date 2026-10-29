@@ -3,6 +3,7 @@ package main
 import "core:math"
 import "core:os"
 import "core:testing"
+import sdl "vendor:sdl3"
 
 import "../sculpt"
 
@@ -193,4 +194,74 @@ pencil_tilt_from_android :: proc(t: ^testing.T) {
 	// Laid flat it stops short of 90 degrees rather than overflowing.
 	flat := pencil_tilt_android(math.PI / 2, 0)
 	testing.expect(t, flat.y < -88 && flat.y > -90)
+}
+
+// Where the platform never says that the pen left (an iPad's SDL), the pen counts as gone
+// PEN_GONE after its last report with its tip up: never while it touches, never twice, and
+// never where the platform says so itself.
+@(test)
+the_pen_leaves_where_the_platform_never_says_so :: proc(t: ^testing.T) {
+	app: App
+	app.kit.fixed_dt = 1.0 / 60
+	app.kit.ctx.time = 100
+	app.pencil.no_leave = true
+	e: sdl.Event
+	e.pmotion = {type = .PEN_MOTION, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, app.pencil.about)
+	testing.expect_value(t, app.pencil.heard_window, sdl.WindowID(7))
+	testing.expect_value(t, app.pencil.heard_pen, sdl.PenID(3))
+	testing.expect(t, !pencil_gone(app.pencil, 100 + PEN_GONE * 0.5))
+	testing.expect(t, pencil_gone(app.pencil, 100 + PEN_GONE))
+	desktop := app.pencil
+	desktop.no_leave = false
+	testing.expect(t, !pencil_gone(desktop, 100 + 60))
+
+	app.kit.ctx.time = 101
+	e.ptouch = {type = .PEN_DOWN, windowID = 7, which = 3, down = true}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + 60))
+	e.ptouch = {type = .PEN_UP, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + PEN_GONE * 0.5))
+	testing.expect(t, pencil_gone(app.pencil, 101 + PEN_GONE))
+
+	// The leave said, the pen is gone until it reports again.
+	e.pproximity = {type = .PEN_PROXIMITY_OUT, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + 60))
+	app.kit.ctx.time = 200
+	e.paxis = {type = .PEN_AXIS, windowID = 7, which = 3, axis = .DISTANCE, value = 0.5}
+	pencil_heard(&app, &e)
+	testing.expect(t, app.pencil.about)
+	testing.expect(t, pencil_gone(app.pencil, 200 + PEN_GONE))
+}
+
+// The pen turned to the right turns the frame's roll clockwise, the way that raises a slider
+// and grows the brush, and to the left the other way, across zero and across the half turn
+// where the numbers wrap alike. An iPad's SDL reports the turn to the right as a falling
+// angle (pencil_roll_uikit). A report further than ROLL_JUMP from the last starts afresh.
+@(test)
+the_pens_roll_turns_both_ways_and_wraps :: proc(t: ^testing.T) {
+	app: App
+	turned :: proc(app: ^App, reports: []f32, uikit := false) -> f32 {
+		app.pen_roll = 0
+		for r in reports do pen_roll_take(app, pencil_roll_uikit(r) if uikit else r)
+		return app.pen_roll
+	}
+	near :: proc(t: ^testing.T, got, want: f32, loc := #caller_location) {
+		testing.expectf(t, math.abs(got - want) < 1e-4, "turned %v, want %v", got, want, loc = loc)
+	}
+	near(t, turned(&app, {-10, 0, 10}), 20)
+	near(t, turned(&app, {0, -10}), -20)
+	// Past the half turn, from the 170 the pen came back at.
+	near(t, turned(&app, {170, -170, -150}), 40)
+	near(t, turned(&app, {-170, 170, 150}), -60)
+	// Further than a hand turns between two reports: no turn, the new start kept.
+	near(t, turned(&app, {60, 80}), 20)
+	app.pen_roll_last = nil
+	near(t, turned(&app, {20, 10, 0, -10}, uikit = true), 30)
+	app.pen_roll_last = nil
+	near(t, turned(&app, {-160, -170, 170, 160}, uikit = true), 40)
+	near(t, turned(&app, {170, -170}, uikit = true), -30)
 }

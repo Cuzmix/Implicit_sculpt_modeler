@@ -65,6 +65,16 @@ platform_hints :: proc() {
 		// work without asking (the store rules); the home gesture still leaves.
 		_ = sdl.SetHint(sdl.HINT_ANDROID_TRAP_BACK_BUTTON, "1")
 	}
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		// SDL holds back every edge swipe of a fullscreen window unless told otherwise, so
+		// that the first swipe up from the bottom only shows the home indicator and a second
+		// goes home, and likewise at the top for the Notification and Control Centers.
+		// Nothing in the app needs the screen's very edge (the safe zone's orbit is a band
+		// along the viewport, wider than the system's strip), so no edge is held back: the
+		// indicator stays, and one swipe goes home, to the app switcher or to the Centers,
+		// as in any iPad app.
+		_ = sdl.SetHint(sdl.HINT_IOS_HIDE_HOME_INDICATOR, "0")
+	}
 }
 
 // The main window's flags: a tablet app fills the screen, with the system bars hidden

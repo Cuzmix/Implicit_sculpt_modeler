@@ -394,14 +394,46 @@ slider_value :: proc(fraction, lo, hi: f32, scale: Scale) -> f32 {
 // as the brush bar's values take, so a small twist is a fine step.
 ROLL_SWEEP :: f32(180)
 
-// The pen hovering on the slider `id` just interacted with, and turned about its own
-// length, moves it from fraction `f`, as ZBrush for iPad lets the Pencil's roll set its
-// brush values: where it moves to, and whether it moved. Nothing while a button is held.
-@(private = "file")
-pen_roll :: proc(ctx: ^Context, hovered: bool, f: f32) -> (f32, bool) {
+// The degrees the pen turns about its own length on a control before its roll sets it:
+// a hand turns the pen a few degrees as it carries it over a slider on the way elsewhere,
+// which is no wish to move the slider, while a turn on purpose goes past this at once.
+ROLL_ENGAGE :: f32(10)
+
+// The pen's roll on the control it hovers: which, how far it turned there before passing
+// ROLL_ENGAGE, whether it passed, and whether the control asked this frame (one that did
+// not, because the pen moved off it, touched down or went, starts over next time).
+Hover_Roll :: struct {
+	on:      Id,
+	turned:  f32,
+	engaged: bool,
+	seen:    bool,
+}
+
+// The degrees, clockwise seen from the pen's top, that the pen's roll moves the control
+// `id` by this frame: the pen hovering on it (`hovered`), touching nothing, once it turned
+// ROLL_ENGAGE there, as ZBrush for iPad lets the Pencil's roll set its brush values. The
+// turn past ROLL_ENGAGE counts from the frame it passes; after that every turn does, back
+// as well as on, until the pen leaves the control.
+hover_roll :: proc(ctx: ^Context, id: Id, hovered: bool) -> f32 {
 	in_ := ctx.input
-	if !hovered || in_.pointer != .Pen || in_.down != {} || in_.roll == 0 do return f, false
-	nf := clamp(f + in_.roll / ROLL_SWEEP, 0, 1)
+	if !hovered || in_.pointer != .Pen || in_.down != {} do return 0
+	r := &ctx.roll
+	if r.on != id do r^ = {on = id}
+	r.seen = true
+	if r.engaged do return in_.roll
+	r.turned += in_.roll
+	if abs(r.turned) < ROLL_ENGAGE do return 0
+	r.engaged = true
+	return r.turned - math.sign(r.turned) * ROLL_ENGAGE
+}
+
+// The pen's roll on the slider `id` (hover_roll) moves it from fraction `f`: where it
+// moves to, and whether it moved.
+@(private = "file")
+pen_roll :: proc(ctx: ^Context, id: Id, hovered: bool, f: f32) -> (f32, bool) {
+	roll := hover_roll(ctx, id, hovered)
+	if roll == 0 do return f, false
+	nf := clamp(f + roll / ROLL_SWEEP, 0, 1)
 	return nf, nf != f
 }
 
@@ -431,7 +463,7 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 				long_cancel(ctx)
 			}
 		}
-		if nf, rolled := pen_roll(ctx, hovered && !held, slider_fraction(value^, lo, hi, scale)); rolled {
+		if nf, rolled := pen_roll(ctx, id, hovered && !held, slider_fraction(value^, lo, hi, scale)); rolled {
 			if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		}
 	}
@@ -488,7 +520,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 			}
 			f = nf
 		}
-	} else if nf, rolled := pen_roll(ctx, hovered && roll, f); rolled {
+	} else if nf, rolled := pen_roll(ctx, id, hovered && roll, f); rolled {
 		if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		f = slider_fraction(value^, lo, hi, scale)
 	}
@@ -1217,9 +1249,9 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 			changed = true
 			long_cancel(ctx)
 		}
-	} else if in_ := ctx.input; hovered && in_.pointer == .Pen && in_.down == {} && in_.roll != 0 {
+	} else if roll := hover_roll(ctx, id, hovered); roll != 0 {
 		// The pen's roll drags it too, a degree for a point.
-		if v := clamp(value^ + in_.roll * per_point, lo, hi); v != value^ do value^, changed = v, true
+		if v := clamp(value^ + roll * per_point, lo, hi); v != value^ do value^, changed = v, true
 	}
 	fade: f32 = 1 if enabled else 0.4
 	fill_rect(ctx, vis, t.radius_medium, color_fade(t.fill, fade))
@@ -1246,6 +1278,7 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold 
 	id := id_of(ctx, name)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	if clicked || hold do ctx.text_focus = id
+	if clicked do ctx.text_tapped = true
 	focused := ctx.text_focus == id
 	n := 0
 	for n < len(buf) && buf[n] != 0 do n += 1
@@ -1295,6 +1328,13 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold 
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text)
 	if focused && int(ctx.time * 2) % 2 == 0 do fill_rect(ctx, {x + shown_w + 1, vis.y + 9, 1.5, vis.h - 18}, 0, t.accent)
 	ctx.clip = previous
+	if focused do ctx.text_rect, ctx.text_caret = vis, x + shown_w + 1 - vis.x
+	d := ctx.input.pixel_density
+	shows := rect_intersect(vis, {previous.x / d, previous.y / d, previous.w / d, previous.h / d})
+	if shows.w > 0 && shows.h > 0 && ctx.text_field_count < MAX_TEXT_FIELDS {
+		ctx.text_fields[ctx.text_field_count] = {id, shows}
+		ctx.text_field_count += 1
+	}
 	return
 }
 
@@ -1393,7 +1433,7 @@ gradient_slider :: proc(ctx: ^Context, s: string, value: ^f32, colors: []Color, 
 			changed = true
 			long_cancel(ctx)
 		}
-	} else if v, rolled := pen_roll(ctx, hovered, value^); rolled {
+	} else if v, rolled := pen_roll(ctx, id, hovered, value^); rolled {
 		value^, changed = v, true
 	}
 	// The track as quads between the stops, its ends rounded by caps of the end colours.

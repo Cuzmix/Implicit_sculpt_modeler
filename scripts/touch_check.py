@@ -6230,13 +6230,118 @@ def pen_hover_names_off():
 
 @scenario
 def pen_roll_sets_the_size():
-    """The pen hovering on the island's Size and turned a quarter turn clockwise, across the half turn where its numbers wrap, doubles the size."""
+    """The pen hovering on the island's Size and turned a quarter turn clockwise past the first ROLL_ENGAGE degrees, across the half turn where its numbers wrap, doubles the size."""
     s = Script()
     pen_hover(s, *UI["size"], frames=4)
-    for deg in (150, 170, -170, -150, -120):
+    for deg in (140, 150, 170, -170, -150, -120):
         s.add(f"proll:{deg}")
         s.wait(2)
     return s, [], camera_still({"brush_radius_px": near(2 * 60, 0.5), "dabs": near(0)})
+
+
+@scenario
+def pen_hover_wobble_moves_no_size():
+    """The pen hovering on the island's Size while the hand turns it a few degrees each way, as carrying it over does, leaves the size."""
+    s = Script()
+    pen_hover(s, *UI["size"], frames=4)
+    for deg in (0, 4, -2, 5, 1, -3, 6, 0):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, [], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+def pen_away(s, frames):
+    """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
+    s.wait(frames)
+
+
+@scenario
+def pen_back_turned_moves_no_size():
+    """Where the platform never says the pen left (--pen-no-leave, as on an iPad), the pen taken away and brought back turned to the island's Size leaves it: its roll starts afresh."""
+    s = Script()
+    pen_hover(s, *UI["size"], frames=4)
+    s.add("proll:0")
+    s.wait(4)
+    pen_away(s, 60)
+    s.add(f"pmove:{UI['size'][0]:g},{UI['size'][1] + 4:g}")
+    s.add("proll:40")
+    s.wait(10)
+    return s, ["--pen-no-leave"], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+def pen_stroke_no_leave(s, path):
+    """The pen down along `path` and up, never saying it left."""
+    s.add("pnear")
+    s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+
+
+@scenario
+def finger_works_after_the_pen_leaves_unsaid():
+    """Where the platform never says the pen left (--pen-no-leave, as on an iPad), a finger a second after a pen stroke turns the view: the pen counted as gone once it stopped reporting."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    pen_away(s, 60)
+    s.fdrag(past_slop((250, 400), (650, 400), 20))
+    s.wait(3)
+    return s, ["--pen-no-leave", "--script=set orbit_style turntable"], {"undo_steps": near(1), "camera_pitch": near(0.35),
+                                                                         "camera_yaw": near(wrap(0.6 - 400 * 0.008), 2e-3)}
+
+
+@scenario
+def finger_right_after_the_pen_is_a_palm_still():
+    """Where the platform never says the pen left (--pen-no-leave), a lone finger a moment after a pen stroke is still a palm: the view stays."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    s.wait(6)
+    s.fdrag(past_slop((250, 400), (650, 400), 20))
+    s.wait(3)
+    return s, ["--pen-no-leave"], camera_still({"undo_steps": near(1)})
+
+
+@scenario
+def finger_pen_finger_switching():
+    """Where the platform never says the pen left (--pen-no-leave), finger, pen and finger again in turn, twice: each finger turns the view (about the centre, so the model stays off where the finger lands) and each pen stroke sculpts."""
+    s = Script()
+    for k in range(2):
+        s.fdrag(past_slop((250, 400), (450, 400), 12))
+        s.wait(4)
+        pen_stroke_no_leave(s, line((760, 430 + 20 * k), (860, 470 + 20 * k), 10))
+        pen_away(s, 45)
+    s.fdrag(past_slop((250, 400), (450, 400), 12))
+    s.wait(3)
+    return s, ["--pen-no-leave", "--script=set orbit_style turntable; set orbit_pivot centre"], {"undo_steps": near(2), "camera_pitch": near(0.35),
+                                                                         "camera_yaw": near(wrap(0.6 - 3 * 200 * 0.008), 2e-3)}
+
+
+PALETTE_FIELD = (800, 81)  # the command palette's search field, once Search opened it
+
+
+@scenario
+def keyboard_put_away_and_brought_back():
+    """Search tapped by a finger and typed in, the on-screen keyboard put away by the system (kbhide, as an iPad's SDL reports its hide-keyboard key or the Scribble palette taking the keyboard's place): the palette stays open and its field keeps what was typed; a pen tap on the field brings the keyboard back (text input started anew), the rest typed runs the command."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(10)
+    s.type("wire")
+    s.add("kbhide")
+    s.wait(6)
+    s.add("pnear")
+    s.add(f"pdown:{PALETTE_FIELD[0]:g},{PALETTE_FIELD[1]:g}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(10)
+    s.type("frame")
+    s.press("Return")
+    s.wait(5)
+    s.add("pfar")
+    s.wait(2)
+    return s, [], camera_still({"dabs": near(0), "palette": near(0), "palette_runs": near(1), "palette_last": is_text("Wireframe"),
+                                "keyboard_restarts": near(1), "keyboard_down": near(0)})
 
 
 def camera_back(stats):
