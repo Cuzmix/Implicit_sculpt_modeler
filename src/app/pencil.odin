@@ -56,7 +56,9 @@ Eraser_Use :: enum u8 {
 PEN_BUTTON_SECOND :: 2
 
 Pencil :: struct {
-	event_type: u32, // the SDL user event type the pencil's gestures come as, 0 until registered
+	// The SDL user event type the pencil's gestures come as, 0 until registered; the type
+	// after it brings an Android pen's lean (android_main.c).
+	event_type: u32,
 	// The iPad's preferred double-tap and squeeze actions, as the latest gesture said.
 	preferred:  [2]Pencil_Action,
 	// The gesture slot that runs once the frame's events are in, nil for none: events are
@@ -93,10 +95,13 @@ pencil_init :: proc(app: ^App, window: ^sdl.Window = nil) {
 	p := &app.pencil
 	p.preferred = PENCIL_PREFERRED_DEFAULT
 	p.brush_now, p.brush_before = app.brush.kind, app.brush.kind
-	t := sdl.RegisterEvents(1)
+	t := sdl.RegisterEvents(2)
 	if t != 0 do p.event_type = t
 	when ODIN_PLATFORM_SUBTARGET_IOS {
 		if window != nil do sculpt_ios_pencil_start(window, p.event_type)
+	}
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		if t != 0 do sculpt_android_pen_lean_start(t + 1)
 	}
 	pencil_only_read(app)
 }
@@ -134,6 +139,15 @@ pencil_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 	p := &app.pencil
 	if p.event_type != 0 && u32(e.type) == p.event_type {
 		pencil_gesture(app, Pencil_Gesture(e.user.code), pencil_action_from(int(uintptr(e.user.data1))))
+		return true
+	}
+	if p.event_type != 0 && u32(e.type) == p.event_type + 1 {
+		tilt := transmute(f32)u32(uintptr(e.user.data1))
+		orientation := transmute(f32)u32(uintptr(e.user.data2))
+		if !math.is_nan(tilt) && !math.is_nan(orientation) {
+			app.pen_tilt = pencil_tilt_android(tilt, orientation)
+			app.pen_seen = true
+		}
 		return true
 	}
 	second := app.nav.gestures[.Pen_Button_2].id != .None
@@ -237,6 +251,15 @@ pencil_tilt_uikit :: proc(sdl_tilt: [2]f32) -> [2]f32 {
 	across := math.cos(altitude)
 	up := max(math.sin(altitude), 1e-6)
 	return {math.to_degrees(math.atan(across * math.cos(azimuth) / up)), math.to_degrees(math.atan(across * math.sin(azimuth) / up))}
+}
+
+// The lean an Android pen reports, from its AXIS_TILT (radians off upright) and
+// AXIS_ORIENTATION (radians clockwise from the screen's up to the way its top points), as
+// every other platform reports it: degrees toward the right (x) and toward the bottom of
+// the screen (y) of the pen's top.
+pencil_tilt_android :: proc(tilt, orientation: f32) -> [2]f32 {
+	across := math.tan(clamp(tilt, 0, math.to_radians(f32(89))))
+	return {math.to_degrees(math.atan(across * math.sin(orientation))), math.to_degrees(math.atan(-across * math.cos(orientation)))}
 }
 
 // Takes one of the pen's lean axes as SDL reports it on this platform.
