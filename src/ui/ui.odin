@@ -776,6 +776,12 @@ rect_union :: proc(a, b: Rect) -> Rect {
 	return {x0, y0, x1 - x0, y1 - y0}
 }
 
+// The part of `r` the current clip shows (a scrolled panel's visible part), in points.
+clipped :: proc(ctx: ^Context, r: Rect) -> Rect {
+	d := px(ctx)
+	return rect_intersect(r, {ctx.clip.x / d, ctx.clip.y / d, ctx.clip.w / d, ctx.clip.h / d})
+}
+
 rect_intersect :: proc(a, b: Rect) -> Rect {
 	x0, y0 := max(a.x, b.x), max(a.y, b.y)
 	x1, y1 := min(a.x + a.w, b.x + b.w), min(a.y + a.h, b.y + b.h)
@@ -1225,17 +1231,23 @@ long_press_decide :: proc(ctx: ^Context) -> (ring: bool) {
 @(private)
 long_press_draw :: proc(ctx: ^Context) {
 	t := ctx.theme
-	RADIUS :: 34
-	SEGMENTS :: 48
 	f := clamp(f32(ctx.time - ctx.press_at - f64(t.long_ring)) / (t.long_press - t.long_ring), 0, 1)
-	center := ctx.press_mouse
+	hold_ring(ctx, ctx.press_mouse, 34, f)
+}
+
+// A ring round `center`, filled clockwise from the top to the fraction `f`: what the long
+// press draws as it counts, and what a hold on a drop target can draw as it fills.
+hold_ring :: proc(ctx: ^Context, center: [2]f32, radius, fraction: f32) {
+	t := ctx.theme
+	SEGMENTS :: 48
+	f := clamp(fraction, 0, 1)
 	draw_set_state(&ctx.draw, .Atlas, 0, full_clip(ctx))
-	stroke_circle(ctx, center, RADIUS, color_fade(t.border_strong, 0.8), 3)
+	stroke_circle(ctx, center, radius, color_fade(t.border_strong, 0.8), 3)
 	n := max(int(f * SEGMENTS), 1)
 	points := make([][2]f32, n + 1, context.temp_allocator)
 	for &p, i in points {
 		a := -math.PI / 2 + 2 * math.PI * f * f32(i) / f32(n)
-		p = center + RADIUS * [2]f32{math.cos(a), math.sin(a)}
+		p = center + radius * [2]f32{math.cos(a), math.sin(a)}
 	}
 	polyline(ctx, points, t.accent, 3)
 }

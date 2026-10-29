@@ -1451,8 +1451,6 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
 	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
-	// Clay starts on Blender's Clay response, its size following the pen (brush_pressure).
-	b.pressures[.Clay] = {own = true, pressure = PRESSURE_RESPONSES[1].pressure}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
@@ -1588,6 +1586,16 @@ PRESSURE_RESPONSES := [?]struct {
 	// Light touch, Nomad's light-pressure default: a light touch goes far, for size and
 	// strength alike (the Soft curve).
 	{"Light", {strength = true, size = true, strength_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_floor = 0.1}},
+}
+
+// Whether `p` is the Clay response Clay started on before settings version 7, as a
+// settings file wrote it back (to six places, so within a hair of the curves).
+pressure_is_old_clay :: proc(p: Pressure_Own) -> bool {
+	near :: proc(a, b: geom.Curve) -> bool {
+		return abs(a.c1.x - b.c1.x) + abs(a.c1.y - b.c1.y) + abs(a.c2.x - b.c2.x) + abs(a.c2.y - b.c2.y) < 1e-4
+	}
+	c := PRESSURE_RESPONSES[1].pressure
+	return p.own && p.strength == c.strength && p.size == c.size && abs(p.size_floor - c.size_floor) < 1e-4 && near(p.strength_curve, c.strength_curve) && near(p.size_curve, c.size_curve)
 }
 
 // A brush's own pressure, and whether it uses it rather than the global one.

@@ -80,7 +80,7 @@ Options :: struct {
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc or .usdz file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz or .fbx file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
@@ -1785,9 +1785,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			mini := panel_rect(&app, Kit_Window.Thumbnail)
 			fmt.printfln("view_rail=%s mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(&app, .View_Rail), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			sh := &k.shelf
-			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_tools=%d shelf_shown=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.tools, sh.shown)
+			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_tools=%d shelf_shown=%d brush_grid_scroll=%.0f shelf_active=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.tools, sh.shown, k.grid_scroll, int(sh.active))
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(&app, .Brush_Pie), k.pie_quicks)
-			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves)
+			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), k.stack.drops, stack_carry_text(k), k.stack.target.kind)
 			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes)
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"

@@ -19,6 +19,7 @@ import "../png_write"
 import "../render"
 import "../sculpt"
 import "../poly"
+import "../fbx"
 import "../usd"
 import "../voxel"
 
@@ -88,7 +89,7 @@ pending: struct {
 when ODIN_PLATFORM_SUBTARGET == .Android {
 	MESH_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
-	MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD)", "obj;ply;stl;glb;gltf;usd;usda;usdc;usdz"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}, {"glTF", "glb;gltf"}, {"USD", "usd;usda;usdc;usdz"}}
+	MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD, FBX)", "obj;ply;stl;glb;gltf;usd;usda;usdc;usdz;fbx"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}, {"glTF", "glb;gltf"}, {"USD", "usd;usda;usdc;usdz"}, {"FBX", "fbx"}}
 }
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
@@ -598,13 +599,14 @@ Mesh_Kind :: enum u8 {
 	STL,
 	GLTF, // .glb, or .gltf with its buffers inside or beside it
 	USD,  // .usda, .usdc, .usd (either) or a .usdz package
+	FBX,  // binary or text
 }
 
 // Which reader a mesh file takes: by its extension, or for a content:// URI from
 // Android's picker, which has none, by its bytes (a PLY file starts with "ply", an STL
 // file with "solid" or with a triangle count its length matches, a binary glTF with
-// "glTF" and a text one is JSON naming its "asset", USD by usd.recognised, and anything
-// else is tried as OBJ text).
+// "glTF" and a text one is JSON naming its "asset", USD by usd.recognised, FBX by
+// fbx.recognised, and anything else is tried as OBJ text).
 mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
 	case ".obj": return .OBJ
@@ -612,6 +614,7 @@ mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 	case ".stl": return .STL
 	case ".glb", ".gltf": return .GLTF
 	case ".usd", ".usda", ".usdc", ".usdz": return .USD
+	case ".fbx": return .FBX
 	}
 	if !strings.has_prefix(path, "content://") do return .None
 	text := string(data)
@@ -619,6 +622,7 @@ mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 	case strings.has_prefix(text, "ply"): return .PLY
 	case strings.has_prefix(text, geom.GLB_MAGIC): return .GLTF
 	case usd.recognised(data): return .USD
+	case fbx.recognised(data): return .FBX
 	case strings.has_prefix(strings.trim_left_space(text[:min(len(text), 64)]), "{") && strings.contains(text[:min(len(text), 4096)], `"asset"`): return .GLTF
 	case strings.has_prefix(text, "solid"): return .STL
 	case len(data) >= geom.STL_HEADER && geom.STL_HEADER + geom.STL_ROW * int((^u32le)(&data[80])^) == len(data): return .STL
@@ -632,6 +636,7 @@ Mesh_File_Info :: struct {
 	skipped: geom.Gltf_Skipped,
 	usd:     usd.Skipped,
 	paint:   geom.Mesh_Paint_Report, // materials and textures painted as polypaint
+	reason:  string, // why ufbx refused an FBX file (temp memory), or ""
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
 }
@@ -641,7 +646,7 @@ Mesh_File_Info :: struct {
 // file is, for a .gltf's buffers beside it ("" for none). `line` names the line of a
 // parse error (0 for none). On a failure `parts` is left empty.
 mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, path := "") -> (info: Mesh_File_Info, failed: geom.Mesh_File_Error, line: int) {
-	// The files a .gltf or an .obj names beside it: buffers, MTL files and images. A
+	// The files a .gltf, an .obj or an .fbx names beside it: buffers, MTL files and images. A
 	// picked content:// file comes without them.
 	Beside :: struct {
 		dir:   string,
@@ -681,6 +686,8 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside, &look)
 	case .USD:
 		info.usd, failed, line = usd.read(parts, data)
+	case .FBX:
+		failed, info.reason = fbx.read(parts, data, &look, resolve, &beside)
 	case .OBJ, .None:
 		failed, line = geom.mesh_read_obj_parts(parts, data, pool, look = &look, resolve = resolve, resolve_data = &beside)
 	}
@@ -736,7 +743,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	read := time.tick_now()
 	kind := mesh_file_kind(path, data)
 	if kind == .None {
-		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc and .usdz files import", name)
+		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz and .fbx files import", name)
 		return
 	}
 	info, failed, line := mesh_file_parse(&m.parts, data, kind, &app.pool, path)
@@ -747,6 +754,8 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 			file_note(app, true, "Cannot read %s: its buffers are in files beside it, which the picker does not give; export it as .glb", name)
 		case failed == .Empty && info.skipped.compressed > 0:
 			file_note(app, true, "Cannot read %s: its meshes are compressed (Draco or meshopt), which Import does not decode", name)
+		case info.reason != "":
+			file_note(app, true, "Cannot read %s: %s", name, info.reason)
 		case line > 0:
 			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
 		case:

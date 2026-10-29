@@ -3125,7 +3125,7 @@ def lens_left_handed_mirrors_the_chrome():
 # The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the tools after them, the
 # page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
-              "move_tool": (957, 833), "curve_remesh": (780, 833)}
+              "move_tool": (957, 833), "curve_remesh": (819, 833)}
 # Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
 LENS_MODEL_TAB = (447, 26)
@@ -3585,7 +3585,9 @@ def lens_shelf_tools_follow_the_brushes():
         if curve:
             s.ftap(*LENS_SHELF_PAGES["curve"])
             s.wait(10)
-            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it.
+            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it,
+            # and 39 points right again, as Draw, held from the Sculpt page, has its own
+            # tile left of the shelf there.
             s.ftap(*LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
             s.wait(10)
             return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_tools": near(6), "bar_pop": is_text("remesh_quick"), "dabs": near(0)})
@@ -3597,14 +3599,51 @@ def lens_shelf_tools_follow_the_brushes():
 
 @scenario
 def lens_picker_card_dragged_onto_a_tile_keeps_it():
-    """A card dragged from the picker onto the shelf's last tile takes its place there; the picker stays open and nothing is sculpted."""
+    """A card dragged from the picker sideways, then down onto the shelf's last tile, takes its place there; the picker stays open and nothing is sculpted."""
     s = Script()
     s.ftap(*LENS_SHELF["all"])
     s.wait(10)
-    s.fdrag(line(LENS_SHEET["inflate"], LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
+    aside = (LENS_SHEET["inflate"][0] - 80, LENS_SHEET["inflate"][1])
+    s.fdrag(line(LENS_SHEET["inflate"], aside, 4)[:-1] + line(aside, LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
     s.wait(10)
     shelf = LENS_SHELF_SCULPT.replace("Brush:Layer", "Brush:Inflate")
     return s, LENS_1440, camera_still({"shelf_drops": near(1), "shelf": is_text(shelf), "brush_sheet": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_picker_swipe_scrolls_the_cards():
+    """A finger, then the pen, swiped up over the picker's cards scrolls them, as on an iPad: no card is picked or carried, the picker stays open and nothing is sculpted."""
+    def run(pen):
+        s = Script()
+        s.ftap(*LENS_SHELF["all"])
+        s.wait(10)
+        path = line((900, 560), (900, 300), 13) + [(900, 300)] * 2
+        if pen:
+            pen_stroke(s, path, pressure=0.5)
+        else:
+            s.fdrag(path)
+        s.wait(10)
+        return s, LENS_1440, camera_still({"brush_grid_scroll": lambda v: float(v) > 100, "brush_sheet": near(1), "brush_kind": is_text("draw"),
+                                           "shelf_drops": near(0), "shelf": is_text(LENS_SHELF_SCULPT), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+# The active brush's tile, left of the shelf at 1440 x 900 while the brush held is not on it.
+LENS_SHELF_ACTIVE = (212, 832)
+
+
+@scenario
+def lens_shelf_shows_the_active_brush():
+    """A brush not on the shelf (Snake hook, picked by script as from All or Search) shows on a tile of its own left of the shelf, lit; a tap on it shows its quick settings. A brush on the shelf (Clay) shows none."""
+    def run(on_shelf):
+        s = Script()
+        s.wait(10)
+        if on_shelf:
+            return s, LENS_1440 + ["--script=brush clay"], camera_still({"shelf_active": near(0), "brush_kind": is_text("clay"), "dabs": near(0)})
+        s.ftap(*LENS_SHELF_ACTIVE)
+        s.wait(10)
+        return s, LENS_1440 + ["--script=brush snake_hook"], camera_still({"shelf_active": near(1), "shelf_quick": near(1), "brush_kind": is_text("snake_hook"), "dabs": near(0)})
+    return Steps([run(True), run(False)])
 
 
 # The Lens stack at 1440 x 900 (lens_stack.odin): the Brush card's header and its Stroke
@@ -9352,6 +9391,263 @@ def stack_icons_show_where_opens_the_card():
     return s, LENS_1440, camera_still({"stack_tab": is_text("Palettes"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
 
 
+# Palette groups at 1440x900 (stack_groups.odin), with Brush folded: Symmetry's and
+# Brush's Panel options, the menu's Join the card above, and once Symmetry has joined
+# Brush, the group's Brush tab and the menu's Take out of the group.
+STACK_GROUP = {"symmetry_more": (1348, 154), "brush_more": (1348, 94), "join": (1300, 388), "brush_tab": (1150, 142),
+               "take_out": (1300, 372)}
+
+
+def stack_group_join(s, pen=False, mirror=False):
+    """Folds Brush and joins Symmetry to it, by finger or by pen; left-handed the stack
+    stands 994 points further left, its cards laid out as on the right."""
+    def tap(at):
+        x, y = (at[0] - 994, at[1]) if mirror else at
+        if pen:
+            s.add(f"pdown:{x},{y}")
+            s.wait(2)
+            s.add("pup")
+        else:
+            s.ftap(x, y)
+        s.wait(8)
+    if pen:
+        s.add("pnear")
+    for at in [LENS_STACK["brush"], STACK_GROUP["symmetry_more"]]:
+        tap(at)
+    # Left-handed the menu opens right of its button, where the window has room.
+    tap((430 + 994, 388) if mirror else STACK_GROUP["join"])
+    return tap
+
+
+@scenario
+def stack_join_makes_a_group_of_tabs():
+    """Symmetry's Panel options > Join the card above makes it a tab of Brush, shown, with the axes on the header; a tap on the Brush tab shows Brush."""
+    def run(back):
+        s = Script()
+        tap = stack_group_join(s)
+        if not back:
+            return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_joins": near(1), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+        tap(STACK_GROUP["brush_tab"])
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,"), "stack_shown": is_text("none"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_take_out_of_a_group():
+    """The group's Panel options > Take out of the group puts Symmetry back after Brush as a card of its own, open."""
+    s = Script()
+    tap = stack_group_join(s)
+    tap(STACK_GROUP["brush_more"])
+    tap(STACK_GROUP["take_out"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry+,Layers"), "stack_joins": near(2), "stack_shown": is_text("none"), "dabs": near(0)})
+
+
+@scenario
+def stack_group_as_icons_opens_on_its_tab():
+    """With Symmetry joined to Brush and the palettes as icons, the pen taps the group's icon: the group opens over the view on its Symmetry tab."""
+    s = Script()
+    stack_group_join(s)
+    palette_run(s, "palettes as icons")
+    s.add("pnear")
+    s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
+    s.wait(2)
+    s.add("pup")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+
+
+@scenario
+def stack_join_left_handed_by_pen():
+    """Left-handed, the pen joins Symmetry to Brush from its Panel options on the mirrored stack."""
+    s = Script()
+    stack_group_join(s, pen=True, mirror=True)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,"), "stack_joins": near(1), "dabs": near(0)})
+
+
+# Carrying palettes at 1440x900 (stack_carry.odin), Brush folded: Symmetry's grip and
+# Brush's header middle; once Symmetry has joined Brush, its tab in the row, Layers'
+# header, a point clear of the stack, and Ungroup in the group's Panel options.
+STACK_CARRY = {"symmetry_grip": (1075, 154), "brush_head": (1200, 94), "symmetry_tab": (1300, 142),
+               "layers_head": (1150, 556), "clear": (400, 400), "ungroup": (1300, 416)}
+
+
+def stack_tab_carry(s, to, pen=False, offset=0):
+    """Holds the Symmetry tab past the long press, then carries it to `to` and lets go."""
+    (x, y), (tx, ty) = STACK_CARRY["symmetry_tab"], to
+    x, tx = x + offset, tx + offset
+    if pen:
+        s.add(f"pdown:{x},{y}")
+        s.wait(LONG_PRESS_FRAMES)
+        for px, py in line((x, y), (tx, ty), 10):
+            s.add(f"pmove:{px:g},{py:g}")
+            s.wait(1)
+        s.add("pup")
+        s.wait(8)
+        return
+    s.fdrag([(x, y)] * LONG_PRESS_FRAMES + line((x, y), (tx, ty), 10) + [(tx, ty)] * 3)
+    s.wait(8)
+
+
+@scenario
+def stack_grip_drag_joins_a_header():
+    """Symmetry's grip carried onto the middle of Brush's header joins it as a tab, by finger and by mouse."""
+    def run(mouse):
+        s = Script()
+        s.ftap(*LENS_STACK["brush"])
+        s.wait(6)
+        grip, head = STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"]
+        if mouse:
+            s.mouse_drag(line(grip, head, 8) + [head] * 3)
+        else:
+            s.fdrag(line(grip, head, 8) + [head] * 3)
+        s.wait(8)
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_drops": near(1), "stack_joins": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_tab_carried_onto_a_card_joins_it():
+    """Symmetry's tab, held then carried out of Brush's group onto Layers' header, becomes a tab of Layers."""
+    s = Script()
+    stack_group_join(s)
+    stack_tab_carry(s, STACK_CARRY["layers_head"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "stack_shown": is_text("Layers=Symmetry"), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_carried_clear_floats():
+    """Symmetry's tab carried well clear of the stack floats there as a card of its own; Brush's group is a card again."""
+    s = Script()
+    stack_group_join(s)
+    stack_tab_carry(s, STACK_CARRY["clear"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry+^,Layers"), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_carry_shows_where_it_goes():
+    """While Symmetry's grip is held over Brush's header the target is a join, with the group outlined and a pill saying Join Brush; over the top of Scene's header it is the line."""
+    def run(line_target):
+        s = Script()
+        s.ftap(*LENS_STACK["brush"])
+        s.wait(6)
+        to = (1200, 256) if line_target else STACK_CARRY["brush_head"]
+        s.fdrag(line(STACK_CARRY["symmetry_grip"], to, 8) + [to] * 3, lift=False)
+        s.wait(4)
+        kind = "Line" if line_target else "Join"
+        return s, LENS_1440, camera_still({"stack_carry": is_text("Symmetry"), "stack_target": is_text(kind), "stack_drops": near(0), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_carry_escape_drops_nothing():
+    """Escape while Symmetry's grip carries it onto Brush's header drops nothing: the stack is as it was."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.fdrag(line(STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"], 8), lift=False)
+    s.press("Escape")
+    s.wait(2)
+    s.add("fup:0")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush,Symmetry,Layers"), "stack_drops": near(0), "stack_joins": near(0), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_row_swipe_carries_nothing():
+    """A quick finger swipe from the tab row, never held, carries no tab."""
+    s = Script()
+    stack_group_join(s)
+    tab = STACK_CARRY["symmetry_tab"]
+    s.fdrag(line(tab, (tab[0] - 120, tab[1] + 200), 6))
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_drops": near(0), "stack_joins": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_ungroup_gives_the_tabs_back():
+    """The group's Panel options > Ungroup gives Symmetry back as a card of its own after Brush."""
+    s = Script()
+    tap = stack_group_join(s)
+    tap(STACK_GROUP["brush_more"])
+    tap(STACK_CARRY["ungroup"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry,Layers"), "stack_joins": near(2), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_carried_left_handed_by_pen():
+    """Left-handed, the pen holds Symmetry's tab then carries it onto Layers' header on the mirrored stack."""
+    s = Script()
+    stack_group_join(s, pen=True, mirror=True)
+    stack_tab_carry(s, STACK_CARRY["layers_head"], pen=True, offset=-994)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "dabs": near(0)})
+
+
+# The strip of icons at 1440x900 (the palettes as icons, or panes beside the main view):
+# each docked card's icon, 50 points apart from Brush's.
+STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools", "Palettes"])}
+
+
+def stack_icon_carry(s, frm, to, rest, mouse=False):
+    """Carries the strip's icon `frm` onto `to` (held past the long press first, unless by
+    mouse), rests there `rest` frames and lets go."""
+    a, b = STACK_ICONS[frm], STACK_ICONS[to] if isinstance(to, str) else to
+    if mouse:
+        s.mouse_drag(line(a, b, 8) + [b] * rest)
+    else:
+        s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * rest)
+    s.wait(8)
+
+
+@scenario
+def stack_icon_rested_on_another_joins_it():
+    """With the palettes as icons, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
+    def run(mouse):
+        s = Script()
+        palette_run(s, "palettes as icons")
+        stack_icon_carry(s, "Layers", "Brush", 40, mouse)
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_density": is_text("icons"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_icon_resting_fills_the_ring():
+    """Layers' icon resting on Brush's, still held, shows the ring filling and the hint to hold; nothing has changed yet."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    a, b = STACK_ICONS["Layers"], STACK_ICONS["Brush"]
+    s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * 16, lift=False)
+    s.wait(2)
+    return s, LENS_1440, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_let_go_early_reorders():
+    """Layers' icon let go over Brush's before the ring fills moves Layers to the top of the strip instead; passing over an icon never joins it."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    stack_icon_carry(s, "Layers", "Brush", 3)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_carried_with_panes():
+    """With panes beside the main view (the palettes as panels), the strip reorders the same way: Scene's icon let go over Symmetry's goes there."""
+    s = Script()
+    stack_icon_carry(s, "Scene", "Symmetry", 3)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,Scene,Symmetry,Layers"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_icon_carried_clear_floats():
+    """Shown as icons, as panels, then as icons again (the cards' places left behind), Layers' icon carried well clear of the strip floats its card there."""
+    s = Script()
+    palette_run(s, "palettes as icons")
+    palette_run(s, "palettes as icons")
+    palette_run(s, "palettes as icons")
+    stack_icon_carry(s, "Layers", (400, 400), 3)
+    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_density": is_text("icons"), "stack_drops": near(1), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 
@@ -11265,3 +11561,4 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+

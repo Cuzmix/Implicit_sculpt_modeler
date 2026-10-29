@@ -102,6 +102,9 @@ clay_builds_up_toward_its_plane :: proc(t: ^testing.T) {
 		if p.z > sp.before[i].z + 1e-4 do raised += 1
 	}
 	testing.expect(t, raised > 10, "clay raised nothing")
+	// On a curved surface it builds the top itself up, rather than only levelling it off
+	// as a plane nearer the area's average did (Clay seemed to do nothing on a sphere).
+	testing.expectf(t, max_height(sp.mesh) > 1 + 0.6 * brush.radius, "clay left the top at %v", max_height(sp.mesh))
 }
 
 @(test)
