@@ -1271,6 +1271,18 @@ def grab_pulls_the_outline_from_outside():
 
 
 @scenario
+def grab_under_dynamic_topology_refines_the_pull():
+    """Grab on a sphere with dynamic topology, dragged from the middle out past the right
+    edge: at the release the stretched triangles split down to the detail size, in the same
+    undo step (look with --screens: a long bulge with even, small triangles in the
+    wireframe rather than slivers)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (1120, 450), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush grab; wireframe on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "grab_refine_splits": lambda v: int(v) > 50})
+
+
+@scenario
 def move_topological_preset_grabs_along_the_surface():
     """The library's Move topological preset puts Grab on with its falloff along the
     surface; a drag on the sphere pulls a fold out as one undo step (look with --screens: a

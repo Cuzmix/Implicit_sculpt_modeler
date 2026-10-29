@@ -85,6 +85,23 @@ Dyn :: struct {
 	cand_short:     [dynamic][dynamic]Dyn_Edge,
 	splits:         int, // edits so far, for the stats
 	collapses:      int,
+	// While a grab's refinement runs (sculptor_grab_refine): the vertices its splits made,
+	// followed to their new slots when a node split moves them.
+	fresh:          ^Dyn_Fresh,
+}
+
+@(private)
+Dyn_Fresh :: struct {
+	verts: [dynamic]u32,
+	at:    map[u32]int, // vertex slot -> its place in verts
+}
+
+// Notes a vertex a split made, while a refinement wants them.
+@(private = "file")
+fresh_add :: #force_inline proc(d: ^Dyn, v: u32) {
+	if d.fresh == nil do return
+	d.fresh.at[v] = len(d.fresh.verts)
+	append(&d.fresh.verts, v)
 }
 
 @(private)
@@ -725,6 +742,7 @@ split_edge :: proc(s: ^Sculptor, a, b: u32) -> (res: Op, full, m, c, d: u32) {
 	p := (mesh.positions[a] + mesh.positions[b]) * 0.5
 	m = add_vertex(s, n1, p, linalg.normalize0(mesh.normals[a] + mesh.normals[b]), mask)
 	if s.fade != nil do s.fade[m] = max(s.fade[a], s.fade[b])
+	fresh_add(dy, m)
 	idx[3 * t1 + (k1 + 1) % 3] = m // a m c
 	idx[3 * t2 + (k2 + 1) % 3] = m // b m d
 	t3 := add_triangle(s, n1, m, b, c)
@@ -764,6 +782,7 @@ split_border_edge :: proc(s: ^Sculptor, a, b, t1, k1: u32) -> (res: Op, full, m,
 	p := (mesh.positions[a] + mesh.positions[b]) * 0.5
 	m = add_vertex(s, n1, p, linalg.normalize0(mesh.normals[a] + mesh.normals[b]), mask)
 	if s.fade != nil do s.fade[m] = max(s.fade[a], s.fade[b])
+	fresh_add(dy, m)
 	idx[3 * t1 + (k1 + 1) % 3] = m // a m c
 	t3 := add_triangle(s, n1, m, b, c)
 	face_remove(dy, b, t1)
@@ -1003,6 +1022,21 @@ split_node :: proc(s: ^Sculptor, id: u32) -> bool {
 		if s.mask != nil do saved[i].mask = s.mask[mv.from]
 		copy(saved[i].faces[:], d.faces[int(mv.from) * DYN_FACES:][:DYN_FACES])
 		d.face_count[mv.from] = 0
+	}
+	if f := d.fresh; f != nil {
+		// Every move read before any is written, as slots are both.
+		places := make([]int, len(moves), context.temp_allocator)
+		for mv, i in moves {
+			places[i] = -1
+			if at, ok := f.at[mv.from]; ok {
+				places[i] = at
+				delete_key(&f.at, mv.from)
+			}
+		}
+		for mv, i in moves do if places[i] >= 0 {
+			f.verts[places[i]] = mv.to
+			f.at[mv.to] = places[i]
+		}
 	}
 	for mv, i in moves {
 		x := saved[i]

@@ -340,6 +340,13 @@ brush_stroke_finish :: proc(app: ^App) {
 	// A stroke joining this one keeps its locked plane, so a long Flatten laid in
 	// pieces flattens to one plane.
 	e.locked = sculpt.sculptor_locked_plane(object_sculptor(obj))
+	// Under dynamic topology a grab splits what it stretched at the release, in the
+	// stroke's undo step, so a long pull leaves triangles of the detail size.
+	if app.stroke.grab && object_sculptor(obj).dyn != nil {
+		start := time.tick_now()
+		app.grab_refine.splits += sculpt.sculptor_grab_refine(object_sculptor(obj))
+		app.grab_refine.ms += time.duration_milliseconds(time.tick_since(start))
+	}
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {

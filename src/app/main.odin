@@ -145,6 +145,11 @@ App :: struct {
 	// or a waiting tap sets it; 0 takes it from the pointer.
 	stroke_scale_from: f32,
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
+	// What the grabs' refinements under dynamic topology did, in all (exit stats).
+	grab_refine: struct {
+		splits: int,
+		ms:     f64,
+	},
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_samples: Pen_Samples, // the pen's samples between frames, which SDL leaves out
 	predict:     Cursor_Predict, // where the pointer will be when the frame shows (cursor_lead)
@@ -1503,6 +1508,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			l1_at := light_world_pos(&app, set.lights[0]) if set.lights[0].kind != .Sun else Vec3{}
 			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s light_moves=%d light1_name=%s light1_kelvin=%.0f light1_at=%.2f,%.2f,%.2f light_pick_strength=%.2f", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space), app.ui.light_press.moves, l1_name, set.lights[0].kelvin, l1_at.x, l1_at.y, l1_at.z, set.lights[clamp(app.light_pick, 0, max(int(set.count) - 1, 0))].strength)
 			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_grab_topological=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), int(app.brush.grab_topological), app.brush.smooth_only)
+			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)

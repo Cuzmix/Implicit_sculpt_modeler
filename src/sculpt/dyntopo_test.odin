@@ -567,3 +567,49 @@ dyn_refuses_non_manifold_edges :: proc(t: ^testing.T) {
 	testing.expect(t, !sculptor_dyn_enable(&s), "a non-manifold mesh was taken")
 	testing.expect(t, s.dyn == nil)
 }
+
+// A grab pulled far out of a dynamic sphere stretches its triangles while dragging; the
+// refinement at the release splits every edge round what it moved down to the detail
+// size, keeps the surface closed, and one undo puts back the drag and the splits.
+@(test)
+dyn_grab_refine_splits_what_the_pull_stretched :: proc(t: ^testing.T) {
+	for kind in ([]Brush_Kind{.Grab, .Elastic}) {
+		sp := dyn_make(t, 4)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		before, _ := sculptor_compact_mesh(s, context.temp_allocator)
+		was := make(map[Vec3]bool, len(before.positions), context.temp_allocator)
+		for p in before.positions do was[p] = true
+		radius: f32 = 0.4
+		detail: f32 = 0.1 // over the sphere's own edges, so only what the pull stretched splits
+		pull := Vec3{0, 0, 0.8} if kind == .Grab else Vec3{0.4, 0, 0.9}
+		sculptor_stroke_begin(s)
+		_ = sculptor_grab_begin(s, {kind = kind, radius = radius, strength = 1, detail = detail / radius, volume = 0.8}, {0, 0, 1})
+		_ = sculptor_grab_move(s, pull)
+		_ = sculptor_flush(s)
+		// The longest edge with an end that moved or is new, in the compact mesh.
+		longest :: proc(s: ^Sculptor, was: map[Vec3]bool) -> (most: f32) {
+			m, _ := sculptor_compact_mesh(s, context.temp_allocator)
+			for f in 0 ..< len(m.indices) / 3 do for k in 0 ..< 3 {
+				a, b := m.positions[m.indices[3 * f + k]], m.positions[m.indices[3 * f + (k + 1) % 3]]
+				if was[a] && was[b] do continue
+				most = max(most, linalg.length(a - b))
+			}
+			return
+		}
+		stretched := longest(s, was)
+		splits := sculptor_grab_refine(s)
+		sculptor_grab_end(s)
+		testing.expect(t, sculptor_stroke_end(s))
+		_ = sculptor_flush(s)
+		if !expect_valid(t, s) do return
+		refined := longest(s, was)
+		testing.expectf(t, stretched > 2 * detail && splits > 0 && refined <= detail * 1.0001, "%v: longest edge %.4f stretched, %.4f after %d splits (detail %.4f)", kind, stretched, refined, splits, detail)
+		testing.expectf(t, euler(s) == 2, "%v: Euler characteristic %d", kind, euler(s))
+		testing.expect(t, sculptor_undo(s))
+		_ = sculptor_flush(s)
+		if !expect_valid(t, s) do return
+		undone, _ := sculptor_compact_mesh(s, context.temp_allocator)
+		testing.expectf(t, slice.equal(undone.positions[:], before.positions[:]) && slice.equal(undone.indices[:], before.indices[:]), "%v: undo did not restore the mesh", kind)
+	}
+}
