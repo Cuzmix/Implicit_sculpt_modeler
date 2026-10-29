@@ -2348,8 +2348,9 @@ def saved_line(line):
 
 # The view rail's Panels button, which shows and hides the stack of cards.
 INSPECTOR_CLOSE = UI["inspector"]
-# The Stats window's title, where it starts (Settings > Performance or F11 opens it).
-STATS_TITLE = (156, 196)
+# The Stats window's title, where it starts under the view chips (Settings > Performance or F11
+# opens it).
+STATS_TITLE = (156, 148)
 
 
 @scenario
