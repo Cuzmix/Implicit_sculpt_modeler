@@ -228,7 +228,7 @@ strokes_keep_the_rail_mask :: proc(t: ^testing.T) {
 	append(&a.replay.take.seeds, 7)
 	append(&a.replay.take.scales, 1)
 	append(&a.replay.take.samples, Input_Sample{{10, 20}, 1, .Press, {}})
-	append(&a.replay.take.frames, Take_Frame{count = 1, camera = camera.orbit_default(), size = {800, 600}, primary = true, mask = true, invert = true})
+	append(&a.replay.take.frames, Take_Frame{count = 1, camera = camera.orbit_default(), size = {800, 600}, pen_roll = -30, primary = true, mask = true, invert = true})
 	testing.expect(t, strokes_save(&a, path))
 
 	b: App
@@ -239,6 +239,7 @@ strokes_keep_the_rail_mask :: proc(t: ^testing.T) {
 	if len(b.replay.take.frames) == 1 {
 		f := b.replay.take.frames[0]
 		testing.expect(t, f.mask && f.invert && f.primary && !f.smooth)
+		testing.expect_value(t, f.pen_roll, -30)
 	}
 
 	data, err := os.read_entire_file(path, context.allocator)

@@ -962,6 +962,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 		pixel_density = f32(pw) / f32(max(w, 1)) * scale,
 		text          = string(d.text[:d.text_len]),
 		pointer       = d.pointer,
+		roll          = app.pen_roll if d.pointer == .Pen else 0,
 		cancel        = d.cancel,
 		no_hover_tips = d.pointer == .Pen && !pen_tips_shown(app.nav.pen_tips),
 	}
@@ -1177,6 +1178,7 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	copy(input.samples, app.samples[:])
 	for &s in input.samples do s.pos = viewport_point(app, s.pos)
 	input.pen_tilt = app.pen_tilt
+	input.pen_roll = app.pen_roll_last.? or_else 0
 	input.mouse_delta = d.moved
 	// An orbit turns about the target unless pointer_route decided another pivot.
 	input.orbit_pivot = app.camera.target

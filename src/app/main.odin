@@ -157,6 +157,9 @@ App :: struct {
 	// platform reports it (pen_roll_take), and the turn it last reported.
 	pen_roll: f32,
 	pen_roll_last: Maybe(f32),
+	// The pen's roll that a Pen roll alpha turns by, from the frame's Viewport_Input, so a
+	// replayed stroke turns as it was drawn.
+	alpha_roll: f32,
 	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
 	// done since the card last moved on.

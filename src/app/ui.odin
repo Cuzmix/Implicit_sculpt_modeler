@@ -135,6 +135,7 @@ Viewport_Input :: struct {
 	mask_shape:  bool, // a press from empty space draws a mask shape (Ctrl, or the rail's Mask)
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
+	pen_roll:    f32, // the pen's turn about its own length now, degrees clockwise from its top; zero without one
 	zoom_drag:   bool, // Ctrl + right mouse: up zooms in
 	touch_pan:   [2]f32, // two fingers' middle moved this far (touch.odin)
 	touch_zoom:  f32, // ...and their spread grew this many times; 0 for no fingers

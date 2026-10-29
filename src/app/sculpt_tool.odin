@@ -220,6 +220,7 @@ MIN_PRESSURE_SIZE :: 0.05 // smallest share of the radius pen pressure can shrin
 // pointer took on screen, DAB_SPACING radii apart, and each is raycast onto the
 // surface, so a fast stroke follows the pointer and every dab lands on the surface.
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
+	app.alpha_roll = input.pen_roll
 	if input.size.x <= 0 || input.size.y <= 0 {
 		stroke_finish(app)
 		return

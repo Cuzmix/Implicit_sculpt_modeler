@@ -1588,3 +1588,27 @@ a_popover_over_a_popover_keeps_it_open :: proc(t: ^testing.T) {
 	testing.expect(t, !under)
 	testing.expect(t, !over)
 }
+
+// The pen hovering on a slider and rolled moves it, a half turn the whole range; held
+// down, or a finger, it does not.
+@(test)
+a_hovering_pen_rolls_a_slider :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	value: f32 = 0.5
+	pen := input_at({44, 200})
+	pen.pointer = .Pen
+	one_slider(&ctx, pen, &value)
+	one_slider(&ctx, pen, &value)
+	pen.roll = 45
+	testing.expect(t, one_slider(&ctx, pen, &value))
+	testing.expect(t, math.abs(value - 0.75) < 1e-5)
+	pen.roll = -360
+	one_slider(&ctx, pen, &value)
+	testing.expect_value(t, value, 0)
+	finger := pen
+	finger.pointer, finger.roll = .Finger, 90
+	testing.expect(t, !one_slider(&ctx, finger, &value))
+	testing.expect_value(t, value, 0)
+}
