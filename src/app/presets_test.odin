@@ -208,4 +208,17 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	f[26] = "Sideways"
 	_, _, _, ok = preset_parse(f)
 	testing.expect(t, !ok)
+	// A Smooth preset with Stable has it as a named value after the rest; a name this
+	// build does not know is skipped.
+	v = {kind = .Smooth, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT, smooth_stable = true}
+	strings.builder_reset(&out)
+	preset_line(&out, "Even", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 36)
+	testing.expect_value(t, f[35], "smooth_stable=1")
+	later := make([dynamic]string, context.temp_allocator)
+	append(&later, ..f)
+	append(&later, "from_later=7")
+	_, w, _, ok = preset_parse(later[:])
+	testing.expect(t, ok && w.kind == .Smooth && w.smooth_stable)
 }

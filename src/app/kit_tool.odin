@@ -173,8 +173,9 @@ kit_brush_options :: proc(app: ^App) {
 	}
 	if b.kind == .Smooth {
 		if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
+		_ = ui.switch_row(ctx, "Stable", &b.smooth_stable)
 	}
-	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth can even out only the dents (Valleys) or only the bumps (Peaks); Shift smoothing with any brush does the same.")
+	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth can even out only the dents (Valleys) or only the bumps (Peaks), and Stable gives a dense mesh more passes and a coarse one fewer, so a dab evens out about as much at any density; Shift smoothing with any brush does the same.")
 }
 
 // The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
