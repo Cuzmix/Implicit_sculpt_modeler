@@ -888,6 +888,8 @@ Model_Tool :: struct {
 	// The Knife's last tap on an edge (object 0 for none), which the next tap cuts to, as
 	// Maya's Multi-Cut does: each tap cuts from the one before until a tap off the cage.
 	knife_from: Model_Knife_Tap,
+	// The last Align parts join, which a tap on the part turns or flips.
+	aligned:   Model_Aligned,
 	look_drag: Cage_Look_Drag,
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,

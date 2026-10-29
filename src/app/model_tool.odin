@@ -59,6 +59,8 @@ Model_Action :: enum u8 {
 	Space_Loop,
 	Flatten_Loop,
 	Knife,
+	Align,
+	Spine,
 }
 
 @(rodata)
@@ -87,6 +89,8 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Space_Loop     = "Space loop",
 	.Flatten_Loop   = "Flatten loop",
 	.Knife          = "Knife",
+	.Align          = "Align parts",
+	.Spine          = "Spine",
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -116,6 +120,8 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Space_Loop     = "space loop",
 	.Flatten_Loop   = "flatten loop",
 	.Knife          = "knife cut",
+	.Align          = "align parts",
+	.Spine          = "spine",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -145,6 +151,8 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Space_Loop     = "",
 	.Flatten_Loop   = "",
 	.Knife          = "",
+	.Align          = "faces the same way, so the part passes into the other",
+	.Spine          = "an arc from the faces to where the pen lifts, in place of the path drawn",
 }
 
 // What each action's help line says it does.
@@ -174,6 +182,8 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Space_Loop     = "Tap an edge to spread its loop's points evenly along it, the ends of an open loop staying",
 	.Flatten_Loop   = "Tap an edge to move its loop's points onto the plane the loop lies nearest",
 	.Knife          = "Draw a stroke across the cage, starting beside it if you like: each face it crosses is cut along it. Or tap edges in turn to cut a path between them; a tap off the cage ends it",
+	.Align          = "Press on a part and lift over a face of another part: they join face to face, centre on centre, the edges lined up. Tap the part just joined to turn it a step; Alt and a tap flips it",
+	.Spine          = "Press on a face and draw a path: the target grows along it in steps about its edges long, turning as the path turns, and a pen's pressure sets its size along the way",
 }
 
 // What kind of element each action takes.
@@ -209,6 +219,8 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Space_Loop     = .Edge,
 	.Flatten_Loop   = .Edge,
 	.Knife          = .Edge,
+	.Align          = .Face,
+	.Spine          = .Face,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
@@ -224,7 +236,9 @@ MODEL_LOOP_SHAPES := #partial [Model_Action]poly.Loop_Shape {
 
 // The actions that set sharpness: a tap creases, a drag up or down sets how much.
 MODEL_CREASES :: bit_set[Model_Action]{.Crease, .Crease_Point}
-MODEL_PAIRS :: bit_set[Model_Action]{.Bridge, .Weld, .Connect}
+MODEL_PAIRS :: bit_set[Model_Action]{.Bridge, .Weld, .Connect, .Align}
+// The actions a press draws a stroke for: the stroke is the cut, or the path.
+MODEL_STROKES :: bit_set[Model_Action]{.Knife, .Spine}
 // The edge actions that work only on border edges, whose hover picks the face's nearest
 // border edge.
 MODEL_BORDER_ACTIONS :: bit_set[Model_Action]{.Close_Hole, .Extrude_Edge, .Bridge}
@@ -287,6 +301,8 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Space_Loop     = {.Edge_Loop, .Border_Loop},
 	.Flatten_Loop   = {.Edge_Loop, .Border_Loop},
 	.Knife          = {.Single},
+	.Align          = {.Island},
+	.Spine          = FACE_TARGETS,
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -317,6 +333,8 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Space_Loop     = .Edge_Loop,
 	.Flatten_Loop   = .Edge_Loop,
 	.Knife          = .Single,
+	.Align          = .Island,
+	.Spine          = .Single,
 }
 
 // ZModeler's flat island tolerance.
@@ -362,9 +380,11 @@ Model_Drag :: struct {
 	amount: f32, // as last applied
 	// Insert loop's slide: the pressed edge from its first end to its other, on screen.
 	slide_from, slide_to: [2]f32,
-	// The knife's stroke on screen, from the press (heap), and whether the press was on
-	// the cage (a stroke may start beside it).
+	// The knife's stroke or Spine's path on screen, from the press, and the pen's pressure
+	// at each of its points (heap); whether the press was on the cage (a knife stroke may
+	// start beside it).
 	stroke: [dynamic][2]f32,
+	pressure: [dynamic]f32,
 	over:   bool,
 	// Bevel's cage as pressed (heap), which a change of segments bevels again, the
 	// segments it started with and those the cage now has.
@@ -380,6 +400,7 @@ model_tool_free :: proc(m: ^Model_Tool) {
 	delete(m.drag.items)
 	delete(m.drag.images)
 	delete(m.drag.stroke)
+	delete(m.drag.pressure)
 	poly.drag_set_destroy(&m.drag.set)
 	poly.mesh_destroy(&m.drag.original)
 }
@@ -514,9 +535,12 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 				model_hover(app, input.mouse_pos, input.size, true)
 				return true
 			}
-			// The knife draws its stroke.
-			if d.action == .Knife {
-				if linalg.length(input.mouse_pos - d.stroke[len(d.stroke) - 1]) >= 3 do append(&d.stroke, input.mouse_pos)
+			// The knife and Spine draw their stroke.
+			if d.action in MODEL_STROKES {
+				if linalg.length(input.mouse_pos - d.stroke[len(d.stroke) - 1]) >= 3 {
+					append(&d.stroke, input.mouse_pos)
+					append(&d.pressure, model_pressure(input))
+				}
 				return true
 			}
 			// Select paints: what the target reaches under the pen joins as it goes.
@@ -538,6 +562,11 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		if d.action in MODEL_PAIRS {
 			model_hover(app, input.mouse_pos, input.size, true)
 			return model_pair(app)
+		}
+		if d.action == .Spine {
+			append(&d.stroke, input.mouse_pos)
+			append(&d.pressure, model_pressure(input))
+			return model_spine(app, input.size)
 		}
 		if d.action == .Knife {
 			append(&d.stroke, input.mouse_pos)
@@ -586,9 +615,11 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	obj := object_by_id(app, m.hover.object)
 	select_object(app, obj)
 	h := &m.hover
-	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, images = d.images, set = d.set, stroke = d.stroke, over = over}
+	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, images = d.images, set = d.set, stroke = d.stroke, pressure = d.pressure, over = over}
 	clear(&d.stroke)
 	append(&d.stroke, input.mouse_pos)
+	clear(&d.pressure)
+	append(&d.pressure, model_pressure(input))
 	clear(&d.items)
 	append(&d.items, ..h.items[:])
 	clear(&d.images)
@@ -814,6 +845,224 @@ model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = 
 	return model_commit(app, obj, before, err)
 }
 
+// The pen's pressure now: the last sample's, 1 from a mouse or with no samples.
+@(private = "file")
+model_pressure :: proc(input: Viewport_Input) -> f32 {
+	if len(input.samples) == 0 do return 1
+	return input.samples[len(input.samples) - 1].pressure
+}
+
+// The last Align parts join: the cage moved and the one joined to (the same for two
+// parts of one cage), the moved face and the face it lies on, whether it was flipped,
+// and where the moved part ended (its points' middle, or the moved cage's place) (object
+// 0 for none). A tap on the part turns it while it is still there, so an undo or any
+// other change ends it.
+Model_Aligned :: struct {
+	object, onto: int,
+	from, to:     u32,
+	flip:         bool,
+	middle:       Vec3,
+}
+
+// The middle of the faces' points.
+@(private = "file")
+model_middle :: proc(cage: ^poly.Mesh, faces: []u32) -> (middle: Vec3) {
+	verts := poly.face_set_verts(cage, faces, context.temp_allocator)
+	for v in verts do middle += cage.positions[v]
+	return middle / f32(max(len(verts), 1))
+}
+
+// Align parts: the pressed part joined to the face the pen lifted over, as one undo step.
+// On another part of the same cage, the part (its island) moves; on another cage, the
+// pressed cage moves whole, as Shapr3D's Align moves a body. Lifted over the part itself,
+// which the last join moved, it turns a step about the join (Alt: flips it). Symmetry is
+// not used: a part moves whole.
+@(private = "file")
+model_align :: proc(app: ^App, obj: ^Object) -> bool {
+	m := &app.model
+	d := &m.drag
+	onto := object_by_id(app, m.hover.object)
+	if onto == nil || onto.cage == nil do return true
+	from, to, flip, turn := d.face, m.hover.face, d.alt, 0
+	if onto == obj && slice.contains(d.items[:], to) {
+		a := m.aligned
+		joined := a.object == obj.id
+		if other := object_by_id(app, a.onto); joined && other != nil && other.cage != nil {
+			joined = int(a.from) < len(obj.cage.mesh.face_he) && int(a.to) < len(other.cage.mesh.face_he) && slice.contains(d.items[:], a.from)
+			if joined && other == obj do joined = !slice.contains(d.items[:], a.to)
+			now := model_middle(&obj.cage.mesh, d.items[:]) if other == obj else obj.transform.position
+			joined = joined && linalg.length(now - a.middle) <= 1e-5 * max(cage_size(obj.cage), linalg.length(a.middle))
+			onto = other
+		} else {
+			joined = false
+		}
+		if !joined {
+			report(app, nil, {}, "Align parts: lift the pen over a face of another part to join them; a tap on the part just joined turns it")
+			return true
+		}
+		from, to = a.from, a.to
+		flip, turn = a.flip, 1
+		if d.alt do flip, turn = !a.flip, 0
+	}
+	if onto != obj {
+		// The pressed cage moves whole: its turn and place change, its points do not.
+		ta, tb := obj.transform, onto.transform
+		ra, rb := transform_rotation(ta), transform_rotation(tb)
+		ways := poly.face_ways(&onto.cage.mesh, to, context.temp_allocator)
+		for &w in ways do w = rb * w
+		way := poly.face_ways(&obj.cage.mesh, from, context.temp_allocator)[0]
+		q := poly.align_turn(ra * poly.face_normal(&obj.cage.mesh, from), ra * way, rb * poly.face_normal(&onto.cage.mesh, to), ways, flip, turn)
+		ca, cb := to_world(ta, poly.face_center(&obj.cage.mesh, from)), to_world(tb, poly.face_center(&onto.cage.mesh, to))
+		before := obj.transform
+		obj.transform.rotation = gizmo.rotation_degrees(linalg.matrix3_from_quaternion_f32(q) * ra)
+		obj.transform.position = cb + linalg.quaternion_mul_vector3(q, ta.position - ca)
+		history_record_transform(app, obj, before, MODEL_ACTION_WHAT[.Align])
+		m.aligned = {object = obj.id, onto = onto.id, from = from, to = to, flip = flip, middle = obj.transform.position}
+		m.done += 1
+		return true
+	}
+	// Before anything temporary: a snapshot frees the frame's temporary memory.
+	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[.Align])
+	if !poly.align_part(&obj.cage.mesh, d.items[:], from, to, flip, turn) {
+		history_snapshot_drop(before)
+		return true
+	}
+	m.aligned = {object = obj.id, onto = obj.id, from = from, to = to, flip = flip, middle = model_middle(&obj.cage.mesh, d.items[:])}
+	return model_commit(app, obj, before, .None)
+}
+
+// How a Spine's faces scale along the path from the pen's pressure: full size while the
+// pressure first rises (a pen landing), then the pressure as a share of the stroke's
+// middling pressure, so pressing harder fattens it and lifting off tapers it. A mouse's
+// pressure never changes, so its spine keeps its size.
+@(private = "file")
+model_spine_scale :: proc(pressure: []f32) -> []f32 {
+	out := make([]f32, len(pressure), context.temp_allocator)
+	sorted := slice.clone(pressure, context.temp_allocator)
+	slice.sort(sorted)
+	middle := sorted[len(sorted) / 2] if len(sorted) > 0 else 1
+	landed := false
+	for p, i in pressure {
+		landed ||= p >= 0.9 * middle
+		out[i] = clamp(p / middle, poly.SPINE_SCALE_MIN, MODEL_SPINE_SCALE_MAX) if landed && middle > 0 else 1
+	}
+	return out
+}
+
+// The most a Spine's faces grow, as a share of their size.
+MODEL_SPINE_SCALE_MAX :: 2
+
+// Spine: the target's faces extruded step by step along the path drawn from them, as one
+// undo step (with their mirror images under symmetry, along the mirrored path). The path
+// lies on the plane through the faces' middle along their normal that faces the view
+// most squarely; with Alt it is the arc from the faces leaving along their normal to
+// where the pen lifted.
+@(private = "file")
+model_spine :: proc(app: ^App, size: [2]f32) -> bool {
+	m := &app.model
+	d := &m.drag
+	obj := object_by_id(app, d.object)
+	if obj == nil || obj.cage == nil || len(d.items) == 0 || !d.over do return true
+	if model_stroke_reach(d.stroke[:], d.press) <= app.kit.ctx.theme.slop {
+		report(app, nil, {}, "Spine: press on a face and draw the path for it to grow along")
+		return true
+	}
+	// Before anything temporary: a snapshot frees the frame's temporary memory.
+	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[.Spine])
+	cage := &obj.cage.mesh
+	t := obj.transform
+	// The faces' middle, their mean normal, and how long their outline's edges are.
+	middle, normal: Vec3
+	area: f32
+	for f in d.items {
+		a := poly.face_area(cage, f)
+		middle += poly.face_center(cage, f) * a
+		area += a
+		normal += poly.face_area_vector(cage, f)
+	}
+	middle /= max(area, 1e-20)
+	normal = linalg.normalize0(normal)
+	outline, edges: f32
+	for f in d.items {
+		w := poly.face_walk(cage, f)
+		for h in poly.face_walk_next(&w) {
+			other := cage.he_face[poly.twin(h)]
+			if other != poly.NONE && slice.contains(d.items[:], other) do continue
+			outline += poly.edge_length(cage, poly.edge_of(h))
+			edges += 1
+		}
+	}
+	step := MODEL_SPINE_STEP * outline / max(edges, 1)
+	// The plane the path is drawn on.
+	_, look := mouse_ray(app.camera, d.press, size)
+	view := linalg.normalize0(to_local_dir(t, look))
+	across := view - normal * linalg.dot(view, normal)
+	if linalg.length(across) < MODEL_SPINE_SIDEWAYS || step <= 0 {
+		history_snapshot_drop(before)
+		m.refused += 1
+		report(app, nil, {.Warning}, "Spine: turn the view so the faces are seen from the side, and draw the path out of them")
+		return true
+	}
+	plane := linalg.normalize(across)
+	hits := make([dynamic]Vec3, context.temp_allocator)
+	kept := make([dynamic]f32, context.temp_allocator)
+	for p, i in d.stroke {
+		origin, dir := mouse_ray(app.camera, p, size)
+		o, w := to_local(t, origin), to_local_dir(t, dir)
+		along := linalg.dot(w, plane)
+		if abs(along) < 1e-6 do continue
+		hit := o + w * (linalg.dot(middle - o, plane) / along)
+		append(&hits, hit)
+		append(&kept, d.pressure[i] if i < len(d.pressure) else 1)
+	}
+	path := make([dynamic]Vec3, context.temp_allocator)
+	scale: []f32
+	if len(hits) >= 2 {
+		if d.alt {
+			arc := poly.spine_arc(middle, normal, middle + hits[len(hits) - 1] - hits[0], MODEL_SPINE_ARC_POINTS, context.temp_allocator)
+			append(&path, ..arc)
+		} else {
+			for h in hits do append(&path, middle + h - hits[0])
+			scale = model_spine_scale(kept[:])
+		}
+	}
+	steps := poly.spine_steps(path[:], scale, middle, normal, step, context.temp_allocator)
+	if len(steps) == 0 {
+		history_snapshot_drop(before)
+		return true
+	}
+	// The faces, then each mirror image of them apart from those already taken.
+	regions := make([dynamic][]u32, context.temp_allocator)
+	runs := make([dynamic][]poly.Spine_Step, context.temp_allocator)
+	append(&regions, d.items[:])
+	append(&runs, steps)
+	taken := make(map[u32]bool, allocator = context.temp_allocator)
+	for f in d.items do taken[f] = true
+	signs := poly.mirror_signs(model_axes(app))
+	for sign in signs[1:] {
+		faces, found := poly.mirror_faces_by(cage, d.items[:], sign, poly.mirror_slack(cage), context.temp_allocator)
+		if !found do continue
+		apart := true
+		for f in faces do apart &&= !taken[f]
+		if !apart do continue
+		for f in faces do taken[f] = true
+		mirrored := make([]poly.Spine_Step, len(steps), context.temp_allocator)
+		for s, i in steps do mirrored[i] = poly.spine_step_mirror(s, sign)
+		append(&regions, faces)
+		append(&runs, mirrored)
+	}
+	_, err := poly.spine_faces(cage, regions[:], runs[:], context.temp_allocator)
+	return model_commit(app, obj, before, err)
+}
+
+// How far from straight on the view must see the faces for Spine (the sine of the angle
+// between the view and their normal), and how many points its arc has.
+MODEL_SPINE_SIDEWAYS :: 0.25
+// How long a Spine's steps are, as a share of its faces' outline edges: half, so a path
+// turns smoothly and the rings stay square enough to smooth well.
+MODEL_SPINE_STEP :: 0.5
+MODEL_SPINE_ARC_POINTS :: 32
+
 // How near an edge's end a crossing may be and still cut the edge, as a share of it.
 MODEL_KNIFE_END :: 0.02
 
@@ -974,8 +1223,13 @@ model_pair :: proc(app: ^App) -> bool {
 	h := &m.hover
 	obj := object_by_id(app, d.object)
 	if obj == nil || obj.cage == nil do return true
+	// Align joins a part to another cage too.
+	if d.action == .Align && h.object != 0 do return model_align(app, obj)
 	if h.object != d.object {
-		report(app, nil, {.Warning}, "%s needs its second %s on the same cage: lift the pen over one", MODEL_ACTION_NAMES[d.action], "border" if d.action == .Bridge else "point")
+		second := "point"
+		if d.action == .Bridge do second = "border"
+		if d.action == .Align do second = "part"
+		report(app, nil, {.Warning}, "%s needs its second %s on the same cage: lift the pen over one", MODEL_ACTION_NAMES[d.action], second)
 		m.refused += 1
 		return true
 	}
@@ -1083,7 +1337,7 @@ model_refused :: proc(app: ^App, action: Model_Action, err: poly.Build_Error) {
 	case .Inconsistent:        why = "faces would face opposite ways across an edge (Flip turns a whole island; Bridge joins borders that run opposite ways)"
 	case .Non_Manifold_Vertex: why = "what is left would touch itself at a single point"
 	case .Non_Manifold_Edge:   why = "an edge would have more than two faces, the faces would leave more than one hole, or the edge needs a border it does not have"
-	case .Unsupported:         why = "it reaches a border or a point where only two edges meet, which a bevel cannot round"
+	case .Unsupported:         why = "the faces touch their mirror images, so they cannot grow apart" if action == .Spine else "it reaches a border or a point where only two edges meet, which a bevel cannot round"
 	case .Degenerate_Face:     why = "a face would have fewer than three corners (Bridge needs two borders of as many edges; Connect two corners not side by side)"
 	case:                      why = "the faces it would make are not a valid cage"
 	}
@@ -1507,7 +1761,7 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.items[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
 			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.images[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
 			if d.action in MODEL_PAIRS do overlay_line(o, d.press, input.mouse_pos, overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
-			if d.action == .Knife && len(d.stroke) > 1 do overlay_polyline(o, d.stroke[:], overlay_color(MODEL_ELEMENT_COLORS[.Edge]), 2)
+			if d.action in MODEL_STROKES && len(d.stroke) > 1 do overlay_polyline(o, d.stroke[:], overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
 		}
 		if d.state == .None || d.action in MODEL_PAIRS {
 			draw_model_items(app, o, input, m.hover.object, element, m.hover.items[:], MODEL_ELEMENT_COLORS[element])

@@ -3129,6 +3129,35 @@ def model_live_stack_bevels_and_thickens():
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={plate}; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
+def model_align_sets_a_cage_on_another():
+    """Align parts: a drag from one cube cage's front face lifted over another cube's top sets the first on the second, face to face, as one undo step; a tap on it then turns it a step about the join, and a Ctrl tap flips it into the other."""
+    base = "add_cage cube; select 1; delete_object; add_cage cube; move 7 0 0; frame_all; model_action align"
+    def run(after=None, keys=()):
+        s = Script()
+        s.mouse_drag(line((880, 530), (552, 386), 8))
+        s.wait(5)
+        if after is not None:
+            s.mouse_drag([after], keys=keys)
+            s.wait(5)
+        return s
+    return Steps([(run(), LENS_1440 + [f"--script={base}"], {"model_done": near(1), "undo_steps": near(1), "selected_x": near(2.25, 0.001), "selected_y": near(1.1547, 0.001), "cages": near(2)}),
+                  (run((550, 330)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(1.1547, 0.001)}),
+                  (run((550, 330), ("ctrl",)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(0, 0.001)})])
+
+@scenario
+def model_spine_grows_along_the_path():
+    """Spine: a stroke drawn out of a cube's right face grows it along the path in two steps (14 faces), as one undo step; under Symmetry X the left face grows along the mirrored path too (22 faces); with Ctrl the path is an arc from the face (three steps)."""
+    base = "add_cage cube; select 1; delete_object; frame_all"
+    def run(keys=()):
+        s = Script()
+        s.mouse_drag(line((820, 450), (1060, 306), 12), keys=keys)
+        s.wait(10)
+        return s
+    return Steps([(run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action spine"], {"cage_faces": near(14), "cage_points": near(16), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1)}),
+                  (run(), LENS_1440 + [f"--script={base}; symmetry_x; model_action spine"], {"cage_faces": near(22), "cage_points": near(24), "cage_broken": near(0), "undo_steps": near(1)}),
+                  (run(("ctrl",)), LENS_1440 + [f"--script={base}; model_action spine"], {"cage_faces": near(18), "cage_points": near(20), "cage_broken": near(0), "undo_steps": near(1)})])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()
