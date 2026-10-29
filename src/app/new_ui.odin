@@ -467,6 +467,7 @@ Kit_Section :: enum u8 {
 	Paint_Color,
 	Recall,
 	Falloff,
+	Samples,
 	Alpha,
 	Pen,
 	Options,

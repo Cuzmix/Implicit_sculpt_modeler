@@ -62,6 +62,13 @@ Brush_Settings :: struct {
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	smooth_stable:     bool, // Smooth's passes follow the mesh's density (sculpt.Brush.smooth_stable)
 	smooth_mode:       sculpt.Smooth_Mode, // how Smooth evens out: Smooth, Relax or Polish
+	// The Samples section (sculpt.Brush.stabilize, sample_radius, no_accumulate): how
+	// much of the stroke's mean normal and plane a dab keeps, the share of the radius the
+	// area is sampled over, and per brush whether a stroke over itself builds up (false:
+	// Accumulate on, which Draw starts without).
+	stabilize:         f32,
+	sample_radius:     f32,
+	no_accumulate:     [sculpt.Brush_Kind]bool,
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	// Spray: how far each dab's paint colour strays from the brush's, 0 to 1 (Colour spray).
@@ -167,7 +174,8 @@ Stroke :: struct {
 	// How squarely the surface under the last dab faces the view (|cos|), which Scene
 	// spacing divides by; 0 before the first dab.
 	facing:   f32,
-	// Even strength's scale for this stroke's dabs (spacing_strength); 0 until worked out.
+	// Even strength's scale for this stroke's dabs (spacing_strength), or Accumulate off's
+	// (once_strength); 0 until worked out.
 	even:     f32,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
@@ -1062,6 +1070,13 @@ spacing_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
 	return sculpt.dab_overlap(shape, SPACING_REFERENCE) / sculpt.dab_overlap(shape, s)
 }
 
+// The scale Accumulate off gives a Dots stroke's dabs: the most its row piles up along
+// the middle, at the reference spacing under Even strength (which evens every spacing to
+// it) and at the stroke's own otherwise.
+once_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	return sculpt.dab_overlap(brush_falloff(app, kind), SPACING_REFERENCE if app.brush.even_strength else dot_spacing(app))
+}
+
 // Brush radii between Dots' dabs: the Spacing setting, or DAB_SPACING when unset.
 dot_spacing :: proc(app: ^App) -> f32 {
 	return dot_spacing_of(app.brush)
@@ -1138,7 +1153,13 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	// neighbours to overlap. A stroke never gets stronger than full strength by it.
 	// Not on voxel clay, whose Add and Subtract meet their neighbours as a union and never
 	// pile up.
-	if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
+	if st.mode == .Dots && brush.no_accumulate && obj.voxel == nil {
+		// Accumulate off caps each vertex at the height one dab gives it, so each dab is
+		// raised to what the whole row piles up along its middle: a pass stands as high as
+		// one with Accumulate on, and passing again adds nothing.
+		if st.even == 0 do st.even = once_strength(app, st.kind)
+		brush.strength *= st.even
+	} else if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
 		if st.even == 0 do st.even = spacing_strength(app, st.kind)
 		brush.strength = min(brush.strength * st.even, max(brush.strength, 1))
 	}
@@ -1250,6 +1271,9 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		smooth_stable = kind == .Smooth && app.brush.smooth_stable,
 		// Alt while smoothing polishes, as ZBrush's alternate smooth, for keys to hand.
 		smooth_mode = (.Polish if input.alt else app.brush.smooth_mode) if kind == .Smooth else .Smooth,
+		stabilize = app.brush.stabilize,
+		sample_radius = app.brush.sample_radius,
+		no_accumulate = app.brush.no_accumulate[kind] && accumulate_applies(kind),
 		feather    = app.brush.feather,
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,
@@ -1287,7 +1311,22 @@ brush_defaults :: proc() -> Brush_Settings {
 	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
 	// Clay starts on Blender's Clay response, its size following the pen (brush_pressure).
 	b.pressures[.Clay] = {own = true, pressure = PRESSURE_RESPONSES[1].pressure}
+	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
+	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	return b
+}
+
+// Whether Accumulate does anything for brush `kind`: the kinds that push along the normal
+// (sculpt.Brush.no_accumulate). Layer never builds up past its height and the plane kinds
+// stop at their plane.
+accumulate_applies :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return kind == .Draw || kind == .Inflate
+}
+
+// Whether Stabilize orientation and Sample radius do anything for brush `kind`: the kinds
+// that work along the area under the brush (sculpt.brush_locks_plane, alpha aside).
+samples_apply :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return sculpt.brush_locks_plane(kind, false)
 }
 
 // How far a pen leaning `tilt` (degrees across and down, as SDL reports it) is laid

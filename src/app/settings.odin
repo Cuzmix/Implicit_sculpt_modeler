@@ -174,6 +174,8 @@ SETTINGS := [?]Setting {
 	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
 	{"smooth_stable", B + offset_of(Brush_Settings, smooth_stable), bool, 0, 0},
 	{"smooth_mode", B + offset_of(Brush_Settings, smooth_mode), sculpt.Smooth_Mode, 0, 0},
+	{"stabilize", B + offset_of(Brush_Settings, stabilize), f32, 0, sculpt.STABILIZE_MAX},
+	{"sample_radius", B + offset_of(Brush_Settings, sample_radius), f32, sculpt.SAMPLE_RADIUS_MIN, 1},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
@@ -690,6 +692,11 @@ settings_load :: proc(app: ^App, path: string) {
 				b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
 				size_curve_seen = true
 			}
+		case "accumulate":
+			// accumulate <brush> <0|1>, for every brush.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.no_accumulate[kind] = f[2] == "0"
+			}
 		case "pressure_own":
 			// pressure_own <brush> <own 0|1> <strength 0|1> <size 0|1> <smallest size>
 			// <strength curve> <size curve>, for every brush, so one that starts on its own
@@ -998,6 +1005,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
 		if f.focal != 0 do fmt.sbprintfln(&out, "focal %v %g", kind, f.focal)
+		fmt.sbprintfln(&out, "accumulate %v %d", kind, bit(!b.no_accumulate[kind]))
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)

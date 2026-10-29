@@ -63,6 +63,11 @@ Preset_Values :: struct {
 	hook_elastic:     bool,
 	smooth_stable:    bool, // Smooth's Stable (Brush_Settings.smooth_stable)
 	smooth_mode:      sculpt.Smooth_Mode, // Smooth, Relax or Polish
+	// The Samples section's (Brush_Settings.stabilize, sample_radius and the kind's
+	// no_accumulate); sample_radius 0 (a line from before) is all of it.
+	stabilize:        f32,
+	sample_radius:    f32,
+	no_accumulate:    bool,
 }
 
 Brush_Preset :: struct {
@@ -87,6 +92,7 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		grab_silhouette = b.grab_silhouette, grab_topological = b.grab_topological, elastic_volume = b.elastic_volume,
 		hook_pinch = b.hook_pinch, hook_rake = b.hook_rake, hook_elastic = b.hook_elastic,
 		smooth_stable = b.smooth_stable, smooth_mode = b.smooth_mode,
+		stabilize = b.stabilize, sample_radius = b.sample_radius, no_accumulate = b.no_accumulate[kind],
 	}
 }
 
@@ -104,6 +110,8 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	if v.kind == .Elastic do b.elastic_volume = v.elastic_volume
 	if v.kind == .Snake_Hook do b.hook_pinch, b.hook_rake, b.hook_elastic = v.hook_pinch, v.hook_rake, v.hook_elastic
 	if v.kind == .Smooth do b.smooth_stable, b.smooth_mode = v.smooth_stable, v.smooth_mode
+	b.stabilize, b.sample_radius = v.stabilize, v.sample_radius if v.sample_radius > 0 else 1
+	if accumulate_applies(v.kind) do b.no_accumulate[v.kind] = v.no_accumulate
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -195,6 +203,9 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.kind == .Elastic && (a.grab_mode != b.grab_mode || a.elastic_volume != b.elastic_volume) do return false
 	if a.kind == .Snake_Hook && (a.hook_pinch != b.hook_pinch || a.hook_rake != b.hook_rake || a.hook_elastic != b.hook_elastic) do return false
 	if a.kind == .Smooth && (a.smooth_only != b.smooth_only || a.smooth_stable != b.smooth_stable || a.smooth_mode != b.smooth_mode) do return false
+	whole :: proc(x: f32) -> f32 {return x if x > 0 else 1}
+	if a.stabilize != b.stabilize || whole(a.sample_radius) != whole(b.sample_radius) do return false
+	if accumulate_applies(a.kind) && a.no_accumulate != b.no_accumulate do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -323,7 +334,9 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // lines from before Elastic's Volume take the default; lines from before Snake hook's
 // Pinch, Rake and Elastic tip have none of them. After those come named values, each
 // `key=value`, so a value added later needs no new length and a build that does not know a
-// key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish.
+// key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish,
+// stabilize=, sample_radius= and accumulate=0|1 (the Samples section). A line without
+// accumulate= accumulates.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
 	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
 	kind, kind_ok := brush_by_name(f[2])
@@ -374,6 +387,9 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		key, _, value := strings.partition(word, "=")
 		switch key {
 		case "smooth_stable": v.smooth_stable = value == "1"
+		case "stabilize": v.stabilize = clamp(number(value, 0), 0, sculpt.STABILIZE_MAX)
+		case "sample_radius": v.sample_radius = clamp(number(value, 1), sculpt.SAMPLE_RADIUS_MIN, 1)
+		case "accumulate": v.no_accumulate = value == "0"
 		case "smooth_mode":
 			// A mode this build does not know smooths plainly.
 			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
@@ -394,7 +410,9 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// other preset.
 	stable := v.kind == .Smooth && v.smooth_stable
 	smooth_mode := v.kind == .Smooth && v.smooth_mode != .Smooth
-	named := stable || smooth_mode
+	sampled := v.stabilize > 0 || v.sample_radius > 0 && v.sample_radius < 1
+	one_pass := accumulate_applies(v.kind) && v.no_accumulate
+	named := stable || smooth_mode || sampled || one_pass
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -410,6 +428,9 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if hook do fmt.sbprintf(out, " %g %g %d", v.hook_pinch, v.hook_rake, bit(v.hook_elastic))
 	if stable do fmt.sbprintf(out, " smooth_stable=1")
 	if smooth_mode do fmt.sbprintf(out, " smooth_mode=%v", v.smooth_mode)
+	if v.stabilize > 0 do fmt.sbprintf(out, " stabilize=%g", v.stabilize)
+	if v.sample_radius > 0 && v.sample_radius < 1 do fmt.sbprintf(out, " sample_radius=%g", v.sample_radius)
+	if one_pass do fmt.sbprintf(out, " accumulate=0")
 	strings.write_byte(out, '\n')
 }
 

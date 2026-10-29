@@ -98,6 +98,24 @@ lock_plane_apply :: proc(s: ^Sculptor, d: ^Dab, img: Sym_Image, own: bool, weigh
 	}
 }
 
+// Stabilize orientation: the stroke's first `own` dab (not an image) with anything under
+// it starts the mean, and each later own dab moves it toward its own area by 1 - `keep`;
+// every dab, images too, then works along the mean, taken by `img` as lock_plane_apply
+// takes the locked plane.
+@(private)
+steady_apply :: proc(s: ^Sculptor, d: ^Dab, img: Sym_Image, own: bool, weight, keep: f32) {
+	st := &s.steady
+	if own && weight > 0 && d.normal != {} {
+		if !st.set {
+			st^ = {true, d.normal, d.plane}
+		} else {
+			st.normal = linalg.normalize0(linalg.lerp(d.normal, st.normal, keep))
+			st.plane = linalg.lerp(d.plane, st.plane, keep)
+		}
+	}
+	if st.set do d.normal, d.plane = img.turn * st.normal, sym_point(img, d.brush.sym_center, st.plane)
+}
+
 // Finds what of the surface inside the dab's reach joins the place it presses
 // (connected_weight), on `pool`'s threads when given.
 @(private)
