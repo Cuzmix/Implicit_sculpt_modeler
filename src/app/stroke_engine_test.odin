@@ -254,6 +254,8 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.smooth_stable, a.brush.smooth_mode = true, .Relax
 	a.brush.stabilize, a.brush.sample_radius, a.brush.no_accumulate[a.brush.kind] = 0.5, 0.75, true
 	a.brush.falloffs[a.brush.kind].hardness, a.brush.falloffs[a.brush.kind].projected = 0.4, true
+	// Nor the ways and the size in the scene a Spray stroke, but they are kept.
+	a.brush.one_way, a.brush.directional, a.brush.size_world, a.brush.size_ref = true, true, true, 0.01
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -292,6 +294,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		rb := b.replay.take.brushes[0]
 		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable && rb.smooth_mode == .Relax && rb.stabilize == 0.5 && rb.sample_radius == 0.75 && rb.no_accumulate[rb.kind])
 		testing.expect(t, rb.falloffs[rb.kind].hardness == 0.4 && rb.falloffs[rb.kind].projected)
+		testing.expect(t, rb.one_way && rb.directional && rb.size_world && rb.size_ref == 0.01)
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -305,7 +308,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 109
+	BRUSH :: 64 + 116
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -325,6 +328,24 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 26 had no ways or size in the scene after the falloff shape: the one brush
+	// ends 64 + 109 bytes after the header's 16, and its stroke goes both ways at screen size.
+	twentysix := make([dynamic]u8, context.temp_allocator)
+	append(&twentysix, ..data[:16 + 64 + 109])
+	append(&twentysix, ..data[16 + BRUSH:])
+	twentysix[len(STROKES_MAGIC)] = 26
+	testing.expect(t, os.write_entire_file(path, twentysix[:]) == nil)
+	{
+		wa: App
+		defer replay_destroy(&wa.replay)
+		defer results_destroy(&wa)
+		testing.expect(t, strokes_load(&wa, path))
+		if len(wa.replay.take.brushes) == 1 {
+			wb := wa.replay.take.brushes[0]
+			testing.expect(t, !wb.one_way && !wb.directional && !wb.size_world && wb.falloffs[wb.kind].hardness == 0.4)
+		}
+	}
+
 	// Version 25 had no Hardness or falloff shape after the Samples: the one brush ends
 	// 64 + 104 bytes after the header's 16, and its falloff is a plain ball.
 	twentyfive := make([dynamic]u8, context.temp_allocator)
@@ -1331,4 +1352,67 @@ grab_modes_turn_the_drag :: proc(t: ^testing.T) {
 	app.stroke.grab_normal = facing
 	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
 	testing.expect(t, near(grab_moved(&app, {smooth = true}, up * 0.1, facing), facing * 0.1))
+}
+
+// A zigzag over the sphere, right then back left three times, lays dabs both ways; with
+// No back and forth or Directional only on the rightward legs, which go the first way and
+// away from the press. A stroke out to the right and back left past its press tells
+// them apart: Directional lays dabs again once it is past the press, going away on the
+// other side.
+@(test)
+stroke_ways_skip_dabs :: proc(t: ^testing.T) {
+	zigzag := make([dynamic][2]f32, context.temp_allocator)
+	for leg in 0 ..< 4 {
+		for k in 0 ..= 10 {
+			x := f32(420 + 16 * k) if leg % 2 == 0 else f32(580 - 16 * k)
+			append(&zigzag, [2]f32{x, f32(400 + 3 * leg)})
+		}
+	}
+	back := make([dynamic][2]f32, context.temp_allocator)
+	for k in 0 ..= 10 do append(&back, [2]f32{f32(500 + 8 * k), 400})
+	for k in 1 ..= 20 do append(&back, [2]f32{f32(580 - 8 * k), 402})
+	count :: proc(path: [][2]f32, one_way, directional: bool) -> int {
+		app: App
+		defer stroke_scene_free(&app)
+		defer replay_destroy(&app.replay)
+		_ = stroke_sphere(&app)
+		app.brush.radius_px, app.brush.one_way, app.brush.directional = 20, one_way, directional
+		total := 0
+		for d in stroke_recorded(&app, path) do total += d
+		return total
+	}
+	both := count(zigzag[:], false, false)
+	one := count(zigzag[:], true, false)
+	out := count(zigzag[:], false, true)
+	testing.expectf(t, one > both / 3 && one < 2 * both / 3 && abs(out - one) <= 2, "both ways %v, one way %v, directional %v", both, one, out)
+	one = count(back[:], true, false)
+	out = count(back[:], false, true)
+	testing.expectf(t, out > one + 3, "out and back past the press: one way %v, directional %v", one, out)
+}
+
+// With the size fixed in the scene a dab is as big on the model whatever the zoom: the
+// world radius brush_at gives sculpt (pixels times the scale times the world size of a
+// pixel there) is the same at two camera distances, where on screen it is not.
+@(test)
+size_fixed_in_the_scene_keeps_the_radius :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.brush.radius_px = 30
+	radius_at :: proc(app: ^App) -> (world, scale: f32) {
+		per_px := camera.orbit_world_per_px(app.camera, {0, 0, 1}, STROKE_SIZE.y)
+		scale = brush_size_scale(app, per_px, STROKE_SIZE.y)
+		return app.brush.radius_px * scale * per_px, scale
+	}
+	near, _ := radius_at(&app)
+	app.camera.distance *= 2
+	far, _ := radius_at(&app)
+	testing.expectf(t, far > 1.5 * near, "on screen: %v near, %v far", near, far)
+	app.camera.distance /= 2
+	app.brush.size_world, app.brush.size_ref = true, 0
+	near, _ = radius_at(&app)
+	app.camera.distance *= 2
+	scale: f32
+	far, scale = radius_at(&app)
+	testing.expectf(t, abs(far - near) < 1e-4 * near, "in the scene: %v near, %v far", near, far)
+	testing.expectf(t, scale > 0.4 && scale < 0.6, "the ring at twice the distance: %v of its size", scale)
 }

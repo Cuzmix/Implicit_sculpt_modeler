@@ -24,6 +24,7 @@ Built_In_Preset :: struct {
 	grab_depth:  bool,
 	smooth_only: sculpt.Smooth_Only,
 	topological: bool, // Grab's falloff along the surface
+	one_way:     bool, // the stroke's No back and forth
 }
 
 // Appended to only, as a dock slot read from an older settings file finds its preset by
@@ -44,6 +45,8 @@ BUILT_IN_PRESETS := [?]Built_In_Preset {
 	{name = "Smooth valleys", kind = .Smooth, strength = 0.8, smooth_only = .Valleys},
 	{name = "Smooth peaks", kind = .Smooth, strength = 0.8, smooth_only = .Peaks},
 	{name = "Move topological", kind = .Grab, strength = 0.5, topological = true},
+	// Fine parallel grooves from a zigzag, as ZBrush's No back and forth is used for.
+	{name = "Hatch", kind = .Crease, strength = 0.5, focal = 40, one_way = true},
 }
 
 // The built-in preset `j` as a preset: the table's row over a fresh brush's values. The
@@ -56,7 +59,7 @@ built_in_preset :: proc(j: int) -> Brush_Preset {
 			spread = SPRAY_DEFAULT_SPREAD, smoothing = 1, pressure_smoothing = 1, color = {1, 1, 1}, lock_plane = r.lock_plane, connected = r.connected,
 			grab_depth = r.grab_depth, smooth_only = r.smooth_only, grab_topological = r.topological, elastic_volume = ELASTIC_VOLUME_DEFAULT,
 			// As the plain brushes start: Draw does not build up over itself.
-			sample_radius = 1, no_accumulate = r.kind == .Draw,
+			sample_radius = 1, no_accumulate = r.kind == .Draw, one_way = r.one_way,
 		},
 	}
 	if shape, ok := r.alpha.?; ok do p.values.alpha = int(shape)

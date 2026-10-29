@@ -331,11 +331,15 @@ kit_stroke_path :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Spacing", &app.brush.spacing, MIN_SPACING, MAX_SPACING, .Logarithmic, fmt.tprintf("%.0f%%", app.brush.spacing * 100))
 		_ = ui.switch_row(ctx, "Even strength", &app.brush.even_strength)
 		_ = ui.switch_row(ctx, "Scene spacing", &app.brush.scene_spacing)
+		_ = ui.switch_row(ctx, "No back and forth", &app.brush.one_way)
+		_ = ui.switch_row(ctx, "Directional", &app.brush.directional)
 	}
 	_ = ui.switch_row(ctx, "Line", &app.brush.line)
 	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
+	// Turned on, the size is taken afresh from the view as it is, so nothing jumps.
+	if ui.switch_row(ctx, "Size fixed in the scene", &app.brush.size_world) do app.brush.size_ref = 0
 	_ = kit_stroke_amount(app, "Last stroke")
-	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again.")
+	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. No back and forth lays dabs only while the stroke goes the way it first went, so a zigzag lays parallel hatching; Directional only while it moves away from where it was pressed. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again. Size fixed in the scene keeps the brush the same size on the model as the view zooms, as ZBrush's Dynamic size: the ring grows as you zoom in.")
 	kit_more_end(app)
 }
 

@@ -96,7 +96,8 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	if !ok do return
 	obj := app.scene.objects[index]
 	t := obj.transform
-	radius := app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, input.size.y)
+	per_px := camera.orbit_world_per_px(app.camera, hit, input.size.y)
+	radius := app.brush.radius_px * brush_size_scale(app, per_px, input.size.y) * per_px
 	normal := face
 	if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), to_local(t, hit), radius / t.scale, to_local_dir(t, face)); found {
 		normal = linalg.normalize0(to_world_dir(t, n))

@@ -85,6 +85,17 @@ Brush_Settings :: struct {
 	// by (sculpt.Brush.feather).
 	feather:           bool,
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
+	// Dots: No back and forth (ZBrush's), dabs only while the stroke goes the way it first
+	// went, so a zigzag lays parallel hatching; Directional, dabs only while it moves away
+	// from where it was pressed (stroke_way_allowed).
+	one_way:           bool,
+	directional:       bool,
+	// Size fixed in the scene (ZBrush's Dynamic size, Nomad's Constant): each pixel of
+	// radius_px stands for size_ref world units, taken from the view's middle when it was
+	// turned on (0 until then), so zooming in makes the brush bigger on screen and the
+	// stroke keeps the same size on the model (brush_size_scale).
+	size_world:        bool,
+	size_ref:          f32,
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
@@ -180,6 +191,11 @@ Stroke :: struct {
 	// Even strength's scale for this stroke's dabs (spacing_strength), or Accumulate off's
 	// (once_strength); 0 until worked out.
 	even:     f32,
+	// Size fixed in the scene: how many screen pixels a pixel of radius_px is at the last
+	// dab (brush_size_scale); 0 before it.
+	size_scale: f32,
+	// No back and forth: the way the stroke first moved on screen, zero before it has.
+	first_dir:  [2]f32,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	// The stabiliser's newest raw samples, newest first (`steady_count` of them), and
@@ -608,7 +624,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
-	st.dir, st.facing, st.even = {}, 0, 0
+	st.dir, st.facing, st.even, st.size_scale, st.first_dir = {}, 0, 0, 0, {}
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	stroke_steady_start(st, s)
@@ -920,9 +936,38 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.tilt += (tilt - st.tilt) * f
 		}
 		st.travel = 0
+		if !stroke_way_allowed(app) do continue
 		if st.mode == .Spray do spray_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 		else do stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 	}
+}
+
+// Whether a dab goes where the stroke has got to, as it moves along st.dir: No back and
+// forth lays none while it goes against the way it first went, and Directional none
+// while it comes back toward its press. The spacing walks on either way, so the dabs
+// start again in step when the stroke turns back.
+@(private = "file")
+stroke_way_allowed :: proc(app: ^App) -> bool {
+	st := &app.stroke
+	if st.dir == {} do return true
+	if app.brush.one_way {
+		if st.first_dir == {} do st.first_dir = st.dir
+		if linalg.dot(st.dir, st.first_dir) <= 0 do return false
+	}
+	if app.brush.directional && linalg.dot(st.dir, st.pos - st.start) <= 0 do return false
+	return true
+}
+
+// How many screen pixels a pixel of the brush's radius_px is at a point `per_px` world
+// units a pixel away (camera.orbit_world_per_px), in a viewport `height` pixels high: 1
+// with the size on screen, and with the size fixed in the scene the world size it stands
+// for seen there. Taking size_ref when it is first wanted means turning the switch on
+// changes nothing on screen until the view zooms.
+brush_size_scale :: proc(app: ^App, per_px, height: f32) -> f32 {
+	b := &app.brush
+	if !b.size_world do return 1
+	if b.size_ref <= 0 do b.size_ref = camera.orbit_world_per_px(app.camera, app.camera.target, height)
+	return b.size_ref / max(per_px, 1e-20)
 }
 
 // Whether the stroke under way can become a straight line: one laying dabs along its
@@ -1221,6 +1266,7 @@ held_brush :: proc(input: Viewport_Input) -> bool {
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
+	app.stroke.size_scale = brush_size_scale(app, world_per_px, input.size.y)
 	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
 	// the rail's Mask masks at the Mask brush's; while painting, Shift's blur is at Smooth's
@@ -1308,8 +1354,11 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	return &table.falloff
 }
 
+// The brush's radius on screen in pixels under `pressure` and `tilt`, at the stroke's last
+// dab when the size is fixed in the scene.
 brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 	r := app.brush.radius_px * (1 + app.brush.tilt_size * lean_of(tilt))
+	if app.brush.size_world && app.stroke.size_scale > 0 do r *= app.stroke.size_scale
 	if !brush_pressure(&app.brush, app.brush.kind).size do return r
 	return r * max(pressure_sized(app, pressure), brush_pressure(&app.brush, app.brush.kind).size_floor, MIN_PRESSURE_SIZE)
 }

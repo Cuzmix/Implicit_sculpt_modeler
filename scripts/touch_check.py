@@ -1299,6 +1299,21 @@ def smooth_stable_flattens_the_sphere():
 
 
 @scenario
+def hatch_lays_one_way_grooves():
+    """The library's Hatch preset (a Crease with No back and forth) scribbled in a zigzag
+    is one undo step whose grooves run one way only (look with --screens: four parallel
+    grooves from the rightward legs, none along the legs back)."""
+    s = Script()
+    path = []
+    for i in range(7):
+        y = 380 + 14 * i
+        path += line((680, y), (900, y + 7), 10) if i % 2 == 0 else line((900, y), (680, y + 7), 10)
+    s.mouse_drag(path)
+    s.wait(2)
+    return s, ["--script=preset Hatch"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(1), "brush_kind": is_text("crease")})
+
+
+@scenario
 def clay_hard_and_projected():
     """Clay starts Projected; with every brush at Hardness 50 a stroke across the sphere
     is one undo step (look with --screens: a flat-topped band with soft edges, and the
@@ -2658,7 +2673,7 @@ LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "la
 LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
-LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
+LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (721, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
 
