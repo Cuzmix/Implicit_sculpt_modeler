@@ -88,7 +88,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip
-	case .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
+	case .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie, .Brush_Value:
 		return .Skip
 	case .New_Scene:
 		return .Left_Out

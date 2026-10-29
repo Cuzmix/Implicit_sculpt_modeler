@@ -56,10 +56,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `MIDDLE` is where the sphere's middle lands at 1600x900 (the gizmo's points follow it). Panels fade under a viewport
   stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from `kit_layout`; Tab is
   bound to it and B to the brush picker in `DEFAULT_BINDINGS`.
-  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the five `Shelf_*` pages and
-  Brush_Pie, each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
+  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the five `Shelf_*` pages,
+  Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
-  View_Rail) go in workspace layouts, the pages and the pie only in settings. Customise bars (`k.bars_edit`) is
+  View_Rail) go in workspace layouts, the pages, the pie and the island only in settings. Brush values
+  (`brush_values.odin`) are `Brush_Value` slots (one argument per value); their look is the bar's
+  (`Bar_List.looks`, kept parallel by insert, remove and move; `bar_look` turns a Slider off the island into a
+  Chip), and `value_item` draws every look, a Chip claiming the drag only across its bar (`claim_drag`). Customise bars (`k.bars_edit`) is
   Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
   chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
   `arrange_show_chips` + `arrange_panel_rows`, `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar, and

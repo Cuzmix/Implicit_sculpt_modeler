@@ -98,10 +98,14 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	return ""
 }
 
-// The bar Put on a bar puts the entry on: a brush on the shelf's page shown, anything
-// else on the view rail.
+// The bar Put on a bar puts the entry on: a brush on the shelf's page shown, a brush
+// value on the off-hand island beside the others, anything else on the view rail.
 palette_bar_for :: proc(app: ^App, e: Palette_Entry) -> Bar_Which {
-	return shelf_which(app.kit.shelf.page) if e.id == .Brush else .View_Rail
+	#partial switch e.id {
+	case .Brush:       return shelf_which(app.kit.shelf.page)
+	case .Brush_Value: return .Offhand
+	}
+	return .View_Rail
 }
 
 // Puts the entry at the end of its bar (palette_bar_for), saying so; one already there

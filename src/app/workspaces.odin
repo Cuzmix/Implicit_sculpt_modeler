@@ -211,7 +211,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			stack_sizes_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
-		case "bar_count", "bar":
+		case "bar_count", "bar", "bar_look":
 			bars_load_line(k, f)
 		}
 	}

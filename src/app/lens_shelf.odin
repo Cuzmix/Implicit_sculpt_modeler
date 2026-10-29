@@ -254,6 +254,13 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	mark := ui.vertex_mark(ctx)
 	sh.shown = n
 	for s, i in used[:n] {
+		// A brush value is a chip as on any bar, scrubbed up and down so a sideways
+		// swipe still turns the page.
+		if v, ok := value_of(s); ok {
+			value_item(app, which, i, v, ui.BRUSH_TILE, column = false)
+			sh.tiles[i] = ctx.last_rect
+			continue
+		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
 		if ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg)) {
 			if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)

@@ -911,7 +911,7 @@ settings_load :: proc(app: ^App, path: string) {
 			i, i_ok := strconv.parse_int(f[1])
 			if !i_ok || i < 0 || i >= len(app.kit.dial) do continue
 			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dial[i] = s
-		case "bar_count", "bar":
+		case "bar_count", "bar", "bar_look":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
 			// install's is written whole. A file from before the Classic layout went also
