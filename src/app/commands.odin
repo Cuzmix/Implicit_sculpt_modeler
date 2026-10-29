@@ -73,6 +73,7 @@ Command_Id :: enum u8 {
 	Size_Up,
 	Strength_Down,
 	Strength_Up,
+	Brush_Value,
 	Preset_Save_New,
 	Preset_Save,
 	Preset_Revert,
@@ -896,6 +897,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Raises the brush's strength by 0.05.",
 		icon = ui.ICON_STRENGTH,
 		run = proc(app: ^App, _: int) {brush_strength_step(app, true)},
+	},
+	.Brush_Value = {
+		label = "Brush value",
+		help = "Opens the value's slider and steps; on a bar it shows as a tall slider, a chip to tap or scrub, or an icon.",
+		icon = rune(0xe29a), // sliders-horizontal
+		args = len(Brush_Value),
+		run = value_command,
 	},
 	.Preset_Save_New = {
 		label = "Save brush as preset",
@@ -2375,6 +2383,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return CAGE_CREASE_NAMES[Cage_Crease(arg)]
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
+	case .Brush_Value:
+		return fmt.tprintf("Brush %s", strings.to_lower(BRUSH_VALUE_NAMES[Brush_Value(arg)], context.temp_allocator))
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
 	case .Viewport_Look:
@@ -2474,9 +2484,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Frame_All:
 		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		builtin = "Three fingers up or down" if n.three_finger else "Long press the bar's Size and drag"
+		builtin = "Three fingers up or down" if n.three_finger else "Drag the island's Size up or down, or a Size chip across"
 	case .Strength_Up, .Strength_Down:
-		builtin = "Long press the bar's Strength and drag"
+		builtin = "Drag the island's Strength up or down, or a Strength chip across"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.

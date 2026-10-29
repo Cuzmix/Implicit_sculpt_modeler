@@ -146,7 +146,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", what = "Brush strength", command = .Strength_Down},
 	{group = "SCULPT", command = .Strength_Up},
 	{group = "SCULPT", what = "Focal shift", how = "Three fingers sideways", show = proc(app: ^App) -> bool {return app.nav.three_finger}},
-	{group = "SCULPT", what = "Focal shift", how = "Long press the bar's Focal shift and drag"},
+	{group = "SCULPT", what = "Focal shift", how = "Drag a Focal shift chip across (Customise bars puts one on any bar)"},
 	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier wheel: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Resize or turn the modifier wheel", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask, or Smooth and Mask, on: drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},

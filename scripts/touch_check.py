@@ -269,30 +269,36 @@ FOV_SLIDER = (1349, 180)
 
 
 @scenario
-def long_press_draw_size_opens_the_pen():
-    """A long press on the island's Size opens the Pen section (pressure and tilt) beside it, and moves nothing."""
+def long_press_draw_size_opens_its_menu():
+    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) in its place."""
     s = Script()
     long_press(s, *UI["size"])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    first = (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "value_pop": is_text("size"), "brush_radius_px": near(60)}))
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(*VALUE_MENU_SETTINGS)
+    s.wait(4)
+    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)}))])
 
 
 @scenario
 def hold_delay_is_short_by_default():
-    """The island's Size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: the Pen section opens, where the old 0.3 s would still have tapped."""
+    """The island's Size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: its menu opens, where the old 0.3 s would still have tapped."""
     s = Script()
     long_press(s, *UI["size"], frames=17)
     s.wait(8)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
 
 @scenario
 def hold_delay_setting_goes_down_to_a_tenth():
-    """With the Hold delay at its floor of 0.1 s, the island's Size held still 0.13 s is already a long press: the Pen section opens."""
+    """With the Hold delay at its floor of 0.1 s, the island's Size held still 0.13 s is already a long press: its menu opens."""
     s = Script()
     long_press(s, *UI["size"], frames=8)
     s.wait(8)
-    return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
 
 @scenario
@@ -307,7 +313,7 @@ def mouse_drags_strength_at_once():
 
 @scenario
 def hold_delay_setting_keeps_a_shorter_hold_a_tap():
-    """With the Hold delay at 0.8 s, the island's Size held 0.5 s is still a tap: the Pen section stays shut and the size as it was."""
+    """With the Hold delay at 0.8 s, the island's Size held 0.5 s is still a tap: its menu stays shut and the size as it was."""
     s = Script()
     long_press(s, *UI["size"], frames=30)
     s.wait(8)
@@ -317,11 +323,117 @@ def hold_delay_setting_keeps_a_shorter_hold_a_tap():
 
 @scenario
 def hold_delay_setting_still_long_presses():
-    """With the Hold delay at 0.8 s, the island's Size held 0.9 s is a long press: the Pen section opens."""
+    """With the Hold delay at 0.8 s, the island's Size held 0.9 s is a long press: its menu opens."""
     s = Script()
     long_press(s, *UI["size"], frames=54)
     s.wait(8)
-    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
+
+
+# A brush value's menu beside the island's Size at 1600 x 900: its Chip row and its Brush
+# settings row.
+VALUE_MENU_CHIP = (200, 365)
+VALUE_MENU_SETTINGS = (200, 454)
+# The island holding Size, Strength and Focal shift as chips (value_bars), their centres, and
+# the Size popover's 96 step.
+VALUE_CHIPS = {"size": (44, 387), "strength": (44, 450), "focal": (44, 512)}
+VALUE_STEP_96 = (282, 508)
+# The shelf's tool strip with Strength and Pressure after Move and Remesh (value_bars), and
+# the Pressure popover's Strength switch.
+STRIP_STRENGTH, STRIP_PRESSURE = (1181, 832), (1229, 832)
+PRESSURE_STRENGTH_SWITCH = (1343, 761)
+
+
+def value_bars(island=(), strip=()):
+    """Arguments that start the run with the island holding `island` and the shelf's tools
+    `strip`, each a list of (value, look) or a command name, through the scenario's settings
+    file."""
+    lines = ["version 5"]
+    for zone, items in (("offhand_island", island), ("bottom_tools", strip)):
+        if not items:
+            continue
+        lines.append(f"bar_count {zone} {len(items)}")
+        for i, item in enumerate(items):
+            if isinstance(item, str):
+                lines.append(f"bar {zone} {i} {item}")
+                continue
+            value, look = item
+            lines.append(f"bar {zone} {i} Brush_Value:{value}")
+            lines.append(f"bar_look {zone} {i} {look}")
+    with open(settings_file(), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return [f"--settings-file={settings_file()}"]
+
+
+VALUE_CHIP_ISLAND = [("Size", "Chip"), ("Strength", "Chip"), ("Focal_Shift", "Chip")]
+
+
+@scenario
+def value_chip_tap_opens_its_steps():
+    """A tap on the island's Size chip opens its popover beside it; a tap on its 96 step sets the size, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*VALUE_CHIPS["size"])
+    s.wait(6)
+    first = (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("size"), "value_pops": near(1),
+                                                            "brush_radius_px": near(60)}))
+    s = Script()
+    s.ftap(*VALUE_CHIPS["size"])
+    s.wait(6)
+    s.ftap(*VALUE_STEP_96)
+    s.wait(4)
+    return Steps([first, (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "brush_radius_px": near(96)}))])
+
+
+@scenario
+def value_chip_scrub_sets_the_size():
+    """A finger dragged 60 points sideways from the island's Size chip makes the brush bigger as it goes, opens nothing and sculpts nothing."""
+    s = Script()
+    x, y = VALUE_CHIPS["size"]
+    s.fdrag(line((x, y), (x + 60, y), 20))
+    s.wait(4)
+    return s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "value_scrubs": near(1),
+                                                           "brush_radius_px": lambda v: float(v) > 80})
+
+
+@scenario
+def long_press_a_value_picks_its_look():
+    """A long press on the island's Size slider opens its menu; its Chip row turns it into a chip, which the settings file keeps."""
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(*VALUE_MENU_CHIP)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "offhand_looks": is_text("Chip,Slider"),
+                                                                     "@saved": saved_line("bar_look offhand_island 0 Chip")})
+
+
+@scenario
+def strip_value_scrubs_up_and_down():
+    """Strength on the shelf's tools scrubs up and down: a finger dragged 50 points up from it raises the strength and leaves the page; a sideways swipe from it still turns the page."""
+    strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
+    s = Script()
+    x, y = STRIP_STRENGTH
+    s.fdrag(line((x, y), (x, y - 50), 20))
+    s.wait(4)
+    first = (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(1), "shelf_page": is_text("Sculpt"),
+                                                      "brush_strength": lambda v: float(v) > 0.55}))
+    s = Script()
+    s.fdrag(line((x, y), (x - 200, y), 20))
+    s.wait(10)
+    return Steps([first, (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(0), "shelf_page": is_text("Paint")}))])
+
+
+@scenario
+def pressure_chip_opens_its_switches():
+    """Pressure on the shelf's tools is a tap, not a scrub: its popover's Strength switch turns pressure on the strength off."""
+    strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
+    s = Script()
+    s.ftap(*STRIP_PRESSURE)
+    s.wait(6)
+    s.ftap(*PRESSURE_STRENGTH_SWITCH)
+    s.wait(4)
+    return s, value_bars(strip=strip), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("pressure"),
+                                                    "pressure_strength": near(0)})
 
 
 @scenario

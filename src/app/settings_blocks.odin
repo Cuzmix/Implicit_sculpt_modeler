@@ -355,7 +355,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Hold:
 		// In steps of 0.05 s, so the value shown is the value used.
 		if ui.slider(ctx, "Hold delay", &n.hold_delay, HOLD_DELAY_MIN, HOLD_DELAY_MAX, .Linear, fmt.tprintf("%.2f s", n.hold_delay)) do n.hold_delay = f32(int(n.hold_delay * 20 + 0.5)) / 20
-		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or dragging Draw size, Strength or Focal shift on the spot (a drag up or down on them sets them at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
+		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or a brush value's menu (a drag on the island's sliders or across a value chip sets the value at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
 	case .Pen_Empty:
 		empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
 		ui.label(ctx, "Pen")

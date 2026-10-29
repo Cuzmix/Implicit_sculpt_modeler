@@ -324,7 +324,7 @@ kit_stroke_path :: proc(app: ^App) {
 kit_stabiliser :: proc(app: ^App, full: bool) {
 	ctx := &app.kit.ctx
 	b := &app.brush
-	_ = ui.slider(ctx, "Lazy mouse", &b.lazy_px, 0, 150, .Linear, "off" if b.lazy_px < 0.5 else fmt.tprintf("%.0f px", b.lazy_px))
+	_ = ui.slider(ctx, "Lazy mouse", &b.lazy_px, 0, LAZY_MAX_PX, .Linear, "off" if b.lazy_px < 0.5 else fmt.tprintf("%.0f px", b.lazy_px))
 	steady_slider :: proc(ctx: ^ui.Context, name: string, v: ^f32) {
 		if v^ < 1 do v^ = 1
 		if ui.slider(ctx, name, v, 1, STEADY_MAX, .Linear, "off" if steady_count(v^) <= 1 else fmt.tprintf("%d samples", steady_count(v^))) {
