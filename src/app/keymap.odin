@@ -243,6 +243,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Cage_Smooth, .Cage_Thickness, .Cage_Bevel: return fmt.tprint(arg)
 	case .Cage_Thickness_Segments, .Cage_Bevel_Segments: return fmt.tprint(arg + 1)
 	case .Cage_Thickness_Side: return fmt.tprint(poly.Thickness_Side(arg))
+	case .Cage_Mirror: return fmt.tprint(poly.Mirror_Axis(arg))
 	case .Crease_Cage: return fmt.tprint(Cage_Crease(arg))
 	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
 	case .Viewport_Look: return fmt.tprint(Look_Preset(arg))

@@ -144,3 +144,83 @@ live_stack_bevels_then_thickens :: proc(t: ^testing.T) {
 	for p, i in a.mesh.positions do testing.expect_value(t, p, b.mesh.positions[i])
 	for f, i in a.face_from do testing.expect_value(t, f, b.face_from[i])
 }
+
+@(test)
+mirror_live_closes_a_half_box :: proc(t: ^testing.T) {
+	// A cube without its -x face, moved so the opening lies on x = 0, one of its far edges
+	// creased: mirrored across X it is a closed box twice as long, the seam's four points
+	// shared, the cage's faces first and their images after, the crease on both halves.
+	box := primitive(.Cube)
+	defer mesh_destroy(&box)
+	side := NONE
+	for f in 0 ..< u32(len(box.face_he)) do if face_normal(&box, f).x < -0.9 do side = f
+	r, err := delete_faces(&box, {side})
+	edit_result_destroy(&r)
+	testing.expect_value(t, err, Build_Error.None)
+	length := mesh_bounds(&box).hi.x
+	for &p in box.positions do p.x += length
+	length *= 2
+	far := NONE
+	for e in 0 ..< u32(len(box.crease)) {
+		a, b := edge_verts(&box, e)
+		if box.positions[a].x > length / 2 && box.positions[b].x > length / 2 {
+			far = e
+			break
+		}
+	}
+	box.crease[far] = 1
+	// A seam point a little off the plane still joins it, and is put on it.
+	seam := NONE
+	for p, v in box.positions do if p.x < length / 2 do seam = u32(v)
+	box.positions[seam].x = 1e-4
+	lm, build_err := live_build(&box, {mirror = {.X}})
+	defer live_mesh_destroy(&lm)
+	testing.expect_value(t, build_err, Build_Error.None)
+	testing.expect(t, !lm.mirror_refused)
+	c := mesh_check(&lm.mesh)
+	testing.expect(t, check_ok(c))
+	testing.expect_value(t, c.vertices, 12)
+	testing.expect_value(t, c.faces, 10)
+	testing.expect_value(t, c.border_edges, 0)
+	for f in 0 ..< 5 do testing.expect_value(t, lm.face_from[f], u32(f))
+	for f in 5 ..< 10 do testing.expect_value(t, lm.face_from[f], NONE)
+	testing.expect_value(t, lm.mesh.positions[seam].x, 0)
+	creased := 0
+	for e in lm.mesh.crease do if e > 0 do creased += 1
+	testing.expect_value(t, creased, 2)
+	b := mesh_bounds(&lm.mesh)
+	testing.expect(t, abs(b.lo.x + length) < 1e-5 && abs(b.hi.x - length) < 1e-5)
+	// With Thickness too the shell is closed round both halves; the cage's points still
+	// come first.
+	shell, shell_err := live_build(&box, {mirror = {.X}, thickness = 0.1, thickness_segments = 1})
+	defer live_mesh_destroy(&shell)
+	testing.expect_value(t, shell_err, Build_Error.None)
+	testing.expect(t, check_ok(mesh_check(&shell.mesh)))
+	for v, i in shell.vert_ids do testing.expect_value(t, v, u32(i))
+}
+
+@(test)
+mirror_live_refuses_a_face_across_the_plane :: proc(t: ^testing.T) {
+	// A plane of two by two faces on y = 0 lies across x = 0: its middle edges already have
+	// two faces, so across X the mirror is left out and the stack is the plane; across Y,
+	// the plane it lies in, the same. Moved off x = 0, its image across X is a second plane
+	// beside it.
+	plane := primitive(.Plane, {across = 2})
+	defer mesh_destroy(&plane)
+	for axes in ([2]Mirror_Axes{{.X}, {.Y}}) {
+		lm, err := live_build(&plane, {mirror = axes})
+		defer live_mesh_destroy(&lm)
+		testing.expect_value(t, err, Build_Error.None)
+		testing.expect(t, lm.mirror_refused)
+		testing.expect_value(t, len(lm.mesh.face_he), 4)
+	}
+	for &p in plane.positions do p.x += 3
+	apart, apart_err := live_build(&plane, {mirror = {.X}})
+	defer live_mesh_destroy(&apart)
+	testing.expect_value(t, apart_err, Build_Error.None)
+	testing.expect(t, !apart.mirror_refused)
+	c := mesh_check(&apart.mesh)
+	testing.expect(t, check_ok(c))
+	testing.expect_value(t, c.vertices, 18)
+	testing.expect_value(t, c.faces, 8)
+}

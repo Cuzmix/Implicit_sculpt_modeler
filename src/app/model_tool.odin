@@ -1085,7 +1085,6 @@ Model_Knife_Tap :: struct {
 }
 
 // How far a stroke went from the press at most, in viewport points.
-@(private = "file")
 model_stroke_reach :: proc(stroke: [][2]f32, press: [2]f32) -> (reach: f32) {
 	for p in stroke do reach = max(reach, linalg.length(p - press))
 	return

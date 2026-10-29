@@ -3,20 +3,22 @@ package poly
 import "core:math/linalg"
 import "core:slice"
 
-// The live stack (ZBrush's Dynamic Subdivision Thickness and QGrid, Blender's Solidify
-// and Bevel modifiers): what Model mode draws in place of the cage, before Smooth and
-// Flat, made again from the cage after every edit, so the cage itself stays as simple as
-// it was modelled. Thickness gives the cage a shell, each border closed by a rim whose
+// The live stack (ZBrush's Dynamic Subdivision Thickness and QGrid, Blender's Mirror,
+// Solidify and Bevel modifiers): what Model mode draws in place of the cage, before Smooth
+// and Flat, made again from the cage after every edit, so the cage itself stays as simple
+// as it was modelled. Mirror adds the cage's image across the planes through its origin,
+// the points on a plane shared by both halves; Thickness gives the cage a shell, each border closed by a rim whose
 // two edge loops are creased; Bevel creases then makes a strip of every creased edge, so
 // Smooth rounds it to a tight fillet instead of a crease (a crease's sharpness then only
 // says which edges are bevelled).
 //
 // The live mesh keeps the cage's points as its first ones, on the side of the shell that
 // faces out, except where the bevel replaces a point, and its first faces are the cage's
-// own faces in order, so the app can show and pick the cage on the drawn surface through
+// own faces in order (the mirror's images come after them), so the app can show and pick the cage on the drawn surface through
 // the maps here.
 
 Live :: struct {
+	mirror:             Mirror_Axes, // the planes the cage is mirrored across, first
 	thickness:          f32, // the shell's thickness; 0 for off
 	thickness_segments: int, // faces across each rim, 1 to LIVE_THICKNESS_SEGMENTS_MAX
 	side:               Thickness_Side,
@@ -50,6 +52,10 @@ Live_Mesh :: struct {
 	// The bevel was left out: a creased edge reaches a point it cannot round (where only
 	// two edges meet), and the stack is drawn without it.
 	bevel_refused: bool,
+	// The mirror was left out: the cage and its image would share an edge already
+	// between two faces (a face of the cage lies across the plane), and the stack is drawn
+	// without it.
+	mirror_refused: bool,
 }
 
 live_mesh_destroy :: proc(lm: ^Live_Mesh) {
@@ -62,21 +68,35 @@ live_mesh_destroy :: proc(lm: ^Live_Mesh) {
 }
 
 // Whether the stack changes anything.
-live_on :: proc(l: Live) -> bool {return l.bevel > 0 || l.thickness > 0}
+live_on :: proc(l: Live) -> bool {return l.bevel > 0 || l.thickness > 0 || l.mirror != {}}
 
 // Runs the stack over `cage`. Returns the error of a step whose result cannot be built,
 // which a valid cage never gives.
 live_build :: proc(cage: ^Mesh, l: Live, allocator := context.allocator) -> (lm: Live_Mesh, err: Build_Error) {
 	n := u32(len(cage.positions))
-	// The shell, or the cage itself, with its faces' cage faces.
+	// The cage with its mirror images, and per face the cage face it is (NONE for an
+	// image).
+	half := cage
+	whole: Mesh
+	m_from: []u32
+	if l.mirror != {} {
+		mm, mf, m_err := live_mirror(cage, l.mirror, mirror_slack(cage), context.temp_allocator)
+		if m_err == .None {
+			whole, m_from, half = mm, mf, &whole
+		} else {
+			lm.mirror_refused = true
+		}
+	}
+	// The shell, or the mirrored cage itself, with its faces' cage faces.
 	t: Mesh
 	t_from: []u32
 	if l.thickness > 0 {
-		t, t_from = live_thickness(cage, l.thickness, l.thickness_segments, l.side, context.temp_allocator) or_return
+		t, t_from = live_thickness(half, l.thickness, l.thickness_segments, l.side, context.temp_allocator) or_return
+		if m_from != nil do for &f in t_from do f = m_from[f]
 	} else {
-		t = mesh_clone(cage^, context.temp_allocator)
-		t_from = make([]u32, len(cage.face_he), context.temp_allocator)
-		for &f, i in t_from do f = u32(i)
+		t = mesh_clone(half^, context.temp_allocator)
+		t_from = make([]u32, len(half.face_he), context.temp_allocator)
+		for &f, i in t_from do f = m_from[i] if m_from != nil else u32(i)
 	}
 	nf := u32(len(t.face_he))
 	// The bevel over every creased edge of the shell, in ascending order as bevel_edges
@@ -168,6 +188,61 @@ live_build :: proc(cage: ^Mesh, l: Live, allocator := context.allocator) -> (lm:
 	lm.mesh = mesh_clone(t, allocator)
 	mesh_destroy(&t)
 	return lm, .None
+}
+
+// `m` with its images across the planes through the origin square to each of `axes`, one
+// axis after another (so X and Y give four copies), as Blender's Mirror modifier with
+// Clipping and Merge on: a point within `slack` of a plane is on the seam, put on the
+// plane and shared by both halves; every other point and every face gets an image, the
+// face turned over to face out, with its group, creases and corners. m's points and faces
+// come first, with their ids. Per face, m's face it is, or NONE for an image. Refused
+// when the halves would share an edge that already has two faces, which a face lying
+// across the plane gives.
+live_mirror :: proc(m: ^Mesh, axes: Mirror_Axes, slack: f32, allocator := context.allocator) -> (out: Mesh, face_from: []u32, err: Build_Error) {
+	out = mesh_clone(m^, allocator)
+	from := make([dynamic]u32, len(m.face_he), allocator)
+	for &f, i in from do f = u32(i)
+	for axis in Mirror_Axis {
+		if axis not_in axes do continue
+		a := int(axis)
+		n := u32(len(out.positions))
+		e := edit_begin(&out, context.temp_allocator)
+		image := make([]u32, n, context.temp_allocator)
+		for v in 0 ..< n {
+			p := out.positions[v]
+			if abs(p[a]) <= slack {
+				e.positions[v][a] = 0
+				image[v] = v
+				continue
+			}
+			p[a] = -p[a]
+			image[v] = edit_vertex(&e, p, out.corner[v])
+		}
+		verts := make([dynamic]u32, context.temp_allocator)
+		for i in 0 ..< len(out.face_he) {
+			clear(&verts)
+			#reverse for v in e.faces[i].verts do append(&verts, image[v])
+			edit_face(&e, verts[:], e.faces[i].group)
+			append(&from, NONE)
+		}
+		// The images' creases, taken from a list since the map grows.
+		creased := make([dynamic]u64, 0, len(e.creases), context.temp_allocator)
+		for key in e.creases do append(&creased, key)
+		for key in creased {
+			c := e.creases[key]
+			e.creases[edit_key(image[u32(key >> 32)], image[u32(key & 0xffff_ffff)])] = c
+		}
+		r, edit_err := edit_end(&out, &e, context.temp_allocator)
+		// Every point of a cage is in a face, so edit_end keeps every id; were one not,
+		// the ids after it would move, and the mirror is refused instead.
+		if edit_err == .None && len(r.vert) != len(out.positions) do edit_err = .Degenerate_Face
+		if edit_err != .None {
+			mesh_destroy(&out)
+			delete(from)
+			return {}, nil, edit_err
+		}
+	}
+	return out, from[:], .None
 }
 
 // Copies the positions of the stack made again from `cage` (moved without a change of

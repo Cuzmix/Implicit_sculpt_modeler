@@ -64,7 +64,7 @@ cage_look_clean :: proc(look: Cage_Look) -> Cage_Look {
 	return {
 		clamp(look.smooth, 0, poly.SUBDIVIDE_MAX),
 		look.flat,
-		{size(l.thickness), clamp(l.thickness_segments, 1, poly.LIVE_THICKNESS_SEGMENTS_MAX), l.side, size(l.bevel), clamp(l.bevel_segments, 1, poly.BEVEL_SEGMENTS_MAX)},
+		{l.mirror & {.X, .Y, .Z}, size(l.thickness), clamp(l.thickness_segments, 1, poly.LIVE_THICKNESS_SEGMENTS_MAX), l.side, size(l.bevel), clamp(l.bevel_segments, 1, poly.BEVEL_SEGMENTS_MAX)},
 	}
 }
 
@@ -627,6 +627,16 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := 
 		}
 		look.live = l
 	}
+	// The live mirror from version 32; an older cage has none.
+	if version >= 32 {
+		axes := geom.byte_get(r, u8)
+		all := transmute(u8)poly.Mirror_Axes{.X, .Y, .Z}
+		if !r.ok || axes & ~all != 0 {
+			poly.mesh_destroy(&cage)
+			return false, false
+		}
+		look.live.mirror = transmute(poly.Mirror_Axes)axes
+	}
 	// The sculpt Edit cage took it from, from version 30: read only on Apply.
 	held: []u8
 	if version >= 30 {
@@ -673,6 +683,7 @@ object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look, drag :=
 	switch {
 	case look.flat != old.flat:     what = "flat"
 	case look.smooth != old.smooth: what = fmt.tprintf("smooth %d", look.smooth)
+	case look.live.mirror != old.live.mirror: what = "mirror"
 	case look.live.bevel != old.live.bevel || look.live.bevel_segments != old.live.bevel_segments: what = "bevel creases"
 	case: what = "thickness"
 	}
@@ -685,7 +696,7 @@ object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look, drag :=
 		ld^ = {object = obj.id, before = history_snapshot(app, obj, what)}
 	}
 	obj.cage.look = look
-	same := old.smooth == look.smooth && old.flat == look.flat && (old.live.thickness > 0) == (look.live.thickness > 0) && (old.live.bevel > 0) == (look.live.bevel > 0) && old.live.thickness_segments == look.live.thickness_segments && old.live.bevel_segments == look.live.bevel_segments
+	same := old.smooth == look.smooth && old.flat == look.flat && old.live.mirror == look.live.mirror && (old.live.thickness > 0) == (look.live.thickness > 0) && (old.live.bevel > 0) == (look.live.bevel > 0) && old.live.thickness_segments == look.live.thickness_segments && old.live.bevel_segments == look.live.bevel_segments
 	ok := cage_positions_moved(app, obj, nil) if same && obj.cage.live.vert_first != nil else cage_rebuild(app, obj)
 	if !ok {
 		if before != nil do history_snapshot_drop(before)
@@ -720,12 +731,14 @@ cage_look_drag_end :: proc(app: ^App, force := false) {
 Cage_Tidy :: enum u8 {
 	Dissolve_Flat,
 	Merge_Close,
+	Apply_Mirror,
 }
 
 @(rodata)
 CAGE_TIDY_NAMES := [Cage_Tidy]string {
 	.Dissolve_Flat = "Dissolve flat",
 	.Merge_Close   = "Merge close points",
+	.Apply_Mirror  = "Apply mirror",
 }
 
 // How flat two faces must be to join, and how close two points to merge (a share of the
@@ -738,10 +751,13 @@ CAGE_MERGE_SHARE :: 1e-3
 object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
 	cage := &obj.cage.mesh
 	faces, points := len(cage.face_he), len(cage.positions)
+	if kind == .Apply_Mirror do return object_apply_cage_mirror(app, obj)
 	before := history_snapshot(app, obj, "dissolve flat faces" if kind == .Dissolve_Flat else "merge close points")
 	r: poly.Edit_Result
 	err: poly.Build_Error
 	switch kind {
+	case .Apply_Mirror:
+	// Applied above, since it changes the look too.
 	case .Dissolve_Flat:
 		r, err = poly.dissolve_by_angle(cage, CAGE_FLAT_DEGREES)
 	case .Merge_Close:
@@ -766,6 +782,36 @@ object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
 		return false
 	}
 	history_record_swap(app, obj.id, before, kind = .Model)
+	return true
+}
+
+// Apply mirror: the cage's live mirror images become part of it, the seam's points
+// shared, and the mirror goes off, as one undo step, as applying Blender's Mirror modifier
+// does. The cage's own points and faces keep their ids, so its selection stays. Returns
+// false only on a GPU failure.
+object_apply_cage_mirror :: proc(app: ^App, obj: ^Object) -> bool {
+	cp := obj.cage
+	if cp.look.live.mirror == {} {
+		report(app, nil, {}, "Apply mirror: %s has no mirror on", object_label(obj))
+		return true
+	}
+	whole, from, err := poly.live_mirror(&cp.mesh, cp.look.live.mirror, poly.mirror_slack(&cp.mesh))
+	delete(from)
+	if err != .None {
+		report(app, nil, {.Warning}, "Apply mirror refused on %s: a face lies across the mirror plane, so the halves would share an edge that already has two faces", object_label(obj))
+		return true
+	}
+	faces := len(cp.mesh.face_he)
+	before := history_snapshot(app, obj, "apply mirror")
+	poly.mesh_destroy(&cp.mesh)
+	cp.mesh = whole
+	cp.look.live.mirror = {}
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	report(app, nil, {}, "Apply mirror: %s went from %d faces to %d", object_label(obj), faces, len(obj.cage.mesh.face_he))
 	return true
 }
 
@@ -992,8 +1038,8 @@ kit_model_tab :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
 }
 
-// The live stack's controls in the Model palette: Thickness and Bevel creases, each a
-// width slider (a share of the cage's size, one undo step a drag) with its segments, and
+// The live stack's controls in the Model palette: Mirror's axes, then Thickness and Bevel
+// creases, each a width slider (a share of the cage's size, one undo step a drag) with its segments, and
 // the shell's side.
 @(private = "file")
 kit_cage_live :: proc(app: ^App, obj: ^Object) {
@@ -1004,6 +1050,16 @@ kit_cage_live :: proc(app: ^App, obj: ^Object) {
 	drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
 	SEGMENTS :: [?]string{"1", "2", "3", "4", "5", "6"}
 	segments := SEGMENTS
+	ui.caption(ctx, "MIRROR")
+	ui.begin(ctx, "cage mirror axes", {direction = .Row, gap = 4})
+	for axis in poly.Mirror_Axis {
+		if ui.toggle_button(ctx, fmt.tprint(axis), axis in live.mirror, 48, command_hint(app, .Cage_Mirror, int(axis)), fmt.tprintf("Mirror the cage across %v", axis)) do command_run(app, .Cage_Mirror, int(axis))
+	}
+	ui.end(ctx)
+	if live.mirror != {} {
+		_ = command_button(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror), "Apply mirror", width = ui.fill_width(ctx))
+		if cp.live.mirror_refused do ui.paragraph(ctx, "A face lies across the mirror plane, so the halves would overlap: the mirror is off until it is cut there (Insert loop) or moved off.")
+	}
 	ui.caption(ctx, "THICKNESS")
 	thick := 100 * live.thickness / size
 	if ui.slider(ctx, "Thickness", &thick, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if thick <= 0 else fmt.tprintf("%.1f%%", thick)) {

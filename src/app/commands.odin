@@ -154,6 +154,7 @@ Command_Id :: enum u8 {
 	Cage_Thickness_Side,
 	Cage_Bevel,
 	Cage_Bevel_Segments,
+	Cage_Mirror,
 	Crease_Cage,
 	Cage_Check,
 	Adjust_Last,
@@ -582,7 +583,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Tidy_Cage = {
 		label = "Tidy cage",
-		help = "Cleans the selected cage up: Dissolve flat joins faces that lie flat to each other (within 5 degrees, inside one polygroup); Merge close points joins points closer than a thousandth of its size.",
+		help = "Cleans the selected cage up: Dissolve flat joins faces that lie flat to each other (within 5 degrees, inside one polygroup); Merge close points joins points closer than a thousandth of its size; Apply mirror makes the cage's live mirror images part of it and turns the mirror off. Each is one undo step.",
 		icon = ui.ICON_WAND,
 		args = len(Cage_Tidy),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Tidy_Cage, tidy = Cage_Tidy(arg)}},
@@ -703,6 +704,23 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {
 			look, ok := cage_look_now(app)
 			return ok && look.live.bevel_segments == arg + 1
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Mirror = {
+		label = "Cage mirror",
+		help = "Draws the selected cage with its mirror image across the plane through its middle square to X, Y or Z (a tap turns that axis on or off), as Blender's Mirror modifier does: points on the plane are shared by both halves and kept on it, so modelling one half shows the whole. The image has no edges drawn and takes no actions; Apply mirror makes it part of the cage. One undo step.",
+		icon = ICON_SYMMETRY,
+		args = len(poly.Mirror_Axis),
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.mirror ~= {poly.Mirror_Axis(arg)}
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && poly.Mirror_Axis(arg) in look.live.mirror
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
@@ -2318,6 +2336,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Bevel segments %d", arg + 1)
 	case .Cage_Thickness_Side:
 		return fmt.tprintf("Thickness %v", poly.Thickness_Side(arg))
+	case .Cage_Mirror:
+		return fmt.tprintf("Cage mirror %v", poly.Mirror_Axis(arg))
 	case .Cage_Smooth:
 		return "Cage smooth off" if arg == 0 else fmt.tprintf("Cage smooth %d", arg)
 	case .Crease_Cage:
