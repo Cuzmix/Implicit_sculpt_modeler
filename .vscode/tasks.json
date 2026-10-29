@@ -272,7 +272,7 @@
 			"command": "cmd.exe",
 			"args": [
 				"/d", "/c",
-				"for %p in (geom poly camera sculpt voxel jobs gizmo png_write zip ui luau usd app) do @(deps\\odin\\odin.exe build src\\%p -build-mode:test -out:build\\test_%p_debug.exe -debug -collection:deps=deps -vet -strict-style -warnings-as-errors || exit /b 1)"
+				"for %p in (geom poly camera sculpt voxel jobs gizmo png_write zip ui luau usd fbx app) do @(deps\\odin\\odin.exe build src\\%p -build-mode:test -out:build\\test_%p_debug.exe -debug -collection:deps=deps -vet -strict-style -warnings-as-errors || exit /b 1)"
 			],
 			"options": { "cwd": "${workspaceFolder}" },
 			"problemMatcher": {
@@ -290,7 +290,7 @@
 			"id": "testPackage",
 			"type": "pickString",
 			"description": "Package to test",
-			"options": ["geom", "poly", "camera", "sculpt", "voxel", "jobs", "gizmo", "png_write", "zip", "ui", "luau", "usd", "app"],
+			"options": ["geom", "poly", "camera", "sculpt", "voxel", "jobs", "gizmo", "png_write", "zip", "ui", "luau", "usd", "fbx", "app"],
 			"default": "sculpt"
 		}
 	]

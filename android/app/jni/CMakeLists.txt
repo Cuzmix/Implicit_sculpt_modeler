@@ -14,7 +14,7 @@ if(CMAKE_HOST_WIN32)
 else()
 	set(ODIN "${DEPS}/odin/odin")
 endif()
-foreach(needed "${ODIN}" "${DEPS}/sdl3-src/CMakeLists.txt" "${DEPS}/odin/vendor/stb/lib/stb_truetype.a")
+foreach(needed "${ODIN}" "${DEPS}/sdl3-src/CMakeLists.txt" "${DEPS}/odin/vendor/stb/lib/stb_truetype.a" "${DEPS}/ufbx-src/ufbx.c")
 	if(NOT EXISTS "${needed}")
 		message(FATAL_ERROR "${needed} is missing: run scripts/setup_deps, then on Windows scripts/setup_android.bat (README.md, Android)")
 	endif()
@@ -38,6 +38,11 @@ add_subdirectory("${DEPS}/sdl3-src" SDL3)
 # stb_truetype (and stb_rect_pack, which its source file includes) for vendor:fontstash.
 add_library(stb STATIC "${DEPS}/odin/vendor/stb/src/stb_truetype.c")
 target_compile_options(stb PRIVATE -O2)
+
+# ufbx, the FBX reader, with the app's shim round it (src/fbx/fbx_shim.c includes ufbx.c).
+add_library(ufbx STATIC "${SCULPT_ROOT}/src/fbx/fbx_shim.c")
+target_include_directories(ufbx PRIVATE "${DEPS}/ufbx-src")
+target_compile_options(ufbx PRIVATE -O2 -w)
 
 # The app itself. Odin rebuilds the object whenever a source, shader or font it embeds
 # changes; it is always optimised, so a debug APK sculpts at full speed too.
@@ -63,6 +68,6 @@ add_custom_command(
 add_library(main SHARED android_main.c "${ODIN_OBJECT}")
 # nativewindow: android_main.c asks for the screen's frame rate (ANativeWindow_setFrameRate,
 # API 30), which the NDK puts in libnativewindow, not libandroid.
-target_link_libraries(main PRIVATE stb SDL3::SDL3-shared android nativewindow log m)
+target_link_libraries(main PRIVATE stb ufbx SDL3::SDL3-shared android nativewindow log m)
 # Every symbol the Odin object needs must resolve now, not when the tablet loads it.
 target_link_options(main PRIVATE "-Wl,--no-undefined")

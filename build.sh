@@ -81,9 +81,12 @@ compile_shaders() {
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 	"-extra-linker-flags:-L$DEPS/sdl3/lib -Wl,-rpath,$DEPS/sdl3/lib")
 
-# The app links Luau for script plugins, which setup_deps builds from source.
+# The app links Luau for script plugins and ufbx for FBX import, which setup_deps builds
+# from source.
 need_luau() {
 	[ -f "$DEPS/luau/libluau.a" ] || { echo "Luau missing: run scripts/setup_deps.sh, which builds deps/luau"; exit 1; }
+	# And ufbx for FBX import, with the app's shim round it (scripts/build_ufbx.py).
+	[ -f "$DEPS/ufbx/libufbx.a" ] || { echo "ufbx missing: run scripts/setup_deps.sh, which builds deps/ufbx"; exit 1; }
 }
 
 # The oldest iPadOS the iPad build runs on. From 17.4 Odin's thread waits use the public
@@ -135,21 +138,21 @@ case "$mode" in
 	test)
 		compile_shaders
 		need_luau
-		for pkg in geom poly camera sculpt jobs gizmo png_write zip voxel ui luau usd app; do
+		for pkg in geom poly camera sculpt jobs gizmo png_write zip voxel ui luau usd fbx app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench geom camera gizmo jobs luau png_write poly render sculpt sdf_trial ui usd voxel zip; do
+		for pkg in app bench fbx geom camera gizmo jobs luau png_write poly render sculpt sdf_trial ui usd voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
-		echo "check: 16 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current"
+		echo "check: 17 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.
@@ -230,6 +233,7 @@ case "$mode" in
 		# unsigned: AltStore signs it with the person's Apple Account on the iPad.
 		[ "$(uname)" = Darwin ] || { echo "ios needs macOS with Xcode; ./build.sh iphonecheck compiles the app for the iPad anywhere"; exit 1; }
 		[ -f "$DEPS/sdl3-src/CMakeLists.txt" ] || { echo "SDL source missing: clone SDL_TAG (scripts/versions.env) into deps/sdl3-src"; exit 1; }
+		[ -f "$DEPS/ufbx-src/ufbx.c" ] || { echo "ufbx source missing: clone UFBX_TAG (scripts/versions.env) into deps/ufbx-src"; exit 1; }
 		command -v pkg-config > /dev/null || { echo "pkg-config missing: brew install pkgconf"; exit 1; }
 		out="$ROOT/build/ios"
 		app="$out/Payload/Sculpt.app"
@@ -251,6 +255,8 @@ case "$mode" in
 		done
 		ios_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		# ufbx with the app's shim round it, for FBX import (src/fbx).
+		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
 		"${cc[@]}" -O2 -Wall -fobjc-arc -I"$out/sdl/include" -c "$ROOT/ios/sculpt_ios.m" -o "$out/sculpt_ios.o"
 		rm -rf "$out/Payload"
 		mkdir -p "$app"
@@ -259,7 +265,7 @@ case "$mode" in
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
 			-framework UniformTypeIdentifiers -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
