@@ -167,7 +167,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -803,6 +803,16 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil && obj.cage != nil {
 			before := history_snapshot(app, obj, "apply to sculpt")
 			if object_apply_cage(app, obj) do history_record_swap(app, obj.id, before, kind = .Model)
+			else do history_snapshot_drop(before)
+		}
+	case .Edit_Cage:
+		if obj := selected_object(app); object_can_edit_cage(obj) {
+			before := history_snapshot(app, obj, "edit cage")
+			if !object_edit_cage(app, obj) {
+				history_snapshot_drop(before)
+				return false
+			}
+			if obj.cage != nil do history_record_swap(app, obj.id, before, kind = .Model)
 			else do history_snapshot_drop(before)
 		}
 	case .Tidy_Cage:

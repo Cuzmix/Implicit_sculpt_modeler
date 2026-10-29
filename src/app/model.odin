@@ -35,6 +35,10 @@ Cage_Part :: struct {
 	// sculptor numbers in its own order; per triangle of the level, the cage face it lies in.
 	vert_of: []u32,
 	face_of: []u32,
+	// A cage taken from a sculpt with levels (Edit cage) holds the sculpt's levels as
+	// sculpt.levels_write wrote them, so Apply to sculpt can put its detail back; empty
+	// for any other cage.
+	held:    []u8,
 }
 
 // How a cage is drawn, as ZBrush's Dynamic Subdivision and Blender's Subdivision Surface
@@ -75,6 +79,7 @@ cage_part_free :: proc(obj: ^Object) {
 	poly.subdivision_destroy(&cp.sub)
 	delete(cp.vert_of)
 	delete(cp.face_of)
+	delete(cp.held)
 	free(cp)
 	obj.cage = nil
 }
@@ -82,11 +87,13 @@ cage_part_free :: proc(obj: ^Object) {
 // Makes `cage` (taken, also on failure) the object's cage, drawn as `look` says: the
 // level cut from it (made finer first by Smooth), its polygroups on the level's
 // triangles, the upload and the cage's edges as lines. The object has no level yet.
-// Returns false on a GPU failure, with nothing of the object made.
-object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage_Look{}) -> bool {
+// `held` (taken too) is the sculpt the cage was taken from (Cage_Part.held). Returns
+// false on a GPU failure, with nothing of the object made.
+object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage_Look{}, held: []u8 = nil) -> bool {
 	start := time.tick_now()
 	cp := new(Cage_Part)
 	cp.mesh = cage
+	cp.held = held
 	cp.look = {clamp(look.smooth, 0, poly.SUBDIVIDE_MAX), look.flat}
 	// A valid cage always subdivides; were one refused, it is drawn as it is.
 	sub, sub_err := poly.subdivide(&cp.mesh, cp.look.smooth, cp.look.flat)
@@ -161,6 +168,7 @@ cage_free_part :: proc(cp: ^Cage_Part) {
 	poly.subdivision_destroy(&cp.sub)
 	delete(cp.vert_of)
 	delete(cp.face_of)
+	delete(cp.held)
 	free(cp)
 }
 
@@ -189,11 +197,11 @@ cage_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	assert(obj.cage != nil)
 	// The autosave thread may be writing the object out; it finishes first.
 	autosave_settle(app)
-	cage, look := obj.cage.mesh, obj.cage.look
-	obj.cage.mesh = {}
+	cage, look, held := obj.cage.mesh, obj.cage.look, obj.cage.held
+	obj.cage.mesh, obj.cage.held = {}, nil
 	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
-	return object_build_cage(app, obj, cage, look)
+	return object_build_cage(app, obj, cage, look, held)
 }
 
 // Adds primitive `kind` as a new cage object, named after it, where the next object goes,
@@ -217,17 +225,44 @@ scene_add_cage :: proc(app: ^App, kind: poly.Primitive, opts: poly.Primitive_Opt
 // ZBrush's Dynamic Subdivision's Apply does: the cage's polygons cut into triangles as the
 // base, with the same number of Catmull-Clark levels above it, their creases kept, so the
 // top level shows what the cage showed, and each polygon keeps its polygroup (an all-quad
-// cage keeps its quads too, for export and UVs). An open cage, or one at Smooth 0, keeps
-// the level it was drawn with. Returns whether it had a cage to drop.
+// cage keeps its quads too, for export and UVs). A cage Edit cage took from a sculpt gets
+// that sculpt's levels back, with its detail riding on the edited cage. An open cage, or
+// one at Smooth 0, keeps the level it was drawn with. Returns whether it had a cage to drop.
 object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.cage == nil do return false
 	autosave_settle(app)
 	render.wait_idle(&app.renderer)
 	cp := obj.cage
 	steps := cp.look.smooth
-	if steps == 0 || poly.mesh_check(&cp.mesh).border_edges > 0 {
+	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
+	// The sculpt the cage was taken from, whose levels come back.
+	held: sculpt.Levels
+	have := false
+	defer if have do sculpt.levels_destroy(&held)
+	if len(cp.held) > 0 {
+		r := geom.byte_reader(cp.held)
+		have = sculpt.levels_read(&held, &r, &app.pool)
+		if have do steps = len(held.levels) - 1
+		else do report(app, nil, {.Warning}, "%s's held sculpt could not be read, so its detail is not put back", object_label(obj))
+	}
+	closed := poly.mesh_check(&cp.mesh).border_edges == 0
+	if steps == 0 || !closed {
 		if steps > 0 do report(app, nil, {}, "%s has open edges, so it became one level as drawn: close its holes first for subdivision levels", object_label(obj))
 		_ = render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], nil)
+		// A closed cage at Smooth 0 keeps its polygons and creases (and its quads), so
+		// Subdivide makes Catmull-Clark levels of it and Edit cage can take it back.
+		if closed {
+			l := &obj.levels
+			whole := make([]u32, len(cp.face_of), context.temp_allocator)
+			for &t, i in whole do t = u32(i)
+			if sculpt.levels_set_polys(l, cage_polys(&cp.mesh, cp.vert_of, cp.face_of, whole), cage_sharp(&cp.mesh, cp.vert_of), rule) {
+				if quads, all := cage_quads(&cp.mesh, cp.vert_of); all {
+					sculpt.levels_set_quads(l, quads)
+				} else {
+					delete(quads)
+				}
+			}
+		}
 		cage_part_free(obj)
 		return true
 	}
@@ -236,7 +271,6 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	cage := cp.mesh
 	cp.mesh = {}
 	defer poly.mesh_destroy(&cage)
-	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
 	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	tri_face := make([dynamic]u32)
 	defer delete(tri_face)
@@ -260,7 +294,167 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		}
 		for _ in 0 ..< steps do if !sculpt.levels_subdivide(l) do break
 	}
+	if have do cage_put_back(app, obj, &cage, vert_of, &held)
 	return object_show_level(app, obj, start)
+}
+
+// Most triangles Edit cage draws its cage with: fewer Smooth steps than the sculpt had
+// levels when that many would be more, so each edit stays quick. Apply makes them all.
+CAGE_EDIT_TRIANGLES :: 2_000_000
+
+// Whether Edit cage can take a cage from `obj`: a mesh whose base level is polygons (from
+// Apply to sculpt) or quads (Retopologize), and not under dynamic topology.
+object_can_edit_cage :: proc(obj: ^Object) -> bool {
+	if obj == nil || obj.cage != nil || obj.voxel != nil || object_dynamic(obj) do return false
+	return obj.levels.levels[0].polys.first != nil || sculpt.levels_has_quads(&obj.levels)
+}
+
+// Edit cage, after ZBrush's Dynamic Subdivision on a mesh with levels: the base level's
+// polygons (or quads) become a cage again for Model mode, with their polygroups, creases
+// and corners, drawn with as many Smooth steps as the sculpt had levels above its base.
+// The sculpt's levels ride along in the cage (Cage_Part.held), so Apply to sculpt puts
+// their detail back on the edited cage. Polypaint, masks and layers are not kept, and
+// the note says so. Returns false only on a GPU failure, true with a note when the base
+// does not make a valid cage.
+object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	autosave_settle(app)
+	l := &obj.levels
+	sculpt.levels_sync(l)
+	sculpt.levels_paint_to(l, 0)
+	base := l.levels[0]
+	sizes := make([dynamic]int, context.temp_allocator)
+	corners := make([dynamic]u32, context.temp_allocator)
+	groups := make([dynamic]u16, context.temp_allocator)
+	tris := base.sculptor.groups.tris
+	if polys := &base.polys; polys.first != nil {
+		// Each polygon's group is its first triangle's.
+		first := make([]u32, len(polys.first) - 1, context.temp_allocator)
+		for &t in first do t = max(u32)
+		#reverse for g, t in polys.tri_poly do first[g] = u32(t)
+		for f in 0 ..< len(first) {
+			append(&sizes, int(polys.first[f + 1] - polys.first[f]))
+			append(&groups, tris[first[f]] if tris != nil && first[f] != max(u32) else 0)
+		}
+		append(&corners, ..polys.corners)
+	} else {
+		// A quad's group is that of its triangle with its first three corners or its first,
+		// second and fourth, whichever way it was cut.
+		for &q in l.faces.quads {
+			append(&sizes, 4)
+			append(&corners, ..q[:])
+			group: u16
+			if tris != nil {
+				for t in geom.vertex_faces_of(base.sculptor.faces, q[0]) {
+					tri := base.mesh.indices[3 * t:][:3]
+					if slice.contains(tri, q[1]) && (slice.contains(tri, q[2]) || slice.contains(tri, q[3])) do group = tris[t]
+				}
+			}
+			append(&groups, group)
+		}
+	}
+	cage, err := poly.mesh_from_polygons(base.mesh.positions[:], sizes[:], corners[:], groups[:])
+	if err != .None {
+		report(app, nil, {.Warning}, "Edit cage refused on %s: its base level is not a valid cage (%v)", object_label(obj), err)
+		return true
+	}
+	for key, i in base.sharp.edges {
+		h := poly.find_half_edge(&cage, u32(key >> 32), u32(key))
+		if h != poly.NONE do cage.crease[poly.edge_of(h)] = base.sharp.edge[i]
+	}
+	for v, i in base.sharp.verts do cage.corner[v] = base.sharp.vert[i]
+	look := Cage_Look{min(len(l.levels) - 1, poly.SUBDIVIDE_MAX), l.rule == .Flat}
+	for look.smooth > 0 && 2 * len(corners) << uint(2 * (look.smooth - 1)) > CAGE_EDIT_TRIANGLES do look.smooth -= 1
+	held: []u8
+	if len(l.levels) > 1 {
+		out := make([dynamic]u8)
+		_ = sculpt.levels_write(l, &out)
+		held = out[:]
+	}
+	s := &sculpt.levels_current(l).sculptor
+	if len(s.layers.list) > 0 || s.color != nil || s.mask != nil {
+		report(app, nil, {}, "Edit cage on %s keeps its sculpted detail, but not its polypaint, mask or layers", object_label(obj))
+	}
+	render.wait_idle(&app.renderer)
+	object_release_mesh(app, obj, rebuild = false)
+	return object_build_cage(app, obj, cage, look, held)
+}
+
+// Puts the detail of `held` (the sculpt Edit cage took `cage` from) on `obj`'s new
+// levels, made from the edited cage (`vert_of`, per cage point its base vertex). While
+// the cage's faces are the base's polygons as they were, each level takes the held
+// level's detail point for point, so it rides on the moved cage as ZBrush's levels ride
+// on an edited base; otherwise the held top is projected onto the new top, as Project
+// detail does.
+@(private = "file")
+cage_put_back :: proc(app: ^App, obj: ^Object, cage: ^poly.Mesh, vert_of: []u32, held: ^sculpt.Levels) {
+	l := &obj.levels
+	if base_map, ok := cage_base_map(cage, vert_of, held); ok && sculpt.levels_take_detail(l, held, base_map) {
+		report(app, nil, {}, "%s took its sculpted detail back on %d levels", object_label(obj), len(l.levels))
+		return
+	}
+	sculpt.levels_sync(held)
+	top := held.levels[len(held.levels) - 1].mesh
+	bvh := geom.bvh_build_morton(top, geom.BVH_LEAF_SIZE, &app.pool)
+	defer geom.bvh_destroy(&bvh)
+	m := object_mesh(obj)
+	bounds := geom.AABB_EMPTY
+	for p in m.positions do geom.aabb_grow(&bounds, p)
+	extent := bounds.hi - bounds.lo
+	next := make([]Vec3, len(m.positions))
+	defer delete(next)
+	tris := make([]u32, len(m.positions))
+	defer delete(tris)
+	size := max(extent.x, extent.y, extent.z)
+	hits := geom.project_along_normals(m.positions[:], m.normals[:], top, &bvh, CAGE_PROJECT_REACH * size, &app.pool, next, tris)
+	// A point whose normal finds nothing (where the edit moved the surface furthest)
+	// goes to the nearest point of the sculpt instead, so none is left behind as a bump.
+	for t, v in tris {
+		if t != max(u32) do continue
+		tri, bary, _, ok := geom.bvh_closest(bvh, top, m.positions[v], size)
+		if !ok do continue
+		c := top.indices[3 * tri:][:3]
+		next[v] = bary[0] * top.positions[c[0]] + bary[1] * top.positions[c[1]] + bary[2] * top.positions[c[2]]
+	}
+	_ = sculpt.sculptor_project(object_sculptor(obj), next, nil, 1)
+	report(app, nil, {}, "%s's cage changed its faces, so the sculpt was projected onto its top level: %.1f%% of points along their normals, the rest to the nearest point", object_label(obj), 100 * f64(hits) / f64(max(len(m.positions), 1)))
+}
+
+// How far the projection of Apply to sculpt looks, over the object's size: an edited
+// cage may move its surface a good way from the sculpt.
+CAGE_PROJECT_REACH :: 0.1
+
+// The held base's vertex for each of the new base's (the map levels_take_detail takes),
+// when the cage's faces are the held base's polygons (or quads), corner for corner.
+@(private = "file")
+cage_base_map :: proc(cage: ^poly.Mesh, vert_of: []u32, held: ^sculpt.Levels) -> (base_map: []u32, ok: bool) {
+	base := held.levels[0]
+	first, corners := base.polys.first, base.polys.corners
+	if first == nil {
+		// Quads, as consecutive polygons of four.
+		quads := held.faces.quads
+		if quads == nil do return nil, false
+		corners = slice.reinterpret([]u32, quads)
+	}
+	faces := len(first) - 1 if first != nil else len(corners) / 4
+	if faces != len(cage.face_he) || len(vert_of) != len(base.mesh.positions) do return nil, false
+	base_map = make([]u32, len(vert_of), context.temp_allocator)
+	for &b in base_map do b = poly.NONE
+	verts := make([dynamic]u32, context.temp_allocator)
+	for f in 0 ..< faces {
+		lo, hi := 4 * f, 4 * f + 4
+		if first != nil do lo, hi = int(first[f]), int(first[f + 1])
+		poly.face_verts(cage, u32(f), &verts)
+		if len(verts) != hi - lo do return nil, false
+		for v, k in verts {
+			at := &base_map[vert_of[v]]
+			if at^ != poly.NONE && at^ != corners[lo + k] do return nil, false
+			at^ = corners[lo + k]
+		}
+	}
+	for b in base_map do if b == poly.NONE do return nil, false
+	return base_map, true
 }
 
 // The cage's polygons as the sculptor keeps them (sculpt.Polys), in the level's vertex
@@ -338,7 +532,18 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := 
 		}
 		look = {smooth, flat == 1}
 	}
-	return true, object_build_cage(app, obj, cage, look)
+	// The sculpt Edit cage took it from, from version 30: read only on Apply.
+	held: []u8
+	if version >= 30 {
+		size := int(geom.byte_get(r, u32))
+		bytes := geom.byte_get_bytes(r, size)
+		if !r.ok {
+			poly.mesh_destroy(&cage)
+			return false, false
+		}
+		if size > 0 do held = slice.clone(bytes)
+	}
+	return true, object_build_cage(app, obj, cage, look, held)
 }
 
 // Draws `obj`'s cage as `look` says, as one undo step. Returns false only on a GPU failure.
@@ -619,6 +824,7 @@ kit_model_tab :: proc(app: ^App) {
 	}
 	kit_command_pair(app, .Add_Cage, .Apply_Cage, arg_a = int(m.primitive), label_a = "Add cage")
 	obj := selected_object(app)
+	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx))
 	if obj == nil || obj.cage == nil do return
 	c := poly.mesh_check(&obj.cage.mesh)
 	creased, corners := poly.crease_count(&obj.cage.mesh)

@@ -3102,6 +3102,18 @@ def model_apply_smooth_cage_makes_levels():
                   (Script(), LENS_1440 + ["--script=add_cage plane; select 1; delete_object; frame_all; cage_smooth 2; apply_cage"], {"cages": near(0), "selected_levels": near(1), "levels_rule": is_text("Loop")})])
 
 @scenario
+def model_edit_cage_takes_a_sculpt_back():
+    """Edit cage on a sculpt applied from a Smooth 2 cube gives the six-face cage back, drawn Smooth 2; applying it again brings the three levels back, the same rule; undo of Edit cage keeps the sculpt; a retopologized object's quads become a cage too, and an applied Smooth 0 cage subdivides by Catmull-Clark."""
+    base = "add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; apply_cage"
+    s = Script()
+    s.wait(5)
+    return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage"], {"cages": near(1), "cage_faces": near(6), "cage_smooth": near(2), "cage_broken": near(0)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; edit_cage; undo"], {"cages": near(0), "selected_levels": near(3)}),
+                  (Script(), ["--check-mesh", "--script=set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
+                  (Script(), ["--check-mesh", "--script=set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()

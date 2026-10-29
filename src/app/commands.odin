@@ -142,6 +142,7 @@ Command_Id :: enum u8 {
 	Voxel_Res_Down,
 	Add_Cage,
 	Apply_Cage,
+	Edit_Cage,
 	Model_Action,
 	Model_Target,
 	Tidy_Cage,
@@ -549,6 +550,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_BRUSH,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Edit_Cage = {
+		label = "Edit cage",
+		help = "Turns the selected sculpt's base level back into a cage for Model mode, when it came from a cage or Retopologize; Apply to sculpt then puts its levels and their detail back on the edited cage.",
+		icon = ui.ICON_SHAPES,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Edit_Cage}},
+		enabled = proc(app: ^App, _: int) -> bool {return object_can_edit_cage(selected_object(app))},
 	},
 	.Model_Action = {
 		label = "Model action",
