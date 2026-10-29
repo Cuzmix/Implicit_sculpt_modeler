@@ -3692,7 +3692,7 @@ def lens_dial_stays_over_a_floating_card():
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
 LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
-               "symmetry_grip": (1218, 470), "layers_corner": (738, 340)}
+               "symmetry_grip": (1218, 524), "layers_corner": (738, 340)}
 
 
 @scenario
