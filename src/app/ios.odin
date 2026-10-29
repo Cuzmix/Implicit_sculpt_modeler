@@ -130,4 +130,11 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		}
 		sculpt_ios_scribble_fields(&ids[0], &rects[0], c.int(ctx.text_field_count), u64(ctx.text_focus), app.kit.text_input)
 	}
+
+	// ios/sculpt_ios.m: the system and its version, the model's identifier and the IPA's build
+	// number, for the Input diagnostics report (diagnostics.odin), each in `size` bytes.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_device_info :: proc(os_name, model, build: [^]u8, size: c.int) ---
+	}
 }

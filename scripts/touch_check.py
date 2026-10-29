@@ -6571,6 +6571,196 @@ def keyboard_put_away_and_brought_back():
                                 "keyboard_restarts": near(1), "keyboard_down": near(0)})
 
 
+# Input diagnostics (diagnostics.odin, kit_diag.odin) at 1600x900: where its controls are.
+DIAG = {"pad": (1340, 186), "size": (1536, 186), "slider": (1365, 350), "button": (1270, 396),
+        "menu": (1459, 396), "field": (1365, 450)}
+
+
+def diag_report_has(test, auto):
+    """A check that --diag-export wrote a ZIP of the report's three files, whose log starts
+    with the session and whose summary gives `test`'s run the verdict `auto`."""
+    def ok(_):
+        import json
+        import zipfile
+        path = diag_report_path()
+        with zipfile.ZipFile(path) as z:
+            names = sorted(z.namelist())
+            if names != ["diagnostic-events.jsonl", "diagnostic-report.md", "diagnostic-summary.json"]:
+                return f"entries {names}"
+            lines = z.read("diagnostic-events.jsonl").decode("utf-8").splitlines()
+            first = json.loads(lines[0])
+            if first.get("kind") != "session" or first.get("schema") != 1:
+                return f"first line {lines[0][:80]}"
+            for line in lines[1:]:
+                json.loads(line)
+            summary = json.loads(z.read("diagnostic-summary.json"))
+            runs = [t for t in summary["tests"] if t["id"] == test][0]["runs"]
+            if not runs or runs[-1]["auto"] != auto:
+                return f"{test} runs {runs}"
+        return True
+    return ok
+
+
+def diag_report_path():
+    return os.path.join(ROOT, "build", "touch", "diag", CURRENT.name + ".zip")
+
+
+def diag_pen_tap(s, x, y):
+    s.add("pnear")
+    s.add(f"pmove:{x:g},{y:g}")
+    s.wait(2)
+    s.add(f"pdown:{x:g},{y:g}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(2)
+
+
+@scenario
+def diag_finger_taps_are_answered():
+    """Input diagnostics' finger taps: three taps on the pad are three downs received and three presses answered, a pass."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    return s, ["--diag-test=finger_tap"], {"diag_auto": is_text("pass"), "diag_finger_downs": near(3), "diag_presses": near(3), "diag_palms": near(0), "dabs": near(0)}
+
+
+@scenario
+def diag_finger_after_a_pen_that_left():
+    """The pen taps the pad and leaves (proximity out); the finger taps after it are all answered."""
+    s = Script()
+    diag_pen_tap(s, *DIAG["pad"])
+    diag_pen_tap(s, DIAG["pad"][0] + 30, DIAG["pad"][1])
+    s.add("pfar")
+    s.wait(10)
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("pass"), "diag_palms": near(0), "diag_anomalies": is_text("none")}
+
+
+@scenario
+def diag_finger_after_a_pen_that_never_left():
+    """A pen that never says it left (as SDL's iPad driver does) keeps every finger after it a palm: the screen fails the test and names the palm and the stuck pen."""
+    s = Script()
+    diag_pen_tap(s, *DIAG["pad"])
+    s.wait(150)
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    anomalies = lambda v: all(a in v.split(",") for a in ("finger_palm", "pen_near_stuck", "received_not_responded"))
+    return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("fail"), "diag_palms": near(3), "diag_anomalies": anomalies}
+
+
+@scenario
+def diag_pen_that_never_leaves_is_caught():
+    """Pencil hover: the pen hovers the pad and goes quiet without a proximity out; two seconds on the screen says it is stuck near."""
+    s = Script()
+    pen_hover(s, *DIAG["pad"], frames=40)
+    s.add(f"pmove:{DIAG['pad'][0] + 40:g},{DIAG['pad'][1]:g}")
+    s.wait(150)
+    return s, ["--diag-test=pencil_hover"], {"diag_auto": is_text("fail"), "diag_anomalies": lambda v: "pen_near_stuck" in v.split(",")}
+
+
+@scenario
+def diag_pen_hover_that_leaves_passes():
+    """Pencil hover: the pen hovers the pad without a press, then leaves; a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["pad"], frames=40)
+    s.add("pfar")
+    s.wait(10)
+    return s, ["--diag-test=pencil_hover"], {"diag_auto": is_text("pass"), "diag_presses": near(0)}
+
+
+@scenario
+def diag_hover_slider_holds_still():
+    """The pen hovering on the diagnostic slider and moving along it, without a turn, leaves its value alone: a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=70)
+    for dx in range(0, 60, 10):
+        s.add(f"pmove:{DIAG['slider'][0] + dx:g},{DIAG['slider'][1]:g}")
+        s.wait(2)
+    return s, ["--diag-test=hover_slider"], {"diag_auto": is_text("pass"), "diag_slider": near(50, 1e-2)}
+
+
+@scenario
+def diag_roll_right_raises_the_value():
+    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by 40/180 of its range, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (0, 10, 20, 30, 40):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 40 / 180, 0.05)}
+
+
+@scenario
+def diag_roll_left_lowers_the_value():
+    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (0, -10, -20, -30, -40):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * 40 / 180, 0.05)}
+
+
+@scenario
+def diag_roll_wraps_without_a_jump():
+    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (150, 160, 170, 180, -170, -160):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 50 / 180, 0.05)}
+
+
+@scenario
+def diag_size_slider_ratio_by_finger():
+    """Size slider by finger: a 60 point drag up moves the value by 60 points of its 160 point track, a pass."""
+    s = Script()
+    x, y = DIAG["size"]
+    s.fdrag(line((x, y), (x, y - 60), 15))
+    s.wait(4)
+    return s, ["--diag-test=slider_ratio_finger"], {"diag_auto": is_text("pass"), "diag_vslider": near(50 + 100 * 60 / 160, 0.05)}
+
+
+@scenario
+def diag_text_typing_keeps_scul():
+    """Typing and Backspace: a tap on the diagnostic field, sculpt typed and two Backspaces leave scul, a pass."""
+    s = Script()
+    s.ftap(*DIAG["field"])
+    s.wait(3)
+    s.type("sculpt")
+    s.press("Backspace")
+    s.press("Backspace")
+    return s, ["--diag-test=text_typing"], {"diag_auto": is_text("pass"), "diag_field": is_text("scul")}
+
+
+@scenario
+def diag_escape_closes_the_screen():
+    """Escape closes Input diagnostics, as it closes Home."""
+    s = Script()
+    s.wait(3)
+    s.press("Escape")
+    return s, ["--input-diagnostics"], {"diag_open": near(0)}
+
+
+@scenario
+def diag_export_writes_the_report():
+    """--diag-export writes the report's three files in one ZIP: a session line first, every line JSON, the summary's verdict as the run's."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    path = diag_report_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        os.remove(path)
+    return s, ["--diag-test=finger_tap", f"--diag-export={path}"], {"diag_exports": near(1), "@report": diag_report_has("finger_tap", "pass")}
+
+
 def camera_back(stats):
     """The camera's back direction (toward the viewer) from its yaw and pitch, as orbit_basis has it."""
     y, p = float(stats["camera_yaw"]), float(stats["camera_pitch"])

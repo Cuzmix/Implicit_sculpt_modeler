@@ -1,0 +1,5 @@
+# Reports exported from Input diagnostics (README "Input diagnostics") are logs of one
+# person's device: git ignores them here, so a report is committed only on purpose, with
+# git add -f on a branch, for the Input report workflow to read.
+*
+!.gitignore
