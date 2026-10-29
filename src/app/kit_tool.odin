@@ -513,20 +513,21 @@ kit_tilt :: proc(app: ^App) {
 @(private = "file")
 kit_move_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle.")
+	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
 	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
 	_ = command_button(app, .Focus_Selected, width = half, glyph = ui.ICON_FOCUS)
 	_ = command_button(app, .Frame_All, width = half, glyph = ui.ICON_FRAME)
 	ui.end(ctx)
-	modes := [len(gizmo.Mode)]string{"Move", "Turn", "Scale"}
+	modes: [len(gizmo.Mode)]string
+	for name, mode in GIZMO_MODE_NAMES do modes[int(mode)] = name
 	hints: [len(gizmo.Mode)]string
 	for &h, i in hints do h = command_hint(app, .Gizmo, i)
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
-	ui.paragraph(ctx, fmt.tprintf("%s again steps through the three. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings and scales on the white knobs, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")

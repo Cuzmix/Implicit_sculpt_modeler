@@ -39,6 +39,7 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 		{.Gizmo, int(gizmo.Mode.Move), "Move"},
 		{.Gizmo, int(gizmo.Mode.Turn), "Turn"},
 		{.Gizmo, int(gizmo.Mode.Scale), "Scale"},
+		{.Gizmo, int(gizmo.Mode.All), "All"},
 		{.Gizmo_Snap, 0, "Snap"},
 		{.Gizmo_Pivot, 0, "Pivot"},
 	}},

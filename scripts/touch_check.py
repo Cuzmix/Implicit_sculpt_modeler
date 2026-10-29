@@ -10259,7 +10259,12 @@ GIZMO_CENTER = MIDDLE
 GIZMO_X_ARM = (GIZMO_CENTER[0] + 38, GIZMO_CENTER[1] + 8)
 GIZMO_XY_SQUARE = (GIZMO_CENTER[0] + 29, GIZMO_CENTER[1] - 27)
 GIZMO_Y_RING = (GIZMO_CENTER[0], GIZMO_CENTER[1] + 31)
-GIZMO_CHIPS = {"move": (694, 776), "turn": (759, 776), "scale": (823, 776), "snap": (888, 776), "pivot": (951, 776)}
+GIZMO_CHIPS = {"move": (670, 766), "turn": (736, 766), "scale": (799, 766), "all": (856, 766), "snap": (911, 766), "pivot": (973, 766)}
+# The All gizmo (W four times): the X arm's arrow out past the view ring, the Y arm's scale
+# knob, and the view ring up and to the left, clear of the axis rings.
+GIZMO_ALL_X_ARROW = (GIZMO_CENTER[0] + 99, GIZMO_CENTER[1] + 21)
+GIZMO_ALL_Y_KNOB = (GIZMO_CENTER[0], GIZMO_CENTER[1] - 54)
+GIZMO_ALL_VIEW_RING = (GIZMO_CENTER[0] - 68, GIZMO_CENTER[1] - 68)
 
 
 def transform_is(test):
@@ -10268,7 +10273,7 @@ def transform_is(test):
 
 
 def gizmo_mode(s, presses):
-    """The Move tool (W), then W again `presses` times: Turn, then Scale."""
+    """The Move tool (W), then W again `presses` times: Turn, then Scale, then All."""
     for _ in range(presses + 1):
         s.press("w")
 
@@ -10354,16 +10359,47 @@ def gizmo_ctrl_snaps_the_move():
 
 @scenario
 def gizmo_chips_switch_the_mode():
-    """With the Move tool on, the action bar shows the gizmo's chips: Turn and Scale pick
-    the mode, Snap latches."""
-    turn, scale = Script(), Script()
-    for sc, chip in ((turn, "turn"), (scale, "scale")):
+    """With the Move tool on, the action bar shows the gizmo's chips: Turn, Scale and All
+    pick the mode, Snap latches."""
+    turn, scale, all_ = Script(), Script(), Script()
+    for sc, chip in ((turn, "turn"), (scale, "scale"), (all_, "all")):
         sc.press("w")
         click(sc, GIZMO_CHIPS[chip])
         click(sc, GIZMO_CHIPS["snap"])
     return Steps([
         (turn, [], camera_still({"action_bar": is_text("gizmo"), "gizmo_mode": is_text("turn"), "gizmo_snap": near(1)})),
         (scale, [], camera_still({"gizmo_mode": is_text("scale"), "gizmo_snap": near(1)})),
+        (all_, [], camera_still({"gizmo_mode": is_text("all"), "gizmo_snap": near(1)})),
+    ])
+
+
+@scenario
+def gizmo_all_moves_turns_and_scales():
+    """The All gizmo (W four times) does the three with no switching: the mouse on the X
+    arrow moves the sphere along x only, a finger on the Y knob scales it evenly about its
+    middle, and the mouse round the view ring turns it, each one undo step; Ctrl+Z after
+    all three puts it back."""
+    arrow, knob, ring, undone = Script(), Script(), Script(), Script()
+    for sc in (arrow, knob, ring, undone):
+        gizmo_mode(sc, 3)
+    for sc in (arrow, undone):
+        sc.mouse_drag(line(GIZMO_ALL_X_ARROW, (GIZMO_ALL_X_ARROW[0] + 40, GIZMO_ALL_X_ARROW[1] + 8), 6))
+    for sc in (knob, undone):
+        sc.fdrag(line(GIZMO_ALL_Y_KNOB, (GIZMO_ALL_Y_KNOB[0], GIZMO_ALL_Y_KNOB[1] - 60), 9))
+        sc.wait(4)
+    for sc in (ring, undone):
+        sc.mouse_drag(line(GIZMO_ALL_VIEW_RING, (GIZMO_ALL_VIEW_RING[0] + 40, GIZMO_ALL_VIEW_RING[1] - 30), 6))
+    for _ in range(3):
+        undone.press("z", ("ctrl",))
+    along_x = transform_is(lambda x, y, z, rx, ry, rz, sc: x > 0.05 and (y, z, rx, ry, rz, sc) == (0, 0, 0, 0, 0, 1))
+    grew = transform_is(lambda x, y, z, rx, ry, rz, sc: 1.5 < sc < 3 and (x, y, z, rx, ry, rz) == (0, 0, 0, 0, 0, 0))
+    turned = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(rx) + abs(ry) + abs(rz) > 5 and (x, y, z, sc) == (0, 0, 0, 1))
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    return Steps([
+        (arrow, [], camera_still({"gizmo_mode": is_text("all"), "gizmo_last": is_text("x"), "transform": along_x, "undo_steps": near(1)})),
+        (knob, [], camera_still(gizmo_where({"gizmo_last": is_text("scale"), "transform": grew, "undo_steps": near(1), "dabs": near(0)}))),
+        (ring, [], camera_still(gizmo_where({"gizmo_last": is_text("turn_view"), "transform": turned, "undo_steps": near(1)}))),
+        (undone, [], camera_still({"gizmo_drags": near(3), "transform": home, "transform_undo": near(0), "redo_steps": near(3)})),
     ])
 
 
