@@ -142,7 +142,8 @@ scene_add_pack_mesh :: proc(app: ^App, j: int) -> bool {
 	if !ok do return true
 	m, read := mesh_import_read(app, pm.file, fmt.tprintf("Added %s from %s", pm.stem, pack_mesh_pack_name(app, j)))
 	if !read do return true
-	if !scene_add_mesh(app, m.mesh, pm.stem, m.file, {position = next_free_position(app), scale = 1}, m.start) do return false
+	defer delete(m.colors)
+	if !scene_add_mesh(app, m.mesh, pm.stem, m.file, {position = next_free_position(app), scale = 1}, m.start, surface = mesh_import_surface(m)) do return false
 	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
 	return true
 }
@@ -156,7 +157,8 @@ scene_new_pack_mesh :: proc(app: ^App, j: int) -> bool {
 	start := time.tick_now()
 	m, read := mesh_import_read(app, pm.file, fmt.tprintf("New scene: %s from %s", pm.stem, pack_mesh_pack_name(app, j)))
 	if !read do return true
-	obj := object_from_mesh(app, m.mesh, pm.stem, m.file, {scale = 1}, start) or_return
+	defer delete(m.colors)
+	obj := object_from_mesh(app, m.mesh, pm.stem, m.file, {scale = 1}, start, surface = mesh_import_surface(m)) or_return
 	obj.id = app.scene.next_id + 1
 	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
 	scene_remember_path(app, "")

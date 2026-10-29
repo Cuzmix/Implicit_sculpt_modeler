@@ -1485,14 +1485,54 @@ def x_symmetry_stroke_across_the_middle_by_pen():
 
 @scenario
 def grab_pulls_the_outline_from_outside():
-    """Grab pressed with the mouse 26 px past the sphere's right edge (within the brush
-    ring) takes hold of the nearest surface and pulls it out to the right, one undo step,
-    where any other brush pressed there turns the view (look with --screens: a bulge on the
-    outline)."""
+    """With Past the outline on, Grab pressed with the mouse 26 px past the sphere's right
+    edge (within the brush ring) takes hold of the nearest surface and pulls it out to the
+    right, one undo step (look with --screens: a bulge on the outline)."""
     s = Script()
     s.mouse_drag(line((1040, 450), (1160, 450), 12))
     s.wait(2)
-    return s, ["--script=brush grab"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("grab")})
+    return s, ["--script=brush grab; set grab_outline on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("grab")})
+
+
+def ring_past_the_edge(brush):
+    """A mouse drag pressed 26 px past the sphere's right edge with a ring 200 px across."""
+    s = Script()
+    s.mouse_drag(line((1040, 450), (1160, 450), 12))
+    s.wait(2)
+    return s, [f"--script=set orbit_style turntable; brush {brush}; set radius_px 200"], {
+        "dabs": near(0), "undo_steps": near(0), "camera_yaw": near(wrap(0.6 - 120 * 0.008), 2e-3)}
+
+
+@scenario
+def big_ring_past_the_edge_turns_the_view():
+    """A brush ring 200 px across pressed with the mouse 26 px past the sphere's right edge,
+    so most of the ring lies over the sphere, turns the view and sculpts nothing: only the
+    pointer itself on the model starts a stroke."""
+    return ring_past_the_edge("draw")
+
+
+@scenario
+def grab_past_the_edge_turns_the_view():
+    """Grab pressed 26 px past the sphere's edge with Past the outline off (the default)
+    turns the view as every other brush does there."""
+    return ring_past_the_edge("grab")
+
+
+@scenario
+def pen_big_ring_past_the_edge_turns_the_view():
+    """The pen pressed 26 px past the sphere's right edge with a ring 200 px across turns the
+    view, as ZBrush's Pencil does off the model, and sculpts nothing."""
+    s = Script()
+    s.add("pnear")
+    s.wait(1)
+    s.add("pdown:1040,450")
+    for x, y in past_slop((1040, 450), (1160, 450), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(3)
+    return s, ["--script=set orbit_style turntable; set radius_px 200"], {"dabs": near(0), "undo_steps": near(0), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.3}
 
 
 @scenario
