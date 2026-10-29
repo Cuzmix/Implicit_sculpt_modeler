@@ -47,11 +47,13 @@ jobs:
             deps/odin
             deps/sdl3
             deps/luau
-          key: deps-linux-${{ hashFiles('scripts/versions.env', 'scripts/build_luau.py') }}
+            deps/ufbx
+            deps/ufbx-src
+          key: deps-linux-${{ hashFiles('scripts/versions.env', 'scripts/build_luau.py', 'scripts/build_ufbx.py', 'src/fbx/fbx_shim.c') }}
 
-      # setup_deps.sh's Odin, stb, SDL3 and Luau; not Slang or SDL_shadercross, which only a
+      # setup_deps.sh's Odin, stb, SDL3, Luau and ufbx; not Slang or SDL_shadercross, which only a
       # shader author needs (the .spv and .msl files are committed).
-      - name: Odin, stb, SDL3 and Luau
+      - name: Odin, stb, SDL3, Luau and ufbx
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           mkdir -p deps
@@ -65,6 +67,7 @@ jobs:
             -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX="$PWD/deps/sdl3" > /dev/null
           ninja -C deps/sdl3-src/build install > /dev/null
           python3 scripts/build_luau.py
+          python3 scripts/build_ufbx.py
 
       - name: The gate, smoke left out
         run: python3 scripts/gate.py --keep-going --skip smoke

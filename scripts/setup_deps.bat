@@ -33,10 +33,13 @@ rem Luau, the language of script plugins, built from source with cl (scripts\bui
 call :msvc || exit /b 1
 python "%ROOT%\scripts\build_luau.py" || exit /b 1
 
+rem ufbx, the FBX reader Import uses, with the app's shim round it (scripts\build_ufbx.py).
+python "%ROOT%\scripts\build_ufbx.py" || exit /b 1
+
 echo Dependencies ready in %DEPS%
 exit /b 0
 
-rem Puts MSVC's cl and lib on PATH for the C and C++ built here (stb, Luau): vswhere finds
+rem Puts MSVC's cl and lib on PATH for the C and C++ built here (stb, Luau, ufbx): vswhere finds
 rem the newest Visual Studio with the C++ tools and its vcvarsall.bat sets them up;
 rem vcvarsall.bat's own helpers call vswhere.exe by name, so its folder goes on PATH too.
 :msvc

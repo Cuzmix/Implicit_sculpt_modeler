@@ -22,7 +22,7 @@ jobs:
 
       - name: Read the pins
         run: |
-          grep -E '^(ODIN|SDL)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
+          grep -E '^(ODIN|SDL|UFBX)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
           grep -E '^IOS_MIN=' build.sh >> "$GITHUB_ENV"
 
       - name: Odin, the pinned release
@@ -36,6 +36,10 @@ jobs:
 
       - name: SDL source, the pinned tag
         run: git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git deps/sdl3-src
+
+      # ufbx for FBX import, which build.sh ios compiles with the app's shim.
+      - name: ufbx source, the pinned tag
+        run: git clone -q --depth 1 -b "$UFBX_TAG" https://github.com/ufbx/ufbx.git deps/ufbx-src
 
       # GitHub lets a branch restore its own caches and the default branch's (odin-sculpt), not
       # another branch's: a run on odin-sculpt after the SDL pin, IOS_MIN, scripts/sdl_ios.sh
