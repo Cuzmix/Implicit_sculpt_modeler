@@ -7331,6 +7331,39 @@ def pen_roll_over_settings_scrolls_it():
     return s, [], camera_still({"settings_open": near(1), "settings_scroll": lambda v: float(v) > 100, "dabs": near(0)})
 
 
+@scenario
+def pencil_double_tap_follows_the_place_under_it():
+    """The pencil double-tapped while it hovers over the shelf opens the brush picker, over Undo the History panel, and over the navigation head, after a spin, puts the camera back: each place's own default."""
+    shelf = Script()
+    pen_hover(shelf, *PEN_SHELF_TILE, frames=4)
+    shelf.add("pdtap")
+    shelf.wait(6)
+    undo = Script()
+    pen_hover(undo, *PEN_UNDO, frames=4)
+    undo.add("pdtap")
+    undo.wait(6)
+    head = Script()
+    pen_hover(head, *PEN_NAV_HEAD, frames=4)
+    pen_rolls(head, range(0, 101, 5), frames=1)
+    head.add("pdtap")
+    head.wait(30)
+    return Steps([(shelf, [], camera_still({"brush_sheet": near(1), "rail_latched": is_text("none"), "dabs": near(0)})),
+                  (undo, [], camera_still({"window_history": lambda v: v.startswith("1,"), "rail_latched": is_text("none")})),
+                  (head, [], {"camera_yaw": near(0.6, 2e-3), "camera_roll": near(0), "rail_latched": is_text("none")})])
+
+
+@scenario
+def pencil_squeeze_over_a_panel_does_the_empty_space_action():
+    """With the empty-space squeeze set to Wireframe, a squeeze while the pencil hovers over open Settings turns wireframe on, as over empty space; nothing opens at the tip."""
+    s = Script()
+    write_settings("gesture_map Pen_Squeeze_Empty Wireframe\n")
+    open_settings(s, "pen")
+    pen_hover(s, 900, 480, frames=4)
+    s.add("psqueeze")
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "pie_open": near(-1), "settings_open": near(1)})
+
+
 def pen_away(s, frames):
     """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
     s.wait(frames)

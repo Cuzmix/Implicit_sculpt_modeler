@@ -263,6 +263,8 @@ Command_Id :: enum u8 {
 	Save_Pack,
 	Pencil_Preferred, // pencil.odin: only a pencil gesture's slot holds it
 	Input_Diagnostics, // diagnostics.odin
+	History_Panel,
+	Pen_As_Empty, // pen_roll.odin: only a pencil gesture's slot over a place of the interface holds it
 }
 
 Command :: struct {
@@ -2261,6 +2263,19 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return app.diag.allowed},
 		checked = proc(app: ^App, _: int) -> bool {return app.diag.open},
+	},
+	.History_Panel = {
+		label = "History panel",
+		help = "Shows or hides the History panel: step through the History, scrub it on the bar, play it back, and record it as a time-lapse.",
+		icon = ui.ICON_HISTORY,
+		run = proc(app: ^App, _: int) {app.kit.history = !app.kit.history},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.history},
+	},
+	.Pen_As_Empty = {
+		label = "As over empty space",
+		help = "Does what the pencil's double-tap or squeeze does over empty space (Settings > Pen, Where the pen points).",
+		icon = ui.ICON_PENCIL,
+		run = proc(app: ^App, _: int) {_ = gesture_run(app, .Pen_Squeeze_Empty if app.pencil.running == 1 else .Pen_Double_Tap_Empty)},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",

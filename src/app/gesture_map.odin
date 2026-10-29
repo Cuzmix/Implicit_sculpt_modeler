@@ -32,13 +32,29 @@ Gesture_Slot :: enum u8 {
 	// the two above are theirs over the model.
 	Pen_Double_Tap_Empty,
 	Pen_Squeeze_Empty,
+	// ...and over the places of the interface that give them a meaning of their own
+	// (Pen_Area), each to begin with As over empty space or its own.
+	Pen_Double_Tap_Shelf,
+	Pen_Squeeze_Shelf,
+	Pen_Double_Tap_Panels,
+	Pen_Squeeze_Panels,
+	Pen_Double_Tap_History,
+	Pen_Squeeze_History,
+	Pen_Double_Tap_Nav_Head,
+	Pen_Squeeze_Nav_Head,
+	Pen_Double_Tap_Colors,
+	Pen_Squeeze_Colors,
 }
 
 // Whether the platform has the Apple Pencil's double-tap and squeeze (ios/sculpt_ios.m).
 PENCIL_GESTURES :: ODIN_PLATFORM_SUBTARGET_IOS
 
 // The slots Settings > Pen lists instead of the gesture map.
-PENCIL_SLOTS :: bit_set[Gesture_Slot]{.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}
+PENCIL_SLOTS :: bit_set[Gesture_Slot]{
+	.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf,
+	.Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Double_Tap_History, .Pen_Squeeze_History, .Pen_Double_Tap_Nav_Head,
+	.Pen_Squeeze_Nav_Head, .Pen_Double_Tap_Colors, .Pen_Squeeze_Colors,
+}
 
 // The order Settings lists the slots in: the taps by fingers, the holds, the pen, then
 // the pen's own, which the map leaves to Settings > Pen.
@@ -57,6 +73,16 @@ GESTURE_SLOT_ORDER := [Gesture_Slot]Gesture_Slot {
 	.Pen_Squeeze    = .Pen_Squeeze,
 	.Pen_Double_Tap_Empty = .Pen_Double_Tap_Empty,
 	.Pen_Squeeze_Empty    = .Pen_Squeeze_Empty,
+	.Pen_Double_Tap_Shelf    = .Pen_Double_Tap_Shelf,
+	.Pen_Squeeze_Shelf       = .Pen_Squeeze_Shelf,
+	.Pen_Double_Tap_Panels   = .Pen_Double_Tap_Panels,
+	.Pen_Squeeze_Panels      = .Pen_Squeeze_Panels,
+	.Pen_Double_Tap_History  = .Pen_Double_Tap_History,
+	.Pen_Squeeze_History     = .Pen_Squeeze_History,
+	.Pen_Double_Tap_Nav_Head = .Pen_Double_Tap_Nav_Head,
+	.Pen_Squeeze_Nav_Head    = .Pen_Squeeze_Nav_Head,
+	.Pen_Double_Tap_Colors   = .Pen_Double_Tap_Colors,
+	.Pen_Squeeze_Colors      = .Pen_Squeeze_Colors,
 }
 
 GESTURE_SLOT_NAMES := [Gesture_Slot]string {
@@ -73,6 +99,16 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Squeeze    = "Pencil squeeze",
 	.Pen_Double_Tap_Empty = "Pencil double-tap on empty space",
 	.Pen_Squeeze_Empty    = "Pencil squeeze on empty space",
+	.Pen_Double_Tap_Shelf    = "Pencil double-tap on the shelf",
+	.Pen_Squeeze_Shelf       = "Pencil squeeze on the shelf",
+	.Pen_Double_Tap_Panels   = "Pencil double-tap on a panel",
+	.Pen_Squeeze_Panels      = "Pencil squeeze on a panel",
+	.Pen_Double_Tap_History  = "Pencil double-tap on Undo, Redo or History",
+	.Pen_Squeeze_History     = "Pencil squeeze on Undo, Redo or History",
+	.Pen_Double_Tap_Nav_Head = "Pencil double-tap on the navigation head",
+	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the navigation head",
+	.Pen_Double_Tap_Colors   = "Pencil double-tap on the colour Disc",
+	.Pen_Squeeze_Colors      = "Pencil squeeze on the colour Disc",
 }
 
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
@@ -92,6 +128,19 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	// a squeeze still does what the iPad asks.
 	.Pen_Double_Tap_Empty = {.Frame_All, 0},
 	.Pen_Squeeze_Empty    = {.Pencil_Preferred, 0},
+	// Over the interface, what each place is for: the shelf opens every brush, Undo and
+	// Redo the whole History, the navigation head puts the view back, the Disc swaps the
+	// two colours; the rest does what it does over empty space.
+	.Pen_Double_Tap_Shelf    = {.Brush_Picker, 0},
+	.Pen_Squeeze_Shelf       = {.Pen_As_Empty, 0},
+	.Pen_Double_Tap_Panels   = {.Pen_As_Empty, 0},
+	.Pen_Squeeze_Panels      = {.Pen_As_Empty, 0},
+	.Pen_Double_Tap_History  = {.History_Panel, 0},
+	.Pen_Squeeze_History     = {.Pen_As_Empty, 0},
+	.Pen_Double_Tap_Nav_Head = {.Reset_Camera, 0},
+	.Pen_Squeeze_Nav_Head    = {.Pen_As_Empty, 0},
+	.Pen_Double_Tap_Colors   = {.Swap_Colors, 0},
+	.Pen_Squeeze_Colors      = {.Pen_As_Empty, 0},
 }
 
 // What a gesture's select lists in Settings: what a tablet without a keyboard reaches for,
@@ -117,7 +166,7 @@ GESTURE_CHOICES := [?]Pie_Slot {
 
 // Whether a gesture may hold `id`: any command the palette lists, and the palette itself.
 gesture_lists :: proc(id: Command_Id) -> bool {
-	return palette_lists(id) || id == .Command_Palette || id == .Pencil_Preferred
+	return palette_lists(id) || id == .Command_Palette || id == .Pencil_Preferred || id == .Pen_As_Empty
 }
 
 // The tap or hold slot for a gesture of `fingers` (2 or more).
@@ -171,11 +220,11 @@ gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 			fmt.sbprintf(&b, "Hold %s fingers still", count)
 		}
 	}
-	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .One_Tap}) {
+	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf, .Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Double_Tap_History, .Pen_Squeeze_History, .Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head, .Pen_Double_Tap_Colors, .Pen_Squeeze_Colors, .One_Tap}) {
 		if !is(app, slot, id, arg) do continue
 		// The Apple Pencil's own gestures only where one can be paired: elsewhere the
 		// default empty-space double-tap would name itself under Frame all for nothing.
-		if !PENCIL_GESTURES && (slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot == .Pen_Double_Tap_Empty || slot == .Pen_Squeeze_Empty) do continue
+		if !PENCIL_GESTURES && (slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot >= .Pen_Double_Tap_Empty) do continue
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
 		strings.write_string(&b, "One-finger tap on empty space" if slot == .One_Tap else GESTURE_SLOT_NAMES[slot])
 	}
@@ -212,7 +261,7 @@ gesture_notes :: proc(app: ^App) -> []string {
 		for b in Gesture_Slot {
 			// Follow the Pencil setting reads each gesture's own preference, so it is never one
 			// command on two.
-			if b <= a || g[a].id == .None || g[a].id == .Pencil_Preferred || g[a] != g[b] do continue
+			if b <= a || g[a].id == .None || g[a].id == .Pencil_Preferred || g[a].id == .Pen_As_Empty || g[a] != g[b] do continue
 			// A tap and its own hold running Undo or Redo is the usual pair, not news.
 			if gesture_repeats(g[a]) && int(b) == int(a) + 3 do continue
 			append(&out, fmt.tprintf("%s and %s both run %s.", GESTURE_SLOT_NAMES[a], GESTURE_SLOT_NAMES[b], pie_slot_label(g[a])))
@@ -249,7 +298,8 @@ gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
 	s := &app.nav.gestures[slot]
 	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 3, context.temp_allocator)
 	append(&choices, Pie_Slot{})
-	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot == .Pen_Double_Tap_Empty || slot == .Pen_Squeeze_Empty do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
+	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot >= .Pen_Double_Tap_Empty do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
+	if slot >= .Pen_Double_Tap_Shelf do append(&choices, Pie_Slot{.Pen_As_Empty, 0})
 	append(&choices, ..GESTURE_CHOICES[:])
 	chosen := -1
 	for c, i in choices do if c == s^ {chosen = i; break}

@@ -104,6 +104,7 @@ kit_nav_head :: proc(app: ^App) {
 	// Left of what stands at the top of the pen side.
 	ui.begin_anchored(ctx, "navigation head", .End, .Start, {lens_nav_offset(app), TOP_BAR_H + 6}, {direction = .Column})
 	a := ui.area(ctx, "navigation head", {NAV_HEAD_W, NAV_HEAD_H})
+	pen_zone(app, a.rect, .Nav_Head)
 	ui.end(ctx)
 	// On whole pixels, so its texture shows pixel for pixel.
 	d := ctx.input.pixel_density
