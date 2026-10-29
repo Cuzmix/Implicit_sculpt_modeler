@@ -38,6 +38,10 @@ DYN_FACES :: 16
 // Edges shorter than this share of the detail size collapse (as in Blender), so a
 // split edge's halves never qualify.
 DYN_COLLAPSE_SHARE :: 0.4
+// Smooth only collapses, as Sculptris Pro's smooth tessimates: edges under this share of
+// the detail size, so smoothing over a patch an earlier close-up made too fine coarsens it
+// back toward the detail (a collapse never makes an edge longer than the detail).
+DYN_SMOOTH_COLLAPSE_SHARE :: 0.6
 // A collapse may not make a triangle of lower quality than this (see
 // triangle_quality; 0.3 is about a 12 degree corner) unless one as bad was there
 // already: collapsing into midpoints with no such check leaves slivers when a fine area
@@ -1138,8 +1142,13 @@ dyn_dab_topology :: proc(s: ^Sculptor, dab: ^Dab, pool: ^jobs.Pool) -> bool {
 	d := s.dyn
 	detail := dab.brush.radius * dab.brush.detail
 	if detail <= 0 do return false
+	// Smooth splits nothing (it would make detail where it is meant to take it away), so
+	// with Collapse off it leaves the triangles as they are.
+	smooth := dab.brush.kind == .Smooth
+	if smooth && !dab.brush.collapse do return false
+	share: f32 = DYN_SMOOTH_COLLAPSE_SHARE if smooth else DYN_COLLAPSE_SHARE
 	d.max2 = detail * detail
-	d.min2 = d.max2 * DYN_COLLAPSE_SHARE * DYN_COLLAPSE_SHARE
+	d.min2 = d.max2 * share * share
 	d.collapse = dab.brush.collapse
 	for len(d.cand_long) < len(s.hit) {
 		append(&d.cand_long, make([dynamic]Dyn_Edge, runtime.heap_allocator()))
@@ -1149,7 +1158,7 @@ dyn_dab_topology :: proc(s: ^Sculptor, dab: ^Dab, pool: ^jobs.Pool) -> bool {
 	clear(&d.long)
 	clear(&d.short)
 	for i in 0 ..< len(s.hit) {
-		for e in d.cand_long[i] do heap_push(&d.long, e)
+		if !smooth do for e in d.cand_long[i] do heap_push(&d.long, e)
 		append(&d.short, ..d.cand_short[i][:])
 	}
 	if len(d.long) == 0 && len(d.short) == 0 do return false
