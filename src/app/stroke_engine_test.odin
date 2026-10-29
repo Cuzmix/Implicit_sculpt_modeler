@@ -1524,3 +1524,32 @@ detail_by_screen_or_radius_per_brush :: proc(t: ^testing.T) {
 	b.dyns[.Grab].off = true
 	testing.expect_value(t, brush_detail(&b, .Grab, 100), 0)
 }
+
+// Grab's Strength sets how far it moves for the pointer's travel: at GRAB_STRENGTH_EXACT
+// the surface goes as far as at any time before, at half that half as far, and at full
+// strength twice as far.
+@(test)
+grab_strength_scales_the_drag :: proc(t: ^testing.T) {
+	moved_by :: proc(t: ^testing.T, strength: f32) -> f32 {
+		app: App
+		defer stroke_scene_free(&app)
+		obj := stroke_sphere(&app)
+		app.brush.kind, app.brush.radius_px = .Grab, 40
+		app.brush.strengths[.Grab] = strength
+		press := sphere_right_edge(&app) - {40, 0}
+		before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+		stroke_pressed(&app, {press, press}, {1, 1}, held = true)
+		testing.expect(t, app.stroke.active && app.stroke.grab)
+		to := press + {0, -20}
+		_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = to, hovered = true, primary = true, samples = {{pos = to, pressure = 1, kind = .Move}}})
+		most: f32
+		for p, i in object_mesh(obj).positions do most = max(most, linalg.length(p - before[i]))
+		return most
+	}
+	exact := moved_by(t, GRAB_STRENGTH_EXACT)
+	half := moved_by(t, GRAB_STRENGTH_EXACT / 2)
+	full := moved_by(t, 1)
+	testing.expectf(t, exact > 0.01, "the grab moved %v", exact)
+	testing.expectf(t, abs(half - exact / 2) < 1e-4 * exact + 1e-6, "half strength moved %v of %v", half, exact)
+	testing.expectf(t, abs(full - 2 * exact) < 1e-4 * exact + 1e-6, "full strength moved %v of %v", full, exact)
+}

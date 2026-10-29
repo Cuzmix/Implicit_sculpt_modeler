@@ -246,6 +246,9 @@ Stroke :: struct {
 	// past the silhouette), and the area normal there (world space, unit length or zero).
 	grab_from:   Vec3,
 	grab_normal: Vec3,
+	// Grab: how far what it picked up moves for each unit the pointer goes, from the
+	// brush's Strength as the press found it (grab_gain).
+	grab_gain:   f32,
 	// The pen's pressure at the press: Grab's and Snake hook's strength keep it.
 	press_pressure: f32,
 	// The brush the stroke started with, Shift's Smooth and the rail's Mask included: kept
@@ -670,6 +673,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
+	st.grab_gain = grab_gain(app, st.kind)
 	if st.grab && obj.voxel == nil {
 		t := obj.transform
 		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
@@ -755,12 +759,27 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
 	moved := grab_moved(app, input, origin + dir * t - st.grab_from, facing)
-	offset := to_local_dir(obj.transform, moved) / obj.transform.scale
+	offset := to_local_dir(obj.transform, moved) * (st.grab_gain / obj.transform.scale)
 	st.pos = pos
 	t1 := time.tick_now()
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// The Strength at which Grab and Elastic move what they picked up exactly as far as the
+// pointer goes: their default, so the feel they had before Strength counted is the one
+// a fresh brush has.
+GRAB_STRENGTH_EXACT :: 0.5
+
+// How far Grab or Elastic (`kind`) moves what it picked up for each unit the pointer goes,
+// from the brush's Strength, as ZBrush's Move takes its Z Intensity and Blender's Grab its
+// strength: GRAB_STRENGTH_EXACT follows the pointer, less lags behind it (a fine nudge at
+// 0.05 moves a tenth as far), more runs ahead of it, twice as far at full strength. Pen
+// pressure is left out: the press's own pressure, light as a press starts, would make
+// the whole drag weak.
+grab_gain :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	return app.brush.strengths[kind] / GRAB_STRENGTH_EXACT
 }
 
 // How a Grab moves what it picked up for the pointer having gone `drag` (world space, on
