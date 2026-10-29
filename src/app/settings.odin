@@ -293,6 +293,7 @@ SETTINGS := [?]Setting {
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
+	{"symmetry_line", K + offset_of(Kit_State, symmetry_line), bool, 0, 0},
 	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
@@ -364,6 +365,8 @@ SETTINGS := [?]Setting {
 	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
 	{"predict_cursor", N + offset_of(Nav_Prefs, predict_cursor), bool, 0, 0},
 	{"pen_eraser", N + offset_of(Nav_Prefs, eraser), Eraser_Use, 0, 0},
+	{"pen_roll_model", N + offset_of(Nav_Prefs, pen_roll) + 0 * size_of(Roll_Action), Roll_Action, 0, 0},
+	{"pen_roll_empty", N + offset_of(Nav_Prefs, pen_roll) + 1 * size_of(Roll_Action), Roll_Action, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},

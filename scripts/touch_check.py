@@ -4401,6 +4401,112 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
         "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
 
 
+ARRANGE_DOCKS_TAB, DOCK_NEW = (542, 180), (520, 260)
+# A new dock floats in the middle, or beside the Library when that would cover it: its
+# first button (or, while empty, its +) is there.
+DOCK_ONE_ADD = (841, 417)
+
+
+@scenario
+def dock_new_from_the_library():
+    """Library > Docks > New dock makes Dock 1 floating in the middle with Arrange still on; its + picks Frame all in Search, and after Done a tap on the dock's button frames the scene."""
+    s = Script()
+    s.wait(6)
+    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.wait(6)
+    s.ftap(*DOCK_NEW)
+    s.wait(8)
+    s.ftap(*DOCK_ONE_ADD)
+    s.wait(8)
+    s.type("frame all")
+    s.wait(4)
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*LENS_ARRANGE["done"])
+    s.wait(8)
+    s.ftap(*DOCK_ONE_ADD)
+    s.wait(10)
+    return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:icons:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
+                                                          "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 814) < 2, "dabs": near(0)}
+
+
+def dock_made(s):
+    """Library > Docks > New dock, from Arrange with the Library open."""
+    s.wait(6)
+    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.wait(6)
+    s.ftap(*DOCK_NEW)
+    s.wait(8)
+
+
+# The new dock's tag, over its top-left, and its row's controls in Library > Docks.
+DOCK_ONE_TAG, DOCK_ROW_TILES, DOCK_ROW_DELETE = (848, 386), (677, 260), (751, 260)
+
+
+@scenario
+def dock_carried_to_the_left_edge():
+    """The mouse drags a new dock's tag to the left edge: the dock stands there, and the island, which held that edge, floats where the dock was."""
+    s = Script()
+    dock_made(s)
+    s.mouse_drag(line(DOCK_ONE_TAG, ARRANGE_LEFT_MID, 30))
+    s.wait(6)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({
+        "bar_places": lambda v: v.startswith("offhand:float:814,390,") and ",dock1:left:" in v, "bar_carries": near(1),
+        "layout_user_dock_1": lambda v: float(v.split(",")[0]) < 40, "layout_brush_bar": lambda v: float(v.split(",")[0]) > 800, "dabs": near(0)})
+
+
+@scenario
+def dock_tiles_then_delete():
+    """A dock's row in Library > Docks: Tiles widens it to a tile's width, and Delete takes it away with a note."""
+    def run(delete):
+        s = Script()
+        dock_made(s)
+        s.ftap(*DOCK_ROW_TILES)
+        s.wait(6)
+        if not delete:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:tiles:0"), "layout_user_dock_1": lambda v: float(v.split(",")[2]) >= 70, "dabs": near(0)})
+        s.ftap(*DOCK_ROW_DELETE)
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def dock_new_left_handed_by_pen():
+    """Left-handed, the pen taps Library > Docks > New dock: the Library stands right of the middle, so the new dock floats left of it, and stays in the window."""
+    s = Script()
+    s.wait(6)
+    s.add("pnear")
+    for x, y in [(1440 - ARRANGE_DOCKS_TAB[0], ARRANGE_DOCKS_TAB[1]), (1440 - DOCK_NEW[0], DOCK_NEW[1])]:
+        s.add(f"pdown:{x},{y}")
+        s.wait(2)
+        s.add("pup")
+        s.wait(6)
+    def dock(v):
+        x, _, w, _ = (float(n) for n in v.split(","))
+        return 0 <= x and x + w <= 1440 - 790
+    return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({"user_docks": is_text("1:icons:0"), "layout_user_dock_1": dock, "dabs": near(0)})
+
+
+@scenario
+def dock_stays_with_its_space():
+    """A dock made in Sculpt is Sculpt's layout's: Model has none, and back in Sculpt it is there again."""
+    a = LENS_ARRANGE
+    def run(back):
+        s = Script()
+        dock_made(s)
+        s.ftap(*a["done"])
+        s.wait(8)
+        s.ftap(*SPACE_TABS["model"])
+        s.wait(10)
+        if not back:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
+        s.ftap(*SPACE_TABS["sculpt"])
+        s.wait(10)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:icons:0"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def lens_arrange_place_stays_with_its_space():
     """The rail moved to the left in Sculpt stays there after a trip to Model and back, and Model's layout has its rail on the right."""
@@ -7037,6 +7143,68 @@ def pen_hover_wobble_moves_no_size():
         s.add(f"proll:{deg}")
         s.wait(2)
     return s, [], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+# A point on the default sphere right of and above its middle, and empty space above the
+# model, clear of the panels, at 1600 x 900.
+PEN_MODEL_POINT = (930, 380)
+PEN_EMPTY_POINT = (1150, 170)
+
+
+def pen_rolls(s, degrees, frames=2):
+    for deg in degrees:
+        s.add(f"proll:{deg}")
+        s.wait(frames)
+
+
+@scenario
+def pen_roll_twists_the_view_about_the_point():
+    """The pen hovering over the model and turned 100 degrees clockwise twists the view clockwise by the 90 past the first ROLL_ENGAGE (10), about the point under its tip, which stays where it was on screen (Nomad's twist)."""
+    s = Script()
+    pen_hover(s, *PEN_MODEL_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    hit = lambda st: tuple(float(v) for v in st["pen_roll_hit"].split(","))
+    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0),
+                   "@hit_on_model": lambda st: 0.9 < math.dist(hit(st), (0, 0, 0)) < 1.2,
+                   "@hit_stays_put": lambda st: math.dist(on_screen(st, hit(st)), on_screen(None, hit(st))) < 2e-3}
+
+
+@scenario
+def pen_roll_carried_across_twists_nothing():
+    """A hand that turns the pen a little all the way as it carries it across the model (60 degrees over 300 points) twists nothing: the turn counts again from nothing every 40 points."""
+    s = Script()
+    s.add("pnear")
+    for i, (x, y) in enumerate(line((650, 450), (950, 450), 20)):
+        s.add(f"pmove:{x:g},{y:g}")
+        s.add(f"proll:{3 * i}")
+        s.wait(1)
+    s.wait(4)
+    return s, [], camera_still({"pen_rolls": near(0), "dabs": near(0)})
+
+
+@scenario
+def pen_roll_over_empty_space_zooms_when_set():
+    """With Roll over empty space set to Zoom toward the tip, the pen hovering over empty space and turned 100 degrees clockwise comes closer, by 2 to the 90/180 past the first ROLL_ENGAGE, and rolls nothing."""
+    s = Script()
+    pen_hover(s, *PEN_EMPTY_POINT, frames=4)
+    pen_rolls(s, range(0, 101, 10))
+    return s, ["--script=set pen_roll_empty zoom"], {"pen_rolls": near(1), "pen_roll_area": is_text("empty"),
+                                                   "camera_distance": near(3.5 / 2 ** 0.5, 0.02), "camera_roll": near(0)}
+
+
+@scenario
+def pencil_double_tap_over_empty_space_frames():
+    """The pencil hovering over empty space and double-tapped frames the model (Frame, the empty-space default); over the model it does what the iPad asks, and Smooth latches."""
+    empty = Script()
+    pen_hover(empty, *PEN_EMPTY_POINT, frames=4)
+    empty.add("pdtap")
+    empty.wait(6)
+    model = Script()
+    pen_hover(model, *PEN_MODEL_POINT, frames=4)
+    model.add("pdtap")
+    model.wait(6)
+    return Steps([(empty, [], {"camera_distance": lambda v: abs(float(v) - 3.5) > 1e-3, "rail_latched": is_text("none")}),
+                  (model, [], camera_still({"rail_latched": is_text("smooth")}))])
 
 
 def pen_away(s, frames):

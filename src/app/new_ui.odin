@@ -118,6 +118,8 @@ Kit_State :: struct {
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	bar_slot:   Bar_Slot_Menu,
 	rail_scroll: f32, // the view rail's, on a window too short for all of it
+	docks:       [USER_DOCKS]User_Dock, // the person's own docks, the layout's (user_docks.odin)
+	dock_scroll: [USER_DOCKS]f32,
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	bind:       Bind_Popover, // Assign key (kit_bind.odin)
@@ -125,6 +127,7 @@ Kit_State :: struct {
 	// with the command a tap puts in a slot (none: it only empties), beside the control it
 	// was opened from, and its scroll.
 	pies:       [USER_PIES][PIE_SLOTS]Pie_Slot,
+	pen_area:   Pen_Area, // the place Settings > Pen's Where the pen points shows
 	favourites: [MAX_FAVOURITES]Pie_Slot,
 	favourite_count: int,
 	pie_editor: bool,
@@ -175,6 +178,7 @@ Kit_State :: struct {
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
+	symmetry_line: bool, // the mirror planes' lines show across the selected object (symmetry.odin)
 	panes_work:   bool, // a press in a view pane works there (grid_work)
 	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
 	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
@@ -595,6 +599,8 @@ Kit_Event_Kind :: enum u8 {
 	// The on-screen keyboard put away by the system's own key, as an iPad's SDL reports it:
 	// SDL_EVENT_SCREEN_KEYBOARD_HIDDEN, with text input left on.
 	Keyboard_Hidden,
+	// A file dropped on the window from the desktop, its path in `key`.
+	Drop_File,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -676,6 +682,13 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "pdist":   ev.kind = .Pen_Distance
 				case:           ev.kind = .Pen_Roll
 				}
+			case "drop":
+				// Everything after the kind, so a Windows path's drive colon stays.
+				raw := strings.trim_space(item)
+				rest := raw[min(len(parts[0]) + len(":drop:"), len(raw)):]
+				ok = len(parts) >= 3 && rest != ""
+				if ok do ev.key = strings.clone(rest)
+				ev.kind = .Drop_File
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
 				raw := strings.trim_left_space(item)
@@ -839,6 +852,10 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		case .Keyboard_Hidden:
 			e.common = {type = .SCREEN_KEYBOARD_HIDDEN, timestamp = now}
 			push(e)
+		case .Drop_File:
+			// Read in this frame, before temp memory is freed.
+			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = strings.clone_to_cstring(ev.key, context.temp_allocator)}
+			push(e)
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.
 			app.pencil.only = ev.value != 0
@@ -919,6 +936,7 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
+	k.symmetry_line = true
 	k.panes_work = true
 	k.column_popovers = true
 	k.clean_dial = true
@@ -1155,6 +1173,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// that Escape is the pie's, not Settings'.
 	floating := kit_floating(app)
 	input := kit_viewport_input(app, pane)
+	pen_roll_frame(app, input)
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	deform_drag_end(app)
@@ -1360,6 +1379,8 @@ kit_layout :: proc(app: ^App) {
 	} else {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
+	// The person's own docks (user_docks.odin), where Arrange put them.
+	kit_user_docks(app)
 
 	// Bottom middle: the shelf and its pages (lens_shelf.odin).
 	dock_anchor := menu_anchor

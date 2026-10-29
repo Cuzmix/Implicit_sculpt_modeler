@@ -1116,12 +1116,20 @@ select_list_draw :: proc(ctx: ^Context) {
 BRUSH_TILE :: [2]f32{64, 58}
 
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
-// chosen colour, which slides from tile to tile. Returns true when clicked.
-brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "") -> bool {
+// chosen colour, which slides from tile to tile. Returns true when clicked. A command's
+// tile, on a dock of tiles, may be disabled (faded, taking no press) and may mark that it
+// has a long press with `corner`, as icon_button does.
+brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	cell := place(ctx, BRUSH_TILE)
 	vis := centered(cell, {60, 54})
+	if !enabled {
+		faded := color_fade(t.text_secondary, 0.35)
+		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
+		text(ctx, text_fit(ctx, label_text(s), t.caption_size, cell.w - 2), vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, faded, .Regular, .Center)
+		return false
+	}
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	if selected do indicator(ctx, vis, t.radius_medium + 2, t.chosen)
@@ -1134,6 +1142,11 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	name := label_text(s)
 	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)
 	text(ctx, shown, vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, color, .Semibold if selected else .Regular, .Center)
+	if corner {
+		CORNER :: 5
+		x, y := vis.x + 3, vis.y + vis.h - 3
+		fill_convex(ctx, [][2]f32{{x, y}, {x, y - CORNER}, {x + CORNER, y}}, t.text_tertiary)
+	}
 	press_scale(ctx, mark, vis, scale)
 	if keys != "" || shown != name do tip(ctx, id, vis, name, keys)
 	return clicked

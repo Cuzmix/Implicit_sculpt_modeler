@@ -256,6 +256,7 @@ Nav_Prefs :: struct {
 	// was sampled, while a stroke draws (cursor_lead).
 	predict_cursor: bool,
 	eraser:         Eraser_Use, // what the pen's eraser end sculpts with (pencil.odin)
+	pen_roll:       [Pen_Area]Roll_Action, // what the hovering pen's roll does where it points (pen_roll.odin)
 }
 
 // When the pen, held over a control without touching, shows its name and shortcut, as
@@ -334,6 +335,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	edge_show      = true,
 	// Smooth takes a stroke back, the nearest thing sculpting has to erasing.
 	eraser         = .Smooth,
+	pen_roll       = ROLL_DEFAULTS,
 	predict_cursor = true,
 }
 

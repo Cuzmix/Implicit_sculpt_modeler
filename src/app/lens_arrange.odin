@@ -19,6 +19,11 @@ Arrange_Zone :: enum u8 {
 	Shelf, // the brushes along the bottom
 	Panels, // the stack of cards at the right
 	Rail, // the view rail down the pen side
+	// The person's own docks (user_docks.odin), while they are in use.
+	Dock_1,
+	Dock_2,
+	Dock_3,
+	Dock_4,
 }
 
 @(rodata)
@@ -28,12 +33,17 @@ ARRANGE_ZONE_NAMES := [Arrange_Zone]string {
 	.Shelf   = "Shelf",
 	.Panels  = "Panels",
 	.Rail    = "Rail",
+	.Dock_1  = "Dock 1",
+	.Dock_2  = "Dock 2",
+	.Dock_3  = "Dock 3",
+	.Dock_4  = "Dock 4",
 }
 
 // The Library's tabs.
 Library_Tab :: enum u8 {
 	Panels,
 	Dial,
+	Docks,
 }
 
 // Arrange's own state in Kit_State: the zone picked for Reset zone, whether the Library
@@ -50,6 +60,9 @@ Arrange_State :: struct {
 	carry_press: [2]f32,
 	carrying:    bool,
 	carries:     int, // bars let go (for the exit stats)
+	// The person's docks made and deleted (for the exit stats).
+	docks_made:    int,
+	docks_deleted: int,
 }
 
 // The bar a zone's tag carries, if it carries one.
@@ -58,6 +71,7 @@ arrange_zone_bar :: proc(z: Arrange_Zone) -> (Place_Bar, bool) {
 	case .Offhand: return .Offhand, true
 	case .Rail:    return .Rail, true
 	case .Shelf:   return .Shelf, true
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return Place_Bar(int(Place_Bar.Dock_1) + int(z) - int(Arrange_Zone.Dock_1)), true
 	}
 	return {}, false
 }
@@ -82,6 +96,10 @@ arrange_zone_rect :: proc(app: ^App, z: Arrange_Zone) -> ui.Rect {
 		if r := k.panels.rect[.Right]; r.w > 0 do return r
 		return k.panels.rect[.Left]
 	case .Rail:   return ui.prev_rect(ctx, "view bar")
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		b, _ := arrange_zone_bar(z)
+		if !bar_place_shown(k, b) do return {}
+		return ui.prev_rect(ctx, PLACE_BAR_ROOTS[b])
 	}
 	return {}
 }
@@ -95,6 +113,9 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 		first, last := shelf_pages_of(k.spaces.current)
 		return fmt.tprintf("Shelf · page %d of %d", int(k.shelf.page) - int(first) + 1, int(last) - int(first) + 1)
 	case .Rail:  return fmt.tprintf("Rail · %d", len(bar_used(app, .View_Rail)))
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		i := int(z) - int(Arrange_Zone.Dock_1)
+		return fmt.tprintf("%s · %d", USER_DOCK_NAMES[i], k.docks[i].list.count)
 	}
 	return ARRANGE_ZONE_NAMES[z]
 }
@@ -102,12 +123,17 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 // Whether Reset zone has anything to put back for `z`: the off-hand island only its
 // place, its items being the person's.
 arrange_zone_resettable :: proc(k: ^Kit_State, z: Arrange_Zone) -> bool {
-	return z != .Offhand || k.places[.Offhand].edge != .Default
+	#partial switch z {
+	case .Offhand: return k.places[.Offhand].edge != .Default
+	// A dock's reset empties it, keeping its place and how its buttons show.
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return k.docks[int(z) - int(Arrange_Zone.Dock_1)].list.count > 0
+	}
+	return true
 }
 
 // Puts zone `z` back as a fresh install has it: the island's place; the dial's sectors,
 // size, turn and place; the shelf's page shown; the stack of cards; the rail's buttons and
-// place.
+// place; a dock's buttons (a dock comes empty).
 arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	k := &app.kit
 	switch z {
@@ -124,6 +150,12 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	case .Rail:
 		bar_list_k(k, .View_Rail)^ = bar_fresh(.View_Rail)
 		k.places[.Rail] = {}
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		i := int(z) - int(Arrange_Zone.Dock_1)
+		k.docks[i].list = bar_fresh(user_dock_which(i))
+		k.arrange.resets += 1
+		report(app, nil, {}, "Emptied %s", USER_DOCK_NAMES[i])
+		return
 	}
 	k.arrange.resets += 1
 	report(app, nil, {}, "%s is as it comes again", ARRANGE_ZONE_NAMES[z])
@@ -303,7 +335,7 @@ kit_library :: proc(app: ^App) {
 	ui.text(ctx, "Library", head.x + 28, head.y + head.h * 0.5, t.heading_size, t.text, .Semibold)
 	if ui.icon_button(ctx, "Put the Library away", ui.ICON_CLOSE) do k.arrange.library_off = true
 	ui.end(ctx)
-	names := [len(Library_Tab)]string{"Panels", "Dial"}
+	names := [len(Library_Tab)]string{"Panels", "Dial", "Docks"}
 	if picked := ui.tabs(ctx, "Library tab", names[:], int(k.arrange.tab), item_width = 110); picked >= 0 do k.arrange.tab = Library_Tab(picked)
 	switch k.arrange.tab {
 	case .Panels:
@@ -311,6 +343,8 @@ kit_library :: proc(app: ^App) {
 		arrange_panel_rows(app)
 	case .Dial:
 		library_dial(app, inner)
+	case .Docks:
+		library_docks(app, inner)
 	}
 	ui.end(ctx)
 }
