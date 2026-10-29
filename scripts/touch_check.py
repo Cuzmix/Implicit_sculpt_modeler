@@ -3125,7 +3125,7 @@ def lens_left_handed_mirrors_the_chrome():
 # The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the tools after them, the
 # page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
-              "move_tool": (957, 833), "curve_remesh": (780, 833)}
+              "move_tool": (957, 833), "curve_remesh": (819, 833)}
 # Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
 LENS_MODEL_TAB = (447, 26)
@@ -3585,7 +3585,9 @@ def lens_shelf_tools_follow_the_brushes():
         if curve:
             s.ftap(*LENS_SHELF_PAGES["curve"])
             s.wait(10)
-            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it.
+            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it,
+            # and 39 points right again, as Draw, held from the Sculpt page, has its own
+            # tile left of the shelf there.
             s.ftap(*LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
             s.wait(10)
             return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_tools": near(6), "bar_pop": is_text("remesh_quick"), "dabs": near(0)})
@@ -3597,14 +3599,51 @@ def lens_shelf_tools_follow_the_brushes():
 
 @scenario
 def lens_picker_card_dragged_onto_a_tile_keeps_it():
-    """A card dragged from the picker onto the shelf's last tile takes its place there; the picker stays open and nothing is sculpted."""
+    """A card dragged from the picker sideways, then down onto the shelf's last tile, takes its place there; the picker stays open and nothing is sculpted."""
     s = Script()
     s.ftap(*LENS_SHELF["all"])
     s.wait(10)
-    s.fdrag(line(LENS_SHEET["inflate"], LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
+    aside = (LENS_SHEET["inflate"][0] - 80, LENS_SHEET["inflate"][1])
+    s.fdrag(line(LENS_SHEET["inflate"], aside, 4)[:-1] + line(aside, LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
     s.wait(10)
     shelf = LENS_SHELF_SCULPT.replace("Brush:Layer", "Brush:Inflate")
     return s, LENS_1440, camera_still({"shelf_drops": near(1), "shelf": is_text(shelf), "brush_sheet": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_picker_swipe_scrolls_the_cards():
+    """A finger, then the pen, swiped up over the picker's cards scrolls them, as on an iPad: no card is picked or carried, the picker stays open and nothing is sculpted."""
+    def run(pen):
+        s = Script()
+        s.ftap(*LENS_SHELF["all"])
+        s.wait(10)
+        path = line((900, 560), (900, 300), 13) + [(900, 300)] * 2
+        if pen:
+            pen_stroke(s, path, pressure=0.5)
+        else:
+            s.fdrag(path)
+        s.wait(10)
+        return s, LENS_1440, camera_still({"brush_grid_scroll": lambda v: float(v) > 100, "brush_sheet": near(1), "brush_kind": is_text("draw"),
+                                           "shelf_drops": near(0), "shelf": is_text(LENS_SHELF_SCULPT), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+# The active brush's tile, left of the shelf at 1440 x 900 while the brush held is not on it.
+LENS_SHELF_ACTIVE = (212, 832)
+
+
+@scenario
+def lens_shelf_shows_the_active_brush():
+    """A brush not on the shelf (Snake hook, picked by script as from All or Search) shows on a tile of its own left of the shelf, lit; a tap on it shows its quick settings. A brush on the shelf (Clay) shows none."""
+    def run(on_shelf):
+        s = Script()
+        s.wait(10)
+        if on_shelf:
+            return s, LENS_1440 + ["--script=brush clay"], camera_still({"shelf_active": near(0), "brush_kind": is_text("clay"), "dabs": near(0)})
+        s.ftap(*LENS_SHELF_ACTIVE)
+        s.wait(10)
+        return s, LENS_1440 + ["--script=brush snake_hook"], camera_still({"shelf_active": near(1), "shelf_quick": near(1), "brush_kind": is_text("snake_hook"), "dabs": near(0)})
+    return Steps([run(True), run(False)])
 
 
 # The Lens stack at 1440 x 900 (lens_stack.odin): the Brush card's header and its Stroke
@@ -7329,6 +7368,39 @@ def pen_roll_over_settings_scrolls_it():
     pen_rolls(s, range(0, 101, 5), frames=1)
     s.wait(20)
     return s, [], camera_still({"settings_open": near(1), "settings_scroll": lambda v: float(v) > 100, "dabs": near(0)})
+
+
+@scenario
+def pencil_double_tap_follows_the_place_under_it():
+    """The pencil double-tapped while it hovers over the shelf opens the brush picker, over Undo the History panel, and over the navigation head, after a spin, puts the camera back: each place's own default."""
+    shelf = Script()
+    pen_hover(shelf, *PEN_SHELF_TILE, frames=4)
+    shelf.add("pdtap")
+    shelf.wait(6)
+    undo = Script()
+    pen_hover(undo, *PEN_UNDO, frames=4)
+    undo.add("pdtap")
+    undo.wait(6)
+    head = Script()
+    pen_hover(head, *PEN_NAV_HEAD, frames=4)
+    pen_rolls(head, range(0, 101, 5), frames=1)
+    head.add("pdtap")
+    head.wait(30)
+    return Steps([(shelf, [], camera_still({"brush_sheet": near(1), "rail_latched": is_text("none"), "dabs": near(0)})),
+                  (undo, [], camera_still({"window_history": lambda v: v.startswith("1,"), "rail_latched": is_text("none")})),
+                  (head, [], {"camera_yaw": near(0.6, 2e-3), "camera_roll": near(0), "rail_latched": is_text("none")})])
+
+
+@scenario
+def pencil_squeeze_over_a_panel_does_the_empty_space_action():
+    """With the empty-space squeeze set to Wireframe, a squeeze while the pencil hovers over open Settings turns wireframe on, as over empty space; nothing opens at the tip."""
+    s = Script()
+    write_settings("gesture_map Pen_Squeeze_Empty Wireframe\n")
+    open_settings(s, "pen")
+    pen_hover(s, 900, 480, frames=4)
+    s.add("psqueeze")
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "pie_open": near(-1), "settings_open": near(1)})
 
 
 def pen_away(s, frames):

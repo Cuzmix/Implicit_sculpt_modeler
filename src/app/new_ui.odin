@@ -128,6 +128,9 @@ Kit_State :: struct {
 	// was opened from, and its scroll.
 	pies:       [USER_PIES][PIE_SLOTS]Pie_Slot,
 	pen_area:   Pen_Area, // the place Settings > Pen's Where the pen points shows
+	// The places of the interface the last layout noted for the pencil's gestures (pen_zone).
+	pen_zones:      [PEN_ZONES_MAX]Pen_Zone,
+	pen_zone_count: int,
 	favourites: [MAX_FAVOURITES]Pie_Slot,
 	favourite_count: int,
 	pie_editor: bool,
@@ -1170,6 +1173,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		app.ui.viewport_origin, pane = [2]f32{main.x, main.y} * k.scale, [2]f32{main.w, main.h} * k.scale
 	}
 	k.laying_out = true
+	k.pen_zone_count = 0
 	kit_layout(app)
 	k.laying_out = false
 	// Whether something floated before the pie read this frame's Escape and closed itself:

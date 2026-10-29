@@ -4,6 +4,7 @@ import "core:encoding/base64"
 import "core:encoding/json"
 import "core:math"
 import "core:math/linalg"
+import "core:strconv"
 import "core:strings"
 
 // glTF 2.0 in: a binary .glb, or .gltf JSON whose buffers are inside it (data: URIs) or
@@ -14,11 +15,9 @@ import "core:strings"
 // colours, and a group for each material its primitives use. Primitives compressed with
 // Draco or meshopt, which this reader does not decode, are left out and counted, and so
 // are morph targets and skins (a skinned mesh comes in its bind pose). glTF is Y up and
-// metres, as the app's space is, so nothing turns.
-
-// Gives the bytes of a file a .gltf names by `uri` (relative to it, percent escapes
-// undone), owned by the caller and kept until the read returns.
-Gltf_Resolve :: #type proc(data: rawptr, uri: string) -> (bytes: []u8, ok: bool)
+// metres, as the app's space is, so nothing turns. Given a Mesh_Look, the materials'
+// base colour factors and textures fill it, and the parts' triangles and corners get
+// their materials and texture coordinates.
 
 // What a glTF read left out, for the note.
 Gltf_Skipped :: struct {
@@ -31,7 +30,7 @@ GLB_MAGIC :: "glTF"
 // Reads a glTF file's meshes as parts appended to `parts`. Refuses a file that is not
 // glTF 2, whose JSON or binary does not hold together, or that names a buffer `resolve`
 // cannot give (Missing_File); a file whose meshes all were left out is Empty.
-mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Gltf_Resolve = nil, resolve_data: rawptr = nil) -> (skipped: Gltf_Skipped, err: Mesh_File_Error) {
+mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Mesh_Resolve = nil, resolve_data: rawptr = nil, look: ^Mesh_Look = nil) -> (skipped: Gltf_Skipped, err: Mesh_File_Error) {
 	text: []u8
 	bin: []u8
 	if len(data) >= 12 && string(data[:4]) == GLB_MAGIC {
@@ -91,6 +90,7 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Gltf_Res
 		if length < 0 || length > len(g.buffers[i]) do return {}, .Truncated
 		g.buffers[i] = g.buffers[i][:length]
 	}
+	if look != nil do gltf_look(&g, look, resolve, resolve_data)
 
 	// The scene's root nodes: the default scene's, or every node no other names as a child.
 	nodes := gltf_array(root, "nodes")
@@ -138,9 +138,65 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Gltf_Res
 
 @(private = "file")
 Gltf_Reader :: struct {
-	root:    json.Object,
-	bin:     []u8,
-	buffers: [][]u8,
+	root:          json.Object,
+	bin:           []u8,
+	buffers:       [][]u8,
+	look:          ^Mesh_Look,
+	material_base: int, // the file's first material's number in the look
+	coord:         []int, // each material's TEXCOORD set for its image, or -1 for none
+}
+
+// Fills `look` with the file's materials' base colours and the images their base colour
+// textures use: an image in a buffer view, in a data: URI or in a file `resolve` gives
+// (nil bytes when it cannot be had, so its material shows its factor alone).
+@(private = "file")
+gltf_look :: proc(g: ^Gltf_Reader, look: ^Mesh_Look, resolve: Mesh_Resolve, resolve_data: rawptr) {
+	g.look = look
+	image_base := len(look.images)
+	for im in gltf_array(g.root, "images") {
+		io, _ := im.(json.Object)
+		bytes: []u8
+		if view, has_view := io["bufferView"]; has_view {
+			bytes, _, _ = gltf_view(g, gltf_number_int(view))
+		} else if uri, has_uri := io["uri"].(json.String); has_uri {
+			if strings.has_prefix(uri, "data:") {
+				if comma := strings.index_byte(uri, ','); comma >= 0 && strings.contains(uri[:comma], ";base64") {
+					decoded, derr := base64.decode(uri[comma + 1:], allocator = context.temp_allocator)
+					if derr == nil do bytes = decoded
+				}
+			} else if resolve != nil {
+				found: bool
+				bytes, found = resolve(resolve_data, gltf_uri_decode(uri))
+				if !found do bytes = nil
+			}
+		}
+		append(&look.images, Mesh_Image{bytes = bytes})
+	}
+	textures := gltf_array(g.root, "textures")
+	materials := gltf_array(g.root, "materials")
+	g.material_base = len(look.materials)
+	g.coord = make([]int, len(materials), context.temp_allocator)
+	for m, k in materials {
+		mo, _ := m.(json.Object)
+		pbr, _ := mo["pbrMetallicRoughness"].(json.Object)
+		out := Mesh_Material{color = 1, image = -1}
+		if factor := gltf_array(pbr, "baseColorFactor"); len(factor) >= 3 {
+			for c in 0 ..< 3 do out.color[c] = clamp(f32(gltf_number(factor[c])), 0, 1)
+		}
+		g.coord[k] = -1
+		if texture, has := pbr["baseColorTexture"].(json.Object); has {
+			t := gltf_int(texture, "index", -1)
+			if t >= 0 && t < len(textures) {
+				to, _ := textures[t].(json.Object)
+				source := gltf_int(to, "source", -1)
+				if source >= 0 && image_base + source < len(look.images) {
+					out.image = image_base + source
+					g.coord[k] = gltf_int(texture, "texCoord", 0)
+				}
+			}
+		}
+		append(&look.materials, out)
+	}
 }
 
 // glTF's component types.
@@ -235,24 +291,47 @@ gltf_mesh :: proc(g: ^Gltf_Reader, parts: ^[dynamic]Mesh_Part, index: int, world
 			return .Bad_Index
 		}
 		before := len(part.mesh.indices)
-		triangle :: proc(m: ^Mesh, base: int, a, b, c: u32, mirrored: bool) {
-			if mirrored do append(&m.indices, u32(base) + a, u32(base) + c, u32(base) + b)
-			else do append(&m.indices, u32(base) + a, u32(base) + b, u32(base) + c)
-		}
+		triangles := make([dynamic][3]u32, 0, len(corners) / 3 + 1, context.temp_allocator)
 		switch mode {
 		case 4:
-			for t := 0; t + 2 < len(corners); t += 3 do triangle(&part.mesh, base, corners[t], corners[t + 1], corners[t + 2], mirrored)
+			for t := 0; t + 2 < len(corners); t += 3 do append(&triangles, [3]u32{corners[t], corners[t + 1], corners[t + 2]})
 		case 5:
 			// A strip turns every other triangle round to keep one winding.
 			for t in 0 ..< max(len(corners) - 2, 0) {
-				if t % 2 == 0 do triangle(&part.mesh, base, corners[t], corners[t + 1], corners[t + 2], mirrored)
-				else do triangle(&part.mesh, base, corners[t + 1], corners[t], corners[t + 2], mirrored)
+				if t % 2 == 0 do append(&triangles, [3]u32{corners[t], corners[t + 1], corners[t + 2]})
+				else do append(&triangles, [3]u32{corners[t + 1], corners[t], corners[t + 2]})
 			}
 		case 6:
-			for t in 1 ..< max(len(corners) - 1, 1) do triangle(&part.mesh, base, corners[0], corners[t], corners[t + 1], mirrored)
+			for t in 1 ..< max(len(corners) - 1, 1) do append(&triangles, [3]u32{corners[0], corners[t], corners[t + 1]})
+		}
+		for &tri in triangles {
+			if mirrored do tri.yz = tri.zy
+			for c in tri do append(&part.mesh.indices, u32(base) + c)
+		}
+		material := gltf_int(po, "material", -1)
+		if g.look != nil {
+			// The triangles' material and, when it has an image, the corners' coordinates
+			// from its TEXCOORD set (a primitive without them, beside one with them, gets
+			// 0, 0).
+			look_material := g.material_base + material if material >= 0 && material < len(g.coord) else -1
+			for _ in triangles do append(&part.materials, i32(look_material))
+			coord := g.coord[material] if look_material >= 0 else -1
+			uv: []f32
+			if coord >= 0 {
+				if a, has := attributes[fmt_texcoord(coord)]; has {
+					values, n, uerr := gltf_accessor(g, gltf_number_int(a), context.temp_allocator)
+					if uerr == .None && n == 2 && len(values) / 2 == count do uv = values
+				}
+			}
+			if uv != nil && len(part.uvs) < before do resize(&part.uvs, before)
+			if uv != nil || len(part.uvs) > 0 {
+				for tri in triangles do for c in tri {
+					append(&part.uvs, [2]f32{uv[2 * c], uv[2 * c + 1]} if uv != nil else [2]f32{})
+				}
+			}
 		}
 		// The primitive's material names its group: 0 for none, k + 1 for material k.
-		group := gltf_int(po, "material", -1) + 1
+		group := material + 1
 		if first_group == -2 do first_group = group
 		if group != first_group && !grouped {
 			grouped = true
@@ -269,6 +348,13 @@ gltf_mesh :: proc(g: ^Gltf_Reader, parts: ^[dynamic]Mesh_Part, index: int, world
 	part.name = strings.clone(part_name)
 	append(parts, part)
 	return .None
+}
+
+// The name of TEXCOORD set `n`.
+@(private = "file")
+fmt_texcoord :: proc(n: int) -> string {
+	buf := make([]u8, 32, context.temp_allocator)
+	return strings.concatenate({"TEXCOORD_", strconv.write_int(buf, i64(n), 10)}, context.temp_allocator)
 }
 
 // Whether a primitive's data is compressed in a way this reader does not decode: Draco

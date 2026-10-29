@@ -62,8 +62,11 @@ OBJ_CHUNK :: 4 << 20
 // has any (and is left empty otherwise): the three numbers after a `v` line's position
 // that Blender, MeshLab and most scanners write, or else ZBrush's `#MRGB` comment
 // blocks. A vertex without one gets alpha 0, so its clay shows. When `labels` is given
-// it receives what the `o` and `g` lines say of the triangles (see Obj_Labels).
-mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, labels: ^Obj_Labels = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+// it receives what the `o`, `g` and `usemtl` lines say of the triangles (see
+// Obj_Labels). When `uvs` is given it receives each corner's texture coordinate from the
+// `vt` lines, turned so v runs down from the image's top (0, 0 for a corner without
+// one).
+mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, labels: ^Obj_Labels = nil, uvs: ^[dynamic][2]f32 = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
 	starts := make([dynamic]int, 0, len(data) / max(chunk_bytes, 1) + 2, context.temp_allocator)
 	append(&starts, 0)
 	for {
@@ -73,7 +76,7 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		if nl < 0 || at + nl + 1 >= len(data) do break
 		append(&starts, at + nl + 1)
 	}
-	job := Obj_Job{chunks = make([]Obj_Chunk, len(starts), context.temp_allocator)}
+	job := Obj_Job{chunks = make([]Obj_Chunk, len(starts), context.temp_allocator), want_uvs = uvs != nil}
 	for &c, i in job.chunks {
 		c.start = starts[i]
 		c.text = data[starts[i]:starts[i + 1] if i + 1 < len(starts) else len(data)]
@@ -85,15 +88,19 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		delete(c.colors)
 		delete(c.mrgb)
 		delete(c.labels)
+		delete(c.uvs)
+		delete(c.uv_index)
+		delete(c.uv_relative)
 	}
 	jobs.parallel_for(pool, len(job.chunks), &job, job_obj_chunk)
-	vertices, corners := 0, 0
+	vertices, corners, coordinates := 0, 0, 0
 	colored, mrgb := false, 0
 	for &c in job.chunks {
 		if c.err != .None do return {}, c.err, 1 + bytes.count(data[:c.start + c.err_at], []u8{'\n'})
-		c.first_vertex, c.first_index = vertices, corners
+		c.first_vertex, c.first_index, c.first_uv = vertices, corners, coordinates
 		vertices += len(c.positions)
 		corners += len(c.indices)
+		coordinates += len(c.uvs)
 		colored ||= len(c.colors) > 0
 		mrgb += len(c.mrgb)
 	}
@@ -139,17 +146,39 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		if !colored do mem.zero_slice(colors[at:])
 	}
 	if labels != nil do obj_labels_join(labels, job.chunks, corners / 3)
+	if uvs != nil {
+		job.vt = make([][2]f32, coordinates, context.temp_allocator)
+		for c in job.chunks do copy(job.vt[c.first_uv:], c.uvs[:])
+		resize(uvs, corners)
+		job.uvs = uvs[:]
+		jobs.parallel_for(pool, len(job.chunks), &job, proc(data: rawptr, i: int) {
+			job := cast(^Obj_Job)data
+			c := &job.chunks[i]
+			// As with positions, a negative index was counted from the chunk's first.
+			for k in c.uv_relative do c.uv_index[k] += u32(c.first_uv)
+			out := job.uvs[c.first_index:][:len(c.indices)]
+			for &uv, k in out {
+				at := c.uv_index[k] if k < len(c.uv_index) else OBJ_NO_UV
+				uv = {0, 0}
+				if int(at) < len(job.vt) do uv = {job.vt[at].x, 1 - job.vt[at].y}
+			}
+		})
+	}
 	return m, .None, 0
 }
 
 // One mesh of a file that may hold several (OBJ objects, glTF nodes' meshes, FBX models,
 // USD Mesh prims): triangles in the file's units with the file's own transforms
-// applied, normals zero, its name, and what it brings for the surface.
+// applied, normals zero, its name, and what it brings for the surface. A reader given a
+// Mesh_Look also fills `materials` and `uvs`, which mesh_parts_paint turns into colours
+// and drops before the part is cleaned.
 Mesh_Part :: struct {
-	name:   string, // owned; "" for none
-	mesh:   Mesh,
-	colors: [dynamic]Vertex_Color, // one a vertex, or empty
-	groups: [dynamic]u16, // one a triangle, or empty
+	name:      string, // owned; "" for none
+	mesh:      Mesh,
+	colors:    [dynamic]Vertex_Color, // one a vertex, or empty
+	groups:    [dynamic]u16, // one a triangle, or empty
+	materials: [dynamic]i32, // one a triangle (into Mesh_Look.materials, -1 for none), or empty
+	uvs:       [dynamic][2]f32, // one a corner (u right, v down from the image's top), or empty
 }
 
 mesh_part_destroy :: proc(p: ^Mesh_Part) {
@@ -157,6 +186,8 @@ mesh_part_destroy :: proc(p: ^Mesh_Part) {
 	mesh_destroy(&p.mesh)
 	delete(p.colors)
 	delete(p.groups)
+	delete(p.materials)
+	delete(p.uvs)
 	p^ = {}
 }
 
@@ -167,10 +198,10 @@ mesh_parts_destroy :: proc(parts: ^[dynamic]Mesh_Part) {
 }
 
 // Appends the parts of `m` that `part` (one a triangle, below len(names)) names to
-// `parts`, in part order, each with its share of `colors` and `groups` (either may be
-// empty) and its name; a part with no triangles is left out, and so are groups when a
-// part's triangles all have the same one.
-mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_Color, groups: []u16, part: []u32, names: []string) {
+// `parts`, in part order, each with its share of `colors`, `groups`, `materials` and
+// `uvs` (any may be empty) and its name; a part with no triangles is left out, and so
+// are groups when a part's triangles all have the same one.
+mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_Color, groups: []u16, part: []u32, names: []string, materials: []i32 = nil, uvs: [][2]f32 = nil) {
 	pieces := mesh_split(m, part, len(names))
 	defer split_parts_destroy(pieces)
 	for &piece, k in pieces {
@@ -184,6 +215,16 @@ mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_C
 		if len(groups) > 0 && !slice.all_of(groups_of(groups, piece.tri_from[:]), groups[piece.tri_from[0]]) {
 			out.groups = make([dynamic]u16, len(piece.tri_from))
 			for t, i in piece.tri_from do out.groups[i] = groups[t]
+		}
+		// mesh_split keeps each triangle's corners in order, so its corners' coordinates
+		// follow it.
+		if len(materials) > 0 {
+			out.materials = make([dynamic]i32, len(piece.tri_from))
+			for t, i in piece.tri_from do out.materials[i] = materials[t]
+		}
+		if len(uvs) > 0 {
+			out.uvs = make([dynamic][2]f32, 3 * len(piece.tri_from))
+			for t, i in piece.tri_from do copy(out.uvs[3 * i:][:3], uvs[3 * t:][:3])
 		}
 		append(parts, out)
 	}
@@ -226,20 +267,45 @@ mesh_parts_merge :: proc(parts: ^[dynamic]Mesh_Part) {
 }
 
 // Reads an OBJ file as its parts: one for each object its `o` lines name (or one for the
-// whole file), with its colours and the groups its `g` lines give, as mesh_read_obj
-// reads them.
-mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK) -> (err: Mesh_File_Error, line: int) {
+// whole file), with its colours and the groups its `g` lines give (or, without any, its
+// materials when it has several), as mesh_read_obj reads them. Given a `look` and a
+// `resolve`, the MTL files its `mtllib` lines name fill the look, and each part's
+// triangles get their materials and, when a material has an image, its corners their
+// texture coordinates.
+mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, look: ^Mesh_Look = nil, resolve: Mesh_Resolve = nil, resolve_data: rawptr = nil) -> (err: Mesh_File_Error, line: int) {
+	names := make(map[string]i32, context.temp_allocator)
+	textured := false
+	if look != nil && resolve != nil do textured = obj_look(data, look, resolve, resolve_data, &names)
 	colors := make([dynamic]Vertex_Color)
+	uvs: [dynamic][2]f32
 	labels: Obj_Labels
 	defer obj_labels_destroy(&labels)
 	m: Mesh
-	m, err, line = mesh_read_obj(data, pool, chunk_bytes, &colors, &labels)
+	m, err, line = mesh_read_obj(data, pool, chunk_bytes, &colors, &labels, &uvs if textured else nil)
 	if err != .None {
 		delete(colors)
+		delete(uvs)
 		return
 	}
+	// Materials name groups when nothing else does, as glTF's do.
+	if len(labels.group) == 0 && len(labels.material) > 0 && !slice.all_of(labels.material[:], labels.material[0]) {
+		resize(&labels.group, len(labels.material))
+		for x, t in labels.material do labels.group[t] = u16(min(int(x) + 1, int(max(u16))))
+	}
+	// The file's material numbers become the look's, by name; a name no MTL file defines
+	// is none.
+	materials: [dynamic]i32
+	if len(names) > 0 && len(labels.material) > 0 {
+		lookup := make([]i32, len(labels.material_names), context.temp_allocator)
+		for name, k in labels.material_names {
+			x, known := names[name]
+			lookup[k] = x if known else -1
+		}
+		materials = make([dynamic]i32, len(labels.material))
+		for x, t in labels.material do materials[t] = lookup[x] if x >= 0 else -1
+	}
 	if len(labels.object) == 0 || slice.all_of(labels.object[:], labels.object[0]) {
-		single := Mesh_Part{mesh = m, colors = colors}
+		single := Mesh_Part{mesh = m, colors = colors, materials = materials, uvs = uvs}
 		if len(labels.object) > 0 do single.name = strings.clone(labels.object_names[labels.object[0]])
 		if len(labels.group) > 0 && !slice.all_of(labels.group[:], labels.group[0]) {
 			single.groups = labels.group
@@ -251,32 +317,45 @@ mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.
 	defer {
 		mesh_destroy(&m)
 		delete(colors)
+		delete(materials)
+		delete(uvs)
 	}
-	mesh_parts_split(parts, m, colors[:], labels.group[:], labels.object[:], labels.object_names[:])
+	mesh_parts_split(parts, m, colors[:], labels.group[:], labels.object[:], labels.object_names[:], materials[:], uvs[:])
 	return
 }
 
-// What an OBJ file's `o` and `g` lines say of its triangles: each triangle's object, when
-// there is more than one, and its group, when there is any. Triangles before the first
-// `o` line are in an object named "", before the first `g` line in group 0; the others
-// are numbered in the order their names first come, a name seen again taking its number.
+// What an OBJ file's `o`, `g` and `usemtl` lines say of its triangles: each triangle's
+// object, when there is more than one, its group, when there is any, and its material,
+// when there is any. Triangles before the first `o` line are in an object named "",
+// before the first `g` line in group 0 and before the first `usemtl` line in material
+// -1; the others are numbered in the order their names first come, a name seen again
+// taking its number.
 Obj_Labels :: struct {
-	object:       [dynamic]u32, // per triangle, or empty for one object
-	object_names: [dynamic]string, // per object, from the file's bytes (not owned)
-	group:        [dynamic]u16, // per triangle, or empty for no groups
+	object:         [dynamic]u32, // per triangle, or empty for one object
+	object_names:   [dynamic]string, // per object, from the file's bytes (not owned)
+	group:          [dynamic]u16, // per triangle, or empty for no groups
+	material:       [dynamic]i32, // per triangle, or empty for no materials
+	material_names: [dynamic]string, // per material, from the file's bytes (not owned)
 }
 
 obj_labels_destroy :: proc(l: ^Obj_Labels) {
 	delete(l.object)
 	delete(l.object_names)
 	delete(l.group)
+	delete(l.material)
+	delete(l.material_names)
 	l^ = {}
 }
 
-// An `o` or `g` line of a chunk: the name it gives and the chunk's triangle it starts at.
+// An `o`, `g` or `usemtl` line of a chunk: the name it gives and the chunk's triangle it
+// starts at.
 @(private = "file")
 Obj_Label :: struct {
-	object:   bool,
+	kind:     enum u8 {
+		Group,
+		Object,
+		Material,
+	},
 	name:     string,
 	triangle: int,
 }
@@ -285,19 +364,24 @@ Obj_Label :: struct {
 // groups; serial, as names decide numbers by when they first come.
 @(private = "file")
 obj_labels_join :: proc(l: ^Obj_Labels, chunks: []Obj_Chunk, triangles: int) {
-	objects, groups := 0, 0
+	objects, groups, materials := 0, 0, 0
 	for c in chunks do for e in c.labels {
-		if e.object do objects += 1
-		else do groups += 1
+		switch e.kind {
+		case .Object: objects += 1
+		case .Group: groups += 1
+		case .Material: materials += 1
+		}
 	}
 	// Looked up, never walked, so no map order reaches the numbers.
 	named := make(map[string]int, context.temp_allocator)
 	objects_named := make(map[string]u32, context.temp_allocator)
 	objects_named[""] = 0
 	append(&l.object_names, "")
+	materials_named := make(map[string]i32, context.temp_allocator)
 	if objects > 0 do resize(&l.object, triangles)
 	if groups > 0 do resize(&l.group, triangles)
-	object, group := u32(0), u16(0)
+	if materials > 0 do resize(&l.material, triangles)
+	object, group, material := u32(0), u16(0), i32(-1)
 	group_count := 1
 	at := 0
 	for c in chunks {
@@ -307,8 +391,17 @@ obj_labels_join :: proc(l: ^Obj_Labels, chunks: []Obj_Chunk, triangles: int) {
 			upto := first + e.triangle
 			if objects > 0 do slice.fill(l.object[at:upto], object)
 			if groups > 0 do slice.fill(l.group[at:upto], group)
+			if materials > 0 do slice.fill(l.material[at:upto], material)
 			at = upto
-			if e.object {
+			if e.kind == .Material {
+				k, seen := materials_named[e.name]
+				if !seen {
+					k = i32(len(l.material_names))
+					materials_named[e.name] = k
+					append(&l.material_names, e.name)
+				}
+				material = k
+			} else if e.kind == .Object {
 				k, seen := objects_named[e.name]
 				if !seen {
 					k = u32(len(l.object_names))
@@ -329,6 +422,7 @@ obj_labels_join :: proc(l: ^Obj_Labels, chunks: []Obj_Chunk, triangles: int) {
 	}
 	if objects > 0 do slice.fill(l.object[at:], object)
 	if groups > 0 do slice.fill(l.group[at:], group)
+	if materials > 0 do slice.fill(l.material[at:], material)
 }
 
 @(private = "file")
@@ -342,22 +436,34 @@ Obj_Chunk :: struct {
 	// the colours of `#MRGB` blocks.
 	colors:       [dynamic]Vertex_Color,
 	mrgb:         [dynamic]Vertex_Color,
-	labels:       [dynamic]Obj_Label, // the `o` and `g` lines, in order
+	labels:       [dynamic]Obj_Label, // the `o`, `g` and `usemtl` lines, in order
+	// The `vt` lines, and each corner's index into them (OBJ_NO_UV for none), when asked.
+	uvs:          [dynamic][2]f32,
+	uv_index:     [dynamic]u32,
+	uv_relative:  [dynamic]u32, // entries of uv_index counted from this chunk's first `vt`
 	err:          Mesh_File_Error,
 	err_at:       int, // where in text the failing line starts
 	first_vertex: int,
 	first_index:  int,
+	first_uv:     int,
 }
 
 @(private = "file")
+OBJ_NO_UV :: max(u32)
+
+@(private = "file")
 Obj_Job :: struct {
-	chunks: []Obj_Chunk,
-	m:      ^Mesh,
+	chunks:   []Obj_Chunk,
+	m:        ^Mesh,
+	want_uvs: bool,
+	vt:       [][2]f32, // every `vt` line, in file order
+	uvs:      [][2]f32, // the result, one a corner
 }
 
 @(private = "file")
 job_obj_chunk :: proc(data: rawptr, i: int) {
-	c := &(cast(^Obj_Job)data).chunks[i]
+	job := cast(^Obj_Job)data
+	c := &job.chunks[i]
 	heap := runtime.heap_allocator()
 	text := c.text
 	n := len(text)
@@ -368,6 +474,11 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 	defer delete(corners)
 	relative := make([dynamic]bool, 0, 16, heap)
 	defer delete(relative)
+	// Each corner's `vt` index and whether it counts back, when they are wanted.
+	corner_uvs := make([dynamic]u32, 0, 16, heap)
+	defer delete(corner_uvs)
+	uv_relative := make([dynamic]bool, 0, 16, heap)
+	defer delete(uv_relative)
 	at := 0
 	for at < n {
 		line_start := at
@@ -379,7 +490,23 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 			if c.labels == nil do c.labels = make([dynamic]Obj_Label, heap)
 			end := at + 1
 			for end < n && text[end] != '\n' && text[end] != '\r' && text[end] != '#' do end += 1
-			append(&c.labels, Obj_Label{object = text[at] == 'o', name = strings.trim_space(string(text[at + 1:end])), triangle = len(c.indices) / 3})
+			append(&c.labels, Obj_Label{kind = .Object if text[at] == 'o' else .Group, name = strings.trim_space(string(text[at + 1:end])), triangle = len(c.indices) / 3})
+		} else if bytes.has_prefix(text[at:], transmute([]u8)string("usemtl")) && at + 6 < n && is_blank(text[at + 6]) {
+			if c.labels == nil do c.labels = make([dynamic]Obj_Label, heap)
+			end := at + 6
+			for end < n && text[end] != '\n' && text[end] != '\r' && text[end] != '#' do end += 1
+			append(&c.labels, Obj_Label{kind = .Material, name = strings.trim_space(string(text[at + 6:end])), triangle = len(c.indices) / 3})
+		} else if job.want_uvs && at + 2 < n && text[at] == 'v' && text[at + 1] == 't' && is_blank(text[at + 2]) {
+			// A texture coordinate: u, then v when there is one (a missing v is 0).
+			at += 3
+			uv: [2]f32
+			for k in 0 ..< 2 {
+				skip_blanks(text, &at)
+				value, ok := parse_float(text, &at)
+				if !ok || !ends_token(text, at) do break
+				uv[k] = value
+			}
+			append(&c.uvs, uv)
 		} else if at + 1 < n && is_blank(text[at + 1]) && (text[at] == 'v' || text[at] == 'f') {
 			kind := text[at]
 			at += 2
@@ -415,12 +542,28 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 			} else {
 				clear(&corners)
 				clear(&relative)
+				clear(&corner_uvs)
+				clear(&uv_relative)
 				for {
 					skip_blanks(text, &at)
 					if at >= n || text[at] == '\n' || text[at] == '\r' || text[at] == '#' do break
 					index, ok := parse_int(text, &at)
+					uv_at, uv_back := OBJ_NO_UV, false
 					if ok && at < n && text[at] == '/' {
+						at += 1
+						if job.want_uvs && at < n && text[at] != '/' {
+							// A bad or out of range texture index costs the corner its
+							// coordinate, never the file.
+							if t, t_ok := parse_int(text, &at); t_ok {
+								if t > 0 && t <= i64(max(u32) - 1) do uv_at = u32(t - 1)
+								else if t < 0 && t >= -i64(max(u32) - 1) do uv_at, uv_back = u32(i64(len(c.uvs)) + t), true
+							}
+						}
 						for at < n && !is_space(text[at]) do at += 1
+					}
+					if job.want_uvs {
+						append(&corner_uvs, uv_at)
+						append(&uv_relative, uv_back)
 					}
 					if !ok || !ends_token(text, at) {
 						c.err, c.err_at = .Bad_Number, line_start
@@ -441,6 +584,10 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 				for k in 1 ..< max(len(corners) - 1, 1) {
 					for j in ([3]int{0, k, k + 1}) {
 						if relative[j] do append(&c.relative, u32(len(c.indices)))
+						if job.want_uvs {
+							if uv_relative[j] do append(&c.uv_relative, u32(len(c.uv_index)))
+							append(&c.uv_index, corner_uvs[j])
+						}
 						append(&c.indices, corners[j])
 					}
 				}
