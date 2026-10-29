@@ -244,7 +244,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.paint_dial = true
 	// Nor Grab's modes.
 	a.brush.grab_mode, a.brush.grab_normal = .Surface, 0.75
-	a.brush.grab_same_side, a.brush.grab_silhouette = true, true
+	a.brush.grab_same_side, a.brush.grab_silhouette, a.brush.grab_topological = true, true, true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -274,7 +274,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].paint_dial)
 	testing.expect_value(t, b.replay.take.brushes[0].grab_mode, Grab_Mode.Surface)
 	testing.expect_value(t, b.replay.take.brushes[0].grab_normal, 0.75)
-	testing.expect(t, b.replay.take.brushes[0].grab_same_side && b.replay.take.brushes[0].grab_silhouette)
+	testing.expect(t, b.replay.take.brushes[0].grab_same_side && b.replay.take.brushes[0].grab_silhouette && b.replay.take.brushes[0].grab_topological)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -287,7 +287,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 59
+	BRUSH :: 64 + 60
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -307,6 +307,21 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 17 had no Topological after Grab's Normal weight: the one brush ends 64 + 59
+	// bytes after the header's 16, and grabs by straight distance.
+	seventeen := make([dynamic]u8, context.temp_allocator)
+	append(&seventeen, ..data[:16 + 64 + 59])
+	append(&seventeen, ..data[16 + BRUSH:])
+	seventeen[len(STROKES_MAGIC)] = 17
+	testing.expect(t, os.write_entire_file(path, seventeen[:]) == nil)
+	k: App
+	defer replay_destroy(&k.replay)
+	defer results_destroy(&k)
+	testing.expect(t, strokes_load(&k, path))
+	if len(k.replay.take.brushes) == 1 {
+		testing.expect(t, !k.replay.take.brushes[0].grab_topological && k.replay.take.brushes[0].grab_silhouette)
+	}
+
 	// Version 16 had no Grab modes after Even strength, Scene spacing and Feather: the one
 	// brush ends 64 + 52 bytes after the header's 16, and grabs freely on both sides.
 	sixteen := make([dynamic]u8, context.temp_allocator)

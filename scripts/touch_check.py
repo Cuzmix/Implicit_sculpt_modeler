@@ -1271,6 +1271,19 @@ def grab_pulls_the_outline_from_outside():
 
 
 @scenario
+def move_topological_preset_grabs_along_the_surface():
+    """The library's Move topological preset puts Grab on with its falloff along the
+    surface; a drag on the sphere pulls a fold out as one undo step (look with --screens: a
+    little narrower than plain Grab's, as a path along the curved surface is longer than the
+    straight line)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (860, 400), 8))
+    s.wait(2)
+    return s, ["--script=preset Move topological"], camera_still({"dabs": lambda v: int(v) > 3, "undo_steps": near(1), "brush_kind": is_text("grab"),
+                                                                 "brush_grab_topological": near(1)})
+
+
+@scenario
 def predicted_ring_leads_a_fast_pen():
     """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
     past the frames the script waits for, into the ten the run adds): the brush ring is

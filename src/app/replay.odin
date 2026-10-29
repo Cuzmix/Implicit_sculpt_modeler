@@ -244,8 +244,9 @@ STROKES_MAGIC :: "SCSTROKE"
 // blurs, Invert erases switch after its colour spray; 15: its smoothing, pressure
 // smoothing and catch up after that; 16: its Even strength, Scene spacing and symmetry
 // Feather after those; 17: Alt in a frame's flags, and each brush's Grab mode, Same side
-// and Silhouette, then Normal weight, after those.
-STROKES_VERSION :: u32(17)
+// and Silhouette, then Normal weight, after those; 18: its Grab Topological after its
+// Normal weight.
+STROKES_VERSION :: u32(18)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -291,6 +292,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, [3]u8{u8(b.even_strength), u8(b.scene_spacing), u8(b.feather)})
 		geom.byte_put(&out, [3]u8{u8(b.grab_mode), u8(b.grab_same_side), u8(b.grab_silhouette)})
 		geom.byte_put(&out, b.grab_normal)
+		geom.byte_put(&out, u8(b.grab_topological))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -438,12 +440,15 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 			grabbing = geom.byte_get(&r, [3]u8)
 			normal_weight = geom.byte_get(&r, f32)
 		}
+		// Nor, before version 18, Topological: Grab weighed by straight distance.
+		topological: u8
+		if version >= 18 do topological = geom.byte_get(&r, u8)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
-		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || !finite(normal_weight) || normal_weight < 0 || normal_weight > 1 do return false
+		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight) || normal_weight < 0 || normal_weight > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
@@ -466,6 +471,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.smoothing, b.pressure_smoothing, b.catch_up = f32(steady_count(steady[0])), f32(steady_count(steady[1])), catch_up == 1
 		b.even_strength, b.scene_spacing, b.feather = evened[0] == 1, evened[1] == 1, evened[2] == 1
 		b.grab_mode, b.grab_same_side, b.grab_silhouette, b.grab_normal = Grab_Mode(grabbing[0]), grabbing[1] == 1, grabbing[2] == 1, normal_weight
+		b.grab_topological = topological == 1
 		// Grab left Connected alone before version 11, so a Grab stroke recorded with it
 		// on replays as it was drawn.
 		if version < 11 && b.kind == .Grab do b.connected = false

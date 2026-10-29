@@ -144,6 +144,11 @@ Brush :: struct {
 	// side), and move only what faces the way it is dragged out (Blender's Silhouette).
 	same_side:  bool,
 	silhouette: bool,
+	// Grab: weigh by the distance along the surface from where the grab began, not the
+	// straight one (ZBrush's Move Topological, Blender's geodesic falloff), so it picks up
+	// only what joins the press and its falloff follows the surface round a fold. Unless
+	// `through` is set; it wins over `connected`.
+	topological: bool,
 	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.

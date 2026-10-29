@@ -165,6 +165,7 @@ SETTINGS := [?]Setting {
 	{"grab_normal_weight", B + offset_of(Brush_Settings, grab_normal), f32, 0, 1},
 	{"grab_same_side", B + offset_of(Brush_Settings, grab_same_side), bool, 0, 0},
 	{"grab_silhouette", B + offset_of(Brush_Settings, grab_silhouette), bool, 0, 0},
+	{"grab_topological", B + offset_of(Brush_Settings, grab_topological), bool, 0, 0},
 	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
