@@ -124,7 +124,7 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 	} else if row.menu {
 		selection_make_primary(app, i)
 	}
-	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer, .List)
 	k.tree_rows += 1
 }
 

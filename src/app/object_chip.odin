@@ -136,10 +136,10 @@ top_object_chip :: proc(app: ^App, c: Object_Chip, fit: Object_Chip_Fit) {
 	}
 	tip := c.name if fit < .Tag || c.tag == "" else fmt.tprintf("%s · %s", c.name, c.tag)
 	ui.tip(ctx, a.id, a.rect, tip, "")
-	k.object_chip_fit = fit
+	k.object_chip_fit, k.object_chip_at = fit, a.rect
 	if a.clicked {
 		kit_floats_close(k)
-		if obj != nil && !lit do object_menu_open(app, obj.id, a.rect, .Below)
+		if obj != nil && !lit do object_menu_open(app, obj.id, a.rect, .Below, .Chip)
 		else if obj == nil do tray_open(app, tray_section(app, .Scene))
 	}
 	if ui.secondary(ctx) do tray_open(app, tray_section(app, .Scene))

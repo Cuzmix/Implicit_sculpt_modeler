@@ -159,6 +159,19 @@ Drag_Owner :: enum u8 {
 	Shape, // a handle of the shape waiting for Apply (shape_pending.odin)
 }
 
+// What a right click on the view opens (Settings > Keys): the menu of the object under it,
+// or the scene's over empty space, as Blender's and Nomad's do; or the brush pie, as ZBrush's
+// right click does. Shift with it opens the other.
+Right_Click :: enum u8 {
+	Object_Menu,
+	Brush_Pie,
+}
+
+RIGHT_CLICK_NAMES := [Right_Click]string {
+	.Object_Menu = "Object menu",
+	.Brush_Pie   = "Brush pie",
+}
+
 // Which app's mouse buttons the view follows (Settings > Keys): what a right or middle
 // drag, or one with Alt, does to the camera. The left button, the wheel, the safe zone,
 // fingers and the pen are the same in all three.
@@ -250,6 +263,7 @@ Nav_Prefs :: struct {
 	edge_size:      f32, // points, EDGE_MIN to EDGE_MAX
 	edge_show:      bool, // outline where the band ends
 	mouse_scheme:   Mouse_Scheme,
+	right_click:    Right_Click, // what a right click on the view opens (Shift the other)
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
 	pen_tips:       Pen_Tips, // when a hovering pen shows a control's name
 	// The brush ring drawn where the pointer will be when the frame is shown, not where it
@@ -542,6 +556,9 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		route_mute(input)
 		shape_drag(app, delta)
 	}
+
+	// One finger held still where it lays no stroke opens the menu there (object_menu.odin).
+	if buttons != {} do hold_menu_check(app, input)
 
 	// A press still pending here waits on a tap's dab and begins next frame, lifted or not.
 	if buttons == {} && !g.pending {
@@ -878,7 +895,7 @@ object_middle :: proc(obj: ^Object) -> Vec3 {
 	return to_world(obj.transform, (b.lo + b.hi) * 0.5)
 }
 
-@(private = "file")
+// Takes this frame's pointer from the tool and the camera alike.
 route_mute :: proc(input: ^Viewport_Input) {
 	input.primary, input.press, input.smooth, input.invert, input.alt = false, false, false, false, false
 	input.mask, input.mask_shape = false, false

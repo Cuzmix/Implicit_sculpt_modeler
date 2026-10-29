@@ -120,7 +120,7 @@ lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, drags: bo
 	} else if row.menu {
 		selection_make_primary(app, i)
 	}
-	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer, .List)
 	k.scene_rows += 1
 }
 

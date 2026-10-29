@@ -6839,14 +6839,31 @@ def four_finger_tap_runs_its_command():
 
 @scenario
 def pen_button_opens_the_brush_pie():
-    """The pen's side button over the model opens the brush pie by default."""
+    """With a settings file from before version 8, the pen's side button over the model still opens the brush pie it opened then."""
     s = Script()
+    write_settings("version 7\n")
     s.add("pnear")
     s.add("pmove:800,450")
     s.wait(4)
     s.add("pright")
     s.wait(6)
-    return s, [], camera_still({"pie_open": near(0), "dabs": near(0)})
+    return s, [f"--settings-file={settings_file()}"], camera_still({"pie_open": near(0), "object_menu": near(0), "dabs": near(0)})
+
+
+@scenario
+def pen_button_opens_the_object_menu():
+    """On a fresh install the pen's side button opens the object menu over the model and the scene menu over empty space, sculpting nothing."""
+    def run(where):
+        s = Script()
+        s.add("pnear")
+        s.add("pmove:%d,%d" % where)
+        s.wait(4)
+        s.add("pright")
+        s.wait(6)
+        if where == EMPTY:
+            return s, [], camera_still({"scene_menu": near(1), "object_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("pen"), "dabs": near(0)})
+        return s, [], camera_still({"object_menu": near(1), "scene_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("pen"), "dabs": near(0)})
+    return Steps([run((800, 450)), run(EMPTY)])
 
 
 @scenario
@@ -11624,6 +11641,90 @@ def object_menu_quick_row_locks_the_object():
     s.ftap(*CAGE_MENU_LOCK)
     s.wait(6)
     return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "object_locks": near(1)})
+
+
+# PR 6b: the menus' openers on the view.
+
+def right_click_at(s, x, y, keys=()):
+    for k in keys:
+        s.add(f"key:{k}")
+    s.add(f"move:{x},{y}")
+    s.wait(3)
+    s.add("right")
+    s.wait(6)
+    for k in keys:
+        s.add(f"keyup:{k}")
+    s.wait(2)
+
+
+@scenario
+def right_click_opens_the_object_or_scene_menu():
+    """A right click on the model opens its object menu at the pointer, and on empty space the scene menu; neither sculpts nor turns the view."""
+    def run(where):
+        s = Script()
+        right_click_at(s, *where)
+        if where == EMPTY:
+            return s, [], camera_still({"scene_menu": near(1), "object_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "right_click": is_text("object_menu"), "dabs": near(0)})
+        return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "scene_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "dabs": near(0)})
+    return Steps([run((800, 450)), run(EMPTY)])
+
+
+@scenario
+def right_click_brush_pie_setting_brings_the_pie_back():
+    """With Right click opens set to Brush pie, a right click on the model opens the brush pie, and with Shift the object menu."""
+    def run(shift):
+        s = Script()
+        write_settings("version 8\nright_click Brush_Pie\n")
+        right_click_at(s, 800, 450, ("shift",) if shift else ())
+        if shift:
+            return s, [f"--settings-file={settings_file()}"], camera_still({"object_menu": near(1), "pie_open": near(-1), "right_click": is_text("brush_pie"), "dabs": near(0)})
+        return s, [f"--settings-file={settings_file()}"], camera_still({"pie_open": near(0), "object_menu": near(0), "right_click": is_text("brush_pie"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+# Frames a finger holds still for the view's menu (HOLD_MENU is 0.5 s, 30 frames), with room.
+HOLD_MENU_FRAMES = 45
+# On the starting sphere, clear of the Move tool's gizmo at its middle.
+MODEL_OFF_GIZMO = (690, 360)
+
+
+def finger_hold(s, x, y, frames=HOLD_MENU_FRAMES):
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(frames)
+    s.add("fup:0")
+    s.wait(6)
+
+
+@scenario
+def finger_hold_on_empty_space_opens_the_scene_menu():
+    """One finger held still on empty space opens the scene menu there, turning nothing; mirrored for the left hand too."""
+    def run(left):
+        s = Script()
+        # Left-handed, the tray stands over EMPTY: the mirrored corner, under the view chips.
+        finger_hold(s, *((1420, 190) if left else EMPTY))
+        want = camera_still({"scene_menu": near(1), "object_menu": near(0), "object_menu_opened_by": is_text("finger"), "dabs": near(0), "undo_steps": near(0)})
+        return s, ["--script=set left_handed 1"] if left else [], want
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def finger_hold_with_the_move_tool_opens_the_object_menu():
+    """With the Move tool, one finger held still on the model opens its object menu and leaves the object where it was."""
+    s = Script()
+    s.press("w")
+    s.wait(2)
+    finger_hold(s, *MODEL_OFF_GIZMO)
+    return s, [], camera_still({"object_menu": near(1), "object_menu_opened_by": is_text("finger"), "tool": is_text("move"), "undo_steps": near(0), "dabs": near(0)})
+
+
+@scenario
+def finger_hold_with_a_brush_still_sculpts():
+    """With a brush, one finger held still on the model sculpts as before, opening no menu; a quick tap on empty space opens none either."""
+    s = Script()
+    finger_hold(s, 800, 450)
+    s.ftap(*EMPTY)
+    s.wait(6)
+    return s, [], camera_still({"object_menu": near(0), "scene_menu": near(0), "dabs": lambda v: int(v) > 0})
 
 
 def main(argv):

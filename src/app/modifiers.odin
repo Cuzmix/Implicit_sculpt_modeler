@@ -687,7 +687,7 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	k := &app.kit
 	r := &app.rail
 	if rail_shown(k) == .Off || r.root == 0 do return
-	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
+	if k.menu || k.versions || k.browser || k.object_menu || k.scene_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
 	which = rail_hit(r, dial_of(k)^, p) or_return
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
 }
@@ -699,7 +699,7 @@ rail_claims_plain :: proc(app: ^App, p: [2]f32) -> bool {
 	k := &app.kit
 	r := &app.rail
 	if r.count == 0 || rail_shown(k) == .Off || r.root == 0 || linalg.length(p - r.center) > r.outer * 0.5 do return false
-	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return false
+	if k.menu || k.versions || k.browser || k.object_menu || k.scene_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return false
 	return ui.root_at(&k.ctx, p / k.scale) == r.root
 }
 

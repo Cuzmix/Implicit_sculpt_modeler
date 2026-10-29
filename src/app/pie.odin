@@ -93,10 +93,14 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		busy := app.stroke.active || (input.dragging && .Left in d.down)
 		if !busy && input.hovered && p.space_pressed {
 			p^ = {open = true, hold = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
-		} else if !busy && right_tap && d.pointer == .Pen && app.nav.gestures[pencil_slot_here(app, .Pen_Button)] != {.Brush_Pie, 0} {
+		} else if !busy && right_tap && d.pointer == .Pen && !d.shift && app.nav.gestures[pencil_slot_here(app, .Pen_Button)] != {.Brush_Pie, 0} {
 			// The pen's side button runs what the gesture map gives it where it points instead.
 			_ = gesture_run(app, pencil_slot_here(app, .Pen_Button))
-		} else if !busy && right_tap {
+		} else if !busy && right_tap && d.pointer != .Pen && (app.nav.right_click == .Object_Menu) != d.shift {
+			// A right click opens the menu of what is under it (Settings > Keys > Right click
+			// opens); with Shift, whichever of the menu and the pie it does not.
+			view_menu_open(app, input.mouse_pos, input.size, .Right)
+		} else if !busy && right_tap && !(d.pointer == .Pen && d.shift) {
 			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
 		}
 		p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(app, p.which))

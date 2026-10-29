@@ -78,14 +78,25 @@ OBJECT_CONVERSIONS := [Object_Type]Object_Verb {
 	.Cage        = {id = .Apply_Cage, label = "Make sculptable"},
 }
 
+// What opened the object menu or the scene menu, for the exit stats.
+Menu_Opener :: enum u8 {
+	None,
+	Chip, // a tap on the chip bar's object chip
+	List, // a Scene palette row's right-click or long press
+	Right, // a right click on the view
+	Pen, // the pen's side button (the Object menu command, run by the gesture map)
+	Finger, // one finger held still on the view
+	Command, // the Object menu command from a key or Search
+}
+
 // Opens the object menu on object `id`, `side` of `at`. The menu acts on the selection, so
 // the object becomes the selection's first: at once when a press could pick it, as the
 // Scene palette's row does; a hidden, ghosted or locked one is brought back and selected by
 // a scene change, which applies at the next frame's start.
-object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side) {
+object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side, by: Menu_Opener) {
 	k := &app.kit
 	k.object_menu, k.object_menu_id, k.object_menu_at, k.object_menu_side = true, id, at, side
-	k.object_menu_wait = false
+	k.object_menu_wait, k.object_menu_by = false, by
 	if obj := selected_object(app); obj != nil && obj.id == id do return
 	for obj, i in app.scene.objects {
 		if obj.id != id do continue
@@ -95,6 +106,48 @@ object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side) {
 			app.ui.scene_command = {kind = .View, view = .Select, id = id}
 			k.object_menu_wait = true
 		}
+	}
+}
+
+// Opens the menu for what is under `pos` (the main view's coordinates, `size` its size):
+// the object menu on an object there, else the scene menu, at that point. Everything else
+// floating closes first, as a menu opening anywhere does.
+view_menu_open :: proc(app: ^App, pos, size: [2]f32, by: Menu_Opener) {
+	k := &app.kit
+	kit_floats_close(k)
+	p := (pos + app.ui.viewport_origin) / k.scale
+	at := ui.Rect{p.x, p.y, 0, 0}
+	origin, dir := mouse_ray(app.camera, pos, size)
+	if index, _, ok := scene_raycast(app, origin, dir); ok {
+		object_menu_open(app, app.scene.objects[index].id, at, .Pointer, by)
+		return
+	}
+	scene_menu_open(app, at, .Pointer, by)
+}
+
+scene_menu_open :: proc(app: ^App, at: ui.Rect, side: ui.Side, by: Menu_Opener) {
+	k := &app.kit
+	k.scene_menu, k.scene_menu_at, k.scene_menu_side, k.object_menu_by = true, at, side, by
+}
+
+// The Object menu command: at the pointer while it is on the view (a key pressed there, the
+// pen's side button), else under the object chip for the selection, or the scene menu there
+// with nothing selected.
+object_menu_here :: proc(app: ^App) {
+	k := &app.kit
+	by := Menu_Opener.Pen if app.device.pointer == .Pen else .Command
+	pos := viewport_point(app, app.device.mouse)
+	size := app.ui.viewport_size
+	inside := pos.x >= 0 && pos.y >= 0 && pos.x <= size.x && pos.y <= size.y
+	if inside && !ui.wants_pointer(&k.ctx) {
+		view_menu_open(app, pos, size, by)
+		return
+	}
+	kit_floats_close(k)
+	if obj := selected_object(app); obj != nil {
+		object_menu_open(app, obj.id, k.object_chip_at, .Below, by)
+	} else {
+		scene_menu_open(app, k.object_chip_at, .Below, by)
 	}
 }
 
@@ -204,4 +257,91 @@ object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 	}
 	if kind == .Sculpt_Mesh && command_button(app, .Show_Section, int(Kit_Section.Layers), label = "Layers", glyph = STACK_CARD_ICONS[.Layers], icon_only = true) do picked = true
 	return
+}
+
+// The scene menu, while open: what empty space offers, as Blender's Add menu and Nomad's
+// scene popover do: add an object, paste one, show every object, frame them all.
+kit_scene_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	if !ui.popover_begin(ctx, "scene menu", &k.scene_menu, k.scene_menu_at, k.scene_menu_side, {direction = .Column, padding = 6, width = SCENE_MENU_W}) do return
+	defer ui.popover_end(ctx)
+	n := len(app.scene.objects)
+	ui.caption(ctx, fmt.tprintf("SCENE · %d OBJECT%s", n, "" if n == 1 else "S"))
+	picked := false
+	for id in ([?]Command_Id{.Add_Object, .Paste_Object, .Show_All_Objects, .Frame_All}) {
+		if command_menu_item(app, id) do picked = true
+	}
+	if picked do k.scene_menu = false
+}
+
+SCENE_MENU_W :: 220
+
+// How long one finger held still on the view takes to open the menu there: longer than a
+// control's long press, since a finger resting on the view is more often about to turn it.
+HOLD_MENU :: 0.5
+
+// One finger held still on the view for HOLD_MENU opens the menu for what it is on, only
+// where a press lays no stroke: the drag turns the view (empty space, or the model when a
+// finger turns it), or the Move or Model tool holds it. Never on a stroke waiting to begin,
+// a handle, the shape, the safe zone, a mask, a light, Pick focus, a topological mask, the
+// pivot latch, the Knife or Spine, a replay, the dial's modifiers held, a gesture, a palm or
+// a pen near. The press is then muted, as a cancelled touch is: what it began is put back.
+// Returns whether it opened this frame.
+hold_menu_check :: proc(app: ^App, input: ^Viewport_Input) -> bool {
+	g := &app.drag
+	if !hold_menu_waits(app) do return false
+	if input_clock(app) - g.at < HOLD_MENU do return false
+	if g.owner == .Tool && app.tool == .Move do move_cancel(app)
+	if g.owner == .Tool && app.tool == .Model do app.model.drag.state = .None
+	view_menu_open(app, g.from, input.size, .Finger)
+	g.owner = .Muted
+	route_mute(input)
+	return true
+}
+
+// Whether the press under way is one hold_menu_check may still open the menu for.
+hold_menu_waits :: proc(app: ^App) -> bool {
+	g := &app.drag
+	t := &app.touch
+	d := &app.device
+	if d.pointer != .Finger || g.travel > app.kit.ctx.theme.slop * app.kit.scale || g.moving || g.pending || g.edge || g.mask_tap do return false
+	if t.palm || t.gesture || t.pen_near || t.pen_down || t.fingers.count != 1 || pen_holds_hand(app, input_clock(app)) do return false
+	if replay_busy(app) || app.ui.focus_armed || app.rail.press.mods != {} || kit_floating(app) do return false
+	size := app.ui.viewport_size
+	switch g.owner {
+	case .Orbit:
+	case .Tool:
+		if lights_take_press(app, g.from, size) do return false
+		switch app.tool {
+		case .Move:
+			// A press on the body holds the View handle without moving yet; one on the gizmo,
+			// the lattice or a posing handle is that handle's.
+			m := &app.move.drag
+			if app.move.pivot_latch || app.move.topo.phase != .None || m.on_handle || m.live || m.posed do return false
+			if lattice_pick(app, g.from, size) > 0 do return false
+		case .Model:
+			m := &app.model
+			if m.action == .Topo || m.action in MODEL_STROKES || m.drag.state != .Pressed do return false
+		case .Brush, .Curve, .Insert:
+			return false
+		}
+	case .None, .Pan, .Zoom, .Muted, .Shape:
+		return false
+	}
+	return true
+}
+
+// The ring that fills round the finger as it nears the menu, from the theme's long_ring on,
+// as a control's long press shows its own.
+kit_hold_menu_ring :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	g := &app.drag
+	if !hold_menu_waits(app) do return
+	t := ctx.theme
+	held := f32(input_clock(app) - g.at)
+	if held < t.long_ring do return
+	p := (g.from + app.ui.viewport_origin) / k.scale
+	ui.hold_ring(ctx, p, 34, (held - t.long_ring) / (HOLD_MENU - t.long_ring))
 }

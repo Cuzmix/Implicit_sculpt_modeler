@@ -277,6 +277,14 @@ Kit_State :: struct {
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	// What opened the object menu or the scene menu last (an exit stat), where the object chip
+	// was last laid out (the Object menu command opens there off the view), and the scene
+	// menu, empty space's menu: open, and where.
+	object_menu_by: Menu_Opener,
+	object_chip_at: ui.Rect,
+	scene_menu:     bool,
+	scene_menu_at:  ui.Rect,
+	scene_menu_side: ui.Side,
 	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
 	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
@@ -968,6 +976,7 @@ kit_init :: proc(app: ^App) {
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
+	k.scene_menu = false
 	k.bar_pop.open, k.bar_slot.open = false, false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
@@ -983,7 +992,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1306,11 +1315,11 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	// An orbit turns about the target unless pointer_route decided another pivot.
 	input.orbit_pivot = app.camera.target
 	if input.hovered || input.dragging do input.wheel = d.wheel
-	// A right press let go soon and about where it began is a tap, which opens the brush
-	// pie, rather than an orbit.
+	// A right press let go soon and about where it began is a tap, which opens the object
+	// menu or the brush pie (Shift the other), rather than an orbit.
 	// While a pie is open the panels take no press (kit_begin), so a right tap anywhere is
 	// the pie's.
-	right_tap := (input.dragging || app.ui.pie.open) && d.right_tap && !d.shift
+	right_tap := (input.dragging || app.ui.pie.open) && d.right_tap
 	// A press and its release can both come in one frame (a tap, or a click during a slow
 	// frame): the press still holds for this frame, and the release among the samples
 	// ends what it began; the next frame sees the button up.
@@ -1439,6 +1448,8 @@ kit_layout :: proc(app: ^App) {
 	// where it would go.
 	kit_column_drop(app)
 	stack_carry_update(app)
+	// A finger held still on the view, filling toward its menu.
+	kit_hold_menu_ring(app)
 	// The dial over every bar, panel, window and card, so a finger on it is always its
 	// (rail_claims asks for the root on top): it is where the off-hand rests, and nothing
 	// that stays on screen should cover it. What opens for a moment (a menu, a popover, a
@@ -1461,6 +1472,7 @@ kit_layout :: proc(app: ^App) {
 	kit_pass_menu(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
+	kit_scene_menu(app)
 	kit_objects_card_menus(app)
 	kit_folder_menu(app)
 	kit_rename(app)

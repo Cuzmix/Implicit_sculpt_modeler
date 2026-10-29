@@ -29,7 +29,7 @@ gesture_overlaps_are_said :: proc(t: ^testing.T) {
 	app.nav.gestures[.Two_Hold] = {.Command_Palette, 0}
 	notes := strings.join(gesture_notes(&app), "\n", context.temp_allocator)
 	testing.expect(t, strings.contains(notes, "four-finger touches"))
-	testing.expect(t, strings.contains(notes, "no longer opens the brush pie"))
+	testing.expect(t, strings.contains(notes, "no longer opens the object menu or the brush pie"))
 	testing.expect(t, strings.contains(notes, "Hold two fingers runs Search commands once"))
 	testing.expect(t, strings.contains(notes, "Four-finger tap and Pen side button both run Wireframe"))
 	testing.expect(t, strings.contains(notes, "Lift one of two fingers to turn start alike"))
@@ -92,5 +92,47 @@ palette_chooses_a_gestures_command :: proc(t: ^testing.T) {
 	palette_run(&app, {kind = .Settings_Tab, arg = 0})
 	testing.expect_value(t, app.nav.gestures[.Four_Tap], before)
 	testing.expect(t, !app.kit.palette)
+	free_all(context.temp_allocator)
+}
+
+// The pen's side button opens the object menu from version 8 on; a file from before keeps
+// the brush pie it opened then, unless a line of its own set the slot, and a right click's
+// choice is remembered.
+@(test)
+pen_button_default_changes_for_fresh_installs_only :: proc(t: ^testing.T) {
+	path := "build/pen_button_test.txt"
+	defer os.remove(path)
+	load :: proc(t: ^testing.T, path, text: string) -> Nav_Prefs {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
+		a: App
+		defer results_destroy(&a)
+		a.nav = NAV_DEFAULT
+		settings_load(&a, path)
+		return a.nav
+	}
+	pie, menu := Pie_Slot{.Brush_Pie, 0}, Pie_Slot{.Object_Menu, 0}
+	fresh := NAV_DEFAULT
+	testing.expect_value(t, fresh.gestures[.Pen_Button], menu)
+	testing.expect_value(t, fresh.gestures[.Pen_Button_Empty], menu)
+	testing.expect_value(t, fresh.right_click, Right_Click.Object_Menu)
+	old := load(t, path, "version 7\n")
+	testing.expect_value(t, old.gestures[.Pen_Button], pie)
+	testing.expect_value(t, old.gestures[.Pen_Button_Empty], pie)
+	set := load(t, path, "version 7\ngesture_map Pen_Button Pie:1\n")
+	testing.expect_value(t, set.gestures[.Pen_Button], Pie_Slot{.Pie, 0})
+	testing.expect_value(t, set.gestures[.Pen_Button_Empty], pie)
+	now := load(t, path, "version 8\nright_click Brush_Pie\n")
+	testing.expect_value(t, now.gestures[.Pen_Button], menu)
+	testing.expect_value(t, now.right_click, Right_Click.Brush_Pie)
+	// What an old file migrated to is written back, so it stays the pie.
+	a: App
+	defer results_destroy(&a)
+	a.nav = old
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	b.nav = NAV_DEFAULT
+	settings_load(&b, path)
+	testing.expect_value(t, b.nav.gestures[.Pen_Button], pie)
 	free_all(context.temp_allocator)
 }

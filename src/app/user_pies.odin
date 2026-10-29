@@ -35,10 +35,11 @@ PIE_DEFAULTS :: [USER_PIES][PIE_SLOTS]Pie_Slot {
 }
 
 // Whether a command can sit in a pie: not one that acts where the pointer is over the
-// model (the pie is under it), and not a pie, a pie opening a pie being a menu in a menu.
+// model (the pie is under it), and not a pie or the object menu, a menu opening a menu
+// being a menu in a menu.
 pie_lists :: proc(id: Command_Id) -> bool {
 	if id == .Input_Diagnostics do return DIAGNOSTICS
-	return id != .None && id != .Pie && id != .Brush_Pie && id != .Hd_Toggle && id != .Replay_Stroke && id != .Eyedropper
+	return id != .None && id != .Pie && id != .Brush_Pie && id != .Object_Menu && id != .Hd_Toggle && id != .Replay_Stroke && id != .Eyedropper
 }
 
 // Whether a pie must wait: a stroke, a drag on the viewport, the S/U adjust or Space's
