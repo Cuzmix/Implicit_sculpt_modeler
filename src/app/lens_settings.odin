@@ -74,7 +74,7 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}}
+LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
@@ -262,6 +262,7 @@ lens_gesture_list :: proc(app: ^App) {
 	if n.twist_roll && !twist_rolls(n^) do ui.paragraph(ctx, "Rolling needs the Trackball orbit style, or Twist two fingers to roll the turntable (Camera).")
 	if picked := gesture_row(ctx, "Three fingers drag", {"Size and focal shift", "Nothing"}, 0 if n.three_finger else 1, width); picked >= 0 do n.three_finger = picked == 0
 	for slot in GESTURE_SLOT_ORDER {
+		if slot in PENCIL_SLOTS do continue
 		ui.begin(ctx, fmt.tprintf("gesture row %v", slot), {direction = .Row, center = true, width = width})
 		r := ui.place(ctx, {width - GESTURE_CHOICE_W, t.target})
 		ui.text(ctx, GESTURE_SLOT_NAMES[slot], r.x, r.y + r.h * 0.5, t.text_size, t.text, .Regular)

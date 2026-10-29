@@ -323,6 +323,7 @@ SETTINGS := [?]Setting {
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
 	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
 	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
+	{"pen_eraser", N + offset_of(Nav_Prefs, eraser), Eraser_Use, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},

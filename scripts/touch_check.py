@@ -6368,6 +6368,113 @@ def pen_button_runs_its_command():
 
 
 @scenario
+def pencil_double_tap_follows_the_ipad_setting():
+    """An Apple Pencil double-tap with the iPad's default (switch to the eraser) turns Smooth on, a second turns it off, and the view stays put."""
+    s = Script()
+    pen_hover(s, *MODEL, frames=4)
+    s.add("pdtap")
+    s.wait(4)
+    on = Script()
+    on.events, on.frame = list(s.events), s.frame
+    s.add("pdtap")
+    s.wait(4)
+    return Steps([(on, [], camera_still({"rail_latched": is_text("smooth"), "dabs": near(0)})),
+                  (s, [], camera_still({"rail_latched": is_text("none"), "dabs": near(0)}))])
+
+
+@scenario
+def pencil_double_tap_ignored_when_the_ipad_says_so():
+    """With the iPad's double-tap set to Ignore, a double-tap does nothing, though the slot follows the setting."""
+    s = Script()
+    pen_hover(s, *MODEL, frames=4)
+    s.add("pdtap:ignore")
+    s.wait(4)
+    return s, [], camera_still({"rail_latched": is_text("none"), "pie_open": near(-1)})
+
+
+@scenario
+def pencil_squeeze_opens_the_brush_pie_at_the_tip():
+    """A squeeze while the pencil hovers over the model opens the brush pie there, as the iPad's palette at the tip; nothing is sculpted."""
+    s = Script()
+    pen_hover(s, *MODEL, frames=4)
+    s.add("psqueeze")
+    s.wait(6)
+    return s, [], camera_still({"pie_open": near(0), "dabs": near(0)})
+
+
+@scenario
+def pencil_squeeze_mid_stroke_does_nothing():
+    """A squeeze begun while the pencil strokes is its grip: the stroke goes on and no pie opens."""
+    s = Script()
+    path = line((760, 430), (860, 470), 20)
+    s.add("pnear")
+    s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
+    for i, (x, y) in enumerate(path[1:]):
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+        if i == 8:
+            s.add("psqueeze")
+    s.wait(1)
+    s.add("pup")
+    s.wait(4)
+    return s, [], camera_still({"pie_open": near(-1), "undo_steps": near(1), "dabs": lambda v: int(v) > 0})
+
+
+@scenario
+def pencil_squeeze_runs_its_command():
+    """With squeeze set to Wireframe instead of the iPad's setting, a squeeze turns wireframe on."""
+    s = Script()
+    write_settings("gesture_map Pen_Squeeze Wireframe\n")
+    pen_hover(s, *MODEL, frames=4)
+    s.add("psqueeze")
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "pie_open": near(-1)})
+
+
+@scenario
+def pen_eraser_end_smooths():
+    """The pen turned over: its eraser end strokes the model as Smooth (Settings > Pen's default), one undo step, latching nothing."""
+    s = Script()
+    path = line((760, 430), (860, 470), 20)
+    s.add("pnear")
+    s.add(f"pedown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(4)
+    return s, [], camera_still({"stroke_kind": is_text("smooth"), "undo_steps": near(1), "rail_latched": is_text("none")})
+
+
+@scenario
+def pen_eraser_end_as_the_tip():
+    """With the eraser end set to sculpt as the tip, it strokes with the brush itself."""
+    s = Script()
+    path = line((760, 430), (860, 470), 20)
+    s.add("pnear")
+    s.add(f"pedown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(4)
+    return s, ["--script=set pen_eraser tip"], camera_still({"stroke_kind": lambda v: v != "smooth", "undo_steps": near(1)})
+
+
+@scenario
+def pen_second_button_runs_its_command():
+    """With the pen's second button set to Wireframe, pressing it turns wireframe on and never drags as the middle button."""
+    s = Script()
+    write_settings("gesture_map Pen_Button_2 Wireframe\n")
+    pen_hover(s, *MODEL, frames=4)
+    s.add("pbutton:2")
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "dabs": near(0)})
+
+
+@scenario
 def one_finger_tap_runs_its_command():
     """With One-finger tap set to Wireframe, a tap on empty space turns wireframe on once no second tap came, and sculpts nothing."""
     s = Script()

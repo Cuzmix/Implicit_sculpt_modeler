@@ -45,7 +45,7 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	chrome: string `usage:"Lay the interface out as lens (the default) or classic (the earlier layout after ZBrush for iPad), whatever the settings say (Settings > Interface > Layout)."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
@@ -157,6 +157,7 @@ App :: struct {
 	// platform reports it (pen_roll_take), and the turn it last reported.
 	pen_roll: f32,
 	pen_roll_last: Maybe(f32),
+	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
 	// done since the card last moved on.
 	coach_run:  bool,
@@ -634,6 +635,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer library_destroy(&app)
 	settings_load(&app, settings)
 	app.graphics_loaded = app.graphics
+	pencil_init(&app)
 	switch opts.chrome {
 	case "":
 	case "lens":    app.kit.chrome = .Lens
@@ -836,6 +838,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				}
 			}
 			if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held = false
+			if pencil_event(&app, &e) do continue
 			device_event(&app.device, &e)
 			dab_wait_event(&app, &e, window)
 			touch_event(&app, &e, window)
@@ -865,10 +868,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				#partial switch e.paxis.axis {
 				case .PRESSURE:
 					app.pen_pressure = e.paxis.value
-				case .XTILT:
-					app.pen_tilt.x = e.paxis.value
-				case .YTILT:
-					app.pen_tilt.y = e.paxis.value
+				case .XTILT, .YTILT:
+					pencil_tilt_take(&app, e.paxis.axis, e.paxis.value)
 				case .ROTATION:
 					pen_roll_take(&app, e.paxis.value)
 				}
@@ -879,6 +880,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			}
 		}
 		device_frame_end(&app.device)
+		pencil_frame(&app)
 		// Nothing below may change the scene while the autosave thread reads it.
 		autosave_guard(&app)
 

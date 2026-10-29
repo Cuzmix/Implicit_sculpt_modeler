@@ -39,6 +39,7 @@ Settings_Block :: enum u8 {
 	Hold,
 	Pen_Empty,
 	Pen_Tips,
+	Pen_Buttons,
 	Palm,
 	Gesture_Switches,
 	Shapes,
@@ -96,6 +97,7 @@ SETTINGS_TOUCH := [?]Settings_Entry {
 	{.Hold, "PRESS AND HOLD"},
 	{.Pen_Empty, "PEN AND MOUSE ON EMPTY SPACE"},
 	{.Pen_Tips, "PEN"},
+	{.Pen_Buttons, ""},
 	{.Palm, ""},
 	{.Gesture_Switches, "GESTURES"},
 	{.Shapes, "SHAPES"},
@@ -157,6 +159,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
 	.Pen_Tips         = "pen hover names tooltips",
+	.Pen_Buttons      = "apple pencil double tap squeeze second button barrel eraser end flip",
 	.Palm             = "palm rejection ignore the hand pen near",
 	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
 	.Shapes           = "shapes mask hide clip apply",
@@ -371,6 +374,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
 		if picked := ui.tabs(ctx, "Pen hover names", tips[:], int(n.pen_tips)); picked >= 0 do n.pen_tips = Pen_Tips(picked)
 		ui.paragraph(ctx, "The pen held over a control without touching shows its name and shortcut, as the mouse resting on it does. With a keyboard shows them only while one is connected; a long press always shows them.")
+	case .Pen_Buttons:
+		settings_pen_buttons(app)
 	case .Palm:
 		_ = ui.switch_row(ctx, "Ignore the hand while the pen is near", &n.palm_rejection)
 		ui.paragraph(ctx, "A single finger does nothing while the pen is near the screen; two fingers still move the view.")
@@ -512,15 +517,19 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
+	case .Pen_Buttons:
+		for slot in PENCIL_SLOTS do n.gestures[slot] = d.gestures[slot]
+		n.eraser = d.eraser
 	case .Palm:            n.palm_rejection = d.palm_rejection
 	case .Gesture_Switches:
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
 		n.three_finger, n.double_tap, n.lift_one_orbit = d.three_finger, d.double_tap, d.lift_one_orbit
 	case .Shapes:          n.shape_apply = d.shape_apply
-	case .Gesture_Map:     n.gestures = d.gestures
+	case .Gesture_Map:     gesture_map_reset(n)
 	case .Gesture_List:
 		n.finger_model, n.pinch_zoom, n.two_finger_pan, n.twist_roll = d.finger_model, d.pinch_zoom, d.two_finger_pan, d.twist_roll
-		n.three_finger, n.gestures = d.three_finger, d.gestures
+		n.three_finger = d.three_finger
+		gesture_map_reset(n)
 	case .Gesture_More:    n.zoom_toward, n.lift_one_orbit, n.double_tap = d.zoom_toward, d.lift_one_orbit, d.double_tap
 	case .Finger_Sculpts:  n.palm_rejection, n.finger_model = d.palm_rejection, d.finger_model
 	case .Keys:

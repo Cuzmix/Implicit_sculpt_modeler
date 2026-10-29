@@ -255,6 +255,7 @@ Command_Id :: enum u8 {
 	Library,
 	Pick_Pack,
 	Save_Pack,
+	Pencil_Preferred, // pencil.odin: only a pencil gesture's slot holds it
 }
 
 Command :: struct {
@@ -2183,6 +2184,12 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Make_Pack)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.library.alphas > 0 || app.preset_count > 0},
+	},
+	.Pencil_Preferred = {
+		label = "Follow the Pencil setting",
+		help = "Does what the iPad's Settings > Apple Pencil asks of a double-tap or squeeze: the palette at the tip opens the brush pie, the eraser turns Smooth on or off, the last used brush comes back, and the colour palette or the tool's attributes open their cards.",
+		icon = ui.ICON_PENCIL,
+		run = proc(app: ^App, _: int) {pencil_preferred_run(app)},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",
