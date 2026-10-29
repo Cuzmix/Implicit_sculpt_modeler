@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:strings"
 
 import "../camera"
 import "../ui"
@@ -52,16 +53,16 @@ PEN_AREA_ROLLS := [Pen_Area]string {
 	.Colors   = "Roll turns the hue round the ring.",
 }
 
-// The pencil's double-tap and squeeze slots over each place.
+// The pencil's double-tap, squeeze and second button slots over each place.
 @(rodata)
-PEN_AREA_SLOTS := [Pen_Area][2]Gesture_Slot {
-	.Model    = {.Pen_Double_Tap, .Pen_Squeeze},
-	.Empty    = {.Pen_Double_Tap_Empty, .Pen_Squeeze_Empty},
-	.Shelf    = {.Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf},
-	.Panels   = {.Pen_Double_Tap_Panels, .Pen_Squeeze_Panels},
-	.History  = {.Pen_Double_Tap_History, .Pen_Squeeze_History},
-	.Nav_Head = {.Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head},
-	.Colors   = {.Pen_Double_Tap_Colors, .Pen_Squeeze_Colors},
+PEN_AREA_SLOTS := [Pen_Area][3]Gesture_Slot {
+	.Model    = {.Pen_Double_Tap, .Pen_Squeeze, .Pen_Button_2},
+	.Empty    = {.Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Button_2_Empty},
+	.Shelf    = {.Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf, .Pen_Button_2_Shelf},
+	.Panels   = {.Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Button_2_Panels},
+	.History  = {.Pen_Double_Tap_History, .Pen_Squeeze_History, .Pen_Button_2_History},
+	.Nav_Head = {.Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head, .Pen_Button_2_Nav_Head},
+	.Colors   = {.Pen_Double_Tap_Colors, .Pen_Squeeze_Colors, .Pen_Button_2_Colors},
 }
 
 // A place of the interface as the last layout put it: where, and the anchored container
@@ -304,13 +305,21 @@ pen_area_now :: proc(app: ^App) -> Pen_Area {
 	return .Empty
 }
 
-// The gesture slot a double-tap or squeeze runs where the pen points now.
+// The gesture slot a double-tap, squeeze or button runs where the pen points now, past
+// As over empty space. The side button has an empty-space slot of its own only: over the
+// interface it is the controls' right click.
 pencil_slot_here :: proc(app: ^App, slot: Gesture_Slot) -> Gesture_Slot {
+	column := -1
 	#partial switch slot {
-	case .Pen_Double_Tap: return PEN_AREA_SLOTS[pen_area_now(app)][0]
-	case .Pen_Squeeze:    return PEN_AREA_SLOTS[pen_area_now(app)][1]
+	case .Pen_Double_Tap: column = 0
+	case .Pen_Squeeze:    column = 1
+	case .Pen_Button_2:   column = 2
+	case .Pen_Button:     return .Pen_Button_Empty if pen_area_now(app) == .Empty else .Pen_Button
+	case:                 return slot
 	}
-	return slot
+	here := PEN_AREA_SLOTS[pen_area_now(app)][column]
+	if app.nav.gestures[here].id == .Pen_As_Empty do here = PEN_AREA_SLOTS[.Empty][column]
+	return here
 }
 
 // Settings > Pen's WHERE THE PEN POINTS: the place, then what the roll, double-tap and
@@ -342,8 +351,16 @@ settings_pen_areas :: proc(app: ^App) {
 	gesture_select(app, PEN_AREA_SLOTS[area][0])
 	ui.label(ctx, "Pencil squeeze")
 	gesture_select(app, PEN_AREA_SLOTS[area][1])
+	if area <= .Empty {
+		ui.label(ctx, "Side button")
+		gesture_select(app, .Pen_Button if area == .Model else .Pen_Button_Empty)
+	}
+	ui.label(ctx, "Second button")
+	gesture_select(app, PEN_AREA_SLOTS[area][2])
 	ui.paragraph(ctx, "Turn the pen about its own length while it hovers, past the first 10 degrees, and it does this where it points: Twist the view keeps the point under the tip where it is and turns the picture as far as the pen turns, holding level as it passes. Over a slider the roll always sets the slider. A brush whose alpha turns with the pen keeps the roll over the model. Roll needs a pen that reports it (Apple Pencil Pro, some Windows pens).")
 	_ = ui.switch_row(ctx, "Roll while grabbing twists what you hold", &n.grab_twist)
 	ui.paragraph(ctx, "While Grab or Elastic drags, turning the pen past the first 10 degrees turns what it holds about where it took hold, as far as the pen turns, the middle fully and the brush's edge not at all; a symmetric copy turns the mirrored way.")
+	ui.paragraph(ctx, "The side button over the interface is the controls' right click. The second button is the barrel button nearer the top on pens that have two; set to Nothing it stays the middle mouse button.")
 	ui.paragraph(ctx, "Double-tap and squeeze come from an Apple Pencil (squeeze from the Pro), and a pencil too far away to hover does what it does over the model. Follow the Pencil setting does what the iPad's Settings > Apple Pencil asks: the palette at the tip opens the brush pie, the eraser turns Smooth on or off. Off there turns them off here too.")
+	for note in gesture_notes(app) do if strings.contains(note, "side button") || strings.contains(note, "second button") do ui.paragraph(ctx, note, color = ctx.theme.warning)
 }
