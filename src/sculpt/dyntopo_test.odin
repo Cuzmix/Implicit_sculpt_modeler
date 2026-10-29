@@ -613,3 +613,27 @@ dyn_grab_refine_splits_what_the_pull_stretched :: proc(t: ^testing.T) {
 		testing.expectf(t, slice.equal(undone.positions[:], before.positions[:]) && slice.equal(undone.indices[:], before.indices[:]), "%v: undo did not restore the mesh", kind)
 	}
 }
+
+// Smooth under dynamic topology splits nothing however long the edges, and with
+// Collapse on coarsens a patch a finer detail made, up to its own detail; with Collapse
+// off it leaves the triangles as they are.
+@(test)
+dyn_smooth_only_collapses :: proc(t: ^testing.T) {
+	sp := dyn_make(t, 2)
+	defer dyn_free(sp)
+	s := &sp.sculptor
+	coarse := sculptor_triangle_count(s)
+	_ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.05, collapse = true}, {0, 0, 1})
+	testing.expectf(t, sculptor_triangle_count(s) <= coarse, "Smooth split: %d triangles, %d before", sculptor_triangle_count(s), coarse)
+	// A Draw dab at a fine detail, then Smooth at a coarser one.
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.1, detail = 0.08}, {0, 0, 1})
+	_ = sculptor_flush(s)
+	fine := sculptor_triangle_count(s)
+	_ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.3}, {0, 0, 1})
+	testing.expect_value(t, sculptor_triangle_count(s), fine)
+	for _ in 0 ..< 4 do _ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.3, collapse = true}, {0, 0, 1})
+	_ = sculptor_flush(s)
+	if !expect_valid(t, s) do return
+	testing.expectf(t, sculptor_triangle_count(s) < fine * 3 / 4, "%d triangles after the fine Draw, %d after smoothing", fine, sculptor_triangle_count(s))
+	testing.expectf(t, euler(s) == 2, "Euler characteristic %d", euler(s))
+}
