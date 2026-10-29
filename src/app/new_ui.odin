@@ -40,7 +40,7 @@ Kit_State :: struct {
 	tab:        Kit_Tab, // ...on this palette
 	section:    [Kit_Tab]Kit_Section, // the section each palette shows
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
-	pen_lean:    bool, // the Brush palette's Pen section shows its Lean page, not Pressure
+	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
 	list_scroll: f32, // the tray's list of palettes and sections, scrolled
 	list_reveal: int, // ...to the section shown, for this many more frames
 	// Search's Show where (tray_show): the command whose control the tray marks, since
@@ -189,6 +189,11 @@ Kit_State :: struct {
 	// What the workspace hides, and the workspaces (workspaces.odin).
 	hidden:     bit_set[Zone],
 	workspaces: Workspaces,
+	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
+	// bars or show the form four ways without changing the layout.
+	spaces:     Spaces,
+	focus_mode: bool,
+	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
@@ -253,6 +258,8 @@ Kit_State :: struct {
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
+	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
@@ -473,6 +480,7 @@ Kit_Section :: enum u8 {
 	Paint_Color,
 	Recall,
 	Falloff,
+	Samples,
 	Alpha,
 	Pen,
 	Options,
@@ -1267,7 +1275,9 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	if input.dragging {
 		// What the right and middle buttons do to the view is pointer_route's to say
 		// (mouse_button_owner), by the mouse scheme in Settings > Keys.
-		input.primary = left && (!d.alt || d.ctrl)
+		// Alt held from the press leaves the left button to the view; Alt pressed while a
+		// Grab drags moves it along the surface instead (grab_moved).
+		input.primary = left && (!d.alt || d.ctrl || (app.stroke.active && app.stroke.grab))
 		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
 		input.smooth = input.primary && d.shift
@@ -1295,6 +1305,8 @@ kit_layout :: proc(app: ^App) {
 	t := ctx.theme
 	E := t.edge
 
+	// The space follows a tool picked last frame, before anything is laid out for it.
+	space_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	if k.home {

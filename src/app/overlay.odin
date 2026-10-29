@@ -200,12 +200,15 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 				app.alpha_roll = input.pen_roll
 				draw_alpha_outline(app, o, center, color)
 			} else {
-				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, app.brush.radius_px, color, 1.5)
+				// Off the model a ring fixed in the scene is drawn as it would be at the view's
+				// middle.
+				flat := app.brush.radius_px * brush_size_scale(app, camera.orbit_world_per_px(app.camera, app.camera.target, input.size.y), input.size.y)
+				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, flat, color, 1.5)
 				// A focal shift moves where the brush works: an inner ring where it falls to
 				// half strength, as the reference app's cursor shows it.
 				if half := brush_half_radius(app); half > 0 {
 					inner := overlay_color(brush_ring_color(app, input.primary) * {1, 1, 1, 0.55})
-					if !draw_surface_ring(app, o, input.size, inner, half) do overlay_circle(o, center, app.brush.radius_px * half, inner, 1)
+					if !draw_surface_ring(app, o, input.size, inner, half) do overlay_circle(o, center, flat * half, inner, 1)
 				}
 			}
 			// Which way a leaning pen turns the brush, and how far: toward the top of the

@@ -306,7 +306,8 @@ bvh_gather_matches_linear_scan :: proc(t: ^testing.T) {
 	for p in m.positions {
 		if linalg.length(p - center) < radius do expected += 1
 	}
-	got := apply_dab(&s, {kind = .Smooth, radius = radius, strength = 0}, center)
+	// A strength just over nothing takes one pass, which counts every vertex inside.
+	got := apply_dab(&s, {kind = .Smooth, radius = radius, strength = 1e-6}, center)
 	testing.expect_value(t, got, expected)
 }
 

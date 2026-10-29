@@ -40,8 +40,10 @@ settings_path :: proc() -> string {
 
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
-// 3: the default look became Lens.
-SETTINGS_VERSION :: 4
+// 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
+// the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
+// (workspaces.odin).
+SETTINGS_VERSION :: 5
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -150,6 +152,7 @@ SETTINGS := [?]Setting {
 	{"radius_px", B + offset_of(Brush_Settings, radius_px), f32, MIN_RADIUS_PX, MAX_RADIUS_PX},
 	{"pressure_strength", B + offset_of(Brush_Settings, pressure_strength), bool, 0, 0},
 	{"pressure_size", B + offset_of(Brush_Settings, pressure_size), bool, 0, 0},
+	{"pressure_size_floor", B + offset_of(Brush_Settings, pressure_size_floor), f32, 0, 1},
 	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
 	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
 	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
@@ -161,7 +164,20 @@ SETTINGS := [?]Setting {
 	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},
 	{"connected", B + offset_of(Brush_Settings, connected), bool, 0, 0},
 	{"grab_depth", B + offset_of(Brush_Settings, grab_depth), bool, 0, 0},
+	{"grab_mode", B + offset_of(Brush_Settings, grab_mode), Grab_Mode, 0, 0},
+	{"grab_normal_weight", B + offset_of(Brush_Settings, grab_normal), f32, 0, 1},
+	{"grab_same_side", B + offset_of(Brush_Settings, grab_same_side), bool, 0, 0},
+	{"grab_silhouette", B + offset_of(Brush_Settings, grab_silhouette), bool, 0, 0},
+	{"grab_topological", B + offset_of(Brush_Settings, grab_topological), bool, 0, 0},
+	{"elastic_volume", B + offset_of(Brush_Settings, elastic_volume), f32, 0, 1},
+	{"hook_pinch", B + offset_of(Brush_Settings, hook_pinch), f32, -1, 1},
+	{"hook_rake", B + offset_of(Brush_Settings, hook_rake), f32, 0, 1},
+	{"hook_elastic", B + offset_of(Brush_Settings, hook_elastic), bool, 0, 0},
 	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
+	{"smooth_stable", B + offset_of(Brush_Settings, smooth_stable), bool, 0, 0},
+	{"smooth_mode", B + offset_of(Brush_Settings, smooth_mode), sculpt.Smooth_Mode, 0, 0},
+	{"stabilize", B + offset_of(Brush_Settings, stabilize), f32, 0, sculpt.STABILIZE_MAX},
+	{"sample_radius", B + offset_of(Brush_Settings, sample_radius), f32, sculpt.SAMPLE_RADIUS_MIN, 1},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
@@ -173,11 +189,24 @@ SETTINGS := [?]Setting {
 	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
 	{"stroke_even", B + offset_of(Brush_Settings, even_strength), bool, 0, 0},
 	{"stroke_scene_spacing", B + offset_of(Brush_Settings, scene_spacing), bool, 0, 0},
+	{"stroke_one_way", B + offset_of(Brush_Settings, one_way), bool, 0, 0},
+	{"stroke_directional", B + offset_of(Brush_Settings, directional), bool, 0, 0},
+	{"size_world", B + offset_of(Brush_Settings, size_world), bool, 0, 0},
+	{"size_ref", B + offset_of(Brush_Settings, size_ref), f32, 0, 1e6},
+	{"clay_tip_roundness", B + offset_of(Brush_Settings, tip_roundness), f32, 0, 1},
+	{"clay_tip_scale", B + offset_of(Brush_Settings, tip_scale), f32, sculpt.CLAY_TIP_SCALE_MIN, 1},
+	{"trim_angle", B + offset_of(Brush_Settings, trim_angle), f32, 0, 160},
+	{"trim_dynamic", B + offset_of(Brush_Settings, trim_dynamic), bool, 0, 0},
+	{"plane_height", B + offset_of(Brush_Settings, plane_height), f32, 0, 1},
+	{"plane_depth", B + offset_of(Brush_Settings, plane_depth), f32, 0, 1},
 	{"symmetry_feather", B + offset_of(Brush_Settings, feather), bool, 0, 0},
 	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
 	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
+	{"detail_by_radius", B + offset_of(Brush_Settings, detail_by_radius), bool, 0, 0},
+	{"detail_radius", B + offset_of(Brush_Settings, detail_radius), f32, DETAIL_RADIUS_MIN, DETAIL_RADIUS_MAX},
+	{"detail_falloff", B + offset_of(Brush_Settings, detail_falloff), bool, 0, 0},
 	{"collapse", B + offset_of(Brush_Settings, collapse), bool, 0, 0},
 	{"alpha_mode", B + offset_of(Brush_Settings, alpha_mode), Alpha_Mode, 0, 0},
 	{"alpha_angle", B + offset_of(Brush_Settings, alpha_angle), f32, 0, 0},
@@ -613,6 +642,8 @@ settings_load :: proc(app: ^App, path: string) {
 	version := 0
 	// A file from before each light had its own space fixed the whole set to the scene.
 	fixed_lights := false
+	// Before size had a pressure curve of its own it took the strength's.
+	size_curve_seen := false
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -671,6 +702,50 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
+		case "pressure_size_curve":
+			if len(f) == 5 {
+				b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
+				size_curve_seen = true
+			}
+		case "hardness":
+			// hardness <brush> <0 to sculpt.HARDNESS_MAX>, for the brushes with one.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].hardness = clamp(number(f[2], 0), 0, sculpt.HARDNESS_MAX)
+			}
+		case "falloff_shape":
+			// falloff_shape <brush> sphere|projected, for every brush; a file from before
+			// keeps each brush's default.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok && (f[2] == "sphere" || f[2] == "projected") do b.falloffs[kind].projected = f[2] == "projected"
+			}
+		case "accumulate":
+			// accumulate <brush> <0|1>, for every brush.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.no_accumulate[kind] = f[2] == "0"
+			}
+		case "pressure_own":
+			// pressure_own <brush> <own 0|1> <strength 0|1> <size 0|1> <smallest size>
+			// <strength curve> <size curve>, for every brush, so one that starts on its own
+			// (Clay) and was put on the global one stays there.
+			if len(f) == 14 {
+				if kind, ok := brush_by_name(f[1]); ok {
+					p := &b.pressures[kind]
+					p.own, p.strength, p.size = f[2] == "1", f[3] == "1", f[4] == "1"
+					p.size_floor = clamp(number(f[5], 0), 0, 1)
+					p.strength_curve, p.size_curve = curve(f[6:10], geom.CURVE_LINEAR), curve(f[10:14], geom.CURVE_LINEAR)
+				}
+			}
+		case "dyntopo":
+			// dyntopo <brush> <off 0|1> <own 0|1> <by radius 0|1> <detail px> <detail share>,
+			// for a brush that keeps its triangles or its own detail.
+			if len(f) == 7 {
+				if kind, ok := brush_by_name(f[1]); ok {
+					d := &b.dyns[kind]
+					d.off, d.own, d.by_radius = f[2] == "1", f[3] == "1", f[4] == "1"
+					d.px = clamp(number(f[5], d.px), 2, 40)
+					d.radius = clamp(number(f[6], d.radius), DETAIL_RADIUS_MIN, DETAIL_RADIUS_MAX)
+				}
+			}
 		case "material":
 			if name := strings.join(f[1:], " ", context.temp_allocator); strings.contains_rune(name, '/') {
 				if j := pack_material_by_ref(app, preset_unescape(name)); j >= 0 do app.material = PACK_MATERIAL + j
@@ -716,8 +791,10 @@ settings_load :: proc(app: ^App, path: string) {
 		case "thumbnail_shaded":
 			// Before the second view had passes, Shaded was a switch over the silhouette.
 			if f[1] == "1" do app.kit.second.pass = .Shaded
-		case "workspace", "workspace_saved", "workspace_live", "workspace_current":
-			workspaces_load_line(&app.kit, f)
+		case "workspace", "workspace_saved", "workspace_live", "workspace_current", "workspace_space":
+			workspaces_load_line(&app.kit, f, version)
+		case "space_layouts":
+			spaces_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -884,6 +961,7 @@ settings_load :: proc(app: ^App, path: string) {
 		}
 	}
 	if fixed_lights do lights_fixed_set(app, &app.start_lights, true)
+	if !size_curve_seen do b.pressure_size_curve = b.pressure_curve
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
@@ -966,9 +1044,21 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
 		if f.focal != 0 do fmt.sbprintfln(&out, "focal %v %g", kind, f.focal)
+		if f.hardness != 0 do fmt.sbprintfln(&out, "hardness %v %g", kind, f.hardness)
+		fmt.sbprintfln(&out, "falloff_shape %v %s", kind, "projected" if f.projected else "sphere")
+		fmt.sbprintfln(&out, "accumulate %v %d", kind, bit(!b.no_accumulate[kind]))
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
+	c = b.pressure_size_curve
+	fmt.sbprintfln(&out, "pressure_size_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
+	for p, kind in b.pressures {
+		a, z := p.strength_curve, p.size_curve
+		fmt.sbprintfln(&out, "pressure_own %v %d %d %d %g %g %g %g %g %g %g %g %g", kind, bit(p.own), bit(p.strength), bit(p.size), p.size_floor, a.c1.x, a.c1.y, a.c2.x, a.c2.y, z.c1.x, z.c1.y, z.c2.x, z.c2.y)
+	}
+	for d, kind in b.dyns {
+		if d.off || d.own do fmt.sbprintfln(&out, "dyntopo %v %d %d %d %g %g", kind, bit(d.off), bit(d.own), bit(d.by_radius), d.px, d.radius)
+	}
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	// The starting lights, every one of them, so a light added later starts as it was set.
 	for s in ([2]string{"light_count", "light_ambient"}) {

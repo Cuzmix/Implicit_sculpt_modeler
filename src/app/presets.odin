@@ -50,6 +50,35 @@ Preset_Values :: struct {
 	connected:   bool,
 	grab_depth:  bool,
 	smooth_only: sculpt.Smooth_Only,
+	// Grab's mode, Normal weight, Same side and Silhouette (Brush_Settings).
+	grab_mode:       Grab_Mode,
+	grab_normal:     f32,
+	grab_same_side:  bool,
+	grab_silhouette: bool,
+	grab_topological: bool,
+	elastic_volume:   f32, // Elastic's Volume (Brush_Settings.elastic_volume)
+	// Snake hook's Pinch, Rake and Elastic tip (Brush_Settings.hook_*).
+	hook_pinch:       f32,
+	hook_rake:        f32,
+	hook_elastic:     bool,
+	smooth_stable:    bool, // Smooth's Stable (Brush_Settings.smooth_stable)
+	smooth_mode:      sculpt.Smooth_Mode, // Smooth, Relax or Polish
+	// The Samples section's (Brush_Settings.stabilize, sample_radius and the kind's
+	// no_accumulate); sample_radius 0 (a line from before) is all of it.
+	stabilize:        f32,
+	sample_radius:    f32,
+	no_accumulate:    bool,
+	// The stroke's No back and forth and Directional (Brush_Settings.one_way, directional).
+	one_way:          bool,
+	directional:      bool,
+	// Clay strips' tip, Trim dynamic's angle (degrees) and its switch, Flatten's plane
+	// height and depth (Brush_Settings); preset_parse starts them as a fresh brush has them.
+	tip_roundness:    f32,
+	tip_scale:        f32,
+	trim_angle:       f32,
+	trim_dynamic:     bool,
+	plane_height:     f32,
+	plane_depth:      f32,
 }
 
 Brush_Preset :: struct {
@@ -70,7 +99,14 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		alpha_angle = b.alpha_angle, stroke = b.stroke, spread = b.spray_spread, lazy_px = b.lazy_px, color = b.color,
 		smoothing = b.smoothing, pressure_smoothing = b.pressure_smoothing,
 		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected, grab_depth = b.grab_depth,
-		smooth_only = b.smooth_only,
+		smooth_only = b.smooth_only, grab_mode = b.grab_mode, grab_normal = b.grab_normal, grab_same_side = b.grab_same_side,
+		grab_silhouette = b.grab_silhouette, grab_topological = b.grab_topological, elastic_volume = b.elastic_volume,
+		hook_pinch = b.hook_pinch, hook_rake = b.hook_rake, hook_elastic = b.hook_elastic,
+		smooth_stable = b.smooth_stable, smooth_mode = b.smooth_mode,
+		stabilize = b.stabilize, sample_radius = b.sample_radius, no_accumulate = b.no_accumulate[kind],
+		one_way = b.one_way, directional = b.directional,
+		tip_roundness = b.tip_roundness, tip_scale = b.tip_scale, trim_angle = b.trim_angle, trim_dynamic = b.trim_dynamic,
+		plane_height = b.plane_height, plane_depth = b.plane_depth,
 	}
 }
 
@@ -83,6 +119,20 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.smoothing, b.pressure_smoothing = f32(steady_count(v.smoothing)), f32(steady_count(v.pressure_smoothing))
 	b.lock_plane, b.connected = v.lock_plane, v.connected
 	b.grab_depth, b.smooth_only = v.grab_depth, v.smooth_only
+	b.grab_mode, b.grab_normal, b.grab_same_side, b.grab_silhouette = v.grab_mode, v.grab_normal, v.grab_same_side, v.grab_silhouette
+	b.grab_topological = v.grab_topological
+	if v.kind == .Elastic do b.elastic_volume = v.elastic_volume
+	if v.kind == .Snake_Hook do b.hook_pinch, b.hook_rake, b.hook_elastic = v.hook_pinch, v.hook_rake, v.hook_elastic
+	if v.kind == .Smooth do b.smooth_stable, b.smooth_mode = v.smooth_stable, v.smooth_mode
+	b.stabilize, b.sample_radius = v.stabilize, v.sample_radius if v.sample_radius > 0 else 1
+	if accumulate_applies(v.kind) do b.no_accumulate[v.kind] = v.no_accumulate
+	b.one_way, b.directional = v.one_way, v.directional
+	// Each brush's own values only, so a Flatten preset leaves Clay strips' tip as set.
+	#partial switch v.kind {
+	case .Clay_Strips:  b.tip_roundness, b.tip_scale = v.tip_roundness, v.tip_scale
+	case .Trim_Dynamic: b.trim_angle, b.trim_dynamic = v.trim_angle, v.trim_dynamic
+	case .Flatten:      b.plane_height, b.plane_depth = v.plane_height, v.plane_depth
+	}
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -164,13 +214,24 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	round := proc(app: ^App, i: int) -> int {return i if i >= 0 && i < len(app.alphas) else -1}
 	if a.kind != b.kind || a.strength != b.strength || a.falloff.drawn != b.falloff.drawn do return false
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
-	if a.falloff.focal != b.falloff.focal do return false
+	if a.falloff.focal != b.falloff.focal || a.falloff.hardness != b.falloff.hardness do return false
+	if a.kind != .Elastic && a.falloff.projected != b.falloff.projected do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
 	if steady_count(a.smoothing) != steady_count(b.smoothing) || steady_count(a.pressure_smoothing) != steady_count(b.pressure_smoothing) do return false
 	if flags & {.Grab, .Cloth} == {} && a.lock_plane != b.lock_plane do return false
 	if .Cloth not_in flags && a.connected != b.connected do return false
 	if .Grab in flags && a.grab_depth != b.grab_depth do return false
-	if a.kind == .Smooth && a.smooth_only != b.smooth_only do return false
+	if a.kind == .Grab && (a.grab_mode != b.grab_mode || a.grab_normal != b.grab_normal || a.grab_same_side != b.grab_same_side || a.grab_silhouette != b.grab_silhouette || a.grab_topological != b.grab_topological) do return false
+	if a.kind == .Elastic && (a.grab_mode != b.grab_mode || a.elastic_volume != b.elastic_volume) do return false
+	if a.kind == .Snake_Hook && (a.hook_pinch != b.hook_pinch || a.hook_rake != b.hook_rake || a.hook_elastic != b.hook_elastic) do return false
+	if a.kind == .Smooth && (a.smooth_only != b.smooth_only || a.smooth_stable != b.smooth_stable || a.smooth_mode != b.smooth_mode) do return false
+	whole :: proc(x: f32) -> f32 {return x if x > 0 else 1}
+	if a.stabilize != b.stabilize || whole(a.sample_radius) != whole(b.sample_radius) do return false
+	if accumulate_applies(a.kind) && a.no_accumulate != b.no_accumulate do return false
+	if a.one_way != b.one_way || a.directional != b.directional do return false
+	if a.kind == .Clay_Strips && (a.tip_roundness != b.tip_roundness || a.tip_scale != b.tip_scale) do return false
+	if a.kind == .Trim_Dynamic && (a.trim_dynamic != b.trim_dynamic || !a.trim_dynamic && a.trim_angle != b.trim_angle) do return false
+	if a.kind == .Flatten && (a.plane_height != b.plane_height || a.plane_depth != b.plane_depth) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -288,13 +349,26 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
 //        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only> [<smoothing>
-//        <pressure smoothing>]]]]]; names escaped
+//        <pressure smoothing> [<grab mode> <normal weight> <same side 0|1>
+//        <silhouette 0|1> [<topological 0|1> [<elastic volume> [<hook pinch> <hook rake>
+//        <hook elastic 0|1> [<key>=<value>...]]]]]]]]]]; names escaped
 // (preset_escape). Lines from before Spray have no spread and take the default; lines
 // from before Lock plane and Connected have both off; lines from before focal shift have
 // none; lines from before All depth and Smooth only have Grab's round reach and Smooth
-// on everything; lines from before the stabiliser have it off.
+// on everything; lines from before the stabiliser have it off; lines from before Grab's
+// modes grab freely on both sides; lines from before Topological weigh straight distance;
+// lines from before Elastic's Volume take the default; lines from before Snake hook's
+// Pinch, Rake and Elastic tip have none of them. After those come named values, each
+// `key=value`, so a value added later needs no new length and a build that does not know a
+// key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish,
+// stabilize=, sample_radius= and accumulate=0|1 (the Samples section), hardness= and
+// shape=sphere|projected (the Falloff section's), one_way=1 and directional=1 (the
+// stroke's), tip_roundness= and tip_scale= (Clay strips), trim_angle= and trim_dynamic=0
+// (Trim dynamic) and plane_height= and plane_depth= (Flatten), each written only where it
+// is not as a fresh brush has it. A line without accumulate= accumulates,
+// and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -309,7 +383,7 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 	for x in ([4]f32{curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y}) do if x < 0 || x > 1 do curve = FALLOFF_SMOOTH_CURVE
 	v = {
 		kind = kind, strength = clamp(number(f[3], BRUSHES[kind].strength), MIN_STRENGTH, 1),
-		falloff = {drawn = f[4] == "1", curve = curve},
+		falloff = {drawn = f[4] == "1", curve = curve, projected = projected_default(kind)},
 		alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
 		lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
 		spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
@@ -322,9 +396,47 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		v.grab_depth, v.smooth_only = f[22] == "1", only
 	}
 	v.smoothing, v.pressure_smoothing = 1, 1
-	if len(f) == 26 {
+	if len(f) >= 26 {
 		v.smoothing = f32(steady_count(number(f[24], 1)))
 		v.pressure_smoothing = f32(steady_count(number(f[25], 1)))
+	}
+	if len(f) >= 30 {
+		grab, grab_ok := reflect.enum_from_name(Grab_Mode, f[26])
+		if !grab_ok do return
+		v.grab_mode, v.grab_normal = grab, clamp(number(f[27], 0), 0, 1)
+		v.grab_same_side, v.grab_silhouette = f[28] == "1", f[29] == "1"
+	}
+	v.elastic_volume = ELASTIC_VOLUME_DEFAULT
+	if len(f) >= 31 do v.grab_topological = f[30] == "1"
+	if len(f) >= 32 do v.elastic_volume = clamp(number(f[31], ELASTIC_VOLUME_DEFAULT), 0, 1)
+	if len(f) >= 35 {
+		v.hook_pinch, v.hook_rake = clamp(number(f[32], 0), -1, 1), clamp(number(f[33], 0), 0, 1)
+		v.hook_elastic = f[34] == "1"
+	}
+	v.tip_roundness, v.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
+	v.trim_angle, v.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
+	v.plane_height, v.plane_depth = 1, 1
+	for word in f[min(len(f), 35):] {
+		key, _, value := strings.partition(word, "=")
+		switch key {
+		case "smooth_stable": v.smooth_stable = value == "1"
+		case "stabilize": v.stabilize = clamp(number(value, 0), 0, sculpt.STABILIZE_MAX)
+		case "sample_radius": v.sample_radius = clamp(number(value, 1), sculpt.SAMPLE_RADIUS_MIN, 1)
+		case "accumulate": v.no_accumulate = value == "0"
+		case "hardness": v.falloff.hardness = clamp(number(value, 0), 0, sculpt.HARDNESS_MAX)
+		case "shape": if value == "sphere" || value == "projected" do v.falloff.projected = value == "projected"
+		case "one_way": v.one_way = value == "1"
+		case "tip_roundness": v.tip_roundness = clamp(number(value, sculpt.CLAY_TIP_ROUNDNESS), 0, 1)
+		case "tip_scale": v.tip_scale = clamp(number(value, 1), sculpt.CLAY_TIP_SCALE_MIN, 1)
+		case "trim_angle": v.trim_angle = clamp(number(value, TRIM_ANGLE_DEFAULT_DEGREES), 0, 160)
+		case "trim_dynamic": v.trim_dynamic = value != "0"
+		case "plane_height": v.plane_height = clamp(number(value, 1), 0, 1)
+		case "plane_depth": v.plane_depth = clamp(number(value, 1), 0, 1)
+		case "directional": v.directional = value == "1"
+		case "smooth_mode":
+			// A mode this build does not know smooths plainly.
+			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
+		}
 	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
@@ -339,11 +451,40 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// Only a preset with a focal shift, All depth or Smooth only has the fields, so the
 	// builds from before them, which skip a line of a length they do not know, keep every
 	// other preset.
-	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1
+	stable := v.kind == .Smooth && v.smooth_stable
+	smooth_mode := v.kind == .Smooth && v.smooth_mode != .Smooth
+	sampled := v.stabilize > 0 || v.sample_radius > 0 && v.sample_radius < 1
+	one_pass := accumulate_applies(v.kind) && v.no_accumulate
+	shape := v.falloff.projected != projected_default(v.kind)
+	tip := v.kind == .Clay_Strips && (v.tip_roundness != sculpt.CLAY_TIP_ROUNDNESS || v.tip_scale != 1)
+	trim := v.kind == .Trim_Dynamic && (!v.trim_dynamic || v.trim_angle != TRIM_ANGLE_DEFAULT_DEGREES)
+	plane := v.kind == .Flatten && (v.plane_height != 1 || v.plane_depth != 1)
+	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional || tip || trim || plane
+	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
+	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
+	topological := v.grab_topological || volume
+	grab := v.grab_mode != .Free || v.grab_normal != 0 || v.grab_same_side || v.grab_silhouette || topological
+	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1 || grab
 	extra := v.grab_depth || v.smooth_only != .All || steady
 	if v.falloff.focal != 0 || extra do fmt.sbprintf(out, " %g", v.falloff.focal)
 	if extra do fmt.sbprintf(out, " %d %v", bit(v.grab_depth), v.smooth_only)
 	if steady do fmt.sbprintf(out, " %d %d", steady_count(v.smoothing), steady_count(v.pressure_smoothing))
+	if grab do fmt.sbprintf(out, " %v %g %d %d", v.grab_mode, v.grab_normal, bit(v.grab_same_side), bit(v.grab_silhouette))
+	if topological do fmt.sbprintf(out, " %d", bit(v.grab_topological))
+	if volume do fmt.sbprintf(out, " %g", v.elastic_volume)
+	if hook do fmt.sbprintf(out, " %g %g %d", v.hook_pinch, v.hook_rake, bit(v.hook_elastic))
+	if stable do fmt.sbprintf(out, " smooth_stable=1")
+	if smooth_mode do fmt.sbprintf(out, " smooth_mode=%v", v.smooth_mode)
+	if v.stabilize > 0 do fmt.sbprintf(out, " stabilize=%g", v.stabilize)
+	if v.sample_radius > 0 && v.sample_radius < 1 do fmt.sbprintf(out, " sample_radius=%g", v.sample_radius)
+	if one_pass do fmt.sbprintf(out, " accumulate=0")
+	if v.falloff.hardness > 0 do fmt.sbprintf(out, " hardness=%g", v.falloff.hardness)
+	if shape do fmt.sbprintf(out, " shape=%s", "projected" if v.falloff.projected else "sphere")
+	if v.one_way do fmt.sbprintf(out, " one_way=1")
+	if v.directional do fmt.sbprintf(out, " directional=1")
+	if tip do fmt.sbprintf(out, " tip_roundness=%g tip_scale=%g", v.tip_roundness, v.tip_scale)
+	if trim do fmt.sbprintf(out, " trim_angle=%g trim_dynamic=%d", v.trim_angle, bit(v.trim_dynamic))
+	if plane do fmt.sbprintf(out, " plane_height=%g plane_depth=%g", v.plane_height, v.plane_depth)
 	strings.write_byte(out, '\n')
 }
 
@@ -352,19 +493,20 @@ preset_name_set :: proc(p: ^Brush_Preset, name: string) {
 	copy(p.name[:PRESET_NAME_MAX - 1], preset_name_fit(name))
 }
 
-// Whether the plain brush's strength, falloff or focal shift differ from a fresh install's.
+// Whether the plain brush's strength or falloff (its curve, focal shift, hardness and
+// shape) differ from a fresh install's.
 brush_reset_needed :: proc(app: ^App) -> bool {
 	b := &app.brush
 	f := b.falloffs[b.kind]
-	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0)
+	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0 || f.hardness != 0 || f.projected != projected_default(b.kind))
 }
 
-// Puts the plain brush's strength, falloff and focal shift back to a fresh install's.
+// Puts the plain brush's strength and falloff back to a fresh install's.
 brush_reset :: proc(app: ^App) {
 	b := &app.brush
 	if b.preset != 0 do return
 	b.strengths[b.kind] = BRUSHES[b.kind].strength
-	b.falloffs[b.kind] = {}
+	b.falloffs[b.kind] = {projected = projected_default(b.kind)}
 }
 
 // A name as one word of settings.txt: % and white space escaped as %25, %20, %09.

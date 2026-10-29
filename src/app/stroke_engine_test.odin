@@ -242,6 +242,22 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Nor these a Spray stroke.
 	a.brush.even_strength, a.brush.scene_spacing, a.brush.feather = true, true, true
 	a.brush.paint_dial = true
+	// Nor Grab's modes.
+	a.brush.grab_mode, a.brush.grab_normal = .Surface, 0.75
+	a.brush.grab_same_side, a.brush.grab_silhouette, a.brush.grab_topological = true, true, true
+	a.brush.elastic_volume = 0.3
+	a.brush.hook_pinch, a.brush.hook_rake, a.brush.hook_elastic = -0.5, 0.25, true
+	// The brush's own pressure, which the file keeps as the one it worked with.
+	brush_pressure_own(&a.brush, a.brush.kind, true)
+	a.brush.pressures[a.brush.kind].size, a.brush.pressures[a.brush.kind].size_curve = true, PRESSURE_PRESETS[2].curve
+	a.brush.pressures[a.brush.kind].size_floor = 0.3
+	a.brush.smooth_stable, a.brush.smooth_mode = true, .Relax
+	a.brush.stabilize, a.brush.sample_radius, a.brush.no_accumulate[a.brush.kind] = 0.5, 0.75, true
+	a.brush.falloffs[a.brush.kind].hardness, a.brush.falloffs[a.brush.kind].projected = 0.4, true
+	// Nor the ways and the size in the scene a Spray stroke, but they are kept.
+	a.brush.one_way, a.brush.directional, a.brush.size_world, a.brush.size_ref = true, true, true, 0.01
+	a.brush.tip_roundness, a.brush.trim_angle, a.brush.trim_dynamic, a.brush.plane_depth = 0.5, 90, false, 0.25
+	a.brush.tip_scale, a.brush.plane_height = 0.5, 0.75
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -269,6 +285,20 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].catch_up)
 	testing.expect(t, b.replay.take.brushes[0].even_strength && b.replay.take.brushes[0].scene_spacing && b.replay.take.brushes[0].feather)
 	testing.expect(t, b.replay.take.brushes[0].paint_dial)
+	testing.expect_value(t, b.replay.take.brushes[0].grab_mode, Grab_Mode.Surface)
+	testing.expect_value(t, b.replay.take.brushes[0].grab_normal, 0.75)
+	testing.expect(t, b.replay.take.brushes[0].grab_same_side && b.replay.take.brushes[0].grab_silhouette && b.replay.take.brushes[0].grab_topological)
+	testing.expect_value(t, b.replay.take.brushes[0].elastic_volume, 0.3)
+	testing.expect_value(t, b.replay.take.brushes[0].hook_pinch, -0.5)
+	testing.expect_value(t, b.replay.take.brushes[0].hook_rake, 0.25)
+	testing.expect(t, b.replay.take.brushes[0].hook_elastic)
+	{
+		rb := b.replay.take.brushes[0]
+		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable && rb.smooth_mode == .Relax && rb.stabilize == 0.5 && rb.sample_radius == 0.75 && rb.no_accumulate[rb.kind])
+		testing.expect(t, rb.falloffs[rb.kind].hardness == 0.4 && rb.falloffs[rb.kind].projected)
+		testing.expect(t, rb.one_way && rb.directional && rb.size_world && rb.size_ref == 0.01)
+		testing.expect(t, rb.tip_roundness == 0.5 && rb.tip_scale == 0.5 && rb.trim_angle == 90 && !rb.trim_dynamic && rb.plane_height == 0.75 && rb.plane_depth == 0.25)
+	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -281,7 +311,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 52
+	BRUSH :: 64 + 137
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -301,6 +331,201 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 27 had nothing of Clay strips, Trim dynamic or Flatten's reach after the
+	// size in the scene: the one brush ends 64 + 116 bytes after the header's 16, and takes
+	// a fresh brush's.
+	twentyseven := make([dynamic]u8, context.temp_allocator)
+	append(&twentyseven, ..data[:16 + 64 + 116])
+	append(&twentyseven, ..data[16 + BRUSH:])
+	twentyseven[len(STROKES_MAGIC)] = 27
+	testing.expect(t, os.write_entire_file(path, twentyseven[:]) == nil)
+	{
+		za: App
+		defer replay_destroy(&za.replay)
+		defer results_destroy(&za)
+		testing.expect(t, strokes_load(&za, path))
+		if len(za.replay.take.brushes) == 1 {
+			zb := za.replay.take.brushes[0]
+			testing.expect(t, zb.tip_roundness == sculpt.CLAY_TIP_ROUNDNESS && zb.trim_dynamic && zb.trim_angle == TRIM_ANGLE_DEFAULT_DEGREES && zb.plane_depth == 1 && zb.one_way)
+		}
+	}
+
+	// Version 26 had no ways or size in the scene after the falloff shape: the one brush
+	// ends 64 + 109 bytes after the header's 16, and its stroke goes both ways at screen size.
+	twentysix := make([dynamic]u8, context.temp_allocator)
+	append(&twentysix, ..data[:16 + 64 + 109])
+	append(&twentysix, ..data[16 + BRUSH:])
+	twentysix[len(STROKES_MAGIC)] = 26
+	testing.expect(t, os.write_entire_file(path, twentysix[:]) == nil)
+	{
+		wa: App
+		defer replay_destroy(&wa.replay)
+		defer results_destroy(&wa)
+		testing.expect(t, strokes_load(&wa, path))
+		if len(wa.replay.take.brushes) == 1 {
+			wb := wa.replay.take.brushes[0]
+			testing.expect(t, !wb.one_way && !wb.directional && !wb.size_world && wb.falloffs[wb.kind].hardness == 0.4)
+		}
+	}
+
+	// Version 25 had no Hardness or falloff shape after the Samples: the one brush ends
+	// 64 + 104 bytes after the header's 16, and its falloff is a plain ball.
+	twentyfive := make([dynamic]u8, context.temp_allocator)
+	append(&twentyfive, ..data[:16 + 64 + 104])
+	append(&twentyfive, ..data[16 + BRUSH:])
+	twentyfive[len(STROKES_MAGIC)] = 25
+	testing.expect(t, os.write_entire_file(path, twentyfive[:]) == nil)
+	{
+		fa: App
+		defer replay_destroy(&fa.replay)
+		defer results_destroy(&fa)
+		testing.expect(t, strokes_load(&fa, path))
+		if len(fa.replay.take.brushes) == 1 {
+			fb := fa.replay.take.brushes[0]
+			testing.expect(t, fb.falloffs[fb.kind].hardness == 0 && !fb.falloffs[fb.kind].projected && fb.stabilize == 0.5)
+		}
+	}
+
+	// Version 24 had no Samples after the Smooth mode: the one brush ends 64 + 95 bytes
+	// after the header's 16, samples the whole radius afresh and builds up.
+	twentyfour := make([dynamic]u8, context.temp_allocator)
+	append(&twentyfour, ..data[:16 + 64 + 95])
+	append(&twentyfour, ..data[16 + BRUSH:])
+	twentyfour[len(STROKES_MAGIC)] = 24
+	testing.expect(t, os.write_entire_file(path, twentyfour[:]) == nil)
+	sa: App
+	defer replay_destroy(&sa.replay)
+	defer results_destroy(&sa)
+	testing.expect(t, strokes_load(&sa, path))
+	if len(sa.replay.take.brushes) == 1 {
+		sb := sa.replay.take.brushes[0]
+		testing.expect(t, sb.stabilize == 0 && sb.sample_radius == 1 && !sb.no_accumulate[sb.kind] && sb.smooth_mode == .Relax)
+	}
+
+	// Version 23 had no Smooth mode after Stable: the one brush ends 64 + 94 bytes after
+	// the header's 16, and smooths plainly.
+	twentythree := make([dynamic]u8, context.temp_allocator)
+	append(&twentythree, ..data[:16 + 64 + 94])
+	append(&twentythree, ..data[16 + BRUSH:])
+	twentythree[len(STROKES_MAGIC)] = 23
+	testing.expect(t, os.write_entire_file(path, twentythree[:]) == nil)
+	sm: App
+	defer replay_destroy(&sm.replay)
+	defer results_destroy(&sm)
+	testing.expect(t, strokes_load(&sm, path))
+	if len(sm.replay.take.brushes) == 1 do testing.expect(t, sm.replay.take.brushes[0].smooth_mode == .Smooth && sm.replay.take.brushes[0].smooth_stable)
+
+	// Version 22 had no Stable after the smallest size: the one brush ends 64 + 93 bytes
+	// after the header's 16, and smooths with the same passes at any density.
+	twentytwo := make([dynamic]u8, context.temp_allocator)
+	append(&twentytwo, ..data[:16 + 64 + 93])
+	append(&twentytwo, ..data[16 + BRUSH:])
+	twentytwo[len(STROKES_MAGIC)] = 22
+	testing.expect(t, os.write_entire_file(path, twentytwo[:]) == nil)
+	st: App
+	defer replay_destroy(&st.replay)
+	defer results_destroy(&st)
+	testing.expect(t, strokes_load(&st, path))
+	if len(st.replay.take.brushes) == 1 do testing.expect(t, !st.replay.take.brushes[0].smooth_stable && st.replay.take.brushes[0].pressure_size_floor == 0.3)
+
+	// Version 21 had no smallest size after the size's pressure curve: the one brush ends
+	// 64 + 89 bytes after the header's 16, and pressure shrinks it as far as it ever did.
+	twentyone := make([dynamic]u8, context.temp_allocator)
+	append(&twentyone, ..data[:16 + 64 + 89])
+	append(&twentyone, ..data[16 + BRUSH:])
+	twentyone[len(STROKES_MAGIC)] = 21
+	testing.expect(t, os.write_entire_file(path, twentyone[:]) == nil)
+	sf: App
+	defer replay_destroy(&sf.replay)
+	defer results_destroy(&sf)
+	testing.expect(t, strokes_load(&sf, path))
+	if len(sf.replay.take.brushes) == 1 {
+		sb := sf.replay.take.brushes[0]
+		testing.expect(t, sb.pressure_size_floor == 0 && sb.pressure_size_curve == PRESSURE_PRESETS[2].curve)
+	}
+
+	// Version 20 had no size pressure curve after the Elastic tip: the one brush ends
+	// 64 + 73 bytes after the header's 16, and its size takes the strength's curve.
+	twenty := make([dynamic]u8, context.temp_allocator)
+	append(&twenty, ..data[:16 + 64 + 73])
+	append(&twenty, ..data[16 + BRUSH:])
+	twenty[len(STROKES_MAGIC)] = 20
+	testing.expect(t, os.write_entire_file(path, twenty[:]) == nil)
+	pc: App
+	defer replay_destroy(&pc.replay)
+	defer results_destroy(&pc)
+	testing.expect(t, strokes_load(&pc, path))
+	if len(pc.replay.take.brushes) == 1 {
+		pb := pc.replay.take.brushes[0]
+		testing.expect(t, pb.pressure_size && pb.pressure_size_curve == pb.pressure_curve && pb.hook_elastic)
+	}
+
+	// Version 19 had no Snake hook Pinch, Rake or Elastic tip after Elastic's Volume: the
+	// one brush ends 64 + 64 bytes after the header's 16, and has none of them.
+	nineteen := make([dynamic]u8, context.temp_allocator)
+	append(&nineteen, ..data[:16 + 64 + 64])
+	append(&nineteen, ..data[16 + BRUSH:])
+	nineteen[len(STROKES_MAGIC)] = 19
+	testing.expect(t, os.write_entire_file(path, nineteen[:]) == nil)
+	hk: App
+	defer replay_destroy(&hk.replay)
+	defer results_destroy(&hk)
+	testing.expect(t, strokes_load(&hk, path))
+	if len(hk.replay.take.brushes) == 1 {
+		hb := hk.replay.take.brushes[0]
+		testing.expect(t, hb.hook_pinch == 0 && hb.hook_rake == 0 && !hb.hook_elastic)
+		testing.expect_value(t, hb.elastic_volume, 0.3)
+	}
+
+	// Version 18 had no Elastic Volume after Topological: the one brush ends 64 + 60 bytes
+	// after the header's 16, and takes the default.
+	eighteen := make([dynamic]u8, context.temp_allocator)
+	append(&eighteen, ..data[:16 + 64 + 60])
+	append(&eighteen, ..data[16 + BRUSH:])
+	eighteen[len(STROKES_MAGIC)] = 18
+	testing.expect(t, os.write_entire_file(path, eighteen[:]) == nil)
+	ev: App
+	defer replay_destroy(&ev.replay)
+	defer results_destroy(&ev)
+	testing.expect(t, strokes_load(&ev, path))
+	if len(ev.replay.take.brushes) == 1 {
+		testing.expect_value(t, ev.replay.take.brushes[0].elastic_volume, ELASTIC_VOLUME_DEFAULT)
+		testing.expect(t, ev.replay.take.brushes[0].grab_topological)
+	}
+
+	// Version 17 had no Topological after Grab's Normal weight: the one brush ends 64 + 59
+	// bytes after the header's 16, and grabs by straight distance.
+	seventeen := make([dynamic]u8, context.temp_allocator)
+	append(&seventeen, ..data[:16 + 64 + 59])
+	append(&seventeen, ..data[16 + BRUSH:])
+	seventeen[len(STROKES_MAGIC)] = 17
+	testing.expect(t, os.write_entire_file(path, seventeen[:]) == nil)
+	k: App
+	defer replay_destroy(&k.replay)
+	defer results_destroy(&k)
+	testing.expect(t, strokes_load(&k, path))
+	if len(k.replay.take.brushes) == 1 {
+		testing.expect(t, !k.replay.take.brushes[0].grab_topological && k.replay.take.brushes[0].grab_silhouette)
+	}
+
+	// Version 16 had no Grab modes after Even strength, Scene spacing and Feather: the one
+	// brush ends 64 + 52 bytes after the header's 16, and grabs freely on both sides.
+	sixteen := make([dynamic]u8, context.temp_allocator)
+	append(&sixteen, ..data[:16 + 64 + 52])
+	append(&sixteen, ..data[16 + BRUSH:])
+	sixteen[len(STROKES_MAGIC)] = 16
+	testing.expect(t, os.write_entire_file(path, sixteen[:]) == nil)
+	p: App
+	defer replay_destroy(&p.replay)
+	defer results_destroy(&p)
+	testing.expect(t, strokes_load(&p, path))
+	if len(p.replay.take.brushes) == 1 {
+		pb := p.replay.take.brushes[0]
+		testing.expect_value(t, pb.grab_mode, Grab_Mode.Free)
+		testing.expect(t, !pb.grab_same_side && !pb.grab_silhouette)
+		testing.expect(t, pb.even_strength && pb.feather)
+	}
+
 	// Version 15 had no Even strength, Scene spacing or Feather after the stabiliser: the
 	// one brush ends 64 + 49 bytes after the header's 16, and lays every dab at the
 	// brush's strength, spaced on screen.
@@ -1085,4 +1310,155 @@ even_strength_keeps_a_strokes_height_across_spacings :: proc(t: ^testing.T) {
 	}
 	// Unevened, dabs a tenth of the radius apart pile up about two and a half times as high.
 	testing.expect(t, rise(path[:], 0.1, false) > 2 * reference)
+}
+
+// A Grab pressed just past the sphere's edge takes hold of the nearest surface within the
+// brush ring, and holding still moves nothing (the drag counts from the press, not from
+// the surface point it took); dragging outward then pulls the edge out.
+@(test)
+grab_takes_hold_past_the_silhouette :: proc(t: ^testing.T) {
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	app.brush.kind, app.brush.radius_px = .Grab, 40
+	app.brush.strengths[.Grab] = 1
+	// The sphere's right edge along the middle row, then a little past it.
+	edge := [2]f32{500, 400}
+	for {
+		origin, dir := mouse_ray(app.camera, edge + {1, 0}, STROKE_SIZE)
+		if _, _, ok := scene_raycast(&app, origin, dir); !ok do break
+		edge.x += 1
+	}
+	press := edge + {15, 0}
+	before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+	stroke_pressed(&app, {press, press}, {1, 1}, held = true)
+	testing.expect(t, app.stroke.active && app.stroke.grab)
+	testing.expect(t, slice.equal(object_mesh(obj).positions[:], before))
+	out := press + {30, 0}
+	_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = out, hovered = true, primary = true, samples = {{pos = out, pressure = 1, kind = .Move}}})
+	_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = out, hovered = true})
+	far: f32
+	for p in object_mesh(obj).positions do far = max(far, linalg.length(p))
+	testing.expectf(t, far > 1.05, "the edge reached %v", far)
+	testing.expect_value(t, len(app.history.done), 1)
+}
+
+// Along normal moves a sideways drag along the pressed normal by how far the pointer went
+// toward where the normal points on screen; Along surface takes the normal part out; Free
+// keeps the drag, and its Normal weight blends toward along the normal. Shift and Alt
+// mid-grab pick the first two whatever the brush says.
+@(test)
+grab_modes_turn_the_drag :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	facing := camera.orbit_toward(app.camera, {})
+	// A normal half across the screen, half toward the camera.
+	view := camera.orbit_view(app.camera)
+	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+	n := linalg.normalize(right + facing)
+	app.stroke.grab_normal = n
+	drag := right * 0.2
+	near :: proc(a, b: Vec3) -> bool {return linalg.length(a - b) < 1e-5}
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), drag))
+	app.brush.grab_mode = .Normal
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), n * 0.2))
+	app.brush.grab_mode = .Surface
+	surface := grab_moved(&app, {}, drag, facing)
+	testing.expect(t, abs(linalg.dot(surface, n)) < 1e-5)
+	app.brush.grab_mode, app.brush.grab_normal = .Free, 0.5
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), (drag + n * 0.2) * 0.5))
+	app.brush.grab_normal = 0
+	testing.expect(t, near(grab_moved(&app, {smooth = true}, drag, facing), n * 0.2))
+	testing.expect(t, abs(linalg.dot(grab_moved(&app, {alt = true}, drag, facing), n)) < 1e-5)
+	// With the normal toward the camera, up on the screen is out.
+	app.stroke.grab_normal = facing
+	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	testing.expect(t, near(grab_moved(&app, {smooth = true}, up * 0.1, facing), facing * 0.1))
+}
+
+// A zigzag over the sphere, right then back left three times, lays dabs both ways; with
+// No back and forth or Directional only on the rightward legs, which go the first way and
+// away from the press. A stroke out to the right and back left past its press tells
+// them apart: Directional lays dabs again once it is past the press, going away on the
+// other side.
+@(test)
+stroke_ways_skip_dabs :: proc(t: ^testing.T) {
+	zigzag := make([dynamic][2]f32, context.temp_allocator)
+	for leg in 0 ..< 4 {
+		for k in 0 ..= 10 {
+			x := f32(420 + 16 * k) if leg % 2 == 0 else f32(580 - 16 * k)
+			append(&zigzag, [2]f32{x, f32(400 + 3 * leg)})
+		}
+	}
+	back := make([dynamic][2]f32, context.temp_allocator)
+	for k in 0 ..= 10 do append(&back, [2]f32{f32(500 + 8 * k), 400})
+	for k in 1 ..= 20 do append(&back, [2]f32{f32(580 - 8 * k), 402})
+	count :: proc(path: [][2]f32, one_way, directional: bool) -> int {
+		app: App
+		defer stroke_scene_free(&app)
+		defer replay_destroy(&app.replay)
+		_ = stroke_sphere(&app)
+		app.brush.radius_px, app.brush.one_way, app.brush.directional = 20, one_way, directional
+		total := 0
+		for d in stroke_recorded(&app, path) do total += d
+		return total
+	}
+	both := count(zigzag[:], false, false)
+	one := count(zigzag[:], true, false)
+	out := count(zigzag[:], false, true)
+	testing.expectf(t, one > both / 3 && one < 2 * both / 3 && abs(out - one) <= 2, "both ways %v, one way %v, directional %v", both, one, out)
+	one = count(back[:], true, false)
+	out = count(back[:], false, true)
+	testing.expectf(t, out > one + 3, "out and back past the press: one way %v, directional %v", one, out)
+}
+
+// With the size fixed in the scene a dab is as big on the model whatever the zoom: the
+// world radius brush_at gives sculpt (pixels times the scale times the world size of a
+// pixel there) is the same at two camera distances, where on screen it is not.
+@(test)
+size_fixed_in_the_scene_keeps_the_radius :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.brush.radius_px = 30
+	radius_at :: proc(app: ^App) -> (world, scale: f32) {
+		per_px := camera.orbit_world_per_px(app.camera, {0, 0, 1}, STROKE_SIZE.y)
+		scale = brush_size_scale(app, per_px, STROKE_SIZE.y)
+		return app.brush.radius_px * scale * per_px, scale
+	}
+	near, _ := radius_at(&app)
+	app.camera.distance *= 2
+	far, _ := radius_at(&app)
+	testing.expectf(t, far > 1.5 * near, "on screen: %v near, %v far", near, far)
+	app.camera.distance /= 2
+	app.brush.size_world, app.brush.size_ref = true, 0
+	near, _ = radius_at(&app)
+	app.camera.distance *= 2
+	scale: f32
+	far, scale = radius_at(&app)
+	testing.expectf(t, abs(far - near) < 1e-4 * near, "in the scene: %v near, %v far", near, far)
+	testing.expectf(t, scale > 0.4 && scale < 0.6, "the ring at twice the distance: %v of its size", scale)
+}
+
+// Dynamic topology's detail: on screen it is a share of the radius that shrinks as the
+// brush grows; by radius it is the same share at any size; a brush with its own detail
+// keeps it while the global one changes; one that changes no triangles gets 0.
+@(test)
+detail_by_screen_or_radius_per_brush :: proc(t: ^testing.T) {
+	b := brush_defaults()
+	b.detail_px = 10
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.1)
+	testing.expect_value(t, brush_detail(&b, .Draw, 200), 0.05)
+	b.detail_by_radius, b.detail_radius = true, 0.2
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.2)
+	testing.expect_value(t, brush_detail(&b, .Draw, 200), 0.2)
+	brush_detail_own(&b, .Clay, true)
+	b.detail_radius = 0.3
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.2)
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.3)
+	detail_edit(&b, .Clay).by_radius^ = false
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.1)
+	brush_detail_own(&b, .Clay, false)
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.3)
+	b.dyns[.Grab].off = true
+	testing.expect_value(t, brush_detail(&b, .Grab, 100), 0)
 }

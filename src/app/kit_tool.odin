@@ -84,6 +84,7 @@ BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Paint_Color, "Colour", kit_brush_colors, nil},
 	{.Recall, "History brush", kit_recall, proc(app: ^App) -> bool {return app.brush.kind == .History}},
 	{.Falloff, "Falloff", kit_falloff, nil},
+	{.Samples, "Samples", kit_samples, nil},
 	{.Alpha, "Alpha", kit_alpha_section, nil},
 	{.Pen, "Pen", kit_pen, nil},
 	{.Options, "Options", kit_brush_options, nil},
@@ -138,13 +139,68 @@ kit_brush_options :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Front faces only", &b.front_only, .Grab not_in flags, keys = command_hint(app, .Front_Only))
 	locks := flags & {.Grab, .Cloth} == {} && sculpt.brush_locks_plane(b.kind, brush_alpha(app) != nil)
 	_ = ui.switch_row(ctx, "Lock plane", &b.lock_plane, locks, keys = command_hint(app, .Lock_Plane))
-	// All depth reaches past what Connected's flood keeps to, so on Grab it wins.
-	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && !(b.kind == .Grab && b.grab_depth), keys = command_hint(app, .Connected))
-	if b.kind == .Grab do _ = ui.switch_row(ctx, "All depth", &b.grab_depth)
-	if b.kind == .Smooth {
-		if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
+	// All depth reaches past what Connected's flood keeps to, so on Grab it wins; so does
+	// Topological, which reaches only what is joined anyway.
+	// Elastic moves the solid round the press, joined or not.
+	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
+	if b.kind == .Grab {
+		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
+		// Which way the drag moves it: Shift mid-grab takes Along normal and Alt Along
+		// surface, whatever this says, for a pen with no keys to hand.
+		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
+		if kit_more(app, .Options) {
+			_ = ui.switch_row(ctx, "Topological", &b.grab_topological, !b.grab_depth)
+			if b.grab_mode == .Free do _ = ui.slider(ctx, "Normal weight", &b.grab_normal, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.grab_normal * 100))
+			_ = ui.switch_row(ctx, "Same side", &b.grab_same_side)
+			_ = ui.switch_row(ctx, "Silhouette", &b.grab_silhouette)
+			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Grab takes hold from just past the model's edge too, at the nearest point within the brush ring. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
+			kit_more_end(app)
+		}
 	}
-	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth can even out only the dents (Valleys) or only the bumps (Peaks); Shift smoothing with any brush does the same.")
+	if b.kind == .Snake_Hook {
+		label := fmt.tprintf("Magnify %.0f%%", -b.hook_pinch * 100) if b.hook_pinch < 0 else fmt.tprintf("%.0f%%", b.hook_pinch * 100)
+		_ = ui.slider(ctx, "Pinch", &b.hook_pinch, -1, 1, .Linear, label)
+		if kit_more(app, .Options) {
+			_ = ui.slider(ctx, "Rake", &b.hook_rake, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.hook_rake * 100))
+			_ = ui.switch_row(ctx, "Elastic tip", &b.hook_elastic)
+			ui.paragraph(ctx, "Pinch draws what the hook pulls in toward the line it is pulled along, for a horn that thins to a point; below zero it magnifies, fattening the tip as it goes. Rake turns what the hook drags as the hook turns, so a horn drawn round a bend twists with it instead of shearing flat. Elastic tip drags as the Elastic brush does, the surround stretching after the tip out to three times the ring (by Elastic's Volume).")
+			kit_more_end(app)
+		}
+	}
+	if b.kind == .Elastic {
+		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
+		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
+		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
+	}
+	if b.kind == .Clay_Strips {
+		_ = ui.slider(ctx, "Tip roundness", &b.tip_roundness, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_roundness * 100))
+		_ = ui.slider(ctx, "Tip scale", &b.tip_scale, sculpt.CLAY_TIP_SCALE_MIN, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_scale * 100))
+		ui.paragraph(ctx, "Clay strips lays flat-topped strips with square ends that turn along the stroke, as ZBrush's ClayBuildup. Tip roundness rounds the square's corners, from a hard square to a disc; Tip scale shortens the tip along the stroke for thinner strips.")
+	}
+	if b.kind == .Trim_Dynamic {
+		_ = ui.switch_row(ctx, "Dynamic angle", &b.trim_dynamic)
+		_ = ui.slider(ctx, "Angle", &b.trim_angle, 0, math.to_degrees(f32(sculpt.TRIM_ANGLE_MAX)), .Linear, fmt.tprintf("%.0f°", b.trim_angle), enabled = !b.trim_dynamic)
+		ui.paragraph(ctx, "Trim dynamic cuts what is under it into two flat planes meeting along the stroke, as ZBrush's TrimDynamic and Blender's Multiplane scrape: drawn along a rounded edge it makes it a crisp one. Dynamic angle reads the angle from the two sides as it goes and leaves hollows alone; off, Angle sets it. Ctrl turns the planes the other way, cutting a valley.")
+	}
+	if b.kind == .Flatten {
+		height, depth := b.plane_height * 100, b.plane_depth * 100
+		if ui.slider(ctx, "Plane height", &height, 0, 100, .Linear, fmt.tprintf("%.0f%%", height)) do b.plane_height = math.round(height) / 100
+		if ui.slider(ctx, "Plane depth", &depth, 0, 100, .Linear, fmt.tprintf("%.0f%%", depth)) do b.plane_depth = math.round(depth) / 100
+		ui.paragraph(ctx, "Plane height and depth are how far above and below its plane Flatten reaches, as a share of the radius: height 0 only fills the dips (the Fill preset), depth 0 only scrapes the bumps (the Scrape preset).")
+	}
+	if b.kind == .Smooth {
+		// In the order a person reaches for them; the enum keeps Smooth all's order.
+		modes := [3]sculpt.Smooth_Mode{.Smooth, .Relax, .Polish}
+		chosen := 0
+		for m, i in modes do if m == b.smooth_mode do chosen = i
+		if picked := ui.tabs(ctx, "smooth mode", {"Smooth", "Relax", "Polish"}, chosen); picked >= 0 do b.smooth_mode = modes[picked]
+		if kit_more(app, .Options) {
+			if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
+			_ = ui.switch_row(ctx, "Stable", &b.smooth_stable)
+			kit_more_end(app)
+		}
+	}
+	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth evens the surface out, Relax only evens out the spacing of its vertices across it, keeping the shape, and Polish takes the roughness off keeping the volume (Alt held while smoothing polishes too). Under More, Smooth can even out only the dents (Valleys) or only the bumps (Peaks), and Stable gives a dense mesh more passes and a coarse one fewer, so a dab evens out about as much at any density; Shift smoothing with any brush does the same.")
 }
 
 // The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
@@ -291,11 +347,15 @@ kit_stroke_path :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Spacing", &app.brush.spacing, MIN_SPACING, MAX_SPACING, .Logarithmic, fmt.tprintf("%.0f%%", app.brush.spacing * 100))
 		_ = ui.switch_row(ctx, "Even strength", &app.brush.even_strength)
 		_ = ui.switch_row(ctx, "Scene spacing", &app.brush.scene_spacing)
+		_ = ui.switch_row(ctx, "No back and forth", &app.brush.one_way)
+		_ = ui.switch_row(ctx, "Directional", &app.brush.directional)
 	}
 	_ = ui.switch_row(ctx, "Line", &app.brush.line)
 	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
+	// Turned on, the size is taken afresh from the view as it is, so nothing jumps.
+	if ui.switch_row(ctx, "Size fixed in the scene", &app.brush.size_world) do app.brush.size_ref = 0
 	_ = kit_stroke_amount(app, "Last stroke")
-	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again.")
+	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. No back and forth lays dabs only while the stroke goes the way it first went, so a zigzag lays parallel hatching; Directional only while it moves away from where it was pressed. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again. Size fixed in the scene keeps the brush the same size on the model as the view zooms, as ZBrush's Dynamic size: the ring grows as you zoom in.")
 	kit_more_end(app)
 }
 
@@ -320,6 +380,11 @@ kit_stabiliser :: proc(app: ^App, full: bool) {
 @(private = "file")
 kit_falloff :: proc(app: ^App) {
 	ctx := &app.kit.ctx
+	// Elastic's falloff is how the rubber stretches, which Volume shapes, not a curve.
+	if app.brush.kind == .Elastic {
+		ui.paragraph(ctx, "Elastic has no falloff curve: how far the pull reaches and how it fades is how rubber stretches, which the brush's size and Volume (under Options) decide.")
+		return
+	}
 	shape := &app.brush.falloffs[app.brush.kind]
 	smooth :: proc(x: f32) -> f32 {
 		// The built-in falloff over how far in from the rim, as the curve is read.
@@ -341,7 +406,31 @@ kit_falloff :: proc(app: ^App) {
 	}
 	ui.paragraph(ctx, "The centre is on the left and the rim on the right. Drag a handle to draw your own; each brush keeps its own.")
 	focal_slider(app)
-	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. The cursor's inner ring shows where it works at half strength.")
+	hard := shape.hardness * 100
+	if ui.slider(ctx, "Hardness", &hard, 0, sculpt.HARDNESS_MAX * 100, .Linear, fmt.tprintf("%.0f%%", hard)) do shape.hardness = math.round(hard) / 100
+	if picked := ui.tabs(ctx, "falloff shape", {"Sphere", "Projected"}, 1 if shape.projected else 0); picked >= 0 do shape.projected = picked == 1
+	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. Hardness keeps that much of the radius at full strength. The cursor's inner ring shows where it works at half strength. Projected measures the falloff across the view, so the brush covers the ring on screen however the surface curves away; Grab, Elastic, Cloth, Snake hook and alphas stay Sphere.")
+}
+
+// ZBrush's Samples: how a dab reads the surface under it. Stabilize orientation and
+// Sample radius grey out on brushes that do not work along the area under them, and
+// Accumulate on those it does nothing for.
+@(private = "file")
+kit_samples :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.brush
+	area := samples_apply(b.kind)
+	steady := b.stabilize * 100
+	if ui.slider(ctx, "Stabilize orientation", &steady, 0, sculpt.STABILIZE_MAX * 100, .Linear, fmt.tprintf("%.0f%%", steady), enabled = area && !b.lock_plane) {
+		b.stabilize = math.round(steady) / 100
+	}
+	sample := max(b.sample_radius, sculpt.SAMPLE_RADIUS_MIN) * 100
+	if ui.slider(ctx, "Sample radius", &sample, sculpt.SAMPLE_RADIUS_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", sample), enabled = area) {
+		b.sample_radius = math.round(sample) / 100
+	}
+	accumulate := !b.no_accumulate[b.kind]
+	if ui.switch_row(ctx, "Accumulate", &accumulate, accumulate_applies(b.kind)) do b.no_accumulate[b.kind] = !accumulate
+	ui.paragraph(ctx, "Stabilize orientation keeps that much of the direction and plane the stroke has worked along so far, so a stroke over rough ground stays steady (Lock plane keeps all of it). Sample radius is how much of the brush reads that direction: less follows a narrow ridge. Accumulate off: going over the same place within a stroke adds nothing more, as ZBrush's and Nomad's Draw; each brush keeps its own.")
 }
 
 // The brush's focal shift as a slider, in whole steps (Falloff_Setting.focal).
@@ -355,31 +444,51 @@ focal_slider :: proc(app: ^App) {
 @(private = "file")
 kit_pen :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	// Two pages, so neither holds more than the section's five controls.
-	pages := [2]string{"Pressure", "Lean"}
-	if picked := ui.tabs(ctx, "pen page", pages[:], int(app.kit.pen_lean)); picked >= 0 do app.kit.pen_lean = picked == 1
-	if app.kit.pen_lean {
+	// Four pages, so none holds more than the section's five controls: what pressure does
+	// to the strength, to the size, the response as a whole with whose pressure it is,
+	// and the pen's lean.
+	pages := [4]string{"Strength", "Size", "Response", "Lean"}
+	if picked := ui.tabs(ctx, "pen page", pages[:], app.kit.pen_page); picked >= 0 do app.kit.pen_page = picked
+	b := &app.brush
+	at := pressure_edit(b)
+	whose := fmt.tprintf("%s keeps its own pressure (Response page).", BRUSHES[b.kind].name) if b.pressures[b.kind].own else "Every brush using the global pressure follows this (Response page)."
+	switch app.kit.pen_page {
+	case 3:
 		kit_tilt(app)
 		return
+	case 2:
+		global := !b.pressures[b.kind].own
+		if ui.switch_row(ctx, "Use global", &global) do brush_pressure_own(b, b.kind, !global)
+		names: [len(PRESSURE_RESPONSES)]string
+		for r, i in PRESSURE_RESPONSES do names[i] = string(r.label)
+		if picked := ui.tabs(ctx, "response", names[:], pressure_response(at)); picked >= 0 do pressure_put(at, PRESSURE_RESPONSES[picked].pressure)
+		floor := at.size_floor^ * 100
+		if ui.slider(ctx, "Smallest size", &floor, MIN_PRESSURE_SIZE * 100, 100, .Linear, fmt.tprintf("%.0f%%", max(floor, MIN_PRESSURE_SIZE * 100)), enabled = at.size^) {
+			at.size_floor^ = math.round(floor) / 100
+		}
+		ui.paragraph(ctx, fmt.tprintf("With Use global off, %s keeps its own switches and curves. Clay: the size follows the cube of the pressure, at least a fifth of the radius, as Blender's Clay. Steady: nearly full strength from half pressure on, so a stroke keeps an even height. Light: a light touch goes far, for size and strength.", BRUSHES[b.kind].name))
+		return
 	}
-	_ = ui.switch_row(ctx, "Pressure changes strength", &app.brush.pressure_strength)
-	_ = ui.switch_row(ctx, "Pressure changes size", &app.brush.pressure_size)
+	size := app.kit.pen_page == 1
+	_ = ui.switch_row(ctx, "Pressure changes size" if size else "Pressure changes strength", at.size if size else at.strength)
+	curve := at.size_curve if size else at.strength_curve
+	counts :: proc(app: ^App, size: bool, x: f32) -> f32 {return pressure_sized(app, x) if size else pressure_curved(app, x)}
 	dot: Maybe([2]f32)
 	if app.pen_seen {
 		x := clamp(app.pen_pressure, 0, 1)
-		dot = [2]f32{x, pressure_curved(app, x)}
+		dot = [2]f32{x, counts(app, size, x)}
 	}
-	_ = kit_curve_editor(ctx, "pressure curve", &app.brush.pressure_curve, &app.ui.curve_handle, false, dot)
+	_ = kit_curve_editor(ctx, "pressure curve", curve, &app.ui.curve_handle, false, dot)
 	names: [len(PRESSURE_PRESETS)]string
 	chosen := -1
 	for p, i in PRESSURE_PRESETS {
 		names[i] = string(p.label)
-		if app.brush.pressure_curve == p.curve do chosen = i
+		if curve^ == p.curve do chosen = i
 	}
-	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do app.brush.pressure_curve = PRESSURE_PRESETS[picked].curve
-	ui.paragraph(ctx, "Along: how hard the pen presses. Up: what that counts as.")
+	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do curve^ = PRESSURE_PRESETS[picked].curve
+	ui.paragraph(ctx, fmt.tprintf("Along: how hard the pen presses. Up: what that counts as for the %s. %s", "size" if size else "strength", whose))
 	if app.pen_seen {
-		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, pressure_curved(app, app.pen_pressure)))
+		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, counts(app, size, app.pen_pressure)))
 	} else {
 		ui.paragraph(ctx, "No pen seen yet; a mouse always presses fully.")
 	}

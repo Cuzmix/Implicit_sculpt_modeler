@@ -42,6 +42,9 @@ BRUSHES := [sculpt.Brush_Kind]Brush_Info {
 	.Paint      = {"Paint", "Polypaint: colours the surface with the colour below,\nmoving nothing (Ctrl: takes the paint off).", 0xe2e7 /* paintbrush */, 0.5, {.Paint}},
 	.Cloth      = {"Cloth", "The surface around the brush acts as cloth while you\nhold: drag it into folds, let it sag, or bunch it up.", 0xe1ca /* shirt */, 0.5, {.Cloth}},
 	.History    = {"History", "A local undo: paints the surface back to how it was\nbefore an earlier step, only where you brush.", 0xe456 /* undo-dot */, 0.5, {}},
+	.Elastic    = {"Elastic", "Drags what is under the brush as rubber would stretch:\nthe part pulled keeps its shape, the rest follows smoothly.", 0xe27c /* stretch-horizontal */, 0.5, {.Grab}},
+	.Clay_Strips  = {"Clay strips", "Lays flat-topped strips with square ends along the\nstroke, filling dips first (Ctrl: digs).", 0xe040 /* align-justify */, 0.5, {}},
+	.Trim_Dynamic = {"Trim dynamic", "Cuts a ridge into two flat planes about the stroke, at\nthe angle it finds, for hard edges (Ctrl: a valley).", 0xe227 /* tent */, 0.5, {}},
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {

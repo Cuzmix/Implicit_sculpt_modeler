@@ -146,6 +146,11 @@ App :: struct {
 	// or a waiting tap sets it; 0 takes it from the pointer.
 	stroke_scale_from: f32,
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
+	// What the grabs' refinements under dynamic topology did, in all (exit stats).
+	grab_refine: struct {
+		splits: int,
+		ms:     f64,
+	},
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_samples: Pen_Samples, // the pen's samples between frames, which SDL leaves out
 	predict:     Cursor_Predict, // where the pointer will be when the frame shows (cursor_lead)
@@ -625,7 +630,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true}
+	app.brush = brush_defaults()
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
@@ -1511,7 +1516,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// Where the first light stands in the scene, a point light's or spot's place.
 			l1_at := light_world_pos(&app, set.lights[0]) if set.lights[0].kind != .Sun else Vec3{}
 			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s light_moves=%d light1_name=%s light1_kelvin=%.0f light1_at=%.2f,%.2f,%.2f light_pick_strength=%.2f", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space), app.ui.light_press.moves, l1_name, set.lights[0].kelvin, l1_at.x, l1_at.y, l1_at.z, set.lights[clamp(app.light_pick, 0, max(int(set.count) - 1, 0))].strength)
-			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
+			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_grab_topological=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), int(app.brush.grab_topological), app.brush.smooth_only)
+			fmt.printfln("brush_hardness=%.2f brush_projected=%d", app.brush.falloffs[app.brush.kind].hardness, int(app.brush.falloffs[app.brush.kind].projected))
+			d := detail_edit(&app.brush, app.brush.kind)
+			fmt.printfln("detail_by_radius=%d detail_falloff=%d brush_dyntopo=%d brush_detail_own=%d", int(d.by_radius^), int(app.brush.detail_falloff), int(!app.brush.dyns[app.brush.kind].off), int(app.brush.dyns[app.brush.kind].own))
+			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
+			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
@@ -1696,13 +1706,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		popped := "left,right" if k.panels.popped[.Left] && k.panels.popped[.Right] else "left" if k.panels.popped[.Left] else "right" if k.panels.popped[.Right] else "none"
 		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(columns_narrow(&app)), popped, k.panels.pops)
 		// The workspace (its name escaped, as it may hold spaces), whether its layout has
-		// changes not saved, how many there are, and the zones it hides.
+		// changes not saved, how many there are, and the zones hidden (by it or a view toggle).
 		if w := &k.workspaces; len(w.list) > 0 {
 			count := 0
 			for ws in w.list do if ws.used do count += 1
 			zones := strings.builder_make(context.temp_allocator)
-			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
+			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			// The working space, how many times it changed, and the view toggles.
+			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(&app), int(k.view_chips_shown))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the mini view's swaps, the

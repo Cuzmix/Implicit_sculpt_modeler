@@ -424,6 +424,7 @@ model_target :: proc(m: ^Model_Tool, action: Model_Action) -> Model_Target {
 model_pick_action :: proc(app: ^App, action: Model_Action) {
 	app.model.action = action
 	app.tool = .Model
+	space_picked(app)
 }
 
 // Picks the target for the action in hand, when the action can take it.

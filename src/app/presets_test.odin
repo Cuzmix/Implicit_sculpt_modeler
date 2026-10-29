@@ -156,3 +156,116 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect(t, b.brush.falloffs[.Draw].drawn)
 	testing.expect_value(t, b.brush.falloffs[.Draw].focal, -30)
 }
+
+// A Grab preset keeps its mode, Normal weight, Same side, Silhouette and Topological,
+// written only when one of them is set, so a plain preset's line stays as long as before
+// them.
+@(test)
+presets_keep_grab_modes :: proc(t: ^testing.T) {
+	v := Preset_Values{kind = .Grab, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE}, stroke = .Dots, alpha = -1}
+	out := strings.builder_make(context.temp_allocator)
+	preset_line(&out, "Plain", v, "-")
+	plain := strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(plain), 21)
+	v.grab_mode, v.grab_normal, v.grab_same_side, v.grab_silhouette = .Surface, 0.25, true, true
+	strings.builder_reset(&out)
+	preset_line(&out, "Pull out", v, "-")
+	f := strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 30)
+	name, w, _, ok := preset_parse(f)
+	testing.expect(t, ok)
+	testing.expect_value(t, name, "Pull out")
+	testing.expect_value(t, w.grab_mode, Grab_Mode.Surface)
+	testing.expect_value(t, w.grab_normal, 0.25)
+	testing.expect(t, w.grab_same_side && w.grab_silhouette && !w.grab_topological)
+	v.grab_topological = true
+	strings.builder_reset(&out)
+	preset_line(&out, "Pull out", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 31)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.grab_topological)
+	testing.expect_value(t, w.elastic_volume, ELASTIC_VOLUME_DEFAULT)
+	// An Elastic preset keeps its Volume when it is not the default.
+	v.kind, v.grab_topological, v.elastic_volume = .Elastic, false, 0.25
+	strings.builder_reset(&out)
+	preset_line(&out, "Rubber", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 32)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Elastic && !w.grab_topological)
+	testing.expect_value(t, w.elastic_volume, 0.25)
+	// A Snake hook preset keeps its Pinch, Rake and Elastic tip.
+	v.kind, v.elastic_volume, v.hook_pinch, v.hook_rake, v.hook_elastic = .Snake_Hook, ELASTIC_VOLUME_DEFAULT, -0.5, 0.75, true
+	strings.builder_reset(&out)
+	preset_line(&out, "Horn", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 35)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Snake_Hook && w.hook_elastic)
+	testing.expect_value(t, w.hook_pinch, -0.5)
+	testing.expect_value(t, w.hook_rake, 0.75)
+	f[26] = "Sideways"
+	_, _, _, ok = preset_parse(f)
+	testing.expect(t, !ok)
+	// A Smooth preset with Stable has it as a named value after the rest; a name this
+	// build does not know is skipped.
+	v = {kind = .Smooth, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT, smooth_stable = true}
+	strings.builder_reset(&out)
+	preset_line(&out, "Even", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 36)
+	testing.expect_value(t, f[35], "smooth_stable=1")
+	later := make([dynamic]string, context.temp_allocator)
+	append(&later, ..f)
+	append(&later, "from_later=7")
+	_, w, _, ok = preset_parse(later[:])
+	testing.expect(t, ok && w.kind == .Smooth && w.smooth_stable)
+	// ...and its mode after that.
+	v.smooth_mode = .Polish
+	strings.builder_reset(&out)
+	preset_line(&out, "Even", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "smooth_mode=Polish")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.smooth_mode == .Polish && w.smooth_stable)
+	// A Clay preset is Projected unless it says sphere; Hardness is a named value too.
+	v = {kind = .Clay, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE, projected = true}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	strings.builder_reset(&out)
+	preset_line(&out, "Wide", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 21)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.falloff.projected && w.falloff.hardness == 0)
+	v.falloff.projected, v.falloff.hardness = false, 0.5
+	strings.builder_reset(&out)
+	preset_line(&out, "Wide", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "shape=sphere")
+	testing.expect_value(t, f[len(f) - 2], "hardness=0.5")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && !w.falloff.projected && w.falloff.hardness == 0.5)
+	// A Flatten preset keeps its plane height and depth, written only off the defaults; a
+	// line without them takes a fresh brush's.
+	v = {kind = .Flatten, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE, projected = true}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT, plane_height = 1, plane_depth = 1, tip_roundness = sculpt.CLAY_TIP_ROUNDNESS, tip_scale = 1, trim_angle = TRIM_ANGLE_DEFAULT_DEGREES, trim_dynamic = true}
+	strings.builder_reset(&out)
+	preset_line(&out, "Level", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 21)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.plane_height == 1 && w.plane_depth == 1 && w.trim_dynamic && w.tip_roundness == sculpt.CLAY_TIP_ROUNDNESS)
+	v.plane_height = 0
+	strings.builder_reset(&out)
+	preset_line(&out, "Level", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "plane_depth=1")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.plane_height == 0 && w.plane_depth == 1)
+	// Trim dynamic with a fixed angle.
+	v.kind, v.trim_dynamic, v.trim_angle = .Trim_Dynamic, false, 90
+	strings.builder_reset(&out)
+	preset_line(&out, "Edge", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Trim_Dynamic && !w.trim_dynamic && w.trim_angle == 90)
+}

@@ -39,12 +39,12 @@ opening_a_look_section_shows_its_card :: proc(t: ^testing.T) {
 	testing.expect_value(t, stack_card_of(&a, .Environment), Stack_Card.Environment)
 }
 
-// Studio is the look's cards and Palettes, the render in the mini view, and reads back as
+// Render is the look's cards and Palettes, the render in the mini view, and reads back as
 // written.
 @(test)
-studio_is_the_looks_cards :: proc(t: ^testing.T) {
+render_is_the_looks_cards :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
-	studio := built_in_layout(.Studio)
+	studio := built_in_layout(.Render)
 	k: Kit_State
 	kit_layout_put(&k, studio)
 	testing.expect(t, kit_layout_text(&k) == studio, studio)

@@ -20,9 +20,9 @@ Brush_Cursor :: struct {
 }
 
 // How far out from the middle, in radii, the brush in use falls to half strength, while its
-// focal shift moves that; 0 while the shift is 0 and the ring shows no inner circle.
+// focal shift or hardness moves that; 0 while both are 0 and the ring shows no inner circle.
 brush_half_radius :: proc(app: ^App) -> f32 {
-	if focal_shift(app)^ == 0 do return 0
+	if f := app.brush.falloffs[app.brush.kind]; f.focal == 0 && f.hardness == 0 do return 0
 	f := brush_falloff(app, app.brush.kind)
 	if f == nil do return 0
 	for w, i in f.table do if w < 0.5 do return math.sqrt(f32(i) / sculpt.FALLOFF_STEPS)
@@ -96,7 +96,8 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	if !ok do return
 	obj := app.scene.objects[index]
 	t := obj.transform
-	radius := app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, input.size.y)
+	per_px := camera.orbit_world_per_px(app.camera, hit, input.size.y)
+	radius := app.brush.radius_px * brush_size_scale(app, per_px, input.size.y) * per_px
 	normal := face
 	if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), to_local(t, hit), radius / t.scale, to_local_dir(t, face)); found {
 		normal = linalg.normalize0(to_world_dir(t, n))

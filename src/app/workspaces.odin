@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "core:strings"
 import "../ui"
 
@@ -24,12 +25,12 @@ Zone :: enum u8 {
 	Action_Bar, // the next steps over the dock
 }
 
-// The workspaces that come with the app, in the slots they always have.
+// The workspaces that come with the app, one for each space and in the space's order, in
+// the slots they always have (spaces.odin).
 Built_In :: enum u8 {
-	Sculpt, // the layout as it has always been
-	Focus, // the model, the dock and the wheel: nothing else in the way
-	Inspect, // four panes, the main one shaded, then curvature, normals and a front silhouette, and no panels
-	Studio, // the lights, the material and the environment, with a thumbnail view
+	Sculpt, // the brushes, the brush's panel, layers and the scene
+	Model, // the cage's actions and their settings beside the stack
+	Render, // the lights, the material and the environment, with a thumbnail view
 }
 
 WORKSPACE_OWN :: 8
@@ -50,6 +51,7 @@ Workspace :: struct {
 	name:  [WORKSPACE_NAME]u8, // an own workspace's; a built-in is named by its Built_In
 	saved: string, // the layout as saved (heap)
 	live:  string, // the layout as it was left while another is current (heap), or ""
+	space: Space, // an own workspace's space, the one it was saved in; a built-in's is its own
 }
 
 Workspaces :: struct {
@@ -64,9 +66,14 @@ Workspaces :: struct {
 	// Workspace files written and read (workspace_file.odin), for the exit stats.
 	exports:  int,
 	imports:  int,
+	// A settings file from before spaces (version 4 or older) had Focus and Inspect workspaces:
+	// one saved with changes becomes an own workspace once the file is read (its layout
+	// here, heap, until then), and one that was current becomes its view toggle.
+	views_saved:   [2]string,
+	views_current: int, // 1 Focus, 2 Inspect, 0 neither
 }
 
-// The workspaces as they start: the four built-ins, Sculpt current.
+// The workspaces as they start: the three built-ins, Sculpt current.
 workspaces_init :: proc(k: ^Kit_State) {
 	w := &k.workspaces
 	w.list = make([]Workspace, WORKSPACE_SLOTS)
@@ -76,6 +83,7 @@ workspaces_init :: proc(k: ^Kit_State) {
 		workspace_text_set(&ws.saved, built_in_layout(b))
 	}
 	w.current = int(Built_In.Sculpt)
+	spaces_init(k)
 }
 
 workspaces_destroy :: proc(k: ^Kit_State) {
@@ -86,6 +94,11 @@ workspaces_destroy :: proc(k: ^Kit_State) {
 	}
 	delete(k.workspaces.list)
 	k.workspaces.list = nil
+	for &text in k.workspaces.views_saved {
+		delete(text)
+		text = ""
+	}
+	spaces_destroy(k)
 }
 
 // Replaces the heap string `s` with a copy of `text`.
@@ -128,7 +141,8 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		strings.write_byte(&out, '\n')
 	}
 	strings.write_string(&out, pass_layout_line(k))
-	strings.write_string(&out, grid_layout_lines(k))
+	// Inspect's panes are a view, not the layout: the grid it found is what the layout holds.
+	strings.write_string(&out, k.inspect.before if k.inspect.on else grid_layout_lines(k))
 	if k.second_in_layout do fmt.sbprintfln(&out, "thumbnail %v %v", k.second.camera, k.second.pass)
 	strings.write_string(&out, "open")
 	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
@@ -157,6 +171,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 // unmoved, unfolded, every bar shown), and what it names is read through the same lines
 // the settings file uses. Floating menus close, as what they hung from may have gone.
 kit_layout_put :: proc(k: ^Kit_State, text: string) {
+	view_toggles_off(k)
 	for w in LAYOUT_WINDOWS do k.windows[w] = {}
 	for w in LAYOUT_PANELS do layout_open(k, w)^ = false
 	panels_default(k)
@@ -215,13 +230,11 @@ built_in_layout :: proc(b: Built_In) -> string {
 	switch b {
 	case .Sculpt:
 		text = "open Inspector\n"
-	case .Focus:
-		text = "hidden Brush_Bar View_Bar Action_Bar\nopen\n"
-	case .Inspect:
-		// The panes get the whole window, as round 2's inspect2 screen: Statistics, Camera
-		// and Look stay a tap away on the rail and in Search.
-		text = "hidden Brush_Bar Dock\npanes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen\n"
-	case .Studio:
+	case .Model:
+		// The cage's palette shows in the Brush card under the Model tool; Layers, the
+		// scene and symmetry follow it, folded.
+		text = "open Inspector\nstack Brush+ Layers Scene Symmetry -Tools Palettes\n"
+	case .Render:
 		// The look's sections are cards of the stack, after round 2's studio2 screen: Lights
 		// and Material open, Environment folded, then Palettes, and the thumbnail shows the
 		// render building up beside the stack's foot, so the stack has the column's whole
@@ -255,6 +268,11 @@ workspace_switch :: proc(k: ^Kit_State, slot: int) {
 	workspace_text_set(&to.live, "")
 	w.current = slot
 	w.switches += 1
+	// A layout picked from another space's list takes that space with it, so a tab never
+	// shows over another space's layout.
+	space := workspace_space(k, slot)
+	k.spaces.current = space
+	k.spaces.layout[space] = slot
 }
 
 // Saves the current layout as the current workspace's.
@@ -288,17 +306,19 @@ workspace_save_as :: proc(k: ^Kit_State) -> bool {
 		copy(ws.name[:len(ws.name) - 1], name)
 		break
 	}
+	ws.space = k.spaces.current
 	workspace_text_set(&ws.saved, kit_layout_text(k))
 	workspace_text_set(&w.list[w.current].live, "")
 	w.current = slot
 	w.switches += 1
+	k.spaces.layout[ws.space] = slot
 	return true
 }
 
-// Adds a workspace of the user's own named `name` (made unique among all the workspaces
-// by a number after it) whose saved layout is `layout`, and switches to it, the one left
-// kept as it was left. False when every own slot is in use.
-workspace_add :: proc(k: ^Kit_State, name, layout: string) -> (slot: int, ok: bool) {
+// Adds a workspace of the user's own in `space`, named `name` (made unique among all the
+// workspaces by a number after it), whose saved layout is `layout`, and switches to it,
+// the one left kept as it was left. False when every own slot is in use.
+workspace_add :: proc(k: ^Kit_State, name, layout: string, space: Space) -> (slot: int, ok: bool) {
 	w := &k.workspaces
 	slot = -1
 	for i in len(Built_In) ..< len(w.list) {
@@ -319,12 +339,14 @@ workspace_add :: proc(k: ^Kit_State, name, layout: string) -> (slot: int, ok: bo
 	now := kit_layout_text(k)
 	workspace_text_set(&from.live, now if now != from.saved else "")
 	ws := &w.list[slot]
-	ws^ = {used = true}
+	ws^ = {used = true, space = space}
 	copy(ws.name[:len(ws.name) - 1], unique)
 	workspace_text_set(&ws.saved, layout)
 	kit_layout_put(k, layout)
 	w.current = slot
 	w.switches += 1
+	k.spaces.current = space
+	k.spaces.layout[space] = slot
 	return slot, true
 }
 
@@ -345,7 +367,8 @@ workspace_reset :: proc(k: ^Kit_State) {
 	workspace_revert(k)
 }
 
-// Deletes the current workspace, an own one, and goes to Sculpt as it was left.
+// Deletes the current workspace, an own one, and goes to its space's built-in as it was
+// left.
 workspace_delete :: proc(k: ^Kit_State) {
 	w := &k.workspaces
 	if len(w.list) == 0 do return
@@ -353,10 +376,12 @@ workspace_delete :: proc(k: ^Kit_State) {
 	gone := w.current
 	ws := &w.list[gone]
 	workspace_text_set(&ws.live, "")
-	sculpt := &w.list[int(Built_In.Sculpt)]
-	kit_layout_put(k, sculpt.live if sculpt.live != "" else sculpt.saved)
-	workspace_text_set(&sculpt.live, "")
-	w.current = int(Built_In.Sculpt)
+	space := ws.space
+	home := &w.list[int(space)]
+	kit_layout_put(k, home.live if home.live != "" else home.saved)
+	workspace_text_set(&home.live, "")
+	w.current = int(space)
+	k.spaces.layout[space] = w.current
 	workspace_text_set(&ws.saved, "")
 	ws^ = {}
 	w.switches += 1
@@ -370,9 +395,9 @@ workspace_rename :: proc(k: ^Kit_State, slot: int, name: string) {
 	copy(ws.name[:len(ws.name) - 1], name)
 }
 
-// Whether the workspace hides zone `z`.
+// Whether the workspace, or Focus or Inspect, hides zone `z`.
 zone_hidden :: proc(k: ^Kit_State, z: Zone) -> bool {
-	return z in k.hidden
+	return z in k.hidden || (k.focus_mode && z in FOCUS_ZONES) || (k.inspect.on && z in INSPECT_ZONES)
 }
 
 // Where the modifier wheel is, if anywhere: Off while the workspace hides it.
@@ -410,7 +435,7 @@ kit_workspace_menu :: proc(app: ^App) {
 	picked := false
 	if w.deleting {
 		ui.caption(ctx, fmt.tprintf("  DELETE %s?", strings.to_upper(workspace_name(k, w.current), context.temp_allocator)))
-		ui.paragraph(ctx, "Its layout goes for good; Sculpt takes its place.")
+		ui.paragraph(ctx, fmt.tprintf("Its layout goes for good; %s takes its place.", SPACE_NAMES[w.list[w.current].space]))
 		yes, no := kit_button_pair(ctx, "Delete", "Keep it", tone_a = .Danger)
 		if yes {
 			workspace_delete(k)
@@ -418,9 +443,9 @@ kit_workspace_menu :: proc(app: ^App) {
 		}
 		if no do w.deleting = false
 	} else {
-		ui.caption(ctx, "  WORKSPACES")
+		ui.caption(ctx, fmt.tprintf("  %s LAYOUTS", strings.to_upper(SPACE_NAMES[k.spaces.current], context.temp_allocator)))
 		for ws, slot in w.list {
-			if !ws.used do continue
+			if !ws.used || workspace_space(k, slot) != k.spaces.current do continue
 			if command_menu_item(app, .Workspace, slot, label = workspace_name(k, slot)) do picked = true
 		}
 		ui.divider(ctx, across = true)
@@ -436,6 +461,12 @@ kit_workspace_menu :: proc(app: ^App) {
 			// Delete asks first: it is no step in the History, so nothing undoes it.
 			if command_menu_item(app, .Workspace_Delete, tone = .Danger) do w.menu = true
 		}
+		// The views that were workspaces before spaces: they change what shows, not the
+		// layout, so they sit after the layout's actions, where those who looked for the
+		// old Focus and Inspect find them.
+		ui.divider(ctx, across = true)
+		picked ||= command_menu_item(app, .Focus_Mode)
+		picked ||= command_menu_item(app, .Inspect_Mode)
 	}
 	if picked do w.menu = false
 }
@@ -450,21 +481,52 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		if !ws.used do continue
 		b, built_in := workspace_built_in(slot)
 		if !built_in do fmt.sbprintfln(out, "workspace %d %s", slot, preset_escape(workspace_name(k, slot)))
+		if !built_in && ws.space != .Sculpt do fmt.sbprintfln(out, "workspace_space %d %v", slot, ws.space)
 		if !built_in || ws.saved != built_in_layout(b) do fmt.sbprintfln(out, "workspace_saved %d %s", slot, preset_escape(ws.saved))
 		live := kit_layout_text(k) if slot == w.current else ws.live
 		if live != "" && live != ws.saved do fmt.sbprintfln(out, "workspace_live %d %s", slot, preset_escape(live))
 	}
 	fmt.sbprintfln(out, "workspace_current %d", w.current)
+	spaces_save(k, out)
 }
 
-// Reads one workspace line (`f` split by spaces). A slot out of range, or a layout for a
-// slot no line named, is passed over.
-workspaces_load_line :: proc(k: ^Kit_State, f: []string) {
+// Settings before version 5 had four built-ins in slots 0 to 3 (Sculpt, Focus, Inspect,
+// Studio) before the own ones: Sculpt stays, Studio is Render's, the own ones move down
+// one, and Focus and Inspect are views now (`view` 1 and 2) with no slot.
+@(private = "file")
+workspace_slot_v3 :: proc(old: int) -> (slot, view: int) {
+	switch old {
+	case 0: return 0, 0
+	case 1: return -1, 1
+	case 2: return -1, 2
+	case 3: return int(Built_In.Render), 0
+	}
+	return old - 1, 0
+}
+
+// How many slots the settings had before version 5.
+WORKSPACE_SLOTS_V3 :: 4 + WORKSPACE_OWN
+
+// Reads one workspace line (`f` split by spaces) of a settings file of `version`. A slot
+// out of range, or a layout for a slot no line named, is passed over.
+workspaces_load_line :: proc(k: ^Kit_State, f: []string, version: int) {
 	w := &k.workspaces
 	if len(f) < 2 || len(w.list) == 0 do return
 	slot := -1
-	for i in 0 ..< WORKSPACE_SLOTS do if f[1] == fmt.tprint(i) do slot = i
-	if slot < 0 do return
+	for i in 0 ..< max(WORKSPACE_SLOTS, WORKSPACE_SLOTS_V3) do if f[1] == fmt.tprint(i) do slot = i
+	if version < 5 && slot >= 0 {
+		view: int
+		slot, view = workspace_slot_v3(slot)
+		if view > 0 {
+			w.loaded = true
+			switch f[0] {
+			case "workspace_saved": if len(f) == 3 do workspace_text_set(&w.views_saved[view - 1], preset_unescape(f[2]))
+			case "workspace_current": w.views_current = view
+			}
+			return
+		}
+	}
+	if slot < 0 || slot >= WORKSPACE_SLOTS do return
 	ws := &w.list[slot]
 	w.loaded = true
 	switch f[0] {
@@ -478,7 +540,10 @@ workspaces_load_line :: proc(k: ^Kit_State, f: []string) {
 	case "workspace_live":
 		if len(f) == 3 && ws.used do workspace_text_set(&ws.live, preset_unescape(f[2]))
 	case "workspace_current":
-		if ws.used do w.current = slot
+		if ws.used do w.current, w.views_current = slot, 0
+	case "workspace_space":
+		if _, built_in := workspace_built_in(slot); built_in || len(f) != 3 do return
+		for s in Space do if strings.equal_fold(f[2], fmt.tprint(s)) do ws.space = s
 	}
 }
 
@@ -498,7 +563,34 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 		if up := grid_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
 		if up := grid_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
 	}
+	// Focus and Inspect saved with changes before spaces become own Sculpt workspaces of
+	// those names, where a slot is free.
+	for &text, i in w.views_saved {
+		if text == "" do continue
+		placed := false
+		for slot in len(Built_In) ..< len(w.list) {
+			ws := &w.list[slot]
+			if ws.used do continue
+			ws^ = {used = true, space = .Sculpt}
+			copy(ws.name[:len(ws.name) - 1], "Focus" if i == 0 else "Inspect")
+			ws.saved, text = text, ""
+			placed = true
+			break
+		}
+		if !placed {
+			log.warnf("settings: no free workspace for the %s layout of an older version; it is left out", "Focus" if i == 0 else "Inspect")
+			workspace_text_set(&text, "")
+		}
+	}
 	ws := &w.list[w.current]
 	kit_layout_put(k, ws.live if ws.live != "" else ws.saved)
 	workspace_text_set(&ws.live, "")
+	space := workspace_space(k, w.current)
+	k.spaces.current = space
+	k.spaces.layout[space] = w.current
+	switch w.views_current {
+	case 1: k.focus_mode = true
+	case 2: inspect_set(k, true)
+	}
+	w.views_current = 0
 }

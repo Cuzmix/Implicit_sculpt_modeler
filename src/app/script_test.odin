@@ -171,11 +171,12 @@ texture Normal my maps/rock n.png
 knife -z
 environment my skies/studio 4k.hdr
 render_focus 0.5 -1 2
+hardness 50
 render_focus Pivot`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 24) do return
+	if !testing.expect_value(t, len(s.statements), 25) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
@@ -205,14 +206,15 @@ render_focus Pivot`
 	testing.expect(t, st[20].arg == 2 && st[20].flip)
 	testing.expect_value(t, st[21].text, "my skies/studio 4k.hdr")
 	testing.expect(t, st[22].numbers.xyz == {0.5, -1, 2} && !st[22].flip)
-	testing.expect(t, st[23].verb == .Render_Focus && st[23].flip)
+	testing.expect_value(t, st[23].numbers[0], 50)
+	testing.expect(t, st[24].verb == .Render_Focus && st[24].flip)
 
 	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\ninstall_pack\nfocal 101\nmatcap\npreset\npack_mesh", "bad")
 	defer script_destroy(&bad)
 	if !testing.expect_value(t, len(bad.errors), 20) do return
 	for e, i in bad.errors do testing.expect_value(t, e.line, i + 1)
 	// Past 20 errors the list stops, so the last verb is tried on its own.
-	for line in ([?]string{"make_pack", "texture normal", "texture height x.png", "knife w", "environment", "render_focus", "render_focus 1 2", "render_focus middle"}) {
+	for line in ([?]string{"make_pack", "texture normal", "texture height x.png", "knife w", "environment", "render_focus", "render_focus 1 2", "render_focus middle", "hardness 96"}) {
 		lone := script_parse(line, "bad")
 		defer script_destroy(&lone)
 		testing.expectf(t, len(lone.errors) == 1, "%q was read", line)

@@ -5,6 +5,7 @@ import "core:os"
 import "core:testing"
 import sdl "vendor:sdl3"
 
+import "../geom"
 import "../sculpt"
 
 // What SDL 3.4's UIKit driver makes of an azimuth and an altitude (degrees), as
@@ -264,4 +265,77 @@ the_pens_roll_turns_both_ways_and_wraps :: proc(t: ^testing.T) {
 	app.pen_roll_last = nil
 	near(t, turned(&app, {-160, -170, 170, 160}, uikit = true), 40)
 	near(t, turned(&app, {170, -170}, uikit = true), -30)
+}
+
+// Size and strength go through curves of their own, and a brush with Use global off keeps
+// its own pressure, starting from the global one; the settings file keeps both, and one
+// from before the size had a curve gives it the strength's.
+@(test)
+pressure_curves_apart_and_per_brush :: proc(t: ^testing.T) {
+	path := "build/pressure_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 40
+	a.brush.pressure_strength, a.brush.pressure_size = true, true
+	a.brush.pressure_curve, a.brush.pressure_size_curve = geom.CURVE_LINEAR, PRESSURE_PRESETS[2].curve
+	firm := geom.curve_at(PRESSURE_PRESETS[2].curve, 0.5)
+	testing.expect(t, abs(brush_radius_px(&a, 0.5, {}) - 40 * firm) < 1e-3 && abs(pressure_curved(&a, 0.5) - 0.5) < 1e-3)
+	// Clay keeps its own: it starts as the global one, then its size stops following the pen.
+	brush_pressure_own(&a.brush, .Clay, true)
+	testing.expect_value(t, a.brush.pressures[.Clay].pressure, brush_pressure(&a.brush, .Draw))
+	a.brush.pressures[.Clay].size = false
+	a.brush.kind = .Clay
+	testing.expect_value(t, brush_radius_px(&a, 0.5, {}), 40)
+	a.brush.kind = .Draw
+	testing.expect(t, brush_radius_px(&a, 0.5, {}) < 40)
+
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	testing.expect_value(t, b.brush.pressure_size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, b.brush.pressures[.Clay].own && !b.brush.pressures[.Clay].size && b.brush.pressures[.Clay].strength)
+	testing.expect_value(t, b.brush.pressures[.Clay].size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, !b.brush.pressures[.Draw].own)
+
+	// A file from before: no size curve line.
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("version 4\npressure_curve 0.1 0.6 0.4 0.95\n")) == nil)
+	c: App
+	defer results_destroy(&c)
+	settings_load(&c, path)
+	testing.expect_value(t, c.brush.pressure_size_curve, c.brush.pressure_curve)
+	testing.expect_value(t, c.brush.pressure_curve, PRESSURE_PRESETS[1].curve)
+	free_all(context.temp_allocator)
+}
+
+// A response preset sets size and strength together; Clay's keeps the brush at least a
+// fifth of its radius however light the touch, and the app starts Clay on it while the
+// other brushes use the global pressure.
+@(test)
+pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 50
+	at := pressure_edit(&a.brush)
+	pressure_put(at, PRESSURE_RESPONSES[0].pressure)
+	testing.expect_value(t, pressure_response(at), 0)
+	testing.expect_value(t, brush_radius_px(&a, 0.1, {}), 50)
+	pressure_put(at, PRESSURE_RESPONSES[1].pressure)
+	testing.expect_value(t, pressure_response(at), 1)
+	// The cube of 0.1 is a thousandth: the floor holds it at a fifth.
+	testing.expect(t, abs(brush_radius_px(&a, 0.1, {}) - 10) < 1e-3)
+	// The cube of 0.8 is 0.512, above the floor.
+	testing.expect(t, abs(brush_radius_px(&a, 0.8, {}) - 50 * 0.512) < 0.05)
+	// Firm strokes is at over nine tenths of its strength from half pressure on.
+	pressure_put(at, PRESSURE_RESPONSES[2].pressure)
+	testing.expect(t, pressure_curved(&a, 0.5) > 0.9 && pressure_curved(&a, 0.1) < 0.5)
+	// A changed curve is no preset; a switched-off one does not count.
+	at.size_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), 2)
+	at.strength_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), -1)
+
+	b := brush_defaults()
+	testing.expect(t, b.pressures[.Clay].own && b.pressures[.Clay].pressure == PRESSURE_RESPONSES[1].pressure && !b.pressures[.Draw].own)
 }

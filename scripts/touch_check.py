@@ -48,14 +48,16 @@ CAMERA0 = {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0.0, "camera_
 MIDDLE = (647, 432)
 MODEL = (800, 450)
 EMPTY = (250, 150)  # viewport with nothing on it
+PEN_RESPONSE_CLAY = (193, 451)  # the Pen section's Response page, its Clay tab
+
 UI = {
     # The top bar (kit_top_lens.odin): Menu, Undo and Redo at the left, History and
     # Settings at the right, the Search field before them.
     "menu": (33, 26), "undo": (217, 26), "redo": (267, 26), "search": (1340, 26), "history": (1520, 26), "settings": (1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
-    # The view chips over the view's top-left corner, and the object chip under them.
-    "camera_chip": (75, 77), "pass_chip": (187, 77), "status": (120, 125),
+    # The view chips over the view's top-left corner, and the chip bar's object chip.
+    "camera_chip": (75, 77), "pass_chip": (187, 77), "status": (700, 28),
     # The navigation head, left of the panel stack.
     "nav_head": (1185, 90),
     # The view rail down the right edge: the tray (the panel stack), then its view tools.
@@ -266,6 +268,21 @@ RADIAL_COPIES = ((1345, 504), (1524, 504))
 POLYFRAME_FILL = (1471, 410)
 # The Camera menu's Field of view slider's knob, under Orthographic.
 FOV_SLIDER = (1349, 180)
+
+
+@scenario
+def pen_response_page_sets_clay():
+    """The Pen section's Response page: Draw starts on the global Default response; a tap on
+    Clay gives the global pressure Blender's Clay (size by the cube of the pressure, at
+    least a fifth of the radius), and nothing is sculpted (look with --screens)."""
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(264, 355)
+    s.wait(3)
+    s.ftap(PEN_RESPONSE_CLAY[0], PEN_RESPONSE_CLAY[1])
+    s.wait(3)
+    return s, [], camera_still({"dabs": near(0), "pressure_response": near(1), "pressure_own": near(0)})
 
 
 @scenario
@@ -1259,6 +1276,171 @@ def x_symmetry_stroke_across_the_middle_by_pen():
 
 
 @scenario
+def grab_pulls_the_outline_from_outside():
+    """Grab pressed with the mouse 26 px past the sphere's right edge (within the brush
+    ring) takes hold of the nearest surface and pulls it out to the right, one undo step,
+    where any other brush pressed there turns the view (look with --screens: a bulge on the
+    outline)."""
+    s = Script()
+    s.mouse_drag(line((1040, 450), (1160, 450), 12))
+    s.wait(2)
+    return s, ["--script=brush grab"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("grab")})
+
+
+@scenario
+def smooth_stable_flattens_the_sphere():
+    """The Smooth stronger preset (full strength: four passes) with Stable on, dragged across the sphere, is
+    one undo step that flattens a band of it (look with --screens: a flat band, no
+    ridges at its edges)."""
+    s = Script()
+    s.mouse_drag(line((640, 380), (960, 470), 16))
+    s.wait(2)
+    return s, ["--script=preset Smooth stronger; set smooth_stable on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("smooth")})
+
+
+@scenario
+def clay_strips_lay_a_flat_band():
+    """Clay strips dragged across the sphere twice is two undo steps of flat-topped
+    strips with square ends (look with --screens: a band with a flat top and crisp,
+    squared-off edges, unlike Clay's rounded one)."""
+    s = Script()
+    s.mouse_drag(line((640, 420), (920, 440), 14))
+    s.wait(2)
+    s.mouse_drag(line((650, 470), (930, 490), 14))
+    s.wait(2)
+    return s, ["--script=brush clay_strips"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(2), "brush_kind": is_text("clay_strips")})
+
+
+@scenario
+def trim_dynamic_cuts_planes():
+    """Trim dynamic dragged three times along the same line of the sphere cuts it into
+    planes, one undo step a stroke (look with --screens: a flat facet along the stroke
+    with a crisp edge where the sphere meets it)."""
+    s = Script()
+    for _ in range(3):
+        s.mouse_drag(line((640, 300), (900, 560), 14))
+        s.wait(2)
+    return s, ["--script=brush trim_dynamic"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(3), "brush_kind": is_text("trim_dynamic")})
+
+
+@scenario
+def dyntopo_detail_by_radius_follows_the_falloff():
+    """Draw on a sphere with dynamic topology, Detail by radius and Detail follows the
+    falloff: the stroke adds triangles, finest along its middle and coarser toward its
+    edges (look with --screens: in the wireframe a band of small triangles that grow
+    toward both sides and blend into the sphere's)."""
+    s = Script()
+    s.mouse_drag(line((620, 450), (940, 450), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush draw; set detail_by_radius on; set detail_radius 0.04; set detail_falloff on; wireframe on"], camera_still({
+        "dabs": lambda v: int(v) > 5, "splits": lambda v: int(v) > 100, "detail_by_radius": near(1), "detail_falloff": near(1)})
+
+
+@scenario
+def grab_that_changes_no_triangles():
+    """Grab with its own dynamic topology off (Changes triangles under the section's More
+    options) drags the surface out of a sphere with dynamic topology on and splits nothing
+    at the release."""
+    os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
+    with open(settings_file(), "w") as f:
+        f.write("dyntopo grab 1 0 0 10 0.1\n")
+    s = Script()
+    s.mouse_drag(line((800, 450), (1120, 450), 16))
+    s.wait(2)
+    return s, [f"--settings-file={settings_file()}", "--script=dyntopo_toggle on; brush grab"], camera_still({
+        "dabs": lambda v: int(v) > 5, "undo_steps": near(1), "grab_refine_splits": near(0), "brush_dyntopo": near(0)})
+
+
+@scenario
+def hatch_lays_one_way_grooves():
+    """The library's Hatch preset (a Crease with No back and forth) scribbled in a zigzag
+    is one undo step whose grooves run one way only (look with --screens: four parallel
+    grooves from the rightward legs, none along the legs back)."""
+    s = Script()
+    path = []
+    for i in range(7):
+        y = 380 + 14 * i
+        path += line((680, y), (900, y + 7), 10) if i % 2 == 0 else line((900, y), (680, y + 7), 10)
+    s.mouse_drag(path)
+    s.wait(2)
+    return s, ["--script=preset Hatch"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(1), "brush_kind": is_text("crease")})
+
+
+@scenario
+def clay_hard_and_projected():
+    """Clay starts Projected; with every brush at Hardness 50 a stroke across the sphere
+    is one undo step (look with --screens: a flat-topped band with soft edges, and the
+    Falloff section's Hardness at 50% and Projected picked)."""
+    s = Script()
+    s.mouse_drag(line((640, 400), (900, 470), 14))
+    s.wait(2)
+    return s, ["--script=brush clay; hardness 50"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("clay"),
+                                                                 "brush_hardness": near(0.5), "brush_projected": near(1)})
+
+
+@scenario
+def draw_over_itself_does_not_build_up():
+    """Draw (Accumulate off by default) scribbled back and forth four times over the same
+    stretch of the sphere is one undo step (look with --screens: one even ridge, no taller
+    lump where the stroke turned and doubled back)."""
+    s = Script()
+    path = []
+    for i in range(4):
+        a, b = ((700, 450), (900, 450)) if i % 2 == 0 else ((900, 450), (700, 450))
+        path += line(a, b, 12)
+    s.mouse_drag(path)
+    s.wait(2)
+    return s, ["--script=brush draw"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(1), "brush_kind": is_text("draw")})
+
+
+@scenario
+def grab_under_dynamic_topology_refines_the_pull():
+    """Grab on a sphere with dynamic topology, dragged from the middle out past the right
+    edge: at the release the stretched triangles split down to the detail size, in the same
+    undo step (look with --screens: a long bulge with even, small triangles in the
+    wireframe rather than slivers)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (1120, 450), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush grab; wireframe on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "grab_refine_splits": lambda v: int(v) > 50})
+
+
+@scenario
+def move_topological_preset_grabs_along_the_surface():
+    """The library's Move topological preset puts Grab on with its falloff along the
+    surface; a drag on the sphere pulls a fold out as one undo step (look with --screens: a
+    little narrower than plain Grab's, as a path along the curved surface is longer than the
+    straight line)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (860, 400), 8))
+    s.wait(2)
+    return s, ["--script=preset Move topological"], camera_still({"dabs": lambda v: int(v) > 3, "undo_steps": near(1), "brush_kind": is_text("grab"),
+                                                                 "brush_grab_topological": near(1)})
+
+
+@scenario
+def elastic_pulls_like_rubber():
+    """Elastic dragged up and out from the sphere's front is one undo step, the press
+    following the pointer and the surround sliding after it well past the ring (look with
+    --screens: a broad smooth shift of the surface, no edge where the ring was)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (880, 380), 8))
+    s.wait(2)
+    return s, ["--script=brush elastic"], camera_still({"dabs": lambda v: int(v) > 3, "undo_steps": near(1), "brush_kind": is_text("elastic")})
+
+
+@scenario
+def snake_hook_pinched_horn():
+    """A Snake hook stroke with Pinch 100% pulled out of the sphere's side is one undo step:
+    a horn that thins to a point (look with --screens beside the same stroke with
+    hook_pinch 0, which keeps its width)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (1000, 430), 12))
+    s.wait(2)
+    return s, ["--script=brush snake_hook; set hook_pinch 1"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("snake_hook")})
+
+
+@scenario
 def predicted_ring_leads_a_fast_pen():
     """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
     past the frames the script waits for, into the ten the run adds): the brush ring is
@@ -2200,8 +2382,9 @@ def saved_line(line):
 
 # The view rail's Panels button, which shows and hides the stack of cards.
 INSPECTOR_CLOSE = UI["inspector"]
-# The Stats window's title, where it starts (Settings > Performance or F11 opens it).
-STATS_TITLE = (156, 196)
+# The Stats window's title, where it starts under the view chips (Settings > Performance or F11
+# opens it).
+STATS_TITLE = (156, 148)
 
 
 @scenario
@@ -2253,25 +2436,27 @@ def pinned_sections_stack_in_the_right_column():
         "panel_pins": is_text("layers,camera")})
 
 
-# The top bar's workspace pill at 1600 x 900: its Sculpt segment, current at the start, which
-# opens the switcher's menu, and the rows of that menu: the four built-ins, then Save, Save
-# as new, Export, Import, Revert and Reset.
-WORKSPACE_CHIP = (616, 26)
-WORKSPACE_ROWS = {"sculpt": 97, "focus": 141, "inspect": 185, "studio": 229, "save": 274, "save_as": 318, "export": 362, "import": 406, "revert": 450, "reset": 494}
+# The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
+# opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
+# Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
+# the views Focus mode and Inspect.
+SPACE_TABS = {"sculpt": (357, 26), "model": (447, 26), "render": (538, 26), "chevron": (609, 26)}
+WORKSPACE_CHIP = SPACE_TABS["sculpt"]
+WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
 TOP_UNDO, TOP_SEARCH = (91, 33), (1411, 33)
 
 
 @scenario
-def workspace_switcher_picks_focus():
-    """The switcher's menu, then Focus: the side bars and the action bar go, the tray closes, and the menu with them."""
+def workspace_menu_turns_focus_on():
+    """The lit tab's menu, then Focus mode: the side bars and the action bar go and the menu with them, and the layout is unchanged."""
     s = Script()
     s.ftap(*WORKSPACE_CHIP)
     s.wait(10)
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["focus"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Focus"), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
-                                "workspace_menu": near(0), "window_inspector": lambda v: v.startswith("0,"), "workspace_modified": near(0)})
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "focus_mode": near(1), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
+                                "workspace_menu": near(0), "workspace_modified": near(0)})
 
 
 @scenario
@@ -2299,7 +2484,7 @@ def a_changed_workspace_shows_its_mark():
 
 @scenario
 def focus_moves_undo_and_search_to_the_top_bar():
-    """In Focus a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
+    """In Focus (an older script's `workspace focus`) a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
@@ -2307,38 +2492,61 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s.wait(4)
     s.ftap(*TOP_SEARCH)
     s.wait(10)
-    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Focus")}
+    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Sculpt"), "focus_mode": near(1)}
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
-# workspace pill's segments and its "+" in the middle, the Search field at the right.
+# space tabs in the middle, the Search field at the right.
 LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (217, 26), (267, 26)
-LENS_PILL = {"sculpt": (617, 26), "focus": (684, 26), "inspect": (755, 26), "studio": (828, 26), "plus": (884, 26)}
 LENS_SEARCH = (1340, 26)
 # The Lens menu's first row, Home.
 LENS_MENU_HOME = (120, 82)
 
 
 @scenario
-def lens_pill_switches_workspace():
-    """In the Lens top bar a tap on Focus in the workspace pill switches to Focus, with no menu."""
+def space_tab_switches_to_model():
+    """A tap on the Model tab goes to Model with the Model tool and Model's layout, with no menu."""
     s = Script()
-    s.ftap(*LENS_PILL["focus"])
+    s.ftap(*SPACE_TABS["model"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Focus"), "workspace_menu": near(0), "workspace_switches": near(1)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"), "workspace": is_text("Model"),
+                                "workspace_menu": near(0), "space_switches": near(1)})
 
 
 @scenario
-def lens_pill_current_segment_and_plus_open_the_menu():
-    """A tap on the current workspace in the pill opens the switcher's menu, a second closes it, and "+" opens it again."""
+def space_lit_tab_and_chevron_open_the_menu():
+    """A tap on the lit tab opens its layouts, a second closes them, and the chevron opens them again."""
     s = Script()
-    s.ftap(*LENS_PILL["sculpt"])
+    s.ftap(*SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*LENS_PILL["sculpt"])
+    s.ftap(*SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*LENS_PILL["plus"])
+    s.ftap(*SPACE_TABS["chevron"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "workspace_menu": near(1), "workspace_switches": near(0)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "workspace_menu": near(1), "space_switches": near(0)})
+
+
+@scenario
+def space_tab_gives_back_the_brush():
+    """Inflate in hand, the Model tab, then the Sculpt tab: Sculpt comes back with Inflate and the Brush tool."""
+    s = Script()
+    s.ftap(*SPACE_TABS["model"])
+    s.wait(10)
+    s.ftap(*SPACE_TABS["sculpt"])
+    s.wait(10)
+    return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
+                                                        "workspace": is_text("Sculpt"), "space_switches": near(2)})
+
+
+@scenario
+def a_press_in_render_turns_the_view():
+    """In Render a drag across the model turns the view and lays no dab, since Render keeps no brush in hand."""
+    s = Script()
+    s.ftap(*SPACE_TABS["render"])
+    s.wait(10)
+    s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
+    s.wait(6)
+    return s, [], {"dabs": near(0), "space": is_text("render"), "workspace": is_text("Render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 @scenario
@@ -2447,7 +2655,7 @@ def a_stroke_under_the_tray_fades_it():
 # the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
-LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (120, 125)
+LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (700, 28)
 LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421), "mini": (1403, 470)}
 LENS_1440 = ["--width=1440", "--height=900"]
 LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
@@ -2487,9 +2695,9 @@ def lens_camera_chip_opens_the_camera_menu():
 
 @scenario
 def lens_object_chip_opens_the_scene_palette():
-    """A tap on the object chip opens the stack's Scene card."""
+    """A long press on the chip bar's object chip opens the stack's Scene card."""
     s = Script()
-    s.ftap(*LENS_CHIP_OBJECT)
+    long_press(s, *LENS_CHIP_OBJECT)
     s.wait(10)
     return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,"), "stack": lambda v: "Scene+" in v.split(",")})
 
@@ -2541,10 +2749,12 @@ def lens_left_handed_mirrors_the_chrome():
 # page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
               "move_tool": (957, 833), "curve_remesh": (780, 833)}
-LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
+# Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
+LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
+LENS_MODEL_TAB = (447, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
-LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
+LENS_SHEET = {"paint": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
 
@@ -2578,9 +2788,9 @@ def lens_shelf_page_names_turn_the_page():
 
 @scenario
 def lens_shelf_model_page_adds_a_cage():
-    """The Model page holds the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes the Model tool with Inset."""
+    """The Model space's shelf is the Model page: the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes Inset."""
     s = Script()
-    s.ftap(*LENS_SHELF_PAGES["model"])
+    s.ftap(*LENS_MODEL_TAB)
     s.wait(10)
     s.ftap(*LENS_MODEL_TILES["cube"])
     s.wait(10)
@@ -2597,7 +2807,7 @@ def model_cage_refuses_a_brush_stroke():
     s = Script()
     s.mouse_drag(line((720, 450), (780, 470), 8))
     s.wait(10)
-    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; brush clay"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
                                                                                        "last_op": lambda v: "is_a_cage" in v}
 
 
@@ -3349,13 +3559,12 @@ LENS_FOCUS = {"workspace": (770, 33), "symmetry": (838, 33), "layout": (1460, 33
 def lens_focus_draws_islands():
     """Focus in Lens: the top bar becomes islands, X symmetry is a chip there, and Passes opens its menu."""
     s = Script()
-    s.ftap(*LENS_PILL["focus"])
     s.wait(6)
     s.ftap(*LENS_FOCUS["symmetry"])
     s.wait(4)
     s.ftap(*LENS_FOCUS["passes"])
     s.wait(6)
-    return s, [], camera_still({"workspace": is_text("Focus"), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+    return s, ["--script=focus_mode on"], camera_still({"workspace": is_text("Sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
 
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
@@ -3522,44 +3731,46 @@ def lens_context_bar_extracts_the_mask():
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
 
-# Lens's Inspect workspace at 1440x900: its segment in the top bar's pill, the main pane's
-# pass chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
-LENS_INSPECT = {"workspace": (675, 26), "pass_chip": (186, 77), "curvature": (260, 444)}
+# Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
+# chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
+LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77), "curvature": (260, 444)}
 
 
 @scenario
 def lens_pass_popover_groups_the_passes():
-    """In Inspect, which opens no panels over its four panes, the pass chip's popover picks Curvature from DIAGNOSTICS."""
+    """Inspect from the lit tab's menu, then the main pane's pass chip: its popover picks Curvature from DIAGNOSTICS."""
     s = Script()
-    s.ftap(*LENS_INSPECT["workspace"])
+    s.ftap(*LENS_INSPECT["tab"])
+    s.wait(10)
+    s.ftap(*LENS_INSPECT["inspect"])
     s.wait(12)
     s.ftap(*LENS_INSPECT["pass_chip"])
     s.wait(8)
     s.ftap(*LENS_INSPECT["curvature"])
     s.wait(8)
-    return s, LENS_1440, camera_still({"workspace": is_text("Inspect"), "pass": is_text("Curvature"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"workspace": is_text("Sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
-# Lens's Studio at 1440x900: its pill, then on its stack Light 1's Intensity thumb, Add
-# light, the Gold sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (747, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
+# Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
+# Gold sphere of the Material card, and Undo on the top bar.
+LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
 
 
 @scenario
 def lens_studio_stack_shows_lights_material_environment():
-    """Studio in Lens shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
+    """Render shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(*LENS_STUDIO["workspace"])
     s.wait(20)
     s.ftap(*LENS_STUDIO["gold"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"workspace": is_text("Studio"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
+    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
 
 @scenario
 def lens_lights_card_picks_and_adds():
-    """On Studio's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
+    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
     def run(add):
         s = Script()
         s.ftap(*LENS_STUDIO["workspace"])
@@ -3759,20 +3970,20 @@ def save_as_new_workspace_is_remembered():
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["save_as"])
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(5),
-        "@saved": saved_line("workspace 4 Workspace%201")})
+        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(4),
+        "@saved": saved_line("workspace 3 Workspace%201")})
 
 
 @scenario
 def the_current_workspace_comes_back():
-    """A settings file naming Inspect as current starts in Inspect: no panels over the view grid's four panes."""
+    """A settings file from before spaces naming Inspect as current starts in Sculpt with Inspect on: the view grid's four panes, the brush bar and dock aside."""
     with open(settings_file(), "w") as f:
-        f.write("workspace_current 2\n")
+        f.write("version 3\nworkspace_current 2\n")
     s = Script()
     s.add("move:800,450")
     s.wait(10)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
-                                                                     "column_left": is_text("none"), "zones_hidden": is_text("brush_bar,dock"),
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "inspect_mode": near(1),
+                                                                     "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"),
                                                                      "grid": is_text("Four")})
 
 
@@ -4126,7 +4337,8 @@ def rail_hold_smooth_with_pen():
     """A finger held on Smooth while the pen strokes the model: the stroke smooths, and lifting latches nothing."""
     s = Script()
     rail_hold(s, "smooth")
-    pen_stroke(s, line((760, 430), (860, 470), 20))
+    # Pressed as a pen is: Smooth's passes scale with the pressure, and at none it moves nothing.
+    pen_stroke(s, line((760, 430), (860, 470), 20), pressure=0.8)
     rail_lift(s)
     return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1), "stroke_kind": lambda v: v == "smooth",
                                 "rail_latched": lambda v: v == "none"})
@@ -4290,6 +4502,7 @@ def rail_lift_mid_stroke_keeps_mode():
     s = Script()
     rail_hold(s, "smooth")
     s.add("pnear")
+    s.add("ppress:0.8")
     path = line((760, 430), (860, 470), 20)
     s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
     for k, (x, y) in enumerate(path[1:]):
@@ -5127,15 +5340,15 @@ def browser_picks_a_preset():
 
 @scenario
 def browser_picks_a_built_in_preset():
-    """The brush picker's Move category lists Grab and the library's moves alphabetically:
-    a tap on the third, Move all depth, puts the brush on it (Grab reaching through the
-    depth) and closes the browser."""
+    """The brush picker's Move category lists Elastic, Grab and the library's moves
+    alphabetically: a tap on the fourth, Move all depth, puts the brush on it (Grab
+    reaching through the depth) and closes the browser."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
     s.ftap(*BROWSER_CATEGORY["move"])
     s.wait(6)
-    s.ftap(*browser_tile(2, 0))
+    s.ftap(*browser_tile(3, 0))
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})
@@ -5541,12 +5754,25 @@ def keys_come_back_from_settings():
 
 @scenario
 def status_chip_tap_and_long_press():
-    """A tap on the object's status shows the Scene palette's objects; a long press on it opens the object menu."""
+    """A long press on the chip bar's object chip shows the Scene palette's objects; a tap on it opens the object menu."""
     s = Script()
+    long_press(s, *STATUS_CHIP)
+    s.wait(6)
     s.ftap(*STATUS_CHIP)
     s.wait(6)
-    long_press(s, *STATUS_CHIP)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "scene", "object_menu": near(1)})
+
+@scenario
+def object_chip_names_the_type_and_its_badges():
+    """The chip bar's object chip names a sculpt mesh with its level once subdivided, a cage as a cage, and shrinks to the name in a narrow window."""
+    def run(what):
+        if what == "mesh":
+            return Script(), ["--script=subdivide"], {"object_chip": is_text("Full,Sculpt_mesh,L2")}
+        if what == "cage":
+            return Script(), ["--script=add_cage cube"], {"object_chip": lambda v: v.startswith("Full,Cage")}
+        return Script(), ["--width=1000", "--height=760"], {"object_chip": is_text("Name,Sculpt_mesh")}
+    return Steps([run("mesh"), run("cage"), run("narrow")])
+
 
 # Touch step 3: double tap, lifting one of two fingers, holding fingers for undo.
 
@@ -5961,6 +6187,7 @@ def pen_eraser_end_smooths():
     s = Script()
     path = line((760, 430), (860, 470), 20)
     s.add("pnear")
+    s.add("ppress:0.8")
     s.add(f"pedown:{path[0][0]:g},{path[0][1]:g}")
     for x, y in path[1:]:
         s.wait(1)
@@ -7315,14 +7542,14 @@ def workspace_file():
 
 @scenario
 def workspace_file_carries_a_layout():
-    """Inspect exported to a file and imported in a fresh run comes back as a workspace of one's own, "Inspect 2", with Inspect's hidden bars and its four panes, unchanged from what it saved."""
+    """Sculpt with four panes exported to a file and imported in a fresh run comes back as a workspace of one's own, "Sculpt 2", with its four panes, unchanged from what it saved."""
     path = workspace_file()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
         os.remove(path)
-    return Steps([(Script(), ["--script=workspace inspect", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
-                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Inspect%202"), "workspace_imports": near(1), "workspace_count": near(5),
-                                                               "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"), "grid": is_text("Four")})])
+    return Steps([(Script(), ["--script=view_grid four", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
+                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt%202"), "workspace_imports": near(1), "workspace_count": near(4),
+                                                               "workspace_modified": near(0), "space": is_text("sculpt"), "grid": is_text("Four")})])
 
 
 @scenario
@@ -7332,7 +7559,7 @@ def workspace_file_damaged_is_refused():
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("SCULPT_WORKSPACE 9\nname Future\nlayout open\n")
-    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(4)}
+    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(3)}
 
 
 @scenario
@@ -7588,7 +7815,7 @@ def view_window_keys_stay_the_main_windows():
 
 @scenario
 def view_pane_maximises_and_restores():
-    """Maximise on the view pane fills the grid's room with it; Restore brings the two panes back."""
+    """Maximise on the view pane fills the grid's room with it and the main view's chips stand aside; Restore brings the two panes and the chips back."""
     def run(restore):
         s = Script()
         s.wait(4)
@@ -7598,7 +7825,9 @@ def view_pane_maximises_and_restores():
             s.ftap(*GRID_PANE_RESTORE)
             s.wait(8)
         size = (lambda v: 780 < int(v.split("x")[0]) < 820) if restore else (lambda v: int(v.split("x")[0]) > 1000)
-        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0)}))
+        # The main view's chips stand aside while the pane covers it, so they never sit on its head.
+        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0),
+                                                                     "view_chips": near(1 if restore else 0)}))
     return Steps([run(False), run(True)])
 
 
@@ -8490,7 +8719,7 @@ HISTORY_DELETE_OLDER = (977, 722)
 # Search's History brush row, under its three commands, while "history brush" is typed.
 SEARCH_HISTORY_BRUSH = (625, 294)
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
-HISTORY_DRAWN_SUM = 7.81
+HISTORY_DRAWN_SUM = 9.41
 
 
 @scenario

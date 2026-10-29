@@ -6,25 +6,22 @@ import "core:time"
 
 import "../ui"
 
-// The Lens top bar, after the Sculpt Workspace Directions mockups: the menu, the file and
-// whether it is saved, Undo and Redo at the left; the workspaces as a pill of segments in
-// the middle; Search, History and Settings at the right. Home, Save, Import, Export and
-// Help are in the menu, the passes on the pane. Returns the menu button and the Search
-// field, which the menu and the command palette open under.
+// The chip bar (the overhaul's round 3, which replaced the full-width top bar): one
+// floating bar across the top in the docks' style, its sections split by hairlines. The
+// menu and the file with whether it is saved; Undo and Redo; the spaces as tabs
+// (spaces.odin); the object chip (object_chip.odin); Search; History and Settings. Home,
+// Save, Import, Export and Help are in the menu, the passes on the pane. Returns the menu
+// button and the Search field, which the menu and the command palette open under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	k.passes.chip_held = false
+	k.object_chip_fit = .None
 	if lens_focus(k) do return kit_top_islands(app)
-	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, gap = 2, center = true})
-	// See-through, as the mockups' glass bar: the picture runs on under it, the frame's
-	// colour over it at three quarters, and a faint light line along its foot.
-	bar := ui.Rect{0, 0, ctx.input.window.x, area.y + TOP_BAR_H}
-	ui.fill_rect(ctx, bar, 0, {t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA})
-	ui.fill_rect(ctx, {bar.x, bar.y + bar.h - 1, bar.w, 1}, 0, {255, 255, 255, 15})
-	ui.spacer(ctx, 6)
+	width := area.w - 2 * TOP_BAR_INSET
+	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = TOP_BAR_H - TOP_BAR_TOP, padding = 2, gap = 2, center = true, radius = t.radius_large, background = .Panel})
 	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
 		k.menu = !k.menu
 		k.menu_scroll = 0
@@ -40,33 +37,58 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
 	if ui.secondary(ctx) do k.history = true
-	// What the ends take, the middle gets: the pill where it fits, else the chip; Search
-	// shrinks to its icon before the switcher goes to a chip.
-	left := 6 + 3 * t.target + file_w + 13 + 2 * 4
-	right := 2 * t.target + 12
-	middle := area.w - left - right - TOP_SEARCH_W - 8
-	// Arranging, the middle holds what arranging needs in place of the pill.
+	// What the ends take, the middle gets. The object chip gives up its badges, then its
+	// tag, before Search shrinks to its icon; then the chip shrinks to its icon, and last
+	// the space tabs go to the layout's chip.
+	// The row's padding and its 13 gaps between the 14 things it can hold.
+	ROW :: 2 * 2 + 13 * 2
+	left := 3 * t.target + file_w + TOP_DIVIDER_W
+	right := TOP_DIVIDER_W + 2 * t.target
+	middle := width - ROW - left - right
 	arranging := k.bars_edit
-	pill := arrange_top_width(app) if arranging else top_pill_width(app)
-	field := middle >= pill + 24
-	if !field do middle = area.w - left - right - t.target - 8
-	// The switcher sits in the middle of the room left, laid out in the bar's row.
-	if middle >= pill + 8 {
-		pad := (middle - pill) * 0.5
-		ui.spacer(ctx, pad)
-		ui.spacer(ctx, max(middle - pad - (arrange_top_controls(app) if arranging else top_workspace_pill(app)), 0))
-	} else if arranging {
-		// Too narrow for them all: Done at least, the rest being in the Library and Search.
-		done_w: f32 = 84
-		pad := max((middle - done_w) * 0.5, 0)
-		ui.spacer(ctx, pad)
-		if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = done_w) do k.bars_edit = false
-		ui.spacer(ctx, max(middle - pad - done_w, 0))
+	chip := object_chip_of(app)
+	tabs := space_tabs_width(app)
+	field := false
+	fit := Object_Chip_Fit.None
+	if !arranging {
+		with_field := middle - TOP_SEARCH_W - tabs - 2 * TOP_DIVIDER_W
+		if object_chip_fit(ctx, chip, with_field) >= .Name {
+			field, fit = true, object_chip_fit(ctx, chip, with_field)
+		} else {
+			fit = object_chip_fit(ctx, chip, middle - t.target - tabs - 2 * TOP_DIVIDER_W)
+		}
+	} else {
+		field = middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
+	}
+	middle -= TOP_SEARCH_W if field else t.target
+	if arranging {
+		// Arranging, the middle holds what arranging needs in place of the tabs and the chip.
+		pill := arrange_top_width(app)
+		if middle >= pill + 8 {
+			pad := (middle - pill) * 0.5
+			ui.spacer(ctx, pad)
+			ui.spacer(ctx, max(middle - pad - arrange_top_controls(app), 0))
+		} else {
+			// Too narrow for them all: Done at least, the rest being in the Library and Search.
+			done_w: f32 = 84
+			pad := max((middle - done_w) * 0.5, 0)
+			ui.spacer(ctx, pad)
+			if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = done_w) do k.bars_edit = false
+			ui.spacer(ctx, max(middle - pad - done_w, 0))
+		}
+	} else if middle >= tabs + TOP_DIVIDER_W {
+		top_divider(ctx)
+		used := TOP_DIVIDER_W + top_space_tabs(app)
+		if fit != .None {
+			top_divider(ctx)
+			top_object_chip(app, chip, fit)
+			used += TOP_DIVIDER_W + ctx.last_rect.w
+		}
+		ui.spacer(ctx, max(middle - used, 0))
 	} else if middle >= WORKSPACE_CHIP_ROOM {
-		pad := (middle - WORKSPACE_CHIP_ROOM) * 0.5
-		ui.spacer(ctx, pad)
+		top_divider(ctx)
 		kit_workspace_chip(app)
-		ui.spacer(ctx, max(middle - pad - ctx.last_rect.w, 0))
+		ui.spacer(ctx, max(middle - TOP_DIVIDER_W - ctx.last_rect.w, 0))
 	} else {
 		ui.spacer(ctx, max(middle, 0))
 	}
@@ -79,7 +101,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		}
 		search_anchor = ctx.last_rect
 	}
-	ui.spacer(ctx, 4)
+	top_divider(ctx)
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
 	ui.end(ctx)
@@ -159,8 +181,14 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 
 // The Search field's width, in points.
 TOP_SEARCH_W :: 300
-// How opaque the see-through top bar is, of 255.
+// How opaque the chips over the view are, of 255.
 TOP_GLASS_ALPHA :: 189
+// The chip bar floats this far in from the safe area's sides and down from its top, in
+// points; TOP_BAR_H is the room it takes, those points with it.
+TOP_BAR_INSET :: 8
+TOP_BAR_TOP :: 4
+// A hairline between sections takes this much of the row.
+TOP_DIVIDER_W :: 13
 
 @(private = "file")
 top_command :: proc(app: ^App, id: Command_Id, glyph: rune, name: string, selected := false) -> bool {
@@ -175,7 +203,7 @@ top_command :: proc(app: ^App, id: Command_Id, glyph: rune, name: string, select
 // A hairline between groups of the bar.
 @(private = "file")
 top_divider :: proc(ctx: ^ui.Context) {
-	r := ui.place(ctx, {13, 24})
+	r := ui.place(ctx, {TOP_DIVIDER_W, 24})
 	ui.fill_rect(ctx, {r.x + 6, r.y, 1, r.h}, 0, ctx.theme.border)
 }
 
@@ -190,7 +218,7 @@ top_file_block :: proc(app: ^App) -> f32 {
 	// when a stroke makes the scene unsaved.
 	widest := max(ui.text_width(ctx, "Unsaved changes", t.small_size), ui.text_width(ctx, "Saved 59 min ago", t.small_size))
 	w := min(max(ui.text_width(ctx, name, t.text_size, .Semibold), widest) + 16, 220)
-	r := ui.place(ctx, {w, TOP_BAR_H - 8})
+	r := ui.place(ctx, {w, TOP_BAR_H - TOP_BAR_TOP - 8})
 	mid := r.y + r.h * 0.5
 	ui.text(ctx, ui.text_fit(ctx, name, t.text_size, w - 16, .Semibold), r.x + 8, mid - 8, t.text_size, t.text, .Semibold)
 	ui.text(ctx, ui.text_fit(ctx, status, t.small_size, w - 16), r.x + 8, mid + 8, t.small_size, t.text_tertiary)
@@ -217,87 +245,7 @@ saved_ago :: proc(d: time.Duration) -> string {
 	return fmt.tprintf("Saved %d days ago", m / (24 * 60))
 }
 
-// The pill's segments, as tabs lay them out: each workspace in use, by slot.
-@(private = "file")
-top_pill_items :: proc(app: ^App) -> (names: []string, slots: []int) {
-	k := &app.kit
-	n := 0
-	for ws in k.workspaces.list do if ws.used do n += 1
-	names = make([]string, n, context.temp_allocator)
-	slots = make([]int, n, context.temp_allocator)
-	i := 0
-	for ws, slot in k.workspaces.list {
-		if !ws.used do continue
-		names[i], slots[i] = workspace_name(k, slot), slot
-		i += 1
-	}
-	return
-}
-
-// One segment's width in the pill, as ui.tabs sizes it.
-@(private = "file")
-top_segment_width :: proc(ctx: ^ui.Context, name: string) -> f32 {
-	return ui.text_width(ctx, name, ctx.theme.text_size, .Semibold) + 28
-}
-
-// The pill's width: its segments in their well, then "+".
-top_pill_width :: proc(app: ^App) -> f32 {
-	ctx := &app.kit.ctx
-	names, _ := top_pill_items(app)
-	w: f32 = 2 * 3 + ctx.theme.control
-	for name in names do w += top_segment_width(ctx, name)
-	return w
-}
-
-// The workspace switcher as a pill: a tap on a segment switches to that
-// workspace (Ctrl+1 to 4 do too), a tap on the current one or on "+" opens the switcher's
-// menu (save, save as new, export, import, revert, reset, rename, delete). The current one
-// carries the amber dot while its layout differs from the saved one. Returns its width.
-@(private = "file")
-top_workspace_pill :: proc(app: ^App) -> f32 {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	w := &k.workspaces
-	names, slots := top_pill_items(app)
-	chosen := 0
-	for slot, i in slots do if slot == w.current do chosen = i
-	keys := make([]string, len(slots), context.temp_allocator)
-	for slot, i in slots do keys[i] = command_hint(app, .Workspace, slot)
-	ui.begin(ctx, "workspace pill", {direction = .Row, center = true, background = .Track, radius = t.radius_medium + 1.5})
-	start := ctx.last_rect.x
-	picked := ui.tabs(ctx, "Workspaces", names, chosen, keys = keys)
-	// The last segment: the segments' height and where they stand.
-	seg := ctx.last_rect
-	if picked >= 0 {
-		if slots[picked] == w.current {
-			was := w.menu
-			kit_floats_close(k)
-			w.menu = !was
-		} else {
-			command_run(app, .Workspace, slots[picked])
-		}
-	}
-	// The amber dot on the current segment, right of its name.
-	x := start + 3
-	for name, i in names {
-		sw := top_segment_width(ctx, name)
-		if i == chosen && w.modified do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
-		if i == chosen do w.menu_at = {x, seg.y, sw, seg.h}
-		x += sw
-	}
-	if ui.icon_button(ctx, "Workspace options", ICON_PLUS_SMALL, selected = w.menu, size = t.control) {
-		was := w.menu
-		kit_floats_close(k)
-		w.menu = !was
-		w.menu_at = ctx.last_rect
-	}
-	plus := ctx.last_rect
-	ui.end(ctx)
-	return plus.x + plus.w - start
-}
-
-// Lucide's plus, for the pill's "+".
+// Lucide's plus.
 ICON_PLUS_SMALL :: rune(0xe141)
 
 // The Search field: a tap opens the command palette under it (Ctrl+K does too).
