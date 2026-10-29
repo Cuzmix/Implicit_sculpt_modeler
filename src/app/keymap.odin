@@ -231,6 +231,7 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	#partial switch id {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
+	case .Brush_Value: return fmt.tprint(Brush_Value(arg))
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))

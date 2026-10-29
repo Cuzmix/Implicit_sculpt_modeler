@@ -47,6 +47,8 @@ Bar_Pop_Kind :: enum u8 {
 	Shading,
 	Camera,
 	View_Layout,
+	Value, // a brush value's slider and steps (brush_values.odin)
+	Value_Menu, // a value item's menu: its look, its section, its moves
 }
 
 // The one popover the bars open: one at a time, beside the button that opened it.
@@ -57,6 +59,12 @@ Bar_Pop :: struct {
 	at:      ui.Rect,
 	side:    ui.Side,
 	scroll:  f32,
+	// The value a Value popover or menu is for, and for the menu the bar and slot it is on
+	// and whether its Add another value list is open.
+	value:   Brush_Value,
+	which:   Bar_Which,
+	slot:    int,
+	adding:  bool,
 }
 
 // Opens the bars' popover with `kind` (and `section`) beside `at`, or closes it when it
@@ -215,6 +223,10 @@ kit_bar_popover :: proc(app: ^App) {
 		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, gap = 8, padding = 12, width = VIEW_LAYOUT_W + 24}) do return
 		defer ui.popover_end(ctx)
 		kit_view_layout_lens(app, VIEW_LAYOUT_W)
+	case .Value:
+		kit_value_pop(app)
+	case .Value_Menu:
+		kit_value_menu(app)
 	case .Section:
 		WIDTH :: KIT_INSPECTOR_W
 		PADDING :: 12

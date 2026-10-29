@@ -493,6 +493,7 @@ palette_enabled :: proc(app: ^App, e: Palette_Entry) -> bool {
 // the list starts at the same place.
 palette_icon :: proc(e: Palette_Entry) -> rune {
 	if e.kind == .Settings_Tab do return ui.ICON_SETTINGS
+	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
 	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
 }
 
