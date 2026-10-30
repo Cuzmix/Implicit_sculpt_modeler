@@ -227,7 +227,7 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 		delete(packed)
 		delete(decimated)
 	}
-	total := 0
+	total, walls := 0, 0
 	for obj in objs do total += object_triangle_count(obj)
 	painted := false
 	for obj, i in objs {
@@ -265,6 +265,24 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 			}
 		}
 		positions[i] = print_world(at, obj.transform, mm)
+		if once.hollow > 0 {
+			added: int
+			hollowed: bool
+			positions[i], indices, added, hollowed = print_hollow(app, positions[i], indices, once.hollow)
+			if !hollowed {
+				free_all(context.temp_allocator)
+				print_hollow_refused(app, name, once.hollow)
+				return false
+			}
+			walls += added
+			// The wall's vertices take white, unseen inside.
+			if colors[i] != nil && added > 0 {
+				white := make([][3]u8, len(positions[i]), context.temp_allocator)
+				copy(white, colors[i])
+				for &w in white[len(colors[i]):] do w = {255, 255, 255}
+				colors[i] = white
+			}
+		}
 		parts[i] = {object_label(obj), positions[i], indices}
 	}
 	print_stand(positions)
@@ -315,8 +333,43 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
 	app.print_exports += 1
 	if once.decimate > 0 do app.export_decimated = triangles
+	if once.hollow > 0 do app.export_hollowed = walls
 	file_note(app, false, "Exported %s for printing: %d object%s, %.1f x %.1f x %.1f mm; %d triangles in %.0f ms", name, len(objs), "" if len(objs) == 1 else "s", size.x, size.z, size.y, triangles, app.stats.file_write_ms)
 	return true
+}
+
+// A hollow print of `positions` and `indices` (in millimetres): them with the inside wall
+// `wall` thick after them, its triangles facing the hollow (voxel.hollow_inner), in temp
+// memory, and how many triangles the wall added (0 where the object is nowhere thicker
+// than two walls, which stays solid). The wall is decimated to the object's triangles
+// when it has more, since nothing sees it. Not ok for a wall too thin for the voxels an
+// object that big would need.
+print_hollow :: proc(app: ^App, positions: []Vec3, indices: []u32, wall: f32) -> (p: []Vec3, i: []u32, added: int, ok: bool) {
+	src: geom.Mesh
+	src.positions = make([dynamic]Vec3, 0, len(positions), context.temp_allocator)
+	src.indices = make([dynamic]u32, 0, len(indices), context.temp_allocator)
+	append(&src.positions, ..positions)
+	append(&src.indices, ..indices)
+	inner: geom.Mesh
+	inner, ok = voxel.hollow_inner(src, wall, &app.pool, context.temp_allocator)
+	if !ok do return positions, indices, 0, false
+	if fewer := max(len(indices) / 3, EXPORT_DECIMATE_MIN); len(inner.indices) / 3 > fewer {
+		if d, _, decimated := geom.mesh_decimate(inner, fewer, &app.pool, context.temp_allocator); decimated do inner = d
+	}
+	if len(inner.indices) == 0 do return positions, indices, 0, true
+	all := make([]Vec3, len(positions) + len(inner.positions), context.temp_allocator)
+	copy(all, positions)
+	copy(all[len(positions):], inner.positions[:])
+	tris := make([]u32, len(indices) + len(inner.indices), context.temp_allocator)
+	copy(tris, indices)
+	base := u32(len(positions))
+	for k, n in inner.indices do tris[len(indices) + n] = base + k
+	return all, tris, len(inner.indices) / 3, true
+}
+
+// The note for a print whose wall is too thin to hollow an object of its size.
+print_hollow_refused :: proc(app: ^App, name: string, wall: f32) {
+	file_note(app, true, "Cannot hollow %s: a %s mm wall is too thin for an object this big; a thicker wall would do", name, print_number(wall))
 }
 
 // What the printed file holds, for the note after it is written: its size, and whether

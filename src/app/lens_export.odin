@@ -179,6 +179,7 @@ export_preset_has :: proc(p: Export_Preset, f: Export_Format) -> bool {
 // request's `sheet`), set when Export runs: the copy written changes, never the scene.
 Export_Once :: struct {
 	decimate: int, // the triangles the file may hold; 0 keeps them all
+	hollow:   f32, // a print's wall in millimetres, hollowed inside it; 0 for solid
 }
 
 // The For this file options for request `req`: the sheet's when it started it, else none.
@@ -199,6 +200,8 @@ Export_Sheet :: struct {
 	print_all:   bool, // a print takes every object shown, not only the selected ones
 	decimate:    bool, // Decimate for this file only, for a print or the game engine
 	decimate_to: i32, // the triangles it decimates to; 0 for half of what goes out
+	hollow:      bool, // Hollow for this file only, for a print
+	hollow_wall: f32, // its wall in millimetres; 0 for EXPORT_HOLLOW_WALL
 	ran:         bool, // an export has run, in this run or one before
 	last_preset: Export_Preset,
 	last_format: Export_Format,
@@ -315,6 +318,22 @@ export_decimates :: proc(s: ^Export_Sheet) -> bool {
 	return s.decimate && (s.preset == .Print || s.preset == .Game)
 }
 
+// Whether the sheet hollows what it exports: asked, for a print.
+export_hollows :: proc(s: ^Export_Sheet) -> bool {
+	return s.hollow && s.preset == .Print
+}
+
+// Hollow for this file only's wall in millimetres: what the sheet set, or the usual.
+export_hollow_wall :: proc(s: ^Export_Sheet) -> f32 {
+	return s.hollow_wall if s.hollow_wall > 0 else EXPORT_HOLLOW_WALL
+}
+
+// A hollow print's wall at first, and the thinnest and thickest the sheet sets, in
+// millimetres: resin slicers start at 2 mm and warn under about 1.
+EXPORT_HOLLOW_WALL :: 2.0
+EXPORT_HOLLOW_MIN :: 0.5
+EXPORT_HOLLOW_MAX :: 20.0
+
 // The triangles format `f` takes out: a print's objects' or the selected object's.
 export_triangles :: proc(app: ^App, f: Export_Format) -> int {
 	if _, is_print := export_print_file(f); is_print {
@@ -401,7 +420,7 @@ export_run :: proc(app: ^App) -> bool {
 	// content:// document has none, as for Save next.
 	where_ := ""
 	if save_next_allowed(app) do where_, _ = filepath.join({filepath.dir(app.scene_path), export_file_name(app, f)}, context.temp_allocator)
-	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0}
+	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0, hollow = export_hollow_wall(s) if export_hollows(s) else 0}
 	if filter, ok := export_filter(f); ok {
 		file_dialog_export(app, filter, where_, sheet = true)
 	} else if file, is_print := export_print_file(f); is_print {
@@ -613,6 +632,10 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 		size := print_size_of(app, objs) / PRINT_UNIT_MM[app.print_unit]
 		unit := PRINT_UNIT_NAMES[app.print_unit]
 		append(&lines, fmt.tprintf("%s wide, %s deep, %s tall (%s)", print_number(size.x), print_number(size.z), print_number(size.y), unit))
+		if export_hollows(&app.kit.export) {
+			wall, least := export_hollow_wall(&app.kit.export), print_wall_least(app)
+			append(&lines, fmt.tprintf("Hollow inside a %s mm wall", print_number(wall)) if wall >= least else fmt.tprintf("Hollow inside a %s mm wall, under the %s mm least", print_number(wall), print_number(least)))
+		}
 	case .OBJ, .PLY, .STL, .GLTF, .USD:
 		if obj == nil {
 			append(&lines, "Nothing selected")
@@ -730,5 +753,18 @@ export_print_options :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "export print unit", names[:], int(app.print_unit), item_width = (UNITS_W - 4) / 3); picked >= 0 do app.print_unit = Print_Unit(picked)
 	ui.end(ctx)
 	export_decimate_rows(app, k.export.format)
-	ui.paragraph(ctx, "Width and depth follow, every object at the scene's one print scale, so parts printed apart fit together.", color = t.text_tertiary)
+	// Hollow for this file only, with its wall to drag beside it on the same row while on.
+	ui.begin(ctx, "export print hollow", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print hollow switch", {direction = .Column, width = row_w - UNITS_W - 8 if s.hollow else row_w})
+	_ = ui.switch_row(ctx, "Hollow for this file only", &s.hollow)
+	ui.end(ctx)
+	if s.hollow {
+		ui.begin(ctx, "export print wall", {direction = .Column, width = UNITS_W})
+		wall := export_hollow_wall(s)
+		if ui.drag_value(ctx, "Wall##export hollow", &wall, 0.05, EXPORT_HOLLOW_MIN, EXPORT_HOLLOW_MAX, fmt.tprintf("%s mm", print_number(wall))) do s.hollow_wall = wall
+		ui.end(ctx)
+	}
+	ui.end(ctx)
+	// The note has room only while the rows under it are folded.
+	if !s.decimate && !s.hollow do ui.paragraph(ctx, "Width and depth follow, at the scene's one print scale, so parts printed apart fit. Hollow keeps a wall that thick inside; the slicer adds the drain holes.", color = t.text_tertiary)
 }

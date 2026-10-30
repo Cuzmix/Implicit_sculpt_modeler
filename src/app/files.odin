@@ -1034,6 +1034,24 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		// Millimetres, Z up and on the bed, as a slicer wants; OBJ keeps the polypaint as
 		// vertex colours, which colour printers' slicers read.
 		at := print_positions(positions, obj.transform, print_scale(app))
+		if once.hollow > 0 {
+			added: int
+			hollowed: bool
+			at, indices, added, hollowed = print_hollow(app, at, indices, once.hollow)
+			if !hollowed {
+				free_all(context.temp_allocator)
+				print_hollow_refused(app, name, once.hollow)
+				return false
+			}
+			app.export_hollowed = added
+			// The wall's vertices take white, unseen inside.
+			if colors != nil && added > 0 {
+				white := make([][3]u8, len(at), context.temp_allocator)
+				copy(white, colors)
+				for &w in white[len(colors):] do w = {255, 255, 255}
+				colors = white
+			}
+		}
 		if ext == ".obj" {
 			geom.mesh_write_obj(&out, at, indices, 1, {}, &app.pool, colors)
 		} else {

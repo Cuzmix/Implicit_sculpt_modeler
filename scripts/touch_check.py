@@ -4585,6 +4585,30 @@ def export_sheet_decimates_for_the_file():
     return Steps([run(False), run(True)])
 
 
+# The 3D print's options at 1440x900: the Hollow for this file only switch and, once it
+# is on, the Wall value beside it.
+EXPORT_HOLLOW = {"switch": (722, 550), "wall": (680, 550)}
+
+
+@scenario
+def export_sheet_hollows_a_print():
+    """The 3D print's Hollow for this file only switch shows its Wall beside it, 2 mm at first, which a drag sideways thickens; the settings keep both and the scene is not changed."""
+    def run(drag):
+        s = Script()
+        s.wait(4)
+        s.press("e", ("ctrl",))
+        s.wait(10)
+        s.ftap(*EXPORT_HOLLOW["switch"])
+        s.wait(6)
+        if not drag:
+            return s, LENS_1440, camera_still({"export_preset": is_text("Print"), "export_hollow": near(1), "export_hollow_wall": near(2), "dabs": near(0)})
+        x, y = EXPORT_HOLLOW["wall"]
+        s.fdrag([(x + 10 * i, y) for i in range(8)])
+        s.wait(6)
+        return s, LENS_1440, camera_still({"export_hollow": near(1), "export_hollow_wall": lambda v: float(v) > 2.1, "dabs": near(0), "undo_steps": near(0)})
+    return Steps([run(False), run(True)])
+
+
 # The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
 # cut in half.
 EXPORT_CHECKS = {"repair": (1136, 502)}

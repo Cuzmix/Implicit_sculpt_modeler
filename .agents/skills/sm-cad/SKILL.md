@@ -189,7 +189,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   The Export sheet's Decimate for this file only travels as `Export_Once` (`export_once_of`, set by `export_run`
   for the dialog's answer, which carries the sheet bit in its userdata): `object_export` and `print_export_many`
   decimate a copy with `geom.mesh_decimate(..., from = &from)` and carry each kept vertex's paint, shape-key deltas
-  (`sparse_keep`) and groups through `from`; the object is never touched, so no undo entry.
+  (`sparse_keep`) and groups through `from`; the object is never touched, so no undo entry. Hollow (`Export_Once.hollow`,
+  millimetres) runs `print_hollow` on the print's millimetre positions: `voxel.hollow_inner` voxelises a copy with voxels
+  of wall / `HOLLOW_DEPTH`, turns Inside tiles beside the band into bricks and repairs them (else the new surface hits a
+  tile's clamp at a brick face, up to two voxels off), shifts every band value by the depth and meshes the zero, flipped.
   The Export sheet's print checks (`print_checks.odin`) key their cache on the object's buffer version, reuse the
   sculptor's `bvh` at once up to `PRINT_CHECK_AT_ONCE` triangles and above it run on their own thread from a copy
   with `context.allocator` set to the heap (a slice freed by `bvh_destroy` must come from the allocator it frees with).
