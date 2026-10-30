@@ -1488,6 +1488,7 @@ kit_layout :: proc(app: ^App) {
 	kit_menu_lens(app, menu_anchor)
 	kit_workspace_menu(app)
 	kit_pass_menu(app)
+	kit_history_menu(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_scene_menu(app)
@@ -1761,6 +1762,7 @@ Rename_Entry :: struct {
 	id:     int, // the object, or minus the folder; the slot for a macro
 	macro:  bool,
 	workspace: bool, // the slot of an own workspace
+	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1779,6 +1781,8 @@ kit_rename :: proc(app: ^App) {
 	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
 	if r.macro do gone = app.macro.slots[r.id].name == ""
 	if r.workspace do gone = !k.workspaces.list[r.id].used
+	step, _, has_step := history_step_of(app, r.step)
+	if r.step != {} do gone = !has_step
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1786,9 +1790,11 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
-	if r.macro {
+	if r.step != {} {
+		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.macro {
 		now = app.macro.slots[r.id].name
 	} else if r.workspace {
 		now = workspace_name(k, r.id)
@@ -1796,13 +1802,20 @@ kit_rename :: proc(app: ^App) {
 		if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
 		if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
 	}
-	_ = ui.text_field(ctx, "name##rename", r.text[:len(r.text) - 1], hold = r.open, hint = fmt.tprintf("Now %s", now))
+	// A new bookmark left unnamed takes the next "Bookmark N".
+	fresh := r.step != {} && now == ""
+	_ = ui.text_field(ctx, "name##rename", r.text[:len(r.text) - 1], hold = r.open, hint = history_bookmark_default(app) if fresh else fmt.tprintf("Now %s", now))
 	r.typing ||= r.open
-	ui.paragraph(ctx, "Enter applies it; left empty, the name stays as it is.")
+	ui.paragraph(ctx, "Enter applies it; left empty, it is called what the field shows." if fresh else "Enter applies it; left empty, the name stays as it is.")
 	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
 	d := &app.device
 	apply ||= r.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
-	if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
+	if apply && r.open && r.step != {} {
+		// A bookmark is a note on the History, not part of the scene: it changes at once.
+		name := rename_text(r.text[:])
+		if name == "" do name = history_bookmark_default(app) if fresh else now
+		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
 		// A macro is no part of the scene: its file changes at once, outside the History.
 		_ = macro_rename(app, r.id, rename_text(r.text[:]))
 	} else if apply && r.open && r.workspace {

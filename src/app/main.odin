@@ -1786,7 +1786,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(&app)
-		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at)), history_bytes, app.history.dropped)
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus)
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {

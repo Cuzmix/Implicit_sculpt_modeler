@@ -58,6 +58,11 @@ History_Entry :: struct {
 	// snapshot or the texture maps; 0 for a change that keeps next to nothing (a move, the
 	// lights). The History list shows it.
 	bytes: int,
+	// Where the camera looked from when the step was made, for View from this step (the
+	// History's step menu, as ZBrush's Restore placement), and the step's bookmark name
+	// (owned; empty for none), as ZBrush's restore points name a state to come back to.
+	view:     Camera_View,
+	bookmark: string,
 	// A stroke set to a share of itself after the fact (Adjust last stroke), and the share.
 	adjusted: bool,
 	amount:   f32,
@@ -85,6 +90,7 @@ Arrange_Step :: struct {
 // command's tables or the lights.
 @(private = "file")
 entry_free :: proc(h: ^History, e: History_Entry) {
+	delete(e.bookmark)
 	free(e.lights)
 	group_table_step_free(e.group_table)
 	if e.textures != nil {
@@ -185,7 +191,7 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	history_forget_strokes(app, id)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now(), bytes = len(before.bytes)})
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now(), bytes = len(before.bytes), view = camera_view_of(app.camera)})
 	app.history.swap_bytes += len(before.bytes)
 	history_trim(app)
 }
@@ -196,7 +202,7 @@ history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, wh
 	history_drop_redo(app)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, kind = .Textures, what = what, at = time.tick_now(), textures = step, bytes = texture_step_bytes(step)})
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Textures, what = what, at = time.tick_now(), textures = step, bytes = texture_step_bytes(step), view = camera_view_of(app.camera)})
 	app.history.swap_bytes += texture_step_bytes(step)
 	history_trim(app)
 }
@@ -296,9 +302,16 @@ history_drop_oldest :: proc(app: ^App, steps: int) -> (freed: int) {
 // redo, and says how much it freed. Not while a stroke, a drag or the timeline is under
 // way.
 history_delete_older :: proc(app: ^App) {
-	if history_busy(app) || timeline_busy(app) || len(app.history.done) == 0 do return
+	history_delete_before(app, len(app.history.done))
+}
+
+// Delete everything older (the History's step menu): forgets the done steps before done
+// entry `index`, keeping that step and everything after it, and says how much it freed.
+// Not while a stroke, a drag or the timeline is under way.
+history_delete_before :: proc(app: ^App, index: int) {
+	if history_busy(app) || timeline_busy(app) || index <= 0 || index > len(app.history.done) do return
 	stroke_finish(app)
-	n := history_step_count(app.history.done[:])
+	n := history_step_count(app.history.done[:index])
 	freed := history_drop_oldest(app, n)
 	app.stroke_end.valid = false
 	file_note(app, false, "Deleted %d older step%s, freeing %s", n, "" if n == 1 else "s", bytes_label(freed))
@@ -685,7 +698,7 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 	} else {
 		bytes = sculpt.sculptor_last_step_bytes(object_sculptor(obj))
 	}
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera)})
 }
 
 @(private = "file", rodata)
@@ -724,7 +737,7 @@ history_record_transform :: proc(app: ^App, obj: ^Object, before: Transform, wha
 	history_drop_redo(app)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform, chain = chain && len(app.history.done) > 0})
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform, chain = chain && len(app.history.done) > 0, view = camera_view_of(app.camera)})
 }
 
 // Lists `e`, a change that is no stroke and no swap, as the newest undo step.
@@ -732,6 +745,8 @@ history_push :: proc(app: ^App, e: History_Entry) {
 	history_drop_redo(app)
 	app.history.serial += 1
 	app.history.edits += 1
+	e := e
+	if e.view == {} do e.view = camera_view_of(app.camera)
 	append(&app.history.done, e)
 }
 
