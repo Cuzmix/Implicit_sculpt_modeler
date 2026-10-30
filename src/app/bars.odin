@@ -22,13 +22,20 @@ Bar_Slot :: Pie_Slot
 Bar_Which :: enum u8 {
 	Tools, // the shelf's tool strip, after All (lens_shelf.odin)
 	View_Rail, // the view rail, down the pen side (lens_chrome.odin)
-	// The shelf's six pages (lens_shelf.odin), in Shelf_Page's order.
+	// The shelf's pages (lens_shelf.odin), in Shelf_Page's order: the six built in, then
+	// the pages the person adds.
 	Shelf_Sculpt,
 	Shelf_Paint,
 	Shelf_Move,
 	Shelf_Curve,
 	Shelf_Model,
 	Shelf_Render,
+	Shelf_Extra_1,
+	Shelf_Extra_2,
+	Shelf_Extra_3,
+	Shelf_Extra_4,
+	Shelf_Extra_5,
+	Shelf_Extra_6,
 	Brush_Pie, // the brush pie (pie.odin): eight slots, clockwise from the top
 	// The off-hand island (lens_chrome.odin): the brush's values and any command, down the
 	// off-hand side. Last, as settings name bars by zone and the shelf's pages count from
@@ -61,6 +68,12 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Curve  = "shelf_curve",
 	.Shelf_Model  = "shelf_model",
 	.Shelf_Render = "shelf_render",
+	.Shelf_Extra_1 = "shelf_extra_1",
+	.Shelf_Extra_2 = "shelf_extra_2",
+	.Shelf_Extra_3 = "shelf_extra_3",
+	.Shelf_Extra_4 = "shelf_extra_4",
+	.Shelf_Extra_5 = "shelf_extra_5",
+	.Shelf_Extra_6 = "shelf_extra_6",
 	.Brush_Pie    = "brush_pie",
 	.Offhand      = "offhand_island",
 	.Dock_1       = "dock_1",
@@ -144,7 +157,7 @@ bar_lists_reset :: proc(k: ^Kit_State) {
 // A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	switch which {
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render:
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return shelf_fresh(page)
 	case .View_Rail:
@@ -172,7 +185,7 @@ bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 // The list behind the strip, the view rail, a shelf page or the brush pie.
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	switch which {
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render:
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return &k.shelf.lists[page]
 	case .View_Rail: return &k.view_rail
@@ -197,7 +210,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
 	case .Tools:     return TOOLS_MAX
 	case .View_Rail: return VIEW_RAIL_MAX
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render: return SHELF_MAX
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
@@ -306,20 +319,17 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 	at := clamp(pick.slot, 0, count^ - 1)
 	bar_list(app, pick.which).slots[at] = s
 	bar_list(app, pick.which).looks[at] = bar_default_look(pick.which)
-	report(app, nil, {}, "%s now has %s", bar_title(pick.which), bar_label(s))
+	report(app, nil, {}, "%s now has %s", bar_title(app, pick.which), bar_label(s))
 }
 
 // "The view rail", for notes.
-bar_title :: proc(which: Bar_Which) -> string {
+bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
 	case .Tools:     return "The shelf's tools"
 	case .View_Rail: return "The view rail"
-	case .Shelf_Sculpt: return "The Sculpt shelf"
-	case .Shelf_Paint:  return "The Paint shelf"
-	case .Shelf_Move:   return "The Move shelf"
-	case .Shelf_Curve:  return "The Curve shelf"
-	case .Shelf_Model:  return "The Model shelf"
-	case .Shelf_Render: return "The Render shelf"
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
+		page, _ := shelf_page_of(which)
+		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The off-hand island"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
@@ -334,7 +344,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 	count := bar_count(app, which)
 	if count^ >= bar_capacity(which) {
-		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which), bar_capacity(which))
+		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(app, which), bar_capacity(which))
 		return false
 	}
 	// A shelf page takes no tile it has no room to show on this screen, even at its
@@ -342,7 +352,7 @@ bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 	if page, ok := shelf_page_of(which); ok {
 		sh := &app.kit.shelf
 		if page == sh.page && sh.fits > 0 && count^ >= sh.fits {
-			report(app, nil, {.Warning}, "%s has room for %d tiles on this screen: remove one first, or put it on another page", bar_title(which), sh.fits)
+			report(app, nil, {.Warning}, "%s has room for %d tiles on this screen: remove one first, or put it on another page", bar_title(app, which), sh.fits)
 			return false
 		}
 	}

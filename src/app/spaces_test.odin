@@ -266,11 +266,11 @@ render_has_its_own_shelf_page :: proc(t: ^testing.T) {
 	path := "build/render_shelf_test.txt"
 	defer os.remove(path)
 	defer free_all(context.temp_allocator)
-	first, last := shelf_pages_of(.Render)
-	testing.expect(t, first == .Render && last == .Render)
 	testing.expect_value(t, shelf_which(.Render), Bar_Which.Shelf_Render)
 	a := spaces_app()
 	defer spaces_app_free(a)
+	testing.expect_value(t, len(shelf_pages(&a.kit, .Render)), 1)
+	testing.expect_value(t, shelf_pages(&a.kit, .Render)[0], Shelf_Page.Render)
 	used := bar_used(a, .Shelf_Render)
 	testing.expect_value(t, len(used), 12)
 	testing.expect_value(t, used[0], Bar_Slot{.Studio_Render, 0})
