@@ -740,7 +740,7 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
 // beneath it.
 history_busy :: proc(app: ^App) -> bool {
-	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active
+	return app.long_job.on || app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active
 }
 
 history_undo :: proc(app: ^App) {

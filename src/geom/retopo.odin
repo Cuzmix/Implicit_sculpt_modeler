@@ -120,13 +120,16 @@ Retopo_Report :: struct {
 // Quads remeshing `source`, about `wanted` of them, with the sculpt's own `bvh` (over
 // `source`'s triangles) to put vertices back onto it. ok is false when there is too
 // little to work from (or too much asked: the result would not be lighter).
-mesh_retopo :: proc(source: Mesh, bvh: ^Bvh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator) -> (out: Quad_Mesh, report: Retopo_Report, ok: bool) {
+mesh_retopo :: proc(source: Mesh, bvh: ^Bvh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Quad_Mesh, report: Retopo_Report, ok: bool) {
 	triangles := len(source.indices) / 3
 	// About three in four triangles pair: 2 quads from a pair, 3 from a triangle alone.
 	goal := max(int(f32(wanted) * 0.45), 8)
 	if triangles < 8 || goal >= triangles do return {}, {}, false
-	coarse, _, decimated := mesh_decimate(source, goal, pool, context.temp_allocator)
+	// The decimation is most of the time; pairing, cutting and relaxing the rest.
+	mid := share[0] + (share[1] - share[0]) * 0.8
+	coarse, _, decimated := mesh_decimate(source, goal, pool, context.temp_allocator, progress, {share[0], mid})
 	if !decimated do return {}, {}, false
+	jobs.progress_set(progress, mid, share[1], 0)
 	report.decimated = len(coarse.indices) / 3
 
 	faces, paired := pair_triangles(coarse.positions[:], coarse.indices[:])

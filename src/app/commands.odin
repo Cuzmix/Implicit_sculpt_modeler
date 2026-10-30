@@ -2455,6 +2455,7 @@ DEFAULT_BINDINGS := [?]Binding {
 
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
+	if long_job_holds(app, id) do return false
 	if id in CAGE_REFUSED_COMMANDS && selected_cage(app) do return false
 	if id in VOXEL_REFUSED_COMMANDS {
 		if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
@@ -2476,7 +2477,10 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 		bind_open(app, id, arg, app.kit.ctx.clicked_rect)
 		return false
 	}
-	if !command_enabled(app, id, arg) do return false
+	if !command_enabled(app, id, arg) {
+		if long_job_holds(app, id) do long_job_refuse(app)
+		return false
+	}
 	// A drag held in the inspector ends first, as its own step, so the command acts on
 	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
 	inspector_drags_end(app)

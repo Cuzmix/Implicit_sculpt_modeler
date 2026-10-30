@@ -148,6 +148,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
    `volume_before= volume_after= boundary_edges= non_manifold_edges=` in the exit-stats style; `--check-mesh` must stay
    green after the tool.
 10. A `bench` mode or `--bench-*` flag when the tool runs per frame or on 10M-vertex meshes (sm-perf).
+11. A tool that takes seconds at 2M+ runs as a long job (`src/app/long_job.odin`): split its object proc into a pure
+    compute half (takes `progress: ^jobs.Progress = nil`, moves it at fixed stage shares, returns not built at the next
+    check after `progress_cancelled`) and an apply half (`remesh_apply`, `retopo_apply`); add its kind to
+    `long_job_async`'s cases, `JOB_VERBS` and `JOB_BUTTONS`; scripted runs stay inline, `--async-jobs` forces the job.
 
 ## Measure
 - Edge length and area from positions; bounds from `geom.Aabb`/`aabb_grow` (`src/geom/bvh.odin:9-20`); signed volume

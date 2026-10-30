@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
+import "../jobs"
 import "../render"
 import "../png_write"
 import "../sculpt"
@@ -62,29 +63,73 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 
 // Makes a new object of about `quads` quads on the shape of the level the selected
 // object is on, with UVs, next to it, and selects it. Returns false only on a GPU failure.
+// A long job (long_job.odin) runs the same two halves, retopo_compute on its thread.
 object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	view, packed := object_shape(obj, top = false)
-	defer {
-		delete(view.normals)
-		geom.mesh_destroy(&packed)
-	}
-	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, &app.pool)
-	defer geom.bvh_destroy(&bvh)
-	q, how, built := geom.mesh_retopo(view, &bvh, quads, &app.pool)
-	free_all(context.temp_allocator)
-	if !built {
+	r := retopo_compute(view, quads, &app.pool)
+	delete(view.normals)
+	geom.mesh_destroy(&packed)
+	if !r.built {
 		log.warnf("retopologize: %s has too few triangles for %d quads", object_label(obj), quads)
 		return false, true
 	}
-	retopo_ms := time.duration_milliseconds(time.tick_since(start))
-	uv_start := time.tick_now()
-	uv := geom.quad_uv_unwrap(q, UV_PADDING)
-	uv_ms := time.duration_milliseconds(time.tick_since(uv_start))
+	return retopo_apply(app, obj, &r, start)
+}
 
-	mesh := geom.quad_mesh_triangulate(q)
+// What Retopologize computes before it makes the object: the quads, their UVs and the
+// triangles drawn and sculpted.
+Retopo_Result :: struct {
+	q:         geom.Quad_Mesh, // the quads, over positions `mesh` copied
+	how:       geom.Retopo_Report,
+	uv:        geom.Uv_Layout,
+	mesh:      geom.Mesh,
+	built:     bool,
+	retopo_ms: f64,
+	uv_ms:     f64,
+}
+
+// The quads of about `quads` on `view` (with normals), their UVs and triangles; touches
+// no object or interface, so a long job runs it on its own thread with its own pool, and
+// with `progress` it stops after a cancel, built false with nothing to free.
+retopo_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Retopo_Result) {
+	start := time.tick_now()
+	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, pool)
+	defer geom.bvh_destroy(&bvh)
+	q, how, built := geom.mesh_retopo(view, &bvh, quads, pool, progress = progress, share = {0, 0.9})
+	free_all(context.temp_allocator)
+	if !built do return
+	if jobs.progress_cancelled(progress) {
+		geom.quad_mesh_destroy(&q)
+		return
+	}
+	r.retopo_ms = time.duration_milliseconds(time.tick_since(start))
+	uv_start := time.tick_now()
+	r.uv = geom.quad_uv_unwrap(q, UV_PADDING)
+	r.uv_ms = time.duration_milliseconds(time.tick_since(uv_start))
+	r.mesh = geom.quad_mesh_triangulate(q)
+	r.q, r.how, r.built = q, how, true
+	jobs.progress_set(progress, 0, 1, 1)
+	return
+}
+
+// Frees a computed retopology that will not become an object (a cancel, or the app
+// ending while it ran).
+retopo_result_destroy :: proc(r: ^Retopo_Result) {
+	if !r.built do return
+	geom.quad_mesh_destroy(&r.q)
+	geom.uv_layout_destroy(&r.uv)
+	geom.mesh_destroy(&r.mesh)
+	r^ = {}
+}
+
+// Makes the object from a computed retopology of `obj`, next to it, and selects it; the
+// result's parts become the object's. `start` is when the work began, for the mesh's build.
+retopo_apply :: proc(app: ^App, obj: ^Object, r: ^Retopo_Result, start: time.Tick) -> (made, ok: bool) {
+	q, how, uv, mesh, retopo_ms, uv_ms := r.q, r.how, r.uv, r.mesh, r.retopo_ms, r.uv_ms
+	r^ = {}
 	old_to_new := make([]u32, len(q.positions))
 	defer delete(old_to_new)
 	delete(q.positions)

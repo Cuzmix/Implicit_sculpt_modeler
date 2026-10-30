@@ -306,7 +306,8 @@ file_take :: proc(app: ^App) -> (req: File_Request, ok: bool) {
 		delete(pending.error, runtime.heap_allocator())
 		pending.error = ""
 	}
-	if pending.req.kind == .None do return {}, false
+	// A file action waits for a job holding the scene (long_job.odin).
+	if pending.req.kind == .None || long_job_busy(app) do return {}, false
 	req, pending.req = pending.req, {}
 	return req, true
 }

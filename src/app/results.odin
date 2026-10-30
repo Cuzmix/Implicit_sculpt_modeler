@@ -145,6 +145,21 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	ok := scene_apply(app, cmd)
 	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
+	// A big object's remesh goes on on a thread of its own (long_job.odin), which finishes
+	// the command as below, on that object, once it is done.
+	if long_job_unnamed(app) {
+		long_job_name(app, label, source, start)
+		return ok
+	}
+	return scene_run_finish(app, cmd, label, source, start, ok, selected_object(app))
+}
+
+// The end of a scene command scene_run ran from `start` on object `source` (named
+// `label`), or a long job finished for it: when it left an undo step, the report line
+// (with `counted`'s vertices), what went with the old mesh, Undo, and Adjust last.
+scene_run_finish :: proc(app: ^App, cmd: Scene_Command, label: string, source: int, start: time.Tick, ok: bool, counted: ^Object) -> bool {
+	what := SCENE_REPORTS[cmd.kind]
+	op := adjust_op_of(cmd.kind)
 	if !swap_since(app.history.done[:], start) {
 		if cmd.adjust && ok do adjust_unchanged(app)
 		return ok
@@ -155,7 +170,7 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		vertices := -1
 		#partial switch cmd.kind {
 		case .Remesh, .Decimate, .Symmetrize, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample:
-			if obj := selected_object(app); obj != nil do vertices = object_vertex_count(obj)
+			if counted != nil do vertices = object_vertex_count(counted)
 		}
 		report(app, what.section, {}, "%s", scene_report_line(what.verb, label, vertices, ms))
 	}

@@ -6370,6 +6370,37 @@ def save_puts_a_tick_by_the_status():
 
 
 @scenario
+def remesh_runs_as_a_long_job():
+    """Remesh from Search with --async-jobs runs on a thread of its own and lands as one undo step: the frames go on while it works, and once it is done the job is over and nothing was cancelled."""
+    s = Script()
+    palette_run(s, "remesh")
+    s.wait(240)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def retopologize_runs_as_a_long_job():
+    """Retopologize from Search with --async-jobs makes the quad object beside the sculpt once its thread is done, as one undo step."""
+    s = Script()
+    palette_run(s, "retopologize")
+    s.wait(300)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "objects": near(2), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def long_job_holds_the_scene_and_escape_cancels_it():
+    """While a big remesh runs, a drag on the model lays no dab, Ctrl+Z undoes nothing and a command that edits waits; Escape then cancels the job, which leaves no undo step."""
+    s = Script()
+    palette_run(s, "remesh")
+    s.mouse_drag(line((760, 430), (860, 470), 6))
+    s.press("z", ("ctrl",))
+    s.wait(2)
+    s.press("Escape")
+    s.wait(60)
+    return s, ["--async-jobs", "--vertices=1500000"], {"long_jobs": near(1), "long_job_cancels": near(1), "long_job_running": near(0), "undo_steps": near(0), "dabs": near(0)}
+
+
+@scenario
 def pie_escape_closes_only_the_pie():
     """With Help open, Shift+Q opens Pie 2 and Escape closes the pie alone: nothing runs and Help stays."""
     s = Script()

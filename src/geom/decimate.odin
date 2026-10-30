@@ -25,8 +25,10 @@ DECIMATE_ROUND_KEEP :: 4
 // the surface or pinch it are refused, so a closed manifold stays one, and it may
 // stop above the target when nothing more can go. Returns the new mesh with zero
 // normals and the largest error a collapse made (simplify's), or ok false when there
-// is nothing to decimate.
-mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator) -> (out: Mesh, error: f32, ok: bool) {
+// is nothing to decimate. With `progress` (a job on a thread of its own) it says how far
+// it has come within `share` of the whole, after each round and through the last
+// simplify's passes, and stops after a cancel, returning not ok with nothing to free.
+mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Mesh, error: f32, ok: bool) {
 	triangles := len(m.indices) / 3
 	if triangles == 0 || wanted >= triangles do return {}, 0, false
 	target := max(wanted, 4)
@@ -34,14 +36,21 @@ mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := conte
 	indices := m.indices[:]
 	round: [dynamic]u32
 	defer delete(round)
+	// The rounds take about the first half of the time, each a quarter of what is left of
+	// it; the last simplify the rest.
+	rounds_end := share[0] + (share[1] - share[0]) * 0.5
 	for shift := false; len(indices) / 3 > 2 * DECIMATE_SLACK * target && len(indices) / 3 > 200_000; shift = !shift {
 		next := decimate_cells(m, indices, max(len(indices) / 3 / DECIMATE_ROUND_KEEP, DECIMATE_SLACK * target), shift, pool)
 		delete(round)
 		round = next
 		indices = round[:]
+		at := jobs.progress_get(progress)
+		jobs.progress_set(progress, at, rounds_end, 0.75)
+		if jobs.progress_cancelled(progress) do return {}, 0, false
 	}
 	kept := make([dynamic]u32, 0, 3 * target + 3, context.temp_allocator)
-	error = simplify(m.positions[:], indices, target, &kept, context.temp_allocator, strict = true)
+	error = simplify(m.positions[:], indices, target, &kept, context.temp_allocator, strict = true, progress = progress, share = {max(jobs.progress_get(progress), rounds_end), share[1]})
+	if jobs.progress_cancelled(progress) do return {}, 0, false
 
 	// Only the vertices still used, in order of first use.
 	renumber := make([]u32, len(m.positions), context.temp_allocator)

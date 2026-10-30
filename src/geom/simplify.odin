@@ -4,6 +4,8 @@ import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
+import "../jobs"
+
 // Mesh simplification for levels of detail. Edges collapse into one of their existing
 // vertices, cheapest first by quadric error (Garland and Heckbert), in passes of
 // independent collapses as meshoptimizer does. A vertex on an edge that does not have
@@ -73,7 +75,7 @@ sliver :: #force_inline proc(a, b, c: Vec3d) -> bool {
 // vertices of a triangle move in one pass, so the checks hold and no triangle folds or
 // goes flat, at the cost of more passes: for meshes that are sculpted or exported
 // (mesh_decimate).
-simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]u32, allocator := context.allocator, strict := false) -> (error: f32) {
+simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]u32, allocator := context.allocator, strict := false, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (error: f32) {
 	context.allocator = allocator
 	EMPTY :: max(u32)
 
@@ -241,8 +243,13 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 	}
 
 	worst: f64
+	start := len(tris)
 	for _ in 0 ..< (256 if strict else 32) {
 		if len(tris) <= target do break
+		// A job's progress, set only on the calling thread, and its cancel, which leaves
+		// the passes so far for the caller to throw away.
+		jobs.progress_set(progress, share[0], share[1], f32(start - len(tris)) / f32(max(start - target, 1)))
+		if jobs.progress_cancelled(progress) do break
 		// Each free vertex's cheapest collapse into a neighbour.
 		clear(&candidates)
 		for u in 0 ..< vcount {
