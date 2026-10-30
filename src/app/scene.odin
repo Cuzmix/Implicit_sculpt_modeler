@@ -182,7 +182,8 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
-	vertices: int,
+	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
+	engine:   Quad_Engine, // Retopo: which quad remesher (retopo.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -338,18 +339,18 @@ STARTER_LEVELS :: 3
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> bool {
-	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material) or_return
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> bool {
+	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material, tri_from) or_return
 	scene_append(app, obj)
 	return true
 }
 
 // A new object of `mesh`, built (as scene_add_mesh says) but in no scene yet; nil on a
 // GPU failure. `material` is the one it is shaded with, or none for the default.
-object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> (obj: ^Object, ok: bool) {
+object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> (obj: ^Object, ok: bool) {
 	obj = new(Object)
 	obj.transform, obj.file, obj.material = t, file, material
-	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface) {
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface, tri_from = tri_from) {
 		free(obj)
 		return nil, false
 	}
@@ -873,7 +874,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, nil)
-			made, ok := object_retopo(app, obj, cmd.vertices)
+			made, ok := object_retopo(app, obj, cmd.vertices, cmd.engine)
 			if made do history_record_added(app)
 			return ok
 		}

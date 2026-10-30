@@ -113,10 +113,11 @@ bind_listen :: proc(app: ^App) {
 		}
 		c := Chord{key = key.key, mods = key.mods}
 		b.chord = c
-		// The system's own modifier (Cmd, the Windows key) is no part of a chord, so a
-		// press with it would bind the bare key.
-		if sdl.GetModState() & sdl.KMOD_GUI != {} {
-			b.state, b.reason = .Refused, "Cmd and the Windows key belong to the system"
+		// The system's own modifier (the Windows key; Cmd on Linux) is no part of a chord,
+		// so a press with it would bind the bare key. On Apple's platforms Cmd is the
+		// shortcut key itself and binds as Ctrl (KMOD_SHORTCUT).
+		if ODIN_OS != .Darwin && sdl.GetModState() & sdl.KMOD_GUI != {} {
+			b.state, b.reason = .Refused, "the Windows key belongs to the system"
 			return
 		}
 		if reason, reserved := chord_reserved(c); reserved {

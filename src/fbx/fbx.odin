@@ -30,9 +30,9 @@ Scene :: struct {}
 when ODIN_OS == .Windows {
 	// Built with /MT, as the app is.
 	foreign import lib "../../deps/ufbx/ufbx.lib"
-} else when ODIN_PLATFORM_SUBTARGET == .Android || ODIN_PLATFORM_SUBTARGET == .iPhone {
-	// Android's CMakeLists and `build.sh ios` compile fbx_shim.c and link it with the
-	// app's object themselves.
+} else when ODIN_PLATFORM_SUBTARGET == .Android || ODIN_OS == .Darwin {
+	// Android's CMakeLists and `build.sh ios` and `mac` compile fbx_shim.c and link it with
+	// the app's object themselves.
 	foreign import lib "system:ufbx"
 } else {
 	foreign import lib {"../../deps/ufbx/libufbx.a", "system:m"}

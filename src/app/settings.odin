@@ -224,6 +224,7 @@ SETTINGS := [?]Setting {
 	{"rebuild_even", U + offset_of(Ui_State, rebuild_even), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"rebuild_fewer", U + offset_of(Ui_State, rebuild_fewer), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
+	{"retopo_engine", U + offset_of(Ui_State, retopo_engine), Quad_Engine, 0, 0},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},
 	{"bake_orm", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, orm), bool, 0, 0},

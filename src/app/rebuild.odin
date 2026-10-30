@@ -5,12 +5,13 @@ import "core:math"
 import "core:time"
 
 import "../geom"
+import "../quadmesh"
 import "../sculpt"
 import "../ui"
 
 // Rebuild (Object > Shape): one section for the three ways to replace an object's
 // topology, by the goal rather than the algorithm (UX research 08): an Even mesh (voxel
-// remesh, ZBrush's DynaMesh), Fewer polygons (decimate) or Quads (retopologize). Its
+// remesh, ZBrush's DynaMesh), Fewer polygons (decimate) or Quads (Quad Remesh). Its
 // Density slider sets how many, and while it is held the selected object shows the cells
 // that density gives as a checkerboard (Nomad's resolution preview), so the size is seen
 // before anything is rebuilt rather than guessed from a vertex count.
@@ -32,7 +33,7 @@ REBUILD_GOAL_NAMES := [Rebuild_Goal]string {
 REBUILD_VERBS := [Rebuild_Goal]string {
 	.Even  = "Remesh",
 	.Fewer = "Decimate",
-	.Quads = "Retopologize (new object)",
+	.Quads = "Quad Remesh (new object)",
 }
 
 // How long the checkerboard stays after the slider is let go: long enough to look at it
@@ -153,7 +154,7 @@ rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
 	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even)}
 	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer)}
-	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads)}
+	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), engine = app.ui.retopo_engine}
 	}
 }
 
@@ -168,7 +169,14 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	switch goal^ {
 	case .Even:  _ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
 	case .Fewer: _ = kit_count(ctx, label, &app.ui.rebuild_fewer, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
-	case .Quads: _ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
+	case .Quads:
+		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
+		// Where only the built-in engine is compiled there is nothing to choose.
+		when quadmesh.AVAILABLE {
+			engines: [len(Quad_Engine)]string
+			for e in Quad_Engine do engines[int(e)] = QUAD_ENGINE_NAMES[e]
+			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = Quad_Engine(picked)
+		}
 	}
 	// Held, or under a mouse: the checkerboard shows (Fewer has none to show).
 	id := ui.id_of(ctx, label)
@@ -196,7 +204,11 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	case .Fewer:
 		ui.paragraph(ctx, "About this many vertices, dense where the detail is and sparse where the surface is flat, so there is no one size to preview.")
 	case .Quads:
-		ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs, for baking (Build > UVs and baking).")
+		when quadmesh.AVAILABLE {
+			ui.paragraph(ctx, "A new object of about this many quads lying on this one, which keeps them for Subdivide and Wireframe, with UVs for baking (Build > UVs and baking). AutoRemesher follows the surface's curves; Built-in is quicker and plainer, and stands in where AutoRemesher refuses the mesh.")
+		} else {
+			ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs, for baking (Build > UVs and baking).")
+		}
 		if measured && p.shown {
 			ui.paragraph(ctx, fmt.tprintf("Quads about %s wide.", length_label(p.cell * scale)))
 		} else {
