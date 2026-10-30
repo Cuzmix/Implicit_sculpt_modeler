@@ -77,6 +77,9 @@ Object :: struct {
 	// Scene card's lock sets it, so a finished part is not sculpted by accident.
 	locked:    bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
+	// The spaces it is left out of (the outliner's dots): out of view and reach while one of
+	// them is current, as its eye is everywhere (scene_tree.odin).
+	spaces_off: bit_set[Space; u8],
 	vis_off:   u8, // its eye in each stored visibility (bit k for V(k+1)): off (scene_tree.odin)
 	// A voxel object's clay (voxel_object.odin); nil for a mesh object. A voxel object's
 	// `levels` hold one empty level, so what reads the selected object's sculptor reads
@@ -179,7 +182,8 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
-	vertices: int,
+	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
+	quad:     Quad_Options, // Retopo: the engine and its options (retopo.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -202,6 +206,7 @@ Scene_Command :: struct {
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
 	view:     View_Change, // View: what changes about how objects are shown
+	space:    Space, // View Space_Hide and Space_Show: the space
 	id:       int, // View, Arrange: the object (or folder) it changes; Merge: the folder, or 0
 	arrange:  Arrange_Change, // Arrange: what changes about the tree
 	folder:   int, // Arrange: the folder an object goes into
@@ -334,18 +339,18 @@ STARTER_LEVELS :: 3
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> bool {
-	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material) or_return
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> bool {
+	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material, tri_from) or_return
 	scene_append(app, obj)
 	return true
 }
 
 // A new object of `mesh`, built (as scene_add_mesh says) but in no scene yet; nil on a
 // GPU failure. `material` is the one it is shaded with, or none for the default.
-object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> (obj: ^Object, ok: bool) {
+object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> (obj: ^Object, ok: bool) {
 	obj = new(Object)
 	obj.transform, obj.file, obj.material = t, file, material
-	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface) {
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface, tri_from = tri_from) {
 		free(obj)
 		return nil, false
 	}
@@ -869,7 +874,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, nil)
-			made, ok := object_retopo(app, obj, cmd.vertices)
+			made, ok := object_retopo(app, obj, cmd.vertices, cmd.quad)
 			if made do history_record_added(app)
 			return ok
 		}
@@ -1004,7 +1009,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Extract:
 		return extract_masked(app)
 	case .View:
-		scene_view(app, cmd.view, cmd.id)
+		scene_view(app, cmd.view, cmd.id, cmd.space)
 	case .Material:
 		material_set(app, cmd.material)
 	case .Group_Material:

@@ -921,6 +921,9 @@ dab_weight :: #force_inline proc(d: ^Dab, delta: Vec3, d2: f32) -> f32 {
 @(private)
 Dab :: struct {
 	s:        ^Sculptor,
+	// A mask dab while a layer's mask is picked: what moves the surface as it paints
+	// (layer_masks.odin); zero otherwise.
+	mask_move: Mask_Move,
 	brush:    Brush,
 	center:   Vec3,
 	r2:       f32, // squared reach: the radius, or with an alpha its Alpha.reach

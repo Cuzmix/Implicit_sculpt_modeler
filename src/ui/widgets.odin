@@ -789,6 +789,7 @@ Thumb_Row_Result :: struct {
 	folded:      bool,
 	held:        bool,
 	dragged:     bool,
+	dotted:      bool,
 }
 
 // A thumbnail row's height, in points.
@@ -811,6 +812,11 @@ Thumb_Row :: struct {
 	// Small outlined tags after the name ("L4", "HD"), as the outliner marks an object's
 	// state; each takes its width from the name's room, the name giving way first.
 	badges:   []string,
+	// Small dots after the detail line, one colour each (faded for one that is off), as the
+	// outliner shows the spaces an object shows in; a press on them is `dotted`, and
+	// `dots_name` their tooltip.
+	dots:     []Color,
+	dots_name: string,
 }
 
 // A tall row of a list of objects, as ZBrush for iPad's Subtools list has them: the
@@ -870,6 +876,19 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		under_hover, under_held, clicked, _ = interact(ctx, salt(id, 97), {knob.x - 11, knob.y + knob.h * 0.5 - t.target * 0.5, t.target, t.target})
 		res.under = clicked
 	}
+	// The dots sit after the detail line, the press on them taking the row's lower half
+	// round them, wider than they are so a finger finds them.
+	DOT :: 7
+	dots_w := f32(len(parts.dots)) * (DOT + 4) - 4 if len(parts.dots) > 0 else 0
+	detail_w := right - 8 - x - (dots_w + 10 if dots_w > 0 else 0)
+	dots_x: f32
+	dots_hover, dots_held := false, false
+	if dots_w > 0 {
+		dots_x = x + min(text_width(ctx, parts.detail, t.small_size), detail_w) + 8 if has_detail else x
+		clicked: bool
+		dots_hover, dots_held, clicked, _ = interact(ctx, salt(id, 96), {dots_x - 10, mid, dots_w + 20, cell.y + cell.h - mid})
+		res.dotted = clicked
+	}
 	body := Rect{cell.x, cell.y, right - cell.x, cell.h}
 	hovered, held, clicked, pressed := interact(ctx, id, body)
 	// A press that went somewhere was a drag, not a tap.
@@ -909,7 +928,15 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		text(ctx, b, tag.x + bw * 0.5, name_y, t.caption_size, color_fade(t.text_secondary, fade), .Regular, .Center)
 		bx += bw + 5
 	}
-	if has_detail do text(ctx, text_fit(ctx, parts.detail, t.small_size, right - 8 - x), x, mid + 9, t.small_size, color_fade(t.text_tertiary, fade))
+	if has_detail do text(ctx, text_fit(ctx, parts.detail, t.small_size, detail_w), x, mid + 9, t.small_size, color_fade(t.text_tertiary, fade))
+	if dots_w > 0 {
+		_ = feedback(ctx, salt(id, 96), {dots_x - 5, mid + 2, dots_w + 10, 14}, 7, dots_hover, dots_held)
+		for c, i in parts.dots {
+			d := Rect{dots_x + f32(i) * (DOT + 4), mid + 9 - DOT * 0.5, DOT, DOT}
+			fill_rect(ctx, d, DOT * 0.5, color_fade(c, fade))
+		}
+		tip(ctx, salt(id, 96), {dots_x - 10, mid, dots_w + 20, cell.y + cell.h - mid}, parts.dots_name)
+	}
 	if has_under {
 		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time, class = MOTION_TABS)
 		_ = feedback(ctx, salt(id, 97), {knob.x - 4, knob.y - 4, knob.w + 8, knob.h + 8}, t.radius_small, under_hover, under_held)

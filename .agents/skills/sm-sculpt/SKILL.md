@@ -158,6 +158,13 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `chain` of many: the sculptor's memory limit may trim a chain's oldest steps and undo only half of it; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
   `LEVELS_LAYERS` (canon order). `sculptor_dyn_enable` bakes them; refused in HD; rebuilds carry them (`layer_carry.odin`).
+- Layer masks (`layer_masks.odin`): `Sculpt_Layer.mask []u8` (per vertex, how much the layer hides; nil none), positions =
+  base + Σ weight·mask_shows·delta. `sculptor_layer_mask_pick(s, i)` swaps the layer's mask into `s.mask` (sculpt mask in
+  `layers.held`) so every mask tool paints it; `job_mask` and `mask_commit` move the layer's vertices as it changes
+  (positions saved in the same step, `mask_moved` keeps `layer_take_stroke` out). `Undo_Step.mask_layer` names the mask a
+  step painted and `step_mask` finds it wherever it waits. Read a layer's mask through `layer_mask_of`, the sculpt mask
+  through `sculptor_sculpt_mask` (files). Layer commands that renumber layers, level changes and HD unpick first; carries
+  bake masks into the deltas (`layer_masks_bake`). Files: `LEVELS_LAYER_MASKS`.
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
   write to `s.chunks[id]` must call `chunk_touched(s, id)` so the group is remade; nil under dyntopo.
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node

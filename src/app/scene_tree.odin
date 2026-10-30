@@ -50,6 +50,8 @@ View_Change :: enum u8 {
 	Lock, // puts the object out of reach of presses in the view, drawn as it is
 	Unlock,
 	Lock_Others, // locks every other object and unlocks this one (ZBrush's Freeze others)
+	Space_Hide, // leaves the object out of a space: out of view and reach while it is current
+	Space_Show,
 }
 
 // How many visibilities Store visibility keeps.
@@ -72,9 +74,10 @@ Arrange_Change :: enum u8 {
 // blending, and plainly not part of the work.
 GHOST_SHADE :: 0.45
 
-// Whether `obj` and its folder have their eyes off, and whether either is a ghost.
+// Whether `obj` and its folder have their eyes off (or `obj` is left out of the current
+// space), and whether either is a ghost.
 object_flags :: proc(app: ^App, obj: ^Object) -> (off, ghost: bool) {
-	off, ghost = obj.off, obj.ghost
+	off, ghost = obj.off || app.kit.spaces.current in obj.spaces_off, obj.ghost
 	if f := folder_by_id(app, obj.folder); f != nil {
 		off ||= f.off
 		ghost ||= f.ghost
@@ -254,7 +257,7 @@ selection_prune :: proc(app: ^App) {
 }
 
 // Applies a View command to object `id` (or the whole scene).
-scene_view :: proc(app: ^App, change: View_Change, id: int) {
+scene_view :: proc(app: ^App, change: View_Change, id: int, space := Space.Sculpt) {
 	// A stroke going on an object that leaves view or reach ends here, rather than keep
 	// dabbing where nobody sees it.
 	stroke_finish(app)
@@ -272,7 +275,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 		if obj == nil do return
 		obj.ghost = change == .Ghost
 	case .Show_All:
-		for o in s.objects do o.off = false
+		for o in s.objects do o.off, o.spaces_off = false, o.spaces_off - {app.kit.spaces.current}
 		for &f in s.folders do f.off = false
 		s.solo = false
 	case .Solo:
@@ -281,6 +284,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 	case .Select:
 		if obj == nil do return
 		obj.off, obj.ghost, obj.locked = false, false, false
+		obj.spaces_off -= {app.kit.spaces.current}
 		if f := folder_by_id(app, obj.folder); f != nil do f.off, f.ghost = false, false
 		for o, i in s.objects do if o == obj do s.selected = i
 	case .Folder_Hide, .Folder_Show:
@@ -308,6 +312,10 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 		if obj == nil do return
 		for o in s.objects do o.locked = o != obj
 		report(app, nil, {.Quiet}, "Locked every object but %s", object_label(obj))
+	case .Space_Hide, .Space_Show:
+		if obj == nil do return
+		if change == .Space_Hide do obj.spaces_off += {space}
+		else do obj.spaces_off -= {space}
 	}
 	app.view_edits += 1
 	scene_selection_fix(app)

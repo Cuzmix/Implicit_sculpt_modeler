@@ -16,13 +16,15 @@ import "../jobs"
 // The most an adjust scales a stroke by: above 1 it goes on past what was drawn.
 ADJUST_MAX :: f32(2)
 
-// Whether the newest step can be adjusted: a stroke of positions, masks or colours with
-// nothing else in it, not under dynamic topology (its steps change triangles), and not
+// Whether the newest step can be adjusted: a stroke of positions, masks (the sculpt mask's)
+// or colours with nothing else in it, not under dynamic topology (its steps change triangles), and not
 // while another stroke is being recorded.
 sculptor_can_adjust :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if s.dyn != nil || h.recording || len(h.done) == 0 do return false
 	step := &h.done[len(h.done) - 1]
+	// A layer mask's stroke moves the surface with its mask, which rescaling would part.
+	if step.mask_layer != 0 do return false
 	if len(step.shown) > 0 || len(step.grouped) > 0 || step.layer_op.active || step.layer_set.active || step.layer_move.active || step.layer_stack.active do return false
 	for sv in step.saved {
 		if sv.full || sv.hidden != nil || sv.groups != nil || sv.indices != nil do return false

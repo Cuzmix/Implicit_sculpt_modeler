@@ -159,6 +159,8 @@ levels_hd_stats :: proc(l: ^Levels) -> (st: Hd_Stats) {
 levels_hd_enter :: proc(l: ^Levels, at: Vec3, budget := HD_WINDOW_VERTICES) -> bool {
 	hd := &l.hd
 	if hd.steps == 0 || hd.window != nil do return false
+	// The window paints its own mask, never a layer's.
+	_ = sculptor_layer_mask_pick(&l.levels[l.current].sculptor, -1)
 	levels_set_current(l, len(l.levels) - 1)
 	top := l.levels[len(l.levels) - 1]
 	s := &top.sculptor
