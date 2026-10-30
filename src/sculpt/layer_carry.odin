@@ -13,7 +13,8 @@ import "../jobs"
 // built from the shown surface, which already holds every layer's work at its
 // strength, so nothing moves; what the new mesh gains is each layer's displacement,
 // read at the nearest point of the old surface (blended over that triangle's corners),
-// so that dialling a layer afterwards moves the new mesh as it moved the old one.
+// so that dialling a layer afterwards moves the new mesh as it moved the old one. A
+// layer's mask is read the same way, so it keeps hiding the same part.
 //
 // A new vertex far from the old surface (where a boolean joined another object, or a
 // slice closed the cut) takes the layers less the farther it is, down to none at
@@ -224,8 +225,8 @@ mean_edge :: proc(m: geom.Mesh, pool: ^jobs.Pool) -> f32 {
 // layers it carried; none when `from` has none or either has dynamic topology on.
 sculptor_layers_project :: proc(from, to: ^Sculptor, sm: Surface_Map) -> int {
 	if len(from.layers.list) == 0 || from.dyn != nil || to.dyn != nil do return 0
-	// Displacements are carried alone: each takes in what its mask shows first.
-	layer_masks_bake(from)
+	// The layers' masks are read where they wait, so the sculpt mask comes back first.
+	_ = sculptor_layer_mask_pick(from, -1)
 	assert(len(to.layers.list) == 0 && len(sm.tri) == len(to.mesh.positions))
 	Work :: struct {
 		from:  ^Sculptor,
@@ -267,6 +268,7 @@ sculptor_layers_project :: proc(from, to: ^Sculptor, sm: Surface_Map) -> int {
 	for l, k in from.layers.list {
 		carried := Sculpt_Layer{name = l.name, strength = l.strength, visible = l.visible, delta = make([][]Vec3, len(to.nodes), alloc)}
 		for &d, i in carried.delta do if w.used[k * w.nodes + i] do d = make([]Vec3, to.nodes[i].vert_count, alloc)
+		if l.mask != nil do carried.mask = make([]u8, len(to.mesh.positions), alloc)
 		append(&to.layers.list, carried)
 	}
 	jobs.parallel_for(to.pool, len(to.nodes), &w, proc(data: rawptr, i: int) {
@@ -294,6 +296,19 @@ sculptor_layers_project :: proc(from, to: ^Sculptor, sm: Surface_Map) -> int {
 					if w.to.mesh.positions[v][axis] == 0 do d[axis] = 0
 				}
 				out[v - n.vert_first] = weight * d
+			}
+		}
+		// Each mask is read the same way, blended over the nearest triangle's corners; a
+		// vertex out of reach takes none of the layer, so its mask stays 0.
+		for l, k in w.from.layers.list {
+			if l.mask == nil do continue
+			out := w.to.layers.list[k].mask
+			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				if w.sm.weight[v] == 0 do continue
+				t := w.sm.tri[v]
+				sum: f32
+				for c in 0 ..< 3 do sum += w.sm.bary[v][c] * f32(l.mask[m.indices[3 * t + u32(c)]])
+				out[v] = u8(clamp(sum + 0.5, 0, 255))
 			}
 		}
 	})
@@ -364,7 +379,6 @@ levels_carry_layers_down :: proc(l: ^Levels) -> (carried, dropped: int) {
 	for j := len(l.levels) - 1; j > l.current; j -= 1 {
 		fine, coarse := l.levels[j], l.levels[j - 1]
 		fs, cs := &fine.sculptor, &coarse.sculptor
-		layer_masks_bake(fs)
 		for &layer in fs.layers.list {
 			if len(cs.layers.list) >= MAX_SCULPT_LAYERS || cs.dyn != nil {
 				dropped += 1
@@ -430,6 +444,12 @@ layer_push_down :: proc(l: ^Levels, j: int, layer: Sculpt_Layer) -> Sculpt_Layer
 			w.out[c][v - n.vert_first] = at(fine, w.from, e) * 0.5 + ring * (0.5 / f32(len(faces)))
 		}
 	})
+	// The mask goes down as the live mask does: each vertex takes the mask of the vertex
+	// it became.
+	if layer.mask != nil {
+		out.mask = make([]u8, len(cs.mesh.positions), cs.history.allocator)
+		mask_carry_values(l, layer.mask, w.fine, w.coarse, false, out.mask)
+	}
 	return out
 }
 
@@ -527,5 +547,11 @@ layer_loop_up :: proc(l: ^Levels, below, top: ^Level, layer: Sculpt_Layer) -> Sc
 			w.out[id][u - n.vert_first] = d
 		}
 	})
+	// The mask goes up as the live mask does: a vertex continuing one below takes its
+	// mask, an edge's vertex the mean of the edge's ends.
+	if layer.mask != nil {
+		out.mask = make([]u8, len(ts.mesh.positions), ts.history.allocator)
+		mask_carry_values(l, layer.mask, below, top, true, out.mask)
+	}
 	return out
 }

@@ -203,22 +203,3 @@ sculptor_layer_mask_from_sculpt :: proc(s: ^Sculptor) -> bool {
 	slice.fill(changes, true)
 	return mask_commit_values(s, after, changes)
 }
-
-// Takes every layer's mask into its displacement (each displacement times what its mask
-// shows) and drops the masks, the surface staying as it is: for carrying layers onto
-// another surface, which carries displacements alone. Not an undo step: the carries are
-// parts of rebuilds that are.
-@(private)
-layer_masks_bake :: proc(s: ^Sculptor) {
-	if s.layers.picked != 0 do _ = sculptor_layer_mask_pick(s, -1)
-	for &l in s.layers.list {
-		if l.mask == nil do continue
-		for d, id in l.delta {
-			if d == nil do continue
-			first := int(s.nodes[id].vert_first)
-			for &x, v in d do x *= mask_shows(l.mask[first + v])
-		}
-		delete(l.mask, s.history.allocator)
-		l.mask = nil
-	}
-}
