@@ -71,7 +71,7 @@ Blur_Uniforms :: struct {
 // Leaves the result in Live_AO.shown. Returns false only when it cannot run on this
 // device, after which it never tries again.
 live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, drawn: Viewport_Stats, reach, strength: f32, scale: u32, strength_right: f32 = 0, line_px: f32 = -1) -> bool {
-	debug_group(cmd, "Live AO")
+	debug_group(cmd, "Live AO", .Live_AO)
 	if lao.failed do return false
 	if !live_ao_ensure(r, lao, vt, max(scale, 1)) {
 		live_ao_destroy(r, lao)

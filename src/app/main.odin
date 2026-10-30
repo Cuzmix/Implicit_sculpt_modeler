@@ -806,6 +806,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for app.running {
 		idle_rest(&app, driven)
 		frame_start := time.tick_now()
+		// Before this frame records anything: the GPU times of a frame a few back.
+		if times, ok := render.timestamps_frame(&app.renderer); ok {
+			for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
+		}
 		// A waiting save or export goes first: before a scene command or file request
 		// changes what it would write. A second Save during a save (Ctrl+S again) is
 		// dropped by file_apply.
@@ -2033,6 +2037,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
+	fmt.printfln("gpu_timestamps=%v", render.caps(&app.renderer).timestamps)
+	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)
 		fmt.printfln("ui_vertices=%d", app.stats.ui_vertices)

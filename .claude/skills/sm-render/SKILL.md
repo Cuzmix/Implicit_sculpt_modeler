@@ -366,4 +366,6 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - A new top-level pass function starts with `debug_group(cmd, "Name")` (`gpu.odin`, popped as the scope ends, so
   call it outside any pass), and a long-lived texture or buffer gets `gpu_set_texture_name`/`gpu_set_buffer_name`
   with a literal (the backends keep the pointer for later backings), so captures in Xcode and RenderDoc read.
-- GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).
+- GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf). Timestamps
+  (`Gpu_Caps.timestamps`, `timing.odin`, `vk_timing.odin`) do not: a pass that should show in Stats passes a
+  `Gpu_Span` to its `debug_group`; spans never nest (an inner one is left untimed), so their sum is the frame.

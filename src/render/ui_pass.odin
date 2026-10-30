@@ -74,7 +74,7 @@ ui_pass_destroy :: proc(r: ^Renderer, up: ^Ui_Pass) {
 // y1) that changed, `atlas_changed` false when nothing did. A new atlas size uploads
 // all of it.
 ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, vertices: []Ui_Vertex, indices: []u32, atlas: []u8, atlas_size: [2]u32, dirty: [4]int, atlas_changed: bool) -> bool {
-	debug_group(cmd, "Interface upload")
+	debug_group(cmd, "Interface upload", .Interface)
 	if up.sampler == nil {
 		// Nearest: glyphs sit on whole pixels and the viewport image is shown pixel for
 		// pixel, so nothing is ever blurred by filtering.

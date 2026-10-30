@@ -613,6 +613,21 @@ gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 	return 0
 }
 
+// GPU timestamps likewise: SDL_GPU has no query API yet (its draft is libsdl-org/SDL#15651),
+// and the own Metal backend's waits for its compute stage.
+gpu_timestamps_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	return gpu_backend == .Vulkan && vk_state.timing.slots[0].pool != 0
+}
+
+gpu_write_timestamp :: proc(command_buffer: ^sdl.GPUCommandBuffer, tag: u8) {
+	if gpu_backend == .Vulkan do vk_write_timestamp((^Vk_Cmd)(command_buffer), tag)
+}
+
+gpu_timestamps_frame :: proc(device: ^sdl.GPUDevice, out: []Gpu_Timestamp) -> int {
+	if gpu_backend == .Vulkan do return vk_timestamps_frame(out)
+	return 0
+}
+
 // Pre-rotation likewise: SDL_GPU leaves the compositor to turn its images, and Apple's
 // compositor turns Metal's at no cost, so only the own Vulkan backend's can be turned.
 gpu_swapchain_turns :: proc(window: ^sdl.Window) -> int {

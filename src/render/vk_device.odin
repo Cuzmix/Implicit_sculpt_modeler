@@ -30,6 +30,7 @@ Vk_State :: struct {
 	frames:            u32, // frames a window may have in flight before its next acquire waits
 	labels:            bool, // VK_EXT_debug_utils is on: passes and objects carry names for capture tools
 	present_timing:    Present_Timing, // which present timing extension is on (vk_swapchain.odin)
+	timing:            Vk_Timing, // GPU timestamps (vk_timing.odin); no pools where the device cannot time
 	properties:        vk.PhysicalDeviceProperties,
 	driver:            vk.PhysicalDeviceDriverProperties,
 	memory:            vk.PhysicalDeviceMemoryProperties,
@@ -267,7 +268,11 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		append(&device_extensions, vk.GOOGLE_DISPLAY_TIMING_EXTENSION_NAME)
 		vk_state.present_timing = .Display_Timing
 	}
-	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true}
+	// Host query reset lets GPU timestamps reset their pools without a command buffer.
+	have12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
+	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
+	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset}
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
@@ -328,7 +333,14 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, name)
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
-	log.infof("Vulkan: present timing: %v", vk_state.present_timing)
+	if have12.hostQueryReset {
+		family_count: u32
+		vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, nil)
+		families := make([]vk.QueueFamilyProperties, family_count, context.temp_allocator)
+		vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, raw_data(families))
+		_ = vk_timing_init(families[vk_state.family].timestampValidBits)
+	}
+	log.infof("Vulkan: present timing: %v; GPU timestamps: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0)
 	return vk_device_handle(), true
 }
 
@@ -363,6 +375,7 @@ vk_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	delete(vk_state.graphics_layouts)
 	delete(vk_state.compute_layouts)
 	delete(vk_state.set_layouts)
+	vk_timing_destroy()
 	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
 	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
 	if vk_state.properties_id != 0 do sdl.DestroyProperties(vk_state.properties_id)

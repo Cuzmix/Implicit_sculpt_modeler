@@ -54,6 +54,14 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ring(ctx, "Frame  frame_ms", s.frame_ms, "ms")
 		ring(ctx, "CPU  cpu_ms", s.cpu_ms, "ms")
 		if app.time_gpu do ring(ctx, "GPU (3D)  gpu_ms", s.gpu_ms, "ms")
+		// Timestamps time the GPU without waiting for it: every pass that ran lately.
+		if render.caps(&app.renderer).timestamps {
+			ring(ctx, "GPU  gpu_frame_ms", s.gpu_spans[.None], "ms")
+			for span in render.Gpu_Span {
+				if span == .None || s.gpu_spans[span].count == 0 do continue
+				ring(ctx, fmt.tprintf("  %s  gpu_%s_ms", gpu_span_label(span), render.GPU_SPAN_NAMES[span]), s.gpu_spans[span], "ms")
+			}
+		}
 		ring(ctx, "Display wait  wait_ms", s.wait_ms, "ms")
 		ring(ctx, "Interface  ui_ms", s.ui_ms, "ms")
 		ui.value_row(ctx, "Interface vertices  ui_vertices", fmt.tprintf("%d", s.ui_vertices))
@@ -154,6 +162,9 @@ kit_stats_simple :: proc(app: ^App) {
 	if app.time_gpu {
 		gpu50, _ := ring_percentiles(s.gpu_ms)
 		ui.value_row(ctx, "3D drawing on the GPU, typical", ms(gpu50))
+	} else if s.gpu_spans[.None].count > 0 {
+		gpu50, _ := ring_percentiles(s.gpu_spans[.None])
+		ui.value_row(ctx, "GPU work a frame, typical", ms(gpu50))
 	}
 	switch app.frame_rate {
 	case .Match_Display: ui.paragraph(ctx, "Frame rate is Match display, so the frame time includes waiting for the screen: it sits near the screen's refresh time even when the app has time to spare.")
@@ -243,4 +254,19 @@ thousands :: proc(n: int) -> string {
 		append(&out, c)
 	}
 	return string(out[:])
+}
+
+// A GPU span's name for the Stats panel.
+gpu_span_label :: proc(span: render.Gpu_Span) -> string {
+	switch span {
+	case .None:        return "Frame"
+	case .Uploads:     return "Uploads"
+	case .Viewport:    return "3D view"
+	case .Live_AO:     return "Live AO"
+	case .Studio:      return "Studio"
+	case .Render_Mode: return "Render mode"
+	case .Pictures:    return "Pictures"
+	case .Interface:   return "Interface"
+	}
+	return ""
 }

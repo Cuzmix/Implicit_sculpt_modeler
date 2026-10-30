@@ -18,6 +18,10 @@ Gpu_Caps :: struct {
 	// How the backend learns when a frame reached the screen (present_times): .None where
 	// it cannot, and then the app shows only the time to the submit.
 	present_timing:   Present_Timing,
+	// The GPU writes timestamps as it runs, so timestamps_frame gives each pass's GPU time
+	// without frames waiting for the GPU (timing.odin): the own Vulkan backend where the
+	// device times graphics and compute alike and resets queries from the CPU.
+	timestamps:       bool,
 }
 
 Present_Timing :: enum u8 {
@@ -52,6 +56,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.frames_in_flight = FRAMES_IN_FLIGHT_DEFAULT
 	r.caps.frames_cheap = gpu_backend != .SDL_GPU || gpu_get_device_driver(r.device) == "metal"
 	r.caps.present_timing = gpu_present_timing(r.device)
+	r.caps.timestamps = gpu_timestamps_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

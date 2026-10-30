@@ -80,6 +80,7 @@ Vk_Cmd :: struct {
 	sets:            [4]vk.DescriptorSet,
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
+	timed_slot:      int, // 1 + the timestamp slot this recording wrote into, 0 for none (vk_timing.odin)
 }
 
 Vk_Fence :: struct {
@@ -242,6 +243,7 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 	vk_stamps += 1
 	cmd.stamp = vk_stamps
 	cmd.serial = 0
+	cmd.timed_slot = 0
 	cmd.pass = .None
 	cmd.pipeline = nil
 	cmd.uniforms = {}
@@ -312,6 +314,7 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 		sdl.SetError("vkQueueSubmit2 failed")
 		return 0, false
 	}
+	vk_timing_submitted(cmd, serial)
 	for p in cmd.presents {
 		p.window.frame_serial[p.frame] = serial
 		vk_present(p)

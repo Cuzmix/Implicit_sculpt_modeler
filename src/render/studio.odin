@@ -153,7 +153,7 @@ Shadow_Lights :: struct {
 // Returns false only when the studio cannot run on this device, after which it never tries
 // again.
 studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS, under: ^sdl.GPUTexture = nil) -> bool {
-	debug_group(cmd, "Studio")
+	debug_group(cmd, "Studio", .Studio)
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
 		st.failed = true
