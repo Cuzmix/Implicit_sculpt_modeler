@@ -80,7 +80,8 @@ def compile_command(source, obj):
     includes = [os.path.join(SRC, i) for i in INCLUDES] + [os.path.join(SHIM, "shim")]
     if WINDOWS:
         # /FIcstdint: meshseparator.cpp uses uint64_t without including <cstdint>.
-        return (["cl", "/nologo", "/c", "/MT", "/EHsc", "/O2", "/std:c++17", "/W0", "/FIcstdint", f"/Fo{obj}"]
+        # _USE_MATH_DEFINES: the core uses M_PI, which MSVC's <cmath> only declares when asked.
+        return (["cl", "/nologo", "/c", "/MT", "/EHsc", "/O2", "/std:c++17", "/W0", "/FIcstdint", "/D_USE_MATH_DEFINES", f"/Fo{obj}"]
                 + [f"/D{d}" for d in DEFINES] + [f"/I{i}" for i in includes] + [source])
     return (["clang++", "-c", "-O2", "-std=c++17", "-fPIC", "-w", "-include", "cstdint", "-o", obj]
             + [f"-D{d}" for d in DEFINES] + [f"-I{i}" for i in includes] + [source])
