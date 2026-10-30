@@ -93,6 +93,17 @@ Path_Render :: struct {
 	// items it shows with their maps: RENDER_TEXTURED_MAX with the named samplers.
 	maps_array:     bool,
 	textured_max:   u32,
+	// With async compute each band runs on the compute queue (render_frame's `async`):
+	// at most one in flight, its fence, the run it belongs to (a band of an older run is
+	// dropped), when it went, and whether it finishes its sample. `generation` counts runs:
+	// a reset or new images start another.
+	async:          bool,
+	async_failed:   bool, // the device refused a compute-queue command buffer; bands stay in the frame
+	band_fence:     ^sdl.GPUFence,
+	band_generation: u64,
+	band_started:   time.Tick,
+	band_last:      bool,
+	generation:     u64,
 	display:        ^sdl.GPUGraphicsPipeline,
 	atrous:         ^sdl.GPUGraphicsPipeline,
 	sampler:        ^sdl.GPUSampler,
@@ -264,7 +275,7 @@ Lights_World :: struct {
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false) -> bool {
 	debug_group(cmd, "Render mode", .Render_Mode)
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
@@ -277,6 +288,10 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	now := time.tick_now()
 	interval := time.tick_diff(pr.last_frame, now) if pr.last_frame != {} else 0
 	pr.last_frame = now
+	pr.async = async && r.caps.async_compute != .Off && !pr.async_failed
+	// A band on the compute queue is collected in either mode, so turning async compute
+	// off never leaves two writers of the sums.
+	path_band_collect(r, pr, cmd, vt, exposure, denoise, interval)
 	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens {
 		path_render_reset(pr)
 		pr.valid, pr.bounces, pr.softness, pr.lens = true, bounces, softness, lens
@@ -286,9 +301,15 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 		if pr.samples > 0 && (exposure != pr.exposure || denoise != pr.denoised || pr.linear_on && !pr.linear_valid) do path_display(pr, cmd, vt, exposure, denoise)
 		return true
 	}
+	// While a band runs nothing it reads may change: the next waits, and so does a new
+	// view's scene, whose build rewrites the buffers a band of the old one may still read.
+	if pr.band_fence != nil do return true
 	if !pr.built {
 		if !path_scene_build(r, pr, cmd, vt, view, proj, items, lights, softness, pool) do return true
 		pr.built = true
+		// The build is in this frame's command buffer, which no compute submission can
+		// wait for until it is submitted: the first band goes next frame.
+		if pr.async do return true
 	}
 	// A map that changed under a still view (a decode that finished) starts it over.
 	for t, k in pr.tex_meshes {
@@ -299,12 +320,48 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	}
 	// The bands follow how long frames take, never what the image is: a pixel's samples
 	// depend only on the pixel and the sample.
+	// On the compute queue a band's own time sizes the next (path_band_collect), since
+	// the frames no longer wait for it.
 	if pr.rows == 0 do pr.rows = pr.height if !MOBILE else max(pr.height / 4, RENDER_ROWS_MIN)
-	if interval > RENDER_FRAME_SLOW do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
-	else if interval > 0 && interval < RENDER_FRAME_FAST do pr.rows = min(pr.rows * 2, pr.height)
+	if !pr.async && interval > RENDER_FRAME_SLOW do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
+	else if !pr.async && interval > 0 && interval < RENDER_FRAME_FAST do pr.rows = min(pr.rows * 2, pr.height)
 	if pr.row == 0 do pr.sample_started = now
 
 	rows := min(pr.rows, pr.height - pr.row)
+	if pr.async {
+		band := gpu_acquire_compute_command_buffer(r.device)
+		if band != nil {
+			{
+				debug_group(band, "Render mode band")
+				path_band_record(r, pr, band, rows, bounces)
+			}
+			fence := gpu_submit_compute(band)
+			if fence == nil {
+				log.errorf("render mode: a band could not be submitted (%s); it stays off", sdl.GetError())
+				pr.failed = true
+				return false
+			}
+			pr.band_fence, pr.band_generation, pr.band_started = fence, pr.generation, now
+			pr.row += rows
+			pr.band_last = pr.row >= pr.height
+			if pr.band_last do pr.row = 0
+			return true
+		}
+		log.warnf("render mode: no compute-queue command buffer (%s); bands run in the frame", sdl.GetError())
+		pr.async, pr.async_failed = false, true
+	}
+	path_band_record(r, pr, cmd, rows, bounces)
+	pr.row += rows
+	if pr.row < pr.height do return true
+	pr.row = 0
+	path_sample_done(pr, cmd, vt, exposure, denoise)
+	return true
+}
+
+// Records one band of `rows` rows of the sample under way, from pr.row, into `cmd`: the
+// frame's command buffer or a compute-queue one.
+@(private = "file")
+path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, rows: u32, bounces: int) {
 	u := pr.uniforms
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
 	written := pr.guides[1 - pr.guide_at]
@@ -341,10 +398,32 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
 	gpu_dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
 	gpu_end_compute_pass(pass)
-	pr.row += rows
-	if pr.row < pr.height do return true
+}
 
-	pr.row = 0
+// A band on the compute queue that has finished: sizes the next by how long it took (three
+// frame intervals or more halve the rows, under one and a half doubles them), and when it
+// ended its sample, has this frame wait for it and lays the sample out. A band of an
+// older run only lets go of its fence.
+@(private = "file")
+path_band_collect :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool, interval: time.Duration) {
+	if pr.band_fence == nil || !gpu_query_fence(r.device, pr.band_fence) do return
+	fence := pr.band_fence
+	pr.band_fence = nil
+	defer gpu_release_fence(r.device, fence)
+	if pr.band_generation != pr.generation do return
+	if took := time.tick_since(pr.band_started); interval > 0 {
+		if took >= 3 * interval do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
+		else if 2 * took < 3 * interval do pr.rows = min(pr.rows * 2, pr.height)
+	}
+	if !pr.band_last do return
+	gpu_wait_on(cmd, fence)
+	path_sample_done(pr, cmd, vt, exposure, denoise)
+}
+
+// The sample's last band is in: the sums and (at the first sample, or every one with a
+// lens) the guides it wrote take over, and the frame lays them out.
+@(private = "file")
+path_sample_done :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
 	pr.current = 1 - pr.current
 	// The kernel wrote the guides at the first sample, and at every one with a lens.
 	if pr.samples == 0 || pr.lens_on do pr.guide_at = 1 - pr.guide_at
@@ -352,7 +431,6 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	pr.total_samples += 1
 	pr.total_ms += time.duration_milliseconds(time.tick_since(pr.sample_started))
 	path_display(pr, cmd, vt, exposure, denoise)
-	return true
 }
 
 // What the viewport panel should show while render mode is on: its image, or nil when it
@@ -394,11 +472,14 @@ path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 path_render_reset :: proc(pr: ^Path_Render) {
 	pr.samples, pr.row, pr.current = 0, 0, 0
 	pr.valid, pr.built, pr.refused, pr.lens_on = false, false, "", false
+	pr.generation += 1
 }
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if r.device == nil do return
 	_ = gpu_wait_for_idle(r.device)
+	if pr.band_fence != nil do gpu_release_fence(r.device, pr.band_fence)
+	pr.band_fence = nil
 	if pr.pipeline != nil do gpu_release_compute_pipeline(r.device, pr.pipeline)
 	if pr.display != nil do gpu_release_graphics_pipeline(r.device, pr.display)
 	if pr.display_linear != nil do gpu_release_graphics_pipeline(r.device, pr.display_linear)
@@ -634,6 +715,8 @@ path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
 	targets := [12]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth, pr.linear}
 	for t in targets do if t != nil do gpu_release_texture(r.device, t)
 	pr.backdrop, pr.backdrop_depth, pr.linear, pr.linear_valid = nil, nil, nil, false
+	// A band still running writes the old images: it is dropped when it ends.
+	pr.generation += 1
 }
 
 // How many denoiser passes `samples` take, and how far, relative, light may differ before

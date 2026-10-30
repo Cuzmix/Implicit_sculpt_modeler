@@ -30,6 +30,8 @@ Vk_Buffer_Backing :: struct {
 	refs:   i32,
 	stamp:  u64,
 	owner:  ^Vk_Buffer,
+	// The compute queue's last submission to write it, for vk_submit's cross-queue check.
+	compute_write: u64,
 }
 
 Vk_Buffer :: struct {
@@ -50,6 +52,7 @@ Vk_Image :: struct {
 	refs:        i32,
 	stamp:       u64,
 	owner:       ^Vk_Texture,
+	compute_write: u64, // as Vk_Buffer_Backing's
 }
 
 Vk_Texture :: struct {

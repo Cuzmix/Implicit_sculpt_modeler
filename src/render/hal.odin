@@ -19,6 +19,33 @@ gpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuf
 	return sdl.AcquireGPUCommandBuffer(device)
 }
 
+// A command buffer whose compute passes run on the compute queue (Gpu_Caps.async_compute),
+// submitted with gpu_submit_compute; nil with SDL's error set where there is none. It
+// holds compute passes only.
+gpu_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+	if gpu_backend == .Vulkan do return vk_acquire_compute_command_buffer(device)
+	sdl.SetError("no compute queue under this backend")
+	return nil
+}
+
+// Submits a gpu_acquire_compute_command_buffer recording. It runs after every graphics
+// submission so far; its fence says when it is done, and gpu_wait_on hands it to the
+// graphics work that reads what it wrote.
+gpu_submit_compute :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+	return gpu_submit_command_buffer_and_acquire_fence(command_buffer)
+}
+
+// Makes a graphics command buffer wait, at every stage, for the compute submission `fence`
+// names before it runs, so it sees what that wrote. Waiting on a fence that has already
+// signalled stalls nothing.
+gpu_wait_on :: proc(command_buffer: ^sdl.GPUCommandBuffer, fence: ^sdl.GPUFence) {
+	if gpu_backend == .Vulkan do vk_wait_on(command_buffer, fence)
+}
+
+gpu_async_compute_offered :: proc(device: ^sdl.GPUDevice) -> Async_Compute {
+	return vk_state.async_compute if gpu_backend == .Vulkan else .Off
+}
+
 gpu_acquire_swapchain_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl.Window, swapchain_texture: ^^sdl.GPUTexture, swapchain_texture_width, swapchain_texture_height: ^sdl.Uint32) -> bool {
 	if gpu_backend == .Vulkan do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	when METAL do if gpu_backend == .Metal do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
