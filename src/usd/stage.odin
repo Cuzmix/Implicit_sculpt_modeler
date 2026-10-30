@@ -131,6 +131,7 @@ mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]ge
 	}
 	// Faces into fans, remembering each triangle's face for groups and colours.
 	face_of := make([dynamic]i32, context.temp_allocator)
+	polygons := false
 	at := 0
 	for n, f in counts {
 		if n < 0 || at + int(n) > len(corners) {
@@ -144,12 +145,18 @@ mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]ge
 			geom.mesh_part_destroy(&part)
 			return .Bad_Index
 		}
+		polygons ||= n > 3
 		for k in 1 ..< n - 1 {
 			b, c := u32(face[k]), u32(face[k + 1])
 			if flip do b, c = c, b
 			append(&part.mesh.indices, u32(face[0]), b, c)
 			append(&face_of, i32(f))
 		}
+	}
+	// The faces themselves, for the object's polygons (geom.Mesh_Part.polys).
+	if polygons {
+		part.polys = make([dynamic]u32, len(face_of))
+		for f, t in face_of do part.polys[t] = u32(f)
 	}
 	if len(part.mesh.indices) == 0 {
 		geom.mesh_part_destroy(&part)

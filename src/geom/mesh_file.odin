@@ -65,8 +65,9 @@ OBJ_CHUNK :: 4 << 20
 // it receives what the `o`, `g` and `usemtl` lines say of the triangles (see
 // Obj_Labels). When `uvs` is given it receives each corner's texture coordinate from the
 // `vt` lines, turned so v runs down from the image's top (0, 0 for a corner without
-// one).
-mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, labels: ^Obj_Labels = nil, uvs: ^[dynamic][2]f32 = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+// one). When `polys` is given it receives, one a triangle, the polygon each was cut
+// from (see Mesh_Part.polys), and is left empty when every face is a triangle.
+mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, labels: ^Obj_Labels = nil, uvs: ^[dynamic][2]f32 = nil, allocator := context.allocator, polys: ^[dynamic]u32 = nil) -> (m: Mesh, err: Mesh_File_Error, line: int) {
 	starts := make([dynamic]int, 0, len(data) / max(chunk_bytes, 1) + 2, context.temp_allocator)
 	append(&starts, 0)
 	for {
@@ -76,7 +77,7 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		if nl < 0 || at + nl + 1 >= len(data) do break
 		append(&starts, at + nl + 1)
 	}
-	job := Obj_Job{chunks = make([]Obj_Chunk, len(starts), context.temp_allocator), want_uvs = uvs != nil}
+	job := Obj_Job{chunks = make([]Obj_Chunk, len(starts), context.temp_allocator), want_uvs = uvs != nil, want_polys = polys != nil}
 	for &c, i in job.chunks {
 		c.start = starts[i]
 		c.text = data[starts[i]:starts[i + 1] if i + 1 < len(starts) else len(data)]
@@ -91,10 +92,11 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		delete(c.uvs)
 		delete(c.uv_index)
 		delete(c.uv_relative)
+		delete(c.polys)
 	}
 	jobs.parallel_for(pool, len(job.chunks), &job, job_obj_chunk)
 	vertices, corners, coordinates := 0, 0, 0
-	colored, mrgb := false, 0
+	colored, mrgb, polygons := false, 0, false
 	for &c in job.chunks {
 		if c.err != .None do return {}, c.err, 1 + bytes.count(data[:c.start + c.err_at], []u8{'\n'})
 		c.first_vertex, c.first_index, c.first_uv = vertices, corners, coordinates
@@ -103,6 +105,7 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		coordinates += len(c.uvs)
 		colored ||= len(c.colors) > 0
 		mrgb += len(c.mrgb)
+		polygons ||= c.polygons
 	}
 	if vertices >= int(max(u32)) do return {}, .Too_Large, 0
 	m.positions = make([dynamic]Vec3, vertices, allocator)
@@ -146,6 +149,14 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		if !colored do mem.zero_slice(colors[at:])
 	}
 	if labels != nil do obj_labels_join(labels, job.chunks, corners / 3)
+	if polys != nil && polygons {
+		// A face's triangles are numbered by its first, counted through the whole file.
+		resize(polys, corners / 3)
+		for c in job.chunks {
+			dst := polys[c.first_index / 3:][:len(c.polys)]
+			for first, t in c.polys do dst[t] = first + u32(c.first_index / 3)
+		}
+	}
 	if uvs != nil {
 		job.vt = make([][2]f32, coordinates, context.temp_allocator)
 		for c in job.chunks do copy(job.vt[c.first_uv:], c.uvs[:])
@@ -171,7 +182,11 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 // USD Mesh prims): triangles in the file's units with the file's own transforms
 // applied, normals zero, its name, and what it brings for the surface. A reader given a
 // Mesh_Look also fills `materials` and `uvs`, which mesh_parts_paint turns into colours
-// and drops before the part is cleaned.
+// and drops before the part is cleaned. A reader of a format with polygons fills `polys`:
+// one a triangle, a number the triangles cut from one polygon share, those triangles
+// next to each other and no other run of triangles next to them sharing it (the number
+// itself means nothing else); empty when the file's faces are all triangles.
+// mesh_polygons turns it back into the polygons.
 Mesh_Part :: struct {
 	name:      string, // owned; "" for none
 	mesh:      Mesh,
@@ -179,6 +194,7 @@ Mesh_Part :: struct {
 	groups:    [dynamic]u16, // one a triangle, or empty
 	materials: [dynamic]i32, // one a triangle (into Mesh_Look.materials, -1 for none), or empty
 	uvs:       [dynamic][2]f32, // one a corner (u right, v down from the image's top), or empty
+	polys:     [dynamic]u32, // one a triangle, or empty
 }
 
 mesh_part_destroy :: proc(p: ^Mesh_Part) {
@@ -188,6 +204,7 @@ mesh_part_destroy :: proc(p: ^Mesh_Part) {
 	delete(p.groups)
 	delete(p.materials)
 	delete(p.uvs)
+	delete(p.polys)
 	p^ = {}
 }
 
@@ -198,10 +215,10 @@ mesh_parts_destroy :: proc(parts: ^[dynamic]Mesh_Part) {
 }
 
 // Appends the parts of `m` that `part` (one a triangle, below len(names)) names to
-// `parts`, in part order, each with its share of `colors`, `groups`, `materials` and
-// `uvs` (any may be empty) and its name; a part with no triangles is left out, and so
-// are groups when a part's triangles all have the same one.
-mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_Color, groups: []u16, part: []u32, names: []string, materials: []i32 = nil, uvs: [][2]f32 = nil) {
+// `parts`, in part order, each with its share of `colors`, `groups`, `materials`, `uvs`
+// and `polys` (any may be empty) and its name; a part with no triangles is left out, and
+// so are groups when a part's triangles all have the same one.
+mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_Color, groups: []u16, part: []u32, names: []string, materials: []i32 = nil, uvs: [][2]f32 = nil, polys: []u32 = nil) {
 	pieces := mesh_split(m, part, len(names))
 	defer split_parts_destroy(pieces)
 	for &piece, k in pieces {
@@ -226,6 +243,11 @@ mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_C
 			out.uvs = make([dynamic][2]f32, 3 * len(piece.tri_from))
 			for t, i in piece.tri_from do copy(out.uvs[3 * i:][:3], uvs[3 * t:][:3])
 		}
+		// A part keeps its triangles in their file order, so a polygon's stay together.
+		if len(polys) > 0 {
+			out.polys = make([dynamic]u32, len(piece.tri_from))
+			for t, i in piece.tri_from do out.polys[i] = polys[t]
+		}
 		append(parts, out)
 	}
 	groups_of :: proc(groups: []u16, tris: []u32) -> []u16 {
@@ -242,13 +264,20 @@ MESH_PARTS_MAX :: 256
 
 // Joins all the parts into the first, each part's triangles becoming a polygroup of
 // their own (numbered from 1 in part order, up to the u16 limit), the colours following
-// their vertices; the first keeps its name.
+// their vertices and the polygons their triangles; the first keeps its name.
 mesh_parts_merge :: proc(parts: ^[dynamic]Mesh_Part) {
 	if len(parts) < 2 do return
 	out := &parts[0]
-	colored := false
-	for p in parts do colored ||= len(p.colors) > 0
+	colored, polygons := false, false
+	for p in parts {
+		colored ||= len(p.colors) > 0
+		polygons ||= len(p.polys) > 0
+	}
 	if colored && len(out.colors) == 0 do resize(&out.colors, len(out.mesh.positions))
+	// Polygons are renumbered from 0 in triangle order, so two parts' numbers never meet;
+	// a part without them gives each triangle a number of its own.
+	next_poly: u32
+	if polygons do next_poly = polys_renumber(&out.polys, len(out.mesh.indices) / 3, 0)
 	resize(&out.groups, len(out.mesh.indices) / 3)
 	for &g in out.groups do g = 1
 	for &p, k in parts[1:] {
@@ -260,6 +289,10 @@ mesh_parts_merge :: proc(parts: ^[dynamic]Mesh_Part) {
 			else do resize(&out.colors, len(out.mesh.positions))
 		}
 		for _ in 0 ..< len(p.mesh.indices) / 3 do append(&out.groups, u16(min(k + 2, int(max(u16)))))
+		if polygons {
+			next_poly = polys_renumber(&p.polys, len(p.mesh.indices) / 3, next_poly)
+			append(&out.polys, ..p.polys[:])
+		}
 		mesh_part_destroy(&p)
 	}
 	resize(&out.mesh.normals, len(out.mesh.positions))
@@ -281,10 +314,12 @@ mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.
 	labels: Obj_Labels
 	defer obj_labels_destroy(&labels)
 	m: Mesh
-	m, err, line = mesh_read_obj(data, pool, chunk_bytes, &colors, &labels, &uvs if textured else nil)
+	polys: [dynamic]u32
+	m, err, line = mesh_read_obj(data, pool, chunk_bytes, &colors, &labels, &uvs if textured else nil, polys = &polys)
 	if err != .None {
 		delete(colors)
 		delete(uvs)
+		delete(polys)
 		return
 	}
 	// Materials name groups when nothing else does, as glTF's do.
@@ -305,7 +340,7 @@ mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.
 		for x, t in labels.material do materials[t] = lookup[x] if x >= 0 else -1
 	}
 	if len(labels.object) == 0 || slice.all_of(labels.object[:], labels.object[0]) {
-		single := Mesh_Part{mesh = m, colors = colors, materials = materials, uvs = uvs}
+		single := Mesh_Part{mesh = m, colors = colors, materials = materials, uvs = uvs, polys = polys}
 		if len(labels.object) > 0 do single.name = strings.clone(labels.object_names[labels.object[0]])
 		if len(labels.group) > 0 && !slice.all_of(labels.group[:], labels.group[0]) {
 			single.groups = labels.group
@@ -319,8 +354,9 @@ mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.
 		delete(colors)
 		delete(materials)
 		delete(uvs)
+		delete(polys)
 	}
-	mesh_parts_split(parts, m, colors[:], labels.group[:], labels.object[:], labels.object_names[:], materials[:], uvs[:])
+	mesh_parts_split(parts, m, colors[:], labels.group[:], labels.object[:], labels.object_names[:], materials[:], uvs[:], polys[:])
 	return
 }
 
@@ -441,6 +477,10 @@ Obj_Chunk :: struct {
 	uvs:          [dynamic][2]f32,
 	uv_index:     [dynamic]u32,
 	uv_relative:  [dynamic]u32, // entries of uv_index counted from this chunk's first `vt`
+	// Each triangle's face as the chunk's number of its first triangle, when asked, and
+	// whether any face had more than three corners.
+	polys:        [dynamic]u32,
+	polygons:     bool,
 	err:          Mesh_File_Error,
 	err_at:       int, // where in text the failing line starts
 	first_vertex: int,
@@ -453,11 +493,12 @@ OBJ_NO_UV :: max(u32)
 
 @(private = "file")
 Obj_Job :: struct {
-	chunks:   []Obj_Chunk,
-	m:        ^Mesh,
-	want_uvs: bool,
-	vt:       [][2]f32, // every `vt` line, in file order
-	uvs:      [][2]f32, // the result, one a corner
+	chunks:     []Obj_Chunk,
+	m:          ^Mesh,
+	want_uvs:   bool,
+	want_polys: bool,
+	vt:         [][2]f32, // every `vt` line, in file order
+	uvs:        [][2]f32, // the result, one a corner
 }
 
 @(private = "file")
@@ -470,6 +511,7 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 	c.positions = make([dynamic]Vec3, 0, n / 128, heap)
 	c.indices = make([dynamic]u32, 0, n / 32, heap)
 	c.relative = make([dynamic]u32, heap)
+	if job.want_polys do c.polys = make([dynamic]u32, 0, n / 32, heap)
 	corners := make([dynamic]u32, 0, 16, heap)
 	defer delete(corners)
 	relative := make([dynamic]bool, 0, 16, heap)
@@ -581,6 +623,11 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 						return
 					}
 				}
+				if job.want_polys && len(corners) >= 3 {
+					first := u32(len(c.indices) / 3)
+					for _ in 0 ..< len(corners) - 2 do append(&c.polys, first)
+					c.polygons ||= len(corners) > 3
+				}
 				for k in 1 ..< max(len(corners) - 1, 1) {
 					for j in ([3]int{0, k, k + 1}) {
 						if relative[j] do append(&c.relative, u32(len(c.indices)))
@@ -687,8 +734,10 @@ Ply_Format :: enum u8 {
 // triangles, are read in parallel. Polygons are split into fans; normals are left zero.
 // When `colors` is given and the vertices have red, green and blue (or diffuse_red,
 // diffuse_green and diffuse_blue), it receives them, one a vertex; bytes are taken as
-// they are, other integers and floats from 0 to their type's top or to 1.
-mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+// they are, other integers and floats from 0 to their type's top or to 1. When `polys`
+// is given it receives, one a triangle, the polygon each was cut from (see
+// Mesh_Part.polys), and is left empty when every face is a triangle.
+mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, allocator := context.allocator, polys: ^[dynamic]u32 = nil) -> (m: Mesh, err: Mesh_File_Error, line: int) {
 	if !bytes.has_prefix(data, transmute([]u8)string("ply")) do return {}, .Not_Recognised, 1
 	head := string(data[:min(len(data), 1 << 20)])
 	end := strings.index(head, "end_header")
@@ -731,7 +780,7 @@ mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Col
 	}
 	if format == nil do return {}, .Bad_Header, 0
 
-	r := Ply_Reader{data = data, at = body, format = format.?, pool = pool}
+	r := Ply_Reader{data = data, at = body, format = format.?, pool = pool, polys = polys}
 	vertices, faces := -1, -1
 	for e, i in elements {
 		if e.name == "vertex" do vertices = i
@@ -775,6 +824,7 @@ mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Col
 			if r.format == .Ascii do line = 1 + bytes.count(data[:min(r.at, len(data))], []u8{'\n'})
 			mesh_destroy(&m)
 			if colors != nil do clear(colors)
+			if polys != nil do clear(polys)
 			return {}, err, line
 		}
 		if i >= vertices && i >= faces do break // nothing after them is read
@@ -785,8 +835,10 @@ mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Col
 	if failed != .None {
 		mesh_destroy(&m)
 		if colors != nil do clear(colors)
+		if polys != nil do clear(polys)
 		return {}, failed, 0
 	}
+	if polys != nil && !r.polygons do clear(polys)
 	return m, .None, 0
 }
 
@@ -801,6 +853,10 @@ Ply_Reader :: struct {
 	rgb:       [3]int, // ...and its red, green and blue, or -1s for none wanted or there
 	colors:    []Vertex_Color, // one a vertex when rgb is there
 	list:      int, // the face element's index list property
+	// One a triangle when wanted: the number of its face's first triangle (see
+	// Mesh_Part.polys), and whether any face had more than three corners.
+	polys:     ^[dynamic]u32,
+	polygons:  bool,
 }
 
 // A colour property's value as a byte: bytes as they are, other integers scaled from
@@ -898,6 +954,7 @@ ply_element :: proc(r: ^Ply_Reader, e: Ply_Element, is_vertex, is_face: bool) ->
 			size := PLY_TYPE_SIZE[p.type]
 			if count < 0 || (len(r.data) - r.at) / size < count do return .Truncated
 			if is_face && k == r.list && count >= 3 {
+				ply_face(r, count)
 				first := ply_index(r.data, r.at, p.type, big)
 				for c in 1 ..< count - 1 {
 					append(&r.m.indices, first, ply_index(r.data, r.at + c * size, p.type, big), ply_index(r.data, r.at + (c + 1) * size, p.type, big))
@@ -908,6 +965,20 @@ ply_element :: proc(r: ^Ply_Reader, e: Ply_Element, is_vertex, is_face: bool) ->
 		if r.at > len(r.data) do return .Truncated
 	}
 	return .None
+}
+
+// Numbers the triangles of a face of `count` corners that is about to be cut into a fan,
+// when polygons are wanted.
+@(private = "file")
+ply_face :: proc(r: ^Ply_Reader, count: int) {
+	if r.polys == nil do return
+	// The faces before were all triangles read in parallel, each its own polygon.
+	if len(r.polys) < len(r.m.indices) / 3 {
+		for t in len(r.polys) ..< len(r.m.indices) / 3 do append(r.polys, u32(t))
+	}
+	first := u32(len(r.m.indices) / 3)
+	for _ in 0 ..< count - 2 do append(r.polys, first)
+	r.polygons ||= count > 3
 }
 
 // Binary faces that are all triangles (a count byte of 3 and three 32-bit indices)
@@ -1007,6 +1078,7 @@ ply_element_ascii :: proc(r: ^Ply_Reader, e: Ply_Element, is_vertex, is_face: bo
 				append(&corners, u32(index) if index >= 0 && index < i64(max(u32)) else max(u32))
 			}
 			if is_face && k == r.list {
+				if len(corners) >= 3 do ply_face(r, len(corners))
 				for c in 1 ..< max(len(corners) - 1, 1) do append(&r.m.indices, corners[0], corners[c], corners[c + 1])
 			}
 		}
@@ -1047,12 +1119,15 @@ Mesh_Clean_Report :: struct {
 // corner and vertices no triangle uses, keeping the order of what stays. Refuses NaN
 // and infinite coordinates. Normals become zero, for the sculptor to compute. `colors`,
 // one a vertex when not empty, follow the vertices: a welded vertex keeps the colour of
-// the first at its place; `groups`, one a triangle when not empty, follow the triangles.
-mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, groups: ^[dynamic]u16 = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
+// the first at its place; `groups` and `polys`, one a triangle when not empty, follow the
+// triangles.
+mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, groups: ^[dynamic]u16 = nil, polys: ^[dynamic]u32 = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
 	colored := colors != nil && len(colors) > 0
 	assert(!colored || len(colors) == len(m.positions), "one colour a vertex")
 	grouped := groups != nil && len(groups) > 0
 	assert(!grouped || 3 * len(groups) == len(m.indices), "one group a triangle")
+	polygons := polys != nil && len(polys) > 0
+	assert(!polygons || 3 * len(polys) == len(m.indices), "one polygon number a triangle")
 	n := len(m.positions)
 	if !positions_finite(m.positions[:], pool) do return {}, .Not_Finite
 
@@ -1112,11 +1187,13 @@ mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = 
 		if a == b || b == c || c == a do continue
 		m.indices[kept], m.indices[kept + 1], m.indices[kept + 2] = a, b, c
 		if grouped do groups[kept / 3] = groups[t / 3]
+		if polygons do polys[kept / 3] = polys[t / 3]
 		kept += 3
 	}
 	report.dropped_triangles = (len(m.indices) - kept) / 3
 	resize(&m.indices, kept)
 	if grouped do resize(groups, kept / 3)
+	if polygons do resize(polys, kept / 3)
 
 	// Drop unused vertices: number the used ones in order, then move them down.
 	new_of := w.rep // reused: no longer needed

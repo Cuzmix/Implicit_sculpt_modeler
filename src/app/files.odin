@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:c"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
@@ -595,10 +596,23 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 		defer if len(m.parts) > 1 do delete(label)
 		mesh := p.mesh
 		p.mesh = {}
-		if !scene_add_mesh(app, mesh, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, surface = import_surface(p)) {
+		// The file's polygons, in the part's numbering until the object's build renumbers
+		// its vertices and triangles.
+		polys: sculpt.Polys
+		polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], p.polys[:])
+		old_to_new, tri_from: []u32
+		if polys.first != nil {
+			old_to_new = make([]u32, len(mesh.positions))
+			tri_from = make([]u32, len(mesh.indices) / 3)
+		}
+		defer delete(old_to_new)
+		defer delete(tri_from)
+		if !scene_add_mesh(app, mesh, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, old_to_new, surface = import_surface(p), tri_from = tri_from) {
+			sculpt.polys_destroy(&polys)
 			ok = false
 			break
 		}
+		if polys.first != nil do import_take_polygons(&app.scene.objects[len(app.scene.objects) - 1].levels, &polys, old_to_new, tri_from)
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
 	}
 	added := app.scene.objects[first:]
@@ -611,6 +625,25 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 	}
 	if len(added) > 0 do app.scene.selected = first
 	return ok
+}
+
+// Takes an imported part's polygons (in the part's numbering, which `old_to_new` and
+// `tri_from` turn into the base level's) as its object's base level's, so Wireframe draws
+// the file's faces and Subdivide cuts them as Catmull-Clark does, as ZBrush and Blender
+// do with an imported quad mesh; an object of only quads keeps them as quads too, for
+// the UV and texture tools.
+import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32) {
+	retopo_polys_renumber(polys, old_to_new, tri_from)
+	quads := true
+	for f in 0 ..< len(polys.first) - 1 do quads &&= polys.first[f + 1] - polys.first[f] == 4
+	if !sculpt.levels_set_polys(l, polys^, {}, .Smooth) {
+		log.error("import: the file's polygons did not fit the triangles cut from them, so the object keeps triangles")
+		return
+	}
+	if !quads do return
+	faces := make([][4]u32, len(polys.first) - 1)
+	for &f, q in faces do copy(f[:], polys.corners[4 * q:][:4])
+	sculpt.levels_set_quads(l, faces)
 }
 
 // The polypaint and polygroups an imported part's object starts with.
@@ -722,10 +755,10 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 	switch kind {
 	case .PLY, .STL:
 		p: geom.Mesh_Part
-		if kind == .PLY do p.mesh, failed, line = geom.mesh_read_ply(data, pool, &p.colors)
+		if kind == .PLY do p.mesh, failed, line = geom.mesh_read_ply(data, pool, &p.colors, polys = &p.polys)
 		else do p.mesh, failed, line = geom.mesh_read_stl(data, pool)
 		if failed == .None do append(parts, p)
-		else do delete(p.colors)
+		else do geom.mesh_part_destroy(&p)
 	case .GLTF:
 		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside, &look)
 	case .USD:
@@ -739,7 +772,7 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 	if failed == .None {
 		for k := 0; k < len(parts); {
 			p := &parts[k]
-			cleaned, err := geom.mesh_clean(&p.mesh, pool, &p.colors, &p.groups)
+			cleaned, err := geom.mesh_clean(&p.mesh, pool, &p.colors, &p.groups, &p.polys)
 			if err == .Empty {
 				// A part of only lines or of triangles with nothing inside goes alone.
 				geom.mesh_part_destroy(p)
