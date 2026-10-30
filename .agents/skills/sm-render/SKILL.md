@@ -272,6 +272,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
   through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The
   kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy` waits for the GPU).
+- Kept pictures: `viewport_copy` copies a viewport-format texture into a `Viewport_Target` on its own command buffer,
+  submitted before the frame draws over the source. The still a worked view pane leaves (`grid_work_gpu`) and the
+  cross-fade (app `cross_fade.odin`: last frame's shown texture, copied after the interface, drawn over the main pane
+  as `KIT_FADE_STILL_IMAGE` with its alpha set at upload, `cross_fade_tint`) use it; `ui.image`'s tint fades it.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

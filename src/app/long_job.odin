@@ -391,6 +391,8 @@ long_job_frame :: proc(app: ^App) -> bool {
 		}
 	}
 	long_job_drop(j)
+	// The old mesh's picture, still in the viewport, fades into the new one.
+	if ok do cross_fade_start(app, .Mesh_Fade)
 	return scene_run_finish(app, cmd, label, j.source, j.start, ok, obj if cmd.kind != .Retopo else selected_object(app))
 }
 

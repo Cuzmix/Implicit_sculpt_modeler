@@ -226,7 +226,8 @@ App :: struct {
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	camera_ease: Camera_Ease, // the camera gliding to a view a command asked for (camera_ease.odin)
 	flashes:     Flashes, // the undo glow, mask wipe, selection outline and save tick (feedback_motion.odin)
-	long_job:    Long_Job, // a remesh, decimate or retopology running on a thread of its own (long_job.odin)
+	long_job:    Long_Job, // a rebuild, subdivision or voxel conversion running on a thread of its own (long_job.odin)
+	cross_fade:  Cross_Fade, // the last picture fading out over a new pass, look or mesh (cross_fade.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
@@ -966,6 +967,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
 		if !grid_work_gpu(&app) do return false
+		cross_fade_gpu(&app)
 		view_windows_layout(&app)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		bench_waits := opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(&app)
@@ -1557,6 +1559,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(&app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
 		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(&app))
+		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes)
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(&app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}

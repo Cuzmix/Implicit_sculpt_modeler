@@ -1265,6 +1265,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if quiet do app.ui.eyedrop_armed, app.ui.focus_armed = false, false
 		kit_floats_close(k)
 	}
+	cross_fade_frame_end(app)
 	k.ms = time.duration_milliseconds(time.tick_since(start))
 	return input
 }
@@ -1817,6 +1818,7 @@ kit_rename :: proc(app: ^App) {
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
+	cross_fade_shown(app, shown)
 	draws := make([]render.Ui_Draw, len(dl.cmds), context.temp_allocator)
 	for c, i in dl.cmds {
 		draws[i] = {
@@ -1843,6 +1845,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			draws[i].image, draws[i].smooth = pic, true
 			if pic == nil do draws[i].index_count = 0
 		}
+		if c.texture == .Image && c.image == KIT_FADE_STILL_IMAGE {
+			draws[i].image = app.cross_fade.still.color
+			if !app.cross_fade.on || app.cross_fade.still.color == nil do draws[i].index_count = 0
+		}
 		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
 			draws[i].image = app.work_still.color
 			if app.work_still.color == nil do draws[i].index_count = 0
@@ -1859,6 +1865,7 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
 	k := &app.kit
 	dl := ui.frame_end(&k.ctx)
+	cross_fade_tint(app, dl)
 	pixels, w, h, dirty, changed := ui.atlas_take(&k.ctx)
 	vertices := transmute([]render.Ui_Vertex)dl.vertices[:]
 	return render.ui_pass_upload(&app.renderer, &k.pass, cmd, vertices, dl.indices[:], pixels, {u32(w), u32(h)}, dirty, changed)

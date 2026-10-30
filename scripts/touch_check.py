@@ -6343,6 +6343,34 @@ def mask_command_sweeps_the_object():
 
 
 @scenario
+def pass_change_cross_fades_the_view():
+    """Alt+2 (Normals) fades the shaded picture out over the new pass and is over a third of a second on; a turn of the camera mid-fade ends it at once; with Pass and look changes off in Motion it cuts."""
+    def run(frames, fading, fades, extra=(), turn=False):
+        s = Script()
+        s.press("2", ("alt",))
+        if turn:
+            s.add("move:760,430")
+            s.wait(1)
+            s.add("wheel:1")
+        s.wait(frames)
+        checks = {"look_fades": near(fades), "cross_fading": near(fading), "pass": is_text("Normals")}
+        return s, list(extra), checks if turn else camera_still(checks)
+    def off():
+        write_settings("motion_off Look_Fade\n")
+        return [f"--settings-file={settings_file()}"]
+    return Steps([run(1, 1, 1), run(30, 0, 1), run(1, 0, 1, turn=True), run(1, 0, 0, off())])
+
+
+@scenario
+def long_job_fades_to_the_new_mesh():
+    """A remesh run as a long job swaps the new mesh in under a fade of the old one's picture, which is over once the job has landed and a moment passed."""
+    s = Script()
+    palette_run(s, "remesh")
+    s.wait(240)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "mesh_fades": near(1), "cross_fading": near(0), "undo_steps": near(1)})
+
+
+@scenario
 def new_selection_outlines_itself():
     """Picking the second sphere in the Scene list outlines it once, drawing in round it; the first frame's selection does not."""
     def run(frames, outlining):
