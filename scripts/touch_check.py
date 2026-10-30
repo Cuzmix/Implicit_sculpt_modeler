@@ -4541,6 +4541,31 @@ def lens_export_sheet_picks_a_format():
     return Steps([run(False), run(True)])
 
 
+# The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
+# cut in half.
+EXPORT_CHECKS = {"repair": (1136, 502)}
+
+
+@scenario
+def export_sheet_checks_a_print():
+    """The Export sheet opens on the 3D print and checks it: a whole sphere is watertight with no holes and a wall its width across (2 units); cut in half it has one hole and open edges and no wall to measure, and Repair on the holes' row closes it in one undo step, after which it is checked again and the wall is measured."""
+    def run(step):
+        s = Script()
+        s.wait(4)
+        s.press("e", ("ctrl",))
+        s.wait(12)
+        if step == 0:
+            return s, LENS_1440, camera_still({"export_preset": is_text("Print"), "print_checks": near(1), "print_holes": near(0), "print_open_edges": near(0),
+                                               "print_wall": near(2, 0.02), "dabs": near(0)})
+        if step == 1:
+            return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_holes": near(1), "print_open_edges": lambda v: int(v) > 0, "print_wall": near(0), "dabs": near(0)})
+        s.ftap(*EXPORT_CHECKS["repair"])
+        s.wait(12)
+        return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_checks": lambda v: int(v) >= 2, "print_holes": near(0), "print_open_edges": near(0),
+                                                                      "print_wall": lambda v: float(v) > 0, "export_open": near(1), "dabs": near(0)})
+    return Steps([run(0), run(1), run(2)])
+
+
 # Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
 # and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
 # top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.

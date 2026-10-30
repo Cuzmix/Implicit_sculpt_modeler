@@ -454,14 +454,16 @@ export_two_lines :: proc(ctx: ^ui.Context, s: string, size, w: f32) -> (first, s
 }
 
 // What goes out, `w` points wide: the picture (the object's thumbnail, or the view for
-// the scene and the pictures), the file name, and lines on what it holds.
+// the scene and the pictures), the file name, and lines on what it holds; for a print,
+// the checks before it prints under them (print_checks.odin).
 @(private = "file")
 export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	obj := selected_object(app)
-	ui.begin(ctx, "export preview", {direction = .Row, gap = 12, width = w})
+	ui.begin(ctx, "export preview", {direction = .Column, gap = 10, width = w})
+	ui.begin(ctx, "export preview head", {direction = .Row, gap = 12, width = w})
 	pic := ui.place(ctx, {EXPORT_PICTURE, EXPORT_PICTURE})
 	ui.fill_rect(ctx, pic, t.radius_medium, t.fill)
 	drawn := false
@@ -485,6 +487,8 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	ui.label(ctx, ui.text_fit(ctx, export_file_name(app, f), t.text_size, lines_w, .Semibold), t.text_size, t.text, .Semibold)
 	for line in export_preview_lines(app, f) do ui.label(ctx, ui.text_fit(ctx, line, t.small_size, lines_w), t.small_size, t.text_secondary)
 	ui.end(ctx)
+	ui.end(ctx)
+	if (f == .Print || f == .Print_OBJ) && obj != nil do print_checks_rows(app, obj, w)
 	ui.end(ctx)
 }
 

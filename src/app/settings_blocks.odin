@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 
 import "../camera"
@@ -64,6 +65,7 @@ Settings_Block :: enum u8 {
 	History_Steps,
 	History_Back,
 	Blender_Link,
+	Printer,
 }
 
 // A block in a tab or a section, under `caption` ("" goes on under the one before).
@@ -125,6 +127,7 @@ SETTINGS_SYSTEM := [?]Settings_Entry {
 	{.History_Steps, "WHAT BECOMES A STEP"},
 	{.History_Back, "GOING BACK"},
 	{.Blender_Link, "BLENDER LINK"},
+	{.Printer, "3D PRINTER"},
 }
 
 // The blocks of the narrow panel's tab `tab`.
@@ -189,6 +192,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.History_Steps    = "history steps lights scene tree names folders order undo",
 	.History_Back     = "history camera follows restore view group repeated strokes list scrub slide two fingers quick step pictures thumbnails",
 	.Blender_Link     = "blender link add-on folder",
+	.Printer          = "3d printer bed plate size wall thickness thinnest print checks",
 }
 
 // Whether block `e` matches the search `q` (lower case, trimmed): by its caption, its
@@ -510,6 +514,16 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 			ui.end(ctx)
 			ui.paragraph(ctx, "Install the add-on in tools/blender in Blender, give it this folder, then Send to Blender here and Get from Sculpt there; Send to Sculpt there comes back here when you switch to Sculpt, or with Get from Blender.")
 		}
+	case .Printer:
+		bed := print_bed(app)
+		sides := [3]string{"Bed width", "Bed depth", "Bed height"}
+		for name, k in sides {
+			v := bed[k]
+			if ui.drag_value(ctx, name, &v, 1, PRINT_BED_MIN, PRINT_BED_MAX, fmt.tprintf("%s mm", print_number(v))) do app.print_bed[k] = math.round(v)
+		}
+		wall := print_wall_least(app)
+		if ui.drag_value(ctx, "Thinnest wall", &wall, 0.01, PRINT_WALL_MIN, PRINT_WALL_MAX, fmt.tprintf("%s mm", print_number(wall))) do app.print_wall = math.round(wall * 10) / 10
+		ui.paragraph(ctx, "What the Export sheet's 3D print checks a print against: whether it fits the bed, turned a quarter round if need be, and whether its walls are at least this thick (two lines of a 0.4 mm nozzle make about 1 mm).")
 	}
 }
 
@@ -544,6 +558,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options = false
 	case .Pies, .Mouse, .Blender_Link:
+	case .Printer:         app.print_bed, app.print_wall = {}, 0
 	case .Panel_Places:    windows_reset(k)
 	case .Orbit:
 		n.orbit_style, n.limit_pitch, n.turntable_roll, n.orbit_speed = d.orbit_style, d.limit_pitch, d.turntable_roll, d.orbit_speed
