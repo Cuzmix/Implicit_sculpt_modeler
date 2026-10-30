@@ -355,7 +355,11 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 	if closed do k.help = false
 	if body {
 		// The tags over the screen itself, for learning it where it is used.
-		_ = command_button(app, .Name_Controls, variant = .Bordered, glyph = ui.ICON_TAG)
+		ui.begin(ctx, "help top", {direction = .Row, gap = 8})
+		half := (inner - 8) * 0.5
+		_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
+		_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
+		ui.end(ctx)
 		names: [len(Help_Tab)]string
 		for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
 		if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {

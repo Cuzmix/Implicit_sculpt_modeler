@@ -151,6 +151,7 @@ chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor
 		return ctx.last_rect
 	case .End:
 		if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
+		k.history_at = ctx.last_rect
 		start := ctx.last_rect
 		_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
 		return ui.rect_union(start, ctx.last_rect)

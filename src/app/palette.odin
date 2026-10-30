@@ -75,6 +75,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Screenshot       = "png capture image",
 	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",
 	.Name_Controls    = "labels names overlay what is this cheat sheet buttons controls question mark",
+	.Take_Tour        = "tour walkthrough tutorial onboarding introduction learn guide",
 	.Pie              = "quick menu favourites radial marking menu spacebar custom",
 	.Pie_Editor       = "quick menu favourites radial custom pies slots",
 	.Undo             = "back revert",

@@ -217,6 +217,7 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	}
 	k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
+	k.history_at = ctx.last_rect
 	ui.end(ctx)
 	return
 }
