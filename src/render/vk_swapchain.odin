@@ -386,7 +386,7 @@ vk_present :: proc(p: Vk_Present) {
 	switch vk_state.present_timing {
 	case .Present_Wait:   info.pNext = &present_id
 	case .Display_Timing: info.pNext = &times
-	case .None:
+	case .None, .Presented_Handler:
 	}
 	r := vk.QueuePresentKHR(vk_state.queue, &info)
 	if r == .ERROR_OUT_OF_DATE_KHR || r == .ERROR_SURFACE_LOST_KHR || (r == .SUBOPTIMAL_KHR && vk_turns_moved(w)) do w.stale = true
@@ -427,7 +427,7 @@ vk_present_shown :: proc(w: ^Vk_Window, id, shown_ns: u64) {
 @(private = "file")
 vk_present_learn :: proc(w: ^Vk_Window, wait: bool) {
 	switch vk_state.present_timing {
-	case .None:
+	case .None, .Presented_Handler:
 	case .Present_Wait:
 		back := u64(vk_state.frames - 1)
 		if wait && w.present_mode == .VSYNC && w.pace_misses < VK_PACE_MISSES && w.present_id > back {

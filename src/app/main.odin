@@ -2058,6 +2058,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
 	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
+	if dropped, known := render.frames_dropped(&app.renderer); known do fmt.printfln("frames_dropped=%d", dropped)
 	if opts.bench_stroke > 0 {
 		// The synthetic stroke never lifts the button: end it, then time undo and redo
 		// of the whole stroke, each including the normal update that follows.

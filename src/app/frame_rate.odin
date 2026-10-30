@@ -144,7 +144,7 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 	low: [len(Low_Latency)]string
 	for l in Low_Latency do low[int(l)] = LOW_LATENCY_NAMES[l]
 	if picked := ui.tabs(ctx, "Low latency", low[:], int(app.low_latency)); picked >= 0 do app.low_latency = Low_Latency(picked)
-	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two.")
+	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two. Under Metal it also holds one picture fewer for the screen, so the frame reads your pen nearer to when it shows.")
 	frames := render.caps(&app.renderer).frames_in_flight
 	if app.stats.display_ms.count > 0 {
 		shown50, _ := ring_percentiles(app.stats.display_ms)

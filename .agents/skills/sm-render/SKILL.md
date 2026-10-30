@@ -362,7 +362,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit
   and takes `render.present_times` after the acquire. Only the main window paces (view windows acquire without
-  waiting). lavapipe offers neither extension, so in the container only the `.None` path runs.
+  waiting). lavapipe offers neither extension, so in the container only the `.None` path runs. The own Metal backend
+  answers `.Presented_Handler`: `mtl_present_log_add` registers each drawable before `presentDrawable`, and Metal's
+  handler (on its own thread, `context` set, under the log's mutex) records the time or a dropped frame. Logs live in
+  `mtl_state.present_logs` and outlive windows, since a handler can come after its window is released; never free one
+  while the device lives. One frame in flight also means `maximumDrawableCount` 2 (`mtl_layer_drawables`).
 - Pre-rotation (Android, own Vulkan, `vk_pick_transform`): a swapchain image may be turned from the window
   (`swapchain_turns`); `Vk_Window.width/height` stay the window's. Anything new that draws into a swapchain must turn
   with `ui_pass_draw`'s `turns` (the vertex uniform's zw and the scissor remap); draw into an offscreen target instead.

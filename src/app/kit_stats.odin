@@ -111,6 +111,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		// Only some drivers tell when a frame reached the screen (render.Present_Timing).
 		if render.caps(&app.renderer).present_timing != .None {
 			ring(ctx, "Input to screen  display_ms", s.display_ms, "ms")
+			if dropped, known := render.frames_dropped(&app.renderer); known do ui.value_row(ctx, "Frames dropped  frames_dropped", fmt.tprintf("%d", dropped))
 		} else {
 			ui.value_row(ctx, "Input to screen  display_ms", "not told by this driver")
 		}
