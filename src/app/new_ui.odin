@@ -361,6 +361,7 @@ Kit_State :: struct {
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
+	labels:      Help_Labels, // Name every control (help_labels.odin)
 	coach_shown: bool,
 	coach_last:  Coach_Step,
 	scroll:     f32, // the inspector's scroll, where it is heading
@@ -1386,6 +1387,7 @@ kit_layout :: proc(app: ^App) {
 	// The Home screen covers the window and stands in for every panel while it shows.
 	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an
 	// interactive start may open Home after --input-diagnostics opened it.
+	help_labels_frame(app, !app.diag.open && !k.home && !k.clean)
 	if app.diag.open {
 		kit_diag(app)
 		return
@@ -1519,6 +1521,7 @@ kit_layout :: proc(app: ^App) {
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
+	kit_help_labels_note(app)
 }
 
 // Lays out panel `which` where it floats, if it does (the docked stack is its column's).

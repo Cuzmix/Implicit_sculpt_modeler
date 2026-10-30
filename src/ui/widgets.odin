@@ -56,6 +56,7 @@ ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
 ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
 ICON_SEARCH :: rune(0xe155)
 ICON_HELP :: rune(0xe082) // circle-help
+ICON_TAG :: rune(0xe183) // tag: the Help overlay naming every control
 ICON_ROTATE_3D :: rune(0xe2ea)
 ICON_ZOOM_IN :: rune(0xe1b6)
 ICON_STAR :: rune(0xe17a)
@@ -738,7 +739,7 @@ tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, dept
 	if open != nil {
 		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
 		icon(ctx, ICON_CHEVRON_DOWN if open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
-		tip(ctx, salt(id, 99), chevron, "Fold" if open^ else "Unfold")
+		tip(ctx, salt(id, 99), chevron, "Fold" if open^ else "Unfold", label = false)
 	}
 	if grip {
 		center := [2]f32{x + t.icon_small * 0.5, mid}
@@ -948,7 +949,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	if parts.open != nil {
 		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
 		icon(ctx, ICON_CHEVRON_DOWN if parts.open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
-		tip(ctx, salt(id, 99), chevron, "Fold" if parts.open^ else "Unfold")
+		tip(ctx, salt(id, 99), chevron, "Fold" if parts.open^ else "Unfold", label = false)
 	}
 	press_scale(ctx, mark, vis, scale)
 

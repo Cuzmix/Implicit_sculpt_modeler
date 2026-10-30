@@ -11,13 +11,16 @@ import "core:strings"
 // delay (or at once if another tooltip showed a moment ago) `text` shows beside it. A
 // finger or a pen, which cannot rest without pressing, shows it with a long press on a
 // control that has no secondary action (long_press_decide), for as long as it is held.
-tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
+// While every control is named (labels.odin) it is one of them, unless `label` is false:
+// a section's chevron, whose Fold or Unfold says nothing a tag would need to.
+tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "", label := true) {
 	// A press on the control hides its tooltip until the pointer leaves it, and none
 	// shows while a popover is open: it would cover what the press opened.
 	if ctx.hot == id && ctx.input.pressed != {} do ctx.tip_pressed = id
 	if ctx.hot != id && ctx.tip_pressed == id do ctx.tip_pressed = 0
 	held := ctx.active == id && ctx.input.pointer != .Mouse && .Left in ctx.input.down
 	if text == "" do return
+	if label do label_add(ctx, id, r, text, keys)
 	if !held && (ctx.hot != id || ctx.input.down != {} || ctx.tip_pressed == id || ctx.input.no_hover_tips) do return
 	open_popup := ctx.popup_open if ctx.popup_open != 0 else ctx.popup_open_prev
 	if n := len(ctx.stack); open_popup != 0 && (n == 0 || ctx.stack[n - 1].root != open_popup) do return
