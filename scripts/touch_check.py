@@ -3181,6 +3181,24 @@ def lens_shelf_long_press_shows_quick_settings():
 
 
 @scenario
+def lens_shelf_shows_every_tile_it_adds():
+    """Every tile of the Sculpt page shows, narrowed to fit on a tablet-shaped window, where a page with no room left refuses one more rather than add it out of sight; on a wide window brushes put on the shelf from Search show at its end, up to its twelve."""
+    def run(size, more, count, fits):
+        s = Script()
+        for name in ["snake hook", "clay strips", "elastic"][:more]:
+            s.press("k", ("ctrl",))
+            s.type(name)
+            s.wait(2)
+            s.press("Return", ("ctrl",))
+            s.wait(4)
+            s.press("Escape")
+            s.wait(4)
+        return s, size, camera_still({"shelf_shown": near(count), "shelf": lambda v: len(v.split(",")) == count, "shelf_fits": near(fits), "dabs": near(0)})
+    tablet = ["--width=1180", "--height=820"]
+    return Steps([run(tablet, 0, 10, 10), run(tablet, 1, 10, 10), run(LENS_1440, 1, 11, 12), run(LENS_1440, 3, 12, 12)])
+
+
+@scenario
 def lens_shelf_page_names_turn_the_page():
     """A tap on Paint under the shelf turns it to the Paint page, whose first tile is the Paint brush."""
     s = Script()
@@ -4956,7 +4974,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
     """Left-handed in portrait, the pen drags the Shelf tag to the screen's bottom right: the shelf stands at the layout's start end of the bottom, which is the screen's right, still clear of the dial in that corner."""
     s = Script()
     s.wait(6)
-    x0, y0 = 175, 1176
+    x0, y0 = 200, 1176
     s.add("pnear")
     s.add(f"pdown:{x0},{y0}")
     for x, y in line((x0, y0), (700, 1250), 30)[1:]:
