@@ -4112,7 +4112,8 @@ def lens_scene_card_finds_by_name():
 # Cube, Voxel sphere and Sun light, and the rows: the first object row's centre, each row
 # 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
 OUTLINER = {"add": (1322, 330), "cube": (1240, 426), "voxel": (1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
-            "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": (1110, 600)}
+            "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": (1110, 600),
+            "row1_dots": (1170, 446), "show_in_model": (1200, 552)}
 # The kind chips under Find once a voxel sphere joins the sphere: All, Meshes, Voxels, Lights.
 OUTLINER_CHIPS = {"voxels": (1250, 383)}
 
@@ -4192,6 +4193,17 @@ def outliner_group_takes_the_selection():
     s.wait(8)
     return s, LENS_1440 + THREE, {"folders": near(1), "scene_folders": is_text("1,1,0"), "undo_steps": near(1), "dabs": near(0)}
 
+
+@scenario
+def outliner_spaces_dots_leave_an_object_out():
+    """A tap on Sphere 2's spaces dots opens Show in; unticking Model leaves it out of Model only, so it stays in view in Sculpt, and no undo step is made."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*OUTLINER["row1_dots"])
+    s.wait(6)
+    s.ftap(*OUTLINER["show_in_model"])
+    s.wait(6)
+    return s, LENS_1440 + THREE, {"objects_spaces_off": near(1), "scene_space_changes": near(1), "objects_off": near(0), "undo_steps": near(0), "dabs": near(0)}
 
 @scenario
 def lens_layers_card_records_and_picks():
