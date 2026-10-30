@@ -106,6 +106,10 @@ View_Grid :: struct {
 	main:      ui.Rect,
 	px:        [GRID_VIEWS][2]u32,
 	dragged:   int, // the divider held (1 + its node), 0 for none, for the exit stats
+	// The layout the view panes last faded in for, and when (View panes motion); never kept.
+	fade_serial: int,
+	fade_at:     f64,
+	fades:       int,
 	drags:     int, // frames a divider moved, for the exit stats
 	// Lens's dividers (lens_panes.odin): the last tap on one, the divider let go at the
 	// edge would close the side beyond (1 + its node, 0 for none) and which side, and for
@@ -816,6 +820,9 @@ grid_left_column_edge :: proc(app: ^App) -> f32 {
 // Points between a docked column and the grid.
 GRID_COLUMN_GAP :: 8
 
+// How long view panes take to fade in when the grid's layout changes.
+PANE_FADE_TIME :: 0.24
+
 // A divider: the gap it lies along, the split it moves, its direction and the split's room.
 Grid_Divider :: struct {
 	line:     ui.Rect,
@@ -866,6 +873,13 @@ kit_grid :: proc(app: ^App) {
 		room = snap(room, px)
 	}
 	grid_work(app, n)
+	// A new layout (a preset, a split or join, a workspace's grid) fades its view panes in
+	// over the ground, so what moved is seen to arrive; the first frames' layout is where
+	// the run starts.
+	if g.fade_serial != g.serial {
+		if k.frame > 2 do g.fade_at, g.fades = ctx.time, g.fades + 1
+		g.fade_serial = g.serial
+	}
 	g.main = cells[0]
 	if g.work != 0 do g.main = room if g.maximised == g.work else cells[g.work]
 	// While a view pane is worked in, the main pane holds the picture it showed as the
@@ -896,6 +910,17 @@ kit_grid :: proc(app: ^App) {
 		r := room if g.maximised == i else cells[i]
 		if !resizing do g.px[i - 1] = {u32(r.w * d + 0.5), u32(r.h * d + 0.5)}
 		kit_view_pane(app, i, r)
+	}
+	if run := ui.motion_duration(ctx, motion_class(.Panes), PANE_FADE_TIME); run > 0 && g.fade_at > 0 {
+		if t := f32(ctx.time - g.fade_at) / run; t < 1 {
+			ground := ui.color_fade(ctx.theme.frame, 1 - ui.ease(.Out_Cubic, t))
+			for i in 1 ..< n {
+				if g.maximised != 0 && g.maximised != i do continue
+				ui.fill_rect(ctx, room if g.maximised == i else cells[i], 0, ground)
+			}
+			// Keeps frames coming until it is done (idle.odin rests once nothing changes).
+			_ = ui.tween_from(ctx, ui.salt(ui.hash_under(0, "pane fade"), u64(g.fades)), 0, 1, run, .Linear, class = motion_class(.Panes))
+		}
 	}
 	// The corner handles under the panes' heads, whose chips win where the two meet.
 	if g.maximised == 0 do lens_pane_corners(app, cells, n)

@@ -62,6 +62,10 @@ Kit_State :: struct {
 	home_menu_at: ui.Rect,
 	home_menu_item: int,
 	home_menu_armed: bool,
+	// Home closing: when, and the tile (or button) it closed from, which the scene grows
+	// out of (kit_home_reveal).
+	home_reveal_at:   f64,
+	home_reveal_from: ui.Rect,
 	menu:       bool,
 	// Menu > Earlier saves (kit_versions), and the row a first tap armed while the scene had
 	// work to lose (its index + 1) and when: a second tap soon after opens it.
@@ -1075,8 +1079,15 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	k.ctx.theme = kit_theme(app)
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
+	// When the hand changes, the bars and panels slide across from where the other hand
+	// had them (Changing hands); the first frame starts where the hand is.
+	hand: f32 = 1 if k.ctx.mirror else 0
+	k.ctx.mirror_slide = abs(hand - ui.tween(&k.ctx, ui.hash_under(0, "hand slide"), hand, HAND_SLIDE_TIME, .Out_Cubic, class = motion_class(.Hand_Switch)))
 	return {w, h}, {pw, ph}
 }
+
+// How long the bars and panels take to slide across when the hand changes.
+HAND_SLIDE_TIME :: 0.3
 
 // The look's theme as every interface of the app takes it, the main window's and each view
 // window's: with Settings > Touch > Hold delay, the ring that counts toward the long press
@@ -1373,6 +1384,8 @@ kit_layout :: proc(app: ^App) {
 		kit_clean_view(app)
 		return
 	}
+	// Home just closed: the scene grows out of the tile it closed from, under the bars.
+	kit_home_reveal(app)
 
 	// First, so that every panel and popover laid out after it is above it.
 	kit_shape_bar(app)

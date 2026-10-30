@@ -43,6 +43,12 @@ kit_home :: proc(app: ^App) {
 	win := ctx.input.window
 	area := ui.safe_area(ctx)
 	PAD :: 20
+	// Each opening fades in and settles from a touch larger (Home screen motion).
+	mark := ui.vertex_mark(ctx)
+	defer if t := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "home"), u64(app.home.opened)), 0, 1, HOME_GROW_TIME, .Linear, class = motion_class(.Home)); t < 1 {
+		e := ui.ease(.Out_Cubic, t)
+		ui.transform_since(ctx, mark, e, 1.02 - 0.02 * e, {win.x * 0.5, win.y * 0.5})
+	}
 	// One root over the whole window, so no press reaches the viewport under it.
 	ui.begin_at(ctx, "home", {0, 0}, {direction = .Row, width = win.x, height = win.y})
 	owner := ui.id_of(ctx, "home")
@@ -77,6 +83,36 @@ kit_home :: proc(app: ^App) {
 	ui.end(ctx)
 	ui.end(ctx)
 	kit_home_menu(app)
+}
+
+// How long Home takes to fade in, and the scene to grow out of it once it closes.
+HOME_GROW_TIME :: 0.28
+
+// Just after Home closes: the Home screen's ground over the window with a window onto the
+// scene that grows from the tile (or button) Home closed from to the whole window, the
+// ground fading as it goes, so the scene opens out of what was picked. Drawn under the bars, inert, so presses reach what is under it.
+kit_home_reveal :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	run := ui.motion_duration(ctx, motion_class(.Home), HOME_GROW_TIME)
+	if run <= 0 || k.home_reveal_at <= 0 do return
+	t := f32(ctx.time - k.home_reveal_at) / run
+	if t >= 1 do return
+	win := ctx.input.window
+	from := k.home_reveal_from
+	if from.w <= 0 do from = {win.x * 0.5 - 60, win.y * 0.5 - 40, 120, 80}
+	e := ui.ease(.Out_Cubic, t)
+	if !ui.motion_moves(ctx, motion_class(.Home)) do e = 1
+	hole := ui.Rect{from.x * (1 - e), from.y * (1 - e), from.w + (win.x - from.w) * e, from.h + (win.y - from.h) * e}
+	ground := ui.color_fade(ctx.theme.frame, 1 - ui.ease(.In_Out_Cubic, t))
+	ui.begin_at(ctx, "home reveal", {0, 0}, {width = win.x, height = win.y, inert = true})
+	ui.fill_rect(ctx, {0, 0, win.x, hole.y}, 0, ground)
+	ui.fill_rect(ctx, {0, hole.y + hole.h, win.x, win.y - hole.y - hole.h}, 0, ground)
+	ui.fill_rect(ctx, {0, hole.y, hole.x, hole.h}, 0, ground)
+	ui.fill_rect(ctx, {hole.x + hole.w, hole.y, win.x - hole.x - hole.w, hole.h}, 0, ground)
+	ui.end(ctx)
+	// Keeps frames coming until it is done (idle.odin rests once nothing changes).
+	_ = ui.tween_from(ctx, ui.salt(ui.hash_under(0, "home reveal"), u64(k.home_reveal_at * 1000)), 0, 1, run, .Linear, class = motion_class(.Home))
 }
 
 // The new scene starters, `per_row` to a row, and Open a file `width` wide.

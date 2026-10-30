@@ -151,6 +151,7 @@ Container :: struct {
 	// so a press there is the widget's rather than the viewport's. Empty for none.
 	hit:         Rect,
 	clip_prev:   Rect, // the clip rectangle to put back when it ends
+	vertex_mark: int, // the draw list's vertex count at the start, for mirror_slide
 	// A highlight that slides to wherever a child asks (the chosen tab, the held brush),
 	// drawn under the children.
 	indicator:   Maybe(Indicator),
@@ -254,6 +255,11 @@ Context :: struct {
 	// other, and popovers open the other way, so the tools a hand reaches for are under it.
 	// A window the user moved stays where it was put.
 	mirror:         bool,
+	// While the hand changes: how much of the way back to its mirror image each outermost
+	// container is drawn (1 there, 0 where the layout puts it), so the bars and panels slide
+	// across rather than jump; with motion Reduced they fade in where they go instead. Only
+	// the drawing moves: presses land where the layout puts them.
+	mirror_slide:   f32,
 	// A press that closed a popover over the viewport: nothing gets the pointer until
 	// every button is up, so the click that dismisses never sculpts.
 	swallow:        bool,
@@ -654,6 +660,20 @@ end :: proc(ctx: ^Context) {
 		}
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
 	}
+	if ctx.mirror_slide > 0 && c.root == c.id && len(ctx.stack) == 0 {
+		// Its mirror image's left edge in the safe area, where the other hand had it.
+		area := safe_area(ctx)
+		from := 2 * area.x + area.w - c.rect.x - c.rect.w
+		opacity: f32 = 1 if ctx.motion == .Full else 1 - ctx.mirror_slide
+		shift := (from - c.rect.x) * ctx.mirror_slide
+		transform_since(ctx, c.vertex_mark, opacity, 1, {}, {shift, 0})
+		// A scrolling body inside it clips to where the layout put it: the clip moves with
+		// it, or the slide would cut it off. The window's own clip stays.
+		if ctx.motion == .Full {
+			d := px(ctx)
+			for &cmd in ctx.draw.cmds[max(c.cmd_mark, 0):] do if cmd.clip != c.clip_prev do cmd.clip.x += shift * d
+		}
+	}
 	hit := c.rect
 	if c.root == c.id && c.hit.w > 0 && c.hit.h > 0 do hit = rect_union(hit, c.hit)
 	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id, hit})
@@ -756,6 +776,7 @@ open :: proc(ctx: ^Context, id: Id, r: Rect, box: Box, root: bool) {
 		first_child = true,
 		placed_size = {r.w, r.h},
 		clip_prev   = ctx.clip,
+		vertex_mark = len(ctx.draw.vertices),
 	}
 	if box.clip {
 		d := px(ctx)

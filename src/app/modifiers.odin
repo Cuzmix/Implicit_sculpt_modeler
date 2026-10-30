@@ -657,10 +657,16 @@ kit_modifier_rail :: proc(app: ^App) {
 	inset := clamp(base_inset + side * k.wheel_offset.x, 0, max(area.w - size.x, 0))
 	lift := clamp(base_lift - k.wheel_offset.y, 0, max(area.h - size.y, 0))
 	r.root = ui.id_of(ctx, "modifier rail")
+	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "modifier rail", x, .End, {inset, lift}, {direction = .Column})
 	res := ui.wheel(ctx, "modifier wheel", size.x, WHEEL_HOLE[k.wheel_size], sectors, turn)
 	b := ctx.last_rect
 	ui.end(ctx)
+	// Shown, the dial unfolds from its middle as the pies do (Pies and the dial); where it
+	// takes presses is where it ends up, from the first frame.
+	if t := ui.tween_from(ctx, ui.salt(r.root, 0x756e66), 0, 1, PIE_UNFOLD_TIME + 0.08, .Linear, class = motion_class(.Pie)); t < 1 {
+		ui.transform_since(ctx, mark, ui.ease(.Out_Cubic, t), 0.7 + 0.3 * ui.ease(.Out_Back, t), {b.x + b.w * 0.5, b.y + b.h * 0.5})
+	}
 	r.center = [2]f32{b.x + b.w * 0.5, b.y + b.h * 0.5} * k.scale
 	r.outer, r.hole, r.turn = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale, turn
 	if res.clicked >= 0 {

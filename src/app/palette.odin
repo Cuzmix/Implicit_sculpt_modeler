@@ -247,6 +247,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
+	.Left_Handed     = "left hand right hand mirror swap sides southpaw",
 }
 
 // The words each Help tab is found by, besides its name: a command's words are the same

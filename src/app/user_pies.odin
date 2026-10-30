@@ -73,7 +73,7 @@ pie_toggle :: proc(app: ^App, which: int) {
 	r := (PIE_OUTER + 24) * s
 	lo, hi := [2]f32{area.x, area.y} * s + r - o, [2]f32{area.x + area.w, area.y + area.h} * s - r - o
 	center = {clamp(center.x, lo.x, max(hi.x, lo.x)), clamp(center.y, lo.y, max(hi.y, lo.y))}
-	p^ = {open = true, which = which, center = center, opened = input_clock(app), opened_frame = k.frame, hover = -1, space_down = p.space_down}
+	p^ = {open = true, which = which, center = center, opened = input_clock(app), shown_at = k.ctx.time, opened_frame = k.frame, hover = -1, space_down = p.space_down}
 	if k.palette do palette_close(app)
 	kit_floats_close(k)
 }

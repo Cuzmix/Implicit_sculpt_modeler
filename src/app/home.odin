@@ -8,6 +8,7 @@ import "core:sync"
 import "core:thread"
 
 import "../render"
+import "../ui"
 
 // The Home screen's side that is not drawing (kit_home.odin draws it): the scenes saved or
 // opened lately, which the settings file keeps; each tile's picture, read from the start
@@ -120,6 +121,13 @@ home_open :: proc(app: ^App) {
 home_close :: proc(app: ^App) {
 	k := &app.kit
 	h := &app.home
+	// The scene grows out of the control that closed Home, the one just laid out under the
+	// pointer; a key closing it (Escape, back) grows it from the middle.
+	if k.home {
+		ctx := &k.ctx
+		k.home_reveal_at, k.home_reveal_from = ctx.time, {}
+		if r := ctx.last_rect; r.w > 0 && ui.rect_contains(r, ctx.input.mouse) do k.home_reveal_from = r
+	}
 	k.home, k.home_menu, k.home_armed = false, false, 0
 	if l := h.loader; l != nil {
 		sync.lock(&l.lock)

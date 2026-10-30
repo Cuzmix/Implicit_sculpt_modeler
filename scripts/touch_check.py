@@ -79,7 +79,8 @@ UI.update({f"menu_{name}": (120, y) for name, y in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({
     "new_sphere": (317, 159), "new_head": (403, 159), "new_bust": (489, 159), "new_figure": (317, 207), "new_hand": (403, 207),
-    "more_stats": (400, 736), "more_macros": (400, 780), "more_library": (400, 824), "more_reduce_motion": (400, 868),
+    "more_stats": (400, 692), "more_macros": (400, 736), "more_library": (400, 780), "more_reduce_motion": (400, 824),
+    "more_left_handed": (400, 868),
 })
 # On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
 MENU_SHORT_LAST_Y = 688
@@ -6276,6 +6277,41 @@ def pie_key_opens_and_runs():
     s.ftap(*PIE_RIGHT)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "wireframe": near(1)})
+
+
+@scenario
+def pie_unfolds_from_its_middle():
+    """Q over the model opens Pie 1 unfolding from its middle, slice after slice: a moment on it is part of the way open, and a third of a second on it is whole."""
+    def run(frames, unfold):
+        s = Script()
+        s.add(f"move:{PIE_MIDDLE[0]},{PIE_MIDDLE[1]}")
+        s.wait(4)
+        s.press("q")
+        s.wait(frames)
+        return s, [], camera_still({"dabs": near(0), "pie_open": near(1), "pie_unfold": unfold})
+    # The run's last check comes ten frames after the script ends: about half the unfold.
+    return Steps([run(0, lambda v: 0 < float(v) < 1), run(30, near(1))])
+
+
+@scenario
+def hand_switch_slides_the_bars_across():
+    """Left-handed from Search slides the bars and panels across from where the right hand had them: a moment on they are still on the way, a third of a second on where the left hand has them."""
+    def run(frames, slide):
+        s = Script()
+        s.press("k", ("ctrl",))
+        s.type("left-handed")
+        s.press("Return")
+        s.wait(frames)
+        return s, [], camera_still({"dabs": near(0), "hand_slide": slide})
+    return Steps([run(0, lambda v: 0 < float(v) < 1), run(30, near(0))])
+
+
+@scenario
+def view_panes_fade_in_with_a_new_grid():
+    """Four views picked after the start fade their view panes in over the ground, once; Arrange opening counts its outlines drawing in."""
+    s = Script()
+    s.wait(30)
+    return s, LENS_1440 + ["--script=wait 3; view_grid four; customise_bars"], camera_still({"grid_panes": near(4), "pane_fades": near(1), "arrange_openings": near(1), "dabs": near(0)})
 
 
 @scenario

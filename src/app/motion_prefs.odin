@@ -21,19 +21,29 @@ Motion_Kind :: enum u8 {
 	Tooltips, // tooltips fading in
 	Pages, // the shelf's page sliding in after a swipe
 	Camera, // the camera gliding to a view a command asks for (camera_ease.odin)
+	Pie, // the pies' slices and the dial unfolding from their middle
+	Hand_Switch, // the bars and panels sliding across when the hand changes
+	Home, // the Home screen fading in, and the scene growing out of it
+	Panes, // view panes fading in when the view grid changes
+	Arrange, // Arrange's outlines drawing in
 }
 
 #assert(int(Motion_Kind.Tooltips) == int(ui.MOTION_TOOLTIPS) && len(Motion_Kind) <= 32)
 
 MOTION_KIND_NAMES := [Motion_Kind]string {
-	.Press    = "Presses and hovers",
-	.Popovers = "Menus and popovers",
-	.Panels   = "Panels and sections",
-	.Tabs     = "Tabs and choices",
-	.Toasts   = "Notes",
-	.Tooltips = "Tooltips",
-	.Pages    = "Shelf pages",
-	.Camera   = "Camera moves",
+	.Press       = "Presses and hovers",
+	.Popovers    = "Menus and popovers",
+	.Panels      = "Panels and sections",
+	.Tabs        = "Tabs and choices",
+	.Toasts      = "Notes",
+	.Tooltips    = "Tooltips",
+	.Pages       = "Shelf pages",
+	.Camera      = "Camera moves",
+	.Pie         = "Pies and the dial",
+	.Hand_Switch = "Changing hands",
+	.Home        = "Home screen",
+	.Panes       = "View panes",
+	.Arrange     = "Arrange outlines",
 }
 
 MOTION_LEVEL_NAMES := [ui.Motion_Level]string {
