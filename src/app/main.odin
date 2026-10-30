@@ -1943,7 +1943,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for _, i in list do if sculpt.sculptor_layer_has_mask(s, i) do masked += 1
 		mask_picked = sculpt.sculptor_layer_mask_picked(s)
 	}
-	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked)
+	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d layer_mask_picks=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked, app.ui.layer_mask.picks)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	fmt.printfln("reshapes=%d reshape_ms=%.1f reshape_kind=%v", app.ui.reshape.count, app.ui.reshape.ms, app.ui.reshape.last.choice)
 	check := app.repair.check

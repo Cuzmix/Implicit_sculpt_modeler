@@ -73,3 +73,68 @@ timeline_step_back_over_a_chain_stops :: proc(t: ^testing.T) {
 	testing.expect(t, !timeline_busy(&app), "the timeline kept seeking into a chain")
 	testing.expect_value(t, len(app.history.done), 0)
 }
+
+// A row's mask square picks the layer's mask and the Mask brush, and a tap again puts
+// the sculpt mask and the brush back; picking another brush ends the pick and keeps that
+// brush. A mask command on the picked mask names it in the History, and the menu's
+// Invert works on a layer's mask that is not picked, leaving the sculpt mask alone.
+@(test)
+layer_mask_square_picks_the_mask_brush :: proc(t: ^testing.T) {
+	app: App
+	app.ui = ui_state_default()
+	app.camera = camera.orbit_default()
+	obj := new(Object)
+	obj.id, obj.transform = 1, {scale = 1}
+	sculpt.levels_init(&obj.levels, geom.icosphere(3), nil, 64)
+	append(&app.scene.objects, obj)
+	defer {
+		sculpt.levels_destroy(&obj.levels)
+		free(obj)
+		delete(app.scene.objects)
+		history_destroy(&app.history)
+		results_destroy(&app)
+	}
+	app.scene.selected = 0
+	app.tool, app.brush.kind = .Brush, .Clay
+	s := object_sculptor(obj)
+	layer_add(&app)
+	layer_add(&app)
+
+	layer_mask_paint(&app, obj, 0)
+	testing.expect_value(t, layer_mask_painting(&app, obj), 0)
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Mask)
+	testing.expect_value(t, app.ui.layer_selected, 0)
+	mask_command(&app, .Fill)
+	e := app.history.done[len(app.history.done) - 1]
+	testing.expect(t, e.layer_mask, "the step was not the layer mask's")
+	testing.expect_value(t, entry_label(e), "Mask all (layer mask)")
+	testing.expect(t, sculpt.sculptor_layer_has_mask(s, 0))
+	layer_mask_frame(&app)
+	testing.expect_value(t, layer_mask_painting(&app, obj), 0)
+
+	// A tap again: the sculpt mask (none) and Clay are back.
+	layer_mask_stop(&app, restore = true)
+	testing.expect_value(t, layer_mask_painting(&app, obj), -1)
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Clay)
+	testing.expect(t, s.mask == nil, "the layer's mask stayed the sculpt mask")
+	testing.expect(t, sculpt.sculptor_layer_has_mask(s, 0))
+
+	// Another brush ends the pick and stays.
+	layer_mask_paint(&app, obj, 1)
+	app.brush.kind = .Smooth
+	layer_mask_frame(&app)
+	testing.expect_value(t, layer_mask_painting(&app, obj), -1)
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Smooth)
+
+	// Invert from the menu on layer 1, not picked: it hides that layer whole, as one
+	// step that one undo takes back, and the sculpt mask stays empty.
+	steps := len(app.history.done)
+	layer_mask_edit(&app, obj, 1, .Invert)
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	testing.expect(t, sculpt.sculptor_layer_has_mask(s, 1))
+	testing.expect_value(t, sculpt.sculptor_layer_mask_picked(s), -1)
+	testing.expect(t, s.mask == nil, "invert painted the sculpt mask")
+	history_undo(&app)
+	testing.expect(t, !sculpt.sculptor_layer_has_mask(s, 1))
+	testing.expect(t, sculpt.sculptor_layer_has_mask(s, 0))
+}
