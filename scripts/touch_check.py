@@ -3453,8 +3453,9 @@ def model_edit_cage_takes_a_sculpt_back():
     return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage"], {"cages": near(1), "cage_faces": near(6), "cage_smooth": near(2), "cage_broken": near(0)}),
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
                   (Script(), LENS_1440 + [f"--script={base}; edit_cage; undo"], {"cages": near(0), "selected_levels": near(3)}),
-                  (Script(), ["--check-mesh", "--script=set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
-                  (Script(), ["--check-mesh", "--script=set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+                  # The built-in engine, whose count is exact; AutoRemesher's is a guide (74 points for 100 quads asked).
+                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
+                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
 def model_live_stack_bevels_and_thickens():
@@ -8949,6 +8950,9 @@ def run(name, screens, displays=None):
     shutil.rmtree(link_folder(), ignore_errors=True)
     shutil.rmtree(plugins_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
+    # Scenarios export beside the folder (autosave_folder() + "-x.ply"), so its parent must
+    # exist on a fresh checkout too.
+    os.makedirs(os.path.dirname(autosave_folder()), exist_ok=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
     failures, stats = [], {}
@@ -11788,7 +11792,7 @@ def adjust_retopo_and_extract():
         return s
     return Steps([
         (Script(), ["--script=set retopo_quads 100; retopologize", f"--export={direct}"], {}),
-        (retopo, [f"--export={adjusted}"], {"adjust_op": is_text("retopology"), "adjusts": near(1, 0), "objects": near(2, 0),
+        (retopo, [f"--export={adjusted}"], {"adjust_op": is_text("quad_remesh"), "adjusts": near(1, 0), "objects": near(2, 0),
                                            "@100 quads from the start": same_file(direct, adjusted)}),
         (extract(["left"]), [f"--export={once}"], {"adjust_op": is_text("extract"), "objects": near(2, 0)}),
         (extract(["middle", "left"]), [f"--export={twice}"], {"adjusts": near(2, 0), "objects": near(2, 0), "undo_steps": near(2, 0),
@@ -12015,7 +12019,9 @@ def shape_clip_line_waits():
 # its goals, its Density slider's track and its Remesh button.
 REBUILD_GOALS = {k: on_card(v, "object") for k, v in {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}.items()}
 REBUILD_DENSITY = on_card((1406, 346), "object")
-REBUILD_APPLY = on_card((1377, 459), "object")
+# The button sits lower under Even and Quads, whose More options row and preview line take
+# more room than Fewer's paragraph.
+REBUILD_APPLY = {k: on_card((1377, v), "object") for k, v in {"even": 504, "fewer": 459, "quads": 504}.items()}
 
 
 def open_rebuild(s, goal=None, tap=click):
@@ -12101,7 +12107,7 @@ def rebuild_even_is_a_straight_remesh():
     direct, panel = autosave_folder() + "-direct.ply", autosave_folder() + "-panel.ply"
     s = Script()
     open_rebuild(s, "even")
-    click(s, REBUILD_APPLY)
+    click(s, REBUILD_APPLY["even"])
     s.wait(10)
     return Steps([
         (Script(), ["--script=remesh_to 500000", f"--export={direct}"], {}),
@@ -12144,14 +12150,14 @@ def rebuild_fewer_and_quads():
     """Fewer decimates the 500k sphere to its 100k; Quads makes a new object of quads."""
     fewer, quads = Script(), Script()
     open_rebuild(fewer, "fewer")
-    click(fewer, REBUILD_APPLY)
+    click(fewer, REBUILD_APPLY["fewer"])
     fewer.wait(10)
     open_rebuild(quads, "quads")
-    click(quads, REBUILD_APPLY)
+    click(quads, REBUILD_APPLY["quads"])
     quads.wait(10)
     return Steps([
         (fewer, ["--vertices=500000"] + palettes_only("remesh"), {"adjust_op": is_text("decimate"), "vertices": near(100_000, 5_000), "undo_steps": near(1)}),
-        (quads, palettes_only("remesh"), {"adjust_op": is_text("retopology"), "objects": near(2)}),
+        (quads, palettes_only("remesh"), {"adjust_op": is_text("quad_remesh"), "objects": near(2)}),
     ])
 
 

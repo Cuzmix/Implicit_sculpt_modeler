@@ -169,8 +169,8 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	switch goal^ {
 	case .Even:
 		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
-		// Smooth, Keep detail and Groups under More options, which keeps the section to
-		// its five controls.
+		// Smooth, Keep detail, Groups and Quads under More options, which keeps the section
+		// to its five controls and the button where the finger left it whichever goal is up.
 		if kit_more(app, .Remesh) {
 			kit_remesh_options(app, obj)
 			kit_more_end(app)
@@ -178,20 +178,25 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	case .Fewer: _ = kit_count(ctx, label, &app.ui.rebuild_fewer, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
 	case .Quads:
 		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
-		// Where only the built-in engine is compiled there is nothing to choose.
-		when quadmesh.AVAILABLE {
-			engines: [len(Quad_Engine)]string
-			for e in Quad_Engine do engines[int(e)] = QUAD_ENGINE_NAMES[e]
-			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = Quad_Engine(picked)
-			if app.ui.retopo_engine == .Auto {
-				a := app.ui.retopo_adaptivity
-				_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
-				axes: [len(Quad_Symmetry)]string
-				for x in Quad_Symmetry do axes[int(x)] = QUAD_SYMMETRY_NAMES[x]
-				if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = Quad_Symmetry(picked)
+		// The engine, Adaptivity, Mirror and Close first under the same fold, for the same
+		// reasons.
+		if kit_more(app, .Remesh) {
+			// Where only the built-in engine is compiled there is nothing to choose.
+			when quadmesh.AVAILABLE {
+				engines: [len(Quad_Engine)]string
+				for e in Quad_Engine do engines[int(e)] = QUAD_ENGINE_NAMES[e]
+				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = Quad_Engine(picked)
+				if app.ui.retopo_engine == .Auto {
+					a := app.ui.retopo_adaptivity
+					_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+					axes: [len(Quad_Symmetry)]string
+					for x in Quad_Symmetry do axes[int(x)] = QUAD_SYMMETRY_NAMES[x]
+					if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = Quad_Symmetry(picked)
+				}
 			}
+			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
+			kit_more_end(app)
 		}
-		_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
 	}
 	// Held, or under a mouse: the checkerboard shows (Fewer has none to show).
 	id := ui.id_of(ctx, label)
@@ -203,7 +208,9 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	// so the button under them stays where the finger left it.
 	switch goal^ {
 	case .Even:
-		ui.paragraph(ctx, "An even mesh of about this many vertices that keeps the shape; overlapping parts merge and open parts are closed first. Smooth is how many rounds even the triangles out; Keep detail puts the vertices back on the old surface and carries its polypaint and polygroups; Groups remeshes each polygroup as a closed piece. It has no adaptivity (Decimate after for that), and gaps narrower than a cell close.")
+		// Two lines: what the options do is in their rows and README, and a longer text
+		// here moved the button down past where the other goals keep it.
+		ui.paragraph(ctx, "An even mesh of about this many vertices that keeps the shape; overlaps merge, holes close.")
 		if measured && p.shown {
 			// A surface of area A crosses about 1.5 A / h² lattice edges, one vertex each;
 			// fewer than asked when the lattice limit made the cells bigger.
@@ -219,11 +226,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	case .Fewer:
 		ui.paragraph(ctx, "About this many vertices, dense where the detail is and sparse where the surface is flat, so there is no one size to preview.")
 	case .Quads:
-		when quadmesh.AVAILABLE {
-			ui.paragraph(ctx, "A new object of about this many quads lying on this one, which keeps them for Subdivide and Wireframe, with UVs for baking (Build > UVs and baking). AutoRemesher follows the surface's curves; Built-in is quicker and plainer, and stands in where AutoRemesher refuses the mesh. Adaptivity puts smaller quads where the surface bends (and makes fewer than asked); Mirror remeshes one half across the object's own plane and mirrors it; Close first remeshes an open or unsound mesh into a closed one before either engine sees it.")
-		} else {
-			ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs, for baking (Build > UVs and baking). Close first remeshes an open or unsound mesh into a closed one before the quads are made.")
-		}
+		ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs for baking.")
 		if measured && p.shown {
 			ui.paragraph(ctx, fmt.tprintf("Quads about %s wide.", length_label(p.cell * scale)))
 		} else {
