@@ -39,6 +39,10 @@ Gpu_Caps :: struct {
 	// under the own Vulkan backend with lazily allocated memory, or any Apple GPU under
 	// the own Metal backend. Elsewhere they are ordinary targets.
 	transient_targets: bool,
+	// Compute kernels made with gpu_create_compute_pipeline_exact do IEEE 754 arithmetic,
+	// so one written in the CPU's order can equal the CPU bit for bit (Smooth all on the
+	// GPU): false only under SDL_GPU's Metal backend, which compiles with fast maths.
+	exact_compute:     bool,
 }
 
 Present_Timing :: enum u8 {
@@ -77,6 +81,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
+	r.caps.exact_compute = gpu_exact_compute(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

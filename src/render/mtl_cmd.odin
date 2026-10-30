@@ -9,13 +9,15 @@ import CA "vendor:darwin/QuartzCore"
 import sdl "vendor:sdl3"
 
 // Command buffers, passes and fences of the Metal backend. A render pass is a render
-// command encoder and a copy pass a blit encoder, each retained while open. Bindings are
+// command encoder, a compute pass a compute encoder and a copy pass a blit encoder, each
+// retained while open. Bindings are
 // kept on the command buffer and sent to the encoder at the next draw, at SDL_GPU's Metal
 // slots, since where a storage buffer goes depends on the bound pipeline's uniform count.
 
 Mtl_Stage :: enum u8 {
 	Vertex,
 	Fragment,
+	Compute,
 }
 
 // A uniform slot's latest push. Metal copies set*Bytes data into the command stream, so a
@@ -38,6 +40,7 @@ Mtl_Cmd :: struct {
 	stamp:             u64, // this recording's number, which tracked backings remember
 	render:            ^MTL.RenderCommandEncoder,
 	blit:              ^MTL.BlitCommandEncoder,
+	compute:           ^MTL.ComputeCommandEncoder,
 	buffers:           [dynamic]^Mtl_Buffer_Backing,
 	textures:          [dynamic]^Mtl_Texture_Backing,
 	presents:          [dynamic]Mtl_Present,
@@ -51,6 +54,15 @@ Mtl_Cmd :: struct {
 	fragment_samplers: [16]^MTL.SamplerState,
 	storage_dirty:     bool,
 	samplers_dirty:    bool,
+	// The open compute pass's bindings, sent at its next dispatch as SDL_GPU sends them.
+	// The read-write ones are fixed when the pass begins; each texture is a view of the
+	// one mip level and layer bound, ours to release when the pass ends.
+	compute_pipeline:  ^Mtl_Compute_Pipeline,
+	compute_textures:  [MTL_SAMPLERS]^MTL.Texture,
+	compute_samplers:  [MTL_SAMPLERS]^MTL.SamplerState,
+	compute_storage:   [MTL_STORAGE_BUFFERS]^MTL.Buffer,
+	compute_written:   [MTL_COMPUTE_WRITES]^MTL.Texture,
+	compute_rw:        [MTL_COMPUTE_WRITES]^MTL.Buffer,
 }
 
 Mtl_Fence :: struct {
@@ -102,7 +114,9 @@ mtl_cmd_recycle :: proc(cmd: ^Mtl_Cmd) {
 	clear(&cmd.presents)
 	if cmd.render != nil do NS.release(cmd.render)
 	if cmd.blit != nil do NS.release(cmd.blit)
-	cmd.render, cmd.blit = nil, nil
+	if cmd.compute != nil do NS.release(cmd.compute)
+	cmd.render, cmd.blit, cmd.compute = nil, nil, nil
+	mtl_compute_views_release(cmd)
 	if cmd.cb != nil do NS.release(cmd.cb)
 	cmd.cb = nil
 	append(&mtl_state.free_cmds, cmd)
@@ -133,7 +147,7 @@ mtl_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuf
 @(private = "file")
 mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 	NS.scoped_autoreleasepool()
-	if cmd.render != nil || cmd.blit != nil {
+	if cmd.render != nil || cmd.blit != nil || cmd.compute != nil {
 		sdl.SetError("Metal: submitted inside a pass")
 		return 0, false
 	}
@@ -176,6 +190,7 @@ mtl_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool
 	}
 	if cmd.render != nil do MTL.CommandEncoder_endEncoding(cmd.render)
 	if cmd.blit != nil do MTL.CommandEncoder_endEncoding(cmd.blit)
+	if cmd.compute != nil do MTL.CommandEncoder_endEncoding(cmd.compute)
 	mtl_cmd_recycle(cmd)
 	return true
 }
@@ -221,6 +236,11 @@ mtl_push_vertex_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot
 
 mtl_push_fragment_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
 	mtl_push_uniform((^Mtl_Cmd)(command_buffer), .Fragment, slot_index, length, data)
+}
+
+// Pushed before or inside a compute pass, and kept for the command buffer's later passes.
+mtl_push_compute_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+	mtl_push_uniform((^Mtl_Cmd)(command_buffer), .Compute, slot_index, length, data)
 }
 
 // Sends the bindings the draw needs that changed since the last draw. A uniform slot
@@ -470,11 +490,127 @@ mtl_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, bu
 
 // ---- Compute passes -----------------------------------------------------------------
 
-// Never reached while the backend makes no compute pipelines: every caller makes its
-// pipeline first and stops at nil.
 mtl_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
-	sdl.SetError("Metal: the backend has no compute passes yet")
-	return nil
+	NS.scoped_autoreleasepool()
+	cmd := (^Mtl_Cmd)(command_buffer)
+	if num_storage_texture_bindings > MTL_COMPUTE_WRITES || num_storage_buffer_bindings > MTL_COMPUTE_WRITES {
+		sdl.SetError("Metal: a compute pass writes more than SDL_GPU allows")
+		return nil
+	}
+	enc := MTL.CommandBuffer_computeCommandEncoder(cmd.cb)
+	if enc == nil {
+		sdl.SetError("Metal: the compute pass could not begin")
+		return nil
+	}
+	NS.retain(enc)
+	cmd.compute = enc
+	for i in 0 ..< num_storage_texture_bindings {
+		b := storage_texture_bindings[i]
+		t := (^Mtl_Texture)(b.texture)
+		target := mtl_texture_for_write(t, b.cycle)
+		mtl_cmd_track_texture(cmd, target)
+		// A view of the one level and layer written, as SDL_GPU binds it; the command
+		// buffer keeps it alive after this pass releases it.
+		cmd.compute_written[i] = MTL.Texture_newTextureViewWithLevels(target.texture, mtl_pixel_format(t.info.format), .Type2D, {NS.UInteger(b.mip_level), 1}, {NS.UInteger(b.layer), 1})
+	}
+	for i in 0 ..< num_storage_buffer_bindings {
+		b := storage_buffer_bindings[i]
+		target := mtl_buffer_for_write((^Mtl_Buffer)(b.buffer), b.cycle)
+		mtl_cmd_track_buffer(cmd, target)
+		cmd.compute_rw[i] = target.buffer
+	}
+	cmd.compute_pipeline = nil
+	cmd.compute_textures = {}
+	cmd.compute_samplers = {}
+	cmd.compute_storage = {}
+	return (^sdl.GPUComputePass)(cmd)
+}
+
+mtl_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
+	cmd := (^Mtl_Cmd)(compute_pass)
+	MTL.CommandEncoder_endEncoding(cmd.compute)
+	NS.release(cmd.compute)
+	cmd.compute = nil
+	cmd.compute_pipeline = nil
+	mtl_compute_views_release(cmd)
+	cmd.compute_rw = {}
+}
+
+@(private = "file")
+mtl_compute_views_release :: proc(cmd: ^Mtl_Cmd) {
+	for &view in cmd.compute_written {
+		if view != nil do NS.release(view)
+		view = nil
+	}
+}
+
+// The read-write textures and buffers go to the pipeline's slots now, since they are the
+// pass's; the rest follow at the next dispatch.
+mtl_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipeline: ^sdl.GPUComputePipeline) {
+	cmd := (^Mtl_Cmd)(compute_pass)
+	p := (^Mtl_Compute_Pipeline)(compute_pipeline)
+	enc := cmd.compute
+	MTL.ComputeCommandEncoder_setComputePipelineState(enc, p.state)
+	cmd.compute_pipeline = p
+	for i in 0 ..< p.readwrite_textures do MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_written[i], NS.UInteger(p.samplers + p.readonly_textures + i))
+	for i in 0 ..< p.readwrite_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_rw[i], 0, NS.UInteger(p.uniforms + p.readonly_buffers + i))
+	cmd.storage_dirty, cmd.samplers_dirty = true, true
+	for &u in cmd.uniforms[.Compute] do u.dirty = true
+}
+
+mtl_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+	cmd := (^Mtl_Cmd)(compute_pass)
+	for i in 0 ..< num_bindings {
+		t := (^Mtl_Texture)(texture_sampler_bindings[i].texture).active
+		mtl_cmd_track_texture(cmd, t)
+		cmd.compute_textures[first_slot + i] = t.texture
+		cmd.compute_samplers[first_slot + i] = (^MTL.SamplerState)(texture_sampler_bindings[i].sampler)
+	}
+	cmd.samplers_dirty = true
+}
+
+mtl_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+	cmd := (^Mtl_Cmd)(compute_pass)
+	for i in 0 ..< num_bindings {
+		b := (^Mtl_Buffer)(storage_buffers[i]).active
+		mtl_cmd_track_buffer(cmd, b)
+		cmd.compute_storage[first_slot + i] = b.buffer
+	}
+	cmd.storage_dirty = true
+}
+
+// Sends what changed since the last dispatch, at SDL_GPU's slots. A uniform slot nothing
+// was pushed to gets the whole 4 KiB block, as for draws.
+@(private = "file")
+mtl_bind_dispatch :: proc(cmd: ^Mtl_Cmd) -> bool {
+	p := cmd.compute_pipeline
+	enc := cmd.compute
+	if p == nil || enc == nil do return false
+	if cmd.samplers_dirty {
+		for i in 0 ..< p.samplers {
+			MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_textures[i], NS.UInteger(i))
+			MTL.ComputeCommandEncoder_setSamplerState(enc, cmd.compute_samplers[i], NS.UInteger(i))
+		}
+		cmd.samplers_dirty = false
+	}
+	if cmd.storage_dirty {
+		for i in 0 ..< p.readonly_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_storage[i], 0, NS.UInteger(p.uniforms + i))
+		cmd.storage_dirty = false
+	}
+	for i in 0 ..< p.uniforms {
+		u := &cmd.uniforms[.Compute][i]
+		if !u.dirty do continue
+		MTL.ComputeCommandEncoder_setBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(i))
+		u.dirty = false
+	}
+	return true
+}
+
+mtl_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, groupcount_y, groupcount_z: u32) {
+	cmd := (^Mtl_Cmd)(compute_pass)
+	if !mtl_bind_dispatch(cmd) do return
+	groups := MTL.Size{NS.Integer(groupcount_x), NS.Integer(groupcount_y), NS.Integer(groupcount_z)}
+	MTL.ComputeCommandEncoder_dispatchThreadgroups(cmd.compute, groups, cmd.compute_pipeline.threads)
 }
 
 // ---- Copy passes --------------------------------------------------------------------
@@ -589,6 +725,7 @@ mtl_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstrin
 	switch {
 	case cmd.render != nil: MTL.CommandEncoder_pushDebugGroup(cmd.render, label)
 	case cmd.blit != nil:   MTL.CommandEncoder_pushDebugGroup(cmd.blit, label)
+	case cmd.compute != nil: MTL.CommandEncoder_pushDebugGroup(cmd.compute, label)
 	case:                   MTL.CommandBuffer_pushDebugGroup(cmd.cb, label)
 	}
 }
@@ -599,6 +736,7 @@ mtl_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
 	switch {
 	case cmd.render != nil: MTL.CommandEncoder_popDebugGroup(cmd.render)
 	case cmd.blit != nil:   MTL.CommandEncoder_popDebugGroup(cmd.blit)
+	case cmd.compute != nil: MTL.CommandEncoder_popDebugGroup(cmd.compute)
 	case:                   MTL.CommandBuffer_popDebugGroup(cmd.cb)
 	}
 }

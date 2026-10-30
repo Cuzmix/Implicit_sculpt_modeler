@@ -66,6 +66,22 @@ Mtl_Pipeline :: struct {
 	counts:        [8]u32, // the vertex shader's four counts, then the fragment shader's
 }
 
+// SDL_GPU's limits per compute pipeline, which size the command buffer's binding arrays.
+MTL_SAMPLERS :: 16
+MTL_STORAGE_BUFFERS :: 8
+MTL_COMPUTE_WRITES :: 8
+
+Mtl_Compute_Pipeline :: struct {
+	state:              ^MTL.ComputePipelineState,
+	samplers:           u32,
+	readonly_textures:  u32,
+	readwrite_textures: u32,
+	uniforms:           u32,
+	readonly_buffers:   u32,
+	readwrite_buffers:  u32,
+	threads:            MTL.Size, // threads a group, as the create info gave them
+}
+
 // ---- Buffers ------------------------------------------------------------------------
 
 @(private = "file")
@@ -336,28 +352,43 @@ mtl_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
 	if sampler != nil do NS.release((^MTL.SamplerState)(sampler))
 }
 
-// Compiles the shader's Metal source as SDL_GPU does, with Metal's default options (fast
-// maths), so both backends run the same code.
+// Compiles Metal source into a library and finds its entry point; nil, nil (with SDL's error
+// set) when either fails. As SDL_GPU does, with Metal's default options (fast maths) unless
+// `exact`, which turns fast maths off: divisions, square roots and the rest are then
+// IEEE 754's, as SPIR-V's are under `-fp-mode precise` (gpu_create_compute_pipeline_exact).
+@(private = "file")
+mtl_compile :: proc(code: []u8, entrypoint: cstring, exact: bool) -> (^MTL.Library, ^MTL.Function) {
+	options: ^MTL.CompileOptions
+	if exact {
+		options = MTL.CompileOptions_init(MTL.CompileOptions_alloc())
+		MTL.CompileOptions_setFastMathEnabled(options, false)
+	}
+	defer if options != nil do NS.release(options)
+	library, err := MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(string(code)), options)
+	if library == nil {
+		log.errorf("Metal: a shader did not compile: %s", mtl_error_text(err))
+		sdl.SetError("Metal: a shader did not compile")
+		return nil, nil
+	}
+	entry := string(entrypoint) if entrypoint != nil else "main0"
+	function := MTL.Library_newFunctionWithName(library, mtl_string(entry))
+	if function == nil {
+		NS.release(library)
+		log.errorf("Metal: the shader has no function %s", entry)
+		sdl.SetError("Metal: the shader's entry point is missing")
+		return nil, nil
+	}
+	return library, function
+}
+
 mtl_create_shader :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUShaderCreateInfo) -> ^sdl.GPUShader {
 	NS.scoped_autoreleasepool()
 	if .MSL not_in info.format {
 		sdl.SetError("Metal: shaders must be Metal source")
 		return nil
 	}
-	library, err := MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(string(info.code[:info.code_size])), nil)
-	if library == nil {
-		log.errorf("Metal: a shader did not compile: %s", mtl_error_text(err))
-		sdl.SetError("Metal: a shader did not compile")
-		return nil
-	}
-	entry := string(info.entrypoint) if info.entrypoint != nil else "main0"
-	function := MTL.Library_newFunctionWithName(library, mtl_string(entry))
-	if function == nil {
-		NS.release(library)
-		log.errorf("Metal: the shader has no function %s", entry)
-		sdl.SetError("Metal: the shader's entry point is missing")
-		return nil
-	}
+	library, function := mtl_compile(info.code[:info.code_size], info.entrypoint, false)
+	if function == nil do return nil
 	s := new(Mtl_Shader)
 	s.library, s.function, s.stage = library, function, info.stage
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
@@ -599,11 +630,65 @@ mtl_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPU
 	free(p)
 }
 
-// Compute is not in this first stage of the backend: every caller treats a nil pipeline as
-// a device without compute and keeps its feature off.
+// Made as SDL_GPU's Metal backend makes it, keeping the counts its binding slots follow:
+// sampled textures and samplers from 0, then the read-only and read-write storage textures;
+// uniform buffers from buffer 0, then the read-only and read-write storage buffers.
 mtl_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
-	sdl.SetError("Metal: the backend makes no compute pipelines yet")
-	return nil
+	return mtl_compute_pipeline_make(info, false)
 }
 
-mtl_release_compute_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUComputePipeline) {}
+// The same with fast maths off, for kernels whose result must equal the CPU's.
+mtl_create_compute_pipeline_exact :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+	return mtl_compute_pipeline_make(info, true)
+}
+
+@(private = "file")
+mtl_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, exact: bool) -> ^sdl.GPUComputePipeline {
+	NS.scoped_autoreleasepool()
+	if .MSL not_in info.format {
+		sdl.SetError("Metal: shaders must be Metal source")
+		return nil
+	}
+	if info.num_readwrite_storage_textures > MTL_COMPUTE_WRITES || info.num_readwrite_storage_buffers > MTL_COMPUTE_WRITES || info.num_readonly_storage_buffers > MTL_STORAGE_BUFFERS || info.num_samplers > MTL_SAMPLERS || info.num_uniform_buffers > 4 {
+		sdl.SetError("Metal: a compute pipeline binds more than SDL_GPU allows")
+		return nil
+	}
+	library, function := mtl_compile(info.code[:info.code_size], info.entrypoint, exact)
+	if function == nil do return nil
+	defer {
+		NS.release(function)
+		NS.release(library)
+	}
+	desc := MTL.ComputePipelineDescriptor_init(MTL.ComputePipelineDescriptor_alloc())
+	defer NS.release(desc)
+	MTL.ComputePipelineDescriptor_setComputeFunction(desc, function)
+	state, err := MTL.Device_newComputePipelineStateWithDescriptorWithReflection(mtl_state.device, desc, {}, nil)
+	if state == nil {
+		log.errorf("Metal: a compute pipeline could not be made: %s", mtl_error_text(err))
+		sdl.SetError("Metal: a compute pipeline could not be made")
+		return nil
+	}
+	// A dispatch of more threads a group than the kernel can run is dropped by Metal, so a
+	// pipeline that asks for them is refused here and its feature stays off.
+	threads := info.threadcount_x * info.threadcount_y * info.threadcount_z
+	if NS.UInteger(threads) > MTL.ComputePipelineState_maxTotalThreadsPerThreadgroup(state) {
+		NS.release(state)
+		log.errorf("Metal: a compute kernel cannot run %d threads a group", threads)
+		sdl.SetError("Metal: too many threads a group for this kernel")
+		return nil
+	}
+	p := new(Mtl_Compute_Pipeline)
+	p.state = state
+	p.samplers, p.readonly_textures, p.readwrite_textures = info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures
+	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
+	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
+	return (^sdl.GPUComputePipeline)(p)
+}
+
+// Released at once: a command buffer keeps the pipeline state it used alive until it ends.
+mtl_release_compute_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUComputePipeline) {
+	p := (^Mtl_Compute_Pipeline)(pipeline)
+	if p == nil do return
+	NS.release(p.state)
+	free(p)
+}

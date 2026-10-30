@@ -61,7 +61,8 @@ smooth_timing_total :: proc(t: Smooth_Timing) -> f64 {
 }
 
 smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
-	sc.pipeline = gpu_create_compute_pipeline(r.device, {
+	// Exact, so the result can equal the CPU's (Gpu_Caps.exact_compute).
+	sc.pipeline = gpu_create_compute_pipeline_exact(r.device, {
 		code_size                     = len(SMOOTH_ALL_COMP_CODE),
 		code                          = raw_data(SMOOTH_ALL_COMP_CODE),
 		entrypoint                    = SHADER_ENTRY,

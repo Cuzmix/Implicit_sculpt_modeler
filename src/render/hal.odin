@@ -49,8 +49,10 @@ gpu_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pip
 		vk_bind_compute_pipeline(compute_pass, compute_pipeline)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_bind_compute_pipeline(compute_pass, compute_pipeline)
+		return
+	}
 	sdl.BindGPUComputePipeline(compute_pass, compute_pipeline)
 }
 
@@ -60,8 +62,10 @@ gpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
 		vk_bind_compute_samplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_bind_compute_samplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
+		return
+	}
 	sdl.BindGPUComputeSamplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
 }
 
@@ -70,8 +74,10 @@ gpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, firs
 		vk_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
+		return
+	}
 	sdl.BindGPUComputeStorageBuffers(compute_pass, first_slot, storage_buffers, num_bindings)
 }
 
@@ -186,6 +192,21 @@ gpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: 
 	return sdl.CreateGPUComputePipeline(device, createinfo)
 }
 
+// A compute pipeline whose arithmetic is IEEE 754's, for kernels that must equal the CPU.
+// SPIR-V shaders already are, built with `-fp-mode precise` (their first line says so), so
+// only the own Metal backend compiles differently: with fast maths off. SDL_GPU's Metal
+// backend cannot, so it makes the ordinary pipeline and gpu_exact_compute says false.
+gpu_create_compute_pipeline_exact :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+	when METAL do if gpu_backend == .Metal do return mtl_create_compute_pipeline_exact(device, createinfo)
+	return gpu_create_compute_pipeline(device, createinfo)
+}
+
+// Whether gpu_create_compute_pipeline_exact keeps its promise: everywhere but SDL_GPU on
+// Metal, which compiles every shader with fast maths.
+gpu_exact_compute :: proc(device: ^sdl.GPUDevice) -> bool {
+	return gpu_backend != .SDL_GPU || gpu_get_device_driver(device) != "metal"
+}
+
 gpu_create_device :: proc(format_flags: sdl.GPUShaderFormat, debug_mode: bool, name: cstring) -> ^sdl.GPUDevice {
 	return sdl.CreateGPUDevice(format_flags, debug_mode, name)
 }
@@ -265,8 +286,10 @@ gpu_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, gr
 		vk_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
+		return
+	}
 	sdl.DispatchGPUCompute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
 }
 
@@ -336,8 +359,10 @@ gpu_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
 		vk_end_compute_pass(compute_pass)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_end_compute_pass(compute_pass)
+		return
+	}
 	sdl.EndGPUComputePass(compute_pass)
 }
 
@@ -419,8 +444,10 @@ gpu_push_compute_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slo
 		vk_push_compute_uniform_data(command_buffer, slot_index, data, length)
 		return
 	}
-	// The Metal backend makes no compute pipelines, so no compute pass is ever open.
-	when METAL do if gpu_backend == .Metal do return
+	when METAL do if gpu_backend == .Metal {
+		mtl_push_compute_uniform_data(command_buffer, slot_index, data, length)
+		return
+	}
 	sdl.PushGPUComputeUniformData(command_buffer, slot_index, data, length)
 }
 
@@ -645,8 +672,6 @@ gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 	return 0
 }
 
-// GPU timestamps likewise: SDL_GPU has no query API yet (its draft is libsdl-org/SDL#15651),
-// and the own Metal backend's waits for its compute stage.
 // Whether gpu_create_buffer_mapped makes buffers: the own Vulkan backend with a shared
 // memory type (vk_pick_shared_type), the own Metal backend on unified memory.
 gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
@@ -677,6 +702,9 @@ gpu_compute_features :: proc(device: ^sdl.GPUDevice) -> (subgroup_size: u32, int
 	return 0, false
 }
 
+// GPU timestamps: SDL_GPU has no query API yet (its draft is libsdl-org/SDL#15651), and
+// Apple GPUs sample counters only where a pass begins or ends, so the own Metal backend
+// would time passes, not the debug groups these timestamps bracket.
 gpu_timestamps_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	return gpu_backend == .Vulkan && vk_state.timing.slots[0].pool != 0
 }
