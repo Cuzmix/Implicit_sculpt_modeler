@@ -1258,6 +1258,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
+		// A job is cancelled last, once nothing else took the key.
+		else if long_job_busy(app) && quiet do long_job_cancel(app)
 		if k.palette do palette_close(app)
 		// An armed eyedropper or Pick focus waits for no press any more.
 		if quiet do app.ui.eyedrop_armed, app.ui.focus_armed = false, false
@@ -1395,6 +1397,7 @@ kit_layout :: proc(app: ^App) {
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
 	workspaces_frame(k)
 	menu_anchor, search_anchor := kit_top_bar(app)
+	kit_job_pill(app)
 	// Round the view (lens_chrome.odin): the view chips at the top corner, the off-hand
 	// island down the off-hand side, the navigation head and the view rail down the pen
 	// side. The brushes open from the shelf's All, and Search from the top bar.

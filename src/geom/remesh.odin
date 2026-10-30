@@ -61,11 +61,13 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 
 // remesh_voxel with the area and box mesh_area_bounds gave for `m` (or for the same
 // triangles in another layout), so that a caller that measured them for the density
-// preview remeshes on exactly the lattice the preview showed.
-remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
+// preview remeshes on exactly the lattice the preview showed. With `progress` (a job on
+// a thread of its own) it says how far it has come between its stages and stops at the
+// next one after a cancel, returning not ok with nothing to free.
+remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
 	h, _ := remesh_lattice(area, bounds, target) or_return
-	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator)
+	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress)
 }
 
 // The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
@@ -174,7 +176,7 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
 // `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
 // as remesh_lattice says.
-remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (out: Mesh, ok: bool) {
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
 	extent := bounds.hi - bounds.lo
 	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
@@ -184,9 +186,23 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 		r.n[a] = int(extent[a] / h) + 4
 		if r.n[a] > REMESH_MAX_LATTICE + 4 do return {}, false
 	}
+	// Each stage's share of the whole, as a remesh of a 2M-vertex sculpt to 1M spends it,
+	// so a job's ring moves about evenly; a stage boundary is also where a cancel stops it.
+	STAGES :: [?]f32{0, 0.04, 0.16, 0.28, 0.40, 0.48, 0.52, 0.62, 0.86, 1}
+	stage := 0
+	next :: proc(progress: ^jobs.Progress, stage: ^int) -> bool {
+		stages := STAGES
+		stage^ += 1
+		jobs.progress_set(progress, 0, 1, stages[stage^])
+		return !jobs.progress_cancelled(progress)
+	}
 	r.q = lattice_quantize(m, r.origin, h, pool, context.temp_allocator)
-	for axis in 0 ..< 3 do r.rays[axis] = lattice_rays_cast(m, r.q, r.origin, h, r.n, axis, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
 	defer for &rays in r.rays do lattice_rays_destroy(&rays)
+	if !next(progress, &stage) do return {}, false
+	for axis in 0 ..< 3 {
+		r.rays[axis] = lattice_rays_cast(m, r.q, r.origin, h, r.n, axis, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
+		if !next(progress, &stage) do return {}, false
+	}
 	find_flips(&r)
 	defer {
 		delete(r.flip_e, runtime.heap_allocator())
@@ -196,16 +212,22 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 		delete(r.y_base, runtime.heap_allocator())
 		delete(r.z_base, runtime.heap_allocator())
 	}
+	if !next(progress, &stage) do return {}, false
 	count_vertices(&r)
 	if r.vertex_count == 0 do return {}, false
+	if !next(progress, &stage) do return {}, false
 	sync.once_do(&mc_once, mc_build_table)
 
 	out.positions = make([dynamic]Vec3, r.vertex_count, allocator)
 	out.normals = make([dynamic]Vec3, r.vertex_count, allocator)
 	r.out = &out
 	place_vertices(&r)
-	march_cells(&r, allocator)
-	relax(&out, pool)
+	if next(progress, &stage) do march_cells(&r, allocator)
+	if next(progress, &stage) do relax(&out, pool)
+	if !next(progress, &stage) {
+		mesh_destroy(&out)
+		return {}, false
+	}
 	return out, true
 }
 

@@ -390,13 +390,20 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 		log.warn("remesh: the mesh has no volume to remesh")
 		return false, true
 	}
-	remeshed := time.tick_now()
+	return true, remesh_apply(app, obj, mesh, start, time.tick_now())
+}
+
+// The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
+// once its thread computed `mesh` from `start` to `computed`: the object rebuilt on it.
+// False only when the old mesh is gone and the new one could not be uploaded.
+remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick) -> bool {
+	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, remeshed, normals = false) do return true, false
-	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
-	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
+	if !object_rebuild(app, obj, mesh, ready, normals = false) do return false
+	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
+	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
-	return true, true
+	return true
 }
 
 // Rebuilds the object with about `vertices` vertices that keep the shape of the level
@@ -426,14 +433,20 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok:
 		log.warnf("decimate: the object already has %d vertices, no more than %d", before, vertices)
 		return false, true
 	}
-	decimated := time.tick_now()
+	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now())
+}
+
+// The second half of a decimation, as remesh_apply is a remesh's: the object rebuilt on
+// `mesh`, made from `before` vertices with `error` the largest stray.
+decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick) -> bool {
+	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, decimated, normals = true) do return true, false
-	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, decimated))
+	if !object_rebuild(app, obj, mesh, ready, normals = true) do return false
+	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
 	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
-		app.stats.decimate_ms, error, time.duration_milliseconds(time.tick_since(decimated)))
-	return true, true
+		app.stats.decimate_ms, error, time.duration_milliseconds(time.tick_since(ready)))
+	return true
 }
 
 // Mirrors one half of the level the object is on onto the other across its own `axis`
@@ -833,6 +846,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "remesh")
+			// A big object remeshes on a thread of its own while the frame goes on.
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			changed, ok := object_remesh(app, obj, cmd.vertices)
 			if !ok {
 				// The old mesh is gone; drop the empty object rather than draw nothing.
@@ -849,6 +864,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		texture_remove(app, selected_object(app))
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, nil)
 			made, ok := object_retopo(app, obj, cmd.vertices)
 			if made do history_record_added(app)
 			return ok
@@ -917,6 +933,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Decimate:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "decimate")
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			changed, ok := object_decimate(app, obj, cmd.vertices)
 			if !ok {
 				history_snapshot_drop(before)

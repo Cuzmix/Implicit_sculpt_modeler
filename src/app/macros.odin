@@ -452,7 +452,7 @@ command_slot_forget :: proc(app: ^App, id: Command_Id, slot: int) -> bool {
 // another macro runs, a plugin's command or a reload waits for the next frame, a stroke
 // or drag is under way, or a save or a file dialog waits.
 script_can_start :: proc(app: ^App) -> bool {
-	return !app.macro.recording && !app.script.running && app.plugins.pending == 0 && !app.plugins.reload && !pie_busy(app) && app.saving.kind == .None && !file_pending()
+	return !app.macro.recording && !app.long_job.on && !app.script.running && app.plugins.pending == 0 && !app.plugins.reload && !pie_busy(app) && app.saving.kind == .None && !file_pending()
 }
 
 // Run macro N: whether it can run now.

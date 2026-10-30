@@ -71,6 +71,7 @@ Options :: struct {
 	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) or sdl (SDL_GPU)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
+	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
 	camera_ease: bool `usage:"Let Frame all, Focus selected, Reset camera, the axis views and Previous and Next view glide in a scripted run too, which otherwise jumps: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
@@ -225,6 +226,7 @@ App :: struct {
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	camera_ease: Camera_Ease, // the camera gliding to a view a command asked for (camera_ease.odin)
 	flashes:     Flashes, // the undo glow, mask wipe, selection outline and save tick (feedback_motion.odin)
+	long_job:    Long_Job, // a remesh, decimate or retopology running on a thread of its own (long_job.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
@@ -519,6 +521,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
+	// Before the history and the scene go: a job still running holds a snapshot and reads
+	// nothing of theirs, but its thread must end first.
+	defer long_job_stop(&app)
 	// A look slider still held when the app ends has its snapshot unrecorded.
 	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
 	timeline_init(&app.timeline)
@@ -713,6 +718,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer if remember do _ = settings_save(&app, settings)
 	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
 	app.camera_ease.allowed = interactive || opts.camera_ease
+	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
@@ -756,6 +762,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		file_next := file_pending_kind()
 		saves := bit_set[File_Kind]{.Save, .Save_Copy}
 		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && !(file_next in saves && app.saving.kind in saves)))
+		// The scene holds still while a job runs on it (long_job.odin).
+		if app.ui.scene_command.kind != .None && long_job_busy(&app) {
+			app.ui.scene_command = {}
+			long_job_refuse(&app)
+		}
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			autosave_settle(&app)
@@ -764,6 +775,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if !scene_run(&app, command) do return false
 			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
+		if !long_job_frame(&app) do return false
 		library_frame(&app)
 		link_frame(&app)
 		if req, ok := file_take(&app); ok {
@@ -948,6 +960,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if !msaa_viewport_resize(&app, u32(want.x), u32(want.y)) do return false
 
 		// A tap's dab that waited for a second tap plays before anything this frame does.
+		// A tap waiting to land lands nowhere while a job holds the scene.
+		if long_job_busy(&app) do app.dab_wait.active = false
 		waited_dab := dab_wait_resolve(&app)
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
@@ -972,13 +986,19 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		camera_apply_input(&app, input)
 		if opts.orbit && !setting_up do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
-		shape_pending_frame(&app, input.size)
+		// While a job holds the scene no tool acts on the view: a press there only says to
+		// wait (the camera above still turns).
+		job_holds := long_job_busy(&app)
+		if !job_holds do shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
 		// A press that picks a polygroup for its material (Pick a group), a colour (the
 		// Eyedropper) or the point in focus (Pick focus), or moves a light in the
 		// viewport, is no tool's.
-		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || focus_pick_frame(&app, input) || lights_viewport_frame(&app, input) {
+		if job_holds {
+			brush_stroke_finish(&app)
+			if input.press do long_job_refuse(&app)
+		} else if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || focus_pick_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			// A drag the tool changed under ends as it stands, one undo step.
@@ -1536,6 +1556,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(&app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
+		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(&app))
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(&app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}

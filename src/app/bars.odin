@@ -566,6 +566,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 		bar_edit_ring(app, ctx.last_rect)
 		return
 	}
+	job_ring(app, s.id, ctx.last_rect)
 	// A disabled button takes no press, so it has no long press either.
 	if more && ctx.last_id != 0 && ui.secondary(ctx) do bar_slot_more(app, s, ctx.last_rect, side)
 }

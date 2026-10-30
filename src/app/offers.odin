@@ -66,6 +66,7 @@ offer_standing :: proc(app: ^App) -> bool {
 // Why `id` cannot act on the selection, for a dimmed control's tooltip: "" when it can,
 // or when what stops it is not the selection's kind.
 command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	if long_job_holds(app, id) do return long_job_reason(app)
 	obj := selected_object(app)
 	if obj == nil do return ""
 	if obj.cage != nil && id in CAGE_REFUSED_COMMANDS do return fmt.tprintf("%s is a cage: Make sculptable first, or edit it with the Model tool", object_label(obj))
