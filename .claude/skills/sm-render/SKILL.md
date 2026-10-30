@@ -254,6 +254,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
   after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
   for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
+- Step pictures (`step_pictures.odin`, kept by `src/app/history_pictures.odin`): the same atlas-and-copy scheme for
+  History steps (`STEP_PICTURE_PX` 144, 64 cells), drawn through a `Thumbnail_View` at supersample 1 with the main
+  view's projection narrowed to the step's square (a pre-multiplied crop matrix), in the step's own frame.
 - `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at a
   supersample (`THUMBNAIL_SUPERSAMPLE`, 1 maximised), whole (chunks, groups, hidden and LOD cleared, as thumbnails
   are), with the view, projection, items and ground the app gives. The app's second view (thumbnail.odin) picks its

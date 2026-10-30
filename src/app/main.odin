@@ -291,6 +291,8 @@ App :: struct {
 	// into and which object each of its cells shows.
 	thumbs:         render.Thumbs,
 	thumb_slots:    Thumb_Slots,
+	step_pictures:  render.Step_Pictures, // the History's pictures of steps (history_pictures.odin)
+	step_picture_slots: Step_Picture_Slots,
 	// An object copied with Copy, as the scene file stores it, for Paste (scene_paste);
 	// kept across new scenes, as a clipboard is.
 	clipboard:      [dynamic]u8,
@@ -384,6 +386,7 @@ App :: struct {
 	history_camera:    bool,
 	history_ungrouped: bool,
 	history_no_finger_scrub: bool, // two fingers held then slid do not scrub the History (History > Settings)
+	history_pictures:  bool, // the History list shows each step's picture (History > Settings)
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
@@ -520,6 +523,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.finish_destroy(&app.renderer, &app.finished)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
+	defer render.step_pictures_destroy(&app.renderer, &app.step_pictures)
 	defer delete(app.clipboard)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
@@ -1268,6 +1272,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		thumbnail_frame(&app, cmd, draws[:])
 		grid_frame(&app, cmd, draws[:])
 		view_windows_pictures(&app, cmd, draws[:])
+		step_pictures_frame(&app, cmd, view, proj, draws[:])
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1796,7 +1801,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(&app)
-		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator))
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(&app)), int(app.history_pictures))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {

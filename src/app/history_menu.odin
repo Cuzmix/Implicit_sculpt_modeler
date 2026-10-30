@@ -126,14 +126,20 @@ kit_history_menu :: proc(app: ^App) {
 	bytes := 0
 	for i in head ..= last do bytes += history_entry_at(app, i).bytes
 
-	// The step: what it was and its number, then its object, age and size.
-	ui.begin(ctx, "history menu head", {direction = .Column, gap = 2, padding = 8})
+	// The step: its picture (history_pictures.odin), what it was and its number, then its
+	// object, age and size.
+	ui.begin(ctx, "history menu head", {direction = .Row, gap = 10, padding = 8, center = true})
+	if _, _, has := step_picture_of(app, e.at); has {
+		_ = step_picture_draw(app, e.at, ui.place(ctx, {56, 56}))
+	}
+	ui.begin(ctx, "history menu words", {direction = .Column, gap = 2})
 	ui.label(ctx, fmt.tprintf("%s · step %d", entry_label(e), head + 1), t.text_size, t.text, .Semibold)
 	on := fmt.tprintf("%s · ", object_label(obj)) if obj != nil else ""
 	size := fmt.tprintf(" · %s", bytes_label(bytes)) if bytes > 0 else ""
 	state := "" if head < done else " · undone"
 	ui.label(ctx, fmt.tprintf("%s%s%s%s", on, ago_label(e.at), size, state), t.small_size, t.text_secondary)
 	if e.bookmark != "" do ui.label(ctx, e.bookmark, t.small_size, t.warning, .Semibold)
+	ui.end(ctx)
 	ui.end(ctx)
 	ui.divider(ctx, across = true)
 

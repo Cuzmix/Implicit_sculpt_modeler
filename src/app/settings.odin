@@ -340,6 +340,7 @@ SETTINGS := [?]Setting {
 	{"history_camera", offset_of(App, history_camera), bool, 0, 0},
 	{"history_ungrouped", offset_of(App, history_ungrouped), bool, 0, 0},
 	{"history_no_finger_scrub", offset_of(App, history_no_finger_scrub), bool, 0, 0},
+	{"history_pictures", offset_of(App, history_pictures), bool, 0, 0},
 	{"history_view", offset_of(App, timeline) + offset_of(Timeline, view), History_View, 0, 0},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
 	{"mouse_scheme", N + offset_of(Nav_Prefs, mouse_scheme), Mouse_Scheme, 0, 0},
