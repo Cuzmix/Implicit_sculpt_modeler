@@ -78,7 +78,10 @@ Ui_State :: struct {
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
 	retopo_quads:       i32,  // quads Quad Remesh asks for
-	retopo_engine:      Quad_Engine, // ...and from which engine (retopo.odin)
+	retopo_engine:      Quad_Engine, // ...and from which engine (retopo.odin)...
+	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (AutoRemesher)
+	retopo_symmetry:    Quad_Symmetry, // ...one half remeshed and mirrored (AutoRemesher)
+	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for
 	rebuild_fewer:      i32,  // ...and its Fewer goal

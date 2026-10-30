@@ -306,7 +306,8 @@ adjust_open :: proc(app: ^App) {
 	case .Decimate:
 		app.ui.rebuild_fewer = rebuild_count(a.cmd.vertices)
 	case .Retopo:
-		app.ui.retopo_quads, app.ui.retopo_engine = i32(a.cmd.vertices), a.cmd.engine
+		app.ui.retopo_quads = i32(a.cmd.vertices)
+		quad_options_set(app, a.cmd.quad)
 	case .Smooth_All:
 		app.ui.smooth_steps, app.ui.smooth_strength = a.steps, a.amount
 	case .Extract:
@@ -332,7 +333,7 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 	case .Mirror:
 		app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative, adjust = true}
 	case .Retopo:
-		app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), engine = app.ui.retopo_engine, adjust = true}
+		app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app), adjust = true}
 	case .Extract:
 		app.ui.scene_command = {kind = .Extract, adjust = true}
 	case .Smooth_All:

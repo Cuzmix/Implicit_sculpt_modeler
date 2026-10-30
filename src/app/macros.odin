@@ -107,8 +107,8 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) WELD := []string{"weld_distance"}
 	@(static, rodata) EVEN := []string{"rebuild_goal", "rebuild_even"}
 	@(static, rodata) FEWER := []string{"rebuild_goal", "rebuild_fewer"}
-	@(static, rodata) QUADS := []string{"rebuild_goal", "retopo_quads", "retopo_engine"}
-	@(static, rodata) RETOPO := []string{"retopo_quads", "retopo_engine"}
+	@(static, rodata) QUADS := []string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_symmetry", "retopo_close_first"}
+	@(static, rodata) RETOPO := []string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_symmetry", "retopo_close_first"}
 	@(static, rodata) EXTRACT := []string{"extract_thickness"}
 	@(static, rodata) BOOLEAN := []string{"boolean_vertices"}
 	@(static, rodata) MASK := []string{"mask_steps"}

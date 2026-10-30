@@ -77,6 +77,46 @@ QUAD_ENGINE_NAMES := [Quad_Engine]string {
 	.Own  = "Built-in",
 }
 
+// Symmetry for AutoRemesher: the half of the object on the + side of the plane through
+// its origin across the axis (the sculpt's own symmetry plane, as Mirror and weld cuts)
+// is remeshed and mirrored, so the two halves match quad for quad along the seam.
+Quad_Symmetry :: enum u8 {
+	Off,
+	X,
+	Y,
+	Z,
+}
+
+QUAD_SYMMETRY_NAMES := [Quad_Symmetry]string {
+	.Off = "Whole",
+	.X   = "Mirror X",
+	.Y   = "Mirror Y",
+	.Z   = "Mirror Z",
+}
+
+// What a Quad Remesh runs with besides the count: carried in the scene command, so the
+// long job's thread reads no interface state, and put back by Adjust last.
+Quad_Options :: struct {
+	engine:      Quad_Engine,
+	adaptivity:  f32, // 0 quads of one size, 1 smaller ones where the surface bends (AutoRemesher; fewer quads than asked)
+	symmetry:    Quad_Symmetry, // AutoRemesher only
+	close_first: bool, // an open or unsound mesh is voxel remeshed first, whichever engine runs
+}
+
+// The options as the Rebuild section has them set.
+quad_options :: proc(app: ^App) -> Quad_Options {
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_symmetry, app.ui.retopo_close_first}
+}
+
+quad_options_set :: proc(app: ^App, o: Quad_Options) {
+	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_symmetry, app.ui.retopo_close_first = o.engine, o.adaptivity, o.symmetry, o.close_first
+}
+
+// Close first voxel remeshes at this many vertices a quad asked for (a lattice of a few
+// cells across each quad, so the flow has a surface to follow), never under the floor.
+QUAD_CLOSE_VERTICES_PER_QUAD :: 20
+QUAD_CLOSE_MIN_VERTICES :: 20_000
+
 // AutoRemesher takes seconds and hundreds of megabytes per million triangles, and past
 // about that many its result depends little on the input's density, so a bigger input is
 // decimated to this first.
@@ -84,26 +124,35 @@ QUAD_REMESH_MAX_TRIANGLES :: 1_000_000
 // Each separate part is an island AutoRemesher parameterizes alone, with a floor of cells
 // each, so a dust of fragments is refused rather than left to it.
 QUAD_REMESH_MAX_PIECES :: 256
+// A remeshed half's seam vertices within this share of the object's size of the symmetry
+// plane are put on it: AutoRemesher smooths its boundary along the cut loop, which lies
+// on the plane, so they are near it but not on it to the bit.
+@(private = "file")
+QUAD_SEAM_SNAP :: f32(1e-4)
+// The rim between a half and its flat cap meets at 90 degrees on a smooth sculpt; kept as
+// a sharp edge from this angle, so the quads line up with the seam.
+@(private = "file")
+QUAD_SEAM_SHARP_DEGREES :: f32(60)
 
 // Where the progress ring stands after each of AutoRemesher's stages: the decimation past
-// the cap with the check of the mesh, the remesh itself; the UVs take the rest. The own
-// engine, standing in, starts from the check.
+// the cap, the check with Close first's voxel remesh, the remesh itself; the mirror and
+// the UVs take the rest. The own engine, standing in, starts from the check.
 @(private = "file")
-QUAD_SHARE_CHECKED :: f32(0.05)
+QUAD_SHARE_CAPPED :: f32(0.05)
 @(private = "file")
-QUAD_SHARE_CAPPED :: f32(0.2)
+QUAD_SHARE_CHECKED :: f32(0.2)
 @(private = "file")
 QUAD_SHARE_REMESHED :: f32(0.85)
 
 // Makes a new object of about `quads` quads on the shape of the level the selected
 // object is on, with UVs, next to it, and selects it. Returns false only on a GPU failure.
 // A long job (long_job.odin) runs the same two halves, retopo_compute on its thread.
-object_retopo :: proc(app: ^App, obj: ^Object, quads: int, engine: Quad_Engine) -> (made, ok: bool) {
+object_retopo :: proc(app: ^App, obj: ^Object, quads: int, options: Quad_Options) -> (made, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	view, packed := object_shape(obj, top = false)
-	r := retopo_compute(view, quads, engine, &app.pool)
+	r := retopo_compute(view, quads, options, &app.pool)
 	delete(view.normals)
 	geom.mesh_destroy(&packed)
 	if !r.built {
@@ -127,29 +176,45 @@ Retopo_Result :: struct {
 	triangles: int, // triangles
 	ngons:     int, // and five corners or more
 	capped:    int, // AutoRemesher: triangles the input was decimated to first, 0 for none
+	closed:    int, // Close first: vertices of the voxel remesh that stood in for the input, 0 for none
+	mirrored:  bool, // one half remeshed and mirrored, as the symmetry asked
+	unmirrored: string, // symmetry asked but not done: why (a literal, not owned)
 	reason:    string, // owned: why AutoRemesher was not used, "" when it was
 	built:     bool,
 	retopo_ms: f64,
 	uv_ms:     f64,
 }
 
-// The quads of about `quads` on `view` (with normals) by `engine`, their UVs and
-// triangles; touches no object or interface, so a long job runs it on its own thread with
-// its own pool, and with `progress` it stops after a cancel, built false with nothing to
-// free. AutoRemesher gives way to the own engine when it is not built or refuses the
-// mesh, and `reason` then says why.
-retopo_compute :: proc(view: geom.Mesh, quads: int, engine: Quad_Engine, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Retopo_Result) {
+// The quads of about `quads` on `view` (with normals) by the engine and options, their
+// UVs and triangles; touches no object or interface, so a long job runs it on its own
+// thread with its own pool, and with `progress` it stops after a cancel, built false with
+// nothing to free. AutoRemesher gives way to the own engine when it is not built or
+// refuses the mesh, and `reason` then says why; the own engine knows neither adaptivity
+// nor symmetry, but Close first serves it too.
+retopo_compute :: proc(view: geom.Mesh, quads: int, options: Quad_Options, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Retopo_Result) {
 	start := time.tick_now()
 	from: f32 = 0
-	if engine == .Auto {
+	closed: geom.Mesh
+	defer geom.mesh_destroy(&closed)
+	input := view
+	if options.engine == .Auto {
 		outcome: Quad_Outcome
-		r, outcome = quad_remesh_compute(view, quads, pool, progress)
+		r, outcome = quad_remesh_compute(view, quads, options, pool, progress)
 		if outcome != .Fallback do return
 		from = QUAD_SHARE_CHECKED
+	} else if options.close_first {
+		closed, r.closed = quad_close_first(view, quads, pool, progress, {0, QUAD_SHARE_CHECKED})
+		if jobs.progress_cancelled(progress) do return {}
+		if r.closed > 0 {
+			resize(&closed.normals, len(closed.positions))
+			geom.mesh_recompute_normals(&closed)
+			input = closed
+		}
+		from = QUAD_SHARE_CHECKED
 	}
-	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, pool)
+	bvh := geom.bvh_build_morton(input, geom.BVH_LEAF_SIZE, pool)
 	defer geom.bvh_destroy(&bvh)
-	q, how, built := geom.mesh_retopo(view, &bvh, quads, pool, progress = progress, share = {from, 0.9})
+	q, how, built := geom.mesh_retopo(input, &bvh, quads, pool, progress = progress, share = {from, 0.9})
 	free_all(context.temp_allocator)
 	if !built || jobs.progress_cancelled(progress) {
 		if built do geom.quad_mesh_destroy(&q)
@@ -163,8 +228,27 @@ retopo_compute :: proc(view: geom.Mesh, quads: int, engine: Quad_Engine, pool: ^
 	r.mesh = geom.quad_mesh_triangulate(q)
 	r.q, r.how, r.engine, r.built = q, how, .Own, true
 	r.faces, r.quads = len(q.quads), len(q.quads)
+	if options.symmetry != .Off do r.unmirrored = "the built-in engine knows no symmetry"
 	jobs.progress_set(progress, 0, 1, 1)
 	return
+}
+
+// Close first's voxel remesh of `m` when it is open, or unsound in a way the quad
+// engines would refuse or mangle (an edge of three faces, a flipped, flat or doubled
+// triangle): a closed, manifold surface at QUAD_CLOSE_VERTICES_PER_QUAD vertices a quad
+// asked for, overlapping parts merged as Remesh merges them. A mesh that needs none, or
+// that the remesh cannot take, gives back nothing (`vertices` 0).
+@(private = "file")
+quad_close_first :: proc(m: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^jobs.Progress, share: [2]f32) -> (out: geom.Mesh, vertices: int) {
+	whole := geom.mesh_integrity(m, pool)
+	c := whole.check
+	if c.closed && c.degenerate_triangles == 0 && c.inconsistent_edges == 0 && whole.duplicate_triangles == 0 do return
+	target := clamp(QUAD_CLOSE_VERTICES_PER_QUAD * quads, QUAD_CLOSE_MIN_VERTICES, QUAD_REMESH_MAX_TRIANGLES / 2)
+	area, bounds := geom.mesh_area_bounds(m, pool)
+	ok: bool
+	out, ok = geom.remesh_voxel_measured(m, area, bounds, target, pool, progress = progress, share = share)
+	if !ok do return {}, 0
+	return out, len(out.positions)
 }
 
 @(private = "file")
@@ -178,7 +262,7 @@ Quad_Outcome :: enum u8 {
 // on) before it starts, decimates past the cap, remeshes, and turns the polygons into the
 // triangles the object is built of, with the quads and UVs when every polygon is a quad.
 @(private = "file")
-quad_remesh_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^jobs.Progress) -> (r: Retopo_Result, outcome: Quad_Outcome) {
+quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Quad_Options, pool: ^jobs.Pool, progress: ^jobs.Progress) -> (r: Retopo_Result, outcome: Quad_Outcome) {
 	start := time.tick_now()
 	outcome = .Fallback
 	// Fewer triangles first past the cap: more make AutoRemesher slower, not better, and
@@ -188,16 +272,24 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progr
 	defer geom.mesh_destroy(&capped)
 	if len(view.indices) / 3 > QUAD_REMESH_MAX_TRIANGLES {
 		ok: bool
-		capped, _, ok = geom.mesh_decimate(view, QUAD_REMESH_MAX_TRIANGLES, pool, progress = progress, share = {0, QUAD_SHARE_CAPPED - QUAD_SHARE_CHECKED})
+		capped, _, ok = geom.mesh_decimate(view, QUAD_REMESH_MAX_TRIANGLES, pool, progress = progress, share = {0, QUAD_SHARE_CAPPED})
 		if jobs.progress_cancelled(progress) do return {}, .Cancelled
 		if ok {
 			input = capped
 			r.capped = len(capped.indices) / 3
 		}
 	}
+	// Close first: an open or unsound mesh becomes a closed one before anything judges it.
+	closed: geom.Mesh
+	defer geom.mesh_destroy(&closed)
+	if options.close_first {
+		closed, r.closed = quad_close_first(input, quads, pool, progress, {QUAD_SHARE_CAPPED, QUAD_SHARE_CHECKED})
+		if jobs.progress_cancelled(progress) do return {}, .Cancelled
+		if r.closed > 0 do input = closed
+	}
 	// What AutoRemesher cannot take, or runs forever on, is refused before it starts.
 	whole := geom.mesh_integrity(input, pool)
-	jobs.progress_set(progress, 0, QUAD_SHARE_CAPPED, 1)
+	jobs.progress_set(progress, 0, QUAD_SHARE_CHECKED, 1)
 	c := whole.check
 	switch {
 	case c.triangles < 4:                       r.reason = fmt.aprintf("%d triangles are too few", c.triangles)
@@ -213,30 +305,96 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progr
 		delete(r.reason)
 		return {}, .Cancelled
 	}
-	params := quadmesh.DEFAULT_PARAMS
-	params.quads = quads
-	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
-	out, report, err, reason := quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CAPPED, QUAD_SHARE_REMESHED})
-	switch err {
-	case .Cancelled:
-		return {}, .Cancelled
-	case .Refused, .Failed, .Unavailable:
-		delete(r.reason)
-		r.reason = strings.clone(reason)
-		return
-	case .None:
+	// Symmetry: the + half alone goes in and comes back mirrored. It goes in closed, its
+	// cut capped flat on the plane, since AutoRemesher fills a small hole of its own
+	// accord and smooths a larger one's rim off the plane; the cap's polygons lie on the
+	// plane and are dropped after. The count asked for covers the cap too, and the rim is
+	// kept as a sharp edge so the quads line up with the seam. A plane the mesh does not
+	// cross leaves it whole.
+	half: geom.Mesh
+	defer geom.mesh_destroy(&half)
+	axis := int(options.symmetry) - 1
+	snap: f32
+	asked := quads
+	if options.symmetry != .Off {
+		normal: geom.Vec3
+		normal[axis] = 1
+		back: geom.Mesh
+		ok: bool
+		half, back, ok = geom.mesh_slice(input, {}, normal, true, pool)
+		geom.mesh_destroy(&back)
+		if ok {
+			extent := c.bounds.hi - c.bounds.lo
+			snap = max(extent.x, extent.y, extent.z) * QUAD_SEAM_SNAP
+			total, cap := quad_cap_share(half, axis, snap)
+			asked = int(f64(quads / 2) * total / max(total - cap, total * 0.01))
+			r.mirrored = true
+		} else {
+			r.unmirrored = "the mesh does not cross the plane"
+		}
 	}
+	whole_input := input
+	if r.mirrored do input = half
+	params := quadmesh.DEFAULT_PARAMS
+	params.adaptivity = clamp(options.adaptivity, 0, 1)
+	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+	out: quadmesh.Polygon_Mesh
 	defer quadmesh.polygon_mesh_destroy(&out)
+	seam: [dynamic]bool
+	defer delete(seam)
+	mesh: geom.Mesh
+	polys: sculpt.Polys
+	check: geom.Mesh_Report
+	report: quadmesh.Report
+	// The mirrored result must close along its seam; when it does not (a cap AutoRemesher
+	// laid across the cut that the plane did not catch), the whole mesh is remeshed instead.
+	for {
+		params.quads = asked
+		params.sharp_degrees = QUAD_SEAM_SHARP_DEGREES if r.mirrored else quadmesh.DEFAULT_PARAMS.sharp_degrees
+		err: quadmesh.Error
+		reason: string
+		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
+		switch err {
+		case .Cancelled:
+			return {}, .Cancelled
+		case .Refused, .Failed, .Unavailable:
+			delete(r.reason)
+			r.reason = strings.clone(reason)
+			return
+		case .None:
+		}
+		if r.mirrored {
+			bvh := geom.bvh_build_morton(half, geom.BVH_LEAF_SIZE, pool)
+			cap: []bool
+			cap, seam = quad_seam_classify(out, half, &bvh, axis, snap)
+			geom.bvh_destroy(&bvh)
+			dropped := polygon_mesh_mirror(&out, axis, cap, &seam)
+			delete(cap)
+			if dropped > 0 do log.infof("quad remesh: %d polygons lay on the symmetry plane and went", dropped)
+			report.faces = len(out.first) - 1
+			report.quads, report.triangles, report.ngons = quadmesh.polygon_share(out)
+		}
+		mesh, polys = polygon_mesh_triangulate(out, seam[:])
+		check = geom.mesh_check(mesh)
+		if !r.mirrored || check.non_manifold_edges == 0 do break
+		log.warnf("quad remesh: the mirrored halves left %d non-manifold edges along the seam, so the whole mesh is remeshed instead", check.non_manifold_edges)
+		geom.mesh_destroy(&mesh)
+		sculpt.polys_destroy(&polys)
+		quadmesh.polygon_mesh_destroy(&out)
+		delete(seam)
+		seam = nil
+		r.mirrored, r.unmirrored = false, "the seam did not close"
+		input, asked = whole_input, quads
+		if jobs.progress_cancelled(progress) do return {}, .Cancelled
+	}
 	r.faces, r.quads, r.triangles, r.ngons = report.faces, report.quads, report.triangles, report.ngons
-	mesh, polys := polygon_mesh_triangulate(out)
-	check := geom.mesh_check(mesh)
 	if check.closed && check.inverted {
 		// AutoRemesher's winding follows its input's, so this is not expected; the sculpt
 		// wants every face outward, so each polygon is turned round and cut again.
 		polygon_mesh_flip(&out)
 		geom.mesh_destroy(&mesh)
 		sculpt.polys_destroy(&polys)
-		mesh, polys = polygon_mesh_triangulate(out)
+		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 	}
 	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s in %.0f ms; %s, %d boundary and %d non-manifold edges",
@@ -271,9 +429,11 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progr
 // a quad along its shorter diagonal (two triangles, quad k giving 2k and 2k + 1, as
 // quad_mesh_triangulate does), a larger polygon as a fan from its first corner; `polys`
 // says which polygon each triangle came from. A vertex no polygon uses is dropped, with
-// the corners renumbered. Zero normals: the object's build computes them.
+// the corners renumbered. Zero normals: the object's build computes them. With `seam`
+// (per vertex, from a mirrored half) no cut runs between two seam vertices: a polygon and
+// its mirror image would both cut there, and the edge would have four triangles.
 @(private = "file")
-polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, allocator := context.allocator) -> (mesh: geom.Mesh, polys: sculpt.Polys) {
+polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, seam: []bool = nil, allocator := context.allocator) -> (mesh: geom.Mesh, polys: sculpt.Polys) {
 	faces := len(m.first) - 1
 	used := make([]u32, len(m.positions))
 	defer delete(used)
@@ -295,16 +455,43 @@ polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, allocator := context.
 	t := 0
 	for f in 0 ..< faces {
 		corners := polys.corners[polys.first[f]:polys.first[f + 1]]
+		// The seam flags are over the polygons' own numbering, before the compaction.
+		given := m.corners[m.first[f]:m.first[f + 1]]
+		on_seam :: proc(seam: []bool, c: u32) -> bool {return seam != nil && seam[c]}
 		switch len(corners) {
 		case 3:
 			append(&mesh.indices, ..corners)
 		case 4:
-			cut := geom.quad_split(mesh.positions[:], {corners[0], corners[1], corners[2], corners[3]})
+			c0, c1, c2, c3 := corners[0], corners[1], corners[2], corners[3]
+			cut := geom.quad_split(mesh.positions[:], {c0, c1, c2, c3})
+			switch {
+			case on_seam(seam, given[0]) && on_seam(seam, given[2]): cut = {c0, c1, c3, c1, c2, c3}
+			case on_seam(seam, given[1]) && on_seam(seam, given[3]): cut = {c0, c1, c2, c0, c2, c3}
+			}
 			append(&mesh.indices, ..cut[:])
 		case:
-			for k in 1 ..< len(corners) - 1 do append(&mesh.indices, corners[0], corners[k], corners[k + 1])
+			apex := 0
+			for c, k in given do if !on_seam(seam, c) {
+				apex = k
+				break
+			}
+			count := len(corners)
+			for k in 1 ..< count - 1 do append(&mesh.indices, corners[apex], corners[(apex + k) % count], corners[(apex + k + 1) % count])
 		}
 		for ; t < len(mesh.indices) / 3; t += 1 do polys.tri_poly[t] = u32(f)
+	}
+	return
+}
+
+// The area of `m` and of its triangles lying on the plane across `axis` (within `snap`):
+// a capped half's cap.
+@(private = "file")
+quad_cap_share :: proc(m: geom.Mesh, axis: int, snap: f32) -> (total, cap: f64) {
+	for k := 0; k < len(m.indices); k += 3 {
+		a, b, c := m.positions[m.indices[k]], m.positions[m.indices[k + 1]], m.positions[m.indices[k + 2]]
+		area := f64(linalg.length(linalg.cross(b - a, c - a))) / 2
+		total += area
+		if abs(a[axis]) <= snap && abs(b[axis]) <= snap && abs(c[axis]) <= snap do cap += area
 	}
 	return
 }
@@ -313,6 +500,140 @@ polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, allocator := context.
 @(private = "file")
 polygon_mesh_flip :: proc(m: ^quadmesh.Polygon_Mesh) {
 	for f in 0 ..< len(m.first) - 1 do slice.reverse(m.corners[m.first[f]:m.first[f + 1]])
+}
+
+// Which of the remeshed half's polygons are its flat cap, to drop, and which vertices are
+// then the seam: a polygon is cap when the nearest point of the capped half `half` (with
+// `bvh` over it) to its middle lies on a cap triangle (one with its three corners on the
+// plane), and a seam vertex is one that a kept polygon and a dropped one share. The
+// polygons' own distance to the plane does not tell: AutoRemesher's quads straddle the
+// rim, a corner or two smoothed onto the side, so a cap polygon can have a corner off the
+// plane and a side polygon one on it. The kept polygons' border is then exactly the seam
+// edges, which the mirror closes.
+@(private = "file")
+quad_seam_classify :: proc(m: quadmesh.Polygon_Mesh, half: geom.Mesh, bvh: ^geom.Bvh, axis: int, snap: f32, allocator := context.allocator) -> (dropped: []bool, seam: [dynamic]bool) {
+	on_cap := make([]bool, len(half.indices) / 3, context.temp_allocator)
+	defer delete(on_cap, context.temp_allocator)
+	for &flat, t in on_cap {
+		a, b, c := half.positions[half.indices[3 * t]], half.positions[half.indices[3 * t + 1]], half.positions[half.indices[3 * t + 2]]
+		flat = abs(a[axis]) <= snap && abs(b[axis]) <= snap && abs(c[axis]) <= snap
+	}
+	faces := len(m.first) - 1
+	dropped = make([]bool, faces, allocator)
+	seam = make([dynamic]bool, len(m.positions), allocator)
+	in_kept := make([]bool, len(m.positions), context.temp_allocator)
+	defer delete(in_kept, context.temp_allocator)
+	in_dropped := make([]bool, len(m.positions), context.temp_allocator)
+	defer delete(in_dropped, context.temp_allocator)
+	hint := geom.BVH_NONE
+	for f in 0 ..< faces {
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		middle: geom.Vec3
+		for c in corners do middle += m.positions[c]
+		middle /= f32(len(corners))
+		if tri, _, _, ok := geom.bvh_closest(bvh^, half, middle, max(f32), hint); ok {
+			dropped[f] = on_cap[tri]
+			hint = tri
+		}
+		for c in corners {
+			if dropped[f] do in_dropped[c] = true
+			else do in_kept[c] = true
+		}
+	}
+	for v in 0 ..< len(m.positions) do seam[v] = in_kept[v] && in_dropped[v]
+	// A chord: an edge between two kept polygons whose ends are both seam. Its mirror image
+	// would make four faces on it, so the more cap-like of the two polygons goes too, and
+	// the seam is drawn again, until no chord is left (a round or two).
+	edges := make(map[[2]u32][2]i32, context.temp_allocator)
+	defer delete(edges)
+	for _ in 0 ..< 8 {
+		clear(&edges)
+		for f in 0 ..< faces {
+			if dropped[f] do continue
+			corners := m.corners[m.first[f]:m.first[f + 1]]
+			for c, k in corners {
+				d := corners[(k + 1) % len(corners)]
+				e := [2]u32{min(c, d), max(c, d)}
+				at := edges[e] if e in edges else [2]i32{-1, -1}
+				if at[0] < 0 {
+					at[0] = i32(f)
+				} else {
+					at[1] = i32(f)
+				}
+				edges[e] = at
+			}
+		}
+		went := 0
+		for e, at in edges {
+			if at[0] < 0 || at[1] < 0 || !seam[e[0]] || !seam[e[1]] do continue
+			more :: proc(m: quadmesh.Polygon_Mesh, seam: []bool, f: i32) -> int {
+				n := 0
+				for c in m.corners[m.first[f]:m.first[f + 1]] do if seam[c] do n += 1
+				return n
+			}
+			a, b := more(m, seam[:], at[0]), more(m, seam[:], at[1])
+			f := at[0] if a > b || (a == b && at[0] < at[1]) else at[1]
+			if !dropped[f] {
+				dropped[f] = true
+				went += 1
+			}
+		}
+		if went == 0 do break
+		for v in 0 ..< len(m.positions) do in_kept[v], in_dropped[v] = false, false
+		for f in 0 ..< faces do for c in m.corners[m.first[f]:m.first[f + 1]] {
+			if dropped[f] do in_dropped[c] = true
+			else do in_kept[c] = true
+		}
+		for v in 0 ..< len(m.positions) do seam[v] = in_kept[v] && in_dropped[v]
+	}
+	return
+}
+
+// Mirrors the polygons across the plane through the origin across `axis`, the `dropped`
+// ones (the cap over the cut) left out: a `seam` vertex is put on the plane and shared by
+// both halves, every other vertex gets a mirrored copy, and every kept polygon a reversed
+// copy over the copies, so the result is closed where the kept polygons' border is the
+// seam. Returns how many polygons went; `seam` grows to cover the copies (none of them seam).
+@(private = "file")
+polygon_mesh_mirror :: proc(m: ^quadmesh.Polygon_Mesh, axis: int, dropped_faces: []bool, seam: ^[dynamic]bool) -> (dropped: int) {
+	n := len(m.positions)
+	twin := make([]u32, n)
+	defer delete(twin)
+	positions := make([dynamic]geom.Vec3, n, 2 * n)
+	copy(positions[:], m.positions)
+	for v in 0 ..< n {
+		if seam[v] {
+			positions[v][axis] = 0
+			twin[v] = u32(v)
+		} else {
+			append(seam, false)
+			q := positions[v]
+			q[axis] = -q[axis]
+			twin[v] = u32(len(positions))
+			append(&positions, q)
+		}
+	}
+	faces := len(m.first) - 1
+	first := make([dynamic]u32, 1, 2 * faces + 1)
+	corners := make([dynamic]u32, 0, 2 * len(m.corners))
+	for f in 0 ..< faces {
+		if dropped_faces[f] {
+			dropped += 1
+			continue
+		}
+		append(&corners, ..m.corners[m.first[f]:m.first[f + 1]])
+		append(&first, u32(len(corners)))
+	}
+	kept := len(first) - 1
+	for f in 0 ..< kept {
+		lo, hi := int(first[f]), int(first[f + 1])
+		// Indexed, not sliced: the array grows under the loop.
+		for k := hi - 1; k >= lo; k -= 1 do append(&corners, twin[corners[k]])
+		append(&first, u32(len(corners)))
+	}
+	quadmesh.polygon_mesh_destroy(m)
+	m^ = {positions[:], first[:], corners[:]}
+	return
 }
 
 // Frees a computed retopology that will not become an object (a cancel, or the app
@@ -381,6 +702,9 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^Retopo_Result, start: time.Tic
 	// when it was not asked for.
 	engine := QUAD_ENGINE_NAMES[res.engine]
 	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
+	if res.mirrored do engine = fmt.tprintf("%s, mirrored", engine)
+	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
+	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
 	faces := fmt.tprintf("%s quads", thousands(res.quads))
