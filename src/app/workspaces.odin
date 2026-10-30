@@ -143,7 +143,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&out, pass_layout_line(k))
 	// Inspect's panes are a view, not the layout: the grid it found is what the layout holds.
 	strings.write_string(&out, k.inspect.before if k.inspect.on else grid_layout_lines(k))
-	if k.second_in_layout do fmt.sbprintfln(&out, "thumbnail %v %v", k.second.camera, k.second.pass)
+	if k.second_in_layout do fmt.sbprintfln(&out, "thumbnail %v %v%s", k.second.camera, k.second.pass, second_shading_words(&k.second))
 	strings.write_string(&out, "open")
 	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
 	strings.write_byte(&out, '\n')
@@ -212,6 +212,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			if len(f) < 3 do continue
 			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c
 			for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[2]) do k.second.pass = p
+			k.second.shading = {}
+			if len(f) > 3 do shading_words_read(&k.second.shading, f[3:])
 			k.second_in_layout = true
 		case "panes", "grid", "pane":
 			grid_layout_read(&k.grid, f)

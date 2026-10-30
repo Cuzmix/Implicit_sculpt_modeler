@@ -273,7 +273,7 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 		case .Colors:
 			return hex_text(colors_target(app)^)
 		case .Thumbnail:
-			return fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[k.second.camera], SECOND_PASS_NAMES[k.second.pass])
+			return fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[k.second.camera], second_shows_name(&k.second))
 		}
 	}
 	return ""

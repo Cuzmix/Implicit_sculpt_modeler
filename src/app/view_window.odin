@@ -93,7 +93,7 @@ view_window_request :: proc(app: ^App, sv: Second_View) {
 view_window_default :: proc(app: ^App) -> Second_View {
 	g := &app.kit.grid
 	if grid_panes(g) > 1 do return g.views[0]
-	return {camera = .Follow, pass = .Shaded}
+	return {camera = .Follow, pass = .Shaded, shading = app.kit.passes.shading}
 }
 
 // The window an event belongs to by its window id, nil for the main window's (or one
@@ -331,14 +331,14 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 
 // Draws each window's picture that is due, at most VIEW_WINDOW_PICTURE_MAX pixels, after the
 // view panes', sharing their one picture a frame.
-view_windows_pictures :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
+view_windows_pictures :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From) {
 	for w in app.view_windows.open {
 		if w == nil || w.close || w.pixels.x <= 0 || w.pixels.y <= 0 || view_window_hidden(w) do continue
 		if app.kit.home {
 			w.pic.shown, w.pic.due = nil, false
 			continue
 		}
-		picture_frame(app, cmd, draws, &w.view, &w.pic, view_window_picture_size(w.pixels), 1)
+		picture_frame(app, cmd, draws, froms, &w.view, &w.pic, view_window_picture_size(w.pixels), 1)
 	}
 }
 

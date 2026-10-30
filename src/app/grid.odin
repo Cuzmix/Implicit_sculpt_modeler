@@ -643,7 +643,8 @@ grid_reset :: proc(g: ^View_Grid) {
 }
 
 // A layout's grid lines (workspaces.odin): none for one pane, so every layout saved
-// before the grid reads as it was; else the tree, then each view pane's camera and pass.
+// before the grid reads as it was; else the tree, then each view pane's camera and pass,
+// and its shading when not a fresh view's.
 // A Free camera's turn is not kept, as the second view's is not.
 grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	g := &k.grid
@@ -653,7 +654,7 @@ grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&b, "panes ")
 	grid_tree_write(&b, &g.tree)
 	strings.write_byte(&b, '\n')
-	for v, i in g.views[:n - 1] do fmt.sbprintf(&b, "pane %d %v %v\n", i + 1, v.camera, v.pass)
+	for &v, i in g.views[:n - 1] do fmt.sbprintf(&b, "pane %d %v %v%s\n", i + 1, v.camera, v.pass, second_shading_words(&v))
 	return strings.to_string(b)
 }
 
@@ -758,6 +759,10 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 		v := &g.views[i - 1]
 		for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[2]) do v.camera = c
 		for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[3]) do v.pass = p
+		// The pane's shading follows its pass, in layouts since per-view shading; one
+		// without it is a fresh view's.
+		v.shading = {}
+		if len(f) > 4 do shading_words_read(&v.shading, f[4:])
 	}
 }
 
@@ -1051,11 +1056,11 @@ view_head_camera :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View, index: i
 	}
 }
 
-// A view's Shows select.
+// A view's Shows select: its shading modes, then the passes.
 view_head_pass :: proc(ctx: ^ui.Context, sv: ^Second_View) {
-	passes := make([]string, len(Second_Pass), context.temp_allocator)
-	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
-	if picked := ui.select(ctx, "Shows", passes, int(sv.pass), GRID_SELECT_W); picked >= 0 do sv.pass = Second_Pass(picked)
+	names := make([]string, len(SECOND_SHOWS), context.temp_allocator)
+	for e, j in SECOND_SHOWS do names[j] = SHADING_MODE_NAMES[e.mode] if j < SECOND_SHOWS_MODES else SECOND_PASS_NAMES[e.pass]
+	if picked := ui.select(ctx, "Shows", names, second_shows_index(sv), GRID_SELECT_W); picked >= 0 do second_shows_set(sv, picked)
 }
 
 // A view's link button: links an independent view to the main camera, or lets a linked one go.
@@ -1067,15 +1072,15 @@ view_head_link :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View) {
 // Lucide's monitor-up: a view opened in a window of its own (view_window.odin).
 ICON_VIEW_WINDOW :: rune(0xe427)
 
-// A view pane's selects, in points: room for "Curvature" and "Mirrored".
-GRID_SELECT_W :: 116
+// A view pane's selects, in points: room for "Material Preview" and "Mirrored".
+GRID_SELECT_W :: 140
 
 // Lucide's link: a view's camera tied to the main one.
 ICON_LINK :: rune(0xe108)
 
 // Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin),
 // but the one worked in, where the main view is drawn.
-grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
+grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From) {
 	k := &app.kit
 	for &pic, i in app.panes {
 		size := k.grid.px[i]
@@ -1084,7 +1089,7 @@ grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
 			continue
 		}
 		if k.grid.work == i + 1 do continue
-		picture_frame(app, cmd, draws, &k.grid.views[i], &pic, size, 1)
+		picture_frame(app, cmd, draws, froms, &k.grid.views[i], &pic, size, 1)
 	}
 }
 

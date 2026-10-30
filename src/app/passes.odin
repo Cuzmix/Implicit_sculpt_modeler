@@ -286,7 +286,7 @@ lens_pass_menu :: proc(app: ^App) {
 			if m != .Solid do picked = true
 		}
 	}
-	if shown == .Solid do solid_options(app)
+	if shown == .Solid && ps.pass == .Shaded do solid_options(app, &ps.shading, true)
 	ui.caption(ctx, "  INSPECT")
 	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
 	ui.divider(ctx, across = true)
@@ -297,14 +297,12 @@ lens_pass_menu :: proc(app: ^App) {
 	if picked do ps.menu = false
 }
 
-// Solid's options, inset under its row, each named over its tabs (the name beside them
-// pushes the tabs past the menu's edge): the lighting (Studio, MatCap or Flat); with
-// MatCap, which one; and the colour each object shows in.
-@(private = "file")
-solid_options :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	s := &k.passes.shading
+// Solid's options for view shading `s`, inset under its row, each named over its tabs (the
+// name beside them pushes the tabs past the menu's edge): the lighting (Studio, MatCap or
+// Flat); with MatCap, which one; and the colour each object shows in. The main view's
+// (`main`) lighting runs its command, which its keys and gestures can run too.
+solid_options :: proc(app: ^App, s: ^View_Shading, main: bool) {
+	ctx := &app.kit.ctx
 	named :: proc(ctx: ^ui.Context, name: string) {
 		ui.begin(ctx, fmt.tprintf("%s option##solid", name), {direction = .Column, gap = 4})
 		ui.label(ctx, name, ctx.theme.small_size)
@@ -312,9 +310,12 @@ solid_options :: proc(app: ^App) {
 	ui.begin(ctx, "solid options", {direction = .Column, gap = 6, padding = 8})
 	names: [len(Solid_Lighting)]string
 	hints: [len(Solid_Lighting)]string
-	for l in Solid_Lighting do names[l], hints[l] = SOLID_LIGHTING_NAMES[l], command_hint(app, .Solid_Lighting, int(l))
+	for l in Solid_Lighting do names[l], hints[l] = SOLID_LIGHTING_NAMES[l], command_hint(app, .Solid_Lighting, int(l)) if main else ""
 	named(ctx, "Lighting")
-	if picked := ui.tabs(ctx, "Lighting", names[:], int(s.lighting), keys = hints[:]); picked >= 0 do command_run(app, .Solid_Lighting, picked)
+	if picked := ui.tabs(ctx, "Lighting", names[:], int(s.lighting), keys = hints[:]); picked >= 0 {
+		if main do command_run(app, .Solid_Lighting, picked)
+		else do s.lighting = Solid_Lighting(picked)
+	}
 	ui.end(ctx)
 	if s.lighting == .MatCap {
 		caps := make([dynamic]string, 0, len(MATCAP_RECIPES), context.temp_allocator)

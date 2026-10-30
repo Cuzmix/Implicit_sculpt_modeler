@@ -68,6 +68,8 @@ Second_View :: struct {
 	orbit:    camera.Orbit,
 	camera:   Second_Camera,
 	pass:     Second_Pass,
+	// Its shading mode and Solid's options, shown while the pass is Shaded (shading.odin).
+	shading:  View_Shading,
 	from:     [2]f32, // where the drag on the picture went down, and where it was last frame
 	last:     [2]f32,
 	dragging: bool, // the drag passed the slop and turns the Free camera
@@ -114,6 +116,51 @@ second_view_pass :: proc(p: Second_Pass) -> render.View_Pass {
 	case .Render:     return .Shaded
 	}
 	return .Shaded
+}
+
+// What a view can show, in its Shows list's order: Blender's shading modes (Rendered being
+// the Render pass), then the passes that check the form and the studio render.
+Second_Shows :: struct {
+	pass: Second_Pass,
+	mode: Shading_Mode,
+}
+
+@(rodata)
+SECOND_SHOWS := [?]Second_Shows {
+	{.Shaded, .Wireframe},
+	{.Shaded, .Solid},
+	{.Shaded, .Material_Preview},
+	{.Render, .Rendered},
+	{.Silhouette, {}},
+	{.Normals, {}},
+	{.Curvature, {}},
+	{.Occlusion, {}},
+	{.Depth, {}},
+	{.Studio, {}},
+}
+
+// How many of SECOND_SHOWS are shading modes, the rest passes.
+SECOND_SHOWS_MODES :: 4
+
+// The name of what second view `sv` shows: its shading mode, or its pass.
+second_shows_name :: proc(sv: ^Second_View) -> string {
+	if m, ok := second_shading_mode(sv); ok do return SHADING_MODE_NAMES[m]
+	return SECOND_PASS_NAMES[sv.pass]
+}
+
+// Which of SECOND_SHOWS second view `sv` shows.
+second_shows_index :: proc(sv: ^Second_View) -> int {
+	m, _ := second_shading_mode(sv)
+	for e, i in SECOND_SHOWS do if e.pass == sv.pass && (sv.pass != .Shaded || e.mode == m) do return i
+	return 0
+}
+
+// Makes second view `sv` show SECOND_SHOWS[i], keeping Solid's options.
+second_shows_set :: proc(sv: ^Second_View, i: int) {
+	if i < 0 || i >= len(SECOND_SHOWS) do return
+	e := SECOND_SHOWS[i]
+	sv.pass = e.pass
+	if e.pass == .Shaded do sv.shading.mode = e.mode
 }
 
 // The axis a camera preset looks along, by name: the two enums list them differently.
@@ -258,15 +305,15 @@ thumbnail_destroy :: proc(app: ^App) {
 }
 
 // Draws the second view on `cmd` when the window is laid out and what it shows changed,
-// from the frame's `draws` (shaded, as the viewport's own pass is cleared before this).
-thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
+// from the frame's `draws`, as their materials made them from `froms`.
+thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From) {
 	k := &app.kit
 	size := k.thumbnail_px
 	if !k.thumbnail || k.home || size.x == 0 || size.y == 0 {
 		app.thumbnail.shown, app.thumbnail.due = nil, false
 		return
 	}
-	picture_frame(app, cmd, draws, &k.second, &app.thumbnail, size, render.THUMBNAIL_SUPERSAMPLE)
+	picture_frame(app, cmd, draws, froms, &k.second, &app.thumbnail, size, render.THUMBNAIL_SUPERSAMPLE)
 }
 
 // What second view `sv`'s picture at `size` and `supersample` shows, as one number (never 0),
@@ -280,9 +327,13 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 		// The pass drawn and the second view's own (Studio draws as Shaded), as one number.
 		pass:        u32,
 		supersample: u32,
+		// Its shading, as one number.
+		shading:     u64,
 	}
 	pass := u32(second_view_pass(sv.pass)) | u32(sv.pass) << 8
-	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample}
+	s := sv.shading
+	shading := u64(s.mode) | u64(s.lighting) << 8 | u64(s.color) << 16 | u64(s.matcap) << 24
+	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample, shading}
 	key = max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
 	return
 }
@@ -292,7 +343,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 // goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
 // dragged. A heavy pass runs on the picture's own target after it: live occlusion once,
 // the studio a sample a frame afterwards, at rest, until it has the studio's count.
-picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
+picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
 	pic.due = false
 	defer picture_finish(app, cmd, sv, pic)
 	// The path tracer's copy of the scene is costly to keep: a picture showing another pass
@@ -339,6 +390,14 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, sv:
 		pic.version += 1
 		pic.due = picture_gathers(app, sv, pic)
 		return
+	}
+	// Shaded draws as the view's shading mode says, and Render's picture before its samples
+	// as Material Preview.
+	if sv.pass == .Shaded {
+		shading_items(app, items, froms, sv.shading, pane = true)
+		pass = shading_pass(app, sv.shading, pass, pane = true)
+	} else if sv.pass == .Render {
+		shading_items(app, items, froms, {mode = .Material_Preview}, pane = true)
 	}
 	// A silhouette is the outline alone: no wireframe, paint, groups or maps over it.
 	if pass == .Silhouette {

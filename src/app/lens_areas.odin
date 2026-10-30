@@ -270,7 +270,8 @@ grid_op_apply :: proc(app: ^App) {
 }
 
 // What a pane cut from pane `pane` starts as: a view pane's copy, or for the main view an
-// independent camera where it is now, showing the main view's pass where a view pane can.
+// independent camera where it is now, showing the main view's pass where a view pane can
+// and its shading (Rendered as the Render pass).
 grid_pane_copy :: proc(app: ^App, pane: int) -> Second_View {
 	g := &app.kit.grid
 	if pane > 0 {
@@ -278,13 +279,14 @@ grid_pane_copy :: proc(app: ^App, pane: int) -> Second_View {
 		v.dragging, v.turns, v.linked = false, 0, 0
 		return v
 	}
-	v := Second_View{camera = .Follow, pass = .Shaded}
+	v := Second_View{camera = .Follow, pass = .Shaded, shading = app.kit.passes.shading}
 	second_free(app, &v)
 	shown := viewport_pass(&app.kit)
 	for p in Second_Pass do if p != .Studio && p != .Render && second_view_pass(p) == shown {
 		v.pass = p
 		break
 	}
+	if shown == .Shaded && main_shading_mode(app) == .Rendered do v.pass = .Render
 	return v
 }
 

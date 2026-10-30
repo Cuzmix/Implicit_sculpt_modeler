@@ -185,8 +185,9 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 	dragged := lens_chip_drag(app, i, cam, cells, n)
 	if cam.clicked && !dragged do pane_menu_toggle(k, i, .Camera, cam.rect)
 	icon := lens_chip_width(ctx, "", glyph = ICON_LINK)
-	if fits(&left, lens_chip_width(ctx, SECOND_PASS_NAMES[sv.pass], chevron = true)) {
-		pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), SECOND_PASS_NAMES[sv.pass], chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
+	shows := second_shows_name(sv)
+	if fits(&left, lens_chip_width(ctx, shows, chevron = true)) {
+		pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), shows, chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
 		if pass.clicked do pane_menu_toggle(k, i, .Pass, pass.rect)
 	}
 	if fits(&left, icon) {
@@ -225,7 +226,8 @@ kit_pane_menu :: proc(app: ^App) {
 	m := &k.pane_menu
 	g := &k.grid
 	if m.open && (m.pane < 1 || m.pane >= grid_panes(g)) do m.open = false
-	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 200}) do return
+	// As wide as the main view's list, for Solid's tabs.
+	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
 	sv := &g.views[m.pane - 1]
@@ -239,11 +241,20 @@ kit_pane_menu :: proc(app: ^App) {
 			m.open = false
 		}
 	case .Pass:
-		ui.caption(ctx, "  SHOWS")
-		for p in Second_Pass {
-			if !ui.menu_item(ctx, SECOND_PASS_NAMES[p], checked = sv.pass == p) do continue
-			sv.pass = p
-			m.open = false
+		// The pane's own shading, as the main view's list has it: the modes (Solid's options
+		// under Solid, the list staying open for them), then the passes.
+		ui.caption(ctx, "  SHADING")
+		at := second_shows_index(sv)
+		solid := at < SECOND_SHOWS_MODES && SECOND_SHOWS[at].mode == .Solid
+		for e, j in SECOND_SHOWS {
+			if j == SECOND_SHOWS_MODES {
+				if solid do solid_options(app, &sv.shading, false)
+				ui.caption(ctx, "  INSPECT")
+			}
+			name := SHADING_MODE_NAMES[e.mode] if j < SECOND_SHOWS_MODES else SECOND_PASS_NAMES[e.pass]
+			if !ui.menu_item(ctx, fmt.tprintf("%s##pane shows", name), checked = at == j) do continue
+			second_shows_set(sv, j)
+			if j >= SECOND_SHOWS_MODES || e.mode != .Solid do m.open = false
 		}
 	}
 }
