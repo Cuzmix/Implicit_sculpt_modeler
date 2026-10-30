@@ -307,7 +307,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
   Inside render, SDL_GPU's procs are called only from the seam `hal.odin` (`gpu_create_texture` for
   `sdl.CreateGPUTexture`, same arguments), and every `gpu_*` there first hands the call to
-  the Vulkan backend when `gpu_backend == .Vulkan` (`--gpu=vulkan`); the check fails on a direct `sdl.*GPU*(` call anywhere else in render. SDL's types and info structs stay, as opaque
+  the Vulkan backend when `gpu_backend == .Vulkan` (`--gpu=vulkan`), or on Darwin to the Metal backend when `gpu_backend == .Metal` (`--gpu=metal`, inside `when METAL`); the check fails on a direct `sdl.*GPU*(` call anywhere else in render. SDL's types and info structs stay, as opaque
   handles render never dereferences.
   `render` never reads UI state.
 - Every `sdl.*GPU*` result is consumed (sm-odin); wait for the GPU before destroying anything drawn this frame;
@@ -340,4 +340,15 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
   the run (`render.validation_errors`); smoke runs both backends, and a render change passes
   `parity_check.py --compare <sdl run> -- --gpu=vulkan` at 0 px.
+- The Metal backend (`mtl_device.odin`, `mtl_resources.odin`, `mtl_cmd.odin`, `mtl_swapchain.odin`, `#+build darwin`)
+  mirrors SDL_GPU's own Metal backend (`deps/sdl3-src/src/gpu/metal/SDL_gpu_metal.m`): vertex buffers at buffer 14+,
+  uniforms at buffer(i) sent by `set*Bytes` at draw time (4096 bytes a slot), vertex storage buffers after the
+  uniforms, fragment textures and samplers at their slot, no viewport flip, cycling by backings and serials as the
+  fences. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
+  release, an autoreleased one (command buffer, encoder, drawable) is retained while kept, and every proc opens
+  `NS.scoped_autoreleasepool()`. The pinned Odin asserts ("missing procedure 'objc_lookUpClass'") on any objc
+  message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. It makes no compute
+  pipelines yet (`gpu_*` compute procs return under Metal), it is not in the Graphics menu, and it has never run on
+  Apple hardware: `maccheck` and `iphonecheck` only compile it. `backend_fail` keeps a backend's reason for
+  `backend_fallback` whichever one failed.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).
