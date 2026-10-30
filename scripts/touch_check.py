@@ -10591,7 +10591,7 @@ def adjust_remesh_from_the_bar():
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 765)
 # The middles of the History panel bar's three steps, after three strokes.
-TIMELINE_STEPS_OF_3 = [(566, 563), (800, 563), (1033, 563)]
+TIMELINE_STEPS_OF_3 = [(566, 616), (800, 616), (1033, 616)]
 # The History panel's Marker and Delete older history buttons, at its foot.
 HISTORY_MARKER = (622, 722)
 HISTORY_DELETE_OLDER = (977, 722)
@@ -10782,6 +10782,7 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
 HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1502, 236), (1300, 362), (1300, 288)
+HISTORY_GROUP_ROW = (1300, 236)
 
 
 def history_three_strokes(s):
@@ -10822,50 +10823,120 @@ def history_list_groups_and_goes_to_a_step():
     return Steps([run(False), run(True)])
 
 
+# The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 540)
+
+
 @scenario
-def history_point_from_the_timeline():
-    """Three strokes and the History panel: a right-click on the second step of its bar
-    makes the History brush paint back to before it (two steps back, chosen), and then a
-    long press on the third, by a finger and again by the pen, makes it one step back;
-    none of it moves through the History."""
-    def run(by_pen):
+def history_step_menu_from_the_list():
+    """The list's step menu on the group of three strokes: by a right-click, Bookmark...
+    names its newest stroke "Before horns" (typed, then Enter), which then reads on its own
+    beside the group of the other two; by a finger's long press, Delete everything older
+    takes two taps and forgets the two strokes before the newest; by the pen's long press,
+    Paint back to here makes the History brush paint back to before the newest stroke and
+    picks it. None of it moves through the History."""
+    def run(how):
         s = Script()
-        s.wait(3)
-        for _ in range(3):
-            s.mouse_drag(line((700, 380), (800, 420), 12))
-            s.wait(2)
-        click(s, UI["history"])
-        s.wait(20)
-        s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
-        s.wait(3)
-        s.add("right")
-        s.wait(4)
-        if by_pen:
-            s.add("pnear")
-            s.add("pdown:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[2]))
-            s.wait(LONG_PRESS_FRAMES)
-            s.add("pup")
-            s.wait(2)
-            s.add("pfar")
+        history_three_strokes(s)
+        if how == "mouse":
+            s.add("move:{:g},{:g}".format(*HISTORY_GROUP_ROW))
+            s.wait(3)
+            s.add("right")
+            s.wait(10)
+            click(s, HISTORY_MENU_BOOKMARK)
+            s.wait(10)
+            s.type("Before horns")
+            s.press("Return")
+            s.wait(6)
+            return s, [], camera_still({"history_menus": near(1, 0), "history_bookmarks": near(1, 0), "history_rows": near(2, 0),
+                                        "undo_steps": near(3, 0), "redo_steps": near(0, 0)})
+        if how == "finger":
+            long_press(s, *HISTORY_GROUP_ROW)
+            s.wait(10)
+            s.ftap(*HISTORY_MENU_DELETE)
             s.wait(4)
-        else:
-            long_press(s, *TIMELINE_STEPS_OF_3[2])
-        return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(1, 0),
-                                    "recall_pinned": near(1, 0)})
-    return Steps([run(False), run(True)])
+            s.ftap(*HISTORY_MENU_DELETE)
+            s.wait(6)
+            return s, [], camera_still({"history_menus": near(1, 0), "history_dropped": near(2, 0), "undo_steps": near(1, 0),
+                                        "redo_steps": near(0, 0)})
+        s.add("pnear")
+        s.add("pdown:{:g},{:g}".format(*HISTORY_GROUP_ROW))
+        s.wait(LONG_PRESS_FRAMES)
+        s.add("pup")
+        s.wait(10)
+        s.add("pdown:{:g},{:g}".format(*HISTORY_MENU_PAINT_BACK))
+        s.wait(2)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(6)
+        return s, [], camera_still({"history_menus": near(1, 0), "recall_back": near(1, 0), "recall_pinned": near(1, 0),
+                                    "brush_kind": is_text("history"), "undo_steps": near(3, 0), "redo_steps": near(0, 0)})
+    return Steps([run("mouse"), run("finger"), run("pen")])
 
 
-@scenario
-def history_point_then_drift():
-    """A finger's long press on the bar's first step that then drifts along it before
-    lifting chooses the step and scrubs nothing: all three steps stay done."""
-    s = Script()
+# The step menu over a step of the strip's three (it opens centred over the step's
+# block): the y of its rows.
+STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 429, 473, 562
+# A bookmark's flag over the strip's first step.
+STRIP_FIRST_FLAG = (470, 585)
+
+
+def strip_three_strokes(s):
+    """Three strokes of the Draw brush, then History's button (the strip, with HISTORY_STRIP)."""
     s.wait(3)
     for _ in range(3):
         s.mouse_drag(line((700, 380), (800, 420), 12))
         s.wait(2)
     click(s, UI["history"])
     s.wait(20)
+
+
+@scenario
+def history_point_from_the_timeline():
+    """Three strokes and the History strip: a right-click on its second step opens the
+    step's menu, whose Paint back to here makes the History brush paint back to before it
+    (two steps back, chosen); then a long press on the third, by a finger and again by the
+    pen, and Paint back to here make it one step back; none of it moves through the
+    History."""
+    def run(by_pen):
+        s = Script()
+        strip_three_strokes(s)
+        s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
+        s.wait(3)
+        s.add("right")
+        s.wait(10)
+        click(s, (TIMELINE_STEPS_OF_3[1][0], STRIP_MENU_PAINT_BACK_Y))
+        s.wait(6)
+        x = TIMELINE_STEPS_OF_3[2][0]
+        if by_pen:
+            s.add("pnear")
+            s.add("pdown:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[2]))
+            s.wait(LONG_PRESS_FRAMES)
+            s.add("pup")
+            s.wait(10)
+            s.add("pdown:{:g},{:g}".format(x, STRIP_MENU_PAINT_BACK_Y))
+            s.wait(2)
+            s.add("pup")
+            s.wait(2)
+            s.add("pfar")
+            s.wait(4)
+        else:
+            long_press(s, *TIMELINE_STEPS_OF_3[2])
+            s.wait(6)
+            s.ftap(x, STRIP_MENU_PAINT_BACK_Y)
+            s.wait(4)
+        return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(1, 0),
+                                    "recall_pinned": near(1, 0), "history_menus": near(2, 0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def history_point_then_drift():
+    """A finger's long press on the strip's first step opens its menu, and drifting along
+    the strip before lifting scrubs nothing: all three steps stay done."""
+    s = Script()
+    strip_three_strokes(s)
     x, y = TIMELINE_STEPS_OF_3[0]
     s.add(f"fdown:0:{x:g},{y:g}")
     s.wait(LONG_PRESS_FRAMES)
@@ -10874,56 +10945,71 @@ def history_point_then_drift():
         s.wait(1)
     s.add("fup:0")
     s.wait(10)
-    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(3, 0),
-                                "recall_pinned": near(1, 0)})
+    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "history_menus": near(1, 0)})
 
 
 @scenario
 def history_point_by_right_click():
-    """The same right-click alone: two steps back, chosen."""
+    """The same right-click and Paint back to here alone: two steps back, chosen."""
     s = Script()
-    s.wait(3)
-    for _ in range(3):
-        s.mouse_drag(line((700, 380), (800, 420), 12))
-        s.wait(2)
-    click(s, UI["history"])
-    s.wait(20)
+    strip_three_strokes(s)
     s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
     s.wait(3)
     s.add("right")
-    s.wait(4)
-    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "recall_back": near(2, 0), "recall_pinned": near(1, 0)})
+    s.wait(10)
+    click(s, (TIMELINE_STEPS_OF_3[1][0], STRIP_MENU_PAINT_BACK_Y))
+    s.wait(6)
+    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "recall_back": near(2, 0), "recall_pinned": near(1, 0),
+                                           "brush_kind": is_text("history")})
 
 
 @scenario
-def history_marker_and_delete_older():
-    """Three strokes and the History panel: with Marker on, a finger's tap on the second
-    step makes the History brush paint back to before it (two steps back) and goes nowhere;
-    Delete older history then takes two taps and forgets all three steps, and an undone
-    step stays to redo."""
+def history_strip_menu_paint_back_and_delete_older():
+    """Three strokes and the History strip: a finger's long press on the second step and
+    Paint back to here make the History brush paint back to before it (two steps back) and
+    go nowhere; after one undo, the second step's Delete everything older takes two taps
+    and forgets the first step, the undone one staying to redo."""
     def run(delete):
         s = Script()
-        s.wait(3)
-        for _ in range(3):
-            s.mouse_drag(line((700, 380), (800, 420), 12))
-            s.wait(2)
-        click(s, UI["history"])
-        s.wait(20)
+        strip_three_strokes(s)
+        x = TIMELINE_STEPS_OF_3[1][0]
         if not delete:
-            s.ftap(*HISTORY_MARKER)
-            s.wait(4)
-            s.ftap(*TIMELINE_STEPS_OF_3[1])
+            long_press(s, *TIMELINE_STEPS_OF_3[1])
+            s.wait(6)
+            s.ftap(x, STRIP_MENU_PAINT_BACK_Y)
             s.wait(6)
             return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(2, 0),
                                         "recall_pinned": near(1, 0)})
         s.press("z", ("ctrl",))
         s.wait(4)
-        s.ftap(*HISTORY_DELETE_OLDER)
-        s.wait(4)
-        s.ftap(*HISTORY_DELETE_OLDER)
+        long_press(s, *TIMELINE_STEPS_OF_3[1])
         s.wait(6)
-        return s, HISTORY_STRIP, camera_still({"undo_steps": near(0, 0), "redo_steps": near(1, 0)})
+        s.ftap(x, STRIP_MENU_DELETE_Y)
+        s.wait(4)
+        s.ftap(x, STRIP_MENU_DELETE_Y)
+        s.wait(6)
+        return s, HISTORY_STRIP, camera_still({"undo_steps": near(1, 0), "redo_steps": near(1, 0), "history_dropped": near(1, 0)})
     return Steps([run(False), run(True)])
+
+
+@scenario
+def history_bookmark_flies_over_the_strip():
+    """A right-click on the strip's first step and Bookmark... name it "Start"; its flag then
+    stands over the strip, and a tap on the flag goes back to that step."""
+    s = Script()
+    strip_three_strokes(s)
+    s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[0]))
+    s.wait(3)
+    s.add("right")
+    s.wait(10)
+    click(s, (TIMELINE_STEPS_OF_3[0][0], STRIP_MENU_BOOKMARK_Y))
+    s.wait(10)
+    s.type("Start")
+    s.press("Return")
+    s.wait(10)
+    s.ftap(*STRIP_FIRST_FLAG)
+    s.wait(30)
+    return s, HISTORY_STRIP, camera_still({"history_bookmarks": near(1, 0), "undo_steps": near(1, 0), "redo_steps": near(2, 0)})
 
 
 @scenario
@@ -10940,9 +11026,9 @@ def timeline_tap_and_drag_by_finger():
         click(s, UI["history"])
         s.wait(20)
         if drag:
-            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (420, 563), 12))
+            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (420, 616), 12))
         else:
-            s.ftap(676, 563)
+            s.ftap(676, 616)
         s.wait(30)
         done = 0 if drag else 1
         return s, HISTORY_STRIP, camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})

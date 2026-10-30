@@ -86,9 +86,9 @@ history_rows :: proc(app: ^App, only := -1, open_at := time.Tick{}) -> [dynamic]
 }
 
 // Whether two steps are strokes the list groups: one brush on one object, neither adjusted
-// nor chained to anything.
+// nor bookmarked (each reads on its own, so its amount or name shows).
 history_same_stroke :: proc(a, b: History_Entry) -> bool {
-	return a.kind == .Stroke && b.kind == .Stroke && a.id == b.id && a.what == b.what && !a.adjusted && !b.adjusted
+	return a.kind == .Stroke && b.kind == .Stroke && a.id == b.id && a.what == b.what && !a.adjusted && !b.adjusted && a.bookmark == "" && b.bookmark == ""
 }
 
 // What the History holds in all, in bytes, and how near its fullest store is to dropping
@@ -149,6 +149,7 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 	// Only the rows in sight are laid out; spacers stand for the rest, so a History of
 	// hundreds of steps costs what a screenful does.
 	top, bottom := s.shown, s.shown + height
+	recall := recall_marker(app)
 	y: f32 = 0
 	skipped: f32 = 0
 	for row in rows {
@@ -158,7 +159,7 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 		} else {
 			if skipped > 0 do ui.spacer(ctx, skipped)
 			skipped = 0
-			history_row(app, row, inner, can)
+			history_row(app, row, inner, can, recall)
 		}
 		y += h
 	}
@@ -192,10 +193,11 @@ KIND_GLYPHS := [History_Kind]rune {
 	.Model     = ICON_CAGE,
 }
 
-// One row: a tap goes to its step (a group's newest), and a group's chevron opens or
-// closes it.
+// One row: a tap goes to its step (a group's newest), a long press, a right click or the
+// pen's side button opens its menu, and a group's chevron opens or closes it. The row
+// holding `recall`, the step the History brush paints back to, shows the brush.
 @(private = "file")
-history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool) {
+history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -209,6 +211,7 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool) {
 	ui.begin(ctx, fmt.tprintf("history row %d %v", row.head, row.sub), {direction = .Row, width = width})
 	chevron: f32 = t.target if group else 0
 	a := ui.area(ctx, fmt.tprintf("Step %d##history row %v", row.head + 1, row.sub), {width - chevron, h}, drag = false)
+	if ui.secondary(ctx) && can do history_menu_open(app, row.head, {a.mouse.x, a.mouse.y, 1, 1}, .Pointer)
 	box := ui.Rect{a.rect.x, a.rect.y, width, h}
 	if current {
 		ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))
@@ -231,6 +234,10 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool) {
 	size := bytes_label(history_row_bytes(app, row)) if history_row_bytes(app, row) > 0 else "—"
 	sw := ui.text_width(ctx, size, t.caption_size)
 	ui.text(ctx, size, right, mid, t.caption_size, ui.color_fade(t.text_secondary, fade), .Regular, .Right)
+	if recall >= row.oldest && recall <= row.last {
+		ui.icon(ctx, ui.ICON_BRUSH, {right - sw - 12, mid}, t.icon_small - 4, t.accent)
+		sw += 18
+	}
 	title := entry_label(e)
 	title_w := right - sw - 10 - tx
 	name_y := mid if row.sub else mid - 8
@@ -250,9 +257,19 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool) {
 		ago := ago_label(e.at)
 		note := "  · you are here" if current else "  · undone" if undone else ""
 		line := fmt.tprintf("%s · %s%s", on, ago, note) if on != "" else fmt.tprintf("%s%s", ago, note)
-		ui.text(ctx, ui.text_fit(ctx, line, t.caption_size, right - sw - 10 - tx), tx, mid + 9, t.caption_size, t.accent if current else ui.color_fade(t.text_tertiary, fade))
+		lx := tx
+		// A bookmark leads the line with its flag and name, in the flags' amber.
+		if e.bookmark != "" {
+			amber := ui.color_fade(t.warning, fade)
+			ui.icon(ctx, ICON_FLAG, {lx + 5, mid + 9}, t.icon_small - 6, amber)
+			name := ui.text_fit(ctx, e.bookmark, t.caption_size, (right - sw - 10 - tx) * 0.6, .Semibold)
+			ui.text(ctx, name, lx + 13, mid + 9, t.caption_size, amber, .Semibold)
+			lx += 13 + ui.text_width(ctx, name, t.caption_size, .Semibold)
+			line = fmt.tprintf(" · %s", line)
+		}
+		ui.text(ctx, ui.text_fit(ctx, line, t.caption_size, right - sw - 10 - lx), lx, mid + 9, t.caption_size, t.accent if current else ui.color_fade(t.text_tertiary, fade))
 	}
-	ui.tip(ctx, a.id, box, fmt.tprintf("Step %d: %s. Tap to go here", row.head + 1, entry_label(e)))
+	ui.tip(ctx, a.id, box, fmt.tprintf("Step %d: %s. Tap to go here; hold or right-click for its menu", row.head + 1, entry_label(e)))
 	if a.clicked && can do timeline_seek_to(tl, row.last + 1)
 	if group {
 		c := ui.area(ctx, fmt.tprintf("Open step %d##history group", row.head + 1), {chevron, h}, drag = false)
@@ -324,15 +341,6 @@ history_transport :: proc(app: ^App, can: bool) {
 	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
 	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
 	ui.spacer(ctx, 10)
-	// While Marker is on, or Delete older history waits for its second tap, what the next
-	// tap does takes the step count's place.
-	status, status_color := fmt.tprintf("Step %d of %d", done, total), t.text
-	if tl.marking {
-		status, status_color = "Tap a step to mark it", t.accent
-	} else if tl.delete_armed_at > 0 {
-		n := history_step_count(app.history.done[:])
-		status, status_color = fmt.tprintf("Deletes %d step%s; redo stays", n, "" if n == 1 else "s"), t.danger
-	}
-	ui.label(ctx, status, t.text_size, status_color, .Semibold)
+	ui.label(ctx, fmt.tprintf("Step %d of %d", done, total), t.text_size, t.text, .Semibold)
 	ui.end(ctx)
 }

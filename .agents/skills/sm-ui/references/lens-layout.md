@@ -118,3 +118,10 @@ summary.
   through `timeline_seek_to`. Sizes are `History_Entry.bytes`, set when recorded (`sculptor_last_step_bytes`,
   `clay_last_step_bytes`, the swap snapshot, the texture step); never measure them while drawing. The root row reads
   `History.began` and `History.dropped`. Scenarios that tap the strip set `history_view strip` first.
+  The step menu (`history_menu.odin`, drawn after the pass menu) opens from `ui.secondary` on a row or a strip block
+  and knows its step by its first entry's `at` (`history_step_of`), never a position, since positions move as the
+  History does. `History_Entry.view` (the camera at record time, set at every append and in `history_push`) feeds View
+  from this step (`camera_go`, wrapped in the camera ease); `History_Entry.bookmark` is owned, freed in `entry_free`,
+  set only through `history_bookmark_set`, named through the rename popover (`Rename_Entry.step`), and keeps a
+  stroke out of a group. Delete everything older is `history_delete_before`, which Delete older history calls with
+  `len(done)`.

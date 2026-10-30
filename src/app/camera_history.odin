@@ -99,6 +99,15 @@ camera_forward :: proc(app: ^App) {
 	if camera_can_forward(app) do camera_show(app, app.views.at + 1)
 }
 
+// Shows `v` (View from this step, in the History's step menu), keeping the view shown
+// first and `v` after it, so Previous view comes back to where the camera was.
+camera_go :: proc(app: ^App, v: Camera_View) {
+	h := &app.views
+	camera_history_keep(h, camera_view_shown(app))
+	camera_history_keep(h, v)
+	camera_show(app, h.at)
+}
+
 @(private = "file")
 camera_show :: proc(app: ^App, at: int) {
 	h := &app.views
