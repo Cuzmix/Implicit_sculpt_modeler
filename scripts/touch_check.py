@@ -6401,6 +6401,53 @@ def long_job_holds_the_scene_and_escape_cancels_it():
 
 
 @scenario
+def subdivide_runs_as_a_long_job():
+    """Ctrl+D with --async-jobs builds the new level on a thread of its own: the frames go on while it works, and once it is done the object has two levels and nothing was cancelled."""
+    s = Script()
+    s.press("d", ("ctrl",))
+    s.wait(240)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "selected_levels": near(2), "dabs": near(0)})
+
+
+@scenario
+def subdivide_long_job_cancels_with_escape():
+    """Escape while a big object's new level is built stops it: the object keeps its one level and no undo step is left."""
+    s = Script()
+    s.press("d", ("ctrl",))
+    s.wait(3)
+    s.press("Escape")
+    s.wait(60)
+    return s, ["--async-jobs", "--vertices=1500000"], {"long_jobs": near(1), "long_job_cancels": near(1), "long_job_running": near(0), "selected_levels": near(1), "undo_steps": near(0)}
+
+
+@scenario
+def convert_to_voxels_runs_as_a_long_job():
+    """Convert to voxels from Search with --async-jobs makes the clay on a thread of its own and lands as one undo step: the object is a voxel object once the job is done."""
+    s = Script()
+    palette_run(s, "convert to voxels")
+    s.wait(240)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_objects": near(1), "undo_steps": near(1)})
+
+
+@scenario
+def voxel_res_up_runs_as_a_long_job():
+    """Res+ from Search with --async-jobs resamples the clay beside the old one on a thread of its own, and the object takes the finer clay as one undo step."""
+    s = Script()
+    palette_run(s, "res+")
+    s.wait(240)
+    return s, ["--async-jobs", "--voxels=64"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_resolution": near(128), "undo_steps": near(1)})
+
+
+@scenario
+def convert_to_mesh_runs_as_a_long_job():
+    """Convert to mesh from Search with --async-jobs meshes the clay and prepares the mesh on a thread of its own, and lands as one undo step: the object is a mesh once the job is done."""
+    s = Script()
+    palette_run(s, "convert to mesh")
+    s.wait(240)
+    return s, ["--async-jobs", "--voxels=96"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_objects": near(0), "undo_steps": near(1)})
+
+
+@scenario
 def pie_escape_closes_only_the_pie():
     """With Help open, Shift+Q opens Pie 2 and Escape closes the pie alone: nothing runs and Help stays."""
     s = Script()

@@ -239,8 +239,8 @@ autosave_minutes :: proc(m: i32) -> i32 {
 // Whether nothing this frame could change the scene: no button, key, wheel, typing,
 // finger or pen contact, and nothing under way that changes it without one (a stroke or
 // its samples left over, a drag, a tap's waiting dab, the Space pie, a replay, the
-// timeline's playback or time-lapse, a scripted stroke) or waiting to (a scene command,
-// a file request, a save waiting for its toast). Hovering is rest.
+// timeline's playback or time-lapse, a scripted stroke, a long job) or waiting to (a scene
+// command, a file request, a save waiting for its toast). Hovering is rest.
 autosave_quiet :: proc(app: ^App) -> bool {
 	d := &app.device
 	if len(d.keys) > 0 || d.down != {} || d.pressed != {} || d.released != {} || d.wheel != 0 || d.text_len > 0 || d.cancel do return false
@@ -250,6 +250,8 @@ autosave_quiet :: proc(app: ^App) -> bool {
 	// A topological mask still settling after its release writes the mask meanwhile.
 	if app.stroke.active || len(app.stroke.pending) > 0 || app.drag.owner != .None || app.dab_wait.active || move_busy(app) do return false
 	if replay_busy(app) || timeline_busy(app) || app.autosave.scripted do return false
+	// A long job reads the object it works on from its own thread, and applies to it next.
+	if app.long_job.on do return false
 	return app.ui.scene_command.kind == .None && !file_pending() && app.saving.kind == .None
 }
 

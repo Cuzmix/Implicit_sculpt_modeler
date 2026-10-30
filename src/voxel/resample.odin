@@ -35,7 +35,20 @@ Resampler :: struct {
 // change as one undo step and the next flush remakes the copy. Returns false too for a
 // factor that is neither.
 clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
-	if factor != RESAMPLE_UP && factor != RESAMPLE_DOWN do return false
+	out, ok := clay_resampled(c, factor)
+	if !ok do return false
+	clay_destroy(c)
+	c^ = out
+	return true
+}
+
+// clay_resample's new clay, made beside `c`, which it only reads, so it can be made on a
+// thread of its own while the clay is drawn: with `pool` for its workers (nil: the clay's),
+// which the new clay keeps, and `progress` moved over its `share` of the whole. The caller destroys `c` and puts the
+// new clay in its place. Returns false, with nothing made, for a factor or a fit
+// clay_resample refuses, or when the progress was cancelled.
+clay_resampled :: proc(c: ^Clay, factor: f32, pool: ^jobs.Pool = nil, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Clay, ok: bool) {
+	if factor != RESAMPLE_UP && factor != RESAMPLE_DOWN do return {}, false
 	assert(!c.in_stroke, "a stroke is running")
 	old := &c.volume
 	voxel := old.voxel / factor
@@ -43,13 +56,25 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 	// The new domain, less the band the repair needs around the clay, must hold the clay.
 	if bounds := volume_bounds(old); bounds.lo.x <= bounds.hi.x {
 		half := (f32(DOMAIN) * 0.5 - f32(BAND + 2)) * voxel
-		for a in 0 ..< 3 do if bounds.lo[a] < centre[a] - half || bounds.hi[a] > centre[a] + half do return false
+		for a in 0 ..< 3 do if bounds.lo[a] < centre[a] - half || bounds.hi[a] > centre[a] + half do return {}, false
+	}
+	// The shares of the stages, measured going from 512 to 1024 voxels across and back in a
+	// release build: gathering the new bricks takes a good part either way, and down, the
+	// band's repair does too.
+	stages := [?]f32{0, 0.53, 0.86, 1, 1} if factor > 1 else [?]f32{0, 0.23, 0.38, 0.47, 1}
+	stage := 0
+	next :: proc(out: ^Clay, progress: ^jobs.Progress, stage: ^int, stages: [5]f32, share: [2]f32) -> bool {
+		stage^ += 1
+		jobs.progress_set(progress, share[0], share[1], stages[stage^])
+		if !jobs.progress_cancelled(progress) do return true
+		clay_destroy(out)
+		return false
 	}
 	heap := runtime.heap_allocator()
 	x := Resampler{old = old, scale = factor}
-	nv: Volume
-	volume_init(&nv, voxel, centre, c.allocator)
-	x.new = &nv
+	clay_init(&out, voxel, centre, pool if pool != nil else c.pool, c.allocator)
+	nv := &out.volume
+	x.new = nv
 
 	// The candidate new bricks: the children (×2) or parents (÷2) of every old brick, each
 	// once, in coordinate order (so the pool's slots are the same whatever the thread count).
@@ -70,7 +95,7 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 	for bc, i in candidates {
 		if i > 0 && candidates[i - 1] == bc do continue
 		if !brick_in_domain(bc) do continue
-		slot, _ := volume_brick_make(&nv, bc, CLAMP)
+		slot, _ := volume_brick_make(nv, bc, CLAMP)
 		append(&slots, slot)
 	}
 	x.slots = slots[:]
@@ -85,55 +110,51 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 			for z in lo.z ..= hi.z do for y in lo.y ..= hi.y do for xx in lo.x ..= hi.x {
 				nbc := [3]i32{xx, y, z}
 				if !brick_in_domain(nbc) do continue
-				new_table := volume_table_make(&nv, nbc)
+				new_table := volume_table_make(nv, nbc)
 				at := brick_slot_in_chunk(nbc)
 				if new_table.bricks[at] == TILE_EMPTY do new_table.bricks[at] = TILE_INSIDE
 			}
 		}
 	}
-	jobs.parallel_for(c.pool, len(x.slots), &x, proc(data: rawptr, i: int) {
+	if !next(&out, progress, &stage, stages, share) do return {}, false
+	jobs.parallel_for(out.pool, len(x.slots), &x, proc(data: rawptr, i: int) {
 		x := cast(^Resampler)data
 		fill_brick(x, x.slots[i])
 	})
+	if !next(&out, progress, &stage, stages, share) do return {}, false
 
-	// The old clay goes and the new volume takes its place; a brick the band never reached
-	// is a tile after all.
-	clay_clear_history(c)
-	volume_destroy(old)
-	c.volume = nv
-	surface_destroy(&c.surface)
-	surface_init(&c.surface, c.allocator)
-	clear(&c.pending)
-	v := &c.volume
+	// A brick the band never reached is a tile after all.
 	kept := make([dynamic]u32, 0, len(x.slots), heap)
 	defer delete(kept)
 	for slot in x.slots {
-		if tile := brick_tile(&v.bricks[slot]); tile != .Brick {
-			volume_brick_collapse(v, v.coords[slot], tile)
+		if tile := brick_tile(&nv.bricks[slot]); tile != .Brick {
+			volume_brick_collapse(nv, nv.coords[slot], tile)
 			continue
 		}
 		append(&kept, slot)
 	}
 	// Coarser sampling makes saddle faces freely; finer sampling cannot (the sign of a
 	// bilinear patch between four centres is one curve), but the pass costs little.
-	flips := resolve_saddles(c, kept[:], false)
+	flips := resolve_saddles(&out, kept[:], false)
+	if !next(&out, progress, &stage, stages, share) do return {}, false
 	if factor < 1 {
 		// The band past two new voxels: solved from the seeds, then grown a layer of bricks
 		// at a time into the tiles it reaches, each layer solved from the last, until the
 		// clamp is reached everywhere (the band is under a brick wide, so a round or two).
-		for slot in kept do band_mark(c, slot)
-		band_repair(c)
+		for slot in kept do band_mark(&out, slot)
+		band_repair(&out)
 		for len(kept) > 0 {
-			grown := grow_band(c, kept[:], heap)
+			grown := grow_band(&out, kept[:], heap)
 			delete(kept)
 			kept = grown
-			if len(kept) > 0 do band_repair(c)
+			if len(kept) > 0 do band_repair(&out)
 		}
 	} else if flips > 0 {
-		band_repair(c)
+		band_repair(&out)
 	}
-	surface_mark_all(c)
-	return true
+	surface_mark_all(&out)
+	if !next(&out, progress, &stage, stages, share) do return {}, false
+	return out, true
 }
 
 // Makes a brick of every tile beside a face of one of `slots` (bricks the repair just

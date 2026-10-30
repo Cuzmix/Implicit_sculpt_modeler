@@ -12,11 +12,14 @@ import "../jobs"
 // (mesh.odin): a border vertex names the cell and loop it stands for in the node that owns
 // the cell, so each node finds the owners of its copies on its own, every pass runs a node
 // a job and one thread and many give the same mesh. A copy whose owner node does not exist
-// (its cell lies on the domain's edge) keeps its own vertex.
-clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil) -> (m: geom.Mesh) {
+// (its cell lies on the domain's edge) keeps its own vertex. With `flush` false the clay is
+// only read, for a thread of its own working on a clay the caller flushed (with `pool`
+// for its workers in place of the clay's).
+clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil, flush := true, pool: ^jobs.Pool = nil) -> (m: geom.Mesh) {
 	s := &c.surface
 	// Flush first, so the mesh is the clay as it is now.
-	_ = clay_flush(c)
+	if flush do _ = clay_flush(c)
+	workers := pool if pool != nil else c.pool
 	heap := runtime.heap_allocator()
 	Weld :: struct {
 		c:      ^Clay,
@@ -50,7 +53,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 		delete(w.tris, heap)
 	}
 	// Each node sorts the codes of the vertices it owns, so its neighbours can look theirs up.
-	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
+	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
 		s := &w.c.surface
 		node := s.nodes[i]
@@ -65,7 +68,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 		w.owned[i] = u32(count)
 	})
 	// Each copy finds its owner's vertex; a copy without one is an orphan and kept.
-	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
+	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
 		s := &w.c.surface
 		node := s.nodes[i]
@@ -117,7 +120,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 		w.mask = mask^
 	}
 	// The kept vertices go into the mesh in node order, then slot order.
-	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
+	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
 		s := &w.c.surface
 		node := s.nodes[i]
@@ -133,7 +136,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 	})
 	// The copies follow their owners, which every node has placed by now; then each node
 	// counts the triangles it keeps (a welded triangle with two corners the same has no area).
-	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
+	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
 		s := &w.c.surface
 		node := s.nodes[i]
@@ -150,7 +153,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 	}
 	w.tris[n] = triangles
 	m.indices = make([dynamic]u32, int(triangles) * 3, allocator)
-	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
+	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
 		s := &w.c.surface
 		node := s.nodes[i]
