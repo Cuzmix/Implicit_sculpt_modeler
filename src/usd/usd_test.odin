@@ -143,7 +143,9 @@ class Mesh "Template"
 	// Corner colours by index: vertices 0 and 1 red, 2 and 3 blue.
 	testing.expect(t, slice.equal(quad.colors[:], []geom.Vertex_Color{{255, 0, 0, 255}, {255, 0, 0, 255}, {0, 0, 255, 255}, {0, 0, 255, 255}}), "faceVarying colours")
 	testing.expect(t, slice.equal(quad.groups[:], []u16{1, 1}), "the subset's group")
+	testing.expect(t, slice.equal(quad.polys[:], []u32{0, 0}), "both triangles are the quad's")
 	left := parts[1]
+	testing.expect_value(t, len(left.polys), 0)
 	testing.expect_value(t, left.name, "Left")
 	testing.expect(t, slice.equal(left.mesh.indices[:], []u32{0, 2, 1}), "leftHanded turned round")
 	testing.expect_value(t, left.colors[2], geom.Vertex_Color{0, 255, 0, 255})
