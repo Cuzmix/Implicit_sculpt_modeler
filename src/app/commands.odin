@@ -255,6 +255,7 @@ Command_Id :: enum u8 {
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
 	Name_Controls,
+	Take_Tour,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
 	Pie_Editor,
 	Brush_Pie,
@@ -2254,6 +2255,12 @@ COMMANDS := [Command_Id]Command {
 			app.kit.menu = false
 		},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.labels.latched},
+	},
+	.Take_Tour = {
+		label = "Take the tour",
+		help = "Walks through the spaces, the dial, the palettes, History and Paint, one step at a time, each lit on the screen to try there.",
+		icon = ui.ICON_HELP,
+		run = proc(app: ^App, _: int) {tour_restart(app)},
 	},
 	.Pie = {
 		label = "Pie",

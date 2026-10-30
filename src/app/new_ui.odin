@@ -362,6 +362,8 @@ Kit_State :: struct {
 	// and whether a card showed last frame and which.
 	coach:       i32,
 	labels:      Help_Labels, // Name every control (help_labels.odin)
+	tour:        Tour, // the tour (tour.odin)
+	history_at:  ui.Rect, // where the History button was drawn last, which the tour lights
 	coach_shown: bool,
 	coach_last:  Coach_Step,
 	scroll:     f32, // the inspector's scroll, where it is heading
@@ -1521,6 +1523,8 @@ kit_layout :: proc(app: ^App) {
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
+	tour_update(app)
+	kit_tour(app)
 	kit_help_labels_note(app)
 }
 

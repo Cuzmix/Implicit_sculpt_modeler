@@ -340,6 +340,7 @@ SETTINGS := [?]Setting {
 	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
+	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"thumbnail", K + offset_of(Kit_State, thumbnail), bool, 0, 0},
 	{"second_camera", K + offset_of(Kit_State, second) + offset_of(Second_View, camera), Second_Camera, 0, 0},

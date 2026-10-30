@@ -29,6 +29,7 @@ Options :: struct {
 	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene palette choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
+	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
@@ -737,6 +738,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer link_destroy(&app)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
+	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
+	if opts.tour do app.kit.tour.step = 0
 	app.kit.fixed_dt = opts.ui_dt
 	// After the clock is chosen, which the session's times count on.
 	app.diag.allowed = DIAGNOSTICS || opts.input_diagnostics || opts.diag_test != "" || opts.diag_export != ""
@@ -1817,6 +1820,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The section the tray's open palette shows, whether Show where's mark is on a
 		// control, and the Mask section's Steps and Mask by kind.
 		fmt.printfln("tray_section=%s tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.stack.revealed.? or_else .Preset) if k.stack.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
+		fmt.printfln("tour=%d tour_shown=%d tour_step=%s tour_done=%d tour_finished=%d", k.tour.step, int(k.tour.shown), strings.to_lower(fmt.tprint(k.tour.showing), context.temp_allocator) if k.tour.shown else "none", int(k.tour.done), k.tour.finished)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.

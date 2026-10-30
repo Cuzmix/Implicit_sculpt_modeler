@@ -4529,6 +4529,77 @@ def help_labels_kept_until_done():
     return Steps([run(False), run(True)])
 
 
+# The tour at 1440x900 (--tour): the space tabs, each step's Next and the dial step's
+# Skip, the History button, the Paint toggle and the dial's Smooth.
+TOUR = {"model": (457, 28), "sculpt": (357, 28), "next_spaces": (590, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
+        "next_palettes": (975, 487), "history": (1355, 28), "paint": (1267, 833), "smooth": (78, 778)}
+
+
+@scenario
+def tour_moves_on_when_a_step_is_tried():
+    """The tour's first step lights the space tabs; tapping Model, then Sculpt, does it, and a moment later the tour moves on to the dial by itself."""
+    s = Script()
+    s.wait(8)
+    s.ftap(*TOUR["model"])
+    s.wait(6)
+    s.ftap(*TOUR["sculpt"])
+    s.wait(70)
+    return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_shown": near(1), "tour_step": is_text("dial"), "space": is_text("sculpt"), "dabs": near(0)})
+
+
+@scenario
+def tour_next_and_skip():
+    """Next moves the tour to the dial without trying the spaces, and Skip there ends it for good, not as finished."""
+    def run(skip):
+        s = Script()
+        s.wait(8)
+        s.ftap(*TOUR["next_spaces"])
+        s.wait(20)
+        if not skip:
+            return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_step": is_text("dial"), "dabs": near(0)})
+        s.ftap(*TOUR["skip_dial"])
+        s.wait(10)
+        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_shown": near(0), "tour_finished": near(0), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def tour_dial_step_tried():
+    """On the dial's step, a tap latches Smooth and a stroke made with it does the step, and the tour moves on to the palettes."""
+    s = Script()
+    s.wait(8)
+    s.ftap(*TOUR["next_spaces"])
+    s.wait(20)
+    s.ftap(*TOUR["smooth"])
+    s.wait(6)
+    s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
+    s.wait(70)
+    return s, LENS_1440 + ["--tour"], camera_still({"tour": near(2), "tour_step": is_text("palettes"), "dabs": lambda v: int(v) > 0})
+
+
+@scenario
+def tour_finishes_with_paint():
+    """Opening History does the fourth step, and turning Paint on and painting a stroke the last, which finishes the tour."""
+    def run(paint):
+        s = Script()
+        s.wait(8)
+        for k in ("next_spaces", "next_dial", "next_palettes"):
+            s.ftap(*TOUR[k])
+            s.wait(20)
+        s.ftap(*TOUR["history"])
+        s.wait(70)
+        if not paint:
+            return s, LENS_1440 + ["--tour"], camera_still({"tour": near(4), "tour_step": is_text("paint"), "dabs": near(0)})
+        s.ftap(*TOUR["history"])
+        s.wait(10)
+        s.ftap(*TOUR["paint"])
+        s.wait(10)
+        s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
+        s.wait(70)
+        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_finished": near(1), "tour_shown": near(0), "dabs": lambda v: int(v) > 0})
+    return Steps([run(False), run(True)])
+
+
 # Lens's Settings sheet at 1440x900: the top bar's Settings, the side's Touch row and
 # its search field.
 LENS_SETTINGS = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}
