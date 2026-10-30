@@ -403,6 +403,12 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	switch req.kind {
 	case .None:
 	case .Import:
+		// Interactively the file is read and made ready on a thread of its own, so a
+		// large one leaves the window answering (long_job.odin).
+		if import_job_async(app) {
+			import_job_start(app, req.path)
+			return true
+		}
 		return scene_import(app, req.path)
 	case .Export_Print:
 		objs := print_objects(app)
@@ -585,6 +591,7 @@ scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 // away and then the objects. Returns false on a GPU failure (what was added stays, and
 // is recorded).
 import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, record: bool) -> bool {
+	if m.levels == nil do mesh_import_prepare(m, &app.pool)
 	first := len(app.scene.objects)
 	ok := true
 	for &p, k in m.parts {
@@ -594,27 +601,10 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 			label = strings.clone(p.name) if p.name != "" else fmt.aprintf("%s %d", name, k + 1)
 		}
 		defer if len(m.parts) > 1 do delete(label)
-		mesh := p.mesh
-		p.mesh = {}
-		// The file's polygons, in the part's numbering until the object's build renumbers
-		// its vertices and triangles.
-		polys: sculpt.Polys
-		polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], p.polys[:])
-		uv, mapped := geom.quad_uvs_from_corners(mesh.indices[:], p.uvs[:], polys.first, polys.corners, polys.tri_poly)
-		old_to_new, tri_from: []u32
-		if polys.first != nil {
-			old_to_new = make([]u32, len(mesh.positions))
-			tri_from = make([]u32, len(mesh.indices) / 3)
-		}
-		defer delete(old_to_new)
-		defer delete(tri_from)
-		if !scene_add_mesh(app, mesh, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, old_to_new, surface = import_surface(p), tri_from = tri_from) {
-			sculpt.polys_destroy(&polys)
-			geom.uv_layout_destroy(&uv)
+		if !scene_add_mesh(app, {}, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, prepared = &m.levels[k]) {
 			ok = false
 			break
 		}
-		if polys.first != nil do import_take_polygons(&app.scene.objects[len(app.scene.objects) - 1].levels, &polys, old_to_new, tri_from, uv if mapped else nil)
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
 	}
 	added := app.scene.objects[first:]
@@ -655,6 +645,42 @@ import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new
 	}
 }
 
+// Makes each part's levels ready to sculpt, as object_build_from makes a mesh's (normals
+// worked out, polypaint and polygroups taken), with the file's polygons and UVs
+// (import_take_polygons), taking the part's mesh: on the frame's thread, or on an import
+// job's, with its `pool`, moving `progress` over `share` by each part's triangles and
+// stopping early when it is cancelled (the parts left then have no levels).
+mesh_import_prepare :: proc(m: ^Mesh_Import, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
+	m.levels = make([]sculpt.Levels, len(m.parts))
+	total := 0
+	for p in m.parts do total += len(p.mesh.indices)
+	done := 0
+	for &p, k in m.parts {
+		if progress != nil && jobs.progress_cancelled(progress) do return
+		at := share[0] + (share[1] - share[0]) * f32(done) / f32(max(total, 1))
+		done += len(p.mesh.indices)
+		to := share[0] + (share[1] - share[0]) * f32(done) / f32(max(total, 1))
+		mesh := p.mesh
+		p.mesh = {}
+		// The file's polygons, in the part's numbering until the levels renumber its
+		// vertices and triangles.
+		polys: sculpt.Polys
+		polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], p.polys[:])
+		uv, mapped := geom.quad_uvs_from_corners(mesh.indices[:], p.uvs[:], polys.first, polys.corners, polys.tri_poly)
+		old_to_new := make([]u32, len(mesh.positions))
+		defer delete(old_to_new)
+		tri_from := make([]u32, len(mesh.indices) / 3)
+		defer delete(tri_from)
+		l := &m.levels[k]
+		sculpt.levels_init(l, mesh, pool, old_to_new = old_to_new, tri_from = tri_from, progress = progress, share = {at, to})
+		surface := import_surface(p)
+		if surface.color != nil || surface.groups != nil do sculpt.levels_take_surface(l, surface.color, surface.groups, old_to_new, tri_from)
+		sculpt.sculptor_recompute_all(&sculpt.levels_current(l).sculptor)
+		if polys.first != nil do import_take_polygons(l, &polys, old_to_new, tri_from, uv if mapped else nil)
+		free_all(context.temp_allocator)
+	}
+}
+
 // The polypaint and polygroups an imported part's object starts with.
 import_surface :: proc(p: geom.Mesh_Part) -> Surface {
 	return {color = p.colors[:] if len(p.colors) > 0 else nil, groups = p.groups[:] if len(p.groups) > 0 else nil}
@@ -669,9 +695,12 @@ Mesh_Import :: struct {
 	files:             []Transform,
 	start:             time.Tick,
 	read_ms, parse_ms: f64,
+	levels:            []sculpt.Levels, // per part, once mesh_import_prepare made them (each taken by its object)
 }
 
 mesh_import_free :: proc(m: ^Mesh_Import) {
+	for &l in m.levels do sculpt.levels_destroy(&l)
+	delete(m.levels)
 	geom.mesh_parts_destroy(&m.parts)
 	delete(m.middles)
 	delete(m.files)
@@ -814,6 +843,19 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 // Reads the mesh file at `path` for new objects, with a note led by `what` ("Imported
 // rock.obj") saying what it holds; false, with a note saying why, when it cannot.
 mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: bool) {
+	note: string
+	warning: bool
+	m, note, warning, ok = mesh_import_load(path, what, &app.pool)
+	defer delete(note)
+	file_note(app, warning, "%s", note)
+	return
+}
+
+// What mesh_import_read does without the app, so an import job's thread can do it with
+// its own `pool`: the import, when `ok`, and its note (owned), a `warning` when the
+// surface is not closed or nothing could be read. `progress`, when given, moves to
+// `read_share` of the way once the file is read; the parse does not report.
+mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, read_share: f32 = 0) -> (m: Mesh_Import, note: string, warning, ok: bool) {
 	m.start = time.tick_now()
 	// Kept apart from temp memory, which reading frees before the note is written.
 	head := strings.clone(what)
@@ -822,30 +864,31 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	defer delete(name)
 	data, err := file_read_any(path, context.allocator)
 	if err != nil {
-		file_note(app, true, "Cannot read %s: %v", name, err)
+		note, warning = fmt.aprintf("Cannot read %s: %v", name, err), true
 		return
 	}
 	defer delete(data)
 	read := time.tick_now()
+	if progress != nil do jobs.progress_set(progress, 0, 1, read_share)
 	kind := mesh_file_kind(path, data)
 	if kind == .None {
-		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz and .fbx files import", name)
+		note, warning = fmt.aprintf("Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz and .fbx files import", name), true
 		return
 	}
-	info, failed, line := mesh_file_parse(&m.parts, data, kind, &app.pool, path)
+	info, failed, line := mesh_file_parse(&m.parts, data, kind, pool, path)
 	if failed != .None {
 		delete(m.parts)
 		switch {
 		case failed == .Missing_File && strings.has_prefix(path, "content://"):
-			file_note(app, true, "Cannot read %s: its buffers are in files beside it, which the picker does not give; export it as .glb", name)
+			note, warning = fmt.aprintf("Cannot read %s: its buffers are in files beside it, which the picker does not give; export it as .glb", name), true
 		case failed == .Empty && info.skipped.compressed > 0:
-			file_note(app, true, "Cannot read %s: its meshes are compressed (Draco or meshopt), which Import does not decode", name)
+			note, warning = fmt.aprintf("Cannot read %s: its meshes are compressed (Draco or meshopt), which Import does not decode", name), true
 		case info.reason != "":
-			file_note(app, true, "Cannot read %s: %s", name, info.reason)
+			note, warning = fmt.aprintf("Cannot read %s: %s", name, info.reason), true
 		case line > 0:
-			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
+			note, warning = fmt.aprintf("Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed]), true
 		case:
-			file_note(app, true, "Cannot read %s: %s", name, geom.MESH_FILE_ERROR_TEXT[failed])
+			note, warning = fmt.aprintf("Cannot read %s: %s", name, geom.MESH_FILE_ERROR_TEXT[failed]), true
 		}
 		return
 	}
@@ -854,9 +897,9 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	vertices, triangles, flipped := 0, 0, 0
 	open: geom.Mesh_Edges
 	for &p in m.parts {
-		edges := geom.mesh_edges(p.mesh, &app.pool)
+		edges := geom.mesh_edges(p.mesh, pool)
 		if geom.mesh_edges_closed(edges) && edges.volume < 0 {
-			geom.mesh_flip(&p.mesh, &app.pool, p.uvs[:])
+			geom.mesh_flip(&p.mesh, pool, p.uvs[:])
 			flipped += 1
 		}
 		open.border += edges.border
@@ -864,7 +907,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 		vertices += geom.mesh_vertex_count(p.mesh)
 		triangles += geom.mesh_triangle_count(p.mesh)
 	}
-	center, radius, middles := geom.mesh_parts_normalize(m.parts[:], &app.pool)
+	center, radius, middles := geom.mesh_parts_normalize(m.parts[:], pool)
 	m.middles = middles
 	m.files = make([]Transform, len(m.parts))
 	for c, k in middles do m.files[k] = {position = center + radius * c, scale = radius}
@@ -873,21 +916,21 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	m.parse_ms = time.duration_milliseconds(time.tick_diff(read, parsed))
 	// The note leads with what matters most: a surface that is not closed, then the size.
 	closed := geom.mesh_edges_closed(open)
-	note := strings.builder_make(context.temp_allocator)
-	strings.write_string(&note, head)
-	if len(m.parts) > 1 do strings.write_string(&note, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
+	text := strings.builder_make(context.temp_allocator)
+	strings.write_string(&text, head)
+	if len(m.parts) > 1 do strings.write_string(&text, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
 	if closed {
-		strings.write_string(&note, ":")
+		strings.write_string(&text, ":")
 	} else {
-		strings.write_string(&note, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", open.border, open.bad))
+		strings.write_string(&text, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", open.border, open.bad))
 	}
-	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", vertices, triangles, m.read_ms, m.parse_ms))
+	strings.write_string(&text, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", vertices, triangles, m.read_ms, m.parse_ms))
 	cleaned := info.cleaned
 	// Every corner of an STL file comes on its own, and a glTF's primitives each bring
 	// their own vertices, so welding them is no news.
 	if kind == .STL || kind == .GLTF || kind == .USD do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
-	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
-	if flipped > 0 do strings.write_string(&note, "; turned outward")
+	if cleaned != {} do strings.write_string(&text, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
+	if flipped > 0 do strings.write_string(&text, "; turned outward")
 	colored, grouped, polygons, mapped := false, false, false, false
 	for p in m.parts {
 		colored ||= len(p.colors) > 0
@@ -896,20 +939,19 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 		mapped ||= len(p.polys) > 0 && len(p.uvs) > 0
 	}
 	switch {
-	case info.paint.textures > 0: strings.write_string(&note, "; its textures and material colours are its polypaint, sampled at its vertices")
-	case info.paint.painted: strings.write_string(&note, "; its material colours are its polypaint")
-	case colored: strings.write_string(&note, "; its vertex colours are its polypaint")
+	case info.paint.textures > 0: strings.write_string(&text, "; its textures and material colours are its polypaint, sampled at its vertices")
+	case info.paint.painted: strings.write_string(&text, "; its material colours are its polypaint")
+	case colored: strings.write_string(&text, "; its vertex colours are its polypaint")
 	}
-	if info.paint.unread > 0 do strings.write_string(&note, fmt.tprintf("; %d textures missing or unreadable (PNG, JPEG, BMP, TGA and QOI read)", info.paint.unread))
-	if info.merged > 0 do strings.write_string(&note, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
-	else if grouped do strings.write_string(&note, "; its groups are polygroups")
+	if info.paint.unread > 0 do strings.write_string(&text, fmt.tprintf("; %d textures missing or unreadable (PNG, JPEG, BMP, TGA and QOI read)", info.paint.unread))
+	if info.merged > 0 do strings.write_string(&text, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
+	else if grouped do strings.write_string(&text, "; its groups are polygroups")
 	// UVs stay only on an object of quads (import_take_polygons).
-	if polygons do strings.write_string(&note, "; its quads and polygons stay, with their UVs on objects of quads" if mapped else "; its quads and polygons stay")
-	if info.skipped.compressed > 0 do strings.write_string(&note, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
-	if info.usd.composed > 0 do strings.write_string(&note, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
-	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&note, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
-	file_note(app, !closed, "%s", strings.to_string(note))
-	return m, true
+	if polygons do strings.write_string(&text, "; its quads and polygons stay, with their UVs on objects of quads" if mapped else "; its quads and polygons stay")
+	if info.skipped.compressed > 0 do strings.write_string(&text, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
+	if info.usd.composed > 0 do strings.write_string(&text, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
+	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&text, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
+	return m, strings.clone(strings.to_string(text)), !closed, true
 }
 
 // Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, STL, binary glTF
