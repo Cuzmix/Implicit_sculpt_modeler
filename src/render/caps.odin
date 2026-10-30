@@ -15,6 +15,28 @@ Gpu_Caps :: struct {
 	// and Metal backends and for SDL_GPU's Metal, false for SDL_GPU's Vulkan, which remakes
 	// every swapchain for it.
 	frames_cheap:     bool,
+	// How the backend learns when a frame reached the screen (present_times): .None where
+	// it cannot, and then the app shows only the time to the submit.
+	present_timing:   Present_Timing,
+}
+
+Present_Timing :: enum u8 {
+	None,
+	// VK_KHR_present_wait (desktop Vulkan): the wait for a frame's present returns once it
+	// is on the screen. The backend waits for the frame frames_in_flight back before each
+	// acquire under vsync, so no more frames than that queue for the screen either.
+	Present_Wait,
+	// VK_GOOGLE_display_timing (Android's Vulkan): the screen reports each frame's time
+	// afterwards. Nothing waits for it.
+	Display_Timing,
+}
+
+// A frame that reached the screen: the input it showed and when, both SDL nanoseconds
+// (sdl.GetTicksNS). Present_Wait's times are when the waiting backend saw the frame shown,
+// a frame late at most when it saw it without waiting.
+Present_Time :: struct {
+	input_ns: u64,
+	shown_ns: u64,
 }
 
 FRAMES_IN_FLIGHT_DEFAULT :: 2
@@ -29,6 +51,21 @@ caps :: proc(r: ^Renderer) -> Gpu_Caps {
 caps_fill :: proc(r: ^Renderer) {
 	r.caps.frames_in_flight = FRAMES_IN_FLIGHT_DEFAULT
 	r.caps.frames_cheap = gpu_backend != .SDL_GPU || gpu_get_device_driver(r.device) == "metal"
+	r.caps.present_timing = gpu_present_timing(r.device)
+}
+
+// Tags the window's next present with when the input it shows came (SDL nanoseconds), so
+// present_times can tell how long the input took to reach the screen; 0 tags a frame with
+// no input to time. Call it before the command buffer presenting the window is submitted.
+present_input :: proc(r: ^Renderer, window: ^sdl.Window, input_ns: u64) {
+	if r.caps.present_timing != .None do gpu_present_input(window, input_ns)
+}
+
+// The window's tagged frames the backend has seen reach the screen since the last call,
+// oldest first, into `out`; how many. Untagged frames are left out.
+present_times :: proc(r: ^Renderer, window: ^sdl.Window, out: []Present_Time) -> int {
+	if r.caps.present_timing == .None do return 0
+	return gpu_present_times(window, out)
 }
 
 // Lets the GPU run `n` frames (1 to 3) behind the app: 1 shows each frame a display period

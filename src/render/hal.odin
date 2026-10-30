@@ -597,6 +597,22 @@ gpu_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_
 	return sdl.SetGPUAllowedFramesInFlight(device, allowed_frames_in_flight)
 }
 
+// SDL_GPU has no call telling when a frame reached the screen, so of the three backends
+// only the own Vulkan answers these; the others learn nothing (Gpu_Caps.present_timing).
+gpu_present_timing :: proc(device: ^sdl.GPUDevice) -> Present_Timing {
+	if gpu_backend == .Vulkan do return vk_state.present_timing
+	return .None
+}
+
+gpu_present_input :: proc(window: ^sdl.Window, input_ns: u64) {
+	if gpu_backend == .Vulkan do vk_present_input(window, input_ns)
+}
+
+gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
+	if gpu_backend == .Vulkan do return vk_present_times(window, out)
+	return 0
+}
+
 gpu_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, swapchain_composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
 	if gpu_backend == .Vulkan do return vk_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
 	when METAL do if gpu_backend == .Metal do return mtl_set_swapchain_parameters(device, window, swapchain_composition, present_mode)

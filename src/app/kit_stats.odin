@@ -99,6 +99,12 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ring(ctx, "Normals  normals_ms", s.normals_ms, "ms")
 		ring(ctx, "Upload  upload_kb", s.upload_kb, "KB")
 		ring(ctx, "Input to submit  latency_ms", s.latency_ms, "ms")
+		// Only some drivers tell when a frame reached the screen (render.Present_Timing).
+		if render.caps(&app.renderer).present_timing != .None {
+			ring(ctx, "Input to screen  display_ms", s.display_ms, "ms")
+		} else {
+			ui.value_row(ctx, "Input to screen  display_ms", "not told by this driver")
+		}
 		ui.value_row(ctx, "Dabs", fmt.tprintf("%d", s.dabs_total))
 		// The pointer's samples a stroke's frame brought, and how many of them a tablet's
 		// bridge added to SDL's (pen_samples.odin): one a frame on a tablet means samples lost.
@@ -163,6 +169,11 @@ kit_stats_simple :: proc(app: ^App) {
 		lat50, lat99 := ring_percentiles(s.latency_ms)
 		ui.value_row(ctx, "Input to the GPU, typical", ms(lat50))
 		ui.value_row(ctx, "Input to the GPU, slower moments", ms(lat99))
+		if s.display_ms.count > 0 {
+			shown50, shown99 := ring_percentiles(s.display_ms)
+			ui.value_row(ctx, "Input to the screen, typical", ms(shown50))
+			ui.value_row(ctx, "Input to the screen, slower moments", ms(shown99))
+		}
 	}
 
 	ui.spacer(ctx, 6)
