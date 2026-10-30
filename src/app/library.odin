@@ -44,6 +44,7 @@ Library :: struct {
 	matcaps:      [dynamic]Pack_Matcap, // every pack's matcaps, likewise
 	materials:    [dynamic]Pack_Material, // every pack's materials, likewise
 	textures_made: int,   // pack matcap textures made this run, as they were first shown
+	matcaps_wanted: bool, // the Material card showed every pack's matcap this frame, so all are made
 	installed:    int,    // packs installed this run
 	refused:      int,    // packs refused this run
 	worker:       ^Pack_Worker,    // the install under way, or nil

@@ -173,3 +173,35 @@ materials_export_in_metallic_roughness_terms :: proc(t: ^testing.T) {
 	image := export_material({label = "Custom", selected = {1, 1, 1, 1}, matcap = MATCAP_IMAGE})
 	testing.expect(t, image.base == 0.5 && image.roughness == 0.5 && image.name == "Custom")
 }
+
+// A scrub shows each material on the objects Apply to names and keeps the last one
+// lifted on, or puts back what each object had, however many it passed; Every object
+// reaches the objects not selected too.
+@(test)
+a_material_scrub_keeps_or_puts_back :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	defer {delete(app.material_saved.ids); delete(app.material_saved.before)}
+	objs := tree_scene(&app)
+	materials_settle(&app)
+	app.scene.selected = 0
+	gold, _ := material_by_name("gold")
+	steel, _ := material_by_name("steel")
+	objs[1].material = MATERIALS[steel]
+	material_command(&app, MATERIALS[gold], .Every, .Show)
+	material_command(&app, MATERIALS[FIRST_MATCAP], .Every, .Show)
+	for obj in objs do testing.expect_value(t, obj.material, MATERIALS[FIRST_MATCAP])
+	material_command(&app, {}, .Every, .Back)
+	testing.expect_value(t, objs[0].material, MATERIALS[0])
+	testing.expect_value(t, objs[1].material, MATERIALS[steel])
+	testing.expect_value(t, app.material, 0)
+	testing.expect(t, !app.material_saved.active)
+	// Kept: what was shown stays, on the selected object alone.
+	material_command(&app, MATERIALS[gold], .Selection, .Show)
+	material_command(&app, {}, .Selection, .Keep)
+	testing.expect_value(t, objs[0].material, MATERIALS[gold])
+	testing.expect_value(t, objs[1].material, MATERIALS[steel])
+	testing.expect_value(t, app.material_keeps, 1)
+	material_command(&app, {}, .Selection, .Back)
+	testing.expect_value(t, objs[0].material, MATERIALS[gold])
+}

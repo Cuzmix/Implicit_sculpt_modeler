@@ -4385,7 +4385,7 @@ def lens_pass_popover_groups_the_passes():
 
 # Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
 # Gold sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
+LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1255, 770), "undo": (217, 25)}
 
 
 @scenario
@@ -4398,6 +4398,51 @@ def lens_studio_stack_shows_lights_material_environment():
     s.wait(10)
     return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
+
+
+# The Render workspace's Material card at 1440x900 with the Lights card folded (its
+# chevron): the tabs, the Clay and Gold spheres of Materials, the first MatCap (Red wax),
+# and a point off the grid, over the view.
+LENS_MATERIALS = {"lights_fold": (1092, 94), "matcaps": (1218, 204), "clay": (1105, 260), "gold": (1255, 352),
+                  "red_wax_matcap": (1105, 310), "off": (900, 420)}
+
+
+@scenario
+def material_card_scrub_previews_and_keeps():
+    """On the Material card a press on Clay slid across to Gold shows the spheres it passes on
+    the sphere and keeps Gold when lifted; slid off the grid instead, lifting puts Clay back.
+    Neither is an undo step, as a material pick is not."""
+    def run(keep):
+        s = Script()
+        s.ftap(*LENS_STUDIO["workspace"])
+        s.wait(20)
+        s.ftap(*LENS_MATERIALS["lights_fold"])
+        s.wait(10)
+        end = LENS_MATERIALS["gold"] if keep else LENS_MATERIALS["off"]
+        path = line(LENS_MATERIALS["clay"], LENS_MATERIALS["gold"], 10)
+        if not keep:
+            path += line(LENS_MATERIALS["gold"], end, 8)[1:]
+        s.fdrag(path)
+        s.wait(10)
+        return s, LENS_1440, camera_still({"selected_material": is_text("Gold" if keep else "Clay"), "material_keeps": near(1 if keep else 0),
+                                           "material_previews": lambda v: int(v) >= 2, "undo_steps": near(0), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def material_card_matcap_tab_puts_a_matcap_on():
+    """The Material card's Matcaps tab shows the built-in MatCaps as their own pictures; a tap on
+    Red wax shades the sphere with it."""
+    s = Script()
+    s.ftap(*LENS_STUDIO["workspace"])
+    s.wait(20)
+    s.ftap(*LENS_MATERIALS["lights_fold"])
+    s.wait(10)
+    s.ftap(*LENS_MATERIALS["matcaps"])
+    s.wait(8)
+    s.ftap(*LENS_MATERIALS["red_wax_matcap"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"material_tab": is_text("matcaps"), "selected_matcap": near(1), "material_keeps": near(1), "dabs": near(0)})
 
 
 @scenario

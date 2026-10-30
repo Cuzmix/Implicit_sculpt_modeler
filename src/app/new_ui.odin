@@ -248,6 +248,7 @@ Kit_State :: struct {
 	scene_query:    bool,
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
+	material_card:  Material_Card, // the Material card's tab and scrub (lens_materials.odin)
 	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
 	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
@@ -1858,7 +1859,8 @@ kit_rename :: proc(app: ^App) {
 // objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
 // KIT_PICTURES_IMAGE, the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE and the
 // History's pictures of steps and the Layers panel's of layers where it drew
-// KIT_STEP_PICTURES_IMAGE and KIT_LAYER_PICTURES_IMAGE.
+// KIT_STEP_PICTURES_IMAGE and KIT_LAYER_PICTURES_IMAGE, and the MatCaps' pictures where the
+// Material card drew KIT_MATCAP_IMAGE plus one's number.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
@@ -1904,6 +1906,11 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_STEP_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.step_pictures.atlas, true
 			if app.step_pictures.atlas == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_MATCAP_IMAGE && c.image < KIT_MATCAP_IMAGE_END {
+			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
+			draws[i].image, draws[i].smooth = tex, true
+			if tex == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
