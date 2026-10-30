@@ -52,6 +52,7 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer) -> ^s
 // Draws `item` into cell `slot` of the atlas, seen through `view` and `proj`, on a
 // transparent background. False when there is no atlas to draw into.
 thumbs_draw :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer, slot: int, view, proj: Mat4, item: Draw_Item) -> bool {
+	debug_group(cmd, "Thumbnail")
 	if thumbs_atlas(r, t, cmd) == nil || slot < 0 || slot >= THUMB_SLOTS do return false
 	whole := item
 	whole.chunks, whole.chunk_groups, whole.hidden = nil, nil, nil

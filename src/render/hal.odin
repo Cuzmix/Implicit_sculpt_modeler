@@ -543,6 +543,54 @@ gpu_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.Re
 	sdl.SetGPUScissor(render_pass, scissor)
 }
 
+gpu_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {
+	if gpu_backend == .Vulkan {
+		vk_push_debug_group(command_buffer, name)
+		return
+	}
+	when METAL do if gpu_backend == .Metal {
+		mtl_push_debug_group(command_buffer, name)
+		return
+	}
+	sdl.PushGPUDebugGroup(command_buffer, name)
+}
+
+gpu_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
+	if gpu_backend == .Vulkan {
+		vk_pop_debug_group(command_buffer)
+		return
+	}
+	when METAL do if gpu_backend == .Metal {
+		mtl_pop_debug_group(command_buffer)
+		return
+	}
+	sdl.PopGPUDebugGroup(command_buffer)
+}
+
+gpu_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+	if gpu_backend == .Vulkan {
+		vk_set_buffer_name(device, buffer, text)
+		return
+	}
+	when METAL do if gpu_backend == .Metal {
+		mtl_set_buffer_name(device, buffer, text)
+		return
+	}
+	sdl.SetGPUBufferName(device, buffer, text)
+}
+
+gpu_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+	if gpu_backend == .Vulkan {
+		vk_set_texture_name(device, texture, text)
+		return
+	}
+	when METAL do if gpu_backend == .Metal {
+		mtl_set_texture_name(device, texture, text)
+		return
+	}
+	sdl.SetGPUTextureName(device, texture, text)
+}
+
 gpu_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
 	if gpu_backend == .Vulkan do return vk_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
 	when METAL do if gpu_backend == .Metal do return mtl_set_allowed_frames_in_flight(device, allowed_frames_in_flight)

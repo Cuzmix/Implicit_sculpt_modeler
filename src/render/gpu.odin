@@ -74,6 +74,7 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 // (the interface was uploaded), draws the interface into it. Cleared either way, so a
 // failed upload shows an empty frame rather than whatever the texture held.
 ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, swapchain: Texture, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, draw: bool) {
+	debug_group(cmd, "Interface")
 	target := sdl.GPUColorTargetInfo {
 		texture     = swapchain,
 		clear_color = sdl.FColor(clear),
@@ -91,4 +92,17 @@ ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, sw
 // Whether the device exists: false before renderer_init and in runs without a window.
 renderer_ready :: proc(r: ^Renderer) -> bool {
 	return r.device != nil
+}
+
+// Names the commands recorded from here to the end of the enclosing scope for capture
+// tools (Xcode's GPU capture, RenderDoc): a group pushed now and popped as the scope ends.
+// Called outside any pass, so the group spans whole passes.
+@(deferred_in = debug_group_end)
+debug_group :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring) {
+	gpu_push_debug_group(cmd, name)
+}
+
+@(private)
+debug_group_end :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring) {
+	gpu_pop_debug_group(cmd)
 }

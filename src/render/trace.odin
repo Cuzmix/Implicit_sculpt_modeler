@@ -159,6 +159,7 @@ trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, vt:
 // (the camera's depth at one sample) through `sampler`. `epsilon` is the least distance a
 // ray starts off the surface, in world units.
 trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, accum, view_depth: ^sdl.GPUTexture, sampler: ^sdl.GPUSampler, view, proj: Mat4, items: []Draw_Item, light: Trace_Light, epsilon: f32, first: bool) {
+	debug_group(cmd, "Studio trace")
 	clear := sdl.GPUColorTargetInfo {
 		texture     = tr.visible,
 		clear_color = {1, 1, 1, 1},
@@ -292,6 +293,7 @@ tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 // into `cmd`. False when the device refused a buffer.
 @(private = "file")
 trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item, pool: ^jobs.Pool) -> bool {
+	debug_group(cmd, "Trace mesh update")
 	mb, src := item.mesh, item.source
 	if mb.trace == nil do mb.trace = new(Trace_Mesh)
 	tm := mb.trace
