@@ -77,6 +77,9 @@ Object :: struct {
 	// Scene card's lock sets it, so a finished part is not sculpted by accident.
 	locked:    bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
+	// The spaces it is left out of (the outliner's dots): out of view and reach while one of
+	// them is current, as its eye is everywhere (scene_tree.odin).
+	spaces_off: bit_set[Space; u8],
 	vis_off:   u8, // its eye in each stored visibility (bit k for V(k+1)): off (scene_tree.odin)
 	// A voxel object's clay (voxel_object.odin); nil for a mesh object. A voxel object's
 	// `levels` hold one empty level, so what reads the selected object's sculptor reads
@@ -202,6 +205,7 @@ Scene_Command :: struct {
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
 	view:     View_Change, // View: what changes about how objects are shown
+	space:    Space, // View Space_Hide and Space_Show: the space
 	id:       int, // View, Arrange: the object (or folder) it changes; Merge: the folder, or 0
 	arrange:  Arrange_Change, // Arrange: what changes about the tree
 	folder:   int, // Arrange: the folder an object goes into
@@ -1004,7 +1008,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Extract:
 		return extract_masked(app)
 	case .View:
-		scene_view(app, cmd.view, cmd.id)
+		scene_view(app, cmd.view, cmd.id, cmd.space)
 	case .Material:
 		material_set(app, cmd.material)
 	case .Group_Material:

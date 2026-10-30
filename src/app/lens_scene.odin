@@ -11,7 +11,8 @@ import "../ui"
 // Lens's Scene card, the outliner (round 2's scene2 screen, then the panels round's
 // Objects outliner): Find and Add at its head, a chip for each kind of thing the scene
 // holds with how many, the objects as rows with a picture of each, its name and state
-// (L4 for its level, HD), its kind and size, its eye, its lock and a ⋯ opening its menu,
+// (L4 for its level, HD), its kind and size with a dot for each space it shows in (a tap
+// on them chooses the spaces), its eye, its lock and a ⋯ opening its menu,
 // as ZBrush's subtools, Nomad's scene list and Blender's outliner; then the lights, folded
 // under one row; then Group, Duplicate and Delete for the selection, and the selected
 // object's selection sets. A tap selects (Ctrl, Shift or Select several adds), a drag
@@ -48,6 +49,11 @@ Outliner :: struct {
 	adds:        int, // things added from the Add menu
 	switches:    int, // lights switched on or off from their rows
 	menus:       int, // object menus opened by a row's ⋯
+	// The Show in menu a row's spaces dots open: for which object, under what.
+	spaces:      bool,
+	spaces_id:   int,
+	spaces_at:   ui.Rect,
+	space_changes: int, // spaces an object was left out of or put back in, for the exit stats
 }
 
 // The kind of thing object `obj` is, for the chips.
@@ -177,8 +183,9 @@ object_row_detail :: proc(obj: ^Object) -> string {
 	case obj.cage != nil:
 		return fmt.tprintf("Cage · %d faces", poly.face_count(&obj.cage.mesh))
 	}
-	// A mesh, the usual kind, says only its size: the row is narrow beside three toggles.
-	return fmt.tprintf("%s tris", count_label(object_triangle_count(obj)))
+	// A mesh, the usual kind, says only its triangles' count: the row is narrow beside the
+	// spaces dots and three toggles, and the object menu's head spells it out.
+	return count_label(object_triangle_count(obj))
 }
 
 // The tags after object `obj`'s name: the level shown when it has levels, and HD while a
@@ -210,6 +217,10 @@ lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, drags: bo
 	label := object_label(obj)
 	parts := ui.Thumb_Row{glyph = ui.ICON_FRAME, count = -1, compact = true, detail = object_row_detail(obj), badges = object_row_badges(obj)}
 	if lo, hi, ok := thumb_for(app, obj); ok do parts.image, parts.lo, parts.hi = KIT_THUMBS_IMAGE, lo, hi
+	// A dot per space in the space's colour, faint where the object is left out.
+	dots: [len(Space)]ui.Color
+	for s in Space do dots[int(s)] = ui.color_fade(ctx.theme.text_secondary, 0.3) if s in obj.spaces_off else ctx.theme.tints[int(s)]
+	parts.dots, parts.dots_name = dots[:], "Spaces it shows in"
 	toggles := [3]ui.Row_Toggle{
 		{name = fmt.tprintf("Show %s", label) if obj.off else fmt.tprintf("Hide %s", label), glyph = ui.ICON_EYE_OFF if obj.off else ui.ICON_EYE, faint = obj.off},
 		{name = fmt.tprintf("Unlock %s", label) if obj.locked else fmt.tprintf("Lock %s", label), glyph = ICON_LOCK if obj.locked else ICON_LOCK_OPEN, lit = obj.locked, faint = !obj.locked, keys = "Ctrl: lock the others"},
@@ -247,6 +258,7 @@ lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, drags: bo
 		selection_make_primary(app, i)
 	}
 	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer, .List)
+	if row.dotted do k.outliner.spaces, k.outliner.spaces_id, k.outliner.spaces_at = true, obj.id, row.rect
 	k.scene_rows += 1
 }
 
@@ -405,4 +417,31 @@ lens_scene_sets :: proc(app: ^App) {
 		}
 	}
 	_ = command_button(app, .Store_Selection_Set, glyph = ui.ICON_PLUS, width = ui.fill_width(ctx), variant = .Light)
+}
+
+// The Show in menu, over every panel: a check for each space, which leaves the object out
+// of that space or puts it back. Left out of the current space, it leaves view and reach
+// at once, as its eye would; the menu stays open, so all three can be set in one visit.
+kit_scene_spaces_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	ol := &k.outliner
+	if !ol.spaces do return
+	obj := object_by_id(app, ol.spaces_id)
+	if obj == nil {
+		ol.spaces = false
+		return
+	}
+	if !ui.popover_begin(ctx, "scene spaces menu", &ol.spaces, ol.spaces_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	defer ui.popover_end(ctx)
+	ui.label(ctx, fmt.tprintf("SHOW %s IN", strings.to_upper(object_label(obj), context.temp_allocator)), t.caption_size, t.text_tertiary, .Semibold)
+	for s in Space {
+		on := s not_in obj.spaces_off
+		if ui.menu_item(ctx, fmt.tprintf("%s##scene spaces", SPACE_NAMES[s]), glyph = SPACE_ICONS[s], checked = on) {
+			app.ui.scene_command = {kind = .View, view = .Space_Hide if on else .Space_Show, id = obj.id, space = s}
+			ol.space_changes += 1
+		}
+	}
+	ui.paragraph(ctx, "Left out of a space, it is out of view and reach while that space is current, and back when you return to another.")
 }

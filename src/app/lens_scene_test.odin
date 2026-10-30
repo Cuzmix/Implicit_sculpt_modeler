@@ -69,3 +69,25 @@ outliner_kinds_and_group :: proc(t: ^testing.T) {
 	testing.expect_value(t, objs[1].folder, 0)
 	testing.expect_value(t, len(app.history.done), 1)
 }
+
+// An object left out of a space is out of view and reach only while that space is current;
+// the scene file keeps the spaces in the view byte, and a tap on the row of an object left
+// out of the current space (Select) puts it back there, leaving the other spaces as set.
+@(test)
+spaces_leave_an_object_out :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	scene_view(&app, .Space_Hide, objs[1].id, .Model)
+	scene_view(&app, .Space_Hide, objs[1].id, .Render)
+	testing.expect(t, object_shown(&app, objs[1]))
+	app.kit.spaces.current = .Model
+	testing.expect(t, !object_shown(&app, objs[1]) && !object_pickable(&app, objs[1]) && object_shown(&app, objs[0]))
+	testing.expect_value(t, object_view_bits(objs[1]), u8(32 | 64))
+	testing.expect(t, object_view_bits(objs[1]) <= OBJECT_VIEW_BITS)
+	scene_view(&app, .Select, objs[1].id)
+	testing.expect_value(t, objs[1].spaces_off, bit_set[Space; u8]{.Render})
+	scene_view(&app, .Space_Show, objs[1].id, .Render)
+	testing.expect_value(t, objs[1].spaces_off, bit_set[Space; u8]{})
+	testing.expect_value(t, len(app.history.done), 0)
+}
