@@ -94,6 +94,10 @@ Vk_Cmd :: struct {
 	// at the next dispatch; array_count 0 until one is bound.
 	array_images:    [VK_TEXTURE_ARRAY_MAX]vk.DescriptorImageInfo,
 	array_count:     u32,
+	// The compute pass's top-level acceleration structure (gpu_bind_compute_accel), 0 until
+	// one is bound.
+	accel:           vk.AccelerationStructureKHR,
+	accels:          [dynamic]^Vk_Accel,
 	sets:            [4]vk.DescriptorSet,
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
@@ -208,6 +212,7 @@ vk_cmd_free :: proc(cmd: ^Vk_Cmd) {
 	delete(cmd.images)
 	delete(cmd.samplers)
 	delete(cmd.pipelines)
+	delete(cmd.accels)
 	delete(cmd.presents)
 	delete(cmd.targets)
 	delete(cmd.written_images)
@@ -234,6 +239,11 @@ vk_cmd_recycle :: proc(cmd: ^Vk_Cmd) {
 		p.refs -= 1
 		vk_pipeline_reap(p)
 	}
+	for a in cmd.accels {
+		a.refs -= 1
+		vk_accel_reap(a)
+	}
+	clear(&cmd.accels)
 	clear(&cmd.buffers)
 	clear(&cmd.images)
 	clear(&cmd.samplers)
@@ -508,14 +518,17 @@ vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout, variable
 	for {
 		fresh := cmd.pools_used == len(cmd.pools)
 		if fresh {
+			// Acceleration structures only where the extension is on, which a pool size of
+			// that type needs.
 			sizes := [?]vk.DescriptorPoolSize {
 				{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = 1024},
 				{type = .SAMPLED_IMAGE, descriptorCount = 256},
 				{type = .STORAGE_IMAGE, descriptorCount = 256},
 				{type = .STORAGE_BUFFER, descriptorCount = 1024},
 				{type = .UNIFORM_BUFFER_DYNAMIC, descriptorCount = 1024},
+				{type = .ACCELERATION_STRUCTURE_KHR, descriptorCount = 64},
 			}
-			info := vk.DescriptorPoolCreateInfo{sType = .DESCRIPTOR_POOL_CREATE_INFO, maxSets = 512, poolSizeCount = len(sizes), pPoolSizes = &sizes[0]}
+			info := vk.DescriptorPoolCreateInfo{sType = .DESCRIPTOR_POOL_CREATE_INFO, maxSets = 512, poolSizeCount = len(sizes) if vk_state.ray_query else len(sizes) - 1, pPoolSizes = &sizes[0]}
 			pool: vk.DescriptorPool
 			if vk.CreateDescriptorPool(vk_state.device, &info, nil, &pool) != .SUCCESS do return 0
 			append(&cmd.pools, pool)
@@ -686,12 +699,24 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 		}
 		if cmd.set_dirty[2] do cmd.sets[2] = vk_uniform_set(cmd, l.sets[2], .Compute, c[5])
 		if cmd.set_dirty[3] && l.sets[3] != 0 {
-			// A kernel with an array reads it, so a dispatch with none bound is refused.
+			// A kernel with an array or an acceleration structure reads it, so a dispatch
+			// with either missing is refused. The structure is binding 0, the array after it.
+			array, accel := c[6] > 0, c[7] > 0
 			cmd.sets[3] = 0
-			if cmd.array_count > 0 do cmd.sets[3] = vk_descriptor_set(cmd, l.sets[3], cmd.array_count)
+			if (!array || cmd.array_count > 0) && (!accel || cmd.accel != 0) do cmd.sets[3] = vk_descriptor_set(cmd, l.sets[3], cmd.array_count if array else 0)
 			if cmd.sets[3] != 0 {
-				write := vk.WriteDescriptorSet{sType = .WRITE_DESCRIPTOR_SET, dstSet = cmd.sets[3], dstBinding = 0, descriptorCount = cmd.array_count, descriptorType = .COMBINED_IMAGE_SAMPLER, pImageInfo = &cmd.array_images[0]}
-				vk.UpdateDescriptorSets(vk_state.device, 1, &write, 0, nil)
+				writes: [2]vk.WriteDescriptorSet
+				n: u32
+				structure := vk.WriteDescriptorSetAccelerationStructureKHR{sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR, accelerationStructureCount = 1, pAccelerationStructures = &cmd.accel}
+				if accel {
+					writes[n] = {sType = .WRITE_DESCRIPTOR_SET, pNext = &structure, dstSet = cmd.sets[3], dstBinding = n, descriptorCount = 1, descriptorType = .ACCELERATION_STRUCTURE_KHR}
+					n += 1
+				}
+				if array {
+					writes[n] = {sType = .WRITE_DESCRIPTOR_SET, dstSet = cmd.sets[3], dstBinding = n, descriptorCount = cmd.array_count, descriptorType = .COMBINED_IMAGE_SAMPLER, pImageInfo = &cmd.array_images[0]}
+					n += 1
+				}
+				vk.UpdateDescriptorSets(vk_state.device, n, &writes[0], 0, nil)
 			}
 		}
 		for i in 0 ..< c[5] {
@@ -918,7 +943,7 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
 	cmd.compute_storage = {}
 	// A render pass leaves its fragment uniforms in sets[3], which a kernel with an array
 	// must never take for its own.
-	cmd.sets[3], cmd.array_count = 0, 0
+	cmd.sets[3], cmd.array_count, cmd.accel = 0, 0, 0
 	return (^sdl.GPUComputePass)(cmd)
 }
 

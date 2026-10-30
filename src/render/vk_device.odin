@@ -54,6 +54,10 @@ Vk_State :: struct {
 	shared_type:       u32,
 	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
 	texture_arrays:    u32, // textures one compute array binding may hold (Gpu_Caps.texture_arrays), 0 for none
+	// Acceleration structures and ray queries are on (Gpu_Caps.ray_query, vk_accel.odin),
+	// with buffer device addresses, which their builds read their inputs through.
+	ray_query:         bool,
+	scratch_align:     u32, // minAccelerationStructureScratchOffsetAlignment
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
@@ -310,6 +314,24 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
+	// Ray queries against acceleration structures (vk_accel.odin), where the device offers
+	// all three extensions and buffer device addresses. Only the features used are asked
+	// for: no host builds, indirect builds or capture replay.
+	want_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, accelerationStructure = true}
+	want_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &want_accel, rayQuery = true}
+	if have12.bufferDeviceAddress && vk_has_extension(offered, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_RAY_QUERY_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) {
+		have_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR}
+		have_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &have_accel}
+		rq_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_rq}
+		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &rq_chain)
+		if have_accel.accelerationStructure && have_rq.rayQuery {
+			append(&device_extensions, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, vk.KHR_RAY_QUERY_EXTENSION_NAME, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+			want_accel.pNext = f12.pNext
+			f12.pNext = &want_rq
+			f12.bufferDeviceAddress = true
+			vk_state.ray_query = true
+		}
+	}
 	// The optional features SDL_GPU asks for, each where offered.
 	features.features.independentBlend = true
 	features.features.imageCubeArray = have.features.imageCubeArray
@@ -362,6 +384,12 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	props2 := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &vk_state.driver}
 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
 	vk_state.driver.pNext = nil // p11 is gone after this proc
+	if vk_state.ray_query {
+		accel_props := vk.PhysicalDeviceAccelerationStructurePropertiesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR}
+		props_chain := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &accel_props}
+		vk.GetPhysicalDeviceProperties2(vk_state.physical, &props_chain)
+		vk_state.scratch_align = max(accel_props.minAccelerationStructureScratchOffsetAlignment, 1)
+	}
 	vk_state.properties = props2.properties
 	if arrays {
 		// Room is left for the 16 named slots a stage may also bind.
@@ -392,7 +420,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	if have12.hostQueryReset do _ = vk_timing_init(families[vk_state.family].timestampValidBits)
-	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute)
+	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v; ray query: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute, vk_state.ray_query)
 	return vk_device_handle(), true
 }
 
@@ -428,6 +456,7 @@ vk_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	delete(vk_state.compute_layouts)
 	delete(vk_state.set_layouts)
 	vk_timing_destroy()
+	vk_accel_destroy()
 	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
 	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
 	if vk_state.compute_timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.compute_timeline, nil)
@@ -521,10 +550,17 @@ vk_memory_type :: proc(bits: u32, want, prefer: vk.MemoryPropertyFlags) -> (u32,
 	return 0, false
 }
 
-vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryPropertyFlags) -> (vk.DeviceMemory, bool) {
+vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryPropertyFlags, device_address := false) -> (vk.DeviceMemory, bool) {
 	index, ok := vk_memory_type(reqs.memoryTypeBits, want, prefer)
 	if !ok do return 0, false
-	info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, allocationSize = reqs.size, memoryTypeIndex = index}
+	return vk_allocate_type(reqs.size, index, device_address)
+}
+
+// Memory of one type; `device_address` for a buffer whose address a shader or an
+// acceleration structure build reads, which the memory must allow.
+vk_allocate_type :: proc(size: vk.DeviceSize, index: u32, device_address: bool) -> (vk.DeviceMemory, bool) {
+	flags := vk.MemoryAllocateFlagsInfo{sType = .MEMORY_ALLOCATE_FLAGS_INFO, flags = {.DEVICE_ADDRESS}}
+	info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, pNext = &flags if device_address else nil, allocationSize = size, memoryTypeIndex = index}
 	memory: vk.DeviceMemory
 	if vk.AllocateMemory(vk_state.device, &info, nil, &memory) != .SUCCESS do return 0, false
 	return memory, true
