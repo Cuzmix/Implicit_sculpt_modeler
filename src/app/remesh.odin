@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "core:slice"
 import "core:strings"
 
@@ -16,22 +17,23 @@ Remesh_Setup :: struct {
 	smooth:      int,  // relax rounds, 0 to geom.REMESH_SMOOTH_MAX
 	keep_detail: bool, // the result put back on the old surface, its polypaint and polygroups along
 	groups:      bool, // each polygroup a closed piece of its own
+	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
 }
 
 // The panel's options, as a command takes them.
 remesh_setup :: proc(app: ^App) -> Remesh_Setup {
-	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups}
+	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads}
 }
 
 // The panel set to a command's options (Adjust last).
 remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
-	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_groups = i32(s.smooth), s.keep_detail, s.groups
+	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.groups, s.quads
 }
 
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
 // none, as under dynamic topology): Groups does nothing without them.
 remesh_options :: proc(setup: Remesh_Setup, groups: []u16) -> geom.Remesh_Options {
-	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil}
+	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads}
 }
 
 // The polypaint and polygroups the remeshed mesh `out` takes from the mesh it came from,
@@ -110,11 +112,37 @@ remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 		if report.dropped > 0 do fmt.sbprintf(&b, ", %d too thin", report.dropped)
 	}
 	if setup.keep_detail do strings.write_string(&b, "; detail kept")
+	if report.quads != nil do strings.write_string(&b, "; quads")
 	return strings.to_string(b)
 }
 
-// The option rows under Rebuild's Even density: Smooth, Keep detail and Groups (which
-// has nothing to do on an object without polygroups, or under dynamic topology).
+// Gives the base level of levels just made from a remesh with Quads (levels_init with the
+// renumbering maps) the remesh's quads as its polygons, under the Catmull-Clark rule, so
+// the wireframe draws the quads' edges and Divide cuts them as quads; and as its quad
+// faces, so export and UV layout see quads, as a Quad Remesh's result is kept
+// (retopo_apply). `quads` are in the remeshed mesh's numbers, triangles 2q and 2q + 1 quad
+// q's halves (geom.Remesh_Report). On the frame thread or a long job's alike.
+remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_from: []u32) {
+	polys: sculpt.Polys
+	polys.first = make([]u32, len(quads) + 1)
+	polys.corners = make([]u32, 4 * len(quads))
+	for &f, q in quads {
+		polys.first[q + 1] = u32(4 * (q + 1))
+		for c in 0 ..< 4 do polys.corners[4 * q + c] = old_to_new[f[c]]
+	}
+	polys.tri_poly = make([]u32, len(tri_from))
+	for old, t in tri_from do polys.tri_poly[t] = old / 2
+	if !sculpt.levels_set_polys(l, polys, {}, .Smooth) {
+		log.error("remesh: the quads did not fit the triangles cut from them, so the object keeps none")
+		return
+	}
+	faces := make([][4]u32, len(quads))
+	for &f, q in faces do copy(f[:], polys.corners[4 * q:][:4])
+	sculpt.levels_set_quads(l, faces)
+}
+
+// The option rows under Rebuild's Even density: Smooth, Keep detail, Quads and Groups
+// (which has nothing to do on an object without polygroups, or under dynamic topology).
 kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	smooth := f32(app.ui.remesh_smooth)
@@ -122,6 +150,7 @@ kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 		app.ui.remesh_smooth = i32(smooth + 0.5)
 	}
 	_ = ui.switch_row(ctx, "Keep detail", &app.ui.remesh_keep_detail)
+	_ = ui.switch_row(ctx, "Quads", &app.ui.remesh_quads)
 	grouped := obj != nil && !object_dynamic(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
 	_ = ui.switch_row(ctx, "Groups", &app.ui.remesh_groups, enabled = grouped)
 }

@@ -80,6 +80,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `Remesh_Report`, Groups = `mesh_split` by polygroup, each piece on its own lattice-snapped box, `mesh_join`) come from
   the app's `Remesh_Setup` in the `Scene_Command` (`src/app/remesh.odin`), and `remesh_surface` there carries polypaint
   and polygroups through the report onto the rebuilt object (on the long job's thread via `levels_take_surface`).
+  `Remesh_Options.quads` builds the marching cubes' dual instead (`dual_cells`: a vertex per surface patch through a
+  cell, a quad per crossing, `relax_quads`, two triangles a quad in `Remesh_Report.quads`), and `remesh_take_quads`
+  (`src/app/remesh.odin`) keeps them on the base level as `Polys` under `.Smooth` plus `levels_set_quads`, through
+  `levels_init`'s `old_to_new` and `tri_from`, on either thread. The marching cubes face rule turns on a face both cells'
+  patches would thread twice (`cell_flips`, a crevice thinner than a cell): never make the loops from a static table
+  alone, `mc_case_loops(case, flips)` is the one source for the table and the turned cells.
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
   (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object

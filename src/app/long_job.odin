@@ -282,15 +282,16 @@ long_job_thread :: proc(data: rawptr) {
 long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	if !j.built || jobs.progress_cancelled(&j.progress) do return
 	share := [2]f32{JOB_COMPUTE_SHARE[j.cmd.kind], 1}
-	if j.surface.color != nil || j.surface.groups != nil {
-		// The surface's parts follow the renumbering onto the level, as object_build_from
-		// takes them on the frame thread.
+	if j.surface.color != nil || j.surface.groups != nil || j.remesh.quads != nil {
+		// The surface's parts and the quads follow the renumbering onto the level, as
+		// object_build_from and remesh_apply take them on the frame thread.
 		old_to_new := make([]u32, len(j.mesh.positions))
 		defer delete(old_to_new)
 		tri_from := make([]u32, len(j.mesh.indices) / 3)
 		defer delete(tri_from)
 		sculpt.levels_init(&j.levels, j.mesh, &j.pool, old_to_new = old_to_new, tri_from = tri_from, progress = &j.progress, share = share)
 		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from)
+		if j.remesh.quads != nil do remesh_take_quads(&j.levels, j.remesh.quads, old_to_new, tri_from)
 	} else {
 		sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = share)
 	}

@@ -1,8 +1,10 @@
 package geom
 
+import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
+import "core:sync"
 import "core:testing"
 
 import "../jobs"
@@ -415,6 +417,8 @@ remesh_options_agree_serial_and_parallel :: proc(t: ^testing.T) {
 		{"bowl, no smoothing", &bowl, {smooth = 0}},
 		{"bowl, eight rounds, detail kept", &bowl, {smooth = REMESH_SMOOTH_MAX, keep_detail = true}},
 		{"three groups, detail kept", &sphere, {smooth = REMESH_SMOOTH_DEFAULT, keep_detail = true, groups = groups}},
+		{"bowl, quads, no smoothing", &bowl, {smooth = 0, quads = true}},
+		{"three groups, quads, detail kept", &sphere, {smooth = REMESH_SMOOTH_MAX, keep_detail = true, groups = groups, quads = true}},
 	}
 	for c in cases {
 		area, bounds := mesh_area_bounds(c.mesh^, &pool)
@@ -427,7 +431,7 @@ remesh_options_agree_serial_and_parallel :: proc(t: ^testing.T) {
 		defer mesh_destroy(&parallel)
 		testing.expectf(t, ok1 && ok2, "%s: a remesh failed", c.name)
 		testing.expectf(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]), "%s: serial and parallel differ", c.name)
-		testing.expectf(t, slice.equal(serial_report.groups, parallel_report.groups) && slice.equal(serial_report.source_tris, parallel_report.source_tris), "%s: the reports differ", c.name)
+		testing.expectf(t, slice.equal(serial_report.groups, parallel_report.groups) && slice.equal(serial_report.source_tris, parallel_report.source_tris) && slice.equal(serial_report.quads, parallel_report.quads), "%s: the reports differ", c.name)
 		testing.expectf(t, serial_report.holes_closed == parallel_report.holes_closed && serial_report.pieces == parallel_report.pieces, "%s: the counts differ", c.name)
 		if c.options.groups != nil do testing.expectf(t, serial_report.holes_closed == 0, "%s: seams counted as %d holes", c.name, serial_report.holes_closed)
 	}
@@ -474,4 +478,195 @@ remesh_turns_an_inside_out_mesh :: proc(t: ^testing.T) {
 	testing.expect(t, ok2 && !hollow_report.turned && hollow_report.holes_closed == 0, "the hollow sphere remeshes as it is")
 	expect_closed_manifold(t, shell)
 	testing.expectf(t, abs(remesh_volume(shell) - 0.875 * ball) < 0.05 * ball, "the cavity should stay: volume %.3f, a hollow ball's %.3f", remesh_volume(shell), 0.875 * ball)
+}
+
+// Every quad has four distinct corners, every quad edge is in exactly two quads once each
+// way (a closed manifold of quads), each quad's two triangles use only its corners, and
+// the quads face the same way as the triangles do.
+@(private = "file")
+expect_quads_closed_manifold :: proc(t: ^testing.T, m: Mesh, quads: [][4]u32, loc := #caller_location) -> (edges: int) {
+	testing.expectf(t, len(m.indices) == 6 * len(quads), "%d triangles for %d quads", len(m.indices) / 3, len(quads), loc = loc)
+	directed := make(map[[2]u32]int, 4 * len(quads), context.temp_allocator)
+	for &f, q in quads {
+		for c in 0 ..< 4 do for d in c + 1 ..< 4 {
+			if f[c] == f[d] {
+				testing.expectf(t, false, "quad %d repeats a corner: %v", q, f, loc = loc)
+				return
+			}
+		}
+		for c in 0 ..< 4 do directed[{f[c], f[(c + 1) % 4]}] += 1
+		if 6 * q + 6 > len(m.indices) do continue
+		for i in m.indices[6 * q:][:6] {
+			if !slice.contains(f[:], i) {
+				testing.expectf(t, false, "quad %d's triangles use vertex %d, not a corner of %v", q, i, f, loc = loc)
+				return
+			}
+		}
+	}
+	for e, n in directed {
+		if n != 1 || directed[{e[1], e[0]}] != 1 {
+			testing.expectf(t, false, "quad edge %v is in %d quads that way and %d the other", e, n, directed[{e[1], e[0]}], loc = loc)
+			return
+		}
+	}
+	return len(directed) / 2
+}
+
+// With Quads the remesh is a closed manifold of quads only, as many as the vertices
+// asked, on the sphere (V = Q + 2), facing outward, as close to it as the triangles are.
+@(test)
+remesh_quads_are_a_closed_manifold :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(5)
+	defer mesh_destroy(&sphere)
+	ball := f32(4 * math.PI / 3)
+	for target in ([?]int{300, 5000, 40_000}) {
+		for smooth in ([?]int{0, REMESH_SMOOTH_DEFAULT, REMESH_SMOOTH_MAX}) {
+			if smooth != REMESH_SMOOTH_DEFAULT && target != 5000 do continue
+			area, bounds := mesh_area_bounds(sphere, &pool)
+			report: Remesh_Report
+			defer remesh_report_destroy(&report)
+			out, ok := remesh_voxel_measured(sphere, area, bounds, target, &pool, options = {smooth = smooth, quads = true}, report = &report)
+			defer mesh_destroy(&out)
+			testing.expectf(t, ok, "target %d smooth %d: remesh failed", target, smooth)
+			v, q := len(out.positions), len(report.quads)
+			testing.expectf(t, v > target * 7 / 10 && v < target * 13 / 10, "asked for %d vertices, got %d", target, v)
+			edges := expect_quads_closed_manifold(t, out, report.quads)
+			testing.expectf(t, v - edges + q == 2, "target %d: Euler characteristic %d, not a sphere", target, v - edges + q)
+			expect_closed_manifold(t, out)
+			h := remesh_spacing(sphere, target)
+			worst: f32
+			for p, i in out.positions {
+				worst = max(worst, abs(linalg.length(p) - 1))
+				testing.expect(t, linalg.dot(out.normals[i], p) > 0, "normal points inward")
+			}
+			testing.expectf(t, worst < 0.6 * h, "target %d smooth %d: a vertex is %v off the sphere, h = %v", target, smooth, worst, h)
+			vol := remesh_volume(out)
+			testing.expectf(t, vol > 0.9 * ball && vol < 1.02 * ball, "target %d: volume %.3f of %.3f", target, vol, ball)
+			// Valence: a lattice dual is mostly four-sided vertices, with the poles the
+			// lattice forces (logged, not pinned).
+			valence := make([]int, v, context.temp_allocator)
+			for f in report.quads do for c in f do valence[c] += 1
+			four := 0
+			for n in valence do if n == 4 do four += 1
+			log.infof("quads at %d, smooth %d: %d vertices, %d quads, %.0f%% four-valent", target, smooth, v, q, 100 * f32(four) / f32(v))
+		}
+	}
+}
+
+// Quads compose with closed first (a bowl is capped, then dualised) and with Groups (each
+// piece's quads are numbered after the pieces before it).
+@(test)
+remesh_quads_compose_with_caps_and_groups :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	ball := f32(4 * math.PI / 3)
+	bowl := open_fixture(1, true, true)
+	defer mesh_destroy(&bowl)
+	{
+		area, bounds := mesh_area_bounds(bowl, &pool)
+		report: Remesh_Report
+		defer remesh_report_destroy(&report)
+		out, ok := remesh_voxel_measured(bowl, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, quads = true}, report = &report)
+		defer mesh_destroy(&out)
+		testing.expect(t, ok, "the bowl's remesh failed")
+		testing.expect(t, report.holes_closed == 1, "the bowl was capped")
+		expect_quads_closed_manifold(t, out, report.quads)
+		v := remesh_volume(out)
+		testing.expectf(t, v > 0.85 * ball && v < 1.02 * ball, "the capped bowl has volume %.3f of %.3f", v, ball)
+	}
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	groups := make([]u16, len(sphere.indices) / 3)
+	defer delete(groups)
+	for t in 0 ..< len(groups) {
+		mid := (sphere.positions[sphere.indices[3 * t]] + sphere.positions[sphere.indices[3 * t + 1]] + sphere.positions[sphere.indices[3 * t + 2]]) / 3
+		groups[t] = 7 if mid.y > 0 else 3
+	}
+	area, bounds := mesh_area_bounds(sphere, &pool)
+	report: Remesh_Report
+	defer remesh_report_destroy(&report)
+	out, ok := remesh_voxel_measured(sphere, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, groups = groups, quads = true, keep_detail = true}, report = &report)
+	defer mesh_destroy(&out)
+	testing.expect(t, ok, "the grouped remesh failed")
+	testing.expect_value(t, report.pieces, 2)
+	expect_quads_closed_manifold(t, out, report.quads)
+	testing.expect_value(t, len(report.groups), len(out.indices) / 3)
+	testing.expect_value(t, len(report.source_tris), len(out.positions))
+	part, count := mesh_components(out)
+	defer delete(part)
+	testing.expect_value(t, count, 2)
+	// Both halves of a quad are in one piece, so a quad's group is well defined.
+	for q in 0 ..< len(report.quads) {
+		if report.groups[2 * q] != report.groups[2 * q + 1] {
+			testing.expectf(t, false, "quad %d's halves are in groups %d and %d", q, report.groups[2 * q], report.groups[2 * q + 1])
+			break
+		}
+	}
+	v := remesh_volume(out)
+	testing.expectf(t, v > 0.9 * ball && v < 1.02 * ball, "the two pieces have volume %.3f of %.3f", v, ball)
+}
+
+// Where the surface runs through a gap thinner than a cell slipping diagonally between
+// lattice points, a patch crosses a cell face twice on both sides of it: under the plain
+// face rule the two cells' triangles shared a diagonal four at a time (the pinched tube
+// of air), and the dual's quads would share an edge the same way. The rule turns on such a
+// face (cell_flips), so two spheres a fraction of a cell apart remesh closed and manifold
+// as triangles and as quads at every gap, the gap closing as any gap narrower than a cell
+// does. The table lists 36 of the 256 cases with such a patch (checked against an
+// independent derivation); the dual keeps its refusal for the case the turn cannot reach.
+@(test)
+remesh_closes_a_gap_thinner_than_a_cell :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sync.once_do(&mc_once, mc_build_table)
+	doubled := 0
+	for cl in mc_cells do if cl.faces != 0 do doubled += 1
+	testing.expect_value(t, doubled, 36)
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	refused := 0
+	// Along a direction oblique to the lattice: a gap on a lattice plane never slips
+	// between the points diagonally.
+	along := linalg.normalize(Vec3{1, 0.7, 0.4})
+	for gap in ([?]f32{0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08}) {
+		pair: Mesh
+		defer mesh_destroy(&pair)
+		for side in ([?]f32{-1, 1}) {
+			base := u32(len(pair.positions))
+			for p in sphere.positions {
+				append(&pair.positions, p + side * (1 + gap / 2) * along)
+				append(&pair.normals, Vec3{})
+			}
+			for i in sphere.indices do append(&pair.indices, base + i)
+		}
+		area, bounds := mesh_area_bounds(pair, &pool)
+		report: Remesh_Report
+		defer remesh_report_destroy(&report)
+		out, ok := remesh_voxel_measured(pair, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, quads = true}, report = &report)
+		defer mesh_destroy(&out)
+		testing.expectf(t, ok, "gap %.2f: remesh failed", gap)
+		expect_closed_manifold(t, out)
+		{
+			plain_report: Remesh_Report
+			defer remesh_report_destroy(&plain_report)
+			plain, plain_ok := remesh_voxel_measured(pair, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT}, report = &plain_report)
+			defer mesh_destroy(&plain)
+			testing.expectf(t, plain_ok, "gap %.2f: the triangle remesh failed", gap)
+			expect_closed_manifold(t, plain)
+		}
+		if report.quads_thin {
+			refused += 1
+			testing.expectf(t, report.quads == nil, "gap %.2f: refused, yet quads", gap)
+		} else {
+			testing.expectf(t, report.quads != nil, "gap %.2f: no quads and no refusal", gap)
+			expect_quads_closed_manifold(t, out, report.quads)
+		}
+		log.infof("two spheres %.2f apart (h %.3f): %s", gap, remesh_spacing(pair, 4000), "quads refused, triangles made" if report.quads_thin else "quads")
+	}
+	testing.expectf(t, refused == 0, "%d gaps refused their quads", refused)
 }

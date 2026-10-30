@@ -225,6 +225,7 @@ SETTINGS := [?]Setting {
 	{"remesh_smooth", U + offset_of(Ui_State, remesh_smooth), i32, 0, geom.REMESH_SMOOTH_MAX},
 	{"remesh_keep_detail", U + offset_of(Ui_State, remesh_keep_detail), bool, 0, 0},
 	{"remesh_groups", U + offset_of(Ui_State, remesh_groups), bool, 0, 0},
+	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"rebuild_fewer", U + offset_of(Ui_State, rebuild_fewer), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
 	{"retopo_engine", U + offset_of(Ui_State, retopo_engine), Quad_Engine, 0, 0},
