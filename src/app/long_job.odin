@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -62,6 +63,12 @@ Long_Job :: struct {
 	prepared:   bool,
 	error:      f32,
 	retopo:     Retopo_Result,
+	// Remesh: the old polypaint and polygroups copied with the input when its options
+	// carry them, what the remesh reported and the surface the new mesh takes from them.
+	color:      []sculpt.Color,
+	groups:     []u16,
+	remesh:     geom.Remesh_Report,
+	surface:    Surface,
 	level:      ^sculpt.Level, // Subdivide's new level
 	layers:     int, // Subdivide: the top level's sculpt layers, which move up with it
 	voxels:     ^Voxel_Part, // Convert to voxels' clay
@@ -181,6 +188,11 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	case .Remesh:
 		// Measured on the level as it is, before any compacting, as object_remesh does.
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
+		// The dynamic layout's compacting renumbers the triangles, and it has no groups.
+		if s := object_sculptor(obj); !object_dynamic(obj) {
+			if cmd.remesh.keep_detail && s.color != nil do j.color = slice.clone(s.color)
+			if (cmd.remesh.keep_detail || cmd.remesh.groups) && sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
+		}
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
 	case .Subdivide:
@@ -233,7 +245,8 @@ long_job_thread :: proc(data: rawptr) {
 	jobs.progress_set(&j.progress, 0, 1, 0)
 	#partial switch j.cmd.kind {
 	case .Remesh:
-		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share})
+		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups), report = &j.remesh)
+		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups)
 		long_job_prepare(j, normals = false)
 	case .Decimate:
 		// A closed surface has about two triangles a vertex.
@@ -268,7 +281,19 @@ long_job_thread :: proc(data: rawptr) {
 @(private = "file")
 long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	if !j.built || jobs.progress_cancelled(&j.progress) do return
-	sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = {JOB_COMPUTE_SHARE[j.cmd.kind], 1})
+	share := [2]f32{JOB_COMPUTE_SHARE[j.cmd.kind], 1}
+	if j.surface.color != nil || j.surface.groups != nil {
+		// The surface's parts follow the renumbering onto the level, as object_build_from
+		// takes them on the frame thread.
+		old_to_new := make([]u32, len(j.mesh.positions))
+		defer delete(old_to_new)
+		tri_from := make([]u32, len(j.mesh.indices) / 3)
+		defer delete(tri_from)
+		sculpt.levels_init(&j.levels, j.mesh, &j.pool, old_to_new = old_to_new, tri_from = tri_from, progress = &j.progress, share = share)
+		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from)
+	} else {
+		sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = share)
+	}
 	j.mesh = {}
 	if normals do sculpt.sculptor_recompute_all(&sculpt.levels_current(&j.levels).sculptor)
 	j.prepared = true
@@ -291,6 +316,11 @@ long_job_drop :: proc(j: ^Long_Job) {
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
 	retopo_result_destroy(&j.retopo)
+	delete(j.color)
+	delete(j.groups)
+	j.color, j.groups = nil, nil
+	geom.remesh_report_destroy(&j.remesh)
+	surface_free(&j.surface)
 	if j.level != nil do sculpt.levels_subdivide_discard(&j.object.levels, j.level)
 	j.level = nil
 	if j.voxels != nil {
@@ -355,7 +385,12 @@ long_job_frame :: proc(app: ^App) -> bool {
 		mesh := j.mesh
 		j.mesh = {}
 		prepared := long_job_levels(j)
-		applied = remesh_apply(app, obj, mesh, j.start, j.computed, prepared) if cmd.kind == .Remesh else decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared)
+		if cmd.kind == .Remesh {
+			// Prepared levels already carry the surface.
+			applied = remesh_apply(app, obj, mesh, j.start, j.computed, prepared, surface = j.surface if prepared == nil else {}, remeshed = j.remesh, setup = cmd.remesh)
+		} else {
+			applied = decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared)
+		}
 	case .Retopo:
 		made, built := retopo_apply(app, obj, &j.retopo, j.start)
 		if made do history_record_added(app)

@@ -33,9 +33,46 @@ REMESH_MAX_LATTICE :: 4096 // lattice points along any axis (DynaMesh's top reso
 @(private = "file")
 EDGE_MARGIN :: 0.05 // vertices stay this far (in lattice steps) from lattice points
 @(private = "file")
-RELAX_ROUNDS :: 3
-@(private = "file")
 RELAX_RATE :: 0.5
+
+// Relax rounds after marching: Smooth's default and the most it offers (past eight the
+// triangles no longer change much and the shape starts to shrink at sharp turns).
+REMESH_SMOOTH_DEFAULT :: 3
+REMESH_SMOOTH_MAX :: 8
+
+// What a remesh does beyond its density, as ZBrush's DynaMesh offers beside its
+// resolution: Smooth is the relax rounds; Keep detail projects the result back onto the
+// surface it came from within one cell, as DynaMesh's Project does, and tells the caller
+// which old triangle each vertex landed on, for the polypaint and polygroups to follow;
+// `groups`, a group per triangle of the input, remeshes each group as a closed piece of
+// its own (DynaMesh's Groups), nil for the whole as one.
+Remesh_Options :: struct {
+	smooth:      int,
+	keep_detail: bool,
+	groups:      []u16,
+}
+
+REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT}
+
+// What a remesh did that its caller reports: the holes capped before the rays, the group
+// pieces made and those that gave nothing (thinner than a cell), each output triangle's
+// group (with `groups` asked, else nil) and each output vertex's old triangle (with Keep
+// detail, else nil; max(u32) where the projection found nothing within a cell). The two
+// slices are the caller's to free (remesh_report_destroy).
+Remesh_Report :: struct {
+	holes_closed: int,
+	turned:       bool, // the mesh was inside out (its volume negative) and was turned outward first
+	pieces:       int,
+	dropped:      int,
+	groups:       []u16,
+	source_tris:  []u32,
+}
+
+remesh_report_destroy :: proc(r: ^Remesh_Report, allocator := context.allocator) {
+	delete(r.groups, allocator)
+	delete(r.source_tris, allocator)
+	r^ = {}
+}
 
 // Lattice spacing for a remesh of about `target` vertices: a surface of area A crosses
 // about 1.5 A / h² lattice edges (the mean of |nx| + |ny| + |nz| over all directions
@@ -65,10 +102,199 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 // a thread of its own) it says how far it has come between its stages, over the `share`
 // of the whole that it is, and stops at the next one after a cancel, returning not ok with
 // nothing to free.
-remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Mesh, ok: bool) {
+remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, options := REMESH_OPTIONS_DEFAULT, report: ^Remesh_Report = nil) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
 	h, _ := remesh_lattice(area, bounds, target) or_return
-	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share)
+	own: Remesh_Report
+	r := report if report != nil else &own
+	r^ = {}
+	smooth := clamp(options.smooth, 0, REMESH_SMOOTH_MAX)
+	// The projection back onto the old surface takes the last tenth of the share.
+	rays_share := share
+	if options.keep_detail do rays_share[1] = share[0] + 0.9 * (share[1] - share[0])
+	// A mesh inside out as a whole (an import wound the other way) has nothing inside by
+	// its winding: it is turned outward first. Shells inside out among others are left to
+	// Fix mesh, which turns them one by one.
+	input := m
+	if mesh_signed_volume(m, pool) < 0 {
+		input.indices = make([dynamic]u32, len(m.indices), runtime.heap_allocator())
+		for i := 0; i < len(m.indices); i += 3 {
+			input.indices[i], input.indices[i + 1], input.indices[i + 2] = m.indices[i], m.indices[i + 2], m.indices[i + 1]
+		}
+		r.turned = true
+	}
+	defer if r.turned do delete(input.indices)
+	if options.groups != nil {
+		out = remesh_groups(input, options.groups, h, bounds, smooth, pool, allocator, progress, rays_share, r) or_return
+	} else {
+		out = remesh_closed_first(input, h, bounds, smooth, pool, allocator, progress, rays_share, r) or_return
+	}
+	if options.keep_detail {
+		if progress != nil && jobs.progress_cancelled(progress) {
+			mesh_destroy(&out)
+			remesh_report_destroy(r, allocator)
+			return {}, false
+		}
+		bvh := bvh_build_morton(m, pool = pool)
+		defer bvh_destroy(&bvh)
+		next := make([]Vec3, len(out.positions), runtime.heap_allocator())
+		defer delete(next, runtime.heap_allocator())
+		r.source_tris = make([]u32, len(out.positions), allocator)
+		_ = project_along_normals(out.positions[:], out.normals[:], m, &bvh, h, pool, next, r.source_tris)
+		copy(out.positions[:], next)
+		mesh_recompute_normals(&out)
+		jobs.progress_set(progress, share[0], share[1], 1)
+	}
+	return out, true
+}
+
+// The volume `m` encloses by its winding, negative for a mesh inside out: each
+// triangle's signed tetrahedron with the origin, summed in fixed ranges added in order,
+// so the pool changes nothing.
+mesh_signed_volume :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> f64 {
+	Volume :: struct {
+		m:    Mesh,
+		sums: []f64,
+	}
+	tcount := len(m.indices) / 3
+	ranges := (tcount + RANGE_GRAIN - 1) / RANGE_GRAIN
+	job := Volume{m, make([]f64, max(ranges, 1), runtime.heap_allocator())}
+	defer delete(job.sums, runtime.heap_allocator())
+	jobs.parallel_ranges(pool, tcount, &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Volume)data
+		sum: f64
+		for t in lo ..< hi {
+			a, b, c := job.m.positions[job.m.indices[3 * t]], job.m.positions[job.m.indices[3 * t + 1]], job.m.positions[job.m.indices[3 * t + 2]]
+			sum += f64(linalg.dot(a, linalg.cross(b, c)))
+		}
+		job.sums[lo / RANGE_GRAIN] = sum
+	}, RANGE_GRAIN)
+	total: f64
+	for s in job.sums do total += s
+	return total / 6
+}
+
+// Whether the directed edges of `m` pair off, each edge run as often one way as the
+// other: a closed surface (manifold or not; a doubled triangle pairs too) in one pass
+// with no memory, which is what tells a remesh to cap holes first. A mixing hash of each
+// edge is added one way and taken off the other, wrapping, in fixed ranges added in order,
+// so the sum is zero when they pair off and otherwise not, short of a 2^-64 collision,
+// which would only cost the uncapped remesh an open mesh got before.
+mesh_edges_paired :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> bool {
+	Pair :: struct {
+		m:    Mesh,
+		sums: []u64,
+	}
+	tcount := len(m.indices) / 3
+	ranges := (tcount + RANGE_GRAIN - 1) / RANGE_GRAIN
+	job := Pair{m, make([]u64, max(ranges, 1), runtime.heap_allocator())}
+	defer delete(job.sums, runtime.heap_allocator())
+	jobs.parallel_ranges(pool, tcount, &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Pair)data
+		mix :: #force_inline proc(a, b: u32) -> u64 {
+			// splitmix64's finaliser over the ordered pair.
+			x := u64(a) << 32 | u64(b)
+			x = (x ~ (x >> 30)) * 0xbf58476d1ce4e5b9
+			x = (x ~ (x >> 27)) * 0x94d049bb133111eb
+			return x ~ (x >> 31)
+		}
+		sum: u64
+		idx := job.m.indices[:]
+		for t in lo ..< hi {
+			a, b, c := idx[3 * t], idx[3 * t + 1], idx[3 * t + 2]
+			sum += mix(a, b) + mix(b, c) + mix(c, a)
+			sum -= mix(b, a) + mix(c, b) + mix(a, c)
+		}
+		job.sums[lo / RANGE_GRAIN] = sum
+	}, RANGE_GRAIN)
+	total: u64
+	for s in job.sums do total += s
+	return total == 0
+}
+
+// The remesh of `m` on the lattice, its holes capped first when it has any: a ray's
+// winding behind a sheet it crosses once never comes back, so an open part would be
+// filled or dropped by the luck of which way it faces and left open at the lattice's
+// edge; capped, a bowl becomes a solid whichever way it opens, as DynaMesh makes it.
+@(private = "file")
+remesh_closed_first :: proc(m: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report) -> (out: Mesh, ok: bool) {
+	if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+	heap := runtime.heap_allocator()
+	capped, from, closed, did := mesh_close_holes(m, false, pool, heap)
+	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+	defer mesh_destroy(&capped)
+	defer repair_map_destroy(&from, heap)
+	// A cap's vertices are raised to a membrane over the border's heights, which can
+	// leave the box the lattice was placed from; the lattice needs every vertex inside
+	// it (a step and a half from its outer points), so they are held within the box.
+	for &p in capped.positions do for a in 0 ..< 3 do p[a] = clamp(p[a], bounds.lo[a], bounds.hi[a])
+	r.holes_closed += closed.closed
+	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+}
+
+// Each group of `m` remeshed on the same lattice as a closed piece of its own, then all
+// in one mesh with r.groups saying each triangle's group. Groups are taken in ascending
+// order of their number, so the pieces' order, and the result, follow from the mesh alone.
+@(private = "file")
+remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report) -> (out: Mesh, ok: bool) {
+	heap := runtime.heap_allocator()
+	tcount := len(m.indices) / 3
+	assert(len(groups) == tcount)
+	// The groups present, numbered densely in ascending order.
+	seen := make([]bool, int(max(u16)) + 1, heap)
+	defer delete(seen, heap)
+	for g in groups do seen[g] = true
+	dense := make([]u32, int(max(u16)) + 1, heap)
+	defer delete(dense, heap)
+	ids := make([dynamic]u16, 0, 16, heap)
+	defer delete(ids)
+	for present, g in seen do if present {
+		dense[g] = u32(len(ids))
+		append(&ids, u16(g))
+	}
+	part := make([]u32, tcount, heap)
+	defer delete(part, heap)
+	for g, t in groups do part[t] = dense[g]
+	pieces := mesh_split(m, part, len(ids), heap)
+	defer split_parts_destroy(pieces, heap)
+	made := make([dynamic]Mesh, 0, len(pieces), heap)
+	defer {
+		for &p in made do mesh_destroy(&p)
+		delete(made)
+	}
+	made_ids := make([dynamic]u16, 0, len(pieces), heap)
+	defer delete(made_ids)
+	span := (share[1] - share[0]) / f32(max(len(pieces), 1))
+	for &piece, i in pieces {
+		r.pieces += 1
+		piece_share := [2]f32{share[0] + f32(i) * span, share[0] + f32(i + 1) * span}
+		// The piece's own box, its low corner snapped down onto the whole mesh's lattice,
+		// so its lattice points are the whole's (neighbouring pieces meet on them) while
+		// its rays cover only the piece, not the whole box over again. The seams it is
+		// capped along are not holes the mesh had, so they go uncounted.
+		_, box := mesh_area_bounds(piece.mesh, pool)
+		for a in 0 ..< 3 do box.lo[a] = bounds.lo[a] + math.floor((box.lo[a] - bounds.lo[a]) / h) * h
+		seams: Remesh_Report
+		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams)
+		if progress != nil && jobs.progress_cancelled(progress) do return {}, false
+		if !built {
+			r.dropped += 1
+			continue
+		}
+		append(&made, one)
+		append(&made_ids, ids[i])
+	}
+	if len(made) == 0 do return {}, false
+	out = mesh_join(made[:], allocator)
+	r.groups = make([]u16, len(out.indices) / 3, allocator)
+	at := 0
+	for p, i in made {
+		for _ in 0 ..< len(p.indices) / 3 {
+			r.groups[at] = made_ids[i]
+			at += 1
+		}
+	}
+	return out, true
 }
 
 // The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
@@ -141,8 +367,9 @@ mesh_area_total :: proc(parts: []Area_Part) -> (area: f64, bounds: Aabb) {
 
 // Remeshes `m` on a lattice of spacing `h` (see remesh_voxel).
 remesh_voxel_spacing :: proc(m: Mesh, h: f32, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
+	// Straight to the rays: the starters and primitives that use it are closed.
 	_, bounds := mesh_area_bounds(m, pool)
-	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator)
+	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, smooth = REMESH_SMOOTH_DEFAULT)
 }
 
 // What is inside the remeshed surface. Merge: inside any part of the mesh. The others
@@ -177,7 +404,7 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
 // `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
 // as remesh_lattice says.
-remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Mesh, ok: bool) {
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
 	extent := bounds.hi - bounds.lo
 	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
@@ -224,7 +451,7 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	r.out = &out
 	place_vertices(&r)
 	if next(progress, &stage, share) do march_cells(&r, allocator)
-	if next(progress, &stage, share) do relax(&out, pool)
+	if next(progress, &stage, share) do relax(&out, pool, smooth)
 	if !next(progress, &stage, share) {
 		mesh_destroy(&out)
 		return {}, false
@@ -643,12 +870,12 @@ mc_build_table :: proc() {
 	}
 }
 
-// Evens out the triangles: each round moves every vertex part of the way toward the
+// Evens out the triangles over `rounds`: each round moves every vertex part of the way toward the
 // middle of its triangles, along the surface only (the normal there taken from the
 // same triangles), so the shape stays. Rounds read one buffer and write the other; a
 // last pass with no movement leaves the positions in place and the normals current.
 @(private = "file")
-relax :: proc(m: ^Mesh, pool: ^jobs.Pool) {
+relax :: proc(m: ^Mesh, pool: ^jobs.Pool, rounds: int) {
 	Relax :: struct {
 		m:        ^Mesh,
 		faces:    Vertex_Faces,
@@ -657,8 +884,8 @@ relax :: proc(m: ^Mesh, pool: ^jobs.Pool) {
 	}
 	x := Relax{m = m, faces = vertex_faces_build(m^, pool, context.temp_allocator), from = m.positions[:]}
 	x.to = make([]Vec3, len(m.positions), context.temp_allocator)
-	for round in 0 ..= RELAX_ROUNDS {
-		x.rate = RELAX_RATE if round < RELAX_ROUNDS else 0
+	for round in 0 ..= rounds {
+		x.rate = RELAX_RATE if round < rounds else 0
 		jobs.parallel_ranges(pool, len(m.positions), &x, proc(data: rawptr, lo, hi: int) {
 			x := cast(^Relax)data
 			m := x.m

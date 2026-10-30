@@ -152,7 +152,7 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 // Runs the goal the panel is set to on the selected object, at its density.
 rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
-	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even)}
+	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even), remesh = remesh_setup(app)}
 	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer)}
 	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}
 	}
@@ -167,7 +167,14 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.tabs(ctx, "rebuild goal", names[:], int(goal^)); picked >= 0 do goal^ = Rebuild_Goal(picked)
 	label := "Density"
 	switch goal^ {
-	case .Even:  _ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+	case .Even:
+		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+		// Smooth, Keep detail and Groups under More options, which keeps the section to
+		// its five controls.
+		if kit_more(app, .Remesh) {
+			kit_remesh_options(app, obj)
+			kit_more_end(app)
+		}
 	case .Fewer: _ = kit_count(ctx, label, &app.ui.rebuild_fewer, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
 	case .Quads:
 		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
@@ -196,7 +203,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	// so the button under them stays where the finger left it.
 	switch goal^ {
 	case .Even:
-		ui.paragraph(ctx, "An even mesh of about this many vertices that keeps the shape; overlapping parts merge.")
+		ui.paragraph(ctx, "An even mesh of about this many vertices that keeps the shape; overlapping parts merge and open parts are closed first. Smooth is how many rounds even the triangles out; Keep detail puts the vertices back on the old surface and carries its polypaint and polygroups; Groups remeshes each polygroup as a closed piece. It has no adaptivity (Decimate after for that), and gaps narrower than a cell close.")
 		if measured && p.shown {
 			// A surface of area A crosses about 1.5 A / h² lattice edges, one vertex each;
 			// fewer than asked when the lattice limit made the cells bigger.

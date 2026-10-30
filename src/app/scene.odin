@@ -184,6 +184,7 @@ Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
 	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
 	quad:     Quad_Options, // Retopo: the engine and its options (retopo.odin)
+	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -368,11 +369,12 @@ scene_append :: proc(app: ^App, obj: ^Object) {
 
 // Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
 // of the level it is on, as ZBrush's DynaMesh does (geom.remesh_voxel), keeping its
-// transform. Its levels, HD detail, mask, dynamic topology and strokes go (a swap entry
-// recorded by the caller takes the whole remesh back). `changed` says whether it was
-// remeshed; ok is false only when the old mesh is gone and the new one could not be
-// uploaded.
-object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: bool) {
+// transform, with `setup`'s options (remesh.odin): its polypaint and polygroups follow
+// only with Keep detail, or the groups with Groups. Its levels, HD detail, mask, dynamic
+// topology and strokes go (a swap entry recorded by the caller takes the whole remesh
+// back). `changed` says whether it was remeshed; ok is false only when the old mesh is
+// gone and the new one could not be uploaded.
+object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT}) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
@@ -383,34 +385,49 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 	area, bounds := geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 	source := object_mesh(obj)^
 	packed: geom.Mesh
-	if object_dynamic(obj) {
+	s := object_sculptor(obj)
+	// The dynamic layout's compacting renumbers the triangles, and it has no groups.
+	dyn := object_dynamic(obj)
+	if dyn {
 		// Without the unused slots of the dynamic layout.
 		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		packed, mask = sculpt.sculptor_compact_mesh(s)
 		delete(mask)
 		source = packed
 	}
-	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool)
+	groups := sculpt.sculptor_groups(s) if !dyn else nil
+	report: geom.Remesh_Report
+	defer geom.remesh_report_destroy(&report)
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups), report = &report)
+	surface: Surface
+	defer surface_free(&surface)
+	if built do surface = remesh_surface(report, mesh, source, s.color if !dyn else nil, groups)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if !built {
 		log.warn("remesh: the mesh has no volume to remesh")
 		return false, true
 	}
-	return true, remesh_apply(app, obj, mesh, start, time.tick_now())
+	return true, remesh_apply(app, obj, mesh, start, time.tick_now(), surface = surface, remeshed = report, setup = setup)
 }
 
 // The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
 // once its thread computed `mesh` from `start` to `computed`: the object rebuilt on it, or
-// on the levels the thread `prepared` from it. False only when the old mesh is gone and the
-// new one could not be uploaded.
-remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
+// on the levels the thread `prepared` from it (which then already carry the surface, so
+// `surface` is empty). When what the remesh reported (`remeshed`) under `setup` has something to say
+// (remesh_note) it reports the result line itself, the note after the count. False only
+// when the old mesh is gone and the new one could not be uploaded.
+remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, remeshed: geom.Remesh_Report = {}, setup: Remesh_Setup = {}) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = false, prepared = prepared) do return false
+	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared) do return false
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
-	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
+	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
+	// Made after the rebuild, which frees the temp memory a note would sit in.
+	note := remesh_note(remeshed, setup)
+	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more%s", vertices, app.stats.remesh_ms, app.stats.remesh_setup_ms, note)
+	if note != "" do report(app, .Remesh, {}, "%s%s", scene_report_line("Remeshed %s", object_label(obj), vertices, time.duration_milliseconds(time.tick_since(start))), note)
 	return true
 }
 
@@ -857,7 +874,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			before := history_snapshot(app, obj, "remesh")
 			// A big object remeshes on a thread of its own while the frame goes on.
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
-			changed, ok := object_remesh(app, obj, cmd.vertices)
+			changed, ok := object_remesh(app, obj, cmd.vertices, cmd.remesh)
 			if !ok {
 				// The old mesh is gone; drop the empty object rather than draw nothing.
 				history_snapshot_drop(before)
@@ -1324,7 +1341,7 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // made from `mesh` (normals included), those are taken instead and only the upload is left.
 object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}, tri_from: []u32 = nil, prepared: ^sculpt.Levels = nil) -> bool {
 	// Without groups the table has nothing to shade (a remesh, a slice's halves).
-	if surface.groups == nil {
+	if surface.groups == nil && (prepared == nil || !sculpt.sculptor_has_groups(&prepared.levels[0].sculptor)) {
 		autosave_settle(app)
 		clear(&obj.group_materials)
 	}

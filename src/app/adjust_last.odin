@@ -303,6 +303,7 @@ adjust_open :: proc(app: ^App) {
 		app.ui.mirror_axis, app.ui.mirror_negative = i32(a.cmd.axis), !a.cmd.on
 	case .Remesh:
 		app.ui.rebuild_even = rebuild_count(a.cmd.vertices)
+		remesh_setup_set(app, a.cmd.remesh)
 	case .Decimate:
 		app.ui.rebuild_fewer = rebuild_count(a.cmd.vertices)
 	case .Retopo:
@@ -329,7 +330,7 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 	switch a.op {
 	case .None:
 	case .Remesh, .Decimate:
-		app.ui.scene_command = {kind = a.cmd.kind, vertices = vertices, adjust = true}
+		app.ui.scene_command = {kind = a.cmd.kind, vertices = vertices, remesh = remesh_setup(app) if a.cmd.kind == .Remesh else Remesh_Setup{}, adjust = true}
 	case .Mirror:
 		app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative, adjust = true}
 	case .Retopo:

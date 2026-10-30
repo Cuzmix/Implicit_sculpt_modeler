@@ -74,6 +74,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (spacing with the 4096 clamp, origin `bounds.lo - 1.5 h`), and `remesh_run` takes that box. `object_remesh` measures
   the uncompacted level before compacting and calls `remesh_voxel_measured`, so Rebuild's density checkerboard
   (`src/app/rebuild.odin`) shows exactly the cells the remesh builds on; never compute a spacing another way.
+  `remesh_voxel_measured` caps an open mesh's holes before the rays (`mesh_edges_paired` tells, a wrapping hash sum
+  over the directed edges, then `mesh_close_holes`), so open parts never depend on the rays' direction; its
+  `Remesh_Options` (Smooth rounds, Keep detail = projection back within a cell with the old triangle per vertex in the
+  `Remesh_Report`, Groups = `mesh_split` by polygroup, each piece on its own lattice-snapped box, `mesh_join`) come from
+  the app's `Remesh_Setup` in the `Scene_Command` (`src/app/remesh.odin`), and `remesh_surface` there carries polypaint
+  and polygroups through the report onto the rebuilt object (on the long job's thread via `levels_take_surface`).
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
   (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object
