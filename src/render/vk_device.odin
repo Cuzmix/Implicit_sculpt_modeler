@@ -38,6 +38,8 @@ Vk_State :: struct {
 	wireframe:         bool, // fillModeNonSolid
 	depth_clamp:       bool,
 	anisotropy:        bool,
+	subgroup_size:     u32, // 0 where compute shaders have no arithmetic subgroup operations
+	int64_atomics:     bool, // shaderBufferInt64Atomics, enabled
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
@@ -272,7 +274,8 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	have12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
 	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
-	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset}
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics}
+	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
@@ -312,10 +315,15 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk.load_proc_addresses_device(vk_state.device)
 	vk.GetDeviceQueue(vk_state.device, vk_state.family, 0, &vk_state.queue)
 
-	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES}
+	p11 := vk.PhysicalDeviceVulkan11Properties{sType = .PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES}
+	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES, pNext = &p11}
 	props2 := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &vk_state.driver}
 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
+	vk_state.driver.pNext = nil // p11 is gone after this proc
 	vk_state.properties = props2.properties
+	// Subgroups are Vulkan 1.1 core, but a device may offer them to other stages only, or
+	// without the arithmetic (reduce and scan) operations a kernel would want.
+	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
 	vk.GetPhysicalDeviceMemoryProperties(vk_state.physical, &vk_state.memory)
 
 	timeline_type := vk.SemaphoreTypeCreateInfo{sType = .SEMAPHORE_TYPE_CREATE_INFO, semaphoreType = .TIMELINE}

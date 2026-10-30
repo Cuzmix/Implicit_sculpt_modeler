@@ -615,6 +615,14 @@ gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 
 // GPU timestamps likewise: SDL_GPU has no query API yet (its draft is libsdl-org/SDL#15651),
 // and the own Metal backend's waits for its compute stage.
+// The compute kernels' subgroup width (0 when unknown) and whether 64-bit buffer atomics
+// work; SDL_GPU tells neither.
+gpu_compute_features :: proc(device: ^sdl.GPUDevice) -> (subgroup_size: u32, int64_atomics: bool) {
+	if gpu_backend == .Vulkan do return vk_state.subgroup_size, vk_state.int64_atomics
+	when METAL do if gpu_backend == .Metal do return mtl_compute_features()
+	return 0, false
+}
+
 gpu_timestamps_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	return gpu_backend == .Vulkan && vk_state.timing.slots[0].pool != 0
 }
