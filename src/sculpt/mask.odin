@@ -45,16 +45,25 @@ SHARPEN_PUSH :: 13
 mask_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	mask_ensure(s)
 	if s.history.recording do record_hit(s, masks = true)
+	// Painting a layer's mask moves the surface: the positions are saved with the masks.
+	d.mask_move = mask_move_of(s)
+	if d.mask_move.delta != nil && s.history.recording {
+		record_hit(s, false)
+		s.history.current.mask_moved = true
+	}
 	d.amount = 255 * d.brush.strength * (-1 if d.brush.invert else 1)
 	jobs.parallel_for(pool, len(s.hit), d, job_mask)
 	painted := 0
+	moved := make([dynamic]u32, 0, len(s.hit) if d.mask_move.delta != nil else 0, context.temp_allocator)
 	for p, i in s.partials {
 		if p.moved == 0 do continue
 		painted += int(p.moved)
 		id := s.node_of[s.hit[i]]
 		mark_stale(s, id, .Paint)
 		if s.history.recording do record_painted(s, id)
+		if d.mask_move.delta != nil && d.mask_move.delta[id] != nil do append(&moved, id)
 	}
+	mask_move_done(s, moved[:])
 	return painted
 }
 
@@ -65,6 +74,9 @@ job_mask :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	fade, mask := s.fade, s.mask
+	// The picked layer's displacement here, which the surface moves by as its mask changes.
+	shift: []Vec3
+	if d.mask_move.delta != nil do shift = d.mask_move.delta[s.node_of[s.hit[i]]]
 	painted: u32
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
@@ -74,6 +86,7 @@ job_mask :: proc(data: rawptr, i: int) {
 		if fade != nil do w *= f32(fade[v]) * (1.0 / 255)
 		next := u8(clamp(f32(mask[v]) + d.amount * w + 0.5, 0, 255))
 		if next == mask[v] do continue
+		if shift != nil do m.positions[v] += (f32(mask[v]) - f32(next)) * d.mask_move.k * shift[v - first]
 		mask[v] = next
 		painted += 1
 	}
@@ -285,6 +298,8 @@ mask_commit :: proc(job: ^Mask_Job) -> bool {
 		mark_stale(s, u32(id), .Paint)
 	}
 	job.work = changed[:]
+	// A picked layer mask moves the surface by what it hides or shows more.
+	mask_commit_move(s, job.work, job.after)
 	jobs.parallel_for(s.pool, len(job.work), job, proc(data: rawptr, i: int) {
 		job := cast(^Mask_Job)data
 		n := job.s.nodes[job.work[i]]

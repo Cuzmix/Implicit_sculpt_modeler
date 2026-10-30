@@ -121,6 +121,9 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 	assert(l.hd.window == nil, "leave the HD window first")
 	target := clamp(index, 0, len(l.levels) - 1)
 	if target == l.current do return
+	// A picked layer mask belongs to the level shown: the sculpt mask comes back first,
+	// as the levels carry the sculpt mask between them.
+	_ = sculptor_layer_mask_pick(&l.levels[l.current].sculptor, -1)
 	levels_sync(l)
 	levels_carry_mask(l, l.current, target)
 	levels_carry_paint(l, target)
