@@ -55,7 +55,7 @@ nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
 nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> ^sdl.GPUTexture {
 	if nh.failed || nh.mesh.positions == nil || size.x == 0 || size.y == 0 do return nil
 	w, h := size.x * NAV_HEAD_SUPERSAMPLE, size.y * NAV_HEAD_SUPERSAMPLE
-	if !viewport_target_resize(r, &nh.target, w, h) {
+	if !viewport_target_resize(r, &nh.target, w, h, transient_depth = true) {
 		nh.failed = true
 		log.errorf("navigation head target: %s", sdl.GetError())
 		return nil

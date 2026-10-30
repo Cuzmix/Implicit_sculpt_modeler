@@ -46,6 +46,7 @@ Mtl_Texture :: struct {
 	backings:  [dynamic]^Mtl_Texture_Backing,
 	active:    ^Mtl_Texture_Backing,
 	swapchain: bool, // a window's drawable: never cycled or freed here
+	transient: bool, // memoryless, every backing (gpu_create_texture_transient)
 	released:  bool,
 	name:      cstring, // for Xcode's GPU capture, given to every backing; a literal, never freed
 }
@@ -213,7 +214,7 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 	MTL.TextureDescriptor_setMipmapLevelCount(desc, NS.UInteger(info.num_levels))
 	MTL.TextureDescriptor_setSampleCount(desc, mtl_samples(info.sample_count))
 	MTL.TextureDescriptor_setArrayLength(desc, 1)
-	MTL.TextureDescriptor_setStorageMode(desc, .Private)
+	MTL.TextureDescriptor_setStorageMode(desc, .Memoryless if t.transient else .Private)
 	usage: MTL.TextureUsage
 	if info.usage & {.COLOR_TARGET, .DEPTH_STENCIL_TARGET} != {} do usage += {.RenderTarget}
 	if info.usage & {.SAMPLER, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ} != {} do usage += {.ShaderRead}
@@ -229,6 +230,17 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 }
 
 mtl_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+	return mtl_texture_make(info, false)
+}
+
+// Memoryless: the texture lives in tile memory for its pass alone, which every Apple GPU
+// offers; its pass must neither load nor store it (transient.odin checks).
+mtl_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+	return mtl_texture_make(info, true)
+}
+
+@(private = "file")
+mtl_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl.GPUTexture {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		log.errorf("Metal: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -239,6 +251,7 @@ mtl_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureC
 	}
 	t := new(Mtl_Texture)
 	t.info = info
+	t.transient = transient
 	t.active = mtl_texture_backing_make(t)
 	if t.active == nil {
 		log.errorf("Metal: a %dx%d %v texture could not be made", info.width, info.height, info.format)

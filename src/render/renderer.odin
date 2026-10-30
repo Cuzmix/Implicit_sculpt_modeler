@@ -167,6 +167,9 @@ Viewport_Target :: struct {
 	samples: sdl.GPUSampleCount,
 	width:  u32,
 	height: u32,
+	// `depth` lives only inside the one pass that clears it (gpu_create_texture_transient),
+	// for targets whose depth nothing reads after their pass.
+	transient_depth: bool,
 	cache:  Static_Cache, // at `samples`
 	// Identifies what color and depth hold: camera, size, and every item's identity,
 	// transform and colour (not its contents, which Draw_Item.damage accounts for).
@@ -848,11 +851,12 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl
 
 // Ensures the target matches the requested size and sample count (the main viewport
 // passes Renderer.samples; thumbnails and the navigation head stay at one sample, as the
-// interface samples them). Old textures are released; SDL_GPU defers the actual free
-// until in-flight command buffers no longer reference them.
-viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32, samples := sdl.GPUSampleCount._1) -> bool {
+// interface samples them), and whether its depth is transient (`transient_depth`: one-shot
+// targets drawn in one pass with keep_depth false). Old textures are released; SDL_GPU
+// defers the actual free until in-flight command buffers no longer reference them.
+viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32, samples := sdl.GPUSampleCount._1, transient_depth := false) -> bool {
 	width, height := max(requested_width, 1), max(requested_height, 1)
-	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples do return true
+	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples && vt.transient_depth == transient_depth do return true
 	viewport_target_destroy(r, vt)
 
 	multi := samples != ._1
@@ -867,16 +871,23 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 		})
 	}
 	// A multisampled texture cannot be sampled: the studio render draws its own depth then.
-	vt.depth = gpu_create_texture(r.device, {
-		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER} if r.depth_sampled && !multi else {.DEPTH_STENCIL_TARGET},
-		width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
-	})
+	if transient_depth {
+		vt.depth = gpu_create_texture_transient(r.device, {
+			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
+		})
+	} else {
+		vt.depth = gpu_create_texture(r.device, {
+			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER} if r.depth_sampled && !multi else {.DEPTH_STENCIL_TARGET},
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
+		})
+	}
 	if vt.color == nil || vt.depth == nil || multi && vt.multi_color == nil {
 		log.errorf("viewport target creation failed: %s", sdl.GetError())
 		viewport_target_destroy(r, vt)
 		return false
 	}
-	vt.width, vt.height, vt.samples = width, height, samples
+	vt.width, vt.height, vt.samples, vt.transient_depth = width, height, samples, transient_depth
 	gpu_set_texture_name(r.device, vt.color, "viewport colour")
 	gpu_set_texture_name(r.device, vt.depth, "viewport depth")
 	if multi do gpu_set_texture_name(r.device, vt.multi_color, "viewport colour (multisampled)")

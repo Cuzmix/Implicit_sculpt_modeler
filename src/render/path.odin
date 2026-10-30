@@ -542,7 +542,8 @@ path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
-		pr.backdrop_depth = gpu_create_texture(r.device, {
+		// Drawn into by the one pass below and never read: transient.
+		pr.backdrop_depth = gpu_create_texture_transient(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})

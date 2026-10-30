@@ -356,6 +356,8 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, sv:
 		pane := color_f32(LOOK_THEMES[app.kit.look].pane)
 		ground = {pane, pane}
 	}
+	// Only a heavy pass reads the picture's depth after drawing it (the gather on later
+	// frames included), so only it keeps the depth; the others draw into a transient one.
 	heavy := second_pass_heavy(sv.pass) && render.live_ao_supported(&app.renderer, &pic.ao)
 	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy); tex != nil {
 		shown := tex
