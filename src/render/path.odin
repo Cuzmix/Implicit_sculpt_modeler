@@ -25,6 +25,11 @@ import "../jobs"
 // the studio leaves them.
 
 RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
+// The same kernel reading every map from one array (render_trace_maps.comp.slang), which
+// only the own Vulkan backend binds, so it has no Metal source.
+when ODIN_OS != .Darwin {
+	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
+}
 RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
 RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
 RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
@@ -84,6 +89,10 @@ Path_Render :: struct {
 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
 	tracer:         Tracer,
 	pipeline:       ^sdl.GPUComputePipeline,
+	// The pipeline reads the maps from one array (render_trace_maps), and how many textured
+	// items it shows with their maps: RENDER_TEXTURED_MAX with the named samplers.
+	maps_array:     bool,
+	textured_max:   u32,
 	display:        ^sdl.GPUGraphicsPipeline,
 	atrous:         ^sdl.GPUGraphicsPipeline,
 	sampler:        ^sdl.GPUSampler,
@@ -120,8 +129,9 @@ Path_Render :: struct {
 	// The textured items whose maps this view binds, by map slot, with their maps' stamps
 	// when it was built (a map that changes since starts the view over), and how many more
 	// showed textured than there are slots.
-	tex_meshes:     [RENDER_TEXTURED_MAX]^Textured_Mesh,
-	tex_stamps:     [RENDER_TEXTURED_MAX]u64,
+	tex_meshes:     [RENDER_TEXTURED_ARRAY]^Textured_Mesh,
+	tex_stamps:     [RENDER_TEXTURED_ARRAY]u64,
+	tex_count:      u32,
 	tex_left_out:   int,
 	// The size the paths are traced at (render_size), and the viewport's, which `shown` has.
 	width, height:  u32,
@@ -165,20 +175,28 @@ Scene_Buffer :: enum {
 	Textured,
 }
 
-// How many textured items render mode shows with their maps: three maps each, after the
-// sum, the environment and its table and the guides, 14 of the 16 samplers a stage may
-// bind. Others show
-// their material, and the Render section says so.
+// How many textured items render mode shows with their maps through named samplers: three
+// maps each, after the sum, the environment and its table and the guides, 14 of the 16
+// samplers a stage may bind. Others show their material, and the Render section says so
+// (render_textured_max).
 RENDER_TEXTURED_MAX :: 3
 @(private = "file")
 RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
+// ...and through one array of maps, where the device offers texture arrays
+// (Gpu_Caps.texture_arrays, at least four items' worth), or as many as it holds.
+@(private = "file")
+RENDER_TEXTURED_ARRAY :: 64
 
 // Item_Record.tex.w: the item's map slot in the low bits (RENDER_TEXTURED_MAX for none,
-// which only the UV checker needs), the view from bit 4, and from bit 8 which maps it has.
+// which only the UV checker needs, and for every slot past it), the view from bit 4, from
+// bit 8 which maps it has, and from bit 16 the slot again in full, which only the array
+// kernel reads; the named kernel's bits stay as they were.
 @(private = "file")
 TEX_VIEW_SHIFT :: 4
 @(private = "file")
 TEX_MAPS_SHIFT :: 8
+@(private = "file")
+TEX_WIDE_SLOT_SHIFT :: 16
 
 // Matches Item in render_trace.comp.slang (std430).
 Item_Record :: struct {
@@ -297,18 +315,27 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
 	table := r.environment.table if r.environment != nil else pr.studio_table
-	samplers: [RENDER_SAMPLERS]sdl.GPUTextureSamplerBinding
+	samplers: [5 + 3 * RENDER_TEXTURED_ARRAY]sdl.GPUTextureSamplerBinding
 	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
 	samplers[3], samplers[4] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}, {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
+	// Every slot the kernel may read is given a texture, defaults where an item lacks a map:
+	// the named kernel's nine, and the array's slots in use (at least one, as a set is
+	// never empty).
 	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
-	for slot in 0 ..< RENDER_TEXTURED_MAX {
+	slots := max(pr.tex_count, 1) if pr.maps_array else RENDER_TEXTURED_MAX
+	for slot in 0 ..< int(slots) {
 		t := pr.tex_meshes[slot]
 		for m in Texture_Map {
 			tex := t.maps[m] if t != nil && t.maps[m] != nil else defaults[m]
 			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
 		}
 	}
-	gpu_bind_compute_samplers(pass, 0, &samplers[0], len(samplers))
+	if pr.maps_array {
+		gpu_bind_compute_samplers(pass, 0, &samplers[0], 5)
+		gpu_bind_compute_texture_array(pass, samplers[5:][:3 * slots])
+	} else {
+		gpu_bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
+	}
 	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
 	gpu_bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
 	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
@@ -468,6 +495,35 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 	return out
 }
 
+// The kernel that reads every map from one array, where the device offers texture arrays
+// for at least four textured items, with how many it shows; nil where it does not, or
+// where the device refuses it (the log says why), and render mode keeps the named kernel.
+@(private = "file")
+path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
+	when ODIN_OS != .Darwin {
+		offered := r.caps.texture_arrays / 3
+		if offered <= RENDER_TEXTURED_MAX do return
+		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
+		pipeline = gpu_create_compute_pipeline_array(r.device, {
+			code_size = len(RENDER_TRACE_MAPS_COMP_CODE), code = raw_data(RENDER_TRACE_MAPS_COMP_CODE), entrypoint = SHADER_ENTRY,
+			format = SHADER_FORMAT, num_samplers = 5, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
+		}, 3 * textured_max)
+		if pipeline == nil {
+			log.warnf("render mode: the texture array kernel could not be made (%s); it shows %d textured objects' maps", sdl.GetError(), RENDER_TEXTURED_MAX)
+			return nil, false, 0
+		}
+		array = true
+	}
+	return
+}
+
+// How many textured objects render mode shows with their maps on this device, once it has
+// started; others show their material.
+render_textured_max :: proc(pr: ^Path_Render) -> int {
+	return int(pr.textured_max) if pr.pipeline != nil else RENDER_TEXTURED_MAX
+}
+
 @(private = "file")
 path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: bool) -> bool {
 	if pr.pipeline == nil {
@@ -476,11 +532,15 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 			log.warn("render mode: this device cannot write RGBA32F and RGBA16F from compute; it stays off")
 			return false
 		}
-		pr.pipeline = gpu_create_compute_pipeline(r.device, {
-			code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-		})
+		pr.pipeline, pr.maps_array, pr.textured_max = path_maps_pipeline(r)
+		if pr.pipeline == nil {
+			pr.pipeline = gpu_create_compute_pipeline(r.device, {
+				code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
+				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
+			})
+			pr.maps_array, pr.textured_max = false, RENDER_TEXTURED_MAX
+		}
 		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
 		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
 		pr.sampler = gpu_create_sampler(r.device, {
@@ -641,7 +701,7 @@ Path_Item :: struct {
 	chunk_off:                   u32,
 	paint:                       bool, // its paint buffer is copied
 	// A textured item's preview, with where its vertices and corners go in the Textured
-	// buffer (words) and its map slot (RENDER_TEXTURED_MAX for none).
+	// buffer (words) and its map slot (Path_Render.textured_max for none).
 	textured:                    ^Textured_Mesh,
 	tex_vertex_off, tex_corner_off: u32,
 	tex_slot:                    u32,
@@ -658,7 +718,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	}
 	placed := make([dynamic]Path_Item, context.temp_allocator)
 	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
-	pr.tex_meshes, pr.tex_stamps, pr.tex_left_out = {}, {}, 0
+	pr.tex_meshes, pr.tex_stamps, pr.tex_count, pr.tex_left_out = {}, {}, 0, 0
 	for item, i in items {
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
@@ -671,9 +731,9 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		p.vertex_off, p.tri_off, p.node_off, p.word_off, p.chunk_off = vertex_count, tri_count, node_count, word_count, chunk_count
 		p.paint = item.mesh.paint != nil && (item.paint || item.groups || item.slots != nil)
 		if t := item.textured; t != nil && item.texture_view != .Off && t.index_count > 0 && t.corner_count == 3 * p.triangles {
-			p.tex_slot = RENDER_TEXTURED_MAX
+			p.tex_slot = pr.textured_max
 			if item.texture_view != .Uv_Checker {
-				if textured_count < RENDER_TEXTURED_MAX {
+				if textured_count < pr.textured_max {
 					p.tex_slot = textured_count
 					pr.tex_meshes[textured_count], pr.tex_stamps[textured_count] = t, t.maps_stamp
 					textured_count += 1
@@ -681,7 +741,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 					pr.tex_left_out += 1
 				}
 			}
-			if p.tex_slot < RENDER_TEXTURED_MAX || item.texture_view == .Uv_Checker {
+			if p.tex_slot < pr.textured_max || item.texture_view == .Uv_Checker {
 				// It shows its maps or checker over its preview's normals, never paint or
 				// polygroups, as in the viewport.
 				p.textured, p.paint = t, false
@@ -696,6 +756,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		chunk_count += u32(len(tm.trees))
 		append(&placed, p)
 	}
+	pr.tex_count = textured_count
 	if len(placed) >= 1 << 12 {
 		pr.refused = "Render mode traces at most 4096 objects."
 		return false
@@ -884,7 +945,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item) -> (rec: Item_Record) {
 		rec.offs.y |= ITEM_TEXTURED
 		maps: u32
 		for m in Texture_Map do if t.maps[m] != nil do maps |= 1 << u32(m)
-		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, p.tex_slot | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT}
+		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
 	}
 	if p.paint {
 		if item.paint do rec.offs.y |= ITEM_PAINT

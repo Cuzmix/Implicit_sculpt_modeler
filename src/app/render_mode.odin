@@ -136,7 +136,7 @@ kit_render_full :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples, %.0f ms a sample.", pr.samples, app.render_samples, ms))
 	}
 	if render_running(app) && pr.tex_left_out > 0 {
-		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.RENDER_TEXTURED_MAX, pr.tex_left_out))
+		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.render_textured_max(pr), pr.tex_left_out))
 	}
 	ui.paragraph(ctx, fmt.tprintf("Full path traces the view while it stays still: the lights with soft shadows (their own size, or Fast's Shadow softness), the environment, materials, paint and texture maps, and light bounced between surfaces; a MatCap shows as its colour. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. Lens adds depth of field. %s", command_keys(app, .Render_Mode)))
 }
