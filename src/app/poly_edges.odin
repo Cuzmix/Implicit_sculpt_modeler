@@ -11,12 +11,13 @@ import "../sculpt"
 // the way a Model mode cage's go), made when the wireframe first asks for them and again
 // only when the level's polygons change, which Object.poly_edges remembers per level.
 
-// Whether the wireframe wants polygon edges on `obj` this frame: Lines on, not a cage
+// Whether the wireframe wants polygon edges on `obj` this frame (or the Wireframe shading
+// mode, which always shows them): Lines on, not a cage
 // (whose edges are its own), a voxel or a dynamic object, and not while an HD window is
 // open, since the base level around the window is drawn with the window's part hidden.
 @(private = "file")
 poly_edges_wanted :: proc(app: ^App, obj: ^Object) -> bool {
-	return app.wireframe && app.polyframe_lines && obj.cage == nil && obj.voxel == nil && !object_in_hd(obj) && !object_dynamic(obj)
+	return (app.wireframe && app.polyframe_lines || shading_wire(app)) && obj.cage == nil && obj.voxel == nil && !object_in_hd(obj) && !object_dynamic(obj)
 }
 
 // Gives every shown object's shown level its polygon edges before the frame draws, when

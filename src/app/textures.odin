@@ -242,12 +242,13 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 // way that the preview cannot show (dynamic topology, HD, hidden parts, polygroup colours,
 // a stroke on it right now) and the view has something to show.
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
-	if app.texture_view == .Off || obj.voxel != nil || obj.levels.current != 0 || object_in_hd(obj) || object_dynamic(obj) do return false
+	view := texture_view_shown(app)
+	if view == .Off || obj.voxel != nil || obj.levels.current != 0 || object_in_hd(obj) || object_dynamic(obj) do return false
 	if !sculpt.levels_has_quads(&obj.levels) || !sculpt.levels_has_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
 	if app.stroke.active && app.stroke.object == obj.id do return false
 	maps := obj.preview.mesh.maps
-	switch app.texture_view {
+	switch view {
 	case .Off:        return false
 	case .Textured:   return maps != {}
 	case .Normal_Map: return maps[.Normal] != nil

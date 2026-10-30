@@ -4426,8 +4426,9 @@ def lens_context_bar_extracts_the_mask():
 
 
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
-# chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
-LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77), "curvature": (260, 444)}
+# chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
+# options, while nothing is recent.
+LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77), "curvature": (260, 536)}
 
 
 @scenario
@@ -5313,8 +5314,29 @@ def the_current_workspace_comes_back():
                                                                      "grid": is_text("Four")})
 
 
-# The view's pass chip at 1600 x 900, and the Normals and Wipe compare rows of its list.
-PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], (230, 400), (234, 665)
+# The view's shading chip at 1600 x 900, and the Wireframe, Normals and Wipe compare rows
+# of its list (the shading modes and Solid's options come first).
+PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], (230, 492), (234, 801)
+PASS_MENU_WIREFRAME = (220, 158)
+
+
+@scenario
+def shading_chip_picks_wireframe_then_solid():
+    """A tap on the view's shading chip lists the shading modes; Wireframe there draws every edge, closes the list and marks the workspace, and Solid from it again comes back to the workspace's own shading, the list staying open for Solid's options."""
+    def run(back):
+        s = Script()
+        s.ftap(*PASS_CHIP)
+        s.wait(10)
+        s.ftap(*PASS_MENU_WIREFRAME)
+        s.wait(10)
+        if back:
+            s.ftap(*PASS_CHIP)
+            s.wait(10)
+            s.ftap(PASS_MENU_WIREFRAME[0], PASS_MENU_WIREFRAME[1] + 44)
+            s.wait(10)
+        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "shading_mode": is_text("Solid" if back else "Wireframe"),
+                                    "pass_menu": near(1 if back else 0), "workspace_modified": near(0 if back else 1)})
+    return Steps([run(False), run(True)])
 
 
 @scenario
@@ -6859,9 +6881,9 @@ def knife_cuts_away_the_shaded_side():
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
-# typed (three rows: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
+# typed (four rows: Wireframe, Shading: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
 BIND_USE_HERE, BIND_KEEP = (1345, 250), (1506, 250)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (932, 341), (980, 341), (1028, 341)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (932, 387), (980, 387), (1028, 387)
 PALETTE_FIRST_STARRED = UI["palette_row1"]
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
 EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (585, 250), (585, 418)

@@ -357,7 +357,8 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float line_px = floor(wipe / 8.0);
 		if (frag_coord.x >= line_px) view_pass = int(wipe - line_px * 8.0 + 0.5);
 	}
-	if (view_pass != 0) {
+	// Unlit (7) is no diagnostic pass: it shows the colour, below, once it is known.
+	if (view_pass != 0 && view_pass != 7) {
 		float3 shown = float3(0.0);
 		if (view_pass == 1) {
 			// Normals: the view-space normal as a colour, as Blender's and ZBrush's show it.
@@ -385,6 +386,10 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		} else if (view_pass == 4) {
 			// AO: a plain light grey, which the live occlusion darkens after the frame.
 			shown = float3(0.85);
+		} else if (view_pass == 6) {
+			// Wire: the Wireframe mode's hidden-line fill, a plain light grey that hides
+			// the edges behind it and lets the dark edges in front read.
+			shown = float3(0.78);
 		} else {
 			// Silhouette: near-black, as the thumbnail's.
 			shown = float3(0.06);
@@ -434,6 +439,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	float shown_mask = frag_in.mask * (1.0 - style.z);
 	albedo *= 1.0 - 0.7 * shown_mask;
 	float highlight = 1.0 - 0.5 * shown_mask;
+	// Unlit: Solid's Flat lighting, the colour as it is with no light, as Blender's Flat
+	// lighting shows it; exposed, with cavity and ridge, but not tone mapped.
+	if (view_pass == 7) return float4(srgb_encode(albedo * relief * exp2(look.x)), opacity());
 
 	if (surf.w > 0.5) {
 		// The matcap's sphere where it faces the way this pixel's normal does as the eye

@@ -6,43 +6,30 @@ import "core:math"
 import "../render"
 import "../ui"
 
-// Scene > Look: presets over the shading's parts, the material new objects take, the
-// lights, the background, the style, live occlusion and the studio render, each still its
-// own control. Sculpt studio matches renders of grey studio sculpts: a soft grey clay, a
-// key light from the upper left whose soft shadows fall from the jaw onto the neck, deep
-// shade under the forms, a light rim and a flat dark backdrop. Classic is the look the
-// app always had. A fresh install, and a settings file from before there were presets,
-// start in Sculpt studio (look_first_run); scripted runs and --no-settings keep Classic,
-// the code's defaults, so tests and benches are unchanged.
+// Scene > Look: how bright the key and ambient lights are, how dark and soft the shadows,
+// and under More the rest of the look's parts, each still its own control. The viewport's
+// shading modes (shading.odin) are Blender's; there are no look presets over them. A fresh
+// install, and a settings file from before the presets went, start once in the studio look
+// (look_first_run), which matches renders of grey studio sculpts: a soft grey clay, a key
+// light from the upper left, deep shade under the forms, a light rim and a flat dark
+// backdrop. Scripted runs and --no-settings keep the code's defaults, so tests and benches
+// are unchanged.
 
-Look_Preset :: enum u8 {
-	Sculpt_Studio,
-	Classic,
-}
+// The material the studio look gives new objects, by name.
+LOOK_MATERIAL_STUDIO :: "Studio grey"
 
-LOOK_PRESET_NAMES := [Look_Preset]string {
-	.Sculpt_Studio = "Sculpt studio",
-	.Classic       = "Classic",
-}
-
-// The material each preset gives the selected objects and new ones, by name.
-LOOK_MATERIALS := [Look_Preset]string {
-	.Sculpt_Studio = "Studio grey",
-	.Classic       = "Clay",
-}
-
-// Sculpt studio's flat backdrop, a little darker than the gradient's middle.
+// The studio look's flat backdrop, a little darker than the gradient's middle.
 LOOK_BACKGROUND_STUDIO :: Background_Settings{gradient = false, top = {0.165, 0.165, 0.17}, bottom = {0.09, 0.09, 0.1}}
 
-// Sculpt studio's shadow strength and its key light's radius in radians (about 8.6°):
+// The studio look's shadow strength and its key light's radius in radians (about 8.6°):
 // soft-edged shadows that still read as cast.
 LOOK_STUDIO_SHADOW :: 0.6
 LOOK_STUDIO_SOFTNESS :: 0.15
-// The studio render's strengths before there were presets, which Classic keeps.
+// The render's strengths in the code's defaults, which scripted runs keep.
 STUDIO_AO_DEFAULT :: 0.85
 STUDIO_SHADOW_DEFAULT :: 0.6
 
-// Sculpt studio's lights: the key higher and further left than the classic one, the fill
+// The studio look's lights: the key higher and further left than the classic one, the fill
 // all but off so the shaded side stays dark, and the rim light behind on.
 look_lights_studio :: proc() -> Light_Set {
 	set := LIGHTS_DEFAULT
@@ -53,56 +40,36 @@ look_lights_studio :: proc() -> Light_Set {
 	return set
 }
 
-// Puts `preset` on: its material becomes the one new objects take, and with `selected`
-// also the selected objects' (as a pick in the Material section); its lights become the
-// scene's and the starting ones; and the background, cavity, style, live occlusion and
-// studio render take its values. Not an undo step, as a material pick is not.
-look_apply :: proc(app: ^App, preset: Look_Preset, selected: bool) {
-	studio := preset == .Sculpt_Studio
-	if i, ok := material_by_name(LOOK_MATERIALS[preset]); ok {
-		app.material = i
-		if selected do app.ui.scene_command = {kind = .Material, material = MATERIALS[i]}
-	}
-	lights := look_lights_studio() if studio else LIGHTS_DEFAULT
+// Puts the studio look on: its material becomes the one new objects take; its lights the
+// scene's and the starting ones; and the background, cavity, style, live occlusion and the
+// render's strengths take its values. The Render switch is left as it is: Rendered is a
+// shading mode of its own. Not an undo step, as a material pick is not.
+look_studio_apply :: proc(app: ^App) {
+	if i, ok := material_by_name(LOOK_MATERIAL_STUDIO); ok do app.material = i
+	lights := look_lights_studio()
 	app.start_lights = lights
 	app.scene.lights = lights
-	app.background = LOOK_BACKGROUND_STUDIO if studio else BACKGROUND_DEFAULT
-	app.cavity, app.ridge = 0.7 if studio else CAVITY_DEFAULT, RIDGE_DEFAULT
-	app.styled, app.rim, app.underside = studio, RIM_DEFAULT, UNDERSIDE_DEFAULT
-	app.live_ao_on = studio
-	// The look's shadows are Render's at Fast quality; a Full render running stays, its quality kept.
-	if studio && !app.render_on do render_set(app, true, .Fast)
-	else if !studio do app.studio_on = false
-	app.studio_ao = 1 if studio else STUDIO_AO_DEFAULT
-	app.studio_shadow = LOOK_STUDIO_SHADOW if studio else STUDIO_SHADOW_DEFAULT
-	app.studio_softness = LOOK_STUDIO_SOFTNESS if studio else render.STUDIO_KEY_SOFTNESS
+	app.background = LOOK_BACKGROUND_STUDIO
+	app.cavity, app.ridge = 0.7, RIDGE_DEFAULT
+	app.styled, app.rim, app.underside = true, RIM_DEFAULT, UNDERSIDE_DEFAULT
+	app.live_ao_on = true
+	app.studio_ao = 1
+	app.studio_shadow = LOOK_STUDIO_SHADOW
+	app.studio_softness = LOOK_STUDIO_SOFTNESS
 	render.studio_reset(&app.studio)
 	app.look_chosen = true
 }
 
-// Starts a fresh install, or a settings file from before the presets, in Sculpt studio,
+// Starts a fresh install, or a settings file from before there was a studio look, in it,
 // once: the settings then keep `look_chosen` and whatever was changed since.
 look_first_run :: proc(app: ^App) {
-	if !app.look_chosen do look_apply(app, .Sculpt_Studio, false)
+	if !app.look_chosen do look_studio_apply(app)
 }
 
-// The preset the view is in, by what tells them apart (the style and the studio render),
-// whatever has been adjusted since; nil for neither.
-look_current :: proc(app: ^App) -> Maybe(Look_Preset) {
-	if app.styled && render_switch_on(app) do return .Sculpt_Studio
-	if !app.styled && !app.studio_on do return .Classic
-	return nil
-}
-
-// Scene > Look: the presets, then how bright the key light and the ambient light are and
-// how dark and soft the shadows; under More the rest of the look's parts.
+// Scene > Look: how bright the key light and the ambient light are and how dark and soft
+// the shadows; under More the rest of the look's parts.
 kit_look :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	names, hints: [len(Look_Preset)]string
-	for p in Look_Preset do names[p], hints[p] = LOOK_PRESET_NAMES[p], command_hint(app, .Viewport_Look, int(p))
-	shown := -1
-	if p, ok := look_current(app).?; ok do shown = int(p)
-	if picked := ui.tabs(ctx, "Look", names[:], shown, keys = hints[:]); picked >= 0 do command_run(app, .Viewport_Look, picked)
 	set := &app.scene.lights
 	if set.count > 0 {
 		key := &set.lights[0]
@@ -124,6 +91,6 @@ kit_look :: proc(app: ^App) {
 		kit_live_ao_reach(app)
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Sculpt studio is soft grey clay under a key light from the upper left, with soft shadows, deep shade under the forms and a light rim; the shadows build up while the view is still. Classic is the look the app always had. Each slider is the control of the same name in Lights, Render's Fast quality or Background; Underside is how much light reaches surfaces facing down.")
+	ui.paragraph(ctx, "Each slider is the control of the same name in Lights, Render's Fast quality or Background; Underside is how much light reaches surfaces facing down. The view's shading mode (Solid, Material Preview, Rendered) is on the Shading chip over the view.")
 	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With Render at Fast quality it shows until Fast has built up its first samples.")
 }

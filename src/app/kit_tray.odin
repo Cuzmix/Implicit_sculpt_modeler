@@ -125,7 +125,6 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Place_Light           = .Lights,
 	.Focus_Pivot           = .Lens,
 	.Finish_Reset          = .Finish,
-	.Viewport_Look         = .Look,
 	.Ortho_Toggle          = .Camera,
 	.View_Axis             = .Camera,
 	.Focus_Selected        = .Camera,

@@ -423,8 +423,9 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
-	// A tile has room for one word of a look's name.
-	case .Viewport_Look: return "Studio" if Look_Preset(s.arg) == .Sculpt_Studio else LOOK_PRESET_NAMES[Look_Preset(s.arg)]
+	// A tile has room for one word of a mode's name.
+	case .Shading_Mode: return "Preview" if Shading_Mode(s.arg) == .Material_Preview else SHADING_MODE_NAMES[Shading_Mode(s.arg)]
+	case .Solid_Lighting: return SOLID_LIGHTING_NAMES[Solid_Lighting(s.arg)]
 	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
 	}
 	return command_label(s.id, s.arg)
