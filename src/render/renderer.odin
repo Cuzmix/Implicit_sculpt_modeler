@@ -445,6 +445,15 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		r.anisotropy = vk_state.anisotropy
 		if !ok do gpu_backend = .SDL_GPU
 	}
+	when METAL {
+		// Likewise for Metal: SDL_GPU draws through Metal too, into the same windows.
+		if gpu_backend == .Metal {
+			ok: bool
+			r.device, ok = mtl_create_device(debug)
+			r.anisotropy = true
+			if !ok do gpu_backend = .SDL_GPU
+		}
+	}
 	if gpu_backend == .SDL_GPU do sdl_device_create(r, debug)
 	if r.device == nil {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
