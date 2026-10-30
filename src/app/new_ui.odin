@@ -1835,7 +1835,8 @@ kit_rename :: proc(app: ^App) {
 // studio render's or live occlusion's while on, viewport_shown) where the kit drew
 // KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
 // objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
-// KIT_PICTURES_IMAGE and the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE.
+// KIT_PICTURES_IMAGE, the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE and the
+// History's pictures of steps where it drew KIT_STEP_PICTURES_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
@@ -1873,6 +1874,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
 			draws[i].image = app.work_still.color
 			if app.work_still.color == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_STEP_PICTURES_IMAGE {
+			draws[i].image, draws[i].smooth = app.step_pictures.atlas, true
+			if app.step_pictures.atlas == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true

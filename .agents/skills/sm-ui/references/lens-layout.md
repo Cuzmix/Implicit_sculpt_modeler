@@ -137,3 +137,7 @@ summary.
   opens the panel at once; the mouse begins on a sideways drag past the slop, `ui.press_used`); `touch_hold_history`
   begins the fingers' scrub once its hold fired and the fingers slide. `quick_scrub_frame` (after the menus) follows
   the pointer, maps it to `history_places` (chains are one place) and seeks; nothing else moves the History.
+  Step pictures (`history_pictures.odin`, `render.Step_Pictures`): `step_pictures_frame` runs after the view panes in
+  the frame loop and draws the newest done step when it has no cell (`Step_Picture_Slots.seen`), from that frame's
+  draws through `narrow * proj`; panels show a cell with `step_picture_draw` (`KIT_STEP_PICTURES_IMAGE`). Never key a
+  picture by position: cells are found by the step's first entry's `at`.
