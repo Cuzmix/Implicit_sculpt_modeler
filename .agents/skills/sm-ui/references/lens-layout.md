@@ -128,3 +128,7 @@ summary.
   `History_Entry.area`, recorded at `history_record` from `sculptor_last_step_bounds` / `clay_last_step_bounds` (never
   measured while drawing), through `flash_screen_box`; rows and blocks call `history_tint_rest` each frame they are
   rested on and `history_tint_frame` forgets it at the panel's start.
+  The panel's Settings page (`Timeline.settings`, `kit_history_settings`) draws the Settings blocks Undo_History,
+  History_Steps and History_Back, which Settings > Files lists too: one setting, two places. The History settings
+  are App fields named so that off is the default (`history_no_lights`, `history_ungrouped`), so a zero App is as
+  before; `history_limits_apply` hands History may use to every store only when it is set or just changed back.

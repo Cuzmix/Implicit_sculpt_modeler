@@ -61,6 +61,8 @@ Settings_Block :: enum u8 {
 	Autosave,
 	Earlier_Saves,
 	Undo_History,
+	History_Steps,
+	History_Back,
 	Blender_Link,
 }
 
@@ -120,6 +122,8 @@ SETTINGS_SYSTEM := [?]Settings_Entry {
 	{.Autosave, "AUTOSAVE"},
 	{.Earlier_Saves, "EARLIER SAVES"},
 	{.Undo_History, "UNDO HISTORY"},
+	{.History_Steps, "WHAT BECOMES A STEP"},
+	{.History_Back, "GOING BACK"},
 	{.Blender_Link, "BLENDER LINK"},
 }
 
@@ -181,7 +185,9 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Graphics         = "graphics gpu backend vulkan sdl_gpu driver renderer",
 	.Autosave         = "autosave recovery copy",
 	.Earlier_Saves    = "earlier saves versions kept",
-	.Undo_History     = "undo history steps memory",
+	.Undo_History     = "undo history steps memory limit may use mb gb meshes textures device",
+	.History_Steps    = "history steps lights scene tree names folders order undo",
+	.History_Back     = "history camera follows restore view group repeated strokes list",
 	.Blender_Link     = "blender link add-on folder",
 }
 
@@ -463,11 +469,26 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.select(ctx, "Earlier saves kept", VERSIONS_KEPT_NAMES[:], chosen); picked >= 0 do app.versions_kept = VERSIONS_KEPT[picked]
 		ui.paragraph(ctx, "Saving over a scene file first keeps the old one in a folder beside it (for head.sculpt, \"head versions\"), the newest ones kept. Off keeps none and deletes none already there.")
 	case .Undo_History:
+		limit := 0
+		for mb, i in HISTORY_LIMITS do if mb == app.history_limit_mb do limit = i
+		ui.label(ctx, "History may use")
+		if picked := ui.select(ctx, "History may use", HISTORY_LIMITS_NAMES[:], limit); picked >= 0 do app.history_limit_mb = HISTORY_LIMITS[picked]
 		chosen := 0
 		for steps, i in UNDO_STEPS do if steps == app.undo_steps do chosen = i
 		ui.label(ctx, "Undo steps kept")
 		if picked := ui.select(ctx, "Undo steps kept", UNDO_STEPS_NAMES[:], chosen); picked >= 0 do app.undo_steps = UNDO_STEPS[picked]
-		ui.paragraph(ctx, "Past this many steps the oldest are forgotten, and the memory their strokes hold comes back. No limit keeps steps until they fill the memory set aside for them. The History panel's Delete older history forgets them all at once.")
+		ui.paragraph(ctx, "Past either limit the oldest steps are forgotten, and the memory their strokes hold comes back; a bookmarked step is kept, and a note says so. Automatic gives each object's strokes and the rebuild copies their own share. A step's menu in the History panel has Delete everything older.")
+		history_memory_rows(app)
+	case .History_Steps:
+		lights, tree := !app.history_no_lights, !app.history_no_tree
+		if ui.switch_row(ctx, "Light changes", &lights) do app.history_no_lights = !lights
+		if ui.switch_row(ctx, "Scene tree changes (names, folders, order)", &tree) do app.history_no_tree = !tree
+		ui.paragraph(ctx, "Off, those changes still happen and are saved, but undo walks past them, as Nomad's include switches leave them out.")
+	case .History_Back:
+		grouped := !app.history_ungrouped
+		_ = ui.switch_row(ctx, "Camera follows the History", &app.history_camera)
+		if ui.switch_row(ctx, "Group repeated strokes in the list", &grouped) do app.history_ungrouped = !grouped
+		ui.paragraph(ctx, "With the camera following, undo, redo and a tap in the History put the view back where it was when that step was made, as Nomad's Restore camera does.")
 	case .Blender_Link:
 		when LINK_AVAILABLE {
 			folder := app.link.folder
@@ -562,7 +583,9 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Graphics:        app.graphics = .Auto
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
-	case .Undo_History:    app.undo_steps = 0
+	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0
+	case .History_Steps:   app.history_no_lights, app.history_no_tree = false, false
+	case .History_Back:    app.history_camera, app.history_ungrouped = false, false
 	}
 }
 

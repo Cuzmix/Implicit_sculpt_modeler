@@ -10783,6 +10783,7 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
 HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1502, 236), (1300, 362), (1300, 288)
 HISTORY_GROUP_ROW = (1300, 236)
+HISTORY_LIST_TAB = (1185, 146)
 
 
 def history_three_strokes(s):
@@ -10910,6 +10911,25 @@ def history_tint_shows_what_a_step_changed():
         s.wait(12)
         return s, [], camera_still({"history_menus": near(1, 0), "history_tint": near(1, 0), "undo_steps": near(3, 0)})
     return Steps([run(False), run(True)])
+
+
+HISTORY_GEAR = (1500, 146)
+
+
+@scenario
+def history_settings_page_from_the_list():
+    """The History list's gear opens its Settings page in the panel (memory, what becomes a
+    step, going back), and the List tab brings the steps back."""
+    def run(back):
+        s = Script()
+        history_three_strokes(s)
+        s.ftap(*HISTORY_GEAR)
+        s.wait(10)
+        if back:
+            s.ftap(*HISTORY_LIST_TAB)
+            s.wait(6)
+        return s, [], camera_still({"history_page": is_text("steps" if back else "settings"), "undo_steps": near(3, 0)})
+    return Steps([run(True), run(False)])
 
 
 @scenario

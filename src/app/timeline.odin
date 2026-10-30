@@ -21,6 +21,7 @@ Timeline :: struct {
 	scrubbing: bool, // the press on the bar is a scrub: a mouse's, or one moved past the slop
 	picked:    bool, // ...or it opened the step menu, and scrubs nothing
 	target:  int, // the number of done steps being moved toward, while seeking
+	seek_from: int, // the done steps when the seek began, for the camera following it
 	playing: bool,
 	speed:   f32, // steps a second while playing
 	owed:    f64, // steps playback owes from earlier frames, below one
@@ -50,6 +51,8 @@ Timeline :: struct {
 	// object's steps, the group of repeated strokes opened in it (by its oldest stroke's
 	// time; none when zero) and how far the list is scrolled (history_list.odin).
 	view:          History_View,
+	settings:      bool, // the Settings page shows instead of the steps (history_settings.odin)
+	settings_scroll: f32,
 	only_selected: bool,
 	open_at:       time.Tick,
 	list_scroll:   f32,
@@ -117,6 +120,7 @@ timeline_frame :: proc(app: ^App) {
 		if tl.lapse.state != .Off do timelapse_stop(app, "a stroke started")
 		return
 	}
+	if !tl.seeking do tl.seek_from = len(app.history.done)
 	lapse := &tl.lapse
 	switch lapse.state {
 	case .Off:
@@ -181,18 +185,18 @@ timeline_seek :: proc(app: ^App) {
 	for {
 		tl.target = clamp(tl.target, 0, history_total(app))
 		if len(app.history.done) == tl.target {
-			tl.seeking = false
+			timeline_seek_done(app)
 			return
 		}
 		before := len(app.history.done)
 		if !history_step_toward(app, tl.target) {
-			tl.seeking = false
+			timeline_seek_done(app)
 			return
 		}
 		// Chained entries undo and redo together, so a target inside a chain is passed
 		// over: the seek stops on the far side rather than stepping back and forth.
 		if after := len(app.history.done); after != tl.target && (before < tl.target) != (after < tl.target) {
-			tl.seeking = false
+			timeline_seek_done(app)
 			return
 		}
 		if time.tick_since(start) >= TIMELINE_BUDGET do return
@@ -296,6 +300,14 @@ timeline_seek_to :: proc(tl: ^Timeline, to: int) {
 	tl.target, tl.seeking, tl.playing = to, true, false
 }
 
+// Where a seek stopped, from `tl.seek_from` done steps: the camera follows when it should.
+@(private = "file")
+timeline_seek_done :: proc(app: ^App) {
+	tl := &app.timeline
+	tl.seeking = false
+	if !tl.playing do history_camera_follow(app, tl.seek_from)
+}
+
 // The interface's History panel. Its List view (history_list.odin, the default) stands at
 // the pen side under the chip bar: a row a step, a tap on one going there. Its Strip view
 // starts over the dock: step through the History, scrub it on the bar, play it back, and
@@ -313,7 +325,8 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	done, total := len(app.history.done), history_total(app)
 	recording := lapse.state != .Off
 	can := !recording && !app.stroke.active
-	list := tl.view == .List
+	// The Settings page stands where the list does, which has the height for it.
+	list := tl.view == .List || tl.settings
 	mark := ui.vertex_mark(ctx)
 	p: Panel_Frame
 	width: f32
@@ -346,19 +359,34 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	ui.begin(ctx, "history head", {direction = .Row, gap = 8, center = true, width = width - 20})
 	views := [len(History_View)]string{"List", "Strip"}
 	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
-	if picked := ui.tabs(ctx, "History view", views[:], int(tl.view), 84, glyphs = glyphs[:]); picked >= 0 do tl.view = History_View(picked)
-	if list {
+	// A view's tab also leaves the Settings page.
+	if picked := ui.tabs(ctx, "History view", views[:], -1 if tl.settings else int(tl.view), 84, glyphs = glyphs[:]); picked >= 0 do tl.view, tl.settings = History_View(picked), false
+	gear := t.target
+	if list && !tl.settings {
 		obj := selected_object(app)
 		label := fmt.tprintf("%s only", object_label(obj)) if tl.only_selected && obj != nil else "All objects"
 		label = ui.text_fit(ctx, label, t.small_size, 120)
-		// The chip at the row's end.
-		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true), 0))
+		// The chip at the row's end, before the gear.
+		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true) - gear - 8, 0))
 		if a := lens_chip(ctx, "Every object's steps, or only the selected one's##history", label, chevron = true, lit = tl.only_selected); a.clicked {
 			tl.only_selected = !tl.only_selected
 			tl.list_scroll = 0
 		}
+	} else {
+		ui.spacer(ctx, max(ui.row_room(ctx) - gear, 0))
 	}
+	if ui.icon_button(ctx, "History settings", ui.ICON_SETTINGS, selected = tl.settings) do tl.settings = !tl.settings
 	ui.end(ctx)
+	if tl.settings {
+		inner := width - 20
+		room := max(p.room - t.target - 20, 200)
+		s := kit_scroll_begin(ctx, "history settings scroll", &tl.settings_scroll, p.owner, inner, room, 0)
+		kit_history_settings(app, inner)
+		kit_scroll_end(ctx, s)
+		panel_end(app, &p)
+		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+		return
+	}
 	if list {
 		kit_history_list(app, &p, width, can)
 		panel_end(app, &p)

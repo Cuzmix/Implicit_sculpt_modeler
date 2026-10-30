@@ -190,13 +190,23 @@ grid_redo :: proc(app: ^App) {
 
 // The Undo and Redo commands: the layout's step or the scene's, whichever came last.
 undo_run :: proc(app: ^App) {
-	if grid_undo_first(app) do grid_undo(app)
-	else do history_undo(app)
+	if grid_undo_first(app) {
+		grid_undo(app)
+		return
+	}
+	from := len(app.history.done)
+	history_undo(app)
+	history_camera_follow(app, from)
 }
 
 redo_run :: proc(app: ^App) {
-	if grid_redo_first(app) do grid_redo(app)
-	else do history_redo(app)
+	if grid_redo_first(app) {
+		grid_redo(app)
+		return
+	}
+	from := len(app.history.done)
+	history_redo(app)
+	history_camera_follow(app, from)
 }
 
 undo_can :: proc(app: ^App) -> bool {

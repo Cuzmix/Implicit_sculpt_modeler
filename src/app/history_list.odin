@@ -42,9 +42,9 @@ history_entry_at :: proc(app: ^App, i: int) -> History_Entry {
 }
 
 // The list's rows, newest first: each step's first entry with the entries chained to it,
-// repeated strokes grouped (with an opened group's strokes after it), only the selected
-// object's with `only` set to its id.
-history_rows :: proc(app: ^App, only := -1, open_at := time.Tick{}) -> [dynamic]History_Row {
+// repeated strokes grouped unless `group` is false (with an opened group's strokes after
+// it), only the selected object's with `only` set to its id.
+history_rows :: proc(app: ^App, only := -1, open_at := time.Tick{}, group := true) -> [dynamic]History_Row {
 	rows := make([dynamic]History_Row, 0, 64, context.temp_allocator)
 	done, total := len(app.history.done), history_total(app)
 	// Each step as [head, last], newest first.
@@ -61,7 +61,7 @@ history_rows :: proc(app: ^App, only := -1, open_at := time.Tick{}) -> [dynamic]
 		// The run of strokes like it: one brush, one object, on the same side of where the
 		// History stands, none adjusted (an adjusted stroke reads on its own).
 		m := n + 1
-		for m < len(steps) {
+		for group && m < len(steps) {
 			o := history_entry_at(app, steps[m][0])
 			if !history_same_stroke(e, o) || (steps[m][0] < done) != (first[0] < done) do break
 			m += 1
@@ -91,9 +91,9 @@ history_same_stroke :: proc(a, b: History_Entry) -> bool {
 	return a.kind == .Stroke && b.kind == .Stroke && a.id == b.id && a.what == b.what && !a.adjusted && !b.adjusted && a.bookmark == "" && b.bookmark == ""
 }
 
-// What the History holds in all, in bytes, and how near its fullest store is to dropping
-// its oldest steps, 0 to 1: the swap snapshots and texture steps against their limit, and
-// each sculptor's strokes against its own.
+// What the History holds in all, in bytes, and how near it is to dropping its oldest steps,
+// 0 to 1: against History may use when it is set, else its fullest store against its own
+// limit (the swap snapshots and texture steps, and each sculptor's strokes).
 history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 	h := &app.history
 	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
@@ -111,6 +111,7 @@ history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 		for lv in obj.levels.levels do add(&lv.sculptor, &bytes, &full)
 		if object_in_hd(obj) do add(&obj.levels.hd.window.sculptor, &bytes, &full)
 	}
+	if app.history_limit_mb > 0 do full = f32(bytes) / f32(int(app.history_limit_mb) << 20)
 	return bytes, clamp(full, 0, 1)
 }
 
@@ -122,13 +123,20 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 	t := ctx.theme
 	tl := &app.timeline
 	inner := width - 20
-	// The memory line: steps and bytes, and a meter of the fullest store.
+	// The memory line: steps and bytes (of History may use, when set), and a meter of how
+	// near the History is to its limit.
 	steps := history_step_count(app.history.done[:]) + history_step_count(app.history.undone[:])
 	bytes, full := history_memory(app)
+	link := "Limits in Settings"
+	lw := ui.text_width(ctx, link, t.small_size) + 8
 	ui.begin(ctx, "history memory", {direction = .Row, width = inner, center = true})
-	r := ui.place(ctx, {inner, 18})
-	ui.text(ctx, fmt.tprintf("%d step%s · %s", steps, "" if steps == 1 else "s", bytes_label(bytes)), r.x, r.y + r.h * 0.5, t.small_size, t.text_secondary)
-	ui.text(ctx, "Limits in Settings", r.x + r.w, r.y + r.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
+	r := ui.place(ctx, {inner - lw, 18})
+	of := fmt.tprintf(" of %s", bytes_label(int(app.history_limit_mb) << 20)) if app.history_limit_mb > 0 else ""
+	ui.text(ctx, fmt.tprintf("%d step%s · %s%s", steps, "" if steps == 1 else "s", bytes_label(bytes), of), r.x, r.y + r.h * 0.5, t.small_size, t.text_secondary)
+	// It opens the Settings page, where the limits are.
+	la := ui.area(ctx, "Limits in Settings##history", {lw, 18}, drag = false)
+	ui.text(ctx, link, la.rect.x + la.rect.w, la.rect.y + la.rect.h * 0.5, t.small_size, t.accent if la.hovered else t.text_tertiary, .Regular, .Right)
+	if la.clicked do tl.settings = true
 	ui.end(ctx)
 	meter := ui.place(ctx, {inner, 5})
 	ui.fill_rect(ctx, meter, 2.5, t.track)
@@ -138,7 +146,7 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 	if tl.only_selected {
 		if obj := selected_object(app); obj != nil do only = obj.id
 	}
-	rows := history_rows(app, only, tl.open_at)
+	rows := history_rows(app, only, tl.open_at, !app.history_ungrouped)
 	natural: f32 = HISTORY_ROW_H + HISTORY_ROW_GAP // the first row of all, where the History starts
 	for row in rows do natural += (HISTORY_SUB_H if row.sub else HISTORY_ROW_H) + HISTORY_ROW_GAP
 	// The rows take what the window has left under its head, the memory line and the

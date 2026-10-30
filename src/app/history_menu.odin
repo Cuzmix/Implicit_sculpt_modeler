@@ -73,6 +73,29 @@ history_paint_back :: proc(app: ^App, head: int) {
 	if recall_to_entry(app, head) do command_run(app, .Brush, int(sculpt.Brush_Kind.History))
 }
 
+// Puts the camera where `v` says, gliding there: View from this step, and the History's
+// camera following undo.
+history_view_go :: proc(app: ^App, v: Camera_View) {
+	if v == {} do return
+	before := camera_ease_begin(app)
+	camera_go(app, v)
+	camera_ease_from(app, before)
+}
+
+// After the History moved from `from` done steps to where it stands: with Camera follows
+// the History on (History > Settings, Nomad's Restore camera), the camera goes where it was
+// when the step it moved over last was made, the one undone or the one redone, so the eye
+// lands on what changed. Not while a time-lapse records, which turns the camera itself.
+history_camera_follow :: proc(app: ^App, from: int) {
+	h := &app.history
+	if !app.history_camera || app.timeline.lapse.state != .Off do return
+	if len(h.done) < from && len(h.undone) > 0 {
+		history_view_go(app, h.undone[len(h.undone) - 1].view)
+	} else if len(h.done) > from {
+		history_view_go(app, h.done[len(h.done) - 1].view)
+	}
+}
+
 // Opens the menu of the step whose first entry is at timeline position `head`, beside
 // `anchor` (the pointer in the list, the step's block on the strip).
 history_menu_open :: proc(app: ^App, head: int, anchor: ui.Rect, side: ui.Side) {
@@ -153,9 +176,7 @@ kit_history_menu :: proc(app: ^App) {
 		picked = true
 	}
 	if ui.menu_item(ctx, "View from this step", glyph = ICON_CAMERA, enabled = e.view != {}, reason = "This step kept no view", hint = "Puts the camera where it was when this step was made; the History stays where it is") {
-		before := camera_ease_begin(app)
-		camera_go(app, e.view)
-		camera_ease_from(app, before)
+		history_view_go(app, e.view)
 		picked = true
 	}
 	if tl.view == .List && obj != nil {
