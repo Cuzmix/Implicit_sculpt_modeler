@@ -62,7 +62,19 @@ render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, i
 	if !pass_shaded(app) do return
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool, linear = finish_wanted(app))
+	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool, linear = finish_wanted(app), async = render_async(app))
+}
+
+// Whether render mode's bands go to the compute queue: Async compute where the device has
+// a second queue, or --async-compute wherever the backend has a compute queue at all.
+// The pictures (view panes, the thumbnail window) keep theirs in the frame by choice.
+render_async :: proc(app: ^App) -> bool {
+	switch render.caps(&app.renderer).async_compute {
+	case .Off:          return false
+	case .Same_Queue:   return app.async_compute_run
+	case .Second_Queue: return app.async_compute || app.async_compute_run
+	}
+	return false
 }
 
 // Whether render mode still has samples to build, which keeps the frames coming.

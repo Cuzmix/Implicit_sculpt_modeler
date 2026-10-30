@@ -54,9 +54,22 @@ Vk_Sampled :: struct {
 	sampler: vk.Sampler,
 }
 
+// The queue a command buffer goes to, whose timeline its serial counts on.
+Vk_Queue :: enum u8 {
+	Graphics,
+	Compute,
+}
+
 Vk_Cmd :: struct {
 	cb:              vk.CommandBuffer,
-	serial:          u64, // the submission's timeline value, once submitted
+	queue:           Vk_Queue,
+	serial:          u64, // the submission's timeline value on its queue, once submitted
+	// A graphics command buffer waits for the compute timeline to reach this before it
+	// runs (gpu_wait_on); 0 for no wait.
+	compute_wait:    u64,
+	// What a compute-queue recording writes, marked with its serial when it is submitted.
+	written_images:  [dynamic]^Vk_Image,
+	written_buffers: [dynamic]^Vk_Buffer_Backing,
 	stamp:           u64, // this recording's number, which tracked objects remember
 	pools:           [dynamic]vk.DescriptorPool,
 	pools_used:      int,
@@ -89,6 +102,7 @@ Vk_Cmd :: struct {
 
 Vk_Fence :: struct {
 	serial: u64,
+	queue:  Vk_Queue,
 }
 
 @(private = "file")
@@ -196,6 +210,8 @@ vk_cmd_free :: proc(cmd: ^Vk_Cmd) {
 	delete(cmd.pipelines)
 	delete(cmd.presents)
 	delete(cmd.targets)
+	delete(cmd.written_images)
+	delete(cmd.written_buffers)
 	free(cmd)
 }
 
@@ -224,6 +240,8 @@ vk_cmd_recycle :: proc(cmd: ^Vk_Cmd) {
 	clear(&cmd.pipelines)
 	clear(&cmd.presents)
 	clear(&cmd.targets)
+	clear(&cmd.written_images)
+	clear(&cmd.written_buffers)
 	for pool in cmd.pools[:cmd.pools_used] do vk.ResetDescriptorPool(vk_state.device, pool, {})
 	cmd.pools_used, cmd.blocks_used, cmd.block_offset = 0, 0, 0
 	vk.ResetCommandBuffer(cmd.cb, {})
@@ -247,6 +265,7 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 	vk_stamps += 1
 	cmd.stamp = vk_stamps
 	cmd.serial = 0
+	cmd.queue, cmd.compute_wait = .Graphics, 0
 	cmd.timed_slot = 0
 	cmd.pass = .None
 	cmd.pipeline = nil
@@ -258,6 +277,22 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 		return nil
 	}
 	return (^sdl.GPUCommandBuffer)(cmd)
+}
+
+// A command buffer for the compute queue (gpu_acquire_compute_command_buffer): compute
+// passes only (vk_check_compute_writes knows their writes, not a copy's), submitted with
+// vk_submit_compute.
+vk_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+	cmd := (^Vk_Cmd)(vk_acquire_command_buffer(device))
+	if cmd != nil do cmd.queue = .Compute
+	return (^sdl.GPUCommandBuffer)(cmd)
+}
+
+// Makes the graphics command buffer wait, before any of its work, for the compute
+// submission `fence` names, so it sees what that wrote.
+vk_wait_on :: proc(command_buffer: ^sdl.GPUCommandBuffer, fence: ^sdl.GPUFence) {
+	cmd, f := (^Vk_Cmd)(command_buffer), (^Vk_Fence)(fence)
+	if cmd.queue == .Graphics && f.queue == .Compute do cmd.compute_wait = max(cmd.compute_wait, f.serial)
 }
 
 // The command buffer that moves new textures into their default layouts, opened when the
@@ -273,6 +308,9 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 		sdl.SetError("submitted inside a pass")
 		return 0, false
 	}
+	if cmd.queue == .Compute do return vk_submit_compute(cmd)
+	if vk_state.validation do vk_check_compute_writes(cmd)
+	vk_compute_waited = max(vk_compute_waited, cmd.compute_wait)
 	for p in cmd.presents {
 		t := p.window.textures[p.image]
 		vk_image_barrier(cmd, t.active, .COLOR_ATTACHMENT_OPTIMAL, .PRESENT_SRC_KHR)
@@ -297,13 +335,15 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	}
 	buffers[n] = {sType = .COMMAND_BUFFER_SUBMIT_INFO, commandBuffer = cmd.cb}
 	n += 1
-	waits := make([]vk.SemaphoreSubmitInfo, len(cmd.presents), context.temp_allocator)
+	waits := make([dynamic]vk.SemaphoreSubmitInfo, 0, len(cmd.presents) + 1, context.temp_allocator)
 	signals := make([]vk.SemaphoreSubmitInfo, len(cmd.presents) + 1, context.temp_allocator)
 	signals[0] = {sType = .SEMAPHORE_SUBMIT_INFO, semaphore = vk_state.timeline, value = serial, stageMask = {.ALL_COMMANDS}}
 	for p, i in cmd.presents {
-		waits[i] = {sType = .SEMAPHORE_SUBMIT_INFO, semaphore = p.window.acquired[p.frame], stageMask = {.ALL_COMMANDS}}
+		append(&waits, vk.SemaphoreSubmitInfo{sType = .SEMAPHORE_SUBMIT_INFO, semaphore = p.window.acquired[p.frame], stageMask = {.ALL_COMMANDS}})
 		signals[i + 1] = {sType = .SEMAPHORE_SUBMIT_INFO, semaphore = p.window.render_done[p.image], stageMask = {.ALL_COMMANDS}}
 	}
+	// At every stage: what the compute queue wrote may be read by any shader here.
+	if cmd.compute_wait > 0 do append(&waits, vk.SemaphoreSubmitInfo{sType = .SEMAPHORE_SUBMIT_INFO, semaphore = vk_state.compute_timeline, value = cmd.compute_wait, stageMask = {.ALL_COMMANDS}})
 	submit := vk.SubmitInfo2 {
 		sType                    = .SUBMIT_INFO_2,
 		waitSemaphoreInfoCount   = u32(len(waits)),
@@ -333,6 +373,70 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	return serial, true
 }
 
+// The highest compute serial a graphics submission has waited for. Every later graphics
+// submission runs after that one, so it sees the same compute work.
+@(private = "file")
+vk_compute_waited: u64
+
+// Submits a compute-queue command buffer: it waits for every graphics submission so far
+// (so for anything they wrote, or read that it now writes) and signals the compute
+// timeline. A pending setup buffer goes first on the graphics queue, which it then waits
+// for too, since the graphics queue may use those textures before the compute queue runs.
+@(private = "file")
+vk_submit_compute :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
+	if len(cmd.presents) > 0 || len(cmd.targets) > 0 {
+		sdl.SetError("a compute-queue command buffer holds compute passes only")
+		return 0, false
+	}
+	if setup := vk_state.setup; setup != nil {
+		if _, ok := vk_submit(setup); !ok do return 0, false
+	}
+	if vk.EndCommandBuffer(cmd.cb) != .SUCCESS {
+		sdl.SetError("vkEndCommandBuffer failed")
+		return 0, false
+	}
+	vk_state.compute_submitted += 1
+	serial := vk_state.compute_submitted
+	buffer := vk.CommandBufferSubmitInfo{sType = .COMMAND_BUFFER_SUBMIT_INFO, commandBuffer = cmd.cb}
+	wait := vk.SemaphoreSubmitInfo{sType = .SEMAPHORE_SUBMIT_INFO, semaphore = vk_state.timeline, value = vk_state.submitted, stageMask = {.ALL_COMMANDS}}
+	signal := vk.SemaphoreSubmitInfo{sType = .SEMAPHORE_SUBMIT_INFO, semaphore = vk_state.compute_timeline, value = serial, stageMask = {.ALL_COMMANDS}}
+	submit := vk.SubmitInfo2 {
+		sType                    = .SUBMIT_INFO_2,
+		waitSemaphoreInfoCount   = 1 if vk_state.submitted > 0 else 0,
+		pWaitSemaphoreInfos      = &wait,
+		commandBufferInfoCount   = 1,
+		pCommandBufferInfos      = &buffer,
+		signalSemaphoreInfoCount = 1,
+		pSignalSemaphoreInfos    = &signal,
+	}
+	if r := vk.QueueSubmit2(vk_state.compute_queue, 1, &submit, 0); r != .SUCCESS {
+		log.errorf("Vulkan: vkQueueSubmit2 (compute) failed: %v", r)
+		sdl.SetError("vkQueueSubmit2 failed")
+		return 0, false
+	}
+	for img in cmd.written_images do img.compute_write = serial
+	for b in cmd.written_buffers do b.compute_write = serial
+	cmd.serial = serial
+	append(&vk_state.in_flight, cmd)
+	vk_collect()
+	return serial, true
+}
+
+// Under --gpu-debug: a graphics submission that uses an image or buffer the compute queue
+// wrote, without waiting for that write (gpu_wait_on, here or in an earlier submission),
+// would read it before it is written, or before it is visible. One queue runs the two in
+// order anyway, so the validation layer cannot see this there; this check can.
+@(private = "file")
+vk_check_compute_writes :: proc(cmd: ^Vk_Cmd) {
+	waited := max(vk_compute_waited, cmd.compute_wait)
+	for img in cmd.images do if img.compute_write > waited {
+		vk_validation_error("a graphics submission uses an image (%s) that compute submission %d writes, without waiting for it", img.owner.name if img.owner.name != nil else "unnamed", img.compute_write)
+	}
+	for b in cmd.buffers do if b.compute_write > waited {
+		vk_validation_error("a graphics submission uses a buffer that compute submission %d writes, without waiting for it", b.compute_write)
+	}
+}
+
 vk_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
 	_, ok := vk_submit((^Vk_Cmd)(command_buffer))
 	return ok
@@ -342,7 +446,7 @@ vk_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUComma
 	serial, ok := vk_submit((^Vk_Cmd)(command_buffer))
 	if !ok do return nil
 	fence := new(Vk_Fence)
-	fence.serial = serial
+	fence.serial, fence.queue = serial, (^Vk_Cmd)(command_buffer).queue
 	return (^sdl.GPUFence)(fence)
 }
 
@@ -359,19 +463,32 @@ vk_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool 
 
 vk_query_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) -> bool {
 	vk_collect()
-	return (^Vk_Fence)(fence).serial <= vk_state.completed
+	f := (^Vk_Fence)(fence)
+	return vk_serial_done(f.queue, f.serial)
 }
 
 vk_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: u32) -> bool {
 	if num_fences == 0 do return true
-	// Submissions finish in order, so all of them are done when the latest is, and any one
-	// when the earliest is.
-	serial := (^Vk_Fence)(fences[0]).serial
-	for i in 1 ..< num_fences {
-		s := (^Vk_Fence)(fences[i]).serial
-		serial = max(serial, s) if wait_all else min(serial, s)
+	// Each queue's submissions finish in order, so all of a queue's fences are done when its
+	// latest is, and any one when its earliest is; one wait then covers both timelines.
+	values: [Vk_Queue]u64
+	used: [Vk_Queue]bool
+	for i in 0 ..< num_fences {
+		f := (^Vk_Fence)(fences[i])
+		values[f.queue] = (max(values[f.queue], f.serial) if wait_all else min(values[f.queue], f.serial)) if used[f.queue] else f.serial
+		used[f.queue] = true
 	}
-	return vk_wait_serial(serial)
+	semaphores: [2]vk.Semaphore
+	wanted: [2]u64
+	n: u32
+	for q in Vk_Queue do if used[q] {
+		semaphores[n], wanted[n] = vk_state.timeline if q == .Graphics else vk_state.compute_timeline, values[q]
+		n += 1
+	}
+	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, flags = {} if wait_all else {.ANY}, semaphoreCount = n, pSemaphores = &semaphores[0], pValues = &wanted[0]}
+	ok := vk.WaitSemaphores(vk_state.device, &info, max(u64)) == .SUCCESS
+	vk_collect()
+	return ok
 }
 
 vk_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
@@ -785,6 +902,7 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
 		binding := storage_texture_bindings[i]
 		img := vk_target(cmd, (^Vk_Texture)(binding.texture), binding.mip_level, binding.cycle, .GENERAL)
 		cmd.write_textures[i] = img.level_views[binding.mip_level]
+		if cmd.queue == .Compute do append(&cmd.written_images, img)
 	}
 	for i in 0 ..< num_storage_buffer_bindings {
 		binding := storage_buffer_bindings[i]
@@ -792,6 +910,7 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
 		if binding.cycle && b.active.refs > 0 do vk_buffer_cycle(b)
 		vk_cmd_track_buffer(cmd, b.active)
 		cmd.write_buffers[i] = b.active.buffer
+		if cmd.queue == .Compute do append(&cmd.written_buffers, b.active)
 	}
 	cmd.pass = .Compute
 	cmd.pipeline = nil

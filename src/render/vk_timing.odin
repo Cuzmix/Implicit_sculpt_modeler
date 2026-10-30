@@ -56,7 +56,8 @@ vk_timing_destroy :: proc() {
 vk_write_timestamp :: proc(command_buffer: ^Vk_Cmd, tag: u8) {
 	t := &vk_state.timing
 	s := &t.slots[t.current]
-	if !t.open || s.count == TIMESTAMPS_MAX do return
+	// Slots follow the graphics timeline, so compute-queue work goes untimed.
+	if !t.open || s.count == TIMESTAMPS_MAX || command_buffer.queue == .Compute do return
 	vk.CmdWriteTimestamp2(command_buffer.cb, {.ALL_COMMANDS}, s.pool, s.count)
 	s.tags[s.count] = tag
 	s.count += 1
