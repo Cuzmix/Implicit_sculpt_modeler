@@ -130,6 +130,8 @@ STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Samples, .Pen
 // card whose options are open; where each card was laid out (for a carried card's drop);
 // and for the exit stats, folds and moves.
 Lens_Stack :: struct {
+	// Where the whole stack goes: docked on the right or the left, or floating (panels.odin).
+	place:   Stack_Place,
 	order:   [len(Panel_Kind)]Panel_Kind,
 	open:    bit_set[Panel_Kind],
 	floated: bit_set[Panel_Kind],
@@ -233,6 +235,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.joined, s.beside, s.beside_left, s.beside_w = {}, {}, {}, {}
 	for c in Panel_Kind do s.shown[c] = c
 	s.visit, s.revealed = nil, nil
+	s.place = .Right
 	s.set = true
 }
 
@@ -351,18 +354,12 @@ stack_reveal_card :: proc(app: ^App, c: Panel_Kind) {
 	s.open += {host}
 	for x in stack_group(s, host) do s.hidden -= {x}
 	stack_show_tab(s, c)
-	k.panels.scroll[.Inspector], k.scroll = 0, 0
+	k.panels.scroll, k.scroll = 0, 0
 	// Shown as icons, the card opens from its icon, so what is asked for is in sight.
 	if stack_strip_shown(app) && host not_in s.floated {
 		s.tab, s.tab_open, s.tab_at, s.scrolls[host] = host, true, s.strip_at[host], 0
 	}
-	if host not_in s.floated do stack_column_pop(app)
-}
-
-// On a narrow window, pops the column the stack is docked in over the view, so a card
-// just opened or kept there is in sight even when the stack was open already.
-stack_column_pop :: proc(app: ^App) {
-	if side, _, docked := panel_docked(&app.kit, Kit_Window.Inspector); docked && columns_narrow(app) do column_pop(app, side, true)
+	if host not_in s.floated do stack_pop_open(app)
 }
 
 // The layout's density line, `stack_density icons`, only when it is not Panels.

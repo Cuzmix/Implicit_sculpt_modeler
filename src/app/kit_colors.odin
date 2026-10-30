@@ -403,18 +403,17 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		kit_colors_menus(app)
 		return
 	}
-	colors_header(app, p.docked)
+	colors_header(app)
 
-	// The body scrolls when the window, or the card's share of its column, is too short
-	// for it, between the header and the tabs. Once its content has been measured, and from
-	// its first frame in a column (at the room it has there), it is as tall as it decides
-	// here while the content changes under it, a tab picked or the card docked, so the
-	// tabs never drop past the window's foot for a frame.
+	// The body scrolls when the window is too short for it, between the header and the
+	// tabs. Once its content has been measured it is as tall as it decides here while the
+	// content changes under it, a tab picked, so the tabs never drop past the window's foot
+	// for a frame.
 	fixed := t.target + BRUSH_TILE_H + 2 * COLORS_GAP
 	room := max(p.room - fixed, 120)
 	_, natural := ui.prev_layout(ctx, "colors body")
 	want := colors_body_want(app, natural.y, inner)
-	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(want, room) if want > 0 else room, COLORS_GAP, fixed = want > 0 || p.docked)
+	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(want, room) if want > 0 else room, COLORS_GAP, fixed = want > 0)
 	switch c.tab {
 	case .Disc:     colors_disc(app, inner)
 	case .Classic:  colors_classic(app, inner)
@@ -434,12 +433,6 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		}
 	}
 	ui.end(ctx)
-	// Docked, the card asks its column for its content's height, which no share of the
-	// column changes. Asking for the share it was given would hand that share back a frame
-	// late, so odd and even frames would each keep a height of their own and the card would
-	// flicker between them. Until its body has been laid out in the column, it asks for all
-	// the room it has.
-	if p.docked do p.want = (fixed + want) if want > 0 else p.room
 	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
 
@@ -517,10 +510,9 @@ kit_color_popover :: proc(app: ^App) {
 BRUSH_TILE_H :: ui.BRUSH_TILE.y
 
 // The row under the title: the main and secondary colours (a tap edits that one, a long
-// press swaps them), Swap, Fill object, Fill gradient, Eyedropper and Close; `docked`, the
-// column's header over it has Close already.
+// press swaps them), Swap, Fill object, Fill gradient, Eyedropper and Close.
 @(private = "file")
-colors_header :: proc(app: ^App, docked: bool) {
+colors_header :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.colors
@@ -536,7 +528,7 @@ colors_header :: proc(app: ^App, docked: bool) {
 	_ = colors_command(app, .Paint, ICON_FILL, int(sculpt.Paint_Command.Fill))
 	_ = colors_command(app, .Paint, ICON_FILL_GRADIENT, int(sculpt.Paint_Command.Gradient))
 	_ = colors_command(app, .Eyedropper, ICON_EYEDROPPER)
-	if !docked do _ = colors_command(app, .Colors_Card, ui.ICON_CLOSE, name = "Close")
+	_ = colors_command(app, .Colors_Card, ui.ICON_CLOSE, name = "Close")
 	ui.end(ctx)
 }
 

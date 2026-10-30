@@ -1130,7 +1130,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows do window_save_line(&out, which, w)
-	panels_save(&app.kit, &out)
 	workspaces_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")

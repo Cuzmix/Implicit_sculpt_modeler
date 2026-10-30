@@ -12,8 +12,8 @@ import "../ui"
 // How many sections the tray has: Kit_Section's first ones, before the Stats panel's.
 TRAY_SECTIONS :: int(Kit_Section.Background) + 1
 
-// The narrowest safe area where the columns stand beside the view rather than pop over it
-// (columns_narrow).
+// The narrowest safe area where the docked stack stands beside the view rather than pops
+// over it (stack_narrow).
 COLUMNS_MIN_W :: 1180
 
 // What a section is called: its card's title, and its name in Search.

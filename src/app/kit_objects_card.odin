@@ -97,7 +97,7 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 objects_card_toggle :: proc(app: ^App) {
 	k := &app.kit
 	k.objects_card = !k.objects_card
-	if _, _, docked := panel_docked(k, Kit_Window.Objects); k.objects_card && !docked {
+	if k.objects_card {
 		side_panel_close(app)
 		k.inspector = false
 	}
@@ -111,7 +111,7 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	c := &k.card
 	// The tray or a side panel opening takes the floating card's place.
 	tray := k.inspector || side_panel_open(k)
-	if _, _, docked := panel_docked(k, Kit_Window.Objects); tray && !c.tray_was && !docked do k.objects_card = false
+	if tray && !c.tray_was do k.objects_card = false
 	c.tray_was = tray
 	if !k.objects_card do c.add, c.more, c.menu = false, false, false
 	shown := ui.presence(ctx, panel_id(Kit_Window.Objects), k.objects_card, t.panel_time)

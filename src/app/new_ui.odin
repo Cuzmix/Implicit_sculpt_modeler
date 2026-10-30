@@ -185,8 +185,8 @@ Kit_State :: struct {
 	clean_dial:   bool,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
-	// On a window narrower than COLUMNS_MIN_W the columns pop over the view only while
-	// asked for, as popovers from the rails do (Settings > Interface; panels.odin).
+	// On a window narrower than COLUMNS_MIN_W the docked stack pops over the view only
+	// while asked for, as popovers from the rails do (Settings > Interface; panels.odin).
 	column_popovers: bool,
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
 	// lines drawn this frame and the frames a guide moved, for the exit stats.
@@ -431,11 +431,13 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 	if len(k.order) < cap(k.order) do append(&k.order, which)
 }
 
-// Puts every window back where it starts, open and in the starting order, the tray back
-// in the right column (panels_default) and every bar shown.
+// Puts every window back where it starts, open and in the starting order, the stack back
+// docked on the right (panels_default) and every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
 	panels_default(k)
+	if !k.stack.set do stack_default(k)
+	k.stack.place = .Right
 	// Every bar comes back too, so a workspace that hides them is never a dead end.
 	k.hidden = {}
 }
@@ -1241,6 +1243,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if app.diag.open && quiet do diag_close(app)
 		else if k.home && quiet do home_close(app)
 		else if k.clean && quiet do clean_view_set(app, false)
+		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
@@ -1419,11 +1422,11 @@ kit_layout :: proc(app: ^App) {
 	kit_recover(app)
 	kit_macro_chip(app)
 
-	// The two columns, under the windows (panels.odin); then the windows and floating
+	// The docked stack, under the windows (panels.odin); then the windows and floating
 	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
-	// front from the next frame on. A docked panel is its column's, shown or not.
+	// front from the next frame on. The docked stack is its column's, shown or not.
 	stack_frame_begin(k)
-	kit_columns(app, panel_draw)
+	kit_stack_dock(app, panel_draw)
 	// A card floated out of the stack another way than by hand (a layout read, a pane
 	// closed) joins the order on top.
 	for c in k.stack.floated do if !slice.contains(k.order[:], Float_Ref(c)) do float_raise(k, c)
@@ -1438,9 +1441,7 @@ kit_layout :: proc(app: ^App) {
 		}
 	}
 	float_raise(k, top)
-	// While a floating panel is dragged, where it would dock; while a palette is carried,
-	// where it would go.
-	kit_column_drop(app)
+	// While a palette is carried, where it would go.
 	stack_carry_update(app)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)
@@ -1485,10 +1486,10 @@ kit_layout :: proc(app: ^App) {
 	kit_export_sheet(app)
 }
 
-// Lays out panel `which` where it floats, if it does (a docked one is its column's).
+// Lays out panel `which` where it floats, if it does (the docked stack is its column's).
 // Returns true when a press landed on it, to bring it to the front.
 panel_float_draw :: proc(app: ^App, which: Panel_Ref) -> bool {
-	if _, _, docked := panel_docked(&app.kit, which); docked do return false
+	if _, docked := stack_docked(&app.kit); docked && which == Panel_Ref(Kit_Window.Inspector) do return false
 	return panel_draw(app, which)
 }
 
@@ -1537,8 +1538,8 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	strip := stack_strip_shown(app)
 	stack_w := STACK_STRIP_W if strip else stack_width(k) + stack_docked_extra(k)
 	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
-	if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
-	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
+	if _, docked := stack_docked(k); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
+	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector))
 	raised = p.raised
 	if p.closed do k.inspector = false
 	if p.body {

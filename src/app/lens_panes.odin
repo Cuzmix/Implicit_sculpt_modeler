@@ -302,7 +302,7 @@ grid_divider_lens :: proc(app: ^App, div: Grid_Divider, a: ui.Area, cells: [GRID
 stack_strip_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
 	if grid_panes(&k.grid) < 2 && k.stack.density != .Icons do return false
-	_, _, docked := panel_docked(k, Kit_Window.Inspector)
+	_, docked := stack_docked(k)
 	return docked
 }
 

@@ -1658,9 +1658,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
-		// The tray scrolls in its column's body while docked and in its own while floating.
+		// The stack scrolls in its column's body while docked and in its own while floating.
 		tray_scroll := app.kit.scroll
-		if _, _, docked := panel_docked(&app.kit, Kit_Window.Inspector); docked do tray_scroll = app.kit.panels.scroll[.Inspector]
+		if _, docked := stack_docked(&app.kit); docked do tray_scroll = app.kit.panels.scroll
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", tray_scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
@@ -1748,15 +1748,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
 		}
 		fmt.println()
-		// What each column holds, top to bottom, and which sections are kept in the stack.
-		for side in Column_Side {
-			b := strings.builder_make(context.temp_allocator)
-			for r, i in k.panels.columns[side] {
-				if i > 0 do strings.write_byte(&b, ',')
-				strings.write_string(&b, strings.to_lower(fmt.tprint(r.(Kit_Window)), context.temp_allocator))
-			}
-			fmt.printf("column_%s=%s ", "left" if side == .Left else "right", strings.to_string(b) if len(k.panels.columns[side]) > 0 else "none")
-		}
+		// Where the stack goes (in layout terms), and which sections are kept in it.
+		fmt.printf("stack_place=%s ", strings.to_lower(fmt.tprint(k.stack.place), context.temp_allocator))
 		pins := strings.builder_make(context.temp_allocator)
 		for c in k.stack.order {
 			sec, is := panel_section(c)
@@ -1765,8 +1758,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}
 		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
-		popped := "left,right" if k.panels.popped[.Left] && k.panels.popped[.Right] else "left" if k.panels.popped[.Left] else "right" if k.panels.popped[.Right] else "none"
-		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(columns_narrow(&app)), popped, k.panels.pops)
+		// On a narrow window, the side whose docked stack is popped over the view.
+		popped := "none"
+		if side, docked := stack_docked(k); docked && k.panels.popped do popped = "left" if side == .Left else "right"
+		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(stack_narrow(&app)), popped, k.panels.pops)
 		// The workspace (its name escaped, as it may hold spaces), whether its layout has
 		// changes not saved, how many there are, and the zones hidden (by it or a view toggle).
 		if w := &k.workspaces; len(w.list) > 0 {

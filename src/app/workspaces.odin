@@ -131,7 +131,7 @@ layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
 }
 
 // The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,
-// the columns and the pins, in that order. Places are written as they are for the
+// where the stack goes and the stack's own lines, in that order. Places are written as they are for the
 // right-handed layout, so a workspace saved with either hand reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
@@ -153,7 +153,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		if mirror do window_mirror(&win)
 		window_save_line(&out, w, win)
 	}
-	panels_save(k, &out)
+	stack_place_save(k, &out)
 	// The right bar's column, the bottom bar's strip and the view rail, after a line that
 	// says the layout holds them (one saved before it did keeps the bars as they are). The
 	// dock holds the user's brushes, which are no layout's: it stays as it is in every
@@ -220,6 +220,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			panels_load_line(k, f, &old_pins)
 		case "stack":
 			stack_layout_read(k, f)
+		case "stack_place":
+			stack_place_read(k, f)
 		case "stack_size":
 			stack_sizes_read(k, f)
 		case "stack_density":
@@ -578,8 +580,8 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 		return
 	}
 	// A layout saved before the grid was a tree names it with a grid line, and one saved
-	// while the stack had a Palettes card names that: each written again once as this
-	// version writes it, so it reads as unchanged.
+	// while the stack had a Palettes card, or with columns or pins, names those: each
+	// written again once as this version writes it, so it reads as unchanged.
 	for &each in w.list do if each.used {
 		if up := grid_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
 		if up := grid_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
@@ -619,10 +621,12 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 }
 
 // Layout `text` written again as this version writes it when its stack lines name the
-// Palettes card, which is gone (round 3, PR 9); any other text as it is.
+// Palettes card, or it has column or pinned lines, all gone with round 3's PR 9; any other
+// text as it is.
 stack_layout_upgrade :: proc(text: string) -> string {
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
+		if len(f) > 0 && (f[0] == "column" || f[0] == "pinned") do return workspace_layout_clean(text)
 		if len(f) == 0 || !strings.has_prefix(f[0], "stack") do continue
 		for word in f[1:] {
 			name := strings.trim_suffix(strings.trim_prefix(strings.trim_prefix(strings.trim_prefix(word, "*"), "-"), "card:"), "+")

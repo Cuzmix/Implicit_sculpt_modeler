@@ -80,12 +80,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Chip), and `value_item` draws every look, a Chip claiming the drag only across its bar (`claim_drag`). Customise bars (`k.bars_edit`) is
   Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
   chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
-  `arrange_show_chips` + `arrange_panel_rows`, `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar, and
-  `kit_column_drop` both columns. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): a tray section by
+  `arrange_show_chips` + `arrange_panel_rows` (the stack Hidden/Left/Right/Float, other windows Hidden/Shown), and
+  `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): a tray section by
   `Kit_Section` (any palette's, `bar_section`), the symmetry axes, the polyframe parts, the Remesh quick menu, Shading,
   Camera or View layout. `corner = true` on `icon_button` draws the triangle that says a long press does more.
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
-  press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the right column above it. The shelf's pages are
+  press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the docked stack above it. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
   show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows and floated
   `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
@@ -152,22 +152,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
   it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
-- Panels and columns (`src/app/panels.odin`): `Panel_Ref :: union {Kit_Window}` names a panel, a
-  window that docks; a pinned section is a card kept in the stack (PR 9d), and `panels_load_line` notes an older
-  file's `pinned` lines and `section:` column words in `Panels_Old` for `panels_old_settle` to keep once read. Each panel proc
-  calls `panel_begin(app, ref, title, x, y, offset, box)` … `panel_end`, never `ui.window_begin` itself: floating it
-  is the window or card as before; docked (`k.panels.columns[side]`, laid out by `kit_columns`) it is its own root
-  container placed at `k.panels.at[side]`, with a header (title, summary when folded, options, Minimise, Close) and a
-  body scrolled by `Kit_Scroll` in the height `panel_water_fill` allots. Size the body from `Panel_Frame.room`, scroll
-  from `Panel_Frame.owner`, and set `p.want` to the height the body would like. Docked panels are separate roots so
-  hit testing and `prev_rect` by root name keep working; never nest one panel proc in another's container. A header
-  dragged past the slop calls `panel_undock`, which floats the window under the finger and hands it the press with
-  `ui.window_grab`; `panel_drag_follow` docks a floating panel let go over `column_zone`. `kit_panel_menu` is the
-  options popover. `column` lines in the settings (`panels_save`, `panels_load_line`); `stack_column_pop` pops the stack's column on a
-  narrow window when a card is opened or kept; `windows_reset`
-  calls `panels_default`. Exit stats `column_left= column_right= panel_pins=` (kept section cards, stack order) `panel_moves= panel_menu=`.
+- Where the panels go (`src/app/panels.odin`, PR 9e): the columns are gone. `k.stack.place` (`Stack_Place`: Right,
+  Left, Float, layout terms, reset by `stack_default`; `stack_place_set`, layout line `stack_place left|float`) says
+  where the whole stack goes; `stack_docked(k) -> (side, ok)` is how to ask. Other windows only float. Each panel proc
+  calls `panel_begin(app, ref, title, x, y, offset, box)` … `panel_end`, never `ui.window_begin` itself; only the
+  stack docks, laid out by `kit_stack_dock` as its own root at `k.panels.at` with its body scrolled
+  (`k.panels.scroll`), and it writes `k.panels.rect[side]`, which what keeps clear of it reads. Size a body from
+  `Panel_Frame.room`, scroll from `.owner`. `kit_panel_menu` (Dock on the left/right, Float for the stack; Fold, Close).
+  An older file's `column`/`pinned` lines go to `Panels_Old` (`panels_load_line`) and `panels_old_settle` (stack
+  place, kept section cards). Exit stats `stack_place= panel_pins= panel_moves= panel_menu=`.
 - Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
-  `column` lines (an older `pinned` one is read into the stack), places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
+  `stack*` lines, places written right-handed; an older `column`/`pinned` line is read into the stack and
+  `stack_layout_upgrade` rewrites such a saved text once) and `kit_layout_put(k, text)`; the modified dot is that text
   against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,
   canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
   Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
@@ -206,10 +202,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pass `Picture.orbit` (the camera their picture was drawn through, which lags while working), the main view
   `app.camera`. Only the tag is a ui root, so strokes cross the line. `guides_frame` (in `kit_grid`) bumps
   `view_edits` once when the held tag lets go; never an undo step, never a Scene_Command.
-- Narrow windows (`columns_narrow`: safe width < `COLUMNS_MIN_W` and `k.column_popovers`): a column draws only while
-  `k.panels.popped[side]` (or arranging, or a panel drag; `column_visible`); `columns_pop_update` pops a column when a
-  panel in it opens (`panel_bit` sets, `open_last`) and puts it away on a viewport press (swallowed, as popovers do);
-  `kit_column_tab` pops it; Palettes toggles the tray's column there. Light a tray button with `tray_shown(app)`.
+- Narrow windows (`stack_narrow`: safe width < `COLUMNS_MIN_W` and `k.column_popovers`): the docked stack draws only
+  while `k.panels.popped` (or arranging; `stack_visible`); `stack_pop_update` pops it when it opens and puts it away on
+  a viewport press (swallowed, as popovers do) or Escape; `stack_pop_open` pops it for a card opened or kept;
+  `kit_stack_pop_tab` pops it; Palettes toggles it there. Light a tray button with `tray_shown(app)`.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
   picture a frame, `app.pictures_drawn`); `view_grid_room` is the window (panels float over the panes; a head avoids columns via `grid_left_column_edge` and wraps to two rows when narrow); `Theme.panel_shadow` lifts `.Panel`s; a divider drag freezes the target and
