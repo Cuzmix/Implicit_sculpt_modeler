@@ -1212,6 +1212,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	pen_roll_frame(app, input)
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
+	layer_mask_frame(app)
 	deform_drag_end(app)
 	cage_look_drag_end(app)
 	reshape_drag_end(app)

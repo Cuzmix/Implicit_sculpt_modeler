@@ -279,10 +279,11 @@ KIND_COLORS := [History_Kind][4]f32 {
 	.Model     = {0.4, 0.8, 1, 1},
 }
 
-// How a step reads in the panel: "Clay stroke", "Blur mask", "remesh", and with Adjust
-// last stroke its share, "Clay stroke (80%)".
+// How a step reads in the panel: "Clay stroke", "Blur mask", "remesh", on a layer's mask
+// "Blur mask (layer mask)", and with Adjust last stroke its share, "Clay stroke (80%)".
 entry_label :: proc(e: History_Entry) -> string {
 	label := fmt.tprintf("%s stroke", e.what) if e.kind == .Stroke else e.what
+	if e.layer_mask do label = fmt.tprintf("%s (layer mask)", label)
 	if e.adjusted do return fmt.tprintf("%s (%.0f%%)", label, e.amount * 100)
 	return label
 }

@@ -153,3 +153,8 @@ summary.
   slider's at once). Ask `prev_rect` of a row's children inside the row (`id_of` is the parent's). Layer pictures
   (`layer_pictures.odin`) are cells of a second `render.Step_Pictures`, kept like the object thumbnails (settle, one a
   frame); the tint is `draw_tint_glow`, shared with the History's.
+  Layer masks in the panel (`layer_masks.odin`, `app.ui.layer_mask`): the mask badge is drawn on the picture's corner and
+  answers the picture's own area (its right half), so the row keeps room for the name; `layer_mask_paint` remembers the
+  brush and runs `.Brush` Mask, `layer_mask_stop(restore)` puts it back, `layer_mask_frame` ends the pick when the work
+  leaves it. `history_record` sets `History_Entry.layer_mask` for a `.Mask` step on a picked layer mask (label "(layer
+  mask)"); menu edits on an unpicked mask pick it for the one step (`layer_mask_edit`).

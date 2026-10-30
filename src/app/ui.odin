@@ -71,6 +71,7 @@ Ui_State :: struct {
 	layer_wide:         bool, // the strength sliders go from -5 to 5 rather than -1 to 2
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
+	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step

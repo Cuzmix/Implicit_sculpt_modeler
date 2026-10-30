@@ -21,6 +21,8 @@ import "../ui"
 // A layer row's height, in points, and its picture's side.
 LAYER_ROW_H :: 56
 LAYER_PICTURE :: 40
+// The mask badge's side, on the picture's corner.
+LAYER_MASK_SIDE :: 20
 // The strength slider's width on a row.
 LAYER_SLIDER_W :: 92
 // How far a row slides open to show Merge down and Delete.
@@ -155,6 +157,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 		ui.fill_rect(ctx, pic, t.radius_small, t.fill)
 		ui.icon(ctx, ICON_LAYERS, {pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}, t.icon_small, ui.color_fade(t.text_tertiary, fade))
 	}
+	on_mask := lens_layer_mask_badge(app, obj, i, p, picked, fade)
 	rec := recording == i
 	words_w := zone_w - LAYER_PICTURE - 20
 	// The record dot beside the name, and the name with its strength under it as one area
@@ -179,12 +182,12 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 	a := ui.area(ctx, fmt.tprintf("%s##lens layer pick %d", sculpt.sculptor_layer_name(l), i), {words_w - 24, 44}, drag = false)
 	if ui.secondary(ctx) && allowed do layer_menu_open(app, obj, i, {ctx.input.mouse.x, ctx.input.mouse.y, 1, 1}, .Pointer)
 	ui.text(ctx, ui.text_fit(ctx, sculpt.sculptor_layer_name(l), t.text_size, a.rect.w, weight), a.rect.x, a.rect.y + 13, t.text_size, ui.color_fade(t.text, fade), weight)
-	caption := fmt.tprintf("%.2f%s", l.strength, " · recording" if rec else " · hidden" if !l.visible else "")
+	caption := fmt.tprintf("%.2f%s", l.strength, " · recording" if rec else " · painting mask" if layer_mask_painting(app, obj) == i else " · hidden" if !l.visible else "")
 	ui.text(ctx, caption, a.rect.x - 24 + 2, a.rect.y + 33, t.caption_size, LAYER_RECORD_COLOR if rec else ui.color_fade(t.text_tertiary, fade))
 	ui.end(ctx)
 	ui.end(ctx)
 	ui.transform_since(ctx, mark, offset = {min(offset, 0) if !open else max(offset, 0), 0})
-	if a.clicked || p.clicked {
+	if a.clicked || (p.clicked && !on_mask) {
 		if open do lp.swiped = 0
 		else do app.ui.layer_selected = i
 	}
@@ -212,6 +215,54 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 		}
 	}
 	ui.end(ctx)
+}
+
+// A row's mask badge, on its picture's lower right corner, as Photoshop shows a layer's
+// mask beside its picture: the mask's glyph once the layer has one, dashed with a plus on
+// the picked row while it has none, ringed in the accent while it is painted. A tap on the
+// picture's right half, where the badge is, picks the mask and the Mask brush, or puts the
+// sculpt mask and the brush from before back; the row stays narrow enough for the name.
+// True when the picture's press is the badge's.
+@(private = "file")
+lens_layer_mask_badge :: proc(app: ^App, obj: ^Object, i: int, p: ui.Area, picked: bool, fade: f32) -> bool {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	s := object_sculptor(obj)
+	painting := layer_mask_painting(app, obj) == i
+	has := sculpt.sculptor_layer_has_mask(s, i)
+	if !has && !picked && !painting do return false
+	pic := p.rect
+	sq := ui.Rect{pic.x + pic.w - LAYER_MASK_SIDE + 3, pic.y + pic.h - LAYER_MASK_SIDE + 3, LAYER_MASK_SIDE, LAYER_MASK_SIDE}
+	c := [2]f32{sq.x + sq.w * 0.5, sq.y + sq.h * 0.5}
+	reach := ui.Rect{pic.x + pic.w * 0.5, pic.y, pic.w * 0.5, pic.h}
+	over := ui.rect_contains(reach, ctx.input.mouse)
+	// A ring of the panel's colour parts the badge from the picture under it.
+	ui.fill_rect(ctx, {sq.x - 2, sq.y - 2, sq.w + 4, sq.h + 4}, t.radius_small + 2, t.surface)
+	if has {
+		ui.fill_rect(ctx, sq, t.radius_small, ui.color_fade(t.text, fade * 0.9))
+		ui.icon(ctx, ICON_CONTRAST, c, t.icon_small - 8, t.surface)
+	} else {
+		// A dashed square: three short strokes a side, as an empty slot reads.
+		line := ui.color_fade(t.text_secondary, fade * (1 if p.hovered && over else 0.8))
+		ui.fill_rect(ctx, sq, t.radius_small, t.fill)
+		dash := f32(LAYER_MASK_SIDE) / 5
+		for k in 0 ..< 3 {
+			o := f32(k) * dash * 2
+			ui.fill_rect(ctx, {sq.x + o, sq.y, dash, 1}, 0, line)
+			ui.fill_rect(ctx, {sq.x + o, sq.y + sq.h - 1, dash, 1}, 0, line)
+			ui.fill_rect(ctx, {sq.x, sq.y + o, 1, dash}, 0, line)
+			ui.fill_rect(ctx, {sq.x + sq.w - 1, sq.y + o, 1, dash}, 0, line)
+		}
+		ui.icon(ctx, ui.ICON_PLUS, c, t.icon_small - 10, line)
+	}
+	if painting do ui.stroke_rect(ctx, {sq.x - 2, sq.y - 2, sq.w + 4, sq.h + 4}, t.radius_small + 2, t.accent, 2)
+	if over do ui.tip(ctx, p.id, reach, "Stop painting the mask" if painting else "Paint this layer's mask" if has else "Add a mask to this layer: paint where it hides")
+	if p.clicked && over && layers_allowed(obj) {
+		if painting do layer_mask_stop(app, restore = true)
+		else do layer_mask_paint(app, obj, i)
+		return true
+	}
+	return p.clicked && over
 }
 
 // A row's strength: a slim bar `w` points wide filled from 0 to the strength, −1 to 2,
@@ -309,6 +360,27 @@ kit_layer_menu :: proc(app: ^App) {
 		stroke_finish(app)
 		_ = sculpt.sculptor_layer_set(s, i, l.strength, !l.visible)
 		if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Show layer" if l.visible else "Hide layer")
+		picked = true
+	}
+	ui.divider(ctx, across = true)
+	// The layer's mask: painting it, and what acts on it whole.
+	painting := layer_mask_painting(app, obj) == i
+	has := sculpt.sculptor_layer_has_mask(s, i)
+	if ui.menu_item(ctx, "Stop painting the mask" if painting else "Paint its mask" if has else "Add a mask", glyph = ICON_CONTRAST, enabled = allowed) {
+		if painting do layer_mask_stop(app, restore = true)
+		else do layer_mask_paint(app, obj, i)
+		picked = true
+	}
+	if ui.menu_item(ctx, "Invert the mask", glyph = ICON_FLIP_VIEW, enabled = allowed, hint = "Hides the layer where it showed and shows it where it hid") {
+		layer_mask_edit(app, obj, i, .Invert)
+		picked = true
+	}
+	if ui.menu_item(ctx, "Mask from the sculpt mask", glyph = ui.ICON_COPY, enabled = allowed && layer_mask_sculpt_ready(obj), hint = "Hides the layer where the sculpt mask is") {
+		layer_mask_edit(app, obj, i, .From_Sculpt)
+		picked = true
+	}
+	if ui.menu_item(ctx, "Delete the mask", glyph = ui.ICON_TRASH, enabled = allowed && has, hint = "Shows the whole layer again; undo brings the mask back") {
+		layer_mask_edit(app, obj, i, .Clear)
 		picked = true
 	}
 	ui.divider(ctx, across = true)
