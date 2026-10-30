@@ -247,6 +247,7 @@ Kit_State :: struct {
 	scene_filter:   [48]u8,
 	scene_query:    bool,
 	scene_rows:     int,
+	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
 	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
 	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
@@ -1491,6 +1492,7 @@ kit_layout :: proc(app: ^App) {
 	kit_pass_menu(app)
 	kit_history_menu(app)
 	kit_layer_menu(app)
+	kit_scene_add_menu(app)
 	quick_scrub_frame(app)
 	kit_quick_scrub(app)
 	kit_versions(app, menu_anchor)

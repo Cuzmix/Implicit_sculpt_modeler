@@ -808,6 +808,9 @@ Thumb_Row :: struct {
 	open:     ^bool,
 	detail:   string, // a dimmer line under the name ("3.7M tris"), when there is no switch there
 	compact:  bool, // a touch target tall with a smaller picture, as a list of many objects has it
+	// Small outlined tags after the name ("L4", "HD"), as the outliner marks an object's
+	// state; each takes its width from the name's room, the name giving way first.
+	badges:   []string,
 }
 
 // A tall row of a list of objects, as ZBrush for iPad's Subtools list has them: the
@@ -893,7 +896,19 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		if parts.count >= 0 do text(ctx, fmt.tprint(parts.count), picture.x + picture.w * 0.5, mid + 3, t.caption_size, color_fade(t.text, fade), .Semibold, .Center)
 	}
 	font := Font.Semibold if selected else .Regular
-	text(ctx, text_fit(ctx, shown, t.text_size, right - 8 - x, font), x, name_y, t.text_size, color_fade(t.text, fade), font)
+	tags: f32 = 0
+	for b in parts.badges do tags += text_width(ctx, b, t.caption_size) + 10 + 5
+	name := text_fit(ctx, shown, t.text_size, max(right - 8 - x - tags, 24), font)
+	text(ctx, name, x, name_y, t.text_size, color_fade(t.text, fade), font)
+	bx := x + text_width(ctx, name, t.text_size, font) + 6
+	for b in parts.badges {
+		bw := text_width(ctx, b, t.caption_size) + 10
+		if bx + bw > right - 8 do break
+		tag := Rect{bx, name_y - 8, bw, 16}
+		stroke_rect(ctx, tag, 4, color_fade(t.border, fade), 1)
+		text(ctx, b, tag.x + bw * 0.5, name_y, t.caption_size, color_fade(t.text_secondary, fade), .Regular, .Center)
+		bx += bw + 5
+	}
 	if has_detail do text(ctx, text_fit(ctx, parts.detail, t.small_size, right - 8 - x), x, mid + 9, t.small_size, color_fade(t.text_tertiary, fade))
 	if has_under {
 		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time, class = MOTION_TABS)
