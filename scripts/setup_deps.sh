@@ -65,6 +65,9 @@ python3 "$ROOT/scripts/build_luau.py"
 # ufbx, the FBX reader Import uses, with the app's shim round it (scripts/build_ufbx.py)
 python3 "$ROOT/scripts/build_ufbx.py"
 
+# AutoRemesher's core, the Quad Remesh engine, with the app's boundary (scripts/build_autoremesher.py)
+python3 "$ROOT/scripts/build_autoremesher.py"
+
 # SDL_shadercross, which turns each .spv build.sh makes into the Metal source the iPad build
 # embeds (scripts/build_shadercross.py, scripts/shaders_msl.py). Shader authors need it as they
 # need slangc: `check` fails when a .spv changed without its .msl.

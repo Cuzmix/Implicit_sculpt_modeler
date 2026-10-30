@@ -49,11 +49,13 @@ jobs:
             deps/luau
             deps/ufbx
             deps/ufbx-src
-          key: deps-linux-${{ hashFiles('scripts/versions.env', 'scripts/build_luau.py', 'scripts/build_ufbx.py', 'src/fbx/fbx_shim.c') }}
+            deps/autoremesher
+            deps/autoremesher-src
+          key: deps-linux-${{ hashFiles('scripts/versions.env', 'scripts/build_luau.py', 'scripts/build_ufbx.py', 'src/fbx/fbx_shim.c', 'scripts/build_autoremesher.py', 'src/quadmesh/quadmesh_shim.*', 'src/quadmesh/shim/tbb/*.h') }}
 
-      # setup_deps.sh's Odin, stb, SDL3, Luau and ufbx; not Slang or SDL_shadercross, which only a
-      # shader author needs (the .spv and .msl files are committed).
-      - name: Odin, stb, SDL3, Luau and ufbx
+      # setup_deps.sh's Odin, stb, SDL3, Luau, ufbx and AutoRemesher; not Slang or SDL_shadercross,
+      # which only a shader author needs (the .spv and .msl files are committed).
+      - name: Odin, stb, SDL3, Luau, ufbx and AutoRemesher
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           mkdir -p deps
@@ -68,6 +70,7 @@ jobs:
           ninja -C deps/sdl3-src/build install > /dev/null
           python3 scripts/build_luau.py
           python3 scripts/build_ufbx.py
+          python3 scripts/build_autoremesher.py
 
       - name: The gate, smoke left out
         run: python3 scripts/gate.py --keep-going --skip smoke

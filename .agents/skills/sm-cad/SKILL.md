@@ -107,6 +107,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `sculpt.levels_take_surface`. Merge numbers each source's groups densely after the ones before. `align_objects` and
   `distribute_objects` move positions only, one chained `history_record_transform` per moved object. Past the swap
   limit `history_record_swap` drops whole steps and never the newest, so a chained rebuild and delete undo together.
+- Quad Remesh's engine is `src/quadmesh` (sm-geom): AutoRemesher's core behind a C boundary, `quadmesh.remesh(positions, indices, params, progress, share, allocator) -> (Polygon_Mesh, Report, Error, reason)`, nearly all quads with 95 %+ regular vertices, bit-identical for any thread count, desktops only (`AVAILABLE`); the command that runs it is still to come, and Retopologize stays the fallback.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
 - There are no booleans or trims, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,
