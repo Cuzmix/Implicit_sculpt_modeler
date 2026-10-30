@@ -242,6 +242,9 @@ App :: struct {
 	turntable_frames: i32, // how many frames it takes, remembered
 	print_unit:    Print_Unit, // Scene > 3D print's unit, remembered
 	print_exports: int, // files exported for printing, for the exit stats
+	print_bed:     [3]f32, // the printer's bed in millimetres (Settings > Files > 3D printer); 0 for the default
+	print_wall:    f32, // the least wall a print should have, in millimetres; 0 for the default
+	print_checks:  Print_Checks, // the Export sheet's checks of the selected object (print_checks.odin)
 	repair:        Repair_Stats, // Modify topology's repairs, for the exit stats
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
@@ -548,6 +551,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// Before the history and the scene go: a job still running holds a snapshot and reads
 	// nothing of theirs, but its thread must end first.
 	defer long_job_stop(&app)
+	defer print_checks_stop(&app)
 	// A look slider still held when the app ends has its snapshot unrecorded.
 	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
 	timeline_init(&app.timeline)
@@ -1470,6 +1474,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)
+	// A check of a big surface still running is waited for, so its findings are here.
+	print_checks_stop(&app)
+	fmt.printfln("print_checks=%d print_open_edges=%d print_holes=%d print_wall=%g print_check_ms=%.1f print_bed=%gx%gx%g print_wall_least=%g", app.print_checks.runs, app.print_checks.result.open_edges, app.print_checks.result.holes, app.print_checks.result.wall, app.print_checks.ms, print_bed(&app)[0], print_bed(&app)[1], print_bed(&app)[2], print_wall_least(&app))
 	// The scene's file by its name alone, which a test compares; "none" for no file.
 	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
 	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)
