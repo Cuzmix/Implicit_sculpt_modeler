@@ -40,6 +40,10 @@ Vk_State :: struct {
 	anisotropy:        bool,
 	subgroup_size:     u32, // 0 where compute shaders have no arithmetic subgroup operations
 	int64_atomics:     bool, // shaderBufferInt64Atomics, enabled
+	// A device-local, host-visible memory type on a heap big enough to hold meshes
+	// (vk_pick_shared_type): loads write mesh buffers there directly.
+	shared_buffers:    bool,
+	shared_type:       u32,
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
@@ -325,6 +329,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	// without the arithmetic (reduce and scan) operations a kernel would want.
 	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
 	vk.GetPhysicalDeviceMemoryProperties(vk_state.physical, &vk_state.memory)
+	vk_state.shared_type, vk_state.shared_buffers = vk_pick_shared_type(vk_state.memory)
 
 	timeline_type := vk.SemaphoreTypeCreateInfo{sType = .SEMAPHORE_TYPE_CREATE_INFO, semaphoreType = .TIMELINE}
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO, pNext = &timeline_type}
@@ -513,4 +518,26 @@ vk_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
 	ok := vk_wait_serial(vk_state.submitted)
 	vk_collect()
 	return ok
+}
+
+// The memory type mesh buffers are filled through directly: device-local, host-visible
+// and coherent, on a heap at least half the size of the largest device-local one. That is
+// every heap of a unified-memory GPU (Android's, integrated ones, llvmpipe) and the
+// whole of video memory under Resizable BAR; a desktop without it maps only a 256 MB
+// window, which fails the size test and keeps the copies. Protected memory and AMD's
+// uncached memory are left out.
+vk_pick_shared_type :: proc(memory: vk.PhysicalDeviceMemoryProperties) -> (index: u32, ok: bool) {
+	largest: vk.DeviceSize
+	for i in 0 ..< memory.memoryHeapCount {
+		h := memory.memoryHeaps[i]
+		if .DEVICE_LOCAL in h.flags do largest = max(largest, h.size)
+	}
+	want := vk.MemoryPropertyFlags{.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT}
+	avoid := vk.MemoryPropertyFlags{.PROTECTED, .DEVICE_UNCACHED_AMD}
+	for i in 0 ..< memory.memoryTypeCount {
+		t := memory.memoryTypes[i]
+		if t.propertyFlags & want != want || t.propertyFlags & avoid != {} do continue
+		if 2 * memory.memoryHeaps[t.heapIndex].size >= largest do return i, true
+	}
+	return 0, false
 }

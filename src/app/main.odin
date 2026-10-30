@@ -554,6 +554,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(app.clipboard)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
+	app.renderer.pool = &app.pool
 	defer jobs.pool_destroy(&app.pool)
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
@@ -672,7 +673,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
-	app.renderer.pool = &app.pool
 	app.renderer.partial = !opts.no_partial
 	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify
@@ -2038,7 +2038,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics)
+	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)

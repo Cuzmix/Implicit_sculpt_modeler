@@ -240,3 +240,7 @@ mtl_compute_features :: proc() -> (subgroup_size: u32, int64_atomics: bool) {
 	APPLE9 :: MTL.GPUFamily(1009)
 	return 32, bool(MTL.Device_supportsFamily(mtl_state.device, APPLE9))
 }
+
+mtl_shared_buffers_offered :: proc() -> bool {
+	return bool(MTL.Device_hasUnifiedMemory(mtl_state.device))
+}

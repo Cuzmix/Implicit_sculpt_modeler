@@ -927,9 +927,12 @@ static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
 	return true
 }
 
-// Creates the GPU buffers for `mesh` and uploads all of it, in chunks through the
-// transfer buffer, waiting for the GPU after each chunk. For loading, not per frame.
-// `mask`, per vertex, is the sculptor's mask; nil when nothing is masked.
+// Creates the GPU buffers for `mesh` and fills them. Where the device offers shared
+// buffers (Gpu_Caps.shared_buffers) the CPU writes them in place, spread over r.pool, with
+// no GPU work; otherwise, and for any buffer the shared memory could not hold, it uploads
+// in chunks through the transfer buffer, waiting for the GPU after each chunk. For
+// loading, not per frame. `mask`, per vertex, is the sculptor's mask; nil when nothing is
+// masked.
 mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> (mb: Mesh_Buffers, ok: bool) {
 	vcount := u32(len(mesh.positions))
 	icount := u32(len(mesh.indices))
@@ -945,16 +948,27 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	mb.index_version = mb.version
 	// Readable by compute as well, so the traced studio casts rays at the triangles the
 	// viewport draws without copying them; a device that refuses gets plain buffers.
-	mb.positions = gpu_create_buffer(r.device, {usage = {.VERTEX, .COMPUTE_STORAGE_READ}, size = vbytes})
-	mb.indices = gpu_create_buffer(r.device, {usage = {.INDEX, .COMPUTE_STORAGE_READ}, size = ibytes})
+	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ}, size = vbytes}
+	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ}, size = ibytes}
+	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX}, size = nbytes}
+	positions_map, indices_map, normals_map: rawptr
+	if r.caps.shared_buffers {
+		mb.positions, positions_map = gpu_create_buffer_mapped(r.device, positions_info)
+		mb.indices, indices_map = gpu_create_buffer_mapped(r.device, indices_info)
+		mb.normals, normals_map = gpu_create_buffer_mapped(r.device, normals_info)
+	}
+	if mb.positions == nil do mb.positions = gpu_create_buffer(r.device, positions_info)
+	if mb.indices == nil do mb.indices = gpu_create_buffer(r.device, indices_info)
 	mb.storage = mb.positions != nil && mb.indices != nil
 	if !mb.storage {
 		if mb.positions != nil do gpu_release_buffer(r.device, mb.positions)
 		if mb.indices != nil do gpu_release_buffer(r.device, mb.indices)
+		positions_map, indices_map = nil, nil
 		mb.positions = gpu_create_buffer(r.device, {usage = {.VERTEX}, size = vbytes})
 		mb.indices = gpu_create_buffer(r.device, {usage = {.INDEX}, size = ibytes})
 	}
-	mb.normals = gpu_create_buffer(r.device, {usage = {.VERTEX}, size = nbytes})
+	if mb.normals == nil do mb.normals = gpu_create_buffer(r.device, normals_info)
+	// Strokes upload through it whichever way the mesh came in.
 	mb.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = mb.transfer_size})
 	if mb.positions == nil || mb.normals == nil || mb.indices == nil || mb.transfer == nil {
 		log.errorf("mesh buffer creation failed: %s", sdl.GetError())
@@ -964,15 +978,77 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	gpu_set_buffer_name(r.device, mb.positions, "mesh positions")
 	gpu_set_buffer_name(r.device, mb.indices, "mesh indices")
 	gpu_set_buffer_name(r.device, mb.normals, "mesh normals")
-	ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:])) &&
-		upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:])) &&
-		upload_normals_blocking(r, &mb, mesh.normals[:], mask)
+	ok = true
+	if indices_map != nil {
+		fill_copy(r.pool, indices_map, slice.to_bytes(mesh.indices[:]))
+		gpu_buffer_filled(r.device, mb.indices)
+	} else {
+		ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:]))
+	}
+	if positions_map != nil {
+		fill_copy(r.pool, positions_map, slice.to_bytes(mesh.positions[:]))
+		gpu_buffer_filled(r.device, mb.positions)
+	} else {
+		ok = ok && upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:]))
+	}
+	if normals_map != nil {
+		fill_normals(r.pool, normals_map, mesh.normals[:], mask)
+		gpu_buffer_filled(r.device, mb.normals)
+	} else {
+		ok = ok && upload_normals_blocking(r, &mb, mesh.normals[:], mask)
+	}
 	if !ok {
 		log.errorf("mesh upload failed: %s", sdl.GetError())
 		mesh_buffers_destroy(r, &mb)
 		return {}, false
 	}
 	return mb, true
+}
+
+// Elements a job of fill_copy and fill_normals writes: a multiple of 64, so no two jobs
+// write the same cache line of the mapped (often write-combined) memory whatever the
+// element size.
+@(private = "file")
+FILL_ELEMENTS :: 1 << 18
+
+// Copies `src` to `dst`, a buffer's mapping, in ranges spread over `pool` (all on the
+// calling thread when nil). The mapping is only written, never read.
+@(private = "file")
+fill_copy :: proc(pool: ^jobs.Pool, dst: rawptr, src: []u8) {
+	Job :: struct {
+		dst: [^]u8,
+		src: []u8,
+	}
+	job := Job{([^]u8)(dst), src}
+	BYTES :: FILL_ELEMENTS * 16
+	jobs.parallel_for(pool, (len(src) + BYTES - 1) / BYTES, &job, proc(data: rawptr, k: int) {
+		job := cast(^Job)data
+		lo := k * BYTES
+		hi := min(lo + BYTES, len(job.src))
+		copy(job.dst[lo:hi], job.src[lo:hi])
+	})
+}
+
+// Packs every normal (with its mask value) into `dst`, a buffer's mapping, as
+// upload_normals_blocking packs them into the transfer buffer.
+@(private = "file")
+fill_normals :: proc(pool: ^jobs.Pool, dst: rawptr, normals: []geom.Vec3, mask: []u8) {
+	Job :: struct {
+		dst:     [^]Normal_Packed,
+		normals: []geom.Vec3,
+		mask:    []u8,
+	}
+	job := Job{([^]Normal_Packed)(dst), normals, mask}
+	jobs.parallel_for(pool, (len(normals) + FILL_ELEMENTS - 1) / FILL_ELEMENTS, &job, proc(data: rawptr, k: int) {
+		job := cast(^Job)data
+		lo := k * FILL_ELEMENTS
+		hi := min(lo + FILL_ELEMENTS, len(job.normals))
+		if job.mask != nil {
+			for i in lo ..< hi do job.dst[i] = pack_normal(job.normals[i], job.mask[i])
+		} else {
+			for i in lo ..< hi do job.dst[i] = pack_normal(job.normals[i], 0)
+		}
+	})
 }
 
 // Copies `data` to the start of `buffer` one transfer buffer at a time.

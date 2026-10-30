@@ -76,6 +76,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		if ui.switch_row(ctx, "Time GPU work", &app.time_gpu) do s.gpu_ms = {}
 		ui.paragraph(ctx, "Waits for the GPU every frame.")
 		ui.value_row(ctx, "Triangles drawn", fmt.tprintf("%s in %d draws", count_label(int(v.triangles)), v.draws))
+		ui.value_row(ctx, "Shared buffers", "yes" if render.caps(&app.renderer).shared_buffers else "no")
 		_ = ui.switch_row(ctx, "Redraw only changes", &app.renderer.partial)
 		if v.partial {
 			ui.paragraph(ctx, fmt.tprintf("Last frame: %.1f%% of the viewport.", 100 * f64(v.redrawn_px) / f64(max(app.target.width * app.target.height, 1))))

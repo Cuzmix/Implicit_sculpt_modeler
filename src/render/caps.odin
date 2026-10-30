@@ -31,6 +31,10 @@ Gpu_Caps :: struct {
 	// future GPU dynamic topology or BVH refit; never for summing floats, whose order
 	// would break the bit-identical rule.
 	int64_atomics:    bool,
+	// Loads write mesh buffers in place, with no copy through a transfer buffer and no
+	// wait for the GPU (gpu_create_buffer_mapped): memory both the CPU and GPU reach at
+	// full speed, which unified-memory GPUs and Resizable BAR desktops have.
+	shared_buffers:   bool,
 }
 
 Present_Timing :: enum u8 {
@@ -67,6 +71,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.present_timing = gpu_present_timing(r.device)
 	r.caps.timestamps = gpu_timestamps_offered(r.device)
 	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
+	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so
