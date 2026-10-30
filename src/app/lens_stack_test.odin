@@ -55,12 +55,12 @@ stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	stack_reveal(app, .Pen)
 	testing.expect(t, .Brush in app.kit.stack.open && .Pen not_in app.kit.stack.shut)
 	stack_reveal(app, .Objects)
-	testing.expect_value(t, app.kit.stack.open, bit_set[Stack_Card]{.Scene})
+	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene})
 	stack_reveal(app, .Remesh)
-	testing.expect_value(t, app.kit.stack.open, bit_set[Stack_Card]{.Scene, .Palettes})
-	testing.expect_value(t, stack_card_of(app, .Layers), Stack_Card.Layers)
+	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene, .Palettes})
+	testing.expect_value(t, stack_card_of(app, .Layers), Panel_Kind.Layers)
 	app.tool = .Move
-	testing.expect_value(t, stack_card_of(app, .Stroke), Stack_Card.Palettes)
+	testing.expect_value(t, stack_card_of(app, .Stroke), Panel_Kind.Palettes)
 }
 
 // Windows, pinned panels and floated cards share one floating order: a card floated comes
@@ -75,12 +75,12 @@ floating_cards_and_panels_share_one_order :: proc(t: ^testing.T) {
 	stack_default(k)
 	n := len(k.order)
 	stack_float(app, .Layers)
-	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Stack_Card.Layers))
+	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Panel_Kind.Layers))
 	window_raise(k, Kit_Window.Stats)
 	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Kit_Window.Stats))
-	float_raise(k, Stack_Card.Layers)
-	float_raise(k, Stack_Card.Layers)
-	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Stack_Card.Layers))
+	float_raise(k, Panel_Kind.Layers)
+	float_raise(k, Panel_Kind.Layers)
+	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Panel_Kind.Layers))
 	testing.expect_value(t, len(k.order), n + 1)
 	float_raise(k, nil)
 	testing.expect_value(t, len(k.order), n + 1)

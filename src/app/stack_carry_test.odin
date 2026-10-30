@@ -8,14 +8,14 @@ import "core:testing"
 // floating, window, height, size), and a tab is in or out of the stack as its host is.
 @(private = "file")
 stack_valid :: proc(s: ^Lens_Stack) -> bool {
-	seen: bit_set[Stack_Card]
+	seen: bit_set[Panel_Kind]
 	for c in s.order {
 		if c in seen do return false
 		seen += {c}
 	}
-	all := ~bit_set[Stack_Card]{}
+	all := ~bit_set[Panel_Kind]{}
 	if seen != all || s.order[0] in s.joined do return false
-	for c in Stack_Card {
+	for c in Panel_Kind {
 		if c in s.joined {
 			if c in s.open || c in s.floated || s.windows[c] != {} || s.heights[c] != 0 || s.sizes[c] != {} do return false
 			if (c in s.hidden) != (stack_host(s, c) in s.hidden) do return false
@@ -56,7 +56,7 @@ stack_join_at_a_slot_and_ungroup :: proc(t: ^testing.T) {
 	// A whole group into another, between its tabs.
 	testing.expect(t, stack_join_at(k, .Layers, false, .Brush, 1))
 	testing.expect_value(t, stack_text(k), "Brush+,&Layers,&Symmetry,&Scene,Tools,Palettes")
-	testing.expect_value(t, stack_shown(s, .Brush), Stack_Card.Layers)
+	testing.expect_value(t, stack_shown(s, .Brush), Panel_Kind.Layers)
 	testing.expect(t, stack_valid(s))
 	testing.expect(t, stack_ungroup(k, .Brush))
 	testing.expect_value(t, stack_text(k), "Brush+,Layers,Symmetry,Scene,Tools,Palettes")
@@ -77,7 +77,7 @@ stack_carried_host_tab_hands_the_group_over :: proc(t: ^testing.T) {
 	s.tab, s.tab_open = .Brush, true
 	testing.expect(t, stack_join_at(k, .Brush, true, .Layers, 1))
 	testing.expect_value(t, stack_text(k), "Symmetry+,Layers+,&Brush,Scene,Tools,Palettes")
-	testing.expect_value(t, s.tab, Stack_Card.Symmetry)
+	testing.expect_value(t, s.tab, Panel_Kind.Symmetry)
 	testing.expect(t, stack_valid(s))
 	free_all(context.temp_allocator)
 }
@@ -119,7 +119,7 @@ stack_carry_targets_from_the_rects :: proc(t: ^testing.T) {
 	testing.expect_value(t, stack_carry_target(app, {1200, 148}, tab), Stack_Target{})
 	// A floating Tools card over Brush's body takes the drop.
 	s.floated += {.Tools}
-	float_raise(k, Stack_Card.Tools)
+	float_raise(k, Panel_Kind.Tools)
 	s.drop_at[.Tools] = {1100, 200, 300, 200}
 	testing.expect_value(t, stack_carry_target(app, {1200, 300}, layers), Stack_Target{kind = .Join, host = .Tools, slot = 1})
 	free_all(context.temp_allocator)
@@ -165,13 +165,13 @@ stack_beside_makes_a_second_column :: proc(t: ^testing.T) {
 	s := &k.stack
 	testing.expect(t, stack_beside_join(k, .Symmetry, false, .Brush, true))
 	testing.expect_value(t, stack_text(k), "Brush+,|Symmetry,Layers,Scene,Tools,Palettes")
-	testing.expect_value(t, stack_shown(s, .Brush), Stack_Card.Brush)
+	testing.expect_value(t, stack_shown(s, .Brush), Panel_Kind.Brush)
 	testing.expect_value(t, stack_group_extra(k, .Brush), STACK_W + STACK_DIVIDER)
 	testing.expect(t, stack_valid(s))
 	testing.expect(t, stack_beside_join(k, .Layers, false, .Brush, true))
 	testing.expect_value(t, stack_text(k), "Brush+,|Symmetry,&Layers,Scene,Tools,Palettes")
-	testing.expect_value(t, stack_shown(s, .Symmetry), Stack_Card.Layers)
-	testing.expect_value(t, stack_column_head(s, .Layers), Stack_Card.Symmetry)
+	testing.expect_value(t, stack_shown(s, .Symmetry), Panel_Kind.Layers)
+	testing.expect_value(t, stack_column_head(s, .Layers), Panel_Kind.Symmetry)
 	testing.expect(t, stack_valid(s))
 	testing.expect(t, stack_take_out(k, .Symmetry))
 	testing.expect_value(t, stack_text(k), "Brush+,|Layers,Symmetry+,Scene,Tools,Palettes")
@@ -204,8 +204,8 @@ stack_columns_read_back :: proc(t: ^testing.T) {
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, stack_text(&b), "Brush+,&Symmetry,|Layers,&Scene,Tools,Palettes")
-	testing.expect_value(t, stack_shown(&b.stack, .Brush), Stack_Card.Symmetry)
-	testing.expect_value(t, stack_shown(&b.stack, .Layers), Stack_Card.Scene)
+	testing.expect_value(t, stack_shown(&b.stack, .Brush), Panel_Kind.Symmetry)
+	testing.expect_value(t, stack_shown(&b.stack, .Layers), Panel_Kind.Scene)
 	testing.expect_value(t, stack_beside_width(&b, .Brush), 280)
 	testing.expect(t, stack_valid(&b.stack))
 	free_all(context.temp_allocator)
@@ -231,7 +231,7 @@ stack_beside_target_needs_room :: proc(t: ^testing.T) {
 	scene := Stack_Carry{card = .Scene}
 	testing.expect_value(t, stack_carry_target(app, {1000, 100}, scene), Stack_Target{kind = .Beside, host = .Brush, left = true})
 	k.ctx.input.window = {800, 900}
-	for c in Stack_Card do s.drop_at[c].x -= 640
+	for c in Panel_Kind do s.drop_at[c].x -= 640
 	testing.expect_value(t, stack_carry_target(app, {360, 100}, scene), Stack_Target{kind = .Line, at = 1, no_room = true})
 	free_all(context.temp_allocator)
 }

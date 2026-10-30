@@ -50,7 +50,7 @@ Stack_Drag_Kind :: enum u8 {
 // set height it started from.
 Stack_Drag :: struct {
 	kind:   Stack_Drag_Kind,
-	card:   Stack_Card,
+	card:   Panel_Kind,
 	edges:  bit_set[Stack_Edge],
 	from:   ui.Rect,
 	press:  [2]f32,
@@ -81,7 +81,7 @@ stack_sizes_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	strings.write_string(out, "stack_size")
 	if s.width > 0 do fmt.sbprintf(out, " %d", int(stack_width(k)))
 	else do strings.write_string(out, " default")
-	for c in Stack_Card do if s.heights[c] > 0 do fmt.sbprintf(out, " %v=%d", c, int(s.heights[c]))
+	for c in Panel_Kind do if s.heights[c] > 0 do fmt.sbprintf(out, " %s=%d", panel_word(c), int(s.heights[c]))
 	strings.write_byte(out, '\n')
 }
 
@@ -97,7 +97,7 @@ stack_sizes_read :: proc(k: ^Kit_State, f: []string) {
 		if eq <= 0 do continue
 		h, ok := strconv.parse_f32(word[eq + 1:])
 		if !ok || h <= 0 do continue
-		for c in Stack_Card do if strings.equal_fold(word[:eq], fmt.tprint(c)) do s.heights[c] = max(stack_snap(h), STACK_BODY_MIN)
+		if c, known := panel_from_word(word[:eq]); known do s.heights[c] = max(stack_snap(h), STACK_BODY_MIN)
 	}
 }
 
@@ -155,7 +155,7 @@ stack_edge :: proc(app: ^App, r: ui.Rect) {
 // The grip under open card `c`'s content in the stack: dragged down or up it sets how tall
 // the content shows (scrolling inside when it is taller), up past the header folds the
 // card, and a double tap fits the card to its content again. `width` is the card's.
-stack_height_grip :: proc(app: ^App, c: Stack_Card, width: f32) {
+stack_height_grip :: proc(app: ^App, c: Panel_Kind, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -191,7 +191,7 @@ stack_height_grip :: proc(app: ^App, c: Stack_Card, width: f32) {
 // its own. A drag sets the card's size on the 8 point grid, moving the edges it holds and
 // keeping the others where they are; a double tap puts a fresh card's size back. Called
 // after the card's window ends, so the handles come out over it.
-stack_float_handles :: proc(app: ^App, c: Stack_Card) {
+stack_float_handles :: proc(app: ^App, c: Panel_Kind) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -253,7 +253,7 @@ stack_float_handles :: proc(app: ^App, c: Stack_Card) {
 
 // Card `c`'s size as its held edges moved by `d` from where the drag began.
 @(private = "file")
-stack_float_resize :: proc(app: ^App, c: Stack_Card, d: [2]f32) {
+stack_float_resize :: proc(app: ^App, c: Panel_Kind, d: [2]f32) {
 	k := &app.kit
 	s := &k.stack
 	from, e := s.drag.from, s.drag.edges
@@ -277,7 +277,7 @@ stack_float_resize :: proc(app: ^App, c: Stack_Card, d: [2]f32) {
 // How tall floating card `c`'s content shows: its set height less the dots, the header,
 // the gaps and the padding round them (card_begin's and stack_float_card's); 0 while
 // it fits its content.
-stack_float_body :: proc(app: ^App, c: Stack_Card) -> f32 {
+stack_float_body :: proc(app: ^App, c: Panel_Kind) -> f32 {
 	h := app.kit.stack.sizes[c].y
 	if h <= 0 do return 0
 	return max(h - (2 * 10 + 18 + 6 + app.kit.ctx.theme.target + 6) - stack_tab_row_h(app, c), 40)
@@ -287,7 +287,7 @@ stack_float_body :: proc(app: ^App, c: Stack_Card) -> f32 {
 // `Brush=320,Layers+240x300`, or "none".
 stack_sizes_text :: proc(k: ^Kit_State) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	for c in Stack_Card {
+	for c in Panel_Kind {
 		h, sz := k.stack.heights[c], k.stack.sizes[c]
 		if h <= 0 && sz == {} do continue
 		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')

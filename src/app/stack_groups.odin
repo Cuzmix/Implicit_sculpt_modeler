@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:reflect"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -17,7 +16,7 @@ import "../ui"
 
 // The host of card `c`'s group: c, or the nearest card before it in the order that is not
 // joined.
-stack_host :: proc(s: ^Lens_Stack, c: Stack_Card) -> Stack_Card {
+stack_host :: proc(s: ^Lens_Stack, c: Panel_Kind) -> Panel_Kind {
 	host := c
 	for x in s.order {
 		if x not_in s.joined do host = x
@@ -27,8 +26,8 @@ stack_host :: proc(s: ^Lens_Stack, c: Stack_Card) -> Stack_Card {
 }
 
 // The cards of the group `host` begins, the host first, in the stack's order.
-stack_group :: proc(s: ^Lens_Stack, host: Stack_Card) -> []Stack_Card {
-	out := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
+stack_group :: proc(s: ^Lens_Stack, host: Panel_Kind) -> []Panel_Kind {
+	out := make([dynamic]Panel_Kind, 0, len(Panel_Kind), context.temp_allocator)
 	for x in s.order {
 		if x == host {
 			append(&out, x)
@@ -42,7 +41,7 @@ stack_group :: proc(s: ^Lens_Stack, host: Stack_Card) -> []Stack_Card {
 
 // The tab the column `head` begins shows (a group's host begins its first column): the one
 // picked, while it is still in that column, or the head.
-stack_shown :: proc(s: ^Lens_Stack, head: Stack_Card) -> Stack_Card {
+stack_shown :: proc(s: ^Lens_Stack, head: Panel_Kind) -> Panel_Kind {
 	v := s.shown[head]
 	if v != head && v in s.joined && stack_column_head(s, v) == head do return v
 	return head
@@ -54,14 +53,14 @@ stack_shown :: proc(s: ^Lens_Stack, head: Stack_Card) -> Stack_Card {
 STACK_DIVIDER :: 12
 
 // The card that begins group `host`'s second column, if it has one.
-stack_beside_of :: proc(s: ^Lens_Stack, host: Stack_Card) -> (Stack_Card, bool) {
+stack_beside_of :: proc(s: ^Lens_Stack, host: Panel_Kind) -> (Panel_Kind, bool) {
 	group := stack_group(s, host)
 	for x in group[1:] do if x in s.beside do return x, true
 	return {}, false
 }
 
 // The first card of card `c`'s column: its group's host, or the card beginning column two.
-stack_column_head :: proc(s: ^Lens_Stack, c: Stack_Card) -> Stack_Card {
+stack_column_head :: proc(s: ^Lens_Stack, c: Panel_Kind) -> Panel_Kind {
 	head := stack_host(s, c)
 	for x in stack_group(s, head) {
 		if x in s.beside do head = x
@@ -71,8 +70,8 @@ stack_column_head :: proc(s: ^Lens_Stack, c: Stack_Card) -> Stack_Card {
 }
 
 // The cards of the column `head` begins, in order.
-stack_column :: proc(s: ^Lens_Stack, head: Stack_Card) -> []Stack_Card {
-	out := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
+stack_column :: proc(s: ^Lens_Stack, head: Panel_Kind) -> []Panel_Kind {
+	out := make([dynamic]Panel_Kind, 0, len(Panel_Kind), context.temp_allocator)
 	for x in stack_group(s, stack_host(s, head)) {
 		if x == head {
 			append(&out, x)
@@ -85,14 +84,14 @@ stack_column :: proc(s: ^Lens_Stack, head: Stack_Card) -> []Stack_Card {
 }
 
 // How wide group `host`'s second column stands (its own, or the stack's usual width).
-stack_beside_width :: proc(k: ^Kit_State, host: Stack_Card) -> f32 {
+stack_beside_width :: proc(k: ^Kit_State, host: Panel_Kind) -> f32 {
 	w := k.stack.beside_w[host]
 	return clamp(w, STACK_W_MIN, STACK_W_MAX) if w > 0 else STACK_W
 }
 
 // How much wider than the stack group `host`'s card stands: its second column and the
 // divider while it is open with two columns, else nothing.
-stack_group_extra :: proc(k: ^Kit_State, host: Stack_Card) -> f32 {
+stack_group_extra :: proc(k: ^Kit_State, host: Panel_Kind) -> f32 {
 	if host not_in k.stack.open do return 0
 	if _, two := stack_beside_of(&k.stack, host); !two do return 0
 	return stack_beside_width(k, host) + STACK_DIVIDER
@@ -100,7 +99,7 @@ stack_group_extra :: proc(k: ^Kit_State, host: Stack_Card) -> f32 {
 
 // Whether group `host`'s second column stands left of its first: away from the edge the
 // stack is docked on, or for a floating group the side it was dropped on.
-stack_beside_left :: proc(k: ^Kit_State, host: Stack_Card) -> bool {
+stack_beside_left :: proc(k: ^Kit_State, host: Panel_Kind) -> bool {
 	if host in k.stack.floated do return host in k.stack.beside_left
 	return stack_docked_right(k)
 }
@@ -115,7 +114,7 @@ stack_docked_right :: proc(k: ^Kit_State) -> bool {
 // Joins card `c` (alone when `tab`, else its group) to group `host` as its second column,
 // or as the last tabs of the second column it has already, keeping the first column's
 // shown tab; `left` says the side for a floating group.
-stack_beside_join :: proc(k: ^Kit_State, c: Stack_Card, tab: bool, host: Stack_Card, left: bool) -> bool {
+stack_beside_join :: proc(k: ^Kit_State, c: Panel_Kind, tab: bool, host: Panel_Kind, left: bool) -> bool {
 	s := &k.stack
 	_, two := stack_beside_of(s, host)
 	shown := stack_shown(s, host)
@@ -131,9 +130,9 @@ stack_beside_join :: proc(k: ^Kit_State, c: Stack_Card, tab: bool, host: Stack_C
 
 // The host of the docked group above card `c`'s group in the stack, which Join the card
 // above joins it to; false when c is a tab already, floats, is left out or is the first.
-stack_join_target :: proc(s: ^Lens_Stack, c: Stack_Card) -> (Stack_Card, bool) {
+stack_join_target :: proc(s: ^Lens_Stack, c: Panel_Kind) -> (Panel_Kind, bool) {
 	if c in s.joined || c in s.floated || c in s.hidden do return {}, false
-	above: Maybe(Stack_Card)
+	above: Maybe(Panel_Kind)
 	for x in s.order {
 		if x == c do break
 		if x in s.joined || x in s.floated || x in s.hidden do continue
@@ -145,7 +144,7 @@ stack_join_target :: proc(s: ^Lens_Stack, c: Stack_Card) -> (Stack_Card, bool) {
 
 // Joins card `c`'s group to the docked group above it, its cards becoming that group's
 // last tabs and `c` the one shown (Join the card above).
-stack_join :: proc(k: ^Kit_State, c: Stack_Card) -> bool {
+stack_join :: proc(k: ^Kit_State, c: Panel_Kind) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	host, ok := stack_join_target(s, c)
@@ -159,7 +158,7 @@ stack_join :: proc(k: ^Kit_State, c: Stack_Card) -> bool {
 // joined card's own state as a card goes: its fold, height, size and scroll are the
 // host's from now on. False when there is nothing to join: into its own group, or into a
 // tab.
-stack_join_at :: proc(k: ^Kit_State, c: Stack_Card, tab: bool, host: Stack_Card, slot: int) -> bool {
+stack_join_at :: proc(k: ^Kit_State, c: Panel_Kind, tab: bool, host: Panel_Kind, slot: int) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	src := stack_host(s, c)
@@ -187,7 +186,7 @@ stack_join_at :: proc(k: ^Kit_State, c: Stack_Card, tab: bool, host: Stack_Card,
 // Takes card `c` out of its group: it becomes a card of its own, open unless `open` is
 // false, right after the group. When it was the host, the next tab takes the group's
 // place as a card.
-stack_take_out :: proc(k: ^Kit_State, c: Stack_Card, open := true) -> bool {
+stack_take_out :: proc(k: ^Kit_State, c: Panel_Kind, open := true) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	host := stack_host(s, c)
@@ -239,7 +238,7 @@ stack_take_out :: proc(k: ^Kit_State, c: Stack_Card, open := true) -> bool {
 
 // Ungroup: every tab of the group `host` begins becomes a card of its own where it is, the
 // host keeping its fold and float, the others folded.
-stack_ungroup :: proc(k: ^Kit_State, host: Stack_Card) -> bool {
+stack_ungroup :: proc(k: ^Kit_State, host: Panel_Kind) -> bool {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	group := stack_group(s, host)
@@ -256,7 +255,7 @@ stack_ungroup :: proc(k: ^Kit_State, host: Stack_Card) -> bool {
 }
 
 // Shows tab `c` of its group.
-stack_show_tab :: proc(s: ^Lens_Stack, c: Stack_Card) {
+stack_show_tab :: proc(s: ^Lens_Stack, c: Panel_Kind) {
 	head := stack_column_head(s, c)
 	if s.shown[head] != c do s.scrolls[stack_host(s, c)] = 0
 	s.shown[head] = c
@@ -264,7 +263,7 @@ stack_show_tab :: proc(s: ^Lens_Stack, c: Stack_Card) {
 
 // A card's state as a card of the stack, cleared as it becomes a tab.
 @(private = "file")
-stack_tab_reset :: proc(s: ^Lens_Stack, c: Stack_Card) {
+stack_tab_reset :: proc(s: ^Lens_Stack, c: Panel_Kind) {
 	s.open -= {c}
 	s.floated -= {c}
 	s.windows[c], s.heights[c], s.sizes[c], s.scrolls[c] = {}, 0, {}, 0
@@ -278,10 +277,10 @@ stack_tab_reset :: proc(s: ^Lens_Stack, c: Stack_Card) {
 // the group of card `after` (whose other cards stay where they are), or right after
 // `after` itself when `exact`.
 @(private = "file")
-stack_order_place :: proc(s: ^Lens_Stack, cards: []Stack_Card, after: Stack_Card, exact := false) {
+stack_order_place :: proc(s: ^Lens_Stack, cards: []Panel_Kind, after: Panel_Kind, exact := false) {
 	last := after
 	if !exact do for x in stack_group(s, stack_host(s, after)) do if !slice.contains(cards, x) do last = x
-	rest := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
+	rest := make([dynamic]Panel_Kind, 0, len(Panel_Kind), context.temp_allocator)
 	for x in s.order do if !slice.contains(cards, x) do append(&rest, x)
 	at := 0
 	for x, i in rest do if x == last do at = i + 1
@@ -293,7 +292,7 @@ STACK_TAB_PAD :: 6
 
 // The row of a group's tabs under its header, `width` wide: each tab its card's icon and
 // title (icons alone when the titles do not fit), a tap showing that tab.
-stack_tab_row :: proc(app: ^App, head: Stack_Card, width: f32, always := false) {
+stack_tab_row :: proc(app: ^App, head: Panel_Kind, width: f32, always := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -333,7 +332,7 @@ stack_tab_row :: proc(app: ^App, head: Stack_Card, width: f32, always := false) 
 
 // A two-column group's tab rows, side by side over its columns, `outer` wide: column
 // two's on the side stack_beside_left says.
-stack_columns_tabs :: proc(app: ^App, host: Stack_Card, outer: f32) {
+stack_columns_tabs :: proc(app: ^App, host: Panel_Kind, outer: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	s := &k.stack
@@ -354,7 +353,7 @@ stack_columns_tabs :: proc(app: ^App, host: Stack_Card, outer: f32) {
 
 // A two-column group's bodies, `inner` wide in all: each column's shown tab, the divider
 // between them dragging column two's width (a double tap puts the usual one back).
-stack_columns_bodies :: proc(app: ^App, host: Stack_Card, inner: f32) {
+stack_columns_bodies :: proc(app: ^App, host: Panel_Kind, inner: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -403,7 +402,7 @@ stack_columns_bodies :: proc(app: ^App, host: Stack_Card, inner: f32) {
 
 // The height the tab row takes in a floating card or the strip's panel: the tabs' well,
 // the row's padding and the gap after it.
-stack_tab_row_h :: proc(app: ^App, host: Stack_Card) -> f32 {
+stack_tab_row_h :: proc(app: ^App, host: Panel_Kind) -> f32 {
 	if len(stack_column(&app.kit.stack, host)) < 2 && stack_group_extra(&app.kit, host) == 0 do return 0
 	return app.kit.ctx.theme.control + 2 * STACK_TAB_PAD + 6
 }
@@ -446,24 +445,21 @@ stack_groups_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 }
 
 // Reads a group line as stack_groups_save writes it, once the rest of the layout is in
-// place (the stack's order first): names this version does not know, sections (which
-// groups do not hold yet) and cards in a group already are passed over, and a line left
-// with fewer than two cards makes no group.
+// place (the stack's order first): names this version does not know and cards in a group
+// already are passed over, and a line left with fewer than two cards makes no group.
 stack_group_read :: proc(k: ^Kit_State, f: []string) {
 	s := &k.stack
 	if !s.set do stack_default(k)
-	members := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
-	shown, beside, shown_beside: Maybe(Stack_Card)
+	members := make([dynamic]Panel_Kind, 0, len(Panel_Kind), context.temp_allocator)
+	shown, beside, shown_beside: Maybe(Panel_Kind)
 	bar := false
 	for word in f[1:] {
 		if word == "|" {
 			bar = true
 			continue
 		}
-		kind, ok := panel_kind_from_name(strings.trim_prefix(word, "*"))
-		if !ok do continue
-		c, card := kind.(Stack_Card)
-		if !card || slice.contains(members[:], c) || c in s.joined || len(stack_group(s, c)) > 1 do continue
+		c, ok := panel_kind_from_name(strings.trim_prefix(word, "*"))
+		if !ok || slice.contains(members[:], c) || c in s.joined || len(stack_group(s, c)) > 1 do continue
 		append(&members, c)
 		// The first card after `|` (never the host) begins column two.
 		if bar && beside == nil && len(members) > 1 do beside = c
@@ -515,7 +511,7 @@ stack_beside_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		if _, two := stack_beside_of(s, c); !two do continue
 		if !any do strings.write_string(out, "stack_beside")
 		any = true
-		fmt.sbprintf(out, " %v=%d", c, int(stack_beside_width(k, c)))
+		fmt.sbprintf(out, " %s=%d", panel_word(c), int(stack_beside_width(k, c)))
 	}
 	if any do strings.write_byte(out, '\n')
 }
@@ -528,6 +524,6 @@ stack_beside_read :: proc(k: ^Kit_State, f: []string) {
 		name, _, value := strings.partition(word, "=")
 		w, ok := strconv.parse_f32(value)
 		if !ok || w <= 0 do continue
-		if c, known := reflect.enum_from_name(Stack_Card, name); known do s.beside_w[c] = clamp(stack_snap(w), STACK_W_MIN, STACK_W_MAX)
+		if c, known := panel_from_word(name); known do s.beside_w[c] = clamp(stack_snap(w), STACK_W_MIN, STACK_W_MAX)
 	}
 }

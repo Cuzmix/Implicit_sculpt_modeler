@@ -15,14 +15,14 @@ stack_join_and_take_out :: proc(t: ^testing.T) {
 	testing.expect(t, !stack_join(k, .Brush))
 	testing.expect(t, stack_join(k, .Symmetry))
 	testing.expect_value(t, stack_text(k), "Brush+,&Symmetry,Layers,Scene,Tools,Palettes")
-	testing.expect_value(t, stack_host(s, .Symmetry), Stack_Card.Brush)
-	testing.expect_value(t, stack_shown(s, .Brush), Stack_Card.Symmetry)
+	testing.expect_value(t, stack_host(s, .Symmetry), Panel_Kind.Brush)
+	testing.expect_value(t, stack_shown(s, .Brush), Panel_Kind.Symmetry)
 	// Layers joins the group above it, past the tab, so the group has three tabs.
 	testing.expect(t, stack_join(k, .Layers))
 	testing.expect_value(t, len(stack_group(s, .Brush)), 3)
 	testing.expect(t, stack_take_out(k, .Symmetry))
 	testing.expect_value(t, stack_text(k), "Brush+,&Layers,Symmetry+,Scene,Tools,Palettes")
-	testing.expect_value(t, stack_shown(s, .Brush), Stack_Card.Layers)
+	testing.expect_value(t, stack_shown(s, .Brush), Panel_Kind.Layers)
 	// The host out: Layers is the group's card now, with its fold.
 	testing.expect(t, stack_join(k, .Symmetry))
 	testing.expect(t, stack_take_out(k, .Brush))
@@ -46,7 +46,7 @@ stack_groups_move_and_float_as_one :: proc(t: ^testing.T) {
 	stack_move_to_k(k, .Symmetry, 0)
 	testing.expect_value(t, stack_text(k), "Brush+,&Symmetry,Layers,Scene,Tools,Palettes")
 	stack_float(app, .Symmetry)
-	testing.expect_value(t, s.floated, bit_set[Stack_Card]{.Brush})
+	testing.expect_value(t, s.floated, bit_set[Panel_Kind]{.Brush})
 	testing.expect(t, s.floated & s.joined == {})
 	// A floating group cannot join, nor be joined to.
 	_, ok := stack_join_target(s, .Layers)
@@ -70,10 +70,11 @@ stack_groups_read_back :: proc(t: ^testing.T) {
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, stack_text(&b), stack_text(&a))
-	testing.expect_value(t, stack_shown(&b.stack, .Brush), Stack_Card.Symmetry)
-	// The group line may come first: it is read once the stack's order is in place.
+	testing.expect_value(t, stack_shown(&b.stack, .Brush), Panel_Kind.Symmetry)
+	// The group line may come first: it is read once the stack's order is in place. A
+	// section's palette is a tab like a card, and comes into the stack with its group.
 	kit_layout_put(&b, "stack_group card:Tools card:Unknown section:Stroke card:Brush\nstack Brush+ Symmetry Layers Scene Tools Palettes\n")
-	testing.expect_value(t, stack_text(&b), "Symmetry,Layers,Scene,Tools,&Brush,Palettes")
+	testing.expect_value(t, stack_text(&b), "Symmetry,Layers,Scene,Tools,&Stroke,&Brush,Palettes")
 	// A tab is left out with its group.
 	kit_layout_put(&b, "stack Brush+ Symmetry -Layers Scene Tools Palettes\nstack_group card:Layers card:Scene\n")
 	testing.expect_value(t, stack_text(&b), "Brush+,Symmetry,Tools,Palettes")
@@ -96,6 +97,6 @@ stack_reveal_opens_a_group_on_its_tab :: proc(t: ^testing.T) {
 	tray_open(&app, .Layers)
 	testing.expect(t, .Symmetry in k.stack.open)
 	testing.expect(t, k.stack.hidden & {.Symmetry, .Layers} == {})
-	testing.expect_value(t, stack_shown(&k.stack, .Symmetry), Stack_Card.Layers)
+	testing.expect_value(t, stack_shown(&k.stack, .Symmetry), Panel_Kind.Layers)
 	free_all(context.temp_allocator)
 }

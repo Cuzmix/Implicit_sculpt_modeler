@@ -1014,7 +1014,7 @@ kit_pinned :: proc(app: ^App, sec: Kit_Section) -> (raised: bool) {
 		// Floating, it scrolls in its own body; docked, its column's share does.
 		s: Kit_Scroll
 		if !p.docked do s = kit_scroll_begin(ctx, "pinned body", &pin.scroll, p.owner, KIT_INSPECTOR_W - 2 * PADDING, max(p.room, PANEL_BODY_MIN), 6)
-		panel_body(app, sec, KIT_INSPECTOR_W - 2 * PADDING)
+		if p, ok := panel_of_section(sec); ok do panel_body(app, p, KIT_INSPECTOR_W - 2 * PADDING)
 		if !p.docked do kit_scroll_end(ctx, s)
 	}
 	panel_end(app, &p)
