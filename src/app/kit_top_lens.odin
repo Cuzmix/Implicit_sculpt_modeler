@@ -176,14 +176,14 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		k.menu_scroll = 0
 	}
 	menu_anchor = ctx.last_rect
-	// A long press (or a right-click) on either opens the History panel, to go back or
-	// forward many steps.
+	// A long press on either, slid sideways, scrubs the History, and let go unslid (or a
+	// right-click) opens the History panel, to go back or forward many steps.
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
-	if ui.secondary(ctx) do k.history = true
+	quick_scrub_button(app, .Undo)
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
-	if ui.secondary(ctx) do k.history = true
+	quick_scrub_button(app, .Redo)
 	ui.end(ctx)
 
 	ui.begin_anchored(ctx, "focus middle", .Center, .Start, {0, ISLAND_TOP}, island)

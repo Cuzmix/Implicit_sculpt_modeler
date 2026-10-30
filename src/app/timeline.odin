@@ -56,6 +56,7 @@ Timeline :: struct {
 	only_selected: bool,
 	open_at:       time.Tick,
 	list_scroll:   f32,
+	quick:         Quick_Scrub, // a hold on Undo or Redo, or of fingers, slid (quick_scrub.odin)
 }
 
 // The History panel's two views: the list of steps (Nomad's), and the strip of coloured

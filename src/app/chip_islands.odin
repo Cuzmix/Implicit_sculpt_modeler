@@ -117,15 +117,15 @@ chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor
 		_ = top_file_block(app)
 		return ui.rect_union(start, ctx.last_rect)
 	case .Undo:
-		// A long press (or a right-click) on either opens the History panel, to go back or
-		// forward many steps.
+		// A long press on either, slid sideways, scrubs the History, and let go unslid (or a
+		// right-click) opens the History panel, to go back or forward many steps.
 		undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 		redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 		if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
-		if ui.secondary(ctx) do k.history = true
+		quick_scrub_button(app, .Undo)
 		undo_at := ctx.last_rect
 		if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
-		if ui.secondary(ctx) do k.history = true
+		quick_scrub_button(app, .Redo)
 		both := ui.rect_union(undo_at, ctx.last_rect)
 		history_roll(app, both)
 		pen_zone(app, both, .History)
