@@ -26,6 +26,7 @@ Vk_Window :: struct {
 	frame_serial: [FRAMES_IN_FLIGHT_MAX]u64,
 	frame:        int,
 	stale:        bool, // remade before the next acquire
+	turns:        int, // quarter turns clockwise the images' content is drawn at (pre-rotation; 0 upright)
 	// Present timing (Gpu_Caps.present_timing): each present takes the next id, counting
 	// from 1 across the window's swapchains; ids before present_base went to an earlier one,
 	// whose presents are never waited for. present_seen is the newest id known shown (or
@@ -53,6 +54,44 @@ VK_PACE_MISSES :: 3
 Vk_Pending :: struct {
 	id:       u64,
 	input_ns: u64,
+}
+
+// Pre-rotation (on Android, unless --no-pre-rotate): a swapchain takes the screen's own
+// orientation and the interface pass turns what it draws to match (ui_pass_draw), so the
+// compositor has no rotation pass to run, which costs a tablet GPU time and clock speed.
+// Only the interface pass draws into a swapchain image; the 3D view goes through it as a
+// texture. Desktop surfaces report no rotation, so they stay upright either way.
+vk_pre_rotate := ODIN_PLATFORM_SUBTARGET == .Android
+
+// The quarter turns the surface asks images to be drawn at now, and the transform to
+// make the swapchain with: the surface's own where pre-rotation is on and it is a plain
+// turn the surface takes, otherwise identity (the compositor turns them), as SDL_GPU does.
+@(private = "file")
+vk_pick_transform :: proc(caps: vk.SurfaceCapabilitiesKHR) -> (vk.SurfaceTransformFlagsKHR, int) {
+	turns := 0
+	if caps.currentTransform == {.ROTATE_90} do turns = 1
+	else if caps.currentTransform == {.ROTATE_180} do turns = 2
+	else if caps.currentTransform == {.ROTATE_270} do turns = 3
+	if vk_pre_rotate && turns > 0 && caps.currentTransform <= caps.supportedTransforms do return caps.currentTransform, turns
+	return {.IDENTITY} if .IDENTITY in caps.supportedTransforms else caps.currentTransform, 0
+}
+
+// Whether the surface now asks for other turns than the swapchain was made with: a
+// suboptimal acquire or present after the device turned (180 degrees keeps the size, so
+// only this tells). Without pre-rotation every turned screen reports suboptimal, which is
+// no reason to remake anything.
+@(private = "file")
+vk_turns_moved :: proc(w: ^Vk_Window) -> bool {
+	if !vk_pre_rotate do return false
+	caps: vk.SurfaceCapabilitiesKHR
+	if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(vk_state.physical, w.surface, &caps) != .SUCCESS do return false
+	_, turns := vk_pick_transform(caps)
+	return turns != w.turns
+}
+
+vk_swapchain_turns :: proc(window: ^sdl.Window) -> int {
+	w := vk_window_find(window)
+	return w.turns if w != nil else 0
 }
 
 vk_window_find :: proc(window: ^sdl.Window) -> ^Vk_Window {
@@ -122,9 +161,11 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 			break
 		}
 	}
-	// Identity where offered: the app draws upright and lets the compositor rotate, as
-	// SDL_GPU does on Android.
-	transform := vk.SurfaceTransformFlagsKHR{.IDENTITY} if .IDENTITY in caps.supportedTransforms else caps.currentTransform
+	transform, turns := vk_pick_transform(caps)
+	// A turned swapchain's images are as the screen is built, a quarter turn from the
+	// window. Which way the surface reports its extent differs between drivers, so the
+	// window's own shape decides.
+	if turns % 2 == 1 && pw != ph && (extent.width > extent.height) == (pw > ph) do extent = {extent.height, extent.width}
 	info := vk.SwapchainCreateInfoKHR {
 		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
 		surface          = w.surface,
@@ -172,7 +213,10 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 		w.textures[i] = t
 		_ = vk.CreateSemaphore(vk_state.device, &semaphore, nil, &w.render_done[i])
 	}
+	// The app sees the window's size; only the images are turned.
 	w.width, w.height = extent.width, extent.height
+	if turns % 2 == 1 do w.width, w.height = extent.height, extent.width
+	w.turns = turns
 	w.stale = false
 	return true
 }
@@ -307,7 +351,9 @@ vk_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl
 		return true
 	}
 	// A suboptimal swapchain still presents; it is remade at the next size change (Android
-	// reports suboptimal for every rotation it composites itself).
+	// reports suboptimal for every rotation it composites itself), or when pre-rotation
+	// finds the screen turned.
+	if r == .SUBOPTIMAL_KHR && vk_turns_moved(w) do w.stale = true
 	t := w.textures[index]
 	vk_cmd_track_image(cmd, t.active)
 	vk_image_barrier(cmd, t.active, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
@@ -343,7 +389,7 @@ vk_present :: proc(p: Vk_Present) {
 	case .None:
 	}
 	r := vk.QueuePresentKHR(vk_state.queue, &info)
-	if r == .ERROR_OUT_OF_DATE_KHR || r == .ERROR_SURFACE_LOST_KHR do w.stale = true
+	if r == .ERROR_OUT_OF_DATE_KHR || r == .ERROR_SURFACE_LOST_KHR || (r == .SUBOPTIMAL_KHR && vk_turns_moved(w)) do w.stale = true
 }
 
 vk_present_input :: proc(window: ^sdl.Window, input_ns: u64) {

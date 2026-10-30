@@ -613,6 +613,13 @@ gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 	return 0
 }
 
+// Pre-rotation likewise: SDL_GPU leaves the compositor to turn its images, and Apple's
+// compositor turns Metal's at no cost, so only the own Vulkan backend's can be turned.
+gpu_swapchain_turns :: proc(window: ^sdl.Window) -> int {
+	if gpu_backend == .Vulkan do return vk_swapchain_turns(window)
+	return 0
+}
+
 gpu_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, swapchain_composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
 	if gpu_backend == .Vulkan do return vk_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
 	when METAL do if gpu_backend == .Metal do return mtl_set_swapchain_parameters(device, window, swapchain_composition, present_mode)

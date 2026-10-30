@@ -72,7 +72,8 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 
 // The pass a window presents: clears its swapchain texture to `clear` and, when `draw`
 // (the interface was uploaded), draws the interface into it. Cleared either way, so a
-// failed upload shows an empty frame rather than whatever the texture held.
+// failed upload shows an empty frame rather than whatever the texture held. `size` is the
+// window's; a pre-rotated swapchain's texture is turned from it (swapchain_turns).
 ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, swapchain: Texture, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, draw: bool) {
 	debug_group(cmd, "Interface")
 	target := sdl.GPUColorTargetInfo {
@@ -84,9 +85,21 @@ ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, sw
 	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
 	if draw {
 		format := gpu_get_swapchain_texture_format(r.device, window)
-		ui_pass_draw(r, up, cmd, pass, format, size, draws)
+		ui_pass_draw(r, up, cmd, pass, format, size, draws, gpu_swapchain_turns(window))
 	}
 	gpu_end_render_pass(pass)
+}
+
+// Quarter turns clockwise the window's swapchain images are drawn at (pre-rotation): 0
+// upright, which is all but Android's own Vulkan backend on a turned tablet.
+swapchain_turns :: proc(window: ^sdl.Window) -> int {
+	return gpu_swapchain_turns(window)
+}
+
+// Lets the own Vulkan backend pre-rotate (on Android it does by default); set before the
+// window is claimed. --no-pre-rotate turns it off to compare.
+set_pre_rotate :: proc(on: bool) {
+	vk_pre_rotate = on
 }
 
 // Whether the device exists: false before renderer_init and in runs without a window.

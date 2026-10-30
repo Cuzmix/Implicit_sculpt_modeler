@@ -14,7 +14,9 @@ struct Vertex_Out {
 
 // SDL_GPU SPIR-V conventions: vertex uniform buffers live in set 1.
 [[vk::binding(0, 1)]] cbuffer Ui_Vertex_Uniforms {
-	float4 target; // xy: the target's size in pixels
+	// xy: the size in pixels the triangles are laid out in; zw: the cosine and sine of the
+	// clockwise turn they are drawn at (1, 0 upright; a pre-rotated swapchain is turned).
+	float4 target;
 };
 
 Vertex_Out main(Vertex_In v) {
@@ -22,6 +24,8 @@ Vertex_Out main(Vertex_In v) {
 	o.uv = v.uv;
 	o.color = v.color;
 	float2 ndc = v.pos / target.xy * 2.0 - 1.0;
-	o.position = float4(ndc.x, -ndc.y, 0.0, 1.0);
+	float2 p = float2(ndc.x, -ndc.y);
+	// Clockwise in clip space, whose y points up.
+	o.position = float4(target.z * p.x + target.w * p.y, target.z * p.y - target.w * p.x, 0.0, 1.0);
 	return o;
 }
