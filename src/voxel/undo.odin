@@ -206,6 +206,13 @@ clay_undo_bytes :: proc(c: ^Clay) -> int {
 	return c.history.bytes
 }
 
+// What the newest done step holds, in bytes (0 with none): the History panel's size for the
+// step just recorded.
+clay_last_step_bytes :: proc(c: ^Clay) -> int {
+	if c.history.cursor <= 0 do return 0
+	return undo_step_bytes(&c.history.steps[c.history.cursor - 1])
+}
+
 // Drops the redo steps: the app's history did, after a change elsewhere.
 clay_clear_redo :: proc(c: ^Clay) {
 	h := &c.history

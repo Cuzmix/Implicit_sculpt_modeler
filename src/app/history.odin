@@ -33,6 +33,11 @@ History :: struct {
 	// The bytes swap snapshots may take before the oldest go; 0 for SWAP_LIMIT_BYTES (a
 	// test sets a small one).
 	swap_limit: int,
+	// When the History last started afresh (a scene opened or begun), and how many of its
+	// oldest steps the limits or Delete older history dropped since: the History list's
+	// first row.
+	began:   time.Tick,
+	dropped: int,
 }
 
 History_Entry :: struct {
@@ -49,6 +54,10 @@ History_Entry :: struct {
 	kind:  History_Kind,
 	what:  string, // not owned: a constant
 	at:    time.Tick,
+	// What the step held when it was made, in bytes: the stroke's saved nodes, the swap's
+	// snapshot or the texture maps; 0 for a change that keeps next to nothing (a move, the
+	// lights). The History list shows it.
+	bytes: int,
 	// A stroke set to a share of itself after the fact (Adjust last stroke), and the share.
 	adjusted: bool,
 	amount:   f32,
@@ -142,6 +151,7 @@ history_clear :: proc(h: ^History) {
 	h.swap_bytes = 0
 	h.serial += 1
 	h.edits += 1
+	h.began, h.dropped = time.tick_now(), 0
 }
 
 @(private = "file")
@@ -175,7 +185,7 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	history_forget_strokes(app, id)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now()})
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now(), bytes = len(before.bytes)})
 	app.history.swap_bytes += len(before.bytes)
 	history_trim(app)
 }
@@ -186,7 +196,7 @@ history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, wh
 	history_drop_redo(app)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, kind = .Textures, what = what, at = time.tick_now(), textures = step})
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Textures, what = what, at = time.tick_now(), textures = step, bytes = texture_step_bytes(step)})
 	app.history.swap_bytes += texture_step_bytes(step)
 	history_trim(app)
 }
@@ -210,7 +220,10 @@ history_trim :: proc(app: ^App) {
 		for end < len(h.done) && h.done[end].chain do end += 1
 		// The strokes among them stay in their sculptors, out of reach, until the
 		// sculptors' own limit drops them.
-		for e in h.done[:end] do entry_free(h, e)
+		for e in h.done[:end] {
+			if !e.chain do h.dropped += 1
+			entry_free(h, e)
+		}
 		remove_range(&h.done, 0, end)
 	}
 }
@@ -258,6 +271,7 @@ history_drop_oldest :: proc(app: ^App, steps: int) -> (freed: int) {
 	}
 	freed = before - h.swap_bytes
 	remove_range(&h.done, 0, end)
+	h.dropped += dropped
 	h.serial += 1
 	for e in touched {
 		obj := object_by_id(app, e.id)
@@ -665,7 +679,13 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 	history_drop_redo(app)
 	app.history.serial += 1
 	if !object_in_hd(obj) do app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0})
+	bytes := 0
+	if obj.voxel != nil {
+		bytes = voxel.clay_last_step_bytes(&obj.voxel.clay)
+	} else {
+		bytes = sculpt.sculptor_last_step_bytes(object_sculptor(obj))
+	}
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes})
 }
 
 @(private = "file", rodata)
