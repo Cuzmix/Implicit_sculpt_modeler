@@ -10,11 +10,17 @@ drawing every pass the app has in both versions:
 
 Each case writes the viewport (--dump-viewport) and the whole window (--dump-screen) as
 PPM; --compare runs scripts/ppm.py diff on each pair and fails on any differing pixel.
+--tolerance PCT lets that share of a picture's pixels differ instead, for comparing
+pictures traced two ways whose rounding differs (render mode with ray queries, which
+Settings > System > Graphics > Ray tracing hardware turns on, against the app's own walk
+through --no-ray-query or an older build): a path that meets a triangle a hair elsewhere
+bounces another way, so a few pixels of a few samples move by a few levels.
 Needs a display (Xvfb on Linux) and a built app (build/sculpt or build\\sculpt.exe).
 """
 import argparse
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -80,11 +86,17 @@ def run_case(exe, out, name, script, frames, want, extra) -> bool:
     return True
 
 
-def diff(a, b) -> tuple[bool, str]:
+def diff(a, b, tolerance=0.0) -> tuple[bool, str]:
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "ppm.py"), "diff", str(a), str(b)],
                        capture_output=True, text=True)
     text = (r.stdout + r.stderr).strip()
-    return r.returncode == 0 and "within 0" in text, text
+    if r.returncode == 0 and "within 0" in text:
+        return True, text
+    # "FAIL diff: N pixel(s) differ by more than 0 (P% of WxH)"
+    m = re.search(r"differ by more than 0 \(([0-9.]+)% of", text)
+    if tolerance > 0 and m and float(m.group(1)) <= tolerance:
+        return True, text.splitlines()[0].replace("FAIL diff:", "diff:", 1) + f", within the tolerance of {tolerance}%"
+    return False, text
 
 
 def main() -> int:
@@ -93,6 +105,8 @@ def main() -> int:
     p.add_argument("--compare", help="baseline folder to compare with")
     p.add_argument("--only", help="comma-separated case names")
     p.add_argument("--app", help="the app to run (default build/sculpt)")
+    p.add_argument("--tolerance", type=float, default=0.0,
+                   help="percent of a picture's pixels that may differ (default 0: none)")
     p.add_argument("extra", nargs="*", help="app arguments after --")
     a = p.parse_args()
     out = pathlib.Path(a.out)
@@ -110,7 +124,7 @@ def main() -> int:
             print(f"ok   {name}")
             continue
         for kind in ("viewport", "screen"):
-            same, text = diff(out / f"{name}.{kind}.ppm", pathlib.Path(a.compare) / f"{name}.{kind}.ppm")
+            same, text = diff(out / f"{name}.{kind}.ppm", pathlib.Path(a.compare) / f"{name}.{kind}.ppm", a.tolerance)
             print(f"{'ok  ' if same else 'DIFF'} {name} {kind}: {text}")
             if not same:
                 failed += 1

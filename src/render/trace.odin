@@ -187,9 +187,10 @@ Trace_Light :: struct {
 // changed (on the pool), refits the boxes of meshes whose vertices moved, and rebuilds
 // the tree over the chunks where they moved or were hidden. Returns false, with nothing
 // left half done, when this view cannot be traced and the studio should use its gather:
-// tracing is off, the device refused it, or an item cannot be traced. `ray_query` lets the
-// view trace with ray queries instead (Renderer.ray_query), and then our trees are left as
-// they were; render mode, which reads the trees, passes false.
+// tracing is off, the device refused it, or an item cannot be traced. `ray_query`, which
+// the caller passes once its kernel for them is made (trace_rq_kernel, render mode's own),
+// lets the view trace with ray queries instead (Renderer.ray_query): tr.rq says whether it
+// does, and then our trees are left as they were.
 trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, items: []Draw_Item, pool: ^jobs.Pool, ray_query := false) -> bool {
 	if !r.trace || tr.failed do return false
 	if !tracer_ensure(r, tr, vt) {
@@ -505,10 +506,11 @@ trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk
 
 // ---- Ray queries --------------------------------------------------------------------
 
-// Brings every traced item's acceleration structure up to date and builds the top level
-// over them; false when the device refused any of it, and the view walks our trees.
-@(private = "file")
-trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, items: []Draw_Item, pool: ^jobs.Pool) -> bool {
+// The traced studio's ray query kernel, made on first use where the device offers ray
+// queries and they are on (Renderer.ray_query): whether trace_prepare may trace this
+// tracer's view that way. A refusal is logged and the studio walks its own trees from then.
+trace_rq_kernel :: proc(r: ^Renderer, tr: ^Tracer) -> bool {
+	if !r.ray_query || !r.caps.ray_query || tr.rq_failed do return false
 	if tr.rq_pipeline == nil {
 		when ODIN_OS != .Darwin {
 			tr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, {
@@ -523,6 +525,14 @@ trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, 
 			return false
 		}
 	}
+	return true
+}
+
+// Brings every traced item's acceleration structure up to date and builds the top level
+// over them, an instance for each item with a structure, numbered in order from 0; false
+// when the device refused any of it, and the view walks our trees.
+@(private = "file")
+trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, items: []Draw_Item, pool: ^jobs.Pool) -> bool {
 	debug_group(cmd, "Ray query structures")
 	instances := make([dynamic]Tlas_Instance, context.temp_allocator)
 	bytes := 0
@@ -542,7 +552,7 @@ trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, 
 	}
 	tlas := gpu_build_tlas(cmd, instances[:], tr.tlas)
 	if tlas == nil {
-		log.warn("traced studio: the top-level acceleration structure could not be built; it walks its own trees")
+		log.warn("ray queries: the top-level acceleration structure could not be built; the view walks the app's own trees")
 		return false
 	}
 	if tlas != tr.tlas do gpu_release_accel(r.device, tr.tlas)
@@ -597,7 +607,7 @@ trace_mesh_update_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuff
 	refit := key == tm.blas_key && tm.blas != nil && tm.blas_refits < BLAS_REFITS_MAX
 	blas := gpu_build_blas(cmd, mb.positions, mb.indices, vertex_count, geometries[:], tm.blas if refit else nil)
 	if blas == nil {
-		log.warn("traced studio: an acceleration structure could not be built; it walks its own trees")
+		log.warn("ray queries: an acceleration structure could not be built; the view walks the app's own trees")
 		return false
 	}
 	if blas == tm.blas {
@@ -612,7 +622,7 @@ trace_mesh_update_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuff
 	resize(&tm.geometries, len(geometries))
 	copy(tm.geometries[:], geometries[:])
 	if int(gpu_accel_bytes(blas)) > TRACE_BUFFER_MAX {
-		log.warnf("traced studio: an acceleration structure of %d MB is more than the trace budget; it walks its own trees", gpu_accel_bytes(blas) >> 20)
+		log.warnf("ray queries: an acceleration structure of %d MB is more than the trace budget; the view walks the app's own trees", gpu_accel_bytes(blas) >> 20)
 		return false
 	}
 	return true

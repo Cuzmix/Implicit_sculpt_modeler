@@ -27,8 +27,12 @@ import "../jobs"
 RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
 // The same kernel reading every map from one array (render_trace_maps.comp.slang), which
 // only the own Vulkan backend binds, so it has no Metal source.
+// Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query),
+// which only the own Vulkan backend offers.
 when ODIN_OS != .Darwin {
 	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
+	RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp.spv")
+	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv")
 }
 RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
 RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
@@ -102,6 +106,13 @@ Path_Render :: struct {
 	// items it shows with their maps: RENDER_TEXTURED_MAX with the named samplers.
 	maps_array:     bool,
 	textured_max:   u32,
+	// Its kernel of the same kind tracing with ray queries, made on first use where they are
+	// offered and on (Renderer.ray_query); whether they were on when this view started, and
+	// whether this view's scene traces that way (the tracer's top level, Tracer.tlas).
+	rq_pipeline:    ^sdl.GPUComputePipeline,
+	rq_failed:      bool,
+	rq_on:          bool,
+	rq:             bool,
 	// With async compute each band runs on the compute queue (render_frame's `async`):
 	// at most one in flight, its fence, the run it belongs to (a band of an older run is
 	// dropped), when it went, and whether it finishes its sample. `generation` counts runs:
@@ -177,6 +188,7 @@ Path_Render :: struct {
 	// and their last, and the scene buffers' size.
 	total_samples:  int,
 	total_ms:       f64,
+	rq_samples:     int, // ...of them traced with ray queries
 	sample_started: time.Tick,
 	bytes:          int,
 }
@@ -301,9 +313,11 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	// A band on the compute queue is collected in either mode, so turning async compute
 	// off never leaves two writers of the sums.
 	path_band_collect(r, pr, cmd, vt, exposure, denoise, interval)
-	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens {
+	// Ray tracing hardware turned on or off starts the view over the other way.
+	rq_on := r.ray_query && r.caps.ray_query
+	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens || rq_on != pr.rq_on {
 		path_render_reset(pr)
-		pr.valid, pr.bounces, pr.softness, pr.lens = true, bounces, softness, lens
+		pr.valid, pr.bounces, pr.softness, pr.lens, pr.rq_on = true, bounces, softness, lens, rq_on
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
@@ -376,7 +390,12 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	written := pr.guides[1 - pr.guide_at]
 	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = written[0]}, {texture = written[1]}}
 	pass := gpu_begin_compute_pass(cmd, &bindings[0], len(bindings), nil, 0)
-	gpu_bind_compute_pipeline(pass, pr.pipeline)
+	if pr.rq {
+		gpu_bind_compute_pipeline(pass, pr.rq_pipeline)
+		gpu_bind_compute_accel(pass, pr.tracer.tlas)
+	} else {
+		gpu_bind_compute_pipeline(pass, pr.pipeline)
+	}
 	// The image itself, not its prefiltered copy: the paths find its blur on their own,
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
@@ -438,6 +457,7 @@ path_sample_done :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^View
 	if pr.samples == 0 || pr.lens_on do pr.guide_at = 1 - pr.guide_at
 	pr.samples += 1
 	pr.total_samples += 1
+	if pr.rq do pr.rq_samples += 1
 	pr.total_ms += time.duration_milliseconds(time.tick_since(pr.sample_started))
 	path_display(pr, cmd, vt, exposure, denoise)
 }
@@ -490,6 +510,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if pr.band_fence != nil do gpu_release_fence(r.device, pr.band_fence)
 	pr.band_fence = nil
 	if pr.pipeline != nil do gpu_release_compute_pipeline(r.device, pr.pipeline)
+	if pr.rq_pipeline != nil do gpu_release_compute_pipeline(r.device, pr.rq_pipeline)
 	if pr.display != nil do gpu_release_graphics_pipeline(r.device, pr.display)
 	if pr.display_linear != nil do gpu_release_graphics_pipeline(r.device, pr.display_linear)
 	if pr.atrous != nil do gpu_release_graphics_pipeline(r.device, pr.atrous)
@@ -500,7 +521,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	for b in pr.buffers do if b != nil do gpu_release_buffer(r.device, b)
 	tracer_destroy(r, &pr.tracer)
 	// The counters outlive the device's objects, for the exit stats.
-	pr^ = {tracer = pr.tracer, failed = pr.failed, total_samples = pr.total_samples, total_ms = pr.total_ms, bytes = pr.bytes}
+	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes}
 }
 
 // The lights as render mode takes them: `lights` (view space, as the viewport's) turned
@@ -612,6 +633,35 @@ path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, 
 // started; others show their material.
 render_textured_max :: proc(pr: ^Path_Render) -> int {
 	return int(pr.textured_max) if pr.pipeline != nil else RENDER_TEXTURED_MAX
+}
+
+// The ray query kernel of the kind pr.pipeline is (named samplers or one array of maps),
+// made on first use where ray queries are offered and on: whether this view may trace with
+// them. A refusal is logged and render mode walks its own trees from then.
+@(private = "file")
+path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
+	if !r.ray_query || !r.caps.ray_query || pr.rq_failed do return false
+	if pr.rq_pipeline == nil {
+		when ODIN_OS != .Darwin {
+			info := sdl.GPUComputePipelineCreateInfo {
+				code_size = len(RENDER_TRACE_RQ_COMP_CODE), code = raw_data(RENDER_TRACE_RQ_COMP_CODE), entrypoint = SHADER_ENTRY,
+				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
+			}
+			capacity: u32
+			if pr.maps_array {
+				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
+				capacity = 3 * pr.textured_max
+			}
+			pr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, info, capacity)
+		}
+		if pr.rq_pipeline == nil {
+			log.warnf("render mode: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
+			pr.rq_failed = true
+			return false
+		}
+	}
+	return true
 }
 
 @(private = "file")
@@ -801,24 +851,37 @@ Path_Item :: struct {
 
 // Brings the traced items' trees up to date and copies everything the kernel reads into
 // the scene buffers, with the tree over every shown chunk in the world; fills
-// pr.uniforms. False, with pr.refused saying why, when the scene cannot be rendered.
+// pr.uniforms. With ray queries the items' acceleration structures and the top level over
+// them take the trees' place, and `order` holds where each item's geometries start among
+// the merged triangles. False, with pr.refused saying why, when the scene cannot be
+// rendered.
 @(private = "file")
 path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, lights: Lights, softness: f32, pool: ^jobs.Pool) -> bool {
-	if !trace_prepare(r, &pr.tracer, cmd, vt, items, pool) {
+	if !trace_prepare(r, &pr.tracer, cmd, vt, items, pool, ray_query = path_rq_kernel(r, pr)) {
 		pr.refused = "Render mode cannot trace this scene on this device; the log says why."
 		return false
 	}
+	rq := pr.tracer.rq
+	// An empty top level is no structure at all: that scene goes to the walk, which finds
+	// nothing in it.
+	pr.rq = rq && pr.tracer.tlas != nil
 	placed := make([dynamic]Path_Item, context.temp_allocator)
 	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
 	pr.tex_meshes, pr.tex_stamps, pr.tex_count, pr.tex_left_out = {}, {}, 0, 0
 	for item, i in items {
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
-		if tm == nil || tm.tlas_empty do continue
+		// The same items in the same order as trace_prepare_rq's instances, so the k-th
+		// placed is instance k.
+		if tm == nil || (tm.rq_empty if rq else tm.tlas_empty) do continue
 		p := Path_Item{item = i, vertices = u32(len(item.source.positions)), triangles = u32(len(item.source.indices) / 3)}
-		for tree in tm.trees {
-			p.nodes += u32(len(tree.nodes))
-			p.words += u32((len(tree.order) + 1) / 2)
+		if rq {
+			p.words = u32(len(tm.geometries))
+		} else {
+			for tree in tm.trees {
+				p.nodes += u32(len(tree.nodes))
+				p.words += u32((len(tree.order) + 1) / 2)
+			}
 		}
 		p.vertex_off, p.tri_off, p.node_off, p.word_off, p.chunk_off = vertex_count, tri_count, node_count, word_count, chunk_count
 		p.paint = item.mesh.paint != nil && (item.paint || item.groups || item.slots != nil)
@@ -845,7 +908,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		tri_count += p.triangles
 		node_count += p.nodes
 		word_count += p.words
-		chunk_count += u32(len(tm.trees))
+		if !rq do chunk_count += u32(len(tm.trees))
 		append(&placed, p)
 	}
 	pr.tex_count = textured_count
@@ -860,9 +923,16 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	world_bounds := make([dynamic]geom.Aabb, context.temp_allocator)
 	world_ids := make([dynamic]u32, context.temp_allocator)
 	records := make([]Item_Record, max(len(placed), 1), context.temp_allocator)
+	starts := make([]u32, word_count if rq else 0, context.temp_allocator)
 	for p, k in placed {
 		item := items[p.item]
 		tm := item.mesh.trace
+		records[k] = path_item_record(item, p)
+		if rq {
+			records[k].offs.z = p.word_off
+			for g, j in tm.geometries do starts[p.word_off + u32(j)] = p.tri_off + g.first_triangle
+			continue
+		}
 		node_at, word_at: u32
 		for tree, t in tm.trees {
 			first_tri := tm.ranges[t].first_index / 3
@@ -875,7 +945,6 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 			append(&world_bounds, aabb_transform(bounds[j], item.model))
 			append(&world_ids, p.chunk_off + run)
 		}
-		records[k] = path_item_record(item, p)
 	}
 	tlas := make([dynamic]geom.Gpu_Bvh_Node, context.temp_allocator)
 	if len(world_bounds) > 0 {
@@ -922,8 +991,10 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		gpu_copy(copy_pass, mb.indices, pr.buffers[.Indices], p.tri_off * 3 * size_of(u32), p.triangles * 3 * size_of(u32))
 		gpu_copy(copy_pass, mb.normals, pr.buffers[.Attributes], p.vertex_off * size_of(Normal_Packed), p.vertices * size_of(Normal_Packed))
 		if p.paint do gpu_copy(copy_pass, mb.paint, pr.buffers[.Attributes], paint_base + p.vertex_off * size_of(Paint_Packed), p.vertices * size_of(Paint_Packed))
-		gpu_copy(copy_pass, tm.buffers[.Nodes], pr.buffers[.Nodes], p.node_off * size_of(geom.Gpu_Bvh_Node), p.nodes * size_of(geom.Gpu_Bvh_Node))
-		gpu_copy(copy_pass, tm.buffers[.Order], pr.buffers[.Order], p.word_off * size_of(u32), p.words * size_of(u32))
+		if !rq {
+			gpu_copy(copy_pass, tm.buffers[.Nodes], pr.buffers[.Nodes], p.node_off * size_of(geom.Gpu_Bvh_Node), p.nodes * size_of(geom.Gpu_Bvh_Node))
+			gpu_copy(copy_pass, tm.buffers[.Order], pr.buffers[.Order], p.word_off * size_of(u32), p.words * size_of(u32))
+		}
 		if t := p.textured; t != nil {
 			gpu_copy(copy_pass, t.vertices, pr.buffers[.Textured], p.tex_vertex_off * size_of(u32), t.vertex_count * size_of(Textured_Vertex))
 			gpu_copy(copy_pass, t.corners, pr.buffers[.Textured], p.tex_corner_off * size_of(u32), t.corner_count * size_of(u32))
@@ -932,7 +1003,8 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	gpu_end_copy_pass(copy_pass)
 	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks)) &&
 		path_upload(r, pr, cmd, .Items, 0, slice.to_bytes(records)) &&
-		path_upload(r, pr, cmd, .Nodes, int(node_count) * size_of(geom.Gpu_Bvh_Node), slice.to_bytes(tlas[:]))
+		path_upload(r, pr, cmd, .Nodes, int(node_count) * size_of(geom.Gpu_Bvh_Node), slice.to_bytes(tlas[:])) &&
+		path_upload(r, pr, cmd, .Order, 0, slice.to_bytes(starts))
 	if !ok {
 		pr.refused = "Render mode's upload failed; the log says why."
 		return false
@@ -971,7 +1043,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		}
 	}
 	u.counts.w = paint_base / size_of(u32)
-	u.extra = {node_count, 1 if len(tlas) == 0 else 0, 0, 0}
+	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, 0, 0}
 	pr.bytes = 0
 	for c in pr.capacity do pr.bytes += int(c)
 	return true
