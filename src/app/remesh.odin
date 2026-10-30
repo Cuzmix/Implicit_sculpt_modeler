@@ -18,11 +18,23 @@ Remesh_Setup :: struct {
 	keep_detail: bool, // the result put back on the old surface, its polypaint and polygroups along
 	groups:      bool, // each polygroup a closed piece of its own
 	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
+	mirror:      geom.Remesh_Mirror, // the brush's symmetry planes, which the result keeps (remesh_mirror)
 }
 
-// The panel's options, as a command takes them.
+// The panel's options, as a command takes them, with the symmetry on now.
 remesh_setup :: proc(app: ^App) -> Remesh_Setup {
-	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads}
+	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads, remesh_mirror(app, selected_object(app))}
+}
+
+// The planes a remesh of `obj` keeps symmetric across: the brush's symmetry planes,
+// through the centre its dabs mirror about (the origin, or with Local the middle of the
+// object), so a sculpt made with symmetry comes out of a remesh as symmetric as it went
+// in, ready for more symmetric strokes. Radial symmetry asks nothing of the lattice.
+remesh_mirror :: proc(app: ^App, obj: ^Object) -> (mirror: geom.Remesh_Mirror) {
+	if obj == nil do return
+	for a in sculpt.Axis do mirror.axes[int(a)] = a in app.brush.symmetry
+	if mirror.axes != {} do mirror.center = symmetry_center(app, obj)
+	return
 }
 
 // The panel set to a command's options (Adjust last).
@@ -33,7 +45,7 @@ remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
 // none, as under dynamic topology): Groups does nothing without them.
 remesh_options :: proc(setup: Remesh_Setup, groups: []u16) -> geom.Remesh_Options {
-	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads}
+	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror}
 }
 
 // The polypaint and polygroups the remeshed mesh `out` takes from the mesh it came from,
