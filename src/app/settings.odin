@@ -326,6 +326,8 @@ SETTINGS := [?]Setting {
 	{"export_print_all", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, print_all), bool, 0, 0},
 	{"export_decimate", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, decimate), bool, 0, 0},
 	{"export_decimate_to", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, decimate_to), i32, 0, 1e9},
+	{"export_hollow", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, hollow), bool, 0, 0},
+	{"export_hollow_wall", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, hollow_wall), f32, 0, EXPORT_HOLLOW_MAX},
 	{"print_bed_width", offset_of(App, print_bed) + 0 * size_of(f32), f32, 0, PRINT_BED_MAX},
 	{"print_bed_depth", offset_of(App, print_bed) + 1 * size_of(f32), f32, 0, PRINT_BED_MAX},
 	{"print_bed_height", offset_of(App, print_bed) + 2 * size_of(f32), f32, 0, PRINT_BED_MAX},

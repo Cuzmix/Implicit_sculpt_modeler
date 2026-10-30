@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -173,5 +174,51 @@ export_decimates_a_copy :: proc(t: ^testing.T) {
 	kept := []u32{max(u32), 0, max(u32), 1}
 	v, d := sparse_keep(vertices, deltas, kept)
 	testing.expect(t, len(v) == 2 && v[0] == 0 && v[1] == 1 && d[0].x == 2 && d[1].x == 4, "the shape key's vertices did not follow")
+	free_all(context.temp_allocator)
+}
+
+// Hollow for this file only writes a print with an inside wall as thick as asked: the
+// file is one closed solid of a shell's volume, the object keeps its triangles, a wall
+// too thin for the object's size is refused, and several objects in a 3MF each get one.
+@(test)
+export_hollows_a_print :: proc(t: ^testing.T) {
+	FOLDER :: "build/export_hollow_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "hollow.obj")
+	defer delete(path)
+
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	lv := sculpt.levels_current(&obj.levels)
+	before := len(lv.mesh.indices) / 3
+	if !testing.expect(t, object_export(&app, obj, path, print = true, once = {hollow = 2})) do return
+	testing.expect_value(t, len(lv.mesh.indices) / 3, before)
+	testing.expect(t, app.export_hollowed > 0, "no inside wall")
+
+	data, err := os.read_entire_file(path, context.allocator)
+	defer delete(data)
+	if !testing.expect(t, err == nil) do return
+	m, read_err, _ := geom.mesh_read_obj(data, nil)
+	defer geom.mesh_destroy(&m)
+	if !testing.expect_value(t, read_err, geom.Mesh_File_Error.None) do return
+	report := geom.mesh_check(m)
+	// The sphere prints about 50 mm across (an icosphere of 320 faces, a little smaller
+	// in volume than the sphere); the shell is its volume less a sphere 2 mm smaller.
+	solid := geom.mesh_check(lv.mesh).volume * 25 * 25 * 25
+	r := math.cbrt(solid * 3 / (4 * math.PI))
+	shell := solid - 4 * math.PI / 3 * (r - 2) * (r - 2) * (r - 2)
+	testing.expectf(t, report.closed && !report.inverted && abs(report.volume - shell) < 0.15 * shell, "the hollow print: %v, a shell's volume is %.0f", report, shell)
+
+	testing.expect(t, !object_export(&app, obj, path, print = true, once = {hollow = 0.01}), "a wall too thin for the object was hollowed")
+
+	three := strings.clone(FOLDER + "three.3mf")
+	defer delete(three)
+	app.export_hollowed = 0
+	testing.expect(t, print_export_many(&app, objs[:], three, {hollow = 2}), "the 3MF was not written")
+	testing.expect(t, app.export_hollowed > 0, "the 3MF's objects got no inside wall")
 	free_all(context.temp_allocator)
 }
