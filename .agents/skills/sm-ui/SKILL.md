@@ -87,18 +87,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
   press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the right column above it. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
-  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows, pinned sections, floated
+  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows and floated
   `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal` (`exact` for Show where), which brings a left-out section's
-  palette in as `s.visit` (`stack_visit`; `stack_keep` pins it; the layout never writes the visit; markers ask
+  palette in as `s.visit` (`stack_visit`; `stack_keep` keeps a section for good, Pin to the stack, `stack_kept` asks; the layout never writes the visit; markers ask
   `palette_on_screen`; `s.revealed` is the section opened last); the tray and its Palettes card are gone (PR 9c),
   and `stack_layout_upgrade` rewrites a saved layout that still names Palettes; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
   (`panel_kind.odin`: one enum, the cards then a palette per tray section, `panel_of_section`/`panel_section` between
   it and `Kit_Section`; sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
-  `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack, the pane strip's tab
-  and pinned panels all call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
+  `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack and the pane strip's tab
+  both call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
   the `panel_kind_*` procs. The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
   the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
@@ -152,8 +152,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
   it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
-- Panels and columns (`src/app/panels.odin`): `Panel_Ref :: union {Kit_Window, Kit_Section}` names a panel, a
-  window or a tray section pinned on its own (`k.panels.pins`, `panel_pin_toggle`, `panel_pinnable`). Each panel proc
+- Panels and columns (`src/app/panels.odin`): `Panel_Ref :: union {Kit_Window}` names a panel, a
+  window that docks; a pinned section is a card kept in the stack (PR 9d), and `panels_load_line` notes an older
+  file's `pinned` lines and `section:` column words in `Panels_Old` for `panels_old_settle` to keep once read. Each panel proc
   calls `panel_begin(app, ref, title, x, y, offset, box)` … `panel_end`, never `ui.window_begin` itself: floating it
   is the window or card as before; docked (`k.panels.columns[side]`, laid out by `kit_columns`) it is its own root
   container placed at `k.panels.at[side]`, with a header (title, summary when folded, options, Minimise, Close) and a
@@ -162,10 +163,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   hit testing and `prev_rect` by root name keep working; never nest one panel proc in another's container. A header
   dragged past the slop calls `panel_undock`, which floats the window under the finger and hands it the press with
   `ui.window_grab`; `panel_drag_follow` docks a floating panel let go over `column_zone`. `kit_panel_menu` is the
-  options popover. `column` and `pinned` lines in the settings (`panels_save`, `panels_load_line`); `windows_reset`
-  calls `panels_default`. Exit stats `column_left= column_right= panel_pins= panel_moves= panel_menu=`.
+  options popover. `column` lines in the settings (`panels_save`, `panels_load_line`); `stack_column_pop` pops the stack's column on a
+  narrow window when a card is opened or kept; `windows_reset`
+  calls `panels_default`. Exit stats `column_left= column_right= panel_pins=` (kept section cards, stack order) `panel_moves= panel_menu=`.
 - Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
-  `column`, `pinned` lines, places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
+  `column` lines (an older `pinned` one is read into the stack), places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
   against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,
   canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
   Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with

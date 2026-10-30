@@ -52,13 +52,13 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	workspace_revert(k)
 	workspaces_frame(k)
 	testing.expect(t, !k.stats && !w.modified, "Revert left the change")
-	panel_pin_toggle(&a, .Layers)
+	command_run(&a, .Pin_Section, int(Kit_Section.Layers))
 	workspace_save(k)
 	workspaces_frame(k)
 	testing.expect(t, !w.modified, "Save left the dot")
 	testing.expect(t, command_enabled(&a, .Workspace_Reset), "a changed built-in cannot be reset")
 	workspace_reset(k)
-	testing.expect(t, !k.panels.pins[.Layers].on && !command_enabled(&a, .Workspace_Reset), "Reset left the pin")
+	testing.expect(t, !command_checked(&a, .Pin_Section, int(Kit_Section.Layers)) && !command_enabled(&a, .Workspace_Reset), "Reset left the pin")
 
 	// Save as new: an own workspace, current, named; the one it came from as saved.
 	k.thumbnail = true

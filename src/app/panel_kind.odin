@@ -8,8 +8,8 @@ import "../ui"
 // What a panel holds (round 3, PR 4; one enum since PR 9): a card of the stack
 // (lens_stack.odin) or a tray section's palette. The groups hold these, so one set of procs
 // gives any of them its title, icon, folded line and content, and a group draws whatever it
-// holds without knowing which kind it is. The stack and the pinned panels draw their
-// content through panel_body too, so the two never drift apart.
+// holds without knowing which kind it is. A visiting section and a kept one draw through
+// panel_body alike, so the two never drift apart.
 
 // The palette that draws tray section `sec` as the tray did: Layers, Material and Lights
 // their full sections beside their cards, Environment its card; false for the Stats
@@ -85,7 +85,7 @@ panel_kind_icon :: proc(app: ^App, kind: Panel_Kind) -> rune {
 
 // What it holds, in a few words, for its folded header.
 panel_kind_summary :: proc(app: ^App, kind: Panel_Kind) -> string {
-	if sec, ok := panel_section(kind); ok do return panel_summary(app, sec)
+	if sec, ok := panel_section(kind); ok do return section_summary(app, sec)
 	return stack_summary(app, kind)
 }
 

@@ -246,11 +246,11 @@ Kit_State :: struct {
 	palette_for:    Palette_For,
 	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order every floating thing is drawn in, the
-	// last on top: windows, pinned sections' panels and the stack's floated cards in one
+	// last on top: windows and the stack's floated cards in one
 	// order, so whichever was touched last is in front of all the others.
 	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS + len(Panel_Kind)]Float_Ref,
-	// Lens's panels: the two columns, the pinned sections and the panel menu (panels.odin).
+	order:      [dynamic; len(Kit_Window) + len(Panel_Kind)]Float_Ref,
+	// Lens's panels: the two columns and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// The on-screen keyboard is away while text input is on (SDL_EVENT_SCREEN_KEYBOARD_HIDDEN
@@ -400,24 +400,22 @@ side_panel_close :: proc(app: ^App) {
 	app.kit.help, app.kit.macros, app.kit.library = false, false, false
 }
 
-// Something that floats over the view and comes to the front when touched: a window, a
-// pinned section's panel, or a card floated out of Lens's stack.
+// Something that floats over the view and comes to the front when touched: a window or
+// a card floated out of Lens's stack.
 Float_Ref :: union {
 	Kit_Window,
-	Kit_Section,
 	Panel_Kind,
 }
 
 // A panel as the floating order holds it.
 float_of :: proc(ref: Panel_Ref) -> Float_Ref {
 	switch r in ref {
-	case Kit_Window:  return r
-	case Kit_Section: return r
+	case Kit_Window: return r
 	}
 	return nil
 }
 
-// Brings `which` (a window, or a pinned section's panel) in front of the others.
+// Brings `which` (a window, or a floating card of the stack) in front of the others.
 window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
 	float_raise(k, float_of(which))
 }
@@ -434,7 +432,7 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 }
 
 // Puts every window back where it starts, open and in the starting order, the tray back
-// in the right column, nothing pinned (panels_default) and every bar shown.
+// in the right column (panels_default) and every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
 	panels_default(k)
@@ -1098,7 +1096,6 @@ kit_mirror :: proc(k: ^Kit_State) {
 	if k.ctx.mirror == k.placed_mirrored do return
 	k.placed_mirrored = k.ctx.mirror
 	for &w in k.windows do window_mirror(&w)
-	for &p in k.panels.pins do window_mirror(&p.window)
 	k.wheel_offset.x = -k.wheel_offset.x
 }
 
@@ -1434,8 +1431,7 @@ kit_layout :: proc(app: ^App) {
 	order := k.order
 	for which in order {
 		switch w in which {
-		case Kit_Window:  if panel_float_draw(app, w) do top = which
-		case Kit_Section: if panel_float_draw(app, w) do top = which
+		case Kit_Window: if panel_float_draw(app, w) do top = which
 		case Panel_Kind:
 			// The stack's floating cards (lens_stack.odin), among the panels.
 			if stack_float_card(app, w) do top = which
@@ -1500,8 +1496,6 @@ panel_float_draw :: proc(app: ^App, which: Panel_Ref) -> bool {
 // true when a press landed on it, to bring it to the front.
 panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 	switch w in which {
-	case Kit_Section:
-		return kit_pinned(app, w)
 	case Kit_Window:
 		switch w {
 		case .Inspector: return kit_inspector(app)

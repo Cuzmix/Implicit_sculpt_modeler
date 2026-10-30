@@ -22,13 +22,12 @@ ZONE_NAMES := [Zone]string {
 	.Action_Bar = "Next steps",
 }
 
-// The panels the drawer lists: every window a layout keeps, then each pinnable section
-// pinned now.
+// The panels the drawer lists: every window a layout keeps (a pinned section is a card of
+// the stack, which goes where the stack goes).
 @(private = "file")
 arrange_panels :: proc(app: ^App) -> []Panel_Ref {
 	out := make([dynamic]Panel_Ref, context.temp_allocator)
 	for w in LAYOUT_PANELS do append(&out, Panel_Ref(w))
-	for pin, sec in app.kit.panels.pins do if pin.on do append(&out, Panel_Ref(sec))
 	return out[:]
 }
 
@@ -103,7 +102,7 @@ arrange_panel_rows :: proc(app: ^App) {
 		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), ARRANGE_PLACES[:], now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
 		ui.end(ctx)
 	}
-	ui.paragraph(ctx, "A section of the tray becomes a panel of its own with Pin as a panel, on its bar button's popover or in Search.")
+	ui.paragraph(ctx, "A section becomes a card kept in the stack with Pin to the stack, on its card's More, its bar button's popover or in Search.")
 	// How the docked palettes show: their cards, or a strip of icons that open them.
 	ui.begin(ctx, "arrange palettes density", {direction = .Row, gap = 8, center = true})
 	r := ui.place(ctx, {120, t.target})

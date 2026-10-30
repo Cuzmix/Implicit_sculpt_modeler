@@ -153,9 +153,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		if mirror do window_mirror(&win)
 		window_save_line(&out, w, win)
 	}
-	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
 	panels_save(k, &out)
-	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
 	// The right bar's column, the bottom bar's strip and the view rail, after a line that
 	// says the layout holds them (one saved before it did keeps the bars as they are). The
 	// dock holds the user's brushes, which are no layout's: it stays as it is in every
@@ -193,6 +191,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.undo = {}
 	k.second_in_layout = false
 	groups := make([dynamic][]string, 0, 4, context.temp_allocator)
+	// Sections an older layout pinned, kept as cards once the stack is read.
+	old_pins: Panels_Old
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -217,7 +217,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 		case "window":
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
 		case "column", "pinned":
-			panels_load_line(k, f)
+			panels_load_line(k, f, &old_pins)
 		case "stack":
 			stack_layout_read(k, f)
 		case "stack_size":
@@ -235,10 +235,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			bars_load_line(k, f)
 		}
 	}
-	if k.ctx.mirror {
-		for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
-		for &p in k.panels.pins do window_mirror(&p.window)
-	}
+	if k.ctx.mirror do for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
+	panels_old_settle(k, &old_pins)
 	for f in groups do stack_group_read(k, f)
 	user_docks_settle(k)
 	// The tray and the Objects card share a place: the card wins, as opening it does.

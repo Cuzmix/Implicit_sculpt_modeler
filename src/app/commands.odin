@@ -1910,17 +1910,25 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
 	.Pin_Section = {
-		label = "Pin as a panel",
-		help = "Keeps this section as a panel of its own, docked in the right column, or puts the pinned panel away.",
+		label = "Pin to the stack",
+		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
 		icon = ui.ICON_PANEL,
 		args = TRAY_SECTIONS,
-		run = proc(app: ^App, arg: int) {panel_pin_toggle(app, Kit_Section(arg))},
-		enabled = proc(app: ^App, arg: int) -> bool {return panel_pinnable(Kit_Section(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return app.kit.panels.pins[Kit_Section(arg)].on},
+		run = proc(app: ^App, arg: int) {
+			p, _ := panel_of_section(Kit_Section(arg))
+			on := !(app.kit.stack.set && stack_kept(&app.kit.stack, p))
+			stack_keep(&app.kit, p, on)
+			app.kit.inspector = true
+			if on do stack_column_pop(app)
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			p, _ := panel_of_section(Kit_Section(arg))
+			return app.kit.stack.set && stack_kept(&app.kit.stack, p)
+		},
 	},
 	.Panels_Reset = {
 		label = "Reset panels",
-		help = "Puts every panel back where it starts (the palette tray in the right column, the others floating, nothing pinned) and shows every bar.",
+		help = "Puts every panel back where it starts (the panel stack in the right column, the others floating) and shows every bar.",
 		icon = ui.ICON_PANEL,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
 	},
@@ -1991,7 +1999,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Workspace_Export = {
 		label = "Export workspace...",
-		help = "Writes this workspace's layout as it is now (bars, panels, columns, pins, view grid and pass) to a small file, to take to another device or give to someone.",
+		help = "Writes this workspace's layout as it is now (bars, panels, columns, the stack, view grid and pass) to a small file, to take to another device or give to someone.",
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Workspace)},
 	},
@@ -2519,7 +2527,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s: %s", palette_name(section_palette(sec)), tray_section_title(sec))
 	case .Pin_Section:
 		sec := Kit_Section(arg)
-		return fmt.tprintf("Pin %s as a panel", tray_section_title(sec))
+		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
 	case .View_Pass:
 		return fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:

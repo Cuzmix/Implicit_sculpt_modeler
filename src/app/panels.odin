@@ -2,17 +2,15 @@ package main
 
 import "core:fmt"
 import "core:math/linalg"
-import "core:strconv"
 import "core:strings"
 
 import "../sculpt"
 import "../ui"
 
 // Lens's panels (the Lens UI direction, P0 step 1): one kind of panel, shown three ways.
-// A panel is the palette tray, Stats, History, the Objects card, the Colors card, the
-// thumbnail, or a section of the tray pinned as a panel of its own. It is docked in one
-// of two columns, floats as a window or card, or (a section) opens as a popover from a
-// bar button, whose Pin turns it into a docked panel. A column stacks its panels under
+// A panel is the panel stack, Stats, History, the Objects card, the Colors card or the
+// thumbnail (a section pinned is a card kept in the stack since round 3's PR 9d). It is
+// docked in one of two columns or floats as a window or card. A column stacks its panels under
 // the top bar beside a side bar and shares its height among them; a panel taller than
 // its share scrolls. Folded, a panel keeps its header with a line saying what it holds.
 // Blender's docked editors and Photoshop's panel groups are the model for docking by
@@ -26,17 +24,16 @@ Column_Side :: enum u8 {
 	Right,
 }
 
-// A panel: one of the windows that can dock, or a pinned tray section.
+// A panel: one of the windows that can dock (a union, as the pinned sections once shared it).
 Panel_Ref :: union {
 	Kit_Window,
-	Kit_Section,
 }
 
 // The windows that are panels; Settings, Help, Macros and Library stay side panels in the
 // right column's place, which hides while one is open.
 PANEL_WINDOWS :: bit_set[Kit_Window]{.Inspector, .Stats, .History, .Objects, .Colors, .Thumbnail}
 
-// The most panels one column holds: every window that docks and a few pinned sections.
+// The most panels one column holds: every window that docks, with room to spare.
 COLUMN_MAX :: 16
 // The gap between the panels of a column.
 COLUMN_GAP :: 8
@@ -46,14 +43,6 @@ COLUMN_DROP_W :: 160
 COLUMN_DROP_REACH :: 32
 // The fewest points a docked panel's body gets, however full its column is.
 PANEL_BODY_MIN :: 96
-
-// A tray section pinned as a panel: shown or not, where it floats when it does, and how
-// far its body is scrolled.
-Pinned :: struct {
-	on:     bool,
-	window: ui.Window,
-	scroll: f32,
-}
 
 // What a panel was last laid out as: docked or floating, where, and (docked) the height
 // it wanted and the height its column gave it.
@@ -70,8 +59,7 @@ Panel_Seen :: struct {
 // The panels' state in Kit_State.
 Panels :: struct {
 	columns: [Column_Side][dynamic; COLUMN_MAX]Panel_Ref, // top to bottom
-	pins:    [Kit_Section]Pinned,
-	seen:    [dynamic; len(Kit_Window) + TRAY_SECTIONS]Panel_Seen,
+	seen:    [dynamic; len(Kit_Window)]Panel_Seen,
 	scroll:  [Kit_Window]f32, // a docked window's body
 	width:   [Column_Side]f32, // each column as laid out this frame
 	rect:    [Column_Side]ui.Rect, // ...and where it went (last frame's, until it is laid out)
@@ -128,7 +116,6 @@ panels_default :: proc(k: ^Kit_State) {
 	p := &k.panels
 	for &c in p.columns do clear(&c)
 	append(&p.columns[.Right], Panel_Ref(Kit_Window.Inspector))
-	for &pin in p.pins do pin = {}
 	clear(&p.seen)
 	p.scroll = {}
 	p.menu, p.drag = false, nil
@@ -142,8 +129,6 @@ panel_name :: proc(ref: Panel_Ref) -> string {
 	case Kit_Window:
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		return names[r]
-	case Kit_Section:
-		return fmt.tprintf("pinned %v", r)
 	}
 	return ""
 }
@@ -158,7 +143,6 @@ panel_id :: proc(ref: Panel_Ref) -> ui.Id {
 panel_window :: proc(k: ^Kit_State, ref: Panel_Ref) -> ^ui.Window {
 	switch r in ref {
 	case Kit_Window:  return &k.windows[r]
-	case Kit_Section: return &k.panels.pins[r].window
 	}
 	return nil
 }
@@ -167,7 +151,6 @@ panel_window :: proc(k: ^Kit_State, ref: Panel_Ref) -> ^ui.Window {
 panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
 	k := &app.kit
 	switch r in ref {
-	case Kit_Section: return k.panels.pins[r].on
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector: return k.inspector
@@ -185,7 +168,6 @@ panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
 panel_set_open :: proc(app: ^App, ref: Panel_Ref, open: bool) {
 	k := &app.kit
 	switch r in ref {
-	case Kit_Section: k.panels.pins[r].on = open
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector: k.inspector = open
@@ -249,26 +231,6 @@ panel_shift :: proc(app: ^App, ref: Panel_Ref, by: int) {
 	k.panels.moves += 1
 }
 
-// Pins tray section `sec` as a panel of its own, docked at the bottom of the right
-// column, or puts a pinned one away.
-panel_pin_toggle :: proc(app: ^App, sec: Kit_Section) {
-	k := &app.kit
-	pin := &k.panels.pins[sec]
-	if pin.on {
-		pin.on = false
-		return
-	}
-	pin^ = {on = true, window = pin.window}
-	if _, _, ok := panel_docked(k, sec); !ok && !pin.window.moved do panel_dock(app, sec, .Right, COLUMN_MAX)
-	window_raise(k, sec)
-}
-
-// Whether section `sec` can be pinned: any of the tray's but Objects, whose panel is the
-// Objects card.
-panel_pinnable :: proc(sec: Kit_Section) -> bool {
-	return int(sec) < TRAY_SECTIONS && sec != .Objects
-}
-
 // Where the panel was laid out this frame (or the last, during the layout); empty when
 // it was not.
 panel_rect :: proc(app: ^App, ref: Panel_Ref) -> ui.Rect {
@@ -294,7 +256,6 @@ panel_drawn_docked :: proc(k: ^Kit_State, ref: Panel_Ref) -> bool {
 // The panel's name in its header and menus.
 panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 	switch r in ref {
-	case Kit_Section: return tray_section_title(r)
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector: return "Panels"
@@ -330,9 +291,15 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 		case .Thumbnail:
 			return fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[k.second.camera], SECOND_PASS_NAMES[k.second.pass])
 		}
-	case Kit_Section:
-		obj := selected_object(app)
-		#partial switch r {
+	}
+	return ""
+}
+
+// What section `sec` holds, in a few words, for its folded card.
+section_summary :: proc(app: ^App, sec: Kit_Section) -> string {
+	obj := selected_object(app)
+	{
+		#partial switch sec {
 		case .Camera:
 			return "Orthographic" if app.camera.ortho else "Perspective"
 		case .Lights:
@@ -372,7 +339,6 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 // The width a panel asks its column for: what it is as a window.
 panel_width :: proc(app: ^App, ref: Panel_Ref) -> f32 {
 	switch r in ref {
-	case Kit_Section: return KIT_INSPECTOR_W
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector:
@@ -461,13 +427,10 @@ column_visible :: proc(app: ^App, side: Column_Side) -> bool {
 	return !columns_narrow(app) || k.panels.popped[side] || k.bars_edit || k.panels.drag != nil
 }
 
-// A bit for each panel, for a set of panels in a u64: the windows, then the sections.
+// A bit for each panel, for a set of panels in a u64.
 panel_bit :: proc(ref: Panel_Ref) -> u64 {
-	#assert(len(Kit_Window) + TRAY_SECTIONS <= 64)
-	switch r in ref {
-	case Kit_Window:  return 1 << u64(r)
-	case Kit_Section: return 1 << u64(len(Kit_Window) + int(r))
-	}
+	#assert(len(Kit_Window) <= 64)
+	if w, ok := ref.(Kit_Window); ok do return 1 << u64(w)
 	return 0
 }
 
@@ -719,11 +682,7 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	inner := width - 2 * box.padding
 	box.width, box.height = width, 0
 	ui.begin_anchored(ctx, name, .Start if side == .Left else .End, .Start, k.panels.at[side], box)
-	value: ^f32
-	switch r in ref {
-	case Kit_Window:  value = &k.panels.scroll[r]
-	case Kit_Section: value = &k.panels.pins[r].scroll
-	}
+	value := &k.panels.scroll[ref.(Kit_Window)]
 	if bare {
 		p.body, p.bare = true, true
 		p.room = max(seen.allot - 2 * box.padding, PANEL_BODY_MIN)
@@ -864,8 +823,7 @@ column_word :: proc(app: ^App, side: Column_Side) -> string {
 }
 
 // Panel options: where the panel can go (either column, floating, up or down its
-// column), folding it, pinning the tray's section or putting a pinned one back, and
-// closing it.
+// column), folding it, and closing it.
 kit_panel_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -896,25 +854,15 @@ kit_panel_menu :: proc(app: ^App) {
 		w.minimized = !w.minimized
 		picked = true
 	}
-	switch r in ref {
-	case Kit_Window:
-	case Kit_Section:
-		if ui.menu_item(ctx, "Show in the palette tray", command_hint(app, .Show_Section, int(r)), ui.ICON_PANEL) {
-			command_run(app, .Show_Section, int(r))
-			picked = true
-		}
-	}
 	ui.divider(ctx, across = true)
-	_, pinned := ref.(Kit_Section)
-	if ui.menu_item(ctx, "Unpin" if pinned else "Close", glyph = ui.ICON_CLOSE) {
+	if ui.menu_item(ctx, "Close", glyph = ui.ICON_CLOSE) {
 		panel_set_open(app, ref, false)
 		picked = true
 	}
 	if picked do m.menu = false
 }
 
-// The settings lines of the panels: each column that is not as it starts, then each
-// pinned section with where it floats.
+// The settings lines of the panels: each column that is not as it starts.
 panels_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	def: Kit_State
 	panels_default(&def)
@@ -923,25 +871,24 @@ panels_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		if same do for r, i in c do same &&= r == def.panels.columns[side][i]
 		if same do continue
 		fmt.sbprintf(out, "column %s", "left" if side == .Left else "right")
-		for r in c {
-			switch v in r {
-			case Kit_Window:  fmt.sbprintf(out, " %v", v)
-			case Kit_Section: fmt.sbprintf(out, " section:%v", v)
-			}
-		}
+		for r in c do fmt.sbprintf(out, " %v", r.(Kit_Window))
 		strings.write_byte(out, '\n')
-	}
-	for pin, sec in k.panels.pins {
-		if !pin.on do continue
-		w := pin.window
-		fmt.sbprintfln(out, "pinned %v %d %v %v %g %g %d", sec, int(w.moved), w.x, w.y, w.offset.x, w.offset.y, int(w.minimized))
 	}
 }
 
-// Reads one panels line (`f` split by spaces): column <left|right> <ref>... or pinned
-// <Section> <moved> <x anchor> <y anchor> <x offset> <y offset> <minimised>. Words that
+// The sections an older file pinned as panels (`pinned` lines, and `section:` words in
+// its columns), in their columns' order and then the rest, and which of them were folded:
+// they become cards kept in the stack once the whole text is read (panels_old_settle).
+Panels_Old :: struct {
+	kept:   [dynamic; TRAY_SECTIONS]Kit_Section,
+	folded: bit_set[Kit_Section; u64],
+}
+
+// Reads one panels line (`f` split by spaces): column <left|right> <ref>..., or from an
+// older file pinned <Section> <moved> <x anchor> <y anchor> <x offset> <y offset>
+// <minimised>, whose sections (and a column's `section:` words) go to `old`. Words that
 // name nothing are skipped; a panel named twice keeps its first place.
-panels_load_line :: proc(k: ^Kit_State, f: []string) {
+panels_load_line :: proc(k: ^Kit_State, f: []string, old: ^Panels_Old) {
 	switch f[0] {
 	case "column":
 		if len(f) < 2 do return
@@ -949,66 +896,44 @@ panels_load_line :: proc(k: ^Kit_State, f: []string) {
 		if f[1] != "left" && f[1] != "right" do return
 		clear(&k.panels.columns[side])
 		for word in f[2:] {
-			ref: Panel_Ref
 			if strings.has_prefix(word, "section:") {
-				for s in Kit_Section do if panel_pinnable(s) && strings.equal_fold(word[len("section:"):], fmt.tprint(s)) do ref = s
-			} else {
-				for w in PANEL_WINDOWS do if strings.equal_fold(word, fmt.tprint(w)) do ref = w
+				panels_old_keep(old, word[len("section:"):], false)
+				continue
 			}
+			ref: Panel_Ref
+			for w in PANEL_WINDOWS do if strings.equal_fold(word, fmt.tprint(w)) do ref = w
 			if ref == nil do continue
 			if _, _, there := panel_docked(k, ref); there do continue
 			if len(k.panels.columns[side]) < COLUMN_MAX do append(&k.panels.columns[side], ref)
 		}
 	case "pinned":
-		if len(f) != 8 do return
-		for s in Kit_Section {
-			if !panel_pinnable(s) || !strings.equal_fold(f[1], fmt.tprint(s)) do continue
-			pin := &k.panels.pins[s]
-			pin.on = true
-			w := &pin.window
-			w.moved, w.minimized = f[2] == "1", f[7] == "1"
-			for a in ui.Anchor {
-				if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
-				if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
-			}
-			w.offset = {clamp(panels_number(f[5]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(panels_number(f[6]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
-			window_raise(k, s)
-		}
+		// Where a pin floated is not kept: floating cards last a session, so it comes back
+		// docked in the stack.
+		if len(f) == 8 do panels_old_keep(old, f[1], f[7] == "1")
 	}
 }
 
-// A settings word as a number, 0 when it is none.
+// Notes tray section `name` (any case) as one an older file pinned; a name that is no
+// tray section, or one noted already, is passed over.
 @(private = "file")
-panels_number :: proc(s: string) -> f32 {
-	v, ok := strconv.parse_f32(s)
-	return v if ok else 0
+panels_old_keep :: proc(old: ^Panels_Old, name: string, folded: bool) {
+	for sec in Kit_Section {
+		if int(sec) >= TRAY_SECTIONS || !strings.equal_fold(name, fmt.tprint(sec)) do continue
+		for x in old.kept do if x == sec do return
+		if len(old.kept) < cap(old.kept) do append(&old.kept, sec)
+		if folded do old.folded += {sec}
+	}
 }
 
-// A pinned section's panel: its title in the header, its controls under it, as the
-// tray and the bar's popover draw them. Returns true when a press landed on it while it
-// floats, to bring it to the front.
-kit_pinned :: proc(app: ^App, sec: Kit_Section) -> (raised: bool) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	pin := &k.panels.pins[sec]
-	shown := ui.presence(ctx, panel_id(sec), pin.on, t.panel_time)
-	if shown <= 0 do return
-	PADDING :: 12
-	title, _, _, _ := bar_section(app, sec)
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, sec, title, .End, .Start, {kit_right(app), kit_top()}, {direction = .Column, gap = 6, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !pin.on})
-	raised = p.raised
-	if p.closed do pin.on = false
-	if p.body {
-		// Floating, it scrolls in its own body; docked, its column's share does.
-		s: Kit_Scroll
-		if !p.docked do s = kit_scroll_begin(ctx, "pinned body", &pin.scroll, p.owner, KIT_INSPECTOR_W - 2 * PADDING, max(p.room, PANEL_BODY_MIN), 6)
-		if p, ok := panel_of_section(sec); ok do panel_body(app, p, KIT_INSPECTOR_W - 2 * PADDING)
-		if !p.docked do kit_scroll_end(ctx, s)
+// Keeps the sections an older file pinned as cards at the docked stack's foot, in the order
+// they were noted, folded where they were.
+panels_old_settle :: proc(k: ^Kit_State, old: ^Panels_Old) {
+	if len(old.kept) == 0 do return
+	if !k.stack.set do stack_default(k)
+	for sec in old.kept {
+		p, ok := panel_of_section(sec)
+		if !ok do continue
+		stack_keep(k, p, true)
+		if sec in old.folded do k.stack.open -= {p}
 	}
-	panel_end(app, &p)
-	slide := window_slide(ctx, pin.window, .End) if !p.docked else 1
-	ui.transform_since(ctx, mark, shown, 1, {}, {slide * (1 - shown) * 16, 0})
-	return
 }
