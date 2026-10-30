@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 import "../render"
@@ -66,4 +67,45 @@ shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	// Rendered is the Render switch's, never a layout's.
 	shading_layout_read(&b, []string{"shading", "Rendered"})
 	testing.expect_value(t, b.passes.shading.mode, Shading_Mode.Solid)
+}
+
+// A view pane keeps its own shading in the layout's pane line, after its pass; a line
+// without it (a layout from before) is a fresh view's, Solid.
+@(test)
+pane_shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
+	k := new(Kit_State)
+	defer free(k)
+	_, _ = grid_set(k, .Side_By_Side)
+	k.grid.views[0].shading = {mode = .Wireframe, lighting = .Flat}
+	text := kit_layout_text(k)
+	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Wireframe Flat Material 0\n"), "the pane's shading is not written")
+	k.grid.views[0].shading = {}
+	kit_layout_put(k, text)
+	testing.expect_value(t, k.grid.views[0].shading, View_Shading{mode = .Wireframe, lighting = .Flat})
+	kit_layout_put(k, "panes v500 0 1\npane 1 Top Shaded\n")
+	testing.expect_value(t, k.grid.views[0].shading, View_Shading{})
+}
+
+// A view's Shows list names its shading mode while it shows Shaded, Rendered for its Render
+// pass and the pass otherwise; picking a mode keeps Solid's options.
+@(test)
+second_shows_names_modes_and_passes :: proc(t: ^testing.T) {
+	sv := Second_View{pass = .Shaded, shading = {lighting = .MatCap}}
+	testing.expect_value(t, second_shows_name(&sv), "Solid")
+	second_shows_set(&sv, 0)
+	testing.expect_value(t, second_shows_name(&sv), "Wireframe")
+	testing.expect_value(t, sv.shading.lighting, Solid_Lighting.MatCap)
+	second_shows_set(&sv, 3)
+	testing.expect_value(t, sv.pass, Second_Pass.Render)
+	testing.expect_value(t, second_shows_name(&sv), "Rendered")
+	testing.expect_value(t, second_shows_index(&sv), 3)
+	sv.pass = .Curvature
+	testing.expect_value(t, second_shows_name(&sv), "Curvature")
+	testing.expect_value(t, SECOND_SHOWS[second_shows_index(&sv)].pass, Second_Pass.Curvature)
+	// Every pass is in the list once.
+	for p in Second_Pass {
+		n := 0
+		for e in SECOND_SHOWS do if e.pass == p do n += 1
+		testing.expect_value(t, n, 3 if p == .Shaded else 1)
+	}
 }

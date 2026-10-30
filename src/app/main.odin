@@ -1207,10 +1207,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if boolean_hides(&app, obj, i) do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
-				append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil})
+				// Polygon edges stand in for the triangles' edges on a level that has them: the
+				// Wireframe overlay's here, a view in Wireframe's in its shading_items.
+				poly_edges := part == 0 && poly_edges_shown(&app, obj)
+				poly_lines := poly_edges && app.wireframe && app.polyframe_lines
+				append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil, poly_edges = poly_edges})
 				if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
-				// Polygon edges stand in for the triangles' edges on a level that has them.
-				poly_lines := part == 0 && poly_edges_shown(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					textured = textured,
@@ -1225,7 +1227,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					style = viewport_style(&app),
 					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
-					wireframe = app.wireframe && app.polyframe_lines && !poly_lines,
+					wireframe = app.wireframe && app.polyframe_lines && !poly_edges,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = (app.show_groups || app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 					// A cage shows its edges, and its faces flat, as a polygon model does; the
@@ -1288,21 +1290,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.kit.passes.recording = timelapse_capturing(&app) || turntable_recording(&app)
 		shown_pass := viewport_pass(&app.kit)
 		// The main view draws its own copy of the items, shaded as its shading says; the
-		// other views and pictures below take them as the materials made them. A view pane
-		// worked in shows its own pictures' shading, the materials'.
+		// other views and pictures below take them as the materials made them and shade
+		// their own. A view pane worked in shows its own shading here.
 		raw := draws
 		draws = make([dynamic]render.Draw_Item, len(raw), context.temp_allocator)
 		copy(draws[:], raw[:])
-		shading := app.kit.passes.shading
-		if app.kit.grid.work == 0 {
-			shading_items(&app, draws[:], froms[:], shading)
-		} else {
-			shading = {mode = .Material_Preview}
-		}
+		shading, pane := main_draw_shading(&app)
+		shading_items(&app, draws[:], froms[:], shading, pane)
 		if wipe_shown(&app.kit) {
-			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass), shading_pass(&app, shading, wipe_right(&app.kit)), wipe_line_px(app.kit.passes.wipe_at, app.target.width))
+			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass, pane), shading_pass(&app, shading, wipe_right(&app.kit), pane), wipe_line_px(app.kit.passes.wipe_at, app.target.width))
 		} else {
-			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass))
+			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass, pane))
 		}
 		if ground, ok := pass_ground(shown_pass); ok {
 			app.renderer.background = ground
@@ -1355,9 +1353,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		thumbs_frame(&app, cmd)
 		home_frame(&app, cmd)
 		app.pictures_drawn = 0
-		thumbnail_frame(&app, cmd, draws[:])
-		grid_frame(&app, cmd, draws[:])
-		view_windows_pictures(&app, cmd, draws[:])
+		thumbnail_frame(&app, cmd, draws[:], froms[:])
+		grid_frame(&app, cmd, draws[:], froms[:])
+		view_windows_pictures(&app, cmd, draws[:], froms[:])
 		step_pictures_frame(&app, cmd, view, proj, draws[:])
 		layer_pictures_frame(&app, cmd, draws[:])
 
@@ -1528,6 +1526,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Commas for its spaces, so the stat stays one word.
 		tree_text, _ := strings.replace_all(strings.to_string(tree), " ", ",", context.temp_allocator)
 		fmt.printfln("grid_tree=%s grid_splits=%d grid_joins=%d grid_swaps=%d grid_docks=%d grid_undos=%d grid_redos=%d grid_refused=%d grid_cancels=%d grid_undo_steps=%d", tree_text if g.tree.count > 0 else "0", ar.splits, ar.joins, ar.swaps, ar.docks, ar.undos, ar.redos, ar.refused, ar.cancels, g.undo.back_n)
+		// What each view pane shows, its shading mode or pass, with no spaces so the stat
+		// stays one word.
+		shows := strings.builder_make(context.temp_allocator)
+		for &v, i in g.views[:n - 1] {
+			if i > 0 do strings.write_byte(&shows, ',')
+			name, _ := strings.replace_all(second_shows_name(&v), " ", "_", context.temp_allocator)
+			strings.write_string(&shows, name)
+		}
+		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", g.views[0].shading.lighting)
 		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d stack_density=%s", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(&app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs, "icons" if app.kit.stack.density == .Icons else "panels")
 	}
 	{

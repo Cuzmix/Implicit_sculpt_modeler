@@ -9802,8 +9802,9 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
 FOUR_FRONT_MODEL = (1200, 225)
 FOUR_FRONT_EMPTY = (900, 380)
 FOUR_FRONT_LINK = (1036, 89)
-# The Front pane's Shows select and its AO only and Studio rows.
-FOUR_FRONT_PASS, FOUR_FRONT_AO, FOUR_FRONT_STUDIO = (970, 89), (971, 390), (965, 434)
+# The Front pane's Shows chip and its AO only and Studio rows, under the shading modes and
+# Solid's options.
+FOUR_FRONT_PASS, FOUR_FRONT_AO, FOUR_FRONT_STUDIO = (970, 89), (971, 636), (965, 724)
 
 
 @scenario
@@ -9878,6 +9879,19 @@ def view_pane_studio_stroke_in_it_gathers_again():
 
 
 @scenario
+def view_pane_shading_is_its_own():
+    """Wireframe in the Front pane's Shows draws that pane in Wireframe only: the other panes and the main view stay Solid, and the workspace is marked."""
+    s = Script()
+    s.wait(30)
+    s.ftap(*FOUR_FRONT_PASS)
+    s.wait(10)
+    s.ftap(FOUR_FRONT_PASS[0], 170)
+    s.wait(30)
+    return s, ["--script=view_grid four"], camera_still({"pane_shows": is_text("Wireframe,Solid,Solid"), "shading_mode": is_text("Solid"), "pane_menu": near(0),
+                                                         "workspace_modified": near(1), "dabs": near(0)})
+
+
+@scenario
 def view_pane_ao_only_shows():
     """AO only in the Front pane's Shows is a heavy pass the pane draws at rest; the main view's pass stays Shaded."""
     s = Script()
@@ -9928,7 +9942,7 @@ def render_preview_builds_beside_the_main_view():
 
 # A view window (960x640 points at scale 1): its picture's middle, and its head's Shows select and Close.
 WINDOW_MIDDLE = (480, 330)
-WINDOW_SHOWS, WINDOW_CLOSE = (206, 34), (346, 34)
+WINDOW_SHOWS, WINDOW_CLOSE = (230, 34), (394, 34)
 
 
 @scenario
@@ -9966,13 +9980,13 @@ def view_window_finger_turns_its_free_camera():
 
 @scenario
 def view_window_head_picks_what_it_shows():
-    """The Shows select on a view window's head opens in that window and picks its pass: Normals."""
+    """The Shows select on a view window's head opens in that window and picks its pass: Normals, after the four shading modes and Silhouette."""
     s = Script()
     s.wait(10)
     s.window = 1
     s.ftap(*WINDOW_SHOWS)
     s.wait(10)
-    s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 2 * 44)
+    s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 5 * 44)
     s.window = 0
     s.wait(20)
     return s, ["--view-windows=1"], camera_still({"view_window_pass": is_text("Normals"), "view_window_draws": lambda v: int(v) >= 2, "dabs": near(0)})
