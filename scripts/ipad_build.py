@@ -62,7 +62,10 @@ def check_pushed(branch):
 def start_run(branch, testflight=False):
     """Starts the workflow and returns its run's id."""
     started = time.time()
-    out = run(["gh", "workflow", "run", WORKFLOW, "--ref", branch, "-f", f"testflight={'true' if testflight else 'false'}"])
+    # Only a store build names its input: the workflow's default is the plain build, and
+    # GitHub answered HTTP 500 when dispatches named testflight=false.
+    inputs = ["-f", "testflight=true"] if testflight else []
+    out = run(["gh", "workflow", "run", WORKFLOW, "--ref", branch, *inputs])
     match = re.search(r"/actions/runs/(\d+)", out)
     if match:
         return match.group(1)
