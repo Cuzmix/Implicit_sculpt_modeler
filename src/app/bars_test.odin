@@ -99,3 +99,14 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	kit_layout_put(&c.kit, "bars\n")
 	testing.expect(t, !bar_changed(&c, .View_Rail))
 }
+
+// A tap on the shelf's Retopologize tile runs the command, so with nothing to run it on
+// the tile is dimmed as the other tools are; its section is what its long press opens.
+@(test)
+retopologize_tile_runs_the_command :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	bars_reset(&app.kit)
+	testing.expect(t, !bar_enabled(&app, {.Retopologize, 0}), "Retopologize takes a tap with no object")
+	testing.expect(t, bar_has_more(.Retopologize), "Retopologize lost its long press")
+}

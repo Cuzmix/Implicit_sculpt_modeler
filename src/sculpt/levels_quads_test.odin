@@ -48,3 +48,74 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, levels_dyn_enable(&back))
 	testing.expect(t, !levels_has_quads(&back), "dynamic topology kept the quads")
 }
+
+// A unit cube as six quads facing out, with `allocator`.
+@(private = "file")
+cube_quads :: proc(allocator := context.temp_allocator) -> (q: geom.Quad_Mesh) {
+	q.positions = make([]geom.Vec3, 8, allocator)
+	for &p, i in q.positions do p = {f32(i & 1), f32(i >> 1 & 1), f32(i >> 2)}
+	// Corners 2 and 3 swap so each face runs round, not across.
+	q.positions[2], q.positions[3] = {1, 1, 0}, {0, 1, 0}
+	q.positions[6], q.positions[7] = {1, 1, 1}, {0, 1, 1}
+	q.quads = make([][4]u32, 6, allocator)
+	copy(q.quads, [][4]u32{{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4}, {2, 3, 7, 6}, {0, 4, 7, 3}, {1, 2, 6, 5}})
+	return
+}
+
+// `pairs` are a cube's twelve edges: each once, lower vertex first, in order, three at
+// every corner.
+@(private = "file")
+expect_cube_edges :: proc(t: ^testing.T, pairs: []u32, loc := #caller_location) {
+	if !testing.expect_value(t, len(pairs), 24, loc = loc) do return
+	degree: [8]int
+	for i in 0 ..< 12 {
+		lo, hi := pairs[2 * i], pairs[2 * i + 1]
+		testing.expect(t, lo < hi && lo < 8 && hi < 8, "an edge is not lower first", loc = loc)
+		if i > 0 do testing.expect(t, u64(pairs[2 * i - 2]) << 32 | u64(pairs[2 * i - 1]) < u64(lo) << 32 | u64(hi), "the edges are out of order or one repeats", loc = loc)
+		degree[lo] += 1
+		degree[hi] += 1
+	}
+	for d in degree do testing.expect_value(t, d, 3, loc = loc)
+}
+
+// A quad cube's wireframe edges are its twelve, each once and lower vertex first, whether
+// its quads are the base level's side table or polygons under a Catmull-Clark rule; a
+// Loop level above has none, a Catmull-Clark level above has its own quads' edges.
+@(test)
+polygon_edges_are_each_edge_once :: proc(t: ^testing.T) {
+	q := cube_quads()
+	old_to_new := make([]u32, len(q.positions), context.temp_allocator)
+	tri_from := make([]u32, 2 * len(q.quads), context.temp_allocator)
+	l: Levels
+	levels_init(&l, geom.quad_mesh_triangulate(q), nil, 64, old_to_new, tri_from)
+	defer levels_destroy(&l)
+	testing.expect_value(t, levels_polygon_source(&l, 0), Polygon_Source{})
+	testing.expect(t, levels_polygon_edges(&l, 0) == nil, "a level of triangles has polygon edges")
+
+	quads := make([][4]u32, len(q.quads))
+	for f, i in q.quads do for v, k in f do quads[i][k] = old_to_new[v]
+	levels_set_quads(&l, quads)
+	testing.expect_value(t, levels_polygon_source(&l, 0).polygons, 6)
+	expect_cube_edges(t, levels_polygon_edges(&l, 0))
+	if !testing.expect(t, levels_subdivide(&l)) do return
+	testing.expect_value(t, levels_polygon_source(&l, 1), Polygon_Source{})
+	testing.expect(t, levels_polygon_edges(&l, 1) == nil, "a Loop level has polygon edges")
+	levels_set_current(&l, 0)
+	levels_delete_higher(&l)
+
+	// The same cube as polygons: each base triangle's polygon is the quad it was cut from.
+	polys: Polys
+	polys.first = make([]u32, len(quads) + 1)
+	for &x, i in polys.first do x = u32(4 * i)
+	polys.corners = make([]u32, 4 * len(quads))
+	for &f, i in quads do copy(polys.corners[4 * i:], f[:])
+	polys.tri_poly = make([]u32, len(tri_from))
+	for from, i in tri_from do polys.tri_poly[i] = from / 2
+	if !testing.expect(t, levels_set_polys(&l, polys, {}, .Smooth), "the cube's polygons do not fit") do return
+	testing.expect_value(t, levels_polygon_source(&l, 0).polygons, 6)
+	expect_cube_edges(t, levels_polygon_edges(&l, 0))
+	if !testing.expect(t, levels_subdivide(&l)) do return
+	testing.expect_value(t, levels_polygon_source(&l, 1).polygons, 24)
+	// 24 quads, 26 vertices: 48 edges, closed.
+	testing.expect_value(t, len(levels_polygon_edges(&l, 1)), 96)
+}

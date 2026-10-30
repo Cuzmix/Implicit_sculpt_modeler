@@ -63,6 +63,8 @@ Object :: struct {
 	// shown again (see object_show_level).
 	gpu:       [sculpt.MAX_LEVELS]render.Mesh_Buffers,
 	hd_gpu:    render.Mesh_Buffers, // the HD window's, while one is open
+	// Per level, the polygons whose edges its buffers hold for the wireframe (poly_edges.odin).
+	poly_edges: [sculpt.MAX_LEVELS]sculpt.Polygon_Source,
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
 	// Its eye is off: out of view and out of reach until shown again (scene_tree.odin).
 	// Not hidden triangles, which are the sculptor's.
@@ -716,6 +718,7 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 	// The layout changed completely: new buffers with everything in them.
 	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
+	obj.poly_edges[0] = {}
 	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok do return true, false
 	render.viewport_invalidate(&app.target)
@@ -1122,7 +1125,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case .Delete_Higher:
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
 			render.wait_idle(&app.renderer)
-			for i in levels.current + 1 ..< len(levels.levels) do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
+			for i in levels.current + 1 ..< len(levels.levels) {
+				render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
+				obj.poly_edges[i] = {}
+			}
 			carried, dropped := sculpt.levels_delete_higher(levels)
 			app.layers_kept += carried
 			app.layers_lost += dropped
@@ -1133,8 +1139,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			render.wait_idle(&app.renderer)
 			for i in 0 ..< k do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_lower(levels)
+			// The buffers move down with their levels, and so does what edges they hold.
 			copy(obj.gpu[:], obj.gpu[k:])
-			for i in sculpt.MAX_LEVELS - k ..< sculpt.MAX_LEVELS do obj.gpu[i] = {}
+			copy(obj.poly_edges[:], obj.poly_edges[k:])
+			for i in sculpt.MAX_LEVELS - k ..< sculpt.MAX_LEVELS do obj.gpu[i], obj.poly_edges[i] = {}, {}
 			object_forget_history(app, obj)
 		}
 		return object_show_level(app, obj, start)
@@ -1401,6 +1409,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	if app.stroke.object == obj.id do app.stroke.active = false
 	history_forget_strokes(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	obj.poly_edges = {}
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)

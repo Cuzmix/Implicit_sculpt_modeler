@@ -210,7 +210,8 @@ Mesh_Buffers :: struct {
 	// The traced studio render's trees over the triangles; nil until it first runs.
 	trace:           ^Trace_Mesh,
 	// Pairs of vertices drawn as lines over the surface (Draw_Item.cage_lines): a Model
-	// mode cage's edges; nil for none (mesh_buffers_set_edges).
+	// mode cage's edges, or the polygon edges a wireframe shows; nil for none
+	// (mesh_buffers_set_edges).
 	edges:           ^sdl.GPUBuffer,
 	edge_indices:    u32,
 
@@ -299,7 +300,7 @@ Draw_Item :: struct {
 	surface:   [2]f32,
 	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
-	cage_lines: bool, // draw Mesh_Buffers.edges over it as lines (a Model mode cage's edges)
+	cage_lines: bool, // draw Mesh_Buffers.edges over it as lines (a cage's edges, or a wireframe's polygon edges)
 	paint:     bool, // draw its polypaint over the clay (needs Mesh_Buffers.paint)
 	groups:    bool, // draw each triangle in its polygroup's colour instead (likewise)
 	// The density preview's checker: xyz the first lattice point in mesh space, w the
