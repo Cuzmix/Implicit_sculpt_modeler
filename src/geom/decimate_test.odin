@@ -17,9 +17,17 @@ decimate_keeps_a_closed_shape :: proc(t: ^testing.T) {
 	before := mesh_check(m)
 	testing.expect(t, before.triangles > 200_000)
 	for target in ([2]int{20_000, 1_000}) {
-		out, err, ok := mesh_decimate(m, target, &pool)
+		from: [dynamic]u32
+		defer delete(from)
+		out, err, ok := mesh_decimate(m, target, &pool, from = &from)
 		defer mesh_destroy(&out)
 		testing.expect(t, ok)
+		// Every vertex kept is one of the mesh's own, which `from` names.
+		testing.expect_value(t, len(from), len(out.positions))
+		for k in 0 ..< len(from) do if out.positions[k] != m.positions[from[k]] {
+			testing.expectf(t, false, "%d: vertex %d is not the mesh's %d", target, k, from[k])
+			break
+		}
 		r := mesh_check(out)
 		testing.expectf(t, r.closed && r.degenerate_triangles == 0 && !r.inverted && r.non_manifold_edges == 0, "%d: %v", target, r)
 		testing.expectf(t, r.vertices - r.triangles / 2 == 2, "%d: not a sphere's count (%d, %d)", target, r.vertices, r.triangles)

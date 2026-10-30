@@ -28,7 +28,10 @@ DECIMATE_ROUND_KEEP :: 4
 // is nothing to decimate. With `progress` (a job on a thread of its own) it says how far
 // it has come within `share` of the whole, after each round and through the last
 // simplify's passes, and stops after a cancel, returning not ok with nothing to free.
-mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (out: Mesh, error: f32, ok: bool) {
+// The vertices kept are `m`'s own, in order of first use; with `from` each new vertex's
+// number in `m` is appended to it, so what a vertex carries (paint, shape keys, groups)
+// can follow it.
+mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, from: ^[dynamic]u32 = nil) -> (out: Mesh, error: f32, ok: bool) {
 	triangles := len(m.indices) / 3
 	if triangles == 0 || wanted >= triangles do return {}, 0, false
 	target := max(wanted, 4)
@@ -61,6 +64,7 @@ mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := conte
 		if renumber[v] == max(u32) {
 			renumber[v] = u32(len(out.positions))
 			append(&out.positions, m.positions[v])
+			if from != nil do append(from, v)
 		}
 		append(&out.indices, renumber[v])
 	}

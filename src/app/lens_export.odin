@@ -175,6 +175,17 @@ export_preset_has :: proc(p: Export_Preset, f: Export_Format) -> bool {
 	return false
 }
 
+// What the Export sheet's For this file options do to the next export it starts (the
+// request's `sheet`), set when Export runs: the copy written changes, never the scene.
+Export_Once :: struct {
+	decimate: int, // the triangles the file may hold; 0 keeps them all
+}
+
+// The For this file options for request `req`: the sheet's when it started it, else none.
+export_once_of :: proc(app: ^App, req: File_Request) -> Export_Once {
+	return app.export_once if req.sheet else {}
+}
+
 // The sheet's state in Kit_State: open, the preset and format chosen, each preset's
 // format picked while the app runs, for the scene whether Export saves a copy rather
 // than saving as, and the export that ran last, which the sheet opens on (the settings
@@ -186,6 +197,8 @@ Export_Sheet :: struct {
 	picks:       [Export_Preset]Export_Format, // a preset's format from before, when it offers it
 	copy:        bool,
 	print_all:   bool, // a print takes every object shown, not only the selected ones
+	decimate:    bool, // Decimate for this file only, for a print or the game engine
+	decimate_to: i32, // the triangles it decimates to; 0 for half of what goes out
 	ran:         bool, // an export has run, in this run or one before
 	last_preset: Export_Preset,
 	last_format: Export_Format,
@@ -297,6 +310,47 @@ export_object_bytes :: proc(obj: ^Object, f: Export_Format) -> int {
 	return 0
 }
 
+// Whether the sheet decimates what it exports: asked, for a print or the game engine.
+export_decimates :: proc(s: ^Export_Sheet) -> bool {
+	return s.decimate && (s.preset == .Print || s.preset == .Game)
+}
+
+// The triangles format `f` takes out: a print's objects' or the selected object's.
+export_triangles :: proc(app: ^App, f: Export_Format) -> int {
+	if _, is_print := export_print_file(f); is_print {
+		n := 0
+		for obj in print_objects(app) do n += object_triangle_count(obj)
+		return n
+	}
+	obj := selected_object(app)
+	return 0 if obj == nil else object_triangle_count(obj)
+}
+
+// The triangles Decimate for this file only leaves: what the sheet set, or half of what
+// goes out, never under a thousand.
+export_decimate_budget :: proc(app: ^App, f: Export_Format) -> int {
+	s := &app.kit.export
+	if s.decimate_to > 0 do return int(s.decimate_to)
+	return max(export_triangles(app, f) / 2, EXPORT_DECIMATE_MIN)
+}
+
+// The fewest triangles Decimate for this file only goes to.
+EXPORT_DECIMATE_MIN :: 1000
+
+// Decimate for this file only's switch and, while it is on, its triangles to drag.
+@(private = "file")
+export_decimate_rows :: proc(app: ^App, f: Export_Format) {
+	ctx := &app.kit.ctx
+	s := &app.kit.export
+	total := export_triangles(app, f)
+	_ = ui.switch_row(ctx, "Decimate for this file only", &s.decimate, enabled = total > EXPORT_DECIMATE_MIN || s.decimate)
+	if !s.decimate do return
+	budget := f32(min(export_decimate_budget(app, f), max(total, EXPORT_DECIMATE_MIN)))
+	if ui.slider(ctx, "Triangles##export decimate", &budget, EXPORT_DECIMATE_MIN, f32(max(total, EXPORT_DECIMATE_MIN + 1)), .Logarithmic, fmt.tprintf("%s of %s", count_label(int(budget)), count_label(total))) {
+		s.decimate_to = i32(budget + 0.5)
+	}
+}
+
 // An estimate's size to the nearest kilobyte or megabyte, with a tenth below ten
 // megabytes, so that 4.8 MB does not read as 4 MB.
 export_size_label :: proc(n: int) -> string {
@@ -347,10 +401,11 @@ export_run :: proc(app: ^App) -> bool {
 	// content:// document has none, as for Save next.
 	where_ := ""
 	if save_next_allowed(app) do where_, _ = filepath.join({filepath.dir(app.scene_path), export_file_name(app, f)}, context.temp_allocator)
+	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0}
 	if filter, ok := export_filter(f); ok {
-		file_dialog_export(app, filter, where_)
+		file_dialog_export(app, filter, where_, sheet = true)
 	} else if file, is_print := export_print_file(f); is_print {
-		file_dialog_print(app, file, where_)
+		file_dialog_print(app, file, where_, sheet = true)
 	} else do command_run(app, id)
 	s.open = false
 	s.runs += 1
@@ -553,7 +608,7 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 		triangles := 0
 		for o in objs do triangles += object_triangle_count(o)
 		append(&lines, object_label(objs[0]) if len(objs) == 1 else fmt.tprintf("%d objects, each its own part" if f == .Print_3MF else "%d objects as one mesh", len(objs)))
-		append(&lines, fmt.tprintf("%s triangles · about %s", count_label(triangles), export_size_label(export_bytes(app, f))))
+		append(&lines, export_triangles_line(app, f, triangles))
 		// The file stands Z up, so the scene's height (Y) is the print's.
 		size := print_size_of(app, objs) / PRINT_UNIT_MM[app.print_unit]
 		unit := PRINT_UNIT_NAMES[app.print_unit]
@@ -564,9 +619,19 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 			break
 		}
 		append(&lines, object_label(obj))
-		append(&lines, fmt.tprintf("%s triangles · about %s", count_label(object_triangle_count(obj)), export_size_label(export_bytes(app, f))))
+		append(&lines, export_triangles_line(app, f, object_triangle_count(obj)))
 	}
 	return lines[:]
+}
+
+// The preview's line of triangles and about how big: after Decimate for this file only
+// when it is on, the size scaled with them.
+@(private = "file")
+export_triangles_line :: proc(app: ^App, f: Export_Format, triangles: int) -> string {
+	bytes := export_bytes(app, f)
+	if !export_decimates(&app.kit.export) || triangles <= 0 do return fmt.tprintf("%s triangles · about %s", count_label(triangles), export_size_label(bytes))
+	kept := min(export_decimate_budget(app, f), triangles)
+	return fmt.tprintf("%s of %s triangles · about %s", count_label(kept), count_label(triangles), export_size_label(int(i64(bytes) * i64(kept) / i64(triangles))))
 }
 
 // Format `f`'s options, from the settings the app has for it.
@@ -586,7 +651,11 @@ export_options :: proc(app: ^App, f: Export_Format) {
 			return
 		}
 		ui.value_row(ctx, "Selected", object_label(obj))
-		ui.value_row(ctx, "Vertices", count_label(object_vertex_count(obj)))
+		if k.export.preset == .Game {
+			export_decimate_rows(app, f)
+		} else {
+			ui.value_row(ctx, "Vertices", count_label(object_vertex_count(obj)))
+		}
 		#partial switch f {
 		case .STL:  ui.paragraph(ctx, "Triangles alone, as slicers read them. For a print at its real size, 3D print sets it in millimetres.")
 		case .GLTF: ui.paragraph(ctx, "Binary glTF, as Unity, Unreal and Godot read it: the object's layers as shape keys, its materials and its maps.")
@@ -642,9 +711,12 @@ export_print_options :: proc(app: ^App) {
 		ui.paragraph(ctx, "Select an object to print, or turn Only the selected objects off to print every object shown.")
 		return
 	}
-	names: [len(Print_Unit)]string
-	for u in Print_Unit do names[u] = PRINT_UNIT_NAMES[u]
-	if picked := ui.tabs(ctx, "export print unit", names[:], int(app.print_unit)); picked >= 0 do app.print_unit = Print_Unit(picked)
+	// The height to drag and its unit beside it, on one row.
+	t := ctx.theme
+	UNITS_W :: 132
+	row_w := ui.fill_width(ctx)
+	ui.begin(ctx, "export print height", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print height value", {direction = .Column, width = row_w - UNITS_W - 8})
 	unit := PRINT_UNIT_MM[app.print_unit]
 	b := print_bounds_of(objs)
 	height := (b.hi.y - b.lo.y) * print_scale(app) / unit
@@ -652,5 +724,11 @@ export_print_options :: proc(app: ^App) {
 	if ui.drag_value(ctx, "Height##export print", &height, step, 0, PRINT_MM_MAX * 1000, fmt.tprintf("%s %s", print_number(height), PRINT_UNIT_NAMES[app.print_unit]), enabled = b.hi.y > b.lo.y) {
 		_ = print_set_height(app, b, height * unit)
 	}
-	ui.paragraph(ctx, "Width and depth follow. Every object prints at one scale, so parts printed apart fit together; Scene > 3D print sets any side. A 3MF keeps each object its own part.")
+	ui.end(ctx)
+	names: [len(Print_Unit)]string
+	for u in Print_Unit do names[u] = PRINT_UNIT_NAMES[u]
+	if picked := ui.tabs(ctx, "export print unit", names[:], int(app.print_unit), item_width = (UNITS_W - 4) / 3); picked >= 0 do app.print_unit = Print_Unit(picked)
+	ui.end(ctx)
+	export_decimate_rows(app, k.export.format)
+	ui.paragraph(ctx, "Width and depth follow, every object at the scene's one print scale, so parts printed apart fit together.", color = t.text_tertiary)
 }

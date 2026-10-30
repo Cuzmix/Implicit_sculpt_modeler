@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "core:strings"
 import "core:testing"
 
@@ -113,5 +114,64 @@ export_presets_remember_their_format :: proc(t: ^testing.T) {
 	testing.expect_value(t, export_last_label(.Game, .GLTF), "Last time: glTF for the game engine")
 	testing.expect_value(t, export_last_label(.Print, .Print), "Last time: STL for 3D printing")
 	testing.expect_value(t, export_last_label(.Formats, .Scene), "Last time: Sculpt scene")
+	free_all(context.temp_allocator)
+}
+
+// Decimate for this file only writes a copy with about the triangles asked, whose paint
+// stayed on the vertices it was on, and leaves the object as it was; a print of several
+// objects shares the triangles among them; a shape key keeps the vertices still there,
+// by their new numbers.
+@(test)
+export_decimates_a_copy :: proc(t: ^testing.T) {
+	FOLDER :: "build/export_decimate_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "fewer.obj")
+	defer delete(path)
+
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	lv := sculpt.levels_current(&obj.levels)
+	before := len(lv.mesh.indices) / 3
+	// Red paint above the middle, blue below.
+	lv.sculptor.color = make([]sculpt.Color, len(lv.mesh.positions))
+	for p, v in lv.mesh.positions do lv.sculptor.color[v] = {255, 0, 0, 255} if p.y > 0 else {0, 0, 255, 255}
+	if !testing.expect(t, object_export(&app, obj, path, once = {decimate = 100})) do return
+	testing.expect_value(t, len(lv.mesh.indices) / 3, before)
+	testing.expect(t, app.export_decimated > 0 && app.export_decimated <= 105, "not decimated to about 100")
+
+	data, err := os.read_entire_file(path, context.allocator)
+	defer delete(data)
+	if !testing.expect(t, err == nil) do return
+	colors: [dynamic]geom.Vertex_Color
+	defer delete(colors)
+	m, read_err, _ := geom.mesh_read_obj(data, nil, colors = &colors)
+	defer geom.mesh_destroy(&m)
+	if !testing.expect_value(t, read_err, geom.Mesh_File_Error.None) do return
+	testing.expect_value(t, len(m.indices) / 3, app.export_decimated)
+	if !testing.expect_value(t, len(colors), len(m.positions)) do return
+	wrong := 0
+	for p, v in m.positions {
+		red := colors[v].r > 128
+		if p.y > 1e-4 && !red || p.y < -1e-4 && red do wrong += 1
+	}
+	testing.expect_value(t, wrong, 0)
+
+	// A print of all three shares the triangles asked among them, the painted one too.
+	three := strings.clone(FOLDER + "three.3mf")
+	defer delete(three)
+	app.export_decimated = 0
+	if !testing.expect(t, print_export_many(&app, objs[:], three, {decimate = 300})) do return
+	testing.expect(t, app.export_decimated > 0 && app.export_decimated <= 315, "the print was not decimated to about 300")
+	testing.expect_value(t, len(lv.mesh.indices) / 3, before)
+
+	vertices := []u32{0, 1, 2, 3}
+	deltas := []Vec3{{1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}}
+	kept := []u32{max(u32), 0, max(u32), 1}
+	v, d := sparse_keep(vertices, deltas, kept)
+	testing.expect(t, len(v) == 2 && v[0] == 0 && v[1] == 1 && d[0].x == 2 && d[1].x == 4, "the shape key's vertices did not follow")
 	free_all(context.temp_allocator)
 }

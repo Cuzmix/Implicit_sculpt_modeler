@@ -42,7 +42,7 @@ a_big_save_waits_for_its_toast :: proc(t: ^testing.T) {
 	defer results_destroy(&app)
 	defer delete(app.scene_path)
 	app.kit.ctx.theme.toast_time = 0.25
-	app.saving = {.Save, strings.clone(path, runtime.heap_allocator())}
+	app.saving = {kind = .Save, path = strings.clone(path, runtime.heap_allocator())}
 	app.saving_at = 10
 	testing.expect(t, !autosave_quiet(&app), "a waiting save counts as rest")
 
@@ -55,7 +55,7 @@ a_big_save_waits_for_its_toast :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.scene_path, path)
 
 	_ = os.remove(path)
-	app.saving = {.Save, strings.clone(path, runtime.heap_allocator())}
+	app.saving = {kind = .Save, path = strings.clone(path, runtime.heap_allocator())}
 	app.saving_at = app.kit.ctx.time
 	save_pending(&app, true)
 	testing.expect(t, app.saving.kind == .None && os.exists(path), "did not save when told to at once")
@@ -200,11 +200,11 @@ a_big_export_waits_for_its_toast :: proc(t: ^testing.T) {
 	}
 	app.scene.selected = 0
 	testing.expect(t, object_export_bytes(obj) < SAVE_SHOW_FIRST)
-	testing.expect(t, file_apply(&app, {.Export, small}))
+	testing.expect(t, file_apply(&app, {kind = .Export, path = small}))
 	testing.expectf(t, app.saving.kind == .None && os.exists(small), "a small export waited: %s", app.result.text)
 
 	app.kit.ctx.theme.toast_time = 0.25
-	app.saving = {.Export, strings.clone(big, runtime.heap_allocator())}
+	app.saving = {kind = .Export, path = strings.clone(big, runtime.heap_allocator())}
 	app.saving_at = 10
 	app.kit.ctx.time = 10.1
 	save_pending(&app, false)
