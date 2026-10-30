@@ -1,5 +1,7 @@
 package main
 
+@(require) import "core:log" // used only where AutoRemesher is not built
+import "core:math"
 import "core:strings"
 import "core:testing"
 
@@ -22,7 +24,7 @@ shape_view :: proc(m: ^geom.Mesh) -> geom.Mesh {
 quad_remesh_keeps_the_polygons :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
-	r := retopo_compute(shape_view(&m), 1500, .Auto, nil)
+	r := retopo_compute(shape_view(&m), 1500, {engine = .Auto}, nil)
 	defer retopo_result_destroy(&r)
 	if !testing.expect(t, r.built, "nothing built") do return
 	when !quadmesh.AVAILABLE {
@@ -59,7 +61,7 @@ quad_remesh_falls_back_on_a_non_manifold_mesh :: proc(t: ^testing.T) {
 	a, b := m.indices[0], m.indices[1]
 	append(&m.positions, (m.positions[a] + m.positions[b]) * 0.8)
 	append(&m.indices, a, b, u32(len(m.positions) - 1))
-	r := retopo_compute(shape_view(&m), 400, .Auto, nil)
+	r := retopo_compute(shape_view(&m), 400, {engine = .Auto}, nil)
 	defer retopo_result_destroy(&r)
 	if !testing.expect(t, r.built, "nothing built") do return
 	testing.expect_value(t, r.engine, Quad_Engine.Own)
@@ -74,7 +76,7 @@ quad_remesh_falls_back_on_a_non_manifold_mesh :: proc(t: ^testing.T) {
 quad_remesh_own_engine_makes_quads :: proc(t: ^testing.T) {
 	m := geom.icosphere(3)
 	defer geom.mesh_destroy(&m)
-	r := retopo_compute(shape_view(&m), 400, .Own, nil)
+	r := retopo_compute(shape_view(&m), 400, {engine = .Own}, nil)
 	defer retopo_result_destroy(&r)
 	if !testing.expect(t, r.built, "nothing built") do return
 	testing.expect_value(t, r.engine, Quad_Engine.Own)
@@ -108,4 +110,91 @@ quad_remesh_polygons_follow_the_renumbering :: proc(t: ^testing.T) {
 	testing.expect_value(t, polys.tri_poly[1], 1)
 	testing.expect_value(t, polys.tri_poly[2], 0)
 	testing.expect_value(t, polys.tri_poly[3], 0)
+}
+
+// Symmetry: the + half is remeshed and mirrored, so every vertex has its image across the
+// plane, the seam lies on it to the bit, and the whole is closed and manifold.
+@(test)
+quad_remesh_mirrors_one_half :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quad remesh symmetry: AutoRemesher is not built here, nothing to test")
+		return
+	}
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	r := retopo_compute(shape_view(&m), 1200, {engine = .Auto, symmetry = .X}, nil)
+	defer retopo_result_destroy(&r)
+	if !testing.expect(t, r.built, "nothing built") do return
+	testing.expect_value(t, r.engine, Quad_Engine.Auto)
+	testing.expect(t, r.mirrored, "not mirrored")
+	testing.expect(t, r.quads > 800 && r.quads == r.faces, "not every face a quad")
+	check := geom.mesh_check(r.mesh)
+	testing.expect(t, check.closed, "not closed")
+	testing.expect_value(t, check.non_manifold_edges, 0)
+	testing.expect(t, !check.inverted, "inside out")
+	// Each vertex's image across the plane is a vertex too, and the seam is exact.
+	unmatched, seam := 0, 0
+	for p in r.mesh.positions {
+		if p.x == 0 do seam += 1
+		found := false
+		for q in r.mesh.positions do if abs(q.x + p.x) <= 1e-6 && abs(q.y - p.y) <= 1e-6 && abs(q.z - p.z) <= 1e-6 {
+			found = true
+			break
+		}
+		if !found do unmatched += 1
+	}
+	testing.expect_value(t, unmatched, 0)
+	testing.expect(t, seam >= 16, "too few seam vertices")
+}
+
+// Close first: an open hemisphere keeps its border through AutoRemesher (which fills only
+// small holes itself), but with Close first the voxel remesh closes it before the quads
+// are made.
+@(test)
+quad_remesh_closes_an_open_mesh_first :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	// The upper half: every triangle whose middle is above the equator.
+	kept := make([dynamic]u32, 0, len(m.indices))
+	defer delete(kept)
+	for k := 0; k < len(m.indices); k += 3 {
+		a, b, c := m.indices[k], m.indices[k + 1], m.indices[k + 2]
+		if (m.positions[a].z + m.positions[b].z + m.positions[c].z) > 0 do append(&kept, a, b, c)
+	}
+	resize(&m.indices, len(kept))
+	copy(m.indices[:], kept[:])
+	// Enough quads that the rim is over the 65 edges AutoRemesher fills a hole under.
+	open := retopo_compute(shape_view(&m), 2000, {engine = .Auto}, nil)
+	defer retopo_result_destroy(&open)
+	closed := retopo_compute(shape_view(&m), 2000, {engine = .Auto, close_first = true}, nil)
+	defer retopo_result_destroy(&closed)
+	if !testing.expect(t, open.built && closed.built, "nothing built") do return
+	when quadmesh.AVAILABLE {
+		testing.expect(t, geom.mesh_check(open.mesh).boundary_edges > 0, "AutoRemesher closed the hemisphere on its own")
+		testing.expect_value(t, open.closed, 0)
+	}
+	testing.expect(t, closed.closed > 0, "Close first did not remesh")
+	after := geom.mesh_check(closed.mesh)
+	testing.expect(t, after.closed, "not closed after Close first")
+	// The bowl is filled where the winding is positive: about the half ball (2.09), not a box.
+	testing.expectf(t, after.volume > 1.4 && after.volume < 2.8, "volume %.2f is not a half ball's", after.volume)
+}
+
+// Adaptivity trades the count for smaller quads where the surface bends.
+@(test)
+quad_remesh_adaptivity_makes_fewer_quads :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quad remesh adaptivity: AutoRemesher is not built here, nothing to test")
+		return
+	}
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	// A bumpy sphere: the radius waves with the position.
+	for &p in m.positions do p *= 1 + 0.12 * math.sin(6 * p.x) * math.sin(6 * p.y) * math.sin(6 * p.z)
+	even := retopo_compute(shape_view(&m), 3000, {engine = .Auto}, nil)
+	defer retopo_result_destroy(&even)
+	bent := retopo_compute(shape_view(&m), 3000, {engine = .Auto, adaptivity = 1}, nil)
+	defer retopo_result_destroy(&bent)
+	if !testing.expect(t, even.built && bent.built, "nothing built") do return
+	testing.expectf(t, bent.faces < even.faces, "adaptivity 1 gave %d faces, even %d", bent.faces, even.faces)
 }

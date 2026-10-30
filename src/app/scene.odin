@@ -183,7 +183,7 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
 	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
-	engine:   Quad_Engine, // Retopo: which quad remesher (retopo.odin)
+	quad:     Quad_Options, // Retopo: the engine and its options (retopo.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -874,7 +874,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, nil)
-			made, ok := object_retopo(app, obj, cmd.vertices, cmd.engine)
+			made, ok := object_retopo(app, obj, cmd.vertices, cmd.quad)
 			if made do history_record_added(app)
 			return ok
 		}

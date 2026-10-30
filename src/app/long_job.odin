@@ -242,7 +242,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
-		j.retopo = retopo_compute(j.input, j.cmd.vertices, j.cmd.engine, &j.pool, &j.progress)
+		j.retopo = retopo_compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress)
 		j.built = j.retopo.built
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)

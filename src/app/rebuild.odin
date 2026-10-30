@@ -154,7 +154,7 @@ rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
 	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even)}
 	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer)}
-	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), engine = app.ui.retopo_engine}
+	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}
 	}
 }
 
@@ -176,7 +176,15 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			engines: [len(Quad_Engine)]string
 			for e in Quad_Engine do engines[int(e)] = QUAD_ENGINE_NAMES[e]
 			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = Quad_Engine(picked)
+			if app.ui.retopo_engine == .Auto {
+				a := app.ui.retopo_adaptivity
+				_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+				axes: [len(Quad_Symmetry)]string
+				for x in Quad_Symmetry do axes[int(x)] = QUAD_SYMMETRY_NAMES[x]
+				if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = Quad_Symmetry(picked)
+			}
 		}
+		_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
 	}
 	// Held, or under a mouse: the checkerboard shows (Fewer has none to show).
 	id := ui.id_of(ctx, label)
@@ -205,9 +213,9 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, "About this many vertices, dense where the detail is and sparse where the surface is flat, so there is no one size to preview.")
 	case .Quads:
 		when quadmesh.AVAILABLE {
-			ui.paragraph(ctx, "A new object of about this many quads lying on this one, which keeps them for Subdivide and Wireframe, with UVs for baking (Build > UVs and baking). AutoRemesher follows the surface's curves; Built-in is quicker and plainer, and stands in where AutoRemesher refuses the mesh.")
+			ui.paragraph(ctx, "A new object of about this many quads lying on this one, which keeps them for Subdivide and Wireframe, with UVs for baking (Build > UVs and baking). AutoRemesher follows the surface's curves; Built-in is quicker and plainer, and stands in where AutoRemesher refuses the mesh. Adaptivity puts smaller quads where the surface bends (and makes fewer than asked); Mirror remeshes one half across the object's own plane and mirrors it; Close first remeshes an open or unsound mesh into a closed one before either engine sees it.")
 		} else {
-			ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs, for baking (Build > UVs and baking).")
+			ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs, for baking (Build > UVs and baking). Close first remeshes an open or unsound mesh into a closed one before the quads are made.")
 		}
 		if measured && p.shown {
 			ui.paragraph(ctx, fmt.tprintf("Quads about %s wide.", length_label(p.cell * scale)))

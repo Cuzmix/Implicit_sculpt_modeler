@@ -92,7 +92,7 @@ rebuild_runs_the_goal :: proc(t: ^testing.T) {
 	wants := [Rebuild_Goal]Scene_Command {
 		.Even  = {kind = .Remesh, vertices = 300_000},
 		.Fewer = {kind = .Decimate, vertices = 20_000},
-		.Quads = {kind = .Retopo, vertices = 900, engine = .Own},
+		.Quads = {kind = .Retopo, vertices = 900, quad = {engine = .Own}},
 	}
 	for goal in Rebuild_Goal {
 		app.ui.rebuild_goal = goal
