@@ -61,8 +61,9 @@ File_Kind :: enum u8 {
 }
 
 File_Request :: struct {
-	kind: File_Kind,
-	path: string, // from runtime.heap_allocator(): a dialog's thread may make it
+	kind:  File_Kind,
+	path:  string, // from runtime.heap_allocator(): a dialog's thread may make it
+	sheet: bool, // an export the Export sheet started, which its For this file options (App.export_once) shape
 }
 
 // The last file action's outcome, which the interface shows as a note: the log alone may
@@ -155,14 +156,15 @@ export_suffix :: proc(f: Export_Filter) -> string {
 // Shows the save dialog for an export in format `f` alone (the Export sheet's), so the
 // dialog offers that format, suggests `name`'s file when there is one, and a name typed
 // without an extension takes the format's. Does nothing while another dialog is showing.
-file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
+// From the sheet (`sheet`), the export takes its For this file options.
+file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "", sheet := false) {
 	sync.lock(&pending.lock)
 	busy := pending.dialog
 	pending.dialog = true
 	sync.unlock(&pending.lock)
 	if busy do return
-	// The kind in the low byte, the filter after it, for file_dialog_done.
-	userdata := rawptr(uintptr(File_Kind.Export) | uintptr(f) << 8)
+	// The kind in the low byte, the filter after it and the sheet's bit, for file_dialog_done.
+	userdata := rawptr(uintptr(File_Kind.Export) | uintptr(f) << 8 | uintptr(sheet) << 16)
 	where_: cstring = nil
 	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
 	dialog_save(app, userdata, EXPORT_FILTERS[int(f):][:1], where_)
@@ -170,14 +172,14 @@ file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
 
 // Shows the save dialog for a 3D print in format `f` (one of the Export sheet's print
 // formats), suggesting `name`'s file when there is one.
-file_dialog_print :: proc(app: ^App, f: Print_File, name := "") {
+file_dialog_print :: proc(app: ^App, f: Print_File, name := "", sheet := false) {
 	sync.lock(&pending.lock)
 	busy := pending.dialog
 	pending.dialog = true
 	sync.unlock(&pending.lock)
 	if busy do return
-	// The kind in the low byte and the format after it, for file_dialog_done.
-	userdata := rawptr(uintptr(File_Kind.Export_Print) | uintptr(f) << 8)
+	// The kind in the low byte, the format after it and the sheet's bit, for file_dialog_done.
+	userdata := rawptr(uintptr(File_Kind.Export_Print) | uintptr(f) << 8 | uintptr(sheet) << 16)
 	where_: cstring = nil
 	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
 	filters: []sdl.DialogFileFilter
@@ -257,7 +259,8 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	heap := runtime.heap_allocator()
 	kind := File_Kind(uintptr(userdata) & 0xff)
 	// An export limited to one format (file_dialog_export) offered only its filter.
-	only := int(uintptr(userdata) >> 8)
+	only := int(uintptr(userdata) >> 8) & 0xff
+	sheet := (uintptr(userdata) >> 16) & 1 != 0
 	sync.lock(&pending.lock)
 	defer sync.unlock(&pending.lock)
 	pending.dialog = false
@@ -287,7 +290,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		}
 	}
 	delete(pending.req.path, heap)
-	pending.req = {kind, strings.concatenate({path, suffix}, heap)}
+	pending.req = {kind, strings.concatenate({path, suffix}, heap), sheet}
 }
 
 // Whether a save may write beside `path`, as saving over a file does: a partial copy and the
@@ -308,7 +311,7 @@ file_post :: proc(kind: File_Kind, path: string) {
 	sync.lock(&pending.lock)
 	defer sync.unlock(&pending.lock)
 	delete(pending.req.path, heap)
-	pending.req = {kind, strings.clone(path, heap)}
+	pending.req = {kind = kind, path = strings.clone(path, heap)}
 }
 
 // Queues a request only when no dialog shows and none waits, checked and queued under one
@@ -317,7 +320,7 @@ file_post_when_idle :: proc(kind: File_Kind, path: string) -> bool {
 	sync.lock(&pending.lock)
 	defer sync.unlock(&pending.lock)
 	if pending.dialog || pending.req.kind != .None do return false
-	pending.req = {kind, strings.clone(path, runtime.heap_allocator())}
+	pending.req = {kind = kind, path = strings.clone(path, runtime.heap_allocator())}
 	return true
 }
 
@@ -409,12 +412,12 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		bytes := 0
 		for obj in objs do bytes += object_export_bytes(obj, req.path)
 		if bytes > SAVE_SHOW_FIRST {
-			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator()), req.sheet}
 			app.saving_at = app.kit.ctx.time
 			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
 			return true
 		}
-		_ = print_export(app, req.path)
+		_ = print_export(app, req.path, export_once_of(app, req))
 	case .Export:
 		obj := selected_object(app)
 		if obj == nil {
@@ -423,18 +426,18 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		}
 		if object_export_bytes(obj, req.path) > SAVE_SHOW_FIRST {
 			// As a big save: the window says what it waits for before the frame stops.
-			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator()), req.sheet}
 			app.saving_at = app.kit.ctx.time
 			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
 			return true
 		}
-		_ = object_export(app, obj, req.path)
+		_ = object_export(app, obj, req.path, once = export_once_of(app, req))
 	case .Save, .Save_Copy:
 		if app.saving.kind != .None do return true
 		if scene_save_bytes(app) > SAVE_SHOW_FIRST {
 			// The frame stops for the whole save, so first the window says what it is
 			// waiting for; save_pending runs it once the toast is up.
-			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving = {kind = req.kind, path = strings.clone(req.path, runtime.heap_allocator())}
 			app.saving_at = app.kit.ctx.time
 			report(app, nil, {.Busy}, "Saving %s...", filepath.base(req.path))
 			return true
@@ -494,7 +497,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		// As a big save: the window says what it waits for before the frame stops.
 		big := link_send_bytes(app) if req.kind == .Link_Send else link_get_bytes(app)
 		if big > SAVE_SHOW_FIRST {
-			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving = {kind = req.kind, path = strings.clone(req.path, runtime.heap_allocator())}
 			app.saving_at = app.kit.ctx.time
 			report(app, nil, {.Busy}, "Sending to Blender..." if req.kind == .Link_Send else "Getting from Blender...")
 			return true
@@ -868,8 +871,9 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 // is not written. glTF and USD also carry the normals, the materials (the object's and its
 // groups') and the sculpt layers, as morph targets or blend shapes (shape keys) at their
 // strengths; USD the polygroups too, and a retopologized base level as its quads and UVs,
-// as OBJ does. Returns whether it was written.
-object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> bool {
+// as OBJ does. The Export sheet's For this file options (`once`) shape the copy written:
+// Decimate cuts its triangles, the object keeping its own. Returns whether it was written.
+object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, once := Export_Once{}) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
@@ -915,6 +919,33 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 		delete(mask)
 		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 	}
+	// Decimate for this file only: a copy with fewer triangles whose vertices are the
+	// object's own (geom.mesh_decimate's `from`), so its paint, shape keys and groups
+	// follow them. A retopologized base going out as its quads, and a textured glTF whose
+	// maps follow the UVs, keep their faces.
+	from: [dynamic]u32
+	defer delete(from)
+	decimated: geom.Mesh
+	defer geom.mesh_destroy(&decimated)
+	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj)
+	textured := ext == ".glb" && object_exports_textures(obj)
+	if once.decimate > 0 && len(indices) / 3 > once.decimate && !quads_out && !textured {
+		src := packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+		ok: bool
+		decimated, _, ok = geom.mesh_decimate(src, once.decimate, &app.pool, from = &from)
+		if ok {
+			geom.mesh_recompute_normals(&decimated)
+			positions, normals, indices = decimated.positions[:], decimated.normals[:], decimated.indices[:]
+			if colors != nil {
+				kept := make([][3]u8, len(from), context.temp_allocator)
+				for v, k in from do kept[k] = colors[v]
+				colors = kept
+			}
+			app.export_decimated = len(indices) / 3
+		} else {
+			clear(&from)
+		}
+	}
 	out := make([dynamic]u8)
 	defer delete(out)
 	layers := 0
@@ -929,8 +960,16 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 		sculpt.sculptor_refresh_normals(&lv.sculptor)
 		list := sculpt.sculptor_layers(&lv.sculptor)
 		morphs := make([]geom.Morph_Target, len(list), context.temp_allocator)
+		// After a decimation a shape key keeps the vertices still there, by their new numbers.
+		kept: []u32
+		if len(from) > 0 {
+			kept = make([]u32, len(lv.mesh.positions), context.temp_allocator)
+			for &k in kept do k = max(u32)
+			for v, k in from do kept[v] = u32(k)
+		}
 		for &l, k in list {
 			vertices, deltas := sculpt.sculptor_layer_sparse(&lv.sculptor, k, context.temp_allocator)
+			if kept != nil do vertices, deltas = sparse_keep(vertices, deltas, kept)
 			morphs[k] = {sculpt.sculptor_layer_name(&l), sculpt.layer_weight(l), vertices, deltas}
 		}
 		layers = len(morphs)
@@ -962,10 +1001,26 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 			material  = material,
 			lights    = export_lights(app, obj.transform),
 		}
-		if ext == ".usda" do usd_extras(obj, lv, &m)
+		if ext == ".usda" && len(from) == 0 do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {
 			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
-			export_group_materials(app, obj, &m, faces, lv.sculptor.color, ext == ".glb")
+			paint := lv.sculptor.color
+			if len(from) > 0 {
+				// A decimated copy's triangles are new: each takes the group of its first
+				// corner's vertex, and the paint goes by the new vertex numbers.
+				faces = nil
+				if g := lv.sculptor.groups; g.tris != nil && g.vertex != nil {
+					new_faces := make([]u16, len(indices) / 3, context.temp_allocator)
+					for &f, t in new_faces do f = g.vertex[from[indices[3 * t]]]
+					faces = new_faces
+				}
+				if paint != nil {
+					moved := make([]sculpt.Color, len(from), context.temp_allocator)
+					for v, k in from do moved[k] = paint[v]
+					paint = moved
+				}
+			}
+			export_group_materials(app, obj, &m, faces, paint, ext == ".glb")
 		}
 		vertices = len(m.positions)
 		if ext == ".usda" {
@@ -985,7 +1040,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 			geom.mesh_write_stl(&out, at, indices, pool = &app.pool)
 		}
 		printed = strings.clone(print_note(at, indices))
-	case ext == ".obj" && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj):
+	case quads_out:
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
 		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
@@ -1010,6 +1065,17 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 	}
 	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, vertices, len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
+}
+
+// A shape key's vertices still there after a decimation, by their new numbers, in
+// place: `kept` gives each old vertex its new number, max(u32) for one gone.
+sparse_keep :: proc(vertices: []u32, deltas: []Vec3, kept: []u32) -> ([]u32, []Vec3) {
+	n := 0
+	for v, i in vertices do if kept[v] != max(u32) {
+		vertices[n], deltas[n] = kept[v], deltas[i]
+		n += 1
+	}
+	return vertices[:n], deltas[:n]
 }
 
 // Whether a .glb export of `obj` carries its maps: it has some and shows its base level,
@@ -1124,12 +1190,12 @@ save_pending :: proc(app: ^App, now: bool) {
 	app.saving = {}
 	defer file_request_free(req)
 	if req.kind == .Export_Print {
-		_ = print_export(app, req.path)
+		_ = print_export(app, req.path, export_once_of(app, req))
 		return
 	}
 	if req.kind == .Export {
 		if obj := selected_object(app); obj != nil {
-			_ = object_export(app, obj, req.path)
+			_ = object_export(app, obj, req.path, once = export_once_of(app, req))
 		} else {
 			file_note(app, true, "Select an object to export first")
 		}

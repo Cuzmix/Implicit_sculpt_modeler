@@ -187,21 +187,23 @@ print_size_of :: proc(app: ^App, objs: []^Object) -> Vec3 {
 }
 
 // Writes the objects a print takes (print_objects) to `path`: one object STL or OBJ as
-// object_export writes it, else print_export_many.
-print_export :: proc(app: ^App, path: string) -> bool {
+// object_export writes it, else print_export_many; `once` holds the Export sheet's For
+// this file options.
+print_export :: proc(app: ^App, path: string, once := Export_Once{}) -> bool {
 	objs := print_objects(app)
 	if len(objs) == 0 {
 		file_note(app, true, "Select an object to export first")
 		return false
 	}
-	if len(objs) == 1 && !strings.equal_fold(filepath.ext(path), ".3mf") do return object_export(app, objs[0], path, print = true)
-	return print_export_many(app, objs, path)
+	if len(objs) == 1 && !strings.equal_fold(filepath.ext(path), ".3mf") do return object_export(app, objs[0], path, print = true, once = once)
+	return print_export_many(app, objs, path, once)
 }
 
 // Writes `objs` as one print: an STL or OBJ of all their triangles together, or a 3MF
 // with each object its own part, which a slicer keeps apart; every one at the scene's
 // one scale, Z up, and the whole standing on the bed as the objects stand together.
-print_export_many :: proc(app: ^App, objs: []^Object, path: string) -> bool {
+// Decimate for this file only shares its triangles among the objects by how many each has.
+print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Export_Once{}) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
@@ -215,8 +217,18 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string) -> bool {
 	parts := make([]geom.Model_Part, len(objs), context.temp_allocator)
 	positions := make([][]Vec3, len(objs), context.temp_allocator)
 	colors := make([][][3]u8, len(objs), context.temp_allocator)
-	packed := make([]geom.Mesh, len(objs), context.temp_allocator)
-	defer for &m in packed do geom.mesh_destroy(&m)
+	// The meshes made here outlive the temp allocator, which is freed before the file is
+	// written, so they and the slices holding them come from the context's allocator.
+	packed := make([]geom.Mesh, len(objs))
+	decimated := make([]geom.Mesh, len(objs))
+	defer {
+		for &m in packed do geom.mesh_destroy(&m)
+		for &m in decimated do geom.mesh_destroy(&m)
+		delete(packed)
+		delete(decimated)
+	}
+	total := 0
+	for obj in objs do total += object_triangle_count(obj)
 	painted := false
 	for obj, i in objs {
 		lv := sculpt.levels_current(&obj.levels)
@@ -233,6 +245,24 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string) -> bool {
 			colors[i] = make([][3]u8, len(c), context.temp_allocator)
 			for x, v in c do colors[i][v] = paint_over(x, {255, 255, 255})
 			painted = true
+		}
+		if once.decimate > 0 && total > 0 {
+			share := max(int(i64(once.decimate) * i64(len(indices) / 3) / i64(total)), 4)
+			if len(indices) / 3 > share {
+				src := packed[i] if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+				from: [dynamic]u32
+				defer delete(from)
+				ok: bool
+				decimated[i], _, ok = geom.mesh_decimate(src, share, &app.pool, from = &from)
+				if ok {
+					at, indices = decimated[i].positions[:], decimated[i].indices[:]
+					if colors[i] != nil {
+						kept := make([][3]u8, len(from), context.temp_allocator)
+						for v, k in from do kept[k] = colors[i][v]
+						colors[i] = kept
+					}
+				}
+			}
 		}
 		positions[i] = print_world(at, obj.transform, mm)
 		parts[i] = {object_label(obj), positions[i], indices}
@@ -284,6 +314,7 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string) -> bool {
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
 	app.print_exports += 1
+	if once.decimate > 0 do app.export_decimated = triangles
 	file_note(app, false, "Exported %s for printing: %d object%s, %.1f x %.1f x %.1f mm; %d triangles in %.0f ms", name, len(objs), "" if len(objs) == 1 else "s", size.x, size.z, size.y, triangles, app.stats.file_write_ms)
 	return true
 }

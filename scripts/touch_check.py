@@ -4559,6 +4559,32 @@ def export_sheet_prints_every_object():
     return s, LENS_1440 + ["--script=duplicate_object"], camera_still({"export_format": is_text("Print_3MF"), "export_print_all": near(1), "objects": near(2), "dabs": near(0)})
 
 
+# The game engine's options at 1440x900: the Decimate for this file only switch and the
+# Triangles slider's knob (half the triangles) beneath it once the switch is on.
+EXPORT_DECIMATE = {"switch": (722, 411), "knob": (663, 478)}
+
+
+@scenario
+def export_sheet_decimates_for_the_file():
+    """The game engine's Decimate for this file only switch offers a Triangles slider set to half the object's triangles; dragging it left lowers the budget, and the settings keep both while the scene keeps every triangle."""
+    def run(drag):
+        s = Script()
+        s.wait(4)
+        s.press("e", ("ctrl",))
+        s.wait(10)
+        s.ftap(*LENS_EXPORT["game"])
+        s.wait(6)
+        s.ftap(*EXPORT_DECIMATE["switch"])
+        s.wait(6)
+        if not drag:
+            return s, LENS_1440, camera_still({"export_preset": is_text("Game"), "export_decimate": near(1), "export_decimate_to": near(0), "dabs": near(0)})
+        x, y = EXPORT_DECIMATE["knob"]
+        s.fdrag([(x - 30 * i, y) for i in range(8)])
+        s.wait(6)
+        return s, LENS_1440, camera_still({"export_decimate": near(1), "export_decimate_to": lambda v: 1000 <= int(v) < 40000, "dabs": near(0), "undo_steps": near(0)})
+    return Steps([run(False), run(True)])
+
+
 # The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
 # cut in half.
 EXPORT_CHECKS = {"repair": (1136, 502)}
