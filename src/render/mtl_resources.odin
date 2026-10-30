@@ -120,6 +120,16 @@ mtl_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCre
 	return (^sdl.GPUBuffer)(b)
 }
 
+// A device buffer in shared memory, filled by the CPU before its first use, where the GPU
+// shares the CPU's memory (every Apple silicon GPU); nil elsewhere. A cycle of it makes
+// another shared backing, which on unified memory costs what a private one would.
+mtl_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
+	if !MTL.Device_hasUnifiedMemory(mtl_state.device) do return nil, nil
+	b := mtl_buffer_make(info.size, MTL.ResourceStorageModeShared)
+	if b == nil do return nil, nil
+	return (^sdl.GPUBuffer)(b), MTL.Buffer_contentsPointer(b.active.buffer)
+}
+
 // Transfer buffers are shared memory the CPU maps in place; an upload buffer is only
 // written by the CPU, so it is write-combined, as SDL_GPU makes it.
 mtl_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {

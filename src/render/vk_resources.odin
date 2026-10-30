@@ -17,6 +17,10 @@ Vk_Host :: enum u8 {
 	None,     // device-local
 	Upload,   // a transfer buffer the CPU writes
 	Download, // a transfer buffer the CPU reads
+	// A device buffer the CPU fills once through a mapping, before its first use, from the
+	// memory type vk_pick_shared_type chose (device-local and host-visible); only its first
+	// backing is made there, so a cycle never fills that heap.
+	Shared,
 }
 
 Vk_Buffer_Backing :: struct {
@@ -189,17 +193,26 @@ vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
 	reqs: vk.MemoryRequirements
 	vk.GetBufferMemoryRequirements(vk_state.device, backing.buffer, &reqs)
 	ok: bool
-	switch b.host {
+	host := b.host
+	if host == .Shared && len(b.backings) > 0 do host = .None
+	switch host {
 	case .None:     backing.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {})
 	case .Upload:   backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {})
 	case .Download: backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {.HOST_CACHED})
+	case .Shared:
+		// Exactly the type caps chose, never another that happens to match its flags on a
+		// smaller heap.
+		if vk_state.shared_buffers && reqs.memoryTypeBits & (1 << vk_state.shared_type) != 0 {
+			info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, allocationSize = reqs.size, memoryTypeIndex = vk_state.shared_type}
+			ok = vk.AllocateMemory(vk_state.device, &info, nil, &backing.memory) == .SUCCESS
+		}
 	}
-	if !ok && b.host == .None do backing.memory, ok = vk_allocate(reqs, {}, {})
+	if !ok && host == .None do backing.memory, ok = vk_allocate(reqs, {}, {})
 	if !ok || vk.BindBufferMemory(vk_state.device, backing.buffer, backing.memory, 0) != .SUCCESS {
 		vk_buffer_backing_destroy(backing)
 		return nil
 	}
-	if b.host != .None {
+	if host != .None {
 		data: rawptr
 		if vk.MapMemory(vk_state.device, backing.memory, 0, vk.DeviceSize(vk.WHOLE_SIZE), {}, &data) != .SUCCESS {
 			vk_buffer_backing_destroy(backing)
@@ -257,15 +270,39 @@ vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, te
 	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
 }
 
+// Every buffer can be copied into and out of, as SDL_GPU's are.
+@(private = "file")
+vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags) -> vk.BufferUsageFlags {
+	flags := vk.BufferUsageFlags{.TRANSFER_SRC, .TRANSFER_DST}
+	if .VERTEX in usage do flags += {.VERTEX_BUFFER}
+	if .INDEX in usage do flags += {.INDEX_BUFFER}
+	if .INDIRECT in usage do flags += {.INDIRECT_BUFFER}
+	if usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE} != {} do flags += {.STORAGE_BUFFER}
+	return flags
+}
+
 vk_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
-	usage := vk.BufferUsageFlags{.TRANSFER_SRC, .TRANSFER_DST}
-	if .VERTEX in info.usage do usage += {.VERTEX_BUFFER}
-	if .INDEX in info.usage do usage += {.INDEX_BUFFER}
-	if .INDIRECT in info.usage do usage += {.INDIRECT_BUFFER}
-	if info.usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE} != {} do usage += {.STORAGE_BUFFER}
-	b := vk_buffer_make(info.size, usage, .None)
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage), .None)
 	if b == nil do log.errorf("Vulkan: a %d byte buffer could not be made", info.size)
 	return (^sdl.GPUBuffer)(b)
+}
+
+// A device buffer mapped for its first fill, or nil where the device has no shared memory
+// type or that heap is full; the caller then makes a plain one.
+vk_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
+	if !vk_state.shared_buffers do return nil, nil
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage), .Shared)
+	if b == nil do return nil, nil
+	return (^sdl.GPUBuffer)(b), b.active.mapped
+}
+
+// Ends a mapped buffer's fill: the mapping goes, so nothing writes the buffer after the
+// GPU may have begun to read it.
+vk_buffer_filled :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+	b := (^Vk_Buffer)(buffer)
+	if b == nil || b.active.mapped == nil || b.host != .Shared do return
+	vk.UnmapMemory(vk_state.device, b.active.memory)
+	b.active.mapped = nil
 }
 
 vk_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {

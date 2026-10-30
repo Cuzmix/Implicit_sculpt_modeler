@@ -615,6 +615,28 @@ gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 
 // GPU timestamps likewise: SDL_GPU has no query API yet (its draft is libsdl-org/SDL#15651),
 // and the own Metal backend's waits for its compute stage.
+// Whether gpu_create_buffer_mapped makes buffers: the own Vulkan backend with a shared
+// memory type (vk_pick_shared_type), the own Metal backend on unified memory.
+gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	if gpu_backend == .Vulkan do return vk_state.shared_buffers
+	when METAL do if gpu_backend == .Metal do return mtl_shared_buffers_offered()
+	return false
+}
+
+// A device buffer whose `info.size` bytes the CPU writes through `mapped` before anything
+// uses it, then ends with gpu_buffer_filled; nil, nil where the backend cannot, and the
+// caller uploads into a plain buffer instead. SDL_GPU has no such buffers.
+gpu_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (buffer: ^sdl.GPUBuffer, mapped: rawptr) {
+	if gpu_backend == .Vulkan do return vk_create_buffer_mapped(device, info)
+	when METAL do if gpu_backend == .Metal do return mtl_create_buffer_mapped(device, info)
+	return nil, nil
+}
+
+// Ends the fill of a gpu_create_buffer_mapped buffer; the mapped pointer is invalid after.
+gpu_buffer_filled :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+	if gpu_backend == .Vulkan do vk_buffer_filled(device, buffer)
+}
+
 // The compute kernels' subgroup width (0 when unknown) and whether 64-bit buffer atomics
 // work; SDL_GPU tells neither.
 gpu_compute_features :: proc(device: ^sdl.GPUDevice) -> (subgroup_size: u32, int64_atomics: bool) {

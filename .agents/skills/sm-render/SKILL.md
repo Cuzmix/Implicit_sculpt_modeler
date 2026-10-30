@@ -369,5 +369,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf). Timestamps
   (`Gpu_Caps.timestamps`, `timing.odin`, `vk_timing.odin`) do not: a pass that should show in Stats passes a
   `Gpu_Span` to its `debug_group`; spans never nest (an inner one is left untimed), so their sum is the frame.
+- Mapped device buffers (`gpu_create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
+  and closed with `gpu_buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
 - A compute kernel that wants subgroup operations or 64-bit atomics checks `Gpu_Caps.subgroup_size` (0 = unknown,
   keep a plain path) and `int64_atomics`; never sum floats with atomics (order breaks determinism).
