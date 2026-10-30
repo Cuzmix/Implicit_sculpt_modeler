@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -16,6 +17,12 @@ export_formats_run_their_own_commands :: proc(t: ^testing.T) {
 	testing.expect_value(t, export_command(.Print), Command_Id.Export_Print)
 	testing.expect_value(t, export_command(.Print_OBJ), Command_Id.Export_Print)
 	testing.expect_value(t, export_command(.Link), Command_Id.Send_To_Blender)
+	testing.expect_value(t, export_command(.Print_3MF), Command_Id.Export_Print)
+	for f in Export_Format {
+		file, print := export_print_file(f)
+		testing.expectf(t, print == (export_command(f) == .Export_Print), "%v", f)
+		if print do testing.expect_value(t, export_file_name(&App{}, f), strings.concatenate({"Untitled", PRINT_FILE_SUFFIX[file]}, context.temp_allocator))
+	}
 	for f in Export_Format {
 		filter, mesh := export_filter(f)
 		testing.expectf(t, mesh == (export_command(f) == .Export_Mesh), "%v", f)

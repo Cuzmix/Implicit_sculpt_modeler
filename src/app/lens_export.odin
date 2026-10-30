@@ -32,6 +32,7 @@ Export_Format :: enum u8 {
 	// The presets' own, after the others so that a settings file naming those still reads.
 	Print_OBJ,
 	Link,
+	Print_3MF,
 }
 
 @(rodata)
@@ -47,6 +48,7 @@ EXPORT_FORMAT_NAMES := [Export_Format]string {
 	.Print      = "3D print STL",
 	.Print_OBJ  = "3D print OBJ",
 	.Link       = "Blender link",
+	.Print_3MF  = "3D print 3MF",
 }
 
 // What each format makes.
@@ -63,6 +65,7 @@ EXPORT_FORMAT_DETAIL := [Export_Format]string {
 	.Print      = ".stl, sized",
 	.Print_OBJ  = ".obj, sized",
 	.Link       = "the link's folder",
+	.Print_3MF  = ".3mf, sized",
 }
 
 // Each format's name on its preset's format tabs, where the preset says the rest.
@@ -79,6 +82,7 @@ EXPORT_FORMAT_TABS := [Export_Format]string {
 	.Print      = "STL",
 	.Print_OBJ  = "OBJ",
 	.Link       = "Live link",
+	.Print_3MF  = "3MF",
 }
 
 // What a file is for, the sheet's first choice.
@@ -104,7 +108,7 @@ EXPORT_PRESET_NAMES := [Export_Preset]string {
 // What each preset makes, under its name on its card.
 @(rodata)
 EXPORT_PRESET_DETAIL := [Export_Preset]string {
-	.Print     = "STL or OBJ, sized in millimetres",
+	.Print     = "STL, OBJ or 3MF, sized in millimetres",
 	.Game      = "glTF with its maps and shape keys",
 	.Blender   = "The live link, or USD with layers and lights" when LINK_AVAILABLE else "USD with layers and lights",
 	.Turntable = "Once round, as frames and a loop",
@@ -141,7 +145,7 @@ EXPORT_PRESET_ICONS := [Export_Preset]rune {
 // The formats each preset offers, its first the one it starts on. Blender's live link
 // is the desktop's alone, as the link is.
 @(private = "file", rodata)
-EXPORT_PRINT_FORMATS := [?]Export_Format{.Print, .Print_OBJ}
+EXPORT_PRINT_FORMATS := [?]Export_Format{.Print, .Print_OBJ, .Print_3MF}
 @(private = "file", rodata)
 EXPORT_GAME_FORMATS := [?]Export_Format{.GLTF, .OBJ}
 @(private = "file", rodata)
@@ -181,6 +185,7 @@ Export_Sheet :: struct {
 	format:      Export_Format,
 	picks:       [Export_Preset]Export_Format, // a preset's format from before, when it offers it
 	copy:        bool,
+	print_all:   bool, // a print takes every object shown, not only the selected ones
 	ran:         bool, // an export has run, in this run or one before
 	last_preset: Export_Preset,
 	last_format: Export_Format,
@@ -232,10 +237,20 @@ export_command :: proc(f: Export_Format, copy := false) -> Command_Id {
 	case .OBJ, .PLY, .STL, .GLTF, .USD:    return .Export_Mesh
 	case .Screenshot:                      return .Screenshot
 	case .Turntable:                       return .Record_Turntable
-	case .Print, .Print_OBJ:               return .Export_Print
+	case .Print, .Print_OBJ, .Print_3MF:   return .Export_Print
 	case .Link:                            return .Send_To_Blender
 	}
 	return .None
+}
+
+// The print file a format writes, when it is a print's.
+export_print_file :: proc(f: Export_Format) -> (Print_File, bool) {
+	#partial switch f {
+	case .Print:     return .STL, true
+	case .Print_OBJ: return .OBJ, true
+	case .Print_3MF: return .Model_3MF, true
+	}
+	return {}, false
 }
 
 // The mesh filter a format limits the export dialog to, when it is a mesh format.
@@ -256,8 +271,20 @@ export_filter :: proc(f: Export_Format) -> (Export_Filter, bool) {
 // positions, normals and indices), and the link what it sends of the selection; 0 where
 // it cannot say (no object, a scene, a picture).
 export_bytes :: proc(app: ^App, f: Export_Format) -> int {
+	if _, is_print := export_print_file(f); is_print {
+		// A print takes its objects (print_objects), each counted the same way.
+		bytes := 0
+		for obj in print_objects(app) do bytes += export_object_bytes(obj, f)
+		return bytes
+	}
+	if f == .Link do return link_send_bytes(app)
 	obj := selected_object(app)
-	if obj == nil do return 0
+	return 0 if obj == nil else export_object_bytes(obj, f)
+}
+
+// What format `f` writes for `obj` alone.
+@(private = "file")
+export_object_bytes :: proc(obj: ^Object, f: Export_Format) -> int {
 	v, t := object_vertex_count(obj), object_triangle_count(obj)
 	#partial switch f {
 	case .OBJ, .Print_OBJ: return 30 * v + 20 * t
@@ -265,7 +292,7 @@ export_bytes :: proc(app: ^App, f: Export_Format) -> int {
 	case .STL, .Print:     return 84 + 50 * t
 	case .GLTF:            return 1024 + 24 * v + 12 * t
 	case .USD:             return 40 * v + 30 * t
-	case .Link:            return link_send_bytes(app)
+	case .Print_3MF:       return 1024 + 52 * v + 46 * t
 	}
 	return 0
 }
@@ -289,6 +316,7 @@ export_file_name :: proc(app: ^App, f: Export_Format) -> string {
 	switch f {
 	case .Print:      suffix = ".stl"
 	case .Print_OBJ:  suffix = ".obj"
+	case .Print_3MF:  suffix = ".3mf"
 	case .Turntable:  return "a folder of frames"
 	case .Link:       return "Blender link folder"
 	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .Screenshot:
@@ -321,8 +349,8 @@ export_run :: proc(app: ^App) -> bool {
 	if save_next_allowed(app) do where_, _ = filepath.join({filepath.dir(app.scene_path), export_file_name(app, f)}, context.temp_allocator)
 	if filter, ok := export_filter(f); ok {
 		file_dialog_export(app, filter, where_)
-	} else if f == .Print || f == .Print_OBJ {
-		file_dialog_print(app, f == .Print_OBJ, where_)
+	} else if file, is_print := export_print_file(f); is_print {
+		file_dialog_print(app, file, where_)
 	} else do command_run(app, id)
 	s.open = false
 	s.runs += 1
@@ -488,7 +516,7 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	for line in export_preview_lines(app, f) do ui.label(ctx, ui.text_fit(ctx, line, t.small_size, lines_w), t.small_size, t.text_secondary)
 	ui.end(ctx)
 	ui.end(ctx)
-	if (f == .Print || f == .Print_OBJ) && obj != nil do print_checks_rows(app, obj, w)
+	if _, is_print := export_print_file(f); is_print && obj != nil do print_checks_rows(app, obj, w)
 	ui.end(ctx)
 }
 
@@ -516,19 +544,27 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 		}
 		append(&lines, object_label(obj) if n == 1 else fmt.tprintf("%d objects", n))
 		if bytes := export_bytes(app, f); bytes > 0 do append(&lines, fmt.tprintf("About %s", export_size_label(bytes)))
-	case .OBJ, .PLY, .STL, .GLTF, .USD, .Print, .Print_OBJ:
+	case .Print, .Print_OBJ, .Print_3MF:
+		objs := print_objects(app)
+		if len(objs) == 0 {
+			append(&lines, "Nothing selected")
+			break
+		}
+		triangles := 0
+		for o in objs do triangles += object_triangle_count(o)
+		append(&lines, object_label(objs[0]) if len(objs) == 1 else fmt.tprintf("%d objects, each its own part" if f == .Print_3MF else "%d objects as one mesh", len(objs)))
+		append(&lines, fmt.tprintf("%s triangles · about %s", count_label(triangles), export_size_label(export_bytes(app, f))))
+		// The file stands Z up, so the scene's height (Y) is the print's.
+		size := print_size_of(app, objs) / PRINT_UNIT_MM[app.print_unit]
+		unit := PRINT_UNIT_NAMES[app.print_unit]
+		append(&lines, fmt.tprintf("%s wide, %s deep, %s tall (%s)", print_number(size.x), print_number(size.z), print_number(size.y), unit))
+	case .OBJ, .PLY, .STL, .GLTF, .USD:
 		if obj == nil {
 			append(&lines, "Nothing selected")
 			break
 		}
 		append(&lines, object_label(obj))
 		append(&lines, fmt.tprintf("%s triangles · about %s", count_label(object_triangle_count(obj)), export_size_label(export_bytes(app, f))))
-		if f == .Print || f == .Print_OBJ {
-			// The file stands Z up, so the scene's height (Y) is the print's.
-			size := print_size_mm(app, obj) / PRINT_UNIT_MM[app.print_unit]
-			unit := PRINT_UNIT_NAMES[app.print_unit]
-			append(&lines, fmt.tprintf("%s wide, %s deep, %s tall (%s)", print_number(size.x), print_number(size.z), print_number(size.y), unit))
-		}
 	}
 	return lines[:]
 }
@@ -586,7 +622,35 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		on := app.screenshot_transparent
 		if ui.switch_row(ctx, "Without background##turntable", &on, keys = command_hint(app, .Screenshot_Transparent)) do command_run(app, .Screenshot_Transparent)
 		ui.paragraph(ctx, "The camera goes once round the scene, saving every frame into a folder you pick as numbered PNG pictures and one animated PNG that loops.")
-	case .Print, .Print_OBJ:
-		print_controls(app, false)
+	case .Print, .Print_OBJ, .Print_3MF:
+		export_print_options(app)
 	}
+}
+
+// A print's options: which objects it takes, its unit and its height, which sets the
+// scene's one print scale (Scene > 3D print sets any side).
+@(private = "file")
+export_print_options :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.export
+	shown, chosen := len(print_objects_of(app, true)), len(print_objects_of(app, false))
+	only := !s.print_all
+	if ui.switch_row(ctx, fmt.tprintf("Only the selected objects (%d)", chosen), &only, enabled = shown > 1 || !only) do s.print_all = !only
+	objs := print_objects(app)
+	if len(objs) == 0 {
+		ui.paragraph(ctx, "Select an object to print, or turn Only the selected objects off to print every object shown.")
+		return
+	}
+	names: [len(Print_Unit)]string
+	for u in Print_Unit do names[u] = PRINT_UNIT_NAMES[u]
+	if picked := ui.tabs(ctx, "export print unit", names[:], int(app.print_unit)); picked >= 0 do app.print_unit = Print_Unit(picked)
+	unit := PRINT_UNIT_MM[app.print_unit]
+	b := print_bounds_of(objs)
+	height := (b.hi.y - b.lo.y) * print_scale(app) / unit
+	step := max(height / 500, 0.001)
+	if ui.drag_value(ctx, "Height##export print", &height, step, 0, PRINT_MM_MAX * 1000, fmt.tprintf("%s %s", print_number(height), PRINT_UNIT_NAMES[app.print_unit]), enabled = b.hi.y > b.lo.y) {
+		_ = print_set_height(app, b, height * unit)
+	}
+	ui.paragraph(ctx, "Width and depth follow. Every object prints at one scale, so parts printed apart fit together; Scene > 3D print sets any side. A 3MF keeps each object its own part.")
 }

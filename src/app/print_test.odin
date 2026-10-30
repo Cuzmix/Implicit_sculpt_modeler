@@ -6,6 +6,7 @@ import "core:strings"
 import "core:testing"
 
 import "../geom"
+import "../zip"
 
 // The printed positions go through the placement into millimetres, turn Y up into Z up
 // and stand centred on the bed.
@@ -77,5 +78,61 @@ print_export_writes_the_size_set :: proc(t: ^testing.T) {
 	if !testing.expect_value(t, read_err2, geom.Mesh_File_Error.None) do return
 	ob := geom.mesh_check(o).bounds
 	testing.expectf(t, math.abs(ob.hi.z - ob.lo.z - 120) < 0.5 && math.abs(ob.lo.z) < 1e-3, "the OBJ printed %v to %v mm high", ob.lo.z, ob.hi.z)
+	free_all(context.temp_allocator)
+}
+
+// A print takes the selected objects, or every one shown; as STL they go as one mesh of
+// all their triangles, standing on the bed together, and as 3MF each is its own part.
+@(test)
+print_export_takes_the_objects :: proc(t: ^testing.T) {
+	FOLDER :: "build/print_many_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	stl := strings.clone(FOLDER + "two.stl")
+	defer delete(stl)
+	model := strings.clone(FOLDER + "two.3mf")
+	defer delete(model)
+
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	ids := []int{objs[0].id, objs[2].id}
+	selection_set(&app, ids)
+	testing.expect_value(t, len(print_objects(&app)), 2)
+	app.kit.export.print_all = true
+	testing.expect_value(t, len(print_objects(&app)), 3)
+	app.kit.export.print_all = false
+	tris := object_triangle_count(objs[0]) + object_triangle_count(objs[2])
+
+	if !testing.expect(t, print_export(&app, stl)) do return
+	data, err := os.read_entire_file(stl, context.allocator)
+	defer delete(data)
+	if !testing.expect(t, err == nil) do return
+	m, read_err, _ := geom.mesh_read_stl(data, nil)
+	defer geom.mesh_destroy(&m)
+	if !testing.expect_value(t, read_err, geom.Mesh_File_Error.None) do return
+	testing.expect_value(t, len(m.indices) / 3, tris)
+	b := geom.mesh_check(m).bounds
+	// The spheres stand 6 units apart in X, 2 across each: 8 units, 25 mm a unit.
+	testing.expectf(t, math.abs(b.hi.x - b.lo.x - 200) < 0.5 && math.abs(b.lo.z) < 1e-3, "the two printed %v", b)
+
+	if !testing.expect(t, print_export(&app, model)) do return
+	archive, archive_err := os.read_entire_file(model, context.allocator)
+	defer delete(archive)
+	if !testing.expect(t, archive_err == nil) do return
+	list, zerr := zip.entries(archive, {entries = 8, total = 64 << 20})
+	defer delete(list)
+	if !testing.expect_value(t, zerr, zip.Error.None) do return
+	found := false
+	for e in list do if e.name == "3D/3dmodel.model" {
+		xml, rerr := zip.read(archive, e)
+		defer delete(xml)
+		testing.expect_value(t, rerr, zip.Error.None)
+		testing.expect_value(t, strings.count(string(xml), "<object "), 2)
+		found = true
+	}
+	testing.expect(t, found, "the 3MF has no model")
+	testing.expect_value(t, app.print_exports, 2)
 	free_all(context.temp_allocator)
 }

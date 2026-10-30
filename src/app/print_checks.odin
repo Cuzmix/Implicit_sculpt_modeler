@@ -271,7 +271,10 @@ print_fits_bed :: proc(size: Vec3, bed: [3]f32) -> bool {
 print_checks_rows :: proc(app: ^App, obj: ^Object, w: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.caption(ctx, "BEFORE IT PRINTS")
+	// With more than one object going out, the checks are of the selected one, which the
+	// caption names; the bed holds them all.
+	objs := print_objects(app)
+	ui.caption(ctx, "BEFORE IT PRINTS" if len(objs) < 2 else fmt.tprintf("BEFORE IT PRINTS · %s", object_label(obj)))
 	c := print_checks_update(app, obj)
 	if c == nil {
 		_ = print_check_row(ctx, true, "Checking the print...", w, waiting = true)
@@ -312,7 +315,7 @@ print_checks_rows :: proc(app: ^App, obj: ^Object, w: f32) {
 	}
 	bed := print_bed(app)
 	bed_text := fmt.tprintf("%s × %s × %s mm", print_number(bed[0]), print_number(bed[1]), print_number(bed[2]))
-	if print_fits_bed(print_size_mm(app, obj), bed) {
+	if print_fits_bed(print_size_of(app, objs) if len(objs) > 0 else print_size_mm(app, obj), bed) {
 		_ = print_check_row(ctx, true, fmt.tprintf("Fits a %s bed", bed_text), w)
 	} else {
 		_ = print_check_row(ctx, false, fmt.tprintf("Too big for a %s bed", bed_text), w)

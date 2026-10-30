@@ -3,10 +3,15 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:path/filepath"
+import "core:strings"
+import "core:time"
 
 import "../geom"
+import "../sculpt"
 import "../ui"
 import "../voxel"
+import "../zip"
 
 // 3D printing (Scene > 3D print): the selected object's size in millimetres, centimetres
 // or inches, set by dragging any of its three sides, and Export for printing..., an STL
@@ -86,25 +91,201 @@ print_set_side :: proc(app: ^App, obj: ^Object, axis: int, mm: f32) -> bool {
 	return true
 }
 
+// Sets the scene's scale so that box `b` (scene units) prints `mm` tall; false when it has
+// no height or the scale would leave its range.
+print_set_height :: proc(app: ^App, b: geom.Aabb, mm: f32) -> bool {
+	side := b.hi.y - b.lo.y
+	if b.lo.x > b.hi.x || !(side > 1e-12) || !(mm > 0) do return false
+	scale := clamp(mm / side, PRINT_MM_MIN, PRINT_MM_MAX)
+	if scale == print_scale(app) do return false
+	app.scene.print_mm = scale
+	app.scene_edits += 1
+	return true
+}
+
 // The positions as a print file holds them: through the object's placement, in
 // millimetres, Y up turned to Z up (the scene's -Z, toward the viewer at the front, becomes
 // the printer's +Y, away from it, as Blender's STL exporter turns them), then moved to
 // stand on Z 0 and to centre over the origin. Temp memory.
 print_positions :: proc(positions: []Vec3, t: Transform, mm: f32) -> []Vec3 {
+	out := print_world(positions, t, mm)
+	parts := [1][]Vec3{out}
+	print_stand(parts[:])
+	return out
+}
+
+// The positions through the object's placement in millimetres and turned Z up, where
+// they stand in the scene. Temp memory.
+print_world :: proc(positions: []Vec3, t: Transform, mm: f32) -> []Vec3 {
 	out := make([]Vec3, len(positions), context.temp_allocator)
-	lo, hi := Vec3{max(f32), max(f32), max(f32)}, Vec3{min(f32), min(f32), min(f32)}
 	// The scale in millimetres goes into the placement's matrix, made once.
 	m := transform_matrix({position = t.position * mm, scale = t.scale * mm, rotation = t.rotation})
 	for p, i in positions {
 		w := (m * [4]f32{p.x, p.y, p.z, 1}).xyz
-		q := Vec3{w.x, -w.z, w.y}
-		out[i] = q
-		lo, hi = linalg.min(lo, q), linalg.max(hi, q)
+		out[i] = {w.x, -w.z, w.y}
 	}
-	if len(out) == 0 do return out
-	shift := Vec3{-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z}
-	for &q in out do q += shift
 	return out
+}
+
+// Moves the parts of a print together to stand on Z 0 and centre over the origin, as
+// they stand to each other in the scene.
+print_stand :: proc(parts: [][]Vec3) {
+	lo, hi := Vec3{max(f32), max(f32), max(f32)}, Vec3{min(f32), min(f32), min(f32)}
+	for part in parts do for q in part do lo, hi = linalg.min(lo, q), linalg.max(hi, q)
+	if lo.x > hi.x do return
+	shift := Vec3{-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z}
+	for part in parts do for &q in part do q += shift
+}
+
+// The print file formats the Export sheet offers, and their suffixes.
+Print_File :: enum u8 {
+	STL,
+	OBJ,
+	Model_3MF,
+}
+PRINT_FILE_SUFFIX := [Print_File]string {
+	.STL       = ".stl",
+	.OBJ       = ".obj",
+	.Model_3MF = ".3mf",
+}
+
+// The objects a print takes: the selected ones, or with the Export sheet's Only the
+// selected objects off every one shown, in the scene's order. Temp memory.
+print_objects :: proc(app: ^App) -> []^Object {
+	return print_objects_of(app, app.kit.export.print_all)
+}
+
+// The objects shown and selected, or with `all` every one shown. Temp memory.
+print_objects_of :: proc(app: ^App, all: bool) -> []^Object {
+	out := make([dynamic]^Object, 0, 4, context.temp_allocator)
+	if all {
+		for obj in app.scene.objects do if object_shown(app, obj) do append(&out, obj)
+		return out[:]
+	}
+	for obj in app.scene.objects {
+		if !object_shown(app, obj) do continue
+		for id in selection_ids(app) do if id == obj.id {
+			append(&out, obj)
+			break
+		}
+	}
+	return out[:]
+}
+
+// The box round the objects of a print in the scene, in scene units.
+print_bounds_of :: proc(objs: []^Object) -> geom.Aabb {
+	b := geom.AABB_EMPTY
+	for obj in objs do b = geom.aabb_union(b, print_bounds(obj))
+	return b
+}
+
+// The print of `objs` along X, Y and Z, in millimetres.
+print_size_of :: proc(app: ^App, objs: []^Object) -> Vec3 {
+	b := print_bounds_of(objs)
+	if b.lo.x > b.hi.x do return {}
+	return (b.hi - b.lo) * print_scale(app)
+}
+
+// Writes the objects a print takes (print_objects) to `path`: one object STL or OBJ as
+// object_export writes it, else print_export_many.
+print_export :: proc(app: ^App, path: string) -> bool {
+	objs := print_objects(app)
+	if len(objs) == 0 {
+		file_note(app, true, "Select an object to export first")
+		return false
+	}
+	if len(objs) == 1 && !strings.equal_fold(filepath.ext(path), ".3mf") do return object_export(app, objs[0], path, print = true)
+	return print_export_many(app, objs, path)
+}
+
+// Writes `objs` as one print: an STL or OBJ of all their triangles together, or a 3MF
+// with each object its own part, which a slicer keeps apart; every one at the scene's
+// one scale, Z up, and the whole standing on the bed as the objects stand together.
+print_export_many :: proc(app: ^App, objs: []^Object, path: string) -> bool {
+	start := time.tick_now()
+	name := filepath.base(path)
+	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
+	if ext != ".stl" && ext != ".obj" && ext != ".3mf" {
+		file_note(app, true, "Cannot export %s for printing: the name needs to end in .stl, .obj or .3mf", name)
+		return false
+	}
+	stroke_finish(app)
+	inspector_drags_end(app)
+	mm := print_scale(app)
+	parts := make([]geom.Model_Part, len(objs), context.temp_allocator)
+	positions := make([][]Vec3, len(objs), context.temp_allocator)
+	colors := make([][][3]u8, len(objs), context.temp_allocator)
+	packed := make([]geom.Mesh, len(objs), context.temp_allocator)
+	defer for &m in packed do geom.mesh_destroy(&m)
+	painted := false
+	for obj, i in objs {
+		lv := sculpt.levels_current(&obj.levels)
+		at, indices := lv.mesh.positions[:], lv.mesh.indices[:]
+		if vp := obj.voxel; vp != nil {
+			packed[i] = voxel.clay_to_mesh(&vp.clay)
+			at, indices = packed[i].positions[:], packed[i].indices[:]
+		} else if object_dynamic(obj) {
+			mask: []u8
+			packed[i], mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
+			delete(mask)
+			at, indices = packed[i].positions[:], packed[i].indices[:]
+		} else if c := lv.sculptor.color; c != nil {
+			colors[i] = make([][3]u8, len(c), context.temp_allocator)
+			for x, v in c do colors[i][v] = paint_over(x, {255, 255, 255})
+			painted = true
+		}
+		positions[i] = print_world(at, obj.transform, mm)
+		parts[i] = {object_label(obj), positions[i], indices}
+	}
+	print_stand(positions)
+	out := make([dynamic]u8)
+	defer delete(out)
+	triangles := 0
+	for p in parts do triangles += len(p.indices) / 3
+	if ext == ".3mf" {
+		model := make([dynamic]u8)
+		defer delete(model)
+		geom.mesh_write_3mf_model(&model, parts, &app.pool)
+		files := [3]zip.File{{"[Content_Types].xml", transmute([]u8)string(geom.MODEL_3MF_CONTENT_TYPES)}, {"_rels/.rels", transmute([]u8)string(geom.MODEL_3MF_RELS)}, {"3D/3dmodel.model", model[:]}}
+		archive, ok := zip.write(files[:])
+		if !ok {
+			free_all(context.temp_allocator)
+			file_note(app, true, "Cannot export %s: a 3MF file holds at most 4 GB", name)
+			return false
+		}
+		append(&out, ..archive)
+		delete(archive)
+	} else {
+		// One mesh of every part, its indices moved past the parts before it.
+		joined := make([dynamic]Vec3, 0, 0, context.temp_allocator)
+		indices := make([dynamic]u32, 0, 3 * triangles, context.temp_allocator)
+		paint := make([dynamic][3]u8, 0, 0, context.temp_allocator)
+		for p, i in parts {
+			base := u32(len(joined))
+			append(&joined, ..p.positions)
+			for k in p.indices do append(&indices, base + k)
+			if !painted do continue
+			if colors[i] != nil {
+				append(&paint, ..colors[i])
+			} else {
+				for _ in p.positions do append(&paint, [3]u8{255, 255, 255})
+			}
+		}
+		all := joined[:]
+		if ext == ".obj" {
+			geom.mesh_write_obj(&out, all, indices[:], 1, {}, &app.pool, paint[:] if painted else nil)
+		} else {
+			geom.mesh_write_stl(&out, all, indices[:], pool = &app.pool)
+		}
+	}
+	size := print_size_of(app, objs)
+	free_all(context.temp_allocator)
+	if !write_file_safely(app, path, out[:], "export") do return false
+	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
+	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
+	app.print_exports += 1
+	file_note(app, false, "Exported %s for printing: %d object%s, %.1f x %.1f x %.1f mm; %d triangles in %.0f ms", name, len(objs), "" if len(objs) == 1 else "s", size.x, size.z, size.y, triangles, app.stats.file_write_ms)
+	return true
 }
 
 // What the printed file holds, for the note after it is written: its size, and whether
