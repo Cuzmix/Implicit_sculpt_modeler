@@ -562,7 +562,10 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 	ARC :: 12 // segments along each edge of a slice
 	// The pie is sized in points (pie.odin); the overlay takes window coordinates.
 	pt := o.scale
+	middle := at(o, p.center)
 	for i in 0 ..< n {
+		mark := ui.vertex_mark(ctx)
+		defer pie_unfold(app, mark, middle, i)
 		mid := -math.PI / 2 + f32(i) * step
 		a0, a1 := mid - step / 2 + GAP, mid + step / 2 - GAP
 		usable := pie_pickable(app, p.which, i)
@@ -615,6 +618,8 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		ui.text(ctx, ui.text_fit(ctx, name, t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
 	}
 	// The middle, and which way the pointer points from it. A user pie's middle names it.
+	mark := ui.vertex_mark(ctx)
+	defer pie_unfold(app, mark, middle, -1)
 	overlay_disc(o, p.center, PIE_INNER * pt, t.surface)
 	overlay_circle(o, p.center, PIE_INNER * pt, t.border_strong, 1.5 * pt)
 	if p.which > 0 {
@@ -644,6 +649,38 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 			}
 		}
 	}
+}
+
+// How long one slice takes to unfold, and how long after the one before it each begins,
+// clockwise from the top, so the ring opens round the way the eye reads it.
+PIE_UNFOLD_TIME :: 0.16
+PIE_UNFOLD_STAGGER :: 0.012
+
+// How far the open pie has unfolded, 0 to 1: its last slice's share, 1 when motion does
+// not unfold it; 0 while it is closed. For the exit stats.
+pie_unfolded :: proc(app: ^App) -> f32 {
+	p := app.ui.pie
+	if !p.open do return 0
+	ctx := &app.kit.ctx
+	run := ui.motion_duration(ctx, motion_class(.Pie), PIE_UNFOLD_TIME)
+	if run <= 0 do return 1
+	last := f64(pie_slot_count(app, p.which) - 1) * PIE_UNFOLD_STAGGER
+	return clamp(f32(ctx.time - p.shown_at - last) / run, 0, 1)
+}
+
+// Unfolds what was drawn since `mark` for slice `i` (-1 for the middle, which comes first)
+// as the pie opens: it grows from 60% about the middle with a slight overshoot and fades
+// in, its slice a moment after the one before. Reduced fades it in place; Off or Pies and
+// the dial off show it whole at once.
+@(private = "file")
+pie_unfold :: proc(app: ^App, mark: int, middle: [2]f32, i: int) {
+	ctx := &app.kit.ctx
+	run := ui.motion_duration(ctx, motion_class(.Pie), PIE_UNFOLD_TIME)
+	if run <= 0 do return
+	t := f32(ctx.time - app.ui.pie.shown_at - f64(max(i, 0)) * PIE_UNFOLD_STAGGER) / run
+	if t >= 1 do return
+	grow := ui.ease(.Out_Back, t)
+	ui.transform_since(ctx, mark, ui.ease(.Out_Cubic, t), 0.6 + 0.4 * grow, middle)
 }
 
 // The unit vector `a` radians clockwise (y down) from the right.

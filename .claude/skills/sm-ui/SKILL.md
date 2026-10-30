@@ -413,7 +413,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `ctx.motion_off` (classes: the kit's MOTION_PRESS..TOOLTIPS, then the app's `Motion_Kind`, motion_prefs.odin) gate
   durations; Reduced drops transform_since's scale and offset unless `follows = true` (a page under the finger). Give a
   new animation a class (a new `Motion_Kind` when no kit class fits). Nothing a stroke, the camera under a hand or a drag reads
-  animates; a command that jumps the camera glides instead: `before := camera_ease_begin(app)`, jump, `camera_ease_from(app, before)` (camera_ease.odin).
+  animates; a command that jumps the camera glides instead: `before := camera_ease_begin(app)`, jump, `camera_ease_from(app, before)` (camera_ease.odin). `ctx.mirror_slide` (set from a tween on the hand in `kit_begin`) draws each outermost root
+  part of the way back to its mirror image in `ui.end`, clips included: no app code for the hand switch's slide.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and

@@ -60,6 +60,10 @@ Arrange_State :: struct {
 	carry_press: [2]f32,
 	carrying:    bool,
 	carries:     int, // bars let go (for the exit stats)
+	// Whether Arrange was on last frame, and how many times it has opened, so its outlines
+	// draw in afresh each time (Arrange outlines motion).
+	was_on:      bool,
+	openings:    int,
 	// The person's docks made and deleted (for the exit stats).
 	docks_made:    int,
 	docks_deleted: int,
@@ -211,6 +215,11 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 	return w
 }
 
+// How long an outline takes to draw in as Arrange opens, and how long after the zone before
+// it each one starts.
+ARRANGE_DRAW_TIME :: 0.22
+ARRANGE_DRAW_STAGGER :: 0.025
+
 // While arranging: each zone's outline and name tag, then the Library. Leaving
 // Arrange forgets the zone picked and brings the Library back for the next time.
 kit_arrange_lens :: proc(app: ^App) {
@@ -218,8 +227,11 @@ kit_arrange_lens :: proc(app: ^App) {
 	if !k.bars_edit {
 		k.arrange.picked, k.arrange.library_off = nil, false
 		k.arrange.carry, k.arrange.carrying = nil, false
+		k.arrange.was_on = false
 		return
 	}
+	if !k.arrange.was_on do k.arrange.openings += 1
+	k.arrange.was_on = true
 	ctx := &k.ctx
 	t := ctx.theme
 	top := kit_top() - 12
@@ -238,6 +250,10 @@ kit_arrange_lens :: proc(app: ^App) {
 			m := ctx.input.mouse
 			box = {from.x - 4 + m.x - k.arrange.carry_press.x, from.y - 4 + m.y - k.arrange.carry_press.y, from.w + 8, from.h + 8}
 		}
+		// Each outline draws in as Arrange opens, one zone a moment after another: it fades
+		// in and settles from a touch larger onto its bar.
+		mark := ui.vertex_mark(ctx)
+		draw := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "arrange outline"), u64(z) + 64 * u64(k.arrange.openings)), 0, 1, ARRANGE_DRAW_TIME, .Linear, ARRANGE_DRAW_STAGGER * f32(z), motion_class(.Arrange))
 		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if picked else ui.color_fade(t.accent, 0.5), 2 if picked else 1)
 		// The tag at the outline's top left, kept under the top bar. On a bar that has a
 		// place it is the bar's grip too: a drag past the slop carries the bar.
@@ -255,6 +271,10 @@ kit_arrange_lens :: proc(app: ^App) {
 		if carries do arrange_carry_follow(app, bar, r, a)
 		if a.clicked && !was_carrying do k.arrange.picked = nil if picked else z
 		ui.end(ctx)
+		if draw < 1 {
+			e := ui.ease(.Out_Cubic, draw)
+			ui.transform_since(ctx, mark, e, 1.03 - 0.03 * e, {box.x + box.w * 0.5, box.y + box.h * 0.5})
+		}
 	}
 	if carrying do arrange_drop_edges(app, carried)
 	// The Library steps aside while a bar is carried, so the view under it takes the drop.

@@ -1817,3 +1817,37 @@ motion_classes_and_reduced_motion :: proc(t: ^testing.T) {
 	testing.expect(t, ctx.draw.vertices[mark].pos.x > before.x)
 	frame_end(&ctx)
 }
+
+// While the hand changes, an outermost container is drawn part of the way back to its
+// mirror image (mirror_slide), and where it takes presses stays where the layout put it;
+// one centred across the window does not move, and Reduced fades rather than moves.
+@(test)
+mirror_slide_draws_from_the_mirror_image :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame :: proc(ctx: ^Context, slide: f32) -> (left: f32, alpha: u8, column: Rect) {
+		frame_begin(ctx, input_at({-1, -1}))
+		ctx.mirror_slide = slide
+		mark := vertex_mark(ctx)
+		begin_anchored(ctx, "column", .Start, .Start, {16, 16}, {width = 100, height = 50, background = .Track})
+		end(ctx)
+		left = max(f32)
+		for v in ctx.draw.vertices[mark:] {
+			left = min(left, v.pos.x)
+			alpha = max(alpha, v.color.a)
+		}
+		column = ctx.placed[len(ctx.placed) - 1].rect
+		frame_end(ctx)
+		return
+	}
+	still, full, _ := frame(&ctx, 0)
+	halfway, _, column := frame(&ctx, 0.5)
+	// The mirror image's left edge is 800 - 16 - 100 = 684; halfway is half of the way.
+	testing.expectf(t, abs(still - 16) < 1.5, "the column is drawn at %v, not 16", still)
+	testing.expectf(t, abs(halfway - (16 + 0.5 * (684 - 16))) < 1.5, "halfway it is drawn at %v", halfway)
+	testing.expect_value(t, column, Rect{16, 16, 100, 50})
+	ctx.motion = .Reduced
+	reduced, faded, _ := frame(&ctx, 0.5)
+	testing.expectf(t, abs(reduced - 16) < 1.5 && faded < full, "Reduced moved it to %v or did not fade it (%v of %v)", reduced, faded, full)
+}

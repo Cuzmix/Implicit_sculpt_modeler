@@ -247,6 +247,7 @@ Command_Id :: enum u8 {
 	Brush_Picker, // lens_shelf.odin
 	Settings,
 	Reduce_Motion,
+	Left_Handed,
 	Command_Palette,
 	Customise_Bars,
 	New_Dock,
@@ -2182,6 +2183,12 @@ COMMANDS := [Command_Id]Command {
 			ctx.motion = .Full if ctx.motion != .Full else .Off
 		},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.motion != .Full},
+	},
+	.Left_Handed = {
+		label = "Left-handed",
+		help = "Swaps the layout's sides for a pen in the left hand: the panels, the view rail and the shelf's tools go left, the off-hand island and the dial right (Settings > Interface has it too); again, back. They slide across as they go.",
+		run = proc(app: ^App, _: int) {app.kit.ctx.mirror = !app.kit.ctx.mirror},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.mirror},
 	},
 	.Command_Palette = {
 		label = "Search commands",

@@ -24,6 +24,7 @@ Pie :: struct {
 	which:    int, // 0 for the brushes, 1 to USER_PIES for a user pie
 	center:   [2]f32, // where it opened, in viewport coordinates
 	opened:   f64, // input_clock when it opened
+	shown_at: f64, // the interface's clock when it opened, for its slices unfolding (draw_pie)
 	// The kit frame a user pie opened in: a command run by a click during that frame's
 	// layout (the palette, a menu) must not see the same click pick from the pie.
 	opened_frame: int,
@@ -92,7 +93,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		// Never over a stroke or a drag in progress.
 		busy := app.stroke.active || (input.dragging && .Left in d.down)
 		if !busy && input.hovered && p.space_pressed {
-			p^ = {open = true, hold = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
+			p^ = {open = true, hold = true, center = input.mouse_pos, opened = input_clock(app), shown_at = app.kit.ctx.time, space_down = p.space_down}
 		} else if !busy && right_tap && d.pointer == .Pen && !d.shift && app.nav.gestures[pencil_slot_here(app, .Pen_Button)] != {.Brush_Pie, 0} {
 			// The pen's side button runs what the gesture map gives it where it points instead.
 			_ = gesture_run(app, pencil_slot_here(app, .Pen_Button))
@@ -101,7 +102,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 			// opens); with Shift, whichever of the menu and the pie it does not.
 			view_menu_open(app, input.mouse_pos, input.size, .Right)
 		} else if !busy && right_tap && !(d.pointer == .Pen && d.shift) {
-			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
+			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), shown_at = app.kit.ctx.time, space_down = p.space_down}
 		}
 		p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(app, p.which))
 		if p.open do viewport_mute(input)

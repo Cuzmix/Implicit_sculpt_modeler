@@ -1528,6 +1528,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Whether the camera is gliding to a view (camera_ease.odin), and how many glides
 		// began and were cut short by the hand.
 		fmt.printfln("camera_easing=%d camera_eases=%d camera_ease_cuts=%d", int(app.camera_ease.on), app.camera_ease.eases, app.camera_ease.cuts)
+		// Motion II's moves as the run ends: how far the pie has unfolded, how far from its
+		// place the hand switch still draws the bars, how many times view panes faded in, and
+		// how many times Arrange opened (its outlines drawing in each time).
+		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(&app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
 		hint, _ := strings.replace_all(string(app.kit.ctx.roll_hint[:app.kit.ctx.roll_hint_len]), " ", "_", context.temp_allocator)
