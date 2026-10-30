@@ -78,7 +78,7 @@ Options :: struct {
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
-	gpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
+	cpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -759,7 +759,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	if opts.no_vsync do app.frame_rate = .Unlimited
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
-	app.ui.smooth_on_gpu = opts.gpu_smooth
+	app.ui.smooth_on_gpu = !opts.cpu_smooth
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	// Freed after the settings are saved at exit, which write them.
 	defer {
