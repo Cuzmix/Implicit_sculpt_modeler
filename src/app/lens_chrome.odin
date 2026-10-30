@@ -312,7 +312,6 @@ lens_palm :: proc(app: ^App) -> f32 {
 lens_mini_reach :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	if !k.thumbnail || k.windows[.Thumbnail].moved do return 0
-	if _, _, docked := panel_docked(k, Kit_Window.Thumbnail); docked do return 0
 	r := panel_rect(app, Kit_Window.Thumbnail)
 	if r.h <= 0 do return 0
 	area := ui.safe_area(&k.ctx)

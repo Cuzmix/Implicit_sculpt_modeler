@@ -801,7 +801,7 @@ view_grid_room :: proc(app: ^App) -> ui.Rect {
 	return {0, 0, win.x, win.y}
 }
 
-// Where a docked left column ends, so a pane's head that would lie under it starts right of
+// Where the stack docked on the left ends, so a pane's head that would lie under it starts right of
 // it instead while the panes run under the panels; 0 with none.
 grid_left_column_edge :: proc(app: ^App) -> f32 {
 	k := &app.kit

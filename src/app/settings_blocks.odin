@@ -147,7 +147,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
-	.Column_Popovers  = "columns pop over narrow window panels",
+	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock",
 	.Action_Bar       = "action bar next steps",
@@ -250,8 +250,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
 		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
 	case .Column_Popovers:
-		_ = ui.switch_row(ctx, "Columns pop over a narrow window", &k.column_popovers)
-		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
+		_ = ui.switch_row(ctx, "The stack pops over a narrow window", &k.column_popovers)
+		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panel stack shows only while you ask for it: from the tab at its top, by opening a card or a section, or with Palettes; a press on the view, or Escape, puts it away. Off, it stays beside the view as on a wide window.")
 	case .View_Grid:
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")

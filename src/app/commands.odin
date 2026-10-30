@@ -1886,13 +1886,13 @@ COMMANDS := [Command_Id]Command {
 			if side_panel_open(k) {
 				side_panel_close(app)
 				k.inspector = true
-			} else if side, _, docked := panel_docked(k, Kit_Window.Inspector); docked && columns_narrow(app) && k.inspector {
-				column_pop(app, side, !k.panels.popped[side])
+			} else if _, docked := stack_docked(k); docked && stack_narrow(app) && k.inspector {
+				stack_pop(app, !k.panels.popped)
 			} else do k.inspector = !k.inspector
 		},
 		checked = proc(app: ^App, _: int) -> bool {
 			k := &app.kit
-			if side, _, docked := panel_docked(k, Kit_Window.Inspector); docked && columns_narrow(app) do return k.inspector && k.panels.popped[side]
+			if _, docked := stack_docked(k); docked && stack_narrow(app) do return k.inspector && k.panels.popped
 			return k.inspector
 		},
 	},
@@ -1919,7 +1919,7 @@ COMMANDS := [Command_Id]Command {
 			on := !(app.kit.stack.set && stack_kept(&app.kit.stack, p))
 			stack_keep(&app.kit, p, on)
 			app.kit.inspector = true
-			if on do stack_column_pop(app)
+			if on do stack_pop_open(app)
 		},
 		checked = proc(app: ^App, arg: int) -> bool {
 			p, _ := panel_of_section(Kit_Section(arg))
@@ -1928,7 +1928,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Panels_Reset = {
 		label = "Reset panels",
-		help = "Puts every panel back where it starts (the panel stack in the right column, the others floating) and shows every bar.",
+		help = "Puts every panel back where it starts (the panel stack docked on the right, the others floating) and shows every bar.",
 		icon = ui.ICON_PANEL,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
 	},

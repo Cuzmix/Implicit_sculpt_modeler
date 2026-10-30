@@ -1,91 +1,62 @@
 package main
 
-import "core:os"
+import "core:strings"
 import "core:testing"
 
+// Where the stack goes is the layout's: a fresh layout writes no line for it, Left and
+// Float read back as written, and Reset panels docks it on the right again.
 @(test)
-a_column_shares_its_height_by_what_each_panel_wants :: proc(t: ^testing.T) {
-	out: [4]f32
-	// Room for all: each gets what it wants.
-	panel_water_fill({100, 200, 50}, 1000, out[:3])
-	testing.expect_value(t, out[0], 100)
-	testing.expect_value(t, out[1], 200)
-	testing.expect_value(t, out[2], 50)
-	// Short of room: the small want is met, the two large split what is left evenly.
-	panel_water_fill({600, 100, 900}, 700, out[:3])
-	testing.expect_value(t, out[1], 100)
-	testing.expect_value(t, out[0], 300)
-	testing.expect_value(t, out[2], 300)
-	// One that wants less than an even share gives the rest to the others.
-	panel_water_fill({1000, 1000, 1000, 40}, 640, out[:4])
-	testing.expect_value(t, out[3], 40)
-	testing.expect_value(t, out[0], 200)
-	testing.expect_value(t, out[0] + out[1] + out[2] + out[3], 640)
-}
-
-@(test)
-panels_dock_float_and_move_within_their_columns :: proc(t: ^testing.T) {
+stack_place_reads_back :: proc(t: ^testing.T) {
 	a: App
 	defer free_all(context.temp_allocator)
 	k := &a.kit
 	panels_default(k)
-	testing.expect_value(t, len(k.panels.columns[.Right]), 1)
-
-	// Docked at the right column's foot in the order docked; up; then to the left column,
-	// ahead of what is there.
-	panel_dock(&a, Kit_Window.History, .Right, 1)
-	panel_dock(&a, Kit_Window.Stats, .Right, 2)
-	right := k.panels.columns[.Right]
-	testing.expect(t, len(right) == 3 && right[1] == Panel_Ref(Kit_Window.History) && right[2] == Panel_Ref(Kit_Window.Stats), "docked in the wrong order")
-	panel_shift(&a, Kit_Window.Stats, -1)
-	testing.expect(t, k.panels.columns[.Right][1] == Panel_Ref(Kit_Window.Stats), "Move up did not move it")
-	panel_dock(&a, Kit_Window.Thumbnail, .Left, 0)
-	panel_dock(&a, Kit_Window.Stats, .Left, 0)
-	side, index, docked := panel_docked(k, Kit_Window.Stats)
-	testing.expect(t, docked && side == .Left && index == 0, "not docked first on the left")
-	testing.expect_value(t, len(k.panels.columns[.Right]), 2)
-	// Within its own column, after the one below it.
-	panel_dock(&a, Kit_Window.Stats, .Left, 2)
-	_, index, _ = panel_docked(k, Kit_Window.Stats)
-	testing.expect_value(t, index, 1)
-
-	// Floating takes it out of every column.
-	panel_float(&a, Kit_Window.Thumbnail)
-	_, _, docked = panel_docked(k, Kit_Window.Thumbnail)
-	testing.expect(t, !docked, "Float left it docked")
-
-	// Reset panels puts everything back.
+	stack_default(k)
+	testing.expect(t, !strings.contains(kit_layout_text(k), "stack_place"), "a fresh layout names where the stack goes")
+	for place in ([?]Stack_Place{.Left, .Float}) {
+		stack_place_set(&a, place)
+		text := kit_layout_text(k)
+		b: App
+		kit_layout_put(&b.kit, text)
+		testing.expect_value(t, b.kit.stack.place, place)
+		testing.expect_value(t, kit_layout_text(&b.kit), text)
+	}
+	testing.expect_value(t, k.panels.moves, 2)
 	windows_reset(k)
-	testing.expect_value(t, len(k.panels.columns[.Left]), 0)
-	testing.expect_value(t, len(k.panels.columns[.Right]), 1)
+	_, docked := stack_docked(k)
+	testing.expect(t, docked && k.stack.place == .Right, "Reset panels left the stack where it was")
+	// Words that name no place leave it on the right.
+	stack_place_read(k, {"stack_place", "upside_down"})
+	testing.expect_value(t, k.stack.place, Stack_Place.Right)
 }
 
+// An older file's columns say where the stack goes: the column that names Inspector, or
+// floating when a right column line leaves it out; a left column alone leaves it on the
+// right, as such a file had it. The windows a column held float.
 @(test)
-panels_read_back_what_they_wrote :: proc(t: ^testing.T) {
-	path := "build/panels_test.txt"
-	defer os.remove(path)
-	defer free_all(context.temp_allocator)
-	a: App
-	panels_default(&a.kit)
-	panel_dock(&a, Kit_Window.History, .Left, 0)
-	panel_dock(&a, Kit_Window.Stats, .Left, 0)
-	testing.expect(t, settings_save(&a, path))
-
-	b: App
-	panels_default(&b.kit)
-	settings_load(&b, path)
-	testing.expect_value(t, len(b.kit.panels.columns[.Left]), 2)
-	testing.expect(t, b.kit.panels.columns[.Left][0] == Panel_Ref(Kit_Window.Stats) && b.kit.panels.columns[.Left][1] == Panel_Ref(Kit_Window.History), "the left column came back wrong")
-	testing.expect_value(t, len(b.kit.panels.columns[.Right]), 1)
-
-	// Words that name nothing, and a panel named twice, are passed over.
-	c: App
-	panels_default(&c.kit)
-	old: Panels_Old
-	panels_load_line(&c.kit, {"column", "right", "Inspector", "section:Nothing", "Settings", "inspector", "Stats"}, &old)
-	testing.expect_value(t, len(c.kit.panels.columns[.Right]), 2)
-	testing.expect(t, c.kit.panels.columns[.Right][1] == Panel_Ref(Kit_Window.Stats), "a word that names no panel was read")
-	testing.expect_value(t, len(old.kept), 0)
+old_column_lines_settle_the_stack_place :: proc(t: ^testing.T) {
+	Case :: struct {
+		lines: [2][]string,
+		place: Stack_Place,
+	}
+	cases := [?]Case{
+		{{{"column", "left", "Inspector", "Stats"}, {"column", "right"}}, .Left},
+		{{{"column", "right", "Stats", "History"}, nil}, .Float},
+		{{{"column", "left", "Colors"}, nil}, .Right},
+		{{{"column", "right", "Inspector", "Stats"}, {"column", "middle", "Inspector"}}, .Right},
+	}
+	for c, i in cases {
+		a: App
+		k := &a.kit
+		panels_default(k)
+		stack_default(k)
+		old: Panels_Old
+		for line in c.lines do if line != nil do panels_load_line(k, line, &old)
+		panels_old_settle(k, &old)
+		testing.expectf(t, k.stack.place == c.place, "case %d: the stack went %v", i, k.stack.place)
+		testing.expectf(t, len(old.kept) == 0, "case %d: a window became a card", i)
+	}
+	free_all(context.temp_allocator)
 }
 
 // An older file's pinned sections, as a line of their own or a column's word, come back
@@ -133,14 +104,4 @@ pin_section_keeps_and_unpins :: proc(t: ^testing.T) {
 	testing.expect(t, command_checked(&a, .Pin_Section, int(Kit_Section.Camera)), "Pin is not ticked")
 	command_run(&a, .Pin_Section, int(Kit_Section.Camera))
 	testing.expect(t, !stack_kept(&a.kit.stack, p), "a second Pin left it in")
-}
-
-@(test)
-every_panel_has_its_own_bit :: proc(t: ^testing.T) {
-	seen: u64
-	for w in Kit_Window {
-		b := panel_bit(w)
-		testing.expectf(t, b != 0 && seen & b == 0, "%v shares a bit", w)
-		seen |= b
-	}
 }

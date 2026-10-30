@@ -107,7 +107,7 @@ stack_beside_left :: proc(k: ^Kit_State, host: Panel_Kind) -> bool {
 // Whether the docked stack stands against the window's right edge as drawn: columns are
 // kept in layout terms, which the left hand's layout mirrors.
 stack_docked_right :: proc(k: ^Kit_State) -> bool {
-	side, _, docked := panel_docked(k, Kit_Window.Inspector)
+	side, docked := stack_docked(k)
 	return (!docked || side == .Right) != k.ctx.mirror
 }
 

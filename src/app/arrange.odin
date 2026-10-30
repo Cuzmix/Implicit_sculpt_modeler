@@ -31,31 +31,39 @@ arrange_panels :: proc(app: ^App) -> []Panel_Ref {
 	return out[:]
 }
 
-// Where a panel is, as the drawer's choice shows it: 0 hidden, 1 the left column, 2 the
-// right column, 3 floating.
+// Where a panel is, as the drawer's choice shows it: 0 hidden, then for the stack 1 docked
+// on the left, 2 docked on the right, 3 floating, and for the other windows 1 shown.
 @(private = "file")
 ARRANGE_PLACES := [?]string{"Hidden", "Left", "Right", "Float"}
+@(private = "file")
+ARRANGE_SHOWN := [?]string{"Hidden", "Shown"}
 
 @(private = "file")
 arrange_place :: proc(app: ^App, ref: Panel_Ref) -> int {
 	if !panel_open(app, ref) do return 0
-	side, _, docked := panel_docked(&app.kit, ref)
-	if !docked do return 3
-	return 1 if side == .Left else 2
+	if ref != Panel_Ref(Kit_Window.Inspector) do return 1
+	switch app.kit.stack.place {
+	case .Left:  return 1
+	case .Right: return 2
+	case .Float:
+	}
+	return 3
 }
 
-// Puts panel `ref` where the drawer's choice says: hidden, at the end of a column, or
-// floating where it last floated.
+// Puts panel `ref` where the drawer's choice says: hidden, or shown (the stack docked on a
+// side or floating where it last floated).
 @(private = "file")
 arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
-	switch place {
-	case 0:
+	if place == 0 {
 		panel_set_open(app, ref, false)
 		return
-	case 1: panel_dock(app, ref, .Left, COLUMN_MAX)
-	case 2: panel_dock(app, ref, .Right, COLUMN_MAX)
-	case 3:
-		if _, _, docked := panel_docked(&app.kit, ref); docked do panel_float(app, ref)
+	}
+	if ref == Panel_Ref(Kit_Window.Inspector) {
+		switch place {
+		case 1: stack_place_set(app, .Left)
+		case 2: stack_place_set(app, .Right)
+		case 3: stack_place_set(app, .Float)
+		}
 	}
 	panel_set_open(app, ref, true)
 	// The tray and the Objects card share a place, as opening either does.
@@ -96,10 +104,12 @@ arrange_panel_rows :: proc(app: ^App) {
 		r := ui.place(ctx, {120, t.target})
 		// The tray by what it is, not by the palette it shows now.
 		title := panel_title(app, ref)
-		if w, ok := ref.(Kit_Window); ok && w == .Inspector do title = "Palette tray"
+		is_stack := ref == Panel_Ref(Kit_Window.Inspector)
+		if is_stack do title = "Panel stack"
 		ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.text)
 		now := arrange_place(app, ref)
-		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), ARRANGE_PLACES[:], now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
+		places := ARRANGE_PLACES[:] if is_stack else ARRANGE_SHOWN[:]
+		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), places, now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
 		ui.end(ctx)
 	}
 	ui.paragraph(ctx, "A section becomes a card kept in the stack with Pin to the stack, on its card's More, its bar button's popover or in Search.")

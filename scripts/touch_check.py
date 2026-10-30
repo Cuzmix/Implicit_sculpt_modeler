@@ -724,11 +724,6 @@ def colors_value_hex_sets_the_colour():
     return s, [COLORS], {"paint_color": is_text("33AA77"), "color_history": near(1), "dabs": near(0)}
 
 
-# The floating Colors card's Panel options (the dots right of its title) and the menu's Dock rows,
-# then the Value tab where the card docked in the left column (alone) or the right one (under
-# the tray) puts it, at 1600 x 900.
-COLORS_OPTIONS, COLORS_DOCK = (396, 127), {"left": (370, 184), "right": (370, 228)}
-COLORS_DOCKED_VALUE = {"left": (320, 706), "right": (1422, 749)}
 # The card's width (COLORS_CARD_W in kit_colors.odin): seven swatches and its padding.
 COLORS_CARD_W = 7 * 48 + 2 * 12
 # The Palettes tab's list in the floating card: Skin's first swatch, and Vivid's once the list
@@ -745,53 +740,6 @@ def ppm_region(path, rect):
     x, y, w, h = (int(float(v)) for v in rect)
     w, h = min(w, width - x), min(h, height - y)
     return b"".join(pixels[((y + row) * width + x) * 3:((y + row) * width + x + w) * 3] for row in range(h))
-
-
-def colors_docked_still(side):
-    """Docks the Colors card on `side` from Panel options and taps its Value tab where the
-    column draws it, in two runs a frame apart: a card that keeps one size draws the same
-    pixels in both, from its corner (window_colors=) to the window's foot. Only the card's
-    are compared, since a desktop's own pointer resting on the window lights what it is over."""
-    shots = [os.path.join(ROOT, "build", "touch", f"{CURRENT.name}-{n}.ppm") for n in ("a", "b")]
-    for shot in shots:
-        if os.path.exists(shot):
-            os.remove(shot)
-    runs = []
-    for more in (0, 1):
-        s = Script()
-        s.wait(4)
-        s.ftap(*COLORS_OPTIONS)
-        s.wait(8)
-        s.ftap(*COLORS_DOCK[side])
-        s.wait(20)
-        s.ftap(*COLORS_DOCKED_VALUE[side])
-        s.wait(20 + more)
-        runs.append(s)
-    column = {"left": "colors", "right": "inspector,colors"}[side]
-    checks = camera_still({f"column_{side}": is_text(column), "colors_tab": is_text("value"), "dabs": near(0)})
-
-    def one_size(stats):
-        _, _, x, y = stats["window_colors"].split(",")
-        card = (x, y, COLORS_CARD_W, 900 - float(y))
-        return ppm_region(shots[0], card) == ppm_region(shots[1], card) or f"the card at {x},{y} drew other pixels a frame later"
-
-    return Steps([(runs[0], [COLORS, f"--dump-screen={shots[0]}"], checks),
-                  (runs[1], [COLORS, f"--dump-screen={shots[1]}"], dict(checks, **{"@one size": one_size}))])
-
-
-@scenario
-def colors_card_docks_left_and_holds_still():
-    """Docked on the left from Panel options, the Colors card keeps one size: two runs a
-    frame apart draw it the same (it flickered between two heights every frame, its tabs
-    cut off), and its Value tab is a tap where it is drawn."""
-    return colors_docked_still("left")
-
-
-@scenario
-def colors_card_docks_right_and_holds_still():
-    """Docked on the right under the tray, the Colors card keeps one size and the tray its
-    own, frame after frame, and its Value tab is a tap where it is drawn."""
-    return colors_docked_still("right")
 
 
 @scenario
@@ -2758,17 +2706,38 @@ def window_drag_by_title_is_remembered():
         "@saved": saved_line("window Stats 1 Start Start 616 264 0")})
 
 
+# The Brush card's More at 1600 x 900, its Where the stack goes... row, and that menu's Dock on
+# the left (the first row: the stack is docked on the right).
+STACK_WHERE = {"more": (1508, 94), "where": (1470, 460), "left": (1440, 174)}
+
+
 @scenario
-def stats_dropped_on_the_right_column_docks_it():
-    """Floating Stats dragged over the right column, under the tray, docks there when the finger lifts."""
-    with open(settings_file(), "w") as f:
-        f.write("stats 1\n")
+def stack_docks_left_from_its_options():
+    """The Brush card's More > Where the stack goes... > Dock on the left docks the whole stack beside the off-hand island, and a stroke on the model still sculpts."""
     s = Script()
-    s.fdrag(line(STATS_TITLE, (1290, 650), 30))
-    s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "column_right": is_text("inspector,stats"), "panel_moves": near(1),
-        "@saved": saved_line("column right Inspector Stats")})
+    s.wait(6)
+    for at in ("more", "where", "left"):
+        s.ftap(*STACK_WHERE[at])
+        s.wait(10)
+    s.fdrag(line((800, 450), (860, 470), 12))
+    s.wait(6)
+    return s, [], {"stack_place": is_text("left"), "panel_moves": near(1), "window_inspector": lambda v: v.startswith("1,"),
+                   "layout_left_column": lambda v: 60 < float(v.split(",")[0]) < 100 and float(v.split(",")[2]) > 200,
+                   "layout_right_column": is_text("0,0,0,0"), "dabs": lambda v: float(v) > 0}
+
+
+@scenario
+def old_columns_float_their_windows():
+    """A settings file from when panels docked in columns: the stack goes to the column that named it, and the windows a column held float, open."""
+    def run(lines, place):
+        # A file of its own for each run, as both are written before either runs.
+        path = settings_file().replace(".txt", f"-{place}.txt")
+        with open(path, "w") as f:
+            f.write("stats 1\n" + lines)
+        s = Script()
+        s.wait(6)
+        return s, [f"--settings-file={path}"], camera_still({"stack_place": is_text(place), "window_stats": lambda v: v.startswith("1,"), "dabs": near(0)})
+    return Steps([run("column left Inspector Stats\ncolumn right\n", "left"), run("column right Stats History\n", "float")])
 
 
 @scenario
@@ -2778,7 +2747,7 @@ def pinned_sections_join_the_stack():
     s.add("move:800,450")
     s.wait(10)
     return s, ["--script=pin_section layers; pin_section camera"], camera_still({
-        "dabs": near(0), "column_right": is_text("inspector"),
+        "dabs": near(0), "stack_place": is_text("right"),
         "panel_pins": is_text("layers,camera"),
         "stack": lambda v: v.endswith(",Layer_Settings+,Camera+")})
 
@@ -8748,6 +8717,18 @@ def narrow_window_palettes_pops_the_column():
             s.wait(8)
         return s, NARROW, camera_still({"column_popped": is_text("right" if taps == 1 else "none"), "window_inspector": lambda v: v.startswith("1,"), "dabs": near(0)})
     return Steps([run(1), run(2)])
+
+
+@scenario
+def narrow_window_escape_puts_the_stack_away():
+    """On a narrow window Escape (or Android's back) puts the popped stack away, as a press on the view does, before anything else it would close."""
+    s = Script()
+    s.wait(6)
+    s.ftap(*NARROW_PALETTES)
+    s.wait(8)
+    s.press("Escape")
+    s.wait(8)
+    return s, NARROW, camera_still({"column_popped": is_text("none"), "column_pops": near(1), "window_inspector": lambda v: v.startswith("1,"), "dabs": near(0)})
 
 
 @scenario
