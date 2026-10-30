@@ -8,7 +8,7 @@ import "../sculpt"
 import "../ui"
 
 // Adjust last operation, as Blender has it: after a remesh, decimate, mirror and weld,
-// retopology, extract or smooth all, its settings stay at hand over the dock, and a change
+// quad remesh, extract or smooth all, its settings stay at hand over the dock, and a change
 // runs it again from the state before it rather than on its own result, since a remesh
 // of a remesh loses detail and Decimate to 200k after Decimate to 500k is not Decimate to
 // 200k. A re-run takes the operation's undo step back and records its own, so the History
@@ -46,7 +46,7 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Remesh     = "Remesh",
 	.Decimate   = "Decimate",
 	.Mirror     = "Mirror",
-	.Retopo     = "Retopology",
+	.Retopo     = "Quad Remesh",
 	.Extract    = "Extract",
 	.Smooth_All = "Smooth all",
 	.Stroke     = "last stroke",
@@ -306,7 +306,7 @@ adjust_open :: proc(app: ^App) {
 	case .Decimate:
 		app.ui.rebuild_fewer = rebuild_count(a.cmd.vertices)
 	case .Retopo:
-		app.ui.retopo_quads = i32(a.cmd.vertices)
+		app.ui.retopo_quads, app.ui.retopo_engine = i32(a.cmd.vertices), a.cmd.engine
 	case .Smooth_All:
 		app.ui.smooth_steps, app.ui.smooth_strength = a.steps, a.amount
 	case .Extract:
@@ -332,7 +332,7 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 	case .Mirror:
 		app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative, adjust = true}
 	case .Retopo:
-		app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), adjust = true}
+		app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), engine = app.ui.retopo_engine, adjust = true}
 	case .Extract:
 		app.ui.scene_command = {kind = .Extract, adjust = true}
 	case .Smooth_All:

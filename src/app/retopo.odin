@@ -12,12 +12,13 @@ import "../geom"
 import "../jobs"
 import "../render"
 import "../png_write"
+import "../quadmesh"
 import "../sculpt"
 import "../ui"
 
-// Retopology and baking on the app side: Retopologize makes a new object of quads from
-// the selected one (geom.mesh_retopo), with UVs laid out (geom.quad_uv_unwrap), next to
-// it; Bake maps... then bakes another object's detail into normal and displacement maps
+// Retopology and baking on the app side: Quad Remesh makes a new object of quads from
+// the selected one (quadmesh.remesh, or geom.mesh_retopo), with UVs laid out
+// (geom.quad_uv_unwrap), next to it; Bake maps... then bakes another object's detail into normal and displacement maps
 // on it (geom.bake_maps) and writes them to a folder with the quads as OBJ. Both work in
 // the objects' own spaces, so moving or turning either object changes nothing.
 
@@ -61,95 +62,335 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 	return
 }
 
+// Which quad remesher Quad Remesh (Rebuild's Quads) runs: AutoRemesher (src/quadmesh),
+// whose edge flow follows the surface's curvature as ZBrush's ZRemesher does, or the own
+// edge-pairing retopology (geom.mesh_retopo), quicker and plainer. AutoRemesher is the
+// default; where it is not built, or refuses the mesh, the own one runs in its place and
+// the report says why.
+Quad_Engine :: enum u8 {
+	Auto,
+	Own,
+}
+
+QUAD_ENGINE_NAMES := [Quad_Engine]string {
+	.Auto = "AutoRemesher",
+	.Own  = "Built-in",
+}
+
+// AutoRemesher takes seconds and hundreds of megabytes per million triangles, and past
+// about that many its result depends little on the input's density, so a bigger input is
+// decimated to this first.
+QUAD_REMESH_MAX_TRIANGLES :: 1_000_000
+// Each separate part is an island AutoRemesher parameterizes alone, with a floor of cells
+// each, so a dust of fragments is refused rather than left to it.
+QUAD_REMESH_MAX_PIECES :: 256
+
+// Where the progress ring stands after each of AutoRemesher's stages: the decimation past
+// the cap with the check of the mesh, the remesh itself; the UVs take the rest. The own
+// engine, standing in, starts from the check.
+@(private = "file")
+QUAD_SHARE_CHECKED :: f32(0.05)
+@(private = "file")
+QUAD_SHARE_CAPPED :: f32(0.2)
+@(private = "file")
+QUAD_SHARE_REMESHED :: f32(0.85)
+
 // Makes a new object of about `quads` quads on the shape of the level the selected
 // object is on, with UVs, next to it, and selects it. Returns false only on a GPU failure.
 // A long job (long_job.odin) runs the same two halves, retopo_compute on its thread.
-object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
+object_retopo :: proc(app: ^App, obj: ^Object, quads: int, engine: Quad_Engine) -> (made, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	view, packed := object_shape(obj, top = false)
-	r := retopo_compute(view, quads, &app.pool)
+	r := retopo_compute(view, quads, engine, &app.pool)
 	delete(view.normals)
 	geom.mesh_destroy(&packed)
 	if !r.built {
-		log.warnf("retopologize: %s has too few triangles for %d quads", object_label(obj), quads)
+		log.warnf("quad remesh: %s has too few triangles for %d quads", object_label(obj), quads)
 		return false, true
 	}
 	return retopo_apply(app, obj, &r, start)
 }
 
-// What Retopologize computes before it makes the object: the quads, their UVs and the
-// triangles drawn and sculpted.
+// What Quad Remesh computes before it makes the object: the triangles drawn and sculpted,
+// the polygons they came from and, when every polygon is a quad, the quads with their UVs.
 Retopo_Result :: struct {
-	q:         geom.Quad_Mesh, // the quads, over positions `mesh` copied
-	how:       geom.Retopo_Report,
-	uv:        geom.Uv_Layout,
+	q:         geom.Quad_Mesh, // every polygon a quad: the quads, over positions `mesh` copied; nil otherwise
+	how:       geom.Retopo_Report, // the own engine's account
+	uv:        geom.Uv_Layout, // with `q`
 	mesh:      geom.Mesh,
+	polys:     sculpt.Polys, // AutoRemesher: the polygons as the base level keeps them, over `mesh`
+	engine:    Quad_Engine, // the engine that made it: Auto may have given way to Own
+	faces:     int, // AutoRemesher's polygons...
+	quads:     int, // ...of which quads,
+	triangles: int, // triangles
+	ngons:     int, // and five corners or more
+	capped:    int, // AutoRemesher: triangles the input was decimated to first, 0 for none
+	reason:    string, // owned: why AutoRemesher was not used, "" when it was
 	built:     bool,
 	retopo_ms: f64,
 	uv_ms:     f64,
 }
 
-// The quads of about `quads` on `view` (with normals), their UVs and triangles; touches
-// no object or interface, so a long job runs it on its own thread with its own pool, and
-// with `progress` it stops after a cancel, built false with nothing to free.
-retopo_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Retopo_Result) {
+// The quads of about `quads` on `view` (with normals) by `engine`, their UVs and
+// triangles; touches no object or interface, so a long job runs it on its own thread with
+// its own pool, and with `progress` it stops after a cancel, built false with nothing to
+// free. AutoRemesher gives way to the own engine when it is not built or refuses the
+// mesh, and `reason` then says why.
+retopo_compute :: proc(view: geom.Mesh, quads: int, engine: Quad_Engine, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Retopo_Result) {
 	start := time.tick_now()
+	from: f32 = 0
+	if engine == .Auto {
+		outcome: Quad_Outcome
+		r, outcome = quad_remesh_compute(view, quads, pool, progress)
+		if outcome != .Fallback do return
+		from = QUAD_SHARE_CHECKED
+	}
 	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, pool)
 	defer geom.bvh_destroy(&bvh)
-	q, how, built := geom.mesh_retopo(view, &bvh, quads, pool, progress = progress, share = {0, 0.9})
+	q, how, built := geom.mesh_retopo(view, &bvh, quads, pool, progress = progress, share = {from, 0.9})
 	free_all(context.temp_allocator)
-	if !built do return
-	if jobs.progress_cancelled(progress) {
-		geom.quad_mesh_destroy(&q)
-		return
+	if !built || jobs.progress_cancelled(progress) {
+		if built do geom.quad_mesh_destroy(&q)
+		delete(r.reason)
+		return {}
 	}
 	r.retopo_ms = time.duration_milliseconds(time.tick_since(start))
 	uv_start := time.tick_now()
 	r.uv = geom.quad_uv_unwrap(q, UV_PADDING)
 	r.uv_ms = time.duration_milliseconds(time.tick_since(uv_start))
 	r.mesh = geom.quad_mesh_triangulate(q)
-	r.q, r.how, r.built = q, how, true
+	r.q, r.how, r.engine, r.built = q, how, .Own, true
+	r.faces, r.quads = len(q.quads), len(q.quads)
 	jobs.progress_set(progress, 0, 1, 1)
 	return
+}
+
+@(private = "file")
+Quad_Outcome :: enum u8 {
+	Built,
+	Cancelled, // nothing kept
+	Fallback, // only `reason` kept: the own engine runs instead
+}
+
+// AutoRemesher's half of retopo_compute: refuses what it cannot take (or runs forever
+// on) before it starts, decimates past the cap, remeshes, and turns the polygons into the
+// triangles the object is built of, with the quads and UVs when every polygon is a quad.
+@(private = "file")
+quad_remesh_compute :: proc(view: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^jobs.Progress) -> (r: Retopo_Result, outcome: Quad_Outcome) {
+	start := time.tick_now()
+	outcome = .Fallback
+	// Fewer triangles first past the cap: more make AutoRemesher slower, not better, and
+	// the check below has no cancel and a serial pass or two, so it runs on the smaller mesh.
+	input := view
+	capped: geom.Mesh
+	defer geom.mesh_destroy(&capped)
+	if len(view.indices) / 3 > QUAD_REMESH_MAX_TRIANGLES {
+		ok: bool
+		capped, _, ok = geom.mesh_decimate(view, QUAD_REMESH_MAX_TRIANGLES, pool, progress = progress, share = {0, QUAD_SHARE_CAPPED - QUAD_SHARE_CHECKED})
+		if jobs.progress_cancelled(progress) do return {}, .Cancelled
+		if ok {
+			input = capped
+			r.capped = len(capped.indices) / 3
+		}
+	}
+	// What AutoRemesher cannot take, or runs forever on, is refused before it starts.
+	whole := geom.mesh_integrity(input, pool)
+	jobs.progress_set(progress, 0, QUAD_SHARE_CAPPED, 1)
+	c := whole.check
+	switch {
+	case c.triangles < 4:                       r.reason = fmt.aprintf("%d triangles are too few", c.triangles)
+	case c.nan_count > 0:                       r.reason = fmt.aprintf("%d positions are not numbers", c.nan_count)
+	case c.degenerate_triangles > 0:            r.reason = fmt.aprintf("%d triangles have no area", c.degenerate_triangles)
+	case whole.duplicate_triangles > 0:         r.reason = fmt.aprintf("%d triangles lie over another", whole.duplicate_triangles)
+	case c.non_manifold_edges > 0:              r.reason = fmt.aprintf("%d edges have more than two faces", c.non_manifold_edges)
+	case c.inconsistent_edges > 0:              r.reason = fmt.aprintf("%d faces are turned inside out", c.inconsistent_edges)
+	case whole.pieces > QUAD_REMESH_MAX_PIECES: r.reason = fmt.aprintf("%d separate pieces are too many", whole.pieces)
+	}
+	if r.reason != "" do return
+	if jobs.progress_cancelled(progress) {
+		delete(r.reason)
+		return {}, .Cancelled
+	}
+	params := quadmesh.DEFAULT_PARAMS
+	params.quads = quads
+	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+	out, report, err, reason := quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CAPPED, QUAD_SHARE_REMESHED})
+	switch err {
+	case .Cancelled:
+		return {}, .Cancelled
+	case .Refused, .Failed, .Unavailable:
+		delete(r.reason)
+		r.reason = strings.clone(reason)
+		return
+	case .None:
+	}
+	defer quadmesh.polygon_mesh_destroy(&out)
+	r.faces, r.quads, r.triangles, r.ngons = report.faces, report.quads, report.triangles, report.ngons
+	mesh, polys := polygon_mesh_triangulate(out)
+	check := geom.mesh_check(mesh)
+	if check.closed && check.inverted {
+		// AutoRemesher's winding follows its input's, so this is not expected; the sculpt
+		// wants every face outward, so each polygon is turned round and cut again.
+		polygon_mesh_flip(&out)
+		geom.mesh_destroy(&mesh)
+		sculpt.polys_destroy(&polys)
+		mesh, polys = polygon_mesh_triangulate(out)
+		check = geom.mesh_check(mesh)
+	}
+	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s in %.0f ms; %s, %d boundary and %d non-manifold edges",
+		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", report.ms,
+		"closed" if check.closed else "open", check.boundary_edges, check.non_manifold_edges)
+	if jobs.progress_cancelled(progress) {
+		geom.mesh_destroy(&mesh)
+		sculpt.polys_destroy(&polys)
+		return {}, .Cancelled
+	}
+	r.retopo_ms = time.duration_milliseconds(time.tick_since(start))
+	if r.quads == r.faces {
+		// Every face a quad: the quads as the base level keeps them, with UVs (the
+		// triangles are already two a quad, in the quads' order, as quad_mesh_triangulate
+		// cuts them).
+		q: geom.Quad_Mesh
+		q.positions = make([]geom.Vec3, len(mesh.positions))
+		copy(q.positions, mesh.positions[:])
+		q.quads = make([][4]u32, r.faces)
+		for &f, k in q.quads do copy(f[:], polys.corners[4 * k:4 * k + 4])
+		uv_start := time.tick_now()
+		r.uv = geom.quad_uv_unwrap(q, UV_PADDING)
+		r.uv_ms = time.duration_milliseconds(time.tick_since(uv_start))
+		r.q = q
+	}
+	r.mesh, r.polys, r.engine, r.built = mesh, polys, .Auto, true
+	jobs.progress_set(progress, 0, 1, 1)
+	return r, .Built
+}
+
+// The polygons as triangles, counter-clockwise as the polygons are: a triangle as it is,
+// a quad along its shorter diagonal (two triangles, quad k giving 2k and 2k + 1, as
+// quad_mesh_triangulate does), a larger polygon as a fan from its first corner; `polys`
+// says which polygon each triangle came from. A vertex no polygon uses is dropped, with
+// the corners renumbered. Zero normals: the object's build computes them.
+@(private = "file")
+polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, allocator := context.allocator) -> (mesh: geom.Mesh, polys: sculpt.Polys) {
+	faces := len(m.first) - 1
+	used := make([]u32, len(m.positions))
+	defer delete(used)
+	count: u32
+	for c in m.corners do if used[c] == 0 {
+		count += 1
+		used[c] = count
+	}
+	mesh.positions = make([dynamic]geom.Vec3, count, allocator)
+	for p, v in m.positions do if used[v] > 0 do mesh.positions[used[v] - 1] = p
+	mesh.normals = make([dynamic]geom.Vec3, count, allocator)
+	polys.first = make([]u32, faces + 1, allocator)
+	polys.corners = make([]u32, len(m.corners), allocator)
+	copy(polys.first, m.first)
+	for c, i in m.corners do polys.corners[i] = used[c] - 1
+	triangles := len(m.corners) - 2 * faces
+	mesh.indices = make([dynamic]u32, 0, 3 * triangles, allocator)
+	polys.tri_poly = make([]u32, triangles, allocator)
+	t := 0
+	for f in 0 ..< faces {
+		corners := polys.corners[polys.first[f]:polys.first[f + 1]]
+		switch len(corners) {
+		case 3:
+			append(&mesh.indices, ..corners)
+		case 4:
+			cut := geom.quad_split(mesh.positions[:], {corners[0], corners[1], corners[2], corners[3]})
+			append(&mesh.indices, ..cut[:])
+		case:
+			for k in 1 ..< len(corners) - 1 do append(&mesh.indices, corners[0], corners[k], corners[k + 1])
+		}
+		for ; t < len(mesh.indices) / 3; t += 1 do polys.tri_poly[t] = u32(f)
+	}
+	return
+}
+
+// Turns every polygon round, so the surface faces the other way.
+@(private = "file")
+polygon_mesh_flip :: proc(m: ^quadmesh.Polygon_Mesh) {
+	for f in 0 ..< len(m.first) - 1 do slice.reverse(m.corners[m.first[f]:m.first[f + 1]])
 }
 
 // Frees a computed retopology that will not become an object (a cancel, or the app
 // ending while it ran).
 retopo_result_destroy :: proc(r: ^Retopo_Result) {
-	if !r.built do return
-	geom.quad_mesh_destroy(&r.q)
-	geom.uv_layout_destroy(&r.uv)
-	geom.mesh_destroy(&r.mesh)
+	delete(r.reason)
+	if r.built {
+		geom.quad_mesh_destroy(&r.q)
+		geom.uv_layout_destroy(&r.uv)
+		geom.mesh_destroy(&r.mesh)
+		sculpt.polys_destroy(&r.polys)
+	}
 	r^ = {}
+}
+
+// The polygons over the object's triangles once the build renumbered them: each corner
+// through `old_to_new`, and triangle t's polygon that of the triangle `tri_from[t]` it was.
+retopo_polys_renumber :: proc(p: ^sculpt.Polys, old_to_new, tri_from: []u32) {
+	for &c in p.corners do c = old_to_new[c]
+	was := make([]u32, len(p.tri_poly))
+	defer delete(was)
+	copy(was, p.tri_poly)
+	for &f, t in p.tri_poly do f = was[tri_from[t]]
 }
 
 // Makes the object from a computed retopology of `obj`, next to it, and selects it; the
 // result's parts become the object's. `start` is when the work began, for the mesh's build.
 retopo_apply :: proc(app: ^App, obj: ^Object, r: ^Retopo_Result, start: time.Tick) -> (made, ok: bool) {
-	q, how, uv, mesh, retopo_ms, uv_ms := r.q, r.how, r.uv, r.mesh, r.retopo_ms, r.uv_ms
+	res := r^
 	r^ = {}
-	old_to_new := make([]u32, len(q.positions))
+	defer delete(res.reason)
+	old_to_new := make([]u32, len(res.mesh.positions))
 	defer delete(old_to_new)
-	delete(q.positions)
+	tri_from: []u32
+	if res.polys.first != nil do tri_from = make([]u32, len(res.mesh.indices) / 3)
+	defer delete(tri_from)
+	delete(res.q.positions)
 	// Not in temp memory, which building frees.
 	name := fmt.aprintf("%s retopo", object_label(obj))
 	defer delete(name)
 	t := obj.transform
 	t.position = next_free_position(app)
-	if !scene_add_mesh(app, mesh, name, obj.file, t, start, old_to_new, material = obj.material) {
-		delete(q.quads)
-		geom.uv_layout_destroy(&uv)
+	if !scene_add_mesh(app, res.mesh, name, obj.file, t, start, old_to_new, material = obj.material, tri_from = tri_from) {
+		delete(res.q.quads)
+		geom.uv_layout_destroy(&res.uv)
+		sculpt.polys_destroy(&res.polys)
 		return false, false
 	}
 	twin := selected_object(app)
-	for &f in q.quads do for &v in f do v = old_to_new[v]
-	sculpt.levels_set_quads(&twin.levels, q.quads)
-	sculpt.levels_set_uvs(&twin.levels, uv)
+	if res.polys.first != nil {
+		// The base level keeps the polygons, so Wireframe draws their edges and Subdivide
+		// cuts them as Catmull-Clark cuts quads.
+		retopo_polys_renumber(&res.polys, old_to_new, tri_from)
+		if !sculpt.levels_set_polys(&twin.levels, res.polys, {}, .Smooth) do log.errorf("quad remesh: the polygons did not fit the triangles cut from them, so %s keeps none", object_label(twin))
+	}
+	charts := 0
+	if res.q.quads != nil {
+		for &f in res.q.quads do for &v in f do v = old_to_new[v]
+		sculpt.levels_set_quads(&twin.levels, res.q.quads)
+		sculpt.levels_set_uvs(&twin.levels, res.uv)
+		charts = res.uv.charts
+	}
 	app.ui.bake.source = obj.id
-	report(app, Kit_Section.Retopo, {}, "Retopologized %s: %s quads, UVs in %d charts, %.0f ms", object_label(obj), thousands(len(q.quads)), uv.charts, retopo_ms + uv_ms)
-	log.infof("retopologize: decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * uv.filled, uv_ms)
+	// "Quad remeshed X: 1,180 quads (AutoRemesher), UVs in 12 charts, 226 ms", with the
+	// other polygons and no UVs when some are not quads, and why the built-in engine ran
+	// when it was not asked for.
+	engine := QUAD_ENGINE_NAMES[res.engine]
+	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
+	flags: Report_Flags
+	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
+	faces := fmt.tprintf("%s quads", thousands(res.quads))
+	if res.quads != res.faces do faces = fmt.tprintf("%s quads, %d triangles and %d larger faces, so no UVs", thousands(res.quads), res.triangles, res.ngons)
+	uvs := fmt.tprintf(", UVs in %d charts", charts) if charts > 0 else ""
+	report(app, Kit_Section.Retopo, flags, "Quad remeshed %s: %s (%s)%s, %.0f ms", object_label(obj), faces, engine, uvs, res.retopo_ms + res.uv_ms)
+	if res.engine == .Own {
+		how := res.how
+		log.infof("quad remesh: built-in decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * res.uv.filled, res.uv_ms)
+	}
 	return true, true
 }
 
@@ -167,7 +408,7 @@ bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
 bake_to_folder :: proc(app: ^App, folder: string) {
 	low := selected_object(app)
 	if low == nil || !sculpt.levels_has_uvs(&low.levels) {
-		file_note(app, true, "Bake: select an object made by Retopologize first")
+		file_note(app, true, "Bake: select an object made by Quad Remesh first")
 		return
 	}
 	src := bake_source(app, low)
@@ -378,7 +619,7 @@ bake_source_of :: proc(app: ^App, src: ^Object, view: geom.Mesh, bvh: ^geom.Bvh)
 	return
 }
 
-// The interface's UVs and baking section: Retopologize itself is Shape > Rebuild's Quads.
+// The interface's UVs and baking section: Quad Remesh itself is Shape > Rebuild's Quads.
 kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)

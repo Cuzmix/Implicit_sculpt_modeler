@@ -1406,9 +1406,9 @@ COMMANDS := [Command_Id]Command {
 		enabled = has_mesh_object,
 	},
 	.Retopologize = {
-		label = "Retopologize",
-		help = "Makes a new object of quads with UVs lying on the selected one.",
-		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads)}},
+		label = "Quad Remesh",
+		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; AutoRemesher or the built-in engine, as Rebuild's Quads is set.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), engine = app.ui.retopo_engine}},
 		enabled = has_object,
 	},
 	.Make_Boolean = {
@@ -1431,7 +1431,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Adjust_Last = {
 		label = "Adjust last operation",
-		help = "Opens the settings of the last remesh, decimate, mirror, retopology, extract or smooth all, to run it again from before it, or the amount of the last stroke.",
+		help = "Opens the settings of the last remesh, decimate, mirror, quad remesh, extract or smooth all, to run it again from before it, or the amount of the last stroke.",
 		run = proc(app: ^App, _: int) {
 			if app.kit.adjust_pop do app.kit.adjust_pop = false
 			else do adjust_open(app)
