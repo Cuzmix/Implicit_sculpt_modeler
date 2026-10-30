@@ -1165,6 +1165,34 @@ image_part :: proc(ctx: ^Context, r: Rect, image_id: u64, lo, hi: [2]f32, tint :
 	draw_quad(&ctx.draw, to_px(ctx, r), lo, hi, tint)
 }
 
+// A registered image drawn in a circle of `radius` round `center`, the image's square
+// fitted to the circle and its corners left out, with a feathered rim: a picture of a
+// sphere (a MatCap) shown as the ball it is.
+image_disc :: proc(ctx: ^Context, center: [2]f32, radius: f32, image_id: u64, tint := Color{255, 255, 255, 255}) {
+	SEGMENTS :: 48
+	if radius <= 1 do return
+	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
+	dl := &ctx.draw
+	d := px(ctx)
+	c := center * d
+	r := radius * d
+	base := u32(len(dl.vertices))
+	append(&dl.vertices, Vertex{c, {0.5, 0.5}, tint})
+	clear_tint := color_alpha(tint, 0)
+	for k in 0 ..< SEGMENTS {
+		a := f32(k) * (2 * math.PI / SEGMENTS)
+		dir := [2]f32{math.cos(a), math.sin(a)}
+		uv := [2]f32{0.5 + 0.5 * dir.x, 0.5 + 0.5 * dir.y}
+		append(&dl.vertices, Vertex{c + dir * (r - FRINGE * 0.5), uv, tint}, Vertex{c + dir * (r + FRINGE * 0.5), uv, clear_tint})
+	}
+	for k in 0 ..< u32(SEGMENTS) {
+		j := (k + 1) % SEGMENTS
+		a_in, a_out := base + 1 + k * 2, base + 2 + k * 2
+		b_in, b_out := base + 1 + j * 2, base + 2 + j * 2
+		draw_add_indices(dl, base, a_in, b_in, a_in, b_in, b_out, a_in, b_out, a_out)
+	}
+}
+
 // Whether the press on `id` became a long press: its secondary action ran or its
 // tooltip showed, so letting go is no click.
 @(private)

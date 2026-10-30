@@ -56,19 +56,6 @@ render_is_the_looks_cards :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(studio, "pinned"), studio)
 }
 
-// The Material card always shows the preset in use, in the last place when it is not one
-// of the nine it shows; each of those is a lit preset, not a MatCap.
-@(test)
-material_card_shows_lit_presets :: proc(t: ^testing.T) {
-	card := MATERIAL_CARD
-	for i in card do testing.expect(t, i >= 0 && i < FIRST_MATCAP && MATERIALS[i].matcap == 0)
-	for x, n in card do for y in card[n + 1:] do testing.expect(t, x != y)
-	testing.expect_value(t, material_card_balls(0), MATERIAL_CARD)
-	testing.expect_value(t, material_card_balls(13)[len(MATERIAL_CARD) - 1], 13)
-	testing.expect_value(t, material_card_balls(FIRST_MATCAP + 1), MATERIAL_CARD)
-	testing.expect_value(t, material_card_balls(-1), MATERIAL_CARD)
-}
-
 // A workspace saved while the stack had its Palettes card reads as unchanged: the built-in
 // layouts as an older build wrote them are written again as this one writes them.
 @(test)

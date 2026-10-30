@@ -214,6 +214,8 @@ Scene_Command :: struct {
 	before:   int, // Arrange Reorder, Reorder_Folder: the object it goes before, 0 for the end
 	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
 	material: Material, // Material: what the selected objects are shaded with; Group_Material: the group's
+	material_to: Material_Target, // Material: which objects take it
+	preview:  Material_Preview, // Material: a scrub's preview, its keeping or its going back
 	group:    u16, // Group_Material: the polygroup of object `id` it changes (`on`: back to the object's material)
 	repair:   Repair_Kind, // Repair: which
 	distance: f32, // Repair's Weld points: how far apart vertices weld, as a share of the object's largest side
@@ -1038,7 +1040,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .View:
 		scene_view(app, cmd.view, cmd.id, cmd.space)
 	case .Material:
-		material_set(app, cmd.material)
+		material_command(app, cmd.material, cmd.material_to, cmd.preview)
 	case .Group_Material:
 		group_material_apply(app, cmd)
 	case .Arrange:

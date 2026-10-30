@@ -846,6 +846,17 @@ settings_load :: proc(app: ^App, path: string) {
 					if _, dup := brush_favorite(p, key); !dup do brush_favorite_toggle(p, key)
 				}
 			}
+		case "material_favorite":
+			// material_favorite <key, escaped> ...: the Material card's favourite spheres in
+			// the order added, by material_ball_key. A key naming nothing (a pack removed) is
+			// kept, as the pack may come back.
+			mc := &app.kit.material_card
+			mc.favorite_count = 0
+			for word in f[1:] {
+				key := preset_unescape(word)
+				if material_favorite(mc, key) < 0 do _ = material_favorite_toggle(mc, key)
+			}
+			mc.favorite_changes = 0
 		case "color_history":
 			// color_history #RRGGBB ..., most recent first; codes that are not colours are
 			// skipped.
@@ -1158,6 +1169,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	if p := &app.kit.brushes; p.favorite_count > 0 {
 		strings.write_string(&out, "brush_favorite")
 		for &k in p.favorites[:p.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
+		strings.write_byte(&out, '\n')
+	}
+	if mc := &app.kit.material_card; mc.favorite_count > 0 {
+		strings.write_string(&out, "material_favorite")
+		for &k in mc.favorites[:mc.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
 		strings.write_byte(&out, '\n')
 	}
 	if c := &app.kit.colors; c.history_count > 0 {

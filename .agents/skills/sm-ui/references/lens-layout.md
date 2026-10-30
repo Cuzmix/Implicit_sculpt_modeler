@@ -153,6 +153,11 @@ summary.
   slider's at once). Ask `prev_rect` of a row's children inside the row (`id_of` is the parent's). Layer pictures
   (`layer_pictures.odin`) are cells of a second `render.Step_Pictures`, kept like the object thumbnails (settle, one a
   frame); the tint is `draw_tint_glow`, shared with the History's.
+  The Material card (`lens_materials.odin`, `Kit_State.material_card`): MatCap spheres are `ui.image_disc` over
+  `KIT_MATCAP_IMAGE + Material.matcap`, which `kit_draws` maps to `material_matcap`; the Matcaps tab sets
+  `Library.matcaps_wanted` so `pack_matcaps_settle` makes every pack's picture. The scrub sends `.Material` Scene_Commands
+  with `preview` Show/Keep/Back (`material_command` keeps the objects' materials aside in `App.material_saved`);
+  `material_to` (Apply to) rides every `.Material` command.
   Layer masks in the panel (`layer_masks.odin`, `app.ui.layer_mask`): the mask badge is drawn on the picture's corner and
   answers the picture's own area (its right half), so the row keeps room for the name; `layer_mask_paint` remembers the
   brush and runs `.Brush` Mask, `layer_mask_stop(restore)` puts it back, `layer_mask_frame` ends the pick when the work

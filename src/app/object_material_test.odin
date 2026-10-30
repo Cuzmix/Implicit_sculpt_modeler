@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:os"
 import "core:testing"
 
 import "../geom"
@@ -172,4 +173,61 @@ materials_export_in_metallic_roughness_terms :: proc(t: ^testing.T) {
 	testing.expect_value(t, e.metallic, 0)
 	image := export_material({label = "Custom", selected = {1, 1, 1, 1}, matcap = MATCAP_IMAGE})
 	testing.expect(t, image.base == 0.5 && image.roughness == 0.5 && image.name == "Custom")
+}
+
+// A scrub shows each material on the objects Apply to names and keeps the last one
+// lifted on, or puts back what each object had, however many it passed; Every object
+// reaches the objects not selected too.
+@(test)
+a_material_scrub_keeps_or_puts_back :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	defer {delete(app.material_saved.ids); delete(app.material_saved.before)}
+	objs := tree_scene(&app)
+	materials_settle(&app)
+	app.scene.selected = 0
+	gold, _ := material_by_name("gold")
+	steel, _ := material_by_name("steel")
+	objs[1].material = MATERIALS[steel]
+	material_command(&app, MATERIALS[gold], .Every, .Show)
+	material_command(&app, MATERIALS[FIRST_MATCAP], .Every, .Show)
+	for obj in objs do testing.expect_value(t, obj.material, MATERIALS[FIRST_MATCAP])
+	material_command(&app, {}, .Every, .Back)
+	testing.expect_value(t, objs[0].material, MATERIALS[0])
+	testing.expect_value(t, objs[1].material, MATERIALS[steel])
+	testing.expect_value(t, app.material, 0)
+	testing.expect(t, !app.material_saved.active)
+	// Kept: what was shown stays, on the selected object alone.
+	material_command(&app, MATERIALS[gold], .Selection, .Show)
+	material_command(&app, {}, .Selection, .Keep)
+	testing.expect_value(t, objs[0].material, MATERIALS[gold])
+	testing.expect_value(t, objs[1].material, MATERIALS[steel])
+	testing.expect_value(t, app.material_keeps, 1)
+	material_command(&app, {}, .Selection, .Back)
+	testing.expect_value(t, objs[0].material, MATERIALS[gold])
+}
+
+// The Material card's favourites toggle on and off in the order added, and settings.txt
+// keeps them, a pack's part by its name.
+@(test)
+material_favorites_are_remembered :: proc(t: ^testing.T) {
+	path := "build/material_favorites_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	mc := &a.kit.material_card
+	testing.expect(t, material_favorite_toggle(mc, "Gold"))
+	testing.expect(t, material_favorite_toggle(mc, "Red wax MatCap"))
+	testing.expect(t, material_favorite_toggle(mc, "matcap:stone pack/Basalt"))
+	testing.expect(t, !material_favorite_toggle(mc, "Red wax MatCap"))
+	testing.expect_value(t, mc.favorite_count, 2)
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	got := &b.kit.material_card
+	testing.expect_value(t, got.favorite_count, 2)
+	testing.expect_value(t, material_favorite(got, "Gold"), 0)
+	testing.expect_value(t, material_favorite(got, "matcap:stone pack/Basalt"), 1)
+	testing.expect_value(t, material_favorite(got, "Red wax MatCap"), -1)
 }
