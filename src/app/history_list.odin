@@ -239,8 +239,15 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	if !row.sub do ui.text(ctx, fmt.tprintf("%d", row.head + 1), x + 24, mid, t.caption_size, ui.color_fade(t.text_tertiary, fade), .Regular, .Right)
 	bar_h: f32 = 18 if row.sub else 28
 	ui.fill_rect(ctx, {x + 32, mid - bar_h * 0.5, 4, bar_h}, 2, colour)
-	ui.icon(ctx, KIND_GLYPHS[e.kind], {x + 52, mid}, t.icon_small - (2 if row.sub else 0), colour)
 	tx := x + 66
+	// With Step pictures in the list, the step's picture stands where its icon would, a
+	// little wider than a row is tall; a step with none (the lights) keeps its icon.
+	pic: f32 = 30 if row.sub else 42
+	if app.history_pictures && step_picture_draw(app, e.at, {x + 42, mid - pic * 0.5, pic, pic}, fade) {
+		tx = x + 50 + pic
+	} else {
+		ui.icon(ctx, KIND_GLYPHS[e.kind], {x + 52, mid}, t.icon_small - (2 if row.sub else 0), colour)
+	}
 	right := box.x + box.w - chevron - 8
 	size := bytes_label(history_row_bytes(app, row)) if history_row_bytes(app, row) > 0 else "—"
 	sw := ui.text_width(ctx, size, t.caption_size)

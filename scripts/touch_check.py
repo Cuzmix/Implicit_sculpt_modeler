@@ -11128,6 +11128,32 @@ def history_strip_menu_paint_back_and_delete_older():
 
 
 @scenario
+def history_steps_get_pictures():
+    """Three strokes each get a picture of where they landed as they end; with Step pictures
+    in the list on, the list's row shows the newest in place of its icon, and two undos draw
+    none, since the steps undone to keep theirs (look with --screens)."""
+    s = Script()
+    history_three_strokes(s)
+    click(s, UI["undo"])
+    s.wait(4)
+    click(s, UI["undo"])
+    s.wait(10)
+    return s, ["--script=set history_pictures 1"], camera_still({"history_pictures_drawn": near(3, 0), "history_picture": near(1, 0),
+                                                                 "history_pictures": near(1, 0), "undo_steps": near(1, 0)})
+
+
+@scenario
+def strip_rest_shows_a_step_picture():
+    """Resting the mouse on the strip's second step shows its card over the strip: the
+    step's picture beside what it was, its object, age and size (look with --screens)."""
+    s = Script()
+    strip_three_strokes(s)
+    s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
+    s.wait(12)
+    return s, HISTORY_STRIP, camera_still({"history_pictures_drawn": near(3, 0), "history_picture": near(1, 0), "undo_steps": near(3, 0)})
+
+
+@scenario
 def history_bookmark_flies_over_the_strip():
     """A right-click on the strip's first step and Bookmark... name it "Start"; its flag then
     stands over the strip, and a tap on the flag goes back to that step."""

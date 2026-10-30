@@ -552,8 +552,45 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 	if a.hovered && total > 0 {
 		step := clamp(int((a.mouse.x - r.x) / r.w * f32(total)), 0, total - 1)
 		e := app.history.done[step] if step < done else app.history.undone[total - 1 - step]
-		point := ". The History brush paints back to before it" if step == recall else ""
-		mark := fmt.tprintf(" (bookmark %s)", e.bookmark) if e.bookmark != "" else ""
-		ui.tip(ctx, a.id, {a.mouse.x - 1, r.y, 2, r.h}, fmt.tprintf("Step %d: %s%s, object %d, %s%s%s", step + 1, entry_label(e), mark, e.id, ago_label(e.at), "" if step < done else " (undone)", point))
+		head := step
+		for head > 0 && history_entry_at(app, head).chain do head -= 1
+		if _, _, has := step_picture_of(app, history_entry_at(app, head).at); has {
+			timeline_step_card(app, head, a.mouse.x, r.y)
+		} else {
+			point := ". The History brush paints back to before it" if step == recall else ""
+			mark := fmt.tprintf(" (bookmark %s)", e.bookmark) if e.bookmark != "" else ""
+			ui.tip(ctx, a.id, {a.mouse.x - 1, r.y, 2, r.h}, fmt.tprintf("Step %d: %s%s, object %d, %s%s%s", step + 1, entry_label(e), mark, e.id, ago_label(e.at), "" if step < done else " (undone)", point))
+		}
 	}
+}
+
+// The card over the step of the strip the pointer rests on, when the step has a picture
+// (history_pictures.odin): the picture beside what the step was, its object, age and
+// size, above the bar's top `top` at the pointer's `x`, kept on the window. It takes no
+// presses, so the bar under it still scrubs.
+@(private = "file")
+timeline_step_card :: proc(app: ^App, head: int, x, top: f32) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	e := history_entry_at(app, head)
+	_, last, _ := history_step_of(app, e.at)
+	bytes := 0
+	for i in head ..= last do bytes += history_entry_at(app, i).bytes
+	W, H :: 260, 96
+	window := ctx.input.window
+	at := [2]f32{clamp(x - W * 0.5, 8, max(window.x - W - 8, 8)), max(top - H - 30, 8)}
+	ui.begin_at(ctx, "timeline step card", at, {direction = .Row, gap = 10, padding = 12, width = W, height = H, radius = t.radius_large, background = .Panel, center = true, inert = true})
+	_ = step_picture_draw(app, e.at, ui.place(ctx, {72, 72}))
+	ui.begin(ctx, "timeline step card words", {direction = .Column, gap = 3})
+	room := f32(W - 12 * 2 - 72 - 10)
+	ui.label(ctx, ui.text_fit(ctx, entry_label(e), t.small_size, room, .Semibold), t.small_size, t.text, .Semibold)
+	obj := object_by_id(app, e.id)
+	if obj != nil do ui.label(ctx, ui.text_fit(ctx, object_label(obj), t.caption_size, room), t.caption_size, t.text_secondary)
+	ago := ago_label(e.at)
+	if bytes > 0 do ago = fmt.tprintf("%s · %s", ago, bytes_label(bytes))
+	ui.label(ctx, ago, t.caption_size, t.text_secondary)
+	if e.bookmark != "" do ui.label(ctx, ui.text_fit(ctx, e.bookmark, t.caption_size, room, .Semibold), t.caption_size, t.warning, .Semibold)
+	if head >= len(app.history.done) do ui.label(ctx, "undone", t.caption_size, t.text_tertiary)
+	ui.end(ctx)
+	ui.end(ctx)
 }

@@ -187,7 +187,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Earlier_Saves    = "earlier saves versions kept",
 	.Undo_History     = "undo history steps memory limit may use mb gb meshes textures device",
 	.History_Steps    = "history steps lights scene tree names folders order undo",
-	.History_Back     = "history camera follows restore view group repeated strokes list scrub slide two fingers quick",
+	.History_Back     = "history camera follows restore view group repeated strokes list scrub slide two fingers quick step pictures thumbnails",
 	.Blender_Link     = "blender link add-on folder",
 }
 
@@ -488,9 +488,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		grouped := !app.history_ungrouped
 		_ = ui.switch_row(ctx, "Camera follows the History", &app.history_camera)
 		if ui.switch_row(ctx, "Group repeated strokes in the list", &grouped) do app.history_ungrouped = !grouped
+		_ = ui.switch_row(ctx, "Step pictures in the list", &app.history_pictures)
 		fingers := !app.history_no_finger_scrub
 		if ui.switch_row(ctx, "Two fingers held, then slid, scrub", &fingers) do app.history_no_finger_scrub = !fingers
-		ui.paragraph(ctx, "With the camera following, undo, redo and a tap in the History put the view back where it was when that step was made, as Nomad's Restore camera does. Holding Undo or Redo and sliding sideways scrubs the History; two fingers held until they undo, then slid, do the same anywhere.")
+		ui.paragraph(ctx, "With the camera following, undo, redo and a tap in the History put the view back where it was when that step was made, as Nomad's Restore camera does. Step pictures show each step as the view saw it, round what it changed, in place of its icon; the strip and a step's menu always show them. Holding Undo or Redo and sliding sideways scrubs the History; two fingers held until they undo, then slid, do the same anywhere.")
 	case .Blender_Link:
 		when LINK_AVAILABLE {
 			folder := app.link.folder
@@ -587,7 +588,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0
 	case .History_Steps:   app.history_no_lights, app.history_no_tree = false, false
-	case .History_Back:    app.history_camera, app.history_ungrouped, app.history_no_finger_scrub = false, false, false
+	case .History_Back:    app.history_camera, app.history_ungrouped, app.history_no_finger_scrub, app.history_pictures = false, false, false, false
 	}
 }
 

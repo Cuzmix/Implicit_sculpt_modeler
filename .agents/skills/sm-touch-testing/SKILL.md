@@ -81,6 +81,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | opens a step's menu (right-click, long press, the pen) in the list or on the strip: bookmarks it, paints back to it, deletes what is older | `history_step_menu_from_the_list`, `history_point_from_the_timeline`, `history_point_by_right_click`, `history_strip_menu_paint_back_and_delete_older`, `history_bookmark_flies_over_the_strip` |
 | rests on or long-presses a History step to see what it changed | `history_tint_shows_what_a_step_changed` |
 | opens the History panel's Settings page and goes back to the steps | `history_settings_page_from_the_list` |
+| draws step pictures, shows them in the list (switch) and in the strip's card | `history_steps_get_pictures`, `strip_rest_shows_a_step_picture` |
 | scrubs the History by holding Undo and sliding (finger, mouse), or two fingers held until they undo and then slid | `hold_undo_and_slide_scrubs`, `hold_undo_slide_and_back_redoes`, `mouse_drag_off_undo_scrubs`, `two_fingers_held_then_slid_scrub`, `two_fingers_scrub_off_only_undoes` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | switches between the pen and a finger where the platform never says the pen left (an iPad's SDL; `--pen-no-leave` on a desktop): a finger after the pen works once the pen stops reporting, a palm still right after it | `finger_works_after_the_pen_leaves_unsaid`, `finger_right_after_the_pen_is_a_palm_still`, `finger_pen_finger_switching` |
