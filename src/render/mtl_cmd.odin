@@ -579,3 +579,26 @@ mtl_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, 
 	MTL.BlitCommandEncoder_generateMipmapsForTexture(enc, t.texture)
 	MTL.CommandEncoder_endEncoding(enc)
 }
+
+// A named group of commands for Xcode's GPU capture, on the open encoder if there is one
+// and otherwise on the command buffer, as SDL_GPU's Metal backend places it.
+mtl_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {
+	NS.scoped_autoreleasepool()
+	cmd := (^Mtl_Cmd)(command_buffer)
+	label := mtl_string(string(name))
+	switch {
+	case cmd.render != nil: MTL.CommandEncoder_pushDebugGroup(cmd.render, label)
+	case cmd.blit != nil:   MTL.CommandEncoder_pushDebugGroup(cmd.blit, label)
+	case:                   MTL.CommandBuffer_pushDebugGroup(cmd.cb, label)
+	}
+}
+
+mtl_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
+	NS.scoped_autoreleasepool()
+	cmd := (^Mtl_Cmd)(command_buffer)
+	switch {
+	case cmd.render != nil: MTL.CommandEncoder_popDebugGroup(cmd.render)
+	case cmd.blit != nil:   MTL.CommandEncoder_popDebugGroup(cmd.blit)
+	case:                   MTL.CommandBuffer_popDebugGroup(cmd.cb)
+	}
+}

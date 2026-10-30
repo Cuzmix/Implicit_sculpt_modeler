@@ -31,6 +31,7 @@ Mtl_Buffer :: struct {
 	size:     u32,
 	options:  MTL.ResourceOptions,
 	released: bool,
+	name:     cstring, // for Xcode's GPU capture, given to every backing; a literal, never freed
 }
 
 Mtl_Texture_Backing :: struct {
@@ -46,6 +47,7 @@ Mtl_Texture :: struct {
 	active:    ^Mtl_Texture_Backing,
 	swapchain: bool, // a window's drawable: never cycled or freed here
 	released:  bool,
+	name:      cstring, // for Xcode's GPU capture, given to every backing; a literal, never freed
 }
 
 Mtl_Shader :: struct {
@@ -73,6 +75,7 @@ mtl_buffer_backing_make :: proc(b: ^Mtl_Buffer) -> ^Mtl_Buffer_Backing {
 	if buffer == nil do return nil
 	backing := new(Mtl_Buffer_Backing)
 	backing.buffer, backing.owner = buffer, b
+	mtl_name(buffer, b.name)
 	append(&b.backings, backing)
 	return backing
 }
@@ -89,6 +92,26 @@ mtl_buffer_make :: proc(size: u32, options: MTL.ResourceOptions) -> ^Mtl_Buffer 
 		return nil
 	}
 	return b
+}
+
+// Labels a Metal resource for Xcode's GPU capture.
+@(private = "file")
+mtl_name :: proc(resource: ^MTL.Resource, name: cstring) {
+	if name == nil do return
+	NS.scoped_autoreleasepool()
+	MTL.Resource_setLabel(resource, mtl_string(string(name)))
+}
+
+mtl_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+	b := (^Mtl_Buffer)(buffer)
+	b.name = text
+	for backing in b.backings do mtl_name(backing.buffer, text)
+}
+
+mtl_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+	t := (^Mtl_Texture)(texture)
+	t.name = text
+	for backing in t.backings do mtl_name(backing.texture, text)
 }
 
 mtl_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
@@ -190,6 +213,7 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 	if texture == nil do return nil
 	backing := new(Mtl_Texture_Backing)
 	backing.texture, backing.owner = texture, t
+	mtl_name(texture, t.name)
 	append(&t.backings, backing)
 	return backing
 }

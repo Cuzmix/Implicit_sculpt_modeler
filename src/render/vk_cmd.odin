@@ -951,3 +951,16 @@ vk_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, t
 		vk_image_barrier(cmd, img, .TRANSFER_DST_OPTIMAL, t.default_layout, level, 1)
 	}
 }
+
+// A named group of commands for capture tools, closed by vk_pop_debug_group in the same
+// command buffer.
+vk_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {
+	if !vk_state.labels || vk.CmdBeginDebugUtilsLabelEXT == nil do return
+	label := vk.DebugUtilsLabelEXT{sType = .DEBUG_UTILS_LABEL_EXT, pLabelName = name}
+	vk.CmdBeginDebugUtilsLabelEXT((^Vk_Cmd)(command_buffer).cb, &label)
+}
+
+vk_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
+	if !vk_state.labels || vk.CmdEndDebugUtilsLabelEXT == nil do return
+	vk.CmdEndDebugUtilsLabelEXT((^Vk_Cmd)(command_buffer).cb)
+}

@@ -355,4 +355,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
   branches on caps, never on a backend's name. A new capability is a field there plus one `gpu_*` proc with an
   SDL_GPU, Vulkan and Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
+- A new top-level pass function starts with `debug_group(cmd, "Name")` (`gpu.odin`, popped as the scope ends, so
+  call it outside any pass), and a long-lived texture or buffer gets `gpu_set_texture_name`/`gpu_set_buffer_name`
+  with a literal (the backends keep the pointer for later backings), so captures in Xcode and RenderDoc read.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).

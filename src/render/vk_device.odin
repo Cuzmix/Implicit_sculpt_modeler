@@ -28,6 +28,7 @@ Vk_State :: struct {
 	queue:             vk.Queue,
 	family:            u32,
 	frames:            u32, // frames a window may have in flight before its next acquire waits
+	labels:            bool, // VK_EXT_debug_utils is on: passes and objects carry names for capture tools
 	properties:        vk.PhysicalDeviceProperties,
 	driver:            vk.PhysicalDeviceDriverProperties,
 	memory:            vk.PhysicalDeviceMemoryProperties,
@@ -159,6 +160,19 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		append(&extensions, vk.EXT_VALIDATION_FEATURES_EXTENSION_NAME)
 	} else if debug {
 		log.warn("Vulkan: the validation layer is not installed; running without it")
+	}
+	// Names for capture tools (RenderDoc, Nsight) wherever the loader offers them, as
+	// SDL_GPU does; they cost nothing when no tool is attached.
+	vk_state.labels = validation
+	if !validation {
+		instance_count: u32
+		if vk.EnumerateInstanceExtensionProperties(nil, &instance_count, nil) == .SUCCESS {
+			offered := make([]vk.ExtensionProperties, instance_count, context.temp_allocator)
+			if vk.EnumerateInstanceExtensionProperties(nil, &instance_count, raw_data(offered)) == .SUCCESS && vk_has_extension(offered, vk.EXT_DEBUG_UTILS_EXTENSION_NAME) {
+				append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+				vk_state.labels = true
+			}
+		}
 	}
 	app := vk.ApplicationInfo {
 		sType            = .APPLICATION_INFO,

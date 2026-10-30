@@ -35,6 +35,7 @@ Vk_Buffer :: struct {
 	usage:    vk.BufferUsageFlags,
 	host:     Vk_Host,
 	released: bool,
+	name:     cstring, // for capture tools, given to every backing; a literal, never freed
 }
 
 Vk_Image :: struct {
@@ -56,6 +57,7 @@ Vk_Texture :: struct {
 	backings:       [dynamic]^Vk_Image,
 	active:         ^Vk_Image,
 	swapchain:      bool, // owned by a window's swapchain: never cycled or destroyed here
+	name:           cstring, // for capture tools, given to every backing; a literal, never freed
 	released:       bool,
 }
 
@@ -205,6 +207,7 @@ vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
 		}
 		backing.mapped = ([^]u8)(data)
 	}
+	vk_name(.BUFFER, u64(backing.buffer), b.name)
 	append(&b.backings, backing)
 	return backing
 }
@@ -227,6 +230,31 @@ vk_buffer_make :: proc(size: u32, usage: vk.BufferUsageFlags, host: Vk_Host) -> 
 		return nil
 	}
 	return b
+}
+
+// Names a Vulkan object for capture tools when debug utils are on.
+@(private = "file")
+vk_name :: proc(type: vk.ObjectType, handle: u64, name: cstring) {
+	if name == nil || !vk_state.labels || vk.SetDebugUtilsObjectNameEXT == nil do return
+	info := vk.DebugUtilsObjectNameInfoEXT {
+		sType        = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		objectType   = type,
+		objectHandle = handle,
+		pObjectName  = name,
+	}
+	_ = vk.SetDebugUtilsObjectNameEXT(vk_state.device, &info)
+}
+
+vk_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+	b := (^Vk_Buffer)(buffer)
+	b.name = text
+	for backing in b.backings do vk_name(.BUFFER, u64(backing.buffer), text)
+}
+
+vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+	t := (^Vk_Texture)(texture)
+	t.name = text
+	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
 }
 
 vk_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
@@ -369,6 +397,7 @@ vk_image_backing_make :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) -> ^Vk_Image {
 			}
 		}
 	}
+	vk_name(.IMAGE, u64(img.image), t.name)
 	append(&t.backings, img)
 	target := cmd if cmd != nil else vk_setup_cmd()
 	vk_cmd_track_image(target, img)

@@ -247,6 +247,7 @@ Lights_World :: struct {
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
 render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false) -> bool {
+	debug_group(cmd, "Render mode")
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
 		path_render_destroy(r, pr)
