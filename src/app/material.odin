@@ -134,7 +134,7 @@ material_index :: proc(m: Material) -> int {
 // default new objects take, as picking a material does in the Material section. It is no
 // undo step (a ZBrush material is outside its Undo History too), but the scene counts as
 // changed.
-material_set :: proc(app: ^App, m: Material) {
+material_set :: proc(app: ^App, m: Material, to := Material_Target.Selection) {
 	m := m
 	m.selected.a, m.idle.a = 1, 1
 	if m.label == nil do m.label = "Custom"
@@ -150,8 +150,87 @@ material_set :: proc(app: ^App, m: Material) {
 	i := material_index(m)
 	if i == CUSTOM_MATERIAL do app.custom = m
 	app.material = i
-	for obj in app.scene.objects do if object_in_selection(app, obj) do obj.material = m
+	for obj in app.scene.objects do if material_takes(app, obj, to) do obj.material = m
 	app.scene_edits += 1
+}
+
+// Which objects a material picked on the Material card goes to (its Apply to): the
+// selected ones, every object in the selected one's folder, or every object.
+Material_Target :: enum u8 {
+	Selection,
+	Folder,
+	Every,
+}
+
+// Whether `obj` takes a material sent to `to`.
+material_takes :: proc(app: ^App, obj: ^Object, to: Material_Target) -> bool {
+	switch to {
+	case .Selection: return object_in_selection(app, obj)
+	case .Folder:
+		sel := selected_object(app)
+		if sel == nil do return false
+		return obj == sel || object_in_selection(app, obj) || (sel.folder != 0 && obj.folder == sel.folder)
+	case .Every:     return true
+	}
+	return false
+}
+
+// A scrub over the Material card's spheres (Nomad's): each sphere the finger passes shows
+// its material on the objects at once, the materials they had kept aside; lifting on a
+// sphere keeps it, sliding off and lifting puts them back.
+Material_Preview :: enum u8 {
+	None, // an ordinary pick
+	Show, // shows the material, keeping what the objects had the first time
+	Keep, // keeps what is shown
+	Back, // puts back what the objects had
+}
+
+// What a scrub keeps aside: each object's material by id, and the default new objects take.
+Material_Saved :: struct {
+	active:   bool,
+	ids:      [dynamic]int,
+	before:   [dynamic]Material,
+	material: int,
+	custom:   Material,
+}
+
+// Applies a Scene_Command's .Material: `m` to the objects `to` names, as a pick or as a
+// step of a scrub (`preview`).
+material_command :: proc(app: ^App, m: Material, to: Material_Target, preview: Material_Preview) {
+	sv := &app.material_saved
+	switch preview {
+	case .None:
+		material_saved_drop(app)
+		material_set(app, m, to)
+	case .Show:
+		if !sv.active {
+			sv.active, sv.material, sv.custom = true, app.material, app.custom
+			for obj in app.scene.objects {
+				if !material_takes(app, obj, to) do continue
+				append(&sv.ids, obj.id)
+				append(&sv.before, obj.material)
+			}
+		}
+		material_set(app, m, to)
+		app.material_previews += 1
+	case .Keep:
+		if sv.active do app.material_keeps += 1
+		material_saved_drop(app)
+	case .Back:
+		if !sv.active do return
+		for id, i in sv.ids do if obj := object_by_id(app, id); obj != nil do obj.material = sv.before[i]
+		app.material, app.custom = sv.material, sv.custom
+		app.scene_edits += 1
+		material_saved_drop(app)
+	}
+}
+
+// Forgets what a scrub kept aside.
+material_saved_drop :: proc(app: ^App) {
+	sv := &app.material_saved
+	clear(&sv.ids)
+	clear(&sv.before)
+	sv.active = false
 }
 
 // Gives each object that has no material yet (made this frame, or read from a scene

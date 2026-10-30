@@ -303,6 +303,11 @@ App :: struct {
 	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
+	// A scrub over the Material card's spheres: what the objects had (material.odin), and
+	// the previews shown and scrubs kept, for the exit stats.
+	material_saved:    Material_Saved,
+	material_previews: int,
+	material_keeps:    int,
 	// The built-in matcaps' textures (nil where the device refused one), and the image
 	// loaded with Load MatCap with its path ("" for none).
 	matcaps:      [len(MATCAP_RECIPES)]render.Texture,
@@ -513,6 +518,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer file_shutdown(&app)
 	defer results_destroy(&app)
+	defer {delete(app.material_saved.ids); delete(app.material_saved.before)}
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 	matcaps_create(&app)
@@ -1645,6 +1651,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			material := "none"
 			if obj != nil && obj.material.label != nil do material, _ = strings.replace_all(string(obj.material.label), " ", "_", context.temp_allocator)
 			fmt.printfln("selected_levels=%d selected_name=%s selected_material=%s new_armed=%d menu=%d", len(obj.levels.levels) if obj != nil else 0, name, material, app.kit.new_armed, int(app.kit.menu))
+			objects_matcap := 0
+			for o in app.scene.objects do if o.material.matcap != 0 do objects_matcap += 1
+			fmt.printfln("material_tab=%s material_previews=%d material_keeps=%d selected_matcap=%d objects_matcap=%d material_to=%s", strings.to_lower(MATERIAL_TAB_NAMES[app.kit.material_card.tab], context.temp_allocator), app.material_previews, app.material_keeps, obj.material.matcap if obj != nil else 0, objects_matcap, strings.to_lower(fmt.tprint(app.ui.material_to), context.temp_allocator))
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))

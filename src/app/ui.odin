@@ -49,6 +49,7 @@ Ui_State :: struct {
 	// group_target's material, of object group_target_id (0 for none picked); Pick a group
 	// waits for a press on the selected object, which is held out of the tools until it lifts.
 	material_groups:    bool,
+	material_to:        Material_Target, // the Material card's Apply to: which objects a pick goes to
 	group_pick:         bool,
 	group_pick_held:    bool,
 	// The Eyedropper (kit_colors.odin): armed, it waits for a press on the viewport; held,

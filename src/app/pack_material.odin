@@ -376,6 +376,9 @@ pack_matcaps_settle :: proc(app: ^App) {
 	mark :: proc(need: []bool, m: Material) {
 		if k := m.matcap - PACK_MATCAP; m.matcap >= PACK_MATCAP && k < len(need) do need[k] = true
 	}
+	// The Material card's Matcaps tab shows every one.
+	if l.matcaps_wanted do for &n in need do n = true
+	l.matcaps_wanted = false
 	mark(need, app.custom)
 	mark(need, current_material(app))
 	for obj in app.scene.objects do mark(need, obj.material)
