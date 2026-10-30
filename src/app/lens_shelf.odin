@@ -11,8 +11,8 @@ import "../ui"
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
 // centre with All at their end, then after a divider the tool strip
 // (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its pages
-// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model; Render in Render: shelf_pages_of), which replace
-// the old mode switch: each page is
+// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model; Render in Render; then the pages
+// the person added in that space: shelf_pages), which replace the old mode switch: each page is
 // a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
 // the tools. A finger or a pen swiped sideways along the shelf turns its page; the wheel over it does the same for a mouse. A tap on a tile picks
 // it; a long press shows its quick settings above it, so the hand never covers them; All
@@ -27,7 +27,18 @@ Shelf_Page :: enum u8 {
 	Curve,
 	Model,
 	Render,
+	// The pages the person adds (New page in a page name's menu), each to the space it was
+	// added in, up to six, after the built-in ones.
+	Extra_1,
+	Extra_2,
+	Extra_3,
+	Extra_4,
+	Extra_5,
+	Extra_6,
 }
+
+// The first of the pages the person adds.
+SHELF_EXTRA_FIRST :: Shelf_Page.Extra_1
 
 @(rodata)
 SHELF_PAGE_NAMES := [Shelf_Page]string {
@@ -37,6 +48,12 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 	.Curve  = "Curve",
 	.Model  = "Model",
 	.Render = "Render",
+	.Extra_1 = "Page",
+	.Extra_2 = "Page",
+	.Extra_3 = "Page",
+	.Extra_4 = "Page",
+	.Extra_5 = "Page",
+	.Extra_6 = "Page",
 }
 
 // The most tiles a page holds, and how many full-width tiles' room a tablet-shaped window
@@ -111,16 +128,101 @@ Shelf :: struct {
 	turns:    int,
 	swipes:   int,
 	active:   bool, // the active brush's tile showed beside the shelf (shelf_active_item)
+	// The pages' own names (empty for the one each comes with), the added pages in use and
+	// the space each was added in.
+	names:    [Shelf_Page][NAME_BYTES]u8,
+	extras:   bit_set[Shelf_Page],
+	extra_in: [Shelf_Page]Space,
+	// The menu a long press or a right click on a page's name opens, the page it is for,
+	// and whether it is asking before Delete page.
+	menu:     bool,
+	menu_page: Shelf_Page,
+	menu_at:  ui.Rect,
+	deleting: bool,
+	added:    int, // pages added, for the exit stats
 }
 
-// The pages space `s` shows, first to last: Sculpt's four, and Model's and Render's own.
-shelf_pages_of :: proc(s: Space) -> (first, last: Shelf_Page) {
+// The pages space `s` shows, first to last: its own built-in ones (Sculpt's four, Model's
+// and Render's one), then those added in it, in the order they were added to the slots.
+shelf_pages :: proc(k: ^Kit_State, s: Space) -> []Shelf_Page {
+	out := make([dynamic]Shelf_Page, 0, len(Shelf_Page), context.temp_allocator)
+	for p in Shelf_Page do if shelf_page_used(k, p) && shelf_page_space(k, p) == s do append(&out, p)
+	return out[:]
+}
+
+// The page a space opens on in a fresh install: its first built-in one.
+shelf_first_page :: proc(s: Space) -> Shelf_Page {
 	switch s {
-	case .Sculpt: return .Sculpt, .Curve
-	case .Model:  return .Model, .Model
-	case .Render: return .Render, .Render
+	case .Sculpt: return .Sculpt
+	case .Model:  return .Model
+	case .Render: return .Render
 	}
-	return .Sculpt, .Curve
+	return .Sculpt
+}
+
+// Whether page `p` is in use: every built-in one is, an added one until it is deleted.
+shelf_page_used :: proc(k: ^Kit_State, p: Shelf_Page) -> bool {
+	return p < SHELF_EXTRA_FIRST || p in k.shelf.extras
+}
+
+// The space page `p` belongs to.
+shelf_page_space :: proc(k: ^Kit_State, p: Shelf_Page) -> Space {
+	if p >= SHELF_EXTRA_FIRST do return k.shelf.extra_in[p]
+	#partial switch p {
+	case .Model:  return .Model
+	case .Render: return .Render
+	}
+	return .Sculpt
+}
+
+// What page `p` is called: the name it was given, else the one it comes with.
+shelf_page_name :: proc(k: ^Kit_State, p: Shelf_Page) -> string {
+	if name := rename_text(k.shelf.names[p][:]); name != "" do return name
+	return SHELF_PAGE_NAMES[p]
+}
+
+// Where page `p` is among `pages`; 0 when it is not there.
+@(private = "file")
+shelf_page_index :: proc(pages: []Shelf_Page, p: Shelf_Page) -> int {
+	for q, i in pages do if q == p do return i
+	return 0
+}
+
+// Names page `p` (an empty name leaves it as it is).
+shelf_page_rename :: proc(k: ^Kit_State, p: Shelf_Page, name: string) {
+	trimmed := strings.trim_space(name)
+	if trimmed == "" || !shelf_page_used(k, p) do return
+	k.shelf.names[p] = {}
+	copy(k.shelf.names[p][:NAME_BYTES - 1], trimmed)
+}
+
+// Adds an empty page to the end of space `s`'s pages, named "Page N" by where it stands
+// among them, and returns it; false when all six added pages are in use.
+shelf_page_add :: proc(k: ^Kit_State, s: Space) -> (Shelf_Page, bool) {
+	for p in SHELF_EXTRA_FIRST ..= Shelf_Page.Extra_6 {
+		if p in k.shelf.extras do continue
+		n := len(shelf_pages(k, s)) + 1
+		k.shelf.extras += {p}
+		k.shelf.extra_in[p] = s
+		k.shelf.lists[p] = shelf_fresh(p)
+		k.shelf.names[p] = {}
+		copy(k.shelf.names[p][:NAME_BYTES - 1], fmt.tprintf("Page %d", n))
+		k.shelf.added += 1
+		return p, true
+	}
+	return {}, false
+}
+
+// Deletes added page `p` with its tiles; a built-in page stays. A space left on it goes
+// back to its first page.
+shelf_page_delete :: proc(k: ^Kit_State, p: Shelf_Page) {
+	if p < SHELF_EXTRA_FIRST || p not_in k.shelf.extras do return
+	s := k.shelf.extra_in[p]
+	k.shelf.extras -= {p}
+	k.shelf.lists[p] = shelf_fresh(p)
+	k.shelf.names[p] = {}
+	if k.spaces.page[s] == p do k.spaces.page[s] = shelf_first_page(s)
+	if k.shelf.page == p do k.shelf.page = shelf_first_page(s)
 }
 
 // The bar that holds page `p`.
@@ -156,13 +258,50 @@ shelf_fresh :: proc(p: Shelf_Page) -> Bar_List {
 	case .Render:
 		d := SHELF_RENDER
 		return bar_list_of(d[:])
+	case .Extra_1, .Extra_2, .Extra_3, .Extra_4, .Extra_5, .Extra_6:
+		// An added page starts empty, for the person to fill.
 	}
 	return {}
 }
 
-// Puts every page back as a fresh install has it.
+// Puts every page back as a fresh install has it: the built-in ones with their own tiles
+// and names, and no added ones.
 shelf_reset :: proc(k: ^Kit_State) {
 	for p in Shelf_Page do k.shelf.lists[p] = shelf_fresh(p)
+	k.shelf.names, k.shelf.extras, k.shelf.extra_in = {}, {}, {}
+}
+
+// The settings lines of the pages: `shelf_extra <zone> <space>` for each added page in
+// use, and `shelf_page_name <zone> <name, escaped>` for each page with a name of its own,
+// by the zone of the bar that holds it (BAR_ZONES). Their tiles are the bars' lines.
+shelf_pages_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
+	for p in Shelf_Page {
+		if !shelf_page_used(k, p) do continue
+		zone := BAR_ZONES[shelf_which(p)]
+		if p >= SHELF_EXTRA_FIRST do fmt.sbprintfln(out, "shelf_extra %s %v", zone, k.shelf.extra_in[p])
+		if name := rename_text(k.shelf.names[p][:]); name != "" do fmt.sbprintfln(out, "shelf_page_name %s %s", zone, preset_escape(name))
+	}
+}
+
+// Reads a shelf_extra or shelf_page_name line (`f` split by spaces), as shelf_pages_save
+// writes them; one naming no page or space is passed over.
+shelf_pages_load_line :: proc(k: ^Kit_State, f: []string) {
+	if len(f) != 3 do return
+	which, ok := bar_zone(f[1])
+	if !ok do return
+	p, page := shelf_page_of(which)
+	if !page do return
+	switch f[0] {
+	case "shelf_extra":
+		if p < SHELF_EXTRA_FIRST do return
+		for s in Space do if fmt.tprint(s) == f[2] {
+			k.shelf.extras += {p}
+			k.shelf.extra_in[p] = s
+		}
+	case "shelf_page_name":
+		k.shelf.names[p] = {}
+		copy(k.shelf.names[p][:NAME_BYTES - 1], preset_unescape(f[2]))
+	}
 }
 
 // The picker's item as a shelf slot: a plain brush, or a tool's command. Presets and the
@@ -251,8 +390,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	first, last := shelf_pages_of(k.spaces.current)
-	if sh.page < first || sh.page > last do sh.page = first
+	pages := shelf_pages(k, k.spaces.current)
+	if !shelf_page_used(k, sh.page) || shelf_page_space(k, sh.page) != k.spaces.current do sh.page = pages[0]
 	which := shelf_which(sh.page)
 	used := bar_used(app, which)
 	tools := bar_used(app, .Tools)
@@ -292,23 +431,26 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// or the tools.
 	focus := lens_focus(k)
 	// The Model page's cage has its own tools on the page, and the mesh tools do not work
-	// on a cage, so they make room for its tiles there.
-	tools_here := !focus && sh.page != .Model && sh.page != .Render
+	// on a cage, so they make room for its tiles there, as on Render's pages.
+	tools_here := !focus && shelf_page_space(k, sh.page) == .Sculpt
 	m := len(tools) if tools_here else 0
 	// The Paint toggle ends the Sculpt dock (paint_toggle.odin), on the pen side beside it,
 	// within the room kept clear there to match the dial's side, so the dock neither moves
 	// nor loses a tile for it.
 	paint_here := !focus && k.spaces.current == .Sculpt && k.places[.Shelf].edge == .Default
 	if focus do n = min(n, SHELF_FOCUS)
+	// The Add tile shows while arranging, and on an empty page (one just added) always, so
+	// the page says what it is for and a tap fills it.
+	adding := (k.bars_edit || n == 0) && !focus
 	tile: f32
-	n, m, tile = shelf_layout(n, m, room, k.bars_edit && !focus, row)
+	n, m, tile = shelf_layout(n, m, room, adding, row)
 	// A brush picked from All, Search or the pie that is not among the tiles shown gets its
 	// own tile beside the shelf, so what the pen holds is always in sight; the shelf gives it
 	// room as it does its tools.
 	active, active_on := shelf_active_item(app, used[:n], tools[:m], k.bars_edit)
 	if active_on {
 		room = max(room - SHELF_ACTIVE_W, 0)
-		n, m, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), m, room, k.bars_edit && !focus, row)
+		n, m, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), m, room, adding, row)
 		// The tile and the shelf stand centred together, so the tile keeps clear of the dial.
 		if k.places[.Shelf].edge == .Default {
 			off := SHELF_ACTIVE_W * 0.5 * (-1 if ctx.mirror else 1)
@@ -327,10 +469,9 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	shelf_wheel(app, shelf_at, &turn)
 	if turn != 0 && shelf_turn(app, turn) do sh.swipes += 1
 	// Past the first or the last page the row gives a little, as a scroll view's edge does.
-	if (offset > 0 && sh.page == first) || (offset < 0 && sh.page == last) do offset *= 0.3
+	if (offset > 0 && sh.page == pages[0]) || (offset < 0 && sh.page == pages[len(pages) - 1]) do offset *= 0.3
 	slide := offset + sh.slide
 	ui.begin_anchored(ctx, "dock", place_x, place_y, place_at, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
-	adding := k.bars_edit && !focus
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
 	brushes_at := sh.row
@@ -382,9 +523,9 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	sheet_anchor = ctx.last_rect
 	// The tools, the same on every page and kept by the workspace's layout.
 	sh.tools = m
-	if m > 0 || (adding && tools_here) do ui.divider(ctx, 32)
+	if m > 0 || (k.bars_edit && adding && tools_here) do ui.divider(ctx, 32)
 	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
-	if adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
+	if k.bars_edit && adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
 	ui.end(ctx)
 	pen_zone(app, shelf_at, .Shelf, shelf_id)
 	// The pen's roll over the shelf, where no value chip on it took the roll, turns its
@@ -393,7 +534,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		if step := ui.roll_steps(ctx, roll, SHELF_ROLL_PAGE); step != 0 && shelf_turn(app, 1 if step > 0 else -1) {
 			sh.swipes += 1
 			haptic(app, .Alignment)
-			ui.roll_hint(ctx, fmt.tprintf("Page: %s", SHELF_PAGE_NAMES[sh.page]))
+			ui.roll_hint(ctx, fmt.tprintf("Page: %s", shelf_page_name(k, sh.page)))
 		}
 	}
 	// The page the slide is heading for comes in behind it from that side, as a home
@@ -419,8 +560,7 @@ SHELF_ACTIVE_W :: ui.BRUSH_TILE.x + 2 * SHELF_PAD + 6
 // lit for it already. A tool such as Move or Model lights its own button, so it shows none.
 shelf_active_item :: proc(app: ^App, tiles, tools: []Bar_Slot, arranging: bool) -> (it: Brush_Item, shows: bool) {
 	if arranging do return
-	page := app.kit.shelf.page
-	if page == .Model || page == .Render do return
+	if shelf_page_space(&app.kit, app.kit.shelf.page) != .Sculpt do return
 	it = brush_item_current(app)
 	if it.what == .Tool && it.tool == .Model do return
 	if !brush_item_on(app, it) do return
@@ -461,15 +601,17 @@ shelf_active_tile :: proc(app: ^App, it: Brush_Item) {
 	ui.end(ctx)
 }
 
-// Turns the shelf `by` pages (on from Curve, back from Sculpt, it stays), the new page's
-// brushes sliding in from the side they come from. Returns whether it turned.
+// Turns the shelf `by` pages among the space's (on from its last, back from its first, it
+// stays), the new page's brushes sliding in from the side they come from. Returns whether
+// it turned.
 shelf_turn :: proc(app: ^App, by: int) -> bool {
 	sh := &app.kit.shelf
-	first, last := shelf_pages_of(app.kit.spaces.current)
-	to := Shelf_Page(clamp(int(sh.page) + by, int(first), int(last)))
+	pages := shelf_pages(&app.kit, app.kit.spaces.current)
+	at := shelf_page_index(pages, sh.page)
+	to := pages[clamp(at + by, 0, len(pages) - 1)]
 	if to == sh.page do return false
 	w := sh.row.w
-	sh.slide = (1 if to > sh.page else -1) * w * SHELF_SLIDE_FROM
+	sh.slide = (1 if by > 0 else -1) * w * SHELF_SLIDE_FROM
 	sh.page, sh.quick = to, false
 	sh.turns += 1
 	return true
@@ -502,10 +644,10 @@ shelf_wheel :: proc(app: ^App, at: ui.Rect, turn: ^int) {
 shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	k := &app.kit
 	ctx := &k.ctx
-	i := int(k.shelf.page) + page_by
-	first, last := shelf_pages_of(k.spaces.current)
-	if i < int(first) || i > int(last) do return
-	page := Shelf_Page(i)
+	pages := shelf_pages(k, k.spaces.current)
+	i := shelf_page_index(pages, k.shelf.page) + page_by
+	if i < 0 || i >= len(pages) do return
+	page := pages[i]
 	used := bar_used(app, shelf_which(page))
 	ui.begin_at(ctx, "shelf peek", {at.x, at.y}, {direction = .Row, gap = 0, width = at.w, height = at.h, clip = true, inert = true})
 	mark := ui.vertex_mark(ctx)
@@ -517,7 +659,9 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)
 }
 
-// The page names under the shelf, each a tap away; the shelf stands over them.
+// The page names under the shelf, each a tap away; the shelf stands over them. A long
+// press or a right click on a name opens its menu (Rename, New page, Delete page), and while
+// arranging a + after the names adds a page.
 @(private = "file")
 lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	k := &app.kit
@@ -525,18 +669,109 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	t := ctx.theme
 	sh := &k.shelf
 	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
-	first, last := shelf_pages_of(k.spaces.current)
-	for p in first ..= last {
-		name := SHELF_PAGE_NAMES[p]
+	pages := shelf_pages(k, k.spaces.current)
+	here := shelf_page_index(pages, sh.page)
+	for p, i in pages {
+		name := ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHELF_PAGE_NAME_W, .Semibold)
 		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
-		a := ui.area(ctx, fmt.tprintf("%s page##shelf", name), {w, 24})
+		// By the page, not its name, so a renamed page keeps its press.
+		a := ui.area(ctx, fmt.tprintf("page %v##shelf", p), {w, 24})
 		on := p == sh.page
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
 		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
-		if a.clicked && !on do shelf_turn(app, int(p) - int(sh.page))
+		ui.tip(ctx, a.id, a.rect, shelf_page_name(k, p), "Long press or right click to rename it or add a page")
+		if a.clicked && !on do shelf_turn(app, i - here)
+		if ui.secondary(ctx) do shelf_page_menu_open(k, p, a.rect)
+	}
+	if k.bars_edit && !lens_focus(k) {
+		a := ui.area(ctx, "add page##shelf", {28, 24})
+		if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
+		ui.icon(ctx, ui.ICON_PLUS, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
+		ui.tip(ctx, a.id, a.rect, "New page", "Adds an empty page to this space's shelf")
+		if a.clicked do shelf_page_new(app)
 	}
 	ui.end(ctx)
+}
+
+// The widest a page's name shows under the shelf; a longer one is cut.
+SHELF_PAGE_NAME_W :: 120
+
+// Opens page `p`'s menu over its name at `at`.
+shelf_page_menu_open :: proc(k: ^Kit_State, p: Shelf_Page, at: ui.Rect) {
+	kit_floats_close(k)
+	k.shelf.menu, k.shelf.menu_page, k.shelf.menu_at, k.shelf.deleting = true, p, at, false
+}
+
+// Adds an empty page to the space's shelf and turns to it, saying so; with all six added
+// pages in use it says that instead.
+shelf_page_new :: proc(app: ^App) {
+	k := &app.kit
+	p, ok := shelf_page_add(k, k.spaces.current)
+	if !ok {
+		report(app, nil, {.Warning}, "The shelf has %d pages of your own already: delete one first", int(Shelf_Page.Extra_6) - int(SHELF_EXTRA_FIRST) + 1)
+		return
+	}
+	pages := shelf_pages(k, k.spaces.current)
+	_ = shelf_turn(app, shelf_page_index(pages, p) - shelf_page_index(pages, k.shelf.page))
+	report(app, nil, {}, "Added %s to the shelf: put brushes on it in Arrange or from Search", shelf_page_name(k, p))
+}
+
+// A page name's menu, over it: Rename, New page, and for a page of one's own Delete page,
+// which asks first when the page has tiles, as nothing undoes it; a built-in page given a
+// name of its own can have its name back.
+kit_shelf_page_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	sh := &k.shelf
+	p := sh.menu_page
+	if sh.menu && (!shelf_page_used(k, p) || shelf_page_space(k, p) != k.spaces.current) do sh.menu = false
+	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, .Above_Center, {direction = .Column, gap = 0, padding = 6, width = 240}) do return
+	defer ui.popover_end(ctx)
+	picked := false
+	name := shelf_page_name(k, p)
+	if sh.deleting {
+		ui.caption(ctx, fmt.tprintf("  DELETE %s?", strings.to_upper(name, context.temp_allocator)))
+		ui.paragraph(ctx, fmt.tprintf("Its %d tiles go with it, for good.", sh.lists[p].count))
+		yes, no := kit_button_pair(ctx, "Delete", "Keep it", tone_a = .Danger)
+		if yes {
+			shelf_page_delete(k, p)
+			report(app, nil, {}, "Deleted the shelf's %s page", name)
+			picked = true
+		}
+		if no do sh.deleting = false
+	} else {
+		ui.caption(ctx, fmt.tprintf("  %s ON THE SHELF", strings.to_upper(name, context.temp_allocator)))
+		if ui.menu_item(ctx, "Rename…##shelf page") {
+			k.rename = {open = true, shelf_page = int(p) + 1, at = sh.menu_at}
+			sh.menu = false
+		}
+		_, full := shelf_page_full(k)
+		if ui.menu_item(ctx, "New page##shelf page", glyph = ui.ICON_PLUS, enabled = !full, reason = "The shelf has six pages of your own already") {
+			shelf_page_new(app)
+			picked = true
+		}
+		if p < SHELF_EXTRA_FIRST && rename_text(sh.names[p][:]) != "" && ui.menu_item(ctx, fmt.tprintf("Call it %s again##shelf page", SHELF_PAGE_NAMES[p])) {
+			sh.names[p] = {}
+			picked = true
+		}
+		if p >= SHELF_EXTRA_FIRST && ui.menu_item(ctx, "Delete page##shelf page", tone = .Danger) {
+			if sh.lists[p].count > 0 {
+				sh.deleting = true
+			} else {
+				shelf_page_delete(k, p)
+				report(app, nil, {}, "Deleted the shelf's %s page", name)
+				picked = true
+			}
+		}
+	}
+	if picked do sh.menu = false
+}
+
+// How many added pages are in use, and whether all six are.
+shelf_page_full :: proc(k: ^Kit_State) -> (used: int, full: bool) {
+	used = card(k.shelf.extras)
+	return used, used >= int(Shelf_Page.Extra_6) - int(SHELF_EXTRA_FIRST) + 1
 }
 
 // Opens the brush picker over the shelf, or closes it.
@@ -632,9 +867,12 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	p.searching = true
 	_ = ui.text_field(ctx, "Search brushes", p.search[:], min(300, main_w * 0.36), hold = p.search_focus, hint = fmt.tprintf("Search %d brushes", len(all)))
 	p.search_focus = false
-	pages: [len(Shelf_Page)]string
-	for name, i in SHELF_PAGE_NAMES do pages[i] = name
-	if picked := ui.tabs(ctx, "brush sheet page", pages[:], int(sh.page), item_width = 72); picked >= 0 && Shelf_Page(picked) != sh.page do shelf_turn(app, picked - int(sh.page))
+	// The space's pages, each narrowing All to what it is for.
+	pages := shelf_pages(k, k.spaces.current)
+	names := make([]string, len(pages), context.temp_allocator)
+	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, 64)
+	here := shelf_page_index(pages, sh.page)
+	if picked := ui.tabs(ctx, "brush sheet page", names, here, item_width = 72); picked >= 0 && picked != here do shelf_turn(app, picked - here)
 	IMPORT_W :: 104
 	ui.spacer(ctx, ui.row_room(ctx) - 8 - IMPORT_W - 8 - t.target)
 	_ = command_button(app, .Pick_Pack, label = "Import", variant = .Bordered, width = IMPORT_W, glyph = ui.ICON_PLUS)
@@ -701,8 +939,9 @@ brush_query :: proc(p: ^Brush_Palette) -> string {
 brush_sheet_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 	p := &app.kit.brushes
 	list := brush_palette_list(app, all)
-	// Render's page holds no brushes, so its picker lists them all.
-	if p.category != .All || brush_query(p) != "" || app.kit.shelf.page == .Render do return list
+	// Render's page holds no brushes, so its picker lists them all, as a page of one's own
+	// does, being for whatever its owner puts on it.
+	if p.category != .All || brush_query(p) != "" || app.kit.shelf.page == .Render || app.kit.shelf.page >= SHELF_EXTRA_FIRST do return list
 	out := make([dynamic]Listed_Brush, context.temp_allocator)
 	for l in list {
 		c := brush_item_category(l.item)
@@ -754,7 +993,7 @@ shelf_carry_update :: proc(app: ^App) {
 		if !ui.rect_contains(r, in_.mouse) do continue
 		bar_list(app, which).slots[i] = s
 		sh.drops += 1
-		report(app, nil, {}, "The %s shelf now has %s", SHELF_PAGE_NAMES[sh.page], shelf_label(s))
+		report(app, nil, {}, "The shelf's %s page now has %s", shelf_page_name(k, sh.page), shelf_label(s))
 		return
 	}
 }

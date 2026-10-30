@@ -86,7 +86,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	}
 	s := Bar_Slot{e.id, e.arg}
 	if e.id == .Brush {
-		for p in Shelf_Page do if slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", SHELF_PAGE_NAMES[p])
+		for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 		return "Brush picker"
 	}
 	// A command's home is its section as the tray drew it: the Brush card's group, or the
@@ -97,7 +97,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 		return fmt.tprintf("%s card", panel_kind_title(app, p))
 	}
 	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
-	for p in Shelf_Page do if slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", SHELF_PAGE_NAMES[p])
+	for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"
 	for d, i in app.kit.docks do if d.used && slice.contains(bar_used(app, user_dock_which(i)), s) do return USER_DOCK_NAMES[i]
 	switch place := LENS_MENU_PLACE[e.id]; place {
@@ -128,7 +128,7 @@ palette_put_on_bar :: proc(app: ^App, e: Palette_Entry) -> bool {
 	which := palette_bar_for(app, e)
 	s := Bar_Slot{e.id, e.arg}
 	if slice.contains(bar_used(app, which), s) {
-		report(app, nil, {}, "%s has %s already", bar_title(which), bar_label(s))
+		report(app, nil, {}, "%s has %s already", bar_title(app, which), bar_label(s))
 		return false
 	}
 	before := bar_count(app, which)^
@@ -190,7 +190,7 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 		ui.stroke_rect(ctx, pill, t.radius_small + 2, t.border, 1)
 		ui.icon(ctx, ui.ICON_PLUS, {pill.x + 14, pill.y + pill.h * 0.5}, t.icon_small - 2, t.text)
 		ui.text(ctx, "Put on a bar", pill.x + 26, pill.y + pill.h * 0.5, t.small_size, t.text, .Semibold)
-		ui.tip(ctx, b.id, pill, fmt.tprintf("Put it on %s", strings.to_lower(bar_title(palette_bar_for(app, e)), context.temp_allocator)), "Ctrl+Enter")
+		ui.tip(ctx, b.id, pill, fmt.tprintf("Put it on %s", strings.to_lower(bar_title(app, palette_bar_for(app, e)), context.temp_allocator)), "Ctrl+Enter")
 		put = b.clicked
 	}
 	ui.end(ctx)
