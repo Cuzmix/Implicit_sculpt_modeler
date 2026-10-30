@@ -77,10 +77,10 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Settings_Tab do return "Settings"
 	if e.id == .Show_Section {
 		sec := Kit_Section(e.arg)
-		if c := stack_card_of(app, sec); c != .Palettes && c != .Brush {
+		if c := stack_card_of(app, sec); c != .Brush {
 			// A tab says which group's card holds it.
-			if s := &app.kit.stack; s.set && c in s.joined do return fmt.tprintf("Panel · %s tab of %s", STACK_CARD_NAMES[c], stack_title(app, stack_host(s, c)))
-			return fmt.tprintf("Panel · %s card", STACK_CARD_NAMES[c])
+			if s := &app.kit.stack; s.set && c in s.joined do return fmt.tprintf("Panel · %s tab of %s", panel_kind_title(app, c), stack_title(app, stack_host(s, c)))
+			return fmt.tprintf("Panel · %s card", panel_kind_title(app, c))
 		}
 		return fmt.tprintf("Panel · %s palette", palette_name(section_palette(sec)))
 	}
@@ -89,7 +89,13 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 		for p in Shelf_Page do if slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", SHELF_PAGE_NAMES[p])
 		return "Brush picker"
 	}
-	if sec, ok := COMMAND_HOMES[e.id].?; ok do return fmt.tprintf("%s palette · %s", palette_name(section_palette(sec)), tray_section_title(sec))
+	// A command's home is its section as the tray drew it: the Brush card's group, or the
+	// section's own card.
+	if sec, ok := COMMAND_HOMES[e.id].?; ok {
+		if section_palette(sec) == .Tool do return fmt.tprintf("Brush card · %s", tray_section_title(sec))
+		p, _ := panel_of_section(sec)
+		return fmt.tprintf("%s card", panel_kind_title(app, p))
+	}
 	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
 	for p in Shelf_Page do if slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", SHELF_PAGE_NAMES[p])
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"

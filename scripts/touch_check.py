@@ -902,29 +902,33 @@ def first_touch_scrolls_inspector():
                                 "inspector_scroll": lambda v: float(v) > 50})
 
 
-# The Lights section's sphere, where the Palettes card shows it at 1600 x 900 once
+# How much higher a section's controls stand on its own card than they stood on the
+# Palettes card, which put a field picking the section over them, and for the Object
+# palette the object's name and size and the section's title, for the Scene palette its
+# title (round 3, PR 9b): measured from screen dumps at 1600 x 900.
+SECTION_DY = {"object": -143, "scene": -85, "objects": -59}
+
+
+def on_card(at, palette):
+    """Point `at`, measured on the Palettes card, where `palette`'s section card shows it."""
+    return (at[0], at[1] + SECTION_DY[palette])
+
+
+# The Lights section's sphere, where Light settings shows it at 1600 x 900 once
 # palettes_section has opened it: its centre and radius in points.
-LIGHT_SPHERE = (1377, 299)
+LIGHT_SPHERE = on_card((1377, 299), "scene")
 LIGHT_SPHERE_R = 80
 
 
 # The Lights section's Add Point button, and the first light's eye in its list, in points.
-LIGHT_ADD_POINT = (1394, 633)
-LIGHT1_EYE = (1499, 417)
+LIGHT_ADD_POINT = on_card((1394, 633), "scene")
+LIGHT1_EYE = on_card((1499, 417), "scene")
 
 
 def palettes_section(s):
-    """With palettes_only on a section that has a card of its own (Lights, Objects), which
-    opens that card under the folded Palettes card, leaves the card out of the stack from its
-    menu and unfolds Palettes, which shows the tray's section with every option (the Lights
-    section's sphere, the Objects section's tree)."""
-    s.wait(4)
-    s.ftap(1508, 154)  # the Lights card's menu
-    s.wait(8)
-    s.ftap(1466, 344)  # Leave out of the stack
-    s.wait(8)
-    s.ftap(1300, 94)  # the Palettes card's head
-    s.wait(8)
+    """With palettes_only on a section that has a card of its own (Lights, Objects), waits
+    for the section's full card (the Lights section's sphere, the Objects section's tree)."""
+    s.wait(28)
 
 
 @scenario
@@ -958,7 +962,7 @@ def light_sphere_moves_and_flips_lights():
 
 # The Lights section's Place highlight switch, in points; and the first light's marker
 # in the viewport, on the circle 0.42 of the view's height round its middle.
-LIGHT_PLACE = (1500, 745)
+LIGHT_PLACE = on_card((1500, 745), "scene")
 LIGHT1_MARKER = (MIDDLE[0] - 0.508 * 378, MIDDLE[1] - 0.609 * 378)
 
 
@@ -1009,7 +1013,7 @@ def place_highlight_lights_where_the_finger_taps():
 
 # The Lights section's name field for the picked light, with every option shown, once
 # the card is scrolled up by LIGHT_SCROLL.
-LIGHT_NAME_FIELD = (1376, 514)
+LIGHT_NAME_FIELD = on_card((1376, 514), "scene")
 LIGHT_SCROLL = line((1380, 700), (1380, 400), 20)
 
 
@@ -1030,7 +1034,7 @@ def light_renamed_by_typing_is_one_step():
 
 
 # The Mask section's Steps slider, where palettes_only("mask") shows it at 1600 x 900.
-MASK_STEPS = (1376, 412)
+MASK_STEPS = on_card((1376, 412), "object")
 
 
 @scenario
@@ -2163,17 +2167,28 @@ def ring_off_the_model_is_flat():
 CURRENT = threading.local()
 
 
+# The sections whose Show section opens a card of their own (the Layers, Scene, Lights and
+# Material cards), which palettes_only shows as the tray drew them instead, and the brush's,
+# which are groups of the Brush card.
+CARD_SECTIONS = ("layers", "objects", "lights", "material")
+BRUSH_SECTIONS = ("preset", "stroke", "paint_color", "recall", "falloff", "samples", "alpha", "pen", "options", "recorder")
+
+
 def palettes_only(section, setup=""):
-    """Arguments that start the run on a workspace whose stack holds only the Palettes card,
-    open at its top on the tray's `section` (after the script statements `setup`), so a
-    section's controls stand where the coordinates below say whatever the other cards show."""
+    """Arguments that start the run on a workspace whose stack holds only `section`'s own
+    card, open at its top as the tray drew it (after the script statements `setup`), so a
+    section's controls stand where the coordinates below say whatever the other cards show.
+    The brush's sections open on the Brush card instead, as Show section opens them."""
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + "-palettes.workspace")
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    layout = "open Inspector\nstack Palettes+ -Brush -Symmetry -Layers -Scene -Tools\nbars\n"
+    word = "_".join(w.capitalize() for w in section.split("_"))
+    cards = "Palettes+" if section in BRUSH_SECTIONS else f"section:{word}+ -Palettes"
+    layout = f"open Inspector\nstack {cards} -Brush -Symmetry -Layers -Scene -Tools\nbars\n"
     escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
     with open(path, "w") as f:
         f.write(f"SCULPT_WORKSPACE 1\nname Palettes\nlayout {escaped}\n")
-    return [f"--import-workspace={path}", f"--script={setup + '; ' if setup else ''}show_section {section}"]
+    statements = ([setup] if setup else []) + ([] if section in CARD_SECTIONS else [f"show_section {section}"])
+    return [f"--import-workspace={path}"] + ([f"--script={'; '.join(statements)}"] if statements else [])
 
 
 def settings_file():
@@ -2342,8 +2357,8 @@ def rapid_taps():
 
 # The Mask section's More options row, where the tray shows it at 1600 x 900: with no mask
 # command run yet, and after one, whose "Last:" line moves it down.
-MASK_MORE = (1275, 687)
-MASK_MORE_AFTER_LAST = (1275, 711)
+MASK_MORE = on_card((1275, 687), "object")
+MASK_MORE_AFTER_LAST = on_card((1275, 711), "object")
 
 
 def select_page(s):
@@ -2388,7 +2403,7 @@ def show_every_option_needs_no_fold():
 
 
 # The Mask by Apply button once the tray is dragged 600 px up, with every option shown.
-MASK_BY_APPLY = (1378, 762)
+MASK_BY_APPLY = on_card((1378, 762), "object")
 
 
 @scenario
@@ -2408,7 +2423,7 @@ def mask_by_from_the_section():
 
 
 # Hide, clip and slice's Grow at 1600 x 900 with every option shown.
-HIDE_GROW = (1302, 670)
+HIDE_GROW = on_card((1302, 670), "object")
 
 
 @scenario
@@ -2425,8 +2440,8 @@ def grow_visibility_from_the_section():
         "dabs": near(0), "undo_steps": near(1), "hidden_triangles": lambda v: 39000 < int(v) < 40900, "action_bar": is_text("hidden")})
 
 
-# The Layers card's Duplicate at 1600 x 900 with one layer and every option shown.
-LAYER_DUPLICATE = (1302, 520)
+# Layer settings' Duplicate at 1600 x 900 with one layer and every option shown.
+LAYER_DUPLICATE = (1302, 448)
 
 
 @scenario
@@ -4898,7 +4913,7 @@ def hide_unmasked_then_undo_shows_it_again():
 
 # Selection sets: the first set's Restore, where search shows the section (the Palettes
 # card unfolded under the folded cards above it).
-SETS_RESTORE_FIRST = (1471, 647)
+SETS_RESTORE_FIRST = on_card((1471, 647), "object")
 
 
 def store_set(s):
@@ -5294,7 +5309,7 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 INSPECTOR_BUTTON = UI["inspector"]
 FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
 # The first object's row in the tray's Scene palette (scene_tab opens it).
-SCENE_ROW = (1376, 236)
+SCENE_ROW = on_card((1376, 236), "objects")
 
 
 @scenario
@@ -5350,7 +5365,7 @@ def long_press_a_scene_row_opens_its_menu():
 # eye at a row's right end, its ghost just before it (scene_tree.odin, ui.tree_row), and
 # where each sphere shows in the starting view.
 THREE = ["--spheres=3", "--vertices=20000"]
-SCENE_ROWS_Y = [236, 290, 344]
+SCENE_ROWS_Y = [y + SECTION_DY["objects"] for y in (236, 290, 344)]
 SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1500, 1453, 1346
 SPHERES3 = [(477, 397), (647, 437), (853, 485)]
 
@@ -5693,9 +5708,10 @@ def undo_keeps_an_object_hidden():
 
 # A folder's row with three spheres after Ctrl+G on the first: its chevron at the left,
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
-FOLDER_CHEVRON = (1260, 236)
-FOLDER_MENU_AT = (1366, 236)
-FOLDER_MENU = {"rename": (1376, 264), "select": (1376, 308), "ungroup": (1376, 353), "show_paint": (1376, 397), "hide_paint": (1376, 442), "delete": (1376, 486)}
+FOLDER_CHEVRON = on_card((1260, 236), "objects")
+FOLDER_MENU_AT = on_card((1366, 236), "objects")
+FOLDER_MENU = {k: on_card(v, "objects") for k, v in {"rename": (1376, 264), "select": (1376, 308), "ungroup": (1376, 353), "show_paint": (1376, 397),
+                                                     "hide_paint": (1376, 442), "delete": (1376, 486)}.items()}
 
 
 def folder_first(s):
@@ -5869,7 +5885,7 @@ def finger_holds_a_ghost_then_slides_down_the_column():
     return s, scene_args(), {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
 
 
-SELECT_SEVERAL = (1500, 398)  # the Scene tab's switch, with three spheres and one selected
+SELECT_SEVERAL = on_card((1500, 398), "objects")  # the Objects card's switch, with three spheres and one selected
 
 
 @scenario
@@ -8522,7 +8538,7 @@ def second_view_unlinks_to_free():
 
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
-TRANSPARENT_SWITCH = (1499, 619)
+TRANSPARENT_SWITCH = on_card((1499, 619), "scene")
 
 
 @scenario
@@ -8537,7 +8553,7 @@ def transparent_screenshots_switch_in_the_background_section():
 
 
 # Scene: Turntable's Frames slider knob at 120 frames, where palettes_only("turntable") shows it.
-TURNTABLE_FRAMES_KNOB = (1370, 247)
+TURNTABLE_FRAMES_KNOB = on_card((1370, 247), "scene")
 
 
 @scenario
@@ -9073,8 +9089,8 @@ def thumbnail_follows_a_stroke_and_closes():
 
 
 # Scene > 3D print at 1600x900: the inches tab, and the Height value's middle.
-PRINT_INCHES = (1472, 229)
-PRINT_HEIGHT = (1380, 331)
+PRINT_INCHES = on_card((1472, 229), "scene")
+PRINT_HEIGHT = on_card((1380, 331), "scene")
 
 
 @scenario
@@ -9092,7 +9108,7 @@ def print_height_by_finger_and_inches():
 
 
 # Object > Deformation at 1600x900: the middle of Amount's track (Offset, with the axes).
-DEFORMATION_AMOUNT = (1378, 412)
+DEFORMATION_AMOUNT = on_card((1378, 412), "object")
 
 
 @scenario
@@ -9108,8 +9124,8 @@ def deformation_amount_by_finger():
 
 
 # Object > Shape > Modify topology at 1600x900 (repair.odin): Close holes and Delete hidden.
-TOPOLOGY_CLOSE_HOLES = (1377, 443)
-TOPOLOGY_DELETE_HIDDEN = (1377, 497)
+TOPOLOGY_CLOSE_HOLES = on_card((1377, 443), "object")
+TOPOLOGY_DELETE_HIDDEN = on_card((1377, 497), "object")
 
 
 @scenario
@@ -9397,7 +9413,7 @@ def stack_as_icons_opens_a_palette():
 
 @scenario
 def stack_icons_show_where_opens_the_card():
-    """With the palettes as icons, Search's Shift+Enter on Blur mask opens the Palettes card from its icon on the Mask section and marks the Blur button."""
+    """With the palettes as icons, Search's Shift+Enter on Blur mask opens the Mask section's card from its icon and marks the Blur button."""
     s = Script()
     s.wait(4)
     palette_run(s, "palettes as icons")
@@ -9405,7 +9421,7 @@ def stack_icons_show_where_opens_the_card():
     s.type("blur mask")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, LENS_1440, camera_still({"stack_tab": is_text("Palettes"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"stack_tab": is_text("Mask"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
 
 
 # Palette groups at 1440x900 (stack_groups.odin), with Brush folded: Symmetry's and
@@ -10431,7 +10447,7 @@ def deformers_from_the_palette():
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
 
 
-DEFORM_AMOUNT = (1378, 776)  # the Deformers section's Amount slider, where search opens it on the Palettes card
+DEFORM_AMOUNT = on_card((1378, 776), "object")  # the Deformers section's Amount slider, where search opens it as its own card
 
 
 @scenario
@@ -10956,9 +10972,9 @@ def shape_clip_line_waits():
 
 # Object > Rebuild (rebuild.odin), where palettes_only("remesh") shows it at 1600 x 900:
 # its goals, its Density slider's track and its Remesh button.
-REBUILD_GOALS = {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}
-REBUILD_DENSITY = (1406, 346)
-REBUILD_APPLY = (1377, 459)
+REBUILD_GOALS = {k: on_card(v, "object") for k, v in {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}.items()}
+REBUILD_DENSITY = on_card((1406, 346), "object")
+REBUILD_APPLY = on_card((1377, 459), "object")
 
 
 def open_rebuild(s, goal=None, tap=click):
@@ -11257,8 +11273,8 @@ def transform_values_undo_per_drag():
     s = Script()
     write_settings("all_options 1\n")
     s.wait(8)
-    s.mouse_drag(line((1377, 293), (1477, 293), 10))
-    click(s, (1377, 747))
+    s.mouse_drag(line(on_card((1377, 293), "object"), on_card((1477, 293), "object"), 10))
+    click(s, on_card((1377, 747), "object"))
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, palettes_only("transform") + [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})
@@ -11507,8 +11523,8 @@ def topo_mask_by_finger_with_the_rail():
 @scenario
 def voxel_stroke_sculpts_the_clay_and_undoes():
     """On a voxel sphere (--voxels) a finger stroke lays dabs on the clay as one undo step, which
-    Ctrl+Z takes back and Ctrl+Shift+Z brings back; a Grab stroke (key 8) is refused with a note
-    and makes no step."""
+    Ctrl+Z takes back and Ctrl+Shift+Z brings back; a Grab stroke (key 8) is refused and makes no
+    step, the offer line saying why (Convert to mesh) rather than a note."""
     s = Script()
     strokes(s, 1)
     s.press("z", ("ctrl",))
@@ -11516,7 +11532,7 @@ def voxel_stroke_sculpts_the_clay_and_undoes():
     s.press("8")
     strokes(s, 1)
     return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1), "redo_steps": near(0),
-                                            "stroke_kind": is_text("draw"), "last_op": is_text("Grab_is_not_a_voxel_brush:_voxels_take_Draw")})
+                                            "stroke_kind": is_text("draw"), "offer": is_text("Convert_To_Mesh")})
 
 
 @scenario
@@ -11831,6 +11847,54 @@ def motion_levels_still_open_menus():
         args = [f"--script=set motion {level}"] + ([f"--settings-file={settings_file()}"] if off else [])
         return s, args, camera_still({"object_menu": near(1), "motion": is_text(level), "motion_off": is_text(off or "none"), "dabs": near(0)})
     return Steps([run("reduced"), run("off"), run("full", "Popovers")])
+
+
+# PR 9b: sections as cards of their own.
+@scenario
+def search_opens_a_section_as_its_own_card():
+    """Search's Polypaint then Selection sets: each opens as the visiting card above Palettes,
+    Selection sets taking Polypaint's place."""
+    s = Script()
+    palette_run(s, "object polypaint")
+    s.wait(6)
+    palette_run(s, "object selection sets")
+    s.wait(6)
+    return s, [], camera_still({"palette_last": is_text("Show_Section:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
+                                "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+,Palettes"), "dabs": near(0)})
+
+
+@scenario
+def show_where_opens_the_light_settings():
+    """Search's Shift+Enter on Place highlight opens Light settings, the Lights section as the
+    tray drew it, as the visit and rings the switch."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("place highlight")
+    s.press("Return", ("shift",))
+    s.wait(10)
+    return s, [], camera_still({"stack_visit": is_text("Light_Settings"), "tray_marked": near(1), "dabs": near(0)})
+
+
+# The visit's More (a section opened by Search on the default stack, where it stands above
+# Palettes) and its menu's Pin to the stack, at 1600 x 900.
+VISIT_MORE = (1508, 394)
+VISIT_PIN = (1445, 584)
+
+
+@scenario
+def a_pinned_visit_stays_in_the_stack():
+    """Polypaint opened by Search, pinned from its More, stays in the stack when Selection
+    sets opens after it."""
+    s = Script()
+    palette_run(s, "object polypaint")
+    s.wait(6)
+    s.ftap(*VISIT_MORE)
+    s.wait(8)
+    s.ftap(*VISIT_PIN)
+    s.wait(8)
+    palette_run(s, "object selection sets")
+    s.wait(6)
+    return s, [], camera_still({"stack_visit": is_text("Sets"), "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Paint+,Sets+,Palettes"), "dabs": near(0)})
 
 
 def main(argv):

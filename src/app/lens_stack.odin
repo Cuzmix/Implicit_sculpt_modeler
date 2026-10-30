@@ -205,6 +205,13 @@ Lens_Stack :: struct {
 	dwell_on:   bool,
 	dwell_from: f64,
 	dwell_at:   [2]f32,
+	// Sections as cards (round 3, PR 9b): the section's palette Show section opened last
+	// while it is not kept (stack_visiting), the section opened last by stack_reveal (for
+	// the markers the Lights and Lens sections show, and the exit stats) and how many visits
+	// there were.
+	visit:    Maybe(Panel_Kind),
+	revealed: Maybe(Kit_Section),
+	visits:   int,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
@@ -228,6 +235,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.density, s.strip_at = .Panels, {}
 	s.joined, s.beside, s.beside_left, s.beside_w = {}, {}, {}, {}
 	for c in Panel_Kind do s.shown[c] = c
+	s.visit, s.revealed = nil, nil
 	s.set = true
 }
 
@@ -239,12 +247,22 @@ stack_default :: proc(k: ^Kit_State) {
 stack_layout_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	s := &k.stack
 	if !s.set do return
-	same := s.open == STACK_OPEN_DEFAULT && s.hidden == STACK_HIDDEN_DEFAULT
-	for c, i in s.order do same &&= c == Panel_Kind(i)
+	// The sections left out, and the one visiting, are as a fresh layout has them: no part
+	// of the line, wherever they stand in the order.
+	out_of_it := s.hidden & STACK_SECTION_PANELS
+	if v, ok := s.visit.?; ok && stack_visiting(s, v) do out_of_it += {v}
+	same := s.open - out_of_it == STACK_OPEN_DEFAULT && s.hidden + out_of_it == STACK_HIDDEN_DEFAULT
+	i := 0
+	for c in s.order {
+		if c in out_of_it do continue
+		for i < len(Panel_Kind) && (Panel_Kind(i) in out_of_it) do i += 1
+		same &&= i < len(Panel_Kind) && c == Panel_Kind(i)
+		i += 1
+	}
 	if same do return
 	strings.write_string(out, "stack")
 	for c in s.order {
-		if c in s.hidden && panel_is_section(c) do continue
+		if c in out_of_it do continue
 		fmt.sbprintf(out, " %s%s%s", "-" if c in s.hidden else "", panel_word(c), "+" if c in s.open else "")
 	}
 	strings.write_byte(out, '\n')
@@ -291,27 +309,36 @@ slice_has :: proc(list: []Panel_Kind, c: Panel_Kind) -> bool {
 }
 
 // The stack's card for tray section `sec`: the Brush card for the brush's sections (while
-// the brush is the tool), Layers and Scene for theirs, Palettes for the rest.
-stack_card_of :: proc(app: ^App, sec: Kit_Section) -> Panel_Kind {
-	#partial switch sec {
-	case .Layers:      return .Layers
-	case .Objects:     return .Scene
-	case .Lights:      return .Lights
-	case .Material:    return .Material
-	case .Environment: return .Environment
-	}
+// the brush is the tool), Layers, Scene, Lights, Material and Environment for theirs, and
+// the section's own palette for the rest. With `exact`, the section as the tray drew it:
+// the full Layers, Objects, Lights and Material sections rather than their cards.
+stack_card_of :: proc(app: ^App, sec: Kit_Section, exact := false) -> Panel_Kind {
 	if section_palette(sec) == .Tool && app.tool == .Brush do return .Brush
-	return .Palettes
+	if !exact {
+		#partial switch sec {
+		case .Layers:      return .Layers
+		case .Objects:     return .Scene
+		case .Lights:      return .Lights
+		case .Material:    return .Material
+		case .Environment: return .Environment
+		}
+	}
+	p, _ := panel_of_section(sec)
+	return p
 }
 
-// Opens the card that holds section `sec` (and, on the Brush card, unfolds its group), as
-// the tray shows a section it is opened on. The tall cards, Brush and Palettes, fold for
-// another, and the stack scrolls to its top, so the card opened is in sight.
-stack_reveal :: proc(app: ^App, sec: Kit_Section) {
+// Opens the card that holds section `sec` (and, on the Brush card, unfolds its group); a
+// section's palette left out of the stack comes in as the visit (stack_visit). The tall
+// cards, Brush and Palettes, fold for another, and the stack scrolls to its top, so the
+// card opened is in sight. `exact` as stack_card_of has it (Show where).
+stack_reveal :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	k := &app.kit
 	s := &k.stack
 	if !s.set do stack_default(k)
-	c := stack_card_of(app, sec)
+	c := stack_card_of(app, sec, exact)
+	// A tab of a group left out comes in with its group instead, below.
+	if panel_is_section(c) && c in s.hidden && c not_in s.joined && len(stack_group(s, c)) == 1 do stack_visit(k, c)
+	s.revealed = sec
 	// In a group, the group opens on the card's tab.
 	host := stack_host(s, c)
 	s.open -= {stack_host(s, .Brush), stack_host(s, .Palettes)} - {host}
@@ -354,6 +381,7 @@ kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	ctx := &k.ctx
 	s := &k.stack
 	if !s.set do stack_default(k)
+	stack_visit_settle(s)
 	s.owner = owner
 	// While a group shows two columns the stack is wider by its second column; the other
 	// cards keep the stack's width against the edge it is docked on.
@@ -492,8 +520,6 @@ stack_card :: proc(app: ^App, c: Panel_Kind, width: f32, floating: bool) {
 // the strip's tab.
 stack_card_body :: proc(app: ^App, c: Panel_Kind, inner: f32) {
 	k := &app.kit
-	// Every card is part of the tray, so search's Show where can mark a control on any
-	// of them (the Layers card's New layer, say), not only on the Palettes card.
 	k.in_tray = true
 	defer k.in_tray = false
 	if panel_is_section(c) {
@@ -645,6 +671,12 @@ stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 // the Scene card lists and whose layers the Layers card holds, as the mock's headers.
 @(private = "file")
 stack_open_line :: proc(app: ^App, c: Panel_Kind) -> string {
+	// An Object palette section's says whose it is, as that palette's head did.
+	if sec, ok := panel_section(c); ok && section_palette(sec) == .Object {
+		obj := selected_object(app)
+		if obj == nil do return ""
+		return fmt.tprintf("%s · %s vertices", object_label(obj), count_label(object_vertex_count(obj)))
+	}
 	#partial switch c {
 	case .Scene:
 		n := len(app.scene.objects)
@@ -835,6 +867,11 @@ kit_stack_menu :: proc(app: ^App) {
 		else do stack_float(app, c)
 		s.menu = false
 	}
+	// The visit stays only until another section is opened, unless it is pinned.
+	if stack_visiting(s, tab) && ui.menu_item(ctx, "Pin to the stack", glyph = ui.ICON_PANEL) {
+		stack_keep(k, tab, true)
+		s.menu = false
+	}
 	if ui.menu_item(ctx, "Leave out of the stack", glyph = ui.ICON_EYE_OFF, enabled = count > 1 || floated) {
 		for x in group do s.hidden += {x}
 		s.floated -= {c}
@@ -860,7 +897,7 @@ kit_stack_menu :: proc(app: ^App) {
 	if tab == .Lights || tab == .Material {
 		sec := Kit_Section.Lights if tab == .Lights else Kit_Section.Material
 		if ui.menu_item(ctx, "All light settings" if tab == .Lights else "All material settings", glyph = ui.ICON_SETTINGS) {
-			lens_show_section(app, sec)
+			tray_open(app, sec, exact = true)
 			s.menu = false
 		}
 	}
@@ -904,4 +941,91 @@ stack_shut_text :: proc(k: ^Kit_State) -> string {
 		fmt.sbprint(&b, sec)
 	}
 	return strings.to_string(b) if strings.builder_len(b) > 0 else "none"
+}
+
+// Brings section palette `p` into the stack as the visit: open, at the docked stack's
+// foot (before Palettes while it is docked there), the visit before it left out again
+// unless it has since been kept. The visit is no part of the layout (stack_layout_save), so
+// opening sections never marks the workspace changed.
+stack_visit :: proc(k: ^Kit_State, p: Panel_Kind) {
+	s := &k.stack
+	if !s.set do stack_default(k)
+	if v, ok := s.visit.?; ok && v != p && stack_visiting(s, v) {
+		s.hidden += {v}
+		s.open -= {v}
+	}
+	s.hidden -= {p}
+	s.floated -= {p}
+	s.open += {p}
+	// Into the order just before Palettes's group while it is docked, else just after the
+	// last docked group, so no other card moves and the order of the layout's cards stays
+	// as it was.
+	order: [dynamic; len(Panel_Kind)]Panel_Kind
+	for x in s.order do if x != p do append(&order, x)
+	palettes := stack_host(s, .Palettes)
+	docked :: proc(s: ^Lens_Stack, x: Panel_Kind) -> bool {return x not_in s.floated && x not_in s.hidden}
+	at := -1
+	for x, i in order do if x == palettes && docked(s, x) do at = i
+	if at < 0 {
+		at = 0
+		for x, i in order do if docked(s, stack_host(s, x)) do at = i + 1
+	}
+	inject_at(&order, at, p)
+	for x, i in order do s.order[i] = x
+	s.visit = p
+	s.visits += 1
+}
+
+// Whether `p` is the visit and still as it came in: docked on its own, its height and
+// column the usual. Carried into a group, floated or resized, it is kept (stack_visit_settle).
+stack_visiting :: proc(s: ^Lens_Stack, p: Panel_Kind) -> bool {
+	v, ok := s.visit.?
+	if !ok || v != p || p in s.hidden || p in s.floated || p in s.joined || s.heights[p] > 0 do return false
+	return len(stack_group(s, p)) == 1
+}
+
+// Lets go of the visit once it is no longer as it came in, so it stays kept even after it
+// is taken out of a group again; kit_stack calls it each frame.
+stack_visit_settle :: proc(s: ^Lens_Stack) {
+	if v, ok := s.visit.?; ok && !stack_visiting(s, v) do s.visit = nil
+}
+
+// Keeps section palette `p` in the stack for good (Pin to the stack), or leaves it out.
+stack_keep :: proc(k: ^Kit_State, p: Panel_Kind, on: bool) {
+	s := &k.stack
+	if !s.set do stack_default(k)
+	if v, ok := s.visit.?; ok && v == p do s.visit = nil
+	if on {
+		if p in s.hidden && p not_in s.joined && len(stack_group(s, p)) == 1 do stack_visit(k, p)
+		for x in stack_group(s, stack_host(s, p)) do s.hidden -= {x}
+		s.visit = nil
+		return
+	}
+	// A tab comes out of its group first, so its group stays as it was.
+	if len(stack_group(s, stack_host(s, p))) > 1 do stack_take_out(k, p, open = false)
+	s.hidden += {p}
+	s.open -= {p}
+	s.floated -= {p}
+}
+
+// Whether palette `p` is on screen: the tab shown of an open docked group (or the strip's
+// tab opened on it), or of a floating one.
+palette_on_screen :: proc(app: ^App, p: Panel_Kind) -> bool {
+	k := &app.kit
+	s := &k.stack
+	if !s.set || !k.inspector || side_panel_open(k) || p in s.hidden do return false
+	host := stack_host(s, p)
+	if stack_shown(s, host) != p {
+		b, two := stack_beside_of(s, host)
+		if !two || stack_shown(s, b) != p do return false
+	}
+	if host in s.floated do return true
+	if stack_strip_shown(app) do return s.tab_open && s.tab == host
+	return host in s.open
+}
+
+// The visit for the exit stats: its kind, or none.
+stack_visit_text :: proc(k: ^Kit_State) -> string {
+	if v, ok := k.stack.visit.?; ok && stack_visiting(&k.stack, v) do return fmt.tprint(v)
+	return "none"
 }

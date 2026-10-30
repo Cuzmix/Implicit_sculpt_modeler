@@ -15,7 +15,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	cmd :: proc(id: Command_Id, arg := 0) -> Palette_Entry {return {.Command, id, arg}}
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Shelf · Sculpt")
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Morph))), "Brush picker")
-	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Scene palette · Floor grid")
+	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Floor grid card")
 	testing.expect_value(t, palette_where(&a, cmd(.View_Layout_Menu)), "View rail")
 	testing.expect_value(t, palette_where(&a, cmd(.Save_Scene)), "Menu")
 	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export...")
@@ -23,7 +23,9 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_where(&a, cmd(.Flat_Shading)), "")
 	testing.expect_value(t, palette_where(&a, {kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings")
 	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Layers))), "Panel · Layers card")
-	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Remesh))), "Panel · Object palette")
+	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Remesh))), "Panel · Rebuild card")
+	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layer settings card")
+	testing.expect_value(t, palette_where(&a, cmd(.Front_Only)), "Brush card · Options")
 }
 
 // Grouping puts commands, then brushes, then panels and settings, each in the order it

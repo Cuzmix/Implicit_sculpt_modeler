@@ -68,7 +68,8 @@ focus_marker_shown :: proc(app: ^App) -> bool {
 	u := &app.ui
 	if u.focus_armed || u.focus_held do return true
 	k := &app.kit
-	return app.render_dof && k.inspector && k.tab == .Scene && tray_section(app, .Scene) == .Lens
+	if !app.render_dof do return false
+	return palette_on_screen(app, .Lens) || (k.tab == .Scene && tray_section(app, .Scene) == .Lens && palette_on_screen(app, .Palettes))
 }
 
 // The focus marker, in the light markers' style: a ring on a dark plate with four ticks

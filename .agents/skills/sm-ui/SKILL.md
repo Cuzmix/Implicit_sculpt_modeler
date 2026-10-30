@@ -91,8 +91,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
-  layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
-  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
+  layout line `stack`; `tray_open` calls `stack_reveal` (`exact` for Show where), which brings a left-out section's
+  palette in as `s.visit` (`stack_visit`; `stack_keep` pins it; the layout never writes the visit; markers ask
+  `palette_on_screen`); the Palettes card holds the whole tray behind `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
   (`panel_kind.odin`: one enum, the cards then a palette per tray section, `panel_of_section`/`panel_section` between
   it and `Kit_Section`; sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
   `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack, the pane strip's tab
