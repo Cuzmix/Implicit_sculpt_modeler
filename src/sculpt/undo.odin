@@ -46,6 +46,10 @@ Undo_Step :: struct {
 	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
 	layer_move: Layer_Move, // two sculpt layers swapped places
 	layer_stack: Layer_Stack, // every sculpt layer taken out at once (Bake all)
+	// The mask its saved masks belong to: 0 the sculpt mask, else the layer (index + 1)
+	// whose mask was picked when it was made (layer_masks.odin).
+	mask_layer: int,
+	mask_moved: bool, // a change of that layer's mask moved the surface (never into a recording layer)
 	// Adjust last stroke (adjust.odin): set once the newest step is adjusted, with what
 	// the stroke left of each saved node, at after_at[i] in the block of its kind.
 	adjusting:    bool,
@@ -123,6 +127,7 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	h := &s.history
 	if h.recording do return
 	h.recording = true
+	h.current.mask_layer = s.layers.picked
 	h.stamp += 1
 	if h.stamp == 0 { 	// wrapped: stamps from long ago would look current
 		slice.zero(h.saved)
@@ -210,7 +215,8 @@ sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
 		case sv.positions != nil:
 			for j in 0 ..< min(count, len(sv.positions)) do if positions[first + j] != sv.positions[j] do geom.aabb_grow(&b, positions[first + j])
 		case sv.masks != nil:
-			for j in 0 ..< min(count, len(sv.masks)) do if s.mask[first + j] != sv.masks[j] do geom.aabb_grow(&b, positions[first + j])
+			mask := step_mask(s, st.mask_layer)
+			for j in 0 ..< min(count, len(sv.masks)) do if mask[first + j] != sv.masks[j] do geom.aabb_grow(&b, positions[first + j])
 		case sv.colors != nil:
 			for j in 0 ..< min(count, len(sv.colors)) do if s.color[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
 		}
@@ -318,6 +324,9 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	held := step_bytes(step)
 	defer s.history.bytes += step_bytes(step) - held
 	if s.dyn != nil do dyn_step_swap(s, &step)
+	// A step that adds, removes or reorders layers renumbers them: a picked layer mask goes
+	// back to its layer first, as layer commands do.
+	if s.layers.picked != 0 && (step.layer_op.active || step.layer_move.active || step.layer_stack.active) do _ = sculptor_layer_mask_pick(s, -1)
 	layer_step_swap(s, &step)
 	for &sv in step.saved {
 		n := s.nodes[sv.node]
@@ -333,7 +342,8 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			continue
 		}
 		if sv.masks != nil {
-			live := s.mask[n.vert_first:][:n.vert_count]
+			// The mask the step painted, wherever it waits now.
+			live := step_mask(s, step.mask_layer)[n.vert_first:][:n.vert_count]
 			for &k, i in live do k, sv.masks[i] = sv.masks[i], k
 			continue
 		}
@@ -475,7 +485,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	for l in step.layer_stack.list do bytes += layer_bytes(l)
-	return bytes + adjust_bytes(step)
+	return bytes + len(step.layer_set.mask) + adjust_bytes(step)
 }
 
 @(private)
@@ -495,6 +505,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
 	adjust_free(h, step)
 	clear(&step.saved)
@@ -503,6 +514,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	clear(&step.shown)
 	clear(&step.grouped)
 	step.layer_op, step.layer_set, step.layer_move, step.layer_stack = {}, {}, {}, {}
+	step.mask_layer, step.mask_moved = 0, false
 }
 
 @(private)
@@ -522,6 +534,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
 	adjust_free(h, step)
 	delete(step.saved)

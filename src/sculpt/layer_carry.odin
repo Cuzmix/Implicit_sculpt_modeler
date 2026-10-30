@@ -224,6 +224,8 @@ mean_edge :: proc(m: geom.Mesh, pool: ^jobs.Pool) -> f32 {
 // layers it carried; none when `from` has none or either has dynamic topology on.
 sculptor_layers_project :: proc(from, to: ^Sculptor, sm: Surface_Map) -> int {
 	if len(from.layers.list) == 0 || from.dyn != nil || to.dyn != nil do return 0
+	// Displacements are carried alone: each takes in what its mask shows first.
+	layer_masks_bake(from)
 	assert(len(to.layers.list) == 0 && len(sm.tri) == len(to.mesh.positions))
 	Work :: struct {
 		from:  ^Sculptor,
@@ -362,6 +364,7 @@ levels_carry_layers_down :: proc(l: ^Levels) -> (carried, dropped: int) {
 	for j := len(l.levels) - 1; j > l.current; j -= 1 {
 		fine, coarse := l.levels[j], l.levels[j - 1]
 		fs, cs := &fine.sculptor, &coarse.sculptor
+		layer_masks_bake(fs)
 		for &layer in fs.layers.list {
 			if len(cs.layers.list) >= MAX_SCULPT_LAYERS || cs.dyn != nil {
 				dropped += 1

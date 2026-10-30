@@ -48,6 +48,11 @@ LEVELS_SETS :: u32(32)
 // the levels above are rebuilt by the same rule (files from before them are Loop's).
 @(private = "file")
 LEVELS_CC :: u32(64)
+// Each sculpt layer carries its mask after its displacement (layer_masks.odin): a byte
+// saying whether it has one, then a byte a vertex in file order (files from before layer
+// masks have none).
+@(private = "file")
+LEVELS_LAYER_MASKS :: u32(128)
 
 // How levels_write runs. A save from the frame loop takes the defaults. The autosave
 // thread writes serially, since the pool takes jobs from the frame loop alone, and
@@ -115,7 +120,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	geom.byte_put(out, LEVELS_TAG)
 	base := l.levels[0]
 	cc := !paged && l.rule != .Loop && base.polys.first != nil
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_LAYER_MASKS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -159,7 +164,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 		if !ranged do return false
 	}
 	s := &levels_current(l).sculptor
-	if !write_mask(&w, s.mask, canon[l.current]) do return false
+	if !write_mask(&w, sculptor_sculpt_mask(s), canon[l.current]) do return false
 	geom.byte_put(out, u8(s.color != nil))
 	if s.color != nil {
 		Colors :: struct {
@@ -283,14 +288,14 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 }
 
 // A sculptor's layers: how many, which records (0 for none, else its index + 1), then
-// per layer its name, strength, visibility and every vertex's displacement in file
-// order (zero where the layer moved nothing).
+// per layer its name, strength, visibility, every vertex's displacement in file order
+// (zero where the layer moved nothing) and its mask (LEVELS_LAYER_MASKS).
 @(private = "file")
 write_layers :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
 	out := w.out
 	geom.byte_put(out, u32(len(s.layers.list)))
 	geom.byte_put(out, u32(s.layers.recording))
-	for l in s.layers.list {
+	for l, k in s.layers.list {
 		name := l.name
 		geom.byte_put_slice(out, name[:])
 		geom.byte_put(out, l.strength)
@@ -314,13 +319,15 @@ write_layers :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
 			}
 		}, NODE_GRAIN)
 		if !ranged do return false
+		if !write_mask(w, layer_mask_of(s, k), canon) do return false
 	}
 	return true
 }
 
-// Reads what write_layers wrote into a sculptor without layers. False on a damaged file.
+// Reads what write_layers wrote into a sculptor without layers, with `masks` each
+// layer's mask. False on a damaged file.
 @(private = "file")
-read_layers :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
+read_layers :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32, masks: bool) -> bool {
 	count := int(geom.byte_get(r, u32))
 	recording := int(geom.byte_get(r, u32))
 	if !r.ok || count > MAX_SCULPT_LAYERS || recording > count do return false
@@ -346,6 +353,14 @@ read_layers :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
 			}
 			last.delta[id] = d
 		}
+		if !masks do continue
+		has := geom.byte_get(r, u8)
+		if !r.ok || has > 1 do return false
+		if has == 0 do continue
+		bytes := geom.byte_get_bytes(r, n)
+		if !r.ok do return false
+		last.mask = make([]u8, n, s.history.allocator)
+		for &x, v in last.mask do x = bytes[canon[v]]
 	}
 	s.layers.recording = recording
 	s.layers.named = count
@@ -467,7 +482,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
 	}
 	if flags & LEVELS_LAYERS != 0 {
-		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j]) do return false
+		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j], flags & LEVELS_LAYER_MASKS != 0) do return false
 	}
 	if flags & LEVELS_QUADS != 0 && !read_quads(r, l, file_order) do return false
 	if flags & LEVELS_SETS != 0 && !read_sets(r, l, canon[:count]) do return false

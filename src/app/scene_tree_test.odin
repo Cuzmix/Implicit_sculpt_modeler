@@ -148,8 +148,9 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 }
 
 // The scene file keeps each object's eye and ghost from version 8, its polypaint left
-// out from version 11 and its lock from version 25, reads older files with everything in
-// view and unlocked, and refuses flags it does not know.
+// out from version 11, its lock from version 25 and the spaces it is left out of from
+// version 33, reads older files with everything in view and unlocked, and refuses flags it
+// does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	app: App
@@ -210,7 +211,19 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		object_get_fields(&r24, &older, 24)
 		defer delete(older.name)
 		testing.expect(t, !r24.ok)
-		out[flags] = 16
+		// The spaces bits are known from version 33.
+		out[flags] = 32
+		spaced: Object
+		rs := geom.byte_reader(out[:])
+		object_get_fields(&rs, &spaced)
+		defer delete(spaced.name)
+		testing.expect(t, rs.ok && spaced.spaces_off == {.Model} && !spaced.off)
+		thirty_two: Object
+		r32 := geom.byte_reader(out[:])
+		object_get_fields(&r32, &thirty_two, 32)
+		defer delete(thirty_two.name)
+		testing.expect(t, !r32.ok)
+		out[flags] = 128
 		damaged: Object
 		rd := geom.byte_reader(out[:])
 		object_get_fields(&rd, &damaged)

@@ -1493,6 +1493,7 @@ kit_layout :: proc(app: ^App) {
 	kit_history_menu(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
+	kit_scene_spaces_menu(app)
 	quick_scrub_frame(app)
 	kit_quick_scrub(app)
 	kit_versions(app, menu_anchor)

@@ -1768,7 +1768,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recording, level := -1, -1
 		if obj := selected_object(&app); obj != nil do recording, level = sculpt.sculptor_layer_recording(object_sculptor(obj)), obj.levels.current
 		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d tools_tab=%s mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, strings.to_lower(TOOLS_TAB_NAMES[k.tools_tab], context.temp_allocator), int(app.ui.mask_hidden), level)
-		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus)
+		spaces_off := 0
+		for obj in app.scene.objects do if obj.spaces_off != {} do spaces_off += 1
+		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
 		// The inspector sections showing their More options, as Kit_Section names.
@@ -1932,11 +1934,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
 	// The selected object's picked layer's strength, as the Layers panel shows it.
 	picked_strength: f32
+	// The selected object's layers with a mask, and the layer whose mask is picked (-1 for none).
+	masked, mask_picked := 0, -1
 	if obj := selected_object(&app); obj != nil {
-		list := sculpt.sculptor_layers(object_sculptor(obj))
+		s := object_sculptor(obj)
+		list := sculpt.sculptor_layers(s)
 		if i := app.ui.layer_selected; i >= 0 && i < len(list) do picked_strength = list[i].strength
+		for _, i in list do if sculpt.sculptor_layer_has_mask(s, i) do masked += 1
+		mask_picked = sculpt.sculptor_layer_mask_picked(s)
 	}
-	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength)
+	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	fmt.printfln("reshapes=%d reshape_ms=%.1f reshape_kind=%v", app.ui.reshape.count, app.ui.reshape.ms, app.ui.reshape.last.choice)
 	check := app.repair.check
