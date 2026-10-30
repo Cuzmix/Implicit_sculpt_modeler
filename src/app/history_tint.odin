@@ -83,9 +83,18 @@ draw_history_tint :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	breathe: f32 = 1
 	if ctx.motion == .Full do breathe = 0.8 + 0.2 * math.sin(f32(ctx.time) * 2.6)
 	alpha := rise * breathe * (0.6 if head >= len(app.history.done) else 1)
-	colour := KIND_COLORS[e.kind]
+	obj := object_by_id(app, e.id)
+	bytes := 0
+	for i in head ..= last do bytes += history_entry_at(app, i).bytes
+	size_text := fmt.tprintf(" · %s", bytes_label(bytes)) if bytes > 0 else ""
+	draw_tint_glow(o, lo, hi, KIND_COLORS[e.kind], alpha, fmt.tprintf("%s · %s%s", entry_label(e), object_label(obj), size_text))
+}
+
+// A soft glow in `colour` over the screen box `lo` to `hi`, brightest in its middle, at
+// `alpha`, with `label` over it: the History's tint and the Layers panel's.
+draw_tint_glow :: proc(o: Overlay, lo, hi: [2]f32, colour: [4]f32, alpha: f32, label: string) {
 	// Rings from the outside in, each a little brighter, so the glow fades to nothing at
-	// its edge as a radial gradient would; a step too small to see still gets a glow a
+	// its edge as a radial gradient would; a part too small to see still gets a glow a
 	// brush ring across.
 	pad := 14 * o.scale
 	center := (lo + hi) * 0.5
@@ -95,11 +104,6 @@ draw_history_tint :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		k := 1 - 0.8 * f32(ring) / RINGS
 		draw_tint_ellipse(o, center, radius * k, overlay_color({colour.r, colour.g, colour.b, 0.055 * alpha}))
 	}
-	obj := object_by_id(app, e.id)
-	bytes := 0
-	for i in head ..= last do bytes += history_entry_at(app, i).bytes
-	size_text := fmt.tprintf(" · %s", bytes_label(bytes)) if bytes > 0 else ""
-	label := fmt.tprintf("%s · %s%s", entry_label(e), object_label(obj), size_text)
 	overlay_label(o, label, {center.x, max(center.y - radius.y - 16 * o.scale, 16 * o.scale)})
 }
 

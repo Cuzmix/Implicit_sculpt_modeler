@@ -378,3 +378,25 @@ layer_calls_refuse_under_dyntopo :: proc(t: ^testing.T) {
 	testing.expect_value(t, sculptor_layer_duplicate(&s, 0), -1)
 	testing.expect(t, !sculptor_layers_bake(&s))
 }
+
+// A layer's box holds what its strokes moved and nothing a stroke outside it moved; an
+// empty layer has none.
+@(test)
+layer_bounds_hold_what_it_moved :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	testing.expect_value(t, sculptor_layer_add(&s), 0)
+	b := sculptor_layer_bounds(&s, 0)
+	testing.expect(t, b.lo.x > b.hi.x, "an empty layer has a box")
+	testing.expect(t, stroke(&s, UP))
+	_ = sculptor_layer_record(&s, -1)
+	_ = sculptor_stroke_end(&s)
+	testing.expect(t, stroke(&s, SIDE))
+	b = sculptor_layer_bounds(&s, 0)
+	testing.expect(t, b.lo.x <= b.hi.x)
+	testing.expect(t, b.hi.z > 0.8, "the box misses the top the layer moved")
+	testing.expect(t, b.hi.x < 0.6, "the box holds the side the layer never moved")
+	testing.expect(t, sculptor_layer_bounds(&s, 3).lo.x > sculptor_layer_bounds(&s, 3).hi.x)
+}
