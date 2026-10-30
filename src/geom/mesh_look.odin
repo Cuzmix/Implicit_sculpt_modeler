@@ -52,21 +52,22 @@ Mesh_Paint_Report :: struct {
 }
 
 // Paints each part's materials into its vertex colours (sRGB, alpha 255), then drops the
-// parts' materials and texture coordinates, which nothing after import keeps. A vertex
-// takes the mean over its corners of the corner's material colour times its texture's
-// colour there (bilinear, repeating, averaged in linear light), times the colour it
-// already had; a vertex no triangle uses keeps its own. A part is left as it was when its
-// materials say nothing of colour: when its triangles all have one and the same grey and
-// no image, as an exporter's default material does, so a plain model keeps its clay
-// while the eyes beside it take their colours.
+// parts' materials, which nothing after import keeps (the texture coordinates stay, for
+// the import to keep as the UVs of an object of quads). A vertex takes the mean over its
+// corners of the corner's material colour times its texture's colour there (bilinear,
+// repeating, averaged in linear light), times the colour it already had; a vertex no
+// triangle uses keeps its own. A part is left as it was when its materials say nothing of
+// colour: when its triangles all have one and the same grey and no image, as an
+// exporter's default material does, so a plain model keeps its clay while the eyes beside
+// it take their colours.
 //
 // Serial and in part, triangle and corner order, so its result does not depend on any
 // pool. Images are decoded one at a time, so only one is ever held decoded.
 mesh_parts_paint :: proc(parts: []Mesh_Part, look: ^Mesh_Look) -> (report: Mesh_Paint_Report) {
+	// The texture coordinates stay, for an object of quads to keep as its UVs.
 	defer for &p in parts {
-		delete(p.uvs)
 		delete(p.materials)
-		p.uvs, p.materials = {}, {}
+		p.materials = {}
 	}
 	if look == nil do return
 	used := make([]bool, len(look.images), context.temp_allocator)

@@ -1,5 +1,6 @@
 package geom
 
+import "core:math/linalg"
 import "core:slice"
 
 // The polygons a mesh's triangles were cut from, given `polys` (one a triangle, as
@@ -146,4 +147,93 @@ polygon_loop :: proc(tris: []u32, edges, boundary: ^[dynamic]u64, loop: ^[dynami
 		if _, on := slice.binary_search_by(boundary[:], c, starts); !on do return false
 	}
 	return true
+}
+
+// The UVs of a mesh whose polygons (mesh_polygons: `first`, `corners`, `tri_poly`) are
+// all quads, from its triangles' texture coordinates (`uvs`, one a corner, v down from
+// the image's top as Mesh_Part keeps them): each quad corner takes its coordinate from a
+// triangle of the quad at that corner, turned back so v runs up as a Uv_Layout's does.
+// Charts are the islands of quads joined by edges whose two ends have the same
+// coordinates on both sides, numbered in the order their first quad comes; `filled` is
+// the share of the unit square their boxes cover. False, with nothing made, when a
+// polygon is not a quad or the coordinates are not one a corner. Made with `allocator`.
+quad_uvs_from_corners :: proc(indices: []u32, uvs: [][2]f32, first, corners, tri_poly: []u32, allocator := context.allocator) -> (l: Uv_Layout, ok: bool) {
+	quads := len(first) - 1
+	if quads < 1 || len(uvs) != len(indices) || len(tri_poly) != len(indices) / 3 do return
+	for f in 0 ..< quads do if first[f + 1] - first[f] != 4 do return
+	l.uvs = make([][4][2]f32, quads, allocator)
+	for f, t in tri_poly {
+		quad := corners[4 * f:][:4]
+		for c in 0 ..< 3 {
+			v := indices[3 * t + c]
+			for k in 0 ..< 4 do if quad[k] == v do l.uvs[f][k] = {uvs[3 * t + c].x, 1 - uvs[3 * t + c].y}
+		}
+	}
+
+	// Two quads on one edge are in one chart when their coordinates agree at both ends;
+	// the quads round each vertex find a quad's neighbours without sorting its edges.
+	vertices := 0
+	for c in corners do vertices = max(vertices, int(c) + 1)
+	around := make([]u32, vertices + 1, context.temp_allocator)
+	for c in corners do around[c + 1] += 1
+	for v in 0 ..< vertices do around[v + 1] += around[v]
+	fill := make([]u32, vertices, context.temp_allocator)
+	copy(fill, around[:vertices])
+	ring := make([]u32, len(corners), context.temp_allocator)
+	for c, i in corners {
+		ring[fill[c]] = u32(i / 4)
+		fill[c] += 1
+	}
+	parent := make([]u32, quads, context.temp_allocator)
+	for &p, f in parent do p = u32(f)
+	find :: proc(parent: []u32, f: u32) -> u32 {
+		f := f
+		for parent[f] != f {
+			parent[f] = parent[parent[f]]
+			f = parent[f]
+		}
+		return f
+	}
+	corner_of :: proc(corners: []u32, f: u32, v: u32) -> int {
+		for k in 0 ..< 4 do if corners[4 * f + u32(k)] == v do return k
+		return -1
+	}
+	for f in 0 ..< u32(quads) {
+		for k in 0 ..< 4 {
+			a, b := corners[4 * f + u32(k)], corners[4 * f + u32(k + 1) % 4]
+			for g in ring[around[a]:around[a + 1]] {
+				// Each pair once, from its lower quad.
+				if g <= f do continue
+				ga, gb := corner_of(corners, g, a), corner_of(corners, g, b)
+				if gb < 0 || l.uvs[g][ga] != l.uvs[f][k] || l.uvs[g][gb] != l.uvs[f][(k + 1) % 4] do continue
+				rf, rg := find(parent, f), find(parent, g)
+				// The lower root wins, so the numbering follows quad order.
+				if rf != rg do parent[max(rf, rg)] = min(rf, rg)
+			}
+		}
+	}
+	l.chart = make([]u32, quads, allocator)
+	number := make([]u32, quads, context.temp_allocator)
+	slice.fill(number, max(u32))
+	for f in 0 ..< quads {
+		root := find(parent, u32(f))
+		if number[root] == max(u32) {
+			number[root] = u32(l.charts)
+			l.charts += 1
+		}
+		l.chart[f] = number[root]
+	}
+	boxes := make([][2][2]f32, l.charts, context.temp_allocator)
+	for &b in boxes do b = {{max(f32), max(f32)}, {-max(f32), -max(f32)}}
+	for f in 0 ..< quads {
+		b := &boxes[l.chart[f]]
+		for uv in l.uvs[f] do b^ = {linalg.min(b[0], uv), linalg.max(b[1], uv)}
+	}
+	area: f32
+	for b in boxes {
+		lo, hi := linalg.clamp(b[0], 0, 1), linalg.clamp(b[1], 0, 1)
+		area += max(hi.x - lo.x, 0) * max(hi.y - lo.y, 0)
+	}
+	l.filled = min(area, 1)
+	return l, true
 }
