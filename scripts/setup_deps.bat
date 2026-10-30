@@ -36,6 +36,9 @@ python "%ROOT%\scripts\build_luau.py" || exit /b 1
 rem ufbx, the FBX reader Import uses, with the app's shim round it (scripts\build_ufbx.py).
 python "%ROOT%\scripts\build_ufbx.py" || exit /b 1
 
+rem AutoRemesher's core, the Quad Remesh engine, with the app's boundary (scripts\build_autoremesher.py).
+python "%ROOT%\scripts\build_autoremesher.py" || exit /b 1
+
 echo Dependencies ready in %DEPS%
 exit /b 0
 

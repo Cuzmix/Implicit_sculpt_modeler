@@ -25,6 +25,8 @@ rem from source.
 if not exist "%DEPS%\luau\luau.lib" ( echo Luau missing: run scripts\setup_deps.bat, which builds deps\luau & exit /b 1 )
 rem And ufbx for FBX import, with the app's shim round it (scripts\build_ufbx.py).
 if not exist "%DEPS%\ufbx\ufbx.lib" ( echo ufbx missing: run scripts\setup_deps.bat, which builds deps\ufbx & exit /b 1 )
+rem And AutoRemesher's core for Quad Remesh, with its boundary (scripts\build_autoremesher.py).
+if not exist "%DEPS%\autoremesher\autoremesher.lib" ( echo AutoRemesher missing: run scripts\setup_deps.bat, which builds deps\autoremesher & exit /b 1 )
 
 rem Recompile the Slang shaders when slangc is in deps\slang\bin or on the PATH (the Vulkan SDK
 rem installs it); otherwise use the committed .spv files. build.sh describes the rules.
@@ -53,6 +55,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\app" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\bench" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\fbx" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\quadmesh" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\geom" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
@@ -116,6 +119,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\quadmesh" -out:"%ROOT%build\test_quadmesh.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
