@@ -74,6 +74,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Save_Pack        = "content pack make create share export sculptpack zip my alphas presets",
 	.Screenshot       = "png capture image",
 	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",
+	.Name_Controls    = "labels names overlay what is this cheat sheet buttons controls question mark",
 	.Pie              = "quick menu favourites radial marking menu spacebar custom",
 	.Pie_Editor       = "quick menu favourites radial custom pies slots",
 	.Undo             = "back revert",

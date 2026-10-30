@@ -50,6 +50,7 @@ section_scene_free :: proc(app: ^App) {
 	alphas_destroy(app)
 	results_destroy(app)
 	ui.destroy(&app.kit.ctx)
+	workspaces_destroy(&app.kit)
 }
 
 // How many controls one section lays out in a headless frame, with its More folded or,

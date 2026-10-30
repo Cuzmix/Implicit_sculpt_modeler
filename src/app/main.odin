@@ -936,7 +936,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					continue
 				}
 			}
-			if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held = false
+			if help_labels_key(&app, &e) do continue
+			if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held, app.kit.labels.key_held = false, false
 			if pencil_event(&app, &e) || pen_samples_event(&app, &e) do continue
 			if pen_hover_under_finger(&app, &e) do continue
 			device_event(&app.device, &e)
@@ -1755,6 +1756,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("long_tip_keys=%s", long_tip_keys if long_tip_keys != "" else "none")
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
+		fmt.printfln("labels_on=%d labels_kept=%d labels_shows=%d labels_drawn=%d labels_dropped=%d", int(help_labels_on(&app.kit)), int(app.kit.labels.latched), app.kit.labels.shows, app.kit.ctx.labels.drawn, app.kit.ctx.labels.dropped)
 		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(section_palette(app.kit.stack.revealed.? or_else .Preset)), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))

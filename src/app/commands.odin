@@ -254,6 +254,7 @@ Command_Id :: enum u8 {
 	Stack_Density,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
+	Name_Controls,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
 	Pie_Editor,
 	Brush_Pie,
@@ -2241,6 +2242,18 @@ COMMANDS := [Command_Id]Command {
 			if app.kit.palette do palette_close(app)
 			app.kit.menu = false
 		},
+	},
+	.Name_Controls = {
+		label = "Name every control",
+		help = "Tags every control on screen with its name and its key or gesture, and the view with what its gestures do, until Done or Escape; tap anything meanwhile to try it. Holding ? shows them while it is held.",
+		icon = ui.ICON_TAG,
+		run = proc(app: ^App, _: int) {
+			help_labels_toggle(app)
+			// The tags are for the screen as it is used, not for Help over it.
+			if app.kit.labels.latched && app.kit.help do app.kit.help = false
+			app.kit.menu = false
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.labels.latched},
 	},
 	.Pie = {
 		label = "Pie",

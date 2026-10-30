@@ -41,6 +41,10 @@ a_big_save_waits_for_its_toast :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	defer delete(app.scene_path)
+	defer {
+		for s in app.recent_scenes do delete(s)
+		delete(app.recent_scenes)
+	}
 	app.kit.ctx.theme.toast_time = 0.25
 	app.saving = {kind = .Save, path = strings.clone(path, runtime.heap_allocator())}
 	app.saving_at = 10

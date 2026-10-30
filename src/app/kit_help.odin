@@ -354,13 +354,15 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 	raised = raised_now
 	if closed do k.help = false
 	if body {
+		// The tags over the screen itself, for learning it where it is used.
+		_ = command_button(app, .Name_Controls, variant = .Bordered, glyph = ui.ICON_TAG)
 		names: [len(Help_Tab)]string
 		for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
 		if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {
 			k.help_tab = Help_Tab(picked)
 			k.help_scroll = 0
 		}
-		body_h := max(room - 2 * 16 - 2 * 8 - 2 * t.target, 120)
+		body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
 		scroll := kit_scroll_begin(ctx, "help body", &k.help_scroll, id, inner, body_h, 4)
 		tool := kit_tool_name(app.tool)
 		switch k.help_tab {

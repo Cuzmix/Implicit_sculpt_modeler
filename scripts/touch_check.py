@@ -4488,6 +4488,47 @@ def lens_lights_card_picks_and_adds():
     return Steps([run(True), run(False)])
 
 
+# Name every control at 1440x900: the Model space tab, and the note's Done once the tags
+# are kept on.
+HELP_LABELS = {"model": (457, 28), "done": (858, 182)}
+
+
+@scenario
+def help_labels_while_question_held():
+    """Holding ? tags every control on screen with its name and key, and the view with its gestures; letting go after a moment puts them away."""
+    def run(release):
+        s = Script()
+        s.wait(6)
+        s.add("key:shift")
+        s.add("key:/")
+        s.wait(50)
+        if not release:
+            return s, LENS_1440, camera_still({"labels_on": near(1), "labels_kept": near(0), "labels_drawn": lambda v: int(v) >= 30, "dabs": near(0)})
+        s.add("keyup:/")
+        s.add("keyup:shift")
+        s.wait(6)
+        return s, LENS_1440, camera_still({"labels_on": near(0), "labels_kept": near(0), "labels_shows": near(1), "labels_drawn": near(0), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def help_labels_kept_until_done():
+    """A quick tap of ? keeps the tags on: a tap on the Model tab still switches the space with the tags staying, and the note's Done puts them away."""
+    def run(done):
+        s = Script()
+        s.wait(6)
+        s.press("/", ("shift",))
+        s.wait(6)
+        s.ftap(*HELP_LABELS["model"])
+        s.wait(30)
+        if not done:
+            return s, LENS_1440, camera_still({"labels_on": near(1), "labels_kept": near(1), "space": is_text("model"), "dabs": near(0)})
+        s.ftap(*HELP_LABELS["done"])
+        s.wait(6)
+        return s, LENS_1440, camera_still({"labels_on": near(0), "labels_kept": near(0), "space": is_text("model"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 # Lens's Settings sheet at 1440x900: the top bar's Settings, the side's Touch row and
 # its search field.
 LENS_SETTINGS = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}

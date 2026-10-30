@@ -323,7 +323,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and
   scrolls (`select_list_draw`). Popovers themselves only clamp to the window: one whose content can grow puts it in
-  a `kit_scroll_begin` body sized to the room left (the brush picker, `kit_brushes.odin`). `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
+  a `kit_scroll_begin` body sized to the room left (the brush picker, `kit_brushes.odin`). `tip(ctx, id, rect, text, keys)` gives a tooltip, and its words are also the control's tag while
+  Name every control shows (`labels.odin`: `labels_show`, `label_add` for what is no control, `label = false` on
+  `tip` for a chevron's Fold); a control without a tooltip gets no tag, so a new control gives itself one; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
 - Layers (`ui.odin:666`): `layer_mark` keeps a place in the draw order; what is drawn between `layer_begin` and
   `layer_end` goes there, under everything drawn after the mark. Draw in it with the whole window as the clip.
 - Text fields: `typing(ctx)` is true while one has the keys; the app then calls `sdl.StartTextInput` (a tablet's

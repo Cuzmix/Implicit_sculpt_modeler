@@ -3,6 +3,7 @@ package quadmesh
 import "core:log"
 import "core:math/linalg"
 import "core:testing"
+import "core:thread"
 import "core:time"
 
 import "../geom"
@@ -93,7 +94,10 @@ bad_input_is_refused :: proc(t: ^testing.T) {
 	testing.expect(t, err == .Refused && reason != "", "a zero count was taken")
 }
 
-// A cancel at the first progress report stops the remesh early, with nothing made.
+// A cancel at the first progress report stops the remesh early, with nothing made. The
+// cancelled remesh runs on a thread of its own: the shim cancels by throwing a C++ exception,
+// which on Windows the test runner's vectored handler takes for a crash on any thread it set
+// up, before the shim's catch can see it.
 @(test)
 cancel_stops_the_remesh :: proc(t: ^testing.T) {
 	when !AVAILABLE {
@@ -102,12 +106,23 @@ cancel_stops_the_remesh :: proc(t: ^testing.T) {
 	}
 	full, whole, _, _ := sphere_remesh(t, 4)
 	polygon_mesh_destroy(&full)
-	progress: jobs.Progress
-	jobs.progress_cancel(&progress)
-	start := time.tick_now()
-	out, _, err, _ := sphere_remesh(t, 4, &progress)
-	took := time.duration_milliseconds(time.tick_since(start))
-	testing.expectf(t, err == .Cancelled, "a cancelled remesh ended %v", err)
-	testing.expect(t, len(out.positions) == 0 && len(out.first) == 0, "a cancelled remesh made polygons")
-	testing.expectf(t, took < whole.ms / 2, "the cancel took %.0f ms of a %.0f ms remesh", took, whole.ms)
+	Cancelled_Run :: struct {
+		t:        ^testing.T,
+		progress: jobs.Progress,
+		out:      Polygon_Mesh,
+		err:      Error,
+		took:     f64,
+	}
+	run := Cancelled_Run{t = t}
+	jobs.progress_cancel(&run.progress)
+	worker := thread.create_and_start_with_data(&run, proc(data: rawptr) {
+		r := (^Cancelled_Run)(data)
+		start := time.tick_now()
+		r.out, _, r.err, _ = sphere_remesh(r.t, 4, &r.progress)
+		r.took = time.duration_milliseconds(time.tick_since(start))
+	}, context)
+	thread.destroy(worker)
+	testing.expectf(t, run.err == .Cancelled, "a cancelled remesh ended %v", run.err)
+	testing.expect(t, len(run.out.positions) == 0 && len(run.out.first) == 0, "a cancelled remesh made polygons")
+	testing.expectf(t, run.took < whole.ms / 2, "the cancel took %.0f ms of a %.0f ms remesh", run.took, whole.ms)
 }

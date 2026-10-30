@@ -79,6 +79,7 @@ a_typed_hex_code_sets_the_colour :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
+	defer workspaces_destroy(&app.kit)
 	rgb := [3]f32{0.5, 0.5, 0.5}
 	_ = color_frame(&app, &rgb, true, {})
 	// The field's id, as kit_color names it inside its row.
@@ -115,6 +116,7 @@ a_colour_well_opens_the_popover :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
+	defer workspaces_destroy(&app.kit)
 	c := &app.kit.colors
 	rgb := [3]f32{0.5, 0.5, 0.5}
 	_ = color_frame(&app, &rgb, true, {})
