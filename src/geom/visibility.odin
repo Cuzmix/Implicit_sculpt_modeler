@@ -1,7 +1,10 @@
 package geom
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
+
+import "../jobs"
 
 Mat4 :: matrix[4, 4]f32
 
@@ -153,32 +156,105 @@ chunk_group :: proc(chunks: []Chunk) -> (g: Chunk) {
 cull_chunks_grouped :: proc(chunks, groups: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index_Range, hidden: []bool = nil) -> (stats: Cull_Stats) {
 	planes := frustum_planes(clip)
 	stats.chunks = len(chunks)
-	for g, k in groups {
-		lo := k * CHUNK_GROUP
-		hi := min(lo + CHUNK_GROUP, len(chunks))
-		if aabb_outside(&planes, g.bounds) {
-			stats.frustum += hi - lo
-			if hidden != nil do for h in hidden[lo:hi] do stats.frustum -= int(h)
+	for _, k in groups {
+		if cull_group(&planes, chunks, groups, k, eye, hidden, &stats) do cull_group_chunks(&planes, chunks, k, eye, out, hidden, &stats)
+	}
+	return
+}
+
+// Whether group k is in view and may face the eye; when not, its chunks are counted as
+// culled with it.
+@(private = "file")
+cull_group :: proc(planes: ^[6][4]f32, chunks, groups: []Chunk, k: int, eye: Vec3, hidden: []bool, stats: ^Cull_Stats) -> bool {
+	lo := k * CHUNK_GROUP
+	hi := min(lo + CHUNK_GROUP, len(chunks))
+	g := groups[k]
+	if aabb_outside(planes, g.bounds) {
+		stats.frustum += hi - lo
+		if hidden != nil do for h in hidden[lo:hi] do stats.frustum -= int(h)
+		return false
+	}
+	if chunk_backfacing(g, eye) {
+		stats.backface += hi - lo
+		if hidden != nil do for h in hidden[lo:hi] do stats.backface -= int(h)
+		return false
+	}
+	return true
+}
+
+// Culls the chunks of group k one by one.
+@(private = "file")
+cull_group_chunks :: proc(planes: ^[6][4]f32, chunks: []Chunk, k: int, eye: Vec3, out: ^[dynamic]Index_Range, hidden: []bool, stats: ^Cull_Stats) {
+	lo := k * CHUNK_GROUP
+	hi := min(lo + CHUNK_GROUP, len(chunks))
+	for i in lo ..< hi {
+		if hidden != nil && hidden[i] do continue
+		c := chunks[i]
+		if aabb_outside(planes, c.bounds) {
+			stats.frustum += 1
 			continue
 		}
-		if chunk_backfacing(g, eye) {
-			stats.backface += hi - lo
-			if hidden != nil do for h in hidden[lo:hi] do stats.backface -= int(h)
+		if chunk_backfacing(c, eye) {
+			stats.backface += 1
 			continue
 		}
-		for i in lo ..< hi {
-			if hidden != nil && hidden[i] do continue
-			c := chunks[i]
-			if aabb_outside(&planes, c.bounds) {
-				stats.frustum += 1
-				continue
-			}
-			if chunk_backfacing(c, eye) {
-				stats.backface += 1
-				continue
-			}
-			append_range(out, c.first_index, c.index_count)
+		append_range(out, c.first_index, c.index_count)
+	}
+}
+
+// Chunks in groups that pass the group test below which cull_chunks_grouped_parallel
+// culls them serially: fewer take less time than waking the workers.
+CULL_PARALLEL_CHUNKS :: 16384
+
+// Groups each job of cull_chunks_grouped_parallel culls chunk by chunk: 1024 chunks,
+// enough that handing out the work costs little beside it.
+CULL_PART_GROUPS :: 16
+
+// cull_chunks_grouped with the chunks spread over `pool`'s threads: the groups are tested
+// first, and when their passing chunks number at least `min_chunks` each job culls those
+// of `part_groups` passing groups into a list of its own; the lists are joined in order,
+// merging as the serial walk would. Gives the same ranges and counts. The tests lower both
+// numbers to go wide on small meshes.
+cull_chunks_grouped_parallel :: proc(pool: ^jobs.Pool, chunks, groups: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index_Range, hidden: []bool = nil, min_chunks := CULL_PARALLEL_CHUNKS, part_groups := CULL_PART_GROUPS) -> (stats: Cull_Stats) {
+	if pool == nil do return cull_chunks_grouped(chunks, groups, clip, eye, out, hidden)
+	planes := frustum_planes(clip)
+	stats.chunks = len(chunks)
+	passed := make([dynamic]int, 0, len(groups), context.temp_allocator)
+	for _, k in groups do if cull_group(&planes, chunks, groups, k, eye, hidden, &stats) do append(&passed, k)
+	parts := (len(passed) + part_groups - 1) / part_groups
+	if len(passed) * CHUNK_GROUP < min_chunks || parts < 2 {
+		for k in passed do cull_group_chunks(&planes, chunks, k, eye, out, hidden, &stats)
+		return
+	}
+	Part :: struct {
+		ranges: [dynamic]Index_Range,
+		stats:  Cull_Stats,
+	}
+	Job :: struct {
+		planes:      [6][4]f32,
+		chunks:      []Chunk,
+		hidden:      []bool,
+		eye:         Vec3,
+		passed:      []int,
+		parts:       []Part,
+		part_groups: int,
+	}
+	job := Job{planes, chunks, hidden, eye, passed[:], make([]Part, parts, context.temp_allocator), part_groups}
+	jobs.parallel_for(pool, parts, &job, proc(data: rawptr, k: int) {
+		job := cast(^Job)data
+		p := &job.parts[k]
+		// Job memory comes from the heap allocator, as every job's does, and goes back to it
+		// below on the calling thread.
+		p.ranges = make([dynamic]Index_Range, runtime.heap_allocator())
+		for g in job.passed[k * job.part_groups:min((k + 1) * job.part_groups, len(job.passed))] {
+			cull_group_chunks(&job.planes, job.chunks, g, job.eye, &p.ranges, job.hidden, &p.stats)
 		}
+	})
+	for &p in job.parts {
+		for r in p.ranges do append_range(out, r.first_index, r.index_count)
+		stats.frustum += p.stats.frustum
+		stats.backface += p.stats.backface
+		delete(p.ranges)
 	}
 	return
 }

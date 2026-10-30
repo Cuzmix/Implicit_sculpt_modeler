@@ -241,6 +241,13 @@ What did grow with the mesh was culling: every frame tested each chunk (about on
 | 20M | 0.80 → 0.38 | 0.50 → 0.07 | 0.36 → 0.019 |
 | 50M | 2.07 → 0.95 | 1.39 → 0.12 | 1.11 → 0.03 |
 
+When the groups that pass hold at least 16,384 chunks (`CULL_PARALLEL_CHUNKS`), as in a whole view of a big mesh, their chunks are tested on the worker threads, 16 groups a job, and the jobs' lists are joined in order, so the ranges are the same as the serial walk's (`cull_chunks_grouped_parallel`, which `build/bench` checks at every size). Fewer are tested on the frame thread, since waking the workers costs more than it saves. The Simplify walk (`cull_lod`) stays serial: at 10M it takes about 0.07 ms, and spreading it made it slower. Culling by groups CPU ms, serial and parallel, on the VM's 4 threads:
+
+| Vertices | Whole sphere | Close-up | Detail |
+| --- | --- | --- | --- |
+| 10M | 0.26 → 0.14 | 0.07 → 0.07 | 0.02 → 0.02 |
+| 20M | 0.51 → 0.25 | 0.10 → 0.09 | 0.03 → 0.03 |
+
 Saving reserves the object's size up front instead of growing the buffer a doubling at a time, which at 50M (about 1.7 GB an object) means it never holds a second, larger copy while the buffer grows. In the app a 30M sphere is ready to sculpt in about 5 s, saves to a 1 GB .sculpt file in about 8 s and opens again in about 4.5 s on the VM, whose disk and first touches of memory are slow; a 40M top level built with `--vertices=40000 --subdivide=5` takes 11 s and about 9.5 GB with every level and the GPU's copy. To time a real GPU at these sizes: `build.bat gpubench --vertices=20000000` (or 50000000; give the GPU 2 GB of free memory at 50M).
 
 ## GPU benchmark and frame timing

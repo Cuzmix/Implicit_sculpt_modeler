@@ -12,6 +12,7 @@ import "core:slice"
 import sdl "vendor:sdl3"
 
 import "../geom"
+import "../jobs"
 
 Mat4 :: matrix[4, 4]f32
 IDENTITY :: Mat4(1)
@@ -50,6 +51,9 @@ Renderer :: struct {
 	anisotropy:      bool, // the device was made with anisotropic filtering
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
+	// The app's worker pool, which culling by groups spreads a big mesh's chunks over; nil
+	// culls on the calling thread. Only the frame thread draws, so it is never busy here.
+	pool:           ^jobs.Pool,
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
 	trace:          bool, // the studio render casts rays at the triangles where it can (trace.odin)
 	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
@@ -1552,7 +1556,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		case:
 			cs: geom.Cull_Stats
 			if len(item.chunk_groups) > 0 {
-				cs = geom.cull_chunks_grouped(item.chunks, item.chunk_groups, clip, eye.xyz, &mb.visible, item.hidden)
+				cs = geom.cull_chunks_grouped_parallel(r.pool, item.chunks, item.chunk_groups, clip, eye.xyz, &mb.visible, item.hidden)
 			} else {
 				cs = geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible, hidden = item.hidden)
 			}

@@ -672,6 +672,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
+	app.renderer.pool = &app.pool
 	app.renderer.partial = !opts.no_partial
 	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify

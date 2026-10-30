@@ -6,6 +6,7 @@ import "core:math/rand"
 import "core:testing"
 
 import "../geom"
+import "../jobs"
 
 // A sphere, with bumps of relative height `bumps`, in small chunks, and the
 // simplification tree a large mesh would get.
@@ -345,4 +346,49 @@ distance_to_surface :: proc(positions: []Vec3, from, to: []u32) -> f32 {
 		worst = max(worst, best)
 	}
 	return math.sqrt(worst)
+}
+
+// Grouped culling spread over a pool gives exactly the serial ranges and counts, however
+// few groups each part holds, from views that see everything, a side, or the inside, with
+// and without hidden chunks.
+@(test)
+grouped_culling_in_parallel_matches_serial :: proc(t: ^testing.T) {
+	s: Sculptor
+	m: geom.Mesh
+	lod_sphere(&s, &m, 5, 32, bumps = 0.2)
+	defer geom.mesh_destroy(&m)
+	defer sculptor_destroy(&s)
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	nodes := len(s.nodes)
+	hidden := make([]bool, nodes, context.temp_allocator)
+	for id in 0 ..< nodes / 5 do hidden[id * 3 % nodes] = true
+	groups := sculptor_chunk_groups(&s)
+	f := 1 / math.tan(f32(0.35))
+	proj := geom.Mat4{f, 0, 0, 0, 0, f, 0, 0, 0, 0, -1, -0.01, 0, 0, -1, 0}
+	eyes := [?]Vec3{{0.4, 0.8, 3.2}, {1.1, 0.2, 0.9}, {0, 0, 0.2}, {-2, 3, -6}}
+	serial, parallel: [dynamic]geom.Index_Range
+	defer delete(serial)
+	defer delete(parallel)
+	same :: proc(t: ^testing.T, a, b: []geom.Index_Range) {
+		testing.expect_value(t, len(b), len(a))
+		if len(a) == len(b) do for r, i in a do if b[i] != r {
+			testing.expectf(t, false, "range %d is %v, serially %v", i, b[i], r)
+			return
+		}
+	}
+	for eye in eyes {
+		clip := proj * lod_look_at(eye, {0, 0, 0})
+		for hide in ([?][]bool{nil, hidden[:]}) {
+			clear(&serial)
+			want := geom.cull_chunks_grouped(s.chunks, groups, clip, eye, &serial, hide)
+			for part_groups in 1 ..= 3 {
+				clear(&parallel)
+				got := geom.cull_chunks_grouped_parallel(&pool, s.chunks, groups, clip, eye, &parallel, hide, 0, part_groups)
+				testing.expect_value(t, got, want)
+				same(t, serial[:], parallel[:])
+			}
+		}
+	}
 }
