@@ -16,7 +16,9 @@ unused bindings: every binding the renderer declares stays where it says.
 Each .msl starts with a line naming the tool's commit and the SHA-256 of the .spv it was made
 from, so --check finds a missing or stale one with no tool installed, and a shader changed
 without its Metal source fails `build.bat check` / `./build.sh check` instead of drawing the old
-shader on the iPad. Without the tool, remaking prints a note and leaves the committed files as
+shader on the iPad. A shader whose Slang source starts with "// vulkan only" (an array of
+textures indexed per pixel, which shadercross cannot map to SDL's Metal slots) has no .msl:
+only the own Vulkan backend loads it, so both modes skip it. Without the tool, remaking prints a note and leaves the committed files as
 they are, as the build does with the .spv when slangc is missing.
 """
 
@@ -43,8 +45,18 @@ def pinned_commit():
     sys.exit("shaders_msl: no SHADERCROSS_COMMIT in scripts/versions.env")
 
 
+def vulkan_only(spv):
+    """Whether name.stage.spv's Slang source marks it as the own Vulkan backend's alone."""
+    try:
+        with open(os.path.join(SHADERS, spv[:-len(".spv")] + ".slang"), encoding="utf-8") as f:
+            return f.readline().startswith("// vulkan only")
+    except FileNotFoundError:
+        return False
+
+
 def spv_files():
-    return sorted(f for f in os.listdir(SHADERS) if f.endswith(".spv") and f.split(".")[-2] in STAGES)
+    return sorted(f for f in os.listdir(SHADERS)
+                  if f.endswith(".spv") and f.split(".")[-2] in STAGES and not vulkan_only(f))
 
 
 def sha256(path):

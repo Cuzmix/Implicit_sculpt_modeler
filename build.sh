@@ -65,7 +65,9 @@ mode="${1:-debug}"; shift || true
 # are includes. Matrices are row-major, so mul(v, M) is GLSL's M * v (sm-render), and -O0
 # leaves the arithmetic as written: the optimizer turns x / c into x * (1 / c), which moves
 # pixels. A shader whose first line is "// slangc: -fp-mode precise" keeps every multiply
-# and add unfused. Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
+# and add unfused. A shader whose first line starts "// vulkan only" indexes texture arrays,
+# for which Slang raises the profile with SPV_EXT_descriptor_indexing on purpose, so that
+# warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
 # used as they are.
 SLANGC="$DEPS/slang/bin/slangc"
 compile_shaders() {
@@ -76,6 +78,7 @@ compile_shaders() {
 		case "${name##*.}" in vert) stage=vertex;; frag) stage=fragment;; comp) stage=compute;; esac
 		flags=()
 		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
+		if head -n 1 "$src" | grep -q '^// vulkan only'; then flags+=(-warnings-disable 41012); fi
 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
 	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py), when

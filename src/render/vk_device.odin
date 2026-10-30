@@ -45,6 +45,7 @@ Vk_State :: struct {
 	shared_buffers:    bool,
 	shared_type:       u32,
 	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
+	texture_arrays:    u32, // textures one compute array binding may hold (Gpu_Caps.texture_arrays), 0 for none
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
@@ -281,6 +282,10 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
 	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics}
 	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
+	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
+	// sized when the array is bound, every element written, so not partially bound.
+	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
+	f12.runtimeDescriptorArray, f12.descriptorBindingVariableDescriptorCount, f12.shaderSampledImageArrayNonUniformIndexing = arrays, arrays, arrays
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
@@ -326,6 +331,12 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
 	vk_state.driver.pNext = nil // p11 is gone after this proc
 	vk_state.properties = props2.properties
+	if arrays {
+		// Room is left for the 16 named slots a stage may also bind.
+		l := vk_state.properties.limits
+		room := min(l.maxPerStageDescriptorSamplers, l.maxPerStageDescriptorSampledImages, l.maxPerStageResources, l.maxDescriptorSetSamplers, l.maxDescriptorSetSampledImages)
+		vk_state.texture_arrays = min(VK_TEXTURE_ARRAY_MAX, room - 16) if room > 16 else 0
+	}
 	// Subgroups are Vulkan 1.1 core, but a device may offer them to other stages only, or
 	// without the arithmetic (reduce and scan) operations a kernel would want.
 	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
