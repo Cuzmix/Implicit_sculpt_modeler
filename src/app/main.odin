@@ -1867,7 +1867,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		spaces_off := 0
 		for obj in app.scene.objects do if obj.spaces_off != {} do spaces_off += 1
 		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
-		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none")
+		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
 		// The inspector sections showing their More options, as Kit_Section names.
 		more := "none"

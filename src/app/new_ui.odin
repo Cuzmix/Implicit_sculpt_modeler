@@ -234,6 +234,10 @@ Kit_State :: struct {
 	palette_query:  [64]u8,
 	palette_pick:   int,
 	palette_first:  int,
+	// Where the pointer was last frame, so only a pointer that moves picks the row under
+	// it and a resting one never undoes Up and Down; and the row picked, for the stats.
+	palette_pointer: [2]f32,
+	palette_picked:  Maybe(Palette_Entry),
 	palette_recent: [PALETTE_RECENT]Palette_Entry,
 	palette_recent_count: int,
 	palette_runs:   int,

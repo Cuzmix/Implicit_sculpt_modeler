@@ -532,6 +532,7 @@ palette_entry_from_name :: proc(name: string) -> (e: Palette_Entry, ok: bool) {
 palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
+	k.palette_pointer = k.ctx.input.mouse
 	k.palette_query = {}
 	k.palette_for = nil
 	kit_floats_close(k)
@@ -602,8 +603,11 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 
 // The palette's popover under the Search button: the field, as many results as fit (up
 // to PALETTE_ROWS) with their shortcuts and states, the picked one's help, and how many
-// more there are. Up and Down pick (the list scrolls to keep the pick in view), Enter or
-// a tap runs, and Ctrl+K again closes. Escape and Back close it in kit_frame.
+// more there are. Up and Down pick (the list scrolls to keep the pick in view), and so
+// do a pointer moving over a row and a press on one, so the pick's Put on a bar and the
+// footer's buttons follow the mouse, the pen and a finger; Enter or a tap runs, a long
+// press picks without running, and Ctrl+K again closes. Escape and Back close it in
+// kit_frame.
 kit_palette :: proc(app: ^App, search: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -683,6 +687,10 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	}
 	ran, shown, put: Maybe(Palette_Entry)
 	group: Maybe(Palette_Group)
+	// Only a pointer that moved picks by hovering, so a mouse resting over the list does
+	// not take the pick back from Up and Down.
+	moved := ctx.input.mouse_valid && ctx.input.mouse != k.palette_pointer
+	k.palette_pointer = ctx.input.mouse
 	for i in k.palette_first ..< min(k.palette_first + rows, n) {
 		h := hits[i]
 		e := entries[h.entry]
@@ -694,10 +702,11 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 		}
 		// A row's id comes from its entry, so it stays the same widget while the list
 		// around it changes.
-		tapped, held, put_it := lens_palette_row(app, e, titles[h.entry], fmt.tprintf("%s##palette %d", titles[h.entry], h.entry), width - 16, h.enabled, i == k.palette_pick)
-		if tapped && h.enabled do ran = e
-		if held && (palette_home(e) != "") do shown = e
-		if put_it do put = e
+		row := lens_palette_row(app, e, titles[h.entry], fmt.tprintf("%s##palette %d", titles[h.entry], h.entry), width - 16, h.enabled, i == k.palette_pick, moved)
+		if row.picked do k.palette_pick = i
+		if row.ran && h.enabled do ran = e
+		if row.shown && (palette_home(e) != "") do shown = e
+		if row.put do put = e
 	}
 	if n == 0 do ui.paragraph(ctx, "Nothing matches. Try another word, such as remesh, mask or wireframe.")
 	// The pick's help, in a fixed height so the popover does not jump as the pick moves.
@@ -718,7 +727,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	// controls that can run now): a star, a pie's slot, a key, a place on a bar.
 	pick: Maybe(Palette_Entry)
 	if n > 0 do pick = entries[hits[k.palette_pick].entry]
-	lens_palette_footer(app, pick, width, anchor)
+	k.palette_picked = pick
+	if lens_palette_footer(app, pick, width, anchor) do shown = pick
 	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
 	enter := key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)
 	if k.palette && n > 0 && key_pressed(d, sdl.K_TAB) {

@@ -138,19 +138,36 @@ palette_put_on_bar :: proc(app: ^App, e: Palette_Entry) -> bool {
 	return true
 }
 
+// What a press or the pointer did to a result row: tapped it (run), right-clicked it
+// (show where it lives), pressed Put on a bar on it, or picked it.
+Palette_Row :: struct {
+	ran, shown, put, picked: bool,
+}
+
 // A result row in Lens: its icon, its name over where it lives, its shortcut (or a tick
-// while it is on), and on the picked row Put on a bar. Returns whether the row was tapped,
-// long pressed (or right-clicked) and whether Put on a bar was.
-lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: f32, enabled, picked: bool) -> (ran, shown, put: bool) {
+// while it is on), and on the picked row Put on a bar. A pointer moving over the row
+// (`moved`, so a resting one never fights Up and Down) and a press on it pick it, so its
+// Put on a bar and the footer's buttons show under the pen or the finger; a long press
+// picks it without running it, a right-click shows where it lives.
+lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: f32, enabled, picked, moved: bool) -> (row: Palette_Row) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	lives := palette_where(app, e)
-	can_put := picked && k.palette_for == nil && e.kind == .Command && bar_lists(e.id)
-	put_w: f32 = LENS_PUT_W if can_put else 0
 	ui.begin(ctx, fmt.tprintf("%s##row", id), {direction = .Row})
+	// Put on a bar waits while the row is held, so the row keeps its width under the
+	// finger and letting go on it still runs it.
+	pressing := ctx.active == ui.id_of(ctx, id)
+	can_put := picked && !pressing && k.palette_for == nil && e.kind == .Command && bar_lists(e.id)
+	put_w: f32 = LENS_PUT_W if can_put else 0
 	a := ui.area(ctx, id, {width - put_w, LENS_ROW_H})
-	shown = ui.secondary(ctx)
+	if ui.secondary(ctx) {
+		// The mouse's right button shows where it lives; a finger's or the pen's long
+		// press keeps the palette open on the row, for its Star, pie, key or bar.
+		if ctx.input.pointer == .Mouse do row.shown = true
+		else do row.picked = true
+	}
+	row.picked ||= a.pressed || (a.hovered && moved && !picked)
 	r := a.rect
 	full := ui.Rect{r.x, r.y, width, r.h}
 	if picked do ui.fill_rect(ctx, full, t.radius_small + 2, ui.color_fade(t.accent, 0.16))
@@ -180,7 +197,7 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	}
 	if checked do ui.icon(ctx, ui.ICON_CHECK, {right - t.icon_small * 0.5, mid}, t.icon_small, t.accent)
 	else if keys != "" do ui.text(ctx, keys, right, mid, t.small_size, t.text_tertiary, .Regular, .Right)
-	ran = a.clicked
+	row.ran = a.clicked
 	if can_put {
 		b := ui.area(ctx, fmt.tprintf("Put on a bar##palette put %s", id), {put_w, LENS_ROW_H})
 		pill := ui.Rect{b.rect.x + 2, b.rect.y + (b.rect.h - 28) * 0.5, b.rect.w - 8, 28}
@@ -191,24 +208,26 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 		ui.icon(ctx, ui.ICON_PLUS, {pill.x + 14, pill.y + pill.h * 0.5}, t.icon_small - 2, t.text)
 		ui.text(ctx, "Put on a bar", pill.x + 26, pill.y + pill.h * 0.5, t.small_size, t.text, .Semibold)
 		ui.tip(ctx, b.id, pill, fmt.tprintf("Put it on %s", strings.to_lower(bar_title(app, palette_bar_for(app, e)), context.temp_allocator)), "Ctrl+Enter")
-		put = b.clicked
+		row.put = b.clicked
 	}
 	ui.end(ctx)
 	return
 }
 
-// The keys line under Lens's results, and the picked command's Star, Put in a pie and
-// Assign key at its end.
-lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anchor: ui.Rect) {
+// The keys line under Lens's results, and the picked command's Show where it lives,
+// Star, Put in a pie and Assign key at its end. Returns whether Show where it lives was
+// tapped, which a finger has no Tab for.
+lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anchor: ui.Rect) -> (show: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
 	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
-	buttons: f32 = 3 * t.target
+	buttons: f32 = 4 * t.target
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)
 	if c, ok := e.?; ok && c.kind == .Command && k.palette_for == nil {
+		show = ui.icon_button(ctx, "Show where it lives##palette show", ui.ICON_FOCUS, enabled = palette_home(c) != "", keys = "Tab")
 		starred := favourite_find(app, c.id, c.arg) >= 0
 		if ui.icon_button(ctx, "Starred##palette star" if starred else "Star##palette star", ui.ICON_STAR, selected = starred) {
 			if favourite_toggle(app, c.id, c.arg) do pies_saved(app)
@@ -217,6 +236,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 		if ui.icon_button(ctx, "Assign key##palette key", ui.ICON_KEYBOARD) do bind_open(app, c.id, c.arg, ctx.last_rect)
 	}
 	ui.end(ctx)
+	return
 }
 
 // Where Lens's search opens: centred across the window under the top bar. The rect it
