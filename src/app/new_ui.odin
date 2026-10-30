@@ -254,7 +254,7 @@ Kit_State :: struct {
 	// last on top: windows, pinned sections' panels and the stack's floated cards in one
 	// order, so whichever was touched last is in front of all the others.
 	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS + len(Stack_Card)]Float_Ref,
+	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS + len(Panel_Kind)]Float_Ref,
 	// Lens's panels: the two columns, the pinned sections and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
@@ -410,7 +410,7 @@ side_panel_close :: proc(app: ^App) {
 Float_Ref :: union {
 	Kit_Window,
 	Kit_Section,
-	Stack_Card,
+	Panel_Kind,
 }
 
 // A panel as the floating order holds it.
@@ -1443,7 +1443,7 @@ kit_layout :: proc(app: ^App) {
 		switch w in which {
 		case Kit_Window:  if panel_float_draw(app, w) do top = which
 		case Kit_Section: if panel_float_draw(app, w) do top = which
-		case Stack_Card:
+		case Panel_Kind:
 			// The stack's floating cards (lens_stack.odin), among the panels.
 			if stack_float_card(app, w) do top = which
 		}

@@ -20,7 +20,7 @@ import "../ui"
 
 // What a carry holds: a group (by any of its cards) or, with `tab`, one tab.
 Stack_Carry :: struct {
-	card:    Stack_Card,
+	card:    Panel_Kind,
 	tab:     bool,
 	started: bool,
 }
@@ -35,7 +35,7 @@ Stack_Target_Kind :: enum u8 {
 
 Stack_Target :: struct {
 	kind:  Stack_Target_Kind,
-	host:  Stack_Card,
+	host:  Panel_Kind,
 	slot:  int,
 	at:    int,
 	strip: bool, // the line is between the strip's icons
@@ -103,7 +103,7 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 	s := &k.stack
 	src := stack_host(s, carry.card)
 	#reverse for ref in k.order {
-		c, card := ref.(Stack_Card)
+		c, card := ref.(Panel_Kind)
 		if !card || c not_in s.floated || c not_in s.seen || !ui.rect_contains(s.drop_at[c], p) do continue
 		if c == src do return {}
 		return {kind = .Join, host = c, slot = stack_tab_slot(s, c, p)}
@@ -111,7 +111,7 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 	// Just beyond a group's side, over the view: beside it, as its second column. A docked
 	// group's is on the view's side only, as the stack grows away from its edge.
 	#reverse for ref in k.order {
-		c, card := ref.(Stack_Card)
+		c, card := ref.(Panel_Kind)
 		if !card || c not_in s.floated || c not_in s.seen || c == src do continue
 		r := s.drop_at[c]
 		if p.y < r.y || p.y > r.y + r.h do continue
@@ -154,7 +154,7 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 // Beside group `c` on its left or right: its second column, or where there is no room for
 // one with 360 points of view left beside the rail, below it (docked) or a tab (floating).
 @(private = "file")
-stack_beside_target :: proc(app: ^App, c: Stack_Card, left: bool, carry: Stack_Carry) -> Stack_Target {
+stack_beside_target :: proc(app: ^App, c: Panel_Kind, left: bool, carry: Stack_Carry) -> Stack_Target {
 	k := &app.kit
 	s := &k.stack
 	r := s.drop_at[c]
@@ -206,7 +206,7 @@ stack_strip_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> (Stack_T
 @(private = "file")
 stack_dwell_update :: proc(k: ^Kit_State, p: [2]f32) {
 	s := &k.stack
-	under: Maybe(Stack_Card)
+	under: Maybe(Panel_Kind)
 	for c in s.order do if c in s.strip_seen && ui.rect_contains(s.strip_at[c], p) do under = c
 	c, ok := under.?
 	if !ok {
@@ -228,7 +228,7 @@ stack_dwell :: proc(k: ^Kit_State) -> f32 {
 // The tab slot of group `host` under `p`: after the last tab whose middle `p` is past, and
 // never before the host; after the last tab where the group shows no row.
 @(private = "file")
-stack_tab_slot :: proc(s: ^Lens_Stack, host: Stack_Card, p: [2]f32) -> int {
+stack_tab_slot :: proc(s: ^Lens_Stack, host: Panel_Kind, p: [2]f32) -> int {
 	group := stack_group(s, host)
 	if s.row_at[host].w <= 0 do return len(group)
 	slot := 1
@@ -238,7 +238,7 @@ stack_tab_slot :: proc(s: ^Lens_Stack, host: Stack_Card, p: [2]f32) -> int {
 
 // How many docked groups stand above group `c`.
 @(private = "file")
-stack_docked_place :: proc(s: ^Lens_Stack, c: Stack_Card) -> int {
+stack_docked_place :: proc(s: ^Lens_Stack, c: Panel_Kind) -> int {
 	n := 0
 	for x in s.order {
 		if x == c do break
@@ -349,7 +349,7 @@ stack_carry_draw :: proc(app: ^App, carry: Stack_Carry, target: Stack_Target, p:
 
 // Where among the other docked cards card `carried` let go at `p` lands (how many of them
 // are above it), and whether `p` is well clear of the stack, to float the card.
-stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, outside: bool) {
+stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Panel_Kind) -> (at: int, outside: bool) {
 	s := &app.kit.stack
 	lo, hi: [2]f32
 	first := true
@@ -370,7 +370,7 @@ stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, ou
 // Where the line between the strip's icons (but `carried`'s) at slot `at` goes: its x,
 // width and y.
 @(private = "file")
-stack_strip_line :: proc(s: ^Lens_Stack, at: int, carried: Stack_Card) -> (x, w, y: f32) {
+stack_strip_line :: proc(s: ^Lens_Stack, at: int, carried: Panel_Kind) -> (x, w, y: f32) {
 	i := 0
 	for c in s.order {
 		if c not_in s.strip_seen || c == carried do continue
@@ -384,7 +384,7 @@ stack_strip_line :: proc(s: ^Lens_Stack, at: int, carried: Stack_Card) -> (x, w,
 }
 
 // The y of the line between the docked cards (but `carried`) where slot `at` is.
-stack_drop_y :: proc(app: ^App, at: int, carried: Stack_Card) -> f32 {
+stack_drop_y :: proc(app: ^App, at: int, carried: Panel_Kind) -> f32 {
 	s := &app.kit.stack
 	i := 0
 	last: f32 = 0

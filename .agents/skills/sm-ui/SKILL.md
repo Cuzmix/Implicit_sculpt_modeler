@@ -88,12 +88,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the right column above it. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
   show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows, pinned sections, floated
-  `Stack_Card`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
+  `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
   `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
-  (`panel_kind.odin`: a `Stack_Card` or a `Kit_Section`); its content is `panel_body`, which the stack, the pane strip's tab
+  (`panel_kind.odin`: one enum, the cards then a palette per tray section, `panel_of_section`/`panel_section` between
+  it and `Kit_Section`; sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
+  `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack, the pane strip's tab
   and pinned panels all call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
   the `panel_kind_*` procs. The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and

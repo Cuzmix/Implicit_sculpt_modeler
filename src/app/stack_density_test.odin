@@ -37,7 +37,7 @@ stack_icons_open_the_card_asked_for :: proc(t: ^testing.T) {
 	k.stack.strip_at[.Layers] = {1300, 200, 44, 44}
 	tray_open(&app, .Layers)
 	testing.expect(t, k.stack.tab_open)
-	testing.expect_value(t, k.stack.tab, Stack_Card.Layers)
+	testing.expect_value(t, k.stack.tab, Panel_Kind.Layers)
 	testing.expect_value(t, k.stack.tab_at, ui.Rect{1300, 200, 44, 44})
 	stack_density_set(&app, .Panels)
 	testing.expect(t, !k.stack.tab_open)
