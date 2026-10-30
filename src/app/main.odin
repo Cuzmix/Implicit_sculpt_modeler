@@ -86,7 +86,7 @@ Options :: struct {
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
-	export_print: string `usage:"On exit, write the selected object to this .stl file at its print size, as Scene > 3D print > Export for printing... does."`,
+	export_print: string `usage:"On exit, write the selected object to this .stl or .obj file at its print size, as Scene > 3D print > Export for printing... does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
 	autosave_folder: string `usage:"Keep the autosaves in this folder instead of the app's own (and offer the ones a crashed run left there, as an interactive start does)."`,
@@ -1745,7 +1745,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		k := &app.kit
 		fmt.printfln("keyboard_down=%d keyboard_restarts=%d", int(k.keyboard_down), k.keyboard_restarts)
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
-		fmt.printfln("export_open=%d export_format=%v export_runs=%d", int(k.export.open), k.export.format, k.export.runs)
+		fmt.printfln("export_open=%d export_preset=%v export_format=%v export_runs=%d export_last=%s", int(k.export.open), k.export.preset, k.export.format, k.export.runs, fmt.tprint(k.export.last_format) if k.export.ran else "none")
 		dial := strings.builder_make(context.temp_allocator)
 		for d, i in dial_of(k) {
 			if i > 0 do strings.write_byte(&dial, ',')

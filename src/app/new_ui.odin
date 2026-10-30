@@ -972,6 +972,8 @@ kit_init :: proc(app: ^App) {
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
+	// The Export sheet starts on its first preset, a 3D print, as its cards read.
+	k.export.format = .Print
 	bars_reset(k)
 	grid_reset(&k.grid)
 	k.pies = PIE_DEFAULTS

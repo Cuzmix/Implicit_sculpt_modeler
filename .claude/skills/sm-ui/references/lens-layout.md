@@ -109,7 +109,9 @@ summary.
   `Settings_Entry`. A new setting goes in a block, its default in `settings_block_reset`, and its search words in
   `SETTINGS_BLOCK_WORDS`. Home is `lens_home_body` from `LENS_HOME_WIDE`, else kit_home's narrow page.
   The Export sheet (`lens_export.odin`) only gathers: a new way out is an `Export_Format` whose `export_command` is an
-  existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own.
+  existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own; it is offered by
+  one or more `Export_Preset`s (`export_preset_formats`), and new formats go at the end of the enum, which settings
+  files name.
   New scene's argument indexes `NEW_SCENES` (Mesh, Voxels or Empty starts): append, never reorder, since keys, bars
   and scripts name a start by its number or `new_start_key`; the narrow Home page shows the first `NARROW_HOME_STARTS`.
   The dial's sectors are each space's, `Kit_State.dials[Space]` (`Dial_Sector`, a Modifier or a Bar_Slot; defaults

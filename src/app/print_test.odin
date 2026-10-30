@@ -24,7 +24,7 @@ print_positions_stand_on_the_bed :: proc(t: ^testing.T) {
 }
 
 // Dragging a side sets the scene's scale, and the file written has that size, closed,
-// on the bed; a name not ending in .stl is refused.
+// on the bed, as STL or OBJ; a name ending in neither is refused.
 @(test)
 print_export_writes_the_size_set :: proc(t: ^testing.T) {
 	FOLDER :: "build/print_test/"
@@ -63,6 +63,19 @@ print_export_writes_the_size_set :: proc(t: ^testing.T) {
 	b := r.bounds
 	testing.expectf(t, math.abs(b.hi.z - b.lo.z - 120) < 0.5 && math.abs(b.lo.z) < 1e-3, "printed %v to %v mm high", b.lo.z, b.hi.z)
 
-	testing.expect(t, !object_export(&app, obj, FOLDER + "print.obj", print = true), "a print went to an OBJ")
+	testing.expect(t, !object_export(&app, obj, FOLDER + "print.ply", print = true), "a print went to a PLY")
+
+	// The Export sheet's OBJ print: the same millimetres, Z up and on the bed.
+	obj_path := strings.clone(FOLDER + "print.obj")
+	defer delete(obj_path)
+	if !testing.expect(t, object_export(&app, obj, obj_path, print = true)) do return
+	obj_data, obj_err := os.read_entire_file(obj_path, context.allocator)
+	defer delete(obj_data)
+	if !testing.expect(t, obj_err == nil) do return
+	o, read_err2, _ := geom.mesh_read_obj(obj_data, nil)
+	defer geom.mesh_destroy(&o)
+	if !testing.expect_value(t, read_err2, geom.Mesh_File_Error.None) do return
+	ob := geom.mesh_check(o).bounds
+	testing.expectf(t, math.abs(ob.hi.z - ob.lo.z - 120) < 0.5 && math.abs(ob.lo.z) < 1e-3, "the OBJ printed %v to %v mm high", ob.lo.z, ob.hi.z)
 	free_all(context.temp_allocator)
 }
