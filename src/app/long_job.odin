@@ -15,7 +15,7 @@ import "../sculpt"
 import "../ui"
 import "../voxel"
 
-// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Retopologize, Subdivide,
+// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
 // Convert to mesh, Convert to voxels and Res+/Res− of a big object run on a thread of
 // their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
@@ -105,7 +105,7 @@ JOB_ALLOWED_COMMANDS :: bit_set[Command_Id; [4]u64]{
 JOB_VERBS := #partial [Scene_Command_Kind]string {
 	.Remesh         = "Remeshing",
 	.Decimate       = "Decimating",
-	.Retopo         = "Retopologizing",
+	.Retopo         = "Quad remeshing",
 	.Subdivide      = "Subdividing",
 	.Voxel_To_Mesh  = "Converting to a mesh:",
 	.Mesh_To_Voxels = "Converting to voxels:",
@@ -116,7 +116,7 @@ JOB_VERBS := #partial [Scene_Command_Kind]string {
 JOB_NOUNS := #partial [Scene_Command_Kind]string {
 	.Remesh         = "remesh",
 	.Decimate       = "decimation",
-	.Retopo         = "retopology",
+	.Retopo         = "quad remesh",
 	.Subdivide      = "subdivision",
 	.Voxel_To_Mesh  = "conversion",
 	.Mesh_To_Voxels = "conversion",
@@ -242,7 +242,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
-		j.retopo = retopo_compute(j.input, j.cmd.vertices, &j.pool, &j.progress)
+		j.retopo = retopo_compute(j.input, j.cmd.vertices, j.cmd.engine, &j.pool, &j.progress)
 		j.built = j.retopo.built
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
@@ -342,7 +342,7 @@ long_job_frame :: proc(app: ^App) -> bool {
 		case cmd.kind == .Voxel_Resample:
 			log.warn("voxel resolution: the clay reaches too far from the object's middle for the finer lattice")
 		case:
-			log.warnf("retopologize: %s has too few triangles for %d quads", object_label(obj), cmd.vertices)
+			log.warnf("quad remesh: %s has too few triangles for %d quads", object_label(obj), cmd.vertices)
 		}
 		return true
 	}

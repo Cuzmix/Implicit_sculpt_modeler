@@ -88,11 +88,11 @@ rebuild_measures_once_per_mesh :: proc(t: ^testing.T) {
 @(test)
 rebuild_runs_the_goal :: proc(t: ^testing.T) {
 	app: App
-	app.ui.rebuild_even, app.ui.rebuild_fewer, app.ui.retopo_quads = 300_000, 20_000, 900
+	app.ui.rebuild_even, app.ui.rebuild_fewer, app.ui.retopo_quads, app.ui.retopo_engine = 300_000, 20_000, 900, .Own
 	wants := [Rebuild_Goal]Scene_Command {
 		.Even  = {kind = .Remesh, vertices = 300_000},
 		.Fewer = {kind = .Decimate, vertices = 20_000},
-		.Quads = {kind = .Retopo, vertices = 900},
+		.Quads = {kind = .Retopo, vertices = 900, engine = .Own},
 	}
 	for goal in Rebuild_Goal {
 		app.ui.rebuild_goal = goal
