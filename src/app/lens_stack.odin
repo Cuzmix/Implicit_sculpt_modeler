@@ -7,10 +7,10 @@ import "core:strings"
 import "../sculpt"
 import "../ui"
 
-// The Lens panel stack (round 2 of the mockups, screens sculpt2 and brushPanel): in Lens
-// the palette tray is drawn as a stack of cards down the pen side, Brush, Symmetry,
-// Layers and Scene, then Palettes, which keeps the whole tray (every palette and section)
-// within reach until the later rounds give its sections panels of their own. Each card
+// The Lens panel stack (round 2 of the mockups, screens sculpt2 and brushPanel): the
+// palettes as a stack of cards down the pen side, Brush, Symmetry, Layers, Scene and
+// Tools, and every tray section a card of its own that Show section brings in (round 3,
+// PR 9: the tray and its Palettes card are gone). Each card
 // has the mockups' header: a grip that drags it up or down the stack (or out, to float),
 // a chevron that folds it to its header and a line saying what it holds, its icon and
 // title, Float (or Dock) and its options. The Brush card shows the brush's card, Radius and
@@ -31,7 +31,6 @@ Panel_Kind :: enum u8 {
 	Layers,
 	Scene,
 	Tools,
-	Palettes,
 	// The look's cards, which a fresh layout leaves out and Studio shows (lens_studio.odin).
 	Lights,
 	Material,
@@ -96,7 +95,6 @@ STACK_CARD_NAMES := #partial [Panel_Kind]string {
 	.Layers   = "Layers",
 	.Scene    = "Scene",
 	.Tools       = "Tools",
-	.Palettes    = "Palettes",
 	.Lights      = "Lights",
 	.Material    = "Material",
 	.Environment = "Environment",
@@ -109,7 +107,6 @@ STACK_CARD_ICONS := #partial [Panel_Kind]rune {
 	.Layers   = ICON_OBJECTS,
 	.Scene    = ui.ICON_SHAPES,
 	.Tools       = ICON_SQUARE_DASHED,
-	.Palettes    = ui.ICON_PANEL,
 	.Lights      = ui.ICON_SUN,
 	.Material    = ICON_MATERIAL,
 	.Environment = ui.ICON_IMAGE,
@@ -124,7 +121,7 @@ STACK_HIDDEN_DEFAULT :: STACK_LOOK_CARDS | STACK_SECTION_PANELS
 STACK_LOOK_CARDS :: bit_set[Panel_Kind]{.Lights, .Material, .Environment}
 // The cards, and (Odin takes no range in a bit_set literal) the sections' palettes as
 // everything else; a complement keeps to the enum's cases.
-STACK_CARDS :: bit_set[Panel_Kind]{.Brush, .Symmetry, .Layers, .Scene, .Tools, .Palettes, .Lights, .Material, .Environment}
+STACK_CARDS :: bit_set[Panel_Kind]{.Brush, .Symmetry, .Layers, .Scene, .Tools, .Lights, .Material, .Environment}
 STACK_SECTION_PANELS :: ~STACK_CARDS
 STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder}
 
@@ -329,8 +326,8 @@ stack_card_of :: proc(app: ^App, sec: Kit_Section, exact := false) -> Panel_Kind
 
 // Opens the card that holds section `sec` (and, on the Brush card, unfolds its group); a
 // section's palette left out of the stack comes in as the visit (stack_visit). The tall
-// cards, Brush and Palettes, fold for another, and the stack scrolls to its top, so the
-// card opened is in sight. `exact` as stack_card_of has it (Show where).
+// Brush card folds for another, and the stack scrolls to its top, so the card opened is in
+// sight. `exact` as stack_card_of has it (Show where).
 stack_reveal :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	k := &app.kit
 	s := &k.stack
@@ -339,13 +336,21 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	// A tab of a group left out comes in with its group instead, below.
 	if panel_is_section(c) && c in s.hidden && c not_in s.joined && len(stack_group(s, c)) == 1 do stack_visit(k, c)
 	s.revealed = sec
-	// In a group, the group opens on the card's tab.
+	stack_reveal_card(app, c)
+	if c == .Brush do s.shut -= {sec}
+}
+
+// Opens card `c` (in a group, the group on c's tab), putting it back in the stack when it
+// was left out; the tall Brush card folds for another, and the stack scrolls to its top.
+stack_reveal_card :: proc(app: ^App, c: Panel_Kind) {
+	k := &app.kit
+	s := &k.stack
+	if !s.set do stack_default(k)
 	host := stack_host(s, c)
-	s.open -= {stack_host(s, .Brush), stack_host(s, .Palettes)} - {host}
+	s.open -= {stack_host(s, .Brush)} - {host}
 	s.open += {host}
 	for x in stack_group(s, host) do s.hidden -= {x}
 	stack_show_tab(s, c)
-	if c == .Brush do s.shut -= {sec}
 	k.panels.scroll[.Inspector], k.scroll = 0, 0
 	// Shown as icons, the card opens from its icon, so what is asked for is in sight.
 	if stack_strip_shown(app) && host not_in s.floated {
@@ -519,13 +524,6 @@ stack_card :: proc(app: ^App, c: Panel_Kind, width: f32, floating: bool) {
 // Card `c`'s content, `inner` wide: in the stack, on a floating card, or over the view from
 // the strip's tab.
 stack_card_body :: proc(app: ^App, c: Panel_Kind, inner: f32) {
-	k := &app.kit
-	k.in_tray = true
-	defer k.in_tray = false
-	if panel_is_section(c) {
-		panel_body(app, c, inner)
-		return
-	}
 	#partial switch c {
 	case .Brush:
 		if app.tool == .Brush do stack_brush(app, inner)
@@ -544,13 +542,6 @@ stack_card_body :: proc(app: ^App, c: Panel_Kind, inner: f32) {
 		kit_lens_material(app)
 	case .Environment:
 		kit_environment(app)
-	case .Palettes:
-		kit_tray_select(app)
-		switch k.tab {
-		case .Tool:   kit_tool_tab(app)
-		case .Object: kit_object_tab(app)
-		case .Scene:  kit_scene_tab(app)
-		}
 	}
 }
 
@@ -587,7 +578,7 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 	title := stack_title(app, v)
 	ui.text(ctx, title, x, y, t.text_size, t.text, .Semibold)
 	x += ui.text_width(ctx, title, t.text_size, .Semibold) + 10
-	if line := stack_summary(app, v) if !open || v == .Palettes else stack_open_line(app, v); line != "" && head.rect.x + head.rect.w - x > 24 {
+	if line := stack_summary(app, v) if !open else stack_open_line(app, v); line != "" && head.rect.x + head.rect.w - x > 24 {
 		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, head.rect.x + head.rect.w - x - 6), head.rect.x + head.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 	}
 	if head.clicked {
@@ -620,8 +611,8 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 	s.head_at[c] = ui.clipped(ctx, ui.last_ended(ctx))
 }
 
-// The card's title: the tool's name on the first while the tool is not the brush, the
-// palette's on Palettes.
+// The card's title: the tool's name on the first while the tool is not the brush, a
+// section's title on its own card.
 stack_title :: proc(app: ^App, c: Panel_Kind) -> string {
 	if c == .Brush do return kit_tool_name(app.tool)
 	if panel_is_section(c) do return panel_kind_title(app, c)
@@ -633,7 +624,7 @@ stack_brush_icon :: proc(app: ^App) -> rune {
 }
 
 // What a folded card holds, in a few words: the brush and its size, the axes, the
-// layers, the objects and the one selected, the palette and section the tray shows.
+// layers, the objects and the one selected, a section's own line.
 stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 	k := &app.kit
 	obj := selected_object(app)
@@ -660,9 +651,6 @@ stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 		return panel_summary(app, Kit_Section.Material)
 	case .Environment:
 		return panel_summary(app, Kit_Section.Environment)
-	case .Palettes:
-		if len(tray_sections(app, k.tab)) == 0 do return palette_name(k.tab)
-		return fmt.tprintf("%s · %s", palette_name(k.tab), tray_section_title(tray_section(app, k.tab)))
 	}
 	return ""
 }
@@ -944,9 +932,8 @@ stack_shut_text :: proc(k: ^Kit_State) -> string {
 }
 
 // Brings section palette `p` into the stack as the visit: open, at the docked stack's
-// foot (before Palettes while it is docked there), the visit before it left out again
-// unless it has since been kept. The visit is no part of the layout (stack_layout_save), so
-// opening sections never marks the workspace changed.
+// foot, the visit before it left out again unless it has since been kept. The visit is no
+// part of the layout (stack_layout_save), so the layout's own cards never move for it.
 stack_visit :: proc(k: ^Kit_State, p: Panel_Kind) {
 	s := &k.stack
 	if !s.set do stack_default(k)
@@ -957,19 +944,11 @@ stack_visit :: proc(k: ^Kit_State, p: Panel_Kind) {
 	s.hidden -= {p}
 	s.floated -= {p}
 	s.open += {p}
-	// Into the order just before Palettes's group while it is docked, else just after the
-	// last docked group, so no other card moves and the order of the layout's cards stays
-	// as it was.
+	// Into the order just after the last docked group, so no other card moves.
 	order: [dynamic; len(Panel_Kind)]Panel_Kind
 	for x in s.order do if x != p do append(&order, x)
-	palettes := stack_host(s, .Palettes)
-	docked :: proc(s: ^Lens_Stack, x: Panel_Kind) -> bool {return x not_in s.floated && x not_in s.hidden}
-	at := -1
-	for x, i in order do if x == palettes && docked(s, x) do at = i
-	if at < 0 {
-		at = 0
-		for x, i in order do if docked(s, stack_host(s, x)) do at = i + 1
-	}
+	at := 0
+	for x, i in order do if stack_host(s, x) not_in s.floated && stack_host(s, x) not_in s.hidden do at = i + 1
 	inject_at(&order, at, p)
 	for x, i in order do s.order[i] = x
 	s.visit = p

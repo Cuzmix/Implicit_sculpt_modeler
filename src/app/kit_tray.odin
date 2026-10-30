@@ -1,14 +1,13 @@
 package main
 
-import "core:fmt"
 
 import "../ui"
 
-// The palette tray, on the right where the inspector was: the tool's palette, the
-// object's and the scene's, each a list of sections shown one at a time, as ZBrush for
-// iPad's Tool palette does. The stack's Palettes card puts every palette's sections in a
-// select over the content (kit_tray_select). Search's Show where opens the palette holding a
-// command and marks its control (tray_show).
+// The sections of the three palettes, the tool's, the object's and the scene's, as ZBrush
+// for iPad's Tool palette has them. The tray that showed them one at a time is gone (round
+// 3, PR 9): each section is a card of the panel stack (Panel_Kind), which Show section
+// brings in (tray_open) and Search's Show where opens on the control it marks (tray_show).
+// The names keep "tray" since commands, tests and the skills know them by it.
 
 // How many sections the tray has: Kit_Section's first ones, before the Stats panel's.
 TRAY_SECTIONS :: int(Kit_Section.Background) + 1
@@ -17,45 +16,13 @@ TRAY_SECTIONS :: int(Kit_Section.Background) + 1
 // (columns_narrow).
 COLUMNS_MIN_W :: 1180
 
-// A section a palette offers: what it is and what the list calls it.
-Tray_Section :: struct {
-	section: Kit_Section,
-	title:   string,
-}
-
-// The sections palette `tab` offers now, in the order listed: only the brush has
-// sections on the tool's palette (the other tools' settings fill it), and the brush's
-// own Colour and History brush sections only while it paints or recalls.
-tray_sections :: proc(app: ^App, tab: Kit_Tab) -> []Tray_Section {
-	out := make([dynamic]Tray_Section, 0, len(OBJECT_SECTIONS), context.temp_allocator)
-	switch tab {
-	case .Tool:
-		if app.tool != .Brush do break
-		for s in BRUSH_SECTIONS do if s.shown == nil || s.shown(app) do append(&out, Tray_Section{s.section, s.title})
-	case .Object:
-		for s in OBJECT_SECTIONS do if object_section_offered(app, s.section) do append(&out, Tray_Section{s.section, s.title})
-	case .Scene:
-		append(&out, Tray_Section{.Objects, "Objects"})
-		for s in SCENE_SECTIONS do append(&out, Tray_Section{s.section, s.title})
-	}
-	return out[:]
-}
-
-// What the tray's list calls section `sec`.
+// What a section is called: its card's title, and its name in Search.
 tray_section_title :: proc(sec: Kit_Section) -> string {
 	if sec == .Objects do return "Objects"
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title
 	return ""
-}
-
-// The section palette `tab` shows: the one last picked there, or its first while that
-// one is not offered (Colour, once the brush no longer paints).
-tray_section :: proc(app: ^App, tab: Kit_Tab) -> Kit_Section {
-	list := tray_sections(app, tab)
-	for s in list do if s.section == app.kit.section[tab] do return s.section
-	return list[0].section if len(list) > 0 else app.kit.section[tab]
 }
 
 // The palette that holds section `sec`.
@@ -86,29 +53,11 @@ tray_offers :: proc(app: ^App, sec: Kit_Section) -> bool {
 	return false
 }
 
-// A palette's name in the list and the tray's title: the tool's for the first.
-palette_title :: proc(app: ^App, tab: Kit_Tab) -> string {
-	switch tab {
-	case .Tool:   return kit_tool_name(app.tool)
-	case .Object: return "Object"
-	case .Scene:  return "Scene"
-	}
-	return ""
-}
-
-// Shows section `sec` of palette `tab` from its top, fading it in when it changes.
-tray_pick :: proc(app: ^App, tab: Kit_Tab, sec: Kit_Section) {
-	k := &app.kit
-	if tab != k.tab || sec != tray_section(app, tab) do k.tab_serial += 1
-	k.tab, k.section[tab], k.scroll = tab, sec, 0
-}
-
 // Opens the stack on section `sec`, closing Settings or Help, which share its place: its
 // card, or its own palette as the visit (stack_reveal; `exact` as stack_card_of has it).
 tray_open :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	side_panel_close(app)
-	app.kit.inspector, app.kit.list_reveal = true, 3
-	tray_pick(app, section_palette(sec), sec)
+	app.kit.inspector = true
 	stack_reveal(app, sec, exact)
 }
 
@@ -206,40 +155,4 @@ tray_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 tray_mark :: proc(app: ^App, id: Command_Id, arg: int) {
 	k := &app.kit
 	if k.in_tray && k.pointed.id == id && k.pointed.arg == arg do ui.mark_next(&k.ctx)
-}
-
-// The palettes' sections in a select over the content:
-// every palette's sections as "Palette: Section", and a palette without any by name.
-kit_tray_select :: proc(app: ^App) {
-	k := &app.kit
-	names := make([dynamic]string, context.temp_allocator)
-	picks := make([dynamic]Tray_Section, context.temp_allocator)
-	tabs := make([dynamic]Kit_Tab, context.temp_allocator)
-	chosen := 0
-	for tab in Kit_Tab {
-		list := tray_sections(app, tab)
-		if len(list) == 0 {
-			if tab == k.tab do chosen = len(names)
-			append(&names, palette_title(app, tab))
-			append(&picks, Tray_Section{section = k.section[tab]})
-			append(&tabs, tab)
-			continue
-		}
-		shown := tray_section(app, tab)
-		for s in list {
-			if tab == k.tab && s.section == shown do chosen = len(names)
-			append(&names, fmt.tprintf("%s: %s", palette_title(app, tab), s.title))
-			append(&picks, s)
-			append(&tabs, tab)
-		}
-	}
-	if picked := ui.select(&k.ctx, "tray sections", names[:], chosen); picked >= 0 && picked != chosen {
-		tray_pick(app, tabs[picked], picks[picked].section)
-	}
-	ui.spacer(&k.ctx, 4)
-}
-
-// A section's name over its content in the tray.
-kit_section_title :: proc(ctx: ^ui.Context, title: string) {
-	ui.label(ctx, title, ctx.theme.title_size, ctx.theme.text, .Semibold)
 }

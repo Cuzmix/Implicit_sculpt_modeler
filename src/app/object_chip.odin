@@ -145,9 +145,9 @@ top_object_chip :: proc(app: ^App, c: Object_Chip, fit: Object_Chip_Fit) {
 	if a.clicked {
 		kit_floats_close(k)
 		if obj != nil && !lit do object_menu_open(app, obj.id, a.rect, .Below, .Chip)
-		else if obj == nil do tray_open(app, tray_section(app, .Scene))
+		else if obj == nil do tray_open(app, .Objects)
 	}
-	if ui.secondary(ctx) do tray_open(app, tray_section(app, .Scene))
+	if ui.secondary(ctx) do tray_open(app, .Objects)
 }
 
 // The exit stats' object_chip: how much of it showed, then its tag and badges.

@@ -905,8 +905,9 @@ def first_touch_scrolls_inspector():
 # How much higher a section's controls stand on its own card than they stood on the
 # Palettes card, which put a field picking the section over them, and for the Object
 # palette the object's name and size and the section's title, for the Scene palette its
-# title (round 3, PR 9b): measured from screen dumps at 1600 x 900.
-SECTION_DY = {"object": -143, "scene": -85, "objects": -59}
+# title (round 3, PR 9b), and for the Brush card the folded Palettes card that stood above
+# it (PR 9c): measured from screen dumps at 1600 x 900.
+SECTION_DY = {"object": -143, "scene": -85, "objects": -59, "brush": -60}
 
 
 def on_card(at, palette):
@@ -2182,8 +2183,8 @@ def palettes_only(section, setup=""):
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + "-palettes.workspace")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     word = "_".join(w.capitalize() for w in section.split("_"))
-    cards = "Palettes+" if section in BRUSH_SECTIONS else f"section:{word}+ -Palettes"
-    layout = f"open Inspector\nstack {cards} -Brush -Symmetry -Layers -Scene -Tools\nbars\n"
+    cards = "Brush+ -Symmetry" if section in BRUSH_SECTIONS else f"section:{word}+ -Brush -Symmetry"
+    layout = f"open Inspector\nstack {cards} -Layers -Scene -Tools\nbars\n"
     escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
     with open(path, "w") as f:
         f.write(f"SCULPT_WORKSPACE 1\nname Palettes\nlayout {escaped}\n")
@@ -2529,9 +2530,9 @@ def coach_card_clears_the_bars_on_a_narrow_window():
 
 
 # The Brush card's Preset group, as palettes_only("preset") opens it.
-PRESET_SAVE_NEW = (1303, 483)  # Save as preset, on a plain brush
-PRESET_NAME = (1378, 483)  # on a preset: its name field
-PRESET_REVERT = (1451, 537)
+PRESET_SAVE_NEW = on_card((1303, 483), "brush")  # Save as preset, on a plain brush
+PRESET_NAME = on_card((1378, 483), "brush")  # on a preset: its name field
+PRESET_REVERT = on_card((1451, 537), "brush")
 
 
 def save_a_preset(s):
@@ -4189,13 +4190,13 @@ LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 4
 
 @scenario
 def lens_studio_stack_shows_lights_material_environment():
-    """Render shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
+    """Render shows the Lights and Material cards open and Environment folded, the mini view rendering; a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(*LENS_STUDIO["workspace"])
     s.wait(20)
     s.ftap(*LENS_STUDIO["gold"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
+    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
 
@@ -4911,8 +4912,8 @@ def hide_unmasked_then_undo_shows_it_again():
                                 "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
-# Selection sets: the first set's Restore, where search shows the section (the Palettes
-# card unfolded under the folded cards above it).
+# Selection sets: the first set's Restore, where search shows the section (its own card
+# under the folded cards above it).
 SETS_RESTORE_FIRST = on_card((1471, 647), "object")
 
 
@@ -9617,7 +9618,7 @@ def stack_tab_carried_left_handed_by_pen():
 
 # The strip of icons at 1440x900 (the palettes as icons, or panes beside the main view):
 # each docked card's icon, 50 points apart from Brush's.
-STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools", "Palettes"])}
+STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools"])}
 
 
 def stack_icon_carry(s, frm, to, rest, mouse=False):
@@ -11852,15 +11853,15 @@ def motion_levels_still_open_menus():
 # PR 9b: sections as cards of their own.
 @scenario
 def search_opens_a_section_as_its_own_card():
-    """Search's Polypaint then Selection sets: each opens as the visiting card above Palettes,
-    Selection sets taking Polypaint's place."""
+    """Search's Polypaint then Selection sets: each opens as the visiting card at the stack's
+    foot, Selection sets taking Polypaint's place."""
     s = Script()
     palette_run(s, "object polypaint")
     s.wait(6)
     palette_run(s, "object selection sets")
     s.wait(6)
     return s, [], camera_still({"palette_last": is_text("Show_Section:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
-                                "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+,Palettes"), "dabs": near(0)})
+                                "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+"), "dabs": near(0)})
 
 
 @scenario
@@ -11875,8 +11876,8 @@ def show_where_opens_the_light_settings():
     return s, [], camera_still({"stack_visit": is_text("Light_Settings"), "tray_marked": near(1), "dabs": near(0)})
 
 
-# The visit's More (a section opened by Search on the default stack, where it stands above
-# Palettes) and its menu's Pin to the stack, at 1600 x 900.
+# The visit's More (a section opened by Search on the default stack, where it stands at the
+# stack's foot) and its menu's Pin to the stack, at 1600 x 900.
 VISIT_MORE = (1508, 394)
 VISIT_PIN = (1445, 584)
 
@@ -11894,7 +11895,7 @@ def a_pinned_visit_stays_in_the_stack():
     s.wait(8)
     palette_run(s, "object selection sets")
     s.wait(6)
-    return s, [], camera_still({"stack_visit": is_text("Sets"), "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Paint+,Sets+,Palettes"), "dabs": near(0)})
+    return s, [], camera_still({"stack_visit": is_text("Sets"), "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Paint+,Sets+"), "dabs": near(0)})
 
 
 def main(argv):

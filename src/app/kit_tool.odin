@@ -22,9 +22,11 @@ kit_tool_name :: proc(tool: Tool) -> string {
 	return ""
 }
 
+// The Brush card's body under a tool other than the brush, whose body is the stack's own
+// (stack_brush).
 kit_tool_tab :: proc(app: ^App) {
 	switch app.tool {
-	case .Brush:  kit_brush_tab(app)
+	case .Brush:
 	case .Move:   kit_move_tab(app)
 	case .Curve:  kit_curve_tab(app)
 	case .Insert: kit_insert_tab(app)
@@ -44,27 +46,6 @@ kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	ui.end(ctx)
 	ui.paragraph(ctx, help)
 	ui.spacer(ctx, 4)
-}
-
-@(private = "file")
-kit_brush_tab :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	kind := app.brush.kind
-	help, _ := strings.replace_all(string(BRUSHES[kind].help), "\n", " ", context.temp_allocator)
-	kit_tool_head(ctx, BRUSHES[kind].icon, BRUSHES[kind].name, help)
-	shown := tray_section(app, .Tool)
-	for sec in BRUSH_SECTIONS {
-		if sec.section != shown do continue
-		// The Preset section's title names the preset, and whether it has changed.
-		title := sec.title
-		if sec.section == .Preset {
-			p, on := brush_preset(app)
-			title = fmt.tprintf("Preset: %s%s", preset_name(p) if on else "none", " · changed" if preset_changed(app) else "")
-		}
-		kit_section_title(ctx, title)
-		sec.draw(app)
-	}
 }
 
 // One section of a palette that is not per object (the Brush and Scene palettes): which

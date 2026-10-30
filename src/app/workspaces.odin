@@ -255,13 +255,13 @@ built_in_layout :: proc(b: Built_In) -> string {
 	case .Model:
 		// The cage's palette shows in the Brush card under the Model tool; Layers, the
 		// scene and symmetry follow it, folded.
-		text = "open Inspector\nstack Brush+ Layers Scene Symmetry -Tools Palettes\n"
+		text = "open Inspector\nstack Brush+ Layers Scene Symmetry -Tools\n"
 	case .Render:
 		// The look's sections are cards of the stack, after round 2's studio2 screen: Lights
-		// and Material open, Environment folded, then Palettes, and the thumbnail shows the
+		// and Material open, Environment folded, and the thumbnail shows the
 		// render building up beside the stack's foot, so the stack has the column's whole
 		// height.
-		text = "thumbnail Follow Render\nopen Inspector Thumbnail\nwindow Thumbnail 1 End End 390 112 0\nstack Lights+ Material+ Environment -Brush -Symmetry -Layers -Scene -Tools Palettes\n"
+		text = "thumbnail Follow Render\nopen Inspector Thumbnail\nwindow Thumbnail 1 End End 390 112 0\nstack Lights+ Material+ Environment -Brush -Symmetry -Layers -Scene -Tools\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every built-in has the bars a fresh install has.
@@ -579,11 +579,14 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 		workspace_text_set(&w.list[int(Built_In.Sculpt)].saved, kit_layout_text(k))
 		return
 	}
-	// A layout saved before the grid was a tree names it with a grid line: written as the
-	// tree once, so it reads as unchanged.
+	// A layout saved before the grid was a tree names it with a grid line, and one saved
+	// while the stack had a Palettes card names that: each written again once as this
+	// version writes it, so it reads as unchanged.
 	for &each in w.list do if each.used {
 		if up := grid_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
 		if up := grid_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
+		if up := stack_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
+		if up := stack_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
 	}
 	// Focus and Inspect saved with changes before spaces become own Sculpt workspaces of
 	// those names, where a slot is free.
@@ -615,4 +618,19 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 	case 2: inspect_set(k, true)
 	}
 	w.views_current = 0
+}
+
+// Layout `text` written again as this version writes it when its stack lines name the
+// Palettes card, which is gone (round 3, PR 9); any other text as it is.
+stack_layout_upgrade :: proc(text: string) -> string {
+	for line in strings.split_lines(text, context.temp_allocator) {
+		f := strings.fields(line, context.temp_allocator)
+		if len(f) == 0 || !strings.has_prefix(f[0], "stack") do continue
+		for word in f[1:] {
+			name := strings.trim_suffix(strings.trim_prefix(strings.trim_prefix(strings.trim_prefix(word, "*"), "-"), "card:"), "+")
+			if eq := strings.index_byte(name, '='); eq >= 0 do name = name[:eq]
+			if strings.equal_fold(name, "Palettes") do return workspace_layout_clean(text)
+		}
+	}
+	return text
 }

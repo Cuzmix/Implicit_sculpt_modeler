@@ -1654,7 +1654,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("long_tip_keys=%s", long_tip_keys if long_tip_keys != "" else "none")
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
-		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
+		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(section_palette(app.kit.stack.revealed.? or_else .Preset)), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
@@ -1709,7 +1709,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The section the tray's open palette shows, whether Show where's mark is on a
 		// control, and the Mask section's Steps and Mask by kind.
-		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
+		fmt.printfln("tray_section=%s tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.stack.revealed.? or_else .Preset) if k.stack.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.

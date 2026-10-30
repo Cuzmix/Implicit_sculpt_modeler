@@ -54,13 +54,12 @@ Light_Press :: struct {
 // edge is smaller).
 LIGHT_MARKER_PX :: 15
 
-// Whether the Lights section is on screen, so the markers are up: Light settings, the
-// Lights card once a Show section opened it, or the Palettes card on the section.
+// Whether the Lights section is on screen, so the markers are up: Light settings, or the
+// Lights card once a Show section opened it.
 lights_section_shown :: proc(app: ^App) -> bool {
-	k := &app.kit
 	if palette_on_screen(app, .Light_Settings) do return true
-	if r, ok := k.stack.revealed.?; ok && r == .Lights && palette_on_screen(app, .Lights) do return true
-	return k.tab == .Scene && tray_section(app, .Scene) == .Lights && palette_on_screen(app, .Palettes)
+	r, ok := app.kit.stack.revealed.?
+	return ok && r == .Lights && palette_on_screen(app, .Lights)
 }
 
 // Where a point or spot light is in the scene.
