@@ -101,9 +101,12 @@ View_Grid :: struct {
 	was:       [GRID_VIEWS]int,
 	moved:     bool,
 	areas:     Grid_Areas, // Lens's pane gestures (lens_areas.odin); never kept
-	// This frame's layout, never kept: the main pane's rect in points, and each view
-	// pane's picture size in pixels (zero for one not shown).
+	// This frame's layout, never kept: where the main view is drawn in points (the pane
+	// worked in while one is, grid_work), the main pane's own rect, which its chrome keeps
+	// to whatever pane is worked in, and each view pane's picture size in pixels (zero for
+	// one not shown).
 	main:      ui.Rect,
+	home:      ui.Rect,
 	px:        [GRID_VIEWS][2]u32,
 	dragged:   int, // the divider held (1 + its node), 0 for none, for the exit stats
 	// The layout the view panes last faded in for, and when (View panes motion); never kept.
@@ -885,7 +888,7 @@ kit_grid :: proc(app: ^App) {
 		if k.frame > 2 do g.fade_at, g.fades = ctx.time, g.fades + 1
 		g.fade_serial = g.serial
 	}
-	g.main = cells[0]
+	g.main, g.home = cells[0], cells[0]
 	if g.work != 0 do g.main = room if g.maximised == g.work else cells[g.work]
 	// While a view pane is worked in, the main pane holds the picture it showed as the
 	// gesture began, and the main view is drawn in the view pane (kit_view_pane).

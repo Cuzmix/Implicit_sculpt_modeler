@@ -299,6 +299,7 @@ Kit_State :: struct {
 	scene_menu_side: ui.Side,
 	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
 	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
+	view_chips_at:    [2]f32, // where, in points (an exit stat)
 	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,

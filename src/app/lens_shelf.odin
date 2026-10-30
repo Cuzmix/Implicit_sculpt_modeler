@@ -405,9 +405,10 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// beside the main one, of the main pane, under which the shelf then stands, as the
 	// off-hand set stays with it.
 	span := area
-	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
-		span = g.main
-		shift = g.main.x + g.main.w * 0.5 - (area.x + area.w * 0.5)
+	// The main pane's own rect, so the shelf stays put while a view pane is worked in.
+	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.home.w > 0 {
+		span = g.home
+		shift = g.home.x + g.home.w * 0.5 - (area.x + area.w * 0.5)
 	}
 	if ctx.mirror do shift = -shift
 	centre := area.x + area.w * 0.5 + shift

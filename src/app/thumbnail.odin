@@ -329,11 +329,27 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 		supersample: u32,
 		// Its shading, as one number.
 		shading:     u64,
+		// What it stands on: the background, the floor's settings and the environment's
+		// look, as one number.
+		ground:      u64,
 	}
 	pass := u32(second_view_pass(sv.pass)) | u32(sv.pass) << 8
 	s := sv.shading
 	shading := u64(s.mode) | u64(s.lighting) << 8 | u64(s.color) << 16 | u64(s.matcap) << 24
-	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample, shading}
+	Ground :: struct {
+		background: render.Background,
+		floor:      Floor_Settings,
+		env:        [6]f32, // strength, blur, exposure, turn, whether it shows and whether it is fixed
+		kind:       u64,
+	}
+	e := &app.env
+	// Declared, then filled, so its padding is zero and hashes the same every frame.
+	g: Ground
+	g.background, g.kind = background_frame(app.background), u64(e.kind)
+	g.floor.on, g.floor.planes, g.floor.axes, g.floor.fit, g.floor.cell = app.floor.on, app.floor.planes, app.floor.axes, app.floor.fit, app.floor.cell
+	g.env = {e.strength, e.blur, app.exposure, app.light_turn, f32(int(e.background)), f32(int(e.fixed))}
+	ground := hash.fnv64a(mem.ptr_to_bytes(&g))
+	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample, shading, ground}
 	key = max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
 	return
 }
@@ -409,16 +425,30 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 	}
 	pass_items(items, view, pass)
 	ground, own := pass_ground(pass)
-	// A pass without a ground of its own sits on the interface's pane colour, so a view
-	// pane's empty corners are the same colour as the pane before its first picture.
-	if !own {
-		pane := color_f32(LOOK_THEMES[app.kit.look].pane)
-		ground = {pane, pane}
-	}
 	// Only a heavy pass reads the picture's depth after drawing it (the gather on later
 	// frames included), so only it keeps the depth; the others draw into a transient one.
 	heavy := second_pass_heavy(sv.pass) && render.live_ao_supported(&app.renderer, &pic.ao)
-	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy); tex != nil {
+	// A pass without a ground of its own stands on the scene's background, its environment
+	// and its floor, seen through the view's own camera, as the main view does, so a pane
+	// split from it looks the same; a heavy pass, which reads the picture after, on the
+	// background's colour alone.
+	scene := !own && !heavy
+	r := &app.renderer
+	saved_background, saved_floor, saved_look := r.background, r.floor, r.environment_look
+	if !own {
+		ground = background_frame(app.background)
+		if scene {
+			r.background = ground
+			f := app.floor
+			r.floor = floor_grid_place(app.floor_state.bounds, camera.orbit_eye(orbit), f) if f.on && f.planes != {} else {}
+			main := app.camera
+			app.camera = orbit
+			environment_view(app)
+			app.camera = main
+		}
+	}
+	defer if scene do r.background, r.floor, r.environment_look = saved_background, saved_floor, saved_look
+	if tex := render.thumbnail_view_draw(r, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy, scene = scene); tex != nil {
 		shown := tex
 		if heavy && sv.pass == .Occlusion {
 			reach := clamp(app.live_ao_reach, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX)
