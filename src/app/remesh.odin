@@ -101,11 +101,13 @@ surface_free :: proc(s: ^Surface) {
 }
 
 // What the result line adds after the count for `setup`, from what the remesh reported:
-// "; turned outward first; 2 holes closed first; 3 pieces, 1 too thin; detail kept", or
+// "; turned outward first; 2 triangles mended first; 2 holes closed first; 3 pieces, 1 too
+// thin; detail kept; quads", or
 // nothing. Temporary, so made after anything that frees the temp memory.
 remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	if report.turned do strings.write_string(&b, "; turned outward first")
+	if n := report.mended; n > 0 do fmt.sbprintf(&b, "; %d triangle%s mended first", n, "" if n == 1 else "s")
 	if n := report.holes_closed; n > 0 do fmt.sbprintf(&b, "; %d hole%s closed first", n, "" if n == 1 else "s")
 	if setup.groups && report.pieces > 0 {
 		fmt.sbprintf(&b, "; %d piece%s", report.pieces, "" if report.pieces == 1 else "s")

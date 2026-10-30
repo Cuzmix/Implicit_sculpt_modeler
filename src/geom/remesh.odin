@@ -55,12 +55,14 @@ Remesh_Options :: struct {
 
 REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT}
 
-// What a remesh did that its caller reports: the holes capped before the rays, the group
+// What a remesh did that its caller reports: the triangles mended and the holes capped
+// before the rays, the group
 // pieces made and those that gave nothing (thinner than a cell), each output triangle's
 // group (with `groups` asked, else nil) and each output vertex's old triangle (with Keep
 // detail, else nil; max(u32) where the projection found nothing within a cell). The two
 // slices are the caller's to free (remesh_report_destroy).
 Remesh_Report :: struct {
+	mended:       int, // triangles dropped (doubled or degenerate) or turned back before the rays (mesh_fix)
 	holes_closed: int,
 	turned:       bool, // the mesh was inside out (its volume negative) and was turned outward first
 	pieces:       int,
@@ -224,16 +226,30 @@ mesh_edges_paired :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> bool {
 	return total == 0
 }
 
-// The remesh of `m` on the lattice, its holes capped first when it has any: a ray's
-// winding behind a sheet it crosses once never comes back, so an open part would be
-// filled or dropped by the luck of which way it faces and left open at the lattice's
-// edge; capped, a bowl becomes a solid whichever way it opens, as DynaMesh makes it.
+// The remesh of `m` on the lattice, mended and its holes capped first when its edges do
+// not pair off: a doubled triangle or one turned against its neighbours puts the winding
+// behind it out by two, and a ray's winding behind a sheet it crosses once never comes
+// back, so such a part would be filled, dropped or left open at the lattice's edge by the
+// luck of which way the rays meet it. Mended (mesh_fix: duplicates dropped, turned
+// triangles turned back, nothing moved) and capped, a bowl becomes a solid whichever way
+// it opens, as DynaMesh makes it.
 @(private = "file")
-remesh_closed_first :: proc(m: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
+remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
 	// A run asked for quads that leaves none refused them (remesh_run).
 	defer if ok && quads != nil && quads^ == nil do r.quads_thin = true
-	if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+	if mesh_edges_paired(source, pool) do return remesh_run(source, h, bounds, len(source.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
 	heap := runtime.heap_allocator()
+	m := source
+	fixed, fixed_from, fix, mended := mesh_fix(source, pool, heap)
+	defer if mended {
+		mesh_destroy(&fixed)
+		repair_map_destroy(&fixed_from, heap)
+	}
+	if mended {
+		r.mended += fix.dropped_triangles + fix.duplicate_triangles + fix.flipped_triangles
+		m = fixed
+		if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+	}
 	capped, from, closed, did := mesh_close_holes(m, false, pool, heap)
 	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
 	defer mesh_destroy(&capped)
@@ -306,6 +322,7 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 		// A piece that refused its quads (seams.quads_thin) makes the whole triangles:
 		// the pieces after it skip the dual and the ones before drop theirs.
 		if seams.quads_thin do r.quads_thin = true
+		r.mended += seams.mended
 		if quads != nil && !r.quads_thin do append(&made_quads, piece_quads)
 	}
 	if len(made) == 0 do return {}, false

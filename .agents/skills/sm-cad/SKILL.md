@@ -75,7 +75,8 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   the uncompacted level before compacting and calls `remesh_voxel_measured`, so Rebuild's density checkerboard
   (`src/app/rebuild.odin`) shows exactly the cells the remesh builds on; never compute a spacing another way.
   `remesh_voxel_measured` caps an open mesh's holes before the rays (`mesh_edges_paired` tells, a wrapping hash sum
-  over the directed edges, then `mesh_close_holes`), so open parts never depend on the rays' direction; its
+  over the directed edges, then `mesh_fix` when they do not pair, since a doubled or turned triangle puts the
+  winding behind it out by two and hides the holes, then `mesh_close_holes`), so open parts never depend on the rays' direction; its
   `Remesh_Options` (Smooth rounds, Keep detail = projection back within a cell with the old triangle per vertex in the
   `Remesh_Report`, Groups = `mesh_split` by polygroup, each piece on its own lattice-snapped box, `mesh_join`) come from
   the app's `Remesh_Setup` in the `Scene_Command` (`src/app/remesh.odin`), and `remesh_surface` there carries polypaint
@@ -86,6 +87,9 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `levels_init`'s `old_to_new` and `tri_from`, on either thread. The marching cubes face rule turns on a face both cells'
   patches would thread twice (`cell_flips`, a crevice thinner than a cell): never make the loops from a static table
   alone, `mc_case_loops(case, flips)` is the one source for the table and the turned cells.
+  `python scripts/remesh_check.py [--stability]` runs Remesh, Remesh with Quads and Quad Remesh over twelve fixtures
+  (open, overlapping, non-manifold, doubled, flipped, NaN among them) in the debug app and judges each against the plan's
+  acceptance (`build/remesh_check/report.md`): run it after any change to `remesh.odin`, `retopo.odin` or `quadmesh`.
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
   (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object
