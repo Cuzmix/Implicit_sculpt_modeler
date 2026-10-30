@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 
 import "../render"
@@ -14,13 +15,13 @@ Graphics :: enum u8 {
 	Auto,
 	Vulkan,
 	SDL_GPU,
-	// render's own Metal backend, on Apple's platforms only. Only --gpu=metal chooses it:
-	// the menu leaves it out until it has been tried on a Mac and an iPad.
+	// render's own Metal backend, on Apple's platforms only. The menu offers it as a trial
+	// until it has been tried on a Mac and an iPad, guarded by graphics_trial_begin.
 	Metal,
 }
 
 // Whether the platform can run the Vulkan backend at all. Mac and iPad draw with SDL_GPU
-// (Metal) unless --gpu=metal asks for render's own Metal backend.
+// (Metal) unless the menu's trial or --gpu=metal asks for render's own Metal backend.
 GRAPHICS_VULKAN :: ODIN_OS != .Darwin
 GRAPHICS_METAL :: ODIN_OS == .Darwin
 
@@ -30,14 +31,50 @@ when GRAPHICS_VULKAN {
 	GRAPHICS_OFFERED := [?]Graphics{.Auto, .Vulkan, .SDL_GPU}
 } else {
 	@(rodata)
-	GRAPHICS_OFFERED := [?]Graphics{.Auto, .SDL_GPU}
+	GRAPHICS_OFFERED := [?]Graphics{.Auto, .SDL_GPU, .Metal}
 }
 
 GRAPHICS_NAMES := [Graphics]string {
 	.Auto    = "Automatic",
 	.Vulkan  = "Vulkan",
 	.SDL_GPU = "SDL_GPU",
-	.Metal   = "Metal",
+	.Metal   = "Metal (trial)",
+}
+
+// Frames a Metal trial start must show before it counts as started: about two seconds at
+// 60 Hz, past the first uploads, passes and presents.
+GRAPHICS_TRIAL_FRAMES :: 120
+
+// The file beside the settings that a Metal trial start leaves until it has shown its first
+// frames. Found at the next start, it means the trial stopped Sculpt as it started, so that
+// run draws with Automatic instead: the menu can never lock the person out of the app.
+graphics_trial_path :: proc(settings: string) -> string {
+	if settings == "" do return ""
+	dir, base := filepath.split(settings)
+	path, _ := filepath.join({dir, fmt.tprintf("%s-metal-trial", filepath.stem(base))}, context.temp_allocator)
+	return path
+}
+
+// Leaves the marker for a Metal start the setting chose and returns its path (temp), or,
+// finding the marker a start before left, removes it and returns Automatic with `failed`.
+// A start --gpu=metal chose is not guarded, since whoever typed the flag can leave it out.
+graphics_trial_begin :: proc(choice: Graphics, flag, settings: string) -> (start: Graphics, marker: string, failed: bool) {
+	path := graphics_trial_path(settings)
+	if choice != .Metal || flag != "" || path == "" do return choice, "", false
+	if os.exists(path) {
+		_ = os.remove(path)
+		return .Auto, "", true
+	}
+	if os.write_entire_file(path, transmute([]u8)string("metal trial starting\n")) != nil do return choice, "", false
+	return choice, path, false
+}
+
+// The trial has shown its first frames (or the run ended without a crash): its marker goes.
+graphics_trial_end :: proc(app: ^App) {
+	if app.graphics_trial == "" do return
+	_ = os.remove(app.graphics_trial)
+	delete(app.graphics_trial)
+	app.graphics_trial = ""
 }
 
 // The backend a choice asks for on this platform.
@@ -100,6 +137,7 @@ graphics_controls :: proc(app: ^App) {
 	case "metal":  running = "Metal"
 	}
 	status := fmt.tprintf("Drawing with %s.", running)
+	if app.graphics_trial_failed do status = fmt.tprintf("%s Metal (trial) stopped Sculpt as it started last time, so this run is back on Automatic.", status)
 	if why := render.backend_fallback(); why != "" {
 		asked := GRAPHICS_NAMES[graphics_asked(app.graphics_start)]
 		status = fmt.tprintf("Drawing with SDL_GPU: %s could not start here (%s).", asked, why)
@@ -111,6 +149,6 @@ graphics_controls :: proc(app: ^App) {
 	when GRAPHICS_VULKAN {
 		ui.paragraph(ctx, "Automatic draws with Vulkan, the app's own renderer, and with SDL_GPU on a device whose Vulkan lacks what it needs. Both draw the same image; SDL_GPU is there in case a driver misbehaves.")
 	} else {
-		ui.paragraph(ctx, "This device draws with SDL_GPU (Metal).")
+		ui.paragraph(ctx, "This device draws with SDL_GPU (Metal). Metal (trial) draws with the app's own Metal renderer, which has not yet been tried on every Mac and iPad and leaves out the studio render, render mode and Smooth all on the GPU; if it stops Sculpt as it starts, the next start is back on Automatic.")
 	}
 }

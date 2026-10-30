@@ -348,7 +348,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   release, an autoreleased one (command buffer, encoder, drawable) is retained while kept, and every proc opens
   `NS.scoped_autoreleasepool()`. The pinned Odin asserts ("missing procedure 'objc_lookUpClass'") on any objc
   message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. It makes no compute
-  pipelines yet (`gpu_*` compute procs return under Metal), it is not in the Graphics menu, and it has never run on
-  Apple hardware: `maccheck` and `iphonecheck` only compile it. `backend_fail` keeps a backend's reason for
+  pipelines yet (`gpu_*` compute procs return under Metal), the Graphics menu offers it only as Metal (trial), guarded by a start marker
+  (`graphics_trial_begin`, `src/app/graphics.odin`), and it has never run on Apple hardware: `maccheck` and `iphonecheck` only compile it. `backend_fail` keeps a backend's reason for
   `backend_fallback` whichever one failed.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).

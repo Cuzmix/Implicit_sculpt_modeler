@@ -18,6 +18,7 @@
 //   --hd         instead, the HD detail table (see run_hd)
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
+//   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
@@ -60,6 +61,7 @@ lod := false
 hd := false
 brushes := false
 remesh := false
+quadremesh := false
 dyntopo := false
 files := false
 masks := false
@@ -85,6 +87,8 @@ main :: proc() {
 			brushes = true
 		} else if arg == "--remesh" {
 			remesh = true
+		} else if arg == "--quadremesh" {
+			quadremesh = true
 		} else if arg == "--dyntopo" {
 			dyntopo = true
 		} else if arg == "--files" {
@@ -136,6 +140,12 @@ main :: proc() {
 	if remesh {
 		remesh_header()
 		for c in cases do if c.meshes == 1 do run_remesh(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if quadremesh {
+		quadremesh_header()
+		for c in cases do if c.meshes == 1 do run_quadremesh(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}
