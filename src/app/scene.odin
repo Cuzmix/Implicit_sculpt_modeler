@@ -413,14 +413,24 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 
 // The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
 // once its thread computed `mesh` from `start` to `computed`: the object rebuilt on it, or
-// on the levels the thread `prepared` from it (which then already carry the surface, so
-// `surface` is empty). When what the remesh reported (`remeshed`) under `setup` has something to say
+// on the levels the thread `prepared` from it (which then already carry the surface and
+// the quads, so `surface` is empty). When what the remesh reported (`remeshed`) under `setup` has something to say
 // (remesh_note) it reports the result line itself, the note after the count. False only
 // when the old mesh is gone and the new one could not be uploaded.
 remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, remeshed: geom.Remesh_Report = {}, setup: Remesh_Setup = {}) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared) do return false
+	// With Quads the maps say where the quads' corners and halves went, for the base
+	// level to keep them as its polygons (a long job's levels already do).
+	old_to_new, tri_from: []u32
+	if remeshed.quads != nil && prepared == nil {
+		old_to_new = make([]u32, len(mesh.positions))
+		tri_from = make([]u32, len(mesh.indices) / 3)
+	}
+	defer delete(old_to_new)
+	defer delete(tri_from)
+	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
+	if old_to_new != nil do remesh_take_quads(&obj.levels, remeshed.quads, old_to_new, tri_from)
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
@@ -1390,13 +1400,15 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // levels, HD detail, mask and strokes go, but that level's sculpt layers come across
 // (sculpt layer_carry.odin), mirrored as Mirror and weld made it, and `surface` gives
 // its polypaint and polygroups (a repair's). `normals` works out the mesh's normals, for
-// a mesh that comes without them. The caller waits for the GPU first. Returns false
-// only when the new mesh could not be uploaded.
-object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil) -> bool {
+// a mesh that comes without them. `old_to_new` and `tri_from` (not temporary) receive the
+// renumbering, as object_build_from fills them, for a caller that keeps maps into the
+// level. The caller waits for the GPU first. Returns false only when the new mesh could
+// not be uploaded.
+object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil, old_to_new: []u32 = nil, tri_from: []u32 = nil) -> bool {
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface, prepared = prepared) do return false
+	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	object_carry_layers(app, obj, layered, mirror)
 	return true
 }

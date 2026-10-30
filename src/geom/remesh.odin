@@ -50,6 +50,7 @@ Remesh_Options :: struct {
 	smooth:      int,
 	keep_detail: bool,
 	groups:      []u16,
+	quads:       bool, // the dual of the marching cubes: a closed mesh of quads only (Remesh_Report.quads)
 }
 
 REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT}
@@ -66,11 +67,21 @@ Remesh_Report :: struct {
 	dropped:      int,
 	groups:       []u16,
 	source_tris:  []u32,
+	// With `quads` asked: the output's quads in its vertex numbers, each facing outward,
+	// output triangles 2q and 2q + 1 being quad q's two halves (quad_split's shorter
+	// diagonal), so a polygon table over the triangles is q = t / 2. Nil with quads_thin:
+	// the dual was refused because two patches across a cell face would share an edge
+	// four quads at a time, which the turned face rule (cell_flips) leaves only where
+	// several of one cell's faces turn at once (rare), so the result is the triangles it
+	// always was; a higher density gives quads.
+	quads:        [][4]u32,
+	quads_thin:   bool,
 }
 
 remesh_report_destroy :: proc(r: ^Remesh_Report, allocator := context.allocator) {
 	delete(r.groups, allocator)
 	delete(r.source_tris, allocator)
+	delete(r.quads, allocator)
 	r^ = {}
 }
 
@@ -124,10 +135,11 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 		r.turned = true
 	}
 	defer if r.turned do delete(input.indices)
+	quads: ^[][4]u32 = &r.quads if options.quads else nil
 	if options.groups != nil {
-		out = remesh_groups(input, options.groups, h, bounds, smooth, pool, allocator, progress, rays_share, r) or_return
+		out = remesh_groups(input, options.groups, h, bounds, smooth, pool, allocator, progress, rays_share, r, quads) or_return
 	} else {
-		out = remesh_closed_first(input, h, bounds, smooth, pool, allocator, progress, rays_share, r) or_return
+		out = remesh_closed_first(input, h, bounds, smooth, pool, allocator, progress, rays_share, r, quads) or_return
 	}
 	if options.keep_detail {
 		if progress != nil && jobs.progress_cancelled(progress) {
@@ -217,11 +229,13 @@ mesh_edges_paired :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> bool {
 // filled or dropped by the luck of which way it faces and left open at the lattice's
 // edge; capped, a bowl becomes a solid whichever way it opens, as DynaMesh makes it.
 @(private = "file")
-remesh_closed_first :: proc(m: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report) -> (out: Mesh, ok: bool) {
-	if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+remesh_closed_first :: proc(m: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
+	// A run asked for quads that leaves none refused them (remesh_run).
+	defer if ok && quads != nil && quads^ == nil do r.quads_thin = true
+	if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
 	heap := runtime.heap_allocator()
 	capped, from, closed, did := mesh_close_holes(m, false, pool, heap)
-	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
 	defer mesh_destroy(&capped)
 	defer repair_map_destroy(&from, heap)
 	// A cap's vertices are raised to a membrane over the border's heights, which can
@@ -229,14 +243,14 @@ remesh_closed_first :: proc(m: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^j
 	// it (a step and a half from its outer points), so they are held within the box.
 	for &p in capped.positions do for a in 0 ..< 3 do p[a] = clamp(p[a], bounds.lo[a], bounds.hi[a])
 	r.holes_closed += closed.closed
-	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth)
+	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
 }
 
 // Each group of `m` remeshed on the same lattice as a closed piece of its own, then all
 // in one mesh with r.groups saying each triangle's group. Groups are taken in ascending
 // order of their number, so the pieces' order, and the result, follow from the mesh alone.
 @(private = "file")
-remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report) -> (out: Mesh, ok: bool) {
+remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
 	heap := runtime.heap_allocator()
 	tcount := len(m.indices) / 3
 	assert(len(groups) == tcount)
@@ -264,6 +278,11 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 	}
 	made_ids := make([dynamic]u16, 0, len(pieces), heap)
 	defer delete(made_ids)
+	made_quads := make([dynamic][][4]u32, 0, len(pieces), heap)
+	defer {
+		for q in made_quads do delete(q, heap)
+		delete(made_quads)
+	}
 	span := (share[1] - share[0]) / f32(max(len(pieces), 1))
 	for &piece, i in pieces {
 		r.pieces += 1
@@ -275,7 +294,8 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 		_, box := mesh_area_bounds(piece.mesh, pool)
 		for a in 0 ..< 3 do box.lo[a] = bounds.lo[a] + math.floor((box.lo[a] - bounds.lo[a]) / h) * h
 		seams: Remesh_Report
-		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams)
+		piece_quads: [][4]u32
+		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil)
 		if progress != nil && jobs.progress_cancelled(progress) do return {}, false
 		if !built {
 			r.dropped += 1
@@ -283,9 +303,28 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 		}
 		append(&made, one)
 		append(&made_ids, ids[i])
+		// A piece that refused its quads (seams.quads_thin) makes the whole triangles:
+		// the pieces after it skip the dual and the ones before drop theirs.
+		if seams.quads_thin do r.quads_thin = true
+		if quads != nil && !r.quads_thin do append(&made_quads, piece_quads)
 	}
 	if len(made) == 0 do return {}, false
 	out = mesh_join(made[:], allocator)
+	if quads != nil && !r.quads_thin {
+		// The pieces' quads over the joined mesh, each piece's corners moved up by the
+		// vertices of the pieces before it, as mesh_join laid them.
+		total := 0
+		for q in made_quads do total += len(q)
+		quads^ = make([][4]u32, total, allocator)
+		at, base := 0, u32(0)
+		for q, i in made_quads {
+			for f in q {
+				quads^[at] = f + base
+				at += 1
+			}
+			base += u32(len(made[i].positions))
+		}
+	}
 	r.groups = make([]u16, len(out.indices) / 3, allocator)
 	at := 0
 	for p, i in made {
@@ -404,7 +443,7 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
 // `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
 // as remesh_lattice says.
-remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT) -> (out: Mesh, ok: bool) {
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
 	extent := bounds.hi - bounds.lo
 	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
@@ -450,8 +489,42 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	out.normals = make([dynamic]Vec3, r.vertex_count, allocator)
 	r.out = &out
 	place_vertices(&r)
-	if next(progress, &stage, share) do march_cells(&r, allocator)
-	if next(progress, &stage, share) do relax(&out, pool, smooth)
+	if quads == nil {
+		if next(progress, &stage, share) do march_cells(&r, allocator)
+		if next(progress, &stage, share) do relax(&out, pool, smooth)
+	} else {
+		// The dual: a vertex per surface patch through a cell, a quad per crossing, the
+		// crossings' positions (the means the patches' vertices start from) then let go.
+		if next(progress, &stage, share) {
+			duals, built := dual_cells(&r, quads, allocator)
+			if !built {
+				// Refused (a gap thinner than a cell, Remesh_Report.quads_thin): the
+				// triangles instead, which the caller sees from the quads left nil.
+				march_cells(&r, allocator)
+				relax(&out, pool, smooth)
+			} else {
+				delete(out.positions)
+				out.positions = duals
+				resize(&out.normals, len(duals))
+			}
+		}
+		if quads^ != nil && next(progress, &stage, share) {
+			relax_quads(&out, quads^, pool, smooth)
+			out.indices = make([dynamic]u32, 6 * len(quads^), allocator)
+			Split :: struct {
+				out:   ^Mesh,
+				quads: [][4]u32,
+			}
+			split := Split{&out, quads^}
+			jobs.parallel_ranges(pool, len(quads^), &split, proc(data: rawptr, lo, hi: int) {
+				s := cast(^Split)data
+				for q in lo ..< hi {
+					t := quad_split(s.out.positions[:], s.quads[q])
+					copy(s.out.indices[6 * q:][:6], t[:])
+				}
+			}, RANGE_GRAIN)
+		}
+	}
 	if !next(progress, &stage, share) {
 		mesh_destroy(&out)
 		return {}, false
@@ -486,6 +559,18 @@ Remesher :: struct {
 	out:          ^Mesh,
 	slabs:        [][dynamic]u32, // per k: the triangles of the cells there
 	slab_at:      []int,          // where each slab's indices go in the result
+	// The dual (dual_cells): per crossing, the four patch vertices around its lattice
+	// edge by slot (the cell's side in the edge's two other axes), as slab-local numbers
+	// until the slabs are laid end to end; and whether the edge's low end is inside,
+	// which way the quad faces.
+	corner:       []u32,
+	low_in:       []bool,
+}
+
+// One slab's dual vertices (the mean of each patch's crossings) in cell order.
+@(private = "file")
+Dual_Slab :: struct {
+	verts: [dynamic]Vec3,
 }
 
 // Where insideness changes along each x ray: on the lattice edge [e, e + 1] holding
@@ -685,7 +770,7 @@ march_cells :: proc(r: ^Remesher, allocator: runtime.Allocator) {
 }
 
 @(private = "file")
-march_column :: proc(r: ^Remesher, j, k: int, out: ^[dynamic]u32) {
+march_column :: proc(r: ^Remesher, j, k: int, out: ^[dynamic]u32, dual: ^Dual_Slab = nil) {
 	ny := r.n[1]
 	// The four x rays at the column's corners, numbered dy | dz << 1.
 	rays := [4]int{j + ny * k, j + 1 + ny * k, j + ny * (k + 1), j + 1 + ny * (k + 1)}
@@ -732,7 +817,7 @@ march_column :: proc(r: ^Remesher, j, k: int, out: ^[dynamic]u32) {
 		}
 		return
 	}
-	cell :: proc(r: ^Remesher, i: i32, flips: ^[4][]i32, ptr: ^[4]int, rays: [4]int, strip_base: [4]u32, strip_rank: ^[4]u32, last_point: ^i32, ids_next: ^[4]i32, out: ^[dynamic]u32) {
+	cell :: proc(r: ^Remesher, i: i32, j, k: int, flips: ^[4][]i32, ptr: ^[4]int, rays: [4]int, strip_base: [4]u32, strip_rank: ^[4]u32, last_point: ^i32, ids_next: ^[4]i32, out: ^[dynamic]u32, dual: ^Dual_Slab) {
 		lo := inside_at(flips, ptr, i)
 		// x edges at e = i: a flip there, numbered by its place on its ray.
 		x_ids: [4]i32
@@ -761,7 +846,52 @@ march_column :: proc(r: ^Remesher, j, k: int, out: ^[dynamic]u32) {
 			edge[4 + idx] = ids[d2]     // y edges: dx | dz << 1, strip y at z = k + dz
 			edge[8 + idx] = ids[2 + d2] // z edges: dx | dy << 1, strip z at y = j + dy
 		}
-		tris := mc_tris[mc_case][:3 * int(mc_tri_count[mc_case])]
+		// The case's loops from the table, or traced here where a face pairs the other
+		// way round (cell_flips, seldom).
+		cl := &mc_cells[mc_case]
+		turned: Cell_Loops
+		if cl.faces != 0 {
+			if flips := cell_flips(r, mc_case, int(i), j, k); flips != 0 {
+				turned = mc_case_loops(int(mc_case), flips)
+				cl = &turned
+			}
+		}
+		if dual != nil {
+			// A vertex per loop of the case (a patch through the cell), at the mean of its
+			// crossings, and that vertex as the corner each of those crossings' quads
+			// takes from this cell.
+			for l in 0 ..< int(cl.count) {
+				loop := cl.edges[cl.first[l]:cl.first[l + 1]]
+				double := cl.double[l]
+				mean: Vec3
+				for e in loop {
+					assert(edge[e] >= 0, "marching cubes edge without a vertex")
+					mean += r.out.positions[edge[e]]
+				}
+				local := u32(len(dual.verts))
+				assert(local < DUAL_FLAGS, "more patches in a slab than the corner word holds")
+				append(&dual.verts, mean / f32(len(loop)))
+				for e in loop {
+					// The cell is on the high side of the edge's other axes where the
+					// edge runs along its low faces (idx bits clear).
+					idx := e & 3
+					hi1, hi2 := idx & 1 == 0, idx >> 1 == 0
+					slot := 0 if !hi1 && !hi2 else (1 if hi1 && !hi2 else (2 if hi1 && hi2 else 3))
+					// Above the vertex number, whether this patch crosses twice the face
+					// along the edge's first other axis (bit 0) and its second (bit 1),
+					// the faces the cell shares with the slots beside this one.
+					axis := e >> 2
+					o1, o2 := (axis + 1) % 3, (axis + 2) % 3
+					if o1 > o2 do o1, o2 = o2, o1
+					flags := u32(double >> uint(2 * o1 + (idx & 1)) & 1) | u32(double >> uint(2 * o2 + (idx >> 1)) & 1) << 1
+					q := int(edge[e])
+					r.corner[4 * q + slot] = local | flags * DUAL_FLAGS
+					if slot == 0 do r.low_in[q] = (mc_case >> mc_edge_corner0[e]) & 1 == 1
+				}
+			}
+			return
+		}
+		tris := cl.tris[:3 * int(cl.tri_count)]
 		for e in tris {
 			assert(edge[e] >= 0, "marching cubes edge without a vertex")
 			append(out, u32(edge[e]))
@@ -775,98 +905,387 @@ march_column :: proc(r: ^Remesher, j, k: int, out: ^[dynamic]u32) {
 		bits := inside_at(&flips, &ptr, start)
 		agree := bits == 0 || bits == 0xf
 		if !agree {
-			for i in start ..< end - 1 do cell(r, i, &flips, &ptr, rays, strip_base, &strip_rank, &last_point, &ids_next, out)
+			for i in start ..< end - 1 do cell(r, i, j, k, &flips, &ptr, rays, strip_base, &strip_rank, &last_point, &ids_next, out, dual)
 		}
-		if end < n0 && end - 1 >= 0 do cell(r, end - 1, &flips, &ptr, rays, strip_base, &strip_rank, &last_point, &ids_next, out)
+		if end < n0 && end - 1 >= 0 do cell(r, end - 1, j, k, &flips, &ptr, rays, strip_base, &strip_rank, &last_point, &ids_next, out, dual)
 		start = end
 	}
 }
 
-// Marching cubes triangles per case (corner c inside when bit c is set), as cell edge
-// numbers, three per triangle. Corner c sits at (c & 1, c >> 1 & 1, c >> 2 & 1). Edge
-// a * 4 + idx runs along axis a from the corner whose other two coordinates are the
-// bits of idx (lower axis first).
-@(private = "file")
-mc_tris: [256][30]u8
-@(private = "file")
-mc_tri_count: [256]u8
+// Marching cubes for one cell: the loops its crossing edges form (each a patch of the
+// surface through the cell, for the dual) and the triangles those loops fan into. Cell
+// edges are numbered a * 4 + idx: along axis a from the corner whose other two coordinates
+// are the bits of idx (lower axis first); corner c sits at (c & 1, c >> 1 & 1, c >> 2 & 1)
+// and is inside when bit c of the case is set. Loop l is the edges
+// edges[first[l]:first[l + 1]], in the fan's order; double[l] has a bit per cell face
+// (axis * 2 + side) the loop crosses twice, taking both of the face's segments; tris are
+// three edge numbers a triangle, facing outward.
+@(private)
+Cell_Loops :: struct {
+	count:     u8,
+	first:     [5]u8,
+	edges:     [12]u8,
+	double:    [4]u8,
+	tri_count: u8,
+	tris:      [30]u8,
+	// Every face some loop crosses twice (the loops' double together): where the cell
+	// across such a face has one too, the face's pairing is turned (cell_flips).
+	faces:     u8,
+}
 
-// Builds the table from one rule rather than by hand: on each cube face, the surface
-// joins the face's crossing edges in pairs, keeping the face's inside corners apart
-// when two of them sit diagonally, and runs clockwise around the inside seen from
-// outside the cube. Neighbouring cells see the same face the same way, so the
-// surface is closed and manifold. Each cell's crossing edges then form loops, each
-// fanned into triangles that face outward.
+// The 256 cases under the plain rule (no face turned), built once.
+@(private)
+mc_cells: [256]Cell_Loops
+// Each cell edge's low corner, whose insideness says which way its crossing's quad faces.
 @(private = "file")
+mc_edge_corner0: [12]u8
+
+// The dual's corner words hold the slab-local vertex number below this and the two
+// double-face flags above it.
+@(private = "file")
+DUAL_FLAGS :: u32(1) << 30
+
+@(private)
 mc_once: sync.Once
 
-@(private = "file")
+@(private)
 mc_build_table :: proc() {
+	for e in 0 ..< 12 do mc_edge_corner0[e] = mc_edge_corners(e)[0]
+	for mc_case in 0 ..< 256 do mc_cells[mc_case] = mc_case_loops(mc_case, 0)
+}
+
+// The two corners of cell edge e, the low one first.
+@(private = "file")
+mc_edge_corners :: proc(e: int) -> [2]u8 {
+	a, idx := e >> 2, e & 3
+	o1, o2 := (a + 1) % 3, (a + 2) % 3
+	if o1 > o2 do o1, o2 = o2, o1
+	c0 := u8((idx & 1) << uint(o1) | (idx >> 1) << uint(o2))
+	return {c0, c0 | 1 << uint(a)}
+}
+
+// One cell's loops and triangles from one rule rather than a table by hand: on each cube
+// face, the surface joins the face's crossing edges in pairs, and runs clockwise around
+// the inside seen from outside the cube. A face with four crossings (its inside corners
+// on one diagonal, its outside ones on the other) is paired at each inside corner,
+// keeping the inside corners apart and joining the outside ones across the face; with the
+// face's bit set in `flips` the other way round, pairing at each outside corner. Both
+// cells on a face pair it the same way (cell_flips decides from both), so the surface is
+// closed and manifold. Each cell's crossing edges then form loops, each fanned into
+// triangles from a crossing off the faces the loop crosses twice when it has one (so the
+// fans of the two cells on such a face never share a diagonal).
+@(private)
+mc_case_loops :: proc(mc_case: int, flips: u8) -> (cl: Cell_Loops) {
 	edges: [12][2]u8
-	for a in 0 ..< 3 {
-		o1, o2 := (a + 1) % 3, (a + 2) % 3
-		if o1 > o2 do o1, o2 = o2, o1
-		for idx in 0 ..< 4 {
-			c0 := u8((idx & 1) << uint(o1) | (idx >> 1) << uint(o2))
-			edges[a * 4 + idx] = {c0, c0 | 1 << uint(a)}
+	for e in 0 ..< 12 do edges[e] = mc_edge_corners(e)
+	corner_pos :: proc(c: u8) -> [3]f32 {return {f32(c & 1), f32(c >> 1 & 1), f32(c >> 2 & 1)}}
+	inside :: proc(mc_case: int, c: u8) -> bool {return (mc_case >> c) & 1 == 1}
+	next: [12]i8
+	for &x in next do x = -1
+	// The segment from e1 to e2 on the face with `normal`, turned so the inside end of e1
+	// (which is on the segment's inside side under either pairing) is on its right.
+	segment :: proc(edges: [12][2]u8, mc_case: int, next: ^[12]i8, e1, e2: int, normal: [3]f32) {
+		c_in := edges[e1][0] if inside(mc_case, edges[e1][0]) else edges[e1][1]
+		m1 := (corner_pos(edges[e1][0]) + corner_pos(edges[e1][1])) * 0.5
+		m2 := (corner_pos(edges[e2][0]) + corner_pos(edges[e2][1])) * 0.5
+		p := corner_pos(c_in)
+		from, to := e1, e2
+		if linalg.dot(linalg.cross(m1 - p, m2 - p), normal) > 0 do from, to = e2, e1
+		assert(next[from] < 0, "two segments leave one edge")
+		next[from] = i8(to)
+	}
+	for a in 0 ..< 3 do for side in 0 ..< 2 {
+		normal: [3]f32
+		normal[a] = 1 if side == 1 else -1
+		on_face :: proc(c: u8, a, side: int) -> bool {return int(c >> uint(a) & 1) == side}
+		crossing: [dynamic; 4]int
+		for e in 0 ..< 12 {
+			c0, c1 := edges[e][0], edges[e][1]
+			if !on_face(c0, a, side) || !on_face(c1, a, side) do continue
+			if inside(mc_case, c0) != inside(mc_case, c1) do append(&crossing, e)
+		}
+		switch len(crossing) {
+		case 2:
+			segment(edges, mc_case, &next, crossing[0], crossing[1], normal)
+		case 4:
+			// Pair the two edges at each inside corner, or with the face turned at each
+			// outside corner.
+			at_inside := flips >> u8(2 * a + side) & 1 == 0
+			for c in 0 ..< u8(8) {
+				if !on_face(c, a, side) || inside(mc_case, c) != at_inside do continue
+				pair: [dynamic; 2]int
+				for e in crossing do if edges[e][0] == c || edges[e][1] == c do append(&pair, e)
+				segment(edges, mc_case, &next, pair[0], pair[1], normal)
+			}
 		}
 	}
-	corner_pos :: proc(c: u8) -> [3]f32 {return {f32(c & 1), f32(c >> 1 & 1), f32(c >> 2 & 1)}}
-	for mc_case in 0 ..< 256 {
-		inside :: proc(mc_case: int, c: u8) -> bool {return (mc_case >> c) & 1 == 1}
-		next: [12]i8
-		for &x in next do x = -1
-		segment :: proc(edges: [12][2]u8, mc_case: int, next: ^[12]i8, e1, e2: int, normal: [3]f32) {
-			c_in := edges[e1][0] if inside(mc_case, edges[e1][0]) else edges[e1][1]
-			m1 := (corner_pos(edges[e1][0]) + corner_pos(edges[e1][1])) * 0.5
-			m2 := (corner_pos(edges[e2][0]) + corner_pos(edges[e2][1])) * 0.5
-			p := corner_pos(c_in)
-			from, to := e1, e2
-			if linalg.dot(linalg.cross(m1 - p, m2 - p), normal) > 0 do from, to = e2, e1
-			assert(next[from] < 0, "two segments leave one edge")
-			next[from] = i8(to)
+	seen: [12]bool
+	loop_edges := 0
+	for start in 0 ..< 12 {
+		if next[start] < 0 || seen[start] do continue
+		loop: [dynamic; 12]int
+		for e := start; !seen[e]; e = int(next[e]) {
+			seen[e] = true
+			append(&loop, e)
+			assert(next[e] >= 0, "open marching cubes loop")
 		}
-		for a in 0 ..< 3 do for side in 0 ..< 2 {
-			normal: [3]f32
-			normal[a] = 1 if side == 1 else -1
-			on_face :: proc(c: u8, a, side: int) -> bool {return int(c >> uint(a) & 1) == side}
-			crossing: [dynamic; 4]int
-			for e in 0 ..< 12 {
-				c0, c1 := edges[e][0], edges[e][1]
-				if !on_face(c0, a, side) || !on_face(c1, a, side) do continue
-				if inside(mc_case, c0) != inside(mc_case, c1) do append(&crossing, e)
+		l := int(cl.count)
+		// The two faces each edge lies on: along its other axes, on the side its index
+		// bits give. Four of the loop's edges on one face is both of its segments.
+		on_face: [6]u8
+		for e in loop {
+			a := e >> 2
+			o1, o2 := (a + 1) % 3, (a + 2) % 3
+			if o1 > o2 do o1, o2 = o2, o1
+			on_face[2 * o1 + (e & 1)] += 1
+			on_face[2 * o2 + (e >> 1 & 1)] += 1
+		}
+		for n, f in on_face do if n == 4 do cl.double[l] |= 1 << u8(f)
+		cl.faces |= cl.double[l]
+		// The fan's apex: the first edge off every doubled face, else the first.
+		apex := 0
+		for e, i in loop {
+			a := e >> 2
+			o1, o2 := (a + 1) % 3, (a + 2) % 3
+			if o1 > o2 do o1, o2 = o2, o1
+			if cl.double[l] >> u8(2 * o1 + (e & 1)) & 1 == 0 && cl.double[l] >> u8(2 * o2 + (e >> 1 & 1)) & 1 == 0 {
+				apex = i
+				break
 			}
-			switch len(crossing) {
-			case 2:
-				segment(edges, mc_case, &next, crossing[0], crossing[1], normal)
-			case 4:
-				// Diagonal inside corners: pair the two edges at each inside corner.
-				for c in 0 ..< u8(8) {
-					if !on_face(c, a, side) || !inside(mc_case, c) do continue
-					pair: [dynamic; 2]int
-					for e in crossing do if edges[e][0] == c || edges[e][1] == c do append(&pair, e)
-					segment(edges, mc_case, &next, pair[0], pair[1], normal)
+		}
+		cl.first[l] = u8(loop_edges)
+		for i in 0 ..< len(loop) {
+			cl.edges[loop_edges] = u8(loop[(apex + i) % len(loop)])
+			loop_edges += 1
+		}
+		cl.count += 1
+		cl.first[cl.count] = u8(loop_edges)
+		for t in 1 ..< len(loop) - 1 {
+			cl.tris[3 * cl.tri_count + 0] = cl.edges[int(cl.first[l])]
+			cl.tris[3 * cl.tri_count + 1] = cl.edges[int(cl.first[l]) + t]
+			cl.tris[3 * cl.tri_count + 2] = cl.edges[int(cl.first[l]) + t + 1]
+			cl.tri_count += 1
+		}
+	}
+	return
+}
+
+// Whether lattice point i on x ray (j, k) is inside: an even number of flips before it;
+// outside the lattice, outside.
+@(private = "file")
+point_inside :: proc(r: ^Remesher, i, j, k: int) -> bool {
+	if i < 0 || j < 0 || k < 0 || i >= r.n[0] || j >= r.n[1] || k >= r.n[2] do return false
+	flips := flips_of(r, j + r.n[1] * k)
+	before, _ := slice.binary_search(flips, i32(i))
+	return before & 1 == 1
+}
+
+// The marching cubes case of the cell whose low corner is lattice point (i, j, k).
+@(private = "file")
+cell_case :: proc(r: ^Remesher, i, j, k: int) -> (mc_case: u8) {
+	for c in 0 ..< 8 {
+		if point_inside(r, i + c & 1, j + c >> 1 & 1, k + c >> 2 & 1) do mc_case |= 1 << u8(c)
+	}
+	return
+}
+
+// The faces of the cell at (i, j, k) with case `mc_case` to pair the other way round
+// (mc_case_loops): those one of its loops crosses twice where the cell across the face
+// has such a loop too. Under the plain pairing the two loops would share both segments
+// of the face, a tube of air (or matter) pinched flat, whose triangles' diagonals and
+// whose dual edge would carry four faces: a gap thinner than a cell slipping diagonally
+// between lattice points. Turned, each cell keeps two pockets apart instead, which
+// closes the gap as a gap narrower than a cell closes anywhere else. Both cells read the
+// same two cases, so they agree.
+@(private = "file")
+cell_flips :: proc(r: ^Remesher, mc_case: u8, i, j, k: int) -> (flips: u8) {
+	faces := mc_cells[mc_case].faces
+	if faces == 0 do return 0
+	for f in 0 ..< 6 {
+		if faces >> u8(f) & 1 == 0 do continue
+		axis, side := f / 2, f % 2
+		at := [3]int{i, j, k}
+		at[axis] += 1 if side == 1 else -1
+		across := mc_cells[cell_case(r, at[0], at[1], at[2])].faces
+		if across >> u8(2 * axis + 1 - side) & 1 == 1 do flips |= 1 << u8(f)
+	}
+	return
+}
+
+// The largest index i with base[i] <= q, in a prefix-sum table: the ray or strip whose
+// crossings q is among.
+@(private = "file")
+upper_index :: proc(base: []u32, q: u32) -> int {
+	lo, hi := 0, len(base) - 1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if base[mid] <= q do lo = mid
+		else do hi = mid - 1
+	}
+	return lo
+}
+
+// The dual of the marching cubes over the crossings place_vertices positioned: one
+// vertex per patch through a cell (the mean of the patch's crossings) and one quad per
+// crossing, over the four patches around its lattice edge, facing outward. Each cell's
+// crossings each lie in exactly one of its patches, a patch's crossings run around it in
+// one cycle, and a quad edge is a face edge of the marching cubes shared by its two
+// cells, so the quads are a closed manifold with four corners each, also across the
+// faces whose four crossings plain surface nets would join at one vertex. Slab by slab in
+// parallel, in cell order, the slabs then laid end to end, so the result is the same on
+// any thread count. False, refusing the dual, where two patches across a face both cross
+// it twice (their edge would carry four quads: a gap thinner than a cell, slipping
+// diagonally between lattice points, which no vertex per patch can thread), or when a
+// quad lacks a corner, which a closed marching cubes never leaves.
+@(private = "file")
+dual_cells :: proc(r: ^Remesher, quads: ^[][4]u32, allocator: runtime.Allocator) -> (positions: [dynamic]Vec3, ok: bool) {
+	heap := runtime.heap_allocator()
+	crossings := r.vertex_count
+	r.corner = make([]u32, 4 * crossings, heap)
+	defer delete(r.corner, heap)
+	slice.fill(r.corner, max(u32))
+	r.low_in = make([]bool, crossings, heap)
+	defer delete(r.low_in, heap)
+	slabs := make([]Dual_Slab, r.n[2] - 1, context.temp_allocator)
+	defer for &s in slabs do delete(s.verts)
+	Walk :: struct {
+		r:     ^Remesher,
+		slabs: []Dual_Slab,
+		base:  []u32, // per slab, its first vertex number in the result
+		quads: [][4]u32,
+		out:   []Vec3,
+		bad:   bool, // a quad without a corner, or an edge four quads share (atomic)
+	}
+	w := Walk{r = r, slabs = slabs}
+	jobs.parallel_for(r.pool, len(slabs), &w, proc(data: rawptr, k: int) {
+		w := cast(^Walk)data
+		w.slabs[k].verts = make([dynamic]Vec3, 0, 1024, runtime.heap_allocator())
+		for j in 0 ..< w.r.n[1] - 1 do march_column(w.r, j, k, nil, &w.slabs[k])
+	})
+	w.base = make([]u32, len(slabs) + 1, context.temp_allocator)
+	for s, k in slabs do w.base[k + 1] = w.base[k] + u32(len(s.verts))
+	positions = make([dynamic]Vec3, int(w.base[len(slabs)]), allocator)
+	w.out = positions[:]
+	jobs.parallel_for(r.pool, len(slabs), &w, proc(data: rawptr, k: int) {
+		w := cast(^Walk)data
+		copy(w.out[w.base[k]:], w.slabs[k].verts[:])
+	})
+	quads^ = make([][4]u32, crossings, allocator)
+	w.quads = quads^
+	jobs.parallel_ranges(r.pool, crossings, &w, proc(data: rawptr, lo, hi: int) {
+		w := cast(^Walk)data
+		r := w.r
+		ny := r.n[1]
+		for q in lo ..< hi {
+			// The crossing's axis and the slab of the cells on the low side of its edge's
+			// last axis (the high side's is the next slab); a z edge's four cells are all
+			// in its own slab.
+			qu := u32(q)
+			axis, slab := 0, 0
+			switch {
+			case qu < r.y_base[0]:
+				axis, slab = 0, upper_index(r.x_base, qu) / ny
+			case qu < r.z_base[0]:
+				axis, slab = 1, upper_index(r.y_base, qu) / (ny - 1)
+			case:
+				axis, slab = 2, upper_index(r.z_base, qu) / ny
+			}
+			c, flags: [4]u32
+			for slot in 0 ..< 4 {
+				word := r.corner[4 * q + slot]
+				in_slab := slab if axis == 2 || slot >= 2 else slab - 1
+				if word == max(u32) || in_slab < 0 {
+					sync.atomic_store(&w.bad, true)
+					return
 				}
+				c[slot] = w.base[in_slab] + word % DUAL_FLAGS
+				flags[slot] = word / DUAL_FLAGS
 			}
+			// Slots beside each other share the face along the edge's first other axis
+			// (0 with 1, 2 with 3) or its second (1 with 2, 3 with 0); both patches
+			// crossing it twice is the doubled edge.
+			if (flags[0] & flags[1] | flags[2] & flags[3]) & 1 != 0 || (flags[1] & flags[2] | flags[3] & flags[0]) & 2 != 0 {
+				sync.atomic_store(&w.bad, true)
+				return
+			}
+			// The slots run around the edge with the right hand along +axis for x and z,
+			// against it for y; the quad faces the outside, which is +axis when the
+			// edge's low end is inside.
+			forward := (axis != 1) == r.low_in[q]
+			w.quads[q] = {c[0], c[1], c[2], c[3]} if forward else {c[0], c[3], c[2], c[1]}
 		}
-		seen: [12]bool
-		count := 0
-		for start in 0 ..< 12 {
-			if next[start] < 0 || seen[start] do continue
-			loop: [dynamic; 12]int
-			for e := start; !seen[e]; e = int(next[e]) {
-				seen[e] = true
-				append(&loop, e)
-				assert(next[e] >= 0, "open marching cubes loop")
+	}, RANGE_GRAIN)
+	if sync.atomic_load(&w.bad) {
+		delete(positions)
+		delete(quads^, allocator)
+		quads^ = nil
+		return {}, false
+	}
+	return positions, true
+}
+
+// relax for a mesh of quads (the dual's), over `rounds`: each vertex moves part of the
+// way toward the mean of its neighbours along the quads' edges, along the surface only
+// (the normal from its quads' diagonals), reading one buffer and writing the other; the
+// last pass moves nothing and leaves the normals current. Each vertex's quads are listed
+// in quad order, so the result is the same on any thread count.
+@(private = "file")
+relax_quads :: proc(m: ^Mesh, quads: [][4]u32, pool: ^jobs.Pool, rounds: int) {
+	n := len(m.positions)
+	heap := runtime.heap_allocator()
+	offsets := make([]u32, n + 1, heap)
+	defer delete(offsets, heap)
+	for f in quads do for v in f do offsets[v + 1] += 1
+	for v in 0 ..< n do offsets[v + 1] += offsets[v]
+	list := make([]u32, 4 * len(quads), heap)
+	defer delete(list, heap)
+	fill := make([]u32, n, heap)
+	defer delete(fill, heap)
+	for f, q in quads do for v in f {
+		list[offsets[v] + fill[v]] = u32(q)
+		fill[v] += 1
+	}
+	Relax :: struct {
+		m:        ^Mesh,
+		quads:    [][4]u32,
+		offsets:  []u32,
+		list:     []u32,
+		from, to: []Vec3,
+		rate:     f32,
+	}
+	x := Relax{m = m, quads = quads, offsets = offsets, list = list, from = m.positions[:]}
+	x.to = make([]Vec3, n, context.temp_allocator)
+	for round in 0 ..= rounds {
+		x.rate = RELAX_RATE if round < rounds else 0
+		jobs.parallel_ranges(pool, n, &x, proc(data: rawptr, lo, hi: int) {
+			x := cast(^Relax)data
+			m := x.m
+			for v in lo ..< hi {
+				centre, normal: Vec3
+				count := 0
+				for q in x.list[x.offsets[v]:x.offsets[v + 1]] {
+					f := x.quads[q]
+					p0, p1, p2, p3 := x.from[f[0]], x.from[f[1]], x.from[f[2]], x.from[f[3]]
+					normal += linalg.cross(p2 - p0, p3 - p1)
+					for c in 0 ..< 4 do if int(f[c]) == v {
+						centre += x.from[f[(c + 1) % 4]] + x.from[f[(c + 3) % 4]]
+						count += 2
+						break
+					}
+				}
+				nrm := linalg.normalize0(normal)
+				p := x.from[v]
+				if x.rate == 0 {
+					m.normals[v] = nrm
+					x.to[v] = p
+					continue
+				}
+				step := centre / f32(max(count, 1)) - p
+				step -= nrm * linalg.dot(step, nrm)
+				x.to[v] = p + step * x.rate
 			}
-			for t in 1 ..< len(loop) - 1 {
-				mc_tris[mc_case][3 * count + 0] = u8(loop[0])
-				mc_tris[mc_case][3 * count + 1] = u8(loop[t])
-				mc_tris[mc_case][3 * count + 2] = u8(loop[t + 1])
-				count += 1
-			}
-		}
-		mc_tri_count[mc_case] = u8(count)
+		}, RANGE_GRAIN)
+		x.from, x.to = x.to, x.from
 	}
 }
 

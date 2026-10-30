@@ -88,6 +88,7 @@ Ui_State :: struct {
 	remesh_smooth:      i32,  // ...with this many relax rounds (remesh.odin)...
 	remesh_keep_detail: bool, // ...put back on the old surface, polypaint and polygroups along...
 	remesh_groups:      bool, // ...each polygroup a closed piece of its own
+	remesh_quads:       bool, // ...a mesh of quads only, kept as the object's polygons
 	rebuild_fewer:      i32,  // ...and its Fewer goal
 	bake:               Bake_Settings,
 	boolean:            Boolean_State,
