@@ -3,6 +3,7 @@ package sculpt
 import "base:runtime"
 import "core:slice"
 
+import "../geom"
 import "../jobs"
 
 // Sculpt layers, as in ZBrush: while a layer records, every stroke's movement is kept
@@ -466,4 +467,18 @@ sculptor_layers_bytes :: proc(s: ^Sculptor) -> int {
 	bytes := 0
 	for l in s.layers.list do bytes += layer_bytes(l)
 	return bytes
+}
+
+// The box round the vertices layer `index` moves, in the mesh's space, where they stand
+// now; AABB_EMPTY when it moves none. What the Layers panel tints and pictures.
+sculptor_layer_bounds :: proc(s: ^Sculptor, index: int) -> geom.Aabb {
+	b := geom.AABB_EMPTY
+	if index < 0 || index >= len(s.layers.list) do return b
+	positions := s.mesh.positions[:]
+	for d, id in s.layers.list[index].delta {
+		if d == nil || id >= len(s.nodes) do continue
+		first := int(s.nodes[id].vert_first)
+		for x, v in d do if x != {} && first + v < len(positions) do geom.aabb_grow(&b, positions[first + v])
+	}
+	return b
 }

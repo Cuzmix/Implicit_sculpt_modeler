@@ -141,3 +141,8 @@ summary.
   the frame loop and draws the newest done step when it has no cell (`Step_Picture_Slots.seen`), from that frame's
   draws through `narrow * proj`; panels show a cell with `step_picture_draw` (`KIT_STEP_PICTURES_IMAGE`). Never key a
   picture by position: cells are found by the step's first entry's `at`.
+  The Layers panel (`lens_layers.odin`, `Kit_State.layer_panel`): a row's picture and name sit in a drag-scrolled zone
+  so `ui.swipe_update` opens Merge down and Delete; the strength slider stays outside the zone (a drag there is the
+  slider's at once). Ask `prev_rect` of a row's children inside the row (`id_of` is the parent's). Layer pictures
+  (`layer_pictures.odin`) are cells of a second `render.Step_Pictures`, kept like the object thumbnails (settle, one a
+  frame); the tint is `draw_tint_glow`, shared with the History's.
