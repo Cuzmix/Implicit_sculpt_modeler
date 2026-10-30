@@ -14,9 +14,10 @@ import sdl "vendor:sdl3"
 // unlike the Vulkan backend there are no layouts or barriers to keep. Objects are counted
 // by hand: what a new* or alloc call returns is ours to release, and what Metal hands back
 // autoreleased (command buffers, encoders, drawables) is retained for as long as it is
-// kept. This first stage draws frames; it makes no compute pipelines, so the features that
-// need them (the traced studio, render mode, Smooth all on the GPU) stay off, as on a
-// device without them. Everything runs on the thread that drives render.
+// kept. It draws frames and runs compute kernels (the traced studio, render mode, Smooth all
+// on the GPU) at SDL_GPU's binding slots; the kernel that must equal the CPU is compiled
+// with fast maths off (gpu_create_compute_pipeline_exact), which SDL_GPU cannot do.
+// Everything runs on the thread that drives render.
 
 // What one pushed uniform block may hold; SDL_GPU binds 4 KiB per slot too, and Metal's
 // set*Bytes takes at most that.

@@ -2038,7 +2038,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets)
+	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v exact_compute=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).exact_compute)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)

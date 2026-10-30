@@ -326,7 +326,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   their folded values (`studio_env.slang`). A first line `// slangc: -fp-mode precise` keeps every multiply and add
   unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` and `.msl` with the source; never
   hand-edit either (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
-  fast math, so nothing bit-exact (Smooth all on the GPU) is offered on Darwin. A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
+  fast math; a kernel that must equal the CPU is made with `gpu_create_compute_pipeline_exact` (fast maths off under the
+  own Metal backend) and offered only where `Gpu_Caps.exact_compute` (not under SDL_GPU's Metal). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.
 - The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) mirrors SDL_GPU's
   own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
@@ -347,9 +348,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   fences. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
   release, an autoreleased one (command buffer, encoder, drawable) is retained while kept, and every proc opens
   `NS.scoped_autoreleasepool()`. The pinned Odin asserts ("missing procedure 'objc_lookUpClass'") on any objc
-  message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. It makes no compute
-  pipelines yet (`gpu_*` compute procs return under Metal), the Graphics menu offers it only as Metal (trial), guarded by a start marker
-  (`graphics_trial_begin`, `src/app/graphics.odin`), and it has never run on Apple hardware: `maccheck` and `iphonecheck` only compile it. `backend_fail` keeps a backend's reason for
+  message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
+  slots too: uniforms at buffer 0+, then read-only and read-write storage buffers; sampled textures and samplers at 0+,
+  then read-only and read-write storage textures (each a view of one level and layer, made when the pass begins and
+  released when it ends); bindings reach the encoder at dispatch. The Graphics menu offers it only as Metal (trial), guarded by a start marker
+  (`graphics_trial_begin`, `src/app/graphics.odin`), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
   `backend_fallback` whichever one failed.
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
