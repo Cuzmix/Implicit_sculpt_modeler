@@ -207,6 +207,9 @@ levels_subdivide_discard :: proc(l: ^Levels, lv: ^Level) {
 // current, carrying the mask, colours and groups up (and the top level's sculpt layers,
 // with `carry_layers`, as levels_subdivide says).
 levels_subdivide_add :: proc(l: ^Levels, lv: ^Level, carry_layers := false) {
+	// A picked layer mask goes back to its layer first, so the sculpt mask is what goes
+	// up as the mask and the layer's mask goes up with its layer.
+	_ = sculptor_layer_mask_pick(&l.levels[l.current].sculptor, -1)
 	append(&l.levels, lv)
 	levels_carry_mask(l, l.current, len(l.levels) - 1)
 	// The new level takes its colours and groups from the one below, once that has the

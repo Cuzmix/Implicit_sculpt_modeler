@@ -3711,9 +3711,9 @@ def lens_stack_float_floats_a_card():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
-# Two floating cards at 1440x900: Layers floated and its grip dragged down 200 points, then
+# Two floating cards at 1440x900: Layers floated and its grip dragged down 380 points, then
 # Scene floated over its top; a point in Layers' padding that Scene leaves clear.
-LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 470)}
+LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 650)}
 
 
 @scenario
@@ -3725,7 +3725,9 @@ def lens_floating_card_touched_comes_to_the_front():
     s.ftap(*LENS_STACK["layers_float"])
     s.wait(8)
     grip = LENS_FLOATS["layers_grip"]
-    s.fdrag(line(grip, (grip[0], grip[1] + 200), 8))
+    # Far enough down that the Scene card, floated next where Layers was, leaves the
+    # bottom of the Layers card showing.
+    s.fdrag(line(grip, (grip[0], grip[1] + 380), 8))
     s.wait(6)
     # Scene is now where Layers was in the stack.
     s.ftap(*LENS_STACK["layers_float"])
