@@ -15,15 +15,6 @@ import vk "vendor:vulkan"
 // default layouts, cycling, the flipped viewport), since matching it pixel for pixel is
 // the test. Everything runs on the thread that drives render, as the app's frame loop does.
 
-// Which GPU API render drives, chosen before any window exists (windows drawn by Vulkan
-// need SDL_WINDOW_VULKAN) and kept for the run.
-Gpu_Backend :: enum u8 {
-	SDL_GPU,
-	Vulkan,
-}
-
-gpu_backend: Gpu_Backend
-
 // Frames a window may have in flight before acquiring its next image waits, as SDL_GPU's
 // default.
 VK_FRAMES :: 2
@@ -75,53 +66,15 @@ validation_errors :: proc() -> int {
 	return vk_validation_errors
 }
 
-// Why the Vulkan backend asked for did not start, in words for the settings and the exit
-// stats; empty when it started or was not asked for. Kept in a buffer of its own, as the
-// reasons are formatted in temp memory the frame loop frees.
-@(private = "file")
-vk_fallback_text: [200]u8
-@(private = "file")
-vk_fallback_len: int
-
-backend_fallback :: proc() -> string {
-	return string(vk_fallback_text[:vk_fallback_len])
-}
-
 // Logs why Vulkan cannot be used and keeps the reason for backend_fallback.
 @(private = "file")
 vk_fail :: proc(format: string, args: ..any) {
-	text := fmt.tprintf(format, ..args)
-	log.warnf("Vulkan: %s; drawing with SDL_GPU", text)
-	vk_fallback_len = copy(vk_fallback_text[:], text)
+	backend_fail("Vulkan", format, ..args)
 }
 
 // The device handle the app holds stands for the one Vulkan device.
 vk_device_handle :: proc() -> ^sdl.GPUDevice {
 	return (^sdl.GPUDevice)(&vk_state)
-}
-
-// Asks for the Vulkan backend for this run; called before any window is created. False,
-// keeping SDL_GPU, where the platform has no Vulkan loader.
-backend_select :: proc(backend: Gpu_Backend) -> bool {
-	gpu_backend = .SDL_GPU
-	vk_fallback_len = 0
-	if backend != .Vulkan do return true
-	if !sdl.Vulkan_LoadLibrary(nil) {
-		vk_fail("no Vulkan loader (%s)", sdl.GetError())
-		return false
-	}
-	gpu_backend = .Vulkan
-	return true
-}
-
-// The flags windows need for the backend in use.
-window_flags :: proc() -> sdl.WindowFlags {
-	return {.VULKAN} if gpu_backend == .Vulkan else {}
-}
-
-// The backend's name for logs and the exit stats.
-backend_name :: proc() -> string {
-	return "vulkan" if gpu_backend == .Vulkan else "sdl_gpu"
 }
 
 @(private = "file")

@@ -14,11 +14,15 @@ Graphics :: enum u8 {
 	Auto,
 	Vulkan,
 	SDL_GPU,
+	// render's own Metal backend, on Apple's platforms only. Only --gpu=metal chooses it:
+	// the menu leaves it out until it has been tried on a Mac and an iPad.
+	Metal,
 }
 
 // Whether the platform can run the Vulkan backend at all. Mac and iPad draw with SDL_GPU
-// (Metal) until render has a Metal backend of its own.
+// (Metal) unless --gpu=metal asks for render's own Metal backend.
 GRAPHICS_VULKAN :: ODIN_OS != .Darwin
+GRAPHICS_METAL :: ODIN_OS == .Darwin
 
 // The choices the platform offers, in the order the menu lists them.
 when GRAPHICS_VULKAN {
@@ -33,10 +37,12 @@ GRAPHICS_NAMES := [Graphics]string {
 	.Auto    = "Automatic",
 	.Vulkan  = "Vulkan",
 	.SDL_GPU = "SDL_GPU",
+	.Metal   = "Metal",
 }
 
 // The backend a choice asks for on this platform.
 graphics_backend :: proc(choice: Graphics) -> render.Gpu_Backend {
+	if choice == .Metal do return .Metal if GRAPHICS_METAL else .SDL_GPU
 	if !GRAPHICS_VULKAN || choice == .SDL_GPU do return .SDL_GPU
 	return .Vulkan
 }
@@ -49,6 +55,7 @@ graphics_choice :: proc(flag, path: string) -> (Graphics, bool) {
 	case "auto":   return .Auto, true
 	case "vulkan": return .Vulkan, true
 	case "sdl":    return .SDL_GPU, true
+	case "metal":  return .Metal, GRAPHICS_METAL
 	}
 	return .Auto, false
 }
@@ -69,6 +76,11 @@ graphics_saved :: proc(path: string) -> Graphics {
 	return .Auto
 }
 
+// The backend a choice named, for the words of a fallback: Automatic asks for Vulkan.
+graphics_asked :: proc(choice: Graphics) -> Graphics {
+	return .Vulkan if choice == .Auto else choice
+}
+
 // The Graphics block of Settings > System: the menu, what draws now and why.
 graphics_controls :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -82,10 +94,15 @@ graphics_controls :: proc(app: ^App) {
 	ui.spacer(ctx, 8)
 	ui.label(ctx, "Graphics")
 	if picked := ui.select(ctx, "Graphics", names[:], chosen); picked >= 0 do app.graphics = GRAPHICS_OFFERED[picked]
-	running := "Vulkan" if render.backend_name() == "vulkan" else "SDL_GPU"
+	running := "SDL_GPU"
+	switch render.backend_name() {
+	case "vulkan": running = "Vulkan"
+	case "metal":  running = "Metal"
+	}
 	status := fmt.tprintf("Drawing with %s.", running)
 	if why := render.backend_fallback(); why != "" {
-		status = fmt.tprintf("Drawing with SDL_GPU: Vulkan could not start here (%s).", why)
+		asked := GRAPHICS_NAMES[graphics_asked(app.graphics_start)]
+		status = fmt.tprintf("Drawing with SDL_GPU: %s could not start here (%s).", asked, why)
 	}
 	if app.graphics_start != app.graphics_loaded do status = fmt.tprintf("%s --gpu chose it for this run.", status)
 	pending := app.graphics != app.graphics_loaded

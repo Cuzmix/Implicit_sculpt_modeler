@@ -163,8 +163,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `layers.held`) so every mask tool paints it; `job_mask` and `mask_commit` move the layer's vertices as it changes
   (positions saved in the same step, `mask_moved` keeps `layer_take_stroke` out). `Undo_Step.mask_layer` names the mask a
   step painted and `step_mask` finds it wherever it waits. Read a layer's mask through `layer_mask_of`, the sculpt mask
-  through `sculptor_sculpt_mask` (files). Layer commands that renumber layers, level changes and HD unpick first; carries
-  bake masks into the deltas (`layer_masks_bake`). Files: `LEVELS_LAYER_MASKS`.
+  through `sculptor_sculpt_mask` (files). Layer commands that renumber layers, level changes, Subdivide and HD unpick
+  first; carries take each mask with its layer (`mask_carry_values` up and down the levels, the surface map's corners
+  for rebuilds), the delta carried unmasked. Files: `LEVELS_LAYER_MASKS`.
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
   write to `s.chunks[id]` must call `chunk_touched(s, id)` so the group is remade; nil under dyntopo.
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node

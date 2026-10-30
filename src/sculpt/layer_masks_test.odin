@@ -206,3 +206,75 @@ layer_mask_serial_and_parallel_agree :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, slice.equal(run(nil), run(&pool)), "serial and parallel differ")
 }
+
+// A rebuild carries each layer's mask with its layer: onto a copy of the same surface the
+// mask comes across as it was, and taking the layer off moves both surfaces alike.
+@(test)
+layer_masks_carry_onto_a_rebuilt_surface :: proc(t: ^testing.T) {
+	ma := geom.icosphere(4)
+	a: Sculptor
+	sculptor_init(&a, &ma, nil, 64)
+	defer {sculptor_destroy(&a); geom.mesh_destroy(&ma)}
+	_ = sculptor_layer_add(&a)
+	testing.expect(t, stroke(&a, UP))
+	testing.expect(t, sculptor_layer_mask_pick(&a, 0))
+	testing.expect(t, stroke(&a, UP, .Mask))
+	painted := slice.clone(a.mask, context.temp_allocator)
+	mb := geom.icosphere(4)
+	copy(mb.positions[:], ma.positions[:])
+	b: Sculptor
+	sculptor_init(&b, &mb, nil, 64)
+	defer {sculptor_destroy(&b); geom.mesh_destroy(&mb)}
+	sm := surface_map_build(&a, &b)
+	defer surface_map_destroy(&sm)
+	testing.expect_value(t, sculptor_layers_project(&a, &b, sm), 1)
+	testing.expect_value(t, sculptor_layer_mask_picked(&a), -1)
+	testing.expect(t, b.mask == nil, "the layer's mask came across as the sculpt mask")
+	// Laying out the copy numbers its vertices its own way: match them by place.
+	of_a := make(map[Vec3]int, len(ma.positions), context.temp_allocator)
+	for p, v in ma.positions do of_a[p] = v
+	same := make([]int, len(mb.positions), context.temp_allocator)
+	for p, v in mb.positions do same[v] = of_a[p] or_else -1
+	for k, v in b.layers.list[0].mask {
+		if same[v] < 0 || painted[same[v]] != k {
+			testing.expectf(t, false, "vertex %d's mask came across as %d", v, k)
+			break
+		}
+	}
+	for s in ([]^Sculptor{&a, &b}) {
+		testing.expect(t, sculptor_layer_set(s, 0, 0, true))
+		_ = sculptor_stroke_end(s)
+	}
+	for p, v in mb.positions {
+		if linalg.length(p - ma.positions[same[v]]) > 1e-4 {
+			testing.expectf(t, false, "taking the layer off moved vertex %d differently", v)
+			break
+		}
+	}
+}
+
+// Subdivide takes a layer's mask up with its layer, even while it is picked (the sculpt
+// mask going up as the mask), and Delete higher brings it back down as it was.
+@(test)
+layer_masks_go_up_and_down_the_levels :: proc(t: ^testing.T) {
+	l: Levels
+	levels_init(&l, geom.icosphere(3), nil, 64)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	_ = sculptor_layer_add(s)
+	testing.expect(t, stroke(s, UP))
+	testing.expect(t, sculptor_layer_mask_pick(s, 0))
+	testing.expect(t, stroke(s, UP, .Mask))
+	painted := slice.clone(s.mask, context.temp_allocator)
+	testing.expect(t, levels_subdivide(&l, carry_layers = true))
+	top := &levels_current(&l).sculptor
+	testing.expect(t, top.mask == nil || slice.all_of(top.mask, 0), "the layer's mask went up as the sculpt mask")
+	testing.expect(t, len(top.layers.list) == 1 && len(top.layers.list[0].mask) == len(top.mesh.positions))
+	testing.expect(t, sculptor_layer_has_mask(top, 0))
+	levels_set_current(&l, 0)
+	_, _ = levels_delete_higher(&l)
+	base := &levels_current(&l).sculptor
+	testing.expect(t, len(base.layers.list) == 1)
+	if len(base.layers.list) != 1 do return
+	testing.expect(t, slice.equal(base.layers.list[0].mask, painted), "the mask came down changed")
+}

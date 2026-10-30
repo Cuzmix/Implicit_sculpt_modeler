@@ -68,7 +68,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
-	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) or sdl (SDL_GPU)."`,
+	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) sdl (SDL_GPU) or, on a Mac or iPad, metal (render's own Metal backend, not yet in the menu)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
@@ -477,7 +477,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// The backend is chosen before the window, which is made for it.
 	graphics, graphics_ok := graphics_choice(opts.gpu, settings)
 	if !graphics_ok {
-		log.errorf("--gpu=%s: expected auto, vulkan or sdl", opts.gpu)
+		log.errorf("--gpu=%s: expected auto, vulkan or sdl (or metal on a Mac or iPad)", opts.gpu)
 		return false
 	}
 	render.backend_select(graphics_backend(graphics))
@@ -1943,7 +1943,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for _, i in list do if sculpt.sculptor_layer_has_mask(s, i) do masked += 1
 		mask_picked = sculpt.sculptor_layer_mask_picked(s)
 	}
-	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked)
+	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d layer_mask_picks=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked, app.ui.layer_mask.picks)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	fmt.printfln("reshapes=%d reshape_ms=%.1f reshape_kind=%v", app.ui.reshape.count, app.ui.reshape.ms, app.ui.reshape.last.choice)
 	check := app.repair.check

@@ -67,6 +67,9 @@ History_Entry :: struct {
 	// (owned; empty for none), as ZBrush's restore points name a state to come back to.
 	view:     Camera_View,
 	bookmark: string,
+	// A .Mask step that painted a layer's mask rather than the sculpt mask, which the
+	// History names as such.
+	layer_mask: bool,
 	// The box in the object's own space round what a stroke changed (its nodes, or a voxel
 	// stroke's bricks), for the History panel's tint (history_tint.odin); empty or zero for
 	// a step that changes the whole object or none, which the tint takes as the object.
@@ -763,7 +766,8 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 		bytes = sculpt.sculptor_last_step_bytes(object_sculptor(obj))
 		area = sculpt.sculptor_last_step_bounds(object_sculptor(obj))
 	}
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera), area = area})
+	layer_mask := kind == .Mask && obj.voxel == nil && sculpt.sculptor_layer_mask_picked(object_sculptor(obj)) >= 0
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera), area = area, layer_mask = layer_mask})
 }
 
 @(private = "file", rodata)

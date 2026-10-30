@@ -3714,9 +3714,9 @@ def lens_stack_float_floats_a_card():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
-# Two floating cards at 1440x900: Layers floated and its grip dragged down 200 points, then
+# Two floating cards at 1440x900: Layers floated and its grip dragged down 380 points, then
 # Scene floated over its top; a point in Layers' padding that Scene leaves clear.
-LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 470)}
+LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 650)}
 
 
 @scenario
@@ -3728,7 +3728,9 @@ def lens_floating_card_touched_comes_to_the_front():
     s.ftap(*LENS_STACK["layers_float"])
     s.wait(8)
     grip = LENS_FLOATS["layers_grip"]
-    s.fdrag(line(grip, (grip[0], grip[1] + 200), 8))
+    # Far enough down that the Scene card, floated next where Layers was, leaves the
+    # bottom of the Layers card showing.
+    s.fdrag(line(grip, (grip[0], grip[1] + 380), 8))
     s.wait(6)
     # Scene is now where Layers was in the stack.
     s.ftap(*LENS_STACK["layers_float"])
@@ -4076,7 +4078,7 @@ LENS_CARDS = {"brush": (1180, 94), "layers": (1150, 214), "scene": (1150, 274), 
 # The Layers panel's rows at 1440x900 with two layers: Layer 2 on top (its zone, Merge down
 # and Delete once swiped open) and Layer 1 under it (its strength slider's ends and middle,
 # 0 at a third of the way).
-LAYERS_PANEL = {"top_zone": (1180, 327), "top_delete": (1349, 327), "top_merge": (1297, 327), "slider_lo": (1236, 389),
+LAYERS_PANEL = {"top_zone": (1180, 327), "top_mask": (1112, 337), "top_delete": (1349, 327), "top_merge": (1297, 327), "slider_lo": (1236, 389),
                 "slider_hi": (1304, 389), "slider_zero": (1259, 389)}
 
 
@@ -4280,6 +4282,32 @@ def layers_panel_menu_and_tint():
         s.wait(10)
         return s, LENS_1440 + ["--script=new_layer"], {"layer_tints": near(1), "layer_pictures_drawn": lambda v: int(v) >= 1}
     return Steps([menu(), tint()])
+
+
+@scenario
+def layers_panel_mask_badge_paints_the_mask():
+    """With a stroke recorded into Layer 1, a tap on the mask badge on its picture picks
+    the layer's mask and the Mask brush; a Mask stroke across the ridge hides the layer
+    there (one undo step each). A tap on the badge again puts the sculpt mask and the brush
+    from before back, and the layer keeps its mask."""
+    def run(again):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((560, 420), (760, 420), 14))
+        s.wait(4)
+        lens_card_open(s, "layers")
+        s.wait(10)
+        s.ftap(*LAYERS_PANEL["top_mask"])
+        s.wait(6)
+        s.mouse_drag(line((660, 330), (660, 520), 14))
+        s.wait(8)
+        if again:
+            s.ftap(*LAYERS_PANEL["top_mask"])
+            s.wait(6)
+        want = {"layer_masks": near(1), "layer_mask_picks": near(1), "undo_steps": near(2),
+                "layer_mask_picked": near(-1 if again else 0), "brush_kind": is_text("draw" if again else "mask")}
+        return s, LENS_1440 + ["--script=new_layer"], want
+    return Steps([run(False), run(True)])
 
 
 # The Lens Tools card at 1440x900 with the Brush card folded: its header, its Mask and
