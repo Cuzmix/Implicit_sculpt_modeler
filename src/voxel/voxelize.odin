@@ -56,8 +56,20 @@ Voxelizer :: struct {
 // surface within the band, negative inside as the winding number along x says, in a
 // volume centred on the mesh's box. False, with `c` left empty, for a mesh without
 // triangles, a voxel size that is not positive, or one that needs more than VOXELIZE_MAX
-// voxels along an axis.
-clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, allocator := context.allocator) -> bool {
+// voxels along an axis, or when `progress` was cancelled (checked between the stages, each
+// moving it over its `share` of the whole by a part measured on a 2M-vertex sphere at 1024
+// voxels across in a release build), with `c` freed.
+clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> bool {
+	STAGES :: [?]f32{0, 0.02, 0.12, 0.15, 0.29, 0.46, 0.50, 1}
+	stage := 0
+	next :: proc(c: ^Clay, progress: ^jobs.Progress, stage: ^int, share: [2]f32) -> bool {
+		stages := STAGES
+		stage^ += 1
+		jobs.progress_set(progress, share[0], share[1], stages[stage^])
+		if !jobs.progress_cancelled(progress) do return true
+		clay_destroy(c)
+		return false
+	}
 	if len(m.indices) < 3 || !(voxel > 0) || math.is_inf(voxel) do return false
 	_, bounds := geom.mesh_area_bounds(m, pool)
 	if bounds.lo.x > bounds.hi.x do return false
@@ -75,8 +87,10 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 	heap := runtime.heap_allocator()
 	q := geom.lattice_quantize(m, origin, voxel, pool, heap)
 	defer delete(q, heap)
-	for a in 0 ..< 3 do x.rays[a] = geom.lattice_rays_cast(m, q, origin, voxel, x.n, a, len(m.indices) / 3, 1, pool, heap)
 	defer for &r in x.rays do geom.lattice_rays_destroy(&r)
+	if !next(c, progress, &stage, share) do return false
+	for a in 0 ..< 3 do x.rays[a] = geom.lattice_rays_cast(m, q, origin, voxel, x.n, a, len(m.indices) / 3, 1, pool, heap)
+	if !next(c, progress, &stage, share) do return false
 
 	// The box of bricks the lattice touches, and which of them lie within reach of a
 	// crossing: a slab of bricks a job, each reading the rays whose crossings can reach it.
@@ -89,6 +103,7 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 		x := cast(^Voxelizer)data
 		mark_slab(x, bz)
 	})
+	if !next(c, progress, &stage, share) do return false
 
 	// Candidates become bricks (serially: the directory grows); a brick out of reach is a
 	// tile of the sign its first voxel has.
@@ -105,10 +120,12 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 		}
 	}
 	x.slots = slots[:]
+	if !next(c, progress, &stage, share) do return false
 	jobs.parallel_for(pool, len(x.slots), &x, proc(data: rawptr, i: int) {
 		x := cast(^Voxelizer)data
 		seed_brick(x, x.slots[i])
 	})
+	if !next(c, progress, &stage, share) do return false
 	// A brick the surface never came near is a tile after all; the rest are repaired.
 	for slot in x.slots {
 		if tile := brick_tile(&v.bricks[slot]); tile != .Brick {
@@ -122,9 +139,10 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 		defer delete(live, heap)
 		_ = resolve_saddles(c, live, false)
 	}
+	if !next(c, progress, &stage, share) do return false
 	band_repair(c)
 	surface_mark_all(c)
-	return true
+	return next(c, progress, &stage, share)
 }
 
 // Whether voxel `g` is inside: the winding number of its x ray just before it is positive.

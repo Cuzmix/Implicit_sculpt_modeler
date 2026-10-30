@@ -72,8 +72,9 @@ EVEN :: max(u32)
 // Takes `mesh` as the base level and prepares it for sculpting (see sculptor_init,
 // which renumbers the vertices and fills `old_to_new` when given one, and `tri_from`, per
 // triangle its number before). With a `layout` that fits the mesh (see
-// sculptor_init_laid_out), the mesh keeps its order instead.
-levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator, layout: []Node_Sizes = nil) {
+// sculptor_init_laid_out), the mesh keeps its order instead. `progress` moves over its
+// `share` as sculptor_init goes.
+levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator, layout: []Node_Sizes = nil, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
 	assert(tri_from == nil || len(tri_from) == len(mesh.indices) / 3)
 	l.pool, l.node_triangles, l.allocator = pool, node_triangles, allocator
 	l.levels = make([dynamic]^Level, 0, MAX_LEVELS, allocator)
@@ -85,7 +86,7 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 		for &v, i in old_to_new do v = u32(i)
 		for &t, i in tri_from do t = u32(i)
 	} else {
-		sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, tri_from, allocator)
+		sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, tri_from, allocator, progress, share)
 	}
 	base.node_of_vertex = node_of_vertex_build(&base.sculptor, allocator)
 	append(&l.levels, base)
@@ -101,6 +102,13 @@ levels_destroy :: proc(l: ^Levels) {
 	delete(l.levels)
 	delete(l.residual)
 	l^ = {}
+}
+
+// Gives the levels and every level's sculptor `pool` for their workers: levels prepared on
+// a thread of its own, with its own pool, then taken by the frame thread.
+levels_set_pool :: proc(l: ^Levels, pool: ^jobs.Pool) {
+	l.pool = pool
+	for lv in l.levels do lv.sculptor.pool = pool
 }
 
 levels_current :: proc(l: ^Levels) -> ^Level {
@@ -151,10 +159,51 @@ levels_paint_to :: proc(l: ^Levels, to: int) {
 // (levels_carry_layers_up); that changes what the old top's undo steps refer to, so the
 // caller clears the histories. Opening a file subdivides without.
 levels_subdivide :: proc(l: ^Levels, carry_layers := false) -> bool {
-	if len(l.levels) >= MAX_LEVELS || l.hd.steps > 0 || levels_dynamic(l) do return false
+	if !levels_can_subdivide(l) do return false
 	levels_sync(l)
-	lv, ok := level_above(l, l.levels[len(l.levels) - 1])
+	lv, ok := levels_subdivide_build(l)
 	if !ok do return false
+	levels_subdivide_add(l, lv, carry_layers)
+	return true
+}
+
+// Whether levels_subdivide may add a level: fewer than MAX_LEVELS, no HD level and no
+// dynamic topology (the top level must also be closed and manifold, which only building
+// the level finds out).
+levels_can_subdivide :: proc(l: ^Levels) -> bool {
+	return len(l.levels) < MAX_LEVELS && l.hd.steps == 0 && !levels_dynamic(l)
+}
+
+// The level levels_subdivide adds, built from the top level without changing the levels,
+// so it can be built on a thread of its own while the levels are only read: with `pool`
+// for its workers (the new level's sculptor then keeps the levels' own) and `progress` moved
+// through the build's stages. Sync the levels and check levels_can_subdivide first. Returns
+// nil and false for a top level that is not closed and manifold, or when the progress was
+// cancelled, with what it made freed; levels_subdivide_add takes the level.
+levels_subdivide_build :: proc(l: ^Levels, pool: ^jobs.Pool = nil, progress: ^jobs.Progress = nil) -> (^Level, bool) {
+	// level_above reads only the rule, pool, allocator and node size of the levels.
+	work := l^
+	if pool != nil do work.pool = pool
+	lv, ok := level_above(&work, l.levels[len(l.levels) - 1], progress)
+	if !ok do return nil, false
+	lv.sculptor.pool = l.pool
+	if jobs.progress_cancelled(progress) {
+		level_free(l, lv)
+		return nil, false
+	}
+	jobs.progress_set(progress, 0, 1, 1)
+	return lv, true
+}
+
+// Frees `lv`, from levels_subdivide_build on these levels, when it is not to be added.
+levels_subdivide_discard :: proc(l: ^Levels, lv: ^Level) {
+	if lv != nil do level_free(l, lv)
+}
+
+// Adds `lv`, from levels_subdivide_build on these levels, above the top level and makes it
+// current, carrying the mask, colours and groups up (and the top level's sculpt layers,
+// with `carry_layers`, as levels_subdivide says).
+levels_subdivide_add :: proc(l: ^Levels, lv: ^Level, carry_layers := false) {
 	append(&l.levels, lv)
 	levels_carry_mask(l, l.current, len(l.levels) - 1)
 	// The new level takes its colours and groups from the one below, once that has the
@@ -165,7 +214,6 @@ levels_subdivide :: proc(l: ^Levels, carry_layers := false) -> bool {
 	levels_carry_groups(l, top, top + 1)
 	if carry_layers do _ = levels_carry_layers_up(l)
 	l.current = len(l.levels) - 1
-	return true
 }
 
 // Turns dynamic topology (dyntopo.odin) on for the only level. Returns false, changing
@@ -545,10 +593,20 @@ corner_of :: #force_inline proc(indices: []u32, f, v: u32) -> u32 {
 // One step of Loop subdivision of `below`: a vertex for each of its vertices and one on
 // each edge, four triangles for each of its triangles, all with zero detail. Returns
 // false for a mesh with an edge not shared by exactly two triangles, consistently
-// oriented (an open or non-manifold mesh).
+// oriented (an open or non-manifold mesh), and when `progress` was cancelled (checked
+// between the stages, each moving it a share measured at 2.5M vertices below, in a release build).
 @(private)
-level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
+level_above :: proc(l: ^Levels, below: ^Level, progress: ^jobs.Progress = nil) -> (^Level, bool) {
+	// A Catmull-Clark step moves the progress only when it is done.
 	if l.rule != .Loop && below.polys.first != nil do return level_above_cc(l, below)
+	STAGES :: [?]f32{0, 0.01, 0.04, 0.06, 0.09, 0.10, 0.82, 0.93, 0.95, 0.97, 1}
+	stage := 0
+	next :: proc(progress: ^jobs.Progress, stage: ^int) -> bool {
+		stages := STAGES
+		stage^ += 1
+		jobs.progress_set(progress, 0, 1, stages[stage^])
+		return !jobs.progress_cancelled(progress)
+	}
 	Build :: struct {
 		below:       ^Level,
 		base:        Loop_Base, // below's
@@ -579,6 +637,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 		}
 	}, geom.RANGE_GRAIN)
 	for v in 0 ..< vcount do b.edge_first[v + 1] += b.edge_first[v]
+	if !next(progress, &stage) do return nil, false
 	fine_count := vcount + int(b.edge_first[vcount])
 	b.parents = make([][4]u32, fine_count, context.temp_allocator)
 
@@ -618,7 +677,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 			}
 		}
 	}, geom.RANGE_GRAIN)
-	if sync.atomic_load(&b.bad) do return nil, false
+	if sync.atomic_load(&b.bad) || !next(progress, &stage) do return nil, false
 	// The edges numbered at the other end.
 	jobs.parallel_ranges(l.pool, vcount, &b, proc(data: rawptr, lo, hi: int) {
 		b := cast(^Build)data
@@ -636,6 +695,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 			}
 		}
 	}, geom.RANGE_GRAIN)
+	if !next(progress, &stage) do return nil, false
 
 	lv := new(Level, l.allocator)
 	m := &lv.mesh
@@ -647,6 +707,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 		b := cast(^Build)data
 		for i in lo ..< hi do b.mesh.positions[i] = frame_point(frame_at(&b.base, b.parents[i]), {})
 	}, geom.RANGE_GRAIN)
+	_ = next(progress, &stage)
 	jobs.parallel_ranges(l.pool, tcount, &b, proc(data: rawptr, lo, hi: int) {
 		b := cast(^Build)data
 		indices := b.below.mesh.indices[:]
@@ -663,9 +724,21 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 			out[9], out[10], out[11] = e01, e12, e20
 		}
 	}, geom.RANGE_GRAIN)
+	if !next(progress, &stage) {
+		geom.mesh_destroy(m)
+		free(lv, l.allocator)
+		return nil, false
+	}
 
 	old_to_new := make([]u32, fine_count, context.temp_allocator)
-	sculptor_init(&lv.sculptor, m, l.pool, l.node_triangles, old_to_new, allocator = l.allocator)
+	{
+		stages := STAGES
+		sculptor_init(&lv.sculptor, m, l.pool, l.node_triangles, old_to_new, allocator = l.allocator, progress = progress, share = {stages[stage], stages[stage + 1]})
+	}
+	if !next(progress, &stage) {
+		level_free(l, lv)
+		return nil, false
+	}
 	lv.parents = make([][4]u32, fine_count, l.allocator)
 	lv.detail = make([]Vec3, fine_count, l.allocator)
 	lv.even_of = make([]u32, vcount, l.allocator)
@@ -680,8 +753,11 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 		}
 	}, geom.RANGE_GRAIN)
 	copy(lv.even_of, old_to_new[:vcount])
+	_ = next(progress, &stage)
 	lv.node_of_vertex = node_of_vertex_build(&lv.sculptor, l.allocator)
+	_ = next(progress, &stage)
 	link_levels(l, below, lv)
+	_ = next(progress, &stage)
 	sculptor_recompute_all(&lv.sculptor)
 	return lv, true
 }

@@ -312,3 +312,37 @@ parallel_levels_match_serial :: proc(t: ^testing.T) {
 	parallel := run(&pool)
 	for level, j in serial do testing.expectf(t, slice.equal(level, parallel[j]), "level %d differs with threads", j)
 }
+
+// A level built beside the levels and then added is the level levels_subdivide adds, bit
+// for bit, with its progress ending at the whole; a cancelled build makes nothing and
+// leaves the levels as they were.
+@(test)
+subdivide_built_beside_the_levels_matches_and_cancels :: proc(t: ^testing.T) {
+	pool, own: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	jobs.pool_init(&own, 2)
+	defer jobs.pool_destroy(&own)
+	plain := levels_make(3, 1, &pool)
+	defer levels_destroy(&plain)
+	beside := levels_make(3, 1, &pool)
+	defer levels_destroy(&beside)
+	testing.expect(t, levels_subdivide(&plain), "subdivide failed")
+
+	stop: jobs.Progress
+	jobs.progress_cancel(&stop)
+	none, stopped := levels_subdivide_build(&beside, &own, &stop)
+	testing.expect(t, !stopped && none == nil && len(beside.levels) == 2, "a cancelled build made a level")
+
+	testing.expect(t, levels_can_subdivide(&beside), "the levels cannot be subdivided")
+	p: jobs.Progress
+	lv, ok := levels_subdivide_build(&beside, &own, &p)
+	testing.expect(t, ok && lv != nil, "the build beside the levels failed")
+	testing.expectf(t, jobs.progress_get(&p) == 1, "a finished build says %v done", jobs.progress_get(&p))
+	testing.expect(t, lv.sculptor.pool == &pool, "the new level kept the build's workers")
+	levels_subdivide_add(&beside, lv)
+	a, b := levels_current(&plain), levels_current(&beside)
+	testing.expect(t, len(beside.levels) == 3 && beside.current == 2, "the level was not added on top")
+	testing.expect(t, slice.equal(a.mesh.positions[:], b.mesh.positions[:]) && slice.equal(a.mesh.indices[:], b.mesh.indices[:]), "the level built beside differs")
+	testing.expect(t, slice.equal(a.mesh.normals[:], b.mesh.normals[:]) && slice.equal(a.parents, b.parents), "its normals or parents differ")
+}

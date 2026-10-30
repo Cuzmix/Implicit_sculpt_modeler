@@ -6,6 +6,7 @@ import "core:math"
 import "core:time"
 
 import "../geom"
+import "../jobs"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -236,18 +237,43 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 		delete(mask)
 		source = packed
 	}
-	_, bounds := geom.mesh_area_bounds(source, &app.pool)
-	vp := new(Voxel_Part)
-	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
-	built := voxel.clay_from_mesh(&vp.clay, source, voxel.voxel_size_for(bounds, vp.resolution), &app.pool)
+	vp := voxels_compute(source, across, &app.pool)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
-	if !built {
-		free(vp)
+	if vp == nil {
 		log.warn("convert to voxels: the mesh has no volume to voxelise")
 		return false, true
 	}
+	return true, voxels_apply(app, obj, vp, start)
+}
+
+// The computing half of Convert to voxels, which a long job (long_job.odin) runs on a thread
+// of its own with its own `pool` and `progress`: clay of `source`'s shape, `across` voxels
+// along its longest side, meshed. Nil when the mesh has no volume, or when cancelled.
+voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> ^Voxel_Part {
+	_, bounds := geom.mesh_area_bounds(source, pool)
+	vp := new(Voxel_Part)
+	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
+	if !voxel.clay_from_mesh(&vp.clay, source, voxel.voxel_size_for(bounds, vp.resolution), pool, progress = progress, share = {0, VOXELS_FIELD_SHARE}) {
+		free(vp)
+		return nil
+	}
 	_ = voxel.clay_flush(&vp.clay)
+	jobs.progress_set(progress, 0, 1, 1)
+	return vp
+}
+
+// The shares of Convert to voxels and of Res+ and Res− that making the field takes, measured
+// at 1024 voxels across in a release build; meshing it is the rest.
+VOXELS_FIELD_SHARE :: 0.75
+RESAMPLE_UP_FIELD_SHARE :: 0.5
+RESAMPLE_DOWN_FIELD_SHARE :: 0.65
+
+// The second half of Convert to voxels, on the frame thread: the object becomes `vp`'s
+// clay, which takes the app's workers. False only when the mesh is gone and the clay could
+// not be uploaded.
+voxels_apply :: proc(app: ^App, obj: ^Object, vp: ^Voxel_Part, start: time.Tick) -> bool {
+	vp.clay.pool = &app.pool
 	render.wait_idle(&app.renderer)
 	// The groups go with the mesh, and their table with them: a voxel object with group
 	// materials is a scene file the app refuses (the swap step keeps the table).
@@ -255,7 +281,7 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 	clear(&obj.group_materials)
 	app.layers_lost += sculpt.levels_layer_count(&obj.levels) // for the command's note
 	object_release_mesh(app, obj)
-	return true, voxel_part_attach(app, obj, vp, start)
+	return voxel_part_attach(app, obj, vp, start)
 }
 
 // Res+ and Res−: rebuilds the voxel object's clay at `resolution` voxels across, twice or
@@ -265,23 +291,52 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 // for a resolution that is not a doubling or halving within range, or clay that would not
 // fit the finer lattice's domain.
 object_voxel_resample :: proc(app: ^App, obj: ^Object, resolution: int) -> bool {
+	if !voxel_resample_allowed(obj, resolution) do return false
+	stroke_finish(app)
+	start := time.tick_now()
+	clay, ok := resample_compute(obj.voxel, resolution, &app.pool)
+	if !ok {
+		log.warn("voxel resolution: the clay reaches too far from the object's middle for the finer lattice")
+		return false
+	}
+	resample_apply(app, obj, clay, resolution, start)
+	return true
+}
+
+// Whether `resolution` is a step Res+ or Res− takes from the voxel object's own (said in a
+// warning when not).
+voxel_resample_allowed :: proc(obj: ^Object, resolution: int) -> bool {
 	vp := obj.voxel
 	if resolution < VOXELS_MIN || resolution > VOXELS_MAX || (resolution != vp.resolution * 2 && resolution * 2 != vp.resolution) {
 		log.warnf("voxel resolution: %d across is not a step from %d", resolution, vp.resolution)
 		return false
 	}
-	stroke_finish(app)
-	start := time.tick_now()
+	return true
+}
+
+// The computing half of Res+ and Res−, which a long job runs on a thread of its own with its
+// own `pool` and `progress`: a new clay beside `vp`'s, which it only reads, meshed. False
+// for clay that would not fit the finer lattice, or when cancelled.
+resample_compute :: proc(vp: ^Voxel_Part, resolution: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (clay: voxel.Clay, ok: bool) {
 	factor := voxel.RESAMPLE_UP if resolution > vp.resolution else voxel.RESAMPLE_DOWN
-	if !voxel.clay_resample(&vp.clay, factor) {
-		log.warn("voxel resolution: the clay reaches too far from the object's middle for the finer lattice")
-		return false
-	}
+	field := f32(RESAMPLE_UP_FIELD_SHARE) if factor > 1 else RESAMPLE_DOWN_FIELD_SHARE
+	clay, ok = voxel.clay_resampled(&vp.clay, factor, pool, progress, {0, field})
+	if !ok do return
+	_ = voxel.clay_flush(&clay)
+	jobs.progress_set(progress, 0, 1, 1)
+	return
+}
+
+// The second half of Res+ and Res−, on the frame thread: `clay` takes the old clay's place
+// (and the app's workers), its undo steps going with it (the caller records the swap).
+resample_apply :: proc(app: ^App, obj: ^Object, clay: voxel.Clay, resolution: int, start: time.Tick) {
+	vp := obj.voxel
+	voxel.clay_destroy(&vp.clay)
+	vp.clay = clay
+	vp.clay.pool = &app.pool
 	vp.resolution = resolution
 	voxel_part_edited(vp)
-	_ = voxel.clay_flush(&vp.clay)
 	log.infof("voxel resolution: %d across, %d bricks in %.0f ms", resolution, voxel.volume_brick_count(&vp.clay.volume), time.duration_milliseconds(time.tick_since(start)))
-	return true
 }
 
 // Rebuilds the voxel object as a mesh object of its surface (voxel.clay_to_mesh: the
@@ -295,10 +350,18 @@ object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 	values: []u8
 	defer delete(values)
 	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil)
+	return voxel_mesh_apply(app, obj, mesh, values, start)
+}
+
+// The second half of Convert to mesh, on the frame thread: the object rebuilt on `mesh` (or
+// on the levels a long job's thread `prepared` from it), with the clay's mask `values` when
+// it had one. A long job's first half is clay_to_mesh on a flushed clay, which it only
+// reads. False only when the mesh could not be uploaded.
+voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
 	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = true) do return false
-	if masked do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
+	if !object_build_from(app, obj, mesh, start, normals = true, prepared = prepared) do return false
+	if values != nil do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
 	return true
 }
 

@@ -389,12 +389,16 @@ Sculptor :: struct {
 // then builds the acceleration structures. Upload the mesh to the GPU after this.
 // With `old_to_new` (one entry per vertex), it receives each vertex's new number, and
 // with `tri_from` (one entry per triangle), each new triangle's number before.
-sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator) {
+sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
 	s.mesh = mesh
 	s.pool = pool
 	s.bvh = geom.bvh_build_morton(mesh^, node_triangles, pool, allocator)
+	// The shares of the three parts, measured at 10M triangles in a release build.
+	jobs.progress_set(progress, share[0], share[1], 0.30)
 	reorder_by_nodes(s, old_to_new, tri_from, allocator)
+	jobs.progress_set(progress, share[0], share[1], 0.72)
 	sculptor_init_rest(s, allocator)
+	jobs.progress_set(progress, share[0], share[1], 1)
 }
 
 // What sculptor_init does once the mesh is laid out in nodes.

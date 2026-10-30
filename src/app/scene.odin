@@ -394,12 +394,13 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 }
 
 // The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
-// once its thread computed `mesh` from `start` to `computed`: the object rebuilt on it.
-// False only when the old mesh is gone and the new one could not be uploaded.
-remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick) -> bool {
+// once its thread computed `mesh` from `start` to `computed`: the object rebuilt on it, or
+// on the levels the thread `prepared` from it. False only when the old mesh is gone and the
+// new one could not be uploaded.
+remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = false) do return false
+	if !object_rebuild(app, obj, mesh, ready, normals = false, prepared = prepared) do return false
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
@@ -438,10 +439,10 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok:
 
 // The second half of a decimation, as remesh_apply is a remesh's: the object rebuilt on
 // `mesh`, made from `before` vertices with `error` the largest stray.
-decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick) -> bool {
+decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = true) do return false
+	if !object_rebuild(app, obj, mesh, ready, normals = true, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
 	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
@@ -872,6 +873,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Voxel_To_Mesh:
 		if obj := selected_object(app); obj != nil && obj.voxel != nil {
 			before := history_snapshot(app, obj, "convert to mesh")
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			if !object_voxel_to_mesh(app, obj) {
 				// The clay is gone; drop the empty object rather than draw nothing.
 				history_snapshot_drop(before)
@@ -883,6 +885,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Mesh_To_Voxels:
 		if obj := selected_object(app); obj != nil && obj.voxel == nil {
 			before := history_snapshot(app, obj, "convert to voxels")
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			changed, ok := object_mesh_to_voxels(app, obj, cmd.voxels)
 			if !ok {
 				// The mesh is gone; drop the empty object rather than draw nothing.
@@ -894,8 +897,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			else do history_snapshot_drop(before)
 		}
 	case .Voxel_Resample:
-		if obj := selected_object(app); obj != nil && obj.voxel != nil {
+		if obj := selected_object(app); obj != nil && obj.voxel != nil && voxel_resample_allowed(obj, cmd.voxels) {
 			before := history_snapshot(app, obj, "voxel resolution")
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			if object_voxel_resample(app, obj, cmd.voxels) do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
@@ -1104,18 +1108,15 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			layers := len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
 			before: ^Object_Snapshot
 			if layers > 0 do before = history_snapshot(app, obj, "subdivide")
+			// A big object's new level is built on a thread of its own while the frame
+			// goes on; long_job_frame then adds it as below.
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
 			if !sculpt.levels_subdivide(levels, carry_layers = layers > 0) {
 				if before != nil do history_snapshot_drop(before)
 				log.warn("subdivide: needs a closed mesh with every edge between two triangles")
 				return true
 			}
-			if before != nil {
-				history_record_swap(app, obj.id, before)
-				object_forget_history(app, obj)
-				app.layers_kept += layers
-			}
-			log.infof("subdivide: level %d has %d vertices, %d triangles", levels.current + 1,
-				geom.mesh_vertex_count(object_mesh(obj)^), geom.mesh_triangle_count(object_mesh(obj)^))
+			subdivide_record(app, obj, before, layers)
 		case .Set_Level:
 			return object_set_level(app, obj, cmd.level)
 		case .Delete_Higher:
@@ -1139,6 +1140,18 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return object_show_level(app, obj, start)
 	}
 	return true
+}
+
+// What a Subdivide does once its level is added: with `layers` carried up, the swap undo
+// step from `before` and the object's strokes cleared (scene_apply says why), then the log.
+subdivide_record :: proc(app: ^App, obj: ^Object, before: ^Object_Snapshot, layers: int) {
+	if before != nil {
+		history_record_swap(app, obj.id, before)
+		object_forget_history(app, obj)
+		app.layers_kept += layers
+	}
+	log.infof("subdivide: level %d has %d vertices, %d triangles", obj.levels.current + 1,
+		geom.mesh_vertex_count(object_mesh(obj)^), geom.mesh_triangle_count(object_mesh(obj)^))
 }
 
 // Makes `level` the object's current level, carrying the edits on the one it leaves to
@@ -1294,14 +1307,22 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // temp allocator). `start` is when building the mesh began, for the log. `old_to_new` and
 // `tri_from` (not temporary either) receive the renumbering of the mesh's vertices and,
 // per triangle of the level, its triangle in `mesh`, for a caller that keeps maps into the
-// level, as a cage does (model.odin).
-object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}, tri_from: []u32 = nil) -> bool {
+// level, as a cage does (model.odin). With `prepared`, levels a long job's thread already
+// made from `mesh` (normals included), those are taken instead and only the upload is left.
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}, tri_from: []u32 = nil, prepared: ^sculpt.Levels = nil) -> bool {
 	// Without groups the table has nothing to shade (a remesh, a slice's halves).
 	if surface.groups == nil {
 		autosave_settle(app)
 		clear(&obj.group_materials)
 	}
-	if surface.color == nil && surface.groups == nil {
+	if prepared != nil {
+		// A long job's thread made the levels from `mesh`, normals and all
+		// (long_job_prepare); they take the app's workers from here on.
+		assert(surface.color == nil && surface.groups == nil && old_to_new == nil && tri_from == nil)
+		obj.levels = prepared^
+		prepared^ = {}
+		sculpt.levels_set_pool(&obj.levels, &app.pool)
+	} else if surface.color == nil && surface.groups == nil {
 		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new, tri_from = tri_from)
 	} else {
 		// The surface's parts follow the renumbering onto the level.
@@ -1310,7 +1331,7 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = renumbered, tri_from = from)
 		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, from)
 	}
-	if normals do sculpt.sculptor_recompute_all(object_sculptor(obj))
+	if normals && prepared == nil do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
 	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
@@ -1341,11 +1362,11 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // its polypaint and polygroups (a repair's). `normals` works out the mesh's normals, for
 // a mesh that comes without them. The caller waits for the GPU first. Returns false
 // only when the new mesh could not be uploaded.
-object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}) -> bool {
+object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil) -> bool {
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface) do return false
+	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface, prepared = prepared) do return false
 	object_carry_layers(app, obj, layered, mirror)
 	return true
 }

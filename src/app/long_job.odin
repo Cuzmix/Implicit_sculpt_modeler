@@ -13,16 +13,21 @@ import "../geom"
 import "../jobs"
 import "../sculpt"
 import "../ui"
+import "../voxel"
 
-// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate and Retopologize of a big
-// object run on a thread of their own, so the frame goes on (the camera turns, the panels
+// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Retopologize, Subdivide,
+// Convert to mesh, Convert to voxels and Res+/Res− of a big object run on a thread of
+// their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
 // show a ring filling as the work goes, and Escape or the pill's Cancel stops it. Blender
 // keeps drawing through its long operators the same way; ZBrush and Nomad freeze.
 //
-// The job works on its own copy of the object's triangles, with its own worker pool, and
-// touches no object, history or interface: those stay the frame thread's. While it runs
-// the scene is held still, so the object it applies to is as it was when it started:
+// The job works on its own copy of the object's triangles (Subdivide and the voxel jobs
+// only read the object's levels or clay, which the scene holding still keeps as they are),
+// with its own worker pool, and changes no object, history or interface: those stay the
+// frame thread's. A job that makes a new mesh also prepares it for sculpting there
+// (long_job_prepare), so only the upload is left for the frame. While it runs the scene is
+// held still, so the object it applies to is as it was when it started:
 // strokes and every tool's presses on the view, scene commands, undo and redo, the
 // commands that edit (all but JOB_ALLOWED_COMMANDS), scripts and file actions wait or are
 // refused with a note. When it is done, the next frame's start rebuilds the object as the
@@ -37,23 +42,32 @@ Long_Job :: struct {
 	on:         bool,
 	cmd:        Scene_Command,
 	id:         int, // the object it applies to
+	object:     ^Object, // that object, which Subdivide and the voxel jobs read from the thread
 	// What scene_run knew when it started, for the report once it is done (scene_run_finish).
 	label:      string, // owned
 	named:      bool,
 	source:     int,
 	start:      time.Tick,
-	before:     ^Object_Snapshot, // Remesh, Decimate: the object before, for the swap undo step
+	before:     ^Object_Snapshot, // the object before, for the swap undo step (none for Retopo, nor for a Subdivide without layers)
 	thread:     ^thread.Thread,
 	pool:       jobs.Pool, // its own, so the frame thread keeps the app's
 	progress:   jobs.Progress,
 	done:       bool, // atomic: the thread finished, built or not
-	// The thread's input (its own copy) and output.
+	// The thread's input (its own copy, for the jobs that read a mesh) and output.
 	input:      geom.Mesh,
 	area:       f64,
 	bounds:     geom.Aabb,
 	mesh:       geom.Mesh,
+	levels:     sculpt.Levels, // made from `mesh` when `prepared`
+	prepared:   bool,
 	error:      f32,
 	retopo:     Retopo_Result,
+	level:      ^sculpt.Level, // Subdivide's new level
+	layers:     int, // Subdivide: the top level's sculpt layers, which move up with it
+	voxels:     ^Voxel_Part, // Convert to voxels' clay
+	clay:       voxel.Clay, // Res+ and Res−' clay
+	masked:     bool, // Convert to mesh: the clay has a mask, whose `values` come with the mesh
+	values:     []u8,
 	built:      bool,
 	computed:   time.Tick,
 	// An interactive run, or --async-jobs; `forced` (--async-jobs) any size of object.
@@ -86,20 +100,49 @@ JOB_ALLOWED_COMMANDS :: bit_set[Command_Id; [4]u64]{
 	.Input_Diagnostics, .History_Panel, .Pencil_Preferred, .Pen_As_Empty,
 }
 
-// What a job is called while it runs, by its command.
+// What a job is called while it runs, and what it is, by its command.
 @(private = "file")
 JOB_VERBS := #partial [Scene_Command_Kind]string {
-	.Remesh   = "Remeshing",
-	.Decimate = "Decimating",
-	.Retopo   = "Retopologizing",
+	.Remesh         = "Remeshing",
+	.Decimate       = "Decimating",
+	.Retopo         = "Retopologizing",
+	.Subdivide      = "Subdividing",
+	.Voxel_To_Mesh  = "Converting to a mesh:",
+	.Mesh_To_Voxels = "Converting to voxels:",
+	.Voxel_Resample = "Resampling",
+}
+
+@(private = "file")
+JOB_NOUNS := #partial [Scene_Command_Kind]string {
+	.Remesh         = "remesh",
+	.Decimate       = "decimation",
+	.Retopo         = "retopology",
+	.Subdivide      = "subdivision",
+	.Voxel_To_Mesh  = "conversion",
+	.Mesh_To_Voxels = "conversion",
+	.Voxel_Resample = "resampling",
 }
 
 // The commands whose buttons draw the job's ring, by the job's command.
 @(private = "file")
 JOB_BUTTONS := #partial [Scene_Command_Kind]bit_set[Command_Id; [4]u64] {
-	.Remesh   = {.Remesh, .Remesh_To, .Rebuild},
-	.Decimate = {.Decimate_To},
-	.Retopo   = {.Retopologize},
+	.Remesh         = {.Remesh, .Remesh_To, .Rebuild},
+	.Decimate       = {.Decimate_To},
+	.Retopo         = {.Retopologize},
+	.Subdivide      = {.Subdivide},
+	.Voxel_To_Mesh  = {.Convert_To_Mesh},
+	.Mesh_To_Voxels = {.Convert_To_Voxels},
+	.Voxel_Resample = {.Voxel_Res_Up, .Voxel_Res_Down},
+}
+
+// The shares of a mesh-making job that its computing half takes, at 2M to 4M vertices in a
+// release build;
+// preparing the new mesh for sculpting (long_job_prepare) is the rest.
+@(private = "file")
+JOB_COMPUTE_SHARE := #partial [Scene_Command_Kind]f32 {
+	.Remesh        = 0.60,
+	.Decimate      = 0.90,
+	.Voxel_To_Mesh = 0.42,
 }
 
 // Whether a job runs, holding the scene still.
@@ -123,26 +166,39 @@ long_job_async :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> bool {
 // Starts command `cmd` on `obj` on the job's thread, after what the command does first on
 // the frame thread: the stroke ends, the object leaves HD (after `before`, the snapshot
 // scene_apply took, so the undo step puts HD back too), and the triangles are measured and
-// copied. Returns true: only applying can fail.
+// copied, the levels synced or the clay flushed. Returns true: only applying can fail.
 long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Object_Snapshot) -> bool {
 	j := &app.long_job
 	stroke_finish(app)
 	object_hd_leave(app, obj)
-	j.on, j.cmd, j.id, j.before, j.named = true, cmd, obj.id, before, false
+	j.on, j.cmd, j.id, j.object, j.before, j.named = true, cmd, obj.id, obj, before, false
 	j.start = time.tick_now()
 	j.progress = {}
 	sync.atomic_store(&j.done, false)
 	j.mesh, j.error, j.retopo, j.built, j.computed = {}, 0, {}, false, {}
-	if cmd.kind == .Remesh {
+	j.level, j.layers, j.voxels, j.clay, j.masked, j.values = nil, 0, nil, {}, false, nil
+	#partial switch cmd.kind {
+	case .Remesh:
 		// Measured on the level as it is, before any compacting, as object_remesh does.
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
+	case .Retopo:
+		sculpt.levels_sync(&obj.levels)
+	case .Subdivide:
+		sculpt.levels_sync(&obj.levels)
+		levels := &obj.levels
+		j.layers = len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
+	case .Voxel_To_Mesh:
+		// The thread meshes the clay as it is now without flushing it, so it only reads
+		// it; what the flush meshed here goes to the GPU whole with the next upload.
+		clay := &obj.voxel.clay
+		if f := voxel.clay_flush(clay); len(f.ranges) > 0 || len(f.indices) > 0 || f.regrow do clay.surface.regrow = true
+		j.masked = voxel.clay_has_mask(clay)
 	}
-	if cmd.kind == .Retopo do sculpt.levels_sync(&obj.levels)
-	j.input = long_job_copy(obj)
+	if cmd.kind == .Remesh || cmd.kind == .Decimate || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj)
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
-	log.infof("long job: %v of %s (%d vertices) on its own thread", cmd.kind, object_label(obj), len(j.input.positions))
+	log.infof("long job: %v of %s (%d vertices) on its own thread", cmd.kind, object_label(obj), object_vertex_count(obj))
 	return true
 }
 
@@ -173,21 +229,79 @@ long_job_thread :: proc(data: rawptr) {
 	arena: runtime.Arena
 	context.temp_allocator = runtime.arena_allocator(&arena)
 	defer runtime.arena_destroy(&arena)
+	share := JOB_COMPUTE_SHARE[j.cmd.kind]
+	jobs.progress_set(&j.progress, 0, 1, 0)
 	#partial switch j.cmd.kind {
 	case .Remesh:
-		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress)
+		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share})
+		long_job_prepare(j, normals = false)
 	case .Decimate:
 		// A closed surface has about two triangles a vertex.
-		j.mesh, j.error, j.built = geom.mesh_decimate(j.input, 2 * j.cmd.vertices, &j.pool, progress = &j.progress)
+		j.mesh, j.error, j.built = geom.mesh_decimate(j.input, 2 * j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share})
+		long_job_prepare(j, normals = true)
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
 		j.retopo = retopo_compute(j.input, j.cmd.vertices, &j.pool, &j.progress)
 		j.built = j.retopo.built
+	case .Subdivide:
+		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
+	case .Mesh_To_Voxels:
+		j.voxels = voxels_compute(j.input, j.cmd.voxels, &j.pool, &j.progress)
+		j.built = j.voxels != nil
+	case .Voxel_Resample:
+		j.clay, j.built = resample_compute(j.object.voxel, j.cmd.voxels, &j.pool, &j.progress)
+	case .Voxel_To_Mesh:
+		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool)
+		jobs.progress_set(&j.progress, 0, 1, share)
+		j.built = true
+		long_job_prepare(j, normals = true)
 	}
 	free_all(context.temp_allocator)
 	j.computed = time.tick_now()
 	sync.atomic_store(&j.done, true)
+}
+
+// The new mesh made ready to sculpt on the job's thread, as object_build_from would make it
+// on the frame's (with `normals` worked out), moving the progress over the rest of the
+// job; the levels then own the mesh. Not when nothing was built or the job was cancelled.
+@(private = "file")
+long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
+	if !j.built || jobs.progress_cancelled(&j.progress) do return
+	sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = {JOB_COMPUTE_SHARE[j.cmd.kind], 1})
+	j.mesh = {}
+	if normals do sculpt.sculptor_recompute_all(&sculpt.levels_current(&j.levels).sculptor)
+	j.prepared = true
+}
+
+// The levels the job prepared, for object_build_from, which takes them; nil when it made
+// none.
+@(private = "file")
+long_job_levels :: proc(j: ^Long_Job) -> ^sculpt.Levels {
+	if !j.prepared do return nil
+	j.prepared = false
+	return &j.levels
+}
+
+// Frees whatever the job made or copied that nothing took.
+@(private = "file")
+long_job_drop :: proc(j: ^Long_Job) {
+	geom.mesh_destroy(&j.input)
+	geom.mesh_destroy(&j.mesh)
+	if j.prepared do sculpt.levels_destroy(&j.levels)
+	j.prepared = false
+	retopo_result_destroy(&j.retopo)
+	if j.level != nil do sculpt.levels_subdivide_discard(&j.object.levels, j.level)
+	j.level = nil
+	if j.voxels != nil {
+		voxel.clay_destroy(&j.voxels.clay)
+		free(j.voxels)
+		j.voxels = nil
+	}
+	if j.cmd.kind == .Voxel_Resample && j.built do voxel.clay_destroy(&j.clay)
+	j.clay = {}
+	delete(j.values)
+	j.values = nil
 }
 
 // Once a frame, at its start beside the scene commands: a job its thread finished is
@@ -206,22 +320,27 @@ long_job_frame :: proc(app: ^App) -> bool {
 	j.label = ""
 	defer delete(label)
 	j.on = false
-	verb := strings.to_lower(fmt.tprint(cmd.kind), context.temp_allocator)
+	defer j.object = nil
+	noun := JOB_NOUNS[cmd.kind]
 	if cancelled || !j.built || obj == nil {
 		history_snapshot_drop(before)
-		geom.mesh_destroy(&j.input)
-		geom.mesh_destroy(&j.mesh)
-		retopo_result_destroy(&j.retopo)
+		long_job_drop(j)
 		switch {
 		case cancelled:
 			j.cancels += 1
-			report(app, nil, {}, "%s cancelled: %s is as it was", strings.to_upper(verb[:1], context.temp_allocator), label if label != "" else "the object")
-			log.infof("long job: %s cancelled after %.0f ms", verb, j.ms)
+			report(app, nil, {}, "%s%s cancelled: %s is as it was", strings.to_upper(noun[:1], context.temp_allocator), noun[1:], label if label != "" else "the object")
+			log.infof("long job: %s cancelled after %.0f ms", noun, j.ms)
 		case obj == nil:
 		case cmd.kind == .Remesh:
 			log.warn("remesh: the mesh has no volume to remesh")
 		case cmd.kind == .Decimate:
 			log.warnf("decimate: the object already has %d vertices, no more than %d", object_vertex_count(obj), cmd.vertices)
+		case cmd.kind == .Subdivide:
+			log.warn("subdivide: needs a closed mesh with every edge between two triangles")
+		case cmd.kind == .Mesh_To_Voxels:
+			log.warn("convert to voxels: the mesh has no volume to voxelise")
+		case cmd.kind == .Voxel_Resample:
+			log.warn("voxel resolution: the clay reaches too far from the object's middle for the finer lattice")
 		case:
 			log.warnf("retopologize: %s has too few triangles for %d quads", object_label(obj), cmd.vertices)
 		}
@@ -230,14 +349,39 @@ long_job_frame :: proc(app: ^App) -> bool {
 	autosave_settle(app)
 	app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
-	ok := true
+	ok, applied := true, true
 	#partial switch cmd.kind {
 	case .Remesh, .Decimate:
 		mesh := j.mesh
 		j.mesh = {}
-		applied := remesh_apply(app, obj, mesh, j.start, j.computed) if cmd.kind == .Remesh else decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed)
+		prepared := long_job_levels(j)
+		applied = remesh_apply(app, obj, mesh, j.start, j.computed, prepared) if cmd.kind == .Remesh else decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared)
+	case .Retopo:
+		made, built := retopo_apply(app, obj, &j.retopo, j.start)
+		if made do history_record_added(app)
+		ok = built
+	case .Subdivide:
+		sculpt.levels_subdivide_add(&obj.levels, j.level, carry_layers = j.layers > 0)
+		j.level = nil
+		subdivide_record(app, obj, before, j.layers)
+		ok = object_show_level(app, obj, j.start)
+	case .Mesh_To_Voxels:
+		vp := j.voxels
+		j.voxels = nil
+		applied = voxels_apply(app, obj, vp, j.start)
+	case .Voxel_Resample:
+		resample_apply(app, obj, j.clay, j.cmd.voxels, j.start)
+		j.clay, j.built = {}, false
+		history_record_swap(app, obj.id, before)
+	case .Voxel_To_Mesh:
+		mesh := j.mesh
+		j.mesh = {}
+		applied = voxel_mesh_apply(app, obj, mesh, j.values, j.start, long_job_levels(j))
+	}
+	#partial switch cmd.kind {
+	case .Remesh, .Decimate, .Mesh_To_Voxels, .Voxel_To_Mesh:
 		if !applied {
-			// The old mesh is gone; drop the empty object rather than draw nothing.
+			// The old mesh or clay is gone; drop the empty object rather than draw nothing.
 			history_snapshot_drop(before)
 			object_select_id(app, j.id)
 			scene_delete_selected(app, undoable = false)
@@ -245,12 +389,8 @@ long_job_frame :: proc(app: ^App) -> bool {
 		} else {
 			history_record_swap(app, obj.id, before)
 		}
-	case .Retopo:
-		made, built := retopo_apply(app, obj, &j.retopo, j.start)
-		if made do history_record_added(app)
-		ok = built
 	}
-	geom.mesh_destroy(&j.input)
+	long_job_drop(j)
 	return scene_run_finish(app, cmd, label, j.source, j.start, ok, obj if cmd.kind != .Retopo else selected_object(app))
 }
 
@@ -287,11 +427,9 @@ long_job_stop :: proc(app: ^App) {
 	long_job_cancel(app)
 	long_job_join(j)
 	history_snapshot_drop(j.before)
-	geom.mesh_destroy(&j.input)
-	geom.mesh_destroy(&j.mesh)
-	retopo_result_destroy(&j.retopo)
+	long_job_drop(j)
 	delete(j.label)
-	j.on, j.before, j.label = false, nil, ""
+	j.on, j.before, j.label, j.object = false, nil, "", nil
 }
 
 // Says, at most once a second, that what was tried waits for the job.
@@ -305,8 +443,7 @@ long_job_refuse :: proc(app: ^App) {
 
 // Why a command cannot run while the job does, for a note or a dimmed control's tooltip.
 long_job_reason :: proc(app: ^App) -> string {
-	verb := strings.to_lower(fmt.tprint(app.long_job.cmd.kind), context.temp_allocator)
-	return fmt.tprintf("Wait for the %s to finish, or cancel it (Esc)", verb)
+	return fmt.tprintf("Wait for the %s to finish, or cancel it (Esc)", JOB_NOUNS[app.long_job.cmd.kind])
 }
 
 // Whether command `id` waits for the job.
