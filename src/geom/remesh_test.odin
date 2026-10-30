@@ -709,3 +709,50 @@ remesh_mends_a_doubled_or_turned_triangle :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// A sculpt symmetric across x = 0.21, remeshed with that plane given, comes out its own
+// mirror image: every vertex's mirror is a vertex, triangles and quads alike. Without the
+// plane the lattice's points fall where the box puts them and the halves differ, which is
+// what a remesh with symmetry on showed.
+@(test)
+remesh_with_a_mirror_stays_symmetric :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	shape := icosphere(4)
+	defer mesh_destroy(&shape)
+	CENTER :: f32(0.21)
+	// Squashed, bent and moved off the origin, but still the same either side of the plane.
+	for &p in shape.positions do p = {p.x * 1.37 + CENTER, p.y + 0.3 * p.x * p.x, p.z * 0.8}
+	mesh_recompute_normals(&shape)
+	// The farthest any vertex's mirror image is from the nearest vertex, in cells.
+	asymmetry :: proc(out: Mesh, h: f32) -> f32 {
+		worst: f32
+		for p in out.positions {
+			image := Vec3{2 * CENTER - p.x, p.y, p.z}
+			nearest := max(f32)
+			for q in out.positions do nearest = min(nearest, linalg.length2(q - image))
+			worst = max(worst, math.sqrt(nearest))
+		}
+		return worst / h
+	}
+	area, bounds := mesh_area_bounds(shape, &pool)
+	for quads in ([2]bool{false, true}) {
+		mirror := Remesh_Mirror{axes = {true, false, false}, center = {CENTER, 0, 0}}
+		h, _, _ := remesh_lattice(area, bounds, 2000, mirror)
+		report: Remesh_Report
+		defer remesh_report_destroy(&report)
+		out, ok := remesh_voxel_measured(shape, area, bounds, 2000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, quads = quads, mirror = mirror}, report = &report)
+		defer mesh_destroy(&out)
+		if !testing.expectf(t, ok, "quads %v: remesh failed", quads) do continue
+		expect_closed_manifold(t, out)
+		testing.expectf(t, asymmetry(out, h) < 1e-3, "quads %v: a vertex's mirror is %.4f cells from any vertex", quads, asymmetry(out, h))
+
+		plain_report: Remesh_Report
+		defer remesh_report_destroy(&plain_report)
+		plain, plain_ok := remesh_voxel_measured(shape, area, bounds, 2000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, quads = quads}, report = &plain_report)
+		defer mesh_destroy(&plain)
+		testing.expect(t, plain_ok)
+		testing.expectf(t, asymmetry(plain, h) > 0.05, "quads %v: without the plane the halves already match (%.4f cells)", quads, asymmetry(plain, h))
+	}
+}

@@ -137,7 +137,7 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 	ok: bool
 	switch goal {
 	case .Even:
-		p.cell, p.origin, ok = geom.remesh_lattice(p.area, p.bounds, int(app.ui.rebuild_even))
+		p.cell, p.origin, ok = geom.remesh_lattice(p.area, p.bounds, int(app.ui.rebuild_even), remesh_mirror(app, obj))
 	case .Quads:
 		// The side of a quad of the mean size the retopology aims for.
 		p.cell = f32(math.sqrt(p.area / f64(max(app.ui.retopo_quads, 1))))
