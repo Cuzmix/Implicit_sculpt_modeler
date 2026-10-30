@@ -360,6 +360,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit
   and takes `render.present_times` after the acquire. Only the main window paces (view windows acquire without
   waiting). lavapipe offers neither extension, so in the container only the `.None` path runs.
+- Pre-rotation (Android, own Vulkan, `vk_pick_transform`): a swapchain image may be turned from the window
+  (`swapchain_turns`); `Vk_Window.width/height` stay the window's. Anything new that draws into a swapchain must turn
+  with `ui_pass_draw`'s `turns` (the vertex uniform's zw and the scissor remap); draw into an offscreen target instead.
 - A new top-level pass function starts with `debug_group(cmd, "Name")` (`gpu.odin`, popped as the scope ends, so
   call it outside any pass), and a long-lived texture or buffer gets `gpu_set_texture_name`/`gpu_set_buffer_name`
   with a literal (the backends keep the pointer for later backings), so captures in Xcode and RenderDoc read.

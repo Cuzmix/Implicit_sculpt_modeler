@@ -47,7 +47,7 @@ Ui_Pass :: struct {
 
 @(private = "file")
 Ui_Vertex_Uniforms :: struct {
-	target: [4]f32,
+	target: [4]f32, // xy the size in pixels the triangles are laid out in, zw the turn's cosine and sine
 }
 
 @(private = "file")
@@ -165,8 +165,9 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, v
 }
 
 // Draws the uploaded triangles into an open render pass whose target has `format` and
-// is `size` pixels.
-ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, format: sdl.GPUTextureFormat, size: [2]u32, draws: []Ui_Draw) {
+// is `size` pixels, or with `turns` (pre-rotation, 1 to 3) is `size` turned that many
+// quarter turns clockwise: the triangles and their clip rectangles are turned with it.
+ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, format: sdl.GPUTextureFormat, size: [2]u32, draws: []Ui_Draw, turns := 0) {
 	if len(draws) == 0 || up.vertices == nil || up.indices == nil || up.atlas == nil do return
 	pipeline := ui_pipeline(r, up, format)
 	if pipeline == nil do return
@@ -174,13 +175,23 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, pas
 	vbind := sdl.GPUBufferBinding{buffer = up.vertices}
 	gpu_bind_vertex_buffers(pass, 0, &vbind, 1)
 	gpu_bind_index_buffer(pass, {buffer = up.indices}, ._32BIT)
-	vu := Ui_Vertex_Uniforms{{f32(size.x), f32(size.y), 0, 0}}
+	// The cosine and sine of the turn, exact for quarter turns.
+	TURN := [4][2]f32{{1, 0}, {0, 1}, {-1, 0}, {0, -1}}
+	turn := TURN[turns & 3]
+	vu := Ui_Vertex_Uniforms{{f32(size.x), f32(size.y), turn.x, turn.y}}
 	gpu_push_vertex_uniform_data(cmd, 0, &vu, size_of(vu))
 	for d in draws {
 		if d.index_count == 0 do continue
 		x0, y0 := clamp(d.clip[0], 0, i32(size.x)), clamp(d.clip[1], 0, i32(size.y))
 		x1, y1 := clamp(d.clip[0] + d.clip[2], 0, i32(size.x)), clamp(d.clip[1] + d.clip[3], 0, i32(size.y))
 		if x1 <= x0 || y1 <= y0 do continue
+		w, h := i32(size.x), i32(size.y)
+		// The window's point (x, y) is the turned image's (h - y, x) a quarter turn on.
+		switch turns & 3 {
+		case 1: x0, y0, x1, y1 = h - y1, x0, h - y0, x1
+		case 2: x0, y0, x1, y1 = w - x1, h - y1, w - x0, h - y0
+		case 3: x0, y0, x1, y1 = y0, w - x1, y1, w - x0
+		}
 		gpu_set_scissor(pass, {x0, y0, x1 - x0, y1 - y0})
 		fu: Ui_Fragment_Uniforms
 		binding := sdl.GPUTextureSamplerBinding{sampler = up.sampler}

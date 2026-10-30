@@ -31,6 +31,7 @@ Options :: struct {
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
+	no_pre_rotate: bool `usage:"Leave turning the picture to the system on a turned Android tablet instead of drawing it turned (for comparing frame and GPU times)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
 	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene palette's Add object does."`,
@@ -535,6 +536,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer file_shutdown(&app)
 	defer results_destroy(&app)
 	defer {delete(app.material_saved.ids); delete(app.material_saved.before)}
+	if opts.no_pre_rotate do render.set_pre_rotate(false)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 	matcaps_create(&app)
@@ -2024,6 +2026,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
 	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
 	fmt.printfln("present_mode=%s present_offers=%s", render.renderer_present_name(&app.renderer), present_offers(&app))
+	fmt.printfln("pre_rotate=%v swapchain_turns=%d", !opts.no_pre_rotate && ODIN_PLATFORM_SUBTARGET == .Android, render.swapchain_turns(window))
 	caps := render.caps(&app.renderer)
 	fmt.printfln("low_latency=%v frames_in_flight=%d frames_cheap=%v present_timing=%v", app.low_latency, caps.frames_in_flight, caps.frames_cheap, caps.present_timing)
 	print_stat("frame_ms", app.stats.frame_ms)
