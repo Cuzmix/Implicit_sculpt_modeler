@@ -24,6 +24,11 @@ import "../jobs"
 // shadow-map gather, which stays as it was.
 
 STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT)
+// The same kernel over the driver's acceleration structures (Gpu_Caps.ray_query), which
+// only the own Vulkan backend offers, so it has no Metal source.
+when ODIN_OS != .Darwin {
+	STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp.spv")
+}
 STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT)
 BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT)
 
@@ -49,6 +54,10 @@ TRACE_EPSILON :: 1e-4
 // Uploads go through a transfer buffer this big, cycled between batches.
 @(private = "file")
 TRACE_TRANSFER_SIZE :: 16 << 20
+// A mesh's acceleration structure is built afresh after this many refits in a row, since
+// each refit keeps the tree of the first build however far the vertices have moved.
+@(private = "file")
+BLAS_REFITS_MAX :: 16
 
 Tracer :: struct {
 	trace_pipeline: ^sdl.GPUComputePipeline,
@@ -64,6 +73,34 @@ Tracer :: struct {
 	build_ms:       f64,
 	chunks_built:   int,
 	bytes:          int,
+	// Ray queries (Gpu_Caps.ray_query, with Renderer.ray_query on): the kernel, the top
+	// level over every traced item's structure, and the tables the kernel reads to turn
+	// down hidden triangles. `rq` is whether this view traces that way; `rq_failed` that
+	// the device refused it, and every view walks our trees instead.
+	rq_pipeline:    ^sdl.GPUComputePipeline,
+	tlas:           ^Gpu_Accel,
+	rq_buffers:     [Rq_Buffer]^sdl.GPUBuffer,
+	rq_capacity:    [Rq_Buffer]u32,
+	rq:             bool,
+	rq_failed:      bool,
+	// For the exit stats: samples traced with ray queries, and structures built and refit.
+	rq_samples:     int,
+	blas_builds:    int,
+	blas_refits:    int,
+}
+
+@(private = "file")
+Rq_Buffer :: enum {
+	Instances, // per traced item: its index buffer's address and where its runs start
+	Runs,      // each geometry's first triangle, item after item
+}
+
+// Matches Instance in studio_trace.comp.slang.
+@(private = "file")
+Rq_Instance :: struct {
+	indices: [2]u32,
+	runs:    u32,
+	pad:     u32,
 }
 
 // One mesh's trees, inside its Mesh_Buffers and released with them.
@@ -83,6 +120,22 @@ Trace_Mesh :: struct {
 	buffers:        [Trace_Buffer]^sdl.GPUBuffer,
 	capacity:       [Trace_Buffer]u32,
 	bytes:          int,
+	// Under ray queries: the driver's structure over the shown runs, one geometry for each
+	// stretch of them alike in opacity, and the key it was built for (the geometries, the
+	// index versions and the vertex count), the version it was built or refit at and the
+	// refits since it was built. A run is opaque unless it holds a triangle with a
+	// repeated corner or the mesh has hidden triangles, whose candidates the kernel checks.
+	blas:           ^Gpu_Accel,
+	blas_key:       u64,
+	blas_version:   u64,
+	blas_refits:    int,
+	geometries:     [dynamic]Blas_Geometry,
+	rq_empty:       bool, // nothing shown: no structure
+	// The runs whose repeated corners were looked for, at which index version, and what
+	// was found.
+	rq_ranges:      [dynamic]geom.Index_Range,
+	rq_opaque:      [dynamic]bool,
+	rq_index_version: u64,
 }
 
 @(private = "file")
@@ -134,8 +187,10 @@ Trace_Light :: struct {
 // changed (on the pool), refits the boxes of meshes whose vertices moved, and rebuilds
 // the tree over the chunks where they moved or were hidden. Returns false, with nothing
 // left half done, when this view cannot be traced and the studio should use its gather:
-// tracing is off, the device refused it, or an item cannot be traced.
-trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, items: []Draw_Item, pool: ^jobs.Pool) -> bool {
+// tracing is off, the device refused it, or an item cannot be traced. `ray_query` lets the
+// view trace with ray queries instead (Renderer.ray_query), and then our trees are left as
+// they were; render mode, which reads the trees, passes false.
+trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, items: []Draw_Item, pool: ^jobs.Pool, ray_query := false) -> bool {
 	if !r.trace || tr.failed do return false
 	if !tracer_ensure(r, tr, vt) {
 		tracer_destroy(r, tr)
@@ -146,6 +201,9 @@ trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, vt:
 		if blended(&r.single, item) do continue
 		if !trace_traceable(item) do return false
 	}
+	// Ray queries where offered and on; any refusal sends the whole view to our trees.
+	tr.rq = ray_query && r.ray_query && r.caps.ray_query && !tr.rq_failed && trace_prepare_rq(r, tr, cmd, items, pool)
+	if tr.rq do return true
 	tr.bytes = 0
 	for item in items {
 		if blended(&r.single, item) do continue
@@ -169,10 +227,14 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, accu
 	}
 	gpu_end_render_pass(gpu_begin_render_pass(cmd, &clear, 1, nil))
 
+	// The tables the ray query kernel reads, written for this sample since a buffer's
+	// address changes when an upload cycles it.
+	if tr.rq do trace_rq_tables(r, tr, cmd, items)
+
 	// Every item's dispatch only stores 0, so one pass holds them all, unordered.
 	binding := sdl.GPUStorageTextureReadWriteBinding{texture = tr.visible}
 	pass := gpu_begin_compute_pass(cmd, &binding, 1, nil, 0)
-	gpu_bind_compute_pipeline(pass, tr.trace_pipeline)
+	gpu_bind_compute_pipeline(pass, tr.rq_pipeline if tr.rq else tr.trace_pipeline)
 	depth := sdl.GPUTextureSamplerBinding{texture = view_depth, sampler = sampler}
 	gpu_bind_compute_samplers(pass, 0, &depth, 1)
 	u := Trace_Uniforms {
@@ -183,7 +245,18 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, accu
 		params        = {light.r2.x, light.r2.y, epsilon, 1 if light.sphere else 0},
 		sphere        = {light.at.x, light.at.y, light.at.z, light.sphere_radius},
 	}
+	if tr.rq {
+		// One dispatch traces every item, in world space.
+		reads := [2]^sdl.GPUBuffer{tr.rq_buffers[.Instances], tr.rq_buffers[.Runs]}
+		gpu_bind_compute_storage_buffers(pass, 0, raw_data(reads[:]), len(reads))
+		gpu_bind_compute_accel(pass, tr.tlas)
+		u.to_mesh = 1
+		gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
+		gpu_dispatch_compute(pass, (tr.width + TRACE_GROUP - 1) / TRACE_GROUP, (tr.height + TRACE_GROUP - 1) / TRACE_GROUP, 1)
+		tr.rq_samples += 1
+	}
 	for item in items {
+		if tr.rq do break
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
 		if tm == nil || tm.tlas_empty do continue
@@ -219,8 +292,11 @@ tracer_destroy :: proc(r: ^Renderer, tr: ^Tracer) {
 	if tr.add_pipeline != nil do gpu_release_graphics_pipeline(r.device, tr.add_pipeline)
 	if tr.visible != nil do gpu_release_texture(r.device, tr.visible)
 	if tr.transfer != nil do gpu_release_transfer_buffer(r.device, tr.transfer)
+	if tr.rq_pipeline != nil do gpu_release_compute_pipeline(r.device, tr.rq_pipeline)
+	gpu_release_accel(r.device, tr.tlas)
+	for b in tr.rq_buffers do if b != nil do gpu_release_buffer(r.device, b)
 	// The counters outlive the device's objects, for the exit stats.
-	tr^ = {samples = tr.samples, build_ms = tr.build_ms, chunks_built = tr.chunks_built, failed = tr.failed}
+	tr^ = {samples = tr.samples, build_ms = tr.build_ms, chunks_built = tr.chunks_built, failed = tr.failed, rq_failed = tr.rq_failed, rq_samples = tr.rq_samples, blas_builds = tr.blas_builds, blas_refits = tr.blas_refits}
 }
 
 // Releases a mesh's trees; mesh_buffers_destroy calls it, after the caller has waited
@@ -234,6 +310,10 @@ trace_mesh_destroy :: proc(r: ^Renderer, tm: ^Trace_Mesh) {
 	delete(tm.chunk_of)
 	delete(tm.range_bounds)
 	for b in tm.buffers do if b != nil do gpu_release_buffer(r.device, b)
+	gpu_release_accel(r.device, tm.blas)
+	delete(tm.geometries)
+	delete(tm.rq_ranges)
+	delete(tm.rq_opaque)
 	tm^ = {}
 }
 
@@ -298,24 +378,7 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer,
 	if mb.trace == nil do mb.trace = new(Trace_Mesh)
 	tm := mb.trace
 
-	// The runs the trees cover: the item's chunks, split where one is too long for 16-bit
-	// offsets, or fixed runs over the whole mesh for an item without chunks.
-	ranges := make([dynamic]geom.Index_Range, context.temp_allocator)
-	chunk_of := make([dynamic]u32, context.temp_allocator)
-	if len(item.chunks) > 0 {
-		for c, i in item.chunks {
-			for at := u32(0); at < c.index_count; at += 3 * geom.CHUNK_BVH_MAX_TRIANGLES {
-				append(&ranges, geom.Index_Range{c.first_index + at, min(c.index_count - at, 3 * geom.CHUNK_BVH_MAX_TRIANGLES)})
-				append(&chunk_of, u32(i))
-			}
-		}
-	} else {
-		count := u32(len(src.indices))
-		for at := u32(0); at < count; at += 3 * TRACE_RANGE_TRIANGLES {
-			append(&ranges, geom.Index_Range{at, min(count - at, 3 * TRACE_RANGE_TRIANGLES)})
-			append(&chunk_of, max(u32))
-		}
-	}
+	ranges, chunk_of := trace_runs(item)
 
 	// The triangles: only runs whose key changed are built again. Keys are checked only
 	// when the mesh's own indices were uploaded since, or the runs changed.
@@ -414,6 +477,209 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer,
 	}
 	tm.tlas_key = key
 	return true
+}
+
+// The runs the trees cover, in temp memory: the item's chunks, split where one is too
+// long for 16-bit offsets, or fixed runs over the whole mesh for an item without chunks;
+// and the chunk each is part of (max(u32) for none).
+@(private = "file")
+trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk_of: [dynamic]u32) {
+	ranges = make([dynamic]geom.Index_Range, context.temp_allocator)
+	chunk_of = make([dynamic]u32, context.temp_allocator)
+	if len(item.chunks) > 0 {
+		for c, i in item.chunks {
+			for at := u32(0); at < c.index_count; at += 3 * geom.CHUNK_BVH_MAX_TRIANGLES {
+				append(&ranges, geom.Index_Range{c.first_index + at, min(c.index_count - at, 3 * geom.CHUNK_BVH_MAX_TRIANGLES)})
+				append(&chunk_of, u32(i))
+			}
+		}
+	} else {
+		count := u32(len(item.source.indices))
+		for at := u32(0); at < count; at += 3 * TRACE_RANGE_TRIANGLES {
+			append(&ranges, geom.Index_Range{at, min(count - at, 3 * TRACE_RANGE_TRIANGLES)})
+			append(&chunk_of, max(u32))
+		}
+	}
+	return
+}
+
+// ---- Ray queries --------------------------------------------------------------------
+
+// Brings every traced item's acceleration structure up to date and builds the top level
+// over them; false when the device refused any of it, and the view walks our trees.
+@(private = "file")
+trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, items: []Draw_Item, pool: ^jobs.Pool) -> bool {
+	if tr.rq_pipeline == nil {
+		when ODIN_OS != .Darwin {
+			tr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, {
+				code_size = len(STUDIO_TRACE_RQ_COMP_CODE), code = raw_data(STUDIO_TRACE_RQ_COMP_CODE), entrypoint = SHADER_ENTRY,
+				format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
+				num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
+			})
+		}
+		if tr.rq_pipeline == nil {
+			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
+			tr.rq_failed = true
+			return false
+		}
+	}
+	debug_group(cmd, "Ray query structures")
+	instances := make([dynamic]Tlas_Instance, context.temp_allocator)
+	bytes := 0
+	for item in items {
+		if blended(&r.single, item) do continue
+		if !trace_mesh_update_rq(r, tr, cmd, item, pool) do return false
+		tm := item.mesh.trace
+		bytes += int(gpu_accel_bytes(tm.blas))
+		if !tm.rq_empty do append(&instances, Tlas_Instance{blas = tm.blas, transform = item.model, custom = u32(len(instances))})
+	}
+	gpu_accel_trim(r.device)
+	tr.bytes = bytes
+	if len(instances) == 0 {
+		gpu_release_accel(r.device, tr.tlas)
+		tr.tlas = nil
+		return true
+	}
+	tlas := gpu_build_tlas(cmd, instances[:], tr.tlas)
+	if tlas == nil {
+		log.warn("traced studio: the top-level acceleration structure could not be built; it walks its own trees")
+		return false
+	}
+	if tlas != tr.tlas do gpu_release_accel(r.device, tr.tlas)
+	tr.tlas = tlas
+	tr.bytes += int(gpu_accel_bytes(tlas))
+	return true
+}
+
+// Builds or refits one item's acceleration structure, recording it into `cmd`; false when
+// the device refused it or (on tablets) it is larger than the trace budget.
+@(private = "file")
+trace_mesh_update_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item, pool: ^jobs.Pool) -> bool {
+	mb, src := item.mesh, item.source
+	if mb.trace == nil do mb.trace = new(Trace_Mesh)
+	tm := mb.trace
+	ranges, chunk_of := trace_runs(item)
+	// Which runs hold a triangle with a repeated corner, looked for again when the mesh's
+	// own indices were uploaded since or the runs changed.
+	if !slice.equal(ranges[:], tm.rq_ranges[:]) || tm.rq_index_version != mb.index_version {
+		resize(&tm.rq_opaque, len(ranges))
+		trace_opaque(pool, src.indices[:], ranges[:], tm.rq_opaque[:])
+		resize(&tm.rq_ranges, len(ranges))
+		copy(tm.rq_ranges[:], ranges[:])
+		tm.rq_index_version = mb.index_version
+	}
+	// The shown runs, as the tree over the chunks takes them, merged where they follow
+	// one another alike in opacity. Hidden triangles are uploaded as repeated corners
+	// the CPU mesh does not have, so a mesh with any makes every run not opaque.
+	geometries := make([dynamic]Blas_Geometry, context.temp_allocator)
+	for x, i in ranges {
+		if c := chunk_of[i]; c != max(u32) {
+			if item.hidden != nil && int(c) < len(item.hidden) && item.hidden[c] do continue
+			if b := item.chunks[c].bounds; b.lo.x > b.hi.x do continue
+		}
+		g := Blas_Geometry{first_triangle = x.first_index / 3, triangle_count = x.index_count / 3, opaque = tm.rq_opaque[i] && mb.hidden_stamp == 0}
+		if n := len(geometries); n > 0 {
+			last := &geometries[n - 1]
+			if last.opaque == g.opaque && last.first_triangle + last.triangle_count == g.first_triangle {
+				last.triangle_count += g.triangle_count
+				continue
+			}
+		}
+		append(&geometries, g)
+	}
+	tm.rq_empty = len(geometries) == 0
+	if tm.rq_empty do return true
+	vertex_count := u32(len(src.positions))
+	// A refit may only move vertices: anything else about the triangles is a new build.
+	versions := [3]u64{mb.index_version, u64(mb.hidden_stamp), u64(vertex_count)}
+	key := max(hash.fnv64a(slice.to_bytes(geometries[:]), hash.fnv64a(slice.to_bytes(versions[:]))), 1)
+	if key == tm.blas_key && tm.blas_version == mb.version do return true
+	refit := key == tm.blas_key && tm.blas != nil && tm.blas_refits < BLAS_REFITS_MAX
+	blas := gpu_build_blas(cmd, mb.positions, mb.indices, vertex_count, geometries[:], tm.blas if refit else nil)
+	if blas == nil {
+		log.warn("traced studio: an acceleration structure could not be built; it walks its own trees")
+		return false
+	}
+	if blas == tm.blas {
+		tm.blas_refits += 1
+		tr.blas_refits += 1
+	} else {
+		gpu_release_accel(r.device, tm.blas)
+		tm.blas_refits = 0
+		tr.blas_builds += 1
+	}
+	tm.blas, tm.blas_key, tm.blas_version = blas, key, mb.version
+	resize(&tm.geometries, len(geometries))
+	copy(tm.geometries[:], geometries[:])
+	if int(gpu_accel_bytes(blas)) > TRACE_BUFFER_MAX {
+		log.warnf("traced studio: an acceleration structure of %d MB is more than the trace budget; it walks its own trees", gpu_accel_bytes(blas) >> 20)
+		return false
+	}
+	return true
+}
+
+// Whether each run's triangles all have three different corners, on the pool.
+@(private = "file")
+trace_opaque :: proc(pool: ^jobs.Pool, indices: []u32, ranges: []geom.Index_Range, opaque: []bool) {
+	Job :: struct {
+		indices: []u32,
+		ranges:  []geom.Index_Range,
+		opaque:  []bool,
+	}
+	job := Job{indices, ranges, opaque}
+	jobs.parallel_for(pool, len(ranges), &job, proc(data: rawptr, i: int) {
+		j := (^Job)(data)
+		x := j.ranges[i]
+		ok := true
+		for t := x.first_index; t + 2 < x.first_index + x.index_count; t += 3 {
+			a, b, c := j.indices[t], j.indices[t + 1], j.indices[t + 2]
+			if a == b || b == c || a == c {
+				ok = false
+				break
+			}
+		}
+		j.opaque[i] = ok
+	})
+}
+
+// Writes the kernel's tables for the items trace_prepare_rq put in the top level, in
+// the same order: each one's index buffer address and where its geometries' first
+// triangles start.
+@(private = "file")
+trace_rq_tables :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, items: []Draw_Item) {
+	instances := make([dynamic]Rq_Instance, context.temp_allocator)
+	runs := make([dynamic]u32, context.temp_allocator)
+	for item in items {
+		if blended(&r.single, item) do continue
+		tm := item.mesh.trace
+		if tm == nil || tm.rq_empty do continue
+		address := gpu_buffer_address(cmd, item.mesh.indices)
+		append(&instances, Rq_Instance{indices = {u32(address), u32(address >> 32)}, runs = u32(len(runs))})
+		for g in tm.geometries do append(&runs, g.first_triangle)
+	}
+	if len(instances) == 0 do append(&instances, Rq_Instance{})
+	if len(runs) == 0 do append(&runs, 0)
+	trace_rq_upload(r, tr, cmd, .Instances, slice.to_bytes(instances[:]))
+	trace_rq_upload(r, tr, cmd, .Runs, slice.to_bytes(runs[:]))
+}
+
+// Copies a small table to the start of one of the tracer's ray query buffers, growing it
+// first when it does not fit.
+@(private = "file")
+trace_rq_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, which: Rq_Buffer, data: []u8) {
+	if tr.rq_buffers[which] == nil || u32(len(data)) > tr.rq_capacity[which] {
+		// The buffer goes once the samples that read it have run.
+		if tr.rq_buffers[which] != nil do gpu_release_buffer(r.device, tr.rq_buffers[which])
+		tr.rq_capacity[which] = u32(len(data) + len(data) / 4)
+		tr.rq_buffers[which] = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tr.rq_capacity[which]})
+	}
+	dst := gpu_map_transfer_buffer(r.device, tr.transfer, true)
+	if dst == nil || tr.rq_buffers[which] == nil do return
+	copy(([^]u8)(dst)[:len(data)], data)
+	gpu_unmap_transfer_buffer(r.device, tr.transfer)
+	pass := gpu_begin_copy_pass(cmd)
+	gpu_upload_to_buffer(pass, {transfer_buffer = tr.transfer}, {buffer = tr.rq_buffers[which], size = u32(len(data))}, true)
+	gpu_end_copy_pass(pass)
 }
 
 // The runs of an item's trees that are shown and not empty, and their boxes in mesh space,

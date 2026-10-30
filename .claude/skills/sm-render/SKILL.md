@@ -384,6 +384,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `gpu_create_compute_pipeline_traced` puts the structure at set 3 binding 0 and a texture array, if any, at
   binding 1 (a variable-count binding must be last). `--gpu-debug` runs `ray_query_check` (`ray_query.odin`)
   at device creation; a wrong answer is a validation error.
+  The traced studio uses it when `Renderer.ray_query` (Settings > Graphics > Ray tracing hardware): `trace_prepare_rq`
+  keeps a `Trace_Mesh.blas` over the shown runs merged by opacity (not opaque if the CPU indices repeat a corner or
+  `hidden_stamp != 0`), keyed by geometries, index_version, hidden_stamp and vertex count (else refit, rebuilt after
+  `BLAS_REFITS_MAX`), and a top level per view, instance number = table row. `studio_trace_rq.comp.slang` traces once
+  in world space and confirms non-opaque candidates by reading indices through `gpu_buffer_address` (Slang pointers,
+  so `shaderInt64` is required); the tables are rewritten every sample since an upload's cycle moves the address.
+  Any refusal returns the view to the walk, whose CPU trees are not built for the studio while it runs.
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit

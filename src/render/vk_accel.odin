@@ -91,6 +91,26 @@ vk_accel_destroy :: proc() {
 	vk_scratch = nil
 }
 
+// Scratch memory kept between builds; more is let go once the builds that wanted it have
+// run (vk_accel_trim), since a large mesh's build needs far more than its refits.
+@(private = "file")
+VK_SCRATCH_KEEP :: 64 << 20
+
+vk_accel_trim :: proc() {
+	if vk_scratch == nil || vk_scratch.size <= VK_SCRATCH_KEEP do return
+	vk_release_buffer(vk_device_handle(), (^sdl.GPUBuffer)(vk_scratch))
+	vk_scratch = nil
+}
+
+// The address of a buffer's current contents, which a kernel reads through it, so the
+// command buffer keeps that memory alive as it would a bound buffer's.
+vk_buffer_address :: proc(command_buffer: ^sdl.GPUCommandBuffer, buffer: ^sdl.GPUBuffer) -> u64 {
+	b := (^Vk_Buffer)(buffer)
+	if .SHADER_DEVICE_ADDRESS not_in b.usage do return 0
+	vk_cmd_track_buffer((^Vk_Cmd)(command_buffer), b.active)
+	return u64(vk_address(b.active))
+}
+
 @(private = "file")
 vk_address :: proc(b: ^Vk_Buffer_Backing) -> vk.DeviceAddress {
 	info := vk.BufferDeviceAddressInfo{sType = .BUFFER_DEVICE_ADDRESS_INFO, buffer = b.buffer}
