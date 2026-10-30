@@ -39,10 +39,14 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 	.Render = "Render",
 }
 
-// The most tiles a page holds, and how many a tablet-shaped window shows, so the shelf ends
-// before the pen hand's palm.
+// The most tiles a page holds, and how many full-width tiles' room a tablet-shaped window
+// gives the page's row, so the shelf ends before the pen hand's palm.
 SHELF_MAX :: 12
 SHELF_TABLET :: 8
+// The narrowest a tile gets: a page with more tiles than fit at full width narrows them,
+// down to this, before any is left out, so a tile added in Arrange is never added out of
+// sight. Wide enough for the icon and a cut name, and still a finger's target.
+SHELF_TILE_MIN :: 42
 // How many tiles the focused shelf shows (screen focus2): seven brushes, then All.
 SHELF_FOCUS :: 7
 
@@ -93,6 +97,10 @@ Shelf :: struct {
 	carry_at: [2]f32,
 	tiles:    [SHELF_MAX]ui.Rect,
 	shown:    int, // tiles laid out last frame
+	tile_w:   f32, // how wide they were (SHELF_TILE_MIN to a full tile)
+	// How many tiles the page shown has room for, at the narrowest, as last laid out: a
+	// page that has as many takes no more (bar_insert), since a new one would not show.
+	fits:     int,
 	tools:    int, // tool buttons laid out last frame
 	row:      ui.Rect, // where the brushes' row was laid out last frame
 	slide:    f32, // how far the page just turned still slides in, points (eases to 0)
@@ -191,24 +199,48 @@ SHELF_SLIDE_FROM :: 0.35
 SHELF_KEEP_BRUSHES :: 6
 SHELF_KEEP_TOOLS :: 3
 SHELF_LEAST_BRUSHES :: 3
+// The fewest tools a page's tiles give up the tools' room for, once the tiles are at their
+// narrowest: a page's own tiles are what was put there, the tools are on every page.
+SHELF_LEAST_TOOLS :: 2
 
 // How wide the shelf is with `brushes` tiles, All, and `tools` buttons after a divider;
 // `adding` counts the + tiles Arrange puts at the end of each.
-shelf_width :: proc(brushes, tools: int, adding := false) -> f32 {
-	w := f32(brushes + 1 + int(adding)) * ui.BRUSH_TILE.x + 2 * SHELF_PAD
+shelf_width :: proc(brushes, tools: int, adding := false, tile: f32 = ui.BRUSH_TILE.x) -> f32 {
+	w := f32(brushes + int(adding)) * tile + ui.BRUSH_TILE.x + 2 * SHELF_PAD
 	if tools > 0 || adding do w += 9 + f32(tools + int(adding)) * MESH_TOOL
 	return w
 }
 
-// How many of the page's `brushes` and of the `tools` fit across `room` points: what does
-// not fit is still in All and in Search.
-shelf_fit :: proc(brushes, tools: int, room: f32, adding := false) -> (shown_brushes, shown_tools: int) {
+// How many of the page's `brushes` and of the `tools` fit across `room` points with tiles
+// `tile` wide: what does not fit is still in All and in Search.
+shelf_fit :: proc(brushes, tools: int, room: f32, adding := false, tile: f32 = ui.BRUSH_TILE.x) -> (shown_brushes, shown_tools: int) {
 	b, t := brushes, tools
-	for b > min(brushes, SHELF_KEEP_BRUSHES) && shelf_width(b, t, adding) > room do b -= 1
-	for t > min(tools, SHELF_KEEP_TOOLS) && shelf_width(b, t, adding) > room do t -= 1
-	for b > min(brushes, SHELF_LEAST_BRUSHES) && shelf_width(b, t, adding) > room do b -= 1
-	for t > 0 && shelf_width(b, t, adding) > room do t -= 1
+	for b > min(brushes, SHELF_KEEP_BRUSHES) && shelf_width(b, t, adding, tile) > room do b -= 1
+	for t > min(tools, SHELF_KEEP_TOOLS) && shelf_width(b, t, adding, tile) > room do t -= 1
+	for b > min(brushes, SHELF_LEAST_BRUSHES) && shelf_width(b, t, adding, tile) > room do b -= 1
+	for t > 0 && shelf_width(b, t, adding, tile) > room do t -= 1
+	// The room the tools gave up last takes back as many tiles as it holds.
+	for b < brushes && shelf_width(b + 1, t, adding, tile) <= room do b += 1
 	return b, t
+}
+
+// How many of the page's `brushes` and of the `tools` show across `room`, and how wide the
+// tiles are. Every tile shows while it can: at full width with the tools down to
+// SHELF_KEEP_TOOLS if need be, else narrower, down to SHELF_TILE_MIN and there with the
+// tools down to SHELF_LEAST_TOOLS; only then are tiles left out, as shelf_fit leaves them. With `row` above 0 (a tablet-shaped window,
+// SHELF_TABLET tiles' room) the tiles' row is no wider than that either.
+shelf_layout :: proc(brushes, tools: int, room: f32, adding: bool, row: f32 = 0) -> (shown_brushes, shown_tools: int, tile: f32) {
+	for tile = ui.BRUSH_TILE.x; ; tile = max(tile - 2, SHELF_TILE_MIN) {
+		t := tools
+		least := SHELF_LEAST_TOOLS if tile <= SHELF_TILE_MIN else SHELF_KEEP_TOOLS
+		for t > min(tools, least) && shelf_width(brushes, t, adding, tile) > room do t -= 1
+		fits := shelf_width(brushes, t, adding, tile) <= room && (row <= 0 || f32(brushes + int(adding)) * tile <= row)
+		if fits do return brushes, t, tile
+		if tile <= SHELF_TILE_MIN do break
+	}
+	shown_brushes, shown_tools = shelf_fit(brushes, tools, room, adding, tile)
+	if row > 0 do shown_brushes = min(shown_brushes, max(int(row / tile) - int(adding), 0))
+	return
 }
 
 // The shelf at the bottom centre (left of it on a tablet-shaped window, clear of the palm),
@@ -225,7 +257,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	used := bar_used(app, which)
 	tools := bar_used(app, .Tools)
 	n := len(used)
-	if lens_palm(app) > 0 do n = min(n, SHELF_TABLET)
+	// On a tablet-shaped window the tiles' row keeps to SHELF_TABLET full tiles' width.
+	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if lens_palm(app) > 0 else 0
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
 	if lens_palm(app) > 0 do shift = -area.w * 0.09
@@ -267,15 +300,15 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// nor loses a tile for it.
 	paint_here := !focus && k.spaces.current == .Sculpt && k.places[.Shelf].edge == .Default
 	if focus do n = min(n, SHELF_FOCUS)
-	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
+	tile: f32
+	n, m, tile = shelf_layout(n, m, room, k.bars_edit && !focus, row)
 	// A brush picked from All, Search or the pie that is not among the tiles shown gets its
 	// own tile beside the shelf, so what the pen holds is always in sight; the shelf gives it
 	// room as it does its tools.
 	active, active_on := shelf_active_item(app, used[:n], tools[:m], k.bars_edit)
 	if active_on {
 		room = max(room - SHELF_ACTIVE_W, 0)
-		n, m = shelf_fit(len(used) if lens_palm(app) == 0 else min(len(used), SHELF_TABLET), m, room, k.bars_edit && !focus)
-		if focus do n = min(n, SHELF_FOCUS)
+		n, m, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), m, room, k.bars_edit && !focus, row)
 		// The tile and the shelf stand centred together, so the tile keeps clear of the dial.
 		if k.places[.Shelf].edge == .Default {
 			off := SHELF_ACTIVE_W * 0.5 * (-1 if ctx.mirror else 1)
@@ -301,19 +334,22 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
 	brushes_at := sh.row
-	ui.begin(ctx, "shelf brushes", {direction = .Row, gap = 0, width = f32(n + int(adding)) * ui.BRUSH_TILE.x, height = ui.BRUSH_TILE.y, clip = true})
+	ui.begin(ctx, "shelf brushes", {direction = .Row, gap = 0, width = f32(n + int(adding)) * tile, height = ui.BRUSH_TILE.y, clip = true})
 	mark := ui.vertex_mark(ctx)
-	sh.shown = n
+	sh.shown, sh.tile_w = n, tile
+	// What the page has room for, as many as fit at the narrowest; never fewer than it shows.
+	most, _, _ := shelf_layout(SHELF_MAX, m, room, adding, row)
+	sh.fits = max(most, n)
 	for s, i in used[:n] {
 		// A brush value is a chip as on any bar, scrubbed up and down so a sideways
 		// swipe still turns the page.
 		if v, ok := value_of(s); ok {
-			value_item(app, which, i, v, ui.BRUSH_TILE, column = false)
+			value_item(app, which, i, v, {tile, ui.BRUSH_TILE.y}, column = false)
 			sh.tiles[i] = ctx.last_rect
 			continue
 		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
-		if ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg)) {
+		if ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
 			if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
 			else do bar_slot_run(app, s, ctx.last_rect, .Above_Center)
 		}
@@ -334,7 +370,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		// The card carried from the picker lands on the tile it is let go over.
 		if sh.carry != nil && ui.rect_contains(ctx.last_rect, sh.carry_at) do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.accent, 2)
 	}
-	if adding && ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false) do bar_choose(app, {which = which, slot = len(used), add = true})
+	if adding && ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false, width = tile) do bar_choose(app, {which = which, slot = len(used), add = true})
 	ui.end(ctx)
 	// After the row ends, so the highlight under the picked tile, drawn as it ends, slides
 	// with it.
@@ -473,8 +509,9 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	used := bar_used(app, shelf_which(page))
 	ui.begin_at(ctx, "shelf peek", {at.x, at.y}, {direction = .Row, gap = 0, width = at.w, height = at.h, clip = true, inert = true})
 	mark := ui.vertex_mark(ctx)
-	for s, j in used[:min(len(used), int(at.w / ui.BRUSH_TILE.x) + 1)] {
-		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(s), page, j), bar_icon(s), false)
+	tile := k.shelf.tile_w if k.shelf.tile_w > 0 else ui.BRUSH_TILE.x
+	for s, j in used[:min(len(used), int(at.w / tile) + 1)] {
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(s), page, j), bar_icon(s), false, width = tile)
 	}
 	ui.end(ctx)
 	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)

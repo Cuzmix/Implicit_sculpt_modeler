@@ -5,6 +5,7 @@ import "core:testing"
 import sdl "vendor:sdl3"
 
 import "../sculpt"
+import "../ui"
 
 // Each shelf page is a bar of its own: a fresh install's brushes, changed by the bars'
 // procs, kept whole in settings.txt, and left out of a workspace's layout.
@@ -128,6 +129,27 @@ shelf_fit_gives_brushes_way_before_tools :: proc(t: ^testing.T) {
 	testing.expect(t, shelf_width(4, 2, true) > shelf_width(4, 2))
 	b, m = shelf_fit(10, 6, shelf_width(10, 6), adding = true)
 	testing.expect(t, b < 10)
+}
+
+// Every tile shows while it can: at full width with room, the tools giving way to three
+// first, then the tiles narrowing, then the tools down to two; only past that are tiles
+// left out. A tablet's row keeps to eight full tiles' width. An iPad Air's room (628
+// points) shows all ten of a fresh Sculpt page.
+@(test)
+shelf_layout_narrows_tiles_before_hiding_them :: proc(t: ^testing.T) {
+	b, m, tile := shelf_layout(10, 6, 2000, false)
+	testing.expect(t, b == 10 && m == 6 && tile == ui.BRUSH_TILE.x)
+	b, m, tile = shelf_layout(10, 6, shelf_width(10, 3) + 1, false)
+	testing.expect(t, b == 10 && m == 3 && tile == ui.BRUSH_TILE.x, "the tools give way before the tiles narrow")
+	b, m, tile = shelf_layout(10, 6, shelf_width(10, 3, tile = 50) + 1, false)
+	testing.expect(t, b == 10 && m == 3 && tile <= 50 && tile > SHELF_TILE_MIN)
+	b, m, tile = shelf_layout(10, 6, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b == 10 && m == 2 && tile == SHELF_TILE_MIN, "an iPad Air's shelf shows the whole page")
+	b, m, tile = shelf_layout(12, 6, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b < 12 && tile == SHELF_TILE_MIN, "past the narrowest, tiles are left out")
+	// The row on a tablet keeps to eight full tiles' width, however wide the window.
+	b, _, tile = shelf_layout(12, 6, 2000, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b == 12 && f32(b) * tile <= SHELF_TABLET * ui.BRUSH_TILE.x)
 }
 
 // A turn steps the page and stays at either end; each one counts, slides the new page in,

@@ -1237,11 +1237,13 @@ BRUSH_TILE :: [2]f32{64, 58}
 // chosen colour, which slides from tile to tile. Returns true when clicked. A command's
 // tile, on a dock of tiles, may be disabled (faded, taking no press) and may mark that it
 // has a long press with `corner`, as icon_button does.
-brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false) -> bool {
+brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
-	cell := place(ctx, BRUSH_TILE)
-	vis := centered(cell, {60, 54})
+	// A row that holds more tiles than fit at full width narrows them (`width`), the
+	// highlight and the name with them.
+	cell := place(ctx, {width if width > 0 else BRUSH_TILE.x, BRUSH_TILE.y})
+	vis := centered(cell, {cell.w - 4, 54})
 	if !enabled {
 		faded := color_fade(t.text_secondary, 0.35)
 		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)

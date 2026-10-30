@@ -51,6 +51,18 @@ Remesh_Options :: struct {
 	keep_detail: bool,
 	groups:      []u16,
 	quads:       bool, // the dual of the marching cubes: a closed mesh of quads only (Remesh_Report.quads)
+	mirror:      Remesh_Mirror,
+}
+
+// Planes a remesh keeps its lattice the same on both sides of, as the brush's symmetry
+// mirrors its dabs across them: each axis set is the plane through `center` square to it.
+// A lattice placed from the mesh's box alone has its points where they fall, which on a
+// symmetric sculpt are seldom each other's mirror images, so the two halves are sampled
+// differently and come out different by up to a cell; with the planes given, a mirrored
+// point is a lattice point too, and a symmetric mesh remeshes to a symmetric one.
+Remesh_Mirror :: struct {
+	axes:   [3]bool,
+	center: Vec3,
 }
 
 REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT}
@@ -117,7 +129,8 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 // nothing to free.
 remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, options := REMESH_OPTIONS_DEFAULT, report: ^Remesh_Report = nil) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
-	h, _ := remesh_lattice(area, bounds, target) or_return
+	// The lattice's box: the mesh's own, or grown even about the mirror's planes.
+	h, box := remesh_lattice_box(area, bounds, target, options.mirror) or_return
 	own: Remesh_Report
 	r := report if report != nil else &own
 	r^ = {}
@@ -139,9 +152,9 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 	defer if r.turned do delete(input.indices)
 	quads: ^[][4]u32 = &r.quads if options.quads else nil
 	if options.groups != nil {
-		out = remesh_groups(input, options.groups, h, bounds, smooth, pool, allocator, progress, rays_share, r, quads) or_return
+		out = remesh_groups(input, options.groups, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror) or_return
 	} else {
-		out = remesh_closed_first(input, h, bounds, smooth, pool, allocator, progress, rays_share, r, quads) or_return
+		out = remesh_closed_first(input, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror) or_return
 	}
 	if options.keep_detail {
 		if progress != nil && jobs.progress_cancelled(progress) {
@@ -234,10 +247,10 @@ mesh_edges_paired :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> bool {
 // triangles turned back, nothing moved) and capped, a bowl becomes a solid whichever way
 // it opens, as DynaMesh makes it.
 @(private = "file")
-remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
+remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
 	// A run asked for quads that leaves none refused them (remesh_run).
 	defer if ok && quads != nil && quads^ == nil do r.quads_thin = true
-	if mesh_edges_paired(source, pool) do return remesh_run(source, h, bounds, len(source.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+	if mesh_edges_paired(source, pool) do return remesh_run(source, h, bounds, len(source.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
 	heap := runtime.heap_allocator()
 	m := source
 	fixed, fixed_from, fix, mended := mesh_fix(source, pool, heap)
@@ -248,10 +261,10 @@ remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, poo
 	if mended {
 		r.mended += fix.dropped_triangles + fix.duplicate_triangles + fix.flipped_triangles
 		m = fixed
-		if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+		if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
 	}
 	capped, from, closed, did := mesh_close_holes(m, false, pool, heap)
-	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
 	defer mesh_destroy(&capped)
 	defer repair_map_destroy(&from, heap)
 	// A cap's vertices are raised to a membrane over the border's heights, which can
@@ -259,14 +272,14 @@ remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, poo
 	// it (a step and a half from its outer points), so they are held within the box.
 	for &p in capped.positions do for a in 0 ..< 3 do p[a] = clamp(p[a], bounds.lo[a], bounds.hi[a])
 	r.holes_closed += closed.closed
-	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads)
+	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
 }
 
 // Each group of `m` remeshed on the same lattice as a closed piece of its own, then all
 // in one mesh with r.groups saying each triangle's group. Groups are taken in ascending
 // order of their number, so the pieces' order, and the result, follow from the mesh alone.
 @(private = "file")
-remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
+remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
 	heap := runtime.heap_allocator()
 	tcount := len(m.indices) / 3
 	assert(len(groups) == tcount)
@@ -311,7 +324,7 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 		for a in 0 ..< 3 do box.lo[a] = bounds.lo[a] + math.floor((box.lo[a] - bounds.lo[a]) / h) * h
 		seams: Remesh_Report
 		piece_quads: [][4]u32
-		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil)
+		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil, mirror)
 		if progress != nil && jobs.progress_cancelled(progress) do return {}, false
 		if !built {
 			r.dropped += 1
@@ -356,12 +369,34 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 // The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
 // uses: its spacing, and where its first point is (as remesh_run places it). The density
 // preview draws these very cells, so what it shows is what the remesh will build.
-remesh_lattice :: proc(area: f64, bounds: Aabb, target: int) -> (h: f32, origin: Vec3, ok: bool) {
+remesh_lattice :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, origin: Vec3, ok: bool) {
+	box: Aabb
+	h, box = remesh_lattice_box(area, bounds, target, mirror) or_return
+	return h, box.lo - 1.5 * h, true
+}
+
+// The spacing remesh_lattice gives and the box remesh_run places the lattice from: the
+// mesh's own box, or with `mirror` that box grown to reach as far on both sides of each
+// plane and then out to a whole number of cells either side of it. The plane then lies
+// half way between two lattice points and every point's mirror image is a point, since
+// remesh_run starts the lattice a step and a half outside the box.
+remesh_lattice_box :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, box: Aabb, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return
-	extent := bounds.hi - bounds.lo
+	box = bounds
+	for a in 0 ..< 3 do if mirror.axes[a] {
+		c := mirror.center[a]
+		e := max(c - bounds.lo[a], bounds.hi[a] - c, 0)
+		box.lo[a], box.hi[a] = c - e, c + e
+	}
+	extent := box.hi - box.lo
 	h = max(remesh_spacing_of(area, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
 	if !(h > 0) do return 0, {}, false
-	return h, bounds.lo - 1.5 * h, true
+	for a in 0 ..< 3 do if mirror.axes[a] {
+		c := mirror.center[a]
+		cells := math.ceil((box.hi[a] - c) / h)
+		box.lo[a], box.hi[a] = c - cells * h, c + cells * h
+	}
+	return h, box, true
 }
 
 // The area of `m` and the box around its triangles' corners, skipping the zeroed slots
@@ -460,7 +495,7 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
 // `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
 // as remesh_lattice says.
-remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil) -> (out: Mesh, ok: bool) {
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
 	extent := bounds.hi - bounds.lo
 	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
@@ -507,8 +542,14 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	r.out = &out
 	place_vertices(&r)
 	if quads == nil {
+		// Which lattice edge each vertex is on, taken before the relax moves them.
+		edges := mirror_edges(&r, mirror)
+		defer delete(edges, runtime.heap_allocator())
 		if next(progress, &stage, share) do march_cells(&r, allocator)
-		if next(progress, &stage, share) do relax(&out, pool, smooth)
+		if next(progress, &stage, share) {
+			relax(&out, pool, smooth)
+			mirror_settle(&r, mirror, edges)
+		}
 	} else {
 		// The dual: a vertex per surface patch through a cell, a quad per crossing, the
 		// crossings' positions (the means the patches' vertices start from) then let go.
@@ -720,6 +761,98 @@ each_disagreement :: #force_inline proc(fa, fb: []i32, data: rawptr, fn: proc(da
 		}
 		state, start = !state, t
 	}
+}
+
+// Each vertex's lattice edge as a key, for mirror_settle: the axis it runs along and its
+// lower lattice point, read from where place_vertices put the vertex (on the edge, its
+// other two coordinates whole). Vertices are laid out x edges, then y, then z
+// (count_vertices). Nil without a mirror; heap memory.
+@(private = "file")
+mirror_edges :: proc(r: ^Remesher, mirror: Remesh_Mirror) -> []u64 {
+	if mirror.axes == {} do return nil
+	keys := make([]u64, r.vertex_count, runtime.heap_allocator())
+	for &key, v in keys {
+		along := 0 if u32(v) < r.y_base[0] else 1 if u32(v) < r.z_base[0] else 2
+		u := (r.out.positions[v] - r.origin) / r.h
+		lower: [3]i64
+		for a in 0 ..< 3 do lower[a] = i64(math.floor(u[a])) if a == along else i64(math.round(u[a]))
+		key = mirror_key(along, lower)
+	}
+	return keys
+}
+
+// An edge's key: its axis in the top bits, then its lower point's coordinates, each well
+// under 2^20 (REMESH_MAX_LATTICE); max(u64) for a point off the lattice.
+@(private = "file")
+mirror_key :: proc(along: int, lower: [3]i64) -> u64 {
+	for c in lower do if c < 0 || c >= 1 << 20 do return max(u64)
+	return u64(along) << 60 | u64(lower[0]) << 40 | u64(lower[1]) << 20 | u64(lower[2])
+}
+
+// Makes the relaxed triangles exactly as symmetric as the lattice: marching cubes cuts a
+// cell and its mirror image along diagonals that need not mirror each other, so the relax
+// moves the two halves a little differently. Each vertex becomes the mean of itself and
+// the mirror images of the vertices on its edge's mirror images (the plane's own edges
+// mirror onto themselves), which a symmetric mesh has; a vertex whose image edge has none
+// (the sculpt not symmetric there) keeps the images it has. Normals likewise.
+@(private = "file")
+mirror_settle :: proc(r: ^Remesher, mirror: Remesh_Mirror, keys: []u64) {
+	if keys == nil do return
+	Settle :: struct {
+		r:        ^Remesher,
+		mirror:   Remesh_Mirror,
+		keys:     []u64,
+		at:       map[u64]u32,
+		twice:    [3]i64, // twice the plane's place in lattice steps, a whole (odd) number
+		pos, nrm: []Vec3,
+	}
+	heap := runtime.heap_allocator()
+	s := Settle{r = r, mirror = mirror, keys = keys}
+	s.at = make(map[u64]u32, len(keys), heap)
+	defer delete(s.at)
+	for key, v in keys do if key != max(u64) do s.at[key] = u32(v)
+	for a in 0 ..< 3 do s.twice[a] = i64(math.round(2 * (mirror.center[a] - r.origin[a]) / r.h))
+	s.pos = make([]Vec3, len(keys), heap)
+	s.nrm = make([]Vec3, len(keys), heap)
+	defer delete(s.pos, heap)
+	defer delete(s.nrm, heap)
+	jobs.parallel_ranges(r.pool, len(keys), &s, proc(data: rawptr, lo, hi: int) {
+		s := cast(^Settle)data
+		out := s.r.out
+		for v in lo ..< hi {
+			key := s.keys[v]
+			p, n := out.positions[v], out.normals[v]
+			count: f32 = 1
+			if key != max(u64) {
+				along := int(key >> 60)
+				lower := [3]i64{i64(key >> 40 & (1 << 20 - 1)), i64(key >> 20 & (1 << 20 - 1)), i64(key & (1 << 20 - 1))}
+				// Every non-empty set of the mirror's planes, as bits over x, y and z.
+				for set in 1 ..< 8 {
+					image := lower
+					usable := true
+					for a in 0 ..< 3 do if set & (1 << uint(a)) != 0 {
+						if !s.mirror.axes[a] do usable = false
+						image[a] = s.twice[a] - lower[a] - (1 if a == along else 0)
+					}
+					if !usable do continue
+					w, found := s.at[mirror_key(along, image)]
+					if !found do continue
+					q, m := out.positions[w], out.normals[w]
+					for a in 0 ..< 3 do if set & (1 << uint(a)) != 0 {
+						q[a] = 2 * s.mirror.center[a] - q[a]
+						m[a] = -m[a]
+					}
+					p += q
+					n += m
+					count += 1
+				}
+			}
+			s.pos[v] = p / count
+			s.nrm[v] = linalg.normalize0(n)
+		}
+	}, RANGE_GRAIN)
+	copy(r.out.positions[:], s.pos)
+	copy(r.out.normals[:], s.nrm)
 }
 
 @(private = "file")

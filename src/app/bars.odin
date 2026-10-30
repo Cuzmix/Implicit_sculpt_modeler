@@ -337,6 +337,15 @@ bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which), bar_capacity(which))
 		return false
 	}
+	// A shelf page takes no tile it has no room to show on this screen, even at its
+	// narrowest, rather than add it out of sight.
+	if page, ok := shelf_page_of(which); ok {
+		sh := &app.kit.shelf
+		if page == sh.page && sh.fits > 0 && count^ >= sh.fits {
+			report(app, nil, {.Warning}, "%s has room for %d tiles on this screen: remove one first, or put it on another page", bar_title(which), sh.fits)
+			return false
+		}
+	}
 	i := clamp(at, 0, count^)
 	l := bar_list(app, which)
 	copy(l.slots[i + 1:count^ + 1], l.slots[i:count^])
