@@ -35,6 +35,9 @@ Frame_Stats :: struct {
 	cpu_ms:     Sample_Ring, // the frame minus its waits
 	wait_ms:    Sample_Ring, // waiting for the display (and, while timing the GPU, for the previous frame)
 	gpu_ms:     Sample_Ring, // GPU time of the 3D viewport's uploads and drawing; only while timing the GPU
+	// GPU time by pass from timestamps (render.Gpu_Times), a few frames late and without
+	// waiting; [.None] is the frame's whole GPU time. Only where render.caps has timestamps.
+	gpu_spans:  [render.Gpu_Span]Sample_Ring,
 	lod_ms:     Sample_Ring, // building and uploading simplified copies, on frames that did
 	ui_ms:      Sample_Ring, // the interface's layout and tessellation, CPU
 	ui_vertices: int, // the interface's vertices last frame

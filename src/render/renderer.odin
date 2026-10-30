@@ -1039,7 +1039,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 // buffer, which is cycled so an upload never stalls on the previous frame's copy; if
 // they do not fit, they go in several batches.
 mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil) {
-	debug_group(cmd, "Brush upload")
+	debug_group(cmd, "Brush upload", .Uploads)
 	if len(ranges) > 0 {
 		r.last_version += 1
 		mb.version = r.last_version
@@ -1103,7 +1103,7 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 // transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
 // the mesh is drawn without paint until a later upload succeeds.
 mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
-	debug_group(cmd, "Paint upload")
+	debug_group(cmd, "Paint upload", .Uploads)
 	ranges, all := ranges, all
 	if mb.paint == nil {
 		mb.paint = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = max(mb.vertex_capacity, 1) * size_of(Paint_Packed)})
@@ -1274,7 +1274,7 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 // keeps the previous colour and depth and redraws only the screen rectangle the items'
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
-	debug_group(cmd, "Viewport")
+	debug_group(cmd, "Viewport", .Viewport)
 	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r))
 	defer {
 		vt.frame_key = key

@@ -31,7 +31,7 @@ step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 // Draws `items` seen through `view` and `proj` (the main view's, narrowed to the cell's
 // square) on `background` into cell `slot`. False when there is no atlas to draw into.
 step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: ^sdl.GPUCommandBuffer, slot: int, view, proj: Mat4, items: []Draw_Item, background: [4]f32) -> bool {
-	debug_group(cmd, "Step picture")
+	debug_group(cmd, "Step picture", .Pictures)
 	if s.failed || slot < 0 || slot >= STEP_PICTURE_SLOTS do return false
 	if s.atlas == nil {
 		SIZE :: STEP_PICTURE_PX * STEP_PICTURE_CELLS

@@ -75,7 +75,7 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 // failed upload shows an empty frame rather than whatever the texture held. `size` is the
 // window's; a pre-rotated swapchain's texture is turned from it (swapchain_turns).
 ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, swapchain: Texture, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, draw: bool) {
-	debug_group(cmd, "Interface")
+	debug_group(cmd, "Interface", .Interface)
 	target := sdl.GPUColorTargetInfo {
 		texture     = swapchain,
 		clear_color = sdl.FColor(clear),
@@ -109,13 +109,16 @@ renderer_ready :: proc(r: ^Renderer) -> bool {
 
 // Names the commands recorded from here to the end of the enclosing scope for capture
 // tools (Xcode's GPU capture, RenderDoc): a group pushed now and popped as the scope ends.
-// Called outside any pass, so the group spans whole passes.
+// Called outside any pass, so the group spans whole passes. A `span` also times the group
+// on the GPU for the Stats panel (timing.odin).
 @(deferred_in = debug_group_end)
-debug_group :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring) {
+debug_group :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
 	gpu_push_debug_group(cmd, name)
+	span_begin(cmd, span)
 }
 
 @(private)
-debug_group_end :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring) {
+debug_group_end :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
+	span_end(cmd, span)
 	gpu_pop_debug_group(cmd)
 }
