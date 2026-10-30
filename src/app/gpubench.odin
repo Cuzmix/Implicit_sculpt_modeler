@@ -155,7 +155,7 @@ gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms: 
 	b.kase = 0
 	b.size += 1
 	if b.size < len(b.sizes) {
-		app.ui.scene_command = {kind = .Remesh, vertices = b.sizes[b.size]}
+		app.ui.scene_command = {kind = .Remesh, vertices = b.sizes[b.size], remesh = remesh_setup(app)}
 		return false
 	}
 	b.done = true

@@ -150,3 +150,328 @@ remesh_lattice_is_the_one_remesh_uses :: proc(t: ^testing.T) {
 	_, _, ok_empty := remesh_lattice(0, AABB_EMPTY, 1000)
 	testing.expect(t, !ok_empty)
 }
+
+// The volume the closed mesh encloses.
+@(private = "file")
+remesh_volume :: proc(m: Mesh) -> (v: f32) {
+	for i := 0; i < len(m.indices); i += 3 {
+		v += linalg.dot(m.positions[m.indices[i]], linalg.cross(m.positions[m.indices[i + 1]], m.positions[m.indices[i + 2]])) / 6
+	}
+	return
+}
+
+// A sphere with a square sheet beside it facing along `axis`, either way round
+// (`flip`), or with the triangles beyond 0.6 along the axis cut away so it is a bowl
+// opening that way (`bowl`).
+@(private = "file")
+open_fixture :: proc(axis: int, flip, bowl: bool) -> (m: Mesh) {
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	m.positions = make([dynamic]Vec3, len(sphere.positions))
+	m.normals = make([dynamic]Vec3, len(sphere.positions))
+	copy(m.positions[:], sphere.positions[:])
+	for i := 0; i < len(sphere.indices); i += 3 {
+		if bowl {
+			mid := (sphere.positions[sphere.indices[i]] + sphere.positions[sphere.indices[i + 1]] + sphere.positions[sphere.indices[i + 2]]) / 3
+			if (mid[axis] if !flip else -mid[axis]) > 0.6 do continue
+		}
+		append(&m.indices, sphere.indices[i], sphere.indices[i + 1], sphere.indices[i + 2])
+	}
+	if bowl do return
+	base := u32(len(m.positions))
+	a, b := (axis + 1) % 3, (axis + 2) % 3
+	for s in 0 ..< 4 {
+		p: Vec3
+		p[axis] = 1.5
+		p[a] = -0.7 if s == 0 || s == 3 else 0.7
+		p[b] = -0.7 if s < 2 else 0.7
+		append(&m.positions, p)
+		append(&m.normals, Vec3{})
+	}
+	if flip {
+		append(&m.indices, base, base + 2, base + 1, base, base + 3, base + 2)
+	} else {
+		append(&m.indices, base, base + 1, base + 2, base, base + 2, base + 3)
+	}
+	return
+}
+
+// An open part is capped before the rays, so the remesh is closed whichever way the
+// opening faces: a bowl becomes a solid of nearly the ball's volume, and a flat sheet,
+// capped to nothing, goes while the sphere beside it stays whole. Without the cap a
+// sheet facing -x or a bowl opening to +x left boundary and non-manifold edges.
+@(test)
+remesh_caps_open_parts_first :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	ball := f32(4 * math.PI / 3)
+	for axis in 0 ..< 3 do for flip in ([2]bool{false, true}) do for bowl in ([2]bool{false, true}) {
+		m := open_fixture(axis, flip, bowl)
+		defer mesh_destroy(&m)
+		testing.expect(t, !mesh_edges_paired(m, &pool), "the fixture should be open")
+		report: Remesh_Report
+		defer remesh_report_destroy(&report)
+		area, bounds := mesh_area_bounds(m, &pool)
+		out, ok := remesh_voxel_measured(m, area, bounds, 4000, &pool, report = &report)
+		defer mesh_destroy(&out)
+		testing.expectf(t, ok, "axis %d flip %v bowl %v: remesh failed", axis, flip, bowl)
+		expect_closed_manifold(t, out)
+		testing.expectf(t, report.holes_closed >= 1, "axis %d flip %v bowl %v: %d holes closed", axis, flip, bowl, report.holes_closed)
+		v := remesh_volume(out)
+		if bowl {
+			testing.expectf(t, v > 0.85 * ball && v < 1.02 * ball, "axis %d flip %v: the capped bowl has volume %.3f of the ball's %.3f", axis, flip, v, ball)
+		} else {
+			testing.expectf(t, v > 0.95 * ball && v < 1.02 * ball, "axis %d flip %v: the sphere beside a sheet has volume %.3f of %.3f", axis, flip, v, ball)
+		}
+	}
+	// A closed mesh is paired and capped nowhere.
+	sphere := icosphere(3)
+	defer mesh_destroy(&sphere)
+	testing.expect(t, mesh_edges_paired(sphere, &pool) && mesh_edges_paired(sphere), "a sphere pairs its edges")
+}
+
+// How uneven the edges are: their standard deviation over their mean.
+@(private = "file")
+edge_spread :: proc(m: Mesh) -> (deviation_over_mean: f32) {
+	lengths := make([dynamic]f32, 0, len(m.indices), context.temp_allocator)
+	for i := 0; i < len(m.indices); i += 3 {
+		for c in 0 ..< 3 {
+			a, b := m.indices[i + c], m.indices[i + (c + 1) % 3]
+			if a < b do append(&lengths, linalg.length(m.positions[a] - m.positions[b]))
+		}
+	}
+	mean, sq: f64
+	for l in lengths do mean += f64(l)
+	mean /= f64(len(lengths))
+	for l in lengths do sq += (f64(l) - mean) * (f64(l) - mean)
+	return f32(math.sqrt(sq / f64(len(lengths))) / mean)
+}
+
+// Smooth is the relax rounds: none leaves the raw marching cubes, closed all the same,
+// and more rounds even the edges out further, the shape kept.
+@(test)
+remesh_smooth_rounds_even_the_edges :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	area, bounds := mesh_area_bounds(sphere, &pool)
+	spread: [3]f32
+	for rounds, i in ([3]int{0, REMESH_SMOOTH_DEFAULT, REMESH_SMOOTH_MAX}) {
+		out, ok := remesh_voxel_measured(sphere, area, bounds, 5000, &pool, options = {smooth = rounds})
+		defer mesh_destroy(&out)
+		testing.expect(t, ok, "remesh failed")
+		expect_closed_manifold(t, out)
+		spread[i] = edge_spread(out)
+		worst: f32
+		for p in out.positions do worst = max(worst, abs(linalg.length(p) - 1))
+		testing.expectf(t, worst < 0.05, "%d rounds: a vertex is %.4f off the sphere", rounds, worst)
+	}
+	testing.expectf(t, spread[0] > spread[1] && spread[1] > spread[2], "edge spread %.3f, %.3f, %.3f should fall with the rounds", spread[0], spread[1], spread[2])
+	// The default rounds are what remesh_voxel does.
+	plain, _ := remesh_voxel(sphere, 5000, &pool)
+	defer mesh_destroy(&plain)
+	same, _ := remesh_voxel_measured(sphere, area, bounds, 5000, &pool, options = REMESH_OPTIONS_DEFAULT)
+	defer mesh_destroy(&same)
+	testing.expect(t, slice.equal(plain.positions[:], same.positions[:]) && slice.equal(plain.indices[:], same.indices[:]), "the default options are the plain remesh")
+}
+
+// Keep detail puts the vertices back on the surface they came from, with the old
+// triangle each landed on, so a bumpy sphere keeps its bumps where the lattice alone
+// rounded them off.
+@(test)
+remesh_keep_detail_projects_back :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	bumpy := icosphere(5)
+	defer mesh_destroy(&bumpy)
+	radius :: proc(p: Vec3) -> f32 {
+		d := linalg.normalize(p)
+		return 1 + 0.04 * math.sin(9 * d.x) * math.cos(9 * d.y) * math.sin(7 * d.z)
+	}
+	for &p in bumpy.positions do p = linalg.normalize(p) * radius(p)
+	area, bounds := mesh_area_bounds(bumpy, &pool)
+	deviation :: proc(m: Mesh, radius: proc(p: Vec3) -> f32) -> (mean: f32) {
+		for p in m.positions do mean += abs(linalg.length(p) - radius(p))
+		return mean / f32(len(m.positions))
+	}
+	plain, ok := remesh_voxel_measured(bumpy, area, bounds, 3000, &pool)
+	defer mesh_destroy(&plain)
+	testing.expect(t, ok, "remesh failed")
+	report: Remesh_Report
+	defer remesh_report_destroy(&report)
+	kept, ok2 := remesh_voxel_measured(bumpy, area, bounds, 3000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, keep_detail = true}, report = &report)
+	defer mesh_destroy(&kept)
+	testing.expect(t, ok2, "remesh with Keep detail failed")
+	expect_closed_manifold(t, kept)
+	testing.expect_value(t, len(report.source_tris), len(kept.positions))
+	found := 0
+	for tri in report.source_tris do if tri != max(u32) do found += 1
+	testing.expectf(t, found > len(kept.positions) * 95 / 100, "%d of %d vertices found the old surface", found, len(kept.positions))
+	before, after := deviation(plain, radius), deviation(kept, radius)
+	testing.expectf(t, after < before / 2, "mean deviation %.5f without Keep detail, %.5f with", before, after)
+}
+
+// Groups remeshes each polygroup as a closed piece of its own on the one lattice, and
+// says which group each triangle of the result is in.
+@(test)
+remesh_groups_make_a_closed_piece_each :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	tcount := len(sphere.indices) / 3
+	groups := make([]u16, tcount)
+	defer delete(groups)
+	// The upper half group 7, the lower group 3: the numbering need not be dense.
+	for t in 0 ..< tcount {
+		mid := (sphere.positions[sphere.indices[3 * t]] + sphere.positions[sphere.indices[3 * t + 1]] + sphere.positions[sphere.indices[3 * t + 2]]) / 3
+		groups[t] = 7 if mid.y > 0 else 3
+	}
+	area, bounds := mesh_area_bounds(sphere, &pool)
+	report: Remesh_Report
+	defer remesh_report_destroy(&report)
+	out, ok := remesh_voxel_measured(sphere, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, groups = groups}, report = &report)
+	defer mesh_destroy(&out)
+	testing.expect(t, ok, "remesh failed")
+	expect_closed_manifold(t, out)
+	testing.expect_value(t, report.pieces, 2)
+	testing.expect_value(t, report.dropped, 0)
+	// The seams the pieces are capped along are not holes the mesh had.
+	testing.expect_value(t, report.holes_closed, 0)
+	testing.expect_value(t, len(report.groups), len(out.indices) / 3)
+	part, count := mesh_components(out)
+	defer delete(part)
+	testing.expect_value(t, count, 2)
+	// Every triangle's group agrees with its piece, and the upper piece is group 7.
+	for g, tri in report.groups {
+		mid := (out.positions[out.indices[3 * tri]] + out.positions[out.indices[3 * tri + 1]] + out.positions[out.indices[3 * tri + 2]]) / 3
+		// The caps of the two pieces lie within a cell of the plane between them.
+		want: u16 = 7 if mid.y > 0.07 else (3 if mid.y < -0.07 else g)
+		if g != want {
+			testing.expectf(t, false, "triangle %d at y %.3f is in group %d", tri, mid.y, g)
+			break
+		}
+	}
+	// Each half ball's volume, together nearly the ball.
+	v := remesh_volume(out)
+	ball := f32(4 * math.PI / 3)
+	testing.expectf(t, v > 0.9 * ball && v < 1.02 * ball, "the two pieces have volume %.3f of %.3f", v, ball)
+}
+
+// Remeshing again at the same density stays put: ten rounds keep the count and the
+// volume within a percent, since the lattice is placed from the bounds each time.
+@(test)
+remesh_repeats_stably :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	m := icosphere(4)
+	first_count, first_volume := 0, f32(0)
+	for round in 0 ..< 10 {
+		out, ok := remesh_voxel(m, 5000, &pool)
+		testing.expect(t, ok, "remesh failed")
+		mesh_destroy(&m)
+		m = out
+		count, volume := len(m.positions), remesh_volume(m)
+		if round == 0 {
+			first_count, first_volume = count, volume
+			continue
+		}
+		testing.expectf(t, abs(count - first_count) * 100 <= first_count, "round %d: %d vertices, the first gave %d", round, count, first_count)
+		testing.expectf(t, abs(volume - first_volume) <= 0.01 * first_volume, "round %d: volume %.4f, the first gave %.4f", round, volume, first_volume)
+	}
+	mesh_destroy(&m)
+}
+
+// Every option gives the same mesh, bit for bit, with the pool and without: the edge
+// pairing is a wrapping sum, the pieces are split and joined in order, and the projection
+// is per vertex.
+@(test)
+remesh_options_agree_serial_and_parallel :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	bowl := open_fixture(0, false, true)
+	defer mesh_destroy(&bowl)
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	groups := make([]u16, len(sphere.indices) / 3)
+	defer delete(groups)
+	for t in 0 ..< len(groups) {
+		mid := (sphere.positions[sphere.indices[3 * t]] + sphere.positions[sphere.indices[3 * t + 1]] + sphere.positions[sphere.indices[3 * t + 2]]) / 3
+		groups[t] = 1 if mid.x > 0.2 else (2 if mid.x < -0.2 else 0)
+	}
+	Case :: struct {
+		name:    string,
+		mesh:    ^Mesh,
+		options: Remesh_Options,
+	}
+	cases := [?]Case {
+		{"bowl, no smoothing", &bowl, {smooth = 0}},
+		{"bowl, eight rounds, detail kept", &bowl, {smooth = REMESH_SMOOTH_MAX, keep_detail = true}},
+		{"three groups, detail kept", &sphere, {smooth = REMESH_SMOOTH_DEFAULT, keep_detail = true, groups = groups}},
+	}
+	for c in cases {
+		area, bounds := mesh_area_bounds(c.mesh^, &pool)
+		serial_report, parallel_report: Remesh_Report
+		defer remesh_report_destroy(&serial_report)
+		defer remesh_report_destroy(&parallel_report)
+		serial, ok1 := remesh_voxel_measured(c.mesh^, area, bounds, 3000, nil, options = c.options, report = &serial_report)
+		defer mesh_destroy(&serial)
+		parallel, ok2 := remesh_voxel_measured(c.mesh^, area, bounds, 3000, &pool, options = c.options, report = &parallel_report)
+		defer mesh_destroy(&parallel)
+		testing.expectf(t, ok1 && ok2, "%s: a remesh failed", c.name)
+		testing.expectf(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]), "%s: serial and parallel differ", c.name)
+		testing.expectf(t, slice.equal(serial_report.groups, parallel_report.groups) && slice.equal(serial_report.source_tris, parallel_report.source_tris), "%s: the reports differ", c.name)
+		testing.expectf(t, serial_report.holes_closed == parallel_report.holes_closed && serial_report.pieces == parallel_report.pieces, "%s: the counts differ", c.name)
+		if c.options.groups != nil do testing.expectf(t, serial_report.holes_closed == 0, "%s: seams counted as %d holes", c.name, serial_report.holes_closed)
+	}
+	// A doubled triangle pairs its edges, as the check promises.
+	fin := icosphere(2)
+	defer mesh_destroy(&fin)
+	append(&fin.indices, fin.indices[0], fin.indices[2], fin.indices[1])
+	append(&fin.indices, fin.indices[0], fin.indices[1], fin.indices[2])
+	testing.expect(t, mesh_edges_paired(fin, &pool), "a sphere with a doubled triangle pairs its edges")
+}
+
+// A mesh inside out as a whole is turned outward first, so it remeshes as the same solid;
+// a hollow one (an outer shell with a cavity) keeps its cavity, since only the whole's
+// sign is read.
+@(test)
+remesh_turns_an_inside_out_mesh :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	inverted := icosphere(4)
+	defer mesh_destroy(&inverted)
+	for i := 0; i < len(inverted.indices); i += 3 do inverted.indices[i + 1], inverted.indices[i + 2] = inverted.indices[i + 2], inverted.indices[i + 1]
+	testing.expect(t, mesh_signed_volume(inverted, &pool) < 0 && mesh_signed_volume(inverted) == mesh_signed_volume(inverted, &pool), "the fixture is inside out, serial and parallel alike")
+	area, bounds := mesh_area_bounds(inverted, &pool)
+	report: Remesh_Report
+	out, ok := remesh_voxel_measured(inverted, area, bounds, 4000, &pool, report = &report)
+	defer mesh_destroy(&out)
+	testing.expect(t, ok && report.turned, "the inside-out sphere remeshes, turned")
+	expect_closed_manifold(t, out)
+	ball := f32(4 * math.PI / 3)
+	testing.expectf(t, remesh_volume(out) > 0.95 * ball, "volume %.3f of %.3f", remesh_volume(out), ball)
+	// Hollow: a sphere with an inverted half-size sphere inside it.
+	hollow := icosphere(4)
+	defer mesh_destroy(&hollow)
+	base := u32(len(hollow.positions))
+	for p in inverted.positions {
+		append(&hollow.positions, 0.5 * p)
+		append(&hollow.normals, Vec3{})
+	}
+	for i in inverted.indices do append(&hollow.indices, base + i)
+	hollow_report: Remesh_Report
+	shell, ok2 := remesh_voxel_measured(hollow, area, bounds, 4000, &pool, report = &hollow_report)
+	defer mesh_destroy(&shell)
+	testing.expect(t, ok2 && !hollow_report.turned && hollow_report.holes_closed == 0, "the hollow sphere remeshes as it is")
+	expect_closed_manifold(t, shell)
+	testing.expectf(t, abs(remesh_volume(shell) - 0.875 * ball) < 0.05 * ball, "the cavity should stay: volume %.3f, a hollow ball's %.3f", remesh_volume(shell), 0.875 * ball)
+}

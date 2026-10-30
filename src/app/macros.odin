@@ -105,7 +105,7 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) MIRROR := []string{"mirror_axis", "mirror_negative"}
 	@(static, rodata) HOLES := []string{"holes_leave_largest"}
 	@(static, rodata) WELD := []string{"weld_distance"}
-	@(static, rodata) EVEN := []string{"rebuild_goal", "rebuild_even"}
+	@(static, rodata) EVEN := []string{"rebuild_goal", "rebuild_even", "remesh_smooth", "remesh_keep_detail", "remesh_groups"}
 	@(static, rodata) FEWER := []string{"rebuild_goal", "rebuild_fewer"}
 	@(static, rodata) QUADS := []string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_symmetry", "retopo_close_first"}
 	@(static, rodata) RETOPO := []string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_symmetry", "retopo_close_first"}

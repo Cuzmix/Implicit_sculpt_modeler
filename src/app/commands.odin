@@ -967,7 +967,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Remesh",
 		help = "Rebuilds the selected object as an even closed mesh of about as many vertices.",
 		run = proc(app: ^App, _: int) {
-			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(selected_object(app))}
+			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(selected_object(app)), remesh = remesh_setup(app)}
 		},
 		enabled = has_object,
 	},
@@ -1343,7 +1343,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
 		args = len(SPHERE_PRESETS),
-		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices)}},
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices), remesh = remesh_setup(app)}},
 		enabled = has_object,
 	},
 	.Decimate_To = {

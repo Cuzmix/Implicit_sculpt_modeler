@@ -85,6 +85,9 @@ Ui_State :: struct {
 	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for
+	remesh_smooth:      i32,  // ...with this many relax rounds (remesh.odin)...
+	remesh_keep_detail: bool, // ...put back on the old surface, polypaint and polygroups along...
+	remesh_groups:      bool, // ...each polygroup a closed piece of its own
 	rebuild_fewer:      i32,  // ...and its Fewer goal
 	bake:               Bake_Settings,
 	boolean:            Boolean_State,
@@ -166,7 +169,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

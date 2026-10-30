@@ -794,8 +794,8 @@ def field_of_view_from_the_camera_menu():
 
 @scenario
 def mesh_tools_on_the_shelf():
-    """The shelf's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the shelf, and a tap on Retopologize opens its own."""
-    toggles, divide, remesh, retopo = Script(), Script(), Script(), Script()
+    """The shelf's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the shelf; a tap on Quad Remesh runs it (a new object beside the sphere, one undo step) and a long press opens its section."""
+    toggles, divide, remesh, retopo, retopo_held = Script(), Script(), Script(), Script(), Script()
     toggles.ftap(*UI["dyntopo"])
     toggles.wait(8)
     toggles.ftap(*UI["live_boolean"])
@@ -805,12 +805,15 @@ def mesh_tools_on_the_shelf():
     long_press(remesh, *UI["remesh"])
     remesh.wait(8)
     retopo.ftap(*UI["retopo"])
-    retopo.wait(8)
+    retopo.wait(12)
+    long_press(retopo_held, *UI["retopo"])
+    retopo_held.wait(8)
     return Steps([
         (toggles, [], camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
         (divide, [], camera_still({"dabs": near(0), "selected_levels": near(2)})),
         (remesh, [], camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
-        (retopo, [], camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
+        (retopo, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "objects": near(2), "undo_steps": near(1)})),
+        (retopo_held, [], camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
     ])
 
 

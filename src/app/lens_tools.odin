@@ -149,7 +149,7 @@ lens_tools_geometry :: proc(app: ^App, obj: ^Object, inner: f32) {
 	id := ui.id_of(ctx, label)
 	if ctx.active == id || (ctx.hot == id && app.device.pointer == .Mouse) do rebuild_preview_hold(app)
 	if ui.button(ctx, "Remesh##tools", .Bordered, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
-		app.ui.scene_command = {kind = .Remesh, vertices = int(even^)}
+		app.ui.scene_command = {kind = .Remesh, vertices = int(even^), remesh = remesh_setup(app)}
 	}
 	ui.caption(ctx, "SUBDIVISION")
 	levels := &obj.levels
