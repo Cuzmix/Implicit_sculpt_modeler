@@ -900,6 +900,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			return false
 		}
 		waited := time.tick_since(wait_start)
+		// The acquire learned which earlier frames reached the screen.
+		shown: [8]render.Present_Time
+		for t in shown[:render.present_times(&app.renderer, window, shown[:])] {
+			ring_push(&app.stats.display_ms, f64(t.shown_ns - t.input_ns) / 1e6)
+		}
 
 		// Every pointer sample, not only where the pointer ended up, so the brush can
 		// follow the whole path. A pen also sends mouse events, marked PEN_MOUSEID; its
@@ -1354,6 +1359,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.kit_size = swapchain_size
 		// Some drivers wait for the display here rather than when the swapchain texture
 		// is acquired, so this counts as waiting too.
+		// The frames that changed the mesh are timed to the screen, as latency_ms is to the submit.
+		render.present_input(&app.renderer, window, app.device.input_at if sculpted.dabs > 0 else 0)
 		present_start := time.tick_now()
 		submitted := false
 		if app.time_gpu {
@@ -2018,7 +2025,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
 	fmt.printfln("present_mode=%s present_offers=%s", render.renderer_present_name(&app.renderer), present_offers(&app))
 	caps := render.caps(&app.renderer)
-	fmt.printfln("low_latency=%v frames_in_flight=%d frames_cheap=%v", app.low_latency, caps.frames_in_flight, caps.frames_cheap)
+	fmt.printfln("low_latency=%v frames_in_flight=%d frames_cheap=%v present_timing=%v", app.low_latency, caps.frames_in_flight, caps.frames_cheap, caps.present_timing)
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
@@ -2040,6 +2047,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
+	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
 	if opts.bench_stroke > 0 {
 		// The synthetic stroke never lifts the button: end it, then time undo and redo
 		// of the whole stroke, each including the normal update that follows.

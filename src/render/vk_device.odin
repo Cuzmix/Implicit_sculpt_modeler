@@ -29,6 +29,7 @@ Vk_State :: struct {
 	family:            u32,
 	frames:            u32, // frames a window may have in flight before its next acquire waits
 	labels:            bool, // VK_EXT_debug_utils is on: passes and objects carry names for capture tools
+	present_timing:    Present_Timing, // which present timing extension is on (vk_swapchain.odin)
 	properties:        vk.PhysicalDeviceProperties,
 	driver:            vk.PhysicalDeviceDriverProperties,
 	memory:            vk.PhysicalDeviceMemoryProperties,
@@ -244,11 +245,32 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		return nil, false
 	}
 
+	// Present timing (Gpu_Caps.present_timing): present_wait where offered, which also
+	// paces the frames queued for the screen; otherwise display timing, whose times are
+	// CLOCK_MONOTONIC's and so read only on Linux and Android (vk_clock_linux.odin).
+	vk.EnumerateDeviceExtensionProperties(vk_state.physical, nil, &count, nil)
+	offered := make([]vk.ExtensionProperties, count, context.temp_allocator)
+	vk.EnumerateDeviceExtensionProperties(vk_state.physical, nil, &count, raw_data(offered))
+	have_wait := vk.PhysicalDevicePresentWaitFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR}
+	have_id := vk.PhysicalDevicePresentIdFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, pNext = &have_wait}
 	have := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2}
+	if vk_has_extension(offered, vk.KHR_PRESENT_ID_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_PRESENT_WAIT_EXTENSION_NAME) do have.pNext = &have_id
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have)
+	device_extensions := make([dynamic]cstring, context.temp_allocator)
+	append(&device_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+	want_id := vk.PhysicalDevicePresentIdFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, presentId = true}
+	want_wait := vk.PhysicalDevicePresentWaitFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR, pNext = &want_id, presentWait = true}
+	if have_id.presentId && have_wait.presentWait {
+		append(&device_extensions, vk.KHR_PRESENT_ID_EXTENSION_NAME, vk.KHR_PRESENT_WAIT_EXTENSION_NAME)
+		vk_state.present_timing = .Present_Wait
+	} else if VK_CLOCK_MONOTONIC && vk_has_extension(offered, vk.GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) {
+		append(&device_extensions, vk.GOOGLE_DISPLAY_TIMING_EXTENSION_NAME)
+		vk_state.present_timing = .Display_Timing
+	}
 	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true}
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
+	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
 	// The optional features SDL_GPU asks for, each where offered.
 	features.features.independentBlend = true
 	features.features.imageCubeArray = have.features.imageCubeArray
@@ -269,7 +291,6 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		queueCount       = 1,
 		pQueuePriorities = &priority,
 	}
-	device_extensions := []cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 	device_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,
 		pNext                   = &features,
@@ -307,6 +328,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, name)
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
+	log.infof("Vulkan: present timing: %v", vk_state.present_timing)
 	return vk_device_handle(), true
 }
 

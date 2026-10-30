@@ -146,7 +146,12 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 	if picked := ui.tabs(ctx, "Low latency", low[:], int(app.low_latency)); picked >= 0 do app.low_latency = Low_Latency(picked)
 	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two.")
 	frames := render.caps(&app.renderer).frames_in_flight
-	ui.paragraph(ctx, fmt.tprintf("Frames in flight now: %d.", frames), color = ctx.theme.text_secondary)
+	if app.stats.display_ms.count > 0 {
+		shown50, _ := ring_percentiles(app.stats.display_ms)
+		ui.paragraph(ctx, fmt.tprintf("Frames in flight now: %d. Pen to screen while sculpting: %.1f ms typical.", frames, shown50), color = ctx.theme.text_secondary)
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("Frames in flight now: %d.", frames), color = ctx.theme.text_secondary)
+	}
 }
 
 // The modes the window offers besides vsync, as "mailbox,immediate" or "none". Temp-allocated.

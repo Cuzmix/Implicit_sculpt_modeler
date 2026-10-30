@@ -26,6 +26,33 @@ Vk_Window :: struct {
 	frame_serial: [FRAMES_IN_FLIGHT_MAX]u64,
 	frame:        int,
 	stale:        bool, // remade before the next acquire
+	// Present timing (Gpu_Caps.present_timing): each present takes the next id, counting
+	// from 1 across the window's swapchains; ids before present_base went to an earlier one,
+	// whose presents are never waited for. present_seen is the newest id known shown (or
+	// given up on), present_input the input time for the next present, and pending the
+	// input times of the latest presents by id.
+	present_id:    u64,
+	present_base:  u64,
+	present_seen:  u64,
+	present_input: u64,
+	pending:       [VK_PENDING]Vk_Pending,
+	shown:         [VK_PENDING]Present_Time, // learned, not yet taken by vk_present_times
+	shown_count:   int,
+	pace_misses:   int, // pacing waits in a row that timed out; at VK_PACE_MISSES the window stops pacing
+}
+
+// Presents whose screen time is still to learn, at most. More than a swapchain has images,
+// so a present is learned or given up on before its slot is taken again.
+VK_PENDING :: 8
+// A present not shown after this long is taken as never to be (a hidden window, a driver
+// that holds frames); after VK_PACE_MISSES such waits in a row the window stops pacing
+// until its swapchain is remade.
+VK_PACE_TIMEOUT_NS :: 100_000_000
+VK_PACE_MISSES :: 3
+
+Vk_Pending :: struct {
+	id:       u64,
+	input_ns: u64,
 }
 
 vk_window_find :: proc(window: ^sdl.Window) -> ^Vk_Window {
@@ -75,6 +102,10 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 	}
 	old := w.swapchain
 	vk_swapchain_free(w)
+	// The new swapchain's presents start at the next id; the old one's are not waited for.
+	w.present_base = w.present_id + 1
+	w.present_seen = w.present_id
+	w.pace_misses = 0
 	if extent.width == 0 || extent.height == 0 {
 		if old != 0 do vk.DestroySwapchainKHR(vk_state.device, old, nil)
 		w.swapchain = 0
@@ -255,6 +286,7 @@ vk_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl
 	if w.stale || w.swapchain == 0 || u32(pw) != w.width || u32(ph) != w.height {
 		if !vk_swapchain_make(w) do return true
 	}
+	vk_present_learn(w, wait)
 	slot := w.frame
 	if w.frame_serial[slot] > vk_state.completed {
 		if wait {
@@ -298,6 +330,95 @@ vk_present :: proc(p: Vk_Present) {
 		pSwapchains        = &w.swapchain,
 		pImageIndices      = &index,
 	}
+	w.present_id += 1
+	id := w.present_id
+	w.pending[id % VK_PENDING] = {id, w.present_input}
+	w.present_input = 0
+	present_id := vk.PresentIdKHR{sType = .PRESENT_ID_KHR, swapchainCount = 1, pPresentIds = &id}
+	time := vk.PresentTimeGOOGLE{presentID = u32(id)}
+	times := vk.PresentTimesInfoGOOGLE{sType = .PRESENT_TIMES_INFO_GOOGLE, swapchainCount = 1, pTimes = &time}
+	switch vk_state.present_timing {
+	case .Present_Wait:   info.pNext = &present_id
+	case .Display_Timing: info.pNext = &times
+	case .None:
+	}
 	r := vk.QueuePresentKHR(vk_state.queue, &info)
 	if r == .ERROR_OUT_OF_DATE_KHR || r == .ERROR_SURFACE_LOST_KHR do w.stale = true
+}
+
+vk_present_input :: proc(window: ^sdl.Window, input_ns: u64) {
+	if w := vk_window_find(window); w != nil do w.present_input = input_ns
+}
+
+vk_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
+	w := vk_window_find(window)
+	if w == nil do return 0
+	n := min(w.shown_count, len(out))
+	copy(out, w.shown[:n])
+	w.shown_count = 0
+	return n
+}
+
+// Present id `id` reached the screen at `shown_ns` (SDL nanoseconds): kept for
+// vk_present_times when it was tagged with an input time.
+@(private = "file")
+vk_present_shown :: proc(w: ^Vk_Window, id, shown_ns: u64) {
+	p := w.pending[id % VK_PENDING]
+	if p.id != id || p.input_ns == 0 || shown_ns < p.input_ns do return
+	if w.shown_count == VK_PENDING {
+		copy(w.shown[:], w.shown[1:])
+		w.shown_count -= 1
+	}
+	w.shown[w.shown_count] = {p.input_ns, shown_ns}
+	w.shown_count += 1
+}
+
+// Learns which presents reached the screen, before the window's next acquire. Under
+// present_wait and vsync, a waiting acquire first waits for the present frames_in_flight
+// back to be shown: then no more frames than are allowed in flight queue for the screen,
+// and the input read after this wait shows sooner. Without waiting, presents already shown
+// are found and timed now, so a time is late by at most the frame between.
+@(private = "file")
+vk_present_learn :: proc(w: ^Vk_Window, wait: bool) {
+	switch vk_state.present_timing {
+	case .None:
+	case .Present_Wait:
+		back := u64(vk_state.frames - 1)
+		if wait && w.present_mode == .VSYNC && w.pace_misses < VK_PACE_MISSES && w.present_id > back {
+			target := w.present_id - back
+			if target >= w.present_base && target > w.present_seen {
+				r := vk.WaitForPresentKHR(vk_state.device, w.swapchain, target, VK_PACE_TIMEOUT_NS)
+				#partial switch r {
+				case .SUCCESS, .SUBOPTIMAL_KHR:
+					w.pace_misses = 0
+					w.present_seen = target
+					vk_present_shown(w, target, sdl.GetTicksNS())
+				case .TIMEOUT:
+					w.pace_misses += 1
+					if w.pace_misses == VK_PACE_MISSES do log.warnf("Vulkan: presents are not shown within %d ms; pacing by them stops until the swapchain is remade", VK_PACE_TIMEOUT_NS / 1_000_000)
+				case .ERROR_OUT_OF_DATE_KHR, .ERROR_SURFACE_LOST_KHR:
+					w.stale = true
+					return
+				}
+			}
+		}
+		// Presents older than a slot's reach are given up on; the rest are asked without waiting.
+		if w.present_id > VK_PENDING do w.present_seen = max(w.present_seen, w.present_id - VK_PENDING)
+		for id := w.present_seen + 1; id <= w.present_id; id += 1 {
+			if vk.WaitForPresentKHR(vk_state.device, w.swapchain, id, 0) != .SUCCESS do break
+			w.present_seen = id
+			vk_present_shown(w, id, sdl.GetTicksNS())
+		}
+	case .Display_Timing:
+		timings: [VK_PENDING]vk.PastPresentationTimingGOOGLE
+		count := u32(len(timings))
+		r := vk.GetPastPresentationTimingGOOGLE(vk_state.device, w.swapchain, &count, &timings[0])
+		if r != .SUCCESS && r != .INCOMPLETE do return
+		for t in timings[:count] {
+			// The 32-bit id stands for the newest present it matches.
+			slot := w.pending[u64(t.presentID) % VK_PENDING]
+			if u32(slot.id) != t.presentID do continue
+			if shown := vk_monotonic_to_ticks(t.actualPresentTime); shown != 0 do vk_present_shown(w, slot.id, shown)
+		}
+	}
 }

@@ -45,6 +45,7 @@ Frame_Stats :: struct {
 	normals_ms: Sample_Ring, // the per-frame flush that recomputes normals
 	upload_kb:  Sample_Ring,
 	latency_ms: Sample_Ring, // newest input event to command buffer submit
+	display_ms: Sample_Ring, // newest input event to the frame on the screen, where the backend can tell (render.Present_Timing)
 	dabs_total: int,
 	viewport:      render.Viewport_Stats, // last frame
 	cache_redraws: int,
