@@ -1934,11 +1934,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
 	// The selected object's picked layer's strength, as the Layers panel shows it.
 	picked_strength: f32
+	// The selected object's layers with a mask, and the layer whose mask is picked (-1 for none).
+	masked, mask_picked := 0, -1
 	if obj := selected_object(&app); obj != nil {
-		list := sculpt.sculptor_layers(object_sculptor(obj))
+		s := object_sculptor(obj)
+		list := sculpt.sculptor_layers(s)
 		if i := app.ui.layer_selected; i >= 0 && i < len(list) do picked_strength = list[i].strength
+		for _, i in list do if sculpt.sculptor_layer_has_mask(s, i) do masked += 1
+		mask_picked = sculpt.sculptor_layer_mask_picked(s)
 	}
-	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength)
+	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f layer_strength=%.2f layer_masks=%d layer_mask_picked=%d", layers, app.layers_noted, app.stats.layers_carry_ms, picked_strength, masked, mask_picked)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	fmt.printfln("reshapes=%d reshape_ms=%.1f reshape_kind=%v", app.ui.reshape.count, app.ui.reshape.ms, app.ui.reshape.last.choice)
 	check := app.repair.check
