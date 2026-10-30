@@ -77,6 +77,10 @@ Vk_Cmd :: struct {
 	compute_storage: [8]vk.Buffer,   // read-only storage buffers
 	write_textures:  [8]vk.ImageView,
 	write_buffers:   [8]vk.Buffer,
+	// The compute pass's texture array (gpu_bind_compute_texture_array), written into set 3
+	// at the next dispatch; array_count 0 until one is bound.
+	array_images:    [VK_TEXTURE_ARRAY_MAX]vk.DescriptorImageInfo,
+	array_count:     u32,
 	sets:            [4]vk.DescriptorSet,
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
@@ -376,11 +380,17 @@ vk_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
 
 // ---- Descriptors and uniforms -------------------------------------------------------
 
+// A set from the command buffer's pools, `variable` the element count of a texture array
+// set (0 for any other). A pool made fresh that cannot hold the set fails it rather than
+// making pool after pool.
 @(private = "file")
-vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout) -> vk.DescriptorSet {
+vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout, variable: u32 = 0) -> vk.DescriptorSet {
 	layout := layout
+	variable := variable
+	counts := vk.DescriptorSetVariableDescriptorCountAllocateInfo{sType = .DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO, descriptorSetCount = 1, pDescriptorCounts = &variable}
 	for {
-		if cmd.pools_used == len(cmd.pools) {
+		fresh := cmd.pools_used == len(cmd.pools)
+		if fresh {
 			sizes := [?]vk.DescriptorPoolSize {
 				{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = 1024},
 				{type = .SAMPLED_IMAGE, descriptorCount = 256},
@@ -394,10 +404,11 @@ vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout) -> vk.De
 			append(&cmd.pools, pool)
 		}
 		info := vk.DescriptorSetAllocateInfo{sType = .DESCRIPTOR_SET_ALLOCATE_INFO, descriptorPool = cmd.pools[cmd.pools_used], descriptorSetCount = 1, pSetLayouts = &layout}
+		if variable > 0 do info.pNext = &counts
 		set: vk.DescriptorSet
 		r := vk.AllocateDescriptorSets(vk_state.device, &info, &set)
 		if r == .SUCCESS do return set
-		if r != .ERROR_OUT_OF_POOL_MEMORY && r != .ERROR_FRAGMENTED_POOL do return 0
+		if fresh || (r != .ERROR_OUT_OF_POOL_MEMORY && r != .ERROR_FRAGMENTED_POOL) do return 0
 		cmd.pools_used += 1
 	}
 }
@@ -557,13 +568,22 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 			for i in 0 ..< c[4] do vk_write_buffer(&w, cmd.sets[1], c[3] + i, cmd.write_buffers[i])
 		}
 		if cmd.set_dirty[2] do cmd.sets[2] = vk_uniform_set(cmd, l.sets[2], .Compute, c[5])
+		if cmd.set_dirty[3] && l.sets[3] != 0 {
+			// A kernel with an array reads it, so a dispatch with none bound is refused.
+			cmd.sets[3] = 0
+			if cmd.array_count > 0 do cmd.sets[3] = vk_descriptor_set(cmd, l.sets[3], cmd.array_count)
+			if cmd.sets[3] != 0 {
+				write := vk.WriteDescriptorSet{sType = .WRITE_DESCRIPTOR_SET, dstSet = cmd.sets[3], dstBinding = 0, descriptorCount = cmd.array_count, descriptorType = .COMBINED_IMAGE_SAMPLER, pImageInfo = &cmd.array_images[0]}
+				vk.UpdateDescriptorSets(vk_state.device, 1, &write, 0, nil)
+			}
+		}
 		for i in 0 ..< c[5] {
 			offsets[n_offsets] = cmd.uniforms[.Compute][i].offset
 			n_offsets += 1
 		}
 	}
 	vk_write_flush(&w)
-	set_count: u32 = 3 if p.compute else 4
+	set_count: u32 = 4 if !p.compute || l.sets[3] != 0 else 3
 	for s in cmd.sets[:set_count] do if s == 0 {
 		log.error("Vulkan: a descriptor set could not be allocated")
 		return false
@@ -777,6 +797,9 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
 	cmd.pipeline = nil
 	cmd.samplers_bound = {}
 	cmd.compute_storage = {}
+	// A render pass leaves its fragment uniforms in sets[3], which a kernel with an array
+	// must never take for its own.
+	cmd.sets[3], cmd.array_count = 0, 0
 	return (^sdl.GPUComputePass)(cmd)
 }
 
@@ -786,13 +809,28 @@ vk_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipe
 	vk.CmdBindPipeline(cmd.cb, .COMPUTE, p.pipeline)
 	vk_cmd_track_pipeline(cmd, p)
 	cmd.pipeline = p
-	cmd.set_dirty = {true, true, true, false}
+	cmd.set_dirty = {true, true, true, p.layout.sets[3] != 0}
 }
 
 vk_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	vk_bind_samplers(cmd, first_slot, texture_sampler_bindings, num_bindings)
 	cmd.set_dirty[0] = true
+}
+
+// The textures a kernel's array holds this dispatch on, in order; the count is the set's.
+vk_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
+	cmd := (^Vk_Cmd)(compute_pass)
+	n := min(len(bindings), VK_TEXTURE_ARRAY_MAX)
+	for b, i in bindings[:n] {
+		t := (^Vk_Texture)(b.texture)
+		s := (^Vk_Sampler)(b.sampler)
+		vk_cmd_track_image(cmd, t.active)
+		vk_cmd_track_sampler(cmd, s)
+		cmd.array_images[i] = {sampler = s.sampler, imageView = t.active.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
+	}
+	cmd.array_count = u32(n)
+	cmd.set_dirty[3] = true
 }
 
 vk_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {

@@ -69,6 +69,13 @@ gpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
 	sdl.BindGPUComputeSamplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
 }
 
+// The textures, in order, of the array a gpu_create_compute_pipeline_array kernel reads; at
+// most the capacity it was made with. Only the own Vulkan backend makes such kernels.
+gpu_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
+	for b in bindings do transient_check_use(b.texture, "sampled")
+	if gpu_backend == .Vulkan do vk_bind_compute_texture_array(compute_pass, bindings)
+}
+
 gpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: sdl.Uint32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: sdl.Uint32) {
 	if gpu_backend == .Vulkan {
 		vk_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
@@ -190,6 +197,22 @@ gpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: 
 	if gpu_backend == .Vulkan do return vk_create_compute_pipeline(device, createinfo)
 	when METAL do if gpu_backend == .Metal do return mtl_create_compute_pipeline(device, createinfo)
 	return sdl.CreateGPUComputePipeline(device, createinfo)
+}
+
+// A compute pipeline that also reads an array of up to `capacity` sampled textures, indexed
+// per thread (set 3, binding 0 in SPIR-V): the own Vulkan backend with descriptor indexing
+// only, up to Gpu_Caps.texture_arrays; nil with SDL's error set elsewhere, and the caller
+// keeps a kernel with named samplers.
+gpu_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+	if gpu_backend == .Vulkan do return vk_create_compute_pipeline_array(device, createinfo, capacity)
+	sdl.SetError("texture arrays need the own Vulkan backend")
+	return nil
+}
+
+// How many textures one array binding may hold; 0 where gpu_create_compute_pipeline_array
+// makes nothing.
+gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
+	return vk_state.texture_arrays if gpu_backend == .Vulkan else 0
 }
 
 // A compute pipeline whose arithmetic is IEEE 754's, for kernels that must equal the CPU.

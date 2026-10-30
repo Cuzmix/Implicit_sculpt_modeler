@@ -43,6 +43,10 @@ Gpu_Caps :: struct {
 	// so one written in the CPU's order can equal the CPU bit for bit (Smooth all on the
 	// GPU): false only under SDL_GPU's Metal backend, which compiles with fast maths.
 	exact_compute:     bool,
+	// Textures one compute array binding may hold (gpu_create_compute_pipeline_array): the
+	// own Vulkan backend with descriptor indexing (runtime arrays, variable counts and
+	// non-uniform indexing of sampled images); 0 elsewhere, where kernels name each texture.
+	texture_arrays:    u32,
 }
 
 Present_Timing :: enum u8 {
@@ -85,6 +89,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
 	r.caps.exact_compute = gpu_exact_compute(r.device)
+	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so
