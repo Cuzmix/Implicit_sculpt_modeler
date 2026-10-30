@@ -4608,6 +4608,67 @@ def dock_stays_with_its_space():
     return Steps([run(False), run(True)])
 
 
+# The chip bar's sections in Arrange at 1440x900 (PR 14): Undo and Redo's middle, where an
+# island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
+# toggles for Spaces, with the Model tab of the Spaces island it makes.
+CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (242, 30), (700, 420), (730, 424)
+CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), (452, 80)
+# The Library's close button.
+LIBRARY_AWAY = (753, 129)
+
+
+def settings_hold(text):
+    """A check that the settings file the app wrote holds `text` anywhere."""
+    def ok(_):
+        return os.path.exists(settings_file()) and text in open(settings_file()).read()
+    return ok
+
+
+@scenario
+def chip_section_dragged_out_of_the_bar():
+    """In Arrange a finger drags Undo and Redo out of the chip bar into the view: after Done they stand there as an island, the bar closes up without them, and the settings file keeps the island."""
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
+    s.wait(6)
+    s.press("Escape")
+    s.wait(8)
+    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
+        "chip_islands": lambda v: v.startswith("undo:6") and ":39" in v, "chip_carries": near(1), "bars_edit": near(0),
+        "layout_top_bar": is_text("8,4,1424,48"), "dabs": near(0), "@saved": settings_hold("chip_island undo ")})
+
+
+@scenario
+def chip_island_dragged_back_onto_the_bar():
+    """The mouse drags the Undo island it made back onto the chip bar: the section is in the bar again and nothing stands on its own."""
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
+    s.wait(8)
+    # The Library is put away first, as it covers the island.
+    s.ftap(*LIBRARY_AWAY)
+    s.wait(6)
+    s.mouse_drag(line(CHIP_ISLAND_REDO, (600, 30), 30))
+    s.wait(6)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"chip_islands": is_text("none"), "chip_carries": near(2), "dabs": near(0)})
+
+
+@scenario
+def chip_section_library_toggle_makes_a_working_island():
+    """Library > Docks' Spaces toggle stands the space tabs on their own under the bar; after Done a tap on the island's Model tab switches to Model, and the island stays (the chip bar is every space's)."""
+    s = Script()
+    s.wait(6)
+    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.wait(6)
+    s.ftap(*CHIP_SPACES_TOGGLE)
+    s.wait(6)
+    s.press("Escape")
+    s.wait(8)
+    s.ftap(*CHIP_SPACES_MODEL)
+    s.wait(8)
+    return s, LENS_1440 + ["--script=customise_bars"], {"chip_islands": lambda v: v.startswith("spaces:") and v.endswith(":58"), "space": is_text("model"), "dabs": near(0)}
+
+
 @scenario
 def lens_arrange_place_stays_with_its_space():
     """The rail moved to the left in Sculpt stays there after a trip to Model and back, and Model's layout has its rail on the right."""

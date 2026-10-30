@@ -211,6 +211,12 @@ Kit_State :: struct {
 	wheel_labels: Wheel_Labels, // what its sectors show
 	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
 	places:     [Place_Bar]Bar_Place, // where the island and the rail stand (bar_place.odin), the layout's
+	// The chip bar's sections out of it, each standing as an island at its top-left (layout
+	// terms, chip_islands.odin), a setting; where each was drawn this frame, and where each
+	// last stood in the bar, for one the Library takes out.
+	islands:    [Chip_Section]Maybe([2]f32),
+	chip_at:    [Chip_Section]ui.Rect,
+	chip_home:  [Chip_Section]ui.Rect,
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the

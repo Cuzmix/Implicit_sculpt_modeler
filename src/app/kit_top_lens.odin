@@ -10,8 +10,10 @@ import "../ui"
 // floating bar across the top in the docks' style, its sections split by hairlines. The
 // menu and the file with whether it is saved; Undo and Redo; the spaces as tabs
 // (spaces.odin); the object chip (object_chip.odin); Search; History and Settings. Home,
-// Save, Import, Export and Help are in the menu, the passes on the pane. Returns the menu
-// button and the Search field, which the menu and the command palette open under.
+// Save, Import, Export and Help are in the menu, the passes on the pane. A section Arrange
+// took out stands as an island of its own (chip_islands.odin) and the bar closes up round
+// the rest. Returns the menu button and the Search field, which the menu and the command
+// palette open under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -19,51 +21,83 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	area := ui.safe_area(ctx)
 	k.passes.chip_held = false
 	k.object_chip_fit = .None
+	k.chip_at = {}
 	if lens_focus(k) do return kit_top_islands(app)
+	arranging := k.bars_edit
+	// With every section out, the bar is drawn only while arranging, to take them back.
+	if !chip_islands_none(k) {
+		empty := true
+		for s in Chip_Section do if chip_in_bar(k, s) do empty = false
+		if empty && !arranging {
+			kit_chip_islands(app, &menu_anchor, &search_anchor)
+			return
+		}
+	}
+	in_bar := [Chip_Section]bool{}
+	for s in Chip_Section do in_bar[s] = chip_in_bar(k, s)
 	width := area.w - 2 * TOP_BAR_INSET
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = TOP_BAR_H - TOP_BAR_TOP, padding = 2, gap = 2, center = true, radius = t.radius_large, background = .Panel})
-	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
-		k.menu = !k.menu
-		k.menu_scroll = 0
+	// What the row holds, for the gaps between: the bar has always counted fourteen
+	// things with every section in it (the middle's spacer among them).
+	things := 0
+	left: f32 = 0
+	if in_bar[.Menu] {
+		k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor)
+		// The button and the file, less the gap between them, which the row counts.
+		left += k.chip_at[.Menu].w - 2
+		things += 2
 	}
-	menu_anchor = ctx.last_rect
-	file_w := top_file_block(app)
-	top_divider(ctx)
-	// A long press (or a right-click) on either opens the History panel, to go back or
-	// forward many steps.
-	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
-	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
-	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
-	if ui.secondary(ctx) do k.history = true
-	undo_at := ctx.last_rect
-	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
-	if ui.secondary(ctx) do k.history = true
-	history_roll(app, ui.rect_union(undo_at, ctx.last_rect))
-	pen_zone(app, ui.rect_union(undo_at, ctx.last_rect), .History)
+	if in_bar[.Undo] {
+		if things > 0 {
+			top_divider(ctx)
+			left += TOP_DIVIDER_W
+			things += 1
+		}
+		k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
+		left += 2 * t.target
+		things += 2
+	}
 	// What the ends take, the middle gets. The object chip gives up its badges, then its
 	// tag, before Search shrinks to its icon; then the chip shrinks to its icon, and last
 	// the space tabs go to the layout's chip.
-	// The row's padding and its 13 gaps between the 14 things it can hold.
-	ROW :: 2 * 2 + 13 * 2
-	left := 3 * t.target + file_w + TOP_DIVIDER_W
-	right := TOP_DIVIDER_W + 2 * t.target
-	middle := width - ROW - left - right
-	arranging := k.bars_edit
+	before := things > 0
+	tabs: f32 = space_tabs_width(app) if in_bar[.Spaces] else 0
+	tab_div: f32 = TOP_DIVIDER_W if in_bar[.Spaces] && before else 0
+	chip_div: f32 = TOP_DIVIDER_W if in_bar[.Object] && (before || in_bar[.Spaces]) else 0
+	things += 1
+	if in_bar[.Spaces] do things += 1 + (1 if before else 0)
+	if in_bar[.Object] do things += 1 + (1 if before || in_bar[.Spaces] else 0)
+	right: f32 = 0
+	if in_bar[.Search] do things += 1
+	if in_bar[.End] {
+		right += 2 * t.target
+		things += 2
+		if in_bar[.Search] {
+			right += TOP_DIVIDER_W
+			things += 1
+		}
+	}
+	row := 2 * 2 + 2 * f32(things - 1)
+	middle := width - row - left - right
 	chip := object_chip_of(app)
-	tabs := space_tabs_width(app)
 	field := false
 	fit := Object_Chip_Fit.None
 	if !arranging {
-		with_field := middle - TOP_SEARCH_W - tabs - 2 * TOP_DIVIDER_W
-		if object_chip_fit(ctx, chip, with_field) >= .Name {
+		with_field := middle - TOP_SEARCH_W - tabs - tab_div - chip_div
+		switch {
+		case !in_bar[.Object]:
+			field = in_bar[.Search] && with_field >= 0
+		case !in_bar[.Search]:
+			fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
+		case object_chip_fit(ctx, chip, with_field) >= .Name:
 			field, fit = true, object_chip_fit(ctx, chip, with_field)
-		} else {
-			fit = object_chip_fit(ctx, chip, middle - t.target - tabs - 2 * TOP_DIVIDER_W)
+		case:
+			fit = object_chip_fit(ctx, chip, middle - t.target - tabs - tab_div - chip_div)
 		}
 	} else {
-		field = middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
+		field = in_bar[.Search] && middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
 	}
-	middle -= TOP_SEARCH_W if field else t.target
+	if in_bar[.Search] do middle -= TOP_SEARCH_W if field else t.target
 	if arranging {
 		// Arranging, the middle holds what arranging needs in place of the tabs and the chip.
 		pill := arrange_top_width(app)
@@ -79,35 +113,40 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 			if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = done_w) do k.bars_edit = false
 			ui.spacer(ctx, max(middle - pad - done_w, 0))
 		}
-	} else if middle >= tabs + TOP_DIVIDER_W {
-		top_divider(ctx)
-		used := TOP_DIVIDER_W + top_space_tabs(app)
+	} else if in_bar[.Spaces] && middle >= tabs + tab_div {
+		if tab_div > 0 do top_divider(ctx)
+		k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
+		used := tab_div + k.chip_at[.Spaces].w
 		if fit != .None {
 			top_divider(ctx)
-			top_object_chip(app, chip, fit)
-			used += TOP_DIVIDER_W + ctx.last_rect.w
+			k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = fit)
+			used += chip_div + ctx.last_rect.w
 		}
 		ui.spacer(ctx, max(middle - used, 0))
-	} else if middle >= WORKSPACE_CHIP_ROOM {
-		top_divider(ctx)
+	} else if in_bar[.Spaces] && middle >= WORKSPACE_CHIP_ROOM {
+		used: f32 = 0
+		if before {
+			top_divider(ctx)
+			used += TOP_DIVIDER_W
+		}
 		kit_workspace_chip(app)
-		ui.spacer(ctx, max(middle - TOP_DIVIDER_W - ctx.last_rect.w, 0))
+		ui.spacer(ctx, max(middle - used - ctx.last_rect.w, 0))
+	} else if !in_bar[.Spaces] && fit != .None {
+		if chip_div > 0 do top_divider(ctx)
+		k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = fit)
+		ui.spacer(ctx, max(middle - chip_div - ctx.last_rect.w, 0))
 	} else {
 		ui.spacer(ctx, max(middle, 0))
 	}
-	if field {
-		search_anchor = top_search_field(app)
-	} else {
-		if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
-			if k.palette do palette_close(app)
-			else do palette_open(app)
-		}
-		search_anchor = ctx.last_rect
+	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = field)
+	if in_bar[.End] {
+		if in_bar[.Search] do top_divider(ctx)
+		k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
 	}
-	top_divider(ctx)
-	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
-	_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
 	ui.end(ctx)
+	// Where each section stood in the bar, for an island Arrange's Library takes out.
+	if !arranging do for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
+	kit_chip_islands(app, &menu_anchor, &search_anchor)
 	return
 }
 
@@ -193,7 +232,6 @@ TOP_BAR_TOP :: 4
 // A hairline between sections takes this much of the row.
 TOP_DIVIDER_W :: 13
 
-@(private = "file")
 top_command :: proc(app: ^App, id: Command_Id, glyph: rune, name: string, selected := false) -> bool {
 	ctx := &app.kit.ctx
 	if ui.icon_button(ctx, name, glyph, selected || command_checked(app, id), command_enabled(app, id), command_hint(app, id)) {
@@ -211,7 +249,6 @@ top_divider :: proc(ctx: ^ui.Context) {
 }
 
 // The file the scene saves to over whether it is saved; returns its width.
-@(private = "file")
 top_file_block :: proc(app: ^App) -> f32 {
 	ctx := &app.kit.ctx
 	t := ctx.theme
@@ -255,7 +292,6 @@ saved_ago :: proc(d: time.Duration) -> string {
 ICON_PLUS_SMALL :: rune(0xe141)
 
 // The Search field: a tap opens the command palette under it (Ctrl+K does too).
-@(private = "file")
 top_search_field :: proc(app: ^App) -> ui.Rect {
 	k := &app.kit
 	ctx := &k.ctx

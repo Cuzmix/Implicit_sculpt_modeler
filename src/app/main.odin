@@ -1722,6 +1722,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
+		// The chip bar's sections standing on their own, and how many Arrange let go.
+		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[i].used {
