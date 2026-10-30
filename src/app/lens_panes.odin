@@ -62,7 +62,7 @@ handle_double_tap :: proc(ctx: ^ui.Context, d: ^Handle_Tap, id: ui.Id) -> bool {
 
 // Shows the grid in `preset` (the View grid command), and starts each pane it adds to what
 // is there now as Settings' choice says: the preset's own partner, the main camera, or a
-// copy of the main view.
+// copy of the main view; each in the main view's shading.
 grid_choose :: proc(app: ^App, preset: Grid_Preset) {
 	k := &app.kit
 	g := &k.grid
@@ -75,6 +75,7 @@ grid_choose :: proc(app: ^App, preset: Grid_Preset) {
 	k.pane_menu.open = false
 	for i in had ..< grid_count(preset) {
 		v := &g.views[i - 1]
+		v.shading = k.passes.shading
 		switch k.new_panes {
 		case .Front_Side:
 		case .Same_Camera:

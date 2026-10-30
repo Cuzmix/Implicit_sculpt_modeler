@@ -206,21 +206,25 @@ kit_view_chips :: proc(app: ^App) {
 	if k.grid.maximised != 0 && grid_panes(&k.grid) > 1 do return
 	k.view_chips_shown = true
 	at := [2]f32{LENS_EDGE, TOP_BAR_H + 2}
-	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
+	// On the main pane's own corner, and naming its own camera and pass, while a view pane
+	// is worked in too (the main view's role lent to it), so they never stand over that
+	// pane's head.
+	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.home.w > 0 {
 		win := ctx.input.window
-		edge := win.x - (g.main.x + g.main.w) if ctx.mirror else g.main.x
-		at = {LENS_EDGE + edge, max(TOP_BAR_H + 2, g.main.y + 8)}
+		edge := win.x - (g.home.x + g.home.w) if ctx.mirror else g.home.x
+		at = {LENS_EDGE + edge, max(TOP_BAR_H + 2, g.home.y + 8)}
 	}
+	k.view_chips_at = at
 	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
 	ui.begin(ctx, "view chips", {direction = .Row, gap = 6})
-	c := &app.camera
+	c := main_camera(app)
 	projection := "Ortho" if c.ortho else "Persp"
 	sub := "" if c.ortho else fmt.tprintf("%.0f mm", lens_focal_mm(c.fov_y))
 	if a := lens_chip(ctx, "Camera##chip", projection, sub, dot = t.camera[0], chevron = true, lit = bar_pop_showing(app, .Camera), keys = command_hint(app, .Camera_Menu)); a.clicked {
 		k.bar_at[.Camera], k.bar_side[.Camera] = a.rect, .Below
 		bar_pop_toggle(app, .Camera, a.rect, .Below)
 	}
-	shown := viewport_pass(k)
+	shown := viewport_pass(k) if k.grid.work == 0 else ps.pass
 	// Named Shading, the chip shows the mode, or the pass that checks the form while one shows.
 	pass := lens_chip(ctx, "Shading##chip", pass_label(app, shown), chevron = true, lit = shown != .Shaded || ps.menu, keys = command_hint(app, .Pass_Menu))
 	pass_chip_follow(k, pass.rect, pass.clicked)

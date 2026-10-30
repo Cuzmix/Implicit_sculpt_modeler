@@ -1308,13 +1308,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		if shown_pass == .Silhouette do app.renderer.floor = {}
 		// The view pane worked in looks as its own picture does at rest (picture_frame): on its
-		// pass's ground or the pane colour, with no floor, a silhouette without wires or paint.
+		// pass's ground or the scene's (the background's colour alone for a heavy pass), a
+		// silhouette without wires or paint.
 		if app.kit.grid.work != 0 {
-			app.renderer.floor = {}
-			if _, own := pass_ground(shown_pass); !own {
-				pane := color_f32(LOOK_THEMES[app.kit.look].pane)
-				app.renderer.background = {pane, pane}
-				app.renderer.environment_look.background = false
+			// A heavy pass's picture stands on the background's colour alone.
+			if second_pass_heavy(app.kit.grid.views[app.kit.grid.work - 1].pass) {
+				app.renderer.floor = {}
+				if _, own := pass_ground(shown_pass); !own {
+					top := app.renderer.background.top
+					app.renderer.background = {top, top}
+					app.renderer.environment_look.background = false
+				}
 			}
 			if shown_pass == .Silhouette {
 				for &d in draws {
@@ -1942,7 +1946,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			// The working space, how many times it changed, and the view toggles.
-			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(&app), int(k.view_chips_shown))
+			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d view_chips_at=%.0f,%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(&app), int(k.view_chips_shown), k.view_chips_at.x, k.view_chips_at.y)
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the mini view's swaps, the

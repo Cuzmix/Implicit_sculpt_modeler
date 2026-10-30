@@ -9892,6 +9892,22 @@ def view_pane_shading_is_its_own():
 
 
 @scenario
+def view_chips_stay_on_the_main_pane_while_a_pane_is_worked():
+    """A right drag held in Three across's middle pane works in it (the main view's role lent to it), and the main view's chips stay on the main pane's corner, where they were, naming its own camera."""
+    def run(work):
+        s = Script()
+        s.wait(20)
+        if work:
+            s.add("move:800,400")
+            s.add("rdown")
+            for i in range(1, 6):
+                s.add(f"move:{800 + i * 15},{400 + i * 4}")
+        s.wait(4)
+        return s, ["--script=view_grid three_across"], {"pane_work": near(1 if work else 0), "view_chips_at": is_text("12,54")}
+    return Steps([run(False), run(True)])
+
+
+@scenario
 def view_pane_ao_only_shows():
     """AO only in the Front pane's Shows is a heavy pass the pane draws at rest; the main view's pass stays Shaded."""
     s = Script()
