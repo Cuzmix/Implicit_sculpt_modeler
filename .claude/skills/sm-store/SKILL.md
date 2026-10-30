@@ -91,6 +91,11 @@ re-check the stores' pages before a first submission, because they move every ye
   assets folder; `actool` in `./build.sh ios` compiles it), the `DT*` toolchain keys `build.sh`
   writes, iPad multitasking supported. Store builds are signed with SCULPT_SIGN_IDENTITY and SCULPT_PROFILE and never
   set SCULPT_DIAGNOSTICS; `./build.sh iosupload` (or the iPad workflow's TestFlight option) sends them.
+- Mac (`./build.sh mac`, `mac/Info.plist`): outside the store, signed with a Developer ID Application certificate
+  and the hardened runtime and notarized (`macnotarize`), or Gatekeeper blocks it; the same privacy manifest as the
+  iPad's. The Mac App Store needs the app sandbox first (`com.apple.security.app-sandbox`, user-selected files
+  read-write), which the Blender link folder, Home's Recent across restarts (security-scoped bookmarks) and any
+  folder outside the container must be designed for, and an installer package signed for the store.
 - Windows: sign the executable and installer (Authenticode) or SmartScreen warns every user. Linux: ship as a
   Flatpak or AppImage with the libraries it needs.
 - Store builds are release builds: no tracking allocator exit codes, no GPU validation, no debug flags exposed.

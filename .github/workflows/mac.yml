@@ -1,0 +1,114 @@
+name: Mac build
+
+# Builds the Mac app on GitHub's macOS runner (./build.sh mac) as Sculpt-mac.zip: signed ad
+# hoc, for a Mac that allows it (Control-click > Open), or with "notarize" ticked signed with
+# the Developer ID certificate and notarized by Apple, so any Mac opens it (README "Mac", the
+# secrets it names). It runs only when started by hand (Actions > Mac build > Run workflow),
+# as the iPad build does, since a private repository pays ten times over for macOS minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      notarize:
+        description: Sign with the Developer ID and notarize
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pins
+        run: |
+          grep -E '^(ODIN|SDL|UFBX)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
+          grep -E '^MAC_MIN=' build.sh >> "$GITHUB_ENV"
+
+      - name: Odin, the pinned release
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/odin.tar.gz" \
+            "https://github.com/odin-lang/Odin/releases/download/$ODIN_TAG/odin-macos-arm64-$ODIN_TAG.tar.gz"
+          mkdir -p "$RUNNER_TEMP/odin" deps
+          tar -xzf "$RUNNER_TEMP/odin.tar.gz" -C "$RUNNER_TEMP/odin"
+          mv "$RUNNER_TEMP"/odin/odin-macos-arm64-* deps/odin
+          deps/odin/odin version
+
+      - name: SDL source, the pinned tag
+        run: git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git deps/sdl3-src
+
+      - name: ufbx source, the pinned tag
+        run: git clone -q --depth 1 -b "$UFBX_TAG" https://github.com/ufbx/ufbx.git deps/ufbx-src
+
+      # As the iPad workflow's caches: a run on odin-sculpt saves them for every branch.
+      - name: SDL built for the Mac, cached
+        uses: actions/cache@v4
+        with:
+          path: build/mac/sdl
+          key: sdl-mac-${{ env.SDL_TAG }}-${{ env.MAC_MIN }}-${{ hashFiles('scripts/sdl_mac.sh') }}
+      - name: Metal shaders checked, cached
+        uses: actions/cache@v4
+        with:
+          path: build/mac/msl
+          key: msl-mac-${{ hashFiles('src/render/shaders/*.msl') }}
+          restore-keys: msl-mac-
+
+      - name: Build Sculpt-mac.zip
+        if: ${{ !inputs.notarize }}
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          SCULPT_DIAGNOSTICS: "1"
+        run: SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh mac
+
+      # The Developer ID certificate goes into a keychain of the run's own, deleted with the
+      # runner; every secret is the repository's (Settings > Secrets and variables > Actions).
+      - name: Signing keychain and API key
+        if: ${{ inputs.notarize }}
+        env:
+          CERT_P12: ${{ secrets.MAC_DEVELOPER_ID_P12 }}
+          CERT_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          for name in CERT_P12 CERT_PASSWORD ASC_KEY_ID ASC_KEY_P8; do
+            [ -n "${!name}" ] || { echo "missing secret for $name (README \"Mac\")"; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security import "$RUNNER_TEMP/devid.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/devid.p12"
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8
+          identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -n 1)
+          [ -n "$identity" ] || { echo "no Developer ID Application identity in the certificate"; exit 1; }
+          echo "SCULPT_MAC_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build, sign and notarize
+        if: ${{ inputs.notarize }}
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh mac
+          ./build.sh macnotarize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sculpt-mac
+          path: build/mac/Sculpt-mac.zip
+          if-no-files-found: error
+          retention-days: 14
