@@ -70,9 +70,9 @@ a_section_in_the_stack_reads_back :: proc(t: ^testing.T) {
 	stack_move_to_k(k, .Mask, 1)
 	k.stack.heights[.Mask] = 200
 	text := kit_layout_stack_lines(k)
-	// Moving a card among the docked ones leaves those left out where they were, so Palettes
+	// Moving a card among the docked ones leaves those left out where they were, so Tools
 	// takes the place Mask had in the order.
-	testing.expect_value(t, text, "stack Brush+ section:Mask+ Symmetry Layers Scene Tools -Lights -Material -Environment Palettes\nstack_size default section:Mask=200\n")
+	testing.expect_value(t, text, "stack Brush+ section:Mask+ Symmetry Layers Scene -Lights -Material -Environment Tools\nstack_size default section:Mask=200\n")
 
 	c := new(Kit_State)
 	defer free(c)
@@ -82,7 +82,7 @@ a_section_in_the_stack_reads_back :: proc(t: ^testing.T) {
 		if f[0] == "stack" do stack_layout_read(c, f)
 		else do stack_sizes_read(c, f)
 	}
-	testing.expect_value(t, stack_text(c), "Brush+,Mask+,Symmetry,Layers,Scene,Tools,Palettes")
+	testing.expect_value(t, stack_text(c), "Brush+,Mask+,Symmetry,Layers,Scene,Tools")
 	testing.expect_value(t, c.stack.heights[.Mask], f32(200))
 	testing.expect_value(t, kit_layout_stack_lines(c), text)
 	stack_layout_read(c, {"stack", "Brush+", "Symmetry", "Layers", "Scene", "Tools", "Palettes"})

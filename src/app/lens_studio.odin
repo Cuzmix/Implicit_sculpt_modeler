@@ -9,8 +9,9 @@ import "../ui"
 // Lights lists each light as a row with its colour, temperature and intensity, the picked
 // one holding Intensity and Size, as Marmoset's and Blender's light lists do; Material
 // shows the lit presets as spheres to tap with Roughness under them, as Nomad's and
-// KeyShot's material balls do; Environment is the Environment section. The tray keeps
-// the full sections (the light sphere, kinds, cones, MatCaps and packs), under Palettes.
+// KeyShot's material balls do; Environment is the Environment section. The full sections
+// (the light sphere, kinds, cones, MatCaps and packs) are cards of their own, Light settings
+// and Material settings, which the cards' More opens.
 
 // A light row's height, and the colour dot's radius, in points.
 LIGHT_ROW_H :: 36

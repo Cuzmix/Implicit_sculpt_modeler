@@ -297,7 +297,7 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 	case Kit_Section: return tray_section_title(r)
 	case Kit_Window:
 		#partial switch r {
-		case .Inspector: return palette_title(app, app.kit.tab)
+		case .Inspector: return "Panels"
 		case .Stats:     return "Statistics"
 		case .History:   return "History"
 		case .Objects:   return "Objects"
@@ -315,8 +315,7 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector:
-			if len(tray_sections(app, k.tab)) == 0 do return ""
-			return tray_section_title(tray_section(app, k.tab))
+			return ""
 		case .Stats:
 			if app.stats.frame_ms.count == 0 do return ""
 			p50, _ := ring_percentiles(app.stats.frame_ms)
@@ -899,15 +898,6 @@ kit_panel_menu :: proc(app: ^App) {
 	}
 	switch r in ref {
 	case Kit_Window:
-		if r == .Inspector {
-			sec := tray_section(app, k.tab)
-			if len(tray_sections(app, k.tab)) > 0 && panel_pinnable(sec) && !m.pins[sec].on {
-				if ui.menu_item(ctx, fmt.tprintf("Pin %s as a panel", tray_section_title(sec)), command_hint(app, .Pin_Section, int(sec)), ui.ICON_PANEL) {
-					command_run(app, .Pin_Section, int(sec))
-					picked = true
-				}
-			}
-		}
 	case Kit_Section:
 		if ui.menu_item(ctx, "Show in the palette tray", command_hint(app, .Show_Section, int(r)), ui.ICON_PANEL) {
 			command_run(app, .Show_Section, int(r))

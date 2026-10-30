@@ -112,7 +112,8 @@ Browser_At :: enum u8 {
 tool_settings_open :: proc(app: ^App, tool: Tool) {
 	command_run(app, TOOL_COMMANDS[tool])
 	side_panel_close(app)
-	app.kit.inspector, app.kit.tab, app.kit.scroll = true, .Tool, 0
+	app.kit.inspector, app.kit.stack.revealed = true, nil
+	stack_reveal_card(app, .Brush)
 }
 
 @(rodata)

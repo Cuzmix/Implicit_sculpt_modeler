@@ -67,9 +67,7 @@ focus_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 focus_marker_shown :: proc(app: ^App) -> bool {
 	u := &app.ui
 	if u.focus_armed || u.focus_held do return true
-	k := &app.kit
-	if !app.render_dof do return false
-	return palette_on_screen(app, .Lens) || (k.tab == .Scene && tray_section(app, .Scene) == .Lens && palette_on_screen(app, .Palettes))
+	return app.render_dof && palette_on_screen(app, .Lens)
 }
 
 // The focus marker, in the light markers' style: a ring on a dark plate with four ticks

@@ -8,22 +8,6 @@ import "../camera"
 import "../geom"
 import "../ui"
 
-// The tray's Scene palette: the objects, adding one, and how the whole scene is shown,
-// the section picked in the tray's list.
-kit_scene_tab :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	shown := tray_section(app, .Scene)
-	if shown == .Objects {
-		kit_scene_objects(app)
-		return
-	}
-	for sec in SCENE_SECTIONS {
-		if sec.section != shown do continue
-		kit_section_title(ctx, sec.title)
-		sec.draw(app)
-	}
-}
-
 // The Scene palette's Objects section: the tree of objects and folders, what acts on the
 // selection, and how long the last file took (Lens's stack draws it as its Scene card).
 kit_scene_objects :: proc(app: ^App) {

@@ -18,7 +18,7 @@ stack_layout_reads_back_as_written :: proc(t: ^testing.T) {
 	strings.builder_reset(&b)
 	stack_layout_save(k, &b)
 	line := strings.to_string(b)
-	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Tools Palettes -Lights -Material -Environment\n")
+	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Tools -Lights -Material -Environment\n")
 
 	c := new(Kit_State)
 	defer free(c)
@@ -26,11 +26,14 @@ stack_layout_reads_back_as_written :: proc(t: ^testing.T) {
 	stack_layout_read(c, strings.fields(strings.trim_space(line), context.temp_allocator))
 	testing.expect(t, c.stack.order == k.stack.order && c.stack.open == k.stack.open)
 	// Cards a line leaves out keep their places after those it names.
-	stack_layout_read(c, {"stack", "Palettes+", "nothing"})
-	testing.expect_value(t, stack_text(c), "Palettes+,Scene,Brush,Symmetry,Layers,Tools")
+	stack_layout_read(c, {"stack", "Tools+", "nothing"})
+	testing.expect_value(t, stack_text(c), "Tools+,Scene,Brush,Symmetry,Layers")
+	// The Palettes card, gone with the tray, names nothing.
+	stack_layout_read(c, {"stack", "Palettes+", "Scene"})
+	testing.expect_value(t, stack_text(c), "Scene,Tools,Brush,Symmetry,Layers")
 	// A line from before the Tools card puts it after Scene.
 	stack_layout_read(c, {"stack", "Scene+", "Brush", "Symmetry", "Layers+", "Palettes"})
-	testing.expect_value(t, stack_text(c), "Scene+,Tools,Brush,Symmetry,Layers+,Palettes")
+	testing.expect_value(t, stack_text(c), "Scene+,Tools,Brush,Symmetry,Layers+")
 }
 
 // Moving a card among the docked ones leaves a floating card where it was in the order.
@@ -41,11 +44,11 @@ stack_move_keeps_floating_cards_in_place :: proc(t: ^testing.T) {
 	stack_default(k)
 	k.stack.floated = {.Symmetry}
 	stack_move_to_k(k, .Brush, 2)
-	testing.expect_value(t, stack_text(k), "Layers,Symmetry^,Scene,Brush+,Tools,Palettes")
+	testing.expect_value(t, stack_text(k), "Layers,Symmetry^,Scene,Brush+,Tools")
 }
 
 // A section opens the card that holds it: the brush's on Brush (unfolding its group), Layers
-// and Objects on their own, the rest on Palettes; the tall cards fold for another.
+// and Objects on their own, the rest on cards of their own; the tall Brush card folds for another.
 @(test)
 stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	app := new(App)
@@ -67,7 +70,7 @@ stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	testing.expect_value(t, stack_card_of(app, .Stroke), Panel_Kind.Stroke)
 }
 
-// A section opened comes in as the visit at the docked stack's foot, before Palettes, and
+// A section opened comes in as the visit at the docked stack's foot, and
 // is no part of the layout; the next one opened takes its place.
 @(test)
 a_visit_gives_way_to_the_next :: proc(t: ^testing.T) {
@@ -79,9 +82,9 @@ a_visit_gives_way_to_the_next :: proc(t: ^testing.T) {
 	fresh := kit_layout_text(k)
 	stack_reveal(app, .Paint)
 	testing.expect_value(t, stack_visit_text(k), "Paint")
-	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+,Palettes")
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+")
 	stack_reveal(app, .Mask)
-	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Mask+,Palettes")
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Mask+")
 	testing.expect(t, .Paint in k.stack.hidden)
 	testing.expect_value(t, k.stack.visits, 2)
 	// Only the Brush card's fold is the layout's; the visit is not.
@@ -106,7 +109,7 @@ a_kept_visit_stays :: proc(t: ^testing.T) {
 	stack_reveal(app, .Paint)
 	stack_keep(k, .Paint, true)
 	stack_reveal(app, .Mask)
-	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+,Mask+,Palettes")
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+,Mask+")
 	testing.expect(t, .Paint not_in k.stack.hidden && .Mask not_in k.stack.hidden)
 	testing.expect(t, strings.contains(kit_layout_text(k), "section:Paint+"), kit_layout_text(k))
 	testing.expect(t, !strings.contains(kit_layout_text(k), "section:Mask"), kit_layout_text(k))

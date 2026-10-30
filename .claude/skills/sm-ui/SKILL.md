@@ -93,7 +93,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal` (`exact` for Show where), which brings a left-out section's
   palette in as `s.visit` (`stack_visit`; `stack_keep` pins it; the layout never writes the visit; markers ask
-  `palette_on_screen`); the Palettes card holds the whole tray behind `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
+  `palette_on_screen`; `s.revealed` is the section opened last); the tray and its Palettes card are gone (PR 9c),
+  and `stack_layout_upgrade` rewrites a saved layout that still names Palettes; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
   (`panel_kind.odin`: one enum, the cards then a palette per tray section, `panel_of_section`/`panel_section` between
   it and `Kit_Section`; sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
   `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack, the pane strip's tab
@@ -122,7 +123,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   The menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step with
   the rows, and touch_check's `MENU_ROWS`); search's rows, groups and Put on a bar are `lens_search.odin`
   (`palette_where`). The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and
-  `kit_lens_tools` (the Palettes card keeps the tray's full sections; a Tools tile is a registry command); the action
+  `kit_lens_tools` (the full sections are cards of their own; a Tools tile is a registry command); the action
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
   own. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
   skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
@@ -261,12 +262,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `colors_set_hsv`/`colors_set_rgb` and joins the history when the pointer lets go; `colors_pick` for taps. The
   Eyedropper is `eyedropper_frame` beside `group_pick_frame` in the frame loop, its loupe `draw_eyedropper` in the
   overlay; `COLORS_CARD` in touch_check holds the card's coordinates.
-- Palette tray (`kit_inspector` in `new_ui.odin`, the rest in `kit_tray.odin`; still the "inspector" window and
-  layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
-  Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,
-  the rows with eye and ghost (`scene_tree.odin`), then `SCENE_SECTIONS`), each showing ONE section,
-  `k.section[tab]` read through `tray_section` (which falls back when the brush no longer offers it). The Palettes
-  card puts palettes and sections in a select (`kit_tray_select`); its width is `tray_width` (the panel stack's). Open a section with `tray_open(app, sec)`; Kit_Section
+- Sections (`kit_tray.odin`; the stack is still the "inspector" window and layout name): palettes `Kit_Tab` Tool
+  (`kit_tool.odin`: the brush's `BRUSH_SECTIONS`; `kit_tool_tab` is the Brush card under Curve, Insert, Move or
+  Model), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: `kit_scene_objects`, the rows
+  with eye and ghost in `scene_tree.odin`, then `SCENE_SECTIONS`); each section is a `Panel_Kind` card drawn by
+  `panel_body`; the stack's width is `tray_width`. Open a section with `tray_open(app, sec)`; Kit_Section
   keeps the tray's sections first (`TRAY_SECTIONS`, `section_palette`) and the Stats panel's after. A feature's
   section lives beside its code (`kit_layers_section` in `layers.odin`, …) and starts with nothing but its
   controls (the tray draws its title). The content is the clipped "inspector body", which scrolls (see Input

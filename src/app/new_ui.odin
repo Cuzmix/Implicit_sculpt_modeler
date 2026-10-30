@@ -36,13 +36,9 @@ Kit_State :: struct {
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
-	inspector:  bool, // the palette tray is open
-	tab:        Kit_Tab, // ...on this palette
-	section:    [Kit_Tab]Kit_Section, // the section each palette shows
+	inspector:  bool, // the panel stack is open
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
 	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
-	list_scroll: f32, // the tray's list of palettes and sections, scrolled
-	list_reveal: int, // ...to the section shown, for this many more frames
 	// Search's Show where (tray_show): the command whose control the tray marks, since
 	// when; and whether the tray's content is being drawn, where the mark is looked for.
 	pointed:    struct {
@@ -53,7 +49,6 @@ Kit_State :: struct {
 	in_tray:    bool,
 	nav:        Nav_State, // the navigation head (nav_head.odin)
 	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
-	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	// The Home screen (kit_home.odin): open, its tab and scroll, the tile a first tap
 	// armed while the scene had work to lose (its index + 1) and when, and a tile's long
@@ -952,9 +947,7 @@ kit_init :: proc(app: ^App) {
 	k := &app.kit
 	k.inspector = true
 	k.look = .Lens
-	// Each palette starts on its section most reached for, and the Stats panel with its
-	// commonest sections open.
-	k.section = {.Tool = .Stroke, .Object = .Transform, .Scene = .Objects}
+	// The Stats panel starts with its commonest sections open.
 	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
@@ -1681,7 +1674,8 @@ brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	k := &app.kit
 	command_run(app, .Brush, int(kind))
 	side_panel_close(app)
-	k.inspector, k.tab, k.scroll = true, .Tool, 0
+	k.inspector, k.stack.revealed = true, nil
+	stack_reveal_card(app, .Brush)
 }
 
 // Opens folder `id`'s menu at `at`.
