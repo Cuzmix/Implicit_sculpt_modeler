@@ -1649,15 +1649,21 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	return
 }
 
-// The Shading menu (the right bar's Shading button): how the surface is drawn, how it is
-// lit and the looks, then the texture views for objects with maps (none ticked is clay).
+// The Shading menu (the right bar's Shading button): the shading modes, what is drawn over
+// the surface and how it is lit, then the texture views for objects with maps (none ticked
+// is clay).
 kit_shading_menu :: proc(app: ^App) {
 	ui.caption(&app.kit.ctx, "  SHADING")
+	for order in Shading_Mode {
+		m := SHADING_MODE_ORDER[order]
+		_ = command_menu_item(app, .Shading_Mode, int(m), fmt.tprintf("%s##shading", SHADING_MODE_NAMES[m]))
+	}
+	ui.divider(&app.kit.ctx, across = true)
+	ui.caption(&app.kit.ctx, "  OVERLAYS")
 	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Transparency}) do _ = command_menu_item(app, id)
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  LIGHT")
 	for id in ([?]Command_Id{.Studio_Render, .Live_Occlusion, .Render_Mode}) do _ = command_menu_item(app, id)
-	for look in Look_Preset do _ = command_menu_item(app, .Viewport_Look, int(look))
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))

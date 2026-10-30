@@ -221,7 +221,8 @@ kit_view_chips :: proc(app: ^App) {
 		bar_pop_toggle(app, .Camera, a.rect, .Below)
 	}
 	shown := viewport_pass(k)
-	pass := lens_chip(ctx, "Pass##chip", PASS_LABELS[shown], chevron = true, lit = shown != .Shaded || ps.menu, keys = command_hint(app, .View_Pass, int(ps.pass)))
+	// Named Shading, the chip shows the mode, or the pass that checks the form while one shows.
+	pass := lens_chip(ctx, "Shading##chip", pass_label(app, shown), chevron = true, lit = shown != .Shaded || ps.menu, keys = command_hint(app, .Pass_Menu))
 	pass_chip_follow(k, pass.rect, pass.clicked)
 	if a := lens_chip(ctx, "Clean view##chip", "", glyph = ICON_CLEAN_VIEW, keys = command_hint(app, .Clean_View)); a.clicked do clean_view_set(app, true)
 	ui.end(ctx)

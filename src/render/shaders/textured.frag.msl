@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from textured.frag.spv sha256 ce62ef3353fe610a49ae377f3b63fb1e331553d61d4faa2d75c5aa201af85f4e
+// SDL_shadercross 1ff05bec5739 from textured.frag.spv sha256 09e6eb32b3c014524087e41ec1e627cfd64b00d485ce1cc67a58fef2fe13d8fb
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -74,8 +74,8 @@ struct main0_in
 static inline __attribute__((always_inline))
 float3 srgb_encode(float3 c)
 {
-    float3 _204 = fast::clamp(c, float3(0.0), float3(1.0));
-    return mix(_204 * 12.9200000762939453125, (powr(_204, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _204));
+    float3 _212 = fast::clamp(c, float3(0.0), float3(1.0));
+    return mix(_212 * 12.9200000762939453125, (powr(_212, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _212));
 }
 
 static inline __attribute__((always_inline))
@@ -97,20 +97,20 @@ float curvature(float3 n, float3 p)
     float3 dpy = ddy(p);
     float3 dnx = ddx(n);
     float3 dny = ddy(n);
-    float _385 = length(dpx);
-    float _386 = length(dpy);
+    float _393 = length(dpx);
+    float _394 = length(dpy);
     float c;
-    if (_385 > 0.0)
+    if (_393 > 0.0)
     {
-        c = dot(dnx, dpx) / _385;
+        c = dot(dnx, dpx) / _393;
     }
     else
     {
         c = 0.0;
     }
-    if (_386 > 0.0)
+    if (_394 > 0.0)
     {
-        c += (dot(dny, dpy) / _386);
+        c += (dot(dny, dpy) / _394);
     }
     return c;
 }
@@ -118,16 +118,16 @@ float curvature(float3 n, float3 p)
 static inline __attribute__((always_inline))
 float opacity(constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
 {
-    float _531;
+    float _556;
     if (Material_Uniforms.look.w > 0.0)
     {
-        _531 = Material_Uniforms.look.w;
+        _556 = Material_Uniforms.look.w;
     }
     else
     {
-        _531 = 1.0;
+        _556 = 1.0;
     }
-    return _531;
+    return _556;
 }
 
 static inline __attribute__((always_inline))
@@ -146,14 +146,14 @@ static inline __attribute__((always_inline))
 float3 uv_checker(float2 uv)
 {
     float2 c = uv * 8.0;
-    float2 _626 = fast::max(_fwidth(c), float2(9.9999999747524270787835121154785e-07));
-    float _630 = fast::max(_626.x, _626.y);
-    float2 _631 = fract(c);
-    float2 edge = fast::min(_631, float2(1.0) - _631) / _626;
-    float2 _647 = floor(c);
-    float _648 = _647.x;
-    float _649 = _647.y;
-    return mix((mix(float3(1.0), fast::clamp(abs((fract(float3((_648 + 0.5) / 8.0) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.3499999940395355224609375)) * mix(0.699999988079071044921875, 1.0, (_649 + 0.5) / 8.0)) * (mix(1.0, 0.7200000286102294921875, glsl_mod(_648 + _649, 2.0)) * (1.0 - (0.5 * ((1.0 - smoothstep(0.5, 1.5, fast::min(edge.x, edge.y))) * (1.0 - smoothstep(0.0625, 0.125, _630)))))), float3(0.75), float3(smoothstep(0.20000000298023223876953125, 0.4000000059604644775390625, _630)));
+    float2 _651 = fast::max(_fwidth(c), float2(9.9999999747524270787835121154785e-07));
+    float _655 = fast::max(_651.x, _651.y);
+    float2 _656 = fract(c);
+    float2 edge = fast::min(_656, float2(1.0) - _656) / _651;
+    float2 _672 = floor(c);
+    float _673 = _672.x;
+    float _674 = _672.y;
+    return mix((mix(float3(1.0), fast::clamp(abs((fract(float3((_673 + 0.5) / 8.0) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.3499999940395355224609375)) * mix(0.699999988079071044921875, 1.0, (_674 + 0.5) / 8.0)) * (mix(1.0, 0.7200000286102294921875, glsl_mod(_673 + _674, 2.0)) * (1.0 - (0.5 * ((1.0 - smoothstep(0.5, 1.5, fast::min(edge.x, edge.y))) * (1.0 - smoothstep(0.0625, 0.125, _655)))))), float3(0.75), float3(smoothstep(0.20000000298023223876953125, 0.4000000059604644775390625, _655)));
 }
 
 static inline __attribute__((always_inline))
@@ -172,17 +172,17 @@ float light_at(int i, thread float3& l, thread float& spread, thread Mesh_Varyin
         return 1.0;
     }
     float3 d = Material_Uniforms.light_pos.data[i].xyz - frag_in.view_pos;
-    float _933 = fast::max(dot(d, d), 9.9999999392252902907785028219223e-09);
-    float _935 = rsqrt(_933);
-    l = d * _935;
-    spread = fast::min(Material_Uniforms.light_shape.data[i].w * _935, 1.0);
-    float k_1 = (Material_Uniforms.light_shape.data[i].x * Material_Uniforms.light_shape.data[i].x) / _933;
+    float _970 = fast::max(dot(d, d), 9.9999999392252902907785028219223e-09);
+    float _972 = rsqrt(_970);
+    l = d * _972;
+    spread = fast::min(Material_Uniforms.light_shape.data[i].w * _972, 1.0);
+    float k_1 = (Material_Uniforms.light_shape.data[i].x * Material_Uniforms.light_shape.data[i].x) / _970;
     float k;
     if (Material_Uniforms.light_shape.data[i].y > 0.0)
     {
-        float x = _933 / (Material_Uniforms.light_shape.data[i].y * Material_Uniforms.light_shape.data[i].y);
-        float _952 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
-        k = k_1 * (_952 * _952);
+        float x = _970 / (Material_Uniforms.light_shape.data[i].y * Material_Uniforms.light_shape.data[i].y);
+        float _989 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = k_1 * (_989 * _989);
     }
     else
     {
@@ -198,26 +198,26 @@ float light_at(int i, thread float3& l, thread float& spread, thread Mesh_Varyin
 static inline __attribute__((always_inline))
 float3 nearest_in_light(float3 l, float3 r, float spread)
 {
-    float _1023 = sqrt(fast::max(1.0 - (spread * spread), 0.0));
-    float _1024 = dot(l, r);
-    if (_1024 >= _1023)
+    float _1060 = sqrt(fast::max(1.0 - (spread * spread), 0.0));
+    float _1061 = dot(l, r);
+    if (_1061 >= _1060)
     {
         return r;
     }
-    float3 s = r - (l * _1024);
-    float _1030 = dot(s, s);
-    if (_1030 < 9.9999999600419720025001879548654e-13)
+    float3 s = r - (l * _1061);
+    float _1067 = dot(s, s);
+    if (_1067 < 9.9999999600419720025001879548654e-13)
     {
         return l;
     }
-    return fast::normalize((l * _1023) + (s * (rsqrt(_1030) * spread)));
+    return fast::normalize((l * _1060) + (s * (rsqrt(_1067) * spread)));
 }
 
 static inline __attribute__((always_inline))
 float widened(float a, float spread)
 {
-    float _1068 = fast::min(a + (0.5 * spread), 1.0);
-    return (a * a) / (_1068 * _1068);
+    float _1105 = fast::min(a + (0.5 * spread), 1.0);
+    return (a * a) / (_1105 * _1105);
 }
 
 static inline __attribute__((always_inline))
@@ -225,60 +225,60 @@ float3 direct_sized(float3 n, float3 v, float3 l, float3 r, float spread, float3
 {
     float3 color = (diffuse / float3(3.1415927410125732421875)) * fast::max(dot(n, l), 0.0);
     float3 ls = nearest_in_light(l, r, spread);
-    float _1043 = fast::max(dot(n, ls), 0.0);
-    if (_1043 <= 0.0)
+    float _1080 = fast::max(dot(n, ls), 0.0);
+    if (_1080 <= 0.0)
     {
         return color;
     }
-    float3 _1048 = fast::normalize(ls + v);
-    float _1050 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
-    float _1052 = fast::max(dot(n, _1048), 0.0);
+    float3 _1085 = fast::normalize(ls + v);
+    float _1087 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
+    float _1089 = fast::max(dot(n, _1085), 0.0);
     float a2 = a * a;
-    float d = ((_1052 * _1052) * (a2 - 1.0)) + 1.0;
-    return color + (((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1048), 0.0), 5.0))) * (((a2 / ((3.1415927410125732421875 * d) * d)) * widened(a, spread)) * (0.5 / fast::max(mix((2.0 * _1043) * _1050, _1043 + _1050, a), 9.9999997473787516355514526367188e-05)))) * _1043);
+    float d = ((_1089 * _1089) * (a2 - 1.0)) + 1.0;
+    return color + (((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1085), 0.0), 5.0))) * (((a2 / ((3.1415927410125732421875 * d) * d)) * widened(a, spread)) * (0.5 / fast::max(mix((2.0 * _1080) * _1087, _1080 + _1087, a), 9.9999997473787516355514526367188e-05)))) * _1080);
 }
 
 static inline __attribute__((always_inline))
 float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a)
 {
-    float _1111 = fast::max(dot(n, l), 0.0);
-    if (_1111 <= 0.0)
+    float _1148 = fast::max(dot(n, l), 0.0);
+    if (_1148 <= 0.0)
     {
         return float3(0.0);
     }
-    float3 _1117 = fast::normalize(l + v);
-    float _1119 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
-    float _1121 = fast::max(dot(n, _1117), 0.0);
+    float3 _1154 = fast::normalize(l + v);
+    float _1156 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
+    float _1158 = fast::max(dot(n, _1154), 0.0);
     float a2 = a * a;
-    float d = ((_1121 * _1121) * (a2 - 1.0)) + 1.0;
-    return ((diffuse / float3(3.1415927410125732421875)) + ((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1117), 0.0), 5.0))) * ((a2 / ((3.1415927410125732421875 * d) * d)) * (0.5 / fast::max(mix((2.0 * _1111) * _1119, _1111 + _1119, a), 9.9999997473787516355514526367188e-05))))) * _1111;
+    float d = ((_1158 * _1158) * (a2 - 1.0)) + 1.0;
+    return ((diffuse / float3(3.1415927410125732421875)) + ((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1154), 0.0), 5.0))) * ((a2 / ((3.1415927410125732421875 * d) * d)) * (0.5 / fast::max(mix((2.0 * _1148) * _1156, _1148 + _1156, a), 9.9999997473787516355514526367188e-05))))) * _1148;
 }
 
 static inline __attribute__((always_inline))
 float2 env_brdf(float n_dot_v, float rough)
 {
     float4 r = (float4(-1.0, -0.0274999998509883880615234375, -0.572000026702880859375, 0.02199999988079071044921875) * rough) + float4(1.0, 0.0425000004470348358154296875, 1.03999996185302734375, -0.039999999105930328369140625);
-    float _1186 = r.x;
-    return (float2(-1.03999996185302734375, 1.03999996185302734375) * ((fast::min(_1186 * _1186, exp2((-9.27999973297119140625) * n_dot_v)) * _1186) + r.y)) + r.zw;
+    float _1223 = r.x;
+    return (float2(-1.03999996185302734375, 1.03999996185302734375) * ((fast::min(_1223 * _1223, exp2((-9.27999973297119140625) * n_dot_v)) * _1223) + r.y)) + r.zw;
 }
 
 static inline __attribute__((always_inline))
 float3 irradiance(float3 n, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
 {
-    float3 _1227 = transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * n;
-    float _1241 = _1227.y;
-    float _1249 = _1227.z;
-    float _1256 = _1227.x;
-    float _1263 = 1.09254801273345947265625 * _1256;
-    float3 _1301 = fast::max(((((((((Material_Uniforms.env_sh.data[0].xyz * 0.2820949852466583251953125) + (Material_Uniforms.env_sh.data[1].xyz * (0.48860299587249755859375 * _1241))) + (Material_Uniforms.env_sh.data[2].xyz * (0.48860299587249755859375 * _1249))) + (Material_Uniforms.env_sh.data[3].xyz * (0.48860299587249755859375 * _1256))) + (Material_Uniforms.env_sh.data[4].xyz * (_1263 * _1241))) + (Material_Uniforms.env_sh.data[5].xyz * ((1.09254801273345947265625 * _1241) * _1249))) + (Material_Uniforms.env_sh.data[6].xyz * (0.3153919875621795654296875 * (((3.0 * _1249) * _1249) - 1.0)))) + (Material_Uniforms.env_sh.data[7].xyz * (_1263 * _1249))) + (Material_Uniforms.env_sh.data[8].xyz * (0.546274006366729736328125 * ((_1256 * _1256) - (_1241 * _1241)))), float3(0.0));
-    return _1301 * Material_Uniforms.env.y;
+    float3 _1264 = transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * n;
+    float _1278 = _1264.y;
+    float _1286 = _1264.z;
+    float _1293 = _1264.x;
+    float _1300 = 1.09254801273345947265625 * _1293;
+    float3 _1338 = fast::max(((((((((Material_Uniforms.env_sh.data[0].xyz * 0.2820949852466583251953125) + (Material_Uniforms.env_sh.data[1].xyz * (0.48860299587249755859375 * _1278))) + (Material_Uniforms.env_sh.data[2].xyz * (0.48860299587249755859375 * _1286))) + (Material_Uniforms.env_sh.data[3].xyz * (0.48860299587249755859375 * _1293))) + (Material_Uniforms.env_sh.data[4].xyz * (_1300 * _1278))) + (Material_Uniforms.env_sh.data[5].xyz * ((1.09254801273345947265625 * _1278) * _1286))) + (Material_Uniforms.env_sh.data[6].xyz * (0.3153919875621795654296875 * (((3.0 * _1286) * _1286) - 1.0)))) + (Material_Uniforms.env_sh.data[7].xyz * (_1300 * _1286))) + (Material_Uniforms.env_sh.data[8].xyz * (0.546274006366729736328125 * ((_1293 * _1293) - (_1278 * _1278)))), float3(0.0));
+    return _1338 * Material_Uniforms.env.y;
 }
 
 static inline __attribute__((always_inline))
 float3 lobe(float3 dir, float3 toward, float3 color, float sharp, float rough)
 {
-    float _1363 = mix(sharp, 3.0, sqrt(rough));
-    return ((color * powr(fast::max(dot(dir, toward), 0.0), _1363)) * (_1363 + 2.0)) / float3(sharp + 2.0);
+    float _1400 = mix(sharp, 3.0, sqrt(rough));
+    return ((color * powr(fast::max(dot(dir, toward), 0.0), _1400)) * (_1400 + 2.0)) / float3(sharp + 2.0);
 }
 
 static inline __attribute__((always_inline))
@@ -311,8 +311,8 @@ float3 reflected(float3 dir, float rough, float3x3 to_rig, constant SLANG_Parame
 {
     if (Material_Uniforms.env.x > 0.5)
     {
-        float4 _1501 = environment_map.sample(environment_mapSmplr, panorama_uv(transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * dir), level(rough * Material_Uniforms.env.z));
-        return _1501.xyz * Material_Uniforms.env.y;
+        float4 _1538 = environment_map.sample(environment_mapSmplr, panorama_uv(transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * dir), level(rough * Material_Uniforms.env.z));
+        return _1538.xyz * Material_Uniforms.env.y;
     }
     return studio(to_rig * dir, rough);
 }
@@ -320,24 +320,24 @@ float3 reflected(float3 dir, float rough, float3x3 to_rig, constant SLANG_Parame
 static inline __attribute__((always_inline))
 float3 tone_map(float3 c)
 {
-    float _1551 = fast::min(c.x, fast::min(c.y, c.z));
+    float _1588 = fast::min(c.x, fast::min(c.y, c.z));
     float offset;
-    if (_1551 < 0.07999999821186065673828125)
+    if (_1588 < 0.07999999821186065673828125)
     {
-        offset = _1551 - ((6.25 * _1551) * _1551);
+        offset = _1588 - ((6.25 * _1588) * _1588);
     }
     else
     {
         offset = 0.039999999105930328369140625;
     }
-    float3 _1564 = c - float3(offset);
-    float _1569 = fast::max(_1564.x, fast::max(_1564.y, _1564.z));
-    if (_1569 < 0.7599999904632568359375)
+    float3 _1601 = c - float3(offset);
+    float _1606 = fast::max(_1601.x, fast::max(_1601.y, _1601.z));
+    if (_1606 < 0.7599999904632568359375)
     {
-        return _1564;
+        return _1601;
     }
-    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_1569 + 0.2400000095367431640625) - 0.7599999904632568359375));
-    return mix(_1564 * (new_peak / _1569), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_1569 - new_peak)) + 1.0))));
+    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_1606 + 0.2400000095367431640625) - 0.7599999904632568359375));
+    return mix(_1601 * (new_peak / _1606), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_1606 - new_peak)) + 1.0))));
 }
 
 static inline __attribute__((always_inline))
@@ -364,13 +364,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
         return out;
     }
     float4 surf = Material_Uniforms.surface;
-    float3 _240 = fast::normalize(-frag_in.view_pos);
+    float3 _248 = fast::normalize(-frag_in.view_pos);
     int view_mode = int(Material_Uniforms.maps.w + 0.5);
     float2 uv = float2(frag_in.uv.x, 1.0 - frag_in.uv.y);
-    float3 _262 = fast::normalize(frag_in.view_normal);
-    bool _263 = view_mode == 1;
+    float3 _270 = fast::normalize(frag_in.view_normal);
+    bool _271 = view_mode == 1;
     bool _11;
-    if (_263)
+    if (_271)
     {
         _11 = true;
     }
@@ -389,8 +389,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     float3 n;
     if (_11)
     {
-        float4 _289 = normal_map.sample(normal_mapSmplr, uv);
-        float3 tn = (_289.xyz * 2.0) - float3(1.0);
+        float4 _297 = normal_map.sample(normal_mapSmplr, uv);
+        float3 tn = (_297.xyz * 2.0) - float3(1.0);
         float3 mapped = ((frag_in.view_tangent.xyz * tn.x) + ((cross(frag_in.view_normal, frag_in.view_tangent.xyz) * frag_in.view_tangent.w) * tn.y)) + (frag_in.view_normal * tn.z);
         if (dot(mapped, mapped) > 0.0)
         {
@@ -398,18 +398,18 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
         }
         else
         {
-            n = _262;
+            n = _270;
         }
     }
     else
     {
-        n = _262;
+        n = _270;
     }
     if (!front_facing)
     {
         n = -n;
     }
-    if (_263)
+    if (_271)
     {
         _11 = Material_Uniforms.maps.y > 0.5;
     }
@@ -420,10 +420,10 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     float ao;
     if (_11)
     {
-        float4 _338 = orm_map.sample(orm_mapSmplr, uv);
-        surf.x = _338.xyz.z;
-        surf.y = fast::max(_338.xyz.y, 0.039999999105930328369140625);
-        ao = _338.xyz.x;
+        float4 _346 = orm_map.sample(orm_mapSmplr, uv);
+        surf.x = _346.xyz.z;
+        surf.y = fast::max(_346.xyz.y, 0.039999999105930328369140625);
+        ao = _346.xyz.x;
     }
     else
     {
@@ -432,28 +432,36 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     float3 dndx = ddx(n);
     float3 dndy = ddy(n);
     float bend = curvature(n, frag_in.view_pos);
-    int _410 = int(Material_Uniforms.pass.x + 0.5);
+    int _418 = int(Material_Uniforms.pass.x + 0.5);
     int view_pass;
     if (Material_Uniforms.pass.w > 0.5)
     {
         float wipe = Material_Uniforms.pass.w - 1.0;
-        float _420 = floor(wipe / 8.0);
-        if (frag_coord.x >= _420)
+        float _428 = floor(wipe / 8.0);
+        if (frag_coord.x >= _428)
         {
-            view_pass = int((wipe - (_420 * 8.0)) + 0.5);
+            view_pass = int((wipe - (_428 * 8.0)) + 0.5);
         }
         else
         {
-            view_pass = _410;
+            view_pass = _418;
         }
     }
     else
     {
-        view_pass = _410;
+        view_pass = _418;
+    }
+    if (view_pass != 0)
+    {
+        _11 = view_pass != 7;
+    }
+    else
+    {
+        _11 = false;
     }
     float3 albedo;
     float rim;
-    if (view_pass != 0)
+    if (_11)
     {
         if (view_pass == 1)
         {
@@ -469,14 +477,14 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
             {
                 if (view_pass == 3)
                 {
-                    float _476 = fast::clamp(bend / 0.119999997317790985107421875, -1.0, 1.0);
-                    if (_476 > 0.0)
+                    float _492 = fast::clamp(bend / 0.119999997317790985107421875, -1.0, 1.0);
+                    if (_492 > 0.0)
                     {
-                        rim = _476 * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(dot(n, _240), 0.0));
+                        rim = _492 * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(dot(n, _248), 0.0));
                     }
                     else
                     {
-                        rim = _476;
+                        rim = _492;
                     }
                     if (rim < 0.0)
                     {
@@ -496,7 +504,14 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
                     }
                     else
                     {
-                        albedo = float3(0.0599999986588954925537109375);
+                        if (view_pass == 6)
+                        {
+                            albedo = float3(0.7799999713897705078125);
+                        }
+                        else
+                        {
+                            albedo = float3(0.0599999986588954925537109375);
+                        }
                     }
                 }
             }
@@ -504,8 +519,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
         out.entryPointParam_main = float4(albedo, opacity(Material_Uniforms));
         return out;
     }
-    float _553 = dot(n, _240);
-    float relief = (1.0 - (0.75 * (Material_Uniforms.look.y * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, -bend)))) * (1.0 + (0.60000002384185791015625 * ((Material_Uniforms.look.z * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, bend)) * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(_553, 0.0)))));
+    float _578 = dot(n, _248);
+    float relief = (1.0 - (0.75 * (Material_Uniforms.look.y * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, -bend)))) * (1.0 + (0.60000002384185791015625 * ((Material_Uniforms.look.z * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, bend)) * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(_578, 0.0)))));
     if (frag_in.group.x >= 0.0)
     {
         albedo = frag_in.group;
@@ -514,7 +529,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     {
         albedo = mix(Material_Uniforms.base_color.xyz, frag_in.paint.xyz, float3(frag_in.paint.w));
     }
-    if (_263)
+    if (_271)
     {
         _11 = Material_Uniforms.maps.x > 0.5;
     }
@@ -524,8 +539,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     }
     if (_11)
     {
-        float4 _606 = base_map.sample(base_mapSmplr, uv);
-        albedo = Material_Uniforms.base_color.xyz * _606.xyz;
+        float4 _631 = base_map.sample(base_mapSmplr, uv);
+        albedo = Material_Uniforms.base_color.xyz * _631.xyz;
     }
     if (view_mode == 3)
     {
@@ -534,26 +549,31 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     if (Material_Uniforms.checker.w > 0.0)
     {
         float3 c = (frag_in.mesh_pos - Material_Uniforms.checker.xyz) / float3(Material_Uniforms.checker.w);
-        float3 _725 = fast::max(_fwidth(c), float3(9.9999999747524270787835121154785e-07));
-        float _731 = fast::max(fast::max(_725.x, _725.y), _725.z);
-        float3 _732 = fract(c);
-        float3 edge = fast::min(_732, float3(1.0) - _732) / _725;
-        float3 _747 = floor(c);
-        albedo *= mix(mix(1.0, 0.7200000286102294921875, glsl_mod((_747.x + _747.y) + _747.z, 2.0)) * (1.0 - (0.3499999940395355224609375 * ((1.0 - smoothstep(0.5, 1.5, fast::min(fast::min(edge.x, edge.y), edge.z))) * (1.0 - smoothstep(0.0625, 0.125, _731))))), 0.86000001430511474609375, smoothstep(0.20000000298023223876953125, 0.4000000059604644775390625, _731));
+        float3 _750 = fast::max(_fwidth(c), float3(9.9999999747524270787835121154785e-07));
+        float _756 = fast::max(fast::max(_750.x, _750.y), _750.z);
+        float3 _757 = fract(c);
+        float3 edge = fast::min(_757, float3(1.0) - _757) / _750;
+        float3 _772 = floor(c);
+        albedo *= mix(mix(1.0, 0.7200000286102294921875, glsl_mod((_772.x + _772.y) + _772.z, 2.0)) * (1.0 - (0.3499999940395355224609375 * ((1.0 - smoothstep(0.5, 1.5, fast::min(fast::min(edge.x, edge.y), edge.z))) * (1.0 - smoothstep(0.0625, 0.125, _756))))), 0.86000001430511474609375, smoothstep(0.20000000298023223876953125, 0.4000000059604644775390625, _756));
     }
     float3x3 rig = float3x3(Material_Uniforms.light_x.xyz, Material_Uniforms.light_y.xyz, Material_Uniforms.light_z.xyz);
     float shown_mask = frag_in.mask * (1.0 - Material_Uniforms.style.z);
     float3 albedo_1 = albedo * (1.0 - (0.699999988079071044921875 * shown_mask));
     float highlight = 1.0 - (0.5 * shown_mask);
+    if (view_pass == 7)
+    {
+        out.entryPointParam_main = float4(srgb_encode((albedo_1 * relief) * exp2(Material_Uniforms.look.x)), opacity(Material_Uniforms));
+        return out;
+    }
     if (surf.w > 0.5)
     {
-        float k = 1.0 / (1.0 + _240.z);
-        float _801 = _240.x;
-        float _802 = -_801;
-        float _803 = _240.y;
-        float b = (_802 * _803) * k;
-        float4 _828 = matcap.sample(matcapSmplr, float2(0.5 + (0.495999991893768310546875 * dot(float3(1.0 - ((_801 * _801) * k), b, _802), n)), 0.5 - (0.495999991893768310546875 * dot(float3(b, 1.0 - ((_803 * _803) * k), -_803), n))));
-        out.entryPointParam_main = float4(srgb_encode(((_828.xyz * albedo_1) * relief) * exp2(Material_Uniforms.look.x)), opacity(Material_Uniforms));
+        float k = 1.0 / (1.0 + _248.z);
+        float _838 = _248.x;
+        float _839 = -_838;
+        float _840 = _248.y;
+        float b = (_839 * _840) * k;
+        float4 _865 = matcap.sample(matcapSmplr, float2(0.5 + (0.495999991893768310546875 * dot(float3(1.0 - ((_838 * _838) * k), b, _839), n)), 0.5 - (0.495999991893768310546875 * dot(float3(b, 1.0 - ((_840 * _840) * k), -_840), n))));
+        out.entryPointParam_main = float4(srgb_encode(((_865.xyz * albedo_1) * relief) * exp2(Material_Uniforms.look.x)), opacity(Material_Uniforms));
         return out;
     }
     float3 lit;
@@ -561,25 +581,25 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     int i;
     if (surf.y > 0.0)
     {
-        float _847 = fast::clamp(surf.x, 0.0, 1.0);
+        float _884 = fast::clamp(surf.x, 0.0, 1.0);
         float a = surf.y * surf.y;
-        float _866 = fast::clamp(sqrt(sqrt(fast::clamp((a * a) + fast::min(2.0 * (0.25 * (dot(dndx, dndx) + dot(dndy, dndy))), 0.180000007152557373046875), 0.0, 1.0))), 0.039999999105930328369140625, 1.0);
-        float _867 = _866 * _866;
-        float3 diffuse = albedo_1 * (1.0 - _847);
-        float3 _871 = mix(float3(0.039999999105930328369140625), albedo_1, float3(_847));
-        float3 _877 = reflect(-_240, n);
+        float _903 = fast::clamp(sqrt(sqrt(fast::clamp((a * a) + fast::min(2.0 * (0.25 * (dot(dndx, dndx) + dot(dndy, dndy))), 0.180000007152557373046875), 0.0, 1.0))), 0.039999999105930328369140625, 1.0);
+        float _904 = _903 * _903;
+        float3 diffuse = albedo_1 * (1.0 - _884);
+        float3 _908 = mix(float3(0.039999999105930328369140625), albedo_1, float3(_884));
+        float3 _914 = reflect(-_248, n);
         i = 0;
         lit = float3(0.0);
         float3 l;
         float spread;
         for (;;)
         {
-            bool _95_ladder_break = false;
+            bool _103_ladder_break = false;
             do
             {
                 if (!(i < 8))
                 {
-                    _95_ladder_break = true;
+                    _103_ladder_break = true;
                     break;
                 }
                 if (Material_Uniforms.light_color.data[i].w <= 0.0)
@@ -593,24 +613,24 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
                 }
                 if (spread > 0.0)
                 {
-                    spec = direct_sized(n, _240, l, _877, spread, diffuse, _871, _867);
+                    spec = direct_sized(n, _248, l, _914, spread, diffuse, _908, _904);
                 }
                 else
                 {
-                    spec = direct(n, _240, l, diffuse, _871, _867);
+                    spec = direct(n, _248, l, diffuse, _908, _904);
                 }
                 lit += ((spec * Material_Uniforms.light_color.data[i].xyz) * (3.0 * (Material_Uniforms.light_color.data[i].w * k_1)));
                 break;
             } while(false);
-            if (_95_ladder_break)
+            if (_103_ladder_break)
             {
                 break;
             }
             i++;
             continue;
         }
-        float2 ab = env_brdf(fast::max(_553, 9.9999997473787516355514526367188e-05), _866);
-        float3x3 _1201 = transpose(rig);
+        float2 ab = env_brdf(fast::max(_578, 9.9999997473787516355514526367188e-05), _903);
+        float3x3 _1238 = transpose(rig);
         if (Material_Uniforms.env.x > 0.5)
         {
             lit += ((diffuse * irradiance(n, Material_Uniforms)) * ao);
@@ -619,59 +639,59 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
         {
             if (Material_Uniforms.style.w > 0.5)
             {
-                lit += ((diffuse * studio(_1201 * n, 1.0)) * (((0.699999988079071044921875 * ao) * Material_Uniforms.light_x.w) * underside(n, rig, Material_Uniforms)));
+                lit += ((diffuse * studio(_1238 * n, 1.0)) * (((0.699999988079071044921875 * ao) * Material_Uniforms.light_x.w) * underside(n, rig, Material_Uniforms)));
             }
             else
             {
-                lit += ((diffuse * studio(_1201 * n, 1.0)) * ((0.699999988079071044921875 * ao) * Material_Uniforms.light_x.w));
+                lit += ((diffuse * studio(_1238 * n, 1.0)) * ((0.699999988079071044921875 * ao) * Material_Uniforms.light_x.w));
             }
         }
-        out.entryPointParam_main = display((lit + ((reflected(_877, _866, _1201, Material_Uniforms, environment_map, environment_mapSmplr) * ((_871 * ab.x) + float3(ab.y))) * (highlight * ao))) * relief, Material_Uniforms);
+        out.entryPointParam_main = display((lit + ((reflected(_914, _903, _1238, Material_Uniforms, environment_map, environment_mapSmplr) * ((_908 * ab.x) + float3(ab.y))) * (highlight * ao))) * relief, Material_Uniforms);
         return out;
     }
-    float _1602 = (Material_Uniforms.params.x * ao) * Material_Uniforms.light_x.w;
-    float3 _1606 = reflect(-_240, n);
+    float _1639 = (Material_Uniforms.params.x * ao) * Material_Uniforms.light_x.w;
+    float3 _1643 = reflect(-_248, n);
     i = 0;
-    lit = float3(_1602);
+    lit = float3(_1639);
     spec = float3(0.0);
     float3 l_1;
     float spread_1;
     float3 h;
     for (;;)
     {
-        bool _119_ladder_break = false;
+        bool _127_ladder_break = false;
         do
         {
             if (!(i < 8))
             {
-                _119_ladder_break = true;
+                _127_ladder_break = true;
                 break;
             }
             if (Material_Uniforms.light_color.data[i].w <= 0.0)
             {
                 break;
             }
-            float _1624 = light_at(i, l_1, spread_1, frag_in, Material_Uniforms);
-            float s = Material_Uniforms.light_color.data[i].w * _1624;
+            float _1661 = light_at(i, l_1, spread_1, frag_in, Material_Uniforms);
+            float s = Material_Uniforms.light_color.data[i].w * _1661;
             if (s <= 0.0)
             {
                 break;
             }
             if (spread_1 > 0.0)
             {
-                h = fast::normalize(nearest_in_light(l_1, _1606, spread_1) + _240);
+                h = fast::normalize(nearest_in_light(l_1, _1643, spread_1) + _248);
                 rim = widened(sqrt(2.0 / (Material_Uniforms.params.z + 2.0)), spread_1);
             }
             else
             {
-                h = fast::normalize(l_1 + _240);
+                h = fast::normalize(l_1 + _248);
                 rim = 1.0;
             }
             lit += (Material_Uniforms.light_color.data[i].xyz * (fast::max((dot(n, l_1) + Material_Uniforms.params.w) / (1.0 + Material_Uniforms.params.w), 0.0) * s));
             spec += (Material_Uniforms.light_color.data[i].xyz * (((powr(fast::max(dot(n, h), 0.0), Material_Uniforms.params.z) * Material_Uniforms.params.y) * s) * rim));
             break;
         } while(false);
-        if (_119_ladder_break)
+        if (_127_ladder_break)
         {
             break;
         }
@@ -680,12 +700,12 @@ fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup
     }
     if (Material_Uniforms.style.w > 0.5)
     {
-        rim = (powr(1.0 - fast::max(_553, 0.0), 4.0) * Material_Uniforms.style.x) * mix(0.300000011920928955078125, 1.0, sky_facing(n, rig));
-        lit -= float3(_1602 * (1.0 - underside(n, rig, Material_Uniforms)));
+        rim = (powr(1.0 - fast::max(_578, 0.0), 4.0) * Material_Uniforms.style.x) * mix(0.300000011920928955078125, 1.0, sky_facing(n, rig));
+        lit -= float3(_1639 * (1.0 - underside(n, rig, Material_Uniforms)));
     }
     else
     {
-        rim = powr(1.0 - fast::max(_553, 0.0), 3.0) * 0.25;
+        rim = powr(1.0 - fast::max(_578, 0.0), 3.0) * 0.25;
     }
     out.entryPointParam_main = display(((albedo_1 * lit) + ((spec + float3(rim)) * highlight)) * relief, Material_Uniforms);
     return out;

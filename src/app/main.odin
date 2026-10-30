@@ -1135,6 +1135,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			return false
 		}
 		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
+		// What each item was made from, for the main view's shading to make it again.
+		froms := make([dynamic]Item_From, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 		for obj, i in app.scene.objects {
 			if vp := obj.voxel; vp != nil {
 				// A voxel object draws its clay's surface, remeshed where the frame's dabs landed.
@@ -1151,6 +1153,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if !object_shown(&app, obj) || boolean_hides(&app, obj, i) || len(vp.clay.surface.chunks) == 0 do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
+				append(&froms, Item_From{obj = obj, index = i, tint = color, material = material})
 				append(&draws, render.Draw_Item {
 					mesh      = &vp.gpu,
 					model     = transform_matrix(obj.transform),
@@ -1204,12 +1207,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if boolean_hides(&app, obj, i) do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
+				append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil})
 				if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
 				// Polygon edges stand in for the triangles' edges on a level that has them.
 				poly_lines := part == 0 && poly_edges_shown(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					textured = textured,
+					// Off while only Material Preview asks for the preview: its shading turns it on.
 					texture_view = app.texture_view if textured != nil else .Off,
 					model  = transform_matrix(obj.transform),
 					color  = color,
@@ -1249,6 +1254,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				material := object_material(&app, base)
 				color := material.selected
 				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
+				// Drawn as the selected object is, whichever its index.
+				append(&froms, Item_From{obj = base, index = app.scene.selected, tint = color, material = material})
 				append(&draws, render.Draw_Item {
 					mesh     = &b.preview,
 					source   = &b.preview_mesh,
@@ -1280,10 +1287,22 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.
 		app.kit.passes.recording = timelapse_capturing(&app) || turntable_recording(&app)
 		shown_pass := viewport_pass(&app.kit)
-		if wipe_shown(&app.kit) {
-			pass_items(draws[:], view, shown_pass, wipe_right(&app.kit), wipe_line_px(app.kit.passes.wipe_at, app.target.width))
+		// The main view draws its own copy of the items, shaded as its shading says; the
+		// other views and pictures below take them as the materials made them. A view pane
+		// worked in shows its own pictures' shading, the materials'.
+		raw := draws
+		draws = make([dynamic]render.Draw_Item, len(raw), context.temp_allocator)
+		copy(draws[:], raw[:])
+		shading := app.kit.passes.shading
+		if app.kit.grid.work == 0 {
+			shading_items(&app, draws[:], froms[:], shading)
 		} else {
-			pass_items(draws[:], view, shown_pass)
+			shading = {mode = .Material_Preview}
+		}
+		if wipe_shown(&app.kit) {
+			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass), shading_pass(&app, shading, wipe_right(&app.kit)), wipe_line_px(app.kit.passes.wipe_at, app.target.width))
+		} else {
+			pass_items(draws[:], view, shading_pass(&app, shading, shown_pass))
 		}
 		if ground, ok := pass_ground(shown_pass); ok {
 			app.renderer.background = ground
@@ -1329,8 +1348,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
 		capture_frame(&app, cmd, view, proj, draws[:])
-		// What follows draws its own views of the scene, which stay shaded whatever the pass.
-		pass_items(draws[:], view, .Shaded)
+		// What follows draws its own views of the scene, as the materials made them.
+		draws = raw
 
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
@@ -1937,6 +1956,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
 			fmt.printfln("float_front=%s", front)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
+			fmt.printfln("shading_mode=%v solid_lighting=%v solid_color=%v solid_matcap=%d", main_shading_mode(&app), k.passes.shading.lighting, k.passes.shading.color, k.passes.shading.matcap)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}

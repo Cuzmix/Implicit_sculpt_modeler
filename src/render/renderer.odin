@@ -370,7 +370,10 @@ Draw_Item :: struct {
 // one of the diagnostic passes that check form, as Blender's and ZBrush's do. Normals
 // shows the view-space normal as a colour; Depth near as white and far as black;
 // Curvature creases toward blue and crests toward orange; AO a plain grey that the live
-// occlusion darkens; Silhouette every object flat near-black.
+// occlusion darkens; Silhouette every object flat near-black. Two more are the viewport
+// shading's own rather than passes that check form: Wire, the Wireframe mode's hidden-line
+// fill, a plain light grey that the edges are drawn over; Unlit, Solid's Flat lighting, the
+// colour (with paint, the mask, cavity and ridge) shown as it is, with no light.
 View_Pass :: enum u8 {
 	Shaded,
 	Normals,
@@ -378,6 +381,8 @@ View_Pass :: enum u8 {
 	Curvature,
 	AO,
 	Silhouette,
+	Wire,
+	Unlit,
 }
 
 // What render_viewport did this frame, for the stats panel.

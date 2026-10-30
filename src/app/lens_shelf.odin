@@ -93,11 +93,11 @@ SHELF_MODEL :: [?]Bar_Slot {
 	{.Model_Action, int(Model_Action.Bridge)}, {.Model_Action, int(Model_Action.Close_Hole)}, {.Model_Action, int(Model_Action.Weld)},
 	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Apply_Cage, 0},
 }
-// Render mode: the two renders, the two looks, the sections a render is set up in (each
+// Render mode: the two renders, Material Preview and Solid, the sections a render is set up in (each
 // opens beside its tile), the exposure to scrub, focus, and the ways a render leaves the
 // app. A brush picked from All goes back to Sculpt, as the space follows the tool.
 SHELF_RENDER :: [?]Bar_Slot {
-	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Viewport_Look, int(Look_Preset.Sculpt_Studio)}, {.Viewport_Look, int(Look_Preset.Classic)},
+	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Shading_Mode, int(Shading_Mode.Material_Preview)}, {.Shading_Mode, int(Shading_Mode.Solid)},
 	{.Show_Section, int(Kit_Section.Material)}, {.Show_Section, int(Kit_Section.Lights)}, {.Show_Section, int(Kit_Section.Environment)},
 	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
 }

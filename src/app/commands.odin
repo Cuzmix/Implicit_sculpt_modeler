@@ -210,7 +210,8 @@ Command_Id :: enum u8 {
 	Place_Light,
 	Focus_Pivot,
 	Finish_Reset,
-	Viewport_Look, // the argument is the Look_Preset
+	Shading_Mode, // the argument is the Shading_Mode (shading.odin)
+	Solid_Lighting, // the argument is the Solid_Lighting
 	Floor_Grid,
 	Thumbnail,
 	Transparency,
@@ -1770,7 +1771,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Shading_Menu = {
 		label = "Shading",
-		help = "Opens the shading menu beside its button: wireframe, flat shading, polygroups, the render, the looks and the texture views.",
+		help = "Opens the shading menu beside its button: the shading modes, wireframe, flat shading, polygroups, occlusion, the render and the texture views.",
 		icon = ICON_SHADING,
 		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .Shading)},
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .Shading)},
@@ -1885,13 +1886,21 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {finish_reset_command(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.finish != FINISH_DEFAULTS},
 	},
-	.Viewport_Look = {
-		label = "Look",
-		help = "Puts on a look: the material, lights, background, shading style, occlusion and the Render switch at Fast quality together.",
-		icon = rune(0xe5a4), // swatch-book
-		args = len(Look_Preset),
-		run = proc(app: ^App, arg: int) {look_apply(app, Look_Preset(arg), true)},
-		checked = proc(app: ^App, arg: int) -> bool {p, ok := look_current(app).?; return ok && int(p) == arg},
+	.Shading_Mode = {
+		label = "Shading",
+		help = "Shows the main view in a shading mode, as Blender's: Wireframe, every edge; Solid, quick shading to sculpt in; Material Preview, the materials whole with their textures; Rendered, with the Render switch on.",
+		icon = ICON_SHADING,
+		args = len(Shading_Mode),
+		run = proc(app: ^App, arg: int) {shading_mode_set(app, Shading_Mode(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.passes.pass == .Shaded && main_shading_mode(app) == Shading_Mode(arg)},
+	},
+	.Solid_Lighting = {
+		label = "Solid lighting",
+		help = "Lights Solid shading by the studio lights, by one MatCap on every object, or not at all (Flat), each colour shown as it is.",
+		icon = ICON_MATERIAL,
+		args = len(Solid_Lighting),
+		run = proc(app: ^App, arg: int) {solid_lighting_set(app, Solid_Lighting(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return main_shading_mode(app) == .Solid && app.kit.passes.shading.lighting == Solid_Lighting(arg)},
 	},
 	.Stats = {
 		label = "Stats",
@@ -2064,9 +2073,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.View_Pass = {
 		label = "Pass",
-		help = "Shows the viewport in this pass: shaded, or the normals, depth, curvature, occlusion or silhouette alone, to check the form.",
+		help = "Shows the viewport in this pass: its shading mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form.",
 		icon = ui.ICON_EYE,
-		args = len(render.View_Pass),
+		// The shading modes' own passes are the modes', not picked here.
+		args = PASS_PICKED,
 		run = proc(app: ^App, arg: int) {pass_set(&app.kit, render.View_Pass(arg))},
 		enabled = proc(app: ^App, arg: int) -> bool {
 			return render.View_Pass(arg) != .AO || render.live_ao_supported(&app.renderer, &app.live_ao)
@@ -2146,7 +2156,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Pass_Menu = {
 		label = "Passes",
-		help = "Opens the list of passes beside its button: shaded, normals, depth, curvature, occlusion or silhouette, and wipe compare.",
+		help = "Opens the shading list beside its button: the shading modes with Solid's lighting, MatCap and colour, the passes that check the form, and wipe compare.",
 		icon = ICON_PASSES,
 		run = proc(app: ^App, _: int) {pass_menu_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.menu},
@@ -2549,8 +2559,11 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Brush %s", strings.to_lower(BRUSH_VALUE_NAMES[Brush_Value(arg)], context.temp_allocator))
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
-	case .Viewport_Look:
-		return fmt.tprintf("Look: %s", LOOK_PRESET_NAMES[Look_Preset(arg)])
+	case .Shading_Mode:
+		// Named as shading so the mode Wireframe reads apart from the Wireframe overlay.
+		return fmt.tprintf("Shading: %s", SHADING_MODE_NAMES[Shading_Mode(arg)])
+	case .Solid_Lighting:
+		return fmt.tprintf("Solid: %s", SOLID_LIGHTING_NAMES[Solid_Lighting(arg)])
 	case .Mask:
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
 	case .Mask_By:
@@ -2584,7 +2597,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
 	case .View_Pass:
-		return fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
+		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
 		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
 	case .Space_Switch:

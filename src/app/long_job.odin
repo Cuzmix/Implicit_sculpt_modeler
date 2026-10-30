@@ -105,7 +105,7 @@ JOB_ALLOWED_COMMANDS :: bit_set[Command_Id; [4]u64]{
 	.Brush_Value, .Brush_Reset,
 	.Frame_All, .Objects_Card,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
-	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Viewport_Look, .Floor_Grid, .Thumbnail,
+	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Thumbnail,
 	.Transparency,
 	.Stats, .Inspector, .Show_Section, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,

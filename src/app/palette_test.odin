@@ -157,17 +157,17 @@ palette_rows_fit_the_room :: proc(t: ^testing.T) {
 }
 
 // The touch scenarios that star, pie or bind Wireframe (scripts/touch_check.py) type
-// "wire" and tap the buttons under the rows it finds, where three rows put them
+// "wire" and tap the buttons under the rows it finds, where four rows put them
 // (PALETTE_STAR and the rest). A new command whose label also holds w, i, r, e in order
 // adds a row and moves the buttons: this says so in seconds, rather than four scenarios
 // failing in the touch run. Rename the command, or move the scenarios' buttons.
 @(test)
-palette_wire_finds_three_rows :: proc(t: ^testing.T) {
+palette_wire_finds_four_rows :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	for &e in enabled do e = true
 	hits := palette_rank("wire", entries, nil, enabled)
 	labels := make([]string, len(hits), context.temp_allocator)
 	for h, i in hits do labels[i] = palette_label(entries[h.entry])
-	testing.expectf(t, len(hits) == 3, "\"wire\" finds %v", labels)
+	testing.expectf(t, len(hits) == 4, "\"wire\" finds %v", labels)
 }

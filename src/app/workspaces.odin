@@ -185,6 +185,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.docks = {}
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
+	k.passes.shading = {}
 	// One view unless the layout names a grid; the layout steps named another layout.
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
@@ -201,6 +202,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
 			pass_layout_read(k, f)
+		case "shading":
+			shading_layout_read(k, f)
 		case "bar_place":
 			bar_place_read(k, f)
 		case "user_dock":

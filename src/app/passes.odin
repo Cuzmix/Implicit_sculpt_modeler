@@ -6,17 +6,18 @@ import "core:time"
 import "../render"
 import "../ui"
 
-// Passes (Lens): how the viewport shows the meshes, shaded or as one of the diagnostic
-// passes that check form (render.View_Pass), after Blender's viewport passes and ZBrush's
-// normal and depth views. The pass chip in the top bar names the pass; a tap opens the
-// list, and a hold peeks at the last other pass for as long as it is held, as Marmoset's
-// and Substance's hold-to-compare do; a held backquote peeks too. The pass is part of the
-// workspace's layout. Only the viewport shows it: the thumbnail window, the navigation
+// Passes (Lens): how the viewport shows the meshes, in its shading mode (shading.odin) or
+// as one of the diagnostic passes that check form (render.View_Pass), after Blender's
+// viewport passes and ZBrush's normal and depth views. The shading chip over the view names
+// the mode, or the pass while one shows; a tap opens the list, and a hold peeks at the last
+// other pass for as long as it is held, as Marmoset's and Substance's hold-to-compare do; a
+// held backquote peeks too. The mode and the pass are part of the workspace's layout. Only the viewport shows it: the thumbnail window, the navigation
 // head and object pictures stay shaded, and the studio render and render mode wait,
 // since what they build is the shaded picture.
 
 Passes :: struct {
-	pass:       render.View_Pass, // the one picked
+	shading:    View_Shading, // the main view's shading mode and Solid's options
+	pass:       render.View_Pass, // the one picked; Shaded shows the shading mode
 	last:       render.View_Pass, // the one before it, which a peek shows
 	chip_held:  bool, // the chip is held past a long press this frame
 	key_held:   bool, // backquote is held (main.odin's event loop)
@@ -46,6 +47,19 @@ PASS_LABELS := [render.View_Pass]string {
 	.Curvature  = "Curvature",
 	.AO         = "AO only",
 	.Silhouette = "Silhouette",
+	// The shading modes' own, never picked as passes.
+	.Wire       = "Wireframe",
+	.Unlit      = "Flat",
+}
+
+// The passes the View_Pass command picks: Shaded and those that check the form.
+PASS_PICKED :: int(render.View_Pass.Silhouette) + 1
+
+// What the view shows in pass `p` is called: the main view's shading mode for Shaded,
+// else the pass's name.
+pass_label :: proc(app: ^App, p: render.View_Pass) -> string {
+	if p == .Shaded do return SHADING_MODE_NAMES[main_shading_mode(app)]
+	return PASS_LABELS[p]
 }
 
 // Picks pass `p`, keeping the one it replaces for a peek.
@@ -111,7 +125,7 @@ pass_shaded :: proc(app: ^App) -> bool {
 
 // What the studio render's and render mode's sections say while a pass pauses them.
 pass_paused_note :: proc(app: ^App) -> string {
-	return fmt.tprintf("Paused while the viewport shows %s; it starts again on Shaded.", PASS_LABELS[viewport_pass(&app.kit)])
+	return fmt.tprintf("Paused while the viewport shows %s; it starts again once the pass is put away.", PASS_LABELS[viewport_pass(&app.kit)])
 }
 
 // Live occlusion runs while it is on and the viewport is shaded, and always in the AO pass
@@ -123,8 +137,9 @@ live_ao_wanted :: proc(app: ^App) -> bool {
 }
 
 // How strongly live occlusion darkens each side of the wipe's line (the left side alone
-// when not wiping): fully in the AO pass, at the studio's strength in Shaded while it is
-// on, not at all in the other passes or where the device cannot run it.
+// when not wiping): fully in the AO pass, at the studio's strength in the shaded modes
+// while it is on, not at all in Wireframe, Solid's Flat lighting, the other passes or where
+// the device cannot run it.
 live_ao_strengths :: proc(app: ^App) -> (left, right: f32) {
 	side :: proc(app: ^App, p: render.View_Pass) -> f32 {
 		if !render.live_ao_supported(&app.renderer, &app.live_ao) do return 0
@@ -134,8 +149,9 @@ live_ao_strengths :: proc(app: ^App) -> (left, right: f32) {
 		if p == .Shaded && app.live_ao_on do return max(app.studio_ao, 1e-3)
 		return 0
 	}
-	left = side(app, viewport_pass(&app.kit))
-	if wipe_shown(&app.kit) do right = side(app, wipe_right(&app.kit))
+	s := app.kit.passes.shading
+	left = side(app, shading_pass(app, s, viewport_pass(&app.kit)))
+	if wipe_shown(&app.kit) do right = side(app, shading_pass(app, s, wipe_right(&app.kit)))
 	return
 }
 
@@ -230,15 +246,17 @@ PASS_ICONS := [render.View_Pass]rune {
 	.Curvature  = ICON_CHANNEL_SCULPT,
 	.AO         = ICON_CONTRAST,
 	.Silhouette = ui.ICON_FOCUS,
+	.Wire       = ICON_WIREFRAME,
+	.Unlit      = ICON_SHADING,
 }
 
 // The passes that check the form, as Lens's list groups them.
 @(rodata)
 DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Silhouette}
 
-// Lens's list (round 2's inspect2 screen): RECENT, the pass shown and the last other one,
-// to flip between; SHADING, the shaded view with the looks, Flat shading and the render
-// that change how it is shaded; DIAGNOSTICS, the passes that check the form. Each row
+// Lens's list (round 2's inspect2 screen, with Blender's shading modes): RECENT, the pass
+// shown and the last other one, to flip between; SHADING, the four modes, and under Solid
+// its lighting, its MatCap and its colour; INSPECT, the passes that check the form. Each row
 // shows its keys; the one shown is highlighted.
 @(private = "file")
 lens_pass_menu :: proc(app: ^App) {
@@ -249,13 +267,8 @@ lens_pass_menu :: proc(app: ^App) {
 	row :: proc(app: ^App, p: render.View_Pass, salt: string) -> bool {
 		ps := &app.kit.passes
 		id := int(p)
-		if !ui.menu_item(&app.kit.ctx, fmt.tprintf("%s##%s", PASS_LABELS[p], salt), command_keys(app, .View_Pass, id), PASS_ICONS[p], enabled = command_enabled(app, .View_Pass, id), highlight = ps.pass == p, hint = command_hint(app, .View_Pass, id)) do return false
+		if !ui.menu_item(&app.kit.ctx, fmt.tprintf("%s##%s", pass_label(app, p), salt), command_keys(app, .View_Pass, id), PASS_ICONS[p], enabled = command_enabled(app, .View_Pass, id), highlight = ps.pass == p, hint = command_hint(app, .View_Pass, id)) do return false
 		return command_run(app, .View_Pass, id)
-	}
-	toggle :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, label := "") -> bool {
-		text := label if label != "" else command_label(id, arg)
-		if !ui.menu_item(&app.kit.ctx, fmt.tprintf("%s##pass menu", text), command_keys(app, id, arg), glyph, checked = command_checked(app, id, arg), enabled = command_enabled(app, id, arg), hint = command_hint(app, id, arg)) do return false
-		return command_run(app, id, arg)
 	}
 	if ps.last != ps.pass {
 		ui.caption(ctx, "  RECENT")
@@ -263,29 +276,78 @@ lens_pass_menu :: proc(app: ^App) {
 		if row(app, ps.last, "recent") do picked = true
 	}
 	ui.caption(ctx, "  SHADING")
-	if row(app, .Shaded, "shading") do picked = true
-	for look in Look_Preset do if toggle(app, .Viewport_Look, ICON_MATERIAL if look == .Sculpt_Studio else ICON_SHADING, int(look), LOOK_PRESET_NAMES[look]) do picked = true
-	if toggle(app, .Flat_Shading, ui.ICON_SHAPES) do picked = true
-	if toggle(app, .Studio_Render, ICON_SPARKLES) do picked = true
-	ui.caption(ctx, "  DIAGNOSTICS")
+	shown := main_shading_mode(app)
+	for order in Shading_Mode {
+		m := SHADING_MODE_ORDER[order]
+		id := int(m)
+		if ui.menu_item(ctx, fmt.tprintf("%s##shading mode", SHADING_MODE_NAMES[m]), command_keys(app, .Shading_Mode, id), SHADING_MODE_ICONS[m], highlight = ps.pass == .Shaded && shown == m, hint = command_hint(app, .Shading_Mode, id)) {
+			command_run(app, .Shading_Mode, id)
+			// The list stays open on Solid, whose options follow.
+			if m != .Solid do picked = true
+		}
+	}
+	if shown == .Solid do solid_options(app)
+	ui.caption(ctx, "  INSPECT")
 	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
 	ui.divider(ctx, across = true)
+	if command_menu_item(app, .Flat_Shading) do picked = true
 	if command_menu_item(app, .View_Pass_Last) do picked = true
 	if command_menu_item(app, .View_Wipe) do picked = true
-	ui.paragraph(ctx, "Hold a pass chip, or the ` key, to peek at your last pass; release to come back.")
+	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last pass; release to come back.")
 	if picked do ps.menu = false
 }
 
-// The pass's line in a layout, written only when it is not Shaded.
-pass_layout_line :: proc(k: ^Kit_State) -> string {
-	if k.passes.pass == .Shaded do return ""
-	return fmt.tprintf("pass %v\n", k.passes.pass)
+// Solid's options, inset under its row, each named over its tabs (the name beside them
+// pushes the tabs past the menu's edge): the lighting (Studio, MatCap or Flat); with
+// MatCap, which one; and the colour each object shows in.
+@(private = "file")
+solid_options :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.passes.shading
+	named :: proc(ctx: ^ui.Context, name: string) {
+		ui.begin(ctx, fmt.tprintf("%s option##solid", name), {direction = .Column, gap = 4})
+		ui.label(ctx, name, ctx.theme.small_size)
+	}
+	ui.begin(ctx, "solid options", {direction = .Column, gap = 6, padding = 8})
+	names: [len(Solid_Lighting)]string
+	hints: [len(Solid_Lighting)]string
+	for l in Solid_Lighting do names[l], hints[l] = SOLID_LIGHTING_NAMES[l], command_hint(app, .Solid_Lighting, int(l))
+	named(ctx, "Lighting")
+	if picked := ui.tabs(ctx, "Lighting", names[:], int(s.lighting), keys = hints[:]); picked >= 0 do command_run(app, .Solid_Lighting, picked)
+	ui.end(ctx)
+	if s.lighting == .MatCap {
+		caps := make([dynamic]string, 0, len(MATCAP_RECIPES), context.temp_allocator)
+		for r in MATCAP_RECIPES do append(&caps, string(r.label))
+		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
+		named(ctx, "MatCap")
+		// Two rows of three, as six names do not fit across the list.
+		ui.begin(ctx, "matcaps##solid", {direction = .Column, gap = 4})
+		for row in 0 ..< 2 {
+			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", row), caps[row * 3:row * 3 + 3], at - row * 3 if at / 3 == row else -1); picked >= 0 do s.matcap = row * 3 + picked + 1
+		}
+		ui.end(ctx)
+		ui.end(ctx)
+	}
+	colors: [len(Solid_Color)]string
+	for c in Solid_Color do colors[c] = SOLID_COLOR_NAMES[c]
+	named(ctx, "Colour")
+	if picked := ui.tabs(ctx, "Colour", colors[:], int(s.color)); picked >= 0 do s.color = Solid_Color(picked)
+	ui.end(ctx)
+	ui.end(ctx)
 }
 
-// Reads a layout's pass line's words.
+// The pass's line in a layout, written only when it is not Shaded, then the shading's.
+pass_layout_line :: proc(k: ^Kit_State) -> string {
+	line := "" if k.passes.pass == .Shaded else fmt.tprintf("pass %v\n", k.passes.pass)
+	return fmt.tprintf("%s%s", line, shading_layout_line(k))
+}
+
+// Reads a layout's pass line's words: only the passes the View_Pass command picks, as the
+// shading modes' own are no layout's to name.
 pass_layout_read :: proc(k: ^Kit_State, f: []string) {
 	if len(f) < 2 do return
-	for p in render.View_Pass do if fmt.tprint(p) == f[1] do k.passes.pass = p
+	for p in render.View_Pass do if int(p) < PASS_PICKED && fmt.tprint(p) == f[1] do k.passes.pass = p
 }
 
 // Lucide's square-split-horizontal, on the wipe's knob.
@@ -329,8 +391,8 @@ kit_wipe :: proc(app: ^App, m: ui.Rect) {
 		ui.end(ctx)
 	}
 	top := max(m.y, kit_top() - 8) + 6
-	label(ctx, "wipe left name", PASS_LABELS[viewport_pass(k)], {x - 10, top}, true)
-	label(ctx, "wipe right name", PASS_LABELS[wipe_right(k)], {x + 10, top}, false)
+	label(ctx, "wipe left name", pass_label(app, viewport_pass(k)), {x - 10, top}, true)
+	label(ctx, "wipe right name", pass_label(app, wipe_right(k)), {x + 10, top}, false)
 
 	ui.begin_at(ctx, "wipe line", {x - WIPE_GRAB * 0.5, m.y}, {width = WIPE_GRAB, height = m.h})
 	line := ui.area(ctx, "line", {WIPE_GRAB, m.h})
