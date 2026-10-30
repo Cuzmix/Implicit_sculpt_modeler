@@ -600,6 +600,7 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 		// its vertices and triangles.
 		polys: sculpt.Polys
 		polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], p.polys[:])
+		uv, mapped := geom.quad_uvs_from_corners(mesh.indices[:], p.uvs[:], polys.first, polys.corners, polys.tri_poly)
 		old_to_new, tri_from: []u32
 		if polys.first != nil {
 			old_to_new = make([]u32, len(mesh.positions))
@@ -609,10 +610,11 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 		defer delete(tri_from)
 		if !scene_add_mesh(app, mesh, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, old_to_new, surface = import_surface(p), tri_from = tri_from) {
 			sculpt.polys_destroy(&polys)
+			geom.uv_layout_destroy(&uv)
 			ok = false
 			break
 		}
-		if polys.first != nil do import_take_polygons(&app.scene.objects[len(app.scene.objects) - 1].levels, &polys, old_to_new, tri_from)
+		if polys.first != nil do import_take_polygons(&app.scene.objects[len(app.scene.objects) - 1].levels, &polys, old_to_new, tri_from, uv if mapped else nil)
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
 	}
 	added := app.scene.objects[first:]
@@ -630,9 +632,12 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 // Takes an imported part's polygons (in the part's numbering, which `old_to_new` and
 // `tri_from` turn into the base level's) as its object's base level's, so Wireframe draws
 // the file's faces and Subdivide cuts them as Catmull-Clark does, as ZBrush and Blender
-// do with an imported quad mesh; an object of only quads keeps them as quads too, for
-// the UV and texture tools.
-import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32) {
+// do with an imported quad mesh; an object of only quads keeps them as quads too, with
+// the file's UVs (`uv`, taken; nil for none), for the UV checker, the texture views and
+// baking.
+import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32, uv: Maybe(geom.Uv_Layout) = nil) {
+	uv := uv
+	defer if layout, has := &uv.?; has do geom.uv_layout_destroy(layout)
 	retopo_polys_renumber(polys, old_to_new, tri_from)
 	quads := true
 	for f in 0 ..< len(polys.first) - 1 do quads &&= polys.first[f + 1] - polys.first[f] == 4
@@ -644,6 +649,10 @@ import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new
 	faces := make([][4]u32, len(polys.first) - 1)
 	for &f, q in faces do copy(f[:], polys.corners[4 * q:][:4])
 	sculpt.levels_set_quads(l, faces)
+	if layout, has := uv.?; has {
+		sculpt.levels_set_uvs(l, layout)
+		uv = nil
+	}
 }
 
 // The polypaint and polygroups an imported part's object starts with.
@@ -772,7 +781,7 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 	if failed == .None {
 		for k := 0; k < len(parts); {
 			p := &parts[k]
-			cleaned, err := geom.mesh_clean(&p.mesh, pool, &p.colors, &p.groups, &p.polys)
+			cleaned, err := geom.mesh_clean(&p.mesh, pool, &p.colors, &p.groups, &p.polys, &p.uvs)
 			if err == .Empty {
 				// A part of only lines or of triangles with nothing inside goes alone.
 				geom.mesh_part_destroy(p)
@@ -847,7 +856,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	for &p in m.parts {
 		edges := geom.mesh_edges(p.mesh, &app.pool)
 		if geom.mesh_edges_closed(edges) && edges.volume < 0 {
-			geom.mesh_flip(&p.mesh, &app.pool)
+			geom.mesh_flip(&p.mesh, &app.pool, p.uvs[:])
 			flipped += 1
 		}
 		open.border += edges.border
@@ -879,10 +888,12 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	if kind == .STL || kind == .GLTF || kind == .USD do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
 	if flipped > 0 do strings.write_string(&note, "; turned outward")
-	colored, grouped := false, false
+	colored, grouped, polygons, mapped := false, false, false, false
 	for p in m.parts {
 		colored ||= len(p.colors) > 0
 		grouped ||= len(p.groups) > 0
+		polygons ||= len(p.polys) > 0
+		mapped ||= len(p.polys) > 0 && len(p.uvs) > 0
 	}
 	switch {
 	case info.paint.textures > 0: strings.write_string(&note, "; its textures and material colours are its polypaint, sampled at its vertices")
@@ -892,6 +903,8 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	if info.paint.unread > 0 do strings.write_string(&note, fmt.tprintf("; %d textures missing or unreadable (PNG, JPEG, BMP, TGA and QOI read)", info.paint.unread))
 	if info.merged > 0 do strings.write_string(&note, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
 	else if grouped do strings.write_string(&note, "; its groups are polygroups")
+	// UVs stay only on an object of quads (import_take_polygons).
+	if polygons do strings.write_string(&note, "; its quads and polygons stay, with their UVs on objects of quads" if mapped else "; its quads and polygons stay")
 	if info.skipped.compressed > 0 do strings.write_string(&note, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
 	if info.usd.composed > 0 do strings.write_string(&note, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
 	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&note, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))

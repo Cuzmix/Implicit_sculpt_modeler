@@ -165,3 +165,54 @@ merged_parts_keep_their_polygons :: proc(t: ^testing.T) {
 	defer polygons_free(first, corners, tri_poly)
 	testing.expect(t, slice.equal(first, []u32{0, 4, 8, 11, 14}), "two quads, then the third part's two triangles")
 }
+
+// An OBJ strip of three quads with texture coordinates: the first two share their edge's
+// coordinates and make one chart, the third is cut off by a seam (other `vt` lines on the
+// same edge) and makes a second; v comes back running up, as the file has it.
+@(test)
+obj_quads_keep_their_uvs :: proc(t: ^testing.T) {
+	text := `v 0 0 0
+v 1 0 0
+v 2 0 0
+v 3 0 0
+v 0 1 0
+v 1 1 0
+v 2 1 0
+v 3 1 0
+vt 0 0
+vt 0.25 0
+vt 0.5 0
+vt 0 0.5
+vt 0.25 0.5
+vt 0.5 0.5
+vt 0.75 0
+vt 1 0
+vt 0.75 0.5
+vt 1 0.5
+f 1/1 2/2 6/5 5/4
+f 2/2 3/3 7/6 6/5
+f 3/7 4/8 8/10 7/9
+`
+	parts: [dynamic]Mesh_Part
+	defer mesh_parts_destroy(&parts)
+	err, _ := mesh_read_obj_parts(&parts, transmute([]u8)text, nil)
+	if !testing.expect_value(t, err, Mesh_File_Error.None) do return
+	p := &parts[0]
+	testing.expect_value(t, len(p.uvs), 18)
+	_, clean_err := mesh_clean(&p.mesh, nil, &p.colors, &p.groups, &p.polys, &p.uvs)
+	testing.expect_value(t, clean_err, Mesh_File_Error.None)
+	first, corners, tri_poly := mesh_polygons(p.mesh.indices[:], p.polys[:])
+	defer polygons_free(first, corners, tri_poly)
+	l, ok := quad_uvs_from_corners(p.mesh.indices[:], p.uvs[:], first, corners, tri_poly)
+	defer uv_layout_destroy(&l)
+	if !testing.expect(t, ok, "three quads with coordinates") do return
+	testing.expect_value(t, l.uvs[0], [4][2]f32{{0, 0}, {0.25, 0}, {0.25, 0.5}, {0, 0.5}})
+	testing.expect_value(t, l.uvs[2][1], [2]f32{1, 0})
+	testing.expect(t, slice.equal(l.chart, []u32{0, 0, 1}), "the seam splits the charts")
+	testing.expect_value(t, l.charts, 2)
+	testing.expect(t, abs(l.filled - 0.375) < 1e-6, "two boxes of 0.5 by 0.5 and 0.25 by 0.5")
+
+	// A triangle among the polygons: no UVs.
+	_, mixed := quad_uvs_from_corners([]u32{0, 1, 2}, [][2]f32{{}, {}, {}}, []u32{0, 3}, []u32{0, 1, 2}, []u32{0})
+	testing.expect(t, !mixed, "a triangle has no quad UVs")
+}
