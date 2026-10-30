@@ -98,6 +98,10 @@ Vk_Cmd :: struct {
 	// one is bound.
 	accel:           vk.AccelerationStructureKHR,
 	accels:          [dynamic]^Vk_Accel,
+	// The structures this graphics recording rewrites in place (a refit, a top level in its
+	// old memory), each also in `accels`: its submission waits for any compute-queue work
+	// still tracing against them (Vk_Accel.compute_read).
+	accel_writes:    [dynamic]^Vk_Accel,
 	sets:            [4]vk.DescriptorSet,
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
@@ -213,6 +217,7 @@ vk_cmd_free :: proc(cmd: ^Vk_Cmd) {
 	delete(cmd.samplers)
 	delete(cmd.pipelines)
 	delete(cmd.accels)
+	delete(cmd.accel_writes)
 	delete(cmd.presents)
 	delete(cmd.targets)
 	delete(cmd.written_images)
@@ -244,6 +249,7 @@ vk_cmd_recycle :: proc(cmd: ^Vk_Cmd) {
 		vk_accel_reap(a)
 	}
 	clear(&cmd.accels)
+	clear(&cmd.accel_writes)
 	clear(&cmd.buffers)
 	clear(&cmd.images)
 	clear(&cmd.samplers)
@@ -319,6 +325,9 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 		return 0, false
 	}
 	if cmd.queue == .Compute do return vk_submit_compute(cmd)
+	// A band of render mode on the compute queue may still be tracing against a bottom
+	// level the studio refits here: this waits for it, which stalls nothing once it is done.
+	for a in cmd.accel_writes do cmd.compute_wait = max(cmd.compute_wait, a.compute_read)
 	if vk_state.validation do vk_check_compute_writes(cmd)
 	vk_compute_waited = max(vk_compute_waited, cmd.compute_wait)
 	for p in cmd.presents {
@@ -426,6 +435,7 @@ vk_submit_compute :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	}
 	for img in cmd.written_images do img.compute_write = serial
 	for b in cmd.written_buffers do b.compute_write = serial
+	for a in cmd.accels do a.compute_read = max(a.compute_read, serial)
 	cmd.serial = serial
 	append(&vk_state.in_flight, cmd)
 	vk_collect()

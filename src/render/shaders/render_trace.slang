@@ -18,7 +18,11 @@
 // read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
 // Included by render_trace.comp.slang (nine named map samplers, every backend) and by
 // render_trace_maps.comp.slang, which defines MAP_ARRAY: the maps in set 3 as one array
-// (the own Vulkan backend with descriptor indexing, Gpu_Caps.texture_arrays).
+// (the own Vulkan backend with descriptor indexing, Gpu_Caps.texture_arrays). Each has a
+// twin defining RAY_QUERY (render_trace_rq.comp.slang, render_trace_maps_rq.comp.slang):
+// rays then meet the driver's acceleration structure over every item, at binding 0 of set
+// 3 (the maps after it), instead of walking the chunk trees, and `order` holds where each
+// item's geometries start among the merged triangles in place of the trees' offsets.
 
 #include "common.slang"
 struct Node {
@@ -34,7 +38,7 @@ struct Item {
 	float4x4 inv_model;
 	float4 color;      // the base colour, linear
 	float4 surface;    // x: metallic, y: roughness
-	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags
+	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags, z: under RAY_QUERY where its geometries' first triangles start in `order`
 	uint4 slot_group[4];   // the polygroup of each material slot from 1
 	float4 slot_color[16];   // each slot's colour, as `color`
 	float4 slot_surface[16]; // ...and surface, as `surface`
@@ -62,10 +66,18 @@ static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UV
 // The guides so far (below), which with depth of field each sample adds to.
 [[vk::binding(3, 0)]] Sampler2D prev_albedo;
 [[vk::binding(4, 0)]] Sampler2D prev_normal;
+#ifdef RAY_QUERY
+[[vk::binding(0, 3)]] RaytracingAccelerationStructure structure;
+#endif
 #ifdef MAP_ARRAY
 // Every map slot's base colour, ORM and normal maps, three a slot in that order, in their
-// own set (render.gpu_bind_compute_texture_array), defaults where an item lacks one.
+// own set (render.gpu_bind_compute_texture_array), defaults where an item lacks one; after
+// the acceleration structure under RAY_QUERY, as the array is the set's last binding.
+#ifdef RAY_QUERY
+[[vk::binding(1, 3)]] Sampler2D maps[];
+#else
 [[vk::binding(0, 3)]] Sampler2D maps[];
+#endif
 [[vk::binding(5, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
 [[vk::binding(6, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
@@ -305,6 +317,44 @@ struct Hit {
 	float2 uv;   // barycentrics of the second and third corners
 };
 
+#ifdef RAY_QUERY
+// Where a candidate of the query lies among the merged triangles: its item's geometries
+// start where `order` says, from offs.z.
+uint merged_triangle(uint item, uint geometry, uint primitive) {
+	return order[items[item].offs.z + geometry] + primitive;
+}
+
+// The nearest triangle along the ray before `t_max`, or with `any` the first one found,
+// as the walk below finds it. The instances carry their item's model, so t measures the
+// world ray as given. Geometries holding a triangle with a repeated corner (hidden, or an
+// unused slot) are not opaque, and their candidates come here to be turned down, as the
+// walk does.
+bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
+	hit.t = t_max;
+	hit.tri = 0u;
+	hit.item = 0u;
+	hit.uv = float2(0.0);
+	if (extra.y != 0u) return false;
+	RayDesc ray;
+	ray.Origin = o;
+	ray.TMin = 0.0;
+	ray.Direction = d;
+	ray.TMax = t_max;
+	RayQuery<RAY_FLAG_NONE> q;
+	q.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
+	while (q.Proceed()) {
+		uint tri = merged_triangle(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex());
+		uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
+		if (ia != ib && ib != ic && ia != ic) q.CommitNonOpaqueTriangleHit();
+	}
+	if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
+	hit.t = q.CommittedRayT();
+	hit.item = q.CommittedInstanceID();
+	hit.tri = merged_triangle(hit.item, q.CommittedGeometryIndex(), q.CommittedPrimitiveIndex());
+	hit.uv = q.CommittedTriangleBarycentrics();
+	return true;
+}
+#else
 // The nearest triangle along the ray before `t_max`, or with `any` the first one found.
 // The scene tree is in world space; at a chunk the ray goes into its item's mesh space
 // unnormalised, so t keeps measuring the world ray.
@@ -400,6 +450,7 @@ bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	}
 	return found;
 }
+#endif
 
 // Off the surface along its geometric normal by a few steps of the float grid, which
 // scales with the position itself (Wächter and Binder, "A Fast and Robust Method for

@@ -31,6 +31,9 @@ Vk_Accel :: struct {
 	refs:           i32,
 	stamp:          u64,
 	released:       bool,
+	// The last compute-queue submission that traced against it, which a graphics one
+	// rewriting it in place waits for (Vk_Cmd.accel_writes).
+	compute_read:   u64,
 }
 
 // VkAccelerationStructureInstanceKHR as the GPU reads it. It is written as plain words
@@ -242,6 +245,7 @@ vk_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices:
 	vk_cmd_track_buffer(cmd, pos.active)
 	vk_cmd_track_buffer(cmd, idx.active)
 	vk_accel_track(cmd, a)
+	if refit do append(&cmd.accel_writes, a)
 	vk_accel_record(cmd, &info, ranges)
 	return (^Gpu_Accel)(a)
 }
@@ -311,6 +315,7 @@ vk_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_I
 	info.scratchData.deviceAddress = scratch
 	vk_cmd_track_buffer(cmd, upload.active)
 	vk_accel_track(cmd, a)
+	if a == old do append(&cmd.accel_writes, a)
 	for b in a.instances do vk_accel_track(cmd, b)
 	range := vk.AccelerationStructureBuildRangeInfoKHR{primitiveCount = count}
 	vk_accel_record(cmd, &info, []vk.AccelerationStructureBuildRangeInfoKHR{range})

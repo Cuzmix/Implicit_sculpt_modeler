@@ -391,6 +391,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   in world space and confirms non-opaque candidates by reading indices through `gpu_buffer_address` (Slang pointers,
   so `shaderInt64` is required); the tables are rewritten every sample since an upload's cycle moves the address.
   Any refusal returns the view to the walk, whose CPU trees are not built for the studio while it runs.
+  The caller makes its kernel first (`trace_rq_kernel`, `path_rq_kernel`) and passes `ray_query`; `tr.rq` says if
+  it took. Render mode (`render_trace_rq` / `render_trace_maps_rq`, `RAY_QUERY` in `render_trace.slang`) shares the
+  meshes' BLASes, its own TLAS numbers instances like `placed` (same filter, same order), and `order` holds each
+  item's geometries' merged first triangles from `offs.z`, so `tri = order[offs.z + geometry] + primitive` and
+  non-opaque candidates are confirmed from the merged `indices`. Its pixels differ from the walk's by rounding
+  (~0.06% at 4 samples): compare with `parity_check.py --tolerance`. A graphics submission that rewrites a structure
+  in place (`Vk_Cmd.accel_writes`) waits for the last compute submission that traced it (`Vk_Accel.compute_read`).
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit
