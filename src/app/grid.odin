@@ -884,8 +884,12 @@ kit_grid :: proc(app: ^App) {
 	if g.work != 0 do g.main = room if g.maximised == g.work else cells[g.work]
 	// While a view pane is worked in, the main pane holds the picture it showed as the
 	// gesture began, and the main view is drawn in the view pane (kit_view_pane).
-	if g.work == 0 do ui.image(ctx, g.main, KIT_VIEWPORT_IMAGE)
-	else do ui.image(ctx, cells[0], KIT_WORK_STILL_IMAGE)
+	if g.work == 0 {
+		ui.image(ctx, g.main, KIT_VIEWPORT_IMAGE)
+		cross_fade_draw(app, g.main)
+	} else {
+		ui.image(ctx, cells[0], KIT_WORK_STILL_IMAGE)
+	}
 	// With other panes beside it, the main pane is outlined in the main camera's colour, the
 	// colour of the dots of the panes linked to it: the pane the tools act in.
 	if n > 1 && g.maximised == 0 {
@@ -1093,6 +1097,7 @@ grid_due :: proc(app: ^App) -> bool {
 grid_destroy :: proc(app: ^App) {
 	for &pic in app.panes do picture_destroy(app, &pic)
 	render.viewport_target_destroy(&app.renderer, &app.work_still)
+	cross_fade_destroy(app)
 }
 
 // A point in window coordinates in the main pane's, as Viewport_Input has it.
