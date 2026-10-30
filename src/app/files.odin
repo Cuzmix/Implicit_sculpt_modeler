@@ -31,7 +31,7 @@ File_Kind :: enum u8 {
 	None,
 	Import, // a mesh file becomes a new object
 	Export, // the selected object's shown level goes to a mesh file
-	Export_Print, // ...to an STL file at its print size (print.odin)
+	Export_Print, // ...to an STL or OBJ file at its print size (print.odin)
 	Save,   // the scene goes to a .sculpt file
 	Save_Copy, // the scene goes to a .sculpt file, and stays the file it was (versions.odin)
 	Open,   // a .sculpt file replaces the scene
@@ -100,6 +100,8 @@ EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".stl", ".g
 @(private = "file")
 STL_FILTERS := [?]sdl.DialogFileFilter{{"STL (3D printing)", "stl"}}
 @(private = "file")
+PRINT_OBJ_FILTERS := [?]sdl.DialogFileFilter{{"OBJ (3D printing)", "obj"}}
+@(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
@@ -162,6 +164,21 @@ file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
 	where_: cstring = nil
 	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
 	dialog_save(app, userdata, EXPORT_FILTERS[int(f):][:1], where_)
+}
+
+// Shows the save dialog for a 3D print, as STL or with `obj` as OBJ (the Export sheet's
+// two print formats), suggesting `name`'s file when there is one.
+file_dialog_print :: proc(app: ^App, obj: bool, name := "") {
+	sync.lock(&pending.lock)
+	busy := pending.dialog
+	pending.dialog = true
+	sync.unlock(&pending.lock)
+	if busy do return
+	// The kind in the low byte and 1 after it for OBJ, for file_dialog_done.
+	userdata := rawptr(uintptr(File_Kind.Export_Print) | uintptr(obj) << 8)
+	where_: cstring = nil
+	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
+	dialog_save(app, userdata, PRINT_OBJ_FILTERS[:] if obj else STL_FILTERS[:], where_)
 }
 
 // The three dialogs: SDL's own, or on iOS, where SDL 3.4 has none, the document picker
@@ -253,7 +270,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 			case filter >= 0 && int(filter) < len(EXPORT_SUFFIX): suffix = EXPORT_SUFFIX[filter]
 			case:                                            suffix = ".obj"
 			}
-		case .Export_Print: suffix = ".stl"
+		case .Export_Print: suffix = ".obj" if only == 1 else ".stl"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
@@ -833,8 +850,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	if print && ext != ".stl" {
-		file_note(app, true, "Cannot export %s for printing: the name needs to end in .stl", name)
+	if print && ext != ".stl" && ext != ".obj" {
+		file_note(app, true, "Cannot export %s for printing: the name needs to end in .stl or .obj", name)
 		return false
 	}
 	if ext != ".obj" && ext != ".ply" && ext != ".stl" && ext != ".glb" && ext != ".usda" {
@@ -935,16 +952,22 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> 
 			file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB; fewer layers or a lower level would fit", name)
 			return false
 		}
+	case print:
+		// Millimetres, Z up and on the bed, as a slicer wants; OBJ keeps the polypaint as
+		// vertex colours, which colour printers' slicers read.
+		at := print_positions(positions, obj.transform, print_scale(app))
+		if ext == ".obj" {
+			geom.mesh_write_obj(&out, at, indices, 1, {}, &app.pool, colors)
+		} else {
+			geom.mesh_write_stl(&out, at, indices, pool = &app.pool)
+		}
+		printed = strings.clone(print_note(at, indices))
 	case ext == ".obj" && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj):
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
 		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
-	case print:
-		at := print_positions(positions, obj.transform, print_scale(app))
-		geom.mesh_write_stl(&out, at, indices, pool = &app.pool)
-		printed = strings.clone(print_note(at, indices))
 	case ext == ".stl":
 		// STL carries no colour, which 3D printing tools would not read anyway.
 		geom.mesh_write_stl(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool)

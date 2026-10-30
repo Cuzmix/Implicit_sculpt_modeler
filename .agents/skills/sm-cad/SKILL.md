@@ -181,7 +181,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   v23; read it through `print_scale`, which covers a zero App in tests) times `object_world_bounds`. Export for
   printing (`object_export(..., print = true)`) bakes the placement and the scale into one matrix, turns Y up into Z up
   as `(x, -z, y)`, stands the mesh on Z 0 centred on the origin, and reports `mesh_check_indices` (closed, volume in
-  cm³) up to `PRINT_CHECK_MAX` indices; the plain STL export keeps the file's own units instead.
+  cm³) up to `PRINT_CHECK_MAX` indices, as STL or OBJ; the plain STL export keeps the file's own units instead.
+  The Export sheet's print checks (`print_checks.odin`) key their cache on the object's buffer version, reuse the
+  sculptor's `bvh` at once up to `PRINT_CHECK_AT_ONCE` triangles and above it run on their own thread from a copy
+  with `context.allocator` set to the heap (a slice freed by `bvh_destroy` must come from the allocator it frees with).
 
 ## References (read when the task needs them)
 - [references/algorithms.md](references/algorithms.md): boolean semantics worth copying (Manifold), voxel remesh as the

@@ -14,6 +14,8 @@ export_formats_run_their_own_commands :: proc(t: ^testing.T) {
 	testing.expect_value(t, export_command(.Screenshot), Command_Id.Screenshot)
 	testing.expect_value(t, export_command(.Turntable), Command_Id.Record_Turntable)
 	testing.expect_value(t, export_command(.Print), Command_Id.Export_Print)
+	testing.expect_value(t, export_command(.Print_OBJ), Command_Id.Export_Print)
+	testing.expect_value(t, export_command(.Link), Command_Id.Send_To_Blender)
 	for f in Export_Format {
 		filter, mesh := export_filter(f)
 		testing.expectf(t, mesh == (export_command(f) == .Export_Mesh), "%v", f)
@@ -29,6 +31,7 @@ export_names_and_sizes :: proc(t: ^testing.T) {
 	a: App
 	testing.expect_value(t, export_file_name(&a, .STL), "Untitled.stl")
 	testing.expect_value(t, export_file_name(&a, .Print), "Untitled.stl")
+	testing.expect_value(t, export_file_name(&a, .Print_OBJ), "Untitled.obj")
 	a.scene_path = "/scenes/my head.sculpt"
 	testing.expect_value(t, export_file_name(&a, .GLTF), "my head.glb")
 	testing.expect_value(t, export_file_name(&a, .Scene), "my head.sculpt")
@@ -62,4 +65,46 @@ export_commands_live_in_the_sheet :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, LENS_MENU_PLACE[.Send_To_Blender], Lens_Submenu.More)
 	testing.expect_value(t, LENS_MENU_PLACE[.Workspace_Export], Lens_Submenu.Workspaces)
+}
+
+// Every preset offers formats that belong to it, and every format but the pictures'
+// own is in exactly the presets that name it; a format from a settings file before the
+// presets settles into the first preset that offers it.
+@(test)
+export_presets_hold_their_formats :: proc(t: ^testing.T) {
+	for p in Export_Preset {
+		testing.expectf(t, len(export_preset_formats(p)) > 0, "%v offers nothing", p)
+	}
+	for f in Export_Format {
+		held := false
+		for p in Export_Preset do held ||= export_preset_has(p, f)
+		testing.expectf(t, held || (f == .Link && !LINK_AVAILABLE), "no preset offers %v", f)
+	}
+	s := Export_Sheet{preset = .Print, format = .STL}
+	export_settle(&s)
+	testing.expect_value(t, s.preset, Export_Preset.Formats)
+	s = {preset = .Print, format = .USD}
+	export_settle(&s)
+	testing.expect_value(t, s.preset, Export_Preset.Blender)
+	s = {preset = .Print, format = .Print}
+	export_settle(&s)
+	testing.expect_value(t, s.preset, Export_Preset.Print)
+}
+
+// A preset comes back on the format it had, and on its first before it had one; the
+// head names what ran last.
+@(test)
+export_presets_remember_their_format :: proc(t: ^testing.T) {
+	s := Export_Sheet{preset = .Print, format = .Print}
+	s.format = .Print_OBJ
+	export_preset_pick(&s, .Game)
+	testing.expect_value(t, s.format, Export_Format.GLTF)
+	export_preset_pick(&s, .Picture)
+	testing.expect_value(t, s.format, Export_Format.Screenshot)
+	export_preset_pick(&s, .Print)
+	testing.expect_value(t, s.format, Export_Format.Print_OBJ)
+	testing.expect_value(t, export_last_label(.Game, .GLTF), "Last time: glTF for the game engine")
+	testing.expect_value(t, export_last_label(.Print, .Print), "Last time: STL for 3D printing")
+	testing.expect_value(t, export_last_label(.Formats, .Scene), "Last time: Sculpt scene")
+	free_all(context.temp_allocator)
 }

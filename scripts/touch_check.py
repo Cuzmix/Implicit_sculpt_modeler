@@ -4512,13 +4512,14 @@ def lens_settings_sections_and_search():
     return Steps([run(False), run(True)])
 
 
-# The Export sheet at 1440x900: the Menu's Export... row, the STL and 3D print format rows.
-LENS_EXPORT = {"menu_row": (120, 482), "stl": (480, 268), "print": (480, 508)}
+# The Export sheet at 1440x900: the Menu's Export... row, the Game engine preset card and
+# the second of a preset's format tabs (OBJ for the game engine).
+LENS_EXPORT = {"menu_row": (120, 482), "game": (490, 220), "second_format": (623, 332)}
 
 
 @scenario
 def lens_export_sheet_picks_a_format():
-    """Menu > Export... opens the Export sheet on the scene; a tap on STL picks it, and Esc closes the sheet keeping the format; Ctrl+E opens it again on STL."""
+    """Menu > Export... opens the Export sheet on its first preset, a 3D print as STL; a tap on Game engine picks it on glTF and its OBJ tab picks OBJ, and Esc closes the sheet keeping both; Ctrl+E opens it again on the game engine's OBJ."""
     def run(again):
         s = Script()
         s.ftap(*LENS_MENU)
@@ -4526,15 +4527,43 @@ def lens_export_sheet_picks_a_format():
         s.ftap(*LENS_EXPORT["menu_row"])
         s.wait(8)
         if not again:
-            return s, LENS_1440, camera_still({"export_open": near(1), "export_format": is_text("Scene"), "dabs": near(0)})
-        s.ftap(*LENS_EXPORT["stl"])
+            return s, LENS_1440, camera_still({"export_open": near(1), "export_preset": is_text("Print"), "export_format": is_text("Print"), "dabs": near(0)})
+        s.ftap(*LENS_EXPORT["game"])
+        s.wait(6)
+        s.ftap(*LENS_EXPORT["second_format"])
         s.wait(6)
         s.press("Escape")
         s.wait(4)
         s.press("e", ("ctrl",))
         s.wait(6)
-        return s, LENS_1440, camera_still({"export_open": near(1), "export_format": is_text("STL"), "export_runs": near(0), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"export_open": near(1), "export_preset": is_text("Game"), "export_format": is_text("OBJ"),
+                                           "export_runs": near(0), "export_last": is_text("none"), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+# The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
+# cut in half.
+EXPORT_CHECKS = {"repair": (1136, 502)}
+
+
+@scenario
+def export_sheet_checks_a_print():
+    """The Export sheet opens on the 3D print and checks it: a whole sphere is watertight with no holes and a wall its width across (2 units); cut in half it has one hole and open edges and no wall to measure, and Repair on the holes' row closes it in one undo step, after which it is checked again and the wall is measured."""
+    def run(step):
+        s = Script()
+        s.wait(4)
+        s.press("e", ("ctrl",))
+        s.wait(12)
+        if step == 0:
+            return s, LENS_1440, camera_still({"export_preset": is_text("Print"), "print_checks": near(1), "print_holes": near(0), "print_open_edges": near(0),
+                                               "print_wall": near(2, 0.02), "dabs": near(0)})
+        if step == 1:
+            return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_holes": near(1), "print_open_edges": lambda v: int(v) > 0, "print_wall": near(0), "dabs": near(0)})
+        s.ftap(*EXPORT_CHECKS["repair"])
+        s.wait(12)
+        return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_checks": lambda v: int(v) >= 2, "print_holes": near(0), "print_open_edges": near(0),
+                                                                      "print_wall": lambda v: float(v) > 0, "export_open": near(1), "dabs": near(0)})
+    return Steps([run(0), run(1), run(2)])
 
 
 # Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
