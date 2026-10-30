@@ -1939,6 +1939,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	sets := 0
 	for obj in app.scene.objects do sets += len(sculpt.levels_sets(&obj.levels))
 	fmt.printfln("selection_sets=%d sets_noted=%d", sets, app.sets_noted)
+	fmt.printfln("peak_rss_mb=%.0f", peak_rss_mb())
 	layers := 0
 	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
 	// The selected object's picked layer's strength, as the Layers panel shows it.
@@ -2108,4 +2109,22 @@ write_ppm :: proc(path: string, rgba: []u8, width, height: int) -> bool {
 	append(&out, ..transmute([]u8)fmt.tprintf("P6\n%d %d\n255\n", width, height))
 	for i := 0; i < len(rgba); i += 4 do append(&out, rgba[i], rgba[i + 1], rgba[i + 2])
 	return os.write_entire_file(path, out[:]) == nil
+}
+
+// The most memory the process has held, in MB, as the kernel counted it: from
+// /proc/self/status on Linux and Android, 0 where there is no such file (scripts that
+// measure a run, such as scripts/remesh_check.py, read it from the exit stats).
+peak_rss_mb :: proc() -> f64 {
+	when ODIN_OS == .Linux {
+		data, err := os.read_entire_file("/proc/self/status", context.temp_allocator)
+		if err != nil do return 0
+		text := string(data)
+		for line in strings.split_lines_iterator(&text) {
+			if strings.has_prefix(line, "VmHWM:") {
+				fields := strings.fields(line, context.temp_allocator)
+				if kb, ok := strconv.parse_f64(fields[1]); ok do return kb / 1024
+			}
+		}
+	}
+	return 0
 }

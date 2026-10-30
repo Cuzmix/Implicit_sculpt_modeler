@@ -670,3 +670,42 @@ remesh_closes_a_gap_thinner_than_a_cell :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, refused == 0, "%d gaps refused their quads", refused)
 }
+
+// A mesh whose edges do not pair off is mended before the rays: a doubled triangle (the
+// winding behind it two, so a ray through it never comes back out) and one turned against
+// its neighbours each remesh as the plain sphere does, the report counting what was mended,
+// with Quads too.
+@(test)
+remesh_mends_a_doubled_or_turned_triangle :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	ball := f32(4 * math.PI / 3)
+	for turned in ([2]bool{false, true}) {
+		m := icosphere(3)
+		defer mesh_destroy(&m)
+		if turned {
+			m.indices[1], m.indices[2] = m.indices[2], m.indices[1]
+		} else {
+			append(&m.indices, m.indices[0], m.indices[1], m.indices[2])
+		}
+		testing.expect(t, !mesh_edges_paired(m, &pool), "the fixture's edges should not pair")
+		area, bounds := mesh_area_bounds(m, &pool)
+		for quads in ([2]bool{false, true}) {
+			report: Remesh_Report
+			defer remesh_report_destroy(&report)
+			out, ok := remesh_voxel_measured(m, area, bounds, 4000, &pool, options = {smooth = REMESH_SMOOTH_DEFAULT, quads = quads}, report = &report)
+			defer mesh_destroy(&out)
+			testing.expectf(t, ok, "turned %v quads %v: remesh failed", turned, quads)
+			testing.expectf(t, report.mended == 1 && report.holes_closed == 0, "turned %v quads %v: %d mended, %d holes closed", turned, quads, report.mended, report.holes_closed)
+			expect_closed_manifold(t, out)
+			if quads do expect_quads_closed_manifold(t, out, report.quads)
+			h := remesh_spacing(m, 4000)
+			worst: f32
+			for p in out.positions do worst = max(worst, abs(linalg.length(p) - 1))
+			testing.expectf(t, worst < 0.6 * h, "turned %v quads %v: a vertex is %v off the sphere, h = %v", turned, quads, worst, h)
+			v := remesh_volume(out)
+			testing.expectf(t, v > 0.95 * ball && v < 1.02 * ball, "turned %v quads %v: volume %.3f of %.3f", turned, quads, v, ball)
+		}
+	}
+}
