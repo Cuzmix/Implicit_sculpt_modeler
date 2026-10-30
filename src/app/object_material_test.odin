@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:os"
 import "core:testing"
 
 import "../geom"
@@ -204,4 +205,29 @@ a_material_scrub_keeps_or_puts_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.material_keeps, 1)
 	material_command(&app, {}, .Selection, .Back)
 	testing.expect_value(t, objs[0].material, MATERIALS[gold])
+}
+
+// The Material card's favourites toggle on and off in the order added, and settings.txt
+// keeps them, a pack's part by its name.
+@(test)
+material_favorites_are_remembered :: proc(t: ^testing.T) {
+	path := "build/material_favorites_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	mc := &a.kit.material_card
+	testing.expect(t, material_favorite_toggle(mc, "Gold"))
+	testing.expect(t, material_favorite_toggle(mc, "Red wax MatCap"))
+	testing.expect(t, material_favorite_toggle(mc, "matcap:stone pack/Basalt"))
+	testing.expect(t, !material_favorite_toggle(mc, "Red wax MatCap"))
+	testing.expect_value(t, mc.favorite_count, 2)
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	got := &b.kit.material_card
+	testing.expect_value(t, got.favorite_count, 2)
+	testing.expect_value(t, material_favorite(got, "Gold"), 0)
+	testing.expect_value(t, material_favorite(got, "matcap:stone pack/Basalt"), 1)
+	testing.expect_value(t, material_favorite(got, "Red wax MatCap"), -1)
 }

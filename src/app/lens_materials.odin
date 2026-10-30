@@ -14,7 +14,10 @@ import "../ui"
 // the finger, sliding off the grid puts back what the objects had (Material_Preview). Under
 // the grid, Apply to says which objects take it: the selected ones, the selected one's
 // folder, or every object. Matcaps has Import (Load MatCap) by its head; Materials has
-// Roughness for a lit material; Environment is the Environment section.
+// Roughness for a lit material; Environment is the Environment section. Holding a sphere
+// (a long press, a right click or the pen's side button) adds it to the favourites or
+// takes it off, a star on its corner; Favourites over the grid shows only those, as the
+// brush browser's Favorites does, and settings.txt keeps them (material_favorite).
 
 // Materials first: the Render workspace, where the card shows, lights its objects.
 Material_Tab :: enum u8 {
@@ -35,6 +38,8 @@ MATERIAL_TAB_NAMES := [Material_Tab]string {
 MATERIAL_ACROSS :: 4
 MATERIAL_GAP :: 8
 MATERIAL_LABEL_H :: 18
+// How many spheres the favourites hold, of both tabs together.
+MATERIAL_FAVORITES :: 32
 
 // KIT_MATCAP_IMAGE + a Material.matcap value is that MatCap's picture, for kit_draws.
 KIT_MATCAP_IMAGE :: KIT_LAYER_PICTURES_IMAGE + 1
@@ -47,6 +52,12 @@ Material_Card :: struct {
 	pressing: bool,
 	shown:    int,
 	label:    string, // what the shown sphere is called, for the line under the grid (not owned)
+	// The favourite spheres by material_ball_key, in the order added, and whether the grid
+	// shows only them.
+	favorites:      [MATERIAL_FAVORITES]Brush_Key,
+	favorite_count: int,
+	only_favorites: bool,
+	favorite_changes: int, // for the exit stats
 }
 
 // One sphere of a grid: the material it puts on and its name.
@@ -76,12 +87,20 @@ kit_lens_material :: proc(app: ^App) {
 	sel := selected_object(app)
 	m := object_material(app, sel) if sel != nil else current_material(app)
 	balls := material_balls(app, mc.tab)
+	// The head: Favourites or All, and on Matcaps, Import.
+	ui.begin(ctx, "material card head", {direction = .Row, gap = 6, center = true, width = width})
+	shows := [2]string{"Favourites", "All"}
+	shown_w := ui.row_room(ctx) - (100 + 6 if mc.tab == .Matcaps else 0)
+	if picked := ui.tabs(ctx, "material card shows", shows[:], 1 if !mc.only_favorites else 0, item_width = (shown_w - 8) / 2); picked >= 0 do mc.only_favorites = picked == 0
 	if mc.tab == .Matcaps {
-		ui.begin(ctx, "material card matcaps head", {direction = .Row, gap = 6, center = true, width = width})
-		ui.label(ctx, fmt.tprintf("%d MatCaps", len(balls)), t.small_size, t.text_secondary)
-		ui.spacer(ctx, ui.row_room(ctx) - 100 - 6)
 		if ui.button(ctx, "Import##material card", .Bordered, glyph = ui.ICON_IMAGE, width = 100) do file_dialog(app, .Matcap)
-		ui.end(ctx)
+	}
+	ui.end(ctx)
+	if mc.only_favorites {
+		kept := make([dynamic]Material_Ball, 0, len(balls), context.temp_allocator)
+		for b in balls do if material_favorite(mc, material_ball_key(app, b)) >= 0 do append(&kept, b)
+		balls = kept[:]
+		if len(balls) == 0 do ui.paragraph(ctx, "No favourites here yet: hold a sphere under All (or right-click it) to add it.")
 	}
 	material_grid(app, balls, m, width)
 	if mc.pressing {
@@ -166,6 +185,17 @@ material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32
 				ui.fill_ball(ctx, c, r, material_swatch(b.material))
 			}
 			if on do ui.stroke_circle(ctx, c, r + 3, t.accent, 2)
+			key := material_ball_key(app, b)
+			if material_favorite(mc, key) >= 0 {
+				// On a disc of the card's colour, so it reads over any sphere.
+				at := [2]f32{c.x + r * 0.74, c.y - r * 0.74}
+				ui.fill_circle(ctx, at, 9, t.surface)
+				ui.icon(ctx, ui.ICON_STAR, at, t.icon_small - 4, MATERIAL_STAR_COLOR)
+			}
+			if ui.secondary(ctx) {
+				added := material_favorite_toggle(mc, key)
+				report(app, nil, {.Quiet}, "%s %s the favourites", b.label, "added to" if added else "taken off")
+			}
 			name := ui.text_fit(ctx, b.label, t.caption_size, side)
 			ui.text(ctx, name, c.x, a.rect.y + side + MATERIAL_LABEL_H * 0.5 - 2, t.caption_size, t.accent if on else t.text_secondary, .Regular, .Center)
 			ui.tip(ctx, a.id, a.rect, b.label)
@@ -189,6 +219,43 @@ material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32
 	} else if mc.pressing {
 		material_scrub_end(app, true)
 	}
+}
+
+// The favourite star's gold, as the mock draws it.
+MATERIAL_STAR_COLOR :: ui.Color{243, 181, 74, 255}
+
+// What names ball `b` in the favourites: a preset's or built-in MatCap's label, "Custom",
+// "Imported", or a content pack's part as `material:<id>/<name>` or `matcap:<id>/<stem>`.
+@(private = "file")
+material_ball_key :: proc(app: ^App, b: Material_Ball) -> string {
+	m := b.material
+	refs := material_refs(app, m)
+	switch {
+	case refs.material != "":       return fmt.tprintf("material:%s", refs.material)
+	case refs.matcap != "":         return fmt.tprintf("matcap:%s", refs.matcap)
+	case m.matcap == MATCAP_IMAGE:  return "Imported"
+	}
+	return string(m.label) if m.label != nil else "Custom"
+}
+
+// Where `key` is among the favourites, or -1.
+material_favorite :: proc(mc: ^Material_Card, key: string) -> int {
+	for &k, i in mc.favorites[:mc.favorite_count] do if brush_key_text(&k) == key do return i
+	return -1
+}
+
+// Adds `key` to the favourites, or takes it off when it is one; true when it was added.
+material_favorite_toggle :: proc(mc: ^Material_Card, key: string) -> bool {
+	mc.favorite_changes += 1
+	if i := material_favorite(mc, key); i >= 0 {
+		copy(mc.favorites[i:], mc.favorites[i + 1:mc.favorite_count])
+		mc.favorite_count -= 1
+		return false
+	}
+	if key == "" || mc.favorite_count == MATERIAL_FAVORITES do return false
+	brush_key_set(&mc.favorites[mc.favorite_count], key)
+	mc.favorite_count += 1
+	return true
 }
 
 // Ends a scrub: keeps the material shown (`keep`, and one is shown), or puts back what
