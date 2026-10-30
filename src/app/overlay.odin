@@ -66,6 +66,17 @@ overlay_box :: proc(o: Overlay, a, b: [2]f32, color, fill: ui.Color, width: f32)
 	overlay_polyline(o, corners[:], color, width, closed = true)
 }
 
+// The rounded box between corners `lo` and `hi` (lo the smaller), filled when `fill`
+// shows and outlined `width` thick when `color` does; the radius is in window
+// coordinates, as widths are.
+overlay_rect :: proc(o: Overlay, lo, hi: [2]f32, radius: f32, fill, color: ui.Color, width: f32) {
+	a, b := at(o, lo), at(o, hi)
+	r := ui.Rect{a.x, a.y, b.x - a.x, b.y - a.y}
+	if r.w <= 0 || r.h <= 0 do return
+	if fill.a > 0 do ui.fill_rect(o.ctx, r, radius / o.scale, fill)
+	if color.a > 0 && width > 0 do ui.stroke_rect(o.ctx, r, radius / o.scale, color, width / o.scale)
+}
+
 // `s` on a dark plate centred on `center`, since the surface behind is often light.
 overlay_label :: proc(o: Overlay, s: string, center: [2]f32) {
 	ctx := o.ctx
@@ -143,6 +154,7 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 	k := &app.kit
 	ctx := &k.ctx
 	o := Overlay{ctx, k.scale, app.ui.viewport_origin}
+	flash_selection_frame(app)
 	if layer, ok := k.layer.?; ok {
 		k.layer = nil
 		from := ui.layer_begin(ctx)
@@ -159,6 +171,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		lo, hi := edge_inner(app)
 		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
 	}
+	draw_flashes(app, o, input.size)
 	draw_pivot(app, o, input.size)
 	draw_hold_history(app, o)
 	draw_light_markers(app, o, input.size)
