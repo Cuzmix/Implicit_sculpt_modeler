@@ -177,6 +177,9 @@ autosave_init :: proc(app: ^App, interactive: bool, seconds: f64, folder: string
 		a.on = false
 		return
 	}
+	// The iPad backs the preference folder up to iCloud, and recovery copies of whole scenes
+	// do not belong there (sm-store); a folder that cannot be marked is still autosaved into.
+	when ODIN_PLATFORM_SUBTARGET_IOS do _ = sculpt_ios_exclude_from_backup(strings.clone_to_cstring(dir, context.temp_allocator))
 	a.folder = strings.concatenate({strings.trim_right(dir, "/\\"), filepath.SEPARATOR_STRING})
 	now := unix_now()
 	a.session = fmt.aprintf("%d-%04x", now, u16(time.tick_now()._nsec))

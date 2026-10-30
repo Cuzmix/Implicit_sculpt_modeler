@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The iPad app's privacy manifest, copied into Sculpt.app by `./build.sh ios`. The app
+	tracks no one and collects nothing (sm-store: no data leaves the device), so the only
+	entries are the "required reason" APIs the binary calls, its libraries included:
+	- File timestamps: the app reads when a scene, an autosave or an earlier save was last
+	  written (src/app/versions.odin, autosave.odin, lens_menu.odin), in its own container
+	  (C617.1) and in files and folders the person picked in the document picker (3B52.1).
+	- System boot time: SDL's timers count with mach_absolute_time for elapsed time, frame
+	  pacing and input timestamps (35F9.1).
+	- User defaults: SDL's UIKit driver reads the app's own standardUserDefaults (CA92.1).
+	A new call into any of these categories, or into disk space, adds its entry here.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

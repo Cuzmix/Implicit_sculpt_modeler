@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios|all|clean] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios|iosupload|all|clean] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -28,9 +28,12 @@
 #   androidrun the same, then install it on the device adb sees and start it
 #   iphonecheck compile the app for the iPad (arm64) to an object file, as `ios` does,
 #           without Xcode or linking, so iOS-only compile errors show up anywhere
-#   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into an
-#           unsigned build/ios/Sculpt.ipa, which AltStore signs on the iPad
+#   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into
+#           build/ios/Sculpt.ipa, unsigned for AltStore to sign on the iPad, or signed for
+#           TestFlight and the App Store when SCULPT_SIGN_IDENTITY and SCULPT_PROFILE are set
 #           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
+#   iosupload macOS only: send the signed build/ios/Sculpt.ipa to App Store Connect for
+#           TestFlight (ASC_KEY_ID, ASC_ISSUER_ID and the API key's .p8)
 #   all     everything that builds, stopping at the first failure: check, release, then
 #           debug (build/sculpt is left as the debug app), test, iphonecheck, wincheck,
 #           androidcheck, and the Android APK when the Android SDK is there; smoke and the
@@ -270,9 +273,71 @@ case "$mode" in
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
+		# The App Store's upload checks name the SDK and Xcode an app was built with, keys Xcode
+		# writes into every app it builds; this build is Xcode's clang without its project, so
+		# they are written here from the same tools.
+		sdk_version=$(xcrun -sdk iphoneos --show-sdk-version)
+		sdk_build=$(xcrun -sdk iphoneos --show-sdk-build-version)
+		# DTXcode is the version's digits, major then minor then patch: 26.0 is 2600.
+		xcode_version=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\)\.\([0-9]\)\(\.\([0-9]\)\)\{0,1\}.*/\1\2\40/p' | cut -c1-4)
+		xcode_build=$(xcodebuild -version | sed -n 's/^Build version //p')
+		plutil -replace DTPlatformName -string iphoneos "$app/Info.plist"
+		plutil -replace DTPlatformVersion -string "$sdk_version" "$app/Info.plist"
+		plutil -replace DTPlatformBuild -string "$sdk_build" "$app/Info.plist"
+		plutil -replace DTSDKName -string "iphoneos$sdk_version" "$app/Info.plist"
+		plutil -replace DTSDKBuild -string "$sdk_build" "$app/Info.plist"
+		plutil -replace DTXcode -string "$xcode_version" "$app/Info.plist"
+		plutil -replace DTXcodeBuild -string "$xcode_build" "$app/Info.plist"
+		plutil -replace DTCompiler -string com.apple.compilers.llvm.clang.1_0 "$app/Info.plist"
+		plutil -replace BuildMachineOSBuild -string "$(sw_vers -buildVersion)" "$app/Info.plist"
+		# The app icon: an asset catalog made here from the one 1024-point picture
+		# (assets/icon/sculpt-1024.png), which Xcode's actool turns into the icon files and the
+		# CFBundleIcons keys merged into Info.plist; the App Store refuses an app without one.
+		icon="$ROOT/assets/icon/sculpt-1024.png"
+		[ -f "$icon" ] || { echo "app icon missing: $icon"; exit 1; }
+		rm -rf "$out/Assets.xcassets"
+		mkdir -p "$out/Assets.xcassets/AppIcon.appiconset"
+		cp "$icon" "$out/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+		printf '{"info":{"author":"xcode","version":1}}\n' > "$out/Assets.xcassets/Contents.json"
+		printf '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}\n' \
+			> "$out/Assets.xcassets/AppIcon.appiconset/Contents.json"
+		xcrun actool "$out/Assets.xcassets" --compile "$app" --platform iphoneos --target-device ipad \
+			--minimum-deployment-target "$IOS_MIN" --app-icon AppIcon --output-partial-info-plist "$out/icon.plist" \
+			--errors --warnings --output-format human-readable-text
+		/usr/libexec/PlistBuddy -c "Merge $out/icon.plist" "$app/Info.plist"
 		plutil -lint "$app/Info.plist"
+		# The privacy manifest: the "required reason" APIs the app and SDL call (sm-store).
+		cp "$ROOT/ios/PrivacyInfo.xcprivacy" "$app/PrivacyInfo.xcprivacy"
+		plutil -lint "$app/PrivacyInfo.xcprivacy"
+		if [ -n "${SCULPT_SIGN_IDENTITY:-}" ]; then
+			# Signed for TestFlight and the App Store: the distribution certificate named by
+			# SCULPT_SIGN_IDENTITY (in the keychain) and the App Store provisioning profile at
+			# SCULPT_PROFILE, whose entitlements the signature carries. A store build is never
+			# a developer build (sm-store: no debug panels reachable).
+			[ "${SCULPT_DIAGNOSTICS:-}" != 1 ] || { echo "a signed store build cannot be a developer build: unset SCULPT_DIAGNOSTICS"; exit 1; }
+			[ -f "${SCULPT_PROFILE:-}" ] || { echo "SCULPT_PROFILE must name the App Store provisioning profile (.mobileprovision)"; exit 1; }
+			cp "$SCULPT_PROFILE" "$app/embedded.mobileprovision"
+			security cms -D -i "$SCULPT_PROFILE" > "$out/profile.plist"
+			/usr/libexec/PlistBuddy -x -c "Print :Entitlements" "$out/profile.plist" > "$out/entitlements.plist"
+			codesign --force --sign "$SCULPT_SIGN_IDENTITY" --entitlements "$out/entitlements.plist" --generate-entitlement-der "$app"
+			codesign --verify --strict "$app"
+		fi
 		(cd "$out" && rm -f Sculpt.ipa && zip -qry Sculpt.ipa Payload)
-		echo "ios: build/ios/Sculpt.ipa (unsigned; AltStore signs it on the iPad)"
+		if [ -n "${SCULPT_SIGN_IDENTITY:-}" ]; then
+			echo "ios: build/ios/Sculpt.ipa (signed for the App Store; build ${BUILD_NUMBER:-1})"
+		else
+			echo "ios: build/ios/Sculpt.ipa (unsigned; AltStore signs it on the iPad)"
+		fi
+		;;
+	iosupload)
+		# Sends build/ios/Sculpt.ipa, signed for the App Store by `ios`, to App Store Connect,
+		# where it shows in TestFlight once Apple has processed it. The App Store Connect API
+		# key's id and issuer come from ASC_KEY_ID and ASC_ISSUER_ID, and altool reads the key
+		# itself from ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8.
+		[ "$(uname)" = Darwin ] || { echo "iosupload needs macOS with Xcode"; exit 1; }
+		[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] || { echo "set ASC_KEY_ID and ASC_ISSUER_ID (App Store Connect > Users and Access > Integrations)"; exit 1; }
+		[ -f "$ROOT/build/ios/Sculpt.ipa" ] || { echo "no build/ios/Sculpt.ipa: run SCULPT_SIGN_IDENTITY=... SCULPT_PROFILE=... ./build.sh ios first"; exit 1; }
+		xcrun altool --upload-app --type ios --file "$ROOT/build/ios/Sculpt.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 		;;
 	*) echo "unknown mode: $mode"; exit 1 ;;
 esac
