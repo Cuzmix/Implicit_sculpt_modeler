@@ -26,7 +26,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 - Culling (`src/geom/visibility.odin`): `Chunk{bounds, cone_axis, cone_cutoff, first_index, index_count}` with
   `cone_cutoff >= 1` meaning never back-face culled; `CONE_SLACK = 0.01`; `normal_cone` normalises its input in place
   (`:35-52`); `frustum_planes(clip)` leaves the planes unnormalised (`:57`); `chunk_backfacing` is conservative, by the
-  bounding sphere (`:83-92`); `cull_chunks` needs chunks sorted by `first_index` and merges adjacent ranges (`:94-114`); `cull_chunks_grouped` skips whole `CHUNK_GROUP` (64) runs by `chunk_group` bounds and union cone, same output;
+  bounding sphere (`:83-92`); `cull_chunks` needs chunks sorted by `first_index` and merges adjacent ranges (`:94-114`); `cull_chunks_grouped` skips whole `CHUNK_GROUP` (64) runs by `chunk_group` bounds and union cone, same output; `cull_chunks_grouped_parallel` tests the groups serially, then the passing groups' chunks on the pool (16 groups a job, joined in order with `append_range`) when they hold `CULL_PARALLEL_CHUNKS` or more, same output (the renderer's path; `cull_lod` stays serial, measured slower wide);
   `oct_encode`/`oct_decode` stay under 0.01° (`:133, 168`); `oct_encode_masked(n, mask)` keeps the top 12 bits of each
   half for the normal and carries the mask's two nibbles in the low 4 bits, about 0.1° (`:149`; `oct_masked_decode`
   for tests, `:161`). The renderer packs every normal with it (sm-render).

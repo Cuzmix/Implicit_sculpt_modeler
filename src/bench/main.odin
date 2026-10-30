@@ -191,8 +191,8 @@ main :: proc() {
 		run(c.vertices, c.meshes, pool)
 	}
 	fmt.println()
-	fmt.println("| Vertices | GPU MB | View | Chunks | Triangles drawn | Draws | Cull ms, chunk by chunk | Cull ms, by groups |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Vertices | GPU MB | View | Chunks | Triangles drawn | Draws | Cull ms, chunk by chunk | Cull ms, by groups | Cull ms, by groups in parallel |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 	for row in cull_rows do fmt.println(row)
 	if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 }
@@ -291,12 +291,12 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 			touched_total / DABS, median(raycast), median(dab), median(flush), median(frame), slice.max(frame),
 			f64(upload_bytes) / f64(frames) / (1 << 20), end_ms, undo_mb, undo_ms, redo_ms)
 	}
-	if mesh_count == 1 do bench_culling(s, vcount, tcount)
+	if mesh_count == 1 do bench_culling(s, vcount, tcount, pool)
 }
 
 // Culls the sculpted sphere from the app's default camera, a close-up of the stroked
 // area, and a detail view almost touching the surface, as the renderer would.
-bench_culling :: proc(s: ^sculpt.Sculptor, vcount, tcount: int) {
+bench_culling :: proc(s: ^sculpt.Sculptor, vcount, tcount: int, pool: ^jobs.Pool) {
 	gpu_mb := f64(vcount * VERTEX_BYTES + tcount * 3 * 4 + len(s.chunks) * INDIRECT_BYTES) / (1 << 20)
 	views := [3]struct {
 		name:     string,
@@ -309,8 +309,9 @@ bench_culling :: proc(s: ^sculpt.Sculptor, vcount, tcount: int) {
 		c.yaw, c.pitch, c.distance = 0, 0.1, v.distance
 		view := camera.orbit_view(c)
 		proj := camera.orbit_proj(c, 16.0 / 9.0)
-		// Chunk by chunk, then a group at a time, which must give the same ranges.
-		best, grouped := max(f64), max(f64)
+		// Chunk by chunk, then a group at a time, then groups spread over the pool, which
+		// must all give the same ranges.
+		best, grouped, parallel := max(f64), max(f64), max(f64)
 		stats: geom.Cull_Stats
 		groups := sculpt.sculptor_chunk_groups(s)
 		for _ in 0 ..< 5 {
@@ -324,11 +325,16 @@ bench_culling :: proc(s: ^sculpt.Sculptor, vcount, tcount: int) {
 			_ = geom.cull_chunks_grouped(s.chunks, groups, proj * view, camera.orbit_eye(c), &out)
 			grouped = min(grouped, time.duration_milliseconds(time.tick_since(t)))
 			assert(slice.equal(flat, out[:]), "culling by groups drew different chunks")
+			clear(&out)
+			t = time.tick_now()
+			_ = geom.cull_chunks_grouped_parallel(pool, s.chunks, groups, proj * view, camera.orbit_eye(c), &out)
+			parallel = min(parallel, time.duration_milliseconds(time.tick_since(t)))
+			assert(slice.equal(flat, out[:]), "culling by groups in parallel drew different chunks")
 		}
 		drawn := 0
 		for r in out do drawn += int(r.index_count / 3)
-		append(&cull_rows, fmt.aprintf("| %s | %.0f | %s | %d | %.0f%% (%s) | %d | %.3f | %.3f |",
-			thousands(vcount), gpu_mb, v.name, stats.chunks, 100 * f64(drawn) / f64(tcount), thousands(drawn), len(out), best, grouped))
+		append(&cull_rows, fmt.aprintf("| %s | %.0f | %s | %d | %.0f%% (%s) | %d | %.3f | %.3f | %.3f |",
+			thousands(vcount), gpu_mb, v.name, stats.chunks, 100 * f64(drawn) / f64(tcount), thousands(drawn), len(out), best, grouped, parallel))
 	}
 }
 
