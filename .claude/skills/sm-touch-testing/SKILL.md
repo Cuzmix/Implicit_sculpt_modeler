@@ -82,6 +82,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | rests on or long-presses a History step to see what it changed | `history_tint_shows_what_a_step_changed` |
 | opens the History panel's Settings page and goes back to the steps | `history_settings_page_from_the_list` |
 | the Layers panel: swipe opens Merge down and Delete, strength dragged in place, the layer menu, the tint and pictures | `layers_panel_swipe_opens_merge_and_delete`, `layers_panel_strength_drags_in_place`, `layers_panel_menu_and_tint`, `lens_layers_card_records_and_picks` |
+| the outliner (Scene card): Add menu, kind chips, a row's dots, a light's eye, Group on the selection, Find | `outliner_add_menu_adds_a_cube`, `outliner_kind_chips_show_one_kind`, `outliner_dots_open_the_object_menu`, `outliner_light_row_switches_a_light`, `outliner_group_takes_the_selection`, `lens_scene_card_finds_by_name`, `lens_scene_card_locks_an_object` |
 | draws step pictures, shows them in the list (switch) and in the strip's card | `history_steps_get_pictures`, `strip_rest_shows_a_step_picture` |
 | scrubs the History by holding Undo and sliding (finger, mouse), or two fingers held until they undo and then slid | `hold_undo_and_slide_scrubs`, `hold_undo_slide_and_back_redoes`, `mouse_drag_off_undo_scrubs`, `two_fingers_held_then_slid_scrub`, `two_fingers_scrub_off_only_undoes` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
