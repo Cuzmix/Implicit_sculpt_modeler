@@ -374,6 +374,15 @@ App :: struct {
 	saving_at:  f64, // the interface time it started waiting
 	versions_kept: i32, // earlier saves kept beside a scene file (versions.odin), 0 for none
 	undo_steps:    i32, // undo steps the History keeps (history_cap), 0 for no limit but memory's
+	// The History's settings (History panel > Settings, Settings > Files): the memory it may
+	// use in MB (0 for the stores' own limits), whether light and scene tree changes stay out
+	// of it, whether undo puts the camera back as the step had it, and whether the list
+	// leaves repeated strokes apart. Each off is the default, so a fresh App is as before.
+	history_limit_mb:  i32,
+	history_no_lights: bool,
+	history_no_tree:   bool,
+	history_camera:    bool,
+	history_ungrouped: bool,
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
@@ -1786,7 +1795,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(&app)
-		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}))
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb)
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {

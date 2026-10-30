@@ -652,6 +652,13 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 		what = "Move folder"
 	}
 	scene_folders_normalize(app)
+	if what != "" && app.history_no_tree {
+		// History > Settings keeps the tree's own changes (names, folders, order) out of the
+		// History; the scene still changed, for the autosave.
+		layout_free(before)
+		app.history.edits += 1
+		return
+	}
 	if what == "" || !history_record_arrange(app, before, what) {
 		if what == "" do layout_free(before)
 		return

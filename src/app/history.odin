@@ -38,6 +38,10 @@ History :: struct {
 	// first row.
 	began:   time.Tick,
 	dropped: int,
+	// The memory limit last given to every store (history_limits_apply), and the bookmarked
+	// step the limits last stopped at, whose note is not said again.
+	limit_mb: int,
+	held_at:  time.Tick,
 }
 
 History_Entry :: struct {
@@ -250,13 +254,67 @@ history_step_count :: proc(list: []History_Entry) -> int {
 	return n
 }
 
-// Drops the oldest steps of the History beyond App.undo_steps, once a frame before
-// anything reads it, and not while a stroke, a drag or the timeline is under way (it
-// counts the steps it walks).
+// The choices of History may use (App.history_limit_mb, History > Settings); 0 leaves each
+// store its own limit.
+HISTORY_LIMITS := [?]i32{0, 256, 512, 1024, 2048, 4096, 8192}
+HISTORY_LIMITS_NAMES := [?]string{"Automatic", "256 MB", "512 MB", "1 GB", "2 GB", "4 GB", "8 GB"}
+
+// Drops the oldest steps of the History beyond App.undo_steps, and while it holds more
+// than History may use, once a frame before anything reads it, and not while a stroke, a
+// drag or the timeline is under way (it counts the steps it walks). Neither goes past a
+// bookmarked step: the limit waits there and a note says so once, since a bookmark is a
+// step kept on purpose.
 history_cap :: proc(app: ^App) {
-	limit := int(app.undo_steps)
-	if limit <= 0 || history_busy(app) || timeline_busy(app) do return
-	if n := history_step_count(app.history.done[:]); n > limit do _ = history_drop_oldest(app, n - limit)
+	if history_busy(app) || timeline_busy(app) do return
+	history_limits_apply(app)
+	if limit := int(app.undo_steps); limit > 0 {
+		if n := history_step_count(app.history.done[:]); n > limit do _ = history_drop_unmarked(app, n - limit)
+	}
+	if app.history_limit_mb <= 0 do return
+	cap_bytes := int(app.history_limit_mb) << 20
+	for {
+		bytes, _ := history_memory(app)
+		if bytes <= cap_bytes || history_step_count(app.history.done[:]) <= 1 do break
+		if history_drop_unmarked(app, 1) == 0 do break
+	}
+}
+
+// With a memory limit set, every store takes it as its own (the sculptors' strokes and the
+// rebuild copies), so a larger one than theirs keeps more; set back to Automatic, they take
+// theirs again. Only when it changed, or a store came since: a test sets its own.
+@(private = "file")
+history_limits_apply :: proc(app: ^App) {
+	h := &app.history
+	mb := int(app.history_limit_mb)
+	if mb == h.limit_mb && mb == 0 do return
+	limit := mb << 20 if mb > 0 else sculpt.UNDO_LIMIT_BYTES
+	for obj in app.scene.objects {
+		for lv in obj.levels.levels do lv.sculptor.history.limit = limit
+		if w := obj.levels.hd.window; w != nil do w.sculptor.history.limit = limit
+	}
+	h.swap_limit = mb << 20 if mb > 0 else 0
+	h.limit_mb = mb
+}
+
+// Drops up to `steps` of the oldest done steps, stopping short of a bookmarked one (with a
+// note, once for each bookmark held); how many it dropped.
+history_drop_unmarked :: proc(app: ^App, steps: int) -> int {
+	h := &app.history
+	free_steps := 0
+	for e in h.done {
+		if e.chain do continue
+		if e.bookmark != "" {
+			if h.held_at != e.at {
+				h.held_at = e.at
+				file_note(app, true, "The History is past its limit and keeps the bookmarked step \"%s\"; remove the bookmark or delete what is older to free the memory", e.bookmark)
+			}
+			break
+		}
+		free_steps += 1
+	}
+	n := min(steps, free_steps)
+	if n > 0 do _ = history_drop_oldest(app, n)
+	return n
 }
 
 // Drops the oldest `steps` done steps whole (Undo steps kept, Delete older history),

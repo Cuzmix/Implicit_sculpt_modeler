@@ -478,8 +478,13 @@ Light_Step :: struct {
 }
 
 // Lists the change of the lights from `before` to what they are now as the newest undo
-// step.
+// step, unless History > Settings keeps light changes out of the History.
 history_record_lights :: proc(app: ^App, before: Light_Set, what: string) {
+	if app.history_no_lights {
+		// The scene still changed, for the autosave.
+		app.history.edits += 1
+		return
+	}
 	step := new(Light_Step)
 	step^ = {before, app.scene.lights}
 	history_push(app, History_Entry{kind = .Lights, what = what, at = time.tick_now(), lights = step})
