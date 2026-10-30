@@ -188,8 +188,14 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
   `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
-  base, vertex base, slot|view<<4|maps<<8; maps bound as 9 named samplers `map0..map8` (RENDER_TEXTURED_MAX 3, 12 of
-  16 samplers) through a switch, never an array (non-uniform indexing is a device feature). A map's maps_stamp change
+  base, vertex base, min(slot,3)|view<<4|maps<<8|slot<<16. Two kernels share `render_trace.slang`: `render_trace.comp`
+  binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
+  .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
+  `// vulkan only`: no .msl, slangc's profile warning quieted, loaded only off Darwin) reads `maps[]` at set 3 with
+  NonUniformResourceIndex, through `gpu_create_compute_pipeline_array`/`gpu_bind_compute_texture_array` (own Vulkan
+  with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
+  `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
+  own argument buffers (shadercross refuses set 3). A map's maps_stamp change
   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
   Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
   old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
@@ -358,6 +364,16 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
   branches on caps, never on a backend's name. A new capability is a field there plus one `gpu_*` proc with an
   SDL_GPU, Vulkan and Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
+- Async compute (`Gpu_Caps.async_compute`, design notes/native-gpu/async-compute-design.md): a second queue of the
+  graphics family (`vk_state.compute_queue`, else the same queue as `.Same_Queue`) with its own timeline
+  (`compute_timeline`); `Vk_Cmd.queue` and `Vk_Fence.queue` say which timeline a serial counts on (`vk_serial_done`,
+  `vk_wait_serial(serial, queue)`, `vk_wait_for_fences` waits on both). A compute submission waits for every graphics
+  serial so far and never carries the setup buffer (submitted first on graphics); graphics reads a band's output only
+  after `gpu_wait_on` (ALL_COMMANDS). Under --gpu-debug `vk_check_compute_writes` fails a graphics submission using
+  what compute wrote without such a wait, which one queue's barriers hide from the layer. Compute-queue command
+  buffers are untimed and hold compute passes only. Render mode (`render_frame`'s `async`): one band in flight
+  (`band_fence`), `generation` drops a stale band, no band in a frame that builds the scene, sample counting at
+  collection; pictures stay synchronous.
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit

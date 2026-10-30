@@ -27,6 +27,14 @@ Vk_State :: struct {
 	device:            vk.Device,
 	queue:             vk.Queue,
 	family:            u32,
+	// The queue compute command buffers go to (gpu_acquire_compute_command_buffer): a
+	// second queue of the graphics family where it has one, so the two share every
+	// resource with no ownership transfer, else the graphics queue itself (.Same_Queue),
+	// where the split still runs but nothing overlaps.
+	compute_queue:     vk.Queue,
+	async_compute:     Async_Compute,
+	// Validation is on (--gpu-debug): the cross-queue check in vk_submit runs.
+	validation:        bool,
 	frames:            u32, // frames a window may have in flight before its next acquire waits
 	labels:            bool, // VK_EXT_debug_utils is on: passes and objects carry names for capture tools
 	present_timing:    Present_Timing, // which present timing extension is on (vk_swapchain.odin)
@@ -45,11 +53,17 @@ Vk_State :: struct {
 	shared_buffers:    bool,
 	shared_type:       u32,
 	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
+	texture_arrays:    u32, // textures one compute array binding may hold (Gpu_Caps.texture_arrays), 0 for none
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
 	submitted:         u64,
 	completed:         u64,
+	// The compute queue's own timeline: two queues cannot signal one, since their work
+	// finishes out of order and a timeline's value only rises.
+	compute_timeline:  vk.Semaphore,
+	compute_submitted: u64,
+	compute_completed: u64,
 	command_pool:      vk.CommandPool,
 	free_cmds:         [dynamic]^Vk_Cmd,
 	in_flight:         [dynamic]^Vk_Cmd,
@@ -72,6 +86,13 @@ vk_validation_errors: int
 
 validation_errors :: proc() -> int {
 	return vk_validation_errors
+}
+
+// A misuse the backend finds itself under --gpu-debug, counted and logged as the layer's
+// errors are, so the same checks (parity_check.py, smoke) fail on it.
+vk_validation_error :: proc(format: string, args: ..any) {
+	vk_validation_errors += 1
+	log.errorf("Vulkan validation: %s", fmt.tprintf(format, ..args))
 }
 
 // Logs why Vulkan cannot be used and keeps the reason for backend_fallback.
@@ -163,6 +184,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	for i in 0 ..< count do append(&extensions, sdl_extensions[i])
 	layers := make([dynamic]cstring, context.temp_allocator)
 	validation := debug && vk_has_layer("VK_LAYER_KHRONOS_validation")
+	vk_state.validation = validation
 	if validation {
 		append(&layers, "VK_LAYER_KHRONOS_validation")
 		append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
@@ -281,6 +303,10 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
 	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics}
 	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
+	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
+	// sized when the array is bound, every element written, so not partially bound.
+	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
+	f12.runtimeDescriptorArray, f12.descriptorBindingVariableDescriptorCount, f12.shaderSampledImageArrayNonUniformIndexing = arrays, arrays, arrays
 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
@@ -297,12 +323,18 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk_state.wireframe = bool(have.features.fillModeNonSolid)
 	vk_state.depth_clamp = bool(have.features.depthClamp)
 	vk_state.anisotropy = bool(features.features.samplerAnisotropy)
-	priority: f32 = 1
+	// A second queue of the family for compute where it has one, at a lower priority so
+	// the frame keeps precedence where the driver honours it.
+	family_count: u32
+	vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, nil)
+	families := make([]vk.QueueFamilyProperties, family_count, context.temp_allocator)
+	vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, raw_data(families))
+	priorities := [2]f32{1, 0.5}
 	queue := vk.DeviceQueueCreateInfo {
 		sType            = .DEVICE_QUEUE_CREATE_INFO,
 		queueFamilyIndex = vk_state.family,
-		queueCount       = 1,
-		pQueuePriorities = &priority,
+		queueCount       = 2 if families[vk_state.family].queueCount >= 2 else 1,
+		pQueuePriorities = &priorities[0],
 	}
 	device_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,
@@ -319,6 +351,11 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	}
 	vk.load_proc_addresses_device(vk_state.device)
 	vk.GetDeviceQueue(vk_state.device, vk_state.family, 0, &vk_state.queue)
+	vk_state.compute_queue, vk_state.async_compute = vk_state.queue, .Same_Queue
+	if queue.queueCount == 2 {
+		vk.GetDeviceQueue(vk_state.device, vk_state.family, 1, &vk_state.compute_queue)
+		vk_state.async_compute = .Second_Queue
+	}
 
 	p11 := vk.PhysicalDeviceVulkan11Properties{sType = .PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES}
 	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES, pNext = &p11}
@@ -326,6 +363,12 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
 	vk_state.driver.pNext = nil // p11 is gone after this proc
 	vk_state.properties = props2.properties
+	if arrays {
+		// Room is left for the 16 named slots a stage may also bind.
+		l := vk_state.properties.limits
+		room := min(l.maxPerStageDescriptorSamplers, l.maxPerStageDescriptorSampledImages, l.maxPerStageResources, l.maxDescriptorSetSamplers, l.maxDescriptorSetSampledImages)
+		vk_state.texture_arrays = min(VK_TEXTURE_ARRAY_MAX, room - 16) if room > 16 else 0
+	}
 	// Subgroups are Vulkan 1.1 core, but a device may offer them to other stages only, or
 	// without the arithmetic (reduce and scan) operations a kernel would want.
 	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
@@ -336,8 +379,8 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	timeline_type := vk.SemaphoreTypeCreateInfo{sType = .SEMAPHORE_TYPE_CREATE_INFO, semaphoreType = .TIMELINE}
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO, pNext = &timeline_type}
 	pool := vk.CommandPoolCreateInfo{sType = .COMMAND_POOL_CREATE_INFO, flags = {.RESET_COMMAND_BUFFER}, queueFamilyIndex = vk_state.family}
-	if vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.timeline) != .SUCCESS || vk.CreateCommandPool(vk_state.device, &pool, nil, &vk_state.command_pool) != .SUCCESS {
-		vk_fail("the timeline semaphore or command pool could not be made")
+	if vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.timeline) != .SUCCESS || vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.compute_timeline) != .SUCCESS || vk.CreateCommandPool(vk_state.device, &pool, nil, &vk_state.command_pool) != .SUCCESS {
+		vk_fail("the timeline semaphores or command pool could not be made")
 		vk_destroy_device(vk_device_handle())
 		return nil, false
 	}
@@ -348,14 +391,8 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, name)
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
-	if have12.hostQueryReset {
-		family_count: u32
-		vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, nil)
-		families := make([]vk.QueueFamilyProperties, family_count, context.temp_allocator)
-		vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, raw_data(families))
-		_ = vk_timing_init(families[vk_state.family].timestampValidBits)
-	}
-	log.infof("Vulkan: present timing: %v; GPU timestamps: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0)
+	if have12.hostQueryReset do _ = vk_timing_init(families[vk_state.family].timestampValidBits)
+	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute)
 	return vk_device_handle(), true
 }
 
@@ -393,6 +430,7 @@ vk_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	vk_timing_destroy()
 	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
 	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
+	if vk_state.compute_timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.compute_timeline, nil)
 	if vk_state.properties_id != 0 do sdl.DestroyProperties(vk_state.properties_id)
 	vk.DestroyDevice(vk_state.device, nil)
 	vk_destroy_instance()
@@ -492,13 +530,15 @@ vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryProperty
 	return memory, true
 }
 
-// Records the GPU's progress and recycles the command buffers it has finished.
+// Records the GPU's progress on both queues and recycles the command buffers it has
+// finished, each against its own queue's timeline.
 vk_collect :: proc() {
 	value: u64
 	if vk.GetSemaphoreCounterValue(vk_state.device, vk_state.timeline, &value) == .SUCCESS do vk_state.completed = value
+	if vk_state.compute_submitted > 0 && vk.GetSemaphoreCounterValue(vk_state.device, vk_state.compute_timeline, &value) == .SUCCESS do vk_state.compute_completed = value
 	for i := 0; i < len(vk_state.in_flight); {
 		cmd := vk_state.in_flight[i]
-		if cmd.serial > vk_state.completed {
+		if !vk_serial_done(cmd.queue, cmd.serial) {
 			i += 1
 			continue
 		}
@@ -507,10 +547,17 @@ vk_collect :: proc() {
 	}
 }
 
-vk_wait_serial :: proc(serial: u64) -> bool {
-	if serial <= vk_state.completed do return true
+// Whether `queue` has finished its submission `serial`, as last collected.
+vk_serial_done :: proc(queue: Vk_Queue, serial: u64) -> bool {
+	return serial <= (vk_state.completed if queue == .Graphics else vk_state.compute_completed)
+}
+
+// Waits for submission `serial` of `queue`.
+vk_wait_serial :: proc(serial: u64, queue := Vk_Queue.Graphics) -> bool {
+	if vk_serial_done(queue, serial) do return true
 	value := serial
-	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, semaphoreCount = 1, pSemaphores = &vk_state.timeline, pValues = &value}
+	timeline := vk_state.timeline if queue == .Graphics else vk_state.compute_timeline
+	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, semaphoreCount = 1, pSemaphores = &timeline, pValues = &value}
 	ok := vk.WaitSemaphores(vk_state.device, &info, max(u64)) == .SUCCESS
 	vk_collect()
 	return ok
@@ -518,6 +565,7 @@ vk_wait_serial :: proc(serial: u64) -> bool {
 
 vk_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
 	ok := vk_wait_serial(vk_state.submitted)
+	ok = vk_wait_serial(vk_state.compute_submitted, .Compute) && ok
 	vk_collect()
 	return ok
 }

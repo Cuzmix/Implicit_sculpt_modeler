@@ -43,6 +43,23 @@ Gpu_Caps :: struct {
 	// so one written in the CPU's order can equal the CPU bit for bit (Smooth all on the
 	// GPU): false only under SDL_GPU's Metal backend, which compiles with fast maths.
 	exact_compute:     bool,
+	// Textures one compute array binding may hold (gpu_create_compute_pipeline_array): the
+	// own Vulkan backend with descriptor indexing (runtime arrays, variable counts and
+	// non-uniform indexing of sampled images); 0 elsewhere, where kernels name each texture.
+	texture_arrays:    u32,
+	// Whether compute work can go to its own queue (gpu_acquire_compute_command_buffer).
+	async_compute:     Async_Compute,
+}
+
+Async_Compute :: enum u8 {
+	// No compute queue: SDL_GPU and Metal (for now).
+	Off,
+	// The own Vulkan backend on a device whose graphics family has one queue: compute
+	// submissions keep their own timeline and waits but share the queue, so nothing
+	// overlaps. Only --async-compute uses it, to check the bookkeeping.
+	Same_Queue,
+	// A second queue of the graphics family: compute runs beside the frame.
+	Second_Queue,
 }
 
 Present_Timing :: enum u8 {
@@ -85,6 +102,8 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
 	r.caps.exact_compute = gpu_exact_compute(r.device)
+	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
+	r.caps.async_compute = gpu_async_compute_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

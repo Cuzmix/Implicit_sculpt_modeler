@@ -146,6 +146,10 @@ graphics_controls :: proc(app: ^App) {
 	pending := app.graphics != app.graphics_loaded
 	if pending do status = fmt.tprintf("%s The change applies when Sculpt next starts.", status)
 	ui.paragraph(ctx, status, color = t.warning if pending else t.text_secondary)
+	if render.caps(&app.renderer).async_compute == .Second_Queue {
+		_ = ui.switch_row(ctx, "Async compute", &app.async_compute)
+		ui.paragraph(ctx, "Render mode traces on a second GPU queue beside the frame, so panels and the first orbit after a still view stay smooth while it builds up. A trial: off until it has been measured on more GPUs.")
+	}
 	when GRAPHICS_VULKAN {
 		ui.paragraph(ctx, "Automatic draws with Vulkan, the app's own renderer, and with SDL_GPU on a device whose Vulkan lacks what it needs. Both draw the same image; SDL_GPU is there in case a driver misbehaves.")
 	} else {

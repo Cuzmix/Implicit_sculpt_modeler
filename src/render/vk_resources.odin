@@ -30,6 +30,8 @@ Vk_Buffer_Backing :: struct {
 	refs:   i32,
 	stamp:  u64,
 	owner:  ^Vk_Buffer,
+	// The compute queue's last submission to write it, for vk_submit's cross-queue check.
+	compute_write: u64,
 }
 
 Vk_Buffer :: struct {
@@ -50,6 +52,7 @@ Vk_Image :: struct {
 	refs:        i32,
 	stamp:       u64,
 	owner:       ^Vk_Texture,
+	compute_write: u64, // as Vk_Buffer_Backing's
 }
 
 Vk_Texture :: struct {
@@ -92,10 +95,19 @@ Vk_Set_Key :: struct {
 	write_tex:       u32,
 	write_buf:       u32,
 	uniform_buffers: u32,
+	// A set of one binding, an array of up to this many sampled textures whose count is
+	// given when the set is allocated (gpu_bind_compute_texture_array); 0 for none.
+	array:           u32,
 }
 
+// The most textures one array binding holds: a command buffer's descriptor pools hold 1024
+// sampled textures each, so an array set always fits a fresh pool beside the named ones.
+VK_TEXTURE_ARRAY_MAX :: 256
+
 Vk_Graphics_Layout_Key :: [8]u32 // the vertex shader's four counts, then the fragment shader's
-Vk_Compute_Layout_Key :: [6]u32 // samplers, read-only textures and buffers, read-write textures and buffers, uniforms
+// Samplers, read-only textures and buffers, read-write textures and buffers, uniforms, and
+// the texture array's capacity (0 for none), whose set is the fourth.
+Vk_Compute_Layout_Key :: [7]u32
 
 Vk_Pipeline_Layout :: struct {
 	layout: vk.PipelineLayout,
@@ -130,6 +142,12 @@ vk_set_layout :: proc(key: Vk_Set_Key) -> vk.DescriptorSetLayout {
 	add(&bindings, &n, key.write_buf, .STORAGE_BUFFER, key.stage)
 	add(&bindings, &n, key.uniform_buffers, .UNIFORM_BUFFER_DYNAMIC, key.stage)
 	info := vk.DescriptorSetLayoutCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO, bindingCount = n, pBindings = &bindings[0]}
+	flags := vk.DescriptorBindingFlags{.VARIABLE_DESCRIPTOR_COUNT}
+	array_flags := vk.DescriptorSetLayoutBindingFlagsCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, bindingCount = 1, pBindingFlags = &flags}
+	if key.array > 0 {
+		bindings[0] = {binding = 0, descriptorType = .COMBINED_IMAGE_SAMPLER, descriptorCount = key.array, stageFlags = key.stage}
+		info.bindingCount, info.pNext = 1, &array_flags
+	}
 	layout: vk.DescriptorSetLayout
 	if vk.CreateDescriptorSetLayout(vk_state.device, &info, nil, &layout) != .SUCCESS do return 0
 	vk_state.set_layouts[key] = layout
@@ -166,18 +184,18 @@ vk_graphics_layout :: proc(vertex, fragment: ^Vk_Shader) -> ^Vk_Pipeline_Layout 
 	return layout
 }
 
-vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo) -> ^Vk_Pipeline_Layout {
-	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
+vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^Vk_Pipeline_Layout {
+	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array}
 	if layout, ok := vk_state.compute_layouts[key]; ok do return layout
 	sets := [4]vk.DescriptorSetLayout {
 		vk_set_layout({stage = {.COMPUTE}, samplers = key[0], storage_tex = key[1], storage_buf = key[2]}),
 		vk_set_layout({stage = {.COMPUTE}, write_tex = key[3], write_buf = key[4]}),
 		vk_set_layout({stage = {.COMPUTE}, uniform_buffers = key[5]}),
-		0,
+		vk_set_layout({stage = {.COMPUTE}, array = array}) if array > 0 else 0,
 	}
 	counts: [8]u32
 	copy(counts[:], key[:])
-	layout := vk_pipeline_layout_make(sets, 3, counts)
+	layout := vk_pipeline_layout_make(sets, 4 if array > 0 else 3, counts)
 	if layout != nil do vk_state.compute_layouts[key] = layout
 	return layout
 }
@@ -838,8 +856,23 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 }
 
 vk_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+	return vk_compute_pipeline_make(info, 0)
+}
+
+// A kernel that also reads an array of up to `capacity` sampled textures from set 3,
+// binding 0 (gpu_create_compute_pipeline_array).
+vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+	if capacity == 0 || capacity > vk_state.texture_arrays {
+		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
+		return nil
+	}
+	return vk_compute_pipeline_make(info, capacity)
+}
+
+@(private = "file")
+vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^sdl.GPUComputePipeline {
 	if .SPIRV not_in info.format do return nil
-	layout := vk_compute_layout(info)
+	layout := vk_compute_layout(info, array)
 	if layout == nil do return nil
 	module := vk_module(info.code[:info.code_size])
 	if module == 0 do return nil

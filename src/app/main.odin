@@ -78,6 +78,7 @@ Options :: struct {
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
+	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
 	cpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
@@ -383,6 +384,8 @@ App :: struct {
 	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	graphics:       Graphics, // the backend Settings > System > Graphics chose, for the next start (graphics.odin)
+	async_compute:  bool, // Settings > System > Graphics > Async compute: render mode's bands on a second queue
+	async_compute_run: bool, // --async-compute: on for this run, on one queue too
 	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
 	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
 	graphics_trial: string, // the Metal trial's start marker, until its first frames are shown (graphics_trial_begin)
@@ -760,6 +763,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.no_vsync do app.frame_rate = .Unlimited
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = !opts.cpu_smooth
+	app.async_compute_run = opts.async_compute
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	// Freed after the settings are saved at exit, which write them.
 	defer {
@@ -2038,7 +2042,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v exact_compute=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).exact_compute)
+	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v exact_compute=%v texture_arrays=%d async_compute=%v render_async=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).exact_compute, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(&app))
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)

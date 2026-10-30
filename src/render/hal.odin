@@ -19,6 +19,33 @@ gpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuf
 	return sdl.AcquireGPUCommandBuffer(device)
 }
 
+// A command buffer whose compute passes run on the compute queue (Gpu_Caps.async_compute),
+// submitted with gpu_submit_compute; nil with SDL's error set where there is none. It
+// holds compute passes only.
+gpu_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+	if gpu_backend == .Vulkan do return vk_acquire_compute_command_buffer(device)
+	sdl.SetError("no compute queue under this backend")
+	return nil
+}
+
+// Submits a gpu_acquire_compute_command_buffer recording. It runs after every graphics
+// submission so far; its fence says when it is done, and gpu_wait_on hands it to the
+// graphics work that reads what it wrote.
+gpu_submit_compute :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+	return gpu_submit_command_buffer_and_acquire_fence(command_buffer)
+}
+
+// Makes a graphics command buffer wait, at every stage, for the compute submission `fence`
+// names before it runs, so it sees what that wrote. Waiting on a fence that has already
+// signalled stalls nothing.
+gpu_wait_on :: proc(command_buffer: ^sdl.GPUCommandBuffer, fence: ^sdl.GPUFence) {
+	if gpu_backend == .Vulkan do vk_wait_on(command_buffer, fence)
+}
+
+gpu_async_compute_offered :: proc(device: ^sdl.GPUDevice) -> Async_Compute {
+	return vk_state.async_compute if gpu_backend == .Vulkan else .Off
+}
+
 gpu_acquire_swapchain_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl.Window, swapchain_texture: ^^sdl.GPUTexture, swapchain_texture_width, swapchain_texture_height: ^sdl.Uint32) -> bool {
 	if gpu_backend == .Vulkan do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	when METAL do if gpu_backend == .Metal do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
@@ -67,6 +94,13 @@ gpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
 		return
 	}
 	sdl.BindGPUComputeSamplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
+}
+
+// The textures, in order, of the array a gpu_create_compute_pipeline_array kernel reads; at
+// most the capacity it was made with. Only the own Vulkan backend makes such kernels.
+gpu_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
+	for b in bindings do transient_check_use(b.texture, "sampled")
+	if gpu_backend == .Vulkan do vk_bind_compute_texture_array(compute_pass, bindings)
 }
 
 gpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: sdl.Uint32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: sdl.Uint32) {
@@ -190,6 +224,22 @@ gpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: 
 	if gpu_backend == .Vulkan do return vk_create_compute_pipeline(device, createinfo)
 	when METAL do if gpu_backend == .Metal do return mtl_create_compute_pipeline(device, createinfo)
 	return sdl.CreateGPUComputePipeline(device, createinfo)
+}
+
+// A compute pipeline that also reads an array of up to `capacity` sampled textures, indexed
+// per thread (set 3, binding 0 in SPIR-V): the own Vulkan backend with descriptor indexing
+// only, up to Gpu_Caps.texture_arrays; nil with SDL's error set elsewhere, and the caller
+// keeps a kernel with named samplers.
+gpu_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+	if gpu_backend == .Vulkan do return vk_create_compute_pipeline_array(device, createinfo, capacity)
+	sdl.SetError("texture arrays need the own Vulkan backend")
+	return nil
+}
+
+// How many textures one array binding may hold; 0 where gpu_create_compute_pipeline_array
+// makes nothing.
+gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
+	return vk_state.texture_arrays if gpu_backend == .Vulkan else 0
 }
 
 // A compute pipeline whose arithmetic is IEEE 754's, for kernels that must equal the CPU.
