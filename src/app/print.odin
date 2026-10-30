@@ -158,7 +158,7 @@ print_controls :: proc(app: ^App, button: bool) {
 		}
 	}
 	if button do _ = command_button(app, .Export_Print, variant = .Solid, tone = .Accent, width = ui.fill_width(ctx), glyph = ui.ICON_EXPORT)
-	ui.paragraph(ctx, fmt.tprintf("Drag a side of %s and the others follow. Every object prints at one scale, 1 scene unit to %s mm, so the parts of a print fit together. The STL file is in millimetres with Z up, standing on the bed.", object_label(obj), print_number(print_scale(app))))
+	ui.paragraph(ctx, fmt.tprintf("Drag a side of %s and the others follow. Every object prints at one scale, 1 scene unit to %s mm, so the parts of a print fit together. The file is in millimetres with Z up, standing on the bed.", object_label(obj), print_number(print_scale(app))))
 }
 
 // A length with as many decimals as its size needs: 0.125, 12.5, 125.
