@@ -6988,6 +6988,39 @@ def pass_change_cross_fades_the_view():
 
 
 @scenario
+def size_slider_previews_the_ring():
+    """A finger dragging the Size slider (no pen hovering the view) shows the brush ring at its new size in the middle of the open view, as Blender's radial control does; it fades a second after the last change."""
+    s = Script()
+    s.fdrag([(42, 345), (42, 335), (42, 325), (42, 315), (42, 305)])
+    s.wait(5)
+    return s, [], camera_still({"size_previews": near(1), "size_preview": near(1), "dabs": near(0), "brush_radius_px": lambda v: float(v) > 61})
+
+
+@scenario
+def size_preview_fades_after_the_change():
+    """The ring a Size slider drag showed is gone a second after the finger stops."""
+    s = Script()
+    s.fdrag([(42, 345), (42, 335), (42, 325), (42, 315), (42, 305)])
+    s.wait(90)
+    return s, [], camera_still({"size_previews": near(1), "size_preview": near(0), "dabs": near(0)})
+
+
+@scenario
+def import_runs_as_a_long_job():
+    """A file dropped on the window imports on a thread of its own: the pill's job runs while the frames go on, and once it is done the quad cube is a new object whose wireframe draws its 12 edges (no diagonals), as one undo step."""
+    path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".obj")
+    with open(path, "w") as f:
+        f.write("v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n"
+                "f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n")
+    s = Script()
+    s.add(f"drop:{path}")
+    s.wait(60)
+    s.press("f", ("shift",))
+    s.wait(10)
+    return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(2), "poly_edges": near(12), "undo_steps": near(1)})
+
+
+@scenario
 def long_job_fades_to_the_new_mesh():
     """A remesh run as a long job swaps the new mesh in under a fade of the old one's picture, which is over once the job has landed and a moment passed."""
     s = Script()

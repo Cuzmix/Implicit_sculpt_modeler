@@ -239,3 +239,23 @@ settings_read_preview_as_fast :: proc(t: ^testing.T) {
 	testing.expect(t, found)
 	free_all(context.temp_allocator)
 }
+
+// Remesh makes quads at first from settings version 9 on: a file from before, which holds
+// Quads off whether or not anyone picked it, takes them on once, and a later file's off stays.
+@(test)
+remesh_quads_default_changes_once :: proc(t: ^testing.T) {
+	path := "build/remesh_quads_test.txt"
+	defer os.remove(path)
+	load :: proc(t: ^testing.T, path, text: string) -> bool {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
+		a: App
+		defer results_destroy(&a)
+		a.ui = ui_state_default()
+		settings_load(&a, path)
+		return a.ui.remesh_quads
+	}
+	testing.expect(t, ui_state_default().remesh_quads, "a fresh install remeshes to quads")
+	testing.expect(t, load(t, path, "version 8\nremesh_quads 0\n"), "an old file's off becomes on")
+	testing.expect(t, !load(t, path, "version 9\nremesh_quads 0\n"), "a picked off stays off")
+	free_all(context.temp_allocator)
+}

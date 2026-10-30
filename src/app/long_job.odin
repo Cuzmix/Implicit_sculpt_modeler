@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -17,8 +18,8 @@ import "../ui"
 import "../voxel"
 
 // Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
-// Convert to mesh, Convert to voxels and Res+/Res− of a big object run on a thread of
-// their own, so the frame goes on (the camera turns, the panels
+// Convert to mesh, Convert to voxels and Res+/Res− of a big object, and every Import, run
+// on a thread of their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
 // show a ring filling as the work goes, and Escape or the pill's Cancel stops it. Blender
 // keeps drawing through its long operators the same way; ZBrush and Nomad freeze.
@@ -81,6 +82,12 @@ Long_Job :: struct {
 	allowed:    bool,
 	forced:     bool,
 	refused_at: f64, // the interface's clock when the last "wait" note showed
+	// Import (cmd.kind .None): the file, and what reading and preparing it made.
+	importing:  bool,
+	path:       string, // owned
+	imported:   Mesh_Import,
+	note:       string, // owned: the import's note
+	warning:    bool,
 	// For the exit stats.
 	runs:       int,
 	cancels:    int,
@@ -130,6 +137,26 @@ JOB_NOUNS := #partial [Scene_Command_Kind]string {
 	.Voxel_Resample = "resampling",
 }
 
+// What an import is called while it runs, and what it is.
+@(private = "file")
+IMPORT_VERB :: "Importing"
+@(private = "file")
+IMPORT_NOUN :: "import"
+
+// The share of an import that reading and parsing the file takes, at a few million
+// vertices; preparing its parts for sculpting is the rest.
+@(private = "file")
+IMPORT_READ_SHARE :: f32(0.45)
+// ...of which reading the file's bytes takes this much.
+@(private = "file")
+IMPORT_FILE_SHARE :: f32(0.03)
+
+@(private = "file")
+job_verb :: proc(j: ^Long_Job) -> string {return IMPORT_VERB if j.importing else JOB_VERBS[j.cmd.kind]}
+
+@(private = "file")
+job_noun :: proc(j: ^Long_Job) -> string {return IMPORT_NOUN if j.importing else JOB_NOUNS[j.cmd.kind]}
+
 // The commands whose buttons draw the job's ring, by the job's command.
 @(private = "file")
 JOB_BUTTONS := #partial [Scene_Command_Kind]bit_set[Command_Id; [4]u64] {
@@ -178,7 +205,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	j := &app.long_job
 	stroke_finish(app)
 	object_hd_leave(app, obj)
-	j.on, j.cmd, j.id, j.object, j.before, j.named = true, cmd, obj.id, obj, before, false
+	j.on, j.cmd, j.id, j.object, j.before, j.named, j.importing = true, cmd, obj.id, obj, before, false, false
 	j.start = time.tick_now()
 	j.progress = {}
 	sync.atomic_store(&j.done, false)
@@ -214,6 +241,36 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	return true
 }
 
+// Whether an import of the file at `path` goes to the job's thread: in an interactive run
+// (or --async-jobs), whatever the file's size, as reading even a small one can wait on a
+// slow disk; never when a script, macro, replay or recording compares the scene before and
+// after within the frame, or a job already runs.
+import_job_async :: proc(app: ^App) -> bool {
+	j := &app.long_job
+	if !j.allowed || j.on do return false
+	if app.macro.recording || app.macro.pending.active || app.script.running do return false
+	return !(replay_busy(app) || app.replay.recording || timeline_busy(app) || app.turntable.on)
+}
+
+// Starts importing the file at `path` on the job's thread: reading, parsing, cleaning and
+// preparing its parts for sculpting there, so the frame goes on and the pill shows how far
+// it came; the frame then uploads the parts and adds them as scene_import does.
+import_job_start :: proc(app: ^App, path: string) {
+	j := &app.long_job
+	stroke_finish(app)
+	j.on, j.cmd, j.id, j.object, j.before, j.importing = true, {}, 0, nil, nil, true
+	j.path = strings.clone(path)
+	j.label, j.named, j.source = strings.clone(filepath.base(path)), true, 0
+	j.start = time.tick_now()
+	j.progress = {}
+	sync.atomic_store(&j.done, false)
+	j.built, j.computed, j.imported, j.note, j.warning = false, {}, {}, "", false
+	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
+	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "import")
+	j.runs += 1
+	log.infof("long job: import of %s on its own thread", j.label)
+}
+
 // A copy of the triangles of the level `obj` is on, its own: compacted from a dynamic
 // layout (as the commands read it), else the level's positions and indices.
 @(private = "file")
@@ -243,6 +300,11 @@ long_job_thread :: proc(data: rawptr) {
 	defer runtime.arena_destroy(&arena)
 	share := JOB_COMPUTE_SHARE[j.cmd.kind]
 	jobs.progress_set(&j.progress, 0, 1, 0)
+	if j.importing {
+		j.imported, j.note, j.warning, j.built = mesh_import_load(j.path, fmt.tprintf("Imported %s", j.label), &j.pool, &j.progress, IMPORT_FILE_SHARE)
+		jobs.progress_set(&j.progress, 0, 1, IMPORT_READ_SHARE)
+		if j.built do mesh_import_prepare(&j.imported, &j.pool, &j.progress, {IMPORT_READ_SHARE, 1})
+	}
 	#partial switch j.cmd.kind {
 	case .Remesh:
 		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups), report = &j.remesh)
@@ -333,6 +395,10 @@ long_job_drop :: proc(j: ^Long_Job) {
 	j.clay = {}
 	delete(j.values)
 	j.values = nil
+	mesh_import_free(&j.imported)
+	delete(j.path)
+	delete(j.note)
+	j.path, j.note, j.importing = "", "", false
 }
 
 // Once a frame, at its start beside the scene commands: a job its thread finished is
@@ -352,7 +418,8 @@ long_job_frame :: proc(app: ^App) -> bool {
 	defer delete(label)
 	j.on = false
 	defer j.object = nil
-	noun := JOB_NOUNS[cmd.kind]
+	noun := job_noun(j)
+	if j.importing do return import_job_finish(app, cancelled, label)
 	if cancelled || !j.built || obj == nil {
 		history_snapshot_drop(before)
 		long_job_drop(j)
@@ -432,6 +499,28 @@ long_job_frame :: proc(app: ^App) -> bool {
 	return scene_run_finish(app, cmd, label, j.source, j.start, ok, obj if cmd.kind != .Retopo else selected_object(app))
 }
 
+// An import whose thread is done: cancelled, it is dropped with a note; else its note
+// shows and its parts become objects, one undo step, as scene_import makes them.
+@(private = "file")
+import_job_finish :: proc(app: ^App, cancelled: bool, label: string) -> bool {
+	j := &app.long_job
+	defer long_job_drop(j)
+	if cancelled {
+		j.cancels += 1
+		report(app, nil, {}, "Import of %s cancelled: the scene is as it was", label)
+		log.infof("long job: import cancelled after %.0f ms", j.ms)
+		return true
+	}
+	file_note(app, j.warning, "%s", j.note)
+	if !j.built do return true
+	stem := filepath.stem(j.path)
+	if !import_add_parts(app, &j.imported, stem if stem != "" else "Import", next_free_position(app), record = true) do return false
+	// After the new objects' stats reset.
+	app.stats.file_read_ms, app.stats.file_parse_ms = j.imported.read_ms, j.imported.parse_ms
+	cross_fade_start(app, .Mesh_Fade)
+	return true
+}
+
 // Whether a job started this frame and scene_run has not yet told it what to report.
 long_job_unnamed :: proc(app: ^App) -> bool {
 	return app.long_job.on && !app.long_job.named
@@ -481,7 +570,7 @@ long_job_refuse :: proc(app: ^App) {
 
 // Why a command cannot run while the job does, for a note or a dimmed control's tooltip.
 long_job_reason :: proc(app: ^App) -> string {
-	return fmt.tprintf("Wait for the %s to finish, or cancel it (Esc)", JOB_NOUNS[app.long_job.cmd.kind])
+	return fmt.tprintf("Wait for the %s to finish, or cancel it (Esc)", job_noun(&app.long_job))
 }
 
 // Whether command `id` waits for the job.
@@ -498,7 +587,7 @@ long_job_progress :: proc(app: ^App) -> f32 {
 // kind: a button that started the job keeps showing what it does.
 job_ring :: proc(app: ^App, id: Command_Id, r: ui.Rect) {
 	j := &app.long_job
-	if !j.on || id not_in JOB_BUTTONS[j.cmd.kind] do return
+	if !j.on || j.importing || id not_in JOB_BUTTONS[j.cmd.kind] do return
 	center := [2]f32{r.x + r.w * 0.5, r.y + r.h * 0.5}
 	draw_progress_ring(&app.kit.ctx, center, min(r.w, r.h) * 0.5 - 2, long_job_progress(app), 2.5)
 }
@@ -534,7 +623,7 @@ kit_job_pill :: proc(app: ^App) {
 	share := long_job_progress(app)
 	draw_progress_ring(ctx, {r.x + 14, r.y + 14}, 11, share, 3)
 	name := j.label if j.label != "" else "the object"
-	ui.label(ctx, fmt.tprintf("%s %s", JOB_VERBS[j.cmd.kind], name), t.small_size, t.text, .Semibold)
+	ui.label(ctx, fmt.tprintf("%s %s", job_verb(j), name), t.small_size, t.text, .Semibold)
 	ui.label(ctx, fmt.tprintf("%d%%", int(share * 100)), t.small_size, t.text_secondary)
 	if ui.button(ctx, "Cancel", .Light, glyph = ui.ICON_CLOSE, keys = "Escape") do long_job_cancel(app)
 	ui.end(ctx)

@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 
+import "../camera"
+
 // Changing the brush size or strength without the panels, where the brush is, as
 // ZBrush's S (draw size) and U (intensity) and Blender's F and Shift+F do. Pressing S
 // or U over the viewport starts it: the brush circle stays put and its size, or the
@@ -115,6 +117,72 @@ brush_strength :: proc(app: ^App) -> ^f32 {return &app.brush.strengths[app.brush
 
 // The focal shift of the brush in use, which each brush keeps too (Falloff_Setting).
 focal_shift :: proc(app: ^App) -> ^f32 {return &app.brush.falloffs[app.brush.kind].focal}
+
+// When the size or strength changes away from the view (the size and strength sliders, a
+// chip's twist, [ and ], the pie, a script), the brush ring shows in the open view's middle at
+// the size it now has, with its value, as Blender's radial control shows it, so a slider
+// dragged on a tablet, with no pen hovering, still says how big the brush is on the model.
+// It holds while the value keeps changing and fades soon after. A change made with the
+// pointer on the view shows on the ring under it instead.
+Size_Preview :: struct {
+	kind:     Adjust_Kind, // what changed last; None before anything did
+	radius:   f32, // the values seen last frame
+	strength: f32,
+	at:       f64, // the interface's clock at the last change
+	seen:     bool,
+	shown:    int, // previews started, for the exit stats
+}
+
+// Seconds the preview holds after the last change, then takes to fade.
+SIZE_PREVIEW_HOLD :: 0.7
+SIZE_PREVIEW_FADE :: 0.3
+
+// Draws the preview while it shows, after noting this frame's change; `hovered` is the
+// pointer on the view, whose own ring shows a change made there.
+draw_size_preview :: proc(app: ^App, o: Overlay, size: [2]f32, hovered: bool) {
+	p := &app.ui.size_preview
+	now := app.kit.ctx.time
+	radius, strength := app.brush.radius_px, brush_strength(app)^
+	if p.seen && !hovered && app.ui.adjust.kind == .None && !app.stroke.active {
+		kind: Adjust_Kind = .Size if radius != p.radius else .Strength if strength != p.strength else .None
+		if kind != .None {
+			if p.kind == .None || now - p.at > SIZE_PREVIEW_HOLD + SIZE_PREVIEW_FADE do p.shown += 1
+			p.kind, p.at = kind, now
+		}
+	}
+	p.radius, p.strength, p.seen = radius, strength, true
+	if p.kind == .None do return
+	t := f32(now - p.at)
+	if t > SIZE_PREVIEW_HOLD + SIZE_PREVIEW_FADE || hovered || app.ui.adjust.kind != .None {
+		p.kind = .None
+		return
+	}
+	fade := clamp(1 - (t - SIZE_PREVIEW_HOLD) / SIZE_PREVIEW_FADE, 0, 1)
+	// The middle of the view the panels leave open, where the camera centres the model,
+	// in the overlay's viewport pixels.
+	center := size * 0.5
+	if grid_panes(&app.kit.grid) == 1 {
+		free := lens_free_area(app)
+		center = [2]f32{free.x + free.w * 0.5, free.y + free.h * 0.5} * o.scale - o.origin
+	}
+	label: string
+	switch p.kind {
+	case .None:
+	case .Size:
+		// At the size the brush has on the model at the view's middle, as the ring a
+		// hovering pointer draws off the model.
+		flat := radius * brush_size_scale(app, camera.orbit_world_per_px(app.camera, app.camera.target, size.y), size.y)
+		overlay_circle(o, center, flat, overlay_color({1, 1, 1, 0.9 * fade}), 2)
+		overlay_disc(o, center, 2, overlay_color({1, 1, 1, 0.6 * fade}))
+		label = fmt.tprintf("Radius %.0f px", radius)
+	case .Strength:
+		overlay_circle(o, center, STRENGTH_PX, overlay_color({1, 1, 1, 0.35 * fade}), 1.5)
+		overlay_disc(o, center, strength * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.25 * fade}))
+		overlay_circle(o, center, strength * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.95 * fade}), 2)
+		label = fmt.tprintf("%s strength %.2f", BRUSHES[app.brush.kind].name, strength)
+	}
+	if fade > 0.5 do overlay_label(o, label, center)
+}
 
 // Takes the pointer away from the tools and the camera for this frame.
 viewport_mute :: proc(input: ^Viewport_Input) {
