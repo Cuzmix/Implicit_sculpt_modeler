@@ -3198,6 +3198,46 @@ def lens_shelf_shows_every_tile_it_adds():
     return Steps([run(tablet, 0, 10, 10), run(tablet, 1, 10, 10), run(LENS_1440, 1, 11, 12), run(LENS_1440, 3, 12, 12)])
 
 
+# At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
+# page is added, the new page's name and its menu's Rename.
+SHELF_PAGES_720 = {"curve": (727, 703), "new_page": (682, 656), "added": (800, 704), "rename": (710, 568)}
+
+
+@scenario
+def lens_shelf_page_added_renamed_and_kept():
+    """A right click on Curve under the shelf opens its page menu, whose New page adds an empty page after Curve and turns to it, showing an Add tile; the new page's Rename takes a typed name, and the next run reads both back from settings."""
+    path = os.path.join(ROOT, "build", "touch", "shelf_pages_settings.txt")
+    if os.path.exists(path):
+        os.remove(path)
+    size = ["--width=1280", "--height=720", f"--settings-file={path}"]
+    s = Script()
+    for at in ["curve", "new_page"]:
+        s.add(f"move:{SHELF_PAGES_720[at][0]},{SHELF_PAGES_720[at][1]}")
+        s.wait(1)
+        s.add("rdown" if at == "curve" else "down")
+        s.wait(2)
+        s.add("rup" if at == "curve" else "up")
+        s.wait(10)
+    s.add(f"move:{SHELF_PAGES_720['added'][0]},{SHELF_PAGES_720['added'][1]}")
+    s.wait(1)
+    s.add("rdown")
+    s.wait(2)
+    s.add("rup")
+    s.wait(10)
+    s.ftap(*SHELF_PAGES_720["rename"])
+    s.wait(6)
+    s.type("Detail")
+    s.press("Return")
+    s.wait(4)
+    back = Script()
+    back.wait(4)
+    return Steps([
+        (s, size, camera_still({"shelf_pages": near(5), "shelf_page": is_text("Extra_1"), "shelf_page_name": is_text("Detail"),
+                                "shelf_pages_added": near(1), "shelf_shown": near(0), "dabs": near(0)})),
+        (back, size, camera_still({"shelf_pages": near(5), "shelf_page": is_text("Sculpt"), "shelf_pages_added": near(0)})),
+    ])
+
+
 @scenario
 def lens_shelf_page_names_turn_the_page():
     """A tap on Paint under the shelf turns it to the Paint page, whose first tile is the Paint brush."""

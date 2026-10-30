@@ -78,7 +78,7 @@ spaces_init :: proc(k: ^Kit_State) {
 	k.spaces = {}
 	for s in Space {
 		k.spaces.layout[s] = int(s)
-		k.spaces.page[s], _ = shelf_pages_of(s)
+		k.spaces.page[s] = shelf_first_page(s)
 	}
 }
 

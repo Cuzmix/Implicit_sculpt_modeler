@@ -118,8 +118,10 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 	#partial switch z {
 	case .Shelf:
 		// Counted among the pages the space shows.
-		first, last := shelf_pages_of(k.spaces.current)
-		return fmt.tprintf("Shelf · page %d of %d", int(k.shelf.page) - int(first) + 1, int(last) - int(first) + 1)
+		pages := shelf_pages(k, k.spaces.current)
+		at := 1
+		for p, i in pages do if p == k.shelf.page do at = i + 1
+		return fmt.tprintf("Shelf · %s · %d of %d", shelf_page_name(k, k.shelf.page), at, len(pages))
 	case .Rail:  return fmt.tprintf("Rail · %d", len(bar_used(app, .View_Rail)))
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		i := int(z) - int(Arrange_Zone.Dock_1)
@@ -150,7 +152,10 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	case .Dial:
 		k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
 	case .Shelf:
+		// The page shown gets its own tiles back (an added one comes empty) and a built-in
+		// one its own name; an added page keeps the name it was given.
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
+		if k.shelf.page < SHELF_EXTRA_FIRST do k.shelf.names[k.shelf.page] = {}
 		k.tools = bar_fresh(.Tools)
 		k.places[.Shelf] = {}
 	case .Panels:

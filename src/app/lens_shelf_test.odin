@@ -179,3 +179,67 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	arrange_zone_reset(app, .Shelf)
 	testing.expect(t, !bar_changed(app, .Tools))
 }
+
+// A page of one's own is added after the space's built-in ones, empty and called by where
+// it stands; it and a built-in page take names, all of it comes back from settings.txt, and
+// a deleted page goes with its tiles, the space going back to its first page.
+@(test)
+shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
+	path := "build/shelf_pages_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := new(App)
+	defer free(a)
+	defer results_destroy(a)
+	bars_reset(&a.kit)
+	k := &a.kit
+	k.shelf.row = {0, 0, 640, 58}
+	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
+	p, ok := shelf_page_add(k, .Sculpt)
+	testing.expect(t, ok && p == .Extra_1)
+	testing.expect_value(t, shelf_page_name(k, p), "Page 5")
+	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 5)
+	testing.expect_value(t, len(shelf_pages(k, .Model)), 1)
+	testing.expect_value(t, len(bar_used(a, shelf_which(p))), 0)
+	// The new page is the Sculpt space's last, so a turn from Curve reaches it.
+	k.shelf.page = .Curve
+	testing.expect(t, shelf_turn(a, 1) && k.shelf.page == p)
+	testing.expect(t, !shelf_turn(a, 1))
+	bar_put(a, {which = shelf_which(p), slot = 0, add = true}, {.Brush, int(sculpt.Brush_Kind.Inflate)})
+	shelf_page_rename(k, p, "  Detail  ")
+	shelf_page_rename(k, .Paint, "Colour")
+	shelf_page_rename(k, .Move, "")
+	testing.expect_value(t, shelf_page_name(k, p), "Detail")
+	testing.expect_value(t, shelf_page_name(k, .Paint), "Colour")
+	testing.expect_value(t, shelf_page_name(k, .Move), "Move")
+	q, _ := shelf_page_add(k, .Model)
+	testing.expect_value(t, shelf_page_name(k, q), "Page 2")
+	testing.expect(t, settings_save(a, path))
+
+	b := new(App)
+	defer free(b)
+	defer results_destroy(b)
+	bars_reset(&b.kit)
+	settings_load(b, path)
+	testing.expect_value(t, len(shelf_pages(&b.kit, .Sculpt)), 5)
+	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_1), "Detail")
+	testing.expect_value(t, shelf_page_name(&b.kit, .Paint), "Colour")
+	testing.expect_value(t, shelf_page_space(&b.kit, .Extra_2), Space.Model)
+	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_2), "Page 2")
+	testing.expect_value(t, bar_names(b, .Shelf_Extra_1), "Brush:Inflate")
+
+	shelf_page_delete(k, p)
+	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
+	testing.expect_value(t, k.shelf.page, Shelf_Page.Sculpt)
+	testing.expect_value(t, k.shelf.lists[p].count, 0)
+	// A built-in page stays.
+	shelf_page_delete(k, .Paint)
+	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
+	// Six of one's own at most.
+	for _ in 0 ..< 5 do _, _ = shelf_page_add(k, .Render)
+	_, ok = shelf_page_add(k, .Render)
+	testing.expect(t, !ok)
+	bars_reset(k)
+	testing.expect_value(t, len(shelf_pages(k, .Render)), 1)
+	testing.expect_value(t, shelf_page_name(k, .Paint), "Paint")
+}

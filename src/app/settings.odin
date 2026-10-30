@@ -990,6 +990,10 @@ settings_load :: proc(app: ^App, path: string) {
 			// holds chrome, panes_under_panels, dock, dock_count and dock_pack lines and
 			// right_rail bars: nothing reads them now, so they are passed over.
 			bars_load_line(&app.kit, f)
+		case "shelf_extra", "shelf_page_name":
+			// shelf_extra <zone> <space>: a page of the shelf's own added in that space;
+			// shelf_page_name <zone> <name, escaped>: a page's own name (lens_shelf.odin).
+			shelf_pages_load_line(&app.kit, f)
 		case "pie":
 			// pie <pie 0-3> <slot 0-7> <command name|empty>: a pie that differs from a fresh
 			// install's is written whole, so every slot the file names is set.
@@ -1228,6 +1232,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
 	}
 	bars_save(&app.kit, &out)
+	shelf_pages_save(&app.kit, &out)
 	for n in 0 ..< USER_PIES {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
