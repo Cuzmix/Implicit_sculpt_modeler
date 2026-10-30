@@ -412,12 +412,15 @@ case "$mode" in
 		mac_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
+		# Quad Remesh is offered on the Mac (src/quadmesh), so AutoRemesher's core links in too,
+		# built for the same minimum macOS when it is missing.
+		[ -f "$DEPS/autoremesher/libautoremesher.a" ] || MACOSX_DEPLOYMENT_TARGET="$MAC_MIN" python3 "$ROOT/scripts/build_autoremesher.py" || exit 1
 		rm -rf "$app"
 		mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$DEPS/autoremesher/libautoremesher.a" -lc++ "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"
