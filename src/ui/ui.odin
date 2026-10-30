@@ -132,6 +132,9 @@ Box :: struct {
 	// A panel a finger or a pen scrolls by dragging anywhere in it, its controls included
 	// (scroll_update): a control pressed in it waits to see which way the drag goes.
 	drag_scroll: bool,
+	// Its children may overlap, or its content outgrow its fixed size, by design (a stack
+	// of cards drawn over each other), so neither is counted as a layout fault.
+	overlap:     bool,
 }
 
 @(private)
@@ -155,6 +158,10 @@ Container :: struct {
 	// A highlight that slides to wherever a child asks (the chosen tab, the held brush),
 	// drawn under the children.
 	indicator:   Maybe(Indicator),
+	// How far along the main axis its children reach so far, and where the first that
+	// started inside an earlier one went (a layout fault, layout_fault), if any.
+	reach:       f32,
+	overlapped:  Rect,
 }
 
 @(private)
@@ -222,6 +229,12 @@ Context :: struct {
 	viewport_drag:  bool,
 	placed:         [dynamic]Placed, // this frame's containers
 	placed_prev:    [dynamic]Placed, // last frame's
+	// Layout faults (Overlap) found this frame so far, and last frame's whole count and
+	// the first one's place, for the app's exit stats and the touch scenarios.
+	overlaps:       int,
+	overlaps_prev:  int,
+	overlap_first:  Rect,
+	overlap_prev:   Rect,
 	stack:          [dynamic]Container,
 	clip:           Rect, // physical pixels
 	path:           [dynamic][2]f32, // scratch for shapes
@@ -403,6 +416,8 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	draw_list_clear(&ctx.draw)
 	ctx.draw.keep = 0
 	clear(&ctx.stack)
+	ctx.overlaps_prev, ctx.overlap_prev = ctx.overlaps, ctx.overlap_first
+	ctx.overlaps, ctx.overlap_first = 0, {}
 	ctx.placed, ctx.placed_prev = ctx.placed_prev, ctx.placed
 	clear(&ctx.placed)
 	ctx.hot = 0
@@ -621,6 +636,7 @@ end :: proc(ctx: ^Context) {
 	w := c.box.width if c.box.width > 0 else natural.x
 	h := c.box.height if c.box.height > 0 else natural.y
 	c.rect.w, c.rect.h = max(w, 2 * pad), max(h, 2 * pad)
+	layout_fault(ctx, &c, natural)
 	if c.box.clip {
 		ctx.clip = c.clip_prev
 		draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
@@ -685,8 +701,30 @@ end :: proc(ctx: ^Context) {
 		axis := 0 if p.box.direction == .Row else 1
 		size := [2]f32{c.rect.w, c.rect.h}
 		p.cursor[axis] += size[axis] - c.placed_size[axis]
+		// Its children reach where it truly ends, not where last frame's size put it.
+		start := c.rect.x if axis == 0 else c.rect.y
+		if size[axis] > 0 do p.reach = start + size[axis]
 		p.content = {max(p.content.x, c.rect.x + size.x), max(p.content.y, c.rect.y + size.y)}
 	}
+}
+
+// Counts container `c`'s layout fault, if it has one: children that lie over each other,
+// or content longer than its fixed size along its main axis spilling out (one that clips
+// or scrolls hides it on purpose). A container marked `overlap` has none by design.
+@(private)
+layout_fault :: proc(ctx: ^Context, c: ^Container, natural: [2]f32) {
+	if c.box.overlap do return
+	fault := c.overlapped
+	if fault.w == 0 && !c.box.clip && c.box.scroll == 0 {
+		// Along its main axis only, where the children run out of room: across it a child
+		// taller than a row (a 48 point target in a 44 point bar) only reaches past its
+		// edge, as hit areas do. Half a point of slack, for sizes summed in floats.
+		if c.box.direction == .Row && c.box.width > 0 && natural.x > c.box.width + 0.5 do fault = c.rect
+		if c.box.direction == .Column && c.box.height > 0 && natural.y > c.box.height + 0.5 do fault = c.rect
+	}
+	if fault.w == 0 do return
+	if ctx.overlaps == 0 do ctx.overlap_first = fault
+	ctx.overlaps += 1
 }
 
 // Where the container that ended last went this frame: what the app records of a
@@ -820,8 +858,13 @@ rect_intersect :: proc(a, b: Rect) -> Rect {
 advance :: proc(c: ^Container, size: [2]f32) -> [2]f32 {
 	axis := 0 if c.box.direction == .Row else 1
 	if !c.first_child do c.cursor[axis] += c.box.gap
-	c.first_child = false
 	pos := c.cursor
+	// A child that starts inside the one before (a spacer pulled the cursor back, as a row
+	// whose room ran out does) lies over it: the first such is kept for layout_fault. A
+	// child with no size takes no room, so it overlaps nothing.
+	if !c.first_child && pos[axis] < c.reach - 0.5 && size[axis] > 0 && c.overlapped.w == 0 do c.overlapped = {pos.x, pos.y, max(size.x, 1), max(size.y, 1)}
+	c.first_child = false
+	if size[axis] > 0 do c.reach = max(c.reach, pos[axis] + size[axis])
 	c.content = {max(c.content.x, pos.x + size.x), max(c.content.y, pos.y + size.y)}
 	c.cursor[axis] += size[axis]
 	return pos

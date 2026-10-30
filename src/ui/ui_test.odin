@@ -1851,3 +1851,40 @@ mirror_slide_draws_from_the_mirror_image :: proc(t: ^testing.T) {
 	reduced, faded, _ := frame(&ctx, 0.5)
 	testing.expectf(t, abs(reduced - 16) < 1.5 && faded < full, "Reduced moved it to %v or did not fade it (%v of %v)", reduced, faded, full)
 }
+
+// A row whose controls lie over each other (a spacer pulled back past one, as a row with no
+// room left does) or spill out of its fixed width is a layout fault; one that fits, one
+// that clips its content and one marked to overlap are not. Across its main axis a child
+// may reach past a row, as a target taller than a bar does.
+@(test)
+layout_faults_are_counted :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	row :: proc(ctx: ^Context, name: string, box: Box, back: f32) {
+		begin_at(ctx, name, {10, 10}, box)
+		_ = place(ctx, {40, 60})
+		spacer(ctx, back)
+		_ = place(ctx, {40, 20})
+		end(ctx)
+	}
+	faults :: proc(ctx: ^Context, box: Box, back: f32) -> int {
+		frame_begin(ctx, input_at({-1, -1}))
+		row(ctx, "row", box, back)
+		frame_end(ctx)
+		return ctx.overlaps
+	}
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4}, 0), 0)
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4}, -10), 1)
+	testing.expect_value(t, ctx.overlap_first, Rect{10 + 40 - 10 + 4, 10, 40, 20})
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4, width = 70}, 0), 1)
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4, width = 84}, 0), 0)
+	// Taller than the row's fixed height, across its main axis: no fault.
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4, height = 40}, 0), 0)
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4, width = 70, clip = true}, 0), 0)
+	testing.expect_value(t, faults(&ctx, {direction = .Row, gap = 4, overlap = true}, -10), 0)
+	// The count is the last whole frame's from the next frame on.
+	frame_begin(&ctx, input_at({-1, -1}))
+	testing.expect_value(t, ctx.overlaps_prev, 0)
+	frame_end(&ctx)
+}
