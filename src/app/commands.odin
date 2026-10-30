@@ -2660,12 +2660,13 @@ hint_join :: proc(keys, gesture: string) -> string {
 	return keys if keys != "" else gesture
 }
 
-// "Ctrl+Shift+S", "Shift+F", "F12", "Num 1": in the temp allocator.
+// "Ctrl+Shift+S", "Shift+F", "F12", "Num 1": in the temp allocator. On a Mac or an iPad's
+// keyboard the shortcut key is Cmd, which KMOD_SHORTCUT reads as Ctrl, and Alt is Option.
 chord_text :: proc(c: Chord) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	if .Ctrl in c.mods do strings.write_string(&b, "Ctrl+")
+	if .Ctrl in c.mods do strings.write_string(&b, "Cmd+" when ODIN_OS == .Darwin else "Ctrl+")
 	if .Shift in c.mods do strings.write_string(&b, "Shift+")
-	if .Alt in c.mods do strings.write_string(&b, "Alt+")
+	if .Alt in c.mods do strings.write_string(&b, "Option+" when ODIN_OS == .Darwin else "Alt+")
 	strings.write_string(&b, key_text(c.key))
 	return strings.to_string(b)
 }
@@ -2712,7 +2713,7 @@ chord_down :: proc(d: ^Device, c: Chord) -> bool {
 // The Ctrl, Shift and Alt among SDL's modifiers (Num Lock, Caps Lock and the system key
 // are left out, so they never stop a shortcut).
 key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
-	if m & sdl.KMOD_CTRL != {} do mods += {.Ctrl}
+	if m & KMOD_SHORTCUT != {} do mods += {.Ctrl}
 	if m & sdl.KMOD_SHIFT != {} do mods += {.Shift}
 	if m & sdl.KMOD_ALT != {} do mods += {.Alt}
 	return

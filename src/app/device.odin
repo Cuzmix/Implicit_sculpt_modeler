@@ -100,10 +100,15 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 	}
 }
 
+// The keys that count as Ctrl for shortcuts and the modifier drags. Apple's keyboards put
+// shortcuts on Cmd, so on a Mac and an iPad's keyboard Cmd counts as Ctrl as well, and Ctrl
+// still does too: Cmd+Z undoes as in every Mac app, and a binding saved on Windows works.
+KMOD_SHORTCUT :: sdl.KMOD_CTRL | sdl.KMOD_GUI when ODIN_OS == .Darwin else sdl.KMOD_CTRL
+
 // Reads the modifiers once every event of the frame is in.
 device_frame_end :: proc(d: ^Device) {
 	mods := sdl.GetModState() | d.key_mods | d.script_mods
-	d.shift, d.ctrl, d.alt = mods & sdl.KMOD_SHIFT != {}, mods & sdl.KMOD_CTRL != {}, mods & sdl.KMOD_ALT != {}
+	d.shift, d.ctrl, d.alt = mods & sdl.KMOD_SHIFT != {}, mods & KMOD_SHORTCUT != {}, mods & sdl.KMOD_ALT != {}
 }
 
 // The pointer moved to `to` (window coordinates). A `jump` is the pointer landing

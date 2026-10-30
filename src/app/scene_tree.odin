@@ -586,6 +586,10 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 	case .New_Folder:
 		if obj == nil do break
 		f := folder_new(app)
+		// Every selected object goes in with it, as Blender and Photoshop group a selection.
+		if object_in_selection(app, obj) {
+			for id in selection_ids(app) do if o := object_by_id(app, id); o != nil do o.folder = f.id
+		}
 		obj.folder = f.id
 		what = "New folder"
 	case .Into_Folder:

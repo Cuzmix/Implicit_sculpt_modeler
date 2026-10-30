@@ -95,7 +95,11 @@ summary.
   (`palette_where`). The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and
   `kit_lens_tools` (the full sections are cards of their own; a Tools tile is a registry command); the action
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
-  own. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
+  own. The Scene card is the outliner: its chips (`Outliner.kind`, `object_scene_kind`) and Find narrow the rows and
+  stop drags (a narrowed list is not the scene's order); its Add menu (`kit_scene_add_menu`, drawn after the layer
+  menu) sends the same `Scene_Command`s and commands as the Scene palette; a light's row changes the lights through
+  `light_drag_changed`, so the change is one undo step like the Lights section's; a row's ⋯ opens the object menu at
+  `row_toggle_rect`, the toggle's own rect, which must follow `ui.thumb_row`'s layout of the toggles. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
   skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
   Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; the sheet's sections
   (`lens_settings.odin`) and the narrow window's tabs (`kit_settings.odin`, under 840 points) are lists of
