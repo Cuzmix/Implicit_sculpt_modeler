@@ -6,7 +6,6 @@ import "core:testing"
 // The stack's rules, after any operation: the order holds every card once, the first is
 // no tab, every host shows one of its own tabs, a tab keeps no state as a card (open,
 // floating, window, height, size), and a tab is in or out of the stack as its host is.
-@(private = "file")
 stack_valid :: proc(s: ^Lens_Stack) -> bool {
 	seen: bit_set[Panel_Kind]
 	for c in s.order {

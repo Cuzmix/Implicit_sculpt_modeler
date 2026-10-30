@@ -90,11 +90,22 @@ panel_kind_summary :: proc(app: ^App, kind: Panel_Kind) -> string {
 }
 
 // Its content, `inner` points wide: a card's body, or a section's controls (asking for an
-// object first when the section is an object's and none is selected).
+// object first when the section is an object's and none is selected). Every panel is part
+// of the tray, so search's Show where can mark a control on any of them (the Layers card's
+// New layer, say).
 panel_body :: proc(app: ^App, kind: Panel_Kind, inner: f32) {
+	k := &app.kit
+	k.in_tray = true
+	defer k.in_tray = false
 	sec, section := panel_section(kind)
 	if !section {
 		stack_card_body(app, kind, inner)
+		return
+	}
+	for s in OBJECT_SECTIONS do if s.section == sec do k.object_page = s.page
+	// The Objects tree is the Scene palette's first section, in no section table.
+	if sec == .Objects {
+		kit_scene_objects(app)
 		return
 	}
 	ctx := &app.kit.ctx

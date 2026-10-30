@@ -57,10 +57,71 @@ stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	stack_reveal(app, .Objects)
 	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene})
 	stack_reveal(app, .Remesh)
-	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene, .Palettes})
+	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene, .Remesh})
 	testing.expect_value(t, stack_card_of(app, .Layers), Panel_Kind.Layers)
+	testing.expect_value(t, stack_card_of(app, .Layers, exact = true), Panel_Kind.Layer_Settings)
+	testing.expect_value(t, stack_card_of(app, .Objects, exact = true), Panel_Kind.Objects)
+	testing.expect_value(t, stack_card_of(app, .Environment, exact = true), Panel_Kind.Environment)
+	testing.expect_value(t, stack_card_of(app, .Stroke, exact = true), Panel_Kind.Brush)
 	app.tool = .Move
-	testing.expect_value(t, stack_card_of(app, .Stroke), Panel_Kind.Palettes)
+	testing.expect_value(t, stack_card_of(app, .Stroke), Panel_Kind.Stroke)
+}
+
+// A section opened comes in as the visit at the docked stack's foot, before Palettes, and
+// is no part of the layout; the next one opened takes its place.
+@(test)
+a_visit_gives_way_to_the_next :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	stack_default(k)
+	fresh := kit_layout_text(k)
+	stack_reveal(app, .Paint)
+	testing.expect_value(t, stack_visit_text(k), "Paint")
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+,Palettes")
+	stack_reveal(app, .Mask)
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Mask+,Palettes")
+	testing.expect(t, .Paint in k.stack.hidden)
+	testing.expect_value(t, k.stack.visits, 2)
+	// Only the Brush card's fold is the layout's; the visit is not.
+	k.stack.open += {.Brush}
+	testing.expect_value(t, kit_layout_text(k), fresh)
+	// Opening it again, or a card, keeps it as it is.
+	stack_reveal(app, .Mask)
+	stack_reveal(app, .Layers)
+	testing.expect_value(t, stack_visit_text(k), "Mask")
+	testing.expect_value(t, k.stack.moves, 0)
+}
+
+// A pinned visit stays when the next section is opened, and is part of the layout; so is
+// one carried into a group, even once it is taken out again.
+@(test)
+a_kept_visit_stays :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	stack_default(k)
+	stack_reveal(app, .Paint)
+	stack_keep(k, .Paint, true)
+	stack_reveal(app, .Mask)
+	testing.expect_value(t, stack_text(k), "Brush,Symmetry,Layers,Scene,Tools,Paint+,Mask+,Palettes")
+	testing.expect(t, .Paint not_in k.stack.hidden && .Mask not_in k.stack.hidden)
+	testing.expect(t, strings.contains(kit_layout_text(k), "section:Paint+"), kit_layout_text(k))
+	testing.expect(t, !strings.contains(kit_layout_text(k), "section:Mask"), kit_layout_text(k))
+	// Carried into a group, the visit is kept.
+	testing.expect(t, stack_join(k, .Mask))
+	stack_visit_settle(&k.stack)
+	testing.expect_value(t, stack_visit_text(k), "none")
+	testing.expect(t, stack_take_out(k, .Mask))
+	stack_reveal(app, .Sets)
+	testing.expect(t, .Mask not_in k.stack.hidden, "a visit once kept stays kept")
+	testing.expect(t, stack_valid(&k.stack))
+	// Unpinning leaves it out again.
+	stack_keep(k, .Paint, false)
+	testing.expect(t, .Paint in k.stack.hidden)
+	testing.expect(t, stack_valid(&k.stack))
 }
 
 // Windows, pinned panels and floated cards share one floating order: a card floated comes

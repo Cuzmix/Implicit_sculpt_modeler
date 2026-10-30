@@ -103,12 +103,13 @@ tray_pick :: proc(app: ^App, tab: Kit_Tab, sec: Kit_Section) {
 	k.tab, k.section[tab], k.scroll = tab, sec, 0
 }
 
-// Opens the tray on section `sec`, closing Settings or Help, which share its place.
-tray_open :: proc(app: ^App, sec: Kit_Section) {
+// Opens the stack on section `sec`, closing Settings or Help, which share its place: its
+// card, or its own palette as the visit (stack_reveal; `exact` as stack_card_of has it).
+tray_open :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	side_panel_close(app)
 	app.kit.inspector, app.kit.list_reveal = true, 3
 	tray_pick(app, section_palette(sec), sec)
-	stack_reveal(app, sec)
+	stack_reveal(app, sec, exact)
 }
 
 // Where each command's control is in the tray, for search's Show where: the section
@@ -186,15 +187,15 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Screenshot_Transparent = .Background,
 }
 
-// Opens the tray where command `id` (with `arg`) has its control and marks the control
-// for a moment: on its section with the More options open, the tool switched to the
-// brush for the brush's sections. False for a command with no home there.
+// Opens the stack where command `id` (with `arg`) has its control and marks the control
+// for a moment: on its section as the tray drew it, with the More options open, the tool
+// switched to the brush for the brush's sections. False for a command with no home there.
 tray_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	sec, ok := COMMAND_HOMES[id].?
 	if !ok do return false
 	k := &app.kit
 	if section_palette(sec) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
-	tray_open(app, sec)
+	tray_open(app, sec, exact = true)
 	k.more[sec] = true
 	k.pointed = {id, arg, k.ctx.time}
 	return true

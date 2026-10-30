@@ -118,7 +118,7 @@ kit_lens_material :: proc(app: ^App) {
 			}
 			ui.tip(ctx, a.id, a.rect, label)
 			if a.clicked {
-				if more do lens_show_section(app, .Material)
+				if more do tray_open(app, .Material, exact = true)
 				else do app.ui.scene_command = {kind = .Material, material = MATERIALS[i]}
 			}
 		}
@@ -150,16 +150,4 @@ material_card_balls :: proc(index: int) -> [len(MATERIAL_CARD)]int {
 material_swatch :: proc(m: Material) -> ui.Color {
 	c := m.selected
 	return {u8(srgb_encode(clamp(c.r, 0, 1)) * 255 + 0.5), u8(srgb_encode(clamp(c.g, 0, 1)) * 255 + 0.5), u8(srgb_encode(clamp(c.b, 0, 1)) * 255 + 0.5), 255}
-}
-
-// Opens the tray's section `sec` under Palettes, for what the look's cards leave to it.
-// tray_open would open the look's own card again, so this picks the section in the tray
-// and opens the Palettes card that shows it.
-lens_show_section :: proc(app: ^App, sec: Kit_Section) {
-	s := &app.kit.stack
-	side_panel_close(app)
-	app.kit.inspector = true
-	tray_pick(app, section_palette(sec), sec)
-	s.open += {.Palettes}
-	s.hidden -= {.Palettes}
 }
