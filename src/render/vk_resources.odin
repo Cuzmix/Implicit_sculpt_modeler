@@ -98,6 +98,9 @@ Vk_Set_Key :: struct {
 	// A set of one binding, an array of up to this many sampled textures whose count is
 	// given when the set is allocated (gpu_bind_compute_texture_array); 0 for none.
 	array:           u32,
+	// An acceleration structure at binding 0 (gpu_bind_compute_accel), the array then at
+	// binding 1, since a binding of variable count must be the set's last.
+	accel:           bool,
 }
 
 // The most textures one array binding holds: a command buffer's descriptor pools hold 1024
@@ -105,9 +108,10 @@ Vk_Set_Key :: struct {
 VK_TEXTURE_ARRAY_MAX :: 256
 
 Vk_Graphics_Layout_Key :: [8]u32 // the vertex shader's four counts, then the fragment shader's
-// Samplers, read-only textures and buffers, read-write textures and buffers, uniforms, and
-// the texture array's capacity (0 for none), whose set is the fourth.
-Vk_Compute_Layout_Key :: [7]u32
+// Samplers, read-only textures and buffers, read-write textures and buffers, uniforms, the
+// texture array's capacity (0 for none) and 1 for an acceleration structure, both in the
+// fourth set.
+Vk_Compute_Layout_Key :: [8]u32
 
 Vk_Pipeline_Layout :: struct {
 	layout: vk.PipelineLayout,
@@ -142,11 +146,21 @@ vk_set_layout :: proc(key: Vk_Set_Key) -> vk.DescriptorSetLayout {
 	add(&bindings, &n, key.write_buf, .STORAGE_BUFFER, key.stage)
 	add(&bindings, &n, key.uniform_buffers, .UNIFORM_BUFFER_DYNAMIC, key.stage)
 	info := vk.DescriptorSetLayoutCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO, bindingCount = n, pBindings = &bindings[0]}
-	flags := vk.DescriptorBindingFlags{.VARIABLE_DESCRIPTOR_COUNT}
-	array_flags := vk.DescriptorSetLayoutBindingFlagsCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, bindingCount = 1, pBindingFlags = &flags}
-	if key.array > 0 {
-		bindings[0] = {binding = 0, descriptorType = .COMBINED_IMAGE_SAMPLER, descriptorCount = key.array, stageFlags = key.stage}
-		info.bindingCount, info.pNext = 1, &array_flags
+	flags := [2]vk.DescriptorBindingFlags{}
+	array_flags := vk.DescriptorSetLayoutBindingFlagsCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, pBindingFlags = &flags[0]}
+	if key.accel || key.array > 0 {
+		n = 0
+		if key.accel {
+			bindings[n] = {binding = n, descriptorType = .ACCELERATION_STRUCTURE_KHR, descriptorCount = 1, stageFlags = key.stage}
+			n += 1
+		}
+		if key.array > 0 {
+			bindings[n] = {binding = n, descriptorType = .COMBINED_IMAGE_SAMPLER, descriptorCount = key.array, stageFlags = key.stage}
+			flags[n] = {.VARIABLE_DESCRIPTOR_COUNT}
+			n += 1
+		}
+		info.bindingCount, info.pNext = n, &array_flags
+		array_flags.bindingCount = n
 	}
 	layout: vk.DescriptorSetLayout
 	if vk.CreateDescriptorSetLayout(vk_state.device, &info, nil, &layout) != .SUCCESS do return 0
@@ -184,18 +198,17 @@ vk_graphics_layout :: proc(vertex, fragment: ^Vk_Shader) -> ^Vk_Pipeline_Layout 
 	return layout
 }
 
-vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^Vk_Pipeline_Layout {
-	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array}
+vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32, accel: bool) -> ^Vk_Pipeline_Layout {
+	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array, u32(accel)}
 	if layout, ok := vk_state.compute_layouts[key]; ok do return layout
+	fourth := array > 0 || accel
 	sets := [4]vk.DescriptorSetLayout {
 		vk_set_layout({stage = {.COMPUTE}, samplers = key[0], storage_tex = key[1], storage_buf = key[2]}),
 		vk_set_layout({stage = {.COMPUTE}, write_tex = key[3], write_buf = key[4]}),
 		vk_set_layout({stage = {.COMPUTE}, uniform_buffers = key[5]}),
-		vk_set_layout({stage = {.COMPUTE}, array = array}) if array > 0 else 0,
+		vk_set_layout({stage = {.COMPUTE}, array = array, accel = accel}) if fourth else 0,
 	}
-	counts: [8]u32
-	copy(counts[:], key[:])
-	layout := vk_pipeline_layout_make(sets, 4 if array > 0 else 3, counts)
+	layout := vk_pipeline_layout_make(sets, 4 if fourth else 3, key)
 	if layout != nil do vk_state.compute_layouts[key] = layout
 	return layout
 }
@@ -216,19 +229,19 @@ vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
 	ok: bool
 	host := b.host
 	if host == .Shared && len(b.backings) > 0 do host = .None
+	address := .SHADER_DEVICE_ADDRESS in b.usage
 	switch host {
-	case .None:     backing.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {})
-	case .Upload:   backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {})
-	case .Download: backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {.HOST_CACHED})
+	case .None:     backing.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {}, address)
+	case .Upload:   backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {}, address)
+	case .Download: backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {.HOST_CACHED}, address)
 	case .Shared:
 		// Exactly the type caps chose, never another that happens to match its flags on a
 		// smaller heap.
 		if vk_state.shared_buffers && reqs.memoryTypeBits & (1 << vk_state.shared_type) != 0 {
-			info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, allocationSize = reqs.size, memoryTypeIndex = vk_state.shared_type}
-			ok = vk.AllocateMemory(vk_state.device, &info, nil, &backing.memory) == .SUCCESS
+			backing.memory, ok = vk_allocate_type(reqs.size, vk_state.shared_type, address)
 		}
 	}
-	if !ok && host == .None do backing.memory, ok = vk_allocate(reqs, {}, {})
+	if !ok && host == .None do backing.memory, ok = vk_allocate(reqs, {}, {}, address)
 	if !ok || vk.BindBufferMemory(vk_state.device, backing.buffer, backing.memory, 0) != .SUCCESS {
 		vk_buffer_backing_destroy(backing)
 		return nil
@@ -253,7 +266,6 @@ vk_buffer_backing_destroy :: proc(backing: ^Vk_Buffer_Backing) {
 	free(backing)
 }
 
-@(private = "file")
 vk_buffer_make :: proc(size: u32, usage: vk.BufferUsageFlags, host: Vk_Host) -> ^Vk_Buffer {
 	b := new(Vk_Buffer)
 	b.size, b.usage, b.host = size, usage, host
@@ -291,10 +303,13 @@ vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, te
 	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
 }
 
-// Every buffer can be copied into and out of, as SDL_GPU's are.
+// Every buffer can be copied into and out of, as SDL_GPU's are. An acceleration structure
+// build input (gpu_build_blas reads vertices and indices through their addresses) also gets
+// the two usages that needs, where ray queries are on.
 @(private = "file")
-vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags) -> vk.BufferUsageFlags {
+vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags, accel_input: bool) -> vk.BufferUsageFlags {
 	flags := vk.BufferUsageFlags{.TRANSFER_SRC, .TRANSFER_DST}
+	if accel_input && vk_state.ray_query do flags += {.SHADER_DEVICE_ADDRESS, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
 	if .VERTEX in usage do flags += {.VERTEX_BUFFER}
 	if .INDEX in usage do flags += {.INDEX_BUFFER}
 	if .INDIRECT in usage do flags += {.INDIRECT_BUFFER}
@@ -302,17 +317,17 @@ vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags) -> vk.BufferUsageFlags {
 	return flags
 }
 
-vk_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
-	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage), .None)
+vk_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo, accel_input := false) -> ^sdl.GPUBuffer {
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .None)
 	if b == nil do log.errorf("Vulkan: a %d byte buffer could not be made", info.size)
 	return (^sdl.GPUBuffer)(b)
 }
 
 // A device buffer mapped for its first fill, or nil where the device has no shared memory
 // type or that heap is full; the caller then makes a plain one.
-vk_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
+vk_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo, accel_input := false) -> (^sdl.GPUBuffer, rawptr) {
 	if !vk_state.shared_buffers do return nil, nil
-	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage), .Shared)
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .Shared)
 	if b == nil do return nil, nil
 	return (^sdl.GPUBuffer)(b), b.active.mapped
 }
@@ -856,7 +871,22 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 }
 
 vk_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
-	return vk_compute_pipeline_make(info, 0)
+	return vk_compute_pipeline_make(info, 0, false)
+}
+
+// A kernel that traces rays against the acceleration structure at set 3, binding 0
+// (gpu_bind_compute_accel), and reads an array of up to `capacity` sampled textures at
+// binding 1 when capacity is not 0.
+vk_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+	if !vk_state.ray_query {
+		sdl.SetError("Vulkan: this device has no ray queries")
+		return nil
+	}
+	if capacity > vk_state.texture_arrays {
+		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
+		return nil
+	}
+	return vk_compute_pipeline_make(info, capacity, true)
 }
 
 // A kernel that also reads an array of up to `capacity` sampled textures from set 3,
@@ -866,13 +896,13 @@ vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: s
 		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
 		return nil
 	}
-	return vk_compute_pipeline_make(info, capacity)
+	return vk_compute_pipeline_make(info, capacity, false)
 }
 
 @(private = "file")
-vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^sdl.GPUComputePipeline {
+vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32, accel: bool) -> ^sdl.GPUComputePipeline {
 	if .SPIRV not_in info.format do return nil
-	layout := vk_compute_layout(info, array)
+	layout := vk_compute_layout(info, array, accel)
 	if layout == nil do return nil
 	module := vk_module(info.code[:info.code_size])
 	if module == 0 do return nil

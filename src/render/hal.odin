@@ -214,8 +214,10 @@ gpu_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source:
 	sdl.CopyGPUTextureToTexture(copy_pass, source, destination, w, h, d, cycle)
 }
 
-gpu_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
-	if gpu_backend == .Vulkan do return vk_create_buffer(device, createinfo)
+// `accel_input` for a buffer an acceleration structure is built from (gpu_build_blas),
+// which only the own Vulkan backend with ray queries marks; elsewhere it changes nothing.
+gpu_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUBufferCreateInfo, accel_input := false) -> ^sdl.GPUBuffer {
+	if gpu_backend == .Vulkan do return vk_create_buffer(device, createinfo, accel_input)
 	when METAL do if gpu_backend == .Metal do return mtl_create_buffer(device, createinfo)
 	return sdl.CreateGPUBuffer(device, createinfo)
 }
@@ -240,6 +242,80 @@ gpu_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr create
 // makes nothing.
 gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
 	return vk_state.texture_arrays if gpu_backend == .Vulkan else 0
+}
+
+// ---- Ray queries (Gpu_Caps.ray_query) -------------------------------------------------
+// Acceleration structures the driver builds and kernels trace with ray queries: the own
+// Vulkan backend on a device with VK_KHR_ray_query only (vk_accel.odin). Elsewhere nothing
+// is offered: every build returns nil and the callers keep their own BVH walk.
+
+// A bottom-level structure (a mesh's triangles) or a top-level one (instances of bottom
+// levels); only the backend looks inside.
+Gpu_Accel :: struct {}
+
+// One geometry of a bottom level: a run of triangles of the index buffer. A geometry that
+// is not opaque has its candidates handed to the kernel to confirm (a hidden triangle,
+// uploaded as a repeated corner, is turned down there).
+Blas_Geometry :: struct {
+	first_triangle: u32,
+	triangle_count: u32,
+	opaque:         bool,
+}
+
+// One instance of a top level: a bottom level, where it stands (a similarity, as every
+// Draw_Item.model) and a 24-bit number the kernel reads back (CommittedInstanceID).
+Tlas_Instance :: struct {
+	blas:      ^Gpu_Accel,
+	transform: Mat4,
+	custom:    u32,
+}
+
+gpu_ray_query_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	return gpu_backend == .Vulkan && vk_state.ray_query
+}
+
+// Records a bottom-level build over `positions` (3 floats a vertex, `vertex_count` of them)
+// and `indices` (u32), both made with accel_input, outside any pass. With `update` and the
+// same geometries it refits that structure in place and returns it; otherwise it returns a
+// new one, and the caller releases `update`. Nil where nothing is offered or the build
+// cannot be made.
+gpu_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices: ^sdl.GPUBuffer, vertex_count: u32, geometries: []Blas_Geometry, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
+	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_build_blas(command_buffer, positions, indices, vertex_count, geometries, update)
+	return nil
+}
+
+// Records a top-level build over `instances`, outside any pass, into `update` when it has
+// as many instances (returning it), else into a new structure (the caller releases
+// `update`). The top level keeps each bottom level it names alive until it is released.
+gpu_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_Instance, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
+	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_build_tlas(command_buffer, instances, update)
+	return nil
+}
+
+// A compute pipeline that traces against the top level at set 3, binding 0 in SPIR-V, and
+// also reads an array of up to `capacity` sampled textures at binding 1 (none for 0); nil
+// with SDL's error set where ray queries are not offered.
+gpu_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo, capacity: u32 = 0) -> ^sdl.GPUComputePipeline {
+	if gpu_backend == .Vulkan do return vk_create_compute_pipeline_traced(device, createinfo, capacity)
+	sdl.SetError("ray queries need the own Vulkan backend")
+	return nil
+}
+
+// The top level a gpu_create_compute_pipeline_traced kernel traces against at its next
+// dispatch in this pass.
+gpu_bind_compute_accel :: proc(compute_pass: ^sdl.GPUComputePass, accel: ^Gpu_Accel) {
+	if gpu_backend == .Vulkan do vk_bind_compute_accel(compute_pass, accel)
+}
+
+// Frees a structure once no submitted command buffer and no top level uses it.
+gpu_release_accel :: proc(device: ^sdl.GPUDevice, accel: ^Gpu_Accel) {
+	if gpu_backend == .Vulkan && accel != nil do vk_release_accel(accel)
+}
+
+// The GPU memory a structure holds, for budgets and the exit stats.
+gpu_accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
+	if gpu_backend == .Vulkan && accel != nil do return vk_accel_bytes(accel)
+	return 0
 }
 
 // A compute pipeline whose arithmetic is IEEE 754's, for kernels that must equal the CPU.
@@ -743,8 +819,8 @@ gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 // A device buffer whose `info.size` bytes the CPU writes through `mapped` before anything
 // uses it, then ends with gpu_buffer_filled; nil, nil where the backend cannot, and the
 // caller uploads into a plain buffer instead. SDL_GPU has no such buffers.
-gpu_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (buffer: ^sdl.GPUBuffer, mapped: rawptr) {
-	if gpu_backend == .Vulkan do return vk_create_buffer_mapped(device, info)
+gpu_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo, accel_input := false) -> (buffer: ^sdl.GPUBuffer, mapped: rawptr) {
+	if gpu_backend == .Vulkan do return vk_create_buffer_mapped(device, info, accel_input)
 	when METAL do if gpu_backend == .Metal do return mtl_create_buffer_mapped(device, info)
 	return nil, nil
 }

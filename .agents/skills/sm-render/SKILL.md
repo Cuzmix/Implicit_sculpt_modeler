@@ -374,6 +374,16 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   buffers are untimed and hold compute passes only. Render mode (`render_frame`'s `async`): one band in flight
   (`band_fence`), `generation` drops a stale band, no band in a frame that builds the scene, sample counting at
   collection; pictures stay synchronous.
+- Ray query (`Gpu_Caps.ray_query`, design notes/native-gpu/ray-query-design.md): the own Vulkan backend enables
+  `VK_KHR_acceleration_structure`, `VK_KHR_ray_query` and buffer device addresses where all are offered. Build inputs
+  are buffers made with `accel_input` (`gpu_create_buffer`/`_mapped`), which alone get the device-address usages.
+  `gpu_build_blas` (a geometry per triangle run, opaque or not; a refit only with the same geometries and vertex
+  count, else a new structure the caller swaps in) and `gpu_build_tlas` (always a fresh build, its memory reused
+  when the instance count matches) record on the graphics queue outside passes, barriers both sides, one shared
+  scratch buffer (`vk_accel.odin`). `Vk_Accel` counts command buffers and the top levels holding it.
+  `gpu_create_compute_pipeline_traced` puts the structure at set 3 binding 0 and a texture array, if any, at
+  binding 1 (a variable-count binding must be last). `--gpu-debug` runs `ray_query_check` (`ray_query.odin`)
+  at device creation; a wrong answer is a validation error.
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit
