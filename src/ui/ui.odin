@@ -283,6 +283,7 @@ Context :: struct {
 	tip_shown:      Id,
 	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
 	tip_pressed:    Id, // pressed since the pointer came onto it: no tooltip
+	labels:         Labels, // every control named at once (labels.odin)
 	toasts:         [TOASTS]Toast,
 	toast_count:    int,
 	toast_serial:   Id,
@@ -450,6 +451,7 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	select_list_draw(ctx)
 	toasts_draw(ctx)
 	ring := long_press_decide(ctx)
+	labels_draw(ctx)
 	tooltip_draw(ctx)
 	roll_hint_draw(ctx)
 	if ring do long_press_draw(ctx)

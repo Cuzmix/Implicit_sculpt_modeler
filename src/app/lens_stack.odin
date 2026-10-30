@@ -590,7 +590,7 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 		s.folds += 1
 	}
 	if ui.secondary(ctx) do stack_menu_open(app, v, head.rect)
-	ui.tip(ctx, head.id, head.rect, "Fold" if open else "Unfold")
+	ui.tip(ctx, head.id, head.rect, "Fold" if open else "Unfold", label = false)
 	if v == .Symmetry {
 		// The axes as small chips, as the mockups' header has them: a full target tall to
 		// press, a letter on a lit square while on.
@@ -727,7 +727,7 @@ stack_brush :: proc(app: ^App, inner: f32) {
 		if line := stack_group_summary(app, sec.section); line != "" && g.rect.w - used > 24 {
 			ui.text(ctx, ui.text_fit(ctx, line, t.small_size, g.rect.w - used - 6), g.rect.x + g.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 		}
-		ui.tip(ctx, g.id, g.rect, "Fold" if open else "Unfold")
+		ui.tip(ctx, g.id, g.rect, "Fold" if open else "Unfold", label = false)
 		if g.clicked {
 			s.shut ~= {sec.section}
 			s.folds += 1
