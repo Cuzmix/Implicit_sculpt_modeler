@@ -231,3 +231,12 @@ mtl_error_text :: proc(err: ^NS.Error) -> string {
 	text := NS.Error_localizedDescription(err)
 	return strings.clone(NS.String_odinString(text), context.temp_allocator) if text != nil else "no reason given"
 }
+
+// Every Apple GPU runs SIMD-groups of 32 threads (the width a compute pipeline reports as
+// threadExecutionWidth); other Macs' GPUs vary, and are not told apart here. 64-bit
+// atomics (min and max) come with the Apple9 family, which Odin's enum does not name yet.
+mtl_compute_features :: proc() -> (subgroup_size: u32, int64_atomics: bool) {
+	if !MTL.Device_supportsFamily(mtl_state.device, .Apple3) do return 0, false
+	APPLE9 :: MTL.GPUFamily(1009)
+	return 32, bool(MTL.Device_supportsFamily(mtl_state.device, APPLE9))
+}
