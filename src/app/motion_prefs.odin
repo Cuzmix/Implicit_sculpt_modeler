@@ -20,6 +20,7 @@ Motion_Kind :: enum u8 {
 	Toasts, // notes rising and stacking
 	Tooltips, // tooltips fading in
 	Pages, // the shelf's page sliding in after a swipe
+	Camera, // the camera gliding to a view a command asks for (camera_ease.odin)
 }
 
 #assert(int(Motion_Kind.Tooltips) == int(ui.MOTION_TOOLTIPS) && len(Motion_Kind) <= 32)
@@ -32,6 +33,7 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Toasts   = "Notes",
 	.Tooltips = "Tooltips",
 	.Pages    = "Shelf pages",
+	.Camera   = "Camera moves",
 }
 
 MOTION_LEVEL_NAMES := [ui.Motion_Level]string {

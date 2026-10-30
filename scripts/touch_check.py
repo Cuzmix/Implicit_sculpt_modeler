@@ -2623,6 +2623,43 @@ def nav_head_tap_looks_from_that_side():
                    "camera_yaw": near(-math.pi / 2, 1e-3), "camera_pitch": near(0), "camera_distance": near(3.5)}
 
 
+def nav_head_click(s):
+    """A click on the middle of the navigation head: Front view from the start's view."""
+    s.add("move:%d,%d" % UI["nav_head"])
+    s.wait(2)
+    s.add("down")
+    s.wait(2)
+    s.add("up")
+
+
+@scenario
+def camera_glides_to_the_view_asked_for():
+    """With Camera moves on (--camera-ease, as an interactive run has it), a tap on the navigation head glides to the front view: a few frames on it is between the two views, and a third of a second on it rests exactly on the front."""
+    def run(frames, checks):
+        s = Script()
+        nav_head_click(s)
+        s.wait(frames)
+        return s, ["--camera-ease"], dict({"dabs": near(0), "nav_taps": near(1), "camera_eases": near(1), "camera_ease_cuts": near(0)}, **checks)
+    # The run's last check comes ten frames after the script ends: about half the glide.
+    return Steps([run(0, {"camera_easing": near(1), "camera_yaw": lambda v: 0.01 < float(v) < 0.55}),
+                  run(30, {"camera_easing": near(0), "camera_yaw": near(0), "camera_pitch": near(0), "camera_distance": near(3.5)})])
+
+
+@scenario
+def camera_glide_gives_way_to_a_turn():
+    """A turn on the view while the camera glides stops the glide where it is and turns from there; with motion Reduced, which keeps fades and drops moves, the tap jumps at once."""
+    s = Script()
+    nav_head_click(s)
+    s.wait(4)
+    s.fdrag([(160 + 6 * k, 700) for k in range(12)])
+    s.wait(4)
+    off = Script()
+    nav_head_click(off)
+    off.wait(2)
+    return Steps([(s, ["--camera-ease", "--script=set orbit_style turntable"], {"dabs": near(0), "camera_easing": near(0), "camera_eases": near(1), "camera_ease_cuts": near(1)}),
+                  (off, ["--camera-ease", "--script=set motion reduced"], {"camera_easing": near(0), "camera_eases": near(0), "camera_yaw": near(0)})])
+
+
 @scenario
 def nav_head_drag_turns_the_view():
     """A finger dragged from the navigation head turns the view as dragging empty space does, and snaps to no side when let go."""
