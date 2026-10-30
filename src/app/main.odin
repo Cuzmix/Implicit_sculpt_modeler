@@ -845,6 +845,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		history_cap(&app)
 		// A point or spot light a script or an undo just made gets its place.
 		lights_settle(&app)
+		// The selected object's polygon edges for the wireframe, before any command buffer
+		// of this frame is open (the upload waits for the copy).
+		poly_edges_frame(&app)
 		camera_history_frame(&app)
 		// Wait for the display, or the frame rate limit, and while timing the GPU for the
 		// previous frame too, before reading input: the frame then shows the newest input
@@ -1142,6 +1145,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
 				if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
+				// Polygon edges stand in for the triangles' edges on a level that has them.
+				poly_lines := part == 0 && poly_edges_shown(&app, obj, selected)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					textured = textured,
@@ -1155,11 +1160,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					style = viewport_style(&app),
 					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
-					wireframe = selected && app.wireframe && app.polyframe_lines,
+					wireframe = selected && app.wireframe && app.polyframe_lines && !poly_lines,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = (app.show_groups || selected && app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
-					// A cage shows its edges, and its faces flat, as a polygon model does.
-					cage_lines = obj.cage != nil,
+					// A cage shows its edges, and its faces flat, as a polygon model does; the
+					// wireframe of a level with polygons shows their edges the same way.
+					cage_lines = obj.cage != nil || poly_lines,
 					// The HD window's mesh carries no groups.
 					slots  = object_material_slots(&app, obj, i) if part == 0 && sculpt.sculptor_has_groups(&lv.sculptor) else nil,
 					live   = live,
@@ -1651,7 +1657,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// The haptics asked of the pencil, and whether the iPad's Only Draw with Apple Pencil
 			// was on, for the pencil scenarios.
 			fmt.printfln("haptics=%d pencil_only=%d pen_distance=%.2f", app.pencil.haptics, int(app.pencil.only), app.pen_distance)
-			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
+			// The polygon edges the selected object's wireframe showed, none for triangles.
+			poly_edges := 0
+			if sel := selected_object(&app); sel != nil && poly_edges_shown(&app, sel, true) do poly_edges = int(sel.gpu[sel.levels.current].edge_indices) / 2
+			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d poly_edges=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill), poly_edges)
 			bg := app.background
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
 			lao := app.live_ao
