@@ -186,6 +186,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	switch app.tool {
 	case .Brush:
+		draw_size_preview(app, o, input.size, input.hovered || input.dragging)
 		draw_symmetry_lines(app, o, input.size)
 		draw_shape_pending(app, o, input.size)
 		if app.clip.active {

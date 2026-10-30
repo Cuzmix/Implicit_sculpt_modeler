@@ -1646,6 +1646,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		last_step := "none"
 		if n := len(app.history.done); n > 0 do last_step, _ = strings.replace_all(app.history.done[n - 1].what, " ", "_", context.temp_allocator)
+		fmt.printfln("size_previews=%d size_preview=%d", app.ui.size_preview.shown, int(app.ui.size_preview.kind != .None))
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d last_step=%s", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected, last_step)
 		{
 			m := app.move

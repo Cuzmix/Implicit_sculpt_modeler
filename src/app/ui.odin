@@ -31,6 +31,7 @@ Ui_State :: struct {
 	viewport_stroke:    bool,
 	pie:                Pie,
 	adjust:             Brush_Adjust,
+	size_preview:       Size_Preview,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 	falloff_handle:     int, // ...and the falloff curve's
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
