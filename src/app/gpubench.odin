@@ -15,7 +15,8 @@ import "../render"
 // with the speed settings on and off, then writes the results as markdown tables.
 // Runs with vsync off where the display allows it, and with GPU timing on.
 
-GPUBENCH_SIZES :: [?]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000}
+// 20M is the next frontier past 10M; 50M runs alone (--vertices=50000000) where memory allows.
+GPUBENCH_SIZES :: [?]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000, 20_000_000}
 GPUBENCH_WARMUP :: 30 // frames run before each case is measured
 GPUBENCH_FRAMES :: 120 // default measured frames per case
 
@@ -51,6 +52,11 @@ Gpubench_Cell :: struct {
 	// Stroke cases: from the frame's pointer sample to its submit, as the Stats panel's
 	// Input to submit; the display adds its own wait after.
 	latency_p50, latency_p99: f32,
+	// CPU time of view culling and writing the draw commands, and the KB uploaded: what
+	// grows with chunk count and what a stroke sends, the two that GPU culling and smaller
+	// vertices (native GPU plan 2.4 and 2.7) would change.
+	cull_p50, cull_p99:     f32,
+	upload_p50, upload_p99: f32,
 	samples:          int, // measured frames (in stroke cases, only those that sculpted)
 }
 
@@ -70,6 +76,8 @@ Gpubench :: struct {
 	cpu:    Sample_Ring,
 	tris:   Sample_Ring,
 	latency: Sample_Ring,
+	cull:   Sample_Ring,
+	upload: Sample_Ring,
 	rows:   [dynamic]Gpubench_Row,
 	done:   bool,
 }
@@ -116,15 +124,17 @@ gpubench_input :: proc(app: ^App, b: ^Gpubench, size: [2]f32) -> Viewport_Input 
 	return {size = size}
 }
 
-// Called at the end of each frame with its GPU time, CPU time, input latency and dab count. Moves on
-// to the next case, and the next size, as each one finishes. Returns true once every
-// case has run. Stroke cases only count frames that sculpted.
-gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms: f64, dabs: int) -> bool {
+// Called at the end of each frame with its GPU time, CPU time, input latency, upload and dab
+// count. Moves on to the next case, and the next size, as each one finishes. Returns true
+// once every case has run. Stroke cases only count frames that sculpted.
+gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms, upload_kb: f64, dabs: int) -> bool {
 	c := gpubench_cases[b.kase]
 	if b.frame >= GPUBENCH_WARMUP && (!c.stroke || dabs > 0) {
 		ring_push(&b.gpu, gpu_ms)
 		ring_push(&b.cpu, cpu_ms)
 		ring_push(&b.tris, f64(app.stats.viewport.triangles))
+		ring_push(&b.cull, app.stats.viewport.cull_ms)
+		ring_push(&b.upload, upload_kb)
 		if c.stroke do ring_push(&b.latency, latency_ms)
 	}
 	b.frame += 1
@@ -139,8 +149,10 @@ gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms: 
 	cell.cpu_p50, cell.cpu_p99 = ring_percentiles(b.cpu)
 	cell.triangles, _ = ring_percentiles(b.tris)
 	cell.latency_p50, cell.latency_p99 = ring_percentiles(b.latency)
+	cell.cull_p50, cell.cull_p99 = ring_percentiles(b.cull)
+	cell.upload_p50, cell.upload_p99 = ring_percentiles(b.upload)
 	cell.samples = b.gpu.count
-	b.gpu, b.cpu, b.tris, b.latency = {}, {}, {}, {}
+	b.gpu, b.cpu, b.tris, b.latency, b.cull, b.upload = {}, {}, {}, {}, {}, {}
 	log.infof("gpubench: %d vertices, %s: GPU p50 %.2f ms, CPU p50 %.2f ms over %d frames",
 		row.vertices, c.label, cell.gpu_p50, cell.cpu_p50, cell.samples)
 	if c.stroke {
@@ -188,6 +200,8 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 		Cpu,
 		Triangles,
 		Latency,
+		Cull,
+		Upload,
 	}
 	table :: proc(sb: ^strings.Builder, title: string, rows: []Gpubench_Row, kind: Table) {
 		fmt.sbprintf(sb, "\n### %s\n\n| Vertices |", title)
@@ -201,6 +215,8 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 				p50, p99 := cell.cpu_p50, cell.cpu_p99
 				if kind == .Gpu do p50, p99 = cell.gpu_p50, cell.gpu_p99
 				if kind == .Latency do p50, p99 = cell.latency_p50, cell.latency_p99
+				if kind == .Cull do p50, p99 = cell.cull_p50, cell.cull_p99
+				if kind == .Upload do p50, p99 = cell.upload_p50, cell.upload_p99
 				switch {
 				case cell.samples == 0, kind == .Latency && cell.latency_p50 == 0:
 					fmt.sbprintf(sb, " n/a |")
@@ -217,6 +233,8 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 	table(&sb, "CPU time per frame", b.rows[:], .Cpu)
 	table(&sb, "Triangles drawn per frame (p50; strokes mostly redraw only around the brush)", b.rows[:], .Triangles)
 	table(&sb, "Stroke latency, the pointer's sample to the frame's submit (the display then shows it at its next refresh, or the one after with vsync)", b.rows[:], .Latency)
+	table(&sb, "CPU time of view culling and draw commands per frame (cull_ms; nothing is timed with culling off)", b.rows[:], .Cull)
+	table(&sb, "Uploaded per frame, KB (upload_kb: the brush's changed vertices and normals; orbits upload nothing)", b.rows[:], .Upload)
 
 	report := strings.to_string(sb)
 	fmt.print(report)

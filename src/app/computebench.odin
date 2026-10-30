@@ -12,6 +12,10 @@ import "../jobs"
 import "../render"
 import "../sculpt"
 
+// The GPU benchmark's sizes up to 10M, so a full compute benchmark runs as long as it did
+// before the GPU benchmark took a 20M size; --vertices runs any one size.
+COMPUTEBENCH_SIZES :: [?]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000}
+
 // --compute-bench: the GPU compute trial's numbers. On a rough sphere at each size, times
 // Smooth all's steps on every CPU core and as a compute shader, the GPU's upload,
 // dispatches and readback each waited for, and checks the GPU's result against the CPU's.
@@ -53,7 +57,7 @@ computebench_run :: proc(app: ^App, path: string, vertices: int) -> bool {
 	if vertices > 0 {
 		append(&sizes, vertices)
 	} else {
-		all := GPUBENCH_SIZES
+		all := COMPUTEBENCH_SIZES
 		append(&sizes, ..all[:])
 	}
 	if !render.smooth_compute_init(&app.renderer, &app.smooth_gpu) do return false
