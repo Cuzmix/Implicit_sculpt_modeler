@@ -3794,7 +3794,7 @@ def lens_stack_grip_sets_a_card_height():
 
 @scenario
 def lens_stack_floating_card_resizes_from_a_corner():
-    """A floating card's bottom-left corner dragged out and down makes it wider and taller, on the 8 point grid."""
+    """A floating card's bottom-left corner dragged out and down makes it wider and taller, on the 8 point grid (no shorter than the Layers panel's content)."""
     s = Script()
     s.ftap(*LENS_STACK["brush"])
     s.wait(6)
@@ -3802,7 +3802,7 @@ def lens_stack_floating_card_resizes_from_a_corner():
     s.wait(8)
     s.fdrag(line(LENS_RESIZE["layers_corner"], (692, 420), 4))
     s.wait(6)
-    return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x272"), "stack_resizes": near(1), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x280"), "stack_resizes": near(1), "dabs": near(0)})
 
 
 # Lens's split views at 1440x900 in One plus two: the vertical divider, the one between the
@@ -4068,8 +4068,13 @@ def lens_search_groups_and_puts_on_a_bar():
 # The Lens Scene and Layers cards at 1440x900 with the Brush card folded: their headers,
 # the first object row's lock, the Scene card's filter past ten objects, and with two
 # layers (Layer 2 picked, as New layer leaves it) Layer 1's name and record dot.
-LENS_CARDS = {"brush": (1180, 94), "layers": (1150, 214), "scene": (1150, 274), "first_lock": (1337, 330),
-              "filter": (1150, 330), "layer1_name": (1150, 372), "layer1_dot": (1343, 372)}
+LENS_CARDS = {"brush": (1180, 94), "layers": (1150, 214), "scene": (1150, 274), "first_lock": (1289, 383),
+              "filter": (1150, 330), "layer1_name": (1180, 389), "layer1_dot": (1134, 380)}
+# The Layers panel's rows at 1440x900 with two layers: Layer 2 on top (its zone, Merge down
+# and Delete once swiped open) and Layer 1 under it (its strength slider's ends and middle,
+# 0 at a third of the way).
+LAYERS_PANEL = {"top_zone": (1180, 327), "top_delete": (1349, 327), "top_merge": (1297, 327), "slider_lo": (1236, 389),
+                "slider_hi": (1304, 389), "slider_zero": (1259, 389)}
 
 
 def lens_card_open(s, card):
@@ -4092,15 +4097,100 @@ def lens_scene_card_locks_an_object():
 
 
 @scenario
-def lens_scene_card_filters_past_ten():
-    """With twelve objects the Scene card offers a filter; typing 3 leaves only Sphere 3's row."""
+def lens_scene_card_finds_by_name():
+    """With twelve objects, typing sphere 3 in the Scene card's Find field leaves only Sphere 3's row."""
     s = Script()
     lens_card_open(s, "scene")
     s.ftap(*LENS_CARDS["filter"])
     s.wait(4)
-    s.type("3")
+    s.type("sphere 3")
     s.wait(6)
     return s, LENS_1440 + ["--script=" + "duplicate_object; " * 11], camera_still({"scene_rows": near(1), "scene_filter": near(1), "dabs": near(0)})
+
+
+# The outliner (the Lens Scene card) at 1440x900 with the Brush card folded: Add, its menu's
+# Cube, Voxel sphere and Sun light, and the rows: the first object row's centre, each row
+# 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
+OUTLINER = {"add": (1322, 330), "cube": (1240, 426), "voxel": (1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
+            "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": (1110, 600)}
+# The kind chips under Find once a voxel sphere joins the sphere: All, Meshes, Voxels, Lights.
+OUTLINER_CHIPS = {"voxels": (1250, 383)}
+
+
+def outliner_row(i, x="name_x"):
+    return OUTLINER[x], OUTLINER["row0"] + i * OUTLINER["row_h"]
+
+
+@scenario
+def outliner_add_menu_adds_a_cube():
+    """The outliner's Add opens a menu of everything that can be added; its Cube adds a cube at once, one undo step, and Undo takes it away."""
+    def run(undo):
+        s = Script()
+        lens_card_open(s, "scene")
+        s.ftap(*OUTLINER["add"])
+        s.wait(6)
+        s.ftap(*OUTLINER["cube"])
+        s.wait(10)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(6)
+        return s
+    return Steps([
+        (run(False), LENS_1440, {"objects": near(2), "scene_adds": near(1), "undo_steps": near(1), "dabs": near(0)}),
+        (run(True), LENS_1440, {"objects": near(1), "redo_steps": near(1), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def outliner_kind_chips_show_one_kind():
+    """Once the scene holds a mesh and voxels the outliner offers a chip per kind; Voxels leaves only the voxel sphere's row."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*OUTLINER["add"])
+    s.wait(6)
+    s.ftap(*OUTLINER["voxel"])
+    s.wait(12)
+    s.ftap(*OUTLINER_CHIPS["voxels"])
+    s.wait(6)
+    return s, LENS_1440, {"objects": near(2), "scene_kind": is_text("voxels"), "scene_rows": near(1), "dabs": near(0)}
+
+
+@scenario
+def outliner_dots_open_the_object_menu():
+    """A tap on a row's dots opens the object menu under them for that object, as a long press does, without dragging or sculpting."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*outliner_row(1, "dots_x"))
+    s.wait(6)
+    return s, LENS_1440 + THREE, {"object_menu": near(1), "scene_row_menus": near(1), "selected": near(1), "scene_order": is_text("1,2,3"), "dabs": near(0)}
+
+
+@scenario
+def outliner_light_row_switches_a_light():
+    """The outliner's folded Lights row unfolds to a row per light; the first one's eye (its only toggle, at the dots' place) switches it off as one undo step."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*outliner_row(1))
+    s.wait(6)
+    s.ftap(*outliner_row(2, "dots_x"))
+    s.wait(8)
+    return s, LENS_1440, camera_still({"light1_on": near(0), "scene_light_switches": near(1), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def outliner_group_takes_the_selection():
+    """With two objects selected (a tap, then Shift and a click), the outliner's Group puts both in one new folder as one undo step."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*outliner_row(0))
+    s.wait(4)
+    s.add("key:shift")
+    click(s, outliner_row(1))
+    s.add("keyup:shift")
+    s.wait(4)
+    s.ftap(*OUTLINER["group"])
+    s.wait(8)
+    return s, LENS_1440 + THREE, {"folders": near(1), "scene_folders": is_text("1,1,0"), "undo_steps": near(1), "dabs": near(0)}
 
 
 @scenario
@@ -4113,6 +4203,68 @@ def lens_layers_card_records_and_picks():
         s.wait(6)
         return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layer_rows": near(2), "layer_picked": near(0), "layer_recording": near(0 if dot else 1), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+@scenario
+def layers_panel_swipe_opens_merge_and_delete():
+    """On the Layers panel a finger's swipe left on Layer 2 opens Merge down and Delete on
+    its row; Delete takes the layer away as one undo step."""
+    s = Script()
+    lens_card_open(s, "layers")
+    s.wait(10)
+    x, y = LAYERS_PANEL["top_zone"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    for k in range(1, 11):
+        s.add(f"fmove:0:{x - 8 * k:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
+    s.wait(8)
+    s.ftap(*LAYERS_PANEL["top_delete"])
+    s.wait(8)
+    return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layers": near(1), "layer_swipes": near(1), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def layers_panel_strength_drags_in_place():
+    """Layer 1's strength on its row, dragged from full to the bar's left end, reads -1:
+    one undo step, and the layer is picked."""
+    s = Script()
+    lens_card_open(s, "layers")
+    s.wait(10)
+    x, y = LAYERS_PANEL["slider_hi"]
+    s.add(f"fdown:0:{x - 20:g},{y:g}")
+    for k in range(1, 11):
+        s.add(f"fmove:0:{x - 20 - 10 * k:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
+    s.wait(8)
+    return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layer_strength": near(-1), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def layers_panel_menu_and_tint():
+    """A right-click on Layer 1 opens its menu; resting the mouse on a layer that worked
+    tints where it worked."""
+    def menu():
+        s = Script()
+        lens_card_open(s, "layers")
+        s.add("move:{:g},{:g}".format(*LENS_CARDS["layer1_name"]))
+        s.wait(3)
+        s.add("right")
+        s.wait(8)
+        return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layer_menus": near(1), "layer_picked": near(0), "dabs": near(0)})
+
+    def tint():
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((600, 380), (700, 420), 12))
+        s.wait(4)
+        lens_card_open(s, "layers")
+        s.wait(40)
+        s.add("move:{:g},{:g}".format(*LAYERS_PANEL["top_zone"]))
+        s.wait(10)
+        return s, LENS_1440 + ["--script=new_layer"], {"layer_tints": near(1), "layer_pictures_drawn": lambda v: int(v) >= 1}
+    return Steps([menu(), tint()])
 
 
 # The Lens Tools card at 1440x900 with the Brush card folded: its header, its Mask and

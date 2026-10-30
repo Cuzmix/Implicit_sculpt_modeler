@@ -51,3 +51,21 @@ scene_filter_matches_names :: proc(t: ^testing.T) {
 	testing.expect(t, scene_matches(objs[2], "row"))
 	for obj in objs do testing.expect(t, scene_matches(obj, ""))
 }
+
+// The outliner's chips match objects by kind, and its Group (New folder) puts every
+// selected object in the new folder, not only the primary, as one undo step; an object
+// outside the selection stays where it was.
+@(test)
+outliner_kinds_and_group :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	testing.expect(t, scene_matches(objs[0], "", .Meshes) && !scene_matches(objs[0], "", .Voxels) && !scene_matches(objs[0], "", .Cages))
+	testing.expect_value(t, object_scene_kind(objs[1]), Scene_Kind.Meshes)
+	select_only(&app, 0)
+	selection_toggle(&app, 2)
+	scene_arrange(&app, {kind = .Arrange, arrange = .New_Folder, id = objs[0].id})
+	testing.expect(t, objs[0].folder != 0 && objs[0].folder == objs[2].folder)
+	testing.expect_value(t, objs[1].folder, 0)
+	testing.expect_value(t, len(app.history.done), 1)
+}

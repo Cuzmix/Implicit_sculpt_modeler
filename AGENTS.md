@@ -30,7 +30,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py                          # section 6 in one command: check, reports, test, build, smoke, touch, iphonecheck, maccheck (+ wincheck, androidcheck on Linux)
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, usd, fbx, app
+    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, usd, fbx, quadmesh, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -63,20 +63,21 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/luau` | the binding to Luau (script plugins): the C API the plugins use, linked from `deps/luau` on the desktop builds only (`AVAILABLE`) |
 | `src/fbx` | FBX in (Import) through ufbx (`deps/ufbx-src`, built with our C shim `fbx_shim.c` by `scripts/build_ufbx.py`, by Android's CMakeLists and by `build.sh ios`): six C calls, each mesh node a `geom.Mesh_Part`, materials and textures into a `geom.Mesh_Look` |
+| `src/quadmesh` | Quad Remesh's engine: the binding to AutoRemesher's core (`deps/autoremesher-src` at `AUTOREMESHER_COMMIT`, built with our C boundary `quadmesh_shim.cpp` and the TBB stand-ins in `shim/tbb` by `scripts/build_autoremesher.py`; desktops only, `AVAILABLE`): `remesh` turns triangles into a `Polygon_Mesh` of nearly all quads, with progress and cancel |
 | `src/usd` | USD in (Import): `.usda` text, the `.usdc` binary crate (LZ4, integer coding) and `.usdz` through `zip`, read into a stage whose Mesh prims become `geom.Mesh_Part`s; composition not followed |
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist`, `PrivacyInfo.xcprivacy` (also the Mac's) and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `mac/` | the Mac app's `Info.plist`; `./build.sh mac` links SDL3, stb and `src/app` into `Sculpt.app` on macOS |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_autoremesher.py` (AutoRemesher's core with our boundary, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents and permissions; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel`, `poly`, `luau`, `usd` and `fbx` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
+- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel`, `poly`, `luau`, `usd`, `fbx` and `quadmesh` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs

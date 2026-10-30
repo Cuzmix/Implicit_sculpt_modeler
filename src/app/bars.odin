@@ -489,14 +489,14 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	return command_checked(app, s.id, s.arg)
 }
 
-// Whether a slot's button takes a tap: Retopologize opens its section whatever the object.
+// Whether a slot's button takes a tap: whether its command can run now.
 bar_enabled :: proc(app: ^App, s: Bar_Slot) -> bool {
-	return s.id == .Retopologize || command_enabled(app, s.id, s.arg)
+	return command_enabled(app, s.id, s.arg)
 }
 
 // What a tap on a slot's button does, the button at `at`, its popovers opening `side` of
-// it: Shading, Camera, View layout and Passes open their menu beside it, Retopologize and a
-// shown section their section; the rest run.
+// it: Shading, Camera, View layout and Passes open their menu beside it, a shown section
+// its section; the rest run (Retopologize too, its section being its long press's).
 bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	#partial switch s.id {
@@ -509,9 +509,6 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 		// A section on a bar opens beside its button rather than in the tray across the
 		// window.
 		bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
-		return
-	case .Retopologize:
-		bar_pop_toggle(app, .Section, at, side, .Retopo)
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)

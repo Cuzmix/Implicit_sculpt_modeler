@@ -1,5 +1,7 @@
 package sculpt
 
+import "core:slice"
+
 import "../geom"
 
 // The quads a retopologized object was made of, and their UVs (geom.mesh_retopo,
@@ -41,4 +43,53 @@ levels_quad_mesh :: proc(l: ^Levels, allocator := context.temp_allocator) -> geo
 	q := geom.Quad_Mesh{positions = base.mesh.positions[:], quads = l.faces.quads}
 	if q.quads != nil do q.across = geom.quad_mesh_diagonals(q, base.mesh.indices[:], base.sculptor.faces, allocator)
 	return q
+}
+
+// Where a level's polygons come from, as a key for whatever is built from them (the
+// edges the app's wireframe draws): how many there are and the memory holding their
+// corners, which every set or drop changes. Zero for a level that is triangles only.
+Polygon_Source :: struct {
+	polygons: int,
+	corners:  rawptr,
+}
+
+// Level `level`'s polygons: its own under a Catmull-Clark rule (every level has them),
+// otherwise the quads of a retopologized object's base level.
+levels_polygon_source :: proc(l: ^Levels, level: int) -> Polygon_Source {
+	lv := l.levels[level]
+	if lv.polys.first != nil do return {len(lv.polys.first) - 1, raw_data(lv.polys.corners)}
+	if level == 0 && l.faces.quads != nil do return {len(l.faces.quads), raw_data(l.faces.quads)}
+	return {}
+}
+
+// The edges of level `level`'s polygons (levels_polygon_source) as pairs of its vertices,
+// lower first, each edge once however many polygons share it, in order of (lower, higher):
+// what a wireframe draws to show the polygons rather than the triangles they are cut
+// into. Nil for a level that is triangles only. Made with `allocator`.
+levels_polygon_edges :: proc(l: ^Levels, level: int, allocator := context.temp_allocator) -> []u32 {
+	lv := l.levels[level]
+	keys: [dynamic]u64
+	defer delete(keys)
+	edge := proc(keys: ^[dynamic]u64, a, b: u32) {
+		lo, hi := min(a, b), max(a, b)
+		if lo != hi do append(keys, u64(lo) << 32 | u64(hi))
+	}
+	if lv.polys.first != nil {
+		p := &lv.polys
+		keys = make([dynamic]u64, 0, len(p.corners))
+		for f in 0 ..< len(p.first) - 1 {
+			c := p.corners[p.first[f]:p.first[f + 1]]
+			for k in 0 ..< len(c) do edge(&keys, c[k], c[(k + 1) % len(c)])
+		}
+	} else if level == 0 && l.faces.quads != nil {
+		keys = make([dynamic]u64, 0, 4 * len(l.faces.quads))
+		for q in l.faces.quads do for k in 0 ..< 4 do edge(&keys, q[k], q[(k + 1) % 4])
+	} else {
+		return nil
+	}
+	slice.sort(keys[:])
+	unique := slice.unique(keys[:])
+	pairs := make([]u32, 2 * len(unique), allocator)
+	for key, i in unique do pairs[2 * i], pairs[2 * i + 1] = u32(key >> 32), u32(key & 0xffff_ffff)
+	return pairs
 }

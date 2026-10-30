@@ -96,6 +96,8 @@ need_luau() {
 	[ -f "$DEPS/luau/libluau.a" ] || { echo "Luau missing: run scripts/setup_deps.sh, which builds deps/luau"; exit 1; }
 	# And ufbx for FBX import, with the app's shim round it (scripts/build_ufbx.py).
 	[ -f "$DEPS/ufbx/libufbx.a" ] || { echo "ufbx missing: run scripts/setup_deps.sh, which builds deps/ufbx"; exit 1; }
+	# And AutoRemesher's core for Quad Remesh, with its boundary (scripts/build_autoremesher.py).
+	[ -f "$DEPS/autoremesher/libautoremesher.a" ] || { echo "AutoRemesher missing: run scripts/setup_deps.sh, which builds deps/autoremesher"; exit 1; }
 }
 
 # The oldest iPadOS the iPad build runs on. From 17.4 Odin's thread waits use the public
@@ -230,21 +232,21 @@ case "$mode" in
 	test)
 		compile_shaders
 		need_luau
-		for pkg in geom poly camera sculpt jobs gizmo png_write zip voxel ui luau usd fbx app; do
+		for pkg in geom poly camera sculpt jobs gizmo png_write zip voxel ui luau usd fbx quadmesh app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench fbx geom camera gizmo jobs luau png_write poly render sculpt sdf_trial ui usd voxel zip; do
+		for pkg in app bench fbx geom camera gizmo jobs luau png_write poly quadmesh render sculpt sdf_trial ui usd voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
-		echo "check: 17 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current"
+		echo "check: 18 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

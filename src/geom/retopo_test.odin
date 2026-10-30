@@ -218,3 +218,24 @@ triangle_corners_follow_each_triangle :: proc(t: ^testing.T) {
 	testing.expect(t, !wrong_ok)
 	free_all(context.temp_allocator)
 }
+
+// Retopology's vertices are mostly regular (four quads meet) and none has fewer than two
+// or more than eight: the edge flow a quad remesher is judged by, kept here as the floor
+// the current one reaches (it leaves a few two-quad and eight-quad vertices), which a
+// better one must clear.
+@(test)
+retopo_vertices_are_mostly_regular :: proc(t: ^testing.T) {
+	q, _, ok := retopo_sphere(t, 2000)
+	defer quad_mesh_destroy(&q)
+	if !testing.expect(t, ok, "retopology failed") do return
+	valence := make([]int, len(q.positions), context.temp_allocator)
+	for f in q.quads do for v in f do valence[v] += 1
+	regular, lowest, highest := 0, max(int), 0
+	for n in valence {
+		if n == 4 do regular += 1
+		lowest, highest = min(lowest, n), max(highest, n)
+	}
+	share := f32(regular) / f32(len(valence))
+	testing.expectf(t, share >= 0.7, "only %.1f%% of the vertices are regular", 100 * share)
+	testing.expectf(t, lowest >= 2 && highest <= 8, "a vertex has %d quads, another %d", lowest, highest)
+}

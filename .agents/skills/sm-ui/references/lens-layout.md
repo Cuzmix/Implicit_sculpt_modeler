@@ -95,7 +95,11 @@ summary.
   (`palette_where`). The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and
   `kit_lens_tools` (the full sections are cards of their own; a Tools tile is a registry command); the action
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
-  own. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
+  own. The Scene card is the outliner: its chips (`Outliner.kind`, `object_scene_kind`) and Find narrow the rows and
+  stop drags (a narrowed list is not the scene's order); its Add menu (`kit_scene_add_menu`, drawn after the layer
+  menu) sends the same `Scene_Command`s and commands as the Scene palette; a light's row changes the lights through
+  `light_drag_changed`, so the change is one undo step like the Lights section's; a row's ⋯ opens the object menu at
+  `row_toggle_rect`, the toggle's own rect, which must follow `ui.thumb_row`'s layout of the toggles. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
   skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
   Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; the sheet's sections
   (`lens_settings.odin`) and the narrow window's tabs (`kit_settings.odin`, under 840 points) are lists of
@@ -141,3 +145,8 @@ summary.
   the frame loop and draws the newest done step when it has no cell (`Step_Picture_Slots.seen`), from that frame's
   draws through `narrow * proj`; panels show a cell with `step_picture_draw` (`KIT_STEP_PICTURES_IMAGE`). Never key a
   picture by position: cells are found by the step's first entry's `at`.
+  The Layers panel (`lens_layers.odin`, `Kit_State.layer_panel`): a row's picture and name sit in a drag-scrolled zone
+  so `ui.swipe_update` opens Merge down and Delete; the strength slider stays outside the zone (a drag there is the
+  slider's at once). Ask `prev_rect` of a row's children inside the row (`id_of` is the parent's). Layer pictures
+  (`layer_pictures.odin`) are cells of a second `render.Step_Pictures`, kept like the object thumbnails (settle, one a
+  frame); the tint is `draw_tint_glow`, shared with the History's.

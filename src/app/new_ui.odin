@@ -247,8 +247,10 @@ Kit_State :: struct {
 	scene_filter:   [48]u8,
 	scene_query:    bool,
 	scene_rows:     int,
+	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
 	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
+	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
 	palette_bar_puts: int,
 	// While set, the palette chooses what that gesture runs, or what that bar slot holds,
 	// rather than running anything (palette_open_for, from Settings > Touch's Any
@@ -1489,6 +1491,8 @@ kit_layout :: proc(app: ^App) {
 	kit_workspace_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	kit_layer_menu(app)
+	kit_scene_add_menu(app)
 	quick_scrub_frame(app)
 	kit_quick_scrub(app)
 	kit_versions(app, menu_anchor)
@@ -1765,6 +1769,7 @@ Rename_Entry :: struct {
 	macro:  bool,
 	workspace: bool, // the slot of an own workspace
 	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
+	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1785,6 +1790,14 @@ kit_rename :: proc(app: ^App) {
 	if r.workspace do gone = !k.workspaces.list[r.id].used
 	step, _, has_step := history_step_of(app, r.step)
 	if r.step != {} do gone = !has_step
+	layer_s: ^sculpt.Sculptor
+	if r.layer > 0 {
+		if obj := object_by_id(app, r.id); obj != nil {
+			layer_s = object_sculptor(obj)
+			if r.layer > len(sculpt.sculptor_layers(layer_s)) do layer_s = nil
+		}
+		gone = layer_s == nil
+	}
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1792,10 +1805,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.layer > 0 {
+		now = sculpt.sculptor_layer_name(&sculpt.sculptor_layers(layer_s)[r.layer - 1])
 	} else if r.macro {
 		now = app.macro.slots[r.id].name
 	} else if r.workspace {
@@ -1817,6 +1832,10 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.layer > 0 && rename_text(r.text[:]) != "" {
+		// A layer's name is no undo step, as renaming it in the Object palette never was.
+		sculpt.sculptor_layer_rename(layer_s, r.layer - 1, rename_text(r.text[:]))
+		app.scene_edits += 1
 	} else if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
 		// A macro is no part of the scene: its file changes at once, outside the History.
 		_ = macro_rename(app, r.id, rename_text(r.text[:]))
@@ -1836,7 +1855,8 @@ kit_rename :: proc(app: ^App) {
 // KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
 // objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
 // KIT_PICTURES_IMAGE, the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE and the
-// History's pictures of steps where it drew KIT_STEP_PICTURES_IMAGE.
+// History's pictures of steps and the Layers panel's of layers where it drew
+// KIT_STEP_PICTURES_IMAGE and KIT_LAYER_PICTURES_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
@@ -1874,6 +1894,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
 			draws[i].image = app.work_still.color
 			if app.work_still.color == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_LAYER_PICTURES_IMAGE {
+			draws[i].image, draws[i].smooth = app.layer_pictures.atlas, true
+			if app.layer_pictures.atlas == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_STEP_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.step_pictures.atlas, true
