@@ -54,10 +54,19 @@ RENDER_STUDIO_BLUR :: 0.25
 @(private = "file")
 RENDER_GROUP :: 8
 // What tablets may hold in the scene buffers all together, besides each being under
-// TRACE_BUFFER_MAX: render mode copies the traced meshes, so a large scene refuses rather
-// than crowd out the rest of the app.
+// TRACE_BUFFER_MAX: render mode copies the traced meshes, so a scene past it refuses rather
+// than crowd out the rest of the app. An eighth of the device's memory, from 256 MB on a
+// 2 GB tablet to 1 GB from 8 GB up (an iPad Air M2, a OnePlus Pad), so a few million
+// vertices, a dense sculpt's size, render there.
 @(private = "file")
-RENDER_SCENE_MAX :: 256 << 20 when MOBILE else max(int)
+render_scene_max :: proc() -> int {
+	when MOBILE {
+		ram := int(sdl.GetSystemRAM()) << 20
+		return clamp(ram / 8, 256 << 20, 1 << 30)
+	} else {
+		return max(int)
+	}
+}
 // A frame that took longer than this halves the rows a frame takes, one under the
 // shorter doubles them: the sample's cost spread so the interface keeps its frame rate.
 @(private = "file")
@@ -748,7 +757,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		}
 		total += s
 	}
-	if total > RENDER_SCENE_MAX {
+	if total > render_scene_max() {
 		pr.refused = "This scene is too large for render mode on this device."
 		return false
 	}

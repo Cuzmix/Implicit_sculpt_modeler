@@ -341,19 +341,20 @@ STARTER_LEVELS :: 3
 // Adds a mesh with zero normals (an import) as a new object named `name` (copied),
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
-// log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> bool {
-	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material, tri_from) or_return
+// log. With `prepared`, levels already made ready to sculpt (an import's) are taken in
+// place of `mesh`. Returns false on a GPU failure.
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil, prepared: ^sculpt.Levels = nil) -> bool {
+	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material, tri_from, prepared) or_return
 	scene_append(app, obj)
 	return true
 }
 
 // A new object of `mesh`, built (as scene_add_mesh says) but in no scene yet; nil on a
 // GPU failure. `material` is the one it is shaded with, or none for the default.
-object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil) -> (obj: ^Object, ok: bool) {
+object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}, tri_from: []u32 = nil, prepared: ^sculpt.Levels = nil) -> (obj: ^Object, ok: bool) {
 	obj = new(Object)
 	obj.transform, obj.file, obj.material = t, file, material
-	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface, tri_from = tri_from) {
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface, tri_from = tri_from, prepared = prepared) {
 		free(obj)
 		return nil, false
 	}
