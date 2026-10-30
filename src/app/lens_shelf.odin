@@ -844,6 +844,11 @@ SHEET_COLUMNS :: 4
 // a card showing its stroke on clay. A tap on a card picks it and closes the sheet, a long
 // press shows its settings, a swipe up or down scrolls the cards, and a drag that starts
 // sideways carries a card onto a shelf tile to keep it there.
+// A page tab's width on the brush sheet, and the narrowest its search field gets before
+// Import gives up its label, in points.
+SHEET_TAB_W :: 72
+SHEET_FIELD_MIN :: 140
+
 kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -864,26 +869,49 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	side := brush_palette_categories(app, owner, all[:], room)
 	main_w := width - side
 	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = 8, padding = 12, width = main_w})
-	ui.begin(ctx, "brush sheet head", {direction = .Row, gap = 8, center = true, width = main_w - 24})
-	p.searching = true
-	_ = ui.text_field(ctx, "Search brushes", p.search[:], min(300, main_w * 0.36), hold = p.search_focus, hint = fmt.tprintf("Search %d brushes", len(all)))
-	p.search_focus = false
+	// The head fits the sheet's width (a narrow window, an iPad held upright): the search
+	// field first gives up its room down to SHEET_FIELD_MIN, then Import becomes its icon,
+	// then the page tabs go to a row of their own under the head.
+	GAP :: 8
+	IMPORT_W :: 104
+	head_w := main_w - 24
 	// The space's pages, each narrowing All to what it is for.
 	pages := shelf_pages(k, k.spaces.current)
+	tabs_w := f32(len(pages)) * SHEET_TAB_W + 6
+	import_w: f32 = IMPORT_W
+	free := head_w - tabs_w - t.target - 3 * GAP
+	if free - import_w < SHEET_FIELD_MIN do import_w = t.target
+	wrap := free - import_w < SHEET_FIELD_MIN
+	if wrap do free = head_w - t.target - 2 * GAP
+	field_w := clamp(free - import_w, 0, min(300, main_w * 0.36))
+	ui.begin(ctx, "brush sheet head", {direction = .Row, gap = GAP, center = true, width = head_w})
+	p.searching = true
+	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = fmt.tprintf("Search %d brushes", len(all)))
+	p.search_focus = false
 	names := make([]string, len(pages), context.temp_allocator)
-	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, 64)
+	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHEET_TAB_W - 8)
 	here := shelf_page_index(pages, sh.page)
-	if picked := ui.tabs(ctx, "brush sheet page", names, here, item_width = 72); picked >= 0 && picked != here do shelf_turn(app, picked - here)
-	IMPORT_W :: 104
-	ui.spacer(ctx, ui.row_room(ctx) - 8 - IMPORT_W - 8 - t.target)
-	_ = command_button(app, .Pick_Pack, label = "Import", variant = .Bordered, width = IMPORT_W, glyph = ui.ICON_PLUS)
+	if !wrap {
+		if picked := ui.tabs(ctx, "brush sheet page", names, here, item_width = SHEET_TAB_W); picked >= 0 && picked != here do shelf_turn(app, picked - here)
+	}
+	ui.spacer(ctx, ui.row_room(ctx) - GAP - import_w - GAP - t.target)
+	if import_w == IMPORT_W {
+		_ = command_button(app, .Pick_Pack, label = "Import", variant = .Bordered, width = IMPORT_W, glyph = ui.ICON_PLUS)
+	} else if ui.icon_button(ctx, "Import", ui.ICON_PLUS, keys = command_hint(app, .Pick_Pack)) {
+		command_run(app, .Pick_Pack)
+	}
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.browser = false
 	ui.end(ctx)
+	if wrap {
+		if picked := ui.tabs(ctx, "brush sheet page", names, here, item_width = SHEET_TAB_W); picked >= 0 && picked != here do shelf_turn(app, picked - here)
+	}
 	list := brush_sheet_list(app, all[:])
 	inner := main_w - 24
 	card_w := (inner - f32(SHEET_COLUMNS - 1) * 10) / SHEET_COLUMNS
 	CARD_H :: 110
 	grid_h := room - 24 - t.target - 8 - 36
+	// The tabs' own row, when they went under the head.
+	if wrap do grid_h -= t.control + 8
 	scroll := kit_scroll_begin(ctx, "brush sheet grid", &k.grid_scroll, owner, inner, grid_h, 10)
 	pick, settings: Maybe(Brush_Item)
 	for l, i in list {

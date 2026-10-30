@@ -699,7 +699,8 @@ stack_brush :: proc(app: ^App, inner: f32) {
 	ui.begin(ctx, "stack brush card", {direction = .Row, gap = 10, center = true, width = inner})
 	r := ui.place(ctx, {44, 44})
 	lens_stroke_preview(ctx, r, cur, app)
-	text_w := inner - 44 - 10 - 8 - t.target
+	// The picture, the name and the heart with the row's two gaps between them.
+	text_w := inner - 44 - 2 * 10 - t.target
 	ui.begin(ctx, "stack brush name", {direction = .Column, gap = 0, width = text_w})
 	ui.label(ctx, ui.text_fit(ctx, brush_item_name(app, cur), t.text_size, text_w, .Semibold), font = .Semibold)
 	family := brush_item_family(app, cur)

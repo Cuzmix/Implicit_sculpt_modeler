@@ -9907,6 +9907,22 @@ def view_chips_stay_on_the_main_pane_while_a_pane_is_worked():
     return Steps([run(False), run(True)])
 
 
+# The window sizes the layout is checked at: desktops from small to large, and the iPad
+# Air held both ways.
+LAYOUT_SIZES = [(1024, 768), (1280, 720), (1600, 900), (2560, 1440), (1180, 820), (820, 1180)]
+
+
+@scenario
+def layout_fits_at_every_size():
+    """At every size in LAYOUT_SIZES the interface lays out with no row whose controls lie over each other or spill out of it (layout_overlaps=0), at rest and with the brush sheet open, whose head gives up room to fit."""
+    def run(w, h, sheet):
+        s = Script()
+        s.wait(20)
+        args = [f"--width={w}", f"--height={h}"] + (["--script=brush_picker"] if sheet else [])
+        return s, args, {"layout_overlaps": near(0), "brush_sheet": near(1 if sheet else 0)}
+    return Steps([run(w, h, sheet) for w, h in LAYOUT_SIZES for sheet in (False, True)])
+
+
 @scenario
 def view_pane_ao_only_shows():
     """AO only in the Front pane's Shows is a heavy pass the pane draws at rest; the main view's pass stays Shaded."""
