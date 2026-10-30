@@ -415,6 +415,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   new animation a class (a new `Motion_Kind` when no kit class fits). Nothing a stroke, the camera under a hand or a drag reads
   animates; a command that jumps the camera glides instead: `before := camera_ease_begin(app)`, jump, `camera_ease_from(app, before)` (camera_ease.odin). `ctx.mirror_slide` (set from a tween on the hand in `kit_begin`) draws each outermost root
   part of the way back to its mirror image in `ui.end`, clips included: no app code for the hand switch's slide.
+  Feedback flashes (feedback_motion.odin) draw over the viewport from a `Flash` stamped where the change happened.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and

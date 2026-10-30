@@ -6315,6 +6315,61 @@ def view_panes_fade_in_with_a_new_grid():
 
 
 @scenario
+def undo_glows_where_it_changed():
+    """Ctrl+Z after a stroke lights the box of what it took back for a moment: a few frames on it glows, a third of a second on it is gone."""
+    def run(frames, glowing):
+        s = Script()
+        s.mouse_drag(line((760, 430), (860, 470), 10))
+        s.press("z", ("ctrl",))
+        s.wait(frames)
+        return s, [], {"undo_steps": near(0), "undo_flashes": near(1), "flashing": near(glowing)}
+    return Steps([run(0, 1), run(30, 0)])
+
+
+@scenario
+def mask_command_sweeps_the_object():
+    """Invert mask from Search sweeps a soft band across the sphere once, and the band is gone a third of a second on; with Mask commands off in Motion it does not sweep."""
+    def run(frames, sweeping, extra=()):
+        s = Script()
+        s.press("k", ("ctrl",))
+        s.type("invert mask")
+        s.press("Return")
+        s.wait(frames)
+        return s, list(extra), camera_still({"dabs": near(0), "undo_steps": near(1), "mask_mean": near(1, 1e-3), "mask_wipes": near(0 if extra else 1), "flashing": near(sweeping)})
+    def off():
+        write_settings("motion_off Mask_Wipe\n")
+        return [f"--settings-file={settings_file()}"]
+    return Steps([run(0, 1), run(30, 0), run(0, 0, off())])
+
+
+@scenario
+def new_selection_outlines_itself():
+    """Picking the second sphere in the Scene list outlines it once, drawing in round it; the first frame's selection does not."""
+    def run(frames, outlining):
+        s = Script()
+        scene_tab(s)
+        s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
+        s.wait(frames)
+        return s, scene_args(), {"selected": near(1), "selection_outlines": near(1), "flashing": near(outlining), "dabs": near(0)}
+    return Steps([run(0, 1), run(40, 0)])
+
+
+@scenario
+def save_puts_a_tick_by_the_status():
+    """Ctrl+S over an opened file shows a tick after the file block's status, which fades once it has been seen."""
+    def run(frames, ticking):
+        path = scene_file()
+        s = Script()
+        s.wait(5)
+        s.mouse_drag([(800, 450), (830, 465)])
+        s.wait(3)
+        ctrl_s(s)
+        s.wait(frames)
+        return s, [f"--open={path}"], {"save_ticks": near(1), "flashing": near(ticking)}
+    return Steps([first_save(), run(0, 1), run(100, 0)])
+
+
+@scenario
 def pie_escape_closes_only_the_pie():
     """With Help open, Shift+Q opens Pie 2 and Escape closes the pie alone: nothing runs and Help stays."""
     s = Script()

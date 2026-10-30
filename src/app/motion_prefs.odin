@@ -26,6 +26,10 @@ Motion_Kind :: enum u8 {
 	Home, // the Home screen fading in, and the scene growing out of it
 	Panes, // view panes fading in when the view grid changes
 	Arrange, // Arrange's outlines drawing in
+	Undo_Flash, // what an undo or redo changed glowing once (feedback_motion.odin)
+	Mask_Wipe, // a mask command sweeping a soft band across the object
+	Selection, // a newly selected object's outline drawing in
+	Save_Tick, // the tick beside the file's status after a save
 }
 
 #assert(int(Motion_Kind.Tooltips) == int(ui.MOTION_TOOLTIPS) && len(Motion_Kind) <= 32)
@@ -44,6 +48,10 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Home        = "Home screen",
 	.Panes       = "View panes",
 	.Arrange     = "Arrange outlines",
+	.Undo_Flash  = "Undo and redo glow",
+	.Mask_Wipe   = "Mask commands",
+	.Selection   = "Selection outline",
+	.Save_Tick   = "Save tick",
 }
 
 MOTION_LEVEL_NAMES := [ui.Motion_Level]string {

@@ -224,7 +224,10 @@ top_file_block :: proc(app: ^App) -> f32 {
 	r := ui.place(ctx, {w, TOP_BAR_H - TOP_BAR_TOP - 8})
 	mid := r.y + r.h * 0.5
 	ui.text(ctx, ui.text_fit(ctx, name, t.text_size, w - 16, .Semibold), r.x + 8, mid - 8, t.text_size, t.text, .Semibold)
-	ui.text(ctx, ui.text_fit(ctx, status, t.small_size, w - 16), r.x + 8, mid + 8, t.small_size, t.text_tertiary)
+	shown := ui.text_fit(ctx, status, t.small_size, w - 16)
+	ui.text(ctx, shown, r.x + 8, mid + 8, t.small_size, t.text_tertiary)
+	// A save just made says so with a tick after the status (feedback_motion.odin).
+	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4 + t.small_size * 0.5, mid + 8}, t.small_size)
 	return w
 }
 

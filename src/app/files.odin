@@ -1026,6 +1026,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 		versions_prune(path, keep)
 		autosave_scene_saved(app, path)
 	}
+	flash_saved(app)
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))

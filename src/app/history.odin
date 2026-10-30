@@ -394,7 +394,10 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 		changed = sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
 	}
 	ms := time.duration_milliseconds(time.tick_since(start))
-	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
+	if changed {
+		history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
+		flash_mask(app, obj)
+	}
 	// A tap that changed nothing still says so, without Undo.
 	flags := Report_Flags{.Quiet}
 	if toast do flags = {.Undo} if changed else {}
@@ -745,18 +748,33 @@ history_undo :: proc(app: ^App) {
 	topo_settle(app)
 	inspector_drags_end(app)
 	macro_undoing(app)
+	serial := app.history.serial
 	// A chained entry goes back with the one before it.
 	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
 		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
 	}
+	if app.history.serial != serial do history_flash(app, app.history.undone[:])
 }
 
 history_redo :: proc(app: ^App) {
 	topo_settle(app)
 	inspector_drags_end(app)
+	serial := app.history.serial
 	for history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo) {
 		if len(app.history.undone) == 0 || !app.history.undone[len(app.history.undone) - 1].chain do break
 	}
+	if app.history.serial != serial do history_flash(app, app.history.done[:])
+}
+
+// After an undo or redo moved entries onto `to`: the object the last one stepped glows
+// where it changed (feedback_motion.odin). The lights and the scene's tree belong to no
+// object, so they do not.
+@(private = "file")
+history_flash :: proc(app: ^App, to: []History_Entry) {
+	if len(to) == 0 do return
+	e := to[len(to) - 1]
+	if e.lights != nil || e.arrange != nil || object_by_id(app, e.id) == nil do return
+	flash_undo_begin(app, e.id)
 }
 
 // Takes one entry from `from` to `to`; false when there was none to take.

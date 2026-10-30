@@ -224,6 +224,7 @@ App :: struct {
 	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	camera_ease: Camera_Ease, // the camera gliding to a view a command asked for (camera_ease.odin)
+	flashes:     Flashes, // the undo glow, mask wipe, selection outline and save tick (feedback_motion.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
@@ -1050,6 +1051,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					return false
 				}
 				uploaded += bytes
+				flash_damage(&app, obj, damage)
 				if !object_shown(&app, obj) || boolean_hides(&app, obj, i) || len(vp.clay.surface.chunks) == 0 do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
@@ -1081,6 +1083,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				t_flush := time.tick_now()
 				ranges := sculpt.sculptor_flush(&lv.sculptor)
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
+				flash_damage(&app, obj, lv.sculptor.changed_bounds)
 				bytes, uploaded_ok := level_upload(&app, cmd, gpu, lv, ranges)
 				if !uploaded_ok {
 					_ = render.cmd_submit(cmd)
@@ -1137,6 +1140,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				})
 			}
 		}
+		flash_frame_end(&app)
 		// After the uploads, so the preview measures the mesh as this frame draws it.
 		if checker := rebuild_preview_frame(&app); checker != {} {
 			for &d in draws do if d.live do d.checker = checker
@@ -1532,6 +1536,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(&app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
+		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(&app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
 		hint, _ := strings.replace_all(string(app.kit.ctx.roll_hint[:app.kit.ctx.roll_hint_len]), " ", "_", context.temp_allocator)
