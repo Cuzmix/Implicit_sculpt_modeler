@@ -148,6 +148,10 @@ kit_history_menu :: proc(app: ^App) {
 			picked = true
 		}
 	}
+	if ui.menu_item(ctx, "Show what it changed", glyph = ICON_SCAN_EYE, hint = "Tints the part of the model this step changed until the next press; resting on a step shows it too") {
+		tl.tint_kept, tl.tint_kept_at = e.at, ctx.time
+		picked = true
+	}
 	if ui.menu_item(ctx, "View from this step", glyph = ICON_CAMERA, enabled = e.view != {}, reason = "This step kept no view", hint = "Puts the camera where it was when this step was made; the History stays where it is") {
 		before := camera_ease_begin(app)
 		camera_go(app, e.view)

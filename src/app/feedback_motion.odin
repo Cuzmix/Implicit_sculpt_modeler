@@ -150,7 +150,6 @@ flash_object_box :: proc(obj: ^Object) -> geom.Aabb {
 
 // Box `b` in object `obj`'s own space as a box in the scene's, around its eight corners
 // placed.
-@(private = "file")
 box_to_world :: proc(obj: ^Object, b: geom.Aabb) -> geom.Aabb {
 	model := transform_matrix(obj.transform)
 	world := geom.AABB_EMPTY

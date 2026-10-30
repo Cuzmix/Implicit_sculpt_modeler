@@ -37,6 +37,15 @@ Timeline :: struct {
 	menu_side: ui.Side,
 	menu_step: time.Tick,
 	menus:     int,
+	// What the tint shows (history_tint.odin): the step a row or block is rested on this
+	// frame, the one the menu's Show what it changed keeps (and when), the one drawn last
+	// and since when, and how many times a tint came up, for the exit stats.
+	tint_hover:   time.Tick,
+	tint_kept:    time.Tick,
+	tint_kept_at: f64,
+	tint_shown:   time.Tick,
+	tint_since:   f64,
+	tints:        int,
 	// The History panel's view (a setting), whether its list shows only the selected
 	// object's steps, the group of repeated strokes opened in it (by its oldest stroke's
 	// time; none when zero) and how far the list is scrolled (history_list.odin).
@@ -296,6 +305,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	history_tint_frame(app)
 	shown := ui.presence(ctx, panel_id(Kit_Window.History), k.history, t.panel_time)
 	if shown <= 0 do return
 	tl := &app.timeline
@@ -504,6 +514,11 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 		x := x_at(r, recall, total)
 		mark := [3][2]f32{{x - 5, r.y + r.h}, {x, r.y + r.h - 7}, {x + 5, r.y + r.h}}
 		ui.fill_convex(ctx, mark[:], t.accent)
+	}
+	if (a.hovered || a.held) && total > 0 && !tl.scrubbing {
+		head := under_step
+		for head > 0 && history_entry_at(app, head).chain do head -= 1
+		history_tint_rest(app, history_entry_at(app, head).at)
 	}
 	if a.hovered && total > 0 {
 		step := clamp(int((a.mouse.x - r.x) / r.w * f32(total)), 0, total - 1)

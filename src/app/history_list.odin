@@ -212,6 +212,9 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	chevron: f32 = t.target if group else 0
 	a := ui.area(ctx, fmt.tprintf("Step %d##history row %v", row.head + 1, row.sub), {width - chevron, h}, drag = false)
 	if ui.secondary(ctx) && can do history_menu_open(app, row.head, {a.mouse.x, a.mouse.y, 1, 1}, .Pointer)
+	// Resting on a row or pressing it shows what its step changed; a finger has no rest,
+	// so only its press does.
+	if (a.hovered && ctx.input.pointer != .Finger) || a.held do history_tint_rest(app, e.at)
 	box := ui.Rect{a.rect.x, a.rect.y, width, h}
 	if current {
 		ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))

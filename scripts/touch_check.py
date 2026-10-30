@@ -10824,7 +10824,7 @@ def history_list_groups_and_goes_to_a_step():
 
 
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 540)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 451), (1400, 584)
 
 
 @scenario
@@ -10877,7 +10877,7 @@ def history_step_menu_from_the_list():
 
 # The step menu over a step of the strip's three (it opens centred over the step's
 # block): the y of its rows.
-STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 429, 473, 562
+STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 385, 429, 562
 # A bookmark's flag over the strip's first step.
 STRIP_FIRST_FLAG = (470, 585)
 
@@ -10890,6 +10890,26 @@ def strip_three_strokes(s):
         s.wait(2)
     click(s, UI["history"])
     s.wait(20)
+
+
+@scenario
+def history_tint_shows_what_a_step_changed():
+    """Resting the mouse on the list's row of three strokes tints where they landed; a
+    finger's long press on it and Show what it changed keep the tint up after the finger
+    lifts, until the next press."""
+    def run(finger):
+        s = Script()
+        history_three_strokes(s)
+        if not finger:
+            s.add("move:{:g},{:g}".format(*HISTORY_GROUP_ROW))
+            s.wait(12)
+            return s, [], camera_still({"history_tints": near(1, 0), "history_tint": near(1, 0), "undo_steps": near(3, 0)})
+        long_press(s, *HISTORY_GROUP_ROW)
+        s.wait(10)
+        s.ftap(*HISTORY_MENU_SHOW)
+        s.wait(12)
+        return s, [], camera_still({"history_menus": near(1, 0), "history_tint": near(1, 0), "undo_steps": near(3, 0)})
+    return Steps([run(False), run(True)])
 
 
 @scenario

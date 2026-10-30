@@ -63,6 +63,10 @@ History_Entry :: struct {
 	// (owned; empty for none), as ZBrush's restore points name a state to come back to.
 	view:     Camera_View,
 	bookmark: string,
+	// The box in the object's own space round what a stroke changed (its nodes, or a voxel
+	// stroke's bricks), for the History panel's tint (history_tint.odin); empty or zero for
+	// a step that changes the whole object or none, which the tint takes as the object.
+	area: geom.Aabb,
 	// A stroke set to a share of itself after the fact (Adjust last stroke), and the share.
 	adjusted: bool,
 	amount:   f32,
@@ -693,12 +697,15 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 	app.history.serial += 1
 	if !object_in_hd(obj) do app.history.edits += 1
 	bytes := 0
+	area := geom.AABB_EMPTY
 	if obj.voxel != nil {
 		bytes = voxel.clay_last_step_bytes(&obj.voxel.clay)
+		area = voxel.clay_last_step_bounds(&obj.voxel.clay)
 	} else {
 		bytes = sculpt.sculptor_last_step_bytes(object_sculptor(obj))
+		area = sculpt.sculptor_last_step_bounds(object_sculptor(obj))
 	}
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera)})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera), area = area})
 }
 
 @(private = "file", rodata)
