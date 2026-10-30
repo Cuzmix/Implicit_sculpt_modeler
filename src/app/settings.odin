@@ -356,6 +356,7 @@ SETTINGS := [?]Setting {
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"graphics", offset_of(App, graphics), Graphics, 0, 0},
 	{"async_compute", offset_of(App, async_compute), bool, 0, 0},
+	{"ray_query", offset_of(App, ray_query), bool, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},

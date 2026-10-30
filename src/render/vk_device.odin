@@ -315,11 +315,12 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
 	// Ray queries against acceleration structures (vk_accel.odin), where the device offers
-	// all three extensions and buffer device addresses. Only the features used are asked
-	// for: no host builds, indirect builds or capture replay.
+	// all three extensions, buffer device addresses and 64-bit integers in shaders (a kernel
+	// reads a mesh's indices through their address). Only the features used are asked for:
+	// no host builds, indirect builds or capture replay.
 	want_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, accelerationStructure = true}
 	want_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &want_accel, rayQuery = true}
-	if have12.bufferDeviceAddress && vk_has_extension(offered, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_RAY_QUERY_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) {
+	if have12.bufferDeviceAddress && have.features.shaderInt64 && vk_has_extension(offered, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_RAY_QUERY_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) {
 		have_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR}
 		have_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &have_accel}
 		rq_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_rq}
@@ -329,6 +330,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 			want_accel.pNext = f12.pNext
 			f12.pNext = &want_rq
 			f12.bufferDeviceAddress = true
+			features.features.shaderInt64 = true
 			vk_state.ray_query = true
 		}
 	}

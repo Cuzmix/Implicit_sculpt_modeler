@@ -150,6 +150,10 @@ graphics_controls :: proc(app: ^App) {
 		_ = ui.switch_row(ctx, "Async compute", &app.async_compute)
 		ui.paragraph(ctx, "Render mode traces on a second GPU queue beside the frame, so panels and the first orbit after a still view stay smooth while it builds up. A trial: off until it has been measured on more GPUs.")
 	}
+	if render.caps(&app.renderer).ray_query {
+		_ = ui.switch_row(ctx, "Ray tracing hardware", &app.ray_query)
+		ui.paragraph(ctx, "The studio render's shadows and occlusion trace the GPU's own ray tracing structures, built by its driver, instead of the app's. Off walks the app's own, for comparing the two.")
+	}
 	when GRAPHICS_VULKAN {
 		ui.paragraph(ctx, "Automatic draws with Vulkan, the app's own renderer, and with SDL_GPU on a device whose Vulkan lacks what it needs. Both draw the same image; SDL_GPU is there in case a driver misbehaves.")
 	} else {

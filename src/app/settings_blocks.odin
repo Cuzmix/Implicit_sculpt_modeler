@@ -185,7 +185,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Statistics       = "statistics stats simple advanced",
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery low latency frames in flight lag",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
-	.Graphics         = "graphics gpu backend vulkan sdl_gpu metal driver renderer",
+	.Graphics         = "graphics gpu backend vulkan sdl_gpu metal driver renderer async compute ray tracing hardware rtx",
 	.Autosave         = "autosave recovery copy",
 	.Earlier_Saves    = "earlier saves versions kept",
 	.Undo_History     = "undo history steps memory limit may use mb gb meshes textures device",
@@ -599,7 +599,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.low_latency = .During_Strokes
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
-	case .Graphics:        app.graphics, app.async_compute = .Auto, false
+	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, false, true
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0

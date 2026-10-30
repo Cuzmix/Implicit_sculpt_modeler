@@ -212,7 +212,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 
 	// Whether this scene is traced is settled at its first sample, which also brings the
 	// trees up to date, before anything reads them; a carried view's geometry is the same.
-	if st.sequence == 0 do st.traced = trace_prepare(r, &st.trace, cmd, vt, items, pool)
+	if st.sequence == 0 do st.traced = trace_prepare(r, &st.trace, cmd, vt, items, pool, ray_query = true)
 	// The sums start from nothing, unless they were carried.
 	first := st.samples == 0 && !st.carried
 

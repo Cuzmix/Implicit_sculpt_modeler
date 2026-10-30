@@ -79,6 +79,7 @@ Options :: struct {
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
+	no_ray_query: bool `usage:"Trace the studio render's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
 	cpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
@@ -386,6 +387,8 @@ App :: struct {
 	graphics:       Graphics, // the backend Settings > System > Graphics chose, for the next start (graphics.odin)
 	async_compute:  bool, // Settings > System > Graphics > Async compute: render mode's bands on a second queue
 	async_compute_run: bool, // --async-compute: on for this run, on one queue too
+	ray_query:      bool, // Settings > System > Graphics > Ray tracing hardware: rays against the driver's structures where offered
+	no_ray_query_run: bool, // --no-ray-query: off for this run
 	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
 	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
 	graphics_trial: string, // the Metal trial's start marker, until its first frames are shown (graphics_trial_begin)
@@ -683,6 +686,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
 	app.frame_limit = FRAME_LIMIT_DEFAULT
 	app.idle_sleep = true
+	app.ray_query = true
 	app.start_home = true
 	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT
@@ -764,6 +768,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = !opts.cpu_smooth
 	app.async_compute_run = opts.async_compute
+	app.no_ray_query_run = opts.no_ray_query
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	// Freed after the settings are saved at exit, which write them.
 	defer {
@@ -1308,6 +1313,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Live occlusion first: the studio shows its picture where samples it carried across a
 		// turn of the view are still too few.
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
+		// A change of Ray tracing hardware starts the studio's samples over the other way.
+		if rq := app.ray_query && !app.no_ray_query_run; rq != app.renderer.ray_query {
+			app.renderer.ray_query = rq
+			render.studio_reset(&app.studio)
+		}
 		if studio_running(&app) {
 			// Render mode takes the GPU while it runs; the studio waits, keeping what it built.
 			studio_max := 0 if render_running(&app) else int(app.studio_samples)
@@ -1729,7 +1739,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
 			lao := app.live_ao
 			tr := app.studio.trace
-			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
+			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d trace_rq=%d blas_builds=%d blas_refits=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built, tr.rq_samples, tr.blas_builds, tr.blas_refits)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "fast", int(app.studio_on))

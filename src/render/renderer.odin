@@ -58,6 +58,9 @@ Renderer :: struct {
 	pool:           ^jobs.Pool,
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
 	trace:          bool, // the studio render casts rays at the triangles where it can (trace.odin)
+	// Those rays use ray queries against the driver's acceleration structures where
+	// Gpu_Caps.ray_query is true (Settings > System > Graphics: Ray tracing hardware).
+	ray_query:      bool,
 	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
 	// How far, in pixels, a full redraw may draw a group of chunks from its simplified
 	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
@@ -966,13 +969,16 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ}, size = ibytes}
 	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX}, size = nbytes}
 	positions_map, indices_map, normals_map: rawptr
+	// Where ray queries are offered the driver also builds acceleration structures from
+	// them (trace.odin).
+	rq := r.caps.ray_query
 	if r.caps.shared_buffers {
-		mb.positions, positions_map = gpu_create_buffer_mapped(r.device, positions_info)
-		mb.indices, indices_map = gpu_create_buffer_mapped(r.device, indices_info)
+		mb.positions, positions_map = gpu_create_buffer_mapped(r.device, positions_info, rq)
+		mb.indices, indices_map = gpu_create_buffer_mapped(r.device, indices_info, rq)
 		mb.normals, normals_map = gpu_create_buffer_mapped(r.device, normals_info)
 	}
-	if mb.positions == nil do mb.positions = gpu_create_buffer(r.device, positions_info)
-	if mb.indices == nil do mb.indices = gpu_create_buffer(r.device, indices_info)
+	if mb.positions == nil do mb.positions = gpu_create_buffer(r.device, positions_info, rq)
+	if mb.indices == nil do mb.indices = gpu_create_buffer(r.device, indices_info, rq)
 	mb.storage = mb.positions != nil && mb.indices != nil
 	if !mb.storage {
 		if mb.positions != nil do gpu_release_buffer(r.device, mb.positions)

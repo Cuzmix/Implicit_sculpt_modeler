@@ -13,8 +13,25 @@
 //
 // SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
 // read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
+//
+// With RAY_QUERY defined (studio_trace_rq.comp.slang) the kernel instead traces every
+// item at once, in world space, against the driver's acceleration structure over all of
+// them (set 3), and only the walk changes: the same pixel and sample cast the same ray.
 
 #include "common.slang"
+#ifdef RAY_QUERY
+// Each instance's index buffer address and where its geometries' first triangles start
+// in `run_first`, to turn down a candidate with a repeated corner as hits() does.
+struct Instance {
+	uint2 indices; // the address, low word first
+	uint runs;
+	uint pad;
+};
+[[vk::binding(0, 0)]] Sampler2D view_depth;
+[[vk::binding(1, 0)]] StructuredBuffer<Instance> instances;
+[[vk::binding(2, 0)]] StructuredBuffer<uint> run_first; // each geometry's first triangle
+[[vk::binding(0, 3)]] RaytracingAccelerationStructure scene;
+#else
 struct Node {
 	float3 lo;
 	uint first; // inner: the left child, the right one after it; leaf: see below
@@ -31,6 +48,7 @@ struct Node {
 [[vk::binding(5, 0)]] StructuredBuffer<uint4> chunks; // node_off, order_off, first_tri, node_count
 // The tree over the shown chunks; a leaf's `first` is a chunk.
 [[vk::binding(6, 0)]] StructuredBuffer<Node> tlas;
+#endif
 [[vk::binding(0, 1)]] [[vk::image_format("r32f")]] RWTexture2D<float4> visible;
 
 [[vk::binding(0, 2)]] cbuffer Trace_Uniforms {
@@ -55,6 +73,29 @@ float3 world_at(float2 frag, float depth, float2 size) {
 	return w.xyz / w.w;
 }
 
+#ifdef RAY_QUERY
+// Whether anything lies along `d` from `o` before `tmax` times it. Geometries holding a
+// triangle with a repeated corner (hidden, or an unused slot) are not opaque, so their
+// candidates come here to be turned down, as the walk's hits() does.
+bool occluded(float3 o, float3 d, float tmax) {
+	RayDesc ray;
+	ray.Origin = o;
+	ray.TMin = 0.0;
+	ray.Direction = d;
+	ray.TMax = tmax;
+	RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+	q.TraceRayInline(scene, RAY_FLAG_NONE, 0xFF, ray);
+	while (q.Proceed()) {
+		Instance it = instances[q.CandidateInstanceID()];
+		uint tri = run_first[it.runs + q.CandidateGeometryIndex()] + q.CandidatePrimitiveIndex();
+		uint64_t at = ((uint64_t(it.indices.y) << 32) | uint64_t(it.indices.x)) + 12ull * uint64_t(tri);
+		uint* corner = (uint*)(at);
+		uint a = corner[0], b = corner[1], c = corner[2];
+		if (a != b && b != c && a != c) q.CommitNonOpaqueTriangleHit();
+	}
+	return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+#else
 float3 vertex(uint v) {
 	return float3(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
 }
@@ -129,6 +170,7 @@ bool occluded(float3 o, float3 d, float tmax) {
 	}
 	return false;
 }
+#endif
 
 // Two numbers in [0, 1) from the pixel (pcg2d, Jarzynski and Olano 2020).
 float2 pixel_hash(uint2 v) {
@@ -209,7 +251,11 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	// Toward a sphere light the ray is aimed from the offset point, so it still ends on the
 	// light. The model is a similarity, so the ray's parameter is the same in mesh space.
 	if (tmax == 1.0) dir = p + dir - o;
+#ifdef RAY_QUERY
+	if (occluded(o, dir, tmax)) visible[px] = float4(0.0);
+#else
 	float3 om = (mul(float4(o, 1.0), to_mesh)).xyz;
 	float3 dm = mul(dir, (float3x3)to_mesh);
 	if (occluded(om, dm, tmax)) visible[px] = float4(0.0);
+#endif
 }

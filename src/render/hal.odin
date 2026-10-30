@@ -312,6 +312,20 @@ gpu_release_accel :: proc(device: ^sdl.GPUDevice, accel: ^Gpu_Accel) {
 	if gpu_backend == .Vulkan && accel != nil do vk_release_accel(accel)
 }
 
+// Lets go of the build scratch memory beyond what refits need, once a still view's builds
+// are recorded; it goes when they have run.
+gpu_accel_trim :: proc(device: ^sdl.GPUDevice) {
+	if gpu_backend == .Vulkan && vk_state.ray_query do vk_accel_trim()
+}
+
+// Where a buffer made with accel_input lies in the GPU's memory, for a ray query kernel
+// that reads it through that address; `command_buffer` keeps it alive until it has run.
+// 0 where ray queries are not offered.
+gpu_buffer_address :: proc(command_buffer: ^sdl.GPUCommandBuffer, buffer: ^sdl.GPUBuffer) -> u64 {
+	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_buffer_address(command_buffer, buffer)
+	return 0
+}
+
 // The GPU memory a structure holds, for budgets and the exit stats.
 gpu_accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
 	if gpu_backend == .Vulkan && accel != nil do return vk_accel_bytes(accel)
