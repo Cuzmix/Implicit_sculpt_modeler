@@ -61,6 +61,9 @@ Vk_Texture :: struct {
 	backings:       [dynamic]^Vk_Image,
 	active:         ^Vk_Image,
 	swapchain:      bool, // owned by a window's swapchain: never cycled or destroyed here
+	// Its contents live only inside a pass (gpu_create_texture_transient): every backing,
+	// cycled ones too, is a transient attachment in lazily allocated memory where offered.
+	transient:      bool,
 	name:           cstring, // for capture tools, given to every backing; a literal, never freed
 	released:       bool,
 }
@@ -412,7 +415,7 @@ vk_image_backing_make :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) -> ^Vk_Image {
 	reqs: vk.MemoryRequirements
 	vk.GetImageMemoryRequirements(vk_state.device, img.image, &reqs)
 	ok: bool
-	img.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {})
+	img.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {.LAZILY_ALLOCATED} if t.transient else {})
 	if !ok || vk.BindImageMemory(vk_state.device, img.image, img.memory, 0) != .SUCCESS {
 		vk_image_backing_destroy(img)
 		return nil
@@ -452,6 +455,17 @@ vk_image_backing_destroy :: proc(img: ^Vk_Image) {
 }
 
 vk_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+	return vk_texture_make(info, false)
+}
+
+// A transient attachment allows only attachment usage beside it, so it can be neither
+// copied nor sampled; the backend never does either to a render target unasked.
+vk_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+	return vk_texture_make(info, true)
+}
+
+@(private = "file")
+vk_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl.GPUTexture {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		log.errorf("Vulkan: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -461,11 +475,12 @@ vk_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCr
 	t.format = vk_format(info.format)
 	t.aspect = {.DEPTH} if vk_is_depth(info.format) else {.COLOR}
 	if info.format == .D24_UNORM_S8_UINT || info.format == .D32_FLOAT_S8_UINT do t.aspect += {.STENCIL}
-	t.usage = {.TRANSFER_SRC, .TRANSFER_DST}
-	if info.usage & {.SAMPLER, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ} != {} do t.usage += {.SAMPLED}
+	t.transient = transient
+	t.usage = {.TRANSIENT_ATTACHMENT} if transient else {.TRANSFER_SRC, .TRANSFER_DST}
+	if info.usage & {.SAMPLER, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ} != {} && !transient do t.usage += {.SAMPLED}
 	if .COLOR_TARGET in info.usage do t.usage += {.COLOR_ATTACHMENT}
 	if .DEPTH_STENCIL_TARGET in info.usage do t.usage += {.DEPTH_STENCIL_ATTACHMENT}
-	if info.usage & {.COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} do t.usage += {.STORAGE}
+	if info.usage & {.COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} && !transient do t.usage += {.STORAGE}
 	t.default_layout = vk_default_layout(info.usage)
 	t.active = vk_image_backing_make(t, nil)
 	if t.active == nil {

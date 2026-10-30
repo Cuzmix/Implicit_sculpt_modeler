@@ -28,11 +28,12 @@ thumbnail_view_destroy :: proc(r: ^Renderer, tv: ^Thumbnail_View) {
 // drawn at `supersample` times that each way and smoothed down, each whole (their chunks
 // and simplified copies are the viewport's this frame), on `background`, and returns it;
 // nil when there is none. The caller sets each item's pass and lights. `keep_depth` keeps
-// the depth for what reads it after (live occlusion, the studio render).
+// the depth for what reads it after (live occlusion, the studio render); without it the
+// depth is transient, so a tile GPU gives it no memory.
 thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, view, proj: Mat4, items: []Draw_Item, background: [4]f32, supersample: u32 = THUMBNAIL_SUPERSAMPLE, keep_depth := false) -> ^sdl.GPUTexture {
 	if tv.failed || size.x == 0 || size.y == 0 do return nil
 	scale := max(supersample, 1)
-	if !viewport_target_resize(r, &tv.target, size.x * scale, size.y * scale) {
+	if !viewport_target_resize(r, &tv.target, size.x * scale, size.y * scale, transient_depth = !keep_depth) {
 		tv.failed = true
 		log.errorf("thumbnail view target: %s", sdl.GetError())
 		return nil

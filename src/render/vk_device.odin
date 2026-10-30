@@ -44,6 +44,7 @@ Vk_State :: struct {
 	// (vk_pick_shared_type): loads write mesh buffers there directly.
 	shared_buffers:    bool,
 	shared_type:       u32,
+	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
 	// finished submission n" is one comparison.
 	timeline:          vk.Semaphore,
@@ -330,6 +331,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
 	vk.GetPhysicalDeviceMemoryProperties(vk_state.physical, &vk_state.memory)
 	vk_state.shared_type, vk_state.shared_buffers = vk_pick_shared_type(vk_state.memory)
+	for i in 0 ..< vk_state.memory.memoryTypeCount do if .LAZILY_ALLOCATED in vk_state.memory.memoryTypes[i].propertyFlags do vk_state.lazy_memory = true
 
 	timeline_type := vk.SemaphoreTypeCreateInfo{sType = .SEMAPHORE_TYPE_CREATE_INFO, semaphoreType = .TIMELINE}
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO, pNext = &timeline_type}

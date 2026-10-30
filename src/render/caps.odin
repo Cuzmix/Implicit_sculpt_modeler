@@ -35,6 +35,10 @@ Gpu_Caps :: struct {
 	// wait for the GPU (gpu_create_buffer_mapped): memory both the CPU and GPU reach at
 	// full speed, which unified-memory GPUs and Resizable BAR desktops have.
 	shared_buffers:   bool,
+	// Transient render targets (gpu_create_texture_transient) take no memory: a tile GPU
+	// under the own Vulkan backend with lazily allocated memory, or any Apple GPU under
+	// the own Metal backend. Elsewhere they are ordinary targets.
+	transient_targets: bool,
 }
 
 Present_Timing :: enum u8 {
@@ -72,6 +76,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.timestamps = gpu_timestamps_offered(r.device)
 	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
+	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

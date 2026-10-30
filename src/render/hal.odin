@@ -38,6 +38,7 @@ gpu_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCo
 }
 
 gpu_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: sdl.Uint32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
+	transient_check_pass(color_target_infos, num_color_targets, depth_stencil_target_info)
 	if gpu_backend == .Vulkan do return vk_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
 	when METAL do if gpu_backend == .Metal do return mtl_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
 	return sdl.BeginGPURenderPass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
@@ -54,6 +55,7 @@ gpu_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pip
 }
 
 gpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: sdl.Uint32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: sdl.Uint32) {
+	for b in texture_sampler_bindings[:num_bindings] do transient_check_use(b.texture, "sampled")
 	if gpu_backend == .Vulkan {
 		vk_bind_compute_samplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
 		return
@@ -74,6 +76,7 @@ gpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, firs
 }
 
 gpu_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: sdl.Uint32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: sdl.Uint32) {
+	for b in texture_sampler_bindings[:num_bindings] do transient_check_use(b.texture, "sampled")
 	if gpu_backend == .Vulkan {
 		vk_bind_fragment_samplers(render_pass, first_slot, texture_sampler_bindings, num_bindings)
 		return
@@ -158,6 +161,8 @@ gpu_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: s
 }
 
 gpu_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureLocation,        #by_ptr destination: sdl.GPUTextureLocation, w, h, d: sdl.Uint32, cycle: bool) {
+	transient_check_use(source.texture, "copied from")
+	transient_check_use(destination.texture, "copied to")
 	if gpu_backend == .Vulkan {
 		vk_copy_texture_to_texture(copy_pass, source, destination, w, h, d, cycle)
 		return
@@ -213,6 +218,30 @@ gpu_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUTe
 	return sdl.CreateGPUTexture(device, createinfo)
 }
 
+// A render target whose contents live only inside the pass that clears it (transient.odin):
+// usage COLOR_TARGET or DEPTH_STENCIL_TARGET alone, never loaded, stored, sampled or copied.
+// Memoryless on the own Metal backend, lazily allocated where the own Vulkan backend's
+// device offers it (tile GPUs), a plain target otherwise and under SDL_GPU.
+gpu_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUTextureCreateInfo) -> (texture: ^sdl.GPUTexture) {
+	assert(createinfo.usage <= {.COLOR_TARGET, .DEPTH_STENCIL_TARGET}, "a transient texture is a render target only")
+	make_it :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+		if gpu_backend == .Vulkan do return vk_create_texture_transient(device, createinfo)
+		when METAL do if gpu_backend == .Metal do return mtl_create_texture_transient(device, createinfo)
+		return sdl.CreateGPUTexture(device, createinfo)
+	}
+	texture = make_it(device, createinfo)
+	transient_note(texture)
+	return
+}
+
+// Whether transient textures save memory: a lazily allocated memory type under the own
+// Vulkan backend, any Apple GPU under the own Metal one.
+gpu_transient_targets_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	if gpu_backend == .Vulkan do return vk_state.lazy_memory
+	when METAL do if gpu_backend == .Metal do return true
+	return false
+}
+
 gpu_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {
 	if gpu_backend == .Vulkan do return vk_create_transfer_buffer(device, createinfo)
 	when METAL do if gpu_backend == .Metal do return mtl_create_transfer_buffer(device, createinfo)
@@ -254,6 +283,7 @@ gpu_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sd
 }
 
 gpu_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureRegion,          #by_ptr destination: sdl.GPUTextureTransferInfo) {
+	transient_check_use(source.texture, "downloaded")
 	if gpu_backend == .Vulkan {
 		vk_download_from_texture(copy_pass, source, destination)
 		return
@@ -348,6 +378,7 @@ gpu_texture_supports_sample_count :: proc(device: ^sdl.GPUDevice, format: sdl.GP
 }
 
 gpu_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
+	transient_check_use(texture, "mipmapped")
 	if gpu_backend == .Vulkan {
 		vk_generate_mipmaps_for_texture(command_buffer, texture)
 		return
@@ -496,6 +527,7 @@ gpu_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
 }
 
 gpu_release_texture :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture) {
+	transient_forget(texture)
 	if gpu_backend == .Vulkan {
 		vk_release_texture(device, texture)
 		return
@@ -708,6 +740,7 @@ gpu_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GP
 }
 
 gpu_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureTransferInfo,    #by_ptr destination: sdl.GPUTextureRegion, cycle: bool) {
+	transient_check_use(destination.texture, "uploaded to")
 	if gpu_backend == .Vulkan {
 		vk_upload_to_texture(copy_pass, source, destination, cycle)
 		return

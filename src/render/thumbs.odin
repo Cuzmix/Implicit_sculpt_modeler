@@ -37,7 +37,7 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer) -> ^s
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 	})
-	if t.atlas == nil || !viewport_target_resize(r, &t.scratch, THUMB_PX, THUMB_PX) {
+	if t.atlas == nil || !viewport_target_resize(r, &t.scratch, THUMB_PX, THUMB_PX, transient_depth = true) {
 		log.errorf("thumbnail textures: %s", sdl.GetError())
 		t.failed = true
 		return nil
