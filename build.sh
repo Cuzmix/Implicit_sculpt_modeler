@@ -13,7 +13,7 @@
 #           any SDL assert, GPU error, Vulkan validation message or leaked allocation
 #           (needs a display, e.g. Xvfb)
 #   gpubench release build, then time the GPU and CPU while orbiting and sculpting a
-#           sphere at 500k, 1M, 5M, 7M and 10M vertices, with each speed setting on and
+#           sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices, with each speed setting on and
 #           off; prints markdown tables and writes them to build/gpubench.md (needs a
 #           display; use a real GPU for meaningful numbers)
 #   computebench release build, then time Smooth all on the CPU and as a GPU compute
