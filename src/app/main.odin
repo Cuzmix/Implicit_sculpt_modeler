@@ -1748,21 +1748,19 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
 		}
 		fmt.println()
-		// What each column holds, top to bottom, and which sections are pinned as panels.
+		// What each column holds, top to bottom, and which sections are kept in the stack.
 		for side in Column_Side {
 			b := strings.builder_make(context.temp_allocator)
 			for r, i in k.panels.columns[side] {
 				if i > 0 do strings.write_byte(&b, ',')
-				switch v in r {
-				case Kit_Window:  strings.write_string(&b, strings.to_lower(fmt.tprint(v), context.temp_allocator))
-				case Kit_Section: strings.write_string(&b, strings.to_lower(fmt.tprint(v), context.temp_allocator))
-				}
+				strings.write_string(&b, strings.to_lower(fmt.tprint(r.(Kit_Window)), context.temp_allocator))
 			}
 			fmt.printf("column_%s=%s ", "left" if side == .Left else "right", strings.to_string(b) if len(k.panels.columns[side]) > 0 else "none")
 		}
 		pins := strings.builder_make(context.temp_allocator)
-		for pin, sec in k.panels.pins {
-			if !pin.on do continue
+		for c in k.stack.order {
+			sec, is := panel_section(c)
+			if !is || !k.stack.set || !stack_kept(&k.stack, c) do continue
 			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}

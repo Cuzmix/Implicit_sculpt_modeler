@@ -248,11 +248,11 @@ kit_bar_popover :: proc(app: ^App) {
 		defer ui.popover_end(ctx)
 		title, draw, obj_draw, found := bar_section(app, p.section)
 		ui.begin(ctx, "bar section head", {direction = .Row, center = true})
-		pinnable := panel_pinnable(p.section)
+		pinnable := int(p.section) < TRAY_SECTIONS
 		ui.begin(ctx, "bar section title", {direction = .Column, width = WIDTH - 2 * PADDING - (2 if pinnable else 1) * t.target})
 		ui.label(ctx, title, t.title_size, t.text, .Semibold)
 		ui.end(ctx)
-		// Pin keeps the popover's section as a panel of its own, in the right column.
+		// Pin keeps the popover's section as a card of the stack, at its foot.
 		if pinnable && ui.icon_button(ctx, command_label(.Pin_Section, int(p.section)), ui.ICON_PANEL, selected = command_checked(app, .Pin_Section, int(p.section)), keys = command_hint(app, .Pin_Section, int(p.section))) {
 			if !command_checked(app, .Pin_Section, int(p.section)) do command_run(app, .Pin_Section, int(p.section))
 			p.open = false

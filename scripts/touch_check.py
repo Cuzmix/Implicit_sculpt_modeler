@@ -2772,14 +2772,15 @@ def stats_dropped_on_the_right_column_docks_it():
 
 
 @scenario
-def pinned_sections_stack_in_the_right_column():
-    """Pin as a panel (here from a script) docks Layers and then Camera under the tray, each its own panel."""
+def pinned_sections_join_the_stack():
+    """Pin to the stack (here from a script) keeps Layers and then Camera as cards at the stack's foot, open, and the column holds only the stack."""
     s = Script()
     s.add("move:800,450")
     s.wait(10)
     return s, ["--script=pin_section layers; pin_section camera"], camera_still({
-        "dabs": near(0), "column_right": is_text("inspector,layers,camera"),
-        "panel_pins": is_text("layers,camera")})
+        "dabs": near(0), "column_right": is_text("inspector"),
+        "panel_pins": is_text("layers,camera"),
+        "stack": lambda v: v.endswith(",Layer_Settings+,Camera+")})
 
 
 # The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
@@ -8751,7 +8752,7 @@ def narrow_window_palettes_pops_the_column():
 
 @scenario
 def narrow_window_opening_a_panel_pops_its_column():
-    """On a narrow window a section pinned into the right column pops the column, as opening any panel docked there does; with Columns pop over a narrow window off, the columns stay beside the view."""
+    """On a narrow window a section pinned to the stack pops the right column, as opening any panel docked there does; with Columns pop over a narrow window off, the columns stay beside the view."""
     return Steps([(Script(), NARROW + ["--script=pin_section layers"], {"column_popped": is_text("right"), "columns_narrow": near(1)}),
                   (Script(), NARROW + ["--script=set column_popovers off"], {"columns_narrow": near(0), "column_popped": is_text("none")}),
                   (Script(), [], {"columns_narrow": near(0)})])

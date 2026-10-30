@@ -659,6 +659,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// The pen's side button slots a gesture_map line set, which version 8's new default
 	// leaves alone.
 	pen_button_seen: bit_set[Gesture_Slot]
+	// Sections an older file pinned, kept as cards once the stack is read.
+	old_pins: Panels_Old
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -802,7 +804,7 @@ settings_load :: proc(app: ^App, path: string) {
 		case "window":
 			window_load_line(&app.kit, f)
 		case "column", "pinned":
-			panels_load_line(&app.kit, f)
+			panels_load_line(&app.kit, f, &old_pins)
 		case "thumbnail_shaded":
 			// Before the second view had passes, Shaded was a switch over the silhouette.
 			if f[1] == "1" do app.kit.second.pass = .Shaded
@@ -1027,6 +1029,8 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
+	// Before the current layout is put, which brings its own pins along when there is one.
+	panels_old_settle(&app.kit, &old_pins)
 	workspaces_loaded(&app.kit)
 	log.infof("settings: read %s", path)
 

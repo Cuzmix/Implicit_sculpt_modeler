@@ -356,6 +356,13 @@ stack_reveal_card :: proc(app: ^App, c: Panel_Kind) {
 	if stack_strip_shown(app) && host not_in s.floated {
 		s.tab, s.tab_open, s.tab_at, s.scrolls[host] = host, true, s.strip_at[host], 0
 	}
+	if host not_in s.floated do stack_column_pop(app)
+}
+
+// On a narrow window, pops the column the stack is docked in over the view, so a card
+// just opened or kept there is in sight even when the stack was open already.
+stack_column_pop :: proc(app: ^App) {
+	if side, _, docked := panel_docked(&app.kit, Kit_Window.Inspector); docked && columns_narrow(app) do column_pop(app, side, true)
 }
 
 // The layout's density line, `stack_density icons`, only when it is not Panels.
@@ -628,7 +635,7 @@ stack_brush_icon :: proc(app: ^App) -> rune {
 stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 	k := &app.kit
 	obj := selected_object(app)
-	if sec, ok := panel_section(c); ok do return panel_summary(app, sec)
+	if sec, ok := panel_section(c); ok do return section_summary(app, sec)
 	#partial switch c {
 	case .Brush:
 		if app.tool != .Brush do return ""
@@ -637,7 +644,7 @@ stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 		if app.brush.radial_on do return fmt.tprintf("radial %d", app.brush.radial_count)
 		return "Local" if app.brush.sym_local else ""
 	case .Layers:
-		return panel_summary(app, Kit_Section.Layers)
+		return section_summary(app, .Layers)
 	case .Scene:
 		n := len(app.scene.objects)
 		line := fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
@@ -646,11 +653,11 @@ stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 	case .Tools:
 		return TOOLS_TAB_NAMES[k.tools_tab]
 	case .Lights:
-		return panel_summary(app, Kit_Section.Lights)
+		return section_summary(app, .Lights)
 	case .Material:
-		return panel_summary(app, Kit_Section.Material)
+		return section_summary(app, .Material)
 	case .Environment:
-		return panel_summary(app, Kit_Section.Environment)
+		return section_summary(app, .Environment)
 	}
 	return ""
 }
@@ -674,9 +681,9 @@ stack_open_line :: proc(app: ^App, c: Panel_Kind) -> string {
 	case .Tools:
 		return TOOLS_TAB_NAMES[app.kit.tools_tab]
 	case .Lights:
-		return panel_summary(app, Kit_Section.Lights)
+		return section_summary(app, .Lights)
 	case .Material:
-		return panel_summary(app, Kit_Section.Material)
+		return section_summary(app, .Material)
 	}
 	return ""
 }
@@ -941,18 +948,24 @@ stack_visit :: proc(k: ^Kit_State, p: Panel_Kind) {
 		s.hidden += {v}
 		s.open -= {v}
 	}
+	stack_put_at_foot(k, p)
+	s.visit = p
+	s.visits += 1
+}
+
+// Puts card `p` back in the stack, open, just after the last docked group, so no other
+// card moves.
+stack_put_at_foot :: proc(k: ^Kit_State, p: Panel_Kind) {
+	s := &k.stack
 	s.hidden -= {p}
 	s.floated -= {p}
 	s.open += {p}
-	// Into the order just after the last docked group, so no other card moves.
 	order: [dynamic; len(Panel_Kind)]Panel_Kind
 	for x in s.order do if x != p do append(&order, x)
 	at := 0
 	for x, i in order do if stack_host(s, x) not_in s.floated && stack_host(s, x) not_in s.hidden do at = i + 1
 	inject_at(&order, at, p)
 	for x, i in order do s.order[i] = x
-	s.visit = p
-	s.visits += 1
 }
 
 // Whether `p` is the visit and still as it came in: docked on its own, its height and
@@ -975,9 +988,8 @@ stack_keep :: proc(k: ^Kit_State, p: Panel_Kind, on: bool) {
 	if !s.set do stack_default(k)
 	if v, ok := s.visit.?; ok && v == p do s.visit = nil
 	if on {
-		if p in s.hidden && p not_in s.joined && len(stack_group(s, p)) == 1 do stack_visit(k, p)
+		if p in s.hidden && p not_in s.joined && len(stack_group(s, p)) == 1 do stack_put_at_foot(k, p)
 		for x in stack_group(s, stack_host(s, p)) do s.hidden -= {x}
-		s.visit = nil
 		return
 	}
 	// A tab comes out of its group first, so its group stays as it was.
@@ -1007,4 +1019,9 @@ palette_on_screen :: proc(app: ^App, p: Panel_Kind) -> bool {
 stack_visit_text :: proc(k: ^Kit_State) -> string {
 	if v, ok := k.stack.visit.?; ok && stack_visiting(&k.stack, v) do return fmt.tprint(v)
 	return "none"
+}
+
+// Whether section palette `p` is kept in the stack: in it, and not merely visiting.
+stack_kept :: proc(s: ^Lens_Stack, p: Panel_Kind) -> bool {
+	return p not_in s.hidden && !stack_visiting(s, p)
 }

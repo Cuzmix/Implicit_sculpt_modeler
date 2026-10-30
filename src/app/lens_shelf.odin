@@ -511,8 +511,8 @@ brush_picker_toggle :: proc(app: ^App) {
 }
 
 // A long-pressed tile's quick settings, over it: the brush's name with its favourite star,
-// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Pin as panel keeps the
-// stroke's section as a panel, and All settings opens the brush's.
+// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Pin to the stack keeps
+// the stroke's section as a card of the stack, and All settings opens the brush's.
 kit_shelf_quick :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -553,7 +553,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	}
 	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = 6})
 	pinned := command_checked(app, .Pin_Section, int(Kit_Section.Stroke))
-	if command_button(app, .Pin_Section, int(Kit_Section.Stroke), label = "Unpin panel" if pinned else "Pin as panel", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
+	if command_button(app, .Pin_Section, int(Kit_Section.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {
 		sh.quick = false
 		brush_item_settings(app, cur)
