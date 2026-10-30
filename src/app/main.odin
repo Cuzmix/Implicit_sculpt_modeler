@@ -376,6 +376,7 @@ App :: struct {
 	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
 	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
 	pacer:       Frame_Pacer,
+	low_latency: Low_Latency, // how far the GPU may run behind (frame_rate.odin), applied as frame_rate is
 	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
 	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
@@ -2010,6 +2011,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
 	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
 	fmt.printfln("present_mode=%s present_offers=%s", render.renderer_present_name(&app.renderer), present_offers(&app))
+	caps := render.caps(&app.renderer)
+	fmt.printfln("low_latency=%v frames_in_flight=%d frames_cheap=%v", app.low_latency, caps.frames_in_flight, caps.frames_cheap)
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)

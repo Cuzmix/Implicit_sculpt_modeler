@@ -15,9 +15,6 @@ import vk "vendor:vulkan"
 // default layouts, cycling, the flipped viewport), since matching it pixel for pixel is
 // the test. Everything runs on the thread that drives render, as the app's frame loop does.
 
-// Frames a window may have in flight before acquiring its next image waits, as SDL_GPU's
-// default.
-VK_FRAMES :: 2
 // What one pushed uniform block may hold, and the size of the buffers they are packed
 // into; SDL_GPU binds 4 KiB per slot too.
 VK_UNIFORM_RANGE :: 4096
@@ -30,6 +27,7 @@ Vk_State :: struct {
 	device:            vk.Device,
 	queue:             vk.Queue,
 	family:            u32,
+	frames:            u32, // frames a window may have in flight before its next acquire waits
 	properties:        vk.PhysicalDeviceProperties,
 	driver:            vk.PhysicalDeviceDriverProperties,
 	memory:            vk.PhysicalDeviceMemoryProperties,
@@ -294,6 +292,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	driver := strings.clone_to_cstring(strings.truncate_to_byte(string(vk_state.driver.driverInfo[:]), 0), context.temp_allocator)
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, name)
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
+	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	return vk_device_handle(), true
 }
 

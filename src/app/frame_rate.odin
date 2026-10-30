@@ -26,6 +26,35 @@ FRAME_RATE_NAMES := [Frame_Rate]string {
 	.Unlimited     = "Unlimited",
 }
 
+// How far the GPU may run behind the app (Settings > System > Frame rate). One frame in
+// flight shows each frame a display period sooner (8.3 ms at 120 Hz) but lets no heavy
+// frame overlap the next; two is SDL_GPU's default. During strokes keeps one only while a
+// stroke or a drag is under way, where the pen's latency is felt, and only where changing
+// it costs no more than a wait for the GPU (render.Gpu_Caps.frames_cheap); elsewhere it
+// stays at two.
+Low_Latency :: enum u8 {
+	During_Strokes,
+	Always,
+	Off,
+}
+
+LOW_LATENCY_NAMES := [Low_Latency]string {
+	.During_Strokes = "During strokes",
+	.Always         = "Always",
+	.Off            = "Off",
+}
+
+// The frames in flight `choice` asks for now, given whether the pointer is at work and
+// whether the backend changes it cheaply.
+frames_wanted :: proc(choice: Low_Latency, working, cheap: bool) -> u32 {
+	switch choice {
+	case .Always:         return 1
+	case .During_Strokes: if working && cheap do return 1
+	case .Off:
+	}
+	return render.FRAMES_IN_FLIGHT_DEFAULT
+}
+
 // The limits on offer: the common screen rates, and 30 for the battery.
 FRAME_LIMITS := [?]i32{30, 60, 90, 120, 144, 165, 240}
 FRAME_LIMIT_NAMES := [len(FRAME_LIMITS)]string{"30 fps", "60 fps", "90 fps", "120 fps", "144 fps", "165 fps", "240 fps"}
@@ -61,6 +90,9 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 		log.infof("present mode: %s; offered besides vsync: %s", render.renderer_present_name(&app.renderer), present_offers(app))
 	}
 	frame_rate_vote(app, window)
+	caps := render.caps(&app.renderer)
+	working := app.stroke.active || .Left in app.device.down
+	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working, caps.frames_cheap))
 	if app.frame_rate != .Limit {
 		p.next_ns = 0
 		return
@@ -108,6 +140,13 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 		if explain do ui.paragraph(ctx, "As many frames as the computer can draw, for measuring speed. Most are never seen, and the battery and fans pay for them.")
 	}
 	ui.paragraph(ctx, frame_rate_status(app), color = ctx.theme.text_secondary)
+	ui.label(ctx, "Low latency")
+	low: [len(Low_Latency)]string
+	for l in Low_Latency do low[int(l)] = LOW_LATENCY_NAMES[l]
+	if picked := ui.tabs(ctx, "Low latency", low[:], int(app.low_latency)); picked >= 0 do app.low_latency = Low_Latency(picked)
+	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two.")
+	frames := render.caps(&app.renderer).frames_in_flight
+	ui.paragraph(ctx, fmt.tprintf("Frames in flight now: %d.", frames), color = ctx.theme.text_secondary)
 }
 
 // The modes the window offers besides vsync, as "mailbox,immediate" or "none". Temp-allocated.

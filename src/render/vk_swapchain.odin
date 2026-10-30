@@ -6,8 +6,8 @@ import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 // Windows the Vulkan backend presents to: a surface and swapchain each, remade when the
-// window's size changes or the swapchain goes out of date. Up to VK_FRAMES frames are in
-// flight per window; acquiring the next waits for the oldest, or with `wait` false finds
+// window's size changes or the swapchain goes out of date. Up to vk_state.frames frames are
+// in flight per window (gpu_set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds
 // none free and hands back no texture, as SDL_GPU's non-waiting acquire does.
 
 Vk_Window :: struct {
@@ -22,8 +22,8 @@ Vk_Window :: struct {
 	height:       u32,
 	textures:     []^Vk_Texture,
 	render_done:  []vk.Semaphore, // one per image, signalled by the submission presenting it
-	acquired:     [VK_FRAMES]vk.Semaphore,
-	frame_serial: [VK_FRAMES]u64,
+	acquired:     [FRAMES_IN_FLIGHT_MAX]vk.Semaphore,
+	frame_serial: [FRAMES_IN_FLIGHT_MAX]u64,
 	frame:        int,
 	stale:        bool, // remade before the next acquire
 }
@@ -228,6 +228,15 @@ vk_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window,
 	return true
 }
 
+// As SDL_GPU's: a frame slot per allowed frame. The GPU is waited for first, so every slot
+// is free and each window starts again at its first; the swapchains stay as they are.
+vk_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
+	if !vk_wait_for_idle(device) do return false
+	vk_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
+	for w in vk_state.windows do w.frame = 0
+	return true
+}
+
 vk_get_swapchain_texture_format :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUTextureFormat {
 	w := vk_window_find(window)
 	return w.sdl_format if w != nil else .INVALID
@@ -271,7 +280,7 @@ vk_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl
 	vk_cmd_track_image(cmd, t.active)
 	vk_image_barrier(cmd, t.active, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
 	append(&cmd.presents, Vk_Present{w, index, slot})
-	w.frame = (w.frame + 1) % VK_FRAMES
+	w.frame = (w.frame + 1) % int(vk_state.frames)
 	texture^ = (^sdl.GPUTexture)(t)
 	if width != nil do width^ = w.width
 	if height != nil do height^ = w.height
