@@ -656,20 +656,30 @@ gpu_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_
 	return sdl.SetGPUAllowedFramesInFlight(device, allowed_frames_in_flight)
 }
 
-// SDL_GPU has no call telling when a frame reached the screen, so of the three backends
-// only the own Vulkan answers these; the others learn nothing (Gpu_Caps.present_timing).
+// SDL_GPU has no call telling when a frame reached the screen, so only the own Vulkan and
+// Metal backends answer these; SDL_GPU learns nothing (Gpu_Caps.present_timing).
 gpu_present_timing :: proc(device: ^sdl.GPUDevice) -> Present_Timing {
 	if gpu_backend == .Vulkan do return vk_state.present_timing
+	when METAL do if gpu_backend == .Metal do return .Presented_Handler
 	return .None
 }
 
 gpu_present_input :: proc(window: ^sdl.Window, input_ns: u64) {
 	if gpu_backend == .Vulkan do vk_present_input(window, input_ns)
+	when METAL do if gpu_backend == .Metal do mtl_present_input(window, input_ns)
 }
 
 gpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 	if gpu_backend == .Vulkan do return vk_present_times(window, out)
+	when METAL do if gpu_backend == .Metal do return mtl_present_times(window, out)
 	return 0
+}
+
+// Frames presented that never reached the screen, since the device was made; `known` false
+// where the backend cannot tell (only the own Metal backend's presented handlers can).
+gpu_frames_dropped :: proc() -> (dropped: u64, known: bool) {
+	when METAL do if gpu_backend == .Metal do return mtl_frames_dropped(), true
+	return 0, false
 }
 
 // Whether gpu_create_buffer_mapped makes buffers: the own Vulkan backend with a shared

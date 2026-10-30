@@ -151,8 +151,12 @@ mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 		sdl.SetError("Metal: submitted inside a pass")
 		return 0, false
 	}
-	// Each drawable is presented once this command buffer has drawn it.
-	for p in cmd.presents do MTL.CommandBuffer_presentDrawable(cmd.cb, p.drawable)
+	// Each drawable is presented once this command buffer has drawn it, and says when it
+	// reached the screen.
+	for p in cmd.presents {
+		mtl_present_log_add(p.window, p.drawable)
+		MTL.CommandBuffer_presentDrawable(cmd.cb, p.drawable)
+	}
 	MTL.CommandBuffer_commit(cmd.cb)
 	mtl_state.submitted += 1
 	serial := mtl_state.submitted

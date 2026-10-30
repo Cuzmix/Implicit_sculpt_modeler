@@ -36,6 +36,7 @@ Mtl_State :: struct {
 	free_cmds:     [dynamic]^Mtl_Cmd,
 	in_flight:     [dynamic]^Mtl_Cmd,
 	windows:       [dynamic]^Mtl_Window,
+	present_logs:  [MTL_PRESENT_LOGS]Mtl_Present_Log,
 	properties_id: sdl.PropertiesID,
 }
 
@@ -97,6 +98,7 @@ mtl_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	_ = mtl_wait_for_idle(device)
 	for len(mtl_state.windows) > 0 do mtl_release_window(device, mtl_state.windows[0].window)
 	delete(mtl_state.windows)
+	mtl_present_logs_destroy()
 	for cmd in mtl_state.free_cmds do mtl_cmd_free(cmd)
 	delete(mtl_state.free_cmds)
 	delete(mtl_state.in_flight)

@@ -54,6 +54,9 @@ Present_Timing :: enum u8 {
 	// VK_GOOGLE_display_timing (Android's Vulkan): the screen reports each frame's time
 	// afterwards. Nothing waits for it.
 	Display_Timing,
+	// Metal's presented handlers (the own Metal backend, iPad and Mac): each drawable
+	// reports when it reached the screen, or that it never did (frames_dropped).
+	Presented_Handler,
 }
 
 // A frame that reached the screen: the input it showed and when, both SDL nanoseconds
@@ -110,4 +113,11 @@ renderer_set_frames_in_flight :: proc(r: ^Renderer, frames: u32) -> bool {
 	}
 	r.caps.frames_in_flight = n
 	return true
+}
+
+// Frames that never reached the screen since the device was made, `known` false where the
+// backend cannot tell.
+frames_dropped :: proc(r: ^Renderer) -> (dropped: u64, known: bool) {
+	if r.device == nil do return 0, false
+	return gpu_frames_dropped()
 }
