@@ -178,6 +178,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   printing (`object_export(..., print = true)`) bakes the placement and the scale into one matrix, turns Y up into Z up
   as `(x, -z, y)`, stands the mesh on Z 0 centred on the origin, and reports `mesh_check_indices` (closed, volume in
   cm³) up to `PRINT_CHECK_MAX` indices, as STL or OBJ; the plain STL export keeps the file's own units instead.
+  `print_export` takes `print_objects` (the selection, or every shown object): one object goes through
+  `object_export`, more (or any 3MF) through `print_export_many`, which stands all parts on the bed together
+  (`print_world` then `print_stand`); 3MF is `geom.mesh_write_3mf_model` zipped with `zip.write` (check a change with
+  lib3mf's strict reader: `pip download lib3mf` works from the container).
   The Export sheet's print checks (`print_checks.odin`) key their cache on the object's buffer version, reuse the
   sculptor's `bvh` at once up to `PRINT_CHECK_AT_ONCE` triangles and above it run on their own thread from a copy
   with `context.allocator` set to the heap (a slice freed by `bvh_destroy` must come from the allocator it frees with).

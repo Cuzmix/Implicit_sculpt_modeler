@@ -323,6 +323,7 @@ SETTINGS := [?]Setting {
 	{"export_ran", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, ran), bool, 0, 0},
 	{"export_last_preset", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, last_preset), Export_Preset, 0, 0},
 	{"export_last_format", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, last_format), Export_Format, 0, 0},
+	{"export_print_all", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, print_all), bool, 0, 0},
 	{"print_bed_width", offset_of(App, print_bed) + 0 * size_of(f32), f32, 0, PRINT_BED_MAX},
 	{"print_bed_depth", offset_of(App, print_bed) + 1 * size_of(f32), f32, 0, PRINT_BED_MAX},
 	{"print_bed_height", offset_of(App, print_bed) + 2 * size_of(f32), f32, 0, PRINT_BED_MAX},

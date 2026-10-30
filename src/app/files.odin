@@ -31,7 +31,7 @@ File_Kind :: enum u8 {
 	None,
 	Import, // a mesh file becomes a new object
 	Export, // the selected object's shown level goes to a mesh file
-	Export_Print, // ...to an STL or OBJ file at its print size (print.odin)
+	Export_Print, // ...to an STL, OBJ or 3MF file at its print size (print.odin)
 	Save,   // the scene goes to a .sculpt file
 	Save_Copy, // the scene goes to a .sculpt file, and stays the file it was (versions.odin)
 	Open,   // a .sculpt file replaces the scene
@@ -102,6 +102,8 @@ STL_FILTERS := [?]sdl.DialogFileFilter{{"STL (3D printing)", "stl"}}
 @(private = "file")
 PRINT_OBJ_FILTERS := [?]sdl.DialogFileFilter{{"OBJ (3D printing)", "obj"}}
 @(private = "file")
+PRINT_3MF_FILTERS := [?]sdl.DialogFileFilter{{"3MF (3D printing)", "3mf"}}
+@(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
@@ -166,19 +168,25 @@ file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
 	dialog_save(app, userdata, EXPORT_FILTERS[int(f):][:1], where_)
 }
 
-// Shows the save dialog for a 3D print, as STL or with `obj` as OBJ (the Export sheet's
-// two print formats), suggesting `name`'s file when there is one.
-file_dialog_print :: proc(app: ^App, obj: bool, name := "") {
+// Shows the save dialog for a 3D print in format `f` (one of the Export sheet's print
+// formats), suggesting `name`'s file when there is one.
+file_dialog_print :: proc(app: ^App, f: Print_File, name := "") {
 	sync.lock(&pending.lock)
 	busy := pending.dialog
 	pending.dialog = true
 	sync.unlock(&pending.lock)
 	if busy do return
-	// The kind in the low byte and 1 after it for OBJ, for file_dialog_done.
-	userdata := rawptr(uintptr(File_Kind.Export_Print) | uintptr(obj) << 8)
+	// The kind in the low byte and the format after it, for file_dialog_done.
+	userdata := rawptr(uintptr(File_Kind.Export_Print) | uintptr(f) << 8)
 	where_: cstring = nil
 	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
-	dialog_save(app, userdata, PRINT_OBJ_FILTERS[:] if obj else STL_FILTERS[:], where_)
+	filters: []sdl.DialogFileFilter
+	switch f {
+	case .STL:       filters = STL_FILTERS[:]
+	case .OBJ:       filters = PRINT_OBJ_FILTERS[:]
+	case .Model_3MF: filters = PRINT_3MF_FILTERS[:]
+	}
+	dialog_save(app, userdata, filters, where_)
 }
 
 // The three dialogs: SDL's own, or on iOS, where SDL 3.4 has none, the document picker
@@ -270,7 +278,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 			case filter >= 0 && int(filter) < len(EXPORT_SUFFIX): suffix = EXPORT_SUFFIX[filter]
 			case:                                            suffix = ".obj"
 			}
-		case .Export_Print: suffix = ".obj" if only == 1 else ".stl"
+		case .Export_Print: suffix = PRINT_FILE_SUFFIX[Print_File(only)] if only < len(Print_File) else ".stl"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
@@ -392,7 +400,22 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	case .None:
 	case .Import:
 		return scene_import(app, req.path)
-	case .Export, .Export_Print:
+	case .Export_Print:
+		objs := print_objects(app)
+		if len(objs) == 0 {
+			file_note(app, true, "Select an object to export first")
+			return true
+		}
+		bytes := 0
+		for obj in objs do bytes += object_export_bytes(obj, req.path)
+		if bytes > SAVE_SHOW_FIRST {
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving_at = app.kit.ctx.time
+			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
+			return true
+		}
+		_ = print_export(app, req.path)
+	case .Export:
 		obj := selected_object(app)
 		if obj == nil {
 			file_note(app, true, "Select an object to export first")
@@ -405,7 +428,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
 			return true
 		}
-		_ = object_export(app, obj, req.path, print = req.kind == .Export_Print)
+		_ = object_export(app, obj, req.path)
 	case .Save, .Save_Copy:
 		if app.saving.kind != .None do return true
 		if scene_save_bytes(app) > SAVE_SHOW_FIRST {
@@ -1100,9 +1123,13 @@ save_pending :: proc(app: ^App, now: bool) {
 	req := app.saving
 	app.saving = {}
 	defer file_request_free(req)
-	if req.kind == .Export || req.kind == .Export_Print {
+	if req.kind == .Export_Print {
+		_ = print_export(app, req.path)
+		return
+	}
+	if req.kind == .Export {
 		if obj := selected_object(app); obj != nil {
-			_ = object_export(app, obj, req.path, print = req.kind == .Export_Print)
+			_ = object_export(app, obj, req.path)
 		} else {
 			file_note(app, true, "Select an object to export first")
 		}

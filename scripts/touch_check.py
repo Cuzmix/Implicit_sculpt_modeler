@@ -4541,6 +4541,24 @@ def lens_export_sheet_picks_a_format():
     return Steps([run(False), run(True)])
 
 
+# The 3D print's options at 1440x900: its 3MF tab and the Only the selected objects switch.
+EXPORT_PRINT = {"3mf": (662, 332), "only_selected": (722, 382)}
+
+
+@scenario
+def export_sheet_prints_every_object():
+    """With two objects, the 3D print's Only the selected objects switch turned off takes both, and the 3MF tab picks 3MF, which keeps each its own part; the settings keep the switch."""
+    s = Script()
+    s.wait(4)
+    s.press("e", ("ctrl",))
+    s.wait(10)
+    s.ftap(*EXPORT_PRINT["3mf"])
+    s.wait(4)
+    s.ftap(*EXPORT_PRINT["only_selected"])
+    s.wait(6)
+    return s, LENS_1440 + ["--script=duplicate_object"], camera_still({"export_format": is_text("Print_3MF"), "export_print_all": near(1), "objects": near(2), "dabs": near(0)})
+
+
 # The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
 # cut in half.
 EXPORT_CHECKS = {"repair": (1136, 502)}
