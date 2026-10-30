@@ -36,10 +36,11 @@ re-check the stores' pages before a first submission, because they move every ye
   stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene. Today
   `DID_ENTER_BACKGROUND` starts an autosave at once (`app.autosave.background`, `src/app/autosave.odin`), and on mobile
   every session not closed is offered back at the next start, since a kill there looks like a crash.
-- UNVERIFIED until the iPad build: iOS gives a backgrounded app only seconds unless it asks for more
-  (`beginBackgroundTask`), so a big scene's autosave may be cut short there (the copy before it stays whole); and
-  `SDL_GetPrefPath` on iOS is backed up to iCloud, so the `autosave` folder needs `NSURLIsExcludedFromBackupKey` (or
-  to live under Caches) before a store build, or hundreds of MB of copies go to the user's iCloud.
+- UNVERIFIED on an iPad: iOS gives a backgrounded app only seconds unless it asks for more
+  (`beginBackgroundTask`), so a big scene's autosave may be cut short there (the copy before it stays whole).
+  `SDL_GetPrefPath` on iOS is backed up to iCloud, so the `autosave` folder is marked `NSURLIsExcludedFromBackupKey`
+  when it is made (`sculpt_ios_exclude_from_backup`, `ios/sculpt_ios.m`); any other folder of copies the app can
+  make again gets the same.
 - Saving over a scene keeps earlier saves in a "<stem> versions" folder beside the file (`src/app/versions.odin`).
   Once Android and iPad save through the system picker, that folder is outside what the app may write: there the
   versions must go to the app's own folder (or the picked folder's tree, if the user granted one), never ask for
@@ -56,9 +57,10 @@ re-check the stores' pages before a first submission, because they move every ye
 - No data leaves the device. Adding analytics, crash reporting, accounts or cloud saves first needs: a privacy
   policy URL, Play's Data safety form and Apple's privacy labels updated, consent where the law needs it, and (Apple)
   account deletion inside the app if accounts exist.
-- Apple privacy manifest (`PrivacyInfo.xcprivacy`) lists every "required reason" API the binary and its libraries
-  call (file timestamps, system boot time, disk space, user defaults); SDL and our code must be checked when the iPad
-  build is made. Home says when a scene was saved from the time its preview block stores, not the file's timestamp,
+- Apple privacy manifest (`ios/PrivacyInfo.xcprivacy`, copied into every IPA) lists every "required reason" API the
+  binary and its libraries call: today file timestamps (C617.1, 3B52.1), system boot time (SDL's timers, 35F9.1) and
+  user defaults (SDL's UIKit driver, CA92.1). A new call into one of Apple's categories (disk space too) adds its
+  entry there in the same change. Home says when a scene was saved from the time its preview block stores, not the file's timestamp,
   to stay off that list.
 - Home's Recent keeps paths across runs (`recent_scenes`). UNVERIFIED on the tablets: a `content://` URI the picker
   gave is readable in a later run only if the grant was persisted (`takePersistableUriPermission`; iPad needs a
@@ -84,7 +86,11 @@ re-check the stores' pages before a first submission, because they move every ye
   Gradle project is `android/` (`android/app/build.gradle` holds the SDK levels and `app/jni/CMakeLists.txt` the
   link flags); the manifest declares no permissions, and one added there needs a visible feature that uses it.
 - App Store: built with Xcode 26 and the iOS 26 SDK (required since 2026-04-28), deployment target iOS 13 or newer
-  (minimum from 2026-09-09), arm64 only, launch screen storyboard, full app icon set, iPad multitasking supported.
+  (minimum from 2026-09-09), arm64 only, a launch screen (`UILaunchScreen` in `ios/Info.plist`), the app icon
+  (`sculpt-1024.png`, one opaque 1024-point picture rendered from `sculpt.svg` beside it in the repository's
+  assets folder; `actool` in `./build.sh ios` compiles it), the `DT*` toolchain keys `build.sh`
+  writes, iPad multitasking supported. Store builds are signed with SCULPT_SIGN_IDENTITY and SCULPT_PROFILE and never
+  set SCULPT_DIAGNOSTICS; `./build.sh iosupload` (or the iPad workflow's TestFlight option) sends them.
 - Windows: sign the executable and installer (Authenticode) or SmartScreen warns every user. Linux: ship as a
   Flatpak or AppImage with the libraries it needs.
 - Store builds are release builds: no tracking allocator exit codes, no GPU validation, no debug flags exposed.

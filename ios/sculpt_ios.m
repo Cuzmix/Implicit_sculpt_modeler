@@ -688,3 +688,23 @@ void sculpt_ios_device_info(char *os_name, char *model, char *build, int size)
 	strlcpy(model, machine, (size_t)size);
 	strlcpy(build, built ? built : "", (size_t)size);
 }
+
+/*
+ * Keeps the folder at `path` out of the iPad's iCloud and computer backups. SDL's preference
+ * folder on iOS is under Library/Application Support, which is backed up, and the autosave
+ * folder there holds recovery copies of whole scenes (src/app/autosave.odin): backing them
+ * up would fill the person's iCloud with copies the app replaces every few minutes, which
+ * Apple's storage guidelines forbid. The scenes the person saves stay in Documents, which is
+ * backed up as their own work. False, with nothing changed, when the folder cannot be marked.
+ */
+bool sculpt_ios_exclude_from_backup(const char *path)
+{
+	if (!path) return false;
+	NSURL *url = [NSURL fileURLWithPath:@(path) isDirectory:YES];
+	NSError *error = nil;
+	if (![url setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&error]) {
+		SDL_Log("autosave: could not keep %s out of backups: %s", path, error.localizedDescription.UTF8String);
+		return false;
+	}
+	return true;
+}

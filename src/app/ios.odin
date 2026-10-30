@@ -137,4 +137,11 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 	foreign {
 		sculpt_ios_device_info :: proc(os_name, model, build: [^]u8, size: c.int) ---
 	}
+
+	// ios/sculpt_ios.m: keeps a folder out of iCloud and computer backups (the autosave folder,
+	// autosave.odin), as Apple asks of files the app can make again.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_exclude_from_backup :: proc(path: cstring) -> bool ---
+	}
 }
