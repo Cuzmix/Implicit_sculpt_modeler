@@ -132,3 +132,8 @@ summary.
   History_Steps and History_Back, which Settings > Files lists too: one setting, two places. The History settings
   are App fields named so that off is the default (`history_no_lights`, `history_ungrouped`), so a zero App is as
   before; `history_limits_apply` hands History may use to every store only when it is set or just changed back.
+  The quick scrub (`quick_scrub.odin`, `Timeline.quick`): Undo and Redo call `quick_scrub_button` right after their
+  `icon_button` (it calls `ui.held_long` before `ui.secondary`, so the long press scrubs and only the right button
+  opens the panel at once; the mouse begins on a sideways drag past the slop, `ui.press_used`); `touch_hold_history`
+  begins the fingers' scrub once its hold fired and the fingers slide. `quick_scrub_frame` (after the menus) follows
+  the pointer, maps it to `history_places` (chains are one place) and seeks; nothing else moves the History.

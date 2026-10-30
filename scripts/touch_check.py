@@ -6099,6 +6099,101 @@ def right_click_undo_opens_history():
     return s, [], camera_still({"undo_steps": near(1), "window_history": lambda v: v.startswith("1,")})
 
 
+def slide(s, fingers, dx, frames, starts):
+    """`fingers` already down at `starts` move `dx` sideways together over `frames` frames."""
+    for k in range(1, frames + 1):
+        for i, (x, y) in enumerate(starts[:fingers]):
+            s.add(f"fmove:{i}:{x + dx * k / frames:g},{y:g}")
+        s.wait(1)
+
+
+@scenario
+def hold_undo_and_slide_scrubs():
+    """After five strokes, a long press on Undo slid 48 points left scrubs three steps back, a step every 16 points; lifting keeps them undone and opens no panel."""
+    s = Script()
+    strokes(s, 5)
+    x, y = UI["undo"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    slide(s, 1, -48, 8, [(x, y)])
+    s.wait(8)
+    s.add("fup:0")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(3), "window_history": lambda v: v.startswith("0,"),
+                                "history_quick_scrubs": near(1), "history_quick_last": near(-3), "history_quick": is_text("off")})
+
+
+@scenario
+def hold_undo_slide_and_back_redoes():
+    """A long press on Undo slid 64 points left and then 32 back right ends two steps back: the slide goes both ways, as the strip's bar does."""
+    s = Script()
+    strokes(s, 5)
+    x, y = UI["undo"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    slide(s, 1, -64, 8, [(x, y)])
+    slide(s, 1, 32, 4, [(x - 64, y)])
+    s.wait(8)
+    s.add("fup:0")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(3), "redo_steps": near(2), "history_quick_last": near(-2)})
+
+
+@scenario
+def mouse_drag_off_undo_scrubs():
+    """The desktop twin: the left button pressed on Undo and dragged 32 points left scrubs two steps back at once, with no wait; a still click still undoes one."""
+    s = Script()
+    strokes(s, 4)
+    x, y = UI["undo"]
+    s.add(f"move:{x:g},{y:g}")
+    s.wait(3)
+    s.add("down")
+    s.wait(2)
+    for k in range(1, 9):
+        s.add(f"move:{x - 4 * k:g},{y:g}")
+        s.wait(1)
+    s.wait(8)
+    s.add("up")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(2), "window_history": lambda v: v.startswith("0,"), "history_quick_scrubs": near(1)})
+
+
+@scenario
+def two_fingers_held_then_slid_scrub():
+    """Five strokes; two fingers held until their hold undoes one, then slid 60 points left, scrub three more steps back without panning, and lifting keeps them."""
+    s = Script()
+    strokes(s, 5)
+    starts = [(740, 430), (840, 450)]
+    for i, (x, y) in enumerate(starts):
+        s.add(f"fdown:{i}:{x:g},{y:g}")
+    s.wait(30)
+    slide(s, 2, -60, 10, starts)
+    s.wait(8)
+    for i in range(2):
+        s.add(f"fup:{i}")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(4), "touch_repeats": near(1),
+                                "history_quick_scrubs": near(1), "history_quick_last": near(-3)})
+
+
+@scenario
+def two_fingers_scrub_off_only_undoes():
+    """With the scrub off in History > Settings, two fingers held until they undo and then slid undo just the one and scrub nothing."""
+    s = Script()
+    write_settings("history_no_finger_scrub 1\n")
+    strokes(s, 5)
+    starts = [(740, 430), (840, 450)]
+    for i, (x, y) in enumerate(starts):
+        s.add(f"fdown:{i}:{x:g},{y:g}")
+    s.wait(30)
+    slide(s, 2, -60, 10, starts)
+    s.wait(8)
+    for i in range(2):
+        s.add(f"fup:{i}")
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"undo_steps": near(4), "redo_steps": near(1), "history_quick_scrubs": near(0)})
+
+
 # The brush picker opened from the shelf's All, at 1600 by 900: its header's Search, the
 # categories down its left and its tiles' middles (four columns, the first row at the
 # top); and the heart beside the current brush on the Brush card.

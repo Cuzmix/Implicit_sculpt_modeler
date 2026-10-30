@@ -406,11 +406,27 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 	h.zoom *= change.zoom
 	h.twist += change.twist
 	h.at, h.most = viewport_point(app, change.middle), f.most
+	// A hold that slid scrubs the History (quick_scrub.odin) until the fingers lift.
+	if app.timeline.quick.by == .Fingers {
+		quick_scrub_fingers(app, change.middle.x / app.kit.scale)
+		return true
+	}
 	if h.off do return h.fired > 0
 	slop := app.kit.ctx.theme.slop * app.kit.scale
 	still := f.travel <= slop && abs(math.ln(h.zoom)) < HOLD_ZOOM && abs(h.twist) < HOLD_TWIST
 	slot := gesture_slot(f.most, true)
 	s := app.nav.gestures[slot]
+	// Fingers that slid once their hold undid or redid, without spreading or turning as a
+	// pinch would, scrub the History from where the hold left it.
+	if !still && h.fired > 0 && gesture_repeats(s) && !app.history_no_finger_scrub && !t.palm && abs(math.ln(h.zoom)) < 4 * HOLD_ZOOM && abs(h.twist) < 4 * HOLD_TWIST {
+		quick_scrub_begin(app, .Fingers, change.middle.x / app.kit.scale)
+		if q := &app.timeline.quick; q.by == .Fingers {
+			// The slide past the slop that began it counts: the strip shows at once.
+			q.moved = true
+			h.off = true
+			return true
+		}
+	}
 	if s.id == .None || t.palm || pen_holds_hand(app, input_clock(app)) || h.late || !still {
 		h.off = true
 		return h.fired > 0

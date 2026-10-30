@@ -1489,6 +1489,8 @@ kit_layout :: proc(app: ^App) {
 	kit_workspace_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	quick_scrub_frame(app)
+	kit_quick_scrub(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_scene_menu(app)

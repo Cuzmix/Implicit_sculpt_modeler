@@ -383,6 +383,7 @@ App :: struct {
 	history_no_tree:   bool,
 	history_camera:    bool,
 	history_ungrouped: bool,
+	history_no_finger_scrub: bool, // two fingers held then slid do not scrub the History (History > Settings)
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
@@ -1795,7 +1796,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(&app)
-		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb)
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(&app), app.timeline.menus, app.timeline.tints, int(history_tint_step(&app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
