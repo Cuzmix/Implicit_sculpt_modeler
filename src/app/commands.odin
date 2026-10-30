@@ -1504,7 +1504,11 @@ COMMANDS := [Command_Id]Command {
 		label = "Frame all",
 		help = "Turns and zooms the view to show every object.",
 		icon = ui.ICON_FRAME,
-		run = proc(app: ^App, _: int) {frame_all(app)},
+		run = proc(app: ^App, _: int) {
+			before := camera_ease_begin(app)
+			frame_all(app)
+			camera_ease_from(app, before)
+		},
 		enabled = proc(app: ^App, _: int) -> bool {return len(app.scene.objects) > 0},
 	},
 	.Hide_Object = {
@@ -1701,7 +1705,11 @@ COMMANDS := [Command_Id]Command {
 		label = "View",
 		help = "Looks at the scene straight along an axis.",
 		args = len(camera.Axis_View),
-		run = proc(app: ^App, arg: int) {camera.orbit_axis_view(&app.camera, camera.Axis_View(arg))},
+		run = proc(app: ^App, arg: int) {
+			before := camera_ease_begin(app)
+			camera.orbit_axis_view(&app.camera, camera.Axis_View(arg))
+			camera_ease_from(app, before)
+		},
 	},
 	.Ortho_Toggle = {
 		label = "Orthographic",
@@ -1713,25 +1721,41 @@ COMMANDS := [Command_Id]Command {
 		label = "Focus selected",
 		help = "Turns and zooms the view to frame the selected object.",
 		icon = ui.ICON_FOCUS,
-		run = proc(app: ^App, _: int) {focus_selected(app)},
+		run = proc(app: ^App, _: int) {
+			before := camera_ease_begin(app)
+			focus_selected(app)
+			camera_ease_from(app, before)
+		},
 		enabled = has_object,
 	},
 	.Reset_Camera = {
 		label = "Reset camera",
 		help = "Goes back to the starting view, keeping the projection and the field of view.",
 		icon = ui.ICON_SUN,
-		run = proc(app: ^App, _: int) {reset_camera(app)},
+		run = proc(app: ^App, _: int) {
+			before := camera_ease_begin(app)
+			reset_camera(app)
+			camera_ease_from(app, before)
+		},
 	},
 	.View_Back = {
 		label = "Previous view",
 		help = "Goes back to the view before, as the camera last rested; the work stays as it is.",
-		run = proc(app: ^App, _: int) {camera_back(app)},
+		run = proc(app: ^App, _: int) {
+			before := camera_ease_begin(app)
+			camera_back(app)
+			camera_ease_from(app, before)
+		},
 		enabled = proc(app: ^App, _: int) -> bool {return camera_can_back(app)},
 	},
 	.View_Forward = {
 		label = "Next view",
 		help = "Goes forward again to the view Previous view left.",
-		run = proc(app: ^App, _: int) {camera_forward(app)},
+		run = proc(app: ^App, _: int) {
+			before := camera_ease_begin(app)
+			camera_forward(app)
+			camera_ease_from(app, before)
+		},
 		enabled = proc(app: ^App, _: int) -> bool {return camera_can_forward(app)},
 	},
 	.Camera_Menu = {

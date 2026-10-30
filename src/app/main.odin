@@ -71,6 +71,7 @@ Options :: struct {
 	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) or sdl (SDL_GPU)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
+	camera_ease: bool `usage:"Let Frame all, Focus selected, Reset camera, the axis views and Previous and Next view glide in a scripted run too, which otherwise jumps: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -222,6 +223,7 @@ App :: struct {
 	view_edits:  u64,
 	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
+	camera_ease: Camera_Ease, // the camera gliding to a view a command asked for (camera_ease.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
@@ -709,6 +711,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer if remember do _ = settings_save(&app, settings)
 	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
+	app.camera_ease.allowed = interactive || opts.camera_ease
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
@@ -964,6 +967,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
 			app.device.input_at = sdl.GetTicksNS()
 		}
+		camera_ease_frame(&app, input)
 		camera_apply_input(&app, input)
 		if opts.orbit && !setting_up do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
@@ -1521,6 +1525,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
+		// Whether the camera is gliding to a view (camera_ease.odin), and how many glides
+		// began and were cut short by the hand.
+		fmt.printfln("camera_easing=%d camera_eases=%d camera_ease_cuts=%d", int(app.camera_ease.on), app.camera_ease.eases, app.camera_ease.cuts)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
 		hint, _ := strings.replace_all(string(app.kit.ctx.roll_hint[:app.kit.ctx.roll_hint_len]), " ", "_", context.temp_allocator)

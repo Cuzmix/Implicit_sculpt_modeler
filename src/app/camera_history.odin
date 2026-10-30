@@ -45,8 +45,9 @@ camera_history_frame :: proc(app: ^App) {
 	moved := v != h.seen
 	if moved do h.seen, h.moved_at = v, now
 	// Mid-turn, or the camera follows something played back: not a place it rested.
-	// Nor while a view pane is worked in: the camera is that pane's (grid_work).
-	if app.drag.owner != .None || app.touch.fingers.count > 0 || timeline_busy(app) || replay_busy(app) || app.kit.grid.work != 0 do return
+	// Nor while a view pane is worked in: the camera is that pane's (grid_work), nor while
+	// it glides to a view (camera_ease.odin), which it rests on once there.
+	if app.drag.owner != .None || app.touch.fingers.count > 0 || timeline_busy(app) || replay_busy(app) || app.kit.grid.work != 0 || app.camera_ease.on do return
 	// The view a scene opens with is the first, at once: a turn begun straight away
 	// must still be able to go back to it.
 	if h.count > 0 && (moved || now - h.moved_at < CAMERA_REST) do return
@@ -67,16 +68,22 @@ camera_history_keep :: proc(h: ^Camera_History, v: Camera_View) {
 	h.count += 1
 }
 
+// The view the camera shows, or is gliding to (camera_ease.odin): what going back and
+// forward start from, so a second step taken mid-glide steps on from where the first went.
+camera_view_shown :: proc(app: ^App) -> Camera_View {
+	return camera_view_of(app.camera_ease.to if app.camera_ease.on else app.camera)
+}
+
 camera_can_back :: proc(app: ^App) -> bool {
 	h := &app.views
-	return h.count > 0 && (h.at > 0 || camera_view_of(app.camera) != h.views[h.at])
+	return h.count > 0 && (h.at > 0 || camera_view_shown(app) != h.views[h.at])
 }
 
 // Forward only while the camera is still on the view shown: once it moves, that move is
 // where forward goes, as it is for a browser.
 camera_can_forward :: proc(app: ^App) -> bool {
 	h := &app.views
-	return h.at + 1 < h.count && camera_view_of(app.camera) == h.views[h.at]
+	return h.at + 1 < h.count && camera_view_shown(app) == h.views[h.at]
 }
 
 // Shows the view before. A view not kept yet (the camera moved and has not rested) is
@@ -84,7 +91,7 @@ camera_can_forward :: proc(app: ^App) -> bool {
 camera_back :: proc(app: ^App) {
 	if !camera_can_back(app) do return
 	h := &app.views
-	camera_history_keep(h, camera_view_of(app.camera))
+	camera_history_keep(h, camera_view_shown(app))
 	camera_show(app, h.at - 1)
 }
 

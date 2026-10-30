@@ -696,8 +696,10 @@ double_tap_act :: proc(app: ^App, at, size: [2]f32) {
 		p.used, p.from = hit, .Tapped
 		return
 	}
+	before := camera_ease_begin(app)
 	if selected_object(app) != nil do focus_selected(app)
 	else do frame_all(app)
+	camera_ease_from(app, before)
 	app.double_tap.framed += 1
 }
 
