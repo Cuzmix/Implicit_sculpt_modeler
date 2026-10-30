@@ -109,3 +109,12 @@ summary.
   `DIAL_DEFAULTS`): read the current one through `dial_of(k)`, pass it to `rail_hit`, never index a fixed table; only
   a Modifier sector claims a finger. A space switch drops latches the new dial lacks (`dial_latches_keep`); settings
   write Sculpt's as `dial_sector` and the others' as `dial_space` lines (v6; `dials_from_one` moves an older file).
+  The History panel (`kit_history_panel`, `timeline.odin`) shows `Timeline.view`: List (`history_list.odin`, a
+  setting `history_view`, anchored at the pen side under the chip bar, `KIT_HISTORY_LIST_W` wide) or Strip (the
+  bar over the shelf, as before). The list's rows come from `history_rows`, newest first, a step being a non-chain
+  entry with the chained ones after it; a group is consecutive same-brush strokes on one object on one side of
+  `done`, none adjusted, opened by `Timeline.open_at` (its oldest stroke's `at`, so undoing its newest keeps it
+  open). A row's position counts `done` then `undone` reversed (`history_entry_at`) and a tap seeks to `last + 1`
+  through `timeline_seek_to`. Sizes are `History_Entry.bytes`, set when recorded (`sculptor_last_step_bytes`,
+  `clay_last_step_bytes`, the swap snapshot, the texture step); never measure them while drawing. The root row reads
+  `History.began` and `History.dropped`. Scenarios that tap the strip set `history_view strip` first.

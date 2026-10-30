@@ -32,6 +32,20 @@ Timeline :: struct {
 	// When Delete older history was tapped once, to take a second tap within
 	// DELETE_OLDER_ARM_TIME as the go-ahead; 0 when it is not armed.
 	delete_armed_at: f64,
+	// The History panel's view (a setting), whether its list shows only the selected
+	// object's steps, the group of repeated strokes opened in it (by its oldest stroke's
+	// time; none when zero) and how far the list is scrolled (history_list.odin).
+	view:          History_View,
+	only_selected: bool,
+	open_at:       time.Tick,
+	list_scroll:   f32,
+}
+
+// The History panel's two views: the list of steps (Nomad's), and the strip of coloured
+// blocks with playback and the time-lapse.
+History_View :: enum u8 {
+	List,
+	Strip,
 }
 
 // How long Delete older history waits for its second tap, in seconds.
@@ -230,7 +244,7 @@ timelapse_stop :: proc(app: ^App, why: string) {
 // though the camera turns between them.
 timelapse_capturing :: proc(app: ^App) -> bool {return app.timeline.lapse.state == .Capturing}
 
-@(private = "file", rodata)
+@(rodata)
 KIND_COLORS := [History_Kind][4]f32 {
 	.Stroke  = {0.95, 0.8, 0.45, 1},
 	.Mask    = {0.5, 0.7, 1, 1},
@@ -254,7 +268,6 @@ entry_label :: proc(e: History_Entry) -> string {
 	return label
 }
 
-@(private = "file")
 ago_label :: proc(at: time.Tick) -> string {
 	s := time.duration_seconds(time.tick_since(at))
 	switch {
@@ -265,14 +278,15 @@ ago_label :: proc(at: time.Tick) -> string {
 }
 
 // Starts moving the History toward `to` done steps, stopping playback.
-@(private = "file")
 timeline_seek_to :: proc(tl: ^Timeline, to: int) {
 	tl.target, tl.seeking, tl.playing = to, true, false
 }
 
-// The interface's History panel, a window that starts over the dock: step through the
-// History, scrub it on the bar, play it back, and record it as a time-lapse. Returns true
-// when a press landed on it, to bring it to the front.
+// The interface's History panel. Its List view (history_list.odin, the default) stands at
+// the pen side under the chip bar: a row a step, a tap on one going there. Its Strip view
+// starts over the dock: step through the History, scrub it on the bar, play it back, and
+// record it as a time-lapse. Returns true when a press landed on it, to bring it to the
+// front.
 kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -284,15 +298,25 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	done, total := len(app.history.done), history_total(app)
 	recording := lapse.state != .Off
 	can := !recording && !app.stroke.active
-	dock := shelf_bottom_size(app)
-	// Centred over the dock, as wide as fits between the panel on the right (Settings or
-	// Help in the inspector's place, else the inspector) and the same margin on the other
-	// side, within its least and most.
-	right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0
-	side := max(kit_right(app) + right, kit_left(app))
-	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
+	list := tl.view == .List
 	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.History, "History", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	p: Panel_Frame
+	width: f32
+	if list {
+		// The list stands at the pen side under the chip bar, near History's button, as tall
+		// as the window has room for.
+		width = KIT_HISTORY_LIST_W
+		p = panel_begin(app, Kit_Window.History, "History", .End, .Start, {kit_right(app), TOP_BAR_H + 6}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	} else {
+		dock := shelf_bottom_size(app)
+		// Centred over the dock, as wide as fits between the panel on the right (Settings or
+		// Help in the inspector's place, else the inspector) and the same margin on the other
+		// side, within its least and most.
+		right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0
+		side := max(kit_right(app) + right, kit_left(app))
+		width = clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
+		p = panel_begin(app, Kit_Window.History, "History", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	}
 	raised = p.raised
 	if p.closed do k.history = false
 	// Docked, its rows take the column's width.
@@ -303,32 +327,31 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 		return
 	}
 
-	ui.begin(ctx, "transport", {direction = .Row, center = true})
-	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can) do timeline_seek_to(tl, 0)
-	if ui.icon_button(ctx, "Step back", ui.ICON_STEP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, done - 1)
-	if ui.icon_button(ctx, "Pause" if tl.playing else "Play", ui.ICON_PAUSE if tl.playing else ui.ICON_PLAY, selected = tl.playing, enabled = can && total > 0) {
-		if tl.playing {
-			tl.playing = false
-		} else {
-			// From the end, playback starts over from the beginning.
-			if done >= total do timeline_seek_to(tl, 0)
-			tl.playing, tl.owed, tl.last = true, 0, time.tick_now()
+	// The view, List or Strip, and in the list which object's steps it shows.
+	ui.begin(ctx, "history head", {direction = .Row, gap = 8, center = true, width = width - 20})
+	views := [len(History_View)]string{"List", "Strip"}
+	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
+	if picked := ui.tabs(ctx, "History view", views[:], int(tl.view), 84, glyphs = glyphs[:]); picked >= 0 do tl.view = History_View(picked)
+	if list {
+		obj := selected_object(app)
+		label := fmt.tprintf("%s only", object_label(obj)) if tl.only_selected && obj != nil else "All objects"
+		label = ui.text_fit(ctx, label, t.small_size, 120)
+		// The chip at the row's end.
+		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true), 0))
+		if a := lens_chip(ctx, "Every object's steps, or only the selected one's##history", label, chevron = true, lit = tl.only_selected); a.clicked {
+			tl.only_selected = !tl.only_selected
+			tl.list_scroll = 0
 		}
 	}
-	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
-	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
-	ui.spacer(ctx, 10)
-	// While Marker is on, or Delete older history waits for its second tap, what the next
-	// tap does takes the step count's place.
-	status, status_color := fmt.tprintf("Step %d of %d", done, total), t.text
-	if tl.marking {
-		status, status_color = "Tap a step to mark it", t.accent
-	} else if tl.delete_armed_at > 0 {
-		n := history_step_count(app.history.done[:])
-		status, status_color = fmt.tprintf("Deletes %d step%s; redo stays", n, "" if n == 1 else "s"), t.danger
-	}
-	ui.label(ctx, status, t.text_size, status_color, .Semibold)
 	ui.end(ctx)
+	if list {
+		kit_history_list(app, &p, width, can)
+		panel_end(app, &p)
+		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+		return
+	}
+
+	history_transport(app, can)
 	if done > 0 {
 		e := app.history.done[done - 1]
 		ui.label(ctx, fmt.tprintf("Last: %s, %s", entry_label(e), ago_label(e.at)), t.small_size)

@@ -10775,6 +10775,53 @@ def lattice_point_dragged():
 LATTICE_SIDE = (1032, 522)  # the cage's +x side middle point round the starting sphere
 
 
+# The History panel's Strip view, which the bar's scenarios use (the List is the default).
+HISTORY_STRIP = ["--script=set history_view strip"]
+
+
+# The History list at 1600x900 with three strokes of one brush: the group's chevron, its
+# oldest stroke's row once opened, and the first row (where the History starts) closed.
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1502, 236), (1300, 362), (1300, 288)
+
+
+def history_three_strokes(s):
+    """Three strokes of the Draw brush, then History's button: the list opens at the pen side."""
+    s.wait(3)
+    for _ in range(3):
+        s.mouse_drag(line((700, 380), (800, 420), 12))
+        s.wait(2)
+    click(s, UI["history"])
+    s.wait(20)
+
+
+@scenario
+def history_list_groups_and_goes_to_a_step():
+    """The History list shows three strokes of one brush as one row, × 3; a finger opens it by
+    its chevron and taps the oldest stroke, which undoes the two after it (they then group
+    apart as undone); the pen then taps
+    the first row, which undoes everything."""
+    def run(root):
+        s = Script()
+        history_three_strokes(s)
+        s.ftap(*HISTORY_GROUP_OPEN)
+        s.wait(6)
+        if not root:
+            s.ftap(*HISTORY_OLDEST_SUB)
+            s.wait(30)
+            return s, [], camera_still({"history_view": is_text("list"), "history_rows": near(2), "undo_steps": near(1, 0), "redo_steps": near(2, 0), "dabs": near(0, 30)})
+        s.ftap(*HISTORY_GROUP_OPEN)
+        s.wait(6)
+        s.add("pnear")
+        s.add("pdown:{:g},{:g}".format(*HISTORY_ROOT))
+        s.wait(2)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(30)
+        return s, [], camera_still({"history_rows": near(1), "undo_steps": near(0, 0), "redo_steps": near(3, 0)})
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def history_point_from_the_timeline():
     """Three strokes and the History panel: a right-click on the second step of its bar
@@ -10803,7 +10850,7 @@ def history_point_from_the_timeline():
             s.wait(4)
         else:
             long_press(s, *TIMELINE_STEPS_OF_3[2])
-        return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(1, 0),
+        return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(1, 0),
                                     "recall_pinned": near(1, 0)})
     return Steps([run(False), run(True)])
 
@@ -10827,7 +10874,7 @@ def history_point_then_drift():
         s.wait(1)
     s.add("fup:0")
     s.wait(10)
-    return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(3, 0),
+    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(3, 0),
                                 "recall_pinned": near(1, 0)})
 
 
@@ -10845,7 +10892,7 @@ def history_point_by_right_click():
     s.wait(3)
     s.add("right")
     s.wait(4)
-    return s, [], camera_still({"undo_steps": near(3, 0), "recall_back": near(2, 0), "recall_pinned": near(1, 0)})
+    return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "recall_back": near(2, 0), "recall_pinned": near(1, 0)})
 
 
 @scenario
@@ -10867,7 +10914,7 @@ def history_marker_and_delete_older():
             s.wait(4)
             s.ftap(*TIMELINE_STEPS_OF_3[1])
             s.wait(6)
-            return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(2, 0),
+            return s, HISTORY_STRIP, camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(2, 0),
                                         "recall_pinned": near(1, 0)})
         s.press("z", ("ctrl",))
         s.wait(4)
@@ -10875,7 +10922,7 @@ def history_marker_and_delete_older():
         s.wait(4)
         s.ftap(*HISTORY_DELETE_OLDER)
         s.wait(6)
-        return s, [], camera_still({"undo_steps": near(0, 0), "redo_steps": near(1, 0)})
+        return s, HISTORY_STRIP, camera_still({"undo_steps": near(0, 0), "redo_steps": near(1, 0)})
     return Steps([run(False), run(True)])
 
 
@@ -10898,7 +10945,7 @@ def timeline_tap_and_drag_by_finger():
             s.ftap(676, 563)
         s.wait(30)
         done = 0 if drag else 1
-        return s, [], camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})
+        return s, HISTORY_STRIP, camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})
     return Steps([run(False), run(True)])
 
 

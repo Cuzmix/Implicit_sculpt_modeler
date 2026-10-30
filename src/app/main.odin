@@ -529,6 +529,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
 	timeline_init(&app.timeline)
 	defer timeline_destroy(&app.timeline)
+	app.history.began = time.tick_now()
 	replay_init(&app.replay)
 	defer replay_destroy(&app.replay)
 	app.replay.instant = opts.instant_replay
@@ -1782,6 +1783,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
+		// The History panel's view, how many rows its list holds (an opened group's strokes
+		// among them), what the History holds and how many old steps it dropped.
+		history_bytes, _ := history_memory(&app)
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(&app, open_at = app.timeline.open_at)), history_bytes, app.history.dropped)
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
