@@ -124,4 +124,7 @@ summary.
   from this step (`camera_go`, wrapped in the camera ease); `History_Entry.bookmark` is owned, freed in `entry_free`,
   set only through `history_bookmark_set`, named through the rename popover (`Rename_Entry.step`), and keeps a
   stroke out of a group. Delete everything older is `history_delete_before`, which Delete older history calls with
-  `len(done)`.
+  `len(done)`. The tint (`history_tint.odin`, drawn after the flashes in `overlay_viewport`) reads
+  `History_Entry.area`, recorded at `history_record` from `sculptor_last_step_bounds` / `clay_last_step_bounds` (never
+  measured while drawing), through `flash_screen_box`; rows and blocks call `history_tint_rest` each frame they are
+  rested on and `history_tint_frame` forgets it at the panel's start.

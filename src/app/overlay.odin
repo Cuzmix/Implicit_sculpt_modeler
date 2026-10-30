@@ -172,6 +172,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
 	}
 	draw_flashes(app, o, input.size)
+	draw_history_tint(app, o, input.size)
 	draw_pivot(app, o, input.size)
 	draw_hold_history(app, o)
 	draw_light_markers(app, o, input.size)

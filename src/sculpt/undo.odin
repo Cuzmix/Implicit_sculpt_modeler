@@ -185,6 +185,43 @@ sculptor_last_step_bytes :: proc(s: ^Sculptor) -> int {
 	if len(s.history.done) == 0 do return 0
 	return step_bytes(s.history.done[len(s.history.done) - 1])
 }
+// The object-space box round what the newest done step changed: the vertices whose
+// position, mask or colour differs from what the step saved, which hugs a stroke far
+// closer than its nodes' boxes do; a node saved whole (dynamic topology), as a layer's
+// displacement or for its triangles (hiding, groups), and a node only listed, count with
+// their whole bounds. Empty (lo > hi) with no step, or one that changed no node (a sculpt
+// layer's strength). The History panel tints it.
+sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
+	b := geom.AABB_EMPTY
+	if len(s.history.done) == 0 do return b
+	st := &s.history.done[len(s.history.done) - 1]
+	leaf :: proc(s: ^Sculptor, b: ^geom.Aabb, id: u32) {
+		if int(id) >= len(s.nodes) do return
+		if l := s.nodes[id].leaf; l != geom.BVH_NONE do b^ = geom.aabb_union(b^, s.bvh.nodes[l].bounds)
+	}
+	positions := s.mesh.positions[:]
+	for sv in st.saved {
+		if int(sv.node) >= len(s.nodes) do continue
+		n := s.nodes[sv.node]
+		first, count := int(n.vert_first), int(n.vert_count)
+		switch {
+		case sv.full || sv.is_delta || sv.hidden != nil || sv.groups != nil:
+			leaf(s, &b, sv.node)
+		case sv.positions != nil:
+			for j in 0 ..< min(count, len(sv.positions)) do if positions[first + j] != sv.positions[j] do geom.aabb_grow(&b, positions[first + j])
+		case sv.masks != nil:
+			for j in 0 ..< min(count, len(sv.masks)) do if s.mask[first + j] != sv.masks[j] do geom.aabb_grow(&b, positions[first + j])
+		case sv.colors != nil:
+			for j in 0 ..< min(count, len(sv.colors)) do if s.color[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
+		}
+	}
+	if b.lo.x <= b.hi.x do return b
+	for id in st.nodes do leaf(s, &b, id)
+	for id in st.painted do leaf(s, &b, id)
+	for id in st.shown do leaf(s, &b, id)
+	for id in st.grouped do leaf(s, &b, id)
+	return b
+}
 sculptor_can_redo :: proc(s: ^Sculptor) -> bool {return len(s.history.undone) > 0}
 
 // Puts back everything the stroke being recorded has changed so far and keeps

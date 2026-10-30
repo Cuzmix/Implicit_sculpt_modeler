@@ -2,6 +2,8 @@ package voxel
 
 import "base:runtime"
 
+import "../geom"
+
 // Undo keeps, per stroke, a copy of every brick the stroke touched as it was before the
 // stroke: its values, or the tile it was. A step is its own inverse: undo swaps each saved
 // brick with the live one (a brick the stroke made goes back to its tile and the saved
@@ -211,6 +213,20 @@ clay_undo_bytes :: proc(c: ^Clay) -> int {
 clay_last_step_bytes :: proc(c: ^Clay) -> int {
 	if c.history.cursor <= 0 do return 0
 	return undo_step_bytes(&c.history.steps[c.history.cursor - 1])
+}
+
+// The object-space box round the bricks the newest done step saved; empty (lo > hi) with
+// none. The History panel tints it.
+clay_last_step_bounds :: proc(c: ^Clay) -> (b: geom.Aabb) {
+	b = geom.AABB_EMPTY
+	if c.history.cursor <= 0 do return
+	v := &c.volume
+	for sb in c.history.steps[c.history.cursor - 1].bricks {
+		lo := v.origin + Vec3{f32(sb.coord.x), f32(sb.coord.y), f32(sb.coord.z)} * (BRICK * v.voxel) - 0.5 * v.voxel
+		geom.aabb_grow(&b, lo)
+		geom.aabb_grow(&b, lo + BRICK * v.voxel)
+	}
+	return
 }
 
 // Drops the redo steps: the app's history did, after a change elsewhere.

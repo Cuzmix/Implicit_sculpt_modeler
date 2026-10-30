@@ -79,6 +79,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
 | opens the History list, opens a group of strokes and goes to a step in it or to the scene's start | `history_list_groups_and_goes_to_a_step` |
 | opens a step's menu (right-click, long press, the pen) in the list or on the strip: bookmarks it, paints back to it, deletes what is older | `history_step_menu_from_the_list`, `history_point_from_the_timeline`, `history_point_by_right_click`, `history_strip_menu_paint_back_and_delete_older`, `history_bookmark_flies_over_the_strip` |
+| rests on or long-presses a History step to see what it changed | `history_tint_shows_what_a_step_changed` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | switches between the pen and a finger where the platform never says the pen left (an iPad's SDL; `--pen-no-leave` on a desktop): a finger after the pen works once the pen stops reporting, a palm still right after it | `finger_works_after_the_pen_leaves_unsaid`, `finger_right_after_the_pen_is_a_palm_still`, `finger_pen_finger_switching` |
 | on an iPad, whose system rejects palms itself (`--system-palms`): a finger of the other hand turns the view while the pen hovers, a finger landing as the stroke ends is still a palm | `finger_orbits_while_the_pencil_hovers`, `finger_as_the_pencil_lifts_is_a_palm` |

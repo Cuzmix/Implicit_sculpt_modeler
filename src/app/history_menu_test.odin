@@ -1,6 +1,7 @@
 package main
 
 import "core:testing"
+import "core:time"
 
 import "../geom"
 import "../sculpt"
@@ -64,4 +65,49 @@ history_steps_keep_views_and_bookmarks :: proc(t: ^testing.T) {
 	history_bookmark_set(&app, 0, "")
 	testing.expect_value(t, history_bookmarks(&app), 0)
 	history_bookmark_set(&app, 1, "Kept to the end")
+}
+
+// The tint's box: a stroke's recorded part in the scene's space, the whole object for a
+// step that kept none, nothing for the lights; a kept tint ends at the next press.
+@(test)
+history_tint_boxes_follow_the_step :: proc(t: ^testing.T) {
+	app: App
+	defer {
+		for obj in app.scene.objects {
+			sculpt.levels_destroy(&obj.levels)
+			free(obj)
+		}
+		delete(app.scene.objects)
+		history_destroy(&app.history)
+		results_destroy(&app)
+	}
+	app.ui.smooth_steps, app.ui.smooth_strength = 1, 0.5
+	obj := new(Object)
+	obj.id, obj.transform = 1, {scale = 2, position = {1, 0, 0}}
+	sculpt.levels_init(&obj.levels, geom.icosphere(3), nil, 64)
+	append(&app.scene.objects, obj)
+	app.scene.selected = 0
+	smooth_command(&app, 1)
+	e := app.history.done[0]
+	testing.expect(t, e.area.lo.x < e.area.hi.x)
+	id, box, whole, ok := history_tint_box(&app, 0, 0)
+	testing.expect(t, ok && !whole && id == 1)
+	// Placed twice as large and moved along x, as the object is.
+	testing.expect(t, abs(box.lo.x - (1 + 2 * e.area.lo.x)) < 1e-4 && abs(box.hi.x - (1 + 2 * e.area.hi.x)) < 1e-4)
+	app.history.done[0].area = {}
+	_, _, whole, ok = history_tint_box(&app, 0, 0)
+	testing.expect(t, ok && whole)
+	append(&app.history.done, History_Entry{kind = .Lights, at = {7}})
+	_, _, _, ok = history_tint_box(&app, 1, 1)
+	testing.expect(t, !ok)
+
+	app.kit.history = true
+	app.timeline.tint_kept, app.timeline.tint_kept_at = e.at, 1
+	app.kit.ctx.time = 1
+	app.kit.ctx.input.pressed = {.Left}
+	history_tint_frame(&app)
+	testing.expect_value(t, history_tint_step(&app), e.at)
+	app.kit.ctx.time = 2
+	history_tint_frame(&app)
+	testing.expect_value(t, history_tint_step(&app), time.Tick{})
 }
