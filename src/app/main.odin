@@ -376,6 +376,8 @@ App :: struct {
 	graphics:       Graphics, // the backend Settings > System > Graphics chose, for the next start (graphics.odin)
 	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
 	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
+	graphics_trial: string, // the Metal trial's start marker, until its first frames are shown (graphics_trial_begin)
+	graphics_trial_failed: bool, // the trial stopped the start before, so this run is on Automatic
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -485,6 +487,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		log.errorf("--gpu=%s: expected auto, vulkan or sdl (or metal on a Mac or iPad)", opts.gpu)
 		return false
 	}
+	trial_marker: string
+	trial_failed: bool
+	graphics, trial_marker, trial_failed = graphics_trial_begin(graphics, opts.gpu, settings)
 	render.backend_select(graphics_backend(graphics))
 	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), platform_window_flags())
 	if window == nil {
@@ -496,6 +501,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app: App
 	app.window = window
 	app.graphics_start = graphics
+	if trial_marker != "" do app.graphics_trial = strings.clone(trial_marker)
+	// A run that ends without crashing has started the trial too.
+	defer graphics_trial_end(&app)
 	// The script is read and checked before the scene is set up, so one with an error
 	// stops before the slow part; it runs once the frame loop has laid out the viewport.
 	// The GPU benchmark makes its own scenes, case by case, which a script would not see.
@@ -692,6 +700,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	if trial_failed {
+		app.graphics = .Auto
+		app.graphics_trial_failed = true
+	}
 	app.graphics_loaded = app.graphics
 	pencil_init(&app, window)
 	app.pencil.no_leave = !PEN_LEAVE_SAID || opts.pen_no_leave
@@ -941,6 +953,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			case .DID_ENTER_BACKGROUND:
 				// The system may end the app from the background without another word.
 				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
+				// Nor is a Metal trial that reached the background a failed start.
+				graphics_trial_end(&app)
 				app.autosave.background = true
 				app.preview.background = true
 			case .MOUSE_MOTION:
@@ -1370,6 +1384,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 		if setting_up do app.script.frames += 1
 		else do frame_index += 1
+		if frame_index == GRAPHICS_TRIAL_FRAMES do graphics_trial_end(&app)
 		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index - bench_skipped >= opts.bench_stroke) {
 			// A --timelapse run goes on until the recording is done.
 			// So does one replaying --load-strokes, which starts the frame after.
