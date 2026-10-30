@@ -543,6 +543,12 @@ gpu_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.Re
 	sdl.SetGPUScissor(render_pass, scissor)
 }
 
+gpu_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
+	if gpu_backend == .Vulkan do return vk_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
+	when METAL do if gpu_backend == .Metal do return mtl_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
+	return sdl.SetGPUAllowedFramesInFlight(device, allowed_frames_in_flight)
+}
+
 gpu_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, swapchain_composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
 	if gpu_backend == .Vulkan do return vk_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
 	when METAL do if gpu_backend == .Metal do return mtl_set_swapchain_parameters(device, window, swapchain_composition, present_mode)

@@ -183,7 +183,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Finger_Sculpts   = "palm pen ignore touches finger can sculpt tap switch object mesh",
 	.Keys             = "keys shortcuts keyboard bindings mouse buttons",
 	.Statistics       = "statistics stats simple advanced",
-	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery",
+	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery low latency frames in flight lag",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
 	.Graphics         = "graphics gpu backend vulkan sdl_gpu metal driver renderer",
 	.Autosave         = "autosave recovery copy",
@@ -596,6 +596,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Statistics:      k.stats, k.stats_advanced = false, false
 	case .Frame_Rate:
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
+		app.low_latency = .During_Strokes
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
 	case .Graphics:        app.graphics = .Auto

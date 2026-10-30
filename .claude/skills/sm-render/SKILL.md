@@ -351,4 +351,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   pipelines yet (`gpu_*` compute procs return under Metal), the Graphics menu offers it only as Metal (trial), guarded by a start marker
   (`graphics_trial_begin`, `src/app/graphics.odin`), and it has never run on Apple hardware: `maccheck` and `iphonecheck` only compile it. `backend_fail` keeps a backend's reason for
   `backend_fallback` whichever one failed.
+- What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
+  and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
+  branches on caps, never on a backend's name. A new capability is a field there plus one `gpu_*` proc with an
+  SDL_GPU, Vulkan and Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).

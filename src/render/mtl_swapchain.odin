@@ -6,8 +6,8 @@ import CA "vendor:darwin/QuartzCore"
 import sdl "vendor:sdl3"
 
 // Windows the Metal backend presents to: SDL's Metal view of each window and its
-// CAMetalLayer, which hands out one drawable a frame. Up to MTL_FRAMES frames are in flight
-// per window; acquiring the next waits for the oldest, or with `wait` false finds none free
+// CAMetalLayer, which hands out one drawable a frame. Up to mtl_state.frames frames are in
+// flight per window (gpu_set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds none free
 // and hands back no texture, as SDL_GPU's non-waiting acquire does.
 
 foreign import core_graphics "system:CoreGraphics.framework"
@@ -29,7 +29,7 @@ Mtl_Window :: struct {
 	// at each frame's drawable.
 	texture:      Mtl_Texture,
 	backing:      Mtl_Texture_Backing,
-	frame_serial: [MTL_FRAMES]u64,
+	frame_serial: [FRAMES_IN_FLIGHT_MAX]u64,
 	frame:        int,
 }
 
@@ -105,6 +105,15 @@ mtl_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window
 	return true
 }
 
+// As SDL_GPU's Metal: the GPU is waited for, then each window starts again at its first
+// frame slot.
+mtl_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
+	if !mtl_wait_for_idle(device) do return false
+	mtl_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
+	for w in mtl_state.windows do w.frame = 0
+	return true
+}
+
 mtl_get_swapchain_texture_format :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUTextureFormat {
 	w := mtl_window_find(window)
 	return w.format if w != nil else .INVALID
@@ -140,7 +149,7 @@ mtl_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sd
 	NS.retain(drawable)
 	w.backing.texture = CA.MetalDrawable_texture(drawable)
 	append(&cmd.presents, Mtl_Present{w, drawable, slot})
-	w.frame = (w.frame + 1) % MTL_FRAMES
+	w.frame = (w.frame + 1) % int(mtl_state.frames)
 	texture^ = (^sdl.GPUTexture)(&w.texture)
 	return true
 }

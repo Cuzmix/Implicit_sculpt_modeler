@@ -348,6 +348,7 @@ SETTINGS := [?]Setting {
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
 	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
+	{"low_latency", offset_of(App, low_latency), Low_Latency, 0, 0},
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},

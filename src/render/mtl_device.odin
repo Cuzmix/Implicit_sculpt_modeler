@@ -18,9 +18,6 @@ import sdl "vendor:sdl3"
 // need them (the traced studio, render mode, Smooth all on the GPU) stay off, as on a
 // device without them. Everything runs on the thread that drives render.
 
-// Frames a window may have in flight before acquiring its next drawable waits, as SDL_GPU's
-// default.
-MTL_FRAMES :: 2
 // What one pushed uniform block may hold; SDL_GPU binds 4 KiB per slot too, and Metal's
 // set*Bytes takes at most that.
 MTL_UNIFORM_RANGE :: 4096
@@ -29,6 +26,7 @@ Mtl_State :: struct {
 	device:        ^MTL.Device,
 	queue:         ^MTL.CommandQueue,
 	depth24:       bool, // Depth24Unorm_Stencil8 is offered (some Macs only)
+	frames:        u32, // frames a window may have in flight before its next acquire waits
 	// Submissions are numbered in order. A queue runs its command buffers in the order they
 	// were committed, so "has the GPU finished submission n" is one comparison with
 	// `completed`, which mtl_collect moves on.
@@ -82,6 +80,7 @@ mtl_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 		return nil, false
 	}
 	mtl_state.device, mtl_state.queue = device, queue
+	mtl_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	when !ODIN_PLATFORM_SUBTARGET_IOS {
 		mtl_state.depth24 = bool(MTL.Device_isDepth24Stencil8PixelFormatSupported(device))
 	}

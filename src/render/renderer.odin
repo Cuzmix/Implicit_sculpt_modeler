@@ -25,6 +25,7 @@ MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
 
 Renderer :: struct {
 	device:        ^sdl.GPUDevice,
+	caps:          Gpu_Caps, // what the device and backend can do (caps.odin)
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
 	depth_sampled: bool, // shaders can read depth_format textures (the studio render needs to)
@@ -460,6 +461,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		return false
 	}
 	log.infof("GPU: %s", gpu_description(r))
+	caps_fill(r)
 	if !gpu_claim_window_for_device(r.device, window) {
 		log.errorf("ClaimWindowForGPUDevice failed: %s", sdl.GetError())
 		return false
