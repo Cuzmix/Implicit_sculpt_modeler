@@ -1461,6 +1461,17 @@ def lathe_chosen_from_the_palette():
 
 
 @scenario
+def zipper_drawn_by_pen_stays_a_curve():
+    """A pen drag with the Curve tool's Zipper kind makes a curve whose use is Along, its
+    teeth alternating sides, still a curve to edit (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve zipper"], camera_still({"curves": near(1), "curve_alongs": near(1), "curve_tubes": near(0),
+                                                                      "curve_along_vertices": lambda v: int(v) > 100, "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""

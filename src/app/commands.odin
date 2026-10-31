@@ -1531,7 +1531,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it) or Lathe (the curve spun round an axis, the view's vertical when chosen). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) or Along (stitches, zipper teeth or balls set along it). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {

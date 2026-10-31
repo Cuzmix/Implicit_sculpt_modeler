@@ -234,8 +234,9 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 		sculpt.levels_destroy(&obj.levels)
 	}
 	check(t, bytes[:], true, "whole")
-	check(t, bytes[:len(bytes) - 1], false, "lathe options cut short")
-	check(t, bytes[:len(bytes) - CURVE_LATHE_BYTES - 1], false, "tube options cut short")
+	check(t, bytes[:len(bytes) - 1], false, "along options cut short")
+	check(t, bytes[:len(bytes) - CURVE_ALONG_BYTES - 1], false, "lathe options cut short")
+	check(t, bytes[:len(bytes) - CURVE_ALONG_BYTES - CURVE_LATHE_BYTES - 1], false, "tube options cut short")
 	check(t, bytes[:6 + CURVE_POINT_BYTES], false, "points cut short")
 	one := make([]u8, len(bytes), context.temp_allocator)
 	copy(one, bytes[:])
@@ -270,10 +271,11 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	append(&cp.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1}, geom.Bezier_Point{p = {0, 1, 0}, radius = 1})
 	cp.tube = {profile = .Star, radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, flatness = 0.4}
 	cp.lathe = {axis = {0, 0, 1}, through = .End, angle = 270, segments = 200, caps = false}
+	cp.along = {part = .Tooth, opts = {gap = 0.7, alternate = true, lift = -0.3, up = {1, 0, 0}}}
 	bytes: [dynamic]u8
 	defer delete(bytes)
 	curve_part_put(&bytes, &cp)
-	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES)
+	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES)
 	read :: proc(data: []u8) -> (o: Curve_Look, ok: bool) {
 		obj: Object
 		app: App
@@ -290,6 +292,13 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, ok && got.tube == geom.TUBE_DEFAULTS && got.lathe == geom.LATHE_DEFAULTS, "a curve without options did not take the defaults")
 	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES])
 	testing.expect(t, ok && got.tube == cp.tube && got.lathe == geom.LATHE_DEFAULTS, "a curve with only tube options did not take the lathe's defaults")
+	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES])
+	testing.expect(t, ok && got.lathe == cp.lathe && got.along == CURVE_LOOK_DEFAULTS.along, "a curve from before Along did not take its defaults")
+	part := make([]u8, len(bytes), context.temp_allocator)
+	copy(part, bytes[:])
+	part[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES] = 7
+	_, ok = read(part)
+	testing.expect(t, !ok, "a part past the last was read")
 	axis := make([]u8, len(bytes), context.temp_allocator)
 	copy(axis, bytes[:])
 	for &b in axis[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES:][:size_of(Vec3)] do b = 0
@@ -369,4 +378,14 @@ curve_refuses_surface_commands :: proc(t: ^testing.T) {
 	testing.expect(t, !command_enabled(&app, .Subdivide), "Subdivide is offered for a curve")
 	testing.expect(t, command_reason(&app, .Remesh) != "", "no reason given")
 	testing.expect(t, .Remesh in CURVE_REFUSED_SCENE && .Delete not_in CURVE_REFUSED_SCENE && .Duplicate not_in CURVE_REFUSED_SCENE)
+}
+
+// A new curve's Along options are the Stitch preset's, so Line, Tube or Lathe switched to
+// Along sets stitches as the Curve tool's Stitches does.
+@(test)
+curve_along_defaults_are_stitches :: proc(t: ^testing.T) {
+	testing.expect(t, CURVE_LOOK_DEFAULTS.along == along_preset(.Stitch))
+	testing.expect(t, along_preset(.Tooth).opts.alternate)
+	c := curve_along_clean({part = .Sphere, opts = {gap = -5, lift = 99, up = {}}})
+	testing.expect(t, c.opts.gap == -0.9 && c.opts.lift == 4 && c.opts.up == geom.ALONG_DEFAULTS.up)
 }
