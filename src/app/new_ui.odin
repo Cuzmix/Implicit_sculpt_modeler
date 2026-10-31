@@ -377,6 +377,10 @@ Kit_State :: struct {
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
+	// The brush values the off-hand island showed as sliders, and the frame it last drew,
+	// so the Brush card leaves Size and Strength to it (stack_brush).
+	island_sliders: bit_set[Brush_Value],
+	island_frame:   int,
 	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
 	// while it is set.
 	edge_set_at:  f64,
