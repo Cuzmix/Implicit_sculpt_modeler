@@ -497,7 +497,9 @@ pen_roll :: proc(ctx: ^Context, id: Id, hovered: bool, f: f32) -> (f32, bool) {
 	return nf, nf != f
 }
 
-slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, enabled := true) -> bool {
+// With `wrap`, for an angle, the pen's roll carries on past either end round to the other
+// rather than stopping there.
+slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, enabled := true, wrap := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	w := fill_width(ctx)
@@ -523,7 +525,12 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 				long_cancel(ctx)
 			}
 		}
-		if nf, rolled := pen_roll(ctx, id, hovered && !held, slider_fraction(value^, lo, hi, scale)); rolled {
+		if wrap {
+			if roll := hover_roll(ctx, id, hovered && !held); roll != 0 {
+				nf := slider_fraction(value^, lo, hi, scale) + roll / ROLL_SWEEP
+				if v := slider_value(nf - math.floor(nf), lo, hi, scale); v != value^ do value^, changed = v, true
+			}
+		} else if nf, rolled := pen_roll(ctx, id, hovered && !held, slider_fraction(value^, lo, hi, scale)); rolled {
 			if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		}
 	}

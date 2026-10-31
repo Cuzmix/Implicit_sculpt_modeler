@@ -7581,6 +7581,28 @@ def mouse_maya_alt_right_zooms():
     return s, [mouse_scheme_settings("Maya")], {"camera_distance": lambda v: abs(float(v) - CAMERA0["camera_distance"]) > 0.05, "camera_target": lambda v: v == "0.0000,0.0000,0.0000"}
 
 
+# An image environment shown behind the scene in Material Preview, where Shift and a right
+# drag turns it rather than panning.
+ENVIRONMENT_SHOWN = "--script=environment src/app/testdata/exr/sky_half_zip.exr; set environment_background on; shading_mode material_preview"
+
+
+@scenario
+def environment_shift_right_drag_turns_it():
+    """With an image environment in Material Preview, Shift and a right drag 200 points to the right turns the panorama 50 degrees, the sky following the pointer, and leaves the camera where it was."""
+    s = Script()
+    s.mouse_drag(line((700, 450), (900, 450), 10), button="right", keys=("shift",))
+    return s, [ENVIRONMENT_SHOWN], camera_still({"environment_turn": near(-50, 1), "environment_turns": near(1), "environment": is_text("image")})
+
+
+@scenario
+def environment_shift_right_pans_in_solid():
+    """In Solid, where the environment is not seen, Shift and a right drag pans as it always did and turns nothing."""
+    s = Script()
+    s.mouse_drag(line((700, 450), (900, 450), 10), button="right", keys=("shift",))
+    script = ENVIRONMENT_SHOWN.replace("material_preview", "solid")
+    return s, [script], {"camera_yaw": near(CAMERA0["camera_yaw"]), "camera_target": lambda v: v != "0.0000,0.0000,0.0000", "environment_turn": near(0), "environment_turns": near(0)}
+
+
 @scenario
 def keys_tab_row_assigns_a_key():
     """Settings > Shortcuts: typing "wire" finds Wireframe, a tap on its row opens Assign key beside it, and K becomes its key."""

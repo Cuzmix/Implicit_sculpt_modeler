@@ -26,6 +26,14 @@ import "../ui"
 ENVIRONMENT_SOURCE_WIDTH :: 1024 when MOBILE else 2048
 // The Strength slider's reach either way, in stops.
 ENVIRONMENT_STRENGTH_RANGE :: 4
+// How far Tilt leans the panorama either way, in degrees: past a right angle the sky would
+// stand on its side.
+ENVIRONMENT_TILT_RANGE :: 90
+// The panoramas loaded last, for the section's list to swap between.
+ENVIRONMENT_RECENT_MAX :: 5
+// Degrees a Shift and right drag turns the panorama for each point the pointer moves:
+// across a 1280-point view is a little under a full turn.
+ENVIRONMENT_DRAG_TURN :: 0.25
 
 Environment_Kind :: enum u8 {
 	Built_In, // the procedural studio in the mesh shader
@@ -43,7 +51,14 @@ Environment_State :: struct {
 	// The panorama stays with the scene, as the lights fixed to it do, rather than turning
 	// with the camera (lights_fix).
 	fixed:      bool,
+	// Its own turn about the up axis and lean toward the camera, in degrees, on top of the
+	// lights' Turn all: the panorama's sun lines up with the model without moving a light.
+	turn:       f32,
+	tilt:       f32,
 	path:       string, // the file the GPU copy came from (heap), "" while there is none
+	// The files loaded last, the newest first, heap strings (ENVIRONMENT_RECENT_MAX).
+	recent:     [dynamic]string,
+	turns:      int, // Shift and right drags that turned it, for the exit stats
 	gpu:        render.Environment,
 	decode:     ^Environment_Decode,
 	// A file asked for while another decodes, started when that one is done (heap).
@@ -65,6 +80,33 @@ Environment_Decode :: struct {
 
 environment_settings_default :: proc(app: ^App) {
 	app.env.kind, app.env.strength, app.env.background, app.env.blur = .Built_In, 0, false, 0.3
+	app.env.turn, app.env.tilt = 0, 0
+}
+
+// Puts `path` first among the recent panoramas, once, dropping the oldest past the list's
+// length.
+environment_recent_add :: proc(app: ^App, path: string) {
+	heap := runtime.heap_allocator()
+	r := &app.env.recent
+	if r.allocator.procedure == nil do r.allocator = heap
+	for p, i in r do if p == path {
+		delete(p, heap)
+		ordered_remove(r, i)
+		break
+	}
+	inject_at(r, 0, strings.clone(path, heap))
+	for len(r) > ENVIRONMENT_RECENT_MAX do delete(pop(r), heap)
+}
+
+// Adds `path` last among the recent panoramas (the settings file lists them newest first),
+// unless it is there or the list is full.
+environment_recent_append :: proc(app: ^App, path: string) {
+	heap := runtime.heap_allocator()
+	r := &app.env.recent
+	if r.allocator.procedure == nil do r.allocator = heap
+	if len(r) >= ENVIRONMENT_RECENT_MAX do return
+	for p in r do if p == path do return
+	append(r, strings.clone(path, heap))
 }
 
 // Decodes `path` as the environment, on a thread; until it is done the one there shows.
@@ -146,6 +188,7 @@ environment_poll :: proc(app: ^App, wait := false) -> (why: string) {
 		delete(e.path, heap)
 		e.path = strings.clone(d.path, heap)
 		e.kind = .Image
+		environment_recent_add(app, d.path)
 		if !d.quiet do file_note(app, false, "Loaded environment %s (%d x %d)", name, d.image.width, d.image.height)
 	}
 	if superseded {
@@ -175,8 +218,11 @@ environment_destroy :: proc(app: ^App) {
 		e.decode = nil
 	}
 	render.environment_destroy(&app.renderer, &e.gpu)
-	delete(e.path, runtime.heap_allocator())
+	delete(e.path, heap)
 	e.path = ""
+	for p in e.recent do delete(p, heap)
+	delete(e.recent)
+	e.recent = {}
 }
 
 // Hands the renderer this frame's environment and how it shows: the panorama while Image
@@ -198,30 +244,93 @@ environment_view :: proc(app: ^App) {
 	}
 }
 
-// The panorama's axes in view space: turned with the lights' Turn all about the up axis
-// (never tilted by its Height, as a world's rotation spins it), and fixed to the scene
-// with the lights, so the camera then orbits inside it.
+// The panorama's axes in view space: turned about the up axis by the lights' Turn all and
+// its own Turn (never tilted by the lights' Height, as a world's rotation spins it), leaned
+// by its own Tilt, and fixed to the scene with the lights, so the camera then orbits inside
+// it.
 environment_rotation :: proc(app: ^App) -> [3][4]f32 {
-	rig := linalg.matrix3_rotate_f32(math.to_radians(app.light_turn), {0, 1, 0})
-	if app.env.fixed {
+	e := &app.env
+	turn := linalg.matrix3_rotate_f32(math.to_radians(app.light_turn + e.turn), {0, 1, 0})
+	rig := turn * linalg.matrix3_rotate_f32(math.to_radians(clamp(e.tilt, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE)), {1, 0, 0})
+	if e.fixed {
 		v := camera.orbit_view(app.camera)
 		rig = linalg.Matrix3f32{v[0, 0], v[0, 1], v[0, 2], v[1, 0], v[1, 1], v[1, 2], v[2, 0], v[2, 1], v[2, 2]} * rig
 	}
 	return {{rig[0, 0], rig[1, 0], rig[2, 0], 0}, {rig[0, 1], rig[1, 1], rig[2, 1], 0}, {rig[0, 2], rig[1, 2], rig[2, 2], 0}}
 }
 
+// Whether a Shift and right drag on the view turns the panorama (Substance's gesture) rather
+// than panning: while one is loaded, picked and the view worked in shows the materials
+// whole (Material Preview or Rendered), where it is seen. Alt and right still pans.
+environment_drag_turns :: proc(app: ^App) -> bool {
+	e := &app.env
+	if e.kind != .Image || e.gpu.source == nil do return false
+	s, pane := main_draw_shading(app)
+	m := shading_mode_shown(app, s, pane)
+	return m == .Material_Preview || m == .Rendered
+}
+
+// Turns the panorama by a drag of `delta` points across the view: the sky follows the
+// pointer as if held.
+environment_drag :: proc(app: ^App, delta: [2]f32) {
+	if delta.x == 0 do return
+	e := &app.env
+	e.turn = wrap_degrees(e.turn - delta.x / max(app.kit.scale, 0.01) * ENVIRONMENT_DRAG_TURN)
+}
+
+// `degrees` brought into -180 to 180.
+wrap_degrees :: proc(degrees: f32) -> f32 {
+	return math.mod(math.mod(degrees + 180, 360) + 360, 360) - 180
+}
+
+// How the background shows behind the scene, as the section's choice reads it.
+Environment_Backdrop :: enum u8 {
+	Plain,   // the flat or gradient background
+	Shown,   // the panorama, sharp
+	Blurred, // the panorama, as soft as Blur says
+}
+
+@(rodata)
+ENVIRONMENT_BACKDROP_LABELS := [len(Environment_Backdrop)]string{"Plain", "Shown", "Blurred"}
+
+// What Background shows: kept as the switch and Blur it always was, so older settings read
+// the same.
+environment_backdrop :: proc(e: ^Environment_State) -> Environment_Backdrop {
+	if !e.background do return .Plain
+	return .Blurred if e.blur > 0 else .Shown
+}
+
 // The Scene palette's Environment section: the built-in studio or the loaded image, the
-// file, its strength, and under More whether the background shows it and how blurred.
+// file and the ones loaded before it, its strength, its own turn and tilt (the pen's roll
+// turns it too), and whether the background shows it plain, sharp or blurred.
 kit_environment :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	e := &app.env
 	labels := ENVIRONMENT_KIND_LABELS
 	if picked := ui.tabs(ctx, "environment", labels[:], int(e.kind)); picked >= 0 do e.kind = Environment_Kind(picked)
 	if ui.button(ctx, "Load environment...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Environment)
+	// The files loaded before, to swap back to with one tap; the one showing is left out.
+	captioned := false
+	for p in e.recent {
+		if p == e.path do continue
+		if !captioned do ui.caption(ctx, "RECENT")
+		captioned = true
+		if ui.button(ctx, fmt.tprintf("%s##recent %s", filepath.base(p), p), glyph = ui.ICON_IMAGE) do environment_load(app, p)
+	}
 	_ = ui.slider(ctx, "Strength", &e.strength, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE, .Linear, fmt.tprintf("%+.1f stops", e.strength))
+	_ = ui.slider(ctx, "Turn", &e.turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", e.turn), wrap = true)
+	backdrops := ENVIRONMENT_BACKDROP_LABELS
+	was := environment_backdrop(e)
+	if picked := ui.tabs(ctx, "environment background", backdrops[:], int(was)); picked >= 0 && Environment_Backdrop(picked) != was {
+		switch Environment_Backdrop(picked) {
+		case .Plain:   e.background = false
+		case .Shown:   e.background, e.blur = true, 0
+		case .Blurred: e.background, e.blur = true, 0.3 if e.blur <= 0 else e.blur
+		}
+	}
+	if environment_backdrop(e) == .Blurred do _ = ui.slider(ctx, "Blur", &e.blur, 0.01, 1, .Linear, fmt.tprintf("%.2f", e.blur))
 	if kit_more(app, .Environment) {
-		_ = ui.switch_row(ctx, "Background", &e.background)
-		_ = ui.slider(ctx, "Blur", &e.blur, 0, 1, .Linear, fmt.tprintf("%.2f", e.blur))
+		_ = ui.slider(ctx, "Tilt", &e.tilt, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE, .Linear, fmt.tprintf("%+.0f°", e.tilt))
 		kit_more_end(app)
 	}
 	switch {
@@ -233,5 +342,5 @@ kit_environment :: proc(app: ^App) {
 	case:
 		ui.paragraph(ctx, "No image loaded: Load environment picks a panorama (OpenEXR, Radiance .hdr, PNG or JPEG, twice as wide as tall).")
 	}
-	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn all spins it, and All fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
+	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Turn spins it alone and Lights' Turn all spins it with the lights, and All fixed to the scene keeps it with the scene. Shift and a right drag on the view turns it in Material Preview and Rendered. MatCaps and the clay materials are not lit by it.")
 }

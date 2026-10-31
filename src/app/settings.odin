@@ -298,6 +298,8 @@ SETTINGS := [?]Setting {
 	{"environment_strength", offset_of(App, env) + offset_of(Environment_State, strength), f32, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE},
 	{"environment_background", offset_of(App, env) + offset_of(Environment_State, background), bool, 0, 0},
 	{"environment_blur", offset_of(App, env) + offset_of(Environment_State, blur), f32, 0, 1},
+	{"environment_turn", offset_of(App, env) + offset_of(Environment_State, turn), f32, -180, 180},
+	{"environment_tilt", offset_of(App, env) + offset_of(Environment_State, tilt), f32, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
@@ -836,6 +838,10 @@ settings_load :: proc(app: ^App, path: string) {
 			kind := app.env.kind
 			if environment_load(app, preset_unescape(f[1]), wait = true, quiet = true) != "" do app.env.kind = .Built_In
 			else do app.env.kind = kind
+		case "environment_recent":
+			// environment_recent <path, escaped>: one of the panoramas loaded before, newest
+			// first, for the section's list; not read until picked.
+			environment_recent_append(app, preset_unescape(f[1]))
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
@@ -1186,6 +1192,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	if app.env.path != "" do fmt.sbprintfln(&out, "environment_image %s", preset_escape(app.env.path))
+	for p in app.env.recent do fmt.sbprintfln(&out, "environment_recent %s", preset_escape(p))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows do window_save_line(&out, which, w)

@@ -52,6 +52,8 @@ Drag :: struct {
 	// waits FINGER_TAP too, and as a tap runs a mask command chosen by where it landed
 	// (mask_tap_act) instead of painting a dot.
 	mask_tap:  bool,
+	// The drag turned the image environment, counted once for the exit stats.
+	turned_environment: bool,
 }
 
 // The modifiers of a primary drag, as Viewport_Input carries them.
@@ -157,6 +159,7 @@ Drag_Owner :: enum u8 {
 	Zoom,
 	Muted, // pressed, but nothing follows it (a palm, a finger while a gesture runs)
 	Shape, // a handle of the shape waiting for Apply (shape_pending.odin)
+	Environment, // Shift and a right drag turning the image environment (environment.odin)
 }
 
 // What a right click on the view opens (Settings > Keys): the menu of the object under it,
@@ -555,6 +558,13 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	case .Shape:
 		route_mute(input)
 		shape_drag(app, delta)
+	case .Environment:
+		route_mute(input)
+		if delta != {} && !g.turned_environment {
+			g.turned_environment = true
+			app.env.turns += 1
+		}
+		environment_drag(app, delta)
 	}
 
 	// One finger held still where it lays no stroke opens the menu there (object_menu.odin).
@@ -631,6 +641,9 @@ one_tap_run :: proc(app: ^App, now := false) {
 drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, empty: bool) {
 	d := &app.device
 	mouse := input.mouse_pos
+	// Shift and a right drag turns the panorama where the view shows it, as Substance's does,
+	// before it pans; Alt and right pans there still.
+	if .Right in (d.down + d.pressed) && d.shift && !d.ctrl && !d.alt && environment_drag_turns(app) do return .Environment, false
 	if by_button, decided := mouse_button_owner(app.nav.mouse_scheme, d.down + d.pressed, d.ctrl, d.shift, d.alt); decided do return by_button, false
 	if d.pointer == .Finger && app.touch.palm do return .Muted, false
 	// A handle of the shape waiting for Apply, before the model or the safe zone under it.

@@ -326,7 +326,7 @@ hold_menu_waits :: proc(app: ^App) -> bool {
 		case .Brush, .Curve, .Insert:
 			return false
 		}
-	case .None, .Pan, .Zoom, .Muted, .Shape:
+	case .None, .Pan, .Zoom, .Muted, .Shape, .Environment:
 		return false
 	}
 	return true
