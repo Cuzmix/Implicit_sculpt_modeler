@@ -597,6 +597,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Frame_Rate:
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.low_latency = .During_Strokes
+		app.display_link = false
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
 	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, true, true

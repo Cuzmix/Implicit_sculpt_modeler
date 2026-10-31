@@ -414,6 +414,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   handler (on its own thread, `context` set, under the log's mutex) records the time or a dropped frame. Logs live in
   `mtl_state.present_logs` and outlive windows, since a handler can come after its window is released; never free one
   while the device lives. One frame in flight also means `maximumDrawableCount` 2 (`mtl_layer_drawables`).
+  Pace with the display (`mtl_link.odin`, opt-in `mtl_state.link_wanted`) is a `CAMetalDisplayLink` on its own thread,
+  reached through `objc_send` with every selector checked; the delegate keeps one drawable only while `keep`, else
+  `nextDrawable` would wait on it. Untested on Apple hardware: change it only with an iPad's Pen to screen numbers.
 - Pre-rotation (Android, own Vulkan, `vk_pick_transform`): a swapchain image may be turned from the window
   (`swapchain_turns`); `Vk_Window.width/height` stay the window's. Anything new that draws into a swapchain must turn
   with `ui_pass_draw`'s `turns` (the vertex uniform's zw and the scissor remap); draw into an offscreen target instead.
