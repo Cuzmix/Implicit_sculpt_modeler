@@ -116,7 +116,7 @@ IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "
 when ODIN_PLATFORM_SUBTARGET == .Android {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
-	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "hdr;png;jpg;jpeg;bmp;tga;qoi"}}
+	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (OpenEXR, Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "exr;hdr;png;jpg;jpeg;bmp;tga;qoi"}}
 }
 // On Android SDL turns an extension it does not know into no MIME type at all, so there
 // every file is offered and the file's own first line decides, as for packs.

@@ -46,6 +46,8 @@ environment_decode :: proc(data: []u8, max_width: int, allocator := context.allo
 	reason: string
 	if len(data) >= 2 && data[0] == '#' && data[1] == '?' {
 		img, reason = hdr_decode(data, max_width, allocator)
+	} else if exr_is(data) {
+		img, reason = exr_decode(data, max_width, allocator)
 	} else {
 		img, reason = picture_decode(data, max_width, allocator)
 	}
@@ -60,12 +62,12 @@ picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocato
 	// The header first, so a picture too big for this device is refused before its pixels
 	// take the memory.
 	head, head_err := image.load_from_bytes(data, {.info})
-	if head_err != nil do return {}, fmt.tprintf("%v (Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", head_err)
+	if head_err != nil do return {}, fmt.tprintf("%v (OpenEXR, Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", head_err)
 	width, height := head.width, head.height
 	image.destroy(head)
 	if why = panorama_size_check(width, height, ENVIRONMENT_MAX_PICTURE_SIDE); why != "" do return
 	src, err := image.load_from_bytes(data)
-	if err != nil do return {}, fmt.tprintf("%v (Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", err)
+	if err != nil do return {}, fmt.tprintf("%v (OpenEXR, Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", err)
 	defer image.destroy(src)
 	if src.width != width || src.height != height do return {}, "its size changed between its header and its pixels"
 	if src.depth != 8 && src.depth != 16 do return {}, fmt.tprintf("%d-bit channels are not supported", src.depth)
@@ -93,7 +95,7 @@ picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocato
 }
 
 // Why a `width` by `height` image cannot be a panorama ("" when it can).
-@(private = "file")
+@(private)
 panorama_size_check :: proc(width, height: int, max_side := ENVIRONMENT_MAX_SIDE) -> string {
 	if width < ENVIRONMENT_MIN_WIDTH || height < ENVIRONMENT_MIN_WIDTH / 2 || width > max_side || height > max_side {
 		return fmt.tprintf("%d x %d is not between %d x %d and %d a side", width, height, ENVIRONMENT_MIN_WIDTH, ENVIRONMENT_MIN_WIDTH / 2, max_side)
@@ -103,14 +105,14 @@ panorama_size_check :: proc(width, height: int, max_side := ENVIRONMENT_MAX_SIDE
 }
 
 // How many times a `width` panorama halves to be at most `max_width` wide.
-@(private = "file")
+@(private)
 halvings :: proc(width, max_width: int) -> (n: int) {
 	for width >> uint(n) > max(max_width, 2) do n += 1
 	return
 }
 
 // An empty panorama the size of a `width` by `height` one halved `shrink` times.
-@(private = "file")
+@(private)
 environment_image_make :: proc(width, height, shrink: int, allocator := context.allocator) -> (img: Environment_Image) {
 	img.width, img.height = max(width >> uint(shrink), 1), max(height >> uint(shrink), 1)
 	img.pixels = make([][3]f32, img.width * img.height, allocator)
@@ -119,7 +121,7 @@ environment_image_make :: proc(width, height, shrink: int, allocator := context.
 
 // Adds source row `y` (as wide as the source) into `img`, each output pixel the mean of
 // a 2^shrink square; source rows and columns past the last whole square are dropped.
-@(private = "file")
+@(private)
 environment_add_row :: proc(img: ^Environment_Image, row: [][3]f32, y, shrink: int) {
 	block := 1 << uint(shrink)
 	out_y := y >> uint(shrink)

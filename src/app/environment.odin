@@ -231,7 +231,7 @@ kit_environment :: proc(app: ^App) {
 		mb := f32(render.environment_bytes(e.gpu)) / (1024 * 1024)
 		ui.paragraph(ctx, fmt.tprintf("%s, %d x %d (%.1f MB on the GPU).", filepath.base(e.path), e.gpu.width, e.gpu.height, mb))
 	case:
-		ui.paragraph(ctx, "No image loaded: Load environment picks a panorama (Radiance .hdr, PNG or JPEG, twice as wide as tall).")
+		ui.paragraph(ctx, "No image loaded: Load environment picks a panorama (OpenEXR, Radiance .hdr, PNG or JPEG, twice as wide as tall).")
 	}
 	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn all spins it, and All fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
 }

@@ -94,7 +94,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
 	.Texture       = {"texture", "base_color, orm or normal, then an image file to load as that map of the selected object"},
 	.Knife         = {"knife", "x, y or z to cut away the + side of the middle, -x, -y or -z the - side"},
-	.Environment   = {"environment", "a panorama file (Radiance .hdr, PNG or JPEG, twice as wide as tall) to light with, picking Image"},
+	.Environment   = {"environment", "a panorama file (OpenEXR, Radiance .hdr, PNG or JPEG, twice as wide as tall) to light with, picking Image"},
 	.Render_Focus  = {"render_focus", "three numbers, the point x y z for depth of field to focus on, or pivot to focus on what the view turns about"},
 	.Hardness      = {"hardness", "a number from 0 to 95: every brush's hardness, in percent of the radius"},
 }
