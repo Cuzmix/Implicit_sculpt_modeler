@@ -349,20 +349,6 @@ pen_input :: proc(slot: Gesture_Slot) -> int {
 	return -1
 }
 
-// The map's rows in Settings > Touch, then its notes.
-settings_gesture_map :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	ui.caption(ctx, "GESTURE MAP")
-	for slot in GESTURE_SLOT_ORDER {
-		if slot in PENCIL_SLOTS do continue
-		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
-		gesture_select(app, slot)
-	}
-	ui.paragraph(ctx, "A hold fills a ring, then runs its command; Undo and Redo go on repeating while the fingers stay still. Never while the pen is near. The one-finger tap is a tap on empty space: on the model a tap sculpts.")
-	for note in gesture_notes(app) do ui.paragraph(ctx, note, color = t.warning)
-}
-
 // The choice of what gesture `slot` runs, `width` wide (0 fills the row): nothing, the
 // usual commands, the one it runs now when it is none of those, and Any command..., which
 // opens the palette to choose one.

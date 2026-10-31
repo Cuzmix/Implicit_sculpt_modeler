@@ -2,22 +2,29 @@ package main
 
 import "core:testing"
 
-// Every block shows somewhere: in one of the narrow panel's tabs, in one of the sheet's sections, or
-// both; none twice in either, so a search never finds a block in two places.
+// Every block shows in exactly one of the sheet's sections, and the narrow panel's tabs
+// are those sections run together, so the two list the same settings and a search never
+// finds a block in two places.
 @(test)
 settings_blocks_each_have_one_place :: proc(t: ^testing.T) {
 	tabs, lens: [Settings_Block]int
-	for tab in Settings_Tab do for e in settings_tab_entries(tab) do tabs[e.block] += 1
+	for tab in Settings_Tab {
+		entries := settings_tab_entries(tab)
+		testing.expectf(t, len(entries) > 0, "the %v tab is empty", tab)
+		for e in entries do tabs[e.block] += 1
+	}
 	for s in Settings_Section do for e in settings_section_entries(s) do lens[e.block] += 1
 	for b in Settings_Block {
-		testing.expectf(t, tabs[b] <= 1 && lens[b] <= 1, "%v is in two places", b)
-		testing.expectf(t, tabs[b] + lens[b] > 0, "%v shows nowhere", b)
+		testing.expectf(t, lens[b] == 1, "%v is in %d sections", b, lens[b])
+		testing.expectf(t, tabs[b] == 1, "%v is in %d tabs", b, tabs[b])
 	}
-	// The sheet gives the gesture switches and the map one list, and the tabs keep their own.
-	testing.expect_value(t, lens[.Gesture_Map], 0)
-	testing.expect_value(t, tabs[.Gesture_List], 0)
-	// Every tab opens on a section.
-	for tab in Settings_Tab do testing.expect(t, len(settings_section_entries(SETTINGS_TAB_SECTION[tab])) > 0)
+	// A later section's untitled first block takes the section's name: Frame rate's in Performance.
+	found := false
+	for e in settings_tab_entries(.Performance) do if e.block == .Frame_Rate do found = e.caption == "FRAME RATE"
+	testing.expect(t, found)
+	// Every tab opens on a section in it.
+	for tab in Settings_Tab do testing.expect_value(t, SETTINGS_SECTION_TAB[SETTINGS_TAB_SECTION[tab]], tab)
+	free_all(context.temp_allocator)
 }
 
 // Search settings finds a block by its words: "hold" is Touch's, "autosave" is Files'.

@@ -4418,9 +4418,10 @@ def lens_shift_moves_lined_up_dividers():
     return Steps([run(True), run(False)])
 
 
-# Focus in Lens at 1600 x 900: the middle island's workspace chip and X symmetry chip, and
-# the tools island's View layout and Passes.
-LENS_FOCUS = {"workspace": (770, 33), "symmetry": (838, 33), "layout": (1460, 33), "passes": (1510, 33)}
+# Focus in Lens at 1600 x 900, the three-island top bar: the middle island's workspace chip
+# and X symmetry chip, and the right island's View layout and Passes.
+LENS_FOCUS = {"workspace": At("work island/Workspace", 770, 30), "symmetry": At("work island/Symmetry X", 838, 30),
+              "layout": At("app island/View layout", 1342, 30), "passes": At("app island/Passes", 1392, 30)}
 
 
 @scenario
