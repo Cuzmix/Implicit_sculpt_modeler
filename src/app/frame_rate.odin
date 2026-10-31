@@ -30,8 +30,8 @@ FRAME_RATE_NAMES := [Frame_Rate]string {
 // flight shows each frame a display period sooner (8.3 ms at 120 Hz) but lets no heavy
 // frame overlap the next; two is the default. During strokes keeps one only while a stroke
 // or a tool's drag is under way, where the pen's latency is felt (not while the camera
-// moves); changing it costs a wait for
-// the GPU.
+// moves), and only while those frames keep up with the screen (Latency_Guard); changing
+// it costs a wait for the GPU.
 Low_Latency :: enum u8 {
 	During_Strokes,
 	Always,
@@ -44,11 +44,13 @@ LOW_LATENCY_NAMES := [Low_Latency]string {
 	.Off            = "Off",
 }
 
-// The frames in flight `choice` asks for now, given whether the pointer is at work.
-frames_wanted :: proc(choice: Low_Latency, working: bool) -> u32 {
+// The frames in flight `choice` asks for now, given whether the pointer is at work and
+// whether one frame in flight was lately too slow for the screen (During strokes then
+// keeps two; Always is the user's explicit word and keeps one).
+frames_wanted :: proc(choice: Low_Latency, working: bool, too_slow := false) -> u32 {
 	switch choice {
 	case .Always:         return 1
-	case .During_Strokes: if working do return 1
+	case .During_Strokes: if working && !too_slow do return 1
 	case .Off:
 	}
 	return render.FRAMES_IN_FLIGHT_DEFAULT
@@ -61,6 +63,43 @@ FRAME_LIMIT_DEFAULT :: 60
 FRAME_LIMIT_MIN :: 15
 FRAME_LIMIT_MAX :: 1000
 
+// During strokes' check that one frame in flight keeps up. With one frame the CPU and the
+// GPU take turns, so a heavy scene can run at half the rate or worse; a refresh saved per
+// frame is not worth that. When most of the recent working frames took longer than one and
+// a half display periods, two frames come back for LATENCY_REST, then one is tried again.
+Latency_Guard :: struct {
+	ones:       int, // consecutive frames paced at one frame in flight
+	slow:       int, // of the counted frames since the last verdict, how many were slow
+	counted:    int,
+	rest_until: u64, // SDL ticks (ns) until which During strokes keeps two frames
+}
+
+LATENCY_SAMPLES :: 8 // frames per verdict
+LATENCY_SLOW_OF :: 5 // slow frames of LATENCY_SAMPLES that make the verdict slow
+LATENCY_REST :: u64(20e9)
+
+// Feeds the guard the last frame's time (ms) and says whether During strokes should keep
+// two frames now. `one_in_flight` is whether the last frame ran with one; the first frame
+// after a change is skipped, as it holds the change's wait for the GPU.
+latency_guard_step :: proc(g: ^Latency_Guard, working, one_in_flight: bool, last_frame_ms, period_ms: f64, now: u64) -> (too_slow: bool) {
+	if now < g.rest_until do return true
+	if !working || !one_in_flight {
+		g.ones, g.slow, g.counted = 0, 0, 0
+		return false
+	}
+	g.ones += 1
+	if g.ones < 2 do return false
+	g.counted += 1
+	if last_frame_ms > period_ms * 1.5 do g.slow += 1
+	if g.counted < LATENCY_SAMPLES do return false
+	slow := g.slow >= LATENCY_SLOW_OF
+	g.slow, g.counted = 0, 0
+	if !slow do return false
+	g.ones = 0
+	g.rest_until = now + LATENCY_REST
+	return true
+}
+
 // What frame_pace keeps between frames.
 Frame_Pacer :: struct {
 	applied: Maybe(Frame_Rate), // the choice the present mode was last set for
@@ -72,6 +111,7 @@ Frame_Pacer :: struct {
 	top_rate:     f32, // the highest rate the screen offers, as Android reports it (0: not known)
 	// The present modes the window offers besides vsync, as last applied (present_offers).
 	offers_mailbox, offers_immediate: bool,
+	latency: Latency_Guard,
 }
 
 // Applies the frame rate choice before the frame acquires its swapchain texture: the
@@ -93,7 +133,16 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 	// frame in flight would make orbiting a heavy scene wait for the GPU every frame, which
 	// is what During strokes exists to avoid.
 	working := app.stroke.active || app.drag.owner == .Tool || app.drag.owner == .Shape
-	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working))
+	too_slow := false
+	if app.low_latency == .During_Strokes {
+		hz := f64(app.frame_limit) if app.frame_rate == .Limit else f64(display_refresh(window))
+		period_ms := 1000 / (hz if hz > 0 else 60)
+		r := app.stats.frame_ms
+		last_ms := f64(r.values[(r.head + HISTORY - 1) % HISTORY]) if r.count > 0 else 0
+		one := render.caps(&app.renderer).frames_in_flight == 1
+		too_slow = latency_guard_step(&p.latency, working, one, last_ms, period_ms, sdl.GetTicksNS())
+	}
+	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working, too_slow))
 	render.renderer_set_display_link(&app.renderer, app.display_link)
 	if app.frame_rate != .Limit {
 		p.next_ns = 0
@@ -146,7 +195,7 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 	low: [len(Low_Latency)]string
 	for l in Low_Latency do low[int(l)] = LOW_LATENCY_NAMES[l]
 	if picked := ui.tabs(ctx, "Low latency", low[:], int(app.low_latency)); picked >= 0 do app.low_latency = Low_Latency(picked)
-	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two. Under Metal it also holds one picture fewer for the screen, so the frame reads your pen nearer to when it shows.")
+	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag a tool, and only while those frames keep up with the screen, so orbiting or sculpting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two. If the view lags or stutters, try Off. Under Metal it also holds one picture fewer for the screen, so the frame reads your pen nearer to when it shows.")
 	if render.caps(&app.renderer).display_link {
 		_ = ui.switch_row(ctx, "Pace with the display (trial)", &app.display_link)
 		if explain do ui.paragraph(ctx, "While one frame is in flight, the screen hands each frame its picture when it wants the next one, so the frame reads your pen as late as it can and still shows at the next refresh. A trial until Pen to screen below shows it helps; off takes the next free picture, as before.")
