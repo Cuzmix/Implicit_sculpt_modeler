@@ -93,6 +93,7 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 	caps := render.caps(&app.renderer)
 	working := app.stroke.active || .Left in app.device.down
 	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working, caps.frames_cheap))
+	render.renderer_set_display_link(&app.renderer, app.display_link)
 	if app.frame_rate != .Limit {
 		p.next_ns = 0
 		return
@@ -145,6 +146,10 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 	for l in Low_Latency do low[int(l)] = LOW_LATENCY_NAMES[l]
 	if picked := ui.tabs(ctx, "Low latency", low[:], int(app.low_latency)); picked >= 0 do app.low_latency = Low_Latency(picked)
 	if explain do ui.paragraph(ctx, "Lets the GPU run one frame behind instead of two, so what you draw shows a refresh sooner (8 ms at 120 Hz). During strokes does it only while you draw or drag, so orbiting a heavy scene keeps its frame rate; Always does it all the time; Off keeps two. Under Metal it also holds one picture fewer for the screen, so the frame reads your pen nearer to when it shows.")
+	if render.caps(&app.renderer).display_link {
+		_ = ui.switch_row(ctx, "Pace with the display (trial)", &app.display_link)
+		if explain do ui.paragraph(ctx, "While one frame is in flight, the screen hands each frame its picture when it wants the next one, so the frame reads your pen as late as it can and still shows at the next refresh. A trial until Pen to screen below shows it helps; off takes the next free picture, as before.")
+	}
 	frames := render.caps(&app.renderer).frames_in_flight
 	if app.stats.display_ms.count > 0 {
 		shown50, _ := ring_percentiles(app.stats.display_ms)
