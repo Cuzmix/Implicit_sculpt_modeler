@@ -515,6 +515,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
 		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
+		// The theme shown: its name, whether a control moved it from what was saved, its mode
+		// and accent, and how many themes of their own the settings hold.
+		ts := &k.themes
+		shown := theme_current(k)
+		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match))
 		// The brush's colours and channel, whether it subtracts, and how many vertices of the
 		// selected object carry paint.
 		painted := 0

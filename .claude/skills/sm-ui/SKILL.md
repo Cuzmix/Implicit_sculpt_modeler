@@ -42,9 +42,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `prev_root_rect` from inside another root), so renaming one moves them all. The full map, bar by bar (fits,
   keep-clear rules, Arrange and places, docks, palette groups, the dial, focus, offers), is
   [references/lens-layout.md](references/lens-layout.md): read it before changing any chrome.
-- The look is `Kit_State.look` (`Look`: Lens, the default, Studio or Graphite), `LOOK_THEMES` set as
-  `ctx.theme` each frame in `kit_begin`; the themes share every size, so a look never moves a control. Settings
-  version 3 moved Studio, the old default, to Lens once. Colours outside widgets come from the theme too: the swapchain
+- The look is a theme (`themes.odin`): `Kit_State.themes.seed` (a `ui.Theme_Seed`: mode, tint, contrast, opacity,
+  corners, accent, chosen style, pure black, shadows) made into colours by `ui.theme_from_seed` against the built-in
+  `Kit_State.look` (Lens, Studio, Graphite exact; Paper, Midnight, High contrast seeds), set as `ctx.theme` each frame
+  by `kit_theme` (`theme_current`); a seed that differs from the chosen theme's saved one is a draft (Keep, Undo); the
+  person's own themes are `themes.list`. Themes share every size, so a theme never moves a control; a new colour
+  reads through a token, never a literal, so Paper (light) stays readable. Settings version 3 moved Studio, the old
+  default, to Lens once. Colours outside widgets come from the theme too: the swapchain
   clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
   grounds and pass grounds (`pane`, `color_f32`).
 - Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the tray, Stats, History and Settings are
