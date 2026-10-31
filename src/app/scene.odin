@@ -14,6 +14,7 @@ import "../render"
 import "../sculpt"
 import "../poly"
 import "../voxel"
+import "../retopo"
 
 // Where an object sits in the world. Meshes stay in their own local space; the brush
 // works in local space too, so moving or turning an object never touches its vertices.
@@ -184,7 +185,7 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
 	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
-	quad:     Quad_Options, // Retopo: the engine and its options (retopo.odin)
+	quad:     retopo.Options, // Retopo: the engine and its options (retopo.odin)
 	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0

@@ -188,7 +188,7 @@ glb_rebuilds_the_shown_surface :: proc(t: ^testing.T) {
 	lin := mem.slice_data_cast([][4]u16, view_of(doc, bin, col.bufferView.?))
 	testing.expect_value(t, lin[0], [4]u16{65535, 65535, 65535, 65535})
 	testing.expect_value(t, lin[1], [4]u16{0, 0, 0, 65535})
-	testing.expect_value(t, lin[2].r, u16(math.round(srgb_to_linear(128.0 / 255) * 65535)))
+	testing.expect_value(t, lin[2].r, u16(math.round(srgb_decode(128.0 / 255) * 65535)))
 	testing.expect(t, lin[2].r < 128 << 8, "colours are written linear")
 
 	idx := acc[prim.indices]

@@ -3,7 +3,6 @@ package main
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../render"
 
@@ -61,7 +60,7 @@ capture_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, draws
 	}
 	r := &app.renderer
 	if !render.viewport_target_resize(r, &c.target, app.target.width, app.target.height, app.target.samples) {
-		file_note(app, true, "Could not make the transparent screenshot: %s", sdl.GetError())
+		file_note(app, true, "Could not make the transparent screenshot: %s", platform_error())
 		delete(c.path)
 		c.path = ""
 		if c.turntable do turntable_stop(app, "the GPU could not make its frame")
@@ -102,7 +101,7 @@ capture_finish :: proc(app: ^App) {
 	cut: []u8
 	if transparent do cut = render.viewport_download(&app.renderer, &c.target, context.temp_allocator, render.finish_texture(&c.finished))
 	if shown == nil || (transparent && cut == nil) {
-		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
+		file_note(app, true, "Could not read the viewport back: %s", platform_error())
 		if turntable do turntable_stop(app, "the viewport could not be read back")
 		return
 	}

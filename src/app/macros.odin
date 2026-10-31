@@ -5,7 +5,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../sculpt"
 import "../ui"
@@ -606,7 +605,7 @@ kit_macro_save :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("%d command%s%s. Strokes and view changes are not recorded; it acts on what is selected when it runs.", n, "" if n == 1 else "s", macro_left_out_text(m)))
 	save, discard := kit_button_pair(ctx, "Save", "Discard", tone_a = .Accent)
 	d := &app.device
-	save ||= p.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
+	save ||= p.open && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER))
 	if save && p.open {
 		name := rename_text(p.text[:])
 		if name == "" do name = default_name

@@ -380,7 +380,7 @@ glb_array :: proc(g: ^Glb, view: int, $T: typeid) -> []T {
 glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 	m := g.m
 	n := len(m.positions)
-	for &x, k in g.linear do x = u16(math.round(srgb_to_linear(f32(k) / 255) * 65535))
+	for &x, k in g.linear do x = u16(math.round(srgb_decode(f32(k) / 255) * 65535))
 	// Positions in the file's units, normals, colours and indices, a range at a time.
 	jobs.parallel_ranges(pool, n, g, proc(data: rawptr, lo, hi: int) {
 		g := cast(^Glb)data
@@ -644,11 +644,6 @@ glb_material :: proc(j: ^strings.Builder, mat: Export_Material) {
 	if t := mat.textures[.Normal]; t > 0 do fmt.sbprintf(j, `,"normalTexture":{{"index":%d}}`, t - 1)
 	if t := mat.textures[.Occlusion]; t > 0 do fmt.sbprintf(j, `,"occlusionTexture":{{"index":%d}}`, t - 1)
 	strings.write_byte(j, '}')
-}
-
-// The linear value of an sRGB channel, both 0 to 1.
-srgb_to_linear :: proc(c: f32) -> f32 {
-	return c / 12.92 if c <= 0.04045 else math.pow((c + 0.055) / 1.055, 2.4)
 }
 
 // Writes `s` as a JSON string: quotes, backslashes and control characters escaped, and

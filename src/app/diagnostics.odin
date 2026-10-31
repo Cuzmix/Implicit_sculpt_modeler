@@ -1181,7 +1181,7 @@ diag_event :: proc(app: ^App, e: ^sdl.Event) {
 		diag_count(d, .Mouse_Wheel)
 	case .KEY_DOWN:
 		diag_count(d, .Key_Down)
-		k := e.key.key
+		k := key_of(e.key.key)
 		// A letter's key says what was typed, which is the person's: only keys that type
 		// nothing are named, from a list, so a keypad's digits or a layout's own keys never are.
 		printable := !diag_key_named(k)
@@ -1189,7 +1189,7 @@ diag_event :: proc(app: ^App, e: ^sdl.Event) {
 		jstr(&b, "src", "key")
 		jstr(&b, "type", "key_down")
 		jint(&b, "id", 0)
-		jstr(&b, "key", "printable" if printable else string(sdl.GetKeyName(k)))
+		jstr(&b, "key", "printable" if printable else key_name(k))
 		if e.key.repeat do jbool(&b, "repeat", true)
 		diag_keep(app, &b)
 	case .TEXT_INPUT:
@@ -1245,15 +1245,15 @@ diag_event :: proc(app: ^App, e: ^sdl.Event) {
 // Whether a key types nothing, and so may be logged by name: editing, moving, modifiers and
 // function keys.
 @(private = "file")
-diag_key_named :: proc(k: sdl.Keycode) -> bool {
+diag_key_named :: proc(k: Key) -> bool {
 	switch k {
-	case sdl.K_BACKSPACE, sdl.K_RETURN, sdl.K_KP_ENTER, sdl.K_ESCAPE, sdl.K_TAB, sdl.K_DELETE, sdl.K_INSERT,
-	     sdl.K_LEFT, sdl.K_RIGHT, sdl.K_UP, sdl.K_DOWN, sdl.K_HOME, sdl.K_END, sdl.K_PAGEUP, sdl.K_PAGEDOWN,
-	     sdl.K_LSHIFT, sdl.K_RSHIFT, sdl.K_LCTRL, sdl.K_RCTRL, sdl.K_LALT, sdl.K_RALT, sdl.K_LGUI, sdl.K_RGUI,
-	     sdl.K_CAPSLOCK, sdl.K_AC_BACK:
+	case KEY_BACKSPACE, KEY_RETURN, KEY_KP_ENTER, KEY_ESCAPE, KEY_TAB, KEY_DELETE, KEY_INSERT,
+	     KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_HOME, KEY_END, KEY_PAGEUP, KEY_PAGEDOWN,
+	     KEY_LSHIFT, KEY_RSHIFT, KEY_LCTRL, KEY_RCTRL, KEY_LALT, KEY_RALT, KEY_LGUI, KEY_RGUI,
+	     KEY_CAPSLOCK, KEY_AC_BACK:
 		return true
 	}
-	return k >= sdl.K_F1 && k <= sdl.K_F12 || k >= sdl.K_F13 && k <= sdl.K_F24
+	return k >= KEY_F1 && k <= KEY_F12 || k >= KEY_F13 && k <= KEY_F24
 }
 
 // The bytes of `s` up to `most`, cut at a whole UTF-8 sequence.

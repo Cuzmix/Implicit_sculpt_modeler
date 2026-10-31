@@ -254,7 +254,7 @@ export_group_materials :: proc(app: ^App, obj: ^Object, m: ^geom.Mesh_Export, fa
 	materials := all[1:]
 	under := make([][3]u32, len(all), context.temp_allocator)
 	for m, k in all {
-		for c in 0 ..< 3 do under[k][c] = u32(math.round(srgb_encode(m.base[c]) * 255))
+		for c in 0 ..< 3 do under[k][c] = u32(math.round(geom.srgb_encode(m.base[c]) * 255))
 	}
 	if paint != nil do for &m in materials do m.base = 1
 	m.group_materials, m.face_material = materials, slots

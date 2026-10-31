@@ -1,4 +1,4 @@
-package main
+package hdri
 
 import "core:hash"
 import "core:mem"
@@ -77,30 +77,30 @@ EXR_DWA := [?]struct {
 @(test)
 exr_reads_every_compression :: proc(t: ^testing.T) {
 	for f in EXR_FIXTURES {
-		img, why := environment_decode(f.data, 1 << 12)
-		defer environment_image_destroy(&img)
+		img, why := decode(f.data, 1 << 12)
+		defer image_destroy(&img)
 		defer delete(why)
 		if !testing.expectf(t, why == "", "%s: %s", f.name, why) do continue
 		got := hash.fnv64a(mem.slice_to_bytes(img.pixels))
 		testing.expectf(t, got == f.hash, "%s: the pixels hash to %x, not %x", f.name, got, f.hash)
 	}
 	for f in EXR_MORE {
-		img, why := environment_decode(f.data, 1 << 12)
-		defer environment_image_destroy(&img)
+		img, why := decode(f.data, 1 << 12)
+		defer image_destroy(&img)
 		defer delete(why)
 		if !testing.expectf(t, why == "", "%s: %s", f.name, why) do continue
 		got := hash.fnv64a(mem.slice_to_bytes(img.pixels))
 		testing.expectf(t, got == f.hash, "%s: the pixels hash to %x, not %x", f.name, got, f.hash)
 	}
 	for f in EXR_DWA {
-		img, why := environment_decode(f.data, 1 << 12)
-		defer environment_image_destroy(&img)
+		img, why := decode(f.data, 1 << 12)
+		defer image_destroy(&img)
 		defer delete(why)
 		if !testing.expectf(t, why == "", "%s: %s", f.name, why) do continue
 		got := hash.fnv64a(mem.slice_to_bytes(img.pixels))
 		testing.expectf(t, got == f.hash, "%s: the pixels hash to %x, not %x", f.name, got, f.hash)
-		want, why2 := environment_decode(f.expect, 1 << 12)
-		defer environment_image_destroy(&want)
+		want, why2 := decode(f.expect, 1 << 12)
+		defer image_destroy(&want)
 		defer delete(why2)
 		if !testing.expectf(t, len(want.pixels) == len(img.pixels), "%s: the expected picture differs in size", f.name) do continue
 		differ, most := 0, 0
@@ -115,8 +115,8 @@ exr_reads_every_compression :: proc(t: ^testing.T) {
 		testing.expectf(t, differ * 1000 <= 3 * len(img.pixels) && most <= 4, "%s: %d values differ from the library's, by up to %d half steps", f.name, differ, most)
 	}
 	// Halved on the way in, as a Radiance file is: half as wide, each pixel a 2 x 2 mean.
-	half, why := environment_decode(EXR_FIXTURES[3].data, 32)
-	defer environment_image_destroy(&half)
+	half, why := decode(EXR_FIXTURES[3].data, 32)
+	defer image_destroy(&half)
 	defer delete(why)
 	testing.expect_value(t, why, "")
 	testing.expect_value(t, half.width, 32)
@@ -128,8 +128,8 @@ exr_reads_every_compression :: proc(t: ^testing.T) {
 @(test)
 exr_refuses_what_it_does_not_read :: proc(t: ^testing.T) {
 	refused :: proc(t: ^testing.T, data: []u8, words: string, loc := #caller_location) {
-		img, why := environment_decode(data, 1 << 12)
-		defer environment_image_destroy(&img)
+		img, why := decode(data, 1 << 12)
+		defer image_destroy(&img)
 		defer delete(why)
 		testing.expectf(t, why != "" && img.pixels == nil, "read when it should not be (%s)", words, loc = loc)
 	}
@@ -173,8 +173,8 @@ exr_refuses_what_it_does_not_read :: proc(t: ^testing.T) {
 		for i := 300; i < len(data); i += step {
 			copy(copy_of, data)
 			copy_of[i] ~= 0x5a
-			img, why := environment_decode(copy_of, 1 << 12)
-			environment_image_destroy(&img)
+			img, why := decode(copy_of, 1 << 12)
+			image_destroy(&img)
 			delete(why)
 		}
 	}

@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 
-import sdl "vendor:sdl3"
 
 import "../sculpt"
 import "../ui"
@@ -40,7 +39,7 @@ history_memory_rows :: proc(app: ^App) {
 		textures += textures_bytes(obj.textures)
 	}
 	history, _ := history_memory(app)
-	ram := int(sdl.GetSystemRAM()) << 20
+	ram := platform_ram()
 	Row :: struct {
 		label:  string,
 		bytes:  int,

@@ -25,7 +25,7 @@ import "../jobs"
 mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = nil) {
 	u := Usd{m = m, scale = m.scale if m.scale != 0 else 1, b = strings.builder_make(context.temp_allocator)}
 	n := len(m.positions)
-	for &x, k in u.linear do x = srgb_to_linear(f32(k) / 255)
+	for &x, k in u.linear do x = srgb_decode(f32(k) / 255)
 
 	// The points: in the file's units, less each shape at its weight.
 	u.base = make([]Vec3, n, context.temp_allocator)

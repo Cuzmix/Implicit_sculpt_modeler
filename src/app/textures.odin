@@ -13,6 +13,7 @@ import "../geom"
 import "../render"
 import "../sculpt"
 import "../ui"
+import "../retopo"
 
 // Texture maps on a retopologized object (stage 3.3, notes/rendering/textured-preview-
 // design.md): the bake leaves its base colour, ORM and normal maps on the quad object it
@@ -184,7 +185,7 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 object_layout_uvs :: proc(app: ^App, obj: ^Object) {
 	if !sculpt.levels_has_quads(&obj.levels) do return
 	sculpt.levels_sync(&obj.levels)
-	uv := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), UV_PADDING)
+	uv := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), retopo.UV_PADDING)
 	had := object_has_textures(obj)
 	textures_replace(app, obj, {}, "new UVs", uv)
 	note := ", its maps removed (they followed the old UVs)" if had else ""

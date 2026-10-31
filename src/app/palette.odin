@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../ui"
 
@@ -669,8 +668,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	rows = lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
 	n := len(hits)
 	if k.palette && n > 0 {
-		if key_pressed(d, sdl.K_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
-		if key_pressed(d, sdl.K_UP, repeat = true) do k.palette_pick = (k.palette_pick + n - 1) % n
+		if key_pressed(d, KEY_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
+		if key_pressed(d, KEY_UP, repeat = true) do k.palette_pick = (k.palette_pick + n - 1) % n
 	}
 	k.palette_pick = clamp(k.palette_pick, 0, max(n - 1, 0))
 	// The rows shown follow the pick.
@@ -730,8 +729,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	k.palette_picked = pick
 	if lens_palette_footer(app, pick, width, anchor) do shown = pick
 	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
-	enter := key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)
-	if k.palette && n > 0 && key_pressed(d, sdl.K_TAB) {
+	enter := key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)
+	if k.palette && n > 0 && key_pressed(d, KEY_TAB) {
 		e := entries[hits[k.palette_pick].entry]
 		if palette_home(e) != "" {
 			shown = e

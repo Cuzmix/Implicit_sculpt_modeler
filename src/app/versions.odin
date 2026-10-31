@@ -7,7 +7,6 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 // Earlier saves of a scene file. Saving over a file keeps the one it replaces as
 // "<folder>/<stem> versions/<stem> YYYY-MM-DD HH.MM.SS.sculpt", stamped with when that
@@ -36,11 +35,10 @@ versions_folder :: proc(path: string, allocator := context.temp_allocator) -> st
 	return filepath.join({filepath.dir(path), fmt.tprintf("%s versions", filepath.stem(path))}, allocator) or_else ""
 }
 
-// `t` in the device's local time as a version's stamp. SDL reads the time zone the
-// system's own way (Android has no /etc/localtime for core:time to read).
+// `t` in the device's local time as a version's stamp (platform_local_time).
 version_stamp :: proc(t: time.Time) -> string {
-	dt: sdl.DateTime
-	if !sdl.TimeToDateTime(sdl.Time(t._nsec), &dt, true) && !sdl.TimeToDateTime(sdl.Time(t._nsec), &dt, false) do return "0000-00-00 00.00.00"
+	dt, ok := platform_local_time(t)
+	if !ok do return "0000-00-00 00.00.00"
 	return fmt.tprintf("%04d-%02d-%02d %02d.%02d.%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
 }
 

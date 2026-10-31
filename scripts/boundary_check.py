@@ -4,8 +4,11 @@ SDL_GPU anywhere but its seam.
 
 Only src/render talks to the GPU (AGENTS.md, package boundaries): everything else holds
 render's handles (render.Cmd, render.Texture, render.Fence, render.Sample_Count) and calls
-its procs, so a second GPU backend changes one package. SDL itself stays allowed in
-src/app for windows, events and the pen. Inside render, SDL_GPU's procs are called only
+its procs, so a second GPU backend changes one package. SDL itself is allowed in src/app
+only in the files that hold the windows, the events, the pen, the file dialogs and the
+system's services (APP_SDL_FILES); the tools, panels, commands and files name keys by the
+app's own Key (keys.odin) and ask platform.odin for the rest, and no other package
+imports SDL at all. Inside render, SDL_GPU's procs are called only
 from the seam (src/render/hal.odin, gpu_create_texture for sdl.CreateGPUTexture and so on),
 which a second backend answers too; its types and info structs are used everywhere.
 """
@@ -21,6 +24,16 @@ GPU_NAME = re.compile(r"\bsdl\.\w*GPU\w*")
 # sdl.WaitForGPUIdle) or ask what it supports (sdl.GPUTextureSupportsFormat), its types
 # with GPU, so a conversion such as sdl.GPUSampleCount(x) is not one.
 GPU_CALL = re.compile(r"\bsdl\.((?!GPU)\w*GPU\w*|GPU\w*Supports\w*)\(")
+SDL_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:sdl3[^"]*"', re.M)
+# The files of src/app that may import SDL: the frame loop and its windows, the device
+# and its events, touch, the pen and its bridges, the input diagnostics, the file dialogs,
+# frame pacing and idling, the kit's window glue, and the system services.
+APP_SDL_FILES = {
+    "android.odin", "device.odin", "diagnostics.odin", "diagnostics_test.odin", "files.odin", "frame_rate.odin",
+    "help_labels.odin", "idle.odin", "ios.odin", "keys_sdl.odin", "main.odin", "navigate.odin", "new_ui.odin",
+    "pen_samples.odin", "pen_samples_test.odin", "pen_samples_windows.odin", "pencil.odin", "pencil_test.odin",
+    "platform.odin", "touch.odin", "view_window.odin",
+}
 GPU_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:(vulkan|directx/[^"]+|darwin/Metal\w*|wgpu)"', re.M)
 
 
@@ -47,8 +60,11 @@ def main() -> int:
                 bad.append(f"{rel}:{n}: {line.strip()}")
         for m in GPU_IMPORT.finditer(text):
             bad.append(f"{rel}: imports {m.group(0).strip()}")
+        allowed = rel.startswith("src/app/") and path.name in APP_SDL_FILES
+        if not allowed and SDL_IMPORT.search(text):
+            bad.append(f"{rel}: imports SDL; use the app's Key (keys.odin) or platform.odin, or add a device file to APP_SDL_FILES")
     if bad:
-        print("boundary: only src/render may name the GPU API, and only its seam calls it:")
+        print("boundary: only src/render may name the GPU API, only its seam calls it, and only the app's platform files import SDL:")
         for b in bad:
             print("  " + b)
         return 1

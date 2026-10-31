@@ -78,7 +78,7 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	shown := rgb^
-	if linear do for &c in shown do c = srgb_encode(c)
+	if linear do for &c in shown do c = geom.srgb_encode(c)
 	hex_w: f32 = 104
 	swatch_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
 	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = 8})
@@ -92,7 +92,7 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 	if open && c.pop_dirty {
 		shown = c.pop_set
 		rgb^ = shown
-		if linear do for &v in rgb do v = srgb_decode(v)
+		if linear do for &v in rgb do v = geom.srgb_decode(v)
 		c.pop_dirty = false
 		changed = true
 	}
@@ -105,13 +105,13 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 	if typed, ok := kit_hex_field(app, name, shown, hex_w); ok {
 		shown = typed
 		rgb^ = typed
-		if linear do for &c in rgb do c = srgb_decode(c)
+		if linear do for &c in rgb do c = geom.srgb_decode(c)
 		changed = true
 	}
 	ui.end(ctx)
 	for channel, i in ([3]string{"Red", "Green", "Blue"}) {
 		if ui.slider(ctx, fmt.tprintf("%s##%s", channel, name), &shown[i], 0, 1, .Linear, fmt.tprintf("%d", int(math.round(shown[i] * 255)))) {
-			rgb[i] = srgb_decode(shown[i]) if linear else shown[i]
+			rgb[i] = geom.srgb_decode(shown[i]) if linear else shown[i]
 			changed = true
 		}
 	}

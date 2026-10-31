@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "../camera"
 import "../gizmo"
 import "../ui"
+import "../geom"
 
 // The lights in the viewport, while the Scene palette's Lights section shows: a marker
 // for each light, as Blender, KeyShot and Marmoset draw their lamps, the picked one
@@ -413,7 +414,7 @@ draw_light_markers :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		}
 		r := (12 if edge else LIGHT_MARKER_PX) * px
 		shown := light_rgb(l)
-		for &c in shown do c = srgb_encode(min(c, 1))
+		for &c in shown do c = geom.srgb_encode(min(c, 1))
 		if front {
 			overlay_disc(o, s, r, overlay_color({0.08, 0.08, 0.09, 0.85 * alpha}))
 		} else {

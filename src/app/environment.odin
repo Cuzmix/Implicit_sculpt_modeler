@@ -12,12 +12,13 @@ import "core:thread"
 import "../camera"
 import "../render"
 import "../ui"
+import "../hdri"
 
 // Image environments (stage 4.1, notes/rendering/stage4-design.md): a panorama file the
 // physically based materials reflect and take their diffuse light from in place of the
 // built-in studio, optionally shown behind the scene. A view setting, as a MatCap image
 // is: remembered in the settings, never in the scene file. Files decode on a thread
-// (environment_file.odin), one at a time, the newest request winning; the GPU copy is
+// (the hdri package), one at a time, the newest request winning; the GPU copy is
 // made at the start of the frame that finds the decode done.
 
 // The panorama the GPU holds is halved until it is at most this wide: reflections and
@@ -71,7 +72,7 @@ Environment_State :: struct {
 Environment_Decode :: struct {
 	path:   string,
 	quiet:  bool,
-	image:  Environment_Image,
+	image:  hdri.Image,
 	sh:     [9][3]f32,
 	why:    string,
 	done:   bool, // atomic
@@ -146,8 +147,8 @@ environment_decode_start :: proc(app: ^App, path: string, quiet: bool) {
 			return
 		}
 		defer delete(bytes)
-		d.image, d.why = environment_decode(bytes, ENVIRONMENT_SOURCE_WIDTH)
-		if d.why == "" do d.sh = environment_sh9(d.image)
+		d.image, d.why = hdri.decode(bytes, ENVIRONMENT_SOURCE_WIDTH)
+		if d.why == "" do d.sh = hdri.sh9(d.image)
 	}, context, .Low, name = "environment decode")
 }
 
@@ -165,7 +166,7 @@ environment_poll :: proc(app: ^App, wait := false) -> (why: string) {
 	defer {
 		delete(d.path, heap)
 		delete(d.why, heap)
-		environment_image_destroy(&d.image, heap)
+		hdri.image_destroy(&d.image, heap)
 		free(d, heap)
 	}
 	name := filepath.base(d.path)
@@ -213,7 +214,7 @@ environment_destroy :: proc(app: ^App) {
 		thread.destroy(d.thread)
 		delete(d.path, heap)
 		delete(d.why, heap)
-		environment_image_destroy(&d.image, heap)
+		hdri.image_destroy(&d.image, heap)
 		free(d, heap)
 		e.decode = nil
 	}

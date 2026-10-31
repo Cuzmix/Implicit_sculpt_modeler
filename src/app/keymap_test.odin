@@ -2,7 +2,6 @@ package main
 
 import "core:os"
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../sculpt"
 
@@ -13,19 +12,19 @@ keys_change_where_the_user_says :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	testing.expect_value(t, command_chords(&app, .Redo), "Ctrl+Shift+Z, Ctrl+Y")
-	ctrl_y := Chord{sdl.K_Y, {.Ctrl}, false}
+	ctrl_y := Chord{KEY_Y, {.Ctrl}, false}
 	testing.expect(t, bind_assign(&app, .Wireframe, 0, ctrl_y))
 	testing.expect_value(t, command_chords(&app, .Wireframe), "Ctrl+Y")
 	testing.expect_value(t, command_chords(&app, .Redo), "Ctrl+Shift+Z")
-	owner, ok := chord_owner(&app, {sdl.K_F, {.Shift}, false})
+	owner, ok := chord_owner(&app, {KEY_F, {.Shift}, false})
 	testing.expect(t, !ok, "Shift+F left Wireframe")
 	_ = owner
 
 	// Ctrl+Z steps as Undo did, on its new command too.
-	testing.expect(t, bind_assign(&app, .Redo, 0, {sdl.K_Z, {.Ctrl}, false}))
+	testing.expect(t, bind_assign(&app, .Redo, 0, {KEY_Z, {.Ctrl}, false}))
 	testing.expect_value(t, command_chords(&app, .Redo), "Ctrl+Z")
 	testing.expect_value(t, command_chords(&app, .Undo), "")
-	b, _ := chord_owner(&app, {sdl.K_Z, {.Ctrl}, false})
+	b, _ := chord_owner(&app, {KEY_Z, {.Ctrl}, false})
 	testing.expect(t, b.chord.repeat)
 
 	// Taking a key the user gave another command leaves that one with none.
@@ -33,10 +32,10 @@ keys_change_where_the_user_says :: proc(t: ^testing.T) {
 	testing.expect_value(t, command_chords(&app, .Wireframe), "")
 	testing.expect_value(t, command_keys(&app, .Brush, int(sculpt.Brush_Kind.Clay)), "Ctrl+Y")
 
-	_, reserved := chord_reserved({sdl.K_SPACE, {.Ctrl}, false})
+	_, reserved := chord_reserved({KEY_SPACE, {.Ctrl}, false})
 	testing.expect(t, reserved)
-	testing.expect(t, !bind_assign(&app, .Undo, 0, {sdl.K_S, {}, false}))
-	_, reserved = chord_reserved({sdl.K_S, {.Ctrl}, false})
+	testing.expect(t, !bind_assign(&app, .Undo, 0, {KEY_S, {}, false}))
+	_, reserved = chord_reserved({KEY_S, {.Ctrl}, false})
 	testing.expect(t, !reserved)
 
 	testing.expect(t, bind_remove(&app, .Focus_Selected, 0))
@@ -62,7 +61,7 @@ chords_read_back_from_their_text :: proc(t: ^testing.T) {
 		c, ok := chord_parse(chord_text(b.chord))
 		testing.expectf(t, ok && chord_same(c, b.chord), "%s reads back as %v", chord_text(b.chord), c)
 	}
-	for c in ([?]Chord{{sdl.K_PLUS, {.Ctrl}, false}, {sdl.K_HOME, {.Alt}, false}, {sdl.K_F10, {}, false}, {sdl.K_KP_0, {.Shift}, false}}) {
+	for c in ([?]Chord{{KEY_PLUS, {.Ctrl}, false}, {KEY_HOME, {.Alt}, false}, {KEY_F10, {}, false}, {KEY_KP_0, {.Shift}, false}}) {
 		back, ok := chord_parse(chord_text(c))
 		testing.expectf(t, ok && chord_same(back, c), "%s reads back as %v", chord_text(c), back)
 	}
@@ -88,10 +87,10 @@ keys_are_remembered :: proc(t: ^testing.T) {
 	defer os.remove(path)
 	a: App
 	defer results_destroy(&a)
-	testing.expect(t, bind_assign(&a, .Brush, int(sculpt.Brush_Kind.Clay), {sdl.K_PLUS, {.Ctrl}, false}))
-	testing.expect(t, bind_assign(&a, .Wireframe, 0, {sdl.K_K, {}, false}))
+	testing.expect(t, bind_assign(&a, .Brush, int(sculpt.Brush_Kind.Clay), {KEY_PLUS, {.Ctrl}, false}))
+	testing.expect(t, bind_assign(&a, .Wireframe, 0, {KEY_K, {}, false}))
 	testing.expect(t, bind_remove(&a, .Undo, 0))
-	testing.expect(t, bind_assign(&a, .Stats, 0, {sdl.K_KP_1, {.Ctrl}, false}))
+	testing.expect(t, bind_assign(&a, .Stats, 0, {KEY_KP_1, {.Ctrl}, false}))
 	testing.expect(t, settings_save(&a, path))
 
 	data, _ := os.read_entire_file(path, context.allocator)

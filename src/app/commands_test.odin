@@ -2,7 +2,6 @@ package main
 
 import "core:strings"
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../sculpt"
@@ -37,18 +36,18 @@ chords_read_as_menus_show_them :: proc(t: ^testing.T) {
 		chord: Chord,
 		text:  string,
 	} {
-		{{sdl.K_Z, {.Ctrl, .Shift}, true}, "Ctrl+Shift+Z"},
-		{{sdl.K_F, {.Shift}, false}, "Shift+F"},
-		{{sdl.K_M, {.Alt}, false}, "Alt+M"},
-		{{sdl.K_F12, {}, false}, "F12"},
-		{{sdl.K_F1, {}, false}, "F1"},
-		{{sdl.K_DELETE, {}, false}, "Del"},
-		{{sdl.K_KP_1, {.Ctrl}, false}, "Ctrl+Num 1"},
-		{{sdl.K_0, {}, false}, "0"},
-		{{sdl.K_LEFTBRACKET, {.Shift}, true}, "Shift+["},
-		{{sdl.K_TAB, {}, false}, "Tab"},
-		{{sdl.K_SLASH, {}, false}, "/"},
-		{{sdl.K_K, {.Ctrl}, false}, "Ctrl+K"},
+		{{KEY_Z, {.Ctrl, .Shift}, true}, "Ctrl+Shift+Z"},
+		{{KEY_F, {.Shift}, false}, "Shift+F"},
+		{{KEY_M, {.Alt}, false}, "Alt+M"},
+		{{KEY_F12, {}, false}, "F12"},
+		{{KEY_F1, {}, false}, "F1"},
+		{{KEY_DELETE, {}, false}, "Del"},
+		{{KEY_KP_1, {.Ctrl}, false}, "Ctrl+Num 1"},
+		{{KEY_0, {}, false}, "0"},
+		{{KEY_LEFTBRACKET, {.Shift}, true}, "Shift+["},
+		{{KEY_TAB, {}, false}, "Tab"},
+		{{KEY_SLASH, {}, false}, "/"},
+		{{KEY_K, {.Ctrl}, false}, "Ctrl+K"},
 	}
 	for c in cases do testing.expect_value(t, chord_text(c.chord), c.text)
 	free_all(context.temp_allocator)
@@ -100,22 +99,22 @@ menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
 @(test)
 chords_match_exact_modifiers :: proc(t: ^testing.T) {
 	d: Device
-	append(&d.keys, Key_Press{key = sdl.K_Z, mods = {.Ctrl, .Shift}})
-	undo := Chord{sdl.K_Z, {.Ctrl}, true}
-	redo := Chord{sdl.K_Z, {.Ctrl, .Shift}, true}
+	append(&d.keys, Key_Press{key = KEY_Z, mods = {.Ctrl, .Shift}})
+	undo := Chord{KEY_Z, {.Ctrl}, true}
+	redo := Chord{KEY_Z, {.Ctrl, .Shift}, true}
 	testing.expect(t, !chord_down(&d, undo))
 	testing.expect(t, chord_down(&d, redo))
 
 	// A repeat of a held key, and "B, then Ctrl+S" within one frame.
 	d = {}
-	append(&d.keys, Key_Press{key = sdl.K_B})
-	append(&d.keys, Key_Press{key = sdl.K_S, mods = {.Ctrl}, repeat = true})
-	append(&d.keys, Key_Press{key = sdl.K_RIGHTBRACKET, repeat = true})
-	testing.expect(t, chord_down(&d, Chord{sdl.K_B, {}, false}))
-	testing.expect(t, !chord_down(&d, Chord{sdl.K_S, {.Ctrl}, false}))
-	testing.expect(t, chord_down(&d, Chord{sdl.K_RIGHTBRACKET, {}, true}))
-	testing.expect(t, !chord_down(&d, Chord{sdl.K_B, {.Ctrl}, false}))
-	testing.expect_value(t, key_mods(sdl.KMOD_LCTRL | sdl.KMOD_NUM | sdl.KMOD_CAPS), bit_set[Key_Mod;u8]{.Ctrl})
+	append(&d.keys, Key_Press{key = KEY_B})
+	append(&d.keys, Key_Press{key = KEY_S, mods = {.Ctrl}, repeat = true})
+	append(&d.keys, Key_Press{key = KEY_RIGHTBRACKET, repeat = true})
+	testing.expect(t, chord_down(&d, Chord{KEY_B, {}, false}))
+	testing.expect(t, !chord_down(&d, Chord{KEY_S, {.Ctrl}, false}))
+	testing.expect(t, chord_down(&d, Chord{KEY_RIGHTBRACKET, {}, true}))
+	testing.expect(t, !chord_down(&d, Chord{KEY_B, {.Ctrl}, false}))
+	testing.expect_value(t, key_mods({.LCTRL, .NUM, .CAPS}), bit_set[Key_Mod;u8]{.Ctrl})
 }
 
 // A command that takes an argument names each choice, so search can list them apart.

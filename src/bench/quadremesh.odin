@@ -6,6 +6,7 @@ import "core:time"
 import "../geom"
 import "../jobs"
 import "../quadmesh"
+import "../retopo"
 import "../sculpt"
 
 // --quadremesh: at each size, the stretched sphere --remesh uses, cut down to Quad
@@ -14,8 +15,6 @@ import "../sculpt"
 // engine's, what it gave (faces, the quads' share, the share of vertices with four
 // quads) and the peak memory. On a platform without the engine one line says so.
 
-// The app's cap on what the engine is handed (retopo.odin's QUAD_REMESH_MAX_TRIANGLES).
-QUAD_BENCH_INPUT_TRIANGLES :: 1_000_000
 QUAD_BENCH_QUADS :: 20_000
 
 quadremesh_header :: proc() {
@@ -43,10 +42,10 @@ run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
 		input := sp.mesh
 		capped: geom.Mesh
 		decimate_ms := f64(0)
-		if len(sp.mesh.indices) / 3 > QUAD_BENCH_INPUT_TRIANGLES {
+		if len(sp.mesh.indices) / 3 > retopo.QUAD_REMESH_MAX_TRIANGLES {
 			t0 := time.tick_now()
 			ok: bool
-			capped, _, ok = geom.mesh_decimate(sp.mesh, QUAD_BENCH_INPUT_TRIANGLES, pool)
+			capped, _, ok = geom.mesh_decimate(sp.mesh, retopo.QUAD_REMESH_MAX_TRIANGLES, pool)
 			decimate_ms = time.duration_milliseconds(time.tick_since(t0))
 			free_all(context.temp_allocator)
 			if !ok {

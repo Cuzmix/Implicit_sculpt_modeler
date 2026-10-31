@@ -2,9 +2,7 @@ package main
 
 import "core:hash"
 import "core:mem"
-import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../png_write"
@@ -181,15 +179,15 @@ preview_block_skip :: proc(r: ^geom.Byte_Reader) -> bool {
 }
 
 // Reads what the start of the scene file at `path` says about it and its picture's PNG
-// bytes (nil for none), reading no more of the file than that: through SDL's IO, which
-// also opens Android's content:// URIs. ok is false for a file that is not a scene this
+// bytes (nil for none), reading no more of the file than that: through read_file_open,
+// which also opens Android's content:// URIs. ok is false for a file that is not a scene this
 // app reads or whose preview block is damaged.
 scene_preview_read :: proc(path: string, allocator := context.allocator) -> (info: Scene_File_Info, png: []u8, ok: bool) {
-	io := sdl.IOFromFile(strings.clone_to_cstring(path, context.temp_allocator), "rb")
-	if io == nil do return
-	defer _ = sdl.CloseIO(io)
+	file, opened := read_file_open(path)
+	if !opened do return
+	defer read_file_close(file)
 	head: [len(SCENE_MAGIC) + 4 + 4]u8
-	got := int(sdl.ReadIO(io, &head, len(head)))
+	got := read_file_read(file, head[:])
 	if got < len(SCENE_MAGIC) + 4 || string(head[:len(SCENE_MAGIC)]) != SCENE_MAGIC do return
 	r := geom.byte_reader(head[len(SCENE_MAGIC):got])
 	info.version = geom.byte_get(&r, u32)
@@ -198,7 +196,7 @@ scene_preview_read :: proc(path: string, allocator := context.allocator) -> (inf
 	n := int(geom.byte_get(&r, u32))
 	if !r.ok || n < PREVIEW_HEAD || n > PREVIEW_BLOCK_MAX do return
 	block := make([]u8, n, context.temp_allocator)
-	if int(sdl.ReadIO(io, raw_data(block), uint(n))) != n do return
+	if read_file_read(file, block) != n do return
 	b := geom.byte_reader(block)
 	info.saved = geom.byte_get(&b, i64)
 	info.objects = int(geom.byte_get(&b, u32))

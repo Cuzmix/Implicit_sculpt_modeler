@@ -10,7 +10,6 @@ import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../jobs"
@@ -389,10 +388,10 @@ link_object_ply :: proc(app: ^App, obj: ^Object, out: ^[dynamic]u8) -> (vertices
 
 // Puts the link folder's path on the clipboard, for the add-on's Link folder.
 link_copy_path :: proc(app: ^App) {
-	if sdl.SetClipboardText(strings.clone_to_cstring(app.link.folder, context.temp_allocator)) {
+	if platform_clipboard_set(app.link.folder) {
 		report(app, nil, {}, "Copied the link folder's path: paste it into Link folder in Blender's Sculpt tab")
 	} else {
-		report(app, nil, {.Warning}, "Cannot copy the path: %s", sdl.GetError())
+		report(app, nil, {.Warning}, "Cannot copy the path: %s", platform_error())
 	}
 }
 

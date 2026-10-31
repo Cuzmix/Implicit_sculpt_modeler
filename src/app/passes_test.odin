@@ -2,7 +2,6 @@ package main
 
 import "core:strings"
 import "core:testing"
-import sdl "vendor:sdl3"
 import "../render"
 
 @(test)
@@ -57,7 +56,7 @@ last_pass_flips_between_two_passes :: proc(t: ^testing.T) {
 	// Keymaps and scripts name a pass by its enum name.
 	id, arg, ok := command_from_name("View_Pass:Silhouette")
 	testing.expect(t, ok && id == .View_Pass && render.View_Pass(arg) == .Silhouette, "View_Pass:Silhouette names no pass")
-	_, reserved := chord_reserved({key = sdl.K_GRAVE})
+	_, reserved := chord_reserved({key = KEY_GRAVE})
 	testing.expect(t, reserved, "backquote, which peeks, can be bound")
 }
 

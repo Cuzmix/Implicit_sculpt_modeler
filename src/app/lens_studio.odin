@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 
 import "../ui"
+import "../geom"
 
 // Lens's look cards (round 2 of the mockups, screen studio2): Lights, Material and
 // Environment as cards of the stack, which a fresh layout leaves out and Studio shows.
@@ -43,7 +44,7 @@ kit_lens_lights :: proc(app: ^App) {
 		mid := a.rect.y + a.rect.h * 0.5
 		if a.hovered && !picked do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_hover)
 		rgb := light_rgb(l)
-		dot := ui.Color{u8(srgb_encode(min(rgb.r, 1)) * 255 + 0.5), u8(srgb_encode(min(rgb.g, 1)) * 255 + 0.5), u8(srgb_encode(min(rgb.b, 1)) * 255 + 0.5), 255}
+		dot := ui.Color{u8(geom.srgb_encode(min(rgb.r, 1)) * 255 + 0.5), u8(geom.srgb_encode(min(rgb.g, 1)) * 255 + 0.5), u8(geom.srgb_encode(min(rgb.b, 1)) * 255 + 0.5), 255}
 		ui.fill_circle(ctx, {a.rect.x + 14, mid}, LIGHT_DOT, dot if l.on else ui.color_fade(dot, 0.35))
 		fg := t.text if l.on else t.text_secondary
 		ui.text(ctx, light_name(set, i), a.rect.x + 30, mid, t.text_size, fg, .Semibold if picked else .Regular)
@@ -82,5 +83,5 @@ light_line :: proc(l: Light) -> string {
 // A preset's colour as its sphere shows it: the colour of a selected object, in sRGB.
 material_swatch :: proc(m: Material) -> ui.Color {
 	c := m.selected
-	return {u8(srgb_encode(clamp(c.r, 0, 1)) * 255 + 0.5), u8(srgb_encode(clamp(c.g, 0, 1)) * 255 + 0.5), u8(srgb_encode(clamp(c.b, 0, 1)) * 255 + 0.5), 255}
+	return {u8(geom.srgb_encode(clamp(c.r, 0, 1)) * 255 + 0.5), u8(geom.srgb_encode(clamp(c.g, 0, 1)) * 255 + 0.5), u8(geom.srgb_encode(clamp(c.b, 0, 1)) * 255 + 0.5), 255}
 }

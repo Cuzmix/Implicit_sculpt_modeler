@@ -4,7 +4,6 @@ import "core:hash"
 import "core:log"
 import "core:math"
 
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../render"
@@ -127,7 +126,7 @@ cross_fade_gpu :: proc(app: ^App) {
 	if !f.copy do return
 	f.copy = false
 	if !render.viewport_copy(&app.renderer, &f.still, f.last, f.last_size.x, f.last_size.y) {
-		log.warnf("cross-fade: no copy of the last picture: %s", sdl.GetError())
+		log.warnf("cross-fade: no copy of the last picture: %s", platform_error())
 		f.on = false
 	}
 }

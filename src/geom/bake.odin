@@ -154,7 +154,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 		rows_hit = make([]int, size, context.temp_allocator),
 		rows_max = make([]f32, size, context.temp_allocator),
 	}
-	for &x, k in job.linear do x = srgb_to_linear(f32(k) / 255)
+	for &x, k in job.linear do x = srgb_decode(f32(k) / 255)
 	jobs.parallel_ranges(pool, size, &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		b := job.b

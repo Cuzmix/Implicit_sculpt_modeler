@@ -8,6 +8,7 @@ import "../geom"
 import "../quadmesh"
 import "../sculpt"
 import "../ui"
+@(require) import "../retopo" // used only where AutoRemesher is built
 
 // Rebuild (Object > Shape): one section for the three ways to replace an object's
 // topology, by the goal rather than the algorithm (UX research 08): an Even mesh (voxel
@@ -183,15 +184,15 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		if kit_more(app, .Remesh) {
 			// Where only the built-in engine is compiled there is nothing to choose.
 			when quadmesh.AVAILABLE {
-				engines: [len(Quad_Engine)]string
-				for e in Quad_Engine do engines[int(e)] = QUAD_ENGINE_NAMES[e]
-				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = Quad_Engine(picked)
+				engines: [len(retopo.Engine)]string
+				for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
+				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
 				if app.ui.retopo_engine == .Auto {
 					a := app.ui.retopo_adaptivity
 					_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
-					axes: [len(Quad_Symmetry)]string
-					for x in Quad_Symmetry do axes[int(x)] = QUAD_SYMMETRY_NAMES[x]
-					if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = Quad_Symmetry(picked)
+					axes: [len(retopo.Symmetry)]string
+					for x in retopo.Symmetry do axes[int(x)] = retopo.SYMMETRY_NAMES[x]
+					if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = retopo.Symmetry(picked)
 				}
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)

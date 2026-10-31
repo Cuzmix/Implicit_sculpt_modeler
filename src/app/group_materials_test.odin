@@ -224,7 +224,7 @@ exports_paint_over_each_faces_material :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	under := proc(m: Material) -> (c: [3]u8) {
 		base := export_material(m).base
-		for k in 0 ..< 3 do c[k] = u8(math.round(srgb_encode(base[k]) * 255))
+		for k in 0 ..< 3 do c[k] = u8(math.round(geom.srgb_encode(base[k]) * 255))
 		return
 	}
 	m := geom.Mesh_Export{positions = positions, normals = normals, indices = indices, material = export_material(steel())}

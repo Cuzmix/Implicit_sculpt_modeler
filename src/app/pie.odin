@@ -4,7 +4,6 @@ import "core:math"
 import "core:math/linalg"
 import "core:time"
 import "../sculpt"
-import sdl "vendor:sdl3"
 
 // The brush pie: every brush in a ring around the pointer, as Blender's pie menus
 // and ZBrush's spacebar palette put choices where the hand already is. Holding Space
@@ -136,7 +135,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		} else if pie_pickable(app, p.which, p.hover) {
 			pie_pick(app, p.hover)
 		}
-	} else if right_tap || p.space_pressed || key_pressed(d, sdl.K_ESCAPE) {
+	} else if right_tap || p.space_pressed || key_pressed(d, KEY_ESCAPE) {
 		p.open = false
 	}
 	viewport_mute(input)

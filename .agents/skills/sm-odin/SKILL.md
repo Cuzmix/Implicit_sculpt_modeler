@@ -10,7 +10,7 @@ description: Odin rules and house idioms for the sculpt modeler, pinned to deps/
   (`rg -n "^read_entire_file" deps/odin/core/os`). Declarations are column-aligned (`nan_f32   :: proc`), so grep
   `^name\b`, not `^name ::`.
 - The compiler is the fastest oracle, one package at a time: `deps\odin\odin.exe check src\<pkg> -no-entry-point
-  -collection:deps=deps -vet -strict-style -warnings-as-errors` (what `build.bat check` runs on all seventeen packages).
+  -collection:deps=deps -vet -strict-style -warnings-as-errors` (what `build.bat check` runs on all nineteen packages).
 - The pins are `scripts/versions.env` (README "Pinned versions"); `deps/` is ignored by git and never edited.
 
 ## Trap table (verified against the pin)

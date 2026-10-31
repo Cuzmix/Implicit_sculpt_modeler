@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:math/linalg"
-import sdl "vendor:sdl3"
 
 import "../camera"
 
@@ -50,10 +49,10 @@ adjust_update :: proc(app: ^App, input: ^Viewport_Input) {
 		if app.tool != .Brush || !input.hovered || app.stroke.active || app.ui.pie.open || typing(app) do return
 		if d.ctrl || d.alt || d.shift || .Left in d.down do return
 		switch {
-		case key_pressed(d, sdl.K_S):
+		case key_pressed(d, KEY_S):
 			// The pointer lands on the circle's edge, so the size starts where it was.
 			a^ = {kind = .Size, before = app.brush.radius_px, center = input.mouse_pos - {app.brush.radius_px, 0}}
-		case key_pressed(d, sdl.K_U):
+		case key_pressed(d, KEY_U):
 			s := brush_strength(app)
 			a^ = {kind = .Strength, before = s^, center = input.mouse_pos - {s^ * STRENGTH_PX, 0}}
 		case:
@@ -72,10 +71,10 @@ adjust_update :: proc(app: ^App, input: ^Viewport_Input) {
 	case .Strength:
 		value^ = clamp(reach / STRENGTH_PX, MIN_STRENGTH, 1)
 	}
-	again := key_pressed(d, sdl.K_S if a.kind == .Size else sdl.K_U)
+	again := key_pressed(d, KEY_S if a.kind == .Size else KEY_U)
 	if .Left in d.pressed || again {
 		a.kind, a.swallow = .None, .Left in d.pressed
-	} else if .Right in d.pressed || key_pressed(d, sdl.K_ESCAPE) {
+	} else if .Right in d.pressed || key_pressed(d, KEY_ESCAPE) {
 		value^ = a.before
 		a.kind = .None
 	}

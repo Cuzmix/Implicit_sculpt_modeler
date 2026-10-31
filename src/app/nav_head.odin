@@ -44,7 +44,7 @@ nav_head_mesh :: proc(allocator := context.allocator) -> geom.Mesh {
 	}
 	for &q in m.positions {
 		p := q
-		jaw := smoothstep(f32(0.05), -0.9, p.y) // 0 over the cheeks, 1 at the chin
+		jaw := math.smoothstep(f32(0.05), -0.9, p.y) // 0 over the cheeks, 1 at the chin
 		q.x *= 0.8 * (1 - 0.2 * jaw)
 		q.z *= 0.9 * (1 - 0.1 * jaw)
 		q.y *= 1.06
@@ -62,12 +62,6 @@ nav_head_mesh :: proc(allocator := context.allocator) -> geom.Mesh {
 	}
 	geom.mesh_recompute_normals(&m)
 	return m
-}
-
-@(private = "file")
-smoothstep :: proc(edge0, edge1, x: f32) -> f32 {
-	t := clamp((x - edge0) / (edge1 - edge0), 0, 1)
-	return t * t * (3 - 2 * t)
 }
 
 // The side of the head under `at`, which runs -1 to 1 across the head's picture left to

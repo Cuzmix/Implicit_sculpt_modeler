@@ -3,7 +3,6 @@ package main
 import "core:math"
 import "core:math/linalg"
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -132,7 +131,7 @@ move_key_steps_the_gizmo :: proc(t: ^testing.T) {
 	app.tool = .Brush
 	press :: proc(app: ^App) {
 		clear(&app.device.keys)
-		append(&app.device.keys, Key_Press{key = sdl.K_W})
+		append(&app.device.keys, Key_Press{key = KEY_W})
 		commands_handle_keys(app)
 		clear(&app.device.keys)
 	}

@@ -46,7 +46,7 @@ diag_log_stays_within_its_cap :: proc(t: ^testing.T) {
 	diag_run_start(app, .Text_Typing)
 	e: sdl.Event
 	for i in 0 ..< 60_000 {
-		e.key = {type = .KEY_DOWN, timestamp = u64(i + 1) * 1_000_000, key = sdl.K_TAB}
+		e.key = {type = .KEY_DOWN, timestamp = u64(i + 1) * 1_000_000, key = sdl.Keycode(KEY_TAB)}
 		diag_event(app, &e)
 		if i % 1000 == 0 do free_all(context.temp_allocator)
 	}

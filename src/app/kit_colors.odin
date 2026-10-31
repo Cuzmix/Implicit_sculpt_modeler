@@ -6,6 +6,7 @@ import "core:strings"
 
 import "../sculpt"
 import "../ui"
+import "../geom"
 
 // The Colors card: the Colors command opens it beside the off-hand island, where ZBrush
 // for iPad puts its Color card, laid out and named as Procreate's Colors panel. On top, the
@@ -1072,7 +1073,7 @@ color_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
 	obj := app.scene.objects[index]
 	base := object_material(app, obj).selected.rgb
 	under: [3]u32
-	for k in 0 ..< 3 do under[k] = u32(srgb_encode(base[k]) * 255 + 0.5)
+	for k in 0 ..< 3 do under[k] = u32(geom.srgb_encode(base[k]) * 255 + 0.5)
 	paint: sculpt.Color
 	// Voxel clay and HD windows hold no polypaint of their own.
 	if obj.voxel == nil && !object_in_hd(obj) {

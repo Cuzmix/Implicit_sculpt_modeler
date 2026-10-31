@@ -21,7 +21,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - `Device` (`device.odin:12`): this frame's keys (`Key_Press`, unshifted key codes from the scancode, with the Ctrl/Shift/Alt held when each went down), Shift/Ctrl/Alt,
   the pointer in window coordinates and how far it moved, which kind drives it (`pointer`: `ui.Pointer_Kind` Mouse,
   Finger or Pen), buttons down/pressed/released, `cancel` (the system took the pointer back), the wheel, typed text,
-  the right button's tap (`right_tap`, for the pie) and `input_at` (latency). `key_pressed(d, sdl.K_X, repeat)`;
+  the right button's tap (`right_tap`, for the pie) and `input_at` (latency). `key_pressed(d, KEY_X, repeat)` (the app's own `Key`, `keys.odin`: SDL's code for the key, which `key_of` converts in `device.odin`; add a `KEY_` constant there for a key not yet named, and `keys_sdl.odin` checks it at compile time);
   `device_pointing(d)` is false for a finger that is not touching (its last position is no hover).
 - `Viewport_Input` (`ui.odin:108`), filled by `kit_viewport_input` (`new_ui.odin:436`): size and pointer in window
   coordinates, `hovered` (pointer over no panel), `dragging` (a press that began on the viewport, `ui.viewport_dragging`),

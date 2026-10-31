@@ -108,7 +108,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   only ambient and studio terms; `Material_Uniforms.maps` (x, y, z present, w the view) is zero on the sculpt path, whose
   pictures the move left identical to the pixel. `textured.vert.slang` writes every `mesh.vert.slang` output (4 and 6 flat) plus
   UV (7) and tangent (8), turning by `mat3(view) * mat3(model)` divided by its scale.
-- Image environments (`render/environment.odin`, app `src/app/environment.odin` + `environment_file.odin`): every
+- Image environments (`render/environment.odin`, app `src/app/environment.odin`, decoding in the `hdri` package (`src/hdri`)): every
   pipeline whose shader declares a sampler must have it bound on every draw (debug SDL aborts "Missing fragment sampler
   binding"): the mesh pipeline has 2 (MatCap, `environment_map`), the textured one 5 (MatCap, environment, 3 maps), the
   clear one 1; `environment_binding(r)` gives the prefiltered map or the 1x1 black `r.no_environment`, through

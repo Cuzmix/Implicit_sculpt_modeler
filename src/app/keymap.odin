@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
@@ -74,19 +73,19 @@ chord_owner :: proc(app: ^App, chord: Chord) -> (Binding, bool) {
 // ones that end typing or close what floats.
 chord_reserved :: proc(chord: Chord) -> (reason: string, reserved: bool) {
 	switch chord.key {
-	case sdl.K_ESCAPE, sdl.K_AC_BACK:
+	case KEY_ESCAPE, KEY_AC_BACK:
 		return "Escape closes menus, stops a replay and puts back a gizmo drag", true
-	case sdl.K_RETURN, sdl.K_KP_ENTER, sdl.K_BACKSPACE:
+	case KEY_RETURN, KEY_KP_ENTER, KEY_BACKSPACE:
 		return "Enter and Backspace are for typing", true
-	case sdl.K_SPACE:
+	case KEY_SPACE:
 		return "Space opens the brush pie", true
-	case sdl.K_GRAVE:
+	case KEY_GRAVE:
 		return "` held peeks at the last other pass", true
-	case sdl.K_S, sdl.K_U:
+	case KEY_S, KEY_U:
 		if chord.mods == {} do return "S and U held over the model size the brush and set its strength", true
-	case sdl.K_LCTRL, sdl.K_RCTRL, sdl.K_LSHIFT, sdl.K_RSHIFT, sdl.K_LALT, sdl.K_RALT, sdl.K_LGUI, sdl.K_RGUI, sdl.K_MODE:
+	case KEY_LCTRL, KEY_RCTRL, KEY_LSHIFT, KEY_RSHIFT, KEY_LALT, KEY_RALT, KEY_LGUI, KEY_RGUI, KEY_MODE:
 		return "Ctrl, Shift and Alt go with a key", true
-	case sdl.K_CAPSLOCK, sdl.K_NUMLOCKCLEAR, sdl.K_SCROLLLOCK, sdl.K_UNKNOWN:
+	case KEY_CAPSLOCK, KEY_NUMLOCKCLEAR, KEY_SCROLLLOCK, KEY_UNKNOWN:
 		return "a lock key changes how other keys type", true
 	}
 	return "", false
@@ -159,33 +158,33 @@ chord_parse :: proc(text: string) -> (c: Chord, ok: bool) {
 	case rest == "":
 		return
 	case len(rest) == 1 && rest[0] >= 'A' && rest[0] <= 'Z':
-		c.key = sdl.Keycode(rest[0] - 'A' + 'a')
+		c.key = Key(rest[0] - 'A' + 'a')
 	case len(rest) == 1 && rest[0] >= '0' && rest[0] <= '9':
-		c.key = sdl.Keycode(rest[0])
+		c.key = Key(rest[0])
 	case strings.has_prefix(rest, "Num ") && len(rest) == 5 && rest[4] >= '0' && rest[4] <= '9':
-		c.key = sdl.K_KP_0 if rest[4] == '0' else sdl.K_KP_1 + sdl.Keycode(rest[4] - '1')
+		c.key = KEY_KP_0 if rest[4] == '0' else KEY_KP_1 + Key(rest[4] - '1')
 	case len(rest) >= 2 && rest[0] == 'F' && rest[1] >= '1' && rest[1] <= '9':
 		n, n_ok := strconv.parse_int(rest[1:])
 		if !n_ok || n < 1 || n > 12 do return
-		c.key = sdl.K_F1 + sdl.Keycode(n - 1)
+		c.key = KEY_F1 + Key(n - 1)
 	case:
 		switch rest {
-		case "[":     c.key = sdl.K_LEFTBRACKET
-		case "]":     c.key = sdl.K_RIGHTBRACKET
-		case "Del":   c.key = sdl.K_DELETE
-		case "Tab":   c.key = sdl.K_TAB
-		case "Esc":   c.key = sdl.K_ESCAPE
-		case "Space": c.key = sdl.K_SPACE
-		case "/":     c.key = sdl.K_SLASH
+		case "[":     c.key = KEY_LEFTBRACKET
+		case "]":     c.key = KEY_RIGHTBRACKET
+		case "Del":   c.key = KEY_DELETE
+		case "Tab":   c.key = KEY_TAB
+		case "Esc":   c.key = KEY_ESCAPE
+		case "Space": c.key = KEY_SPACE
+		case "/":     c.key = KEY_SLASH
 		case:
 			// A printable key is its own character: SDL's name lookup goes by the keyboard's
 			// layout and reads "+" as the = key it shares.
 			if len(rest) == 1 && rest[0] > ' ' && rest[0] < 0x7f {
-				c.key = sdl.Keycode(rest[0])
+				c.key = Key(rest[0])
 				break
 			}
-			c.key = sdl.GetKeyFromName(strings.clone_to_cstring(rest, context.temp_allocator))
-			if c.key == sdl.K_UNKNOWN do return
+			c.key = key_from_name(rest)
+			if c.key == KEY_UNKNOWN do return
 		}
 	}
 	return c, true

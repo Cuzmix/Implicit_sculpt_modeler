@@ -45,7 +45,7 @@ Device :: struct {
 // A key that went down: its key code as the layout gives it without modifiers (SDL
 // leaves them out of key events), so Shift+[ is still [.
 Key_Press :: struct {
-	key:    sdl.Keycode,
+	key:    Key,
 	mods:   bit_set[Key_Mod;u8], // Ctrl, Shift and Alt as they were when it went down
 	repeat: bool,
 }
@@ -60,7 +60,7 @@ device_frame_begin :: proc(d: ^Device) {
 device_event :: proc(d: ^Device, e: ^sdl.Event) {
 	#partial switch e.type {
 	case .KEY_DOWN:
-		append(&d.keys, Key_Press{e.key.key, key_mods(e.key.mod), e.key.repeat})
+		append(&d.keys, Key_Press{key_of(e.key.key), key_mods(e.key.mod), e.key.repeat})
 		d.key_mods = e.key.mod
 	case .TEXT_INPUT:
 		typed := string(e.text.text)
@@ -105,6 +105,15 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 // still does too: Cmd+Z undoes as in every Mac app, and a binding saved on Windows works.
 KMOD_SHORTCUT :: sdl.KMOD_CTRL | sdl.KMOD_GUI when ODIN_OS == .Darwin else sdl.KMOD_CTRL
 
+// The Ctrl, Shift and Alt among SDL's modifiers (Num Lock, Caps Lock and the system key
+// are left out, so they never stop a shortcut).
+key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
+	if m & KMOD_SHORTCUT != {} do mods += {.Ctrl}
+	if m & sdl.KMOD_SHIFT != {} do mods += {.Shift}
+	if m & sdl.KMOD_ALT != {} do mods += {.Alt}
+	return
+}
+
 // Reads the modifiers once every event of the frame is in.
 device_frame_end :: proc(d: ^Device) {
 	mods := sdl.GetModState() | d.key_mods | d.script_mods
@@ -141,7 +150,7 @@ device_pointing :: proc(d: ^Device) -> bool {
 }
 
 // Whether `key` went down this frame; with `repeat`, a held key's repeats count too.
-key_pressed :: proc(d: ^Device, key: sdl.Keycode, repeat := false) -> bool {
+key_pressed :: proc(d: ^Device, key: Key, repeat := false) -> bool {
 	for k in d.keys do if k.key == key && (repeat || !k.repeat) do return true
 	return false
 }

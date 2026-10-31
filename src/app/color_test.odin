@@ -4,6 +4,7 @@ import "core:math"
 import "core:testing"
 
 import "../ui"
+import "../geom"
 
 // Hex codes read as image editors write them, and every byte value comes back as the
 // code it was shown as.
@@ -48,10 +49,10 @@ hex_colours_read_and_write :: proc(t: ^testing.T) {
 srgb_round_trips :: proc(t: ^testing.T) {
 	for b in 0 ..< 256 {
 		v := f32(b) / 255
-		testing.expectf(t, abs(srgb_encode(srgb_decode(v)) - v) < 1e-5, "byte %d", b)
+		testing.expectf(t, abs(geom.srgb_encode(geom.srgb_decode(v)) - v) < 1e-5, "byte %d", b)
 	}
 	// Mid grey on screen is about a fifth of the light.
-	testing.expect(t, abs(srgb_decode(0.5) - 0.214) < 0.001)
+	testing.expect(t, abs(geom.srgb_decode(0.5) - 0.214) < 0.001)
 }
 
 // One frame of a colour field at the inspector's place, with `input`.
@@ -100,7 +101,7 @@ a_typed_hex_code_sets_the_colour :: proc(t: ^testing.T) {
 		testing.expectf(t, changed == (i == len(steps) - 1), "step %d: changed %v", i, changed)
 	}
 	testing.expect_value(t, ctx.text_focus, id)
-	want := [3]f32{srgb_decode(0x33 / 255.0), srgb_decode(0xaa / 255.0), srgb_decode(0x77 / 255.0)}
+	want := [3]f32{geom.srgb_decode(0x33 / 255.0), geom.srgb_decode(0xaa / 255.0), geom.srgb_decode(0x77 / 255.0)}
 	for i in 0 ..< 3 do testing.expectf(t, abs(rgb[i] - want[i]) < 1e-6, "channel %d: %v, want %v", i, rgb[i], want[i])
 	// Enter lets the field go, and it shows the colour again.
 	_ = color_frame(&app, &rgb, true, {text_end = true})
@@ -126,11 +127,11 @@ a_colour_well_opens_the_popover :: proc(t: ^testing.T) {
 	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, released = {.Left}})
 	testing.expect(t, c.pop)
 	testing.expect(t, c.pop_alive)
-	testing.expect(t, abs(c.pop_value.r - srgb_encode(0.5)) < 1e-6)
+	testing.expect(t, abs(c.pop_value.r - geom.srgb_encode(0.5)) < 1e-6)
 	c.pop_set, c.pop_dirty = {1, 0, 0.5}, true
 	testing.expect(t, color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true}))
 	testing.expect(t, !c.pop_dirty)
-	testing.expect_value(t, rgb, [3]f32{1, 0, srgb_decode(0.5)})
+	testing.expect_value(t, rgb, [3]f32{1, 0, geom.srgb_decode(0.5)})
 	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, pressed = {.Left}, down = {.Left}})
 	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, released = {.Left}})
 	testing.expect(t, !c.pop)
