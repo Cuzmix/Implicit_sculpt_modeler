@@ -120,3 +120,26 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&d, .Tools), "Brush_Value:Lazy")
 	testing.expect_value(t, bar_look(&d.kit, .Tools, 0), Value_Look.Chip)
 }
+
+// The pen's roll on a value item moves it as on the island's sliders: a quarter turn
+// doubles Size; Exposure moves in tenths of a stop, a turn too small for one waiting for
+// the next; Pressure, two switches, takes none.
+@(test)
+brush_values_follow_the_pen_roll :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	app.brush.radius_px = 60
+	value_roll(&app, .Size, 90)
+	testing.expect(t, abs(app.brush.radius_px - 120) < 1e-3)
+	app.exposure = 0
+	// A tenth of a stop is 3 degrees of the 180 that sweep its six stops.
+	value_roll(&app, .Exposure, 2)
+	testing.expect_value(t, app.exposure, 0)
+	value_roll(&app, .Exposure, 2)
+	testing.expect_value(t, app.exposure, f32(0.1))
+	value_roll(&app, .Exposure, -1000)
+	testing.expect_value(t, app.exposure, f32(-EXPOSURE_RANGE))
+	before := app.brush.pressure_size
+	value_roll(&app, .Pressure, 90)
+	testing.expect_value(t, app.brush.pressure_size, before)
+}

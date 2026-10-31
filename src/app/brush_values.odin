@@ -276,6 +276,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 			if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
 			else do value_pop_toggle(app, v, ctx.last_rect, side)
 		}
+		if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
 		if k.bars_edit do bar_edit_ring(app, ctx.last_rect)
 		else if ctx.last_id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, ctx.last_rect, side)
 		return
@@ -305,6 +306,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		}
 	}
 	if !a.held && k.value_scrubbing == a.id do k.value_scrubbing = 0
+	if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
 	if a.held && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
@@ -327,6 +329,29 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	moved := ctx.input.mouse - ctx.press_mouse
 	if a.clicked && enabled && abs(moved[axis]) <= t.slop do value_pop_toggle(app, v, a.rect, side)
 	if a.id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, a.rect, side)
+}
+
+// The pen's roll on a value item (`degrees`, ui.hover_roll's this frame) sets the value
+// as it sets the island's sliders: a quarter turn clockwise doubles Size and half a turn
+// takes Strength across, and half a turn sweeps any other value end to end, a value kept
+// in steps (Focal shift, Exposure) moving a step at a time. The value shows by the pen.
+value_roll :: proc(app: ^App, v: Brush_Value, degrees: f32) {
+	if degrees == 0 || v == .Pressure do return
+	ctx := &app.kit.ctx
+	lo, hi, scale := value_range(v)
+	#partial switch v {
+	case .Size:
+		app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, degrees * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
+	case .Strength:
+		value_set(app, v, value_get(app, v) + degrees * ROLL_POINTS / ROLL_STRENGTH_FULL)
+	case .Focal_Shift, .Exposure:
+		unit: f32 = 1 if v == .Focal_Shift else 0.1
+		if n := ui.roll_steps(ctx, degrees, ui.ROLL_SWEEP * unit / (hi - lo)); n != 0 do value_set(app, v, value_get(app, v) + f32(n) * unit)
+	case:
+		f := clamp(value_fraction(app, v) + degrees / ui.ROLL_SWEEP, 0, 1)
+		value_set(app, v, ui.slider_value(f, lo, hi, scale))
+	}
+	ui.roll_hint(ctx, fmt.tprintf("%s %s", BRUSH_VALUE_NAMES[v], value_text(app, v)))
 }
 
 // The value's popover: its icon, name and exact value, a wide slider and the steps; for
