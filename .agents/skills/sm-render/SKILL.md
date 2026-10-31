@@ -425,6 +425,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `Gpu_Span` to its `debug_group`; spans never nest (an inner one is left untimed), so their sum is the frame.
 - A target drawn by one pass and never read after makes its depth with `gpu_create_texture_transient`
   (`viewport_target_resize(..., transient_depth = true)`): CLEAR/DONT_CARE only, never sampled or copied; debug checks it.
+  A `Viewport_Target.tile` target (MSAA, transient targets, partial off; `--tile-msaa` forces it) keeps neither samples
+  nor depth: `target_pass` must never load it, so a new viewport pass that loads goes after the resolve or skips tile.
 - Mapped device buffers (`gpu_create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
   and closed with `gpu_buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
 - A compute kernel that wants subgroup operations or 64-bit atomics checks `Gpu_Caps.subgroup_size` (0 = unknown,
