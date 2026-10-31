@@ -152,6 +152,7 @@ lod_edits_wait_for_rebuild :: proc(t: ^testing.T) {
 	expect_closed_cuts(t, &s)
 
 	// Nothing is rebuilt while the stroke goes on.
+	sculptor_lod_uploaded(&s)
 	ranges, all := sculptor_lod_update(&s, finish = true)
 	testing.expect(t, len(ranges) == 0 && !all, "rebuilt during a stroke")
 	testing.expect_value(t, sculptor_lod_pending(&s), stale)
@@ -164,6 +165,7 @@ lod_edits_wait_for_rebuild :: proc(t: ^testing.T) {
 		ranges, all = sculptor_lod_update(&s)
 		uploaded += len(ranges)
 		moved ||= all
+		sculptor_lod_uploaded(&s)
 	}
 	testing.expect_value(t, sculptor_lod_pending(&s), 0)
 	testing.expect(t, moved || uploaded == stale, "every rebuilt copy should be uploaded")
@@ -219,6 +221,7 @@ lod_slots_move_and_compact :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(l.indices), total)
 	expect_unchanged(t, l, before)
 	expect_closed_cuts(t, &s)
+	clear(&l.uploads)
 	ranges, all := sculptor_lod_update(&s)
 	testing.expect(t, all && len(ranges) == 0, "a compaction should ask for a full upload")
 }
@@ -391,4 +394,25 @@ grouped_culling_in_parallel_matches_serial :: proc(t: ^testing.T) {
 			}
 		}
 	}
+}
+
+// Rebuilt copies wait for their upload however many updates come first, and an update
+// with no time to spare still builds a batch, so the copies always get made.
+@(test)
+lod_uploads_wait_for_upload :: proc(t: ^testing.T) {
+	s: Sculptor
+	m: geom.Mesh
+	lod_sphere(&s, &m, 4, 32)
+	defer geom.mesh_destroy(&m)
+	defer sculptor_destroy(&s)
+	before := sculptor_lod_pending(&s)
+	ranges, _ := sculptor_lod_update(&s, budget = 0)
+	built := len(ranges)
+	testing.expect(t, built > 0 && sculptor_lod_pending(&s) < before, "an update with no budget should still build a batch")
+	_, _ = sculptor_lod_update(&s, budget = 0)
+	waiting, _ := sculptor_lod_uploads(&s)
+	testing.expect(t, len(waiting) >= built, "the first batch's ranges should still wait for their upload")
+	sculptor_lod_uploaded(&s)
+	waiting, _ = sculptor_lod_uploads(&s)
+	testing.expect_value(t, len(waiting), 0)
 }

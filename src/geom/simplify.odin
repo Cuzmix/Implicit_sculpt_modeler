@@ -29,6 +29,12 @@ Simplify_Guide :: struct {
 	// out to its border too. Never for a patch cut from a larger mesh, whose border has to
 	// meet its neighbours'.
 	slide_borders: bool,
+	// Per vertex of `positions`: a mirror's seam (geom.mirror_cut). An open edge between
+	// two seam vertices slides along itself whatever `slide_borders` says, so the seam
+	// thins out as the surface beside it does and every vertex of it stays on the plane;
+	// and no collapse joins two seam vertices by an edge across the surface, which the
+	// mirror image would double into an edge of four triangles.
+	seam:          []bool,
 }
 
 // How much a feature line's own planes (through the line, across its triangles) weigh
@@ -40,6 +46,27 @@ FEATURE_WEIGHT :: 1.0
 // line and stays.
 @(private = "file")
 LINE_CORNER_COS :: -0.25
+
+// Whether collapsing `u` (off the seam) into the seam vertex `w` would join `w` to another
+// seam vertex it has no edge to yet: a chord across the surface between two points of the
+// seam, which the mirror image would make an edge of four triangles.
+@(private = "file")
+seam_chord :: proc(u, w: u32, tris: [][3]u32, offsets, adjacent: []u32, on_seam: []bool) -> bool {
+	for t in adjacent[offsets[u]:offsets[u + 1]] {
+		for s in tris[t] {
+			if s == u || s == w || !on_seam[s] do continue
+			joined := false
+			for t2 in adjacent[offsets[w]:offsets[w + 1]] {
+				if tris[t2][0] == s || tris[t2][1] == s || tris[t2][2] == s {
+					joined = true
+					break
+				}
+			}
+			if !joined do return true
+		}
+	}
+	return false
+}
 
 // Area-weighted sum of plane equations, q(x) = xᵀAx + 2bᵀx + c, stored as A00 A01 A02
 // A11 A12 A22, b, c, then the total area. Doubles, since near the surface the terms
@@ -212,7 +239,10 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 	// exactly two feature edges (open edges that slide, or edges between two labels) moves
 	// only along them, into one of its two `rail` neighbours, and one on one feature edge
 	// or on three or more (an end or a corner of the lines) stays.
-	features := labelled || guide.slide_borders
+	features := labelled || guide.slide_borders || guide.seam != nil
+	on_seam := make([]bool, vcount if guide.seam != nil else 0)
+	defer delete(on_seam)
+	for &b, i in on_seam do b = guide.seam[global[i]]
 	// The lines' bookkeeping counts on no neighbour of a collapse moving in its pass.
 	assert(!features || strict, "feature lines need strict passes")
 	locked := make([]bool, vcount)
@@ -250,7 +280,7 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 			case counts[j] > 2:
 				locked[v] = true
 			case counts[j] == 1:
-				if guide.slide_borders do line = true
+				if guide.slide_borders || (len(on_seam) > 0 && on_seam[v] && on_seam[neighbours[j]]) do line = true
 				else do locked[v] = true
 			case labelled:
 				line = tri_label[sides[j][0]] != tri_label[sides[j][1]]
@@ -362,6 +392,7 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 				for w in tris[t] {
 					if w == u32(u) do continue
 					if on_line && w != rail[u][0] && w != rail[u][1] do continue
+					if len(on_seam) > 0 && !on_seam[u] && on_seam[w] && seam_chord(u32(u), w, tris[:], offsets, adjacent, on_seam) do continue
 					c := quadric_error(quadrics[u], pos[w])
 					// Strict: shorter edges first where the error ties, as on flat
 					// areas, which keeps the triangles from turning into needles.

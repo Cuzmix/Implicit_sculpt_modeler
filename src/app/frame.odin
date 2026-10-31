@@ -237,13 +237,16 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)
-			// Simplified copies are built a batch a frame, for one level at a time, and
-			// never during a stroke, whose frames should stay as short as they can be.
-			if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
+			// Simplified copies the end of the last frame built (lod_build_frame) go up
+			// now; gpubench builds every one here before it measures anything.
+			if app.simplify && app.lod_finish && !app.stroke.active && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
 				t_lod := time.tick_now()
-				lod_ranges, all := sculpt.sculptor_lod_update(&lv.sculptor, app.lod_finish)
-				render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
+				_, _ = sculpt.sculptor_lod_update(&lv.sculptor, finish = true)
 				lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
+			}
+			if lod_ranges, all := sculpt.sculptor_lod_uploads(&lv.sculptor); len(lod_ranges) > 0 || all {
+				render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
+				sculpt.sculptor_lod_uploaded(&lv.sculptor)
 			}
 			// An object out of view still uploads above, so it is current when shown again.
 			if !object_shown(app, obj) do continue
@@ -474,7 +477,6 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	app.stats.viewport = drawn
 	app.stats.cache_redraws += int(drawn.cache_redrawn)
 	app.stats.partial_frames += int(drawn.partial)
-	if lod_ms >= 0 do ring_push(&app.stats.lod_ms, lod_ms)
 	idle_note(app, drawn, sculpted.dabs)
 	if sculpted.dabs > 0 {
 		ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
@@ -490,6 +492,10 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	capture_finish(app)
 	preview_frame(app)
 	autosave_frame(app)
+	// After the submit, in the time the frame would otherwise wait for the display:
+	// building copies then adds nothing between the pen and the screen.
+	if !app.lod_finish do lod_ms = lod_build_frame(app, frame_start)
+	if lod_ms >= 0 do ring_push(&app.stats.lod_ms, lod_ms)
 	free_all(context.temp_allocator)
 
 	if setting_up do app.script.frames += 1
@@ -700,4 +706,52 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 			app.pen_distance = 0
 		}
 	}
+}
+
+// Builds simplified copies for the first object level that waits for any, a batch or
+// more, in the time left of the frame the display allows (the refresh with vsync, the
+// limit with a limit; LOD_FRAME_BUDGET at most, and that when there is no beat). Never
+// during a stroke, whose frames should stay as short as they can be. What it builds goes
+// up in the next frame's uploads. Returns the time it took, negative when it built nothing.
+lod_build_frame :: proc(app: ^App, frame_start: time.Tick) -> f64 {
+	if !app.simplify || app.stroke.active do return -1
+	for obj in app.scene.objects {
+		if obj.voxel != nil do continue
+		parts := [2]^sculpt.Level{sculpt.levels_current(&obj.levels), obj.levels.hd.window}
+		for lv in parts {
+			if lv == nil || sculpt.sculptor_lod_pending(&lv.sculptor) == 0 do continue
+			start := time.tick_now()
+			_, _ = sculpt.sculptor_lod_update(&lv.sculptor, budget = lod_budget(app, frame_start))
+			return time.duration_milliseconds(time.tick_since(start))
+		}
+	}
+	return -1
+}
+
+// Whether any object level still waits for simplified copies: the frames that build
+// them are work, so the app does not rest while they wait (idle_note).
+lod_waiting :: proc(app: ^App) -> bool {
+	if !app.simplify do return false
+	for obj in app.scene.objects {
+		if obj.voxel != nil do continue
+		if sculpt.sculptor_lod_pending(&sculpt.levels_current(&obj.levels).sculptor) > 0 do return true
+		if w := obj.levels.hd.window; w != nil && sculpt.sculptor_lod_pending(&w.sculptor) > 0 do return true
+	}
+	return false
+}
+
+// LOD_FRAME_BUDGET, or less where the display sets a beat: what is left of it after the
+// frame so far, keeping LOD_SLACK for the next frame to start in time.
+LOD_SLACK :: 1 * time.Millisecond
+
+lod_budget :: proc(app: ^App, frame_start: time.Tick) -> time.Duration {
+	hz: f32
+	switch app.frame_rate {
+	case .Match_Display: hz = display_refresh(app.window)
+	case .Limit:         hz = f32(clamp(app.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
+	case .Unlimited:
+	}
+	if hz <= 0 do return sculpt.LOD_FRAME_BUDGET
+	left := time.Duration(1e9 / f64(hz)) - time.tick_since(frame_start) - LOD_SLACK
+	return clamp(left, 0, sculpt.LOD_FRAME_BUDGET)
 }

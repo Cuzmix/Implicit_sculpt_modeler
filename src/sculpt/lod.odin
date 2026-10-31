@@ -149,19 +149,19 @@ sculptor_lod_pending :: proc(s: ^Sculptor) -> int {
 }
 
 // Rebuilds the copies of stale groups, lowest first (a group is made from its
-// children's copies), in parallel batches: with `finish` until none is left, else
-// while one more batch as long as the last would still end within LOD_FRAME_BUDGET.
-// Does nothing during a stroke, while its groups keep changing. Returns the ranges of
-// `lod.indices` it rewrote, for upload; `all` when slots moved and all of
-// `lod.indices` needs uploading.
-sculptor_lod_update :: proc(s: ^Sculptor, finish := false) -> (ranges: []geom.Index_Range, all: bool) {
+// children's copies), in parallel batches: with `finish` until none is left, else at
+// least one batch, then more while one as long as the last would still end within
+// `budget`. Does nothing during a stroke, while its groups keep changing. What it
+// rewrote waits in sculptor_lod_uploads until sculptor_lod_uploaded, so a caller can
+// build after one frame's upload and upload in the next. Returns those waiting ranges,
+// as sculptor_lod_uploads does.
+sculptor_lod_update :: proc(s: ^Sculptor, finish := false, budget := LOD_FRAME_BUDGET) -> (ranges: []geom.Index_Range, all: bool) {
 	l := &s.lod
-	clear(&l.uploads)
 	start := time.tick_now()
 	last: time.Duration // the previous batch's time
 	threads := jobs.pool_size(s.pool) if s.pool != nil else 1
 	batch := make([dynamic]u32, 0, len(l.stale), context.temp_allocator)
-	for len(l.stale) > 0 && !s.history.recording && (finish || time.tick_since(start) + last <= LOD_FRAME_BUDGET) {
+	for batches := 0; len(l.stale) > 0 && !s.history.recording && (finish || batches == 0 || time.tick_since(start) + last <= budget); batches += 1 {
 		batch_start := time.tick_now()
 		lowest := max(u8)
 		for g in l.stale do lowest = min(lowest, l.height[g])
@@ -181,9 +181,19 @@ sculptor_lod_update :: proc(s: ^Sculptor, finish := false) -> (ranges: []geom.In
 		lod_rebuild(s, batch[:])
 		last = time.tick_since(batch_start)
 	}
-	all = l.moved
-	l.moved = false
-	return l.uploads[:], all
+	return sculptor_lod_uploads(s)
+}
+
+// The ranges of `lod.indices` rebuilt since sculptor_lod_uploaded, for upload; `all` when
+// slots moved and all of `lod.indices` needs uploading.
+sculptor_lod_uploads :: proc(s: ^Sculptor) -> (ranges: []geom.Index_Range, all: bool) {
+	return s.lod.uploads[:], s.lod.moved
+}
+
+// Says what sculptor_lod_uploads gave is on the GPU.
+sculptor_lod_uploaded :: proc(s: ^Sculptor) {
+	clear(&s.lod.uploads)
+	s.lod.moved = false
 }
 
 @(private)

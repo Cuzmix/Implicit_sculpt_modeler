@@ -18,7 +18,7 @@ Remesh_Setup :: struct {
 	keep_detail: bool, // the result put back on the old surface, its polypaint and polygroups along
 	groups:      bool, // each polygroup a closed piece of its own
 	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
-	mirror:      geom.Remesh_Mirror, // the brush's symmetry planes, which the result keeps (remesh_mirror)
+	mirror:      geom.Remesh_Mirror, // Keep symmetry: the brush's symmetry planes, which the result keeps (remesh_mirror)
 }
 
 // The panel's options, as a command takes them, with the symmetry on now.
@@ -26,20 +26,16 @@ remesh_setup :: proc(app: ^App) -> Remesh_Setup {
 	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads, remesh_mirror(app, selected_object(app))}
 }
 
-// The planes a remesh of `obj` keeps symmetric across: the brush's symmetry planes,
-// through the centre its dabs mirror about (the origin, or with Local the middle of the
-// object), so a sculpt made with symmetry comes out of a remesh as symmetric as it went
-// in, ready for more symmetric strokes. Radial symmetry asks nothing of the lattice.
-remesh_mirror :: proc(app: ^App, obj: ^Object) -> (mirror: geom.Remesh_Mirror) {
-	if obj == nil do return
-	for a in sculpt.Axis do mirror.axes[int(a)] = a in app.brush.symmetry
-	if mirror.axes != {} do mirror.center = symmetry_center(app, obj)
-	return
+// The planes a remesh of `obj` keeps symmetric across: the brush's (symmetry_planes)
+// while Keep symmetry is on, none when it is off.
+remesh_mirror :: proc(app: ^App, obj: ^Object) -> geom.Remesh_Mirror {
+	return symmetry_planes(app, obj) if app.ui.remesh_keep_symmetry else {}
 }
 
 // The panel set to a command's options (Adjust last).
 remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
 	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.groups, s.quads
+	if s.mirror.axes != {} do app.ui.remesh_keep_symmetry = true
 }
 
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
@@ -155,8 +151,9 @@ remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_fr
 	sculpt.levels_set_quads(l, faces)
 }
 
-// The option rows under Rebuild's Even density: Smooth, Keep detail, Quads and Groups
-// (which has nothing to do on an object without polygroups, or under dynamic topology).
+// The option rows under Rebuild's Even density: Smooth, Keep detail, Quads, Groups
+// (which has nothing to do on an object without polygroups, or under dynamic topology)
+// and Keep symmetry.
 kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	smooth := f32(app.ui.remesh_smooth)
@@ -167,4 +164,5 @@ kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 	_ = ui.switch_row(ctx, "Quads", &app.ui.remesh_quads)
 	grouped := obj != nil && !object_dynamic(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
 	_ = ui.switch_row(ctx, "Groups", &app.ui.remesh_groups, enabled = grouped)
+	kit_keep_symmetry(app, &app.ui.remesh_keep_symmetry)
 }
