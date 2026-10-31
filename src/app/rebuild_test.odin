@@ -90,9 +90,10 @@ rebuild_runs_the_goal :: proc(t: ^testing.T) {
 	app: App
 	app.ui.rebuild_even, app.ui.rebuild_fewer, app.ui.retopo_quads, app.ui.retopo_engine = 300_000, 20_000, 900, .Own
 	app.ui.remesh_smooth, app.ui.remesh_keep_detail = 5, true
+	app.ui.decimate_by, app.ui.decimate_percent, app.ui.decimate_keep_groups, app.ui.decimate_use_mask = .Percent, 10, true, true
 	wants := [Rebuild_Goal]Scene_Command {
 		.Even  = {kind = .Remesh, vertices = 300_000, remesh = {smooth = 5, keep_detail = true}},
-		.Fewer = {kind = .Decimate, vertices = 20_000},
+		.Fewer = {kind = .Decimate, vertices = 20_000, decimate = {percent = 10, keep_groups = true, use_mask = true}},
 		.Quads = {kind = .Retopo, vertices = 900, quad = {engine = .Own}},
 	}
 	for goal in Rebuild_Goal {
@@ -102,4 +103,66 @@ rebuild_runs_the_goal :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, rebuild_count(10), REBUILD_MIN_VERTICES)
 	testing.expect_value(t, rebuild_count(1 << 30), REBUILD_MAX_VERTICES)
+}
+
+// A share of the object becomes a count of it as it is; a count stays.
+@(test)
+decimate_aims_for_a_share_or_a_count :: proc(t: ^testing.T) {
+	testing.expect_value(t, decimate_target(100_000, 5_000, {percent = 20}), 20_000)
+	testing.expect_value(t, decimate_target(100_000, 5_000, {}), 5_000)
+	testing.expect_value(t, decimate_target(10, 5_000, {percent = 1}), 4)
+	app: App
+	app.ui.decimate_by, app.ui.decimate_percent = .Count, 30
+	testing.expect_value(t, decimate_setup(&app).percent, 0)
+	decimate_setup_set(&app, {percent = 25, keep_borders = true})
+	testing.expect(t, app.ui.decimate_by == .Percent && app.ui.decimate_percent == 25 && app.ui.decimate_keep_borders && !app.ui.decimate_keep_paint)
+}
+
+// Polypaint follows the vertices that stay and polygroups the triangles, the line
+// between the groups staying where it was.
+@(test)
+decimate_keeps_paint_and_groups :: proc(t: ^testing.T) {
+	src: Decimate_Source
+	src.mesh = geom.icosphere(5)
+	defer decimate_source_free(&src)
+	n := len(src.mesh.positions)
+	src.color = make([]sculpt.Color, n)
+	for &c, v in src.color do c = {255, 0, 0, 255} if src.mesh.positions[v].z > 0 else {0, 0, 255, 255}
+	src.groups = make([]u16, len(src.mesh.indices) / 3)
+	for &g, i in src.groups do g = 7 if src.mesh.positions[src.mesh.indices[3 * i]].x > 0 else 3
+	src.mask = make([]u8, n)
+	for &m, v in src.mask do m = 255 if src.mesh.positions[v].y > 0.5 else 0
+	mesh, _, surface, built := decimate_compute(src, 500, {keep_paint = true, keep_groups = true, keep_borders = true, use_mask = true}, nil)
+	defer geom.mesh_destroy(&mesh)
+	defer surface_free(&surface)
+	if !testing.expect(t, built) do return
+	testing.expect_value(t, len(surface.color), len(mesh.positions))
+	testing.expect_value(t, len(surface.groups), len(mesh.indices) / 3)
+	testing.expectf(t, abs(len(mesh.positions) - 500) < 60, "%d vertices", len(mesh.positions))
+	for c, v in surface.color {
+		want := sculpt.Color{255, 0, 0, 255} if mesh.positions[v].z > 0 else sculpt.Color{0, 0, 255, 255}
+		if c != want {
+			testing.expectf(t, false, "vertex %d at %v took %v", v, mesh.positions[v], c)
+			break
+		}
+	}
+	// Each triangle's group is the side of x = 0 it is on, give or take the zigzag of
+	// the line, which runs through the old line's own vertices.
+	wrong := 0
+	for g, i in surface.groups {
+		for k in 0 ..< 3 {
+			x := mesh.positions[mesh.indices[3 * i + k]].x
+			if abs(x) > 0.1 && (x > 0) != (g == 7) do wrong += 1
+		}
+	}
+	testing.expectf(t, wrong == 0, "%d corners on the wrong side of their group", wrong)
+	r := geom.mesh_check(mesh)
+	testing.expectf(t, r.closed && r.degenerate_triangles == 0, "%v", r)
+	// The masked cap keeps more of its vertices than the same cap below.
+	top, bottom := 0, 0
+	for p in mesh.positions {
+		if p.y > 0.5 do top += 1
+		if p.y < -0.5 do bottom += 1
+	}
+	testing.expectf(t, top > 2 * bottom, "masked %d, unmasked %d", top, bottom)
 }

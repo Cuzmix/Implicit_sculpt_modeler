@@ -30,29 +30,40 @@ DECIMATE_ROUND_KEEP :: 4
 // simplify's passes, and stops after a cancel, returning not ok with nothing to free.
 // The vertices kept are `m`'s own, in order of first use; with `from` each new vertex's
 // number in `m` is appended to it, so what a vertex carries (paint, shape keys, groups)
-// can follow it.
-mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, from: ^[dynamic]u32 = nil) -> (out: Mesh, error: f32, ok: bool) {
+// can follow it. `guide` (Simplify_Guide, its labels one per triangle of `m`) holds the
+// lines between polygroups, lets open edges slide and keeps weighted detail longer; the
+// parallel rounds hold their cells' borders whatever it says, and only the last round
+// lets open edges slide. With labels, `out_labels` receives each new triangle's.
+mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, from: ^[dynamic]u32 = nil, guide := Simplify_Guide{}, out_labels: ^[dynamic]u16 = nil) -> (out: Mesh, error: f32, ok: bool) {
 	triangles := len(m.indices) / 3
 	if triangles == 0 || wanted >= triangles do return {}, 0, false
 	target := max(wanted, 4)
 
 	indices := m.indices[:]
+	labels := guide.labels
 	round: [dynamic]u32
 	defer delete(round)
+	round_labels: [dynamic]u16
+	defer delete(round_labels)
 	// The rounds take about the first half of the time, each a quarter of what is left of
 	// it; the last simplify the rest.
 	rounds_end := share[0] + (share[1] - share[0]) * 0.5
 	for shift := false; len(indices) / 3 > 2 * DECIMATE_SLACK * target && len(indices) / 3 > 200_000; shift = !shift {
-		next := decimate_cells(m, indices, max(len(indices) / 3 / DECIMATE_ROUND_KEEP, DECIMATE_SLACK * target), shift, pool)
+		cells := Simplify_Guide{weight = guide.weight, labels = labels}
+		next, next_labels := decimate_cells(m, indices, max(len(indices) / 3 / DECIMATE_ROUND_KEEP, DECIMATE_SLACK * target), shift, pool, cells)
 		delete(round)
-		round = next
+		delete(round_labels)
+		round, round_labels = next, next_labels
 		indices = round[:]
+		if labels != nil do labels = round_labels[:]
 		at := jobs.progress_get(progress)
 		jobs.progress_set(progress, at, rounds_end, 0.75)
 		if jobs.progress_cancelled(progress) do return {}, 0, false
 	}
 	kept := make([dynamic]u32, 0, 3 * target + 3, context.temp_allocator)
-	error = simplify(m.positions[:], indices, target, &kept, context.temp_allocator, strict = true, progress = progress, share = {max(jobs.progress_get(progress), rounds_end), share[1]})
+	last := guide
+	last.labels = labels
+	error = simplify(m.positions[:], indices, target, &kept, context.temp_allocator, strict = true, progress = progress, share = {max(jobs.progress_get(progress), rounds_end), share[1]}, guide = last, out_labels = out_labels)
 	if jobs.progress_cancelled(progress) do return {}, 0, false
 
 	// Only the vertices still used, in order of first use.
@@ -74,9 +85,10 @@ mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := conte
 
 // One parallel round: the triangles `indices` bucketed by the cell their middle is in
 // (the cells moved half a cell along each axis with `shift`), each bucket simplified to
-// its share of `goal` on its own thread, the cells' shared borders held.
+// its share of `goal` on its own thread, the cells' shared borders held (`guide` never
+// slides them), with the triangles' labels when the guide has them.
 @(private = "file")
-decimate_cells :: proc(m: Mesh, indices: []u32, goal: int, shift: bool, pool: ^jobs.Pool) -> [dynamic]u32 {
+decimate_cells :: proc(m: Mesh, indices: []u32, goal: int, shift: bool, pool: ^jobs.Pool, guide: Simplify_Guide) -> (merged: [dynamic]u32, merged_labels: [dynamic]u16) {
 	CELLS :: DECIMATE_CELLS * DECIMATE_CELLS * DECIMATE_CELLS
 	lo, hi := m.positions[0], m.positions[0]
 	for p in m.positions {
@@ -97,10 +109,14 @@ decimate_cells :: proc(m: Mesh, indices: []u32, goal: int, shift: bool, pool: ^j
 	for i in 1 ..= CELLS do counts[i] += counts[i - 1]
 	bucketed := make([]u32, len(indices))
 	defer delete(bucketed)
+	labelled := guide.labels != nil
+	bucketed_labels := make([]u16, triangles if labelled else 0)
+	defer delete(bucketed_labels)
 	cursor := counts
 	for t in 0 ..< triangles {
 		c := cell_of(m, indices, t, lo, scale)
 		copy(bucketed[3 * cursor[c]:][:3], indices[3 * t:][:3])
+		if labelled do bucketed_labels[cursor[c]] = guide.labels[t]
 		cursor[c] += 1
 	}
 
@@ -110,9 +126,12 @@ decimate_cells :: proc(m: Mesh, indices: []u32, goal: int, shift: bool, pool: ^j
 		total:   int,
 		counts:  [CELLS + 1]int,
 		indices: []u32,
+		labels:  []u16,
+		weight:  []f32,
 		out:     [CELLS][dynamic]u32,
+		out_labels: [CELLS][dynamic]u16,
 	}
-	work := Work{m = m, goal = goal, total = triangles, counts = counts, indices = bucketed}
+	work := Work{m = m, goal = goal, total = triangles, counts = counts, indices = bucketed, labels = bucketed_labels if labelled else nil, weight = guide.weight}
 	jobs.parallel_for(pool, CELLS, &work, proc(data: rawptr, c: int) {
 		w := cast(^Work)data
 		first, last := w.counts[c], w.counts[c + 1]
@@ -121,14 +140,24 @@ decimate_cells :: proc(m: Mesh, indices: []u32, goal: int, shift: bool, pool: ^j
 		heap := runtime.heap_allocator()
 		w.out[c] = make([dynamic]u32, 0, 3 * (last - first), heap)
 		share := max((last - first) * w.goal / w.total, 1)
-		_ = simplify(w.m.positions[:], w.indices[3 * first:3 * last], share, &w.out[c], heap, strict = true)
+		cell := Simplify_Guide{weight = w.weight}
+		if w.labels != nil {
+			cell.labels = w.labels[first:last]
+			w.out_labels[c] = make([dynamic]u16, 0, last - first, heap)
+		}
+		_ = simplify(w.m.positions[:], w.indices[3 * first:3 * last], share, &w.out[c], heap, strict = true, guide = cell, out_labels = &w.out_labels[c])
 	})
 	total := 0
 	for o in work.out do total += len(o)
-	merged := make([dynamic]u32, 0, total)
+	merged = make([dynamic]u32, 0, total)
+	if labelled do merged_labels = make([dynamic]u16, 0, total / 3)
 	for &o in work.out {
 		append(&merged, ..o[:])
 		delete(o)
 	}
-	return merged
+	for &o in work.out_labels {
+		append(&merged_labels, ..o[:])
+		delete(o)
+	}
+	return
 }

@@ -306,6 +306,7 @@ adjust_open :: proc(app: ^App) {
 		remesh_setup_set(app, a.cmd.remesh)
 	case .Decimate:
 		app.ui.rebuild_fewer = rebuild_count(a.cmd.vertices)
+		decimate_setup_set(app, a.cmd.decimate)
 	case .Retopo:
 		app.ui.retopo_quads = i32(a.cmd.vertices)
 		quad_options_set(app, a.cmd.quad)
@@ -330,7 +331,7 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 	switch a.op {
 	case .None:
 	case .Remesh, .Decimate:
-		app.ui.scene_command = {kind = a.cmd.kind, vertices = vertices, remesh = remesh_setup(app) if a.cmd.kind == .Remesh else Remesh_Setup{}, adjust = true}
+		app.ui.scene_command = {kind = a.cmd.kind, vertices = vertices, remesh = remesh_setup(app) if a.cmd.kind == .Remesh else Remesh_Setup{}, decimate = decimate_setup(app) if a.cmd.kind == .Decimate else Decimate_Setup{}, adjust = true}
 	case .Mirror:
 		app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative, adjust = true}
 	case .Retopo:
@@ -389,6 +390,21 @@ kit_adjust_popover :: proc(app: ^App) {
 		shown := fmt.tprintf("%+.0f%%", amount * 100) if d.action == .Insert_Loop else fmt.tprintf("%+.3f", amount)
 		if ui.drag_value(ctx, "Amount##adjust", &amount, per, lo, hi, shown) do _ = adjust_model(app, amount)
 	case .Remesh, .Decimate:
+		if a.op == .Decimate && a.cmd.decimate.percent > 0 {
+			// A share runs again as a share of the object as it was.
+			names: [len(DECIMATE_ADJUST_PERCENTS)]string
+			chosen := -1
+			for p, i in DECIMATE_ADJUST_PERCENTS {
+				names[i] = fmt.tprintf("%d%%##adjust", p)
+				if f32(p) == a.cmd.decimate.percent do chosen = i
+			}
+			if chosen < 0 do ui.paragraph(ctx, fmt.tprintf("It kept %.0f%% of the vertices.", a.cmd.decimate.percent))
+			if picked := ui.tabs(ctx, "adjust share", names[:], chosen); picked >= 0 && picked != chosen {
+				app.ui.decimate_by, app.ui.decimate_percent = .Percent, f32(DECIMATE_ADJUST_PERCENTS[picked])
+				adjust_post(app, int(app.ui.rebuild_fewer))
+			}
+			break
+		}
 		if !is_size_preset(a.cmd.vertices) do ui.paragraph(ctx, fmt.tprintf("It ran at %s vertices.", thousands(a.cmd.vertices)))
 		names: [len(SPHERE_PRESETS)]string
 		chosen := -1

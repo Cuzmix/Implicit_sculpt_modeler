@@ -94,8 +94,14 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   acceptance (`build/remesh_check/report.md`): run it after any change to `remesh.odin`, `src/retopo` or `quadmesh`.
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
-  (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object
-  tab's Decimate and the script `set rebuild_goal fewer; set rebuild_fewer N; rebuild`. The LOD copies keep the non-strict `simplify`.
+  (`DECIMATE_ROUND_KEEP`, shifted cells), then whole. A `geom.Simplify_Guide` (strict only) steers it: per-vertex
+  `weight` (dearer to move), per-triangle `labels` whose dividing lines are feature lines (their vertices slide only
+  along them, `rail`, corners under ~105° stay, edge planes hold the shape; labels come out in `out_labels`) and
+  `slide_borders` (open edges become such lines; the cell rounds never slide). `src/app/decimate.odin` builds it:
+  `Decimate_Setup` (percent or count, Keep paint/groups/borders, Use mask) in `Scene_Command.decimate`,
+  `decimate_source` copies, `decimate_compute` carries paint by `from` and groups by labels into a `Surface`; wired as
+  `Scene_Command .Decimate` → `object_decimate` or the long job, Rebuild's Fewer goal and the script `set rebuild_goal
+  fewer; set decimate_percent 10; rebuild`. The LOD copies keep the non-strict, unguided `simplify`.
 - Mirror and weld exists: `geom.mesh_symmetrize(m, axis, keep_positive, pool)` (`src/geom/symmetrize.odin`) cuts at the
   axis plane (snapping vertices within 1e-5 of the size onto it), clips crossing triangles with cut points computed
   from the lower-numbered edge end so they weld bit-exactly in `mesh_clean`, mirrors with reversed winding. Wired as
