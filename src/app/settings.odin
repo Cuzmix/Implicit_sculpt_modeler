@@ -342,6 +342,8 @@ SETTINGS := [?]Setting {
 	{"brush_category", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, category), Brush_Category, 0, 0},
 	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
+	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
+	{"top_islands", K + offset_of(Kit_State, top_islands), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},

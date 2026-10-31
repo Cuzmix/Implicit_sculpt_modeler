@@ -93,7 +93,7 @@ UI = {
     "size": (42, 360), "strength": (42, 545),
     # The view chips over the view's top-left corner, and the chip bar's object chip.
     "camera_chip": At("view chips/Camera", 75, 77), "pass_chip": At("view chips/Shading", 187, 77),
-    "status": At("top bar/Object", 700, 28),
+    "status": At("top bar/Object", 966, 28),
     # The navigation head, left of the panel stack.
     "nav_head": (1185, 90),
     # The view rail down the right edge: the tray (the panel stack), then its view tools.
@@ -2793,6 +2793,25 @@ def long_press_a_search_row_shows_where():
 
 
 @scenario
+def search_field_setting_opens_the_palette():
+    """With Settings' Search as a field, the top bar holds the 300-point field left of History: a tap on its left part, where the icon bar has only empty room, opens the command palette."""
+    write_settings("search_field 1\n")
+    s = Script()
+    s.ftap(1250, 26)
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "palette": near(1)})
+
+
+@scenario
+def search_icon_leaves_the_middle_empty():
+    """Search as its icon (the default), the same tap lands on the bar's empty middle and opens nothing."""
+    s = Script()
+    s.ftap(1250, 26)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "palette": near(0)})
+
+
+@scenario
 def search_opens_a_section_by_name():
     """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush palette."""
     s = Script()
@@ -2890,7 +2909,9 @@ def pinned_sections_join_the_stack():
 # opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
 # Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
 # the views Focus mode and Inspect.
-SPACE_TABS = {"sculpt": (357, 26), "model": (447, 26), "render": (538, 26), "chevron": (609, 26)}
+# The space tabs centred in the top bar's middle island, by name (and where each was at 1600 x 900).
+SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top bar/Spaces/Model", 673, 26),
+              "render": At("top bar/Spaces/Render", 765, 26), "chevron": At("top bar/space tabs/Layouts", 834, 26)}
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
@@ -3319,7 +3340,7 @@ def a_stroke_under_the_tray_fades_it():
 # the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
-LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (700, 28)
+LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
 LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421), "mini": (1403, 470)}
 LENS_1440 = ["--width=1440", "--height=900"]
 LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
@@ -3415,7 +3436,7 @@ LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "la
               "move_tool": (957, 833), "curve_remesh": (819, 833)}
 # Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
-LENS_MODEL_TAB = (447, 26)
+LENS_MODEL_TAB = (594, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
@@ -4688,7 +4709,7 @@ def lens_context_bar_extracts_the_mask():
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
 # options, while nothing is recent.
-LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77), "curvature": (260, 536)}
+LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": (186, 77), "curvature": (260, 536)}
 
 
 @scenario
@@ -4708,7 +4729,7 @@ def lens_pass_popover_groups_the_passes():
 
 # Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
 # Red wax sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 442), "red_wax": (1180, 728), "undo": (217, 25)}
+LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 206), "add": (1220, 442), "red_wax": (1180, 728), "undo": (217, 25)}
 
 
 @scenario
@@ -4810,7 +4831,7 @@ def lens_lights_card_picks_and_adds():
 
 # Name every control at 1440x900: the Model space tab, and the note's Done once the tags
 # are kept on.
-HELP_LABELS = {"model": (457, 28), "done": (858, 182)}
+HELP_LABELS = {"model": (604, 28), "done": (858, 182)}
 
 
 @scenario
@@ -4851,7 +4872,7 @@ def help_labels_kept_until_done():
 
 # The tour at 1440x900 (--tour): the space tabs, each step's Next and the dial step's
 # Skip, the History button, the Paint toggle and the dial's Smooth.
-TOUR = {"model": (457, 28), "sculpt": (357, 28), "next_spaces": (590, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
+TOUR = {"model": (604, 28), "sculpt": (504, 28), "next_spaces": (737, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
         "next_palettes": (975, 487), "history": (1355, 28), "paint": (1267, 833), "smooth": (78, 778)}
 
 
@@ -5401,7 +5422,7 @@ def dock_stays_with_its_space():
 # island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
 # toggles for Spaces, with the Model tab of the Spaces island it makes.
 CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (242, 30), (700, 420), (730, 424)
-CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), (452, 80)
+CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), (599, 80)
 # The Library's close button.
 LIBRARY_AWAY = (753, 129)
 
@@ -13153,8 +13174,8 @@ def voxel_object_deleted_comes_back_with_undo():
 # The object menu's rows, under the chip at the default 1600x900 for a new cage (which
 # adding one leaves in Model space): its quick row's Lock, and the Sculpt-tagged "Make
 # sculptable" below the four Model verbs.
-CAGE_MENU_LOCK = (821, 138)
-CAGE_MENU_SCULPTABLE = (734, 361)
+CAGE_MENU_LOCK = At("object menu quick/Lock object", 1072, 138)
+CAGE_MENU_SCULPTABLE = (961, 361)
 
 
 def object_menu_open(s):
