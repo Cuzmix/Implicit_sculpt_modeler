@@ -67,7 +67,7 @@ bars_are_remembered :: proc(t: ^testing.T) {
 	for which in Bar_Which do if which != .View_Rail do testing.expectf(t, !bar_changed(&c, which), "%v changed", which)
 }
 
-// The view rail starts with its eight view tools and is kept as the other bars are:
+// The view rail starts with its four view tools and is kept as the other bars are:
 // whole in settings.txt and in a workspace's layout once it changes, as a fresh install's
 // otherwise.
 @(test)
@@ -77,9 +77,9 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "View_Layout_Menu,Pass_Menu,Camera_Menu,Focus_Selected,Symmetry_X,Wireframe,Show_Section:Lights,Thumbnail")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "View_Layout_Menu,Pass_Menu,Camera_Menu,Show_Section:Lights")
 	testing.expect(t, !bar_changed(&a, .View_Rail))
-	bar_remove(&a, .View_Rail, 5)
+	bar_remove(&a, .View_Rail, 3)
 	bar_put(&a, {which = .View_Rail, slot = 0, add = true}, {.Floor_Grid, 0})
 	testing.expect(t, bar_changed(&a, .View_Rail) && !bar_changed(&a, .Tools))
 	testing.expect(t, settings_save(&a, path))
@@ -121,6 +121,8 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	bars_reset(&app.kit)
+	// The wireframe joins the rail's four, at its end, for the strip to take later.
+	bar_put(&app, {which = .View_Rail, slot = 4, add = true}, {.Wireframe, 0})
 	rail := bar_used(&app, .View_Rail)
 	camera := Bar_Carry{slot = rail[2], look = .Chip, from = .View_Rail, from_slot = 2}
 	testing.expect(t, bar_drop(&app, camera, {which = .View_Rail, at = 0, ok = true}))
@@ -136,8 +138,8 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 
 	// Onto the tool strip: it joins there and leaves the rail.
 	n := bar_count(&app, .View_Rail)^
-	wire := Bar_Carry{slot = {.Wireframe, 0}, look = .Chip, from = .View_Rail, from_slot = 5}
-	testing.expect_value(t, bar_used(&app, .View_Rail)[5], wire.slot)
+	wire := Bar_Carry{slot = {.Wireframe, 0}, look = .Chip, from = .View_Rail, from_slot = 4}
+	testing.expect_value(t, bar_used(&app, .View_Rail)[4], wire.slot)
 	spots := []Bar_Spot{{which = .Tools, slot = 0, rect = {0, 0, 40, 40}}}
 	target, found := bar_target(&app, wire, spots, {30, 20})
 	testing.expect(t, found && target.ok && target.at == 1)

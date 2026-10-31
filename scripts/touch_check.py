@@ -96,7 +96,8 @@ UI = {
     "status": At("top bar/Object", 966, 28),
     # The navigation head, left of the panel stack.
     "nav_head": (1185, 90),
-    # The view rail down the right edge: the tray (the panel stack), then its view tools.
+    # The view rail down the right edge: the tray (the panel stack), then its view tools; past
+    # Camera these are where eight_rail() puts them (a fresh rail has Lights after Camera).
     "inspector": At("view bar/Palettes", 1563, 85), "view_layout": At("view bar/View layout", 1563, 133),
     "passes": At("view bar/Passes", 1563, 181), "camera": At("view bar/Camera", 1563, 229),
     "frame": At("view bar/Focus selected", 1563, 277), "sym_x": At("view bar/Symmetry across X", 1563, 325),
@@ -296,7 +297,7 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "sym_x", "sym_x",
+    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "lights", "lights",
                  "camera", "camera", "passes", "passes", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
                  "shelf_smooth", "shelf_draw", "browser", "browser", "inspector", "inspector", "status"]:
         s.ftap(UI[name])
@@ -430,6 +431,20 @@ def value_bars(island=(), strip=()):
     with open(settings_file(), "w") as f:
         f.write("\n".join(lines) + "\n")
     return [f"--settings-file={settings_file()}"]
+
+
+def eight_rail(step=""):
+    """Arguments that start the run with the view rail's eight view tools, as a fresh install
+    had them before it started with four: Focus selected, Symmetry, Wireframe and the mini
+    view between Camera and Lights, through the scenario's settings file (with `step`, a
+    file of that step's own, so what an earlier step saved does not carry over)."""
+    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Section:Lights", "Thumbnail"]
+    lines = ["version 13", f"bar_count view_rail {len(rail)}"] + [f"bar view_rail {i} {c}" for i, c in enumerate(rail)]
+    path = settings_file()[:-len(".txt")] + step + ".txt"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return [f"--settings-file={path}"]
 
 
 def tools_page():
@@ -582,7 +597,7 @@ def symmetry_tap_and_long_press():
     s.wait(8)
     s.ftap(SYMMETRY_AXES["y"])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
+    return s, eight_rail(), camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
 
 
 @scenario
@@ -602,8 +617,8 @@ def local_symmetry_tap():
     for _ in range(2):
         twice.ftap(SYMMETRY_AXES["local"])
         twice.wait(4)
-    return Steps([(s, [], camera_still({"dabs": near(0), "symmetry": is_text("x+local")})),
-                  (twice, [], camera_still({"dabs": near(0), "symmetry": is_text("none")}))])
+    return Steps([(s, eight_rail(), camera_still({"dabs": near(0), "symmetry": is_text("x+local")})),
+                  (twice, eight_rail("-twice"), camera_still({"dabs": near(0), "symmetry": is_text("none")}))])
 
 
 @scenario
@@ -621,7 +636,7 @@ def radial_symmetry_from_the_popover():
     (x0, y), (x1, _) = RADIAL_COPIES
     s.fdrag([(x0 + (x1 - x0) * i / 6, y) for i in range(7)])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("none+radial32z"), "bar_pop": is_text("symmetry")})
+    return s, eight_rail(), camera_still({"dabs": near(0), "symmetry": is_text("none+radial32z"), "bar_pop": is_text("symmetry")})
 
 
 @scenario
@@ -637,7 +652,7 @@ def radial_stroke_lays_its_copies():
     s.wait(4)
     s.mouse_drag([(760 + 8 * i, 200 + 4 * i) for i in range(8)])
     s.wait(4)
-    return s, [], {"symmetry": is_text("none+radial8y"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
+    return s, eight_rail(), {"symmetry": is_text("none+radial8y"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 
 
 @scenario
@@ -877,7 +892,7 @@ def polyframe_long_press_picks_fill():
     s.wait(4)
     s.ftap(UI["wireframe"])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "polyframe_fill": near(1), "polyframe_lines": near(1), "wireframe": near(1)})
+    return s, eight_rail(), camera_still({"dabs": near(0), "polyframe_fill": near(1), "polyframe_lines": near(1), "wireframe": near(1)})
 
 
 @scenario
@@ -2405,7 +2420,7 @@ def rapid_taps():
         s.ftap(UI["sym_x"], hold=1, gap=1)
     for x in range(200, 400, 20):
         s.ftap(x, 700 - x, hold=1, gap=1)
-    return s, [], {"dabs": near(0), "undo_steps": near(0), **{k: near(CAMERA0[k]) for k in ("camera_yaw", "camera_pitch", "camera_roll")}}
+    return s, eight_rail(), {"dabs": near(0), "undo_steps": near(0), **{k: near(CAMERA0[k]) for k in ("camera_yaw", "camera_pitch", "camera_roll")}}
 
 
 # The Mask section's More options row, where the tray shows it at 1600 x 900: with no mask
@@ -3080,7 +3095,8 @@ def model_dial_picks_select():
 
 
 # Drag and drop on the bars (bar_drag.odin) at 1280 x 720: the view rail's buttons down the
-# right edge (View layout, Passes, Camera, Focus, Symmetry, Wireframe, Lights, Mini view),
+# right edge (View layout, Passes, Camera, then with eight_rail() Focus, Symmetry, Wireframe,
+# Lights, Mini view),
 # the shelf's Clay tile and the tool strip's last button shown (Retopologize), Search, its first
 # row and a point on the view clear of every bar.
 DRAG_1280 = ["--width=1280", "--height=720"]
@@ -3109,7 +3125,7 @@ def bar_hold_and_drag_reorders_the_rail():
     s = Script()
     hold_and_carry(s, DRAG_RAIL["camera"], (DRAG_RAIL["layout"][0], DRAG_RAIL["layout"][1] - 10))
     return s, DRAG_1280, camera_still({"dabs": near(0), "bar_lifts": near(1), "bar_drops": near(1), "bar_carry": near(0),
-                                       "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu,Pass_Menu,Focus_Selected")})
+                                       "view_rail": is_text("Camera_Menu,View_Layout_Menu,Pass_Menu,Show_Section:Lights")})
 
 
 @scenario
@@ -3126,7 +3142,7 @@ def bar_drag_off_takes_it_off():
     """The rail's Wireframe held and carried onto the view, clear of every bar, comes off the rail with Undo on its note; nothing is sculpted."""
     s = Script()
     hold_and_carry(s, DRAG_RAIL["wireframe"], DRAG_CLEAR)
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops_off": near(1), "toast_undo": near(0),
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "bar_drops_off": near(1), "toast_undo": near(0),
                                        "view_rail": lambda v: "Wireframe" not in v and v.startswith("View_Layout_Menu")})
 
 
@@ -3137,7 +3153,7 @@ def bar_drag_to_another_bar_moves_it():
     s.ftap(At("page Curve", 704, 704))
     s.wait(10)
     hold_and_carry(s, DRAG_RAIL["wireframe"], (DRAG_CURVE_LAST[0] + 15, DRAG_CURVE_LAST[1]))
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "shelf": is_text("Tool_Curve,Tool_Insert,Brush:Smooth,Wireframe"),
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "bar_drops": near(1), "shelf": is_text("Tool_Curve,Tool_Insert,Brush:Smooth,Wireframe"),
                                        "view_rail": lambda v: "Wireframe" not in v})
 
 
@@ -3146,7 +3162,7 @@ def bar_brush_onto_the_rail_is_refused():
     """The shelf's Clay held and carried onto the rail is refused there: the rail and the shelf stay as they were."""
     s = Script()
     hold_and_carry(s, DRAG_CLAY, DRAG_RAIL["focus"])
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_refusals": near(1), "bar_drops": near(0), "shelf": lambda v: v.startswith("Brush:Clay,Brush:Draw"),
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "bar_refusals": near(1), "bar_drops": near(0), "shelf": lambda v: v.startswith("Brush:Clay,Brush:Draw"),
                                        "view_rail": lambda v: "Brush" not in v})
 
 
@@ -3188,7 +3204,7 @@ def bar_search_row_dragged_onto_the_rail():
     s.wait(4)
     s.fdrag(line(DRAG_ROW1, (DRAG_RAIL["focus"][0], DRAG_RAIL["focus"][1] + 10), 16))
     s.wait(4)
-    return s, DRAG_1280, camera_still({"dabs": near(0), "palette": near(0), "bar_drops": near(1),
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "palette": near(0), "bar_drops": near(1),
                                        "view_rail": lambda v: "Focus_Selected,Remesh" in v})
 
 
@@ -3357,7 +3373,9 @@ def a_stroke_under_the_tray_fades_it():
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
 LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
-LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421), "mini": (1403, 470)}
+LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 277)}
+# The mini view's button where eight_rail() puts it.
+LENS_RAIL_MINI = (1403, 470)
 LENS_1440 = ["--width=1440", "--height=900"]
 LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
 LENS_MINI_PICTURE = (1285, 720)
@@ -3370,10 +3388,10 @@ def rect_x(lo, hi):
 
 @scenario
 def lens_rail_holds_the_view_tools():
-    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's eight view tools; nothing moves the camera."""
+    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's four view tools; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "View_Layout_Menu,Pass_Menu,Camera_Menu,Focus_Selected,Symmetry_X,Wireframe,Show_Section:Lights,Thumbnail"
+    rail = "View_Layout_Menu,Pass_Menu,Camera_Menu,Show_Section:Lights"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -3404,6 +3422,18 @@ def lens_object_chip_opens_the_scene_palette():
 
 
 @scenario
+def lens_rail_names_its_buttons_on_a_wide_window():
+    """On a window as wide as a large desktop display's the rail names its buttons beside their icons, and Passes still opens its menu; at 1440 it keeps to its icons."""
+    s = Script()
+    s.ftap(At("view bar/Passes", 1820, 181))
+    s.wait(10)
+    narrow = Script()
+    narrow.wait(10)
+    return Steps([(s, ["--width=1920", "--height=1080"], camera_still({"rail_named": near(1), "pass_menu": near(1)})),
+                  (narrow, LENS_1440, camera_still({"rail_named": near(0)}))])
+
+
+@scenario
 def lens_rail_opens_beside_itself():
     """The rail's Passes and Lights open beside the rail, and View layout its menu of grids."""
     def run(name, checks):
@@ -3418,9 +3448,9 @@ def lens_rail_opens_beside_itself():
 def lens_rail_mini_view_turns_it_on():
     """The rail's Mini view shows the second view as the mini view at the pen side's bottom."""
     s = Script()
-    s.ftap(LENS_RAIL["mini"])
+    s.ftap(LENS_RAIL_MINI)
     s.wait(10)
-    return s, LENS_1440, camera_still({"thumbnail": near(1), "mini": rect_x(1150, 1250)})
+    return s, LENS_1440 + eight_rail(), camera_still({"thumbnail": near(1), "mini": rect_x(1150, 1250)})
 
 
 @scenario
@@ -4418,9 +4448,10 @@ def lens_shift_moves_lined_up_dividers():
     return Steps([run(True), run(False)])
 
 
-# Focus in Lens at 1600 x 900: the middle island's workspace chip and X symmetry chip, and
-# the tools island's View layout and Passes.
-LENS_FOCUS = {"workspace": (770, 33), "symmetry": (838, 33), "layout": (1460, 33), "passes": (1510, 33)}
+# Focus in Lens at 1600 x 900, the three-island top bar: the middle island's workspace chip
+# and X symmetry chip, and the right island's View layout and Passes.
+LENS_FOCUS = {"workspace": At("work island/Workspace", 770, 30), "symmetry": At("work island/Symmetry X", 838, 30),
+              "layout": At("app island/View layout", 1342, 30), "passes": At("app island/Passes", 1392, 30)}
 
 
 @scenario

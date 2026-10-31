@@ -7,9 +7,9 @@ import "core:strings"
 import "../camera"
 import "../ui"
 
-// Settings' blocks: each caption's group of rows, drawn and put back on its own, so
-// the narrow panel's tabs and the sheet's sections (lens_settings.odin) list the same blocks in their own
-// orders, and Search settings finds a block by its caption and the words of its rows.
+// Settings' blocks: each caption's group of rows, drawn and put back on its own. The sheet's
+// sections (lens_settings.odin) list every block once, the narrow panel's tabs are those
+// sections run together, and Search settings finds a block by its caption and the words of its rows.
 
 Settings_Block :: enum u8 {
 	// Interface.
@@ -36,7 +36,6 @@ Settings_Block :: enum u8 {
 	Pan_Zoom,
 	Mouse,
 	// Touch.
-	Finger_Model,
 	Touch_Strength,
 	Hold,
 	Pen_Empty,
@@ -44,10 +43,7 @@ Settings_Block :: enum u8 {
 	Pen_Predict,
 	Pen_Buttons,
 	Pen_Areas,
-	Palm,
-	Gesture_Switches,
 	Shapes,
-	Gesture_Map,
 	// Lens's Touch section: the gestures as rows with what each does, and the switches
 	// that list leaves.
 	Gesture_List,
@@ -75,73 +71,26 @@ Settings_Entry :: struct {
 	caption: string,
 }
 
-// The tabs of the Settings panel, which a window too small for the sheet (lens_settings.odin)
-// shows, as they have always been laid out.
-@(rodata)
-SETTINGS_INTERFACE := [?]Settings_Entry {
-	{.Look, "LOOK"},
-	{.Size, "SIZE"},
-	{.Clean_Dial, "CLEAN VIEW"},
-	{.Hands, "SCREEN LAYOUT"},
-	{.Top_Bar, "TOP BAR"},
-	{.Motion, "MOTION"},
-	{.Starting, "STARTING"},
-	{.Brush_Ring, "BRUSH RING"},
-	{.Symmetry_Line, "SYMMETRY"},
-	{.Column_Popovers, "PANELS"},
-	{.View_Grid, "VIEW GRID"},
-	{.Bars, "BARS"},
-	{.Action_Bar, "ACTION BAR"},
-	{.Wheel, "MODIFIER WHEEL"},
-	{.Inspector, "INSPECTOR"},
-	{.Pies, "PIES"},
-	{.Panel_Places, "PANELS"},
-}
 @(rodata)
 SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.Safe_Zone, "SAFE ZONE"}, {.Pan_Zoom, "PAN AND ZOOM"}, {.Mouse, "WITH A MOUSE"}}
 @(rodata)
-SETTINGS_TOUCH := [?]Settings_Entry {
-	{.Finger_Model, "ONE FINGER"},
-	{.Touch_Strength, ""},
-	{.Hold, "PRESS AND HOLD"},
-	{.Pen_Empty, "PEN AND MOUSE ON EMPTY SPACE"},
-	{.Pen_Tips, "PEN"},
-	{.Pen_Predict, ""},
-	{.Pen_Buttons, ""},
-	{.Palm, ""},
-	{.Gesture_Switches, "GESTURES"},
-	{.Shapes, "SHAPES"},
-	// It draws its own caption.
-	{.Gesture_Map, ""},
-	{.Pen_Areas, "WHERE THE PEN POINTS"},
-}
-@(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
-@(rodata)
-SETTINGS_SYSTEM := [?]Settings_Entry {
-	{.Statistics, "STATISTICS"},
-	{.Frame_Rate, "DISPLAY"},
-	{.Anti_Aliasing, ""},
-	{.Graphics, ""},
-	{.Autosave, "AUTOSAVE"},
-	{.Earlier_Saves, "EARLIER SAVES"},
-	{.Undo_History, "UNDO HISTORY"},
-	{.History_Steps, "WHAT BECOMES A STEP"},
-	{.History_Back, "GOING BACK"},
-	{.Blender_Link, "BLENDER LINK"},
-	{.Printer, "3D PRINTER"},
-}
 
-// The blocks of the narrow panel's tab `tab`.
+// The blocks of the narrow panel's tab `tab`: its sections' blocks one after another
+// (SETTINGS_SECTION_TAB), so the tabs and the sheet are one list of settings that cannot
+// drift apart. A later section whose first block has no caption, as the sheet titles it
+// with the section's name, gets that name as its caption here.
 settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
-	switch tab {
-	case .Interface:   return SETTINGS_INTERFACE[:]
-	case .Camera:      return SETTINGS_CAMERA[:]
-	case .Touch:       return SETTINGS_TOUCH[:]
-	case .Keys:        return SETTINGS_KEYS[:]
-	case .Performance: return SETTINGS_SYSTEM[:]
+	entries := make([dynamic]Settings_Entry, context.temp_allocator)
+	for s in Settings_Section {
+		if SETTINGS_SECTION_TAB[s] != tab do continue
+		for e, i in settings_section_entries(s) {
+			e := e
+			if i == 0 && e.caption == "" && len(entries) > 0 do e.caption = strings.to_upper(SETTINGS_SECTION_NAMES[s], context.temp_allocator)
+			append(&entries, e)
+		}
 	}
-	return nil
+	return entries[:]
 }
 
 // The words Search settings finds a block by, besides its caption: its rows' labels and
@@ -159,7 +108,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
-	.Bars             = "bars customise customize buttons dock",
+	.Bars             = "bars customise customize buttons dock rail labels names",
 	.Action_Bar       = "action bar next steps",
 	.Wheel            = "dial modifier wheel side size sectors turn smooth mask invert",
 	.Inspector        = "inspector show every option",
@@ -169,7 +118,6 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Safe_Zone        = "safe zone edges edge width",
 	.Pan_Zoom         = "pan zoom speed mouse wheel pointer",
 	.Mouse            = "mouse controls",
-	.Finger_Model     = "one finger on the model sculpts turns the view tap switch object mesh select",
 	.Touch_Strength   = "touch strength finger",
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
@@ -177,10 +125,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
 	.Pen_Buttons      = "pen barrel eraser end flip",
 	.Pen_Areas        = "apple pencil pen roll barrel twist turn hover model empty space double tap squeeze where side second button",
-	.Palm             = "palm rejection ignore the hand pen near",
-	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
 	.Shapes           = "shapes mask hide clip apply",
-	.Gesture_Map      = "gesture map tap hold fingers pen side button undo redo",
 	.Gesture_List     = "gestures one finger empty space two fingers three fingers tap hold pen side button undo redo clean view pinch zoom pan roll",
 	.Gesture_More     = "zoom about the fingers lift one of two fingers double tap frame pin",
 	.Finger_Sculpts   = "palm pen ignore touches finger can sculpt tap switch object mesh",
@@ -271,6 +216,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons down the view rail, on each of the shelf's pages and in its tools after All: any command, in any order.")
+		ui.label(ctx, "Names on the view rail")
+		labels := [len(Rail_Labels)]string{"Off", "Wide windows", "Always"}
+		if picked := ui.tabs(ctx, "Rail labels", labels[:], int(k.rail_labels)); picked >= 0 do k.rail_labels = Rail_Labels(picked)
+		ui.paragraph(ctx, "The rail's buttons named beside their icons. Wide windows names them on a desktop's window, where the room is there, and keeps a tablet's rail to its icons.")
 	case .Top_Bar:
 		styles := [2]string{"Three islands", "One bar"}
 		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
@@ -371,14 +320,6 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "Help > Keys lists every mouse control, as the tool now has them.")
 		if ui.button(ctx, "Mouse controls", .Bordered, glyph = ui.ICON_HELP, keys = command_hint(app, .Help, int(Help_Tab.Keys))) do command_run(app, .Help, int(Help_Tab.Keys))
 
-	case .Finger_Model:
-		model := [len(Finger_Model)]string{"Sculpts", "Turns the view"}
-		ui.label(ctx, "On the model")
-		if picked := ui.tabs(ctx, "Finger on the model", model[:], int(n.finger_model)); picked >= 0 do n.finger_model = Finger_Model(picked)
-		ui.paragraph(ctx, "On empty space one finger always turns the view. Turns the view leaves sculpting to the pen, as on a drawing tablet.")
-		pencil_only_note(app)
-		_ = ui.switch_row(ctx, "Tap another object to switch to it", &n.tap_switches)
-		ui.paragraph(ctx, "A quick finger tap on an object that is not the selected one selects it and sculpts nothing, so a finger switches meshes while the pen keeps sculpting. A tap on the selected object still lays a dab.")
 	case .Touch_Strength:
 		_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = finger_model_now(app) == .Sculpt)
 		ui.paragraph(ctx, "A finger's strokes work at this much of the brush's strength, so a finger can soften what the pen builds up. The pen and the mouse always work at full strength.")
@@ -405,29 +346,11 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		settings_pen_buttons(app)
 	case .Pen_Areas:
 		settings_pen_areas(app)
-	case .Palm:
-		_ = ui.switch_row(ctx, "Ignore the hand while the pen is near", &n.palm_rejection)
-		ui.paragraph(ctx, "A single finger does nothing while the pen is near the screen; two fingers still move the view.")
-	case .Gesture_Switches:
-		_ = ui.switch_row(ctx, "Pinch to zoom", &n.pinch_zoom)
-		_ = ui.switch_row(ctx, "Zoom and roll about the fingers", &n.zoom_toward, enabled = n.pinch_zoom || twist_rolls(n^))
-		_ = ui.switch_row(ctx, "Two-finger drag pans", &n.two_finger_pan)
-		_ = ui.switch_row(ctx, "Twist two fingers to roll", &n.twist_roll, enabled = n.orbit_style == .Free || n.orbit_style == .Turntable && n.turntable_roll)
-		if n.twist_roll && !twist_rolls(n^) do ui.paragraph(ctx, "Rolling needs the Trackball orbit style, or Twist two fingers to roll the turntable (Camera).")
-		_ = ui.switch_row(ctx, "Three fingers: size and focal shift", &n.three_finger)
-		ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Size and strength follow a drag up or down on the off-hand island's sliders too.")
-		_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
-		ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
-		_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)
-		ui.paragraph(ctx, "Double tap empty space to frame the selected object, or the model to turn about that point. A single tap's dab then lands a moment later, once no second tap came.")
 	case .Shapes:
 		applies := [len(Shape_Apply)]string{"Mouse at once", "Always at once", "Always after Apply"}
 		ui.label(ctx, "Mask, hide and clip shapes apply")
 		if picked := ui.tabs(ctx, "Shapes apply", applies[:], int(n.shape_apply)); picked >= 0 do n.shape_apply = Shape_Apply(picked)
 		ui.paragraph(ctx, "Mouse at once: a shape drawn with the mouse applies as it lets go; one drawn with a finger or the pen waits with Apply, Flip and Cancel under it, its corners and middle to drag and the view free to turn first.")
-	case .Gesture_Map:
-		ui.spacer(ctx, 8)
-		settings_gesture_map(app)
 	case .Gesture_List:
 		lens_gesture_list(app)
 	case .Gesture_More:
@@ -562,6 +485,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		bars_reset(k)
 		k.bars_edit = false
+		k.rail_labels = .Wide
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
@@ -577,7 +501,6 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.pivot, n.air_pivot, n.pivot_dot = d.pivot, d.air_pivot, d.pivot_dot
 	case .Safe_Zone:       n.edge_orbit, n.edge_size, n.edge_show = d.edge_orbit, d.edge_size, d.edge_show
 	case .Pan_Zoom:        n.pan_speed, n.zoom_speed, n.invert_wheel, n.wheel_toward = d.pan_speed, d.zoom_speed, d.invert_wheel, d.wheel_toward
-	case .Finger_Model:    n.finger_model, n.tap_switches = d.finger_model, d.tap_switches
 	case .Touch_Strength:  n.touch_strength = d.touch_strength
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
@@ -588,12 +511,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.pen_roll, n.grab_twist = d.pen_roll, d.grab_twist
 		for slots in PEN_AREA_SLOTS do for slot in slots do n.gestures[slot] = d.gestures[slot]
 		n.gestures[.Pen_Button_Empty] = d.gestures[.Pen_Button_Empty]
-	case .Palm:            n.palm_rejection = d.palm_rejection
-	case .Gesture_Switches:
-		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
-		n.three_finger, n.double_tap, n.lift_one_orbit = d.three_finger, d.double_tap, d.lift_one_orbit
 	case .Shapes:          n.shape_apply = d.shape_apply
-	case .Gesture_Map:     gesture_map_reset(n)
 	case .Gesture_List:
 		n.finger_model, n.pinch_zoom, n.two_finger_pan, n.twist_roll = d.finger_model, d.pinch_zoom, d.two_finger_pan, d.twist_roll
 		n.three_finger, n.tap_switches = d.three_finger, d.tap_switches

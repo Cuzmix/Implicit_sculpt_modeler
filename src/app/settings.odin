@@ -354,6 +354,7 @@ SETTINGS := [?]Setting {
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
 	{"top_islands", K + offset_of(Kit_State, top_islands), bool, 0, 0},
+	{"rail_labels", K + offset_of(Kit_State, rail_labels), Rail_Labels, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},

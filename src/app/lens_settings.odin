@@ -50,6 +50,21 @@ SETTINGS_TAB_SECTION := [Settings_Tab]Settings_Section {
 	.Performance = .Performance,
 }
 
+// The narrow panel's tab each section goes in; a tab lists its sections in this enum's order.
+@(rodata)
+SETTINGS_SECTION_TAB := [Settings_Section]Settings_Tab {
+	.Interface   = .Interface,
+	.Dial        = .Interface,
+	.Bars        = .Interface,
+	.Camera      = .Camera,
+	.Touch       = .Touch,
+	.Pen         = .Touch,
+	.Shortcuts   = .Keys,
+	.Performance = .Performance,
+	.Frame_Rate  = .Performance,
+	.Files       = .Performance,
+}
+
 @(rodata)
 LENS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
@@ -243,7 +258,7 @@ lens_gesture_list :: proc(app: ^App) {
 	if picked := gesture_row(ctx, "One finger tap on another object", {"Switch to it", "Same as on the model"}, 0 if n.tap_switches else 1, width); picked >= 0 do n.tap_switches = picked == 0
 	gesture_row_text(ctx, "One finger on empty space", "Turns the view", width)
 	// Two fingers always move the view; what else they do is one choice of three, or the
-	// switches' own mix when the narrow panel's switches set one these name none of.
+	// switches' own mix when a settings file from before this list holds one these name none of.
 	two := [?]string{"Pan, zoom and roll", "Pan and zoom", "Pan only", "Zoom and roll"}
 	at := -1
 	switch {
