@@ -51,7 +51,10 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 ./build.sh maccheck  # compile the app for the Mac (no link) to catch Mac-only errors (see Mac)
 ./build.sh all       # check, release, debug, test, iphonecheck, maccheck, wincheck, androidcheck, and the APK when the Android SDK is there
 ./build.sh clean     # remove build/ and the Android build's outputs (deps/ stays)
+python3 scripts/try_it.py # on a real machine: builds, runs 11 short checks on its own GPU, writes build/try_it/report.md and build/try_it.zip
 ```
+
+`scripts/try_it.py` is the one command for trying a change on a desktop: it builds the release app (`--debug` the debug one, whose leaks then fail a check; `--no-build` uses what is built), then runs short scripted checks on the machine's own GPU and screen, one after another: the app starting (`start`), a stroke at 1M and at 10M (`sculpt_1m`, `sculpt_10m`), a turn round 5M (`orbit_5m`), Remesh and Quad Remesh with the mesh checked after (`remesh`, `quad_remesh`), a voxel stroke (`voxels`), render mode (`render_mode`), an OpenEXR sky (`environment`), a glTF import (`import`) and 120 frames under the GPU's validation layer (`validation`, which needs the Vulkan SDK on Windows). Each passes when the app exits cleanly with no error lines and its exit stats say what the check expects; the report has a line a check with the backend, frame times, memory and the failure if any, beside each one's screenshot and log, all zipped into `build/try_it.zip` to send back. Names run only those checks (`--list` names them), and `--gpubench` adds the GPU benchmark's tables. The iPad and Android tablets run no scripts; their list is the device checklist in the sm-touch-testing skill.
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
 
