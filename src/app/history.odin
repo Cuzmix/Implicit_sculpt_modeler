@@ -567,7 +567,7 @@ smooth_command :: proc(app: ^App, steps: int) {
 	}
 	run := Gpu_Run{app = app}
 	gpu: sculpt.Smooth_Gpu
-	if app.ui.smooth_on_gpu && smooth_gpu_offered(app) && smooth_gpu_ready(app) {
+	if app.ui.smooth_on_gpu && smooth_gpu_ready(app) {
 		gpu = {&run, proc(data: rawptr, job: sculpt.Smooth_Gpu_Job) -> bool {
 			run := cast(^Gpu_Run)data
 			timing, ok := render.smooth_compute_run(&run.app.renderer, &run.app.smooth_gpu, job.positions, job.indices,
@@ -602,14 +602,6 @@ remove_stretching_command :: proc(app: ^App, _: int) {
 		return
 	}
 	report(app, Kit_Section.Topology, {.Undo}, "Split %s edges of %s down to %.3g (%.0f ms)", count_label(splits), object_label(obj), detail, ms)
-}
-
-// Whether Smooth all may run as a compute shader. The trial promises the GPU does the CPU's
-// arithmetic (smooth_all.comp.slang keeps every multiply and add unfused), which needs the
-// kernel compiled without fast maths: every backend but SDL_GPU's Metal, which has no way
-// to ask, so on Apple's platforms only the own Metal backend offers it.
-smooth_gpu_offered :: proc(app: ^App) -> bool {
-	return render.caps(&app.renderer).exact_compute
 }
 
 // Makes the compute pipeline the first time the GPU is asked to smooth. False (and the

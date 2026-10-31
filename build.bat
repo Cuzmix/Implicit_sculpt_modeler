@@ -109,9 +109,8 @@ exit /b
 
 :smoke
 set SDL_ASSERT=abort
-rem Once on each GPU backend; a Vulkan validation message fails it.
-"%ROOT%build\sculpt.exe" --frames=300 --gpu-debug --view-windows=1 --gpu=sdl || exit /b 1
-"%ROOT%build\sculpt.exe" --frames=300 --gpu-debug --view-windows=1 --gpu=vulkan || exit /b 1
+rem A Vulkan validation message fails it.
+"%ROOT%build\sculpt.exe" --frames=300 --gpu-debug --view-windows=1 || exit /b 1
 exit /b 0
 
 :release

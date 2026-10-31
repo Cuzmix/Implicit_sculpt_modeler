@@ -100,7 +100,7 @@ vk_validation_error :: proc(format: string, args: ..any) {
 	log.errorf("Vulkan validation: %s", fmt.tprintf(format, ..args))
 }
 
-// Logs why Vulkan cannot be used and keeps the reason for backend_fallback.
+// Logs why Vulkan cannot be used and keeps the reason for backend_error.
 @(private = "file")
 vk_fail :: proc(format: string, args: ..any) {
 	backend_fail("Vulkan", format, ..args)
@@ -176,7 +176,7 @@ vk_unfit :: proc(physical: vk.PhysicalDevice, family: ^u32) -> string {
 }
 
 // Creates the instance and the device, or returns false with the reason logged and kept for
-// backend_fallback (and the app then draws with SDL_GPU).
+// backend_error (and the app then says why it cannot start).
 vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice, bool) {
 	vk.load_proc_addresses_global(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
 	if vk.CreateInstance == nil {

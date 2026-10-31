@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fails when a package other than src/render names the GPU API, or when render calls
-SDL_GPU anywhere but its seam.
+SDL_GPU at all.
 
 Only src/render talks to the GPU (AGENTS.md, package boundaries): everything else holds
 render's handles (render.Cmd, render.Texture, render.Fence, render.Sample_Count) and calls
@@ -8,9 +8,10 @@ its procs, so a second GPU backend changes one package. SDL itself is allowed in
 only in the files that hold the windows, the events, the pen, the file dialogs and the
 system's services (APP_SDL_FILES); the tools, panels, commands and files name keys by the
 app's own Key (keys.odin) and ask platform.odin for the rest, and no other package
-imports SDL at all. Inside render, SDL_GPU's procs are called only
-from the seam (src/render/hal.odin, gpu_create_texture for sdl.CreateGPUTexture and so on),
-which a second backend answers too; its types and info structs are used everywhere.
+imports SDL at all. Inside render, SDL_GPU no longer draws: the seam (src/render/hal.odin,
+gpu_create_texture for sdl.CreateGPUTexture and so on) hands every call to render's own
+Vulkan or Metal backend, and no file calls one of SDL_GPU's procs; its types and info
+structs stay the seam's vocabulary.
 """
 import pathlib
 import re
@@ -40,14 +41,12 @@ GPU_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:(vulkan|directx/[^"]+|da
 def main() -> int:
     bad = []
     for path in sorted((ROOT / "src" / "render").glob("*.odin")):
-        if path.name == "hal.odin":
-            continue
         rel = path.relative_to(ROOT).as_posix()
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("//"):
                 continue
             for m in GPU_CALL.finditer(line):
-                bad.append(f"{rel}:{n}: sdl.{m.group(1)} outside the seam; call its gpu_ proc in hal.odin")
+                bad.append(f"{rel}:{n}: sdl.{m.group(1)} calls SDL_GPU, which no longer draws; call its gpu_ proc in hal.odin")
     for path in sorted((ROOT / "src").rglob("*.odin")):
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith("src/render/"):
@@ -64,7 +63,7 @@ def main() -> int:
         if not allowed and SDL_IMPORT.search(text):
             bad.append(f"{rel}: imports SDL; use the app's Key (keys.odin) or platform.odin, or add a device file to APP_SDL_FILES")
     if bad:
-        print("boundary: only src/render may name the GPU API, only its seam calls it, and only the app's platform files import SDL:")
+        print("boundary: only src/render may name the GPU API, nothing calls SDL_GPU, and only the app's platform files import SDL:")
         for b in bad:
             print("  " + b)
         return 1

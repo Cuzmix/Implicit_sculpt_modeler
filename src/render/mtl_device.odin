@@ -64,7 +64,7 @@ mtl_device_handle :: proc() -> ^sdl.GPUDevice {
 }
 
 // Makes the device and its queue, or returns false with the reason kept for
-// backend_fallback (and the app then draws with SDL_GPU).
+// backend_error (and the app then says why it cannot start).
 mtl_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 	NS.scoped_autoreleasepool()
 	// Metal reads its API validation switch when the device is made; SDL_GPU sets it for a
@@ -75,7 +75,7 @@ mtl_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 		backend_fail("Metal", "no Metal device")
 		return nil, false
 	}
-	// SDL_GPU's floor: the A9's family on the iPad, Mac2 on the Mac.
+	// The floor SDL_GPU kept, which the app was tried on: the A9's family on the iPad, Mac2 on the Mac.
 	family := MTL.GPUFamily.Apple3 when ODIN_PLATFORM_SUBTARGET_IOS else MTL.GPUFamily.Mac2
 	if !MTL.Device_supportsFamily(device, family) {
 		NS.release(device)

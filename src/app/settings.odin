@@ -361,7 +361,6 @@ SETTINGS := [?]Setting {
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
-	{"graphics", offset_of(App, graphics), Graphics, 0, 0},
 	{"async_compute", offset_of(App, async_compute), bool, 0, 0},
 	{"ray_query", offset_of(App, ray_query), bool, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},

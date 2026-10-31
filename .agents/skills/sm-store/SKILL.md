@@ -32,6 +32,11 @@ re-check the stores' pages before a first submission, because they move every ye
 - Play flags apps above 1.09% user-perceived crash rate or 0.47% ANR rate (8% on any one device model) and hides
   them. The main thread never blocks for seconds: long work (remesh, slice, file reads of big meshes) runs on jobs
   with progress, and the frame loop keeps presenting.
+- A device that cannot run the GPU backend is never offered the app, rather than having it fail at launch: the
+  Android manifest requires `android.hardware.vulkan.version` `0x403000` (Vulkan 1.3, which the own Vulkan backend
+  needs; SDL_GPU, the old fallback, is retired), so Play filters out older tablets. Raising what the backend needs
+  means raising that line too. On desktops and Apple's platforms the app says what it needs in the system's message
+  box and closes (`graphics_failed_text`).
 - Going to the background (SDL `EVENT_WILL_ENTER_BACKGROUND` / `DID_ENTER_BACKGROUND`) saves recoverable state and
   stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene. Today
   `DID_ENTER_BACKGROUND` starts an autosave at once (`app.autosave.background`, `src/app/autosave.odin`), and on mobile

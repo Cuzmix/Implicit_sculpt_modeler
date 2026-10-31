@@ -63,10 +63,9 @@ ray_query_check :: proc(r: ^Renderer) -> Ray_Query_Check {
 	ok := ray_query_check_run(r)
 	if ok {
 		log.info("ray query check: passed")
-	} else if gpu_backend == .Vulkan {
-		vk_validation_error("the ray query check failed")
 	} else {
-		log.error("ray query check: failed; the studio and render mode walk the app's own trees")
+		when METAL do log.error("ray query check: failed; the studio and render mode walk the app's own trees")
+		else do vk_validation_error("the ray query check failed")
 	}
 	return .Passed if ok else .Failed
 }
@@ -75,7 +74,7 @@ ray_query_check :: proc(r: ^Renderer) -> Ray_Query_Check {
 // run on a device from here, the check runs once first (it waits for the GPU, before the
 // first traced kernel is made), and a wrong answer keeps every view on the app's own trees.
 ray_query_trusted :: proc(r: ^Renderer) -> bool {
-	when METAL do if gpu_backend == .Metal && r.ray_query_check == .Not_Run do r.ray_query_check = ray_query_check(r)
+	when METAL do if r.ray_query_check == .Not_Run do r.ray_query_check = ray_query_check(r)
 	return r.ray_query_check != .Failed
 }
 

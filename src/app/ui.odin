@@ -45,7 +45,7 @@ Ui_State :: struct {
 	weld_distance:      f32, // Weld points: how far apart vertices weld, as a share of the object's largest side
 	smooth_steps:       i32, // steps each Smooth all press takes
 	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
-	smooth_on_gpu:      bool, // run Smooth all as a compute shader where the device offers it (smooth_gpu_offered); on by default
+	smooth_on_gpu:      bool, // run Smooth all as a compute shader; on by default
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
 	// Scene > Material's Group target (group_materials.odin): the section edits polygroup
 	// group_target's material, of object group_target_id (0 for none picked); Pick a group

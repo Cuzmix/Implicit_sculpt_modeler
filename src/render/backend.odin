@@ -5,75 +5,55 @@ import "core:log"
 
 import sdl "vendor:sdl3"
 
-// Which GPU API render drives, chosen before any window exists (windows drawn by Vulkan
-// need SDL_WINDOW_VULKAN, by Metal SDL_WINDOW_METAL) and kept for the run. SDL_GPU is the
-// fallback every other backend hands the run to when it cannot start.
-Gpu_Backend :: enum u8 {
-	SDL_GPU,
-	Vulkan, // vk_*.odin, everywhere but Apple's platforms
-	Metal,  // mtl_*.odin, Apple's platforms only
+// Render draws with one GPU API a platform: its own Metal backend (mtl_*.odin) on Apple's
+// platforms, its own Vulkan backend (vk_*.odin) everywhere else. Windows are made for it
+// (SDL_WINDOW_METAL or SDL_WINDOW_VULKAN), and a device that cannot run it cannot run the
+// app: there is no other backend to hand the run to.
+
+// Why the backend did not start, in words for the message the app shows before it closes;
+// empty while it has not failed. Kept in a buffer of its own, as the reasons are formatted
+// in temp memory the frame loop frees.
+@(private = "file")
+error_text: [200]u8
+@(private = "file")
+error_len: int
+
+backend_error :: proc() -> string {
+	return string(error_text[:error_len])
 }
 
-gpu_backend: Gpu_Backend
-
-// Why the backend asked for did not start, in words for the settings and the exit stats;
-// empty when it started or was not asked for. Kept in a buffer of its own, as the reasons
-// are formatted in temp memory the frame loop frees.
-@(private = "file")
-fallback_text: [200]u8
-@(private = "file")
-fallback_len: int
-
-backend_fallback :: proc() -> string {
-	return string(fallback_text[:fallback_len])
-}
-
-// Logs why the backend `name` cannot be used and keeps the reason for backend_fallback.
+// Logs why the backend `name` cannot start and keeps the reason for backend_error.
 backend_fail :: proc(name: string, format: string, args: ..any) {
 	text := fmt.tprintf(format, ..args)
-	log.warnf("%s: %s; drawing with SDL_GPU", name, text)
-	fallback_len = copy(fallback_text[:], text)
+	log.errorf("%s: %s", name, text)
+	error_len = copy(error_text[:], text)
 }
 
-// Asks for a backend for this run; called before any window is created. False, keeping
-// SDL_GPU, where the platform cannot run it.
-backend_select :: proc(backend: Gpu_Backend) -> bool {
-	gpu_backend = .SDL_GPU
-	fallback_len = 0
-	switch backend {
-	case .SDL_GPU:
-		return true
-	case .Vulkan:
+// Readies the backend before any window is created: Vulkan's loader must be found first,
+// as SDL makes Vulkan windows with it. False, with backend_error saying why, where it is not.
+backend_select :: proc() -> bool {
+	error_len = 0
+	when !METAL {
 		if !sdl.Vulkan_LoadLibrary(nil) {
 			backend_fail("Vulkan", "no Vulkan loader (%s)", sdl.GetError())
 			return false
 		}
-	case .Metal:
-		if ODIN_OS != .Darwin {
-			backend_fail("Metal", "Metal runs only on Apple's platforms")
-			return false
-		}
 	}
-	gpu_backend = backend
 	return true
 }
 
-// The flags windows need for the backend in use.
+// The flags windows need for the backend.
 window_flags :: proc() -> sdl.WindowFlags {
-	switch gpu_backend {
-	case .SDL_GPU:
-	case .Vulkan: return {.VULKAN}
-	case .Metal:  return {.METAL}
-	}
-	return {}
+	when METAL do return {.METAL}
+	else do return {.VULKAN}
 }
 
 // The backend's name for logs and the exit stats.
 backend_name :: proc() -> string {
-	switch gpu_backend {
-	case .SDL_GPU:
-	case .Vulkan: return "vulkan"
-	case .Metal:  return "metal"
-	}
-	return "sdl_gpu"
+	return "metal" when METAL else "vulkan"
+}
+
+// The backend's name for people, in the settings and the message a failed start shows.
+backend_title :: proc() -> string {
+	return "Metal" when METAL else "Vulkan"
 }

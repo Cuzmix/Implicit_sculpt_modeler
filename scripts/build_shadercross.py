@@ -3,11 +3,12 @@
 
     python scripts/build_shadercross.py     # setup_deps.sh runs it; needs cmake, git and a C/C++ compiler
 
-The iPad build draws through SDL_GPU's Metal backend, which takes Metal source (MSL), not
-SPIR-V, so every committed name.stage.spv has a name.stage.msl beside it, made by
+The Mac and iPad builds draw through render's own Metal backend, which takes Metal source
+(MSL), not SPIR-V, so every committed name.stage.spv has a name.stage.msl beside it, made by
 scripts/shaders_msl.py with this tool. SDL_shadercross is SDL's own translator: Metal has no
 descriptor sets, and it maps each of SDL's SPIR-V sets and bindings to the Metal slot
-SDL_GPU binds, which plain spirv-cross does not.
+SDL_GPU bound, which the own Metal backend binds the same way and plain spirv-cross does
+not.
 
 Three CMake builds go into one private prefix (deps/shadercross/prefix), all from pinned
 sources: SPIRV-Cross at SPIRV_CROSS_COMMIT (the commit SDL_shadercross's own submodule

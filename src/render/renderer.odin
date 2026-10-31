@@ -448,57 +448,27 @@ CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT)
 FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT)
 FLOOR_FRAG_CODE :: #load("shaders/floor.frag" + SHADER_EXT)
 
-// SDL_GPU's device: on its Metal backend on Apple's platforms, its Vulkan one elsewhere,
-// taking the shader code this build embeds (SHADER_FORMAT, shaders.odin).
-@(private = "file")
-sdl_device_create :: proc(r: ^Renderer, debug: bool) {
-	when ODIN_PLATFORM_SUBTARGET == .Android {
-		// Tablet GPUs may lack Vulkan features SDL asks for by default; nothing here clips
-		// with gl_ClipDistance, samples anisotropically or starts an indirect draw past
-		// instance 0, so those three are not required.
-		props := sdl.CreateProperties()
-		defer sdl.DestroyProperties(props)
-		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
-		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug)
-		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false)
-		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, false)
-		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false)
-		r.device = gpu_create_device_with_properties(props)
-	} else {
-		r.device = gpu_create_device(SHADER_FORMAT, debug, nil)
-		r.anisotropy = true
-	}
-}
-
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
 	r.background = {BACKGROUND, BACKGROUND}
-	if gpu_backend == .Vulkan {
-		// A device that falls short of the Vulkan backend's needs leaves the run to SDL_GPU,
-		// which draws into the same Vulkan-ready windows.
-		ok: bool
+	// A device that falls short of the backend's needs ends the start, with the reason in
+	// backend_error for the app's message.
+	ok: bool
+	when METAL {
+		r.device, ok = mtl_create_device(debug)
+		r.anisotropy = true
+	} else {
 		r.device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
 		r.anisotropy = vk_state.anisotropy
-		if !ok do gpu_backend = .SDL_GPU
 	}
-	when METAL {
-		// Likewise for Metal: SDL_GPU draws through Metal too, into the same windows.
-		if gpu_backend == .Metal {
-			ok: bool
-			r.device, ok = mtl_create_device(debug)
-			r.anisotropy = true
-			if !ok do gpu_backend = .SDL_GPU
-		}
-	}
-	if gpu_backend == .SDL_GPU do sdl_device_create(r, debug)
-	if r.device == nil {
-		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
+	if !ok || r.device == nil {
+		if backend_error() == "" do backend_fail(backend_title(), "no GPU device")
 		return false
 	}
 	log.infof("GPU: %s", gpu_description(r))
 	caps_fill(r)
 	if !gpu_claim_window_for_device(r.device, window) {
-		log.errorf("ClaimWindowForGPUDevice failed: %s", sdl.GetError())
+		backend_fail(backend_title(), "the window cannot be drawn into (%s)", sdl.GetError())
 		return false
 	}
 	if debug do r.ray_query_check = ray_query_check(r)
@@ -545,6 +515,12 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	if r.env_sampler == nil do log.errorf("environment sampler: %s", sdl.GetError())
 	if r.single.textured == nil do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
 	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil && r.no_normal_map != nil && r.texture_sampler != nil && r.no_environment != nil && r.env_sampler != nil
+}
+
+// The GPU's name alone, for people (Settings > System > Graphics). Temp-allocated.
+gpu_name :: proc(r: ^Renderer) -> string {
+	props := gpu_get_device_properties(r.device)
+	return fmt.tprint(sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_NAME_STRING, "an unknown GPU"))
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -882,7 +858,7 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl
 // Ensures the target matches the requested size and sample count (the main viewport
 // passes Renderer.samples; thumbnails and the navigation head stay at one sample, as the
 // interface samples them), and whether its depth is transient (`transient_depth`: one-shot
-// targets drawn in one pass with keep_depth false). Old textures are released; SDL_GPU
+// targets drawn in one pass with keep_depth false). Old textures are released; the backend
 // defers the actual free until in-flight command buffers no longer reference them.
 viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32, samples := sdl.GPUSampleCount._1, transient_depth := false) -> bool {
 	width, height := max(requested_width, 1), max(requested_height, 1)
