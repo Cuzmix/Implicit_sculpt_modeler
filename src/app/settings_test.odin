@@ -259,3 +259,21 @@ remesh_quads_default_changes_once :: proc(t: ^testing.T) {
 	testing.expect(t, !load(t, path, "version 9\nremesh_quads 0\n"), "a picked off stays off")
 	free_all(context.temp_allocator)
 }
+
+// Async compute is on from settings version 10, once, as Remesh's quads were from 9.
+@(test)
+async_compute_default_changes_once :: proc(t: ^testing.T) {
+	path := "build/async_compute_test.txt"
+	defer os.remove(path)
+	load :: proc(t: ^testing.T, path, text: string) -> bool {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
+		a: App
+		defer results_destroy(&a)
+		a.ui = ui_state_default()
+		settings_load(&a, path)
+		return a.async_compute
+	}
+	testing.expect(t, load(t, path, "version 9\nasync_compute 0\n"), "an old file's off becomes on")
+	testing.expect(t, !load(t, path, "version 10\nasync_compute 0\n"), "a picked off stays off")
+	free_all(context.temp_allocator)
+}

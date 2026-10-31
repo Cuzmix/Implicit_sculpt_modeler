@@ -37,6 +37,13 @@ Mtl_State :: struct {
 	in_flight:     [dynamic]^Mtl_Cmd,
 	windows:       [dynamic]^Mtl_Window,
 	present_logs:  [MTL_PRESENT_LOGS]Mtl_Present_Log,
+	// Display-link pacing (mtl_link.odin): whether the app asked for it, the running link
+	// (nil until an acquire wants it), whether it could not be made here, and the drawables
+	// earlier links handed over.
+	link:          ^Mtl_Link,
+	link_wanted:   bool,
+	link_failed:   bool,
+	link_taken:    u64,
 	properties_id: sdl.PropertiesID,
 }
 
@@ -97,6 +104,7 @@ mtl_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	if mtl_state.device == nil do return
 	_ = mtl_wait_for_idle(device)
 	for len(mtl_state.windows) > 0 do mtl_release_window(device, mtl_state.windows[0].window)
+	mtl_link_stop()
 	delete(mtl_state.windows)
 	mtl_present_logs_destroy()
 	for cmd in mtl_state.free_cmds do mtl_cmd_free(cmd)

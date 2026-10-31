@@ -7,7 +7,6 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
-import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -72,7 +71,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(34) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look); 29: Catmull-Clark levels, an applied cage's rule, polygons and creases (sculpt.levels_write); 30: the sculpt a cage was taken from by Edit cage (Cage_Part.held), after its look; 31: a cage's live stack (Thickness, Bevel creases) after Smooth and Flat; 32: a cage's live mirror axes after the stack; 33: the spaces each object is left out of (three more view bits); 34: each sculpt layer's mask (sculpt.levels_write)
+SCENE_VERSION :: u32(35) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look); 29: Catmull-Clark levels, an applied cage's rule, polygons and creases (sculpt.levels_write); 30: the sculpt a cage was taken from by Edit cage (Cage_Part.held), after its look; 31: a cage's live stack (Thickness, Bevel creases) after Smooth and Flat; 32: a cage's live mirror axes after the stack; 33: the spaces each object is left out of (three more view bits); 34: each sculpt layer's mask (sculpt.levels_write); 35: the folder each folder is in
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -587,9 +586,9 @@ scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 
 // Makes an object of each of the import's parts (taking their meshes), at `at` plus each
 // part's middle, and when there are several puts them in folders as the file has them:
-// each in a folder named after the node holding it in the file, one at the file's top in
-// a folder named `name`, and all of them in that one when the file names a single holder
-// or none; the selection ends on the first. With `record` it is one undo step: each add chained to the
+// one folder named `name` (the file's) holding them all, and inside it a folder for each
+// node of the file's hierarchy that holds a part, nested as the file nests them
+// (import_folder_paths); the selection ends on the first. With `record` it is one undo step: each add chained to the
 // first, then the folder as an Arrange step chained after them, so undo takes the folder
 // away and then the objects. Returns false on a GPU failure (what was added stays, and
 // is recorded).
@@ -614,24 +613,32 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 	app.import_folders, app.import_rig, app.import_joined = 0, m.rig, m.joined
 	if len(added) > 1 {
 		before := layout_take(app) if record else nil
-		holders := import_folder_names(m.parts[:len(added)], name)
-		// Folders in the order the file first names them, so the tree reads as the file does.
+		paths := import_folder_paths(m.parts[:len(added)], name)
+		// Folders in the order the file first names them, so the tree reads as the file
+		// does; each is known by its path, the names from the file's folder down joined.
 		Made :: struct {
-			name: string,
+			path: string,
 			id:   int,
 		}
 		made := make([dynamic]Made, context.temp_allocator)
 		for obj, k in added {
-			holder := holders[k]
-			id := -1
-			for f in made do if f.name == holder do id = f.id
-			if id < 0 {
-				f := folder_new(app)
-				f.name = strings.clone(holder)
-				id = f.id
-				append(&made, Made{holder, id})
+			parent := 0
+			for depth in 1 ..= len(paths[k]) {
+				key := strings.join(paths[k][:depth], "\x00", context.temp_allocator)
+				id := -1
+				for f in made do if f.path == key do id = f.id
+				if id < 0 {
+					f := folder_new(app, parent)
+					f.name = strings.clone(paths[k][depth - 1])
+					// The file's own folder is open; the ones inside it start folded, so a
+					// deep file reads as one tidy row until it is opened.
+					f.open = depth == 1
+					id = f.id
+					append(&made, Made{key, id})
+				}
+				parent = id
 			}
-			obj.folder = id
+			obj.folder = parent
 		}
 		app.import_folders = len(made)
 		if record do _ = history_record_arrange(app, before, "import", chain = true)
@@ -640,18 +647,34 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 	return ok
 }
 
-// The folder each of `parts` goes in when imported together: the node holding it in the
-// file, or `name` (the file's) for one at the file's top; all of them `name` when the file
-// names one holder or none, as a lone root node is the file itself. Temp memory.
-import_folder_names :: proc(parts: []geom.Mesh_Part, name: string) -> []string {
-	holders := make([]string, len(parts), context.temp_allocator)
-	one := true
-	for &h, k in holders {
-		h = parts[k].folder if parts[k].folder != "" else name
-		one &&= h == holders[0]
+// The folders each of `parts` goes in when imported together, from the top: `name` (the
+// file's), then the nodes holding it in the file, less the nodes every part sits under
+// (a lone root node is the file itself), and cut to FOLDER_DEPTH_MAX folders. Temp memory.
+import_folder_paths :: proc(parts: []geom.Mesh_Part, name: string) -> [][]string {
+	common := len(parts[0].folders) if len(parts) > 0 else 0
+	for &p in parts {
+		same := 0
+		for same < min(common, len(p.folders)) && p.folders[same] == parts[0].folders[same] do same += 1
+		common = same
 	}
-	if one do for &h in holders do h = name
-	return holders
+	paths := make([][]string, len(parts), context.temp_allocator)
+	for &p, k in parts {
+		rest := p.folders[common:]
+		rest = rest[:min(len(rest), FOLDER_DEPTH_MAX - 1)]
+		path := make([]string, 1 + len(rest), context.temp_allocator)
+		path[0] = name
+		copy(path[1:], rest)
+		paths[k] = path
+	}
+	return paths
+}
+
+// How many folders `paths` (from import_folder_paths) make: one for each path's every
+// start that no other path started the same.
+import_folder_count :: proc(paths: [][]string) -> int {
+	seen := make(map[string]bool, context.temp_allocator)
+	for p in paths do for depth in 1 ..= len(p) do seen[strings.join(p[:depth], "\x00", context.temp_allocator)] = true
+	return len(seen)
 }
 
 // Takes an imported part's polygons (in the part's numbering, which `old_to_new` and
@@ -968,11 +991,9 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 	text := strings.builder_make(context.temp_allocator)
 	strings.write_string(&text, head)
 	if len(m.parts) > 1 {
-		// As import_add_parts will file them: one folder, or the file's own groups.
-		holders := import_folder_names(m.parts[:], filepath.stem(path))
-		folders := 0
-		for h, k in holders do if !slice.contains(holders[:k], h) do folders += 1
-		if folders > 1 do strings.write_string(&text, fmt.tprintf(" as %d objects in %d folders, as the file groups them", len(m.parts), folders))
+		// As import_add_parts will file them: one folder, or the file's own groups in it.
+		folders := import_folder_count(import_folder_paths(m.parts[:], filepath.stem(path)))
+		if folders > 1 do strings.write_string(&text, fmt.tprintf(" as %d objects in %d folders, nested as the file groups them", len(m.parts), folders))
 		else do strings.write_string(&text, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
 	}
 	if closed {
@@ -1420,6 +1441,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 		geom.byte_put_string(out, f.name)
 		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
 		geom.byte_put(out, f.vis_off) // version 12
+		geom.byte_put(out, i32(f.parent)) // version 35
 	}
 	geom.byte_put(out, i32(app.scene.next_folder_id))
 	// Version 12: the stored visibility chosen and those in use.
@@ -1520,7 +1542,8 @@ lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSI
 }
 
 // The folders a scene file of `version` lists after its header, owned; ok is false
-// when they are damaged (an id twice or not positive, unknown flags), with none kept.
+// when they are damaged (an id twice or not positive, a parent below zero, unknown
+// flags), with none kept.
 folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
 	if version < 9 do return nil, 0, true
 	count := int(geom.byte_get(r, u32))
@@ -1531,10 +1554,13 @@ folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Fo
 		bits := geom.byte_get(r, u8)
 		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
 		if version >= 12 do f.vis_off = geom.byte_get(r, u8)
+		// Older files have every folder at the top. A parent that is not there, or a ring,
+		// is mended by scene_folders_normalize, as an object's unknown folder is.
+		if version >= 35 do f.parent = int(geom.byte_get(r, i32))
 		append(&folders, f)
 		unique := true
 		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
-		if !r.ok || f.id <= 0 || bits > 7 || !unique {
+		if !r.ok || f.id <= 0 || f.parent < 0 || bits > 7 || !unique {
 			folders_clear(&folders)
 			delete(folders)
 			return nil, 0, false

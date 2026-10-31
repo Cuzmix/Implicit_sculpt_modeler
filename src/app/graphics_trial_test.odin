@@ -4,9 +4,9 @@ import "core:os"
 import "core:strings"
 import "core:testing"
 
-// A Metal trial the setting chose leaves its marker; a start that finds the marker is back on
-// Automatic and removes it; a clean start removes it too; --gpu=metal and other choices are
-// never guarded.
+// A Metal start the setting chose leaves its marker; a start that finds the marker draws
+// with SDL_GPU and removes it; a clean start removes it too; --gpu=metal and choices that
+// are not Metal on this platform are never guarded (Automatic is Metal only on Apple's).
 @(test)
 graphics_trial_falls_back_after_a_failed_start :: proc(t: ^testing.T) {
 	folder := "build/graphics_trial_test/"
@@ -23,7 +23,7 @@ graphics_trial_falls_back_after_a_failed_start :: proc(t: ^testing.T) {
 
 	// The start crashed: the next one finds the marker.
 	start, path, failed = graphics_trial_begin(.Metal, "", settings)
-	testing.expect_value(t, start, Graphics.Auto)
+	testing.expect_value(t, start, Graphics.SDL_GPU)
 	testing.expect(t, failed && path == "" && !os.exists(marker), "a failed trial was not undone")
 
 	// A start that shows its frames removes its marker, and the one after tries again.
@@ -36,10 +36,13 @@ graphics_trial_falls_back_after_a_failed_start :: proc(t: ^testing.T) {
 	testing.expect(t, start == .Metal && !failed, "a trial after a good start was refused")
 	_ = os.remove(marker)
 
-	for c in ([?]Graphics{.Auto, .Vulkan, .SDL_GPU}) {
+	for c in ([?]Graphics{.Vulkan, .SDL_GPU}) {
 		start, path, failed = graphics_trial_begin(c, "", settings)
 		testing.expect(t, start == c && path == "" && !failed, "a choice other than Metal was guarded")
 	}
+	start, path, failed = graphics_trial_begin(.Auto, "", settings)
+	testing.expect(t, start == .Auto && (path != "") == GRAPHICS_METAL && !failed, "Automatic was guarded where it is not Metal, or not where it is")
+	_ = os.remove(marker)
 	start, path, failed = graphics_trial_begin(.Metal, "metal", settings)
 	testing.expect(t, start == .Metal && path == "" && !failed && !os.exists(marker), "--gpu=metal was guarded")
 	start, path, failed = graphics_trial_begin(.Metal, "", "")

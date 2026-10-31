@@ -222,6 +222,7 @@ mtl_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {
 	w := mtl_window_find(window)
 	if w == nil do return
 	_ = mtl_wait_for_idle(device)
+	if mtl_state.link != nil && mtl_state.link.window == w do mtl_link_stop()
 	if w.log != nil {
 		sync.guard(&w.log.lock)
 		w.log.in_use = false
@@ -296,11 +297,16 @@ mtl_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sd
 			if w.frame_serial[slot] > mtl_state.completed do return true
 		}
 	}
-	// nextDrawable gives up after a second without one (a hidden window); the frame is then
-	// skipped, as a busy swapchain is.
-	drawable := CA.MetalLayer_nextDrawable(w.layer)
-	if drawable == nil do return true
-	NS.retain(drawable)
+	// The display link's drawable when it paces this window (retained already); otherwise
+	// nextDrawable, which gives up after a second without one (a hidden window), and the
+	// frame is then skipped, as a busy swapchain is.
+	drawable, busy := mtl_link_drawable(w, wait)
+	if busy do return true
+	if drawable == nil {
+		drawable = CA.MetalLayer_nextDrawable(w.layer)
+		if drawable == nil do return true
+		NS.retain(drawable)
+	}
 	w.backing.texture = CA.MetalDrawable_texture(drawable)
 	append(&cmd.presents, Mtl_Present{w, drawable, slot})
 	w.frame = (w.frame + 1) % int(mtl_state.frames)

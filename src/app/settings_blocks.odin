@@ -597,9 +597,10 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Frame_Rate:
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.low_latency = .During_Strokes
+		app.display_link = false
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
-	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, false, true
+	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, true, true
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0

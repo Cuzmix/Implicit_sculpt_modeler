@@ -18,6 +18,9 @@ Gpu_Caps :: struct {
 	// How the backend learns when a frame reached the screen (present_times): .None where
 	// it cannot, and then the app shows only the time to the submit.
 	present_timing:   Present_Timing,
+	// A display link can pace frames (renderer_set_display_link): the own Metal backend,
+	// whose CAMetalDisplayLink hands each drawable over when the display wants the frame.
+	display_link:     bool,
 	// The GPU writes timestamps as it runs, so timestamps_frame gives each pass's GPU time
 	// without frames waiting for the GPU (timing.odin): the own Vulkan backend where the
 	// device times graphics and compute alike and resets queries from the CPU.
@@ -104,6 +107,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.frames_in_flight = FRAMES_IN_FLIGHT_DEFAULT
 	r.caps.frames_cheap = gpu_backend != .SDL_GPU || gpu_get_device_driver(r.device) == "metal"
 	r.caps.present_timing = gpu_present_timing(r.device)
+	r.caps.display_link = gpu_display_link_offered()
 	r.caps.timestamps = gpu_timestamps_offered(r.device)
 	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
@@ -148,4 +152,17 @@ renderer_set_frames_in_flight :: proc(r: ^Renderer, frames: u32) -> bool {
 frames_dropped :: proc(r: ^Renderer) -> (dropped: u64, known: bool) {
 	if r.device == nil do return 0, false
 	return gpu_frames_dropped()
+}
+
+// Lets a display link pace the frames where Gpu_Caps.display_link, while one frame is in
+// flight under vsync (a trial: off unless asked for). Cheap to call every frame.
+renderer_set_display_link :: proc(r: ^Renderer, on: bool) {
+	if r.caps.display_link do gpu_set_display_link(on)
+}
+
+// Frames the display link handed over since the device was made; `known` false where
+// there is no display link.
+display_link_frames :: proc(r: ^Renderer) -> (frames: u64, known: bool) {
+	if !r.caps.display_link do return 0, false
+	return gpu_display_link_frames(), true
 }

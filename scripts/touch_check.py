@@ -6665,7 +6665,44 @@ def folders_come_back_from_the_scene_file():
     ])
 
 
+@scenario
+def ctrl_g_twice_nests_a_folder():
+    """Ctrl+G twice on the first sphere makes a folder inside the first: the rows indent, and the outer folder's eye hides the sphere inside the inner one."""
+    nest = Script()
+    folder_first(nest)
+    nest.press("g", ["ctrl"])
+    nest.wait(6)
+    hide = Script()
+    folder_first(hide)
+    hide.press("g", ["ctrl"])
+    hide.wait(6)
+    hide.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    hide.wait(6)
+    return Steps([
+        (nest, scene_args(), {"folders": near(2), "scene_folders": is_text("2,0,0"), "folder_parents": is_text("1:0,2:1"), "tree_rows": near(5), "undo_steps": near(2)}),
+        (hide, scene_args(), {"objects_off": near(1), "objects_shown": near(2), "selected": near(1)}),
+    ])
+
+
+@scenario
+def folder_drags_into_another_folder():
+    """A folder's grip dragged onto the middle of another folder's row puts it inside that folder, with its sphere, as one undo step."""
+    s = Script()
+    folder_first(s)
+    # Sphere 2 (the second row under Folder 1's) in a folder of its own: Folder 2.
+    s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[2])
+    s.wait(4)
+    s.press("g", ["ctrl"])
+    s.wait(6)
+    # Rows: Folder 1, Sphere 1, Folder 2, Sphere 2, Sphere 3. Folder 2's grip (after its
+    # chevron) onto the middle of Folder 1's row.
+    s.mouse_drag(line((FOLDER_GRIP_X, SCENE_ROWS_Y[2]), (FOLDER_GRIP_X, SCENE_ROWS_Y[0]), 10))
+    s.wait(6)
+    return s, scene_args(), {"folders": near(2), "folder_parents": is_text("1:0,2:1"), "scene_order": is_text("1,2,3"), "scene_folders": is_text("1,2,0"), "undo_steps": near(3)}
+
+
 SCENE_GRIP_X = 1254  # an object row's grip, outside folders
+FOLDER_GRIP_X = 1290  # a folder row's grip, after its chevron, outside folders
 
 
 @scenario
@@ -7314,6 +7351,19 @@ def import_runs_as_a_long_job():
     s.press("f", ("shift",))
     s.wait(10)
     return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(2), "poly_edges": near(12), "undo_steps": near(1)})
+
+
+@scenario
+def import_nests_the_files_folders():
+    """A glTF whose meshes sit two nodes deep comes in as one folder named after the file, holding a folder for each node, nested as the file nests them; the Scene palette shows them indented."""
+    s = Script()
+    s.add(f"drop:{os.path.join(ROOT, 'src', 'app', 'testdata', 'import', 'rig.gltf')}")
+    s.wait(40)
+    scene_tab(s)
+    s.wait(6)
+    # Folders 1 rig (the file's), 2 Character in it, 3 Arms in Character. The History holds
+    # the three adds and the folders as four entries chained into one step.
+    return s, scene_args(), {"objects": near(6), "folders": near(3), "folder_parents": is_text("1:0,2:1,3:2"), "import_folders": near(3), "undo_steps": near(4)}
 
 
 @scenario

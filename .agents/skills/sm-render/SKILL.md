@@ -358,8 +358,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
   slots too: uniforms at buffer 0+, then read-only and read-write storage buffers; sampled textures and samplers at 0+,
   then read-only and read-write storage textures (each a view of one level and layer, made when the pass begins and
-  released when it ends); bindings reach the encoder at dispatch. The Graphics menu offers it only as Metal (trial), guarded by a start marker
-  (`graphics_trial_begin`, `src/app/graphics.odin`), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
+  released when it ends); bindings reach the encoder at dispatch. Automatic is it on Apple's platforms (Metal too), guarded by a start marker
+  (`graphics_trial_begin`, `src/app/graphics.odin`: a failed start moves the setting to SDL_GPU), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
   `backend_fallback` whichever one failed.
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
@@ -414,6 +414,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   handler (on its own thread, `context` set, under the log's mutex) records the time or a dropped frame. Logs live in
   `mtl_state.present_logs` and outlive windows, since a handler can come after its window is released; never free one
   while the device lives. One frame in flight also means `maximumDrawableCount` 2 (`mtl_layer_drawables`).
+  Pace with the display (`mtl_link.odin`, opt-in `mtl_state.link_wanted`) is a `CAMetalDisplayLink` on its own thread,
+  reached through `objc_send` with every selector checked; the delegate keeps one drawable only while `keep`, else
+  `nextDrawable` would wait on it. Untested on Apple hardware: change it only with an iPad's Pen to screen numbers.
 - Pre-rotation (Android, own Vulkan, `vk_pick_transform`): a swapchain image may be turned from the window
   (`swapchain_turns`); `Vk_Window.width/height` stay the window's. Anything new that draws into a swapchain must turn
   with `ui_pass_draw`'s `turns` (the vertex uniform's zw and the scissor remap); draw into an offscreen target instead.

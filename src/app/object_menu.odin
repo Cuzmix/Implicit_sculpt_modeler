@@ -212,11 +212,12 @@ kit_object_menu :: proc(app: ^App) {
 		if command_menu_item(app, conv.id, conv.arg, label = conv.label) do picked = true
 		k.object_menu_rows += 1
 	}
-	// Where it can go in the tree: a new folder, each other folder, or out of its own.
+	// Where it can go in the tree: a new folder, each other folder (named with the folders
+	// holding it, so two of one name tell apart), or out of its own, one level up.
 	if command_menu_item(app, .New_Folder) do picked = true
 	for &f in app.scene.folders {
 		if f.id == obj.folder do continue
-		if ui.menu_item(ctx, fmt.tprintf("Move to %s##into %d", folder_label(&f), f.id), glyph = ui.ICON_FOLDER) {
+		if ui.menu_item(ctx, fmt.tprintf("Move to %s##into %d", folder_path_label(app, &f), f.id), glyph = ui.ICON_FOLDER) {
 			app.ui.scene_command = {kind = .Arrange, arrange = .Into_Folder, id = obj.id, folder = f.id}
 			picked = true
 		}

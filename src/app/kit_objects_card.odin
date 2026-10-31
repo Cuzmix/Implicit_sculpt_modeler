@@ -159,27 +159,14 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	list_room := room - CARD_ACTIONS_MIN - GAP if c.actions else room
 	list_h := clamp(c.list_h if c.list_h > 0 else CARD_LIST_H, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
 	scroll := kit_scroll_begin(ctx, "objects card list", &c.scroll, id, inner, list_h, 0)
-	objects := app.scene.objects[:]
-	spots := make([dynamic]Tree_Spot, 0, len(objects) + len(app.scene.folders), context.temp_allocator)
-	for i := 0; i < len(objects); {
-		obj := objects[i]
-		f := folder_by_id(app, obj.folder)
-		if f == nil {
-			card_object_row(app, &spots, i)
-			i += 1
-			continue
-		}
-		first, end := folder_span(app, f.id)
-		card_folder_row(app, &spots, f, first, end, &c.rows)
-		if f.open do for j in first ..< end do card_object_row(app, &spots, j)
-		i = end
+	lines := tree_lines(app)
+	spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
+	for line in lines {
+		if line.object >= 0 do card_object_row(app, &spots, line.object, line.depth)
+		else do card_folder_row(app, &spots, line, &c.rows)
 	}
-	for &f in app.scene.folders {
-		if first, end := folder_span(app, f.id); end > first do continue
-		card_folder_row(app, &spots, &f, 0, 0, &c.rows)
-	}
-	if len(objects) == 0 do ui.paragraph(ctx, "No objects yet: Add puts a shape in the scene.")
-	kit_tree_drags(app, spots[:], {scroll.at, &c.scroll, scroll.limit})
+	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "No objects yet: Add puts a shape in the scene.")
+	kit_tree_drags(app, spots[:], {scroll.at, &c.scroll, scroll.limit}, ui.THUMB_INDENT)
 	kit_scroll_end(ctx, scroll)
 
 	// The bar under the list: dragging it makes the list taller or shorter.
@@ -268,9 +255,10 @@ card_actions :: proc(app: ^App, inner: f32) {
 	}
 }
 
-// An object's row, the list's `i`th: its picture, name, boolean switch, polypaint and eye.
+// An object's row, the list's `i`th, `depth` folders in: its picture, name, boolean
+// switch, polypaint and eye.
 @(private = "file")
-card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int) {
+card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.card
@@ -290,8 +278,9 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int) {
 	}
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
 	selected := object_in_selection(app, obj)
+	parts.depth = min(depth, TREE_DEPTH_SHOWN)
 	row := ui.thumb_row(ctx, fmt.tprintf("%s##card %d", label, obj.id), parts, selected, dim = dragged || !object_shown(app, obj), all_toggles = toggles[:], drags = true)
-	append(spots, Tree_Spot{rect = row.rect, id = obj.id, folder = obj.folder, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost})
+	append(spots, object_spot(app, row.rect, i, depth))
 	// Only the eye's column sweeps down the rows (the tree's column 1).
 	kit_row_drags(app, row.dragged, 1 if row.held_toggle == 1 else -1, row.rect, obj.id, obj.ghost, obj.off)
 	if row.dragged do c.menu = false
@@ -318,26 +307,24 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int) {
 	c.rows += 1
 }
 
-// A folder's row: a folder with the count of its objects in it, its name, a chevron that
-// folds it, and its eye. A tap selects its first object and a long press opens the
-// folder's menu. `rows` counts the rows drawn (the card's, or Lens's Scene card's); with
-// `drags` false (a filtered list) it does not move.
-card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first, end: int, rows: ^int, drags := true) {
+// A folder's row, from tree_lines: a folder with the count of the objects in it (and in
+// the folders inside it), its name, a chevron that folds it, and its eye. A tap selects
+// its first object and a long press opens the folder's menu. `rows` counts the rows
+// drawn (the card's, or Lens's Scene card's); with `drags` false (a filtered list) it
+// does not move.
+card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, line: Tree_Line, rows: ^int, drags := true) {
 	k := &app.kit
 	ctx := &k.ctx
-	objects := app.scene.objects[:]
-	members := objects[first:end]
+	f := line.folder
+	members := app.scene.objects[line.first:line.end]
 	open := f.open
-	parts := ui.Thumb_Row{glyph = ui.ICON_FOLDER, count = len(members), open = &open}
+	parts := ui.Thumb_Row{glyph = ui.ICON_FOLDER, count = len(members), open = &open, depth = min(line.depth, TREE_DEPTH_SHOWN)}
 	toggles := [1]ui.Row_Toggle{{name = fmt.tprintf("Show %s", folder_label(f)) if f.off else fmt.tprintf("Hide %s", folder_label(f)), glyph = ui.ICON_EYE_OFF if f.off else ui.ICON_EYE, faint = f.off}}
 	selected := false
-	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder == f.id
+	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder != 0 && folder_within(app, sel.folder, f.id)
 	dragged := k.tree_drag.active && k.tree_drag.key == -f.id
-	row := ui.thumb_row(ctx, fmt.tprintf("%s##card folder %d", folder_label(f), f.id), parts, selected, dim = dragged || f.off, all_toggles = toggles[:], drags = drags && len(members) > 0)
-	spot := Tree_Spot{rect = row.rect, id = f.id, is_folder = true, folder = f.id, off = f.off, ghost = f.ghost}
-	if len(members) > 0 do spot.first = members[0].id
-	if end < len(objects) && len(members) > 0 do spot.next = objects[end].id
-	append(spots, spot)
+	row := ui.thumb_row(ctx, fmt.tprintf("%s##card folder %d", folder_label(f), f.id), parts, selected, dim = dragged || folder_hidden(app, f.id), all_toggles = toggles[:], drags = drags)
+	append(spots, folder_spot(app, row.rect, line))
 	kit_row_drags(app, row.dragged, -1, row.rect, -f.id, f.ghost, f.off)
 	if row.dragged do k.folder_menu = false
 	if row.folded do app.ui.scene_command = {kind = .View, view = .Folder_Fold, id = f.id}

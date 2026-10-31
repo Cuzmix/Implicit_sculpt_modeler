@@ -838,6 +838,21 @@ gpu_frames_dropped :: proc() -> (dropped: u64, known: bool) {
 	return 0, false
 }
 
+// Display-link pacing, which only the own Metal backend has (mtl_link.odin).
+gpu_display_link_offered :: proc() -> bool {
+	when METAL do if gpu_backend == .Metal do return true
+	return false
+}
+
+gpu_set_display_link :: proc(on: bool) {
+	when METAL do if gpu_backend == .Metal do mtl_state.link_wanted = on
+}
+
+gpu_display_link_frames :: proc() -> u64 {
+	when METAL do if gpu_backend == .Metal do return mtl_link_frames()
+	return 0
+}
+
 // Whether gpu_create_buffer_mapped makes buffers: the own Vulkan backend with a shared
 // memory type (vk_pick_shared_type), the own Metal backend on unified memory.
 gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
