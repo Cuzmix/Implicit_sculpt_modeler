@@ -96,6 +96,7 @@ Options :: struct {
 	autosave_rest: f32 `usage:"Seconds without a press, key or stroke before an autosave starts (default 1.5)."`,
 	check_autosave: bool `usage:"Check that nothing an autosave reads changes while it reads it: the exit stats count it as autosave_torn."`,
 	crash_after_autosave: bool `usage:"Exit with code 3 right after the first autosave is written, skipping the clean exit, as a crash would: the kill test of autosave and recovery."`,
+	autosave_hold: bool `usage:"Hold the first autosave before it reads the scene until a stroke, a command or the end of the run stops it, so a test sees the stop on a machine of any speed."`,
 	bench_after_autosave: bool `usage:"Start --bench-stroke only once an autosave of the scene as it starts is being written, so the stroke runs while the file is written (the autosave benchmark)."`,
 	load_strokes: string `usage:"Load the strokes in this .strokes file and replay them where they were drawn, as the Stroke recorder's Load and Replay do: once --bench-stroke ends, or at the start; the run lasts until they are done."`,
 	replay_shift: string `usage:"Replay --load-strokes moved this many pixels right and down from where they were drawn, in the current view, as R at the pointer does, e.g. 120,-40."`,
@@ -792,6 +793,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.import_workspace != "" do file_post(.Import_Workspace, opts.import_workspace)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
+	if opts.autosave_hold do autosave_hold(&app)
 	if opts.density_preview > 0 {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}

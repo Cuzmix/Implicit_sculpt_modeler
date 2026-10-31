@@ -9625,10 +9625,9 @@ def autosave_stops_for_a_stroke():
     s.wait(60 - s.frame + 1)
     s.mouse_drag([(700, 400), (730, 410)])
     s.wait(200)
-    # 2M vertices, so the reading lasts several frames even on a busy machine: at 500k
-    # the thread could finish before the next frame's press when the gate ran the
-    # scenarios side by side, and nothing was left to stop.
-    return s, autosave_args("--vertices=2000000"), {"autosave_aborts": lambda v: int(v) >= 1, "autosaves": lambda v: int(v) >= 1, "autosave_torn": near(0, 0)}
+    # --autosave-hold keeps the first reading waiting until the press stops it: timing
+    # alone (even 2M vertices) let the thread finish first on a loaded machine.
+    return s, autosave_args("--autosave-hold"), {"autosave_aborts": lambda v: int(v) >= 1, "autosaves": lambda v: int(v) >= 1, "autosave_torn": near(0, 0)}
 
 
 def crash_after_stroke():

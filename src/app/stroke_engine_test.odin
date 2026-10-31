@@ -25,6 +25,10 @@ stroke_sphere :: proc(app: ^App, subdivisions := 4) -> ^Object {
 	app.tool = .Brush
 	app.brush.kind, app.brush.radius_px = .Draw, 60
 	app.brush.strengths[.Draw], app.brush.strengths[.Smooth] = 0.5, 0.5
+	// On the fixed clock a frame lays every dab its samples ask for (up to 64), as under
+	// --ui-dt, instead of leaving the rest to the next frame after 10 ms of dabs: on a busy
+	// machine that cut fell elsewhere in the two strokes a test compares.
+	app.kit.fixed_dt = 1.0 / 60
 	return obj
 }
 
