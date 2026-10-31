@@ -28,10 +28,9 @@ FRAME_RATE_NAMES := [Frame_Rate]string {
 
 // How far the GPU may run behind the app (Settings > System > Frame rate). One frame in
 // flight shows each frame a display period sooner (8.3 ms at 120 Hz) but lets no heavy
-// frame overlap the next; two is SDL_GPU's default. During strokes keeps one only while a
-// stroke or a drag is under way, where the pen's latency is felt, and only where changing
-// it costs no more than a wait for the GPU (render.Gpu_Caps.frames_cheap); elsewhere it
-// stays at two.
+// frame overlap the next; two is the default. During strokes keeps one only while a stroke
+// or a drag is under way, where the pen's latency is felt; changing it costs a wait for
+// the GPU.
 Low_Latency :: enum u8 {
 	During_Strokes,
 	Always,
@@ -44,12 +43,11 @@ LOW_LATENCY_NAMES := [Low_Latency]string {
 	.Off            = "Off",
 }
 
-// The frames in flight `choice` asks for now, given whether the pointer is at work and
-// whether the backend changes it cheaply.
-frames_wanted :: proc(choice: Low_Latency, working, cheap: bool) -> u32 {
+// The frames in flight `choice` asks for now, given whether the pointer is at work.
+frames_wanted :: proc(choice: Low_Latency, working: bool) -> u32 {
 	switch choice {
 	case .Always:         return 1
-	case .During_Strokes: if working && cheap do return 1
+	case .During_Strokes: if working do return 1
 	case .Off:
 	}
 	return render.FRAMES_IN_FLIGHT_DEFAULT
@@ -90,9 +88,8 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 		log.infof("present mode: %s; offered besides vsync: %s", render.renderer_present_name(&app.renderer), present_offers(app))
 	}
 	frame_rate_vote(app, window)
-	caps := render.caps(&app.renderer)
 	working := app.stroke.active || .Left in app.device.down
-	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working, caps.frames_cheap))
+	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working))
 	render.renderer_set_display_link(&app.renderer, app.display_link)
 	if app.frame_rate != .Limit {
 		p.next_ns = 0

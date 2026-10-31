@@ -494,7 +494,6 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 
 	if setting_up do app.script.frames += 1
 	else do loop.frame_index += 1
-	if loop.frame_index == GRAPHICS_TRIAL_FRAMES do graphics_trial_end(app)
 	if (loop.opts.frames > 0 && loop.frame_index >= loop.opts.frames) || (loop.opts.bench_stroke > 0 && loop.frame_index - loop.bench_skipped >= loop.opts.bench_stroke) {
 		// A --timelapse run goes on until the recording is done.
 		// So does one replaying --load-strokes, which starts the frame after.
@@ -669,8 +668,6 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 		case .DID_ENTER_BACKGROUND:
 			// The system may end the app from the background without another word.
 			if app.settings_file != "" do _ = settings_save(app, app.settings_file)
-			// Nor is a Metal trial that reached the background a failed start.
-			graphics_trial_end(app)
 			app.autosave.background = true
 			app.preview.background = true
 		case .MOUSE_MOTION:

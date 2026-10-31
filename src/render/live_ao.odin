@@ -232,7 +232,7 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 	}
 	want_view_depth := vt.samples != ._1
 	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
-	// A frame in flight may still read these; SDL_GPU defers the release until it is done.
+	// A frame in flight may still read these; the backend defers the release until it is done.
 	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu_release_texture(r.device, t)
 	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
 	lao.key = 0

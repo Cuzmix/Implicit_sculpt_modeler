@@ -116,7 +116,7 @@
 		},
 		{
 			"label": "Test: smoke",
-			"detail": "300 frames on SDL_GPU and on Vulkan under GPU validation; an assert, GPU error or leak fails it",
+			"detail": "300 frames under GPU validation; an assert, GPU error or leak fails it",
 			"type": "process",
 			"command": "${workspaceFolder}/build.sh",
 			"args": ["smoke"],

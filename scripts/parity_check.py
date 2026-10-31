@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Draws a fixed set of scenes and compares them with a baseline, pixel for pixel.
 
-A change that must not move a pixel (a shader compiler, a GPU backend) is checked by
-drawing every pass the app has in both versions:
+A change that must not move a pixel (a shader compiler, a change to a GPU backend) is
+checked by drawing every pass the app has in both versions:
 
     python scripts/parity_check.py --out build/parity/base            # with the old build
     python scripts/parity_check.py --out build/parity/new --compare build/parity/base
-    python scripts/parity_check.py --out build/parity/vk --compare build/parity/base -- --gpu=vulkan
 
 Each case writes the viewport (--dump-viewport) and the whole window (--dump-screen) as
 PPM; --compare runs scripts/ppm.py diff on each pair and fails on any differing pixel.
@@ -73,7 +72,7 @@ def run_case(exe, out, name, script, frames, want, extra) -> bool:
     r = subprocess.run(args, capture_output=True, text=True)
     text = r.stdout + r.stderr
     (out / f"{name}.log").write_text(text)
-    # A run under --gpu=vulkan --gpu-debug logs every validation message; any fails the case.
+    # A run under --gpu-debug logs every validation message; any fails the case.
     if "Vulkan validation:" in text:
         print(f"FAIL {name}: Vulkan validation messages (see {name}.log)")
         return False

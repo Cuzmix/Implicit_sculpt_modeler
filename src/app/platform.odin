@@ -38,6 +38,14 @@ platform_clipboard_set :: proc(text: string) -> bool {
 	return sdl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
 }
 
+// Tells the person `text` in the system's message box over `window` (nil for none), and
+// waits until they close it. Only for a start that cannot go on: a scripted run with no
+// one to read it (`scripted`) only logs it, as the box would wait for ever.
+platform_alert :: proc(window: ^Window, title, text: string, scripted: bool) {
+	if scripted do return
+	_ = sdl.ShowSimpleMessageBox({.ERROR}, strings.clone_to_cstring(title, context.temp_allocator), strings.clone_to_cstring(text, context.temp_allocator), window)
+}
+
 // Whether the system's own modifier is held: the Windows key, or Cmd on Linux.
 platform_system_key_held :: proc() -> bool {
 	return sdl.GetModState() & sdl.KMOD_GUI != {}

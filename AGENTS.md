@@ -1,6 +1,6 @@
 # Sculpt — instructions for coding agents
 
-A performance-focused sculpting prototype in Odin (SDL3 + SDL_GPU for rendering, its own kit `src/ui` for the interface), with
+A performance-focused sculpting prototype in Odin (SDL3 for windows and input, its own Vulkan and Metal renderers, its own kit `src/ui` for the interface), with
 ZBrush as the behaviour model. README.md is the only document and describes what exists now; this file is the map and
 the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linux (`build.sh`).
 
@@ -54,7 +54,7 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point and set-up (`main.odin` `run`), the frame (`frame.odin`: `frame_settle`, `frame_events`, `frame_step`), the exit stats (`exit_stats.odin`), `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys (`Key`, `keys.odin`) and pointer (`device.odin`), system services (`platform.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU, the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`) or on Darwin the own Metal backend (`mtl_*.odin`, `--gpu=metal`), chosen in `backend.odin`; `shaders/` Slang with committed `.spv` and `.msl` (`shaders.odin` picks per platform) |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by the own Vulkan backend (`vk_*.odin`) or on Darwin the own Metal backend (`mtl_*.odin`), SDL_GPU retired (`backend.odin`); `shaders/` Slang with committed `.spv` and `.msl` (`shaders.odin` picks per platform) |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
@@ -83,8 +83,8 @@ skill whose description fits the request BEFORE you form a plan.
 - Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh` and `retopo` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
-  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
-  (`gpu_*`, each handed to the Vulkan backend `vk_*.odin` under `--gpu=vulkan`), both enforced by `scripts/boundary_check.py` in `check`;
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `hal.odin`'s
+  `gpu_*` (Metal on Darwin, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
@@ -100,7 +100,7 @@ skill whose description fits the request BEFORE you form a plan.
   end of its chunk (`SCEN` the scene's own, `OBJ ` an object's, read only where the chunk has bytes left) or in a new
   chunk, which older apps step over; `SCENE_VERSION` moves only for a change an older reader would misread. Every older
   version keeps reading (1 to 35 field after field, frozen); a damaged file is refused, never asserted on.
-- GPU: consume every `sdl.*GPU*` result (in `render`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
+- GPU: consume every `gpu_*` result (in `render`; `hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
   control or panel change. No handoff, status or notes files.

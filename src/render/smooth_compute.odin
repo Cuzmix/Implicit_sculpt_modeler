@@ -61,7 +61,7 @@ smooth_timing_total :: proc(t: Smooth_Timing) -> f64 {
 }
 
 smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
-	// Exact, so the result can equal the CPU's (Gpu_Caps.exact_compute).
+	// Exact (IEEE 754 arithmetic, no fast maths), so the result can equal the CPU's.
 	sc.pipeline = gpu_create_compute_pipeline_exact(r.device, {
 		code_size                     = len(SMOOTH_ALL_COMP_CODE),
 		code                          = raw_data(SMOOTH_ALL_COMP_CODE),
@@ -209,7 +209,7 @@ smooth_compute_run :: proc(
 	for step in 0 ..< steps {
 		src, dst := Smooth_Buffer.Pos_A, Smooth_Buffer.Pos_B
 		if step % 2 == 1 do src, dst = dst, src
-		// One pass a step: SDL_GPU orders separate passes, so each step sees the last one's writes.
+		// One pass a step: the backends order separate passes, so each step sees the last one's writes.
 		binding := sdl.GPUStorageBufferReadWriteBinding{buffer = sc.buffers[dst]}
 		pass := gpu_begin_compute_pass(cmd, nil, 0, &binding, 1)
 		gpu_bind_compute_pipeline(pass, sc.pipeline)

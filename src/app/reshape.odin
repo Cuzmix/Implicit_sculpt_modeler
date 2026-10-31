@@ -368,13 +368,12 @@ kit_deformation :: proc(app: ^App, obj: ^Object) {
 		_ = command_button(app, .Reshape_Repeat)
 		dyn := object_dynamic(obj)
 		_ = command_button(app, .Smooth_All, tone = .Accent)
-		gpu := smooth_gpu_offered(app)
-		if gpu do _ = ui.switch_row(ctx, "On the GPU", &app.ui.smooth_on_gpu, enabled = !dyn)
+		_ = ui.switch_row(ctx, "On the GPU", &app.ui.smooth_on_gpu, enabled = !dyn)
 		steps := f32(app.ui.smooth_steps)
 		if ui.slider(ctx, "Steps", &steps, 1, 100, .Logarithmic, fmt.tprintf("%d", app.ui.smooth_steps), enabled = !dyn) do app.ui.smooth_steps = i32(steps + 0.5)
 		_ = ui.slider(ctx, "Strength", &app.ui.smooth_strength, 0.05, 1, .Linear, fmt.tprintf("%.2f", app.ui.smooth_strength), enabled = !dyn)
 		SMOOTH_HELP :: "Smooth all moves every vertex toward its neighbours' average, Steps times; masked parts stay."
-		ui.paragraph(ctx, SMOOTH_HELP + " On the GPU runs the steps as a compute shader." if gpu else SMOOTH_HELP)
+		ui.paragraph(ctx, SMOOTH_HELP + " On the GPU runs the steps as a compute shader.")
 		kit_more_end(app)
 	}
 	kit_last_result(app, .Deform)

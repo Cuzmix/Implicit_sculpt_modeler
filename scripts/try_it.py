@@ -33,7 +33,7 @@ EXE = os.path.join(ROOT, "build", "sculpt.exe" if WINDOWS else "sculpt")
 SKY = os.path.join(ROOT, "src", "hdri", "testdata", "exr", "sky_half_zip.exr")
 RIG = os.path.join(ROOT, "src", "app", "testdata", "import", "rig.gltf")
 # The exit stats every report line shows, where the run printed them.
-SHOWN = ["gpu_backend", "gpu_fallback", "vertices", "dabs", "frame_ms_p50", "frame_ms_p99", "cpu_ms_p50",
+SHOWN = ["gpu_backend", "vertices", "dabs", "frame_ms_p50", "frame_ms_p99", "cpu_ms_p50",
          "gpu_frame_ms_p50", "peak_rss_mb"]
 
 
@@ -53,7 +53,8 @@ def stat_at_least(key, least):
 # Each check: its name, what it shows, the app's flags (a screenshot is added) and what
 # its exit stats must say beyond a clean exit.
 CHECKS = [
-    ("start", "the app opens, draws 120 frames and closes", ["--frames=120"], [stat_is("gpu_fallback", "false")]),
+    ("start", "the app opens, draws 120 frames and closes", ["--frames=120"],
+     [stat_is("gpu_backend", "metal" if sys.platform == "darwin" else "vulkan")]),
     ("sculpt_1m", "a 120-frame stroke on a 1M sphere", ["--vertices=1000000", "--bench-stroke=120"],
      [stat_at_least("dabs", 1)]),
     ("sculpt_10m", "the same stroke on 10M (40k with four levels)", ["--vertices=40000", "--subdivide=4", "--bench-stroke=120"],

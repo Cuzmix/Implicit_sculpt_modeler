@@ -1,6 +1,6 @@
 ---
 name: sm-render
-description: Rendering in src/render with SDL_GPU — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices (float3 position + octahedral snorm16 normal carrying the mask) in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, GLSL shaders compiled to committed .spv, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
+description: Rendering in src/render (its own Vulkan and Metal backends) — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, Slang shaders with committed .spv and .msl, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
 ---
 
 # Rendering
@@ -238,7 +238,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp.slang` pipeline,
   six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
   buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
-  dispatches one compute pass a step (SDL_GPU orders passes, not dispatches inside one) in rows of at most 65535
+  dispatches one compute pass a step (the backends order passes, not dispatches inside one) in rows of at most 65535
   groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp.slang` with the other shaders.
 
@@ -292,7 +292,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - A render-only change moves no pixel: the same flags twice must give `ppm.py diff a.ppm b.ppm` → 0 differing pixels
   (the render is deterministic), and `--no-partial` must match a partial run. `ppm.py crop … --scale 4` for edges,
   `ppm.py pixel` for exact values, `ppm.py uniform` to catch a blank frame.
-- `build.bat smoke` after any SDL_GPU change: validation layers on, `SDL_ASSERT=abort`, leaks fail.
+- `build.bat smoke` after any GPU change: validation layers on, `SDL_ASSERT=abort`, leaks fail.
 
 ## When it looks wrong
 | Symptom | First suspects |
@@ -312,9 +312,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
   (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
   `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
-  Inside render, SDL_GPU's procs are called only from the seam `hal.odin` (`gpu_create_texture` for
-  `sdl.CreateGPUTexture`, same arguments), and every `gpu_*` there first hands the call to
-  the Vulkan backend when `gpu_backend == .Vulkan` (`--gpu=vulkan`), or on Darwin to the Metal backend when `gpu_backend == .Metal` (`--gpu=metal`, inside `when METAL`); the check fails on a direct `sdl.*GPU*(` call anywhere else in render. SDL's types and info structs stay, as opaque
+  SDL_GPU is retired: render calls the GPU only through the seam `hal.odin`, whose `gpu_*` procs keep SDL_GPU's
+  names and arguments (`gpu_create_texture` for `sdl.CreateGPUTexture`) and hand each call to the Metal backend
+  under `when METAL` (Darwin) and to the Vulkan backend otherwise; nothing else chooses a backend. The check fails
+  on any `sdl.*GPU*(` call anywhere in render, the seam included. SDL's types and info structs stay, as opaque
   handles render never dereferences.
   `render` never reads UI state.
 - Every `sdl.*GPU*` result is consumed (sm-odin); wait for the GPU before destroying anything drawn this frame;
@@ -334,22 +335,23 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` and `.msl` with the source; never
   hand-edit either (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
   fast math; a kernel that must equal the CPU is made with `gpu_create_compute_pipeline_exact` (fast maths off under the
-  own Metal backend) and offered only where `Gpu_Caps.exact_compute` (not under SDL_GPU's Metal). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
+  own Metal backend). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.
-- The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) mirrors SDL_GPU's
-  own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
+- The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) was written to mirror
+  SDL_GPU's own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
   that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
   rendering and a timeline semaphore whose serials are the fences. It needs Vulkan 1.3 with dynamicRendering,
-  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise,
-  keeping the reason for `render.backend_fallback`. The app picks the backend before it makes the window
-  (`src/app/graphics.odin`: Settings > System > Graphics, Automatic = Vulkan except on Darwin, `--gpu` for one run).
+  synchronization2, timelineSemaphore and independentBlend (the Android manifest asks for 1.3 too); without them
+  `renderer_init` returns false with the reason in `render.backend_error`, and the app shows it in the system's
+  message box (`graphics_failed_text`, `platform_alert`) and ends: there is no fallback. `backend_select` loads
+  the Vulkan loader before the window is made, as SDL makes Vulkan windows with it.
   A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu_*` wrapper does, or the values arrive as
   garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
-  the run (`render.validation_errors`); smoke runs both backends, and a render change passes
-  `parity_check.py --compare <sdl run> -- --gpu=vulkan` at 0 px.
+  the run (`render.validation_errors`); a render change that must not move a pixel passes
+  `parity_check.py --compare <old build's run>` at 0 px.
 - The Metal backend (`mtl_device.odin`, `mtl_resources.odin`, `mtl_cmd.odin`, `mtl_swapchain.odin`, `#+build darwin`)
-  mirrors SDL_GPU's own Metal backend (`deps/sdl3-src/src/gpu/metal/SDL_gpu_metal.m`): vertex buffers at buffer 14+,
+  was written to mirror SDL_GPU's own Metal backend (`deps/sdl3-src/src/gpu/metal/SDL_gpu_metal.m`): vertex buffers at buffer 14+,
   uniforms at buffer(i) sent by `set*Bytes` at draw time (4096 bytes a slot), vertex storage buffers after the
   uniforms, fragment textures and samplers at their slot, no viewport flip, cycling by backings and serials as the
   fences. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
@@ -358,13 +360,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
   slots too: uniforms at buffer 0+, then read-only and read-write storage buffers; sampled textures and samplers at 0+,
   then read-only and read-write storage textures (each a view of one level and layer, made when the pass begins and
-  released when it ends); bindings reach the encoder at dispatch. Automatic is it on Apple's platforms (Metal too), guarded by a start marker
-  (`graphics_trial_begin`, `src/app/graphics.odin`: a failed start moves the setting to SDL_GPU), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
-  `backend_fallback` whichever one failed.
+  released when it ends); bindings reach the encoder at dispatch. It is the only backend on Apple's platforms and
+  has drawn on an iPad and a Mac; `maccheck` and `iphonecheck` only compile it here. `backend_fail` keeps a
+  backend's reason for `backend_error`.
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
   branches on caps, never on a backend's name. A new capability is a field there plus one `gpu_*` proc with an
-  SDL_GPU, Vulkan and Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
+  Vulkan and a Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
 - Async compute (`Gpu_Caps.async_compute`, design notes/native-gpu/async-compute-design.md): a second queue of the
   graphics family (`vk_state.compute_queue`, else the same queue as `.Same_Queue`) with its own timeline
   (`compute_timeline`); `Vk_Cmd.queue` and `Vk_Fence.queue` say which timeline a serial counts on (`vk_serial_done`,

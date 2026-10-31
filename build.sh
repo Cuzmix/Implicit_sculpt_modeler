@@ -218,10 +218,9 @@ case "$mode" in
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -debug "${common[@]}"
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
-		# The smoke runs once on each GPU backend; a Vulkan validation message fails it.
+		# A Vulkan validation message fails the smoke.
 		if [ "$mode" = smoke ]; then
-			SDL_ASSERT=abort "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 --gpu=sdl "$@"
-			SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 --gpu=vulkan "$@"
+			SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 "$@"
 		fi
 		;;
 	release|gpubench|computebench)

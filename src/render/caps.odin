@@ -9,12 +9,8 @@ import sdl "vendor:sdl3"
 // only once the backend has what it needs in hand, so a true switch works.
 Gpu_Caps :: struct {
 	// Frames the GPU may run behind the app, as last set (1 to 3; 2 when the device is
-	// made, as SDL_GPU's default).
+	// made). Changing it costs at most a wait for the GPU.
 	frames_in_flight: u32,
-	// Changing frames_in_flight costs at most a wait for the GPU: true for the own Vulkan
-	// and Metal backends and for SDL_GPU's Metal, false for SDL_GPU's Vulkan, which remakes
-	// every swapchain for it.
-	frames_cheap:     bool,
 	// How the backend learns when a frame reached the screen (present_times): .None where
 	// it cannot, and then the app shows only the time to the submit.
 	present_timing:   Present_Timing,
@@ -26,7 +22,7 @@ Gpu_Caps :: struct {
 	// device times graphics and compute alike and resets queries from the CPU.
 	timestamps:       bool,
 	// Threads in a subgroup (Vulkan) or SIMD-group (Metal) that compute kernels can reduce
-	// over with subgroup operations; 0 where the backend cannot tell (SDL_GPU). Nothing
+	// over with subgroup operations; 0 where the backend cannot tell. Nothing
 	// uses it yet: it is reported so a kernel designed for it knows which devices have it.
 	subgroup_size:    u32,
 	// 64-bit atomic operations on storage buffers: Vulkan's shaderBufferInt64Atomics
@@ -42,10 +38,6 @@ Gpu_Caps :: struct {
 	// under the own Vulkan backend with lazily allocated memory, or any Apple GPU under
 	// the own Metal backend. Elsewhere they are ordinary targets.
 	transient_targets: bool,
-	// Compute kernels made with gpu_create_compute_pipeline_exact do IEEE 754 arithmetic,
-	// so one written in the CPU's order can equal the CPU bit for bit (Smooth all on the
-	// GPU): false only under SDL_GPU's Metal backend, which compiles with fast maths.
-	exact_compute:     bool,
 	// Textures one compute array binding may hold (gpu_create_compute_pipeline_array): the
 	// own Vulkan backend with descriptor indexing (runtime arrays, variable counts and
 	// non-uniform indexing of sampled images); 0 elsewhere, where kernels name each texture.
@@ -62,7 +54,7 @@ Gpu_Caps :: struct {
 }
 
 Async_Compute :: enum u8 {
-	// No compute queue: SDL_GPU and Metal (for now).
+	// No compute queue: Metal (for now), and a Vulkan device with no second queue.
 	Off,
 	// The own Vulkan backend on a device whose graphics family has one queue: compute
 	// submissions keep their own timeline and waits but share the queue, so nothing
@@ -105,14 +97,12 @@ caps :: proc(r: ^Renderer) -> Gpu_Caps {
 @(private)
 caps_fill :: proc(r: ^Renderer) {
 	r.caps.frames_in_flight = FRAMES_IN_FLIGHT_DEFAULT
-	r.caps.frames_cheap = gpu_backend != .SDL_GPU || gpu_get_device_driver(r.device) == "metal"
 	r.caps.present_timing = gpu_present_timing(r.device)
 	r.caps.display_link = gpu_display_link_offered()
 	r.caps.timestamps = gpu_timestamps_offered(r.device)
 	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
-	r.caps.exact_compute = gpu_exact_compute(r.device)
 	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
 	r.caps.async_compute = gpu_async_compute_offered(r.device)
 	r.caps.ray_query = gpu_ray_query_offered(r.device)
