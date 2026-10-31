@@ -29,4 +29,5 @@ object_type_matches_the_chip :: proc(t: ^testing.T) {
 	testing.expect_value(t, OBJECT_TYPE_NAMES[.Sculpt_Mesh], "Sculpt mesh")
 	testing.expect_value(t, OBJECT_TYPE_NAMES[.Voxel_Clay], "Voxel clay")
 	testing.expect_value(t, OBJECT_TYPE_NAMES[.Cage], "Cage")
+	testing.expect_value(t, OBJECT_TYPE_NAMES[.Curve], "Curve")
 }

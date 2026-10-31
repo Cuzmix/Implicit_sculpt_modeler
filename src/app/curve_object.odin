@@ -3,17 +3,21 @@ package main
 import "core:fmt"
 import "core:math/linalg"
 import "core:strings"
+import "core:time"
 
 import "../geom"
 import "../gizmo"
+import "../render"
 import "../sculpt"
 
 // A curve object: cubic Bézier points that stay editable in the scene until they are
 // baked, as Nomad's and Blender's curves do. Its points are in the object's own space, so
-// its transform places, turns and sizes it like any object's; its one level is empty, as
-// a voxel object's is, so whatever reads the selected sculptor reads nothing, and it has
-// no GPU buffers: the overlay draws it. What it makes (a tube, a lathe, copies along it, a
-// brush path) is its `use`.
+// its transform places, turns and sizes it like any object's. What it makes is its `use`:
+// with Tube its one level holds the tube swept along it (geom.bezier_tube), made again
+// from the points after each edit and on reading, never stored; with None the level is
+// empty, as a voxel object's is, and has no GPU buffers. The overlay draws the curve's
+// line over either. Brushes and mesh commands refuse a curve whatever it makes; Bake turns
+// its tube into a mesh object to sculpt.
 
 Curve_Use :: enum u8 {
 	None, // drawn as a line, making nothing
@@ -27,6 +31,7 @@ Curve_Part :: struct {
 	points: [dynamic]geom.Bezier_Point,
 	closed: bool,
 	use:    Curve_Use,
+	tube:   geom.Tube_Options,
 }
 
 // The fewest points a curve has: a curve of one point would be nothing to see or edit.
@@ -34,6 +39,10 @@ CURVE_MIN_POINTS :: 2
 
 // Bytes a point takes in a scene file: three vectors, three numbers and the corner byte.
 CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
+
+// Bytes the tube's options take after the points: profile, radius mode, one, sides,
+// density, caps, flatness.
+CURVE_TUBE_BYTES :: 4 + 3 * size_of(f32)
 
 // How far, in pixels, a press may land from a curve's line on screen and pick it.
 CURVE_PICK_PX :: 10
@@ -44,10 +53,12 @@ CURVE_DRAW_PX :: 6
 
 object_is_curve :: proc(obj: ^Object) -> bool {return obj != nil && obj.curve != nil}
 
-// Whether `obj` has triangles to draw, upload and pick: everything but a curve. The GPU
-// paths that reach for a level's buffers check this first, so a curve never makes buffers
-// for its empty level.
-object_draws_triangles :: proc(obj: ^Object) -> bool {return obj.curve == nil}
+// Whether `obj` has triangles to draw, upload and pick: everything but a curve making
+// nothing. The GPU paths that reach for a level's buffers check this first, so a curve
+// never makes buffers for an empty level.
+object_draws_triangles :: proc(obj: ^Object) -> bool {
+	return obj.curve == nil || len(sculpt.levels_current(&obj.levels).mesh.indices) > 0
+}
 
 // Frees the object's curve, if it has one.
 curve_part_free :: proc(obj: ^Object) {
@@ -58,25 +69,136 @@ curve_part_free :: proc(obj: ^Object) {
 	obj.curve = nil
 }
 
-// Gives `obj` the empty level every curve object keeps and `cp` as its curve.
-@(private = "file")
-curve_part_attach :: proc(obj: ^Object, cp: ^Curve_Part) {
+// Gives `obj` the level its curve `cp` makes (the tube, or an empty one) and `cp` as its
+// curve. Returns false on a GPU failure, with the curve on the object for the caller to
+// drop.
+curve_part_attach :: proc(app: ^App, obj: ^Object, cp: ^Curve_Part) -> bool {
+	obj.curve = cp
+	if cp.use == .Tube {
+		mesh, ok := geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
+		if ok && len(mesh.indices) > 0 {
+			return object_build_from(app, obj, mesh, time.tick_now(), normals = true)
+		}
+		geom.mesh_destroy(&mesh)
+	}
 	empty := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	sculpt.levels_init(&obj.levels, empty, nil, 64)
-	obj.curve = cp
+	return true
+}
+
+// Makes the curve's level again after its points or options changed: the autosave thread
+// finishes with it, the old level and buffers go once the GPU is done with them, and the
+// curve makes its level anew. Returns false on a GPU failure.
+curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
+	cp := obj.curve
+	if cp == nil do return true
+	start := time.tick_now()
+	autosave_settle(app)
+	obj.curve = nil
+	render.wait_idle(&app.renderer)
+	object_release_mesh(app, obj, rebuild = false)
+	ok := curve_part_attach(app, obj, cp)
+	app.curve.tube_ms = time.duration_milliseconds(time.tick_since(start))
+	app.curve.rebuilds += 1
+	return ok
+}
+
+// A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density and
+// flatness, a radius of no less than zero.
+curve_tube_clean :: proc(o: geom.Tube_Options) -> geom.Tube_Options {
+	c := o
+	c.sides = clamp(c.sides, 3, geom.TUBE_SIDES_MAX)
+	c.one = max(c.one, 0) if c.one == c.one else geom.TUBE_DEFAULTS.one
+	c.density = clamp(c.density, 0.05, 16) if c.density == c.density else 1
+	c.flatness = clamp(c.flatness, 0.01, 1) if c.flatness == c.flatness else geom.TUBE_DEFAULTS.flatness
+	return c
+}
+
+// A Use or tube slider's drag in progress: the curve it changes and the snapshot from
+// before it.
+Curve_Look_Drag :: struct {
+	object: int,
+	before: ^Object_Snapshot,
+}
+
+// Sets what `obj`'s curve makes and its tube's options, and makes its level again, as one
+// undo step; with `drag` (a slider moving) the step starts at the first change and ends
+// when the slider lets go (curve_look_drag_end), as a cage's look does. Returns false
+// only on a GPU failure.
+object_set_curve_look :: proc(app: ^App, obj: ^Object, use: Curve_Use, tube: geom.Tube_Options, drag := false) -> bool {
+	cp := obj.curve
+	o := curve_tube_clean(tube)
+	if cp.use == use && cp.tube == o do return true
+	what := "curve use" if cp.use != use else "tube"
+	ld := &app.curve.look_drag
+	if drag && ld.before != nil && ld.object != obj.id do curve_look_drag_end(app, force = true)
+	before: ^Object_Snapshot
+	if !drag {
+		before = history_snapshot(app, obj, what)
+	} else if ld.before == nil {
+		ld^ = {object = obj.id, before = history_snapshot(app, obj, what)}
+	}
+	cp.use, cp.tube = use, o
+	if !curve_rebuild(app, obj) {
+		if before != nil do history_snapshot_drop(before)
+		return false
+	}
+	if before != nil do history_record_swap(app, obj.id, before, kind = .Curve)
+	return true
+}
+
+// Ends a curve slider's drag as one undo step once the pointer is up (or now, with
+// `force`): called each frame, and before any other scene command.
+curve_look_drag_end :: proc(app: ^App, force := false) {
+	ld := &app.curve.look_drag
+	if ld.before == nil || (!force && .Left in app.device.down) do return
+	if obj := object_by_id(app, ld.object); obj != nil && obj.curve != nil {
+		history_record_swap(app, ld.object, ld.before, kind = .Curve)
+	} else {
+		history_snapshot_drop(ld.before)
+	}
+	ld^ = {}
+}
+
+// Turns `obj`'s tube into a mesh object to sculpt, as one undo step: the mesh, named as the
+// curve was, takes the curve's place, folder and transform and is selected, and the curve
+// goes, chained to it, so Undo brings the curve back as it was (Duplicate first keeps a
+// copy). Nothing happens to a curve with no tube. Returns false only on a GPU failure.
+curve_bake :: proc(app: ^App, obj: ^Object) -> bool {
+	cp := obj.curve
+	if cp == nil || !object_draws_triangles(obj) do return true
+	mesh, ok := geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
+	if !ok do return true
+	stroke_finish(app)
+	// The name is copied, since the curve and its name go below.
+	name := strings.clone(object_label(obj))
+	defer delete(name)
+	if !scene_add_mesh(app, mesh, name, {scale = 1}, obj.transform, time.tick_now()) do return false
+	baked := selected_object(app)
+	baked.folder = obj.folder
+	scene_place_after(app, baked, obj)
+	history_record_added(app)
+	for o, i in app.scene.objects do if o == obj do app.scene.selected = i
+	scene_delete_selected(app, chain = true)
+	for o, i in app.scene.objects do if o == baked do app.scene.selected = i
+	scene_selection_fix(app)
+	app.curve.bakes += 1
+	app.curve.picked = 0
+	return true
 }
 
 // Adds a curve through `points` (world space; their handles are offsets, so they carry
-// over) as a new selected object named "Curve N" placed at their middle, as one undo
-// step. Returns false, adding nothing, for fewer than CURVE_MIN_POINTS points.
-curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool) -> bool {
+// over) making `use`, as a new selected object named "Curve N" placed at their middle, as
+// one undo step. Returns false, adding nothing, for fewer than CURVE_MIN_POINTS points or
+// on a GPU failure.
+curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, use := Curve_Use.None, tube := geom.TUBE_DEFAULTS) -> bool {
 	if len(points) < CURVE_MIN_POINTS do return false
 	stroke_finish(app)
 	bounds := geom.AABB_EMPTY
 	for p in points do geom.aabb_grow(&bounds, p.p)
 	middle := 0.5 * (bounds.lo + bounds.hi)
 	cp := new(Curve_Part)
-	cp.closed = closed
+	cp.closed, cp.use, cp.tube = closed, use, tube
 	reserve(&cp.points, len(points))
 	for p in points {
 		q := p
@@ -85,7 +207,11 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool) -
 	}
 	obj := new(Object)
 	obj.transform, obj.file = {position = middle, scale = 1}, {scale = 1}
-	curve_part_attach(obj, cp)
+	if !curve_part_attach(app, obj, cp) {
+		render.wait_idle(&app.renderer)
+		object_discard(app, obj)
+		return false
+	}
 	scene_append(app, obj)
 	obj.name = strings.clone(curve_name(app, obj.id))
 	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), kind = .Curve)
@@ -102,8 +228,9 @@ curve_name :: proc(app: ^App, id: int) -> string {
 	return fmt.tprintf("Curve %d", n + 1)
 }
 
-// Writes the curve in the levels' place of object_put: the count, closed, the use, then
-// each point. A use's settings will follow at the end, where an older reader stops.
+// Writes the curve in the levels' place of object_put: the count, closed, the use, each
+// point, then the tube's options field by field. A later use's settings follow these, at
+// the end, where an older reader stops.
 curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 	geom.byte_put(out, u32(len(cp.points)))
 	geom.byte_put(out, u8(cp.closed))
@@ -117,19 +244,30 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 		geom.byte_put(out, p.twist)
 		geom.byte_put(out, u8(p.corner))
 	}
+	o := cp.tube
+	geom.byte_put(out, u8(o.profile))
+	geom.byte_put(out, u8(o.radius))
+	geom.byte_put(out, o.one)
+	geom.byte_put(out, u8(o.sides))
+	geom.byte_put(out, o.density)
+	geom.byte_put(out, u8(o.caps))
+	geom.byte_put(out, o.flatness)
 }
 
-// Reads what curve_part_put wrote into a new curve on `obj`, with its empty level. False,
-// with nothing made, for damage: too few points, more than the bytes hold, a flag or use
-// no version wrote, or a value that is not a number.
-curve_part_get :: proc(r: ^geom.Byte_Reader, obj: ^Object) -> bool {
+// Reads what curve_part_put wrote into a new curve on `obj`, and makes its level. `read`
+// is false, with nothing made, for damage: too few points, more than the bytes hold, a
+// flag, use or option no version wrote, a value that is not a number, or tube options only
+// partly there (a curve from before them has none, and takes the defaults). `made` is
+// false on a GPU failure, with the curve on the object for object_discard.
+curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
 	count := int(geom.byte_get(r, u32))
 	closed := geom.byte_get(r, u8)
 	use := geom.byte_get(r, u8)
-	if !r.ok || count < CURVE_MIN_POINTS || count > (len(r.data) - r.at) / CURVE_POINT_BYTES || closed > 1 || int(use) >= len(Curve_Use) do return false
+	if !r.ok || count < CURVE_MIN_POINTS || count > (len(r.data) - r.at) / CURVE_POINT_BYTES || closed > 1 || int(use) >= len(Curve_Use) do return false, false
 	cp := new(Curve_Part)
-	cp.closed, cp.use = closed == 1, Curve_Use(use)
+	cp.closed, cp.use, cp.tube = closed == 1, Curve_Use(use), geom.TUBE_DEFAULTS
 	reserve(&cp.points, count)
+	damaged := false
 	for _ in 0 ..< count {
 		p: geom.Bezier_Point
 		p.p = geom.byte_get(r, Vec3)
@@ -141,14 +279,29 @@ curve_part_get :: proc(r: ^geom.Byte_Reader, obj: ^Object) -> bool {
 		corner := geom.byte_get(r, u8)
 		p.corner = corner == 1
 		if !r.ok || corner > 1 || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
-			delete(cp.points)
-			free(cp)
-			return false
+			damaged = true
+			break
 		}
 		append(&cp.points, p)
 	}
-	curve_part_attach(obj, cp)
-	return true
+	if !damaged && r.at < len(r.data) {
+		o: geom.Tube_Options
+		profile, radius := geom.byte_get(r, u8), geom.byte_get(r, u8)
+		o.one = geom.byte_get(r, f32)
+		o.sides = int(geom.byte_get(r, u8))
+		o.density = geom.byte_get(r, f32)
+		caps := geom.byte_get(r, u8)
+		o.flatness = geom.byte_get(r, f32)
+		damaged = !r.ok || int(profile) >= len(geom.Tube_Profile) || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, o.flatness}) || o.one < 0 || o.density <= 0 || o.flatness <= 0
+		o.profile, o.radius, o.caps = geom.Tube_Profile(profile), geom.Tube_Radius(radius), geom.Tube_Caps(caps)
+		cp.tube = o
+	}
+	if damaged {
+		delete(cp.points)
+		free(cp)
+		return false, false
+	}
+	return true, curve_part_attach(app, obj, cp)
 }
 
 // The curve of `obj` cut into points on screen (viewport pixels), at most CURVE_DRAW_PX

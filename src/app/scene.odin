@@ -90,7 +90,8 @@ Object :: struct {
 	// the cage cut into triangles, made again from the cage after every edit.
 	cage:      ^Cage_Part,
 	// A curve object's Bézier points (curve_object.odin); nil for anything else. Its one
-	// level is empty and it has no GPU buffers: the overlay draws it.
+	// level holds what it makes (a tube), made again from the points after each edit, or is
+	// empty, with no GPU buffers, when it makes nothing; the overlay draws its line.
 	curve:     ^Curve_Part,
 	// How it is shaded: a preset's values or its own (label "Custom"); a nil label until
 	// materials_settle gives it the default (object_material).
@@ -178,7 +179,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -236,6 +237,8 @@ Scene_Command :: struct {
 	look:     Cage_Look, // Cage_Look: how the selected cage is drawn
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
+	curve_use: Curve_Use, // Curve_Look: what the selected curve makes...
+	tube:     geom.Tube_Options, // ...and its tube's options (look_drag as Cage_Look's)
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -859,6 +862,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		inspector_drags_end(app)
 		// A look slider's own commands carry on its drag.
 		if cmd.kind != .Cage_Look || !cmd.look_drag do cage_look_drag_end(app, force = true)
+		if cmd.kind != .Curve_Look || !cmd.look_drag do curve_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
 		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
@@ -919,6 +923,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_set_cage_look(app, obj, cmd.look, cmd.look_drag)
 	case .Crease_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_crease_cage(app, obj, cmd.crease)
+	case .Curve_Look:
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve_use, cmd.tube, cmd.look_drag)
+	case .Bake_Curve:
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
 	case .New:
 		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
 		return scene_new(app, cmd.shape, cmd.vertices, cmd.voxels, empty = cmd.on)
@@ -1267,7 +1275,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		app.stats.level_sync_ms = time.duration_milliseconds(time.tick_diff(start, synced))
 		app.stats.level_show_ms = time.duration_milliseconds(time.tick_since(synced))
 	}
-	// A curve has no triangles, so no buffers to make for its empty level.
+	// A curve making nothing has no triangles, so no buffers to make for its empty level.
 	if !object_draws_triangles(obj) do return true
 	lv := object_level(obj)
 	ranges := sculpt.sculptor_flush(&lv.sculptor)

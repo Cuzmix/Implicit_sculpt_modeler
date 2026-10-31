@@ -1374,6 +1374,69 @@ def curve_edited_by_pen():
                                                                      "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
 
 
+def tube_loop(s):
+    """Three pen taps and a tap back on the first: a closed curve making a tube, then its
+    second point dragged by pen, which makes the tube again."""
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+
+
+@scenario
+def tube_drawn_by_pen_follows_its_points():
+    """A closed curve of tapped points with Tube makes a live tube, which a dragged point
+    reshapes (one undo step each); shows the tube with the curve's points over it (look with
+    --screens)."""
+    s = Script()
+    tube_loop(s)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_points": near(3),
+                                                                    "curve_edits": near(1), "curve_rebuilds": lambda v: int(v) >= 1,
+                                                                    "curve_tube_vertices": lambda v: int(v) > 100, "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_from_the_palette_and_undone():
+    """A tube curve baked by the palette's Bake curve becomes a mesh object in its place (the
+    curve goes, one undo step), and Ctrl+Z brings the curve and its tube back."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_bakes": near(1),
+                                                                    "objects": near(2), "undo_steps": near(2), "redo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_is_a_mesh():
+    """After Bake the scene holds the sphere and the baked tube, and no curve; Bake's two
+    entries (the mesh added, the curve deleted) are one step, chained."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(0), "curve_bakes": near(1), "objects": near(2),
+                                                                    "undo_steps": near(4), "dabs": near(0)})
+
+
 @scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as

@@ -1301,6 +1301,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	layer_mask_frame(app)
 	deform_drag_end(app)
 	cage_look_drag_end(app)
+	curve_look_drag_end(app)
 	reshape_drag_end(app)
 	lattice_frame(app)
 	transform_drag_end(app)
@@ -1358,8 +1359,10 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if edit_waits && quiet do stroke_edit_cancel(app)
-		else if placing && quiet do clear(&app.curve.placing)
-		else if shape_waits && quiet do app.shape_pending.request = .Cancel
+		else if placing && quiet {
+			clear(&app.curve.placing)
+			clear(&app.curve.placing_n)
+		} else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		// A job is cancelled last, once nothing else took the key.
 		else if long_job_busy(app) && quiet do long_job_cancel(app)

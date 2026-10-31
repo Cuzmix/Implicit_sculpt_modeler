@@ -35,6 +35,8 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 		if app.tool == .Move do break
 		if kind == .Cage {
 			offer = {fmt.tprintf("%s is a cage", name), "Sculpt needs a mesh", .Apply_Cage, 0, "Make sculptable"}
+		} else if kind == .Curve && app.tool != .Curve {
+			offer = {fmt.tprintf("%s is a curve", name), "Sculpt needs a mesh", .Curve_Bake, 0, "Bake to mesh"}
 		} else if kind == .Voxel_Clay && app.tool == .Brush {
 			if _, ok := voxel_brush_of({kind = app.brush.kind}, {}); !ok {
 				offer = {fmt.tprintf("%s is voxel clay", name), fmt.tprintf("%s needs a mesh", BRUSHES[app.brush.kind].name), .Convert_To_Mesh, 0, "Convert to mesh"}
@@ -43,7 +45,7 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 	case .Model:
 		if app.tool != .Model do break
 		switch kind {
-		case .Cage:
+		case .Cage, .Curve:
 		case .Voxel_Clay:
 			offer = {fmt.tprintf("%s is voxel clay", name), "Model edits a cage", .Convert_To_Mesh, 0, "Make a mesh to edit"}
 		case .Sculpt_Mesh:
