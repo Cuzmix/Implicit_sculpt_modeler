@@ -23,6 +23,8 @@
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
 //   --voxel      instead, the voxel clay table; sizes are voxels across (see run_voxel)
+//   --profile    instead, steady strokes per brush for a profiler, 12.5M and 25M by default
+//                (see run_profile); --seconds=N per case
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -66,6 +68,7 @@ dyntopo := false
 files := false
 masks := false
 voxels := false
+profile := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -97,6 +100,10 @@ main :: proc() {
 			masks = true
 		} else if arg == "--voxel" {
 			voxels = true
+		} else if arg == "--profile" {
+			profile = true
+		} else if strings.has_prefix(arg, "--seconds=") {
+			profile_seconds = strconv.parse_f64(arg[10:]) or_else profile_seconds
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -108,7 +115,9 @@ main :: proc() {
 	}
 	cases := make([dynamic]Case)
 	defer delete(cases)
-	if voxels && len(targets) == 0 {
+	if profile && len(targets) == 0 {
+		for v in ([]int{12_500_000, 25_000_000}) do append(&cases, Case{v, 1})
+	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
 		for v in ([]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000}) do append(&cases, Case{v, max(meshes, 1)})
@@ -165,6 +174,12 @@ main :: proc() {
 	if voxels {
 		voxel_header()
 		for c in cases do if c.meshes == 1 do run_voxel(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if profile {
+		profile_header()
+		for c in cases do if c.meshes == 1 do run_profile(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

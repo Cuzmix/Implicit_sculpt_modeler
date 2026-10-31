@@ -209,6 +209,15 @@ Luau (MIT, Roblox, built on Lua's MIT code) is built from source at the tag in `
 
 `build/bench --brushes [vertex counts...]` prints a table with one row per brush instead: the main table's stroke with the large brush, for every brush kind, then Draw with X symmetry, Draw over a sphere masked on one side and Draw with the Noise alpha (see Brushes, masking and symmetry and Brush alphas below).
 
+`build/bench --profile [vertex counts...] [--seconds=N]` strokes steadily for a profiler instead: at each size (12.5M and 25M vertices by default, which are 25M polygons remeshed as triangles and as quads), Draw, Clay, Smooth and a small Draw each stroke the main table's path again and again for N seconds (5 by default), every stroke undone so the sphere stays the same, and the table gives the mean of each phase over all those frames (raycast, dab, normals, frame, upload, the stroke's end with its normal cones, and undo with its flush) and the 99th percentile frame. Run it under a sampling profiler (`perf record -e cpu-clock -g build/bench --profile --seconds=20` on Linux) to see where a frame goes; the setup is then a small share of the samples. On this repo's cloud VM (4 threads, `--prefault=6000`):
+
+| Vertices | Brush | Dab ms | Normals ms/frame | Frame ms | Frame ms p99 | Upload MB/frame | Undo ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 12.50M | Draw r=0.13 | 0.432 | 0.834 | 2.55 | 5.55 | 1.50 | 15.03 |
+| 12.50M | Smooth r=0.13 | 1.636 | 0.781 | 7.14 | 14.25 | 1.53 | 14.43 |
+| 25.00M | Draw r=0.13 | 0.741 | 1.469 | 4.39 | 8.17 | 2.74 | 26.66 |
+| 25.00M | Smooth r=0.13 | 3.035 | 1.367 | 13.11 | 21.87 | 2.78 | 26.64 |
+
 `build/bench --masks [vertex counts...]` prints a table for the mask commands instead: at each size, each command on a sphere masked on one side, with how many vertices it changed and its undo (see Brushes, masking and symmetry below).
 
 `build/bench --remesh [vertex counts...]` prints a table for voxel remesh instead: at each size, a sphere with one Grab move that pulls a wide spike out of it, remeshed back to the same vertex count (see Voxel remesh below).
