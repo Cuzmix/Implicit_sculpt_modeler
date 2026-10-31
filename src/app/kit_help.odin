@@ -195,13 +195,13 @@ Glossary_Entry :: struct {
 	others:   string,
 	means:    string,
 	searches: string,
-	finds:    bit_set[Command_Id; [4]u64], // an array backing: there are more than 128 commands
+	finds:    Command_Set,
 }
 
 @(rodata)
 GLOSSARY := [?]Glossary_Entry {
 	{"Object", "SubTool (ZBrush), object (Blender, Nomad), layer (3DCoat)", "One mesh in the scene, sculpted, moved, hidden and saved on its own. The Scene palette lists them.", "subtool", {.Delete_Object, .Duplicate_Object, .Add_Object}},
-	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene palette that gathers objects, one level deep; its eye and ghost apply to all of them.", "collection", {.New_Folder}},
+	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene palette that gathers objects and other folders; its eye and ghost apply to everything inside it.", "collection", {.New_Folder}},
 	{"Solo", "Solo (ZBrush, Nomad), local view (Blender), isolate (Maya)", "Only the selected object shown, whichever that is, until Solo is off; the others keep their eyes as they were.", "isolate", {.Solo_Object}},
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},

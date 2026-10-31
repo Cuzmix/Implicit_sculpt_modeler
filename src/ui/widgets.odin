@@ -649,6 +649,9 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 
 // A tree row's indent per level, and the most toggles it shows.
 TREE_INDENT :: 24
+
+// The least room a tree row's name keeps before its detail gives way.
+TREE_NAME_MIN :: 72
 MAX_ROW_TOGGLES :: 4
 
 // A trailing on/off icon of a tree row, such as the eye that shows or hides an object.
@@ -761,9 +764,16 @@ tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, dept
 	}
 	label := color_fade(t.text, 0.45) if dim else t.text
 	font := Font.Semibold if selected else .Regular
-	// A long name is cut short of the detail rather than run under it.
+	// A long name is cut short of the detail rather than run under it; where that would
+	// leave the name too little room to read (a row indented deep in folders), the detail
+	// gives way instead, the name being what tells the rows apart.
 	room := first - 8 - x
-	if detail != "" do room -= text_width(ctx, detail, t.small_size) + 12
+	detail := detail
+	if detail != "" {
+		rest := room - text_width(ctx, detail, t.small_size) - 12
+		if rest < TREE_NAME_MIN && text_width(ctx, shown, t.text_size, font) > rest do detail = ""
+		else do room = rest
+	}
 	text(ctx, text_fit(ctx, shown, t.text_size, room, font), x, mid, t.text_size, label, font)
 	if detail != "" do text(ctx, detail, first - 8, mid, t.small_size, t.text_tertiary, .Regular, .Right)
 	press_scale(ctx, mark, vis, scale)
@@ -825,7 +835,14 @@ Thumb_Row :: struct {
 	// `dots_name` their tooltip.
 	dots:     []Color,
 	dots_name: string,
+	// How many folders in the row is: its picture and name move right THUMB_INDENT a
+	// folder, as a tree indents.
+	depth:    int,
 }
+
+// How far a thumbnail row moves right for each folder it is in: less than a tree row's,
+// as its picture already sets it apart.
+THUMB_INDENT :: 16
 
 // A tall row of a list of objects, as ZBrush for iPad's Subtools list has them: the
 // picture, the name with an optional switch under it, an optional chevron, and
@@ -873,7 +890,8 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		right = chevron.x
 	}
 	PICTURE: f32 = 34 if parts.compact else 44
-	x := cell.x + 10 + PICTURE + 12
+	indent := f32(max(parts.depth, 0)) * THUMB_INDENT
+	x := cell.x + 10 + indent + PICTURE + 12
 	has_under := parts.under.name != ""
 	has_detail := !has_under && parts.detail != ""
 	name_y := mid - 9 if has_under || has_detail else mid
@@ -914,7 +932,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
 	if o > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, o), 2)
-	picture := Rect{cell.x + 10, mid - PICTURE * 0.5, PICTURE, PICTURE}
+	picture := Rect{cell.x + 10 + indent, mid - PICTURE * 0.5, PICTURE, PICTURE}
 	fade: f32 = 0.45 if dim else 1
 	if parts.image != 0 {
 		image_part(ctx, picture, parts.image, parts.lo, parts.hi)

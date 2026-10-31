@@ -169,7 +169,7 @@ material_takes :: proc(app: ^App, obj: ^Object, to: Material_Target) -> bool {
 	case .Folder:
 		sel := selected_object(app)
 		if sel == nil do return false
-		return obj == sel || object_in_selection(app, obj) || (sel.folder != 0 && obj.folder == sel.folder)
+		return obj == sel || object_in_selection(app, obj) || (sel.folder != 0 && obj.folder != 0 && folder_within(app, obj.folder, sel.folder))
 	case .Every:     return true
 	}
 	return false

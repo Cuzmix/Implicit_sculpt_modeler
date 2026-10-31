@@ -85,36 +85,22 @@ kit_lens_scene :: proc(app: ^App) {
 	// A filtered list is not the scene's order, so its rows do not move.
 	drags := query == "" && kind == .All
 	k.scene_rows = 0
-	spots := make([dynamic]Tree_Spot, 0, len(objects) + len(app.scene.folders), context.temp_allocator)
 	if kind != .Lights {
-		for i := 0; i < len(objects); {
-			obj := objects[i]
-			f := folder_by_id(app, obj.folder)
-			if f == nil {
-				if scene_matches(obj, query, kind) do lens_object_row(app, &spots, i, drags)
-				i += 1
+		// A filtered list shows every folder open, and only those holding an object that
+		// matches, however deep.
+		filtered := query != "" || kind != .All
+		lines := tree_lines(app, unfolded = filtered)
+		spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
+		for line in lines {
+			if line.object >= 0 {
+				if scene_matches(objects[line.object], query, kind) do lens_object_row(app, &spots, line.object, line.depth, drags)
 				continue
 			}
-			first, end := folder_span(app, f.id)
-			// A folder shows while any object in it matches, open so they show.
-			filtered := query != "" || kind != .All
 			shown := !filtered
-			for o in objects[first:end] do if scene_matches(o, query, kind) do shown = true
-			if shown {
-				card_folder_row(app, &spots, f, first, end, &k.scene_rows, drags)
-				if f.open || filtered {
-					for j in first ..< end do if scene_matches(objects[j], query, kind) do lens_object_row(app, &spots, j, drags)
-				}
-			}
-			i = end
+			for o in objects[line.first:line.end] do if scene_matches(o, query, kind) do shown = true
+			if shown do card_folder_row(app, &spots, line, &k.scene_rows, drags)
 		}
-		if query == "" && kind == .All {
-			for &f in app.scene.folders {
-				if first, end := folder_span(app, f.id); end > first do continue
-				card_folder_row(app, &spots, &f, 0, 0, &k.scene_rows)
-			}
-		}
-		kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit})
+		kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit}, ui.THUMB_INDENT)
 	}
 	if kind == .All || kind == .Lights do scene_light_rows(app, query, kind == .Lights)
 	switch {
@@ -205,17 +191,18 @@ row_toggle_rect :: proc(ctx: ^ui.Context, row: ui.Rect, i, n: int) -> ui.Rect {
 	return {first + f32(i) * t.target, row.y + row.h * 0.5 - t.target * 0.5, t.target, t.target}
 }
 
-// Object `i`'s row: its picture, name, tags and what it is, its eye, its lock and its ⋯.
+// Object `i`'s row, `depth` folders in: its picture, name, tags and what it is, its eye,
+// its lock and its ⋯.
 // Ctrl and a tap on the lock locks every other object instead, as ZBrush's Freeze others;
 // a tap on a locked, hidden or ghosted object's row brings it back and selects it.
 @(private = "file")
-lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, drags: bool) {
+lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int, drags: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	objects := app.scene.objects[:]
 	obj := objects[i]
 	label := object_label(obj)
-	parts := ui.Thumb_Row{glyph = ui.ICON_FRAME, count = -1, compact = true, detail = object_row_detail(obj), badges = object_row_badges(obj)}
+	parts := ui.Thumb_Row{glyph = ui.ICON_FRAME, count = -1, compact = true, detail = object_row_detail(obj), badges = object_row_badges(obj), depth = min(depth, TREE_DEPTH_SHOWN)}
 	if lo, hi, ok := thumb_for(app, obj); ok do parts.image, parts.lo, parts.hi = KIT_THUMBS_IMAGE, lo, hi
 	// A dot per space in the space's colour, faint where the object is left out.
 	dots: [len(Space)]ui.Color
@@ -228,7 +215,7 @@ lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, drags: bo
 	}
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
 	row := ui.thumb_row(ctx, fmt.tprintf("%s##lens scene %d", label, obj.id), parts, object_in_selection(app, obj), dim = dragged || !object_shown(app, obj), all_toggles = toggles[:], drags = drags)
-	append(spots, Tree_Spot{rect = row.rect, id = obj.id, folder = obj.folder, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost})
+	append(spots, object_spot(app, row.rect, i, depth))
 	// Only the eye's column sweeps down the rows (the tree's column 1).
 	kit_row_drags(app, row.dragged, 1 if row.held_toggle == 0 else -1, row.rect, obj.id, obj.ghost, obj.off)
 	if !k.tree_column.active {

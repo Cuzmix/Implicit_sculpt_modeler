@@ -47,9 +47,14 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
     python scripts\touch_check.py --list        # the scenarios and what each proves
     python scripts\touch_check.py               # all of them; names or patterns ('rail_*') to run some; --screens writes build\touch\<name>.png of the last run, --screen-run=N of run N (no copied script needed to picture a middle state)
     python scripts\gate.py --only touch -- 'rail_*'   # the same through the gate, with the log in build\gate\touch.log
-- It needs a display. On Linux with `Xvfb` installed it starts one per job itself (`start_displays`) and runs the
-  scenarios side by side (`--jobs=N`, default one per CPU); otherwise one at a time on the current display (on a
-  headless box with one job, run it under `xvfb-run -a -s "-screen 0 1600x1400x24"`, as `gate.py` does).
+    python scripts\gate.py --changed                  # the scenarios (and tests) a branch's changes reach
+    python scripts\touch_check.py --exe=PATH          # a copy of the app, so rebuilding meanwhile cannot change it
+- It needs a window. Where SDL has no X11 driver and there is no display (a cloud container), every run uses SDL's
+  offscreen driver, alone in its own window, so the scenarios run side by side with no servers (`scripts/headless.py`
+  picks this, and Chromium's SwiftShader as the Vulkan driver when the system has none). On Linux with `Xvfb` and an
+  X11 SDL it starts one display per job (`start_displays`) and runs side by side (`--jobs=N`, default one per CPU);
+  otherwise one at a time on the current display. Under the offscreen driver `--dump-screen` pictures come out cropped
+  to the top-left 1280x720.
 - Every scenario is a fresh run with `--no-settings` (or `--settings-file`), so remembered settings never leak in.
 - After it, `build.bat test`, `build.bat smoke`, and on Linux `./build.sh wincheck` and `./build.sh androidcheck`.
 - Real tablet: `build.bat androidrun` (sm-build), then the device checklist in section 6.

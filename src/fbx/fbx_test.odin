@@ -154,7 +154,7 @@ fbx_keeps_polygons_folders_and_counts_rigs :: proc(t: ^testing.T) {
 		err, _, _ := read(&parts, data)
 		testing.expect_value(t, err, geom.Mesh_File_Error.None)
 		nested := 0
-		for p in parts do if p.folder != "" do nested += 1
+		for p in parts do if len(p.folders) > 0 do nested += 1
 		testing.expectf(t, nested > 0 && nested < len(parts), "%d of %d parts sit under another node", nested, len(parts))
 	}
 	{

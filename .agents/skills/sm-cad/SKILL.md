@@ -130,7 +130,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `to_local`/`to_local_dir`; `Draw_Item.model` must stay a similarity, `src/render/renderer.odin:115-119`), no measurement or snapping. Undo
   stores positions or masks per node, or whole nodes under dynamic topology (`src/sculpt/undo.odin:9-15`); a whole-object
   rebuild (remesh, mirror and weld, dyntopo toggle, level deletion, add/delete/duplicate) is a swap entry in the app's
-  `History` ([references/undo-and-topology.md](references/undo-and-topology.md)). The only field CSG is the SDF spike's smooth union (sm-sdf);
+  `History` ([references/undo-and-topology.md](references/undo-and-topology.md)). The only field CSG is the voxel booleans' smooth minimum (`clay_combine`, sm-sdf);
   `remesh_voxel` is the mesh-level union.
 
 ## Three kinds of tool, three plug-in paths

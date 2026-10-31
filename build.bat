@@ -69,7 +69,6 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\poly" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
-"%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\ui" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\usd" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1

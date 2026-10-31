@@ -886,7 +886,7 @@ object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op) -> bool 
 
 // The commands a cage object refuses: each changes its level in place (vertices, masks,
 // hiding, paint, groups, levels, layers), which the next edit of the cage would undo.
-CAGE_REFUSED_COMMANDS :: bit_set[Command_Id; [4]u64]{
+CAGE_REFUSED_COMMANDS :: Command_Set{
 	.Dyntopo_Toggle, .Subdivide, .Level_Up, .Level_Down, .Hd_Toggle, .Group_Shortcut, .Mask, .Mask_By, .Mask_Adjust,
 	.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked, .Grow_Visible, .Shrink_Visible, .Grow_All_Visible,
 	.Outer_Ring, .Grow_To_Groups, .Show_Masked, .Store_Selection_Set, .Restore_Selection_Set, .Paint, .Group,
