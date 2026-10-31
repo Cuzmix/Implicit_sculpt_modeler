@@ -6241,9 +6241,9 @@ def rail_finger_while_pen_near():
 
 @scenario
 def rail_finger_during_pinch():
-    """A finger landing on the rail during a pinch is no third finger: the pinch zooms on and the brush keeps its size."""
+    """A finger landing on the rail during a pinch (over empty space) is no third finger: the pinch zooms on and the brush keeps its size."""
     s = Script()
-    starts, moves, frames = [(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20
+    starts, moves, frames = [(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20
     for i, (x, y) in enumerate(starts):
         s.add(f"fdown:{i}:{x:g},{y:g}")
     s.wait(2)

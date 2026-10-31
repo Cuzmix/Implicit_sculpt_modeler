@@ -961,8 +961,11 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
 	// A pinch zooms and a twist rolls about the surface between the fingers: the target
 	// moves along the view to its depth first, which changes nothing on screen, so that
-	// surface stays under them. Off the model the target's own plane is kept.
-	if (in_.touch_zoom > 0 || in_.touch_roll != 0) && nav.zoom_toward do rebase_under(app, in_.touch_at + in_.size * 0.5, in_.size)
+	// surface stays under them. Off the model the target's own plane is kept. Two fingers
+	// panning together spread by a rounding error each frame, which is no zoom: that leaves
+	// the target, and so the distance a later wheel zoom scales, as it was.
+	zooms := in_.touch_zoom > 0 && abs(math.ln(in_.touch_zoom)) > 1e-4
+	if (zooms || in_.touch_roll != 0) && nav.zoom_toward do rebase_under(app, in_.touch_at + in_.size * 0.5, in_.size)
 	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_at, in_.size.y)
 	if in_.touch_roll != 0 do camera.orbit_roll_about(c, in_.touch_roll, in_.touch_at, in_.size.y)
 	if in_.touch_orbit != {} {
