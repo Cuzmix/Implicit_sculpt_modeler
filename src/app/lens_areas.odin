@@ -5,7 +5,6 @@ import "core:math"
 import "core:math/linalg"
 import "core:time"
 
-import sdl "vendor:sdl3"
 
 import "../ui"
 
@@ -375,7 +374,7 @@ corner_track :: proc(app: ^App, m: [2]f32, cells: [GRID_PANES]ui.Rect, n: int) {
 	ctx := &k.ctx
 	g := &k.grid
 	cd := &g.areas.corner
-	if app.touch.fingers.count >= 2 || key_pressed(&app.device, sdl.K_ESCAPE) || ctx.input.cancel {
+	if app.touch.fingers.count >= 2 || key_pressed(&app.device, KEY_ESCAPE) || ctx.input.cancel {
 		cd.live = false
 		g.areas.cancels += 1
 		return
@@ -559,7 +558,7 @@ lens_chip_drag :: proc(app: ^App, pane: int, a: ui.Area, cells: [GRID_PANES]ui.R
 	if a.held {
 		chip.at = a.mouse
 		if !chip.moving && linalg.length(a.mouse - chip.from) > GRID_CHIP_SLOP do chip.moving = true
-		if chip.moving && (app.touch.fingers.count >= 2 || key_pressed(&app.device, sdl.K_ESCAPE) || app.kit.ctx.input.cancel) {
+		if chip.moving && (app.touch.fingers.count >= 2 || key_pressed(&app.device, KEY_ESCAPE) || app.kit.ctx.input.cancel) {
 			chip^ = {}
 			g.areas.cancels += 1
 		}

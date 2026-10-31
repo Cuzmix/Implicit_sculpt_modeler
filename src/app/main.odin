@@ -972,7 +972,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			}
 			// A held backquote peeks at the last other pass (passes.odin) until it is let go;
 			// once it went down outside typing, its release is the peek's too.
-			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.key == sdl.K_GRAVE {
+			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && key_of(e.key.key) == KEY_GRAVE {
 				ps := &app.kit.passes
 				if ps.key_held || (e.key.down && !typing(&app)) {
 					ps.key_held = e.key.down

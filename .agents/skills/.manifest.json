@@ -1,22 +1,22 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "5b85d59be8ba43522b676dac90747b2f5455c5f8b7045f928db9a2a212ec7226",
-    "sm-cad/SKILL.md": "2b1bae17e9b2832ae87c87a71815a13fa59b62ae3ecd5a8905b541801cf0f149",
+    "sm-build/SKILL.md": "3afc3465da967f9638988e4f5047cbec7fbcaa3177f60315fae6270f18a76844",
+    "sm-cad/SKILL.md": "f99c630b43088a7eeac0d030f7dc05a2ba65ce0cfdaf0e37f271f662460aa9b8",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
     "sm-figma-ui/SKILL.md": "2fe0014b56571b18d3c3e38777adfddc5c69d3a9ba8b846c7c55db9459da1ba2",
     "sm-geom/SKILL.md": "a7831c8df3732d324829b915e7c7a5f7ffd63aee3c7616255431bcd881e7f90a",
-    "sm-lint/SKILL.md": "49270374fa3e602206887ab05d3f607137c2e545c145036c41e487d23540b18e",
-    "sm-odin/SKILL.md": "79e40746a111399eee6a26e66883b2932d7059db36c3185fad3cbb09797a7484",
+    "sm-lint/SKILL.md": "eef3d323aa914bdc9acc5d31b4a876f6ee821e61fdfe0102265020e4e229461a",
+    "sm-odin/SKILL.md": "ab3f7afd7bf3f3cc84d680117d3eb3088dc1921a9738a056ab1d6caaad86e400",
     "sm-perf/SKILL.md": "0fda0bf14ae3d8c0352761ddac66d5ea9cc598553adc119e50c952469535094d",
-    "sm-render/SKILL.md": "ac7548fcdeea8cbdd74e657c20eea6b2097de4884f812f1b3c26ce4f69b4c421",
+    "sm-render/SKILL.md": "826f6a0bd75336aee5d48ea3b5c7fd63b8c3155d8d399f8e80ff21771f172934",
     "sm-sculpt/SKILL.md": "0171f9f6fad22d2883633a1325402591121348cec13a04918c549ab8ca5d2ffe",
     "sm-sdf/SKILL.md": "7be5b4751b31a4384b1fb0a8894c180adcf54d1376dc5b82862dc96435ac716e",
     "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-store/SKILL.md": "2876fab9c5f167ea2eb60955cc54474f09f5f58c818023e68af5776c13fd2dfe",
     "sm-touch-testing/SKILL.md": "1d2ddb381a9b28a174f42d73cec5a24129fcfec2d0df3bbee09bcd4090f02508",
-    "sm-ui/SKILL.md": "9203096d545dcd692b74d1524d84c25206cd5de0dc52901c2bdba742dd4ec949",
+    "sm-ui/SKILL.md": "bcfe2f9f62e0d31caaec83b62af02c63bd385bb768fa4ef9de844a4e1a0da14e",
     "sm-ui/references/lens-layout.md": "558eeac245374a03feb98ddae2c79cbeb22e19f094b18eeb680aea80f0f088d0"
   }
 }

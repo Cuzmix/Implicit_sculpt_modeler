@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:strings"
 
 import "../render"
+import "../geom"
 
 // MatCaps, as ZBrush's MatCap materials and Blender's MatCap shading: a picture of a lit
 // sphere stands in for the lights (render/matcap.odin). The built-in ones are painted
@@ -78,7 +79,7 @@ matcap_paint :: proc(recipe: Matcap_Recipe, size: int, out: []u8) {
 			n := [3]f32{p.x, p.y, math.sqrt(max(1 - r2, 0))}
 			c := matcap_light(recipe, n, key, half)
 			at := (y * size + x) * 4
-			for k in 0 ..< 3 do out[at + k] = u8(math.round(srgb_encode(c[k]) * 255))
+			for k in 0 ..< 3 do out[at + k] = u8(math.round(geom.srgb_encode(c[k]) * 255))
 			out[at + 3] = 255
 		}
 	}
@@ -96,9 +97,9 @@ matcap_light :: proc(m: Matcap_Recipe, n, key, half: [3]f32) -> [3]f32 {
 		// when filtered, and the highlight and rim as hard shapes.
 		steps := f32(m.bands - 1)
 		t := diffuse * steps
-		diffuse = (math.floor(t) + smoothstep(f32(0.45), 0.55, t - math.floor(t))) / steps
-		spec = smoothstep(f32(0.5), 0.56, spec)
-		rim = smoothstep(f32(0.35), 0.42, rim)
+		diffuse = (math.floor(t) + math.smoothstep(f32(0.45), 0.55, t - math.floor(t))) / steps
+		spec = math.smoothstep(f32(0.5), 0.56, spec)
+		rim = math.smoothstep(f32(0.35), 0.42, rim)
 	}
 	hemi := m.ground + (m.sky - m.ground) * (n.y * 0.5 + 0.5)
 	// The scatter glows where the light grazes the surface and fades into the shadow.
@@ -108,24 +109,6 @@ matcap_light :: proc(m: Matcap_Recipe, n, key, half: [3]f32) -> [3]f32 {
 	c += m.spec * spec + m.sheen * math.pow(max(linalg.dot(n, half), 0), m.sheen_power)
 	c += m.rim * rim
 	return c
-}
-
-@(private = "file")
-smoothstep :: proc(lo, hi, x: f32) -> f32 {
-	t := clamp((x - lo) / (hi - lo), 0, 1)
-	return t * t * (3 - 2 * t)
-}
-
-// Linear light to the sRGB curve, as the shader's srgb_encode.
-srgb_encode :: proc(linear: f32) -> f32 {
-	c := clamp(linear, 0, 1)
-	return 12.92 * c if c <= 0.0031308 else 1.055 * math.pow(c, 1 / 2.4) - 0.055
-}
-
-// The sRGB curve back to linear light, as the shader's srgb_decode.
-srgb_decode :: proc(encoded: f32) -> f32 {
-	c := clamp(encoded, 0, 1)
-	return c / 12.92 if c <= 0.04045 else math.pow((c + 0.055) / 1.055, 2.4)
 }
 
 // Paints the built-in matcaps into textures; one that cannot be made stays nil, and its

@@ -7678,7 +7678,7 @@ def mouse_maya_alt_right_zooms():
 
 # An image environment shown behind the scene in Material Preview, where Shift and a right
 # drag turns it rather than panning.
-ENVIRONMENT_SHOWN = "--script=environment src/app/testdata/exr/sky_half_zip.exr; set environment_background on; shading_mode material_preview"
+ENVIRONMENT_SHOWN = "--script=environment src/hdri/testdata/exr/sky_half_zip.exr; set environment_background on; shading_mode material_preview"
 
 
 @scenario

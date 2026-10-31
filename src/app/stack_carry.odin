@@ -3,7 +3,6 @@ package main
 import "core:fmt"
 import "core:math/linalg"
 
-import sdl "vendor:sdl3"
 
 import "../ui"
 
@@ -81,7 +80,7 @@ stack_carry_update :: proc(app: ^App) {
 		s.carry = carry
 		s.tab_open = false
 	}
-	if in_.cancel || key_pressed(&app.device, sdl.K_ESCAPE) {
+	if in_.cancel || key_pressed(&app.device, KEY_ESCAPE) {
 		s.carry, s.target = nil, {}
 		s.carry_off = .Left in in_.down
 		return

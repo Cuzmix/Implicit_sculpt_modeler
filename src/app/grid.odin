@@ -8,7 +8,6 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../render"
@@ -1220,7 +1219,7 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 	// A work begun on the frame the last one ended (a press the very frame after a release)
 	// keeps the still picture it had: the target holds the other pane's view now.
 	if g.work_began && g.work_ended == 0 {
-		if !render.viewport_copy(&app.renderer, &app.work_still, g.work_shown, w, h) do log.warnf("work in a pane: no still picture of the main pane: %s", sdl.GetError())
+		if !render.viewport_copy(&app.renderer, &app.work_still, g.work_shown, w, h) do log.warnf("work in a pane: no still picture of the main pane: %s", platform_error())
 	}
 	if i := g.work_ended; i != 0 {
 		pic := &app.panes[i - 1]

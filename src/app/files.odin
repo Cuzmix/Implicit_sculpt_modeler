@@ -23,6 +23,7 @@ import "../poly"
 import "../fbx"
 import "../usd"
 import "../voxel"
+import "../retopo"
 
 // Files: meshes in and out as OBJ, PLY, STL, glTF and USD, and whole scenes saved and opened in the
 // native format. A request comes from a File menu dialog, a shortcut or a flag and runs
@@ -686,7 +687,7 @@ import_folder_count :: proc(paths: [][]string) -> int {
 import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32, uv: Maybe(geom.Uv_Layout) = nil) {
 	uv := uv
 	defer if layout, has := &uv.?; has do geom.uv_layout_destroy(layout)
-	retopo_polys_renumber(polys, old_to_new, tri_from)
+	retopo.polys_renumber(polys, old_to_new, tri_from)
 	quads := true
 	for f in 0 ..< len(polys.first) - 1 do quads &&= polys.first[f + 1] - polys.first[f] == 4
 	if !sculpt.levels_set_polys(l, polys^, {}, .Smooth) {
@@ -1081,7 +1082,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
 		under := [3]u32{255, 255, 255}
 		if ext == ".glb" || ext == ".usda" {
-			for k in 0 ..< 3 do under[k] = u32(math.round(srgb_encode(material.base[k]) * 255))
+			for k in 0 ..< 3 do under[k] = u32(math.round(geom.srgb_encode(material.base[k]) * 255))
 			material.base = 1
 		}
 		colors = make([][3]u8, len(c), context.temp_allocator)

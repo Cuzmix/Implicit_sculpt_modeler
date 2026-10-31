@@ -1121,8 +1121,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	}
 	for key in d.keys {
 		switch key.key {
-		case sdl.K_BACKSPACE:                         in_.backspace += 1
-		case sdl.K_RETURN, sdl.K_KP_ENTER, sdl.K_ESCAPE: in_.text_end = true
+		case KEY_BACKSPACE:                         in_.backspace += 1
+		case KEY_RETURN, KEY_KP_ENTER, KEY_ESCAPE: in_.text_end = true
 		}
 	}
 	if safe: sdl.Rect; sdl.GetWindowSafeArea(window, &safe) {
@@ -1302,11 +1302,11 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// a field or the palette had the keys, nor over a menu.
 	shape_waits := app.shape_pending.kind != .None && app.tool == .Brush
 	quiet := !floating && !kit_floating(app) && !typed
-	if shape_waits && quiet && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)) do app.shape_pending.request = .Apply
+	if shape_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do app.shape_pending.request = .Apply
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
 	// the object or the mask back (move_tool_frame).
-	if (key_pressed(d, sdl.K_ESCAPE) && app.move.drag.handle == .None && !topo_held(app)) || key_pressed(d, sdl.K_AC_BACK) {
+	if (key_pressed(d, KEY_ESCAPE) && app.move.drag.handle == .None && !topo_held(app)) || key_pressed(d, KEY_AC_BACK) {
 		// The topmost goes first: what floats, then a waiting shape, and only then
 		// Settings or Help. An Escape that ended typing in a field (Settings > Keys'
 		// search) was the field's. The recovery card, when nothing is above it, waits
@@ -1900,7 +1900,7 @@ kit_rename :: proc(app: ^App) {
 	ui.paragraph(ctx, "Enter applies it; left empty, it is called what the field shows." if fresh else "Enter applies it; left empty, the name stays as it is.")
 	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
 	d := &app.device
-	apply ||= r.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
+	apply ||= r.open && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER))
 	if apply && r.open && r.step != {} {
 		// A bookmark is a note on the History, not part of the scene: it changes at once.
 		name := rename_text(r.text[:])

@@ -1,4 +1,4 @@
-package main
+package hdri
 
 import "base:runtime"
 import "core:bytes"
@@ -118,7 +118,7 @@ exr_is :: proc(data: []u8) -> bool {
 
 // Reads an OpenEXR file as a panorama no wider than `max_width` (a power of two halves
 // it); why it cannot be one otherwise (a temp string). Never reads past `data`.
-exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Environment_Image, why: string) {
+exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
 	if !exr_is(data) || len(data) < 8 do return {}, "it is not an OpenEXR file"
 	version, _ := endian.get_u32(data[4:], .Little)
 	if version & 0xff != 2 do return {}, fmt.tprintf("OpenEXR version %d is not read", version & 0xff)
@@ -201,7 +201,7 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 	chunk_bytes := sample * min(tile_w, width) * min(band, height)
 
 	shrink := halvings(width, max_width)
-	img = environment_image_make(width, height, shrink, allocator)
+	img = image_make(width, height, shrink, allocator)
 	rows := make([][3]f32, width * min(band, height), context.temp_allocator)
 	plain := make([]u8, chunk_bytes, context.temp_allocator)
 	d := Exr_Decoder{comp = comp, channels = channels, work = make([]u8, chunk_bytes, context.temp_allocator)}
@@ -219,13 +219,13 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 	for i in 0 ..< chunks {
 		offset := int(endian.unchecked_get_u64le(data[table + 8 * i:]))
 		if offset < 0 || offset > len(data) - leader {
-			environment_image_destroy(&img, allocator)
+			image_destroy(&img, allocator)
 			return {}, "a chunk lies outside the file"
 		}
 		o := offset
 		if multi {
 			if int(endian.unchecked_get_u32le(data[o:])) != pick {
-				environment_image_destroy(&img, allocator)
+				image_destroy(&img, allocator)
 				return {}, "a chunk is damaged"
 			}
 			o += 4
@@ -238,7 +238,7 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 			ly := i32(endian.unchecked_get_u32le(data[o + 12:]))
 			// The full-size level's tiles come first in the table, row by row.
 			if tx != i % across || ty != i / across || lx != 0 || ly != 0 {
-				environment_image_destroy(&img, allocator)
+				image_destroy(&img, allocator)
 				return {}, "a tile is damaged"
 			}
 			column, first = tx * tile_w, ty * band
@@ -246,7 +246,7 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 		} else {
 			first = int(i32(endian.unchecked_get_u32le(data[o:]))) - y0
 			if first < 0 || first >= height || first % band != 0 || seen[first / band] {
-				environment_image_destroy(&img, allocator)
+				image_destroy(&img, allocator)
 				return {}, "a chunk is damaged"
 			}
 			seen[first / band] = true
@@ -255,13 +255,13 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 		size := int(i32(endian.unchecked_get_u32le(data[o:])))
 		o += 4
 		if size < 0 || size > len(data) - o {
-			environment_image_destroy(&img, allocator)
+			image_destroy(&img, allocator)
 			return {}, "a chunk is damaged"
 		}
 		w, n := min(tile_w, width - column), min(band, height - first)
 		out := plain[:n * w * sample]
 		if reason := exr_chunk(&d, data[o:][:size], out, w, n); reason != "" {
-			environment_image_destroy(&img, allocator)
+			image_destroy(&img, allocator)
 			return {}, reason
 		}
 		// Each scanline holds every channel in the header's order, a whole row of each.
@@ -283,7 +283,7 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 		}
 		// A band is whole once its last tile is in (a scanline chunk is a band alone).
 		if column + w == width {
-			for l in 0 ..< n do environment_add_row(&img, rows[l * width:][:width], first + l, shrink)
+			for l in 0 ..< n do add_row(&img, rows[l * width:][:width], first + l, shrink)
 		}
 	}
 	return img, ""

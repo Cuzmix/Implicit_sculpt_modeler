@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import sdl "vendor:sdl3"
 
 import "../ui"
 
@@ -106,9 +105,9 @@ bind_listen :: proc(app: ^App) {
 	for key in app.device.keys {
 		if key.repeat do continue
 		switch key.key {
-		case sdl.K_ESCAPE, sdl.K_AC_BACK:
+		case KEY_ESCAPE, KEY_AC_BACK:
 			return
-		case sdl.K_LCTRL, sdl.K_RCTRL, sdl.K_LSHIFT, sdl.K_RSHIFT, sdl.K_LALT, sdl.K_RALT, sdl.K_LGUI, sdl.K_RGUI:
+		case KEY_LCTRL, KEY_RCTRL, KEY_LSHIFT, KEY_RSHIFT, KEY_LALT, KEY_RALT, KEY_LGUI, KEY_RGUI:
 			continue
 		}
 		c := Chord{key = key.key, mods = key.mods}
@@ -116,7 +115,7 @@ bind_listen :: proc(app: ^App) {
 		// The system's own modifier (the Windows key; Cmd on Linux) is no part of a chord,
 		// so a press with it would bind the bare key. On Apple's platforms Cmd is the
 		// shortcut key itself and binds as Ctrl (KMOD_SHORTCUT).
-		if ODIN_OS != .Darwin && sdl.GetModState() & sdl.KMOD_GUI != {} {
+		if ODIN_OS != .Darwin && platform_system_key_held() {
 			b.state, b.reason = .Refused, "the Windows key belongs to the system"
 			return
 		}

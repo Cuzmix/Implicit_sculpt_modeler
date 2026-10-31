@@ -1,12 +1,22 @@
-package main
+package hdri
 
 import "core:fmt"
 import "core:image"
+import _ "core:image/bmp"
+import _ "core:image/jpeg"
+import _ "core:image/png"
+import _ "core:image/qoi"
+import _ "core:image/tga"
 import "core:math"
 import "core:mem"
 import "core:strconv"
 import "core:strings"
 
+import "../geom"
+
+// Package hdri reads environment panoramas, the image-based light's pictures, with no
+// rendering or interface: decoding runs on a worker thread and the app uploads the result.
+//
 // Environment panoramas from files (stage 4.1, notes/rendering/stage4-design.md): a
 // Radiance `.hdr` (RGBE) or any image core:image reads, equirectangular, twice as wide as
 // tall, as linear RGB at most `max_width` wide, halved by 2 x 2 box averages as rows are
@@ -16,10 +26,13 @@ import "core:strings"
 // Panoramas wider than this are refused: 8192 x 4096 is the largest common HDRI size and
 // what core:image accepts. Picture files (not Radiance) stop at 4096 on tablets, where a
 // decoded 8k picture alone would be 128 MB.
-ENVIRONMENT_MAX_SIDE :: 8192
-ENVIRONMENT_MAX_PICTURE_SIDE :: 4096 when MOBILE else ENVIRONMENT_MAX_SIDE
+MAX_SIDE :: 8192
+MAX_PICTURE_SIDE :: 4096 when MOBILE else MAX_SIDE
+// Tablets and phones: Android and iOS builds are a subtarget of their desktop OS.
+@(private)
+MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
 // Panoramas smaller than this are refused: the renderer prefilters six halvings of it.
-ENVIRONMENT_MIN_WIDTH :: 64
+MIN_WIDTH :: 64
 // A Radiance header longer than this is not one.
 HDR_HEADER_MAX :: 4096
 // The largest value a half float holds: brighter pixels (RGBE reaches 1.7e38) are clamped
@@ -28,13 +41,13 @@ HDR_MAX_VALUE :: 65504
 
 // A panorama as linear RGB, rows top (straight up) to bottom (straight down), columns
 // from behind the viewer (u = 0) round through straight ahead (u = 0.5).
-Environment_Image :: struct {
+Image :: struct {
 	pixels: [][3]f32,
 	width:  int,
 	height: int,
 }
 
-environment_image_destroy :: proc(img: ^Environment_Image, allocator := context.allocator) {
+image_destroy :: proc(img: ^Image, allocator := context.allocator) {
 	delete(img.pixels, allocator)
 	img^ = {}
 }
@@ -42,7 +55,7 @@ environment_image_destroy :: proc(img: ^Environment_Image, allocator := context.
 // Reads `data` as a panorama no wider than `max_width` (a power of two halves it); why it
 // cannot be one otherwise ("" when it can, else a string in `allocator`, since decodes run
 // on a thread whose temp memory ends with it). Never reads past `data`.
-environment_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Environment_Image, why: string) {
+decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
 	reason: string
 	if len(data) >= 2 && data[0] == '#' && data[1] == '?' {
 		img, reason = hdr_decode(data, max_width, allocator)
@@ -58,14 +71,14 @@ environment_decode :: proc(data: []u8, max_width: int, allocator := context.allo
 // A PNG, JPEG, BMP, TGA or QOI panorama, its sRGB values turned to linear light row by
 // row straight from the decoded pixels.
 @(private = "file")
-picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Environment_Image, why: string) {
+picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
 	// The header first, so a picture too big for this device is refused before its pixels
 	// take the memory.
 	head, head_err := image.load_from_bytes(data, {.info})
 	if head_err != nil do return {}, fmt.tprintf("%v (OpenEXR, Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", head_err)
 	width, height := head.width, head.height
 	image.destroy(head)
-	if why = panorama_size_check(width, height, ENVIRONMENT_MAX_PICTURE_SIDE); why != "" do return
+	if why = panorama_size_check(width, height, MAX_PICTURE_SIDE); why != "" do return
 	src, err := image.load_from_bytes(data)
 	if err != nil do return {}, fmt.tprintf("%v (OpenEXR, Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", err)
 	defer image.destroy(src)
@@ -73,12 +86,12 @@ picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocato
 	if src.depth != 8 && src.depth != 16 do return {}, fmt.tprintf("%d-bit channels are not supported", src.depth)
 	// Eight-bit values take their linear value from a table rather than a power per channel.
 	lut: [256]f32
-	for &v, i in lut do v = srgb_decode(f32(i) / 255)
+	for &v, i in lut do v = geom.srgb_decode(f32(i) / 255)
 	pixels := src.pixels.buf[:]
 	wide := mem.slice_data_cast([]u16, pixels) if src.depth == 16 else nil
 	channels := src.channels
 	shrink := halvings(src.width, max_width)
-	img = environment_image_make(src.width, src.height, shrink, allocator)
+	img = image_make(src.width, src.height, shrink, allocator)
 	row := make([][3]f32, src.width, context.temp_allocator)
 	for y in 0 ..< src.height {
 		for &p, x in row {
@@ -86,19 +99,19 @@ picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocato
 			for c in 0 ..< 3 {
 				// Grey (with or without alpha) spreads to all three channels.
 				at := k + (0 if channels <= 2 else c)
-				p[c] = lut[pixels[at]] if wide == nil else srgb_decode(f32(wide[at]) / 65535)
+				p[c] = lut[pixels[at]] if wide == nil else geom.srgb_decode(f32(wide[at]) / 65535)
 			}
 		}
-		environment_add_row(&img, row, y, shrink)
+		add_row(&img, row, y, shrink)
 	}
 	return img, ""
 }
 
 // Why a `width` by `height` image cannot be a panorama ("" when it can).
 @(private)
-panorama_size_check :: proc(width, height: int, max_side := ENVIRONMENT_MAX_SIDE) -> string {
-	if width < ENVIRONMENT_MIN_WIDTH || height < ENVIRONMENT_MIN_WIDTH / 2 || width > max_side || height > max_side {
-		return fmt.tprintf("%d x %d is not between %d x %d and %d a side", width, height, ENVIRONMENT_MIN_WIDTH, ENVIRONMENT_MIN_WIDTH / 2, max_side)
+panorama_size_check :: proc(width, height: int, max_side := MAX_SIDE) -> string {
+	if width < MIN_WIDTH || height < MIN_WIDTH / 2 || width > max_side || height > max_side {
+		return fmt.tprintf("%d x %d is not between %d x %d and %d a side", width, height, MIN_WIDTH, MIN_WIDTH / 2, max_side)
 	}
 	if abs(width - 2 * height) > 1 do return fmt.tprintf("%d x %d is not a panorama twice as wide as it is tall", width, height)
 	return ""
@@ -113,7 +126,7 @@ halvings :: proc(width, max_width: int) -> (n: int) {
 
 // An empty panorama the size of a `width` by `height` one halved `shrink` times.
 @(private)
-environment_image_make :: proc(width, height, shrink: int, allocator := context.allocator) -> (img: Environment_Image) {
+image_make :: proc(width, height, shrink: int, allocator := context.allocator) -> (img: Image) {
 	img.width, img.height = max(width >> uint(shrink), 1), max(height >> uint(shrink), 1)
 	img.pixels = make([][3]f32, img.width * img.height, allocator)
 	return
@@ -122,7 +135,7 @@ environment_image_make :: proc(width, height, shrink: int, allocator := context.
 // Adds source row `y` (as wide as the source) into `img`, each output pixel the mean of
 // a 2^shrink square; source rows and columns past the last whole square are dropped.
 @(private)
-environment_add_row :: proc(img: ^Environment_Image, row: [][3]f32, y, shrink: int) {
+add_row :: proc(img: ^Image, row: [][3]f32, y, shrink: int) {
 	block := 1 << uint(shrink)
 	out_y := y >> uint(shrink)
 	if out_y >= img.height do return
@@ -139,7 +152,7 @@ environment_add_row :: proc(img: ^Environment_Image, row: [][3]f32, y, shrink: i
 // `-Y H +X W` size line, then W x H pixels, each row flat (4 bytes a pixel) or run-length
 // encoded per channel (the 2 2 hi lo form). The older 1 1 1 n runs are refused.
 @(private = "file")
-hdr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Environment_Image, why: string) {
+hdr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
 	at := 0
 	line :: proc(data: []u8, at: ^int) -> (s: string, ok: bool) {
 		start := at^
@@ -170,12 +183,12 @@ hdr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 	if why = panorama_size_check(width, height); why != "" do return
 
 	shrink := halvings(width, max_width)
-	img = environment_image_make(width, height, shrink, allocator)
+	img = image_make(width, height, shrink, allocator)
 	rgbe := make([]u8, width * 4, context.temp_allocator)
 	row := make([][3]f32, width, context.temp_allocator)
 	for y in 0 ..< height {
 		if why = hdr_row(data, &at, rgbe, width, height - y); why != "" {
-			environment_image_destroy(&img, allocator)
+			image_destroy(&img, allocator)
 			return {}, why
 		}
 		for &p, x in row {
@@ -183,7 +196,7 @@ hdr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 			f := math.ldexp_f32(1, int(e) - 136) if e != 0 else 0
 			for c in 0 ..< 3 do p[c] = min(f32(rgbe[x * 4 + c]) * f, HDR_MAX_VALUE)
 		}
-		environment_add_row(&img, row, y, shrink)
+		add_row(&img, row, y, shrink)
 	}
 	return img, ""
 }
@@ -233,7 +246,7 @@ hdr_row :: proc(data: []u8, at: ^int, out: []u8, width, rows: int) -> string {
 
 // The direction pixel (`x`, `y`) of a `width` by `height` panorama looks along: +Y up,
 // u = 0.5 straight ahead (-Z), as the shaders read it (u = atan(d.x, -d.z) / 2pi + 0.5).
-environment_direction :: proc(x, y, width, height: int) -> [3]f32 {
+direction :: proc(x, y, width, height: int) -> [3]f32 {
 	theta := (f32(y) + 0.5) / f32(height) * math.PI
 	phi := ((f32(x) + 0.5) / f32(width) - 0.5) * 2 * math.PI
 	s := math.sin(theta)
@@ -244,7 +257,7 @@ environment_direction :: proc(x, y, width, height: int) -> [3]f32 {
 // Hanrahan 2001), already convolved with the cosine lobe and divided by pi: the shader's
 // sum of coefficient times basis at a normal is the light a white Lambertian surface
 // facing that way gives back. Summed in one fixed order, so the result never varies.
-environment_sh9 :: proc(img: Environment_Image) -> (sh: [9][3]f32) {
+sh9 :: proc(img: Image) -> (sh: [9][3]f32) {
 	acc: [9][3]f64
 	d_phi := 2 * math.PI / f64(img.width)
 	d_theta := math.PI / f64(img.height)
@@ -252,7 +265,7 @@ environment_sh9 :: proc(img: Environment_Image) -> (sh: [9][3]f32) {
 		theta := (f64(y) + 0.5) * d_theta
 		weight := math.sin(theta) * d_phi * d_theta
 		for x in 0 ..< img.width {
-			d := environment_direction(x, y, img.width, img.height)
+			d := direction(x, y, img.width, img.height)
 			basis := sh9_basis(d)
 			p := img.pixels[y * img.width + x]
 			for k in 0 ..< 9 {

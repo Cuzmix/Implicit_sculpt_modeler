@@ -3,7 +3,6 @@ package main
 import "core:os"
 import "core:strings"
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../sculpt"
@@ -184,7 +183,7 @@ macro_delete_takes_it_off_everything :: proc(t: ^testing.T) {
 	testing.expect(t, os.exists(path))
 
 	k := &app.kit
-	testing.expect(t, bind_assign(&app, .Run_Macro, 0, {sdl.K_F7, {}, false}))
+	testing.expect(t, bind_assign(&app, .Run_Macro, 0, {KEY_F7, {}, false}))
 	k.pies[1][3] = {.Run_Macro, 0}
 	k.pies[2][0] = {.Run_Macro, 1}
 	testing.expect(t, favourite_toggle(&app, .Run_Macro, 0))

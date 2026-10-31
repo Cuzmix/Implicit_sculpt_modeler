@@ -13,7 +13,6 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../sculpt"
 import "../voxel"
@@ -163,14 +162,13 @@ autosave_init :: proc(app: ^App, interactive: bool, seconds: f64, folder: string
 	if !a.on do return
 	dir := folder
 	if dir == "" {
-		pref := sdl.GetPrefPath("Implicit", "Sculpt")
-		if pref == nil {
-			log.warnf("autosave: no folder for it (%s); this run is not autosaved", sdl.GetError())
+		pref := platform_folder()
+		if pref == "" {
+			log.warnf("autosave: no folder for it (%s); this run is not autosaved", platform_error())
 			a.on = false
 			return
 		}
-		dir = strings.concatenate({string(cstring(pref)), AUTOSAVE_FOLDER}, context.temp_allocator)
-		sdl.free(pref)
+		dir = strings.concatenate({pref, AUTOSAVE_FOLDER}, context.temp_allocator)
 	}
 	if err := os.make_directory_all(dir); err != nil && !os.is_dir(dir) {
 		log.warnf("autosave: cannot make %s (%v); this run is not autosaved", dir, err)
@@ -468,7 +466,7 @@ autosave_scene_saved :: proc(app: ^App, path: string) {
 // (with the window hidden first, so the app looks closed while it does), then marks the
 // session closed and keeps only its newest autosave. On a phone or tablet the
 // background autosave already ran, and closing must not wait.
-autosave_close :: proc(app: ^App, window: ^sdl.Window) {
+autosave_close :: proc(app: ^App, window: ^Window) {
 	a := &app.autosave
 	w := a.worker
 	if w == nil do return
@@ -476,7 +474,7 @@ autosave_close :: proc(app: ^App, window: ^sdl.Window) {
 	autosave_wait(w)
 	autosave_collect(app)
 	if fp := scene_fingerprint(app); !MOBILE && autosave_interval(a) > 0 && fp != a.clean {
-		_ = sdl.HideWindow(window)
+		window_hide(window)
 		autosave_start(app, fp)
 		autosave_wait(w)
 		autosave_collect(app)

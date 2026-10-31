@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -300,7 +299,7 @@ Key_Mod :: enum u8 {
 // A key and the modifiers held with it, matched exactly: Ctrl+Z is not Ctrl+Shift+Z,
 // so one key never means two things (README "Controls").
 Chord :: struct {
-	key:    sdl.Keycode,
+	key:    Key,
 	mods:   bit_set[Key_Mod;u8],
 	repeat: bool, // the key's auto-repeat runs it again
 }
@@ -2404,89 +2403,89 @@ COMMANDS := [Command_Id]Command {
 // in Blender; P is ZBrush's Persp and the keypad's 5 Blender's.
 @(rodata)
 DEFAULT_BINDINGS := [?]Binding {
-	{{sdl.K_Z, {.Ctrl}, true}, .Undo, 0},
-	{{sdl.K_Z, {.Ctrl, .Shift}, true}, .Redo, 0},
-	{{sdl.K_Y, {.Ctrl}, true}, .Redo, 0},
-	{{sdl.K_S, {.Ctrl}, false}, .Save_Scene, 0},
-	{{sdl.K_S, {.Ctrl, .Shift}, false}, .Save_Scene_As, 0},
-	{{sdl.K_O, {.Ctrl}, false}, .Open_Scene, 0},
-	{{sdl.K_E, {.Ctrl}, false}, .Export_Sheet, 0},
-	{{sdl.K_F12, {}, false}, .Screenshot, 0},
-	{{sdl.K_W, {.Ctrl}, false}, .Group_Shortcut, 0},
-	{{sdl.K_W, {.Shift}, false}, .Polygroups, 0},
-	{{sdl.K_W, {}, false}, .Tool_Move, 0},
-	{{sdl.K_B, {}, false}, .Brush_Picker, 0},
-	{{sdl.K_C, {}, false}, .Tool_Curve, 0},
-	{{sdl.K_I, {}, false}, .Tool_Insert, 0},
-	{{sdl.K_1, {.Alt}, false}, .View_Pass, 0},
-	{{sdl.K_2, {.Alt}, false}, .View_Pass, 1},
-	{{sdl.K_3, {.Alt}, false}, .View_Pass, 2},
-	{{sdl.K_4, {.Alt}, false}, .View_Pass, 3},
-	{{sdl.K_5, {.Alt}, false}, .View_Pass, 4},
-	{{sdl.K_6, {.Alt}, false}, .View_Pass, 5},
-	{{sdl.K_0, {.Alt}, false}, .View_Pass_Last, 0},
-	{{sdl.K_1, {.Ctrl}, false}, .Space_Switch, 0},
-	{{sdl.K_2, {.Ctrl}, false}, .Space_Switch, 1},
-	{{sdl.K_3, {.Ctrl}, false}, .Space_Switch, 2},
-	{{sdl.K_1, {}, false}, .Brush, 0},
-	{{sdl.K_2, {}, false}, .Brush, 1},
-	{{sdl.K_3, {}, false}, .Brush, 2},
-	{{sdl.K_4, {}, false}, .Brush, 3},
-	{{sdl.K_5, {}, false}, .Brush, 4},
-	{{sdl.K_6, {}, false}, .Brush, 5},
-	{{sdl.K_7, {}, false}, .Brush, 6},
-	{{sdl.K_8, {}, false}, .Brush, 7},
-	{{sdl.K_9, {}, false}, .Brush, 8},
-	{{sdl.K_0, {}, false}, .Brush, 9},
-	{{sdl.K_X, {}, false}, .Symmetry_X, 0},
-	{{sdl.K_V, {}, false}, .Swap_Colors, 0},
-	{{sdl.K_C, {.Shift}, false}, .Eyedropper, 0},
-	{{sdl.K_LEFTBRACKET, {}, true}, .Size_Down, 0},
-	{{sdl.K_RIGHTBRACKET, {}, true}, .Size_Up, 0},
-	{{sdl.K_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
-	{{sdl.K_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
-	{{sdl.K_M, {.Alt}, false}, .Mask, int(sculpt.Mask_Command.Clear)},
-	{{sdl.K_R, {.Ctrl}, false}, .Remesh, 0},
-	{{sdl.K_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
-	{{sdl.K_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},
-	{{sdl.K_H, {.Ctrl}, false}, .Show_All, 0},
-	{{sdl.K_H, {.Ctrl, .Shift}, false}, .Invert_Hidden, 0},
-	{{sdl.K_H, {}, false}, .Hide_Object, 0},
-	{{sdl.K_H, {.Alt}, false}, .Show_All_Objects, 0},
-	{{sdl.K_S, {.Shift}, false}, .Solo_Object, 0},
-	{{sdl.K_G, {.Ctrl}, false}, .New_Folder, 0},
-	{{sdl.K_F2, {}, false}, .Rename_Object, 0},
-	{{sdl.K_C, {.Ctrl}, false}, .Copy_Object, 0},
-	{{sdl.K_V, {.Ctrl}, false}, .Paste_Object, 0},
-	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
-	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
-	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},
-	{{sdl.K_KP_3, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Left)},
-	{{sdl.K_KP_7, {}, false}, .View_Axis, int(camera.Axis_View.Top)},
-	{{sdl.K_KP_7, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Bottom)},
-	{{sdl.K_P, {}, false}, .Ortho_Toggle, 0},
-	{{sdl.K_KP_5, {}, false}, .Ortho_Toggle, 0},
-	{{sdl.K_F, {.Shift}, false}, .Wireframe, 0},
-	{{sdl.K_P, {.Shift}, false}, .Floor_Grid, 0},
-	{{sdl.K_F, {}, false}, .Focus_Selected, 0},
-	{{sdl.K_R, {.Shift}, false}, .Studio_Render, 0},
-	{{sdl.K_LEFT, {.Alt}, false}, .View_Back, 0},
-	{{sdl.K_RIGHT, {.Alt}, false}, .View_Forward, 0},
-	{{sdl.K_R, {}, false}, .Replay_Stroke, 0},
-	{{sdl.K_G, {.Shift}, false}, .Flat_Shading, 0},
-	{{sdl.K_DELETE, {}, false}, .Delete_Object, 0},
-	{{sdl.K_A, {}, false}, .Hd_Toggle, 0},
-	{{sdl.K_D, {.Ctrl, .Shift}, false}, .Duplicate_Object, 0},
-	{{sdl.K_D, {.Ctrl}, false}, .Subdivide, 0},
-	{{sdl.K_D, {.Shift}, false}, .Level_Down, 0},
-	{{sdl.K_D, {}, false}, .Level_Up, 0},
-	{{sdl.K_F11, {}, false}, .Stats, 0},
-	{{sdl.K_F1, {}, false}, .Help, 0},
-	{{sdl.K_TAB, {}, false}, .Clean_View, 0},
-	{{sdl.K_K, {.Ctrl}, false}, .Command_Palette, 0},
-	{{sdl.K_SLASH, {}, false}, .Command_Palette, 0},
-	{{sdl.K_Q, {}, false}, .Pie, 0},
-	{{sdl.K_Q, {.Shift}, false}, .Pie, 1},
+	{{KEY_Z, {.Ctrl}, true}, .Undo, 0},
+	{{KEY_Z, {.Ctrl, .Shift}, true}, .Redo, 0},
+	{{KEY_Y, {.Ctrl}, true}, .Redo, 0},
+	{{KEY_S, {.Ctrl}, false}, .Save_Scene, 0},
+	{{KEY_S, {.Ctrl, .Shift}, false}, .Save_Scene_As, 0},
+	{{KEY_O, {.Ctrl}, false}, .Open_Scene, 0},
+	{{KEY_E, {.Ctrl}, false}, .Export_Sheet, 0},
+	{{KEY_F12, {}, false}, .Screenshot, 0},
+	{{KEY_W, {.Ctrl}, false}, .Group_Shortcut, 0},
+	{{KEY_W, {.Shift}, false}, .Polygroups, 0},
+	{{KEY_W, {}, false}, .Tool_Move, 0},
+	{{KEY_B, {}, false}, .Brush_Picker, 0},
+	{{KEY_C, {}, false}, .Tool_Curve, 0},
+	{{KEY_I, {}, false}, .Tool_Insert, 0},
+	{{KEY_1, {.Alt}, false}, .View_Pass, 0},
+	{{KEY_2, {.Alt}, false}, .View_Pass, 1},
+	{{KEY_3, {.Alt}, false}, .View_Pass, 2},
+	{{KEY_4, {.Alt}, false}, .View_Pass, 3},
+	{{KEY_5, {.Alt}, false}, .View_Pass, 4},
+	{{KEY_6, {.Alt}, false}, .View_Pass, 5},
+	{{KEY_0, {.Alt}, false}, .View_Pass_Last, 0},
+	{{KEY_1, {.Ctrl}, false}, .Space_Switch, 0},
+	{{KEY_2, {.Ctrl}, false}, .Space_Switch, 1},
+	{{KEY_3, {.Ctrl}, false}, .Space_Switch, 2},
+	{{KEY_1, {}, false}, .Brush, 0},
+	{{KEY_2, {}, false}, .Brush, 1},
+	{{KEY_3, {}, false}, .Brush, 2},
+	{{KEY_4, {}, false}, .Brush, 3},
+	{{KEY_5, {}, false}, .Brush, 4},
+	{{KEY_6, {}, false}, .Brush, 5},
+	{{KEY_7, {}, false}, .Brush, 6},
+	{{KEY_8, {}, false}, .Brush, 7},
+	{{KEY_9, {}, false}, .Brush, 8},
+	{{KEY_0, {}, false}, .Brush, 9},
+	{{KEY_X, {}, false}, .Symmetry_X, 0},
+	{{KEY_V, {}, false}, .Swap_Colors, 0},
+	{{KEY_C, {.Shift}, false}, .Eyedropper, 0},
+	{{KEY_LEFTBRACKET, {}, true}, .Size_Down, 0},
+	{{KEY_RIGHTBRACKET, {}, true}, .Size_Up, 0},
+	{{KEY_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
+	{{KEY_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
+	{{KEY_M, {.Alt}, false}, .Mask, int(sculpt.Mask_Command.Clear)},
+	{{KEY_R, {.Ctrl}, false}, .Remesh, 0},
+	{{KEY_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
+	{{KEY_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},
+	{{KEY_H, {.Ctrl}, false}, .Show_All, 0},
+	{{KEY_H, {.Ctrl, .Shift}, false}, .Invert_Hidden, 0},
+	{{KEY_H, {}, false}, .Hide_Object, 0},
+	{{KEY_H, {.Alt}, false}, .Show_All_Objects, 0},
+	{{KEY_S, {.Shift}, false}, .Solo_Object, 0},
+	{{KEY_G, {.Ctrl}, false}, .New_Folder, 0},
+	{{KEY_F2, {}, false}, .Rename_Object, 0},
+	{{KEY_C, {.Ctrl}, false}, .Copy_Object, 0},
+	{{KEY_V, {.Ctrl}, false}, .Paste_Object, 0},
+	{{KEY_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
+	{{KEY_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
+	{{KEY_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},
+	{{KEY_KP_3, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Left)},
+	{{KEY_KP_7, {}, false}, .View_Axis, int(camera.Axis_View.Top)},
+	{{KEY_KP_7, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Bottom)},
+	{{KEY_P, {}, false}, .Ortho_Toggle, 0},
+	{{KEY_KP_5, {}, false}, .Ortho_Toggle, 0},
+	{{KEY_F, {.Shift}, false}, .Wireframe, 0},
+	{{KEY_P, {.Shift}, false}, .Floor_Grid, 0},
+	{{KEY_F, {}, false}, .Focus_Selected, 0},
+	{{KEY_R, {.Shift}, false}, .Studio_Render, 0},
+	{{KEY_LEFT, {.Alt}, false}, .View_Back, 0},
+	{{KEY_RIGHT, {.Alt}, false}, .View_Forward, 0},
+	{{KEY_R, {}, false}, .Replay_Stroke, 0},
+	{{KEY_G, {.Shift}, false}, .Flat_Shading, 0},
+	{{KEY_DELETE, {}, false}, .Delete_Object, 0},
+	{{KEY_A, {}, false}, .Hd_Toggle, 0},
+	{{KEY_D, {.Ctrl, .Shift}, false}, .Duplicate_Object, 0},
+	{{KEY_D, {.Ctrl}, false}, .Subdivide, 0},
+	{{KEY_D, {.Shift}, false}, .Level_Down, 0},
+	{{KEY_D, {}, false}, .Level_Up, 0},
+	{{KEY_F11, {}, false}, .Stats, 0},
+	{{KEY_F1, {}, false}, .Help, 0},
+	{{KEY_TAB, {}, false}, .Clean_View, 0},
+	{{KEY_K, {.Ctrl}, false}, .Command_Palette, 0},
+	{{KEY_SLASH, {}, false}, .Command_Palette, 0},
+	{{KEY_Q, {}, false}, .Pie, 0},
+	{{KEY_Q, {.Shift}, false}, .Pie, 1},
 }
 
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
@@ -2711,34 +2710,34 @@ chord_text :: proc(c: Chord) -> string {
 }
 
 @(private = "file")
-key_text :: proc(key: sdl.Keycode) -> string {
+key_text :: proc(key: Key) -> string {
 	switch key {
-	case sdl.K_A ..= sdl.K_Z:
+	case KEY_A ..= KEY_Z:
 		return fmt.tprintf("%c", rune(key) - 'a' + 'A')
-	case sdl.K_0 ..= sdl.K_9:
+	case KEY_0 ..= KEY_9:
 		return fmt.tprintf("%c", rune(key))
-	case sdl.K_F1 ..= sdl.K_F12:
-		return fmt.tprintf("F%d", int(key - sdl.K_F1) + 1)
-	case sdl.K_KP_1 ..= sdl.K_KP_9:
-		return fmt.tprintf("Num %d", int(key - sdl.K_KP_1) + 1)
-	case sdl.K_KP_0:
+	case KEY_F1 ..= KEY_F12:
+		return fmt.tprintf("F%d", int(key - KEY_F1) + 1)
+	case KEY_KP_1 ..= KEY_KP_9:
+		return fmt.tprintf("Num %d", int(key - KEY_KP_1) + 1)
+	case KEY_KP_0:
 		return "Num 0"
-	case sdl.K_LEFTBRACKET:
+	case KEY_LEFTBRACKET:
 		return "["
-	case sdl.K_RIGHTBRACKET:
+	case KEY_RIGHTBRACKET:
 		return "]"
-	case sdl.K_DELETE:
+	case KEY_DELETE:
 		return "Del"
-	case sdl.K_TAB:
+	case KEY_TAB:
 		return "Tab"
-	case sdl.K_ESCAPE:
+	case KEY_ESCAPE:
 		return "Esc"
-	case sdl.K_SPACE:
+	case KEY_SPACE:
 		return "Space"
-	case sdl.K_SLASH:
+	case KEY_SLASH:
 		return "/"
 	}
-	return string(sdl.GetKeyName(key))
+	return key_name(key)
 }
 
 // Whether the chord's key went down this frame with exactly its modifiers held. Each
@@ -2749,14 +2748,6 @@ chord_down :: proc(d: ^Device, c: Chord) -> bool {
 	return false
 }
 
-// The Ctrl, Shift and Alt among SDL's modifiers (Num Lock, Caps Lock and the system key
-// are left out, so they never stop a shortcut).
-key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
-	if m & KMOD_SHORTCUT != {} do mods += {.Ctrl}
-	if m & sdl.KMOD_SHIFT != {} do mods += {.Shift}
-	if m & sdl.KMOD_ALT != {} do mods += {.Alt}
-	return
-}
 
 // Runs every command whose chord went down this frame, in binding order, then lets
 // Escape stop a replay (before kit_frame's Escape closes what floats). None of it runs
@@ -2778,7 +2769,7 @@ commands_handle_keys :: proc(app: ^App) {
 		}
 		command_run(app, b.command, b.arg)
 	}
-	if key_pressed(&app.device, sdl.K_ESCAPE) do replay_stop(app)
+	if key_pressed(&app.device, KEY_ESCAPE) do replay_stop(app)
 }
 
 // A menu row for the command, with its icon, shortcut and state from the table, and a

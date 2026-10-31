@@ -8,7 +8,6 @@ import "core:reflect"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -16,6 +15,7 @@ import "../render"
 import "../gizmo"
 import "../sculpt"
 import "../ui"
+import "../retopo"
 
 // What the app remembers between interactive runs: the brush settings, how the
 // viewport looks, the Scene palette's choices and the Settings panel's, in a text file of `key values...`
@@ -32,10 +32,9 @@ WINDOW_OFFSET_MAX :: 10000
 
 // Where the settings live, or "" when SDL has no folder for them (temp memory).
 settings_path :: proc() -> string {
-	dir := sdl.GetPrefPath("Implicit", "Sculpt")
-	if dir == nil do return ""
-	defer sdl.free(dir)
-	return strings.concatenate({string(cstring(dir)), SETTINGS_FILE}, context.temp_allocator)
+	dir := platform_folder()
+	if dir == "" do return ""
+	return strings.concatenate({dir, SETTINGS_FILE}, context.temp_allocator)
 }
 
 // The version settings_save writes on the first line. A file from a newer version is
@@ -230,9 +229,9 @@ SETTINGS := [?]Setting {
 	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"rebuild_fewer", U + offset_of(Ui_State, rebuild_fewer), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
-	{"retopo_engine", U + offset_of(Ui_State, retopo_engine), Quad_Engine, 0, 0},
+	{"retopo_engine", U + offset_of(Ui_State, retopo_engine), retopo.Engine, 0, 0},
 	{"retopo_adaptivity", U + offset_of(Ui_State, retopo_adaptivity), f32, 0, 1},
-	{"retopo_symmetry", U + offset_of(Ui_State, retopo_symmetry), Quad_Symmetry, 0, 0},
+	{"retopo_symmetry", U + offset_of(Ui_State, retopo_symmetry), retopo.Symmetry, 0, 0},
 	{"retopo_close_first", U + offset_of(Ui_State, retopo_close_first), bool, 0, 0},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},

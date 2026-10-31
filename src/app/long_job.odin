@@ -16,6 +16,7 @@ import "../jobs"
 import "../sculpt"
 import "../ui"
 import "../voxel"
+import "../retopo"
 
 // Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
 // Convert to mesh, Convert to voxels and Res+/Res− of a big object, and every Import, run
@@ -63,7 +64,7 @@ Long_Job :: struct {
 	levels:     sculpt.Levels, // made from `mesh` when `prepared`
 	prepared:   bool,
 	error:      f32,
-	retopo:     Retopo_Result,
+	retopo:     retopo.Result,
 	// Remesh: the old polypaint and polygroups copied with the input when its options
 	// carry them, what the remesh reported and the surface the new mesh takes from them.
 	color:      []sculpt.Color,
@@ -317,7 +318,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
-		j.retopo = retopo_compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress)
+		j.retopo = retopo.compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress)
 		j.built = j.retopo.built
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
@@ -378,7 +379,7 @@ long_job_drop :: proc(j: ^Long_Job) {
 	geom.mesh_destroy(&j.mesh)
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
-	retopo_result_destroy(&j.retopo)
+	retopo.result_destroy(&j.retopo)
 	delete(j.color)
 	delete(j.groups)
 	j.color, j.groups = nil, nil

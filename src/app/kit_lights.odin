@@ -6,6 +6,7 @@ import "core:math/linalg"
 import "core:strings"
 
 import "../ui"
+import "../geom"
 
 // The Scene palette's Lights section: the light sphere, the light it edits, its strength
 // and colour, the ambient light, and under More options whether the lights stay with the
@@ -226,7 +227,7 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 			c += light_rgb(light) * (light.strength * 0.7 * max(linalg.dot(n, view[i]), 0))
 		}
 		c *= 0.8
-		return {u8(srgb_encode(c.r) * 255 + 0.5), u8(srgb_encode(c.g) * 255 + 0.5), u8(srgb_encode(c.b) * 255 + 0.5), 255}
+		return {u8(geom.srgb_encode(c.r) * 255 + 0.5), u8(geom.srgb_encode(c.g) * 255 + 0.5), u8(geom.srgb_encode(c.b) * 255 + 0.5), 255}
 	}
 	points[0], colors[0] = centre, shade(app, view, {})
 	for ring in 1 ..= SPHERE_RINGS {
@@ -264,7 +265,7 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 			if !light.on || (view[i].z >= 0) != front do continue
 			p := light_marker(app, i, centre, radius)
 			shown := light_rgb(light)
-			for &c in shown do c = srgb_encode(min(c, 1))
+			for &c in shown do c = geom.srgb_encode(min(c, 1))
 			col := ui.Color{u8(shown.r * 255 + 0.5), u8(shown.g * 255 + 0.5), u8(shown.b * 255 + 0.5), 255}
 			if front {
 				ui.fill_circle(ctx, p, 9, col)

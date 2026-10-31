@@ -119,10 +119,6 @@ env_table_luminance :: proc(pixels: [][3]f32, width, height: int, allocator := c
 // a difference costs only noise, never a wrong image, since the shader's own studio()
 // gives the light and the table only where to look.
 studio_luminance :: proc(dir: [3]f32, rough: f32) -> f32 {
-	smoothstep :: proc(e0, e1, x: f32) -> f32 {
-		t := clamp((x - e0) / (e1 - e0), 0, 1)
-		return t * t * (3 - 2 * t)
-	}
 	norm :: proc(v: [3]f32) -> [3]f32 {return v / math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)}
 	lobe :: proc(dir, toward, color: [3]f32, sharp, rough: f32) -> [3]f32 {
 		e := sharp + (3 - sharp) * math.sqrt(rough)
@@ -130,7 +126,7 @@ studio_luminance :: proc(dir: [3]f32, rough: f32) -> f32 {
 		return color * (math.pow(d, e) * (e + 2) / (sharp + 2))
 	}
 	w := 0.08 + 0.9 * rough
-	up := smoothstep(-w, w, dir.y)
+	up := math.smoothstep(-w, w, dir.y)
 	c := [3]f32{0.07, 0.065, 0.06} + ([3]f32{0.40, 0.43, 0.48} - [3]f32{0.07, 0.065, 0.06}) * up
 	c += [3]f32{0.13, 0.12, 0.11} * math.exp(-abs(dir.y) / (0.06 + 0.5 * rough))
 	c += lobe(dir, norm({-0.75, 0.85, 0.15}), {4.0, 3.8, 3.5}, 300, rough)

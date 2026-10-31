@@ -1,7 +1,6 @@
 package main
 
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../ui"
 
@@ -72,7 +71,7 @@ keys_are_found_by_name_or_key :: proc(t: ^testing.T) {
 	testing.expect(t, !listed(keys_rows(&app, "s"), .Redo))
 	testing.expect(t, listed(keys_rows(&app, "shift+f"), .Wireframe))
 
-	testing.expect(t, bind_assign(&app, .Wireframe, 0, {sdl.K_K, {}, false}))
+	testing.expect(t, bind_assign(&app, .Wireframe, 0, {KEY_K, {}, false}))
 	testing.expect(t, !listed(keys_rows(&app, "shift+f"), .Wireframe))
 	testing.expect(t, listed(keys_rows(&app, "k"), .Wireframe))
 	free_all(context.temp_allocator)
@@ -84,7 +83,7 @@ keys_tab_resets :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	app.nav = NAV_DEFAULT
-	testing.expect(t, bind_assign(&app, .Wireframe, 0, {sdl.K_K, {}, false}))
+	testing.expect(t, bind_assign(&app, .Wireframe, 0, {KEY_K, {}, false}))
 	app.nav.mouse_scheme = .Blender
 	settings_reset(&app, .Keys)
 	testing.expect_value(t, app.key_override_count, 0)

@@ -2,7 +2,6 @@ package main
 
 import "core:os"
 import "core:testing"
-import sdl "vendor:sdl3"
 
 import "../sculpt"
 import "../ui"
@@ -66,7 +65,7 @@ shelf_takes_brushes_and_tools :: proc(t: ^testing.T) {
 b_opens_the_brush_picker :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
-	b := Chord{key = sdl.K_B}
+	b := Chord{key = KEY_B}
 	owner :: proc(app: ^App, c: Chord) -> Command_Id {
 		b, _ := chord_owner(app, c)
 		return b.command

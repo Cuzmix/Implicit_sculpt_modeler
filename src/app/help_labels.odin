@@ -47,7 +47,7 @@ help_labels_key :: proc(app: ^App, e: ^sdl.Event) -> bool {
 		l.key_held, l.key_off = false, false
 		return true
 	}
-	question := e.key.key == sdl.K_QUESTION || (e.key.key == sdl.K_SLASH && e.key.mod & sdl.KMOD_SHIFT != {})
+	question := key_of(e.key.key) == KEY_QUESTION || (key_of(e.key.key) == KEY_SLASH && e.key.mod & sdl.KMOD_SHIFT != {})
 	if !question || typing(app) do return false
 	if e.key.repeat do return true
 	if l.latched {
@@ -66,7 +66,7 @@ help_labels_key :: proc(app: ^App, e: ^sdl.Event) -> bool {
 help_labels_frame :: proc(app: ^App, shown := true) {
 	k := &app.kit
 	ctx := &k.ctx
-	if k.labels.latched && key_pressed(&app.device, sdl.K_ESCAPE) do k.labels.latched = false
+	if k.labels.latched && key_pressed(&app.device, KEY_ESCAPE) do k.labels.latched = false
 	on := help_labels_on(k) && shown
 	ui.labels_show(ctx, on)
 	ctx.labels.clear = {}

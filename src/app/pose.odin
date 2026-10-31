@@ -1,7 +1,6 @@
 package main
 
 import "core:math/linalg"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
@@ -248,7 +247,7 @@ topo_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		g^ = {}
 		return false
 	}
-	if key_pressed(&app.device, sdl.K_ESCAPE) && topo_held(app) {
+	if key_pressed(&app.device, KEY_ESCAPE) && topo_held(app) {
 		topo_cancel(app)
 		return true
 	}

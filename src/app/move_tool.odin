@@ -5,7 +5,6 @@ import "core:math"
 import "core:math/linalg"
 import "core:strconv"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
@@ -255,7 +254,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	obj := object_by_id(app, drag.id)
 	if drag.handle == .None || obj == nil do return
 	// Escape puts the object back and ends the drag; the rest of the press does nothing.
-	if key_pressed(&app.device, sdl.K_ESCAPE) {
+	if key_pressed(&app.device, KEY_ESCAPE) {
 		move_cancel(app)
 		return
 	}
@@ -745,7 +744,7 @@ kit_gizmo_entry :: proc(app: ^App) {
 	ui.paragraph(ctx, note)
 	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
 	d := &app.device
-	apply ||= e.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
+	apply ||= e.open && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER))
 	if apply && e.open && obj != nil {
 		if gizmo_entry_apply(app, obj, e.handle, string(e.text[:n])) do e.open = false
 		else do e.refused = true

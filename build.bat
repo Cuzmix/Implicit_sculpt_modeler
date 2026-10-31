@@ -73,10 +73,12 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\usd" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\hdri" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\retopo" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
-echo check: 17 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
+echo check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current
 exit /b 0
 
 :iphonecheck
@@ -126,11 +128,13 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\gizmo" -out:"%ROOT%build\test_gizmo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\png_write" -out:"%ROOT%build\test_png_write.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\zip" -out:"%ROOT%build\test_zip.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\hdri" -out:"%ROOT%build\test_hdri.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\ui" -out:"%ROOT%build\test_ui.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\quadmesh" -out:"%ROOT%build\test_quadmesh.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\retopo" -out:"%ROOT%build\test_retopo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
