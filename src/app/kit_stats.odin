@@ -85,6 +85,10 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		}
 		_ = ui.switch_row(ctx, "Skip hidden chunks", &app.renderer.cull)
 		ui.paragraph(ctx, fmt.tprintf("%d off screen, %d facing away, %.2f ms.", v.culled_view, v.culled_back, v.cull_ms))
+		if render.caps(&app.renderer).gpu_cull {
+			_ = ui.switch_row(ctx, "Cull on the GPU", &app.renderer.gpu_cull)
+			ui.paragraph(ctx, "Kernels cull still views and strokes and write the draws; the counts above are then a few frames late. Simplified drawing while the view moves culls on the CPU.")
+		}
 		_ = ui.switch_row(ctx, "Cache idle objects", &app.cache_idle)
 		ui.paragraph(ctx, fmt.tprintf("%s, redrawn %d times.", "In use" if v.cache_used else "Not in use", s.cache_redraws))
 		_ = ui.switch_row(ctx, "Simplify while moving", &app.simplify)

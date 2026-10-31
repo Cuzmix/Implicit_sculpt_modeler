@@ -926,6 +926,17 @@ vk_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buf
 	}
 }
 
+// Draws up to `max_draws` commands from `offset`, as many as the u32 at `count_offset` of
+// `count_buffer` says when the GPU runs it (vk_state.indirect_count).
+vk_draw_indexed_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset: u32, max_draws: u32) {
+	cmd := (^Vk_Cmd)(render_pass)
+	if !vk_bind_sets(cmd) do return
+	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
+	vk_cmd_track_buffer(cmd, b)
+	vk_cmd_track_buffer(cmd, n)
+	vk.CmdDrawIndexedIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, size_of(sdl.GPUIndexedIndirectDrawCommand))
+}
+
 // ---- Compute passes -----------------------------------------------------------------
 
 vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {

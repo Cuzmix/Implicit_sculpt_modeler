@@ -46,6 +46,8 @@ Options :: struct {
 	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
+	cpu_cull:  bool `usage:"Cull chunks on the CPU for this run, as Stats > Drawing > Cull on the GPU off does, where the GPU could (for comparison)."`,
+	dump_cull: bool `usage:"Check GPU culling against the CPU's: at exit, print cull_meshes=, cull_commands= and cull_mismatch= (triangles the two disagree on) for each mesh's last pass."`,
 	system_palms: bool `usage:"Act as an iPad does, whose system rejects a hand resting on the screen while its pen is in use: only the pen's tip, and the fifth of a second after it lifts, makes a lone finger a palm, not the pen hovering near (for testing that on a desktop)."`,
 	pen_no_leave: bool `usage:"Act as the iPad's SDL does, which never says that the pen left: the pen then counts as gone half a second after its last report while its tip is up (for testing that on a desktop)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
@@ -683,6 +685,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
+	app.renderer.gpu_cull = !opts.cpu_cull
+	app.renderer.gpu_culling.check = opts.dump_cull
 	app.renderer.partial = !opts.no_partial
 	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify
@@ -824,6 +828,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if times, ok := render.timestamps_frame(&app.renderer); ok {
 			for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
 		}
+		render.gpu_cull_frame(&app.renderer)
 		// A waiting save or export goes first: before a scene command or file request
 		// changes what it would write. A second Save during a save (Ctrl+S again) is
 		// dropped by file_apply.
@@ -1217,6 +1222,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				poly_lines := poly_edges && app.wireframe && app.polyframe_lines
 				append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil, poly_edges = poly_edges})
 				if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
+				// The groups are made first: the stamps say when.
+				chunk_groups := sculpt.sculptor_chunk_groups(&lv.sculptor)
+				group_stamps, chunk_layout := sculpt.sculptor_chunk_stamps(&lv.sculptor)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					textured = textured,
@@ -1242,7 +1250,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					live   = live,
 					source = &lv.mesh,
 					chunks = lv.sculptor.chunks,
-					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
+					chunk_groups = chunk_groups,
+					group_stamps = group_stamps,
+					chunk_layout = chunk_layout,
 					damage = lv.sculptor.changed_bounds,
 					// A textured item's wireframe follows its full triangles, never a simplified copy.
 					lod    = lv.sculptor.lod.tree if textured == nil else {},
@@ -2080,7 +2090,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
-	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
+	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls)
+	if app.renderer.gpu_culling.check {
+		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)
+		fmt.printfln("cull_meshes=%d cull_commands=%d cull_mismatch=%d", meshes, commands, mismatch)
+	}
 	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	lod_pending := 0

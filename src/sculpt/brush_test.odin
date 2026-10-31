@@ -311,6 +311,45 @@ bvh_gather_matches_linear_scan :: proc(t: ^testing.T) {
 	testing.expect_value(t, got, expected)
 }
 
+// A GPU copy of the chunks uploads the groups stamped after its own copy: a dab stamps
+// the groups whose chunks it changed, and only those, newer than every stamp before; the
+// layout stays until the chunks are made over.
+@(test)
+chunk_stamps_move_only_for_changed_groups :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	_ = sculptor_chunk_groups(&s)
+	stamps, layout := sculptor_chunk_stamps(&s)
+	testing.expect(t, layout != 0 && len(stamps) > 2, "no stamps or layout")
+	before := slice.clone(stamps, context.temp_allocator)
+	newest := slice.max(before)
+	_ = sculptor_chunk_groups(&s)
+	again, layout_again := sculptor_chunk_stamps(&s)
+	testing.expect_value(t, layout_again, layout)
+	testing.expect(t, slice.equal(again, before), "stamps moved with nothing changed")
+
+	_ = apply_dab(&s, {kind = .Draw, radius = 0.15, strength = 1}, Vec3{0, 0, 1})
+	_ = sculptor_flush(&s)
+	changed := make([]bool, len(before), context.temp_allocator)
+	for &stale, g in s.group_stale do changed[g] = stale
+	_ = sculptor_chunk_groups(&s)
+	after, layout_after := sculptor_chunk_stamps(&s)
+	testing.expect_value(t, layout_after, layout)
+	moved := 0
+	for g in 0 ..< len(after) {
+		if changed[g] {
+			testing.expect(t, after[g] > newest, "a changed group kept its old stamp")
+			moved += 1
+		} else {
+			testing.expect_value(t, after[g], before[g])
+		}
+	}
+	testing.expect(t, moved > 0 && moved < len(after), "the dab should change some groups, not all")
+}
+
 // Culling may skip a chunk only if none of its triangles could be drawn: every
 // triangle facing the eye with a corner inside the view must be in a drawn range.
 @(test)

@@ -43,6 +43,7 @@ Vk_State :: struct {
 	driver:            vk.PhysicalDeviceDriverProperties,
 	memory:            vk.PhysicalDeviceMemoryProperties,
 	multi_draw:        bool, // multiDrawIndirect; without it indirect draws are issued one by one
+	indirect_count:    bool, // drawIndirectCount: an indirect draw reads its count from a buffer
 	wireframe:         bool, // fillModeNonSolid
 	depth_clamp:       bool,
 	anisotropy:        bool,
@@ -305,7 +306,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	have12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
 	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
-	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics}
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics, drawIndirectCount = have12.drawIndirectCount}
 	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
 	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
 	// sized when the array is bound, every element written, so not partially bound.
@@ -344,6 +345,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	features.features.fillModeNonSolid = have.features.fillModeNonSolid
 	features.features.multiDrawIndirect = have.features.multiDrawIndirect
 	vk_state.multi_draw = bool(have.features.multiDrawIndirect)
+	vk_state.indirect_count = bool(have12.drawIndirectCount)
 	vk_state.wireframe = bool(have.features.fillModeNonSolid)
 	vk_state.depth_clamp = bool(have.features.depthClamp)
 	vk_state.anisotropy = bool(features.features.samplerAnisotropy)
