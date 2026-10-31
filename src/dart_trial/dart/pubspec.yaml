@@ -1,7 +1,0 @@
-name: dart_trial
-description: The Draw brush's hot loops in Dart, to compare with the Odin version in ../main.odin.
-publish_to: none
-environment:
-  sdk: ^3.9.0
-dependencies:
-  ffi: ^2.1.4

@@ -97,7 +97,7 @@ Long_Job :: struct {
 // The commands that may run while a job does: they change how the scene is seen, the
 // brush or the panels, never the scene. Any other command waits for the job (its control
 // dims, with the reason in its tooltip), so a new command is held back unless listed here.
-JOB_ALLOWED_COMMANDS :: bit_set[Command_Id; [4]u64]{
+JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Screenshot, .Screenshot_Transparent,
 	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Gizmo, .Gizmo_Snap,
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
@@ -159,7 +159,7 @@ job_noun :: proc(j: ^Long_Job) -> string {return IMPORT_NOUN if j.importing else
 
 // The commands whose buttons draw the job's ring, by the job's command.
 @(private = "file")
-JOB_BUTTONS := #partial [Scene_Command_Kind]bit_set[Command_Id; [4]u64] {
+JOB_BUTTONS := #partial [Scene_Command_Kind]Command_Set {
 	.Remesh         = {.Remesh, .Remesh_To, .Rebuild},
 	.Decimate       = {.Decimate_To},
 	.Retopo         = {.Retopologize},

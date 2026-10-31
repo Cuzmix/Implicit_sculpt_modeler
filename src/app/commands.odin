@@ -18,8 +18,10 @@ import "../ui"
 // so the shortcut a menu shows is the one that works, and search, rebinding and
 // scripts later read the same table. Strokes are not commands: they stay on the
 // pointer's path (sculpt_tool.odin), which only reads the modifier keys.
-
-Command_Id :: enum u8 {
+//
+// The ids are u16, not u8: there are more than 250 commands. No file stores an id as a
+// number (settings, macros and scripts name commands), so the width can grow freely.
+Command_Id :: enum u16 {
 	None,
 	// File
 	Home,
@@ -274,6 +276,10 @@ Command_Id :: enum u8 {
 	History_Panel,
 	Pen_As_Empty, // pen_roll.odin: only a pencil gesture's slot over a place of the interface holds it
 }
+
+// A set of commands. The backing holds 512 ids, room past today's count; a set over
+// more ids than its backing holds is a compile error, which is where to widen it.
+Command_Set :: bit_set[Command_Id; [8]u64]
 
 Command :: struct {
 	label:   string, // what menus and search show

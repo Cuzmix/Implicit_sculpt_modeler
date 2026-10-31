@@ -8,7 +8,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 ## One entry point
 | Command (Windows; Linux is `./build.sh <mode>`) | What it does |
 |---|---|
-| `build.bat check` | `odin check` of all sixteen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`, `boundary_check.py` and `shaders_msl.py --check` (each `.spv` has a current `.msl`). No link, no shaders, no `build\`. The gate: run it first and last |
+| `build.bat check` | `odin check` of all seventeen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`, `boundary_check.py` and `shaders_msl.py --check` (each `.spv` has a current `.msl`). No link, no shaders, no `build\`. The gate: run it first and last |
 | `build.bat` | the debug app, `-debug`, into `build\sculpt.exe`; `ODIN_DEBUG` wraps the allocator in `mem.Tracking_Allocator` and the process exits 1 on any leak or bad free; copies `SDL3.dll` from `deps\odin\vendor\sdl3` next to it |
 | `build.bat release` | `-o:speed -no-bounds-check`: the only build whose timings count (sm-perf) |
 | `build.bat test` | `odin test` on geom, poly, camera, sculpt, voxel, jobs, gizmo, png_write, zip, ui, luau, usd, fbx and app in that order, stopping at the first failing package; render has no tests, and app's need no window (they test pure logic such as the command registry); the runner tracks memory, so a leak fails a test |
@@ -32,7 +32,6 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `./build.sh mac` / `macnotarize` | macOS with Xcode only: SDL3 static, the app's object, stb and ufbx linked into `build/mac/Sculpt.app`, zipped as `Sculpt-mac.zip`, signed ad hoc or with SCULPT_MAC_IDENTITY (Developer ID); `macnotarize` notarizes and staples it; `.github/workflows/mac.yml` runs both (never start it unless asked) |
 | `build.bat android` / `androidrun` | the Android debug APK through `android/gradlew` (needs Android Studio's SDK and NDK, and `scripts\setup_android.bat` once); `androidrun` installs it on the tablet adb sees and starts it. Its log is `adb logcat -s SDL/APP` |
 | `deps\odin\odin.exe check src\<pkg> -no-entry-point -collection:deps=deps -vet -strict-style -warnings-as-errors` | one package, no binary: what `check` runs nine times |
-| `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -out:build\sdf_trial.exe` | the SDF spike (sm-sdf); not in the scripts |
 
 - Luau (script plugins, README "Script plugins") is C++ built from source by `scripts/build_luau.py`, which
   `setup_deps` runs: it clones `LUAU_TAG` (`scripts/versions.env`) into `deps/luau-src` and compiles the compiler and

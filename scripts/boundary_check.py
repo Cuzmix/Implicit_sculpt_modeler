@@ -37,7 +37,7 @@ def main() -> int:
                 bad.append(f"{rel}:{n}: sdl.{m.group(1)} outside the seam; call its gpu_ proc in hal.odin")
     for path in sorted((ROOT / "src").rglob("*.odin")):
         rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith("src/render/") or rel.startswith("src/sdf_trial/"):
+        if rel.startswith("src/render/"):
             continue
         text = path.read_text(encoding="utf-8")
         for n, line in enumerate(text.splitlines(), 1):

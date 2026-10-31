@@ -245,7 +245,7 @@ case "$mode" in
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench fbx geom camera gizmo jobs luau png_write poly quadmesh render sculpt sdf_trial ui usd voxel zip; do
+		for pkg in app bench fbx geom camera gizmo jobs luau png_write poly quadmesh render sculpt ui usd voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
