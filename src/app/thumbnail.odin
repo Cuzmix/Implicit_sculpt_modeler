@@ -339,7 +339,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 	Ground :: struct {
 		background: render.Background,
 		floor:      Floor_Settings,
-		env:        [6]f32, // strength, blur, exposure, turn, whether it shows and whether it is fixed
+		env:        [8]f32, // strength, blur, exposure, turn, whether it shows, whether it is fixed, its own turn and tilt
 		kind:       u64,
 	}
 	e := &app.env
@@ -347,7 +347,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 	g: Ground
 	g.background, g.kind = background_frame(app.background), u64(e.kind)
 	g.floor.on, g.floor.planes, g.floor.axes, g.floor.fit, g.floor.cell = app.floor.on, app.floor.planes, app.floor.axes, app.floor.fit, app.floor.cell
-	g.env = {e.strength, e.blur, app.exposure, app.light_turn, f32(int(e.background)), f32(int(e.fixed))}
+	g.env = {e.strength, e.blur, app.exposure, app.light_turn, f32(int(e.background)), f32(int(e.fixed)), e.turn, e.tilt}
 	ground := hash.fnv64a(mem.ptr_to_bytes(&g))
 	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample, shading, ground}
 	key = max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
