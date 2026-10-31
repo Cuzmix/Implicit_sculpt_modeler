@@ -29,7 +29,8 @@ FRAME_RATE_NAMES := [Frame_Rate]string {
 // How far the GPU may run behind the app (Settings > System > Frame rate). One frame in
 // flight shows each frame a display period sooner (8.3 ms at 120 Hz) but lets no heavy
 // frame overlap the next; two is the default. During strokes keeps one only while a stroke
-// or a drag is under way, where the pen's latency is felt; changing it costs a wait for
+// or a tool's drag is under way, where the pen's latency is felt (not while the camera
+// moves); changing it costs a wait for
 // the GPU.
 Low_Latency :: enum u8 {
 	During_Strokes,
@@ -88,7 +89,10 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 		log.infof("present mode: %s; offered besides vsync: %s", render.renderer_present_name(&app.renderer), present_offers(app))
 	}
 	frame_rate_vote(app, window)
-	working := app.stroke.active || .Left in app.device.down
+	// Only a tool's drag: a camera drag is not work the pen's latency is felt in, and one
+	// frame in flight would make orbiting a heavy scene wait for the GPU every frame, which
+	// is what During strokes exists to avoid.
+	working := app.stroke.active || app.drag.owner == .Tool || app.drag.owner == .Shape
 	_ = render.renderer_set_frames_in_flight(&app.renderer, frames_wanted(app.low_latency, working))
 	render.renderer_set_display_link(&app.renderer, app.display_link)
 	if app.frame_rate != .Limit {
