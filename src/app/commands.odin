@@ -395,6 +395,7 @@ COMMANDS := [Command_Id]Command {
 	.Save_Scene_As = {
 		label = "Save scene as...",
 		help = "Saves the scene to a new file.",
+		icon = ui.ICON_SAVE_AS,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save)},
 	},
 	.Save_Scene_Copy = {

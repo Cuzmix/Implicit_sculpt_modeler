@@ -377,6 +377,9 @@ Kit_State :: struct {
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
+	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
+	// while it is set.
+	edge_set_at:  f64,
 	// The top bar as three islands, the spaces centred (the default), or as one bar
 	// (Settings > Interface > Top bar).
 	top_islands: bool,
@@ -534,6 +537,16 @@ kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 	thumb := max(s.height * s.height / s.natural, 24)
 	y := r.y + (s.height - thumb) * (s.shown / s.limit)
 	ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(ctx.theme.text_tertiary, 0.6))
+	// While more lies below, the body's foot fades into the panel, so a row cut off by the
+	// edge reads as more to scroll to rather than as the last.
+	if s.shown < s.limit - 0.5 {
+		FADE :: 24
+		STEPS :: 8
+		for i in 0 ..< STEPS {
+			h := f32(FADE) / STEPS
+			ui.fill_rect(ctx, {r.x, r.y + r.h - FADE + f32(i) * h, r.w, h}, 0, ui.color_fade(ctx.theme.surface, f32(i + 1) / STEPS))
+		}
+	}
 }
 
 // Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
@@ -1022,6 +1035,8 @@ kit_init :: proc(app: ^App) {
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
 	k.top_islands = true
+	// Long before the first frame, so the safe zone shows no outline at the start.
+	k.edge_set_at = -1e9
 	// The Export sheet starts on its first preset, a 3D print, as its cards read.
 	k.export.format = .Print
 	bars_reset(k)

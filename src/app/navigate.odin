@@ -264,7 +264,7 @@ Nav_Prefs :: struct {
 	// be turned with one finger, the pen or the left button.
 	edge_orbit:     bool,
 	edge_size:      f32, // points, EDGE_MIN to EDGE_MAX
-	edge_show:      bool, // outline where the band ends
+	edge_show:      bool, // outline where the band ends at all times, not only in use
 	mouse_scheme:   Mouse_Scheme,
 	right_click:    Right_Click, // what a right click on the view opens (Shift the other)
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
@@ -350,7 +350,8 @@ NAV_DEFAULT :: Nav_Prefs {
 	edge_orbit     = true,
 	// A touch target and a bit, near the add-on's 75 pixels.
 	edge_size      = 64,
-	edge_show      = true,
+	// The band's outline shows only while it is in use, unless asked for always.
+	edge_show      = false,
 	// Smooth takes a stroke back, the nearest thing sculpting has to erasing.
 	eraser         = .Smooth,
 	pen_roll       = ROLL_DEFAULTS,

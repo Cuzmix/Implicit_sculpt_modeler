@@ -23,6 +23,7 @@ ICON_TRASH :: rune(0xe18e)
 ICON_FOCUS :: rune(0xe29e)
 ICON_EYE :: rune(0xe0be)
 ICON_SAVE :: rune(0xe151)
+ICON_SAVE_AS :: rune(0xe323) // file-pen-line: the scene saved under a new name
 ICON_OPEN :: rune(0xe247)
 ICON_IMPORT :: rune(0xe0c9)
 ICON_EXPORT :: rune(0xe0cc)
@@ -296,14 +297,18 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // With `dragged`, the options are drag sources too, as a thumb_row with `drags` is: a mouse
 // drags one at once, a finger or the pen once it has held past the long press (so a swipe
 // still scrolls the panel round the row), and `dragged^` is the option carried past the
-// slop; a press that went further than the slop is no tap.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil, dragged: ^int = nil) -> int {
+// slop; a press that went further than the slop is no tap. `stacked` (with `glyphs`) puts
+// each option's icon over its name.
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil, dragged: ^int = nil, stacked := false) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
 	if n == 0 do return -1
 	pad: f32 = 3
-	item_h := t.control - 2 * pad
+	// Stacked, each option's icon stands over its name, as the shelf's tiles do: a taller
+	// row whose options keep their names short.
+	stack := stacked && glyphs != nil
+	item_h := (t.target + 8 if stack else t.control) - 2 * pad
 	fill := fill_width(ctx)
 	picked := -1
 	over := false
@@ -315,6 +320,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		w := item_width
 		has_glyph := glyphs != nil && i < len(glyphs) && glyphs[i] != 0
 		if w <= 0 && fill > 0 do w = (fill - 2 * pad) / f32(n)
+		if w <= 0 && stack do w = max(text_width(ctx, shown, t.small_size, .Semibold), t.icon_small) + 20
 		if w <= 0 do w = text_width(ctx, shown, t.text_size, .Semibold) + 28 + (t.icon_small + 6 if has_glyph else 0)
 		r := place(ctx, {w, item_h})
 		id := id_of(ctx, option)
@@ -341,7 +347,10 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		lit := tints[i] if tinted else (t.on_accent if accent else t.text)
 		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), lit, o)
 		x := r.x + r.w * 0.5
-		if has_glyph {
+		if has_glyph && stack {
+			icon(ctx, glyphs[i], {x, r.y + r.h * 0.38}, t.icon_small, color)
+			text(ctx, shown, x, r.y + r.h * 0.76, t.small_size, color, .Semibold if on else .Regular, .Center)
+		} else if has_glyph {
 			cw := text_width(ctx, shown, t.text_size, .Semibold) + t.icon_small + 6
 			left := x - cw * 0.5
 			icon(ctx, glyphs[i], {left + t.icon_small * 0.5, r.y + r.h * 0.5}, t.icon_small, color)
