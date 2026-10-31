@@ -319,3 +319,141 @@ theme_card :: proc(ctx: ^Context, s: string, look: Theme, selected: bool, tag :=
 	tip(ctx, id, vis, name)
 	return
 }
+
+// The colours a person may set by hand in Every colour, over what the seed made. The
+// washes (fill_hover, fill_pressed), the shadows and the cameras' and spaces' colours are
+// left out: they are see-through or have rows of their own.
+Theme_Token :: enum u8 {
+	Frame,
+	Frame_Line,
+	Pane,
+	Surface,
+	Surface_Raised,
+	Fill,
+	Cursor,
+	Cursor_Line,
+	Track,
+	Border,
+	Border_Strong,
+	Text,
+	Text_Secondary,
+	Text_Tertiary,
+	Accent,
+	Accent_Soft,
+	On_Accent,
+	Chosen,
+	On_Chosen,
+	Knob,
+	Knob_Off,
+	Knob_On,
+	Success,
+	Warning,
+	Danger,
+}
+
+// Each token's word in a theme code and a settings line, which never changes once written.
+@(rodata)
+THEME_TOKEN_KEYS := [Theme_Token]string {
+	.Frame          = "frame",
+	.Frame_Line     = "frame_line",
+	.Pane           = "pane",
+	.Surface        = "surface",
+	.Surface_Raised = "surface_raised",
+	.Fill           = "fill",
+	.Cursor         = "cursor",
+	.Cursor_Line    = "cursor_line",
+	.Track          = "track",
+	.Border         = "border",
+	.Border_Strong  = "border_strong",
+	.Text           = "text",
+	.Text_Secondary = "text_secondary",
+	.Text_Tertiary  = "text_tertiary",
+	.Accent         = "accent_main",
+	.Accent_Soft    = "accent_soft",
+	.On_Accent      = "on_accent",
+	.Chosen         = "chosen",
+	.On_Chosen      = "on_chosen",
+	.Knob           = "knob",
+	.Knob_Off       = "knob_off",
+	.Knob_On        = "knob_on",
+	.Success        = "success",
+	.Warning        = "warning",
+	.Danger         = "danger",
+}
+
+// What each token colours, as Every colour lists it.
+@(rodata)
+THEME_TOKEN_NAMES := [Theme_Token]string {
+	.Frame          = "Window ground",
+	.Frame_Line     = "Hairline round the views",
+	.Pane           = "A view's ground before it draws",
+	.Surface        = "Bars, panels and the shelf",
+	.Surface_Raised = "Menus, popovers and toasts",
+	.Fill           = "Wells, inputs and tab strips",
+	.Cursor         = "Chosen segment",
+	.Cursor_Line    = "Chosen segment's hairline",
+	.Track          = "Slider track, switch off",
+	.Border         = "Panel hairline",
+	.Border_Strong  = "Popover hairline",
+	.Text           = "Values and headings",
+	.Text_Secondary = "Labels",
+	.Text_Tertiary  = "Hints and shortcuts",
+	.Accent         = "The accent",
+	.Accent_Soft    = "Selected rows",
+	.On_Accent      = "Text on the accent",
+	.Chosen         = "Chosen brush tile",
+	.On_Chosen      = "Its icon and name",
+	.Knob           = "Slider knob",
+	.Knob_Off       = "Switch knob, off",
+	.Knob_On        = "Switch knob, on",
+	.Success        = "Done",
+	.Warning        = "Careful",
+	.Danger         = "Destructive",
+}
+
+// The colours set by hand: those in `set`, each its value in `colors`, opaque.
+Theme_Overrides :: struct {
+	set:    bit_set[Theme_Token],
+	colors: [Theme_Token]Color,
+}
+
+theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
+	switch token {
+	case .Frame:          return &t.frame
+	case .Frame_Line:     return &t.frame_line
+	case .Pane:           return &t.pane
+	case .Surface:        return &t.surface
+	case .Surface_Raised: return &t.surface_raised
+	case .Fill:           return &t.fill
+	case .Cursor:         return &t.cursor
+	case .Cursor_Line:    return &t.cursor_line
+	case .Track:          return &t.track
+	case .Border:         return &t.border
+	case .Border_Strong:  return &t.border_strong
+	case .Text:           return &t.text
+	case .Text_Secondary: return &t.text_secondary
+	case .Text_Tertiary:  return &t.text_tertiary
+	case .Accent:         return &t.accent
+	case .Accent_Soft:    return &t.accent_soft
+	case .On_Accent:      return &t.on_accent
+	case .Chosen:         return &t.chosen
+	case .On_Chosen:      return &t.on_chosen
+	case .Knob:           return &t.knob
+	case .Knob_Off:       return &t.knob_off
+	case .Knob_On:        return &t.knob_on
+	case .Success:        return &t.success
+	case .Warning:        return &t.warning
+	case .Danger:         return &t.danger
+	}
+	return &t.frame
+}
+
+// `t` with the colours set by hand put over it. The panels keep the seed's opacity, so a
+// hand-set surface colour still lets the view show through as much as before.
+theme_overrides_apply :: proc(t: ^Theme, o: Theme_Overrides) {
+	for token in o.set {
+		c := o.colors[token]
+		p := theme_token(t, token)
+		p^ = {c.r, c.g, c.b, p.a if token == .Surface else 255}
+	}
+}

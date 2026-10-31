@@ -22,6 +22,7 @@ User_Theme :: struct {
 	name: [THEME_NAME]u8, // up to its first zero byte
 	base: Look, // the built-in theme it began as, whose exact colours it keeps where it can
 	seed: ui.Theme_Seed,
+	over: ui.Theme_Overrides, // colours set by hand in Every colour
 }
 
 // A theme by where it is: a built-in one (user -1) or the person's own number `user`.
@@ -32,6 +33,7 @@ Theme_Ref :: struct {
 
 Theme_State :: struct {
 	seed:   ui.Theme_Seed, // what the interface shows: the chosen theme's seed or a draft of it
+	over:   ui.Theme_Overrides, // ...and its colours set by hand
 	user:   i32, // the chosen theme of the person's own, or -1 for the built-in Kit_State.look
 	list:   [USER_THEMES]User_Theme,
 	count:  int,
@@ -41,7 +43,24 @@ Theme_State :: struct {
 	device_dark: bool, // what the device said last, for Match device
 	compare: bool, // Hold to compare is held: the saved theme shows instead of the draft
 	seed_read: bool, // a settings file named the seed shown (themes_settle)
+	every:  bool, // Every colour is open
+	menu:   bool, // a card's menu (Rename, Duplicate, Share code, Delete)
+	menu_at: ui.Rect,
+	menu_of: Theme_Ref,
+	code:   Theme_Code, // the Share code or Import code popover
 }
+
+// The popover that shows a theme as a code to copy, or takes one pasted to import.
+Theme_Code :: struct {
+	open:   bool,
+	importing: bool,
+	at:     ui.Rect,
+	text:   [THEME_CODE]u8,
+	note:   string, // what the last Copy, Paste or Import did (a constant)
+}
+
+// The longest theme code: the seed's words and every colour set by hand fit well inside.
+THEME_CODE :: 1024
 
 @(rodata)
 LOOK_SEEDS := [Look]ui.Theme_Seed {
@@ -114,6 +133,12 @@ theme_ref_seed :: proc(k: ^Kit_State, ref: Theme_Ref) -> ui.Theme_Seed {
 	return k.themes.list[r.user].seed if r.user >= 0 else LOOK_SEEDS[r.look]
 }
 
+// The colours a theme was saved with set by hand.
+theme_ref_over :: proc(k: ^Kit_State, ref: Theme_Ref) -> ui.Theme_Overrides {
+	r := theme_ref_valid(k, ref)
+	return k.themes.list[r.user].over if r.user >= 0 else {}
+}
+
 // The built-in theme a reference starts from.
 theme_ref_base :: proc(k: ^Kit_State, ref: Theme_Ref) -> Look {
 	r := theme_ref_valid(k, ref)
@@ -126,27 +151,30 @@ theme_ref_name :: proc(k: ^Kit_State, ref: Theme_Ref) -> string {
 	return LOOK_NAMES[r.look]
 }
 
-// The theme a seed makes when it began as the built-in `base`.
-theme_of :: proc(seed: ui.Theme_Seed, base: Look) -> ui.Theme {
-	return ui.theme_from_seed(seed, look_exact(base), LOOK_SEEDS[base])
+// The theme a seed and its colours set by hand make when it began as the built-in `base`.
+theme_of :: proc(seed: ui.Theme_Seed, over: ui.Theme_Overrides, base: Look) -> ui.Theme {
+	t := ui.theme_from_seed(seed, look_exact(base), LOOK_SEEDS[base])
+	ui.theme_overrides_apply(&t, over)
+	return t
 }
 
 // The chosen theme's colours as saved, before any draft.
 theme_saved :: proc(k: ^Kit_State) -> ui.Theme {
 	r := theme_ref(k)
-	return theme_of(theme_ref_seed(k, r), theme_ref_base(k, r))
+	return theme_of(theme_ref_seed(k, r), theme_ref_over(k, r), theme_ref_base(k, r))
 }
 
 // What the interface shows now: the draft, or while Hold to compare is held, the theme
 // as it was saved.
 theme_current :: proc(k: ^Kit_State) -> ui.Theme {
 	if k.themes.compare do return theme_saved(k)
-	return theme_of(k.themes.seed, theme_ref_base(k, theme_ref(k)))
+	return theme_of(k.themes.seed, k.themes.over, theme_ref_base(k, theme_ref(k)))
 }
 
 // Whether a control moved the chosen theme away from what it was saved as.
 theme_draft :: proc(k: ^Kit_State) -> bool {
-	return k.themes.seed != theme_ref_seed(k, theme_ref(k))
+	r := theme_ref(k)
+	return k.themes.seed != theme_ref_seed(k, r) || k.themes.over != theme_ref_over(k, r)
 }
 
 // Shows theme `r` as saved, dropping any draft. Picking a light theme makes it the day
@@ -156,6 +184,7 @@ theme_choose :: proc(k: ^Kit_State, ref: Theme_Ref) {
 	r := theme_ref_valid(k, ref)
 	k.look, k.themes.user = r.look, r.user
 	k.themes.seed = theme_ref_seed(k, r)
+	k.themes.over = theme_ref_over(k, r)
 	if k.themes.seed.mode == .Light do k.themes.day = r
 	else do k.themes.night = r
 }
@@ -167,12 +196,13 @@ theme_keep :: proc(k: ^Kit_State) -> bool {
 	r := theme_ref(k)
 	if r.user >= 0 {
 		ts.list[r.user].seed = ts.seed
+		ts.list[r.user].over = ts.over
 		theme_choose(k, r)
 		return true
 	}
 	if ts.count == USER_THEMES do return false
 	u := &ts.list[ts.count]
-	u^ = {base = r.look, seed = ts.seed}
+	u^ = {base = r.look, seed = ts.seed, over = ts.over}
 	theme_name_set(u, theme_name_free(k, LOOK_NAMES[r.look]))
 	ts.count += 1
 	theme_choose(k, {r.look, i32(ts.count - 1)})
@@ -184,11 +214,16 @@ theme_name_set :: proc(u: ^User_Theme, name: string) {
 	_ = copy(u.name[:THEME_NAME - 1], name)
 }
 
-// `from` with the first number after it that no theme is called yet ("Lens 2", "Lens 3").
-theme_name_free :: proc(k: ^Kit_State, from: string) -> string {
+// `name` with the first number after it that no theme is called yet ("Lens 2", "Lens 3").
+theme_name_free :: proc(k: ^Kit_State, name: string) -> string {
+	// "Lens 2" copied is "Lens 3", not "Lens 2 2".
+	from := name
+	if space := strings.last_index_byte(from, ' '); space > 0 {
+		if _, numbered := strconv.parse_int(from[space + 1:]); numbered do from = from[:space]
+	}
 	for n := 2; ; n += 1 {
-		name := fmt.tprintf("%s %d", from, n)
-		if !theme_name_taken(k, name) do return name
+		next := fmt.tprintf("%s %d", from, n)
+		if !theme_name_taken(k, next) do return next
 	}
 }
 
@@ -214,20 +249,23 @@ theme_follow_device :: proc(k: ^Kit_State, dark: bool) {
 
 // A seed as the words of a settings line: its mode, then key=value pairs, so a field
 // added later is a new pair an older app steps over.
-theme_seed_text :: proc(s: ui.Theme_Seed) -> string {
-	return fmt.tprintf(
-		"%s hue=%.0f tint=%.0f contrast=%.0f opacity=%.0f corners=%s accent=%s chosen=%s black=%d shadow=%d",
+theme_seed_text :: proc(s: ui.Theme_Seed, over: ui.Theme_Overrides = {}) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	fmt.sbprintf(&b,
+		"%s hue=%v tint=%v contrast=%v opacity=%v corners=%s accent=%s chosen=%s black=%d shadow=%d",
 		"light" if s.mode == .Light else "dark",
 		s.hue,
-		s.tint * 100,
-		s.contrast * 100,
-		s.opacity * 100,
+		s.tint,
+		s.contrast,
+		s.opacity,
 		strings.to_lower(fmt.tprint(s.corners), context.temp_allocator),
 		theme_hex(s.accent),
 		strings.to_lower(fmt.tprint(s.chosen), context.temp_allocator),
 		1 if s.black else 0,
 		1 if s.shadow else 0,
 	)
+	for token in over.set do fmt.sbprintf(&b, " %s=%s", ui.THEME_TOKEN_KEYS[token], theme_hex(over.colors[token]))
+	return strings.to_string(b)
 }
 
 theme_hex :: proc(c: ui.Color) -> string {
@@ -236,8 +274,11 @@ theme_hex :: proc(c: ui.Color) -> string {
 
 // Reads what theme_seed_text wrote over `seed`: a word it does not know is stepped over and
 // a value is held to its range, so a damaged line never makes a theme nobody could read.
-theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_Seed, ok: bool) {
+theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_Seed, over: ui.Theme_Overrides, ok: bool) {
 	s = seed
+	// Fractions are written as they are, so they read back to the bit; a value over 1 is a
+	// percentage, as a person typing a code by hand may write one.
+	fraction :: proc(v: f32) -> f32 {return v / 100 if v > 1 else v}
 	for w in words {
 		switch w {
 		case "dark":  s.mode = .Dark; ok = true; continue
@@ -247,9 +288,9 @@ theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_S
 		number, is_number := strconv.parse_f32(value)
 		switch key {
 		case "hue":      if is_number do s.hue = clamp(number, 0, 360)
-		case "tint":     if is_number do s.tint = clamp(number / 100, 0, 1)
-		case "contrast": if is_number do s.contrast = clamp(number / 100, 0, 1)
-		case "opacity":  if is_number do s.opacity = clamp(number / 100, ui.THEME_OPACITY_MIN, 1)
+		case "tint":     if is_number do s.tint = clamp(fraction(number), 0, 1)
+		case "contrast": if is_number do s.contrast = clamp(fraction(number), 0, 1)
+		case "opacity":  if is_number do s.opacity = clamp(fraction(number), ui.THEME_OPACITY_MIN, 1)
 		case "black":    s.black = value == "1"
 		case "shadow":   s.shadow = value == "1"
 		case "corners":
@@ -265,6 +306,14 @@ theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_S
 			}
 		case "accent":
 			if rgb, hex_ok := color_hex_parse(value); hex_ok do s.accent = theme_color(rgb)
+		case:
+			for name, token in ui.THEME_TOKEN_KEYS {
+				if name != key do continue
+				if rgb, hex_ok := color_hex_parse(value); hex_ok {
+					over.set += {token}
+					over.colors[token] = theme_color(rgb)
+				}
+			}
 		}
 	}
 	return
@@ -285,10 +334,10 @@ themes_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	ts := &k.themes
 	for i in 0 ..< ts.count {
 		u := &ts.list[i]
-		fmt.sbprintfln(out, "user_theme %s %v %s", preset_escape(theme_ref_name(k, {.Lens, i32(i)})), u.base, theme_seed_text(u.seed))
+		fmt.sbprintfln(out, "user_theme %s %v %s", preset_escape(theme_ref_name(k, {.Lens, i32(i)})), u.base, theme_seed_text(u.seed, u.over))
 	}
 	fmt.sbprintfln(out, "look_user %d", ts.user)
-	fmt.sbprintfln(out, "look_seed %s", theme_seed_text(ts.seed))
+	fmt.sbprintfln(out, "look_seed %s", theme_seed_text(ts.seed, ts.over))
 	fmt.sbprintfln(out, "look_match %d", 1 if ts.match else 0)
 	fmt.sbprintfln(out, "look_day %v %d", ts.day.look, ts.day.user)
 	fmt.sbprintfln(out, "look_night %v %d", ts.night.look, ts.night.user)
@@ -301,7 +350,10 @@ themes_settle :: proc(k: ^Kit_State) {
 	ts.user = theme_ref_valid(k, theme_ref(k)).user
 	ts.day = theme_ref_valid(k, ts.day)
 	ts.night = theme_ref_valid(k, ts.night)
-	if !ts.seed_read do ts.seed = theme_ref_seed(k, theme_ref(k))
+	if !ts.seed_read {
+		ts.seed = theme_ref_seed(k, theme_ref(k))
+		ts.over = theme_ref_over(k, theme_ref(k))
+	}
 	ts.seed_read = false
 }
 
@@ -320,14 +372,14 @@ themes_line :: proc(k: ^Kit_State, f: []string) -> bool {
 		if !ok do return true
 		u := &ts.list[ts.count]
 		u^ = {base = base}
-		u.seed, ok = theme_seed_parse(f[3:], LOOK_SEEDS[base])
+		u.seed, u.over, ok = theme_seed_parse(f[3:], LOOK_SEEDS[base])
 		if !ok do return true
 		theme_name_set(u, preset_unescape(f[1]))
 		ts.count += 1
 	case "look_user":
 		if n, ok := strconv.parse_int(f[1]); ok do ts.user = i32(clamp(n, -1, USER_THEMES))
 	case "look_seed":
-		if s, ok := theme_seed_parse(f[1:], ts.seed); ok do ts.seed = s
+		if s, o, ok := theme_seed_parse(f[1:], ts.seed); ok do ts.seed, ts.over = s, o
 		ts.seed_read = true
 	case "look_match":
 		ts.match = f[1] == "1"
@@ -414,9 +466,10 @@ settings_look :: proc(app: ^App) {
 		tag := ""
 		if r.user >= 0 do tag = "Yours"
 		else if r.look >= .Paper do tag = "New"
-		look := theme_of(theme_ref_seed(k, r), theme_ref_base(k, r))
+		look := theme_of(theme_ref_seed(k, r), theme_ref_over(k, r), theme_ref_base(k, r))
 		res := ui.theme_card(ctx, fmt.tprintf("%s##look card %d", theme_ref_name(k, r), i), look, r == chosen && !draft, tag)
 		if res.clicked do theme_choose(k, r)
+		if res.menu do ts.menu, ts.menu_at, ts.menu_of = true, ctx.last_rect, r
 		if i % columns == columns - 1 || i == n - 1 do ui.end(ctx)
 	}
 
@@ -491,6 +544,34 @@ settings_look :: proc(app: ^App) {
 	check(ctx, "Accent on panels", shown.accent, ground, 3)
 	check(ctx, "Text on the accent", shown.on_accent, shown.accent, 4.5)
 	ui.paragraph(ctx, "Labels want 4.5 to 1 or more, hints and the accent 3 to 1, so everything stays readable in a bright room.")
+
+	// Every colour: any of the theme's colours set by hand over what the seed made, each
+	// with Reset once set.
+	if ui.section(ctx, fmt.tprintf("Every colour (%d set by hand)##look every", card(ts.over.set)), &ts.every) {
+		made := theme_of(ts.seed, {}, theme_ref_base(k, theme_ref(k)))
+		for token in ui.Theme_Token {
+			set := token in ts.over.set
+			c := ts.over.colors[token] if set else ui.theme_token(&made, token)^
+			ui.begin(ctx, fmt.tprintf("look every %v", token), {direction = .Row, gap = 8})
+			ui.begin(ctx, fmt.tprintf("look every name %v", token), {direction = .Column, width = max(ui.fill_width(ctx) - 120, 80)})
+			ui.label(ctx, ui.THEME_TOKEN_NAMES[token], t.text_size, t.text if set else t.text_secondary)
+			ui.end(ctx)
+			if set {
+				if ui.button(ctx, fmt.tprintf("Reset##look every %v", token), .Light, width = 64) do ts.over.set -= {token}
+			}
+			ui.end(ctx)
+			shown := theme_rgb(c)
+			if theme_color_well(app, fmt.tprintf("%s##%v", ui.THEME_TOKEN_NAMES[token], token), &shown) {
+				ts.over.set += {token}
+				ts.over.colors[token] = theme_color(shown)
+			}
+		}
+		ui.section_end(ctx)
+	}
+
+	share, take := kit_button_pair(ctx, "Share code##look", "Import code##look")
+	if share do theme_share_open(k, ctx.last_rect)
+	if take do ts.code = {open = true, importing = true, at = ctx.last_rect}
 }
 
 // A colour well alone, the width of the column, that opens the colour popover (as
@@ -522,4 +603,156 @@ theme_color_well :: proc(app: ^App, name: string, rgb: ^[3]f32) -> (changed: boo
 	}
 	ui.end(ctx)
 	return
+}
+
+// Takes out theme `i` of the person's own. What named it (the chosen theme, the day and
+// night themes) falls back to the built-in one it began as, and what named one after it
+// moves down with it.
+theme_delete :: proc(k: ^Kit_State, i: int) {
+	ts := &k.themes
+	if i < 0 || i >= ts.count do return
+	base := ts.list[i].base
+	follow :: proc(r: ^Theme_Ref, i: i32, base: Look) {
+		if r.user == i do r^ = {base, -1}
+		else if r.user > i do r.user -= 1
+	}
+	chosen := theme_ref(k)
+	draft := theme_draft(k)
+	follow(&chosen, i32(i), base)
+	follow(&ts.day, i32(i), base)
+	follow(&ts.night, i32(i), base)
+	follow(&ts.menu_of, i32(i), base)
+	for j in i ..< ts.count - 1 do ts.list[j] = ts.list[j + 1]
+	ts.count -= 1
+	ts.list[ts.count] = {}
+	k.look, ts.user = chosen.look, chosen.user
+	// The theme shown goes with it unless it was a draft, which stays a draft of the base.
+	if !draft do ts.seed, ts.over = theme_ref_seed(k, chosen), theme_ref_over(k, chosen)
+}
+
+// A copy of theme `r` among the person's own, named "<name> 2" (or the next free number),
+// chosen; false when the list is full.
+theme_duplicate :: proc(k: ^Kit_State, ref: Theme_Ref) -> bool {
+	ts := &k.themes
+	if ts.count == USER_THEMES do return false
+	r := theme_ref_valid(k, ref)
+	u := &ts.list[ts.count]
+	u^ = {base = theme_ref_base(k, r), seed = theme_ref_seed(k, r), over = theme_ref_over(k, r)}
+	theme_name_set(u, theme_name_free(k, theme_ref_name(k, r)))
+	ts.count += 1
+	theme_choose(k, {u.base, i32(ts.count - 1)})
+	return true
+}
+
+// Theme `i` of the person's own renamed: an empty name or one another theme has is
+// refused (false), so every theme in the gallery and in Day and Night has a name of its own.
+theme_rename :: proc(k: ^Kit_State, i: int, typed: string) -> bool {
+	name := strings.trim_space(typed)
+	if i < 0 || i >= k.themes.count || name == "" do return false
+	if strings.equal_fold(theme_ref_name(k, {.Lens, i32(i)}), name) do return true
+	if theme_name_taken(k, name) do return false
+	theme_name_set(&k.themes.list[i], name)
+	return true
+}
+
+// The code that shares a theme: "sculpt-theme 1", its name, the built-in theme it began
+// as and its seed's words, one line a person can paste in a message.
+theme_code :: proc(name: string, base: Look, seed: ui.Theme_Seed, over: ui.Theme_Overrides) -> string {
+	return fmt.tprintf("sculpt-theme 1 %s %v %s", preset_escape(name), base, theme_seed_text(seed, over))
+}
+
+// Reads a code theme_code wrote; ok is false for anything that is not one.
+theme_code_parse :: proc(text: string) -> (name: string, base: Look, seed: ui.Theme_Seed, over: ui.Theme_Overrides, ok: bool) {
+	f := strings.fields(strings.trim_space(text), context.temp_allocator)
+	if len(f) < 5 || f[0] != "sculpt-theme" || f[1] != "1" do return
+	found := false
+	for l in Look do if fmt.tprint(l) == f[3] do base, found = l, true
+	if !found do return
+	seed, over, ok = theme_seed_parse(f[4:], LOOK_SEEDS[base])
+	name = strings.trim_space(preset_unescape(f[2]))
+	if name == "" do name = "Imported"
+	return
+}
+
+// Imports a code as a theme of the person's own and chooses it: its name is kept if no
+// theme has it, else given the next free number. False when it is no code or the list is full.
+theme_import :: proc(k: ^Kit_State, text: string) -> bool {
+	ts := &k.themes
+	name, base, seed, over, ok := theme_code_parse(text)
+	if !ok || ts.count == USER_THEMES do return false
+	if theme_name_taken(k, name) do name = theme_name_free(k, name)
+	u := &ts.list[ts.count]
+	u^ = {base = base, seed = seed, over = over}
+	theme_name_set(u, name)
+	ts.count += 1
+	theme_choose(k, {base, i32(ts.count - 1)})
+	return true
+}
+
+// Opens the Share code popover on what the interface shows (a draft too) beside `at`.
+theme_share_open :: proc(k: ^Kit_State, at: ui.Rect) {
+	ts := &k.themes
+	name := theme_ref_name(k, theme_ref(k))
+	if theme_draft(k) do name = fmt.tprintf("%s edited", name)
+	ts.code = {open = true, at = at}
+	_ = copy(ts.code.text[:THEME_CODE - 1], theme_code(name, theme_ref_base(k, theme_ref(k)), ts.seed, ts.over))
+}
+
+// A card's menu (Rename and Delete on the person's own; Duplicate and Share code on any)
+// and the Share or Import code popover, over everything else.
+kit_theme_menus :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	ts := &k.themes
+	if ts.menu && !k.settings do ts.menu = false
+	if ts.code.open && !k.settings do ts.code.open = false
+	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 240}) {
+		r := theme_ref_valid(k, ts.menu_of)
+		if r.user >= 0 && ui.menu_item(ctx, "Rename...##theme", glyph = ui.ICON_PENCIL) {
+			k.rename = {open = true, theme = int(r.user) + 1, at = ts.menu_at}
+			ts.menu = false
+		}
+		if ui.menu_item(ctx, "Duplicate##theme", glyph = ui.ICON_COPY, enabled = ts.count < USER_THEMES, reason = "You have as many themes of your own as can be kept") {
+			_ = theme_duplicate(k, r)
+			ts.menu = false
+		}
+		if ui.menu_item(ctx, "Share code##theme", glyph = ui.ICON_EXPORT) {
+			theme_choose(k, r)
+			theme_share_open(k, ts.menu_at)
+			ts.menu = false
+		}
+		if r.user >= 0 && ui.menu_item(ctx, "Delete theme##theme", glyph = ui.ICON_TRASH, tone = .Danger) {
+			theme_delete(k, int(r.user))
+			ts.menu = false
+		}
+		ui.popover_end(ctx)
+	}
+	c := &ts.code
+	// Opened low on the screen (Share code at the page's foot), it opens upward, so the
+	// field and its buttons stay on screen.
+	side := ui.Side.Above if c.at.y > ctx.input.window.y * 0.5 else .Below
+	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = 6, padding = 12, width = 340}) {
+		defer ui.popover_end(ctx)
+		ui.caption(ctx, "IMPORT A THEME" if c.importing else "SHARE THIS THEME")
+		ui.paragraph(ctx, "Paste a theme code; Import adds it to your themes and shows it." if c.importing else "Copy this code and paste it into Import code on any device. It is plain text, so it fits in a message.")
+		_ = ui.text_field(ctx, "code##theme code", c.text[:THEME_CODE - 1], hint = "sculpt-theme 1 ...")
+		if c.note != "" do ui.paragraph(ctx, c.note)
+		text := string(cstring(raw_data(c.text[:])))
+		if c.importing {
+			paste, add := kit_button_pair(ctx, "Paste", "Import", tone_b = .Accent)
+			if paste {
+				c.text = {}
+				_ = copy(c.text[:THEME_CODE - 1], platform_clipboard_text())
+				c.note = ""
+			}
+			if add {
+				if theme_import(k, text) do c.open = false
+				else do c.note = "That is no theme code: one starts with sculpt-theme 1." if ts.count < USER_THEMES else "You have as many themes of your own as can be kept."
+			}
+		} else {
+			copied, done := kit_button_pair(ctx, "Copy", "Done", tone_a = .Accent)
+			if copied do c.note = "Copied." if platform_clipboard_set(text) else "Copying was refused: select the code and copy it by hand."
+			if done do c.open = false
+		}
+	}
 }
