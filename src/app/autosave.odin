@@ -150,6 +150,20 @@ Autosave_Worker :: struct {
 	session:  string,
 	info:     Session_Info, // under lock: what the next session file says
 	info_due: bool, // under lock: write the session file soon
+	// Under lock: the next autosave waits before reading anything until something stops it
+	// (--autosave-hold), so a scenario sees a stroke stop a reading on any machine,
+	// however fast the thread or slow the frames. Only the first autosave is held.
+	hold:     bool,
+}
+
+// Holds the run's next autosave before it reads the scene until a stroke, a command or
+// the end of the run stops it (--autosave-hold, for the scenario that checks the stop).
+autosave_hold :: proc(app: ^App) {
+	w := app.autosave.worker
+	if w == nil do return
+	sync.lock(&w.lock)
+	w.hold = true
+	sync.unlock(&w.lock)
 }
 
 // Starts the session and finds the crashed ones to ask about. `seconds` and `folder` are
@@ -205,6 +219,7 @@ autosave_destroy :: proc(app: ^App) {
 		sync.lock(&w.lock)
 		w.quit = true
 		sync.atomic_store(&w.abort, true)
+		sync.cond_broadcast(&w.cond)
 		sync.unlock(&w.lock)
 		sync.sema_post(&w.wake)
 		thread.join(w.thread)
@@ -313,6 +328,8 @@ autosave_settle :: proc(app: ^App) {
 	if w.phase == .Serializing {
 		start := time.tick_now()
 		sync.atomic_store(&w.abort, true)
+		// A held reading waits on the same condition for the stop.
+		sync.cond_broadcast(&w.cond)
 		for w.phase == .Serializing do sync.cond_wait(&w.cond, &w.lock)
 		a.wait_ms = max(a.wait_ms, time.duration_milliseconds(time.tick_since(start)))
 	}
@@ -470,6 +487,10 @@ autosave_close :: proc(app: ^App, window: ^Window) {
 	a := &app.autosave
 	w := a.worker
 	if w == nil do return
+	// Nothing would stop a held autosave the exit starts, so none is held from here.
+	sync.lock(&w.lock)
+	w.hold = false
+	sync.unlock(&w.lock)
 	autosave_settle(app)
 	autosave_wait(w)
 	autosave_collect(app)
@@ -574,6 +595,12 @@ autosave_run :: proc(w: ^Autosave_Worker) {
 	defer delete(out)
 	append(&out, ..job.header[:])
 	before := read_hash(job) if job.check else 0
+	sync.lock(&w.lock)
+	if w.hold {
+		w.hold = false
+		for !sync.atomic_load(&w.abort) do sync.cond_wait(&w.cond, &w.lock)
+	}
+	sync.unlock(&w.lock)
 	ok := true
 	for obj, i in job.objects {
 		at := scene_chunk_begin(&out, CHUNK_OBJECT)
