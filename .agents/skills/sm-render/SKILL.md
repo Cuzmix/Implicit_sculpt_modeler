@@ -64,15 +64,15 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   inside the cleared rect, not the 1 px MSAA ring. `Renderer.floor` is in `frame_key` only; the grid is never drawn into
   the idle cache (the live items would cover it), any see-through item skips the cache, and with MSAA it skips partial
   redraw too. `studio_view_depth` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
-- The frame (`src/app/main.odin:298-504`): apply the scene command (`:300`) → change vsync before acquiring (`:311`;
+- The frame (`frame_step` in `src/app/frame.odin`; `run` in `main.odin` only sets up, loops and tears down): apply the scene command (`frame_settle`) → change vsync before acquiring (`frame_pace`;
   `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
-  → acquire `present_cmd` and the swapchain texture (`src/app/main.odin:324-330`) → events → `viewport_target_resize`
+  → acquire `present_cmd` and the swapchain texture → events (`frame_events`) → `viewport_target_resize`
   before the interface references the texture → the interface (`kit_frame`), the tools and the viewport overlay → a second command buffer `cmd` for the 3D
-  work (`:413`) → per object and part (current level, plus the HD window, `:423`): `sculptor_flush` → `level_upload`
+  work → per object and part (current level, plus the HD window): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
-  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; its groups' in `Object.group_materials`, `.Group_Material`, version 15, drawn through `object_material_slots`; selected colour, idle when `dim_others`) and `wireframe` on the selected one (`:452`) →
-  `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → `kit_upload` and the interface's
+  → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; its groups' in `Object.group_materials`, `.Group_Material`, version 15, drawn through `object_material_slots`; selected colour, idle when `dim_others`) and `wireframe` on the selected one →
+  `render_viewport` → submit, with a fence when `time_gpu` → `kit_upload` and the interface's
   pass (`ui_pass_draw`) into the swapchain on `present_cmd`. View windows (`src/app/view_window.odin`) are other
   swapchains on the same device (`render.window_claim`/`window_release`, mailbox where offered): each has its own
   `Ui_Pass` and its own command buffer submitted after `present_cmd`, acquired with the non-waiting

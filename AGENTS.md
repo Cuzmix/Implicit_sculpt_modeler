@@ -53,7 +53,7 @@ skill whose description fits the request BEFORE you form a plan.
 ## 4. Map
 | Path | What |
 |---|---|
-| `src/app` | entry point, frame loop, `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys and pointer (`device.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
+| `src/app` | entry point and set-up (`main.odin` `run`), the frame (`frame.odin`: `frame_settle`, `frame_events`, `frame_step`), the exit stats (`exit_stats.odin`), `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys (`Key`, `keys.odin`) and pointer (`device.odin`), system services (`platform.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
 | `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU, the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`) or on Darwin the own Metal backend (`mtl_*.odin`, `--gpu=metal`), chosen in `backend.odin`; `shaders/` Slang with committed `.spv` and `.msl` (`shaders.odin` picks per platform) |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
