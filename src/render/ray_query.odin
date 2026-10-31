@@ -13,7 +13,8 @@ import sdl "vendor:sdl3"
 // number, the geometry, the triangle within it and the barycentrics, closest hits and hits
 // from behind. It then moves the vertices, refits the bottom level and rebuilds the top one
 // in place, and traces again. A wrong answer counts as a validation error, so smoke and
-// parity_check.py fail on it.
+// parity_check.py fail on it. Under the own Metal backend, where nothing here has run it on
+// a device, it also runs once before the first kernel traces (ray_query_trusted).
 
 Ray_Query_Check :: enum u8 {
 	Not_Run,
@@ -21,9 +22,7 @@ Ray_Query_Check :: enum u8 {
 	Failed,
 }
 
-when ODIN_OS != .Darwin {
-	RAY_QUERY_CHECK_COMP_CODE :: #load("shaders/ray_query_check.comp.spv")
-}
+RAY_QUERY_CHECK_COMP_CODE :: #load("shaders/ray_query_check.comp" + RQ_EXT)
 
 @(private = "file")
 Rq_Ray :: struct {
@@ -64,10 +63,20 @@ ray_query_check :: proc(r: ^Renderer) -> Ray_Query_Check {
 	ok := ray_query_check_run(r)
 	if ok {
 		log.info("ray query check: passed")
-	} else {
+	} else if gpu_backend == .Vulkan {
 		vk_validation_error("the ray query check failed")
+	} else {
+		log.error("ray query check: failed; the studio and render mode walk the app's own trees")
 	}
 	return .Passed if ok else .Failed
+}
+
+// Whether ray queries may trace. Under the own Metal backend, whose ray tracing has not been
+// run on a device from here, the check runs once first (it waits for the GPU, before the
+// first traced kernel is made), and a wrong answer keeps every view on the app's own trees.
+ray_query_trusted :: proc(r: ^Renderer) -> bool {
+	when METAL do if gpu_backend == .Metal && r.ray_query_check == .Not_Run do r.ray_query_check = ray_query_check(r)
+	return r.ray_query_check != .Failed
 }
 
 @(private = "file")
@@ -79,15 +88,11 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	hits := gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_WRITE}, size = RAYS * 32})
 	upload := gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
 	download := gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = RAYS * 32})
-	// Ray queries are never offered on Apple's platforms, which have no SPIR-V of the kernel.
-	pipeline: ^sdl.GPUComputePipeline
-	when ODIN_OS != .Darwin {
-		pipeline = gpu_create_compute_pipeline_traced(r.device, {
-			code_size = len(RAY_QUERY_CHECK_COMP_CODE), code = raw_data(RAY_QUERY_CHECK_COMP_CODE), entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
-			threadcount_x = 64, threadcount_y = 1, threadcount_z = 1,
-		})
-	}
+	pipeline := gpu_create_compute_pipeline_traced(r.device, {
+		code_size = len(RAY_QUERY_CHECK_COMP_CODE), code = raw_data(RAY_QUERY_CHECK_COMP_CODE), entrypoint = RQ_ENTRY,
+		format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
+		threadcount_x = 64, threadcount_y = 1, threadcount_z = 1,
+	})
 	blas, tlas: ^Gpu_Accel
 	defer {
 		gpu_release_accel(r.device, tlas)

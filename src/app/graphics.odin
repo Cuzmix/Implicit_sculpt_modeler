@@ -25,6 +25,10 @@ Graphics :: enum u8 {
 GRAPHICS_VULKAN :: ODIN_OS != .Darwin
 GRAPHICS_METAL :: ODIN_OS == .Darwin
 
+// Whether Ray tracing hardware starts on. On Apple's platforms it starts off: Metal's ray
+// tracing has not been measured on an Apple GPU, and the M1 and M2 trace in software.
+RAY_QUERY_DEFAULT :: GRAPHICS_VULKAN
+
 // The choices the platform offers, in the order the menu lists them.
 when GRAPHICS_VULKAN {
 	@(rodata)
@@ -158,6 +162,7 @@ graphics_controls :: proc(app: ^App) {
 	if render.caps(&app.renderer).ray_query {
 		_ = ui.switch_row(ctx, "Ray tracing hardware", &app.ray_query)
 		ui.paragraph(ctx, "The studio render's shadows and occlusion trace the GPU's own ray tracing structures, built by its driver, instead of the app's. Off walks the app's own, for comparing the two.")
+		when GRAPHICS_METAL do ui.paragraph(ctx, "A trial on iPad and Mac, off at first: compare samples a second in Stats with it on and off. The M3, M4 and A17 Pro trace in hardware; older Apple GPUs in software.")
 	}
 	when GRAPHICS_VULKAN {
 		ui.paragraph(ctx, "Automatic draws with Vulkan, the app's own renderer, and with SDL_GPU on a device whose Vulkan lacks what it needs. Both draw the same image; SDL_GPU is there in case a driver misbehaves.")

@@ -1,7 +1,7 @@
-// vulkan only: the ray query check (render/ray_query.odin), which traces known rays
+// ray query: the ray query check (render/ray_query.odin), which traces known rays
 // against a top-level acceleration structure and writes what each hit, so the backend's
-// builds are checked against answers worked out by hand. Ray queries exist only under the
-// own Vulkan backend, so no Metal source is made for it.
+// builds are checked against answers worked out by hand. The own Vulkan and Metal backends
+// run it; its Metal source comes from slangc's Metal target (scripts/shaders_msl.py).
 //
 // SDL_GPU's SPIR-V layout for compute: set 0 holds the read-only storage buffers, set 1
 // the read-write ones, set 2 the uniform buffers; set 3 the acceleration structure.

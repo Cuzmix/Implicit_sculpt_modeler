@@ -27,13 +27,13 @@ import "../jobs"
 RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
 // The same kernel reading every map from one array (render_trace_maps.comp.slang), which
 // only the own Vulkan backend binds, so it has no Metal source.
-// Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query),
-// which only the own Vulkan backend offers.
+// Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
+// named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
 when ODIN_OS != .Darwin {
 	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
-	RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp.spv")
 	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv")
 }
+RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT)
 RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
 RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
 RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
@@ -640,21 +640,22 @@ render_textured_max :: proc(pr: ^Path_Render) -> int {
 // them. A refusal is logged and render mode walks its own trees from then.
 @(private = "file")
 path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
-	if !r.ray_query || !r.caps.ray_query || pr.rq_failed do return false
+	if !r.ray_query || !r.caps.ray_query || pr.rq_failed || !ray_query_trusted(r) do return false
 	if pr.rq_pipeline == nil {
+		info := sdl.GPUComputePipelineCreateInfo {
+			code_size = len(RENDER_TRACE_RQ_COMP_CODE), code = raw_data(RENDER_TRACE_RQ_COMP_CODE), entrypoint = RQ_ENTRY,
+			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
+		}
+		capacity: u32
+		// The array kind exists only under Vulkan (path_maps_pipeline).
 		when ODIN_OS != .Darwin {
-			info := sdl.GPUComputePipelineCreateInfo {
-				code_size = len(RENDER_TRACE_RQ_COMP_CODE), code = raw_data(RENDER_TRACE_RQ_COMP_CODE), entrypoint = SHADER_ENTRY,
-				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-			}
-			capacity: u32
 			if pr.maps_array {
 				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
 				capacity = 3 * pr.textured_max
 			}
-			pr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, info, capacity)
 		}
+		pr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, info, capacity)
 		if pr.rq_pipeline == nil {
 			log.warnf("render mode: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
 			pr.rq_failed = true

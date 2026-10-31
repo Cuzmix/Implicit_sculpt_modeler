@@ -399,6 +399,19 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   non-opaque candidates are confirmed from the merged `indices`. Its pixels differ from the walk's by rounding
   (~0.06% at 4 samples): compare with `parity_check.py --tolerance`. A graphics submission that rewrites a structure
   in place (`Vk_Cmd.accel_writes`) waits for the last compute submission that traced it (`Vk_Accel.compute_read`).
+- Metal ray tracing (6.4, notes/native-gpu/metal-ray-tracing-design.md, `mtl_accel.odin`): offered where
+  `supportsFamily(.Metal3) && supportsRaytracing`; `app.ray_query` defaults off on Darwin (settings v11 turns an old
+  file's on off once). A `// ray query` first line makes `shaders_msl.py` write `name.comp.metal` with slangc's Metal
+  target (not shadercross, which pins MSL 2.1); its second line `// slots s=T:S rt= wt= rb= wb= u= a=` maps SDL_GPU's
+  order to slangc's slots, from both targets' `-reflection-json`; `Mtl_Compute_Pipeline.slots` carries it (every
+  other pipeline gets SDL's own table), and the entry is `main_0` (`RQ_EXT`, `RQ_ENTRY` in `shaders.odin`).
+  `render_trace_maps_rq` stays Vulkan only (texture arrays). Builds use a `MTLAccelerationStructureCommandEncoder`
+  per build outside passes, a fresh scratch each, refit in place (nil destination); instances are UserID descriptors
+  (68 bytes). At dispatch each instanced BLAS and each buffer read through `gpu_buffer_address` (`Mtl_Cmd.addressed`)
+  is `useResource`d, since Metal does not track what is reached only through the TLAS or an address; `Mtl_Cmd.kept`
+  retains structures, scratch and instance buffers until the command buffer finishes. `ray_query_trusted` runs the
+  ray query check once before Metal's first traced kernel and keeps the walk if it fails (logged, not a validation
+  error). Nothing of it has run on a device from the container: verify with `parity_check.py --tolerance 0.2`.
 - GPU culling (`gpu_cull.odin`, `Gpu_Caps.gpu_cull`: own Vulkan with multiDrawIndirect + drawIndirectCount, not on
   lazily-allocated-memory tile GPUs): `prepare_draws` hands an item with chunk groups, no `hidden`, no simplify to
   `cull_count`/`cull_write` (`cull.slang`, the CPU's tests); commands after a 20-byte header (count, triangles,

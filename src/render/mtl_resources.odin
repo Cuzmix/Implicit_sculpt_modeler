@@ -80,6 +80,39 @@ Mtl_Compute_Pipeline :: struct {
 	readonly_buffers:   u32,
 	readwrite_buffers:  u32,
 	threads:            MTL.Size, // threads a group, as the create info gave them
+	slots:              Mtl_Slots,
+}
+
+// Where each of a compute pipeline's bindings goes, in SDL_GPU's order of each kind. A
+// pipeline from an .msl takes SDL_GPU's own Metal slots (mtl_slots_sdl); a traced kernel's
+// Metal source comes from slangc, which numbers them its own way and writes them on its
+// second line (mtl_slots_parse).
+Mtl_Slots :: struct {
+	samplers:    [MTL_SAMPLERS][2]u32, // each sampled texture's texture slot, then its sampler's
+	ro_textures: [MTL_SAMPLERS]u32,
+	rw_textures: [MTL_COMPUTE_WRITES]u32,
+	ro_buffers:  [MTL_STORAGE_BUFFERS]u32,
+	rw_buffers:  [MTL_COMPUTE_WRITES]u32,
+	uniforms:    [4]u32,
+	accel:       i32, // the buffer slot of the top-level structure traced against; -1 for none
+	// How many of each the table names: samplers, read-only and read-write textures,
+	// read-only and read-write buffers, uniform blocks.
+	counts:      [6]u32,
+}
+
+// SDL_GPU's Metal slots: sampled textures and samplers from 0, then the read-only and
+// read-write storage textures; uniform buffers from buffer 0, then the read-only and
+// read-write storage buffers.
+mtl_slots_sdl :: proc(info: sdl.GPUComputePipelineCreateInfo) -> (slots: Mtl_Slots) {
+	slots.accel = -1
+	slots.counts = {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
+	for i in 0 ..< info.num_samplers do slots.samplers[i] = {i, i}
+	for i in 0 ..< info.num_readonly_storage_textures do slots.ro_textures[i] = info.num_samplers + i
+	for i in 0 ..< info.num_readwrite_storage_textures do slots.rw_textures[i] = info.num_samplers + info.num_readonly_storage_textures + i
+	for i in 0 ..< info.num_uniform_buffers do slots.uniforms[i] = i
+	for i in 0 ..< info.num_readonly_storage_buffers do slots.ro_buffers[i] = info.num_uniform_buffers + i
+	for i in 0 ..< info.num_readwrite_storage_buffers do slots.rw_buffers[i] = info.num_uniform_buffers + info.num_readonly_storage_buffers + i
+	return
 }
 
 // ---- Buffers ------------------------------------------------------------------------
@@ -682,6 +715,7 @@ mtl_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, exact:
 	p.samplers, p.readonly_textures, p.readwrite_textures = info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures
 	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
 	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
+	p.slots = mtl_slots_sdl(info)
 	return (^sdl.GPUComputePipeline)(p)
 }
 

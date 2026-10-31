@@ -67,8 +67,11 @@ mode="${1:-debug}"; shift || true
 # pixels. A shader whose first line is "// slangc: -fp-mode precise" keeps every multiply
 # and add unfused. A shader whose first line starts "// vulkan only" indexes texture arrays,
 # for which Slang raises the profile with SPV_EXT_descriptor_indexing on purpose, so that
-# warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
-# used as they are.
+# warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). A
+# shader whose first line starts "// ray query" raises the profile for ray queries the same
+# way, so it is quieted too; its Metal source is slangc's own (name.comp.metal), which
+# scripts/shaders_msl.py makes with slangc alone. Without deps/slang (scripts/setup_deps.sh)
+# the committed .spv files are used as they are.
 SLANGC="$DEPS/slang/bin/slangc"
 compile_shaders() {
 	[ -x "$SLANGC" ] || { echo "slangc missing: using the committed shaders"; return 0; }
@@ -78,16 +81,13 @@ compile_shaders() {
 		case "${name##*.}" in vert) stage=vertex;; frag) stage=fragment;; comp) stage=compute;; esac
 		flags=()
 		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
-		if head -n 1 "$src" | grep -q '^// vulkan only'; then flags+=(-warnings-disable 41012); fi
+		if head -n 1 "$src" | grep -q '^// vulkan only\|^// ray query'; then flags+=(-warnings-disable 41012); fi
 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
-	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py), when
-	# SDL_shadercross is built (scripts/build_shadercross.py); `check` fails on a stale one.
-	if [ -x "$DEPS/shadercross/shadercross" ]; then
-		python3 "$ROOT/scripts/shaders_msl.py"
-	else
-		echo "shadercross missing: the committed .msl files are kept"
-	fi
+	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py): the .msl when
+	# SDL_shadercross is built (scripts/build_shadercross.py), and a ray query kernel's .metal
+	# with slangc alone; `check` fails on a stale one.
+	python3 "$ROOT/scripts/shaders_msl.py"
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors

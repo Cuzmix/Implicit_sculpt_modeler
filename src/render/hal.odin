@@ -246,7 +246,8 @@ gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
 
 // ---- Ray queries (Gpu_Caps.ray_query) -------------------------------------------------
 // Acceleration structures the driver builds and kernels trace with ray queries: the own
-// Vulkan backend on a device with VK_KHR_ray_query only (vk_accel.odin). Elsewhere nothing
+// Vulkan backend on a device with VK_KHR_ray_query (vk_accel.odin), and the own Metal
+// backend on an Apple GPU with Metal 3 and ray tracing (mtl_accel.odin). Elsewhere nothing
 // is offered: every build returns nil and the callers keep their own BVH walk.
 
 // A bottom-level structure (a mesh's triangles) or a top-level one (instances of bottom
@@ -271,6 +272,7 @@ Tlas_Instance :: struct {
 }
 
 gpu_ray_query_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	when METAL do if gpu_backend == .Metal do return mtl_ray_query_offered()
 	return gpu_backend == .Vulkan && vk_state.ray_query
 }
 
@@ -281,6 +283,7 @@ gpu_ray_query_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 // cannot be made.
 gpu_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices: ^sdl.GPUBuffer, vertex_count: u32, geometries: []Blas_Geometry, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
 	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_build_blas(command_buffer, positions, indices, vertex_count, geometries, update)
+	when METAL do if gpu_backend == .Metal && mtl_ray_query_offered() do return mtl_build_blas(command_buffer, positions, indices, vertex_count, geometries, update)
 	return nil
 }
 
@@ -289,15 +292,18 @@ gpu_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices
 // `update`). The top level keeps each bottom level it names alive until it is released.
 gpu_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_Instance, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
 	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_build_tlas(command_buffer, instances, update)
+	when METAL do if gpu_backend == .Metal && mtl_ray_query_offered() do return mtl_build_tlas(command_buffer, instances, update)
 	return nil
 }
 
 // A compute pipeline that traces against the top level at set 3, binding 0 in SPIR-V, and
 // also reads an array of up to `capacity` sampled textures at binding 1 (none for 0); nil
-// with SDL's error set where ray queries are not offered.
+// with SDL's error set where ray queries are not offered. Under Metal the code is slangc's
+// Metal source with its slot table (RQ_EXT), and texture arrays are not offered.
 gpu_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo, capacity: u32 = 0) -> ^sdl.GPUComputePipeline {
 	if gpu_backend == .Vulkan do return vk_create_compute_pipeline_traced(device, createinfo, capacity)
-	sdl.SetError("ray queries need the own Vulkan backend")
+	when METAL do if gpu_backend == .Metal && mtl_ray_query_offered() && capacity == 0 do return mtl_create_compute_pipeline_traced(device, createinfo)
+	sdl.SetError("ray queries need the own Vulkan or Metal backend on a GPU that offers them")
 	return nil
 }
 
@@ -305,15 +311,18 @@ gpu_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr creat
 // dispatch in this pass.
 gpu_bind_compute_accel :: proc(compute_pass: ^sdl.GPUComputePass, accel: ^Gpu_Accel) {
 	if gpu_backend == .Vulkan do vk_bind_compute_accel(compute_pass, accel)
+	when METAL do if gpu_backend == .Metal do mtl_bind_compute_accel(compute_pass, accel)
 }
 
 // Frees a structure once no submitted command buffer and no top level uses it.
 gpu_release_accel :: proc(device: ^sdl.GPUDevice, accel: ^Gpu_Accel) {
 	if gpu_backend == .Vulkan && accel != nil do vk_release_accel(accel)
+	when METAL do if gpu_backend == .Metal do mtl_release_accel(accel)
 }
 
 // Lets go of the build scratch memory beyond what refits need, once a still view's builds
-// are recorded; it goes when they have run.
+// are recorded; it goes when they have run. Metal gives each build scratch of its own,
+// freed with its command buffer, so there is nothing to trim there.
 gpu_accel_trim :: proc(device: ^sdl.GPUDevice) {
 	if gpu_backend == .Vulkan && vk_state.ray_query do vk_accel_trim()
 }
@@ -323,12 +332,14 @@ gpu_accel_trim :: proc(device: ^sdl.GPUDevice) {
 // 0 where ray queries are not offered.
 gpu_buffer_address :: proc(command_buffer: ^sdl.GPUCommandBuffer, buffer: ^sdl.GPUBuffer) -> u64 {
 	if gpu_backend == .Vulkan && vk_state.ray_query do return vk_buffer_address(command_buffer, buffer)
+	when METAL do if gpu_backend == .Metal && mtl_ray_query_offered() do return mtl_buffer_address(command_buffer, buffer)
 	return 0
 }
 
 // The GPU memory a structure holds, for budgets and the exit stats.
 gpu_accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
 	if gpu_backend == .Vulkan && accel != nil do return vk_accel_bytes(accel)
+	when METAL do if gpu_backend == .Metal && accel != nil do return mtl_accel_bytes(accel)
 	return 0
 }
 

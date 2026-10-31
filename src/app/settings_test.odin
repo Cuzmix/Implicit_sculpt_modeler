@@ -277,3 +277,24 @@ async_compute_default_changes_once :: proc(t: ^testing.T) {
 	testing.expect(t, !load(t, path, "version 10\nasync_compute 0\n"), "a picked off stays off")
 	free_all(context.temp_allocator)
 }
+
+// Ray tracing hardware was on in every file before version 11, though only Vulkan offered
+// it: on Apple's platforms that on turns off once, and a picked value stays everywhere.
+@(test)
+ray_query_default_changes_once :: proc(t: ^testing.T) {
+	path := "build/ray_query_test.txt"
+	defer os.remove(path)
+	load :: proc(t: ^testing.T, path, text: string) -> bool {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
+		a: App
+		defer results_destroy(&a)
+		a.ui = ui_state_default()
+		settings_load(&a, path)
+		return a.ray_query
+	}
+	testing.expect_value(t, load(t, path, "version 10\nray_query 1\n"), RAY_QUERY_DEFAULT)
+	testing.expect(t, !load(t, path, "version 10\nray_query 0\n"), "an old off stays off")
+	testing.expect(t, load(t, path, "version 11\nray_query 1\n"), "a picked on stays on")
+	testing.expect(t, !load(t, path, "version 11\nray_query 0\n"), "a picked off stays off")
+	free_all(context.temp_allocator)
+}
