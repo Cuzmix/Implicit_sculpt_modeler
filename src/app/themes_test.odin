@@ -98,12 +98,13 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.themes.day, Theme_Ref{.Paper, -1})
 	testing.expect_value(t, b.kit.themes.night, Theme_Ref{.Lens, 0})
 
-	words := []string{"light", "hue=400", "opacity=5", "accent=#123", "sparkle=9", "corners=round"}
-	s, ok := theme_seed_parse(words, LOOK_SEEDS[.Lens])
+	words := []string{"light", "hue=400", "opacity=0.2", "contrast=75", "accent=#123", "sparkle=9", "corners=round"}
+	s, _, ok := theme_seed_parse(words, LOOK_SEEDS[.Lens])
 	testing.expect(t, ok)
 	testing.expect_value(t, s.mode, ui.Theme_Mode.Light)
 	testing.expect_value(t, s.hue, 360)
 	testing.expect_value(t, s.opacity, ui.THEME_OPACITY_MIN)
+	testing.expect_value(t, s.contrast, 0.75)
 	testing.expect_value(t, s.accent, ui.Color{0x11, 0x22, 0x33, 0xff})
 	testing.expect_value(t, s.corners, ui.Theme_Corners.Round)
 	free_all(context.temp_allocator)
@@ -120,5 +121,67 @@ an_old_settings_file_shows_its_look :: proc(t: ^testing.T) {
 	settings_load(&a, path)
 	testing.expect_value(t, theme_ref(&a.kit), Theme_Ref{.Graphite, -1})
 	testing.expect(t, !theme_draft(&a.kit))
+	free_all(context.temp_allocator)
+}
+
+// Deleting a theme of one's own sends what named it back to its built-in theme and moves
+// the references to the ones after it down; a copy takes the next free number.
+@(test)
+deleting_a_theme_moves_what_named_it :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	theme_choose(&k, {.Paper, -1})
+	testing.expect(t, theme_duplicate(&k, theme_ref(&k)))
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Paper 2")
+	testing.expect(t, theme_duplicate(&k, theme_ref(&k)))
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Paper 3")
+	testing.expect_value(t, k.themes.day, Theme_Ref{.Paper, 1})
+	theme_delete(&k, 0)
+	testing.expect_value(t, k.themes.count, 1)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Paper, 0})
+	testing.expect_value(t, k.themes.day, Theme_Ref{.Paper, 0})
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Paper 3")
+	theme_delete(&k, 0)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Paper, -1})
+	testing.expect(t, !theme_draft(&k))
+	testing.expect(t, !theme_rename(&k, 0, "Anything"))
+}
+
+// A name another theme has, built-in or one's own, is refused; any other is kept.
+@(test)
+a_theme_name_is_its_own :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	k.themes.seed.hue = 10
+	testing.expect(t, theme_keep(&k))
+	testing.expect(t, !theme_rename(&k, 0, "paper"))
+	testing.expect(t, !theme_rename(&k, 0, "  "))
+	testing.expect(t, theme_rename(&k, 0, "Clay room"))
+	testing.expect_value(t, theme_ref_name(&k, {.Lens, 0}), "Clay room")
+}
+
+// A colour set by hand is part of the draft and of a share code, which imports back to
+// the same colours under a name of its own.
+@(test)
+a_share_code_imports_the_same_theme :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	theme_choose(&k, {.Studio, -1})
+	k.themes.seed.contrast = 0.8
+	k.themes.over.set += {.Danger}
+	k.themes.over.colors[.Danger] = {0xff, 0x00, 0x40, 0xff}
+	testing.expect(t, theme_draft(&k))
+	shown := theme_current(&k)
+	testing.expect_value(t, shown.danger, ui.Color{0xff, 0x00, 0x40, 0xff})
+	code := theme_code("Studio edited", .Studio, k.themes.seed, k.themes.over)
+	testing.expect(t, theme_import(&k, code))
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Studio edited")
+	testing.expect(t, !theme_draft(&k))
+	testing.expect(t, theme_current(&k) == shown)
+	// The same code again takes the next free name; a stranger's text is no code.
+	testing.expect(t, theme_import(&k, code))
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Studio edited 2")
+	testing.expect(t, !theme_import(&k, "hello there"))
+	testing.expect(t, !theme_import(&k, "sculpt-theme 1 X Nowhere dark"))
 	free_all(context.temp_allocator)
 }

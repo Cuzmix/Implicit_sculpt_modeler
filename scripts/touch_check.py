@@ -951,6 +951,26 @@ def look_switch_is_remembered():
 LOOK_CARD_GRAPHITE = (893, 350)
 LOOK_ACCENT_BLUE = (704, 586)
 LOOK_KEEP = (756, 276)
+# The Paper card, and its menu's Duplicate once a long press opened it.
+LOOK_CARD_PAPER = (990, 350)
+LOOK_MENU_DUPLICATE = (1014, 430)
+
+
+@scenario
+def look_card_menu_duplicates():
+    """Settings > Interface > Look: a long press on the Paper card opens its menu without choosing it; Duplicate makes "Paper 2", a theme of one's own, and shows it; the settings file keeps it."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_CARD_PAPER, hold=40)
+    s.wait(10)
+    s.ftap(LOOK_MENU_DUPLICATE)
+    s.wait(6)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Paper%202"), "theme_mode": is_text("Light"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "@saved": saved_line("look_user 0")})
 
 
 @scenario

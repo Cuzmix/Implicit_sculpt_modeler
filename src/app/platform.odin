@@ -95,3 +95,11 @@ read_file_close :: proc(f: Read_File) {
 platform_dark :: proc() -> bool {
 	return sdl.GetSystemTheme() != .LIGHT
 }
+
+// The text on the system clipboard, in temp memory; "" when it holds none.
+platform_clipboard_text :: proc() -> string {
+	text := sdl.GetClipboardText()
+	if text == nil do return ""
+	defer sdl.free(rawptr(text))
+	return strings.clone(string(cstring(text)), context.temp_allocator)
+}

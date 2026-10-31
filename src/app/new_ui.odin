@@ -1077,7 +1077,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1589,6 +1589,7 @@ kit_layout :: proc(app: ^App) {
 	kit_scene_menu(app)
 	kit_objects_card_menus(app)
 	kit_folder_menu(app)
+	kit_theme_menus(app)
 	kit_rename(app)
 	kit_palette(app, search_anchor)
 	// After every bar and Search, which lift what it carries.
@@ -1871,6 +1872,7 @@ Rename_Entry :: struct {
 	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
+	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1901,6 +1903,7 @@ kit_rename :: proc(app: ^App) {
 	}
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
+	if r.theme > 0 do gone = r.theme > k.themes.count
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1908,10 +1911,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.theme > 0 {
+		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
 		now = shelf_page_name(k, page)
 	} else if r.layer > 0 {
@@ -1937,6 +1942,9 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.theme > 0 {
+		// A theme is the settings', no part of the scene; a name another theme has is refused.
+		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false
 	} else if apply && r.open && r.shelf_page > 0 {
 		// A page's name is the settings', no part of the scene, so it changes at once.
 		shelf_page_rename(k, page, rename_text(r.text[:]))
