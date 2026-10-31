@@ -116,15 +116,14 @@ sculptor_init_laid_out :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool,
 		return false
 	}
 
-	// The tree above the nodes, over their boxes; leaves are runs of triangles, which
-	// with tri_order the identity is what a renumbered sculptor has too.
+	// The tree above the nodes, over their boxes; leaves are runs of triangles, with no
+	// tri_order, as a renumbered sculptor has.
 	first := make([]u32, len(layout), context.temp_allocator)
 	count := make([]u32, len(layout), context.temp_allocator)
 	leaf_of := make([]u32, len(layout), context.temp_allocator)
 	for n, id in s.nodes do first[id], count[id] = n.tri_first, n.tri_count
 	s.bvh = geom.bvh_build_over(l.boxes, first, count, leaf_of, allocator)
 	s.bvh.leaf_size = node_triangles
-	s.bvh.tri_order = make([]u32, tcount, allocator)
 	s.bvh.tri_leaf = make([]u32, tcount, allocator)
 	s.node_of = make([]u32, len(s.bvh.nodes), allocator)
 	for &x in s.node_of do x = geom.BVH_NONE
@@ -136,7 +135,6 @@ sculptor_init_laid_out :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool,
 		s := cast(^Sculptor)data
 		n := s.nodes[id]
 		for k in n.tri_first ..< n.tri_first + n.tri_count {
-			s.bvh.tri_order[k] = k
 			s.bvh.tri_leaf[k] = n.leaf
 		}
 	})

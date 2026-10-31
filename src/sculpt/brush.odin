@@ -532,11 +532,14 @@ reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, tri_from: []u32, alloc
 			r.indices[3 * k + 1] = m.indices[3 * t + 1]
 			r.indices[3 * k + 2] = m.indices[3 * t + 2]
 			if r.tri_from != nil do r.tri_from[k] = t
-			b.tri_order[k] = u32(k)
 		}
 	}, geom.RANGE_GRAIN)
 	delete(m.indices)
 	m.indices = r.indices
+	// Renumbered, every leaf is a run of triangle ids, which the BVH reads without an
+	// order (4 bytes a triangle: 200 MB at 50M triangles).
+	delete(b.tri_order)
+	b.tri_order = nil
 
 	// Leaves in triangle order, so node ids follow memory order.
 	leaves := make([dynamic]u32, 0, tcount / int(b.leaf_size) + 1, context.temp_allocator)
