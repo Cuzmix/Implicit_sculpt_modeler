@@ -167,6 +167,8 @@ SETTINGS := [?]Setting {
 	{"hold_edit", B + offset_of(Brush_Settings, hold_edit), bool, 0, 0},
 	{"hold_edit_s", B + offset_of(Brush_Settings, hold_edit_s), f32, HOLD_EDIT_MIN_S, HOLD_EDIT_MAX_S},
 	{"hold_edit_smoothness", B + offset_of(Brush_Settings, hold_edit_smoothness), f32, 0.01, HOLD_EDIT_SMOOTHNESS_MAX},
+	{"stamp_edit", B + offset_of(Brush_Settings, stamp_edit), bool, 0, 0},
+	{"stamp_snap", B + offset_of(Brush_Settings, stamp_snap), Stamp_Snap, 0, 0},
 	{"smoothing", B + offset_of(Brush_Settings, smoothing), f32, 1, STEADY_MAX},
 	{"pressure_smoothing", B + offset_of(Brush_Settings, pressure_smoothing), f32, 1, STEADY_MAX},
 	{"catch_up", B + offset_of(Brush_Settings, catch_up), bool, 0, 0},

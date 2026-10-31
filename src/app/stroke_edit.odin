@@ -1,5 +1,7 @@
 package main
 
+import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 
 import "../camera"
@@ -40,6 +42,16 @@ Stroke_Edit :: struct {
 	samples:        []geom.Bezier_Sample,
 	size:           [2]f32, // the viewport's size, to finish a lay when the stroke ends elsewhere
 	drag:           Edit_Drag,
+	// A stamp held to edit (a Rectangle or Drag dot stroke let go) in place of a curve: its
+	// one dab's place and the surface's normal there (the object's space), radius (the
+	// object's units), the alpha's up (square to the normal) and strength.
+	stamp:          bool,
+	stamp_at:       Vec3,
+	stamp_normal:   Vec3,
+	stamp_radius:   f32,
+	stamp_up:       Vec3,
+	stamp_strength: f32,
+	stamp_turns:    bool,
 }
 
 Edit_Handle :: enum u8 {
@@ -50,6 +62,9 @@ Edit_Handle :: enum u8 {
 	Radius,
 	Intensity,
 	Curve, // a press on the curve between points, which adds one there on release
+	Turn, // a stamp's dot on its ring
+	Size, // a stamp's square
+	Move, // a stamp itself, pressed inside its ring
 }
 
 // What a press in the viewport holds while the curve is edited.
@@ -171,7 +186,7 @@ stroke_edit_close :: proc(app: ^App, keep: bool) {
 		res: Sculpt_Frame_Result
 		for !stroke_edit_lay(app, {size = e.size}, &res, bounded = false) {}
 	}
-	e.open, e.laying, e.drag = false, false, {}
+	e.open, e.laying, e.drag, e.stamp = false, false, {}, false
 	clear(&e.points)
 	clear(&e.normals)
 	delete(e.samples)
@@ -349,7 +364,7 @@ stroke_edit_frame :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_R
 	}
 	if input.size.x > 0 && input.size.y > 0 do e.size = input.size
 	if input.press && input.primary && e.drag.handle == .None {
-		d := edit_hit(app, obj, input.size, input.mouse_pos)
+		d := stamp_hit(app, obj, input.size, input.mouse_pos) if e.stamp else edit_hit(app, obj, input.size, input.mouse_pos)
 		if d.handle == .None {
 			stroke_edit_validate(app)
 			return false
@@ -360,9 +375,12 @@ stroke_edit_frame :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_R
 	if e.drag.handle != .None {
 		if input.primary {
 			if linalg.length(input.mouse_pos - e.drag.from) > TAP_SLOP_PX do e.drag.moved = true
-			if e.drag.moved do edit_drag_to(app, obj, input)
+			if e.drag.moved {
+				if e.stamp do stamp_drag_to(app, obj, input)
+				else do edit_drag_to(app, obj, input)
+			}
 		} else {
-			edit_release(app, obj, input)
+			if !e.stamp do edit_release(app, obj, input)
 			e.drag = {}
 		}
 	}
@@ -395,7 +413,7 @@ edit_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	plane_hit := p.p
 	if den := linalg.dot(ld, facing); abs(den) > 1e-8 do plane_hit = lo + ld * (linalg.dot(p.p - lo, facing) / den)
 	switch d.handle {
-	case .None, .Curve:
+	case .None, .Curve, .Turn, .Size, .Move:
 	case .Point:
 		if hit, n, ok := object_raycast_local(obj, lo, ld); ok {
 			p.p, e.normals[i] = hit, linalg.normalize0(n)
@@ -470,6 +488,10 @@ edit_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 draw_stroke_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	e := &app.stroke_edit
 	if !e.open do return
+	if e.stamp {
+		draw_stamp_edit(app, o, size)
+		return
+	}
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
 	view_proj := edit_view_proj(app, size)
@@ -515,4 +537,177 @@ draw_stroke_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 			overlay_rect(o, sc.point - r, sc.point + r, 2 * o.scale, fill, dark, 1.5 * o.scale)
 		}
 	}
+}
+
+// The notches a stamp's ring shows every this many degrees on screen, as Nomad's.
+STAMP_NOTCH_DEG :: 15
+
+// What a stamp's turn clicks to (Stroke > More's Turn snap, `stamp_snap`): every so many
+// degrees on screen when dragged near one, or not at all.
+Stamp_Snap :: enum u8 {
+	Off,
+	Five,
+	Fifteen,
+	Forty_Five,
+}
+
+@(rodata)
+STAMP_NOTCH_DEGREES := [Stamp_Snap]f32{.Off = 0, .Five = 5, .Fifteen = 15, .Forty_Five = 45}
+
+// The angle `a` (degrees) clicked to the nearest step of `snap` within about a quarter of
+// the step (4° for 15°), so it can still be set between them.
+stamp_snap_angle :: proc(a: f32, snap: Stamp_Snap) -> f32 {
+	step := STAMP_NOTCH_DEGREES[snap]
+	if step <= 0 do return a
+	if near := math.round(a / step) * step; abs(a - near) < 0.27 * step do return near
+	return a
+}
+
+// Opens the Rectangle or Drag dot stroke just let go for editing its stamp, when Edit
+// stamps is on and the stroke can be put back. Returns whether it opened (the stroke then
+// stays under way).
+stamp_edit_try :: proc(app: ^App, size: [2]f32) -> bool {
+	st := &app.stroke
+	e := &app.stroke_edit
+	if !app.brush.stamp_edit || !st.active || !st.rect || !st.stamp_set || e.open do return false
+	if app.replay.recording || replay_busy(app) do return false
+	obj := object_by_id(app, st.object)
+	if obj == nil || obj.voxel != nil || object_dynamic(obj) || !(st.stamp_radius > 0) do return false
+	t := obj.transform
+	toward := to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, st.stamp_at)))
+	normal, found := sculpt.sculptor_area_normal(object_sculptor(obj), st.stamp_at, 0.5 * st.stamp_radius, toward)
+	if !found do normal = -toward
+	e.stamp, e.stamp_at, e.stamp_normal = true, st.stamp_at, linalg.normalize0(normal)
+	e.stamp_radius, e.stamp_strength, e.stamp_turns = st.stamp_radius, st.stamp_strength, st.stamp_turns
+	e.stamp_up = stamp_square_up(st.stamp_up, e.stamp_normal)
+	e.base_strength = max(st.stamp_strength, 0.01)
+	e.tilt = st.tilt
+	// What is on the surface is the stamp as it stands; only a change lays it again.
+	e.open, e.size, e.drag, e.version, e.laid_version = true, size, {}, 1, 1
+	app.stroke_end.stamp_edits += 1
+	return true
+}
+
+// `up` made square to `normal`, or any way square to it where they run together.
+@(private = "file")
+stamp_square_up :: proc(up, normal: Vec3) -> Vec3 {
+	u := up - linalg.dot(up, normal) * normal
+	if linalg.length(u) < 1e-5 do return geom.any_square_to(normal) if normal != {} else {0, 1, 0}
+	return linalg.normalize(u)
+}
+
+// The stamp on screen: its middle, ring radius, the way its top faces (unit) and the
+// angle of that from straight up, clockwise, in degrees.
+Stamp_Screen :: struct {
+	center:         [2]f32,
+	ring:           f32,
+	up:             [2]f32,
+	degrees:        f32,
+	turn, size, intensity: [2]f32,
+	ok:             bool,
+}
+
+stamp_screen :: proc(app: ^App, obj: ^Object, size: [2]f32) -> (sc: Stamp_Screen) {
+	e := &app.stroke_edit
+	t := obj.transform
+	view_proj := edit_view_proj(app, size)
+	world := to_world(t, e.stamp_at)
+	sc.center, sc.ok = gizmo.project(view_proj, world, size)
+	if !sc.ok do return
+	per_px := camera.orbit_world_per_px(app.camera, world, size.y)
+	sc.ring = max(e.stamp_radius * t.scale / max(per_px, 1e-12), 8)
+	tip, _ := gizmo.project(view_proj, to_world(t, e.stamp_at + e.stamp_up * e.stamp_radius), size)
+	sc.up = linalg.normalize0(tip - sc.center)
+	if sc.up == {} do sc.up = {0, -1}
+	sc.degrees = linalg.to_degrees(math.atan2(sc.up.x, -sc.up.y))
+	sc.turn = sc.center + sc.up * sc.ring
+	sc.size = sc.center + sc.ring * [2]f32{0.7071, 0.7071}
+	sc.intensity = sc.center - {sc.ring + EDIT_DOT_GAP_PX + EDIT_INTENSITY_PX * e.stamp_strength / e.base_strength, 0}
+	return
+}
+
+// What a press at `pos` takes of the stamp: its turn dot, square or intensity dot, or the
+// stamp itself inside its ring.
+@(private = "file")
+stamp_hit :: proc(app: ^App, obj: ^Object, size, pos: [2]f32) -> (d: Edit_Drag) {
+	sc := stamp_screen(app, obj, size)
+	if !sc.ok do return
+	best := f32(EDIT_GRAB_PX)
+	handles := [3]Edit_Handle{.Turn, .Size, .Intensity}
+	for h in handles {
+		at := sc.turn if h == .Turn else (sc.size if h == .Size else sc.intensity)
+		if l := linalg.length(at - pos); l < best do best, d.handle = l, h
+	}
+	if d.handle == .None && linalg.length(pos - sc.center) < sc.ring do d.handle = .Move
+	return
+}
+
+// Moves what the press holds of the stamp to the pointer.
+@(private = "file")
+stamp_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
+	e := &app.stroke_edit
+	t := obj.transform
+	sc := stamp_screen(app, obj, input.size)
+	if !sc.ok do return
+	v := input.mouse_pos - sc.center
+	switch e.drag.handle {
+	case .None, .Point, .In, .Out, .Radius, .Curve:
+		return
+	case .Turn:
+		if linalg.length(v) < 1 do return
+		a := linalg.to_degrees(math.atan2(v.x, -v.y))
+		a = stamp_snap_angle(a, app.brush.stamp_snap)
+		r := linalg.to_radians(a)
+		view := camera.orbit_view(app.camera)
+		right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+		up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+		e.stamp_up = stamp_square_up(to_local_dir(t, right * math.sin(r) + up * math.cos(r)), e.stamp_normal)
+	case .Size:
+		per_px := camera.orbit_world_per_px(app.camera, to_world(t, e.stamp_at), input.size.y)
+		e.stamp_radius = max(linalg.length(v), 4) * per_px / t.scale
+	case .Intensity:
+		e.stamp_strength = clamp((linalg.length(v) - sc.ring - EDIT_DOT_GAP_PX) / EDIT_INTENSITY_PX, 0, EDIT_INTENSITY_MAX) * e.base_strength
+	case .Move:
+		origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
+		hit, n, ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
+		if !ok do return
+		e.stamp_at, e.stamp_normal = hit, linalg.normalize0(n)
+		e.stamp_up = stamp_square_up(e.stamp_up, e.stamp_normal)
+	}
+	e.version += 1
+}
+
+// The stamp held to edit over the viewport: its ring with a notch every STAMP_NOTCH_DEG
+// from straight up on screen (the 0° notch long and orange), the turn dot at the image's
+// top, the size square, the intensity dot and the angle.
+draw_stamp_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
+	obj := object_by_id(app, app.stroke.object)
+	if obj == nil do return
+	sc := stamp_screen(app, obj, size)
+	if !sc.ok do return
+	white := overlay_color({1, 1, 1, 0.75})
+	orange := overlay_color({0.95, 0.66, 0.23, 1})
+	blue := overlay_color({0.4, 0.85, 1, 1})
+	green := overlay_color({0.18, 0.75, 0.48, 1})
+	dark := overlay_color({0.04, 0.16, 0.21, 1})
+	overlay_circle(o, sc.center, sc.ring, white, 1.5 * o.scale)
+	for k in 0 ..< 360 / STAMP_NOTCH_DEG {
+		deg := f32(k * STAMP_NOTCH_DEG)
+		r := linalg.to_radians(deg)
+		way := [2]f32{math.sin(r), -math.cos(r)}
+		long: f32 = 14 if k == 0 else (9 if k * STAMP_NOTCH_DEG % 90 == 0 else 5)
+		overlay_line(o, sc.center + way * sc.ring, sc.center + way * (sc.ring - long * o.scale), orange if k == 0 else white, (3 if k == 0 else 1.5) * o.scale)
+	}
+	overlay_line(o, sc.center, sc.intensity, overlay_color({0.18, 0.75, 0.48, 0.5}), 1 * o.scale)
+	overlay_disc(o, sc.intensity, 7 * o.scale, dark)
+	overlay_disc(o, sc.intensity, 5.5 * o.scale, green)
+	half := 6 * o.scale
+	overlay_rect(o, sc.size - half, sc.size + half, 1.5 * o.scale, overlay_color({1, 1, 1, 1}), dark, 1.5 * o.scale)
+	overlay_disc(o, sc.turn, 8 * o.scale, dark)
+	// Without an alpha a turn changes nothing, so the dot is dimmed.
+	overlay_disc(o, sc.turn, 6.5 * o.scale, blue if app.stroke_edit.stamp_turns else overlay_color({0.4, 0.85, 1, 0.35}))
+	overlay_disc(o, sc.center, 3 * o.scale, white)
+	shown := math.round(sc.degrees)
+	if shown < 0 do shown += 360
+	overlay_label(o, fmt.tprintf("%.0f°", shown), sc.center + {sc.ring + 26 * o.scale, -sc.ring * 0.7})
 }
