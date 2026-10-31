@@ -153,7 +153,7 @@ graphics_controls :: proc(app: ^App) {
 	ui.paragraph(ctx, status, color = t.warning if pending else t.text_secondary)
 	if render.caps(&app.renderer).async_compute == .Second_Queue {
 		_ = ui.switch_row(ctx, "Async compute", &app.async_compute)
-		ui.paragraph(ctx, "Render mode traces on a second GPU queue beside the frame, so panels and the first orbit after a still view stay smooth while it builds up. A trial: off until it has been measured on more GPUs.")
+		ui.paragraph(ctx, "Render mode traces on a second GPU queue beside the frame, so panels and the first orbit after a still view stay smooth while it builds up. Off traces in the frame, for comparing the two.")
 	}
 	if render.caps(&app.renderer).ray_query {
 		_ = ui.switch_row(ctx, "Ray tracing hardware", &app.ray_query)
