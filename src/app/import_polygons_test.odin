@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -84,4 +85,24 @@ import_keeps_the_files_uvs :: proc(t: ^testing.T) {
 	testing.expect(t, sculpt.levels_has_quads(&l) && sculpt.levels_has_uvs(&l), "quads and UVs kept")
 	testing.expect_value(t, l.faces.uv.charts, 6)
 	testing.expect_value(t, l.faces.uv.uvs[0], [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}})
+}
+
+// An STL or glTF file of quads cut into triangles comes in as quads, the glTF one with its
+// texture coordinates as UVs (each face its own square of the texture, so six charts);
+// an STL tetrahedron, whose triangles were never quads, stays triangles.
+@(test)
+import_finds_the_quads_of_triangle_files :: proc(t: ^testing.T) {
+	DIR :: #directory + "testdata/import/"
+	for file in ([]string{"quad_cube.stl", "quad_cube.gltf", "tet.stl"}) {
+		m, note, _, ok := mesh_import_load(strings.concatenate({DIR, file}, context.temp_allocator), "Imported", nil)
+		defer delete(note)
+		defer mesh_import_free(&m)
+		if !testing.expectf(t, ok, "%s: %s", file, note) do continue
+		testing.expect_value(t, m.joined, 6 if file != "tet.stl" else 0)
+		mesh_import_prepare(&m, nil)
+		l := &m.levels[0]
+		testing.expectf(t, sculpt.levels_has_quads(l) == (file != "tet.stl"), "%s: quads %v", file, sculpt.levels_has_quads(l))
+		testing.expectf(t, sculpt.levels_has_uvs(l) == (file == "quad_cube.gltf"), "%s: UVs %v", file, sculpt.levels_has_uvs(l))
+		if file == "quad_cube.gltf" do testing.expect_value(t, l.faces.uv.charts, 6)
+	}
 }

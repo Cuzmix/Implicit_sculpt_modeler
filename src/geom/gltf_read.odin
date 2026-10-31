@@ -323,25 +323,24 @@ gltf_mesh :: proc(g: ^Gltf_Reader, parts: ^[dynamic]Mesh_Part, index: int, world
 			for c in tri do append(&part.mesh.indices, u32(base) + c)
 		}
 		material := gltf_int(po, "material", -1)
+		// The triangles' material, and the corners' coordinates: from the TEXCOORD set the
+		// material's image names, or else TEXCOORD_0, which Import keeps as the UVs of an
+		// object of quads (a primitive without them, beside one with them, gets 0, 0).
+		coord := 0
 		if g.look != nil {
-			// The triangles' material and, when it has an image, the corners' coordinates
-			// from its TEXCOORD set (a primitive without them, beside one with them, gets
-			// 0, 0).
 			look_material := g.material_base + material if material >= 0 && material < len(g.coord) else -1
 			for _ in triangles do append(&part.materials, i32(look_material))
-			coord := g.coord[material] if look_material >= 0 else -1
-			uv: []f32
-			if coord >= 0 {
-				if a, has := attributes[fmt_texcoord(coord)]; has {
-					values, n, uerr := gltf_accessor(g, gltf_number_int(a), context.temp_allocator)
-					if uerr == .None && n == 2 && len(values) / 2 == count do uv = values
-				}
-			}
-			if uv != nil && len(part.uvs) < before do resize(&part.uvs, before)
-			if uv != nil || len(part.uvs) > 0 {
-				for tri in triangles do for c in tri {
-					append(&part.uvs, [2]f32{uv[2 * c], uv[2 * c + 1]} if uv != nil else [2]f32{})
-				}
+			if look_material >= 0 && g.coord[material] >= 0 do coord = g.coord[material]
+		}
+		uv: []f32
+		if a, has := attributes[fmt_texcoord(coord)]; has {
+			values, n, uerr := gltf_accessor(g, gltf_number_int(a), context.temp_allocator)
+			if uerr == .None && n == 2 && len(values) / 2 == count do uv = values
+		}
+		if uv != nil && len(part.uvs) < before do resize(&part.uvs, before)
+		if uv != nil || len(part.uvs) > 0 {
+			for tri in triangles do for c in tri {
+				append(&part.uvs, [2]f32{uv[2 * c], uv[2 * c + 1]} if uv != nil else [2]f32{})
 			}
 		}
 		// The primitive's material names its group: 0 for none, k + 1 for material k.
