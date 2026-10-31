@@ -228,7 +228,10 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
 	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
-	buttons: f32 = 4 * t.target
+	// Four buttons, and a fifth, the shelf's pin, for a brush in Sculpt.
+	pin := false
+	if c, ok := e.?; ok && c.kind == .Command && c.id == .Brush && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true
+	buttons: f32 = (5 if pin else 4) * t.target
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)
 	if c, ok := e.?; ok && c.kind == .Command && k.palette_for == nil {
@@ -239,6 +242,12 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 		}
 		if ui.icon_button(ctx, "Put in a pie##palette pie", ui.ICON_PIE, enabled = pie_lists(c.id)) do pie_editor_open(app, c.id, c.arg, anchor)
 		if ui.icon_button(ctx, "Assign key##palette key", ui.ICON_KEYBOARD) do bind_open(app, c.id, c.arg, ctx.last_rect)
+		// A brush found here can go straight onto the shelf's page shown, in Sculpt.
+		if pin {
+			which := shelf_which(k.shelf.page)
+			_, held := shelf_holds(app, which, {c.id, c.arg})
+			if ui.icon_button(ctx, "On the shelf##palette pin" if held else "Pin to shelf##palette pin", ICON_PIN, selected = held, enabled = !held) do shelf_pin(app, {c.id, c.arg}, which)
+		}
 	}
 	ui.end(ctx)
 	return

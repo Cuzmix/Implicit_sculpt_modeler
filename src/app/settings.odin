@@ -48,7 +48,8 @@ settings_path :: proc() -> string {
 // brush pie. 9: Remesh makes quads at first (`remesh_quads`), as DynaMesh and Blender's voxel
 // remesh do. 10: Async compute is on where the GPU has a second queue (`async_compute`).
 // 11: Ray tracing hardware starts off on Apple's platforms (`ray_query`, RAY_QUERY_DEFAULT).
-SETTINGS_VERSION :: 11
+// 12: the shelf lost its fixed tools strip, its tools joining each Sculpt page's own tiles.
+SETTINGS_VERSION :: 12
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -1105,6 +1106,11 @@ settings_load :: proc(app: ^App, path: string) {
 	// A file from before version 11 on an iPad or Mac holds Ray tracing hardware on, the
 	// default then, though nothing offered it there; now Metal offers it, it starts off once.
 	when !RAY_QUERY_DEFAULT do if version < 11 do app.ray_query = false
+	// Before version 12 the shelf ended in a strip of tools (`bottom_tools`) shown on every
+	// Sculpt page; the pages are wholly the person's own now, so those tools join each
+	// page's tiles once, after what it holds, where they are not there already and the
+	// page has room.
+	if version < 12 do shelf_tools_merge(app)
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	// Before the current layout is put, which brings its own pins along when there is one.

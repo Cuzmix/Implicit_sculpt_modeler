@@ -44,10 +44,12 @@ Bar_Target :: struct {
 	why:   string,
 }
 
-// The button the last drop took off its bar, for its note's Undo.
+// The button the last drop took off its bar, or the brush just pinned to a shelf page
+// (`pinned`), for its note's Undo.
 Bar_Removed :: struct {
 	carry:  Bar_Carry,
 	serial: ui.Id,
+	pinned: bool,
 }
 
 // Notes where slot `slot` of bar `which` stands this frame, as a place to let a carried
@@ -166,12 +168,18 @@ bar_drop_off :: proc(app: ^App, c: Bar_Carry) {
 	k.bar_drops_off += 1
 }
 
-// Puts back the button the last drop took off its bar, where it was.
+// Puts back the button the last drop took off its bar, where it was, or takes a brush just
+// pinned back off its page.
 bar_removed_undo :: proc(app: ^App) {
 	k := &app.kit
 	c := k.bar_removed.carry
+	pinned := k.bar_removed.pinned
 	k.bar_removed = {}
 	from, ok := c.from.?
+	if ok && pinned {
+		if at, held := shelf_holds(app, from, c.slot); held do bar_remove(app, from, at)
+		return
+	}
 	if !ok || !bar_insert(app, from, c.from_slot) do return
 	bar_set(app, from, clamp(c.from_slot, 0, bar_count(app, from)^ - 1), c)
 	l := bar_list(app, from)

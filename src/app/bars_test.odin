@@ -55,7 +55,8 @@ bars_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&b, .Tools), bar_names(&a, .Tools))
 	testing.expect_value(t, bar_names(&b, .Shelf_Paint), bar_names(&a, .Shelf_Paint))
 
-	damaged := "bar_count view_rail 2\nbar view_rail 0 No_Such_Command\nbar view_rail 1 Floor_Grid\nbar view_rail 99 Wireframe\nbar_count bottom_tools x\n" +
+	// A current file, so the old tools strip (version 12) does not join the pages.
+	damaged := "version 12\nbar_count view_rail 2\nbar view_rail 0 No_Such_Command\nbar view_rail 1 Floor_Grid\nbar view_rail 99 Wireframe\nbar_count bottom_tools x\n" +
 		"chrome classic\npanes_under_panels 0\nbar_count right_rail 1\nbar right_rail 0 Remesh\nbar dock 0 Remesh\ndock_count 9\ndock 0 command Remesh\ndock 1 brush Clay\ndock_pack 2 set Stone\n"
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)damaged) == nil)
 	c: App

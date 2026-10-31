@@ -13,7 +13,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
 	cmd :: proc(id: Command_Id, arg := 0) -> Palette_Entry {return {.Command, id, arg}}
-	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Shelf · Sculpt")
+	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Shelf · Brushes")
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Morph))), "Brush picker")
 	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Floor grid card")
 	testing.expect_value(t, palette_where(&a, cmd(.View_Layout_Menu)), "View rail")
