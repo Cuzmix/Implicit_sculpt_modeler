@@ -185,3 +185,52 @@ a_share_code_imports_the_same_theme :: proc(t: ^testing.T) {
 	testing.expect(t, !theme_import(&k, "sculpt-theme 1 X Nowhere dark"))
 	free_all(context.temp_allocator)
 }
+
+// The viewport's marks keep the renderer's own colours until set by hand, and a space's
+// tint set by hand brings its soft fill along.
+@(test)
+viewport_marks_follow_only_colours_set_by_hand :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	theme_choose(&k, {.Paper, -1})
+	testing.expect_value(t, theme_wire_color(&k), [4]f32{})
+	testing.expect_value(t, theme_selection_color(&k), MODEL_SELECTION_COLOR)
+	k.themes.over.set += {.Wire, .Selection, .Space_Model}
+	k.themes.over.colors[.Wire] = {255, 255, 255, 255}
+	k.themes.over.colors[.Selection] = {0, 0, 255, 255}
+	k.themes.over.colors[.Space_Model] = {0x20, 0xa0, 0x40, 255}
+	testing.expect_value(t, theme_wire_color(&k), [4]f32{1, 1, 1, 1})
+	testing.expect_value(t, theme_selection_color(&k), [4]f32{0, 0, 1, MODEL_SELECTION_COLOR.a})
+	shown := theme_current(&k)
+	testing.expect_value(t, shown.tints[1], ui.Color{0x20, 0xa0, 0x40, 255})
+	testing.expect(t, shown.tints_soft[1] != theme_saved(&k).tints_soft[1])
+	// Held to compare, the saved theme's marks show again.
+	k.themes.compare = true
+	testing.expect_value(t, theme_wire_color(&k), [4]f32{})
+}
+
+// Bring its background paints the viewport once per change of theme, leaving a background
+// set by hand alone until the theme changes again; a light theme gets a light one, pure
+// black a black one.
+@(test)
+a_theme_brings_its_background :: proc(t: ^testing.T) {
+	a: App
+	themes_init(&a.kit)
+	a.background = BACKGROUND_DEFAULT
+	theme_bring_background(&a)
+	testing.expect_value(t, a.background, BACKGROUND_DEFAULT)
+	a.kit.themes.bring = true
+	theme_choose(&a.kit, {.Paper, -1})
+	theme_bring_background(&a)
+	paper := a.background
+	testing.expect(t, paper.gradient && paper.top.g > 0.8 && paper.bottom.g < paper.top.g)
+	a.background.top = {1, 0, 0}
+	theme_bring_background(&a)
+	testing.expect_value(t, a.background.top, [3]f32{1, 0, 0})
+	theme_choose(&a.kit, {.Midnight, -1})
+	theme_bring_background(&a)
+	testing.expect_value(t, a.background, Background_Settings{})
+	theme_choose(&a.kit, {.Lens, -1})
+	theme_bring_background(&a)
+	testing.expect(t, a.background.gradient && a.background.top.g > a.background.bottom.g && a.background.top.g < 0.4)
+}
