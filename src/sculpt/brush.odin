@@ -300,6 +300,11 @@ Sculptor :: struct {
 	// at a time (sculptor_chunk_groups), and whether a chunk changed since it was made.
 	chunk_groups: [dynamic]geom.Chunk,
 	group_stale:  [dynamic]bool,
+	// When each group was last made, and which set of chunks they belong to, both from
+	// chunk_clock: a GPU copy of the chunks (render's GPU culling) uploads only the groups
+	// stamped after its own copy, and all of them for another layout (sculptor_chunk_stamps).
+	group_stamps: [dynamic]u64,
+	chunk_layout: u64,
 	node_of:     []u32,  // BVH node index -> node id (only meaningful for leaves)
 	shared:      [dynamic]u32,
 	owners:      [dynamic]u32,
@@ -454,6 +459,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.chunks)
 	delete(s.chunk_groups)
 	delete(s.group_stale)
+	delete(s.group_stamps)
 	delete(s.node_of)
 	delete(s.shared)
 	delete(s.owners)
@@ -1913,21 +1919,47 @@ sculptor_chunk_groups :: proc(s: ^Sculptor) -> []geom.Chunk {
 	if s.dyn != nil {
 		clear(&s.chunk_groups)
 		clear(&s.group_stale)
+		clear(&s.group_stamps)
+		s.chunk_layout = 0
 		return nil
 	}
 	count := (len(s.chunks) + geom.CHUNK_GROUP - 1) / geom.CHUNK_GROUP
-	if len(s.chunk_groups) != count {
+	if len(s.chunk_groups) != count || s.chunk_layout == 0 {
 		resize(&s.chunk_groups, count)
 		resize(&s.group_stale, count)
+		resize(&s.group_stamps, count)
 		for &x in s.group_stale do x = true
+		s.chunk_layout = chunk_clock_next()
 	}
+	// One stamp for every group this call makes again: the chunks behind a stale group
+	// changed (update_chunk marks it), however they changed.
+	stamp: u64
 	for &stale, g in s.group_stale {
 		if !stale do continue
+		if stamp == 0 do stamp = chunk_clock_next()
 		lo := g * geom.CHUNK_GROUP
 		s.chunk_groups[g] = geom.chunk_group(s.chunks[lo:min(lo + geom.CHUNK_GROUP, len(s.chunks))])
+		s.group_stamps[g] = stamp
 		stale = false
 	}
 	return s.chunk_groups[:]
+}
+
+// When each chunk group was last made and the layout they belong to, as of the last
+// sculptor_chunk_groups; nil and 0 under dynamic topology.
+sculptor_chunk_stamps :: proc(s: ^Sculptor) -> (stamps: []u64, layout: u64) {
+	if s.dyn != nil || len(s.group_stamps) != len(s.chunk_groups) do return nil, 0
+	return s.group_stamps[:], s.chunk_layout
+}
+
+// One clock for every sculptor, since a mesh's GPU buffers may show one level's chunks,
+// then another's: a layout or stamp never repeats between them.
+@(private = "file")
+chunk_clock: u64
+
+@(private = "file")
+chunk_clock_next :: proc() -> u64 {
+	return sync.atomic_add(&chunk_clock, 1) + 1
 }
 
 // Unnormalized: its length is twice the triangle's area, which weights vertex normals.

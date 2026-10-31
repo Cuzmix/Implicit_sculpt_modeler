@@ -299,6 +299,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 |---|---|
 | black or background only | nothing uploaded (`mesh_buffers_create` returned false), `Draw_Item.chunks` empty with `cull` on, the camera inside the mesh, a stale `frame_key` (call `viewport_invalidate`) |
 | holes or flicker at chunk borders | ranges not merged or sorted; a cone culling a chunk that is visible (`CONE_SLACK`; cones stay open during a stroke by design) |
+| holes only with Cull on the GPU | GPU copy of the chunks stale: a chunk write that skips `chunk_touched`, or a Draw_Item without `group_stamps`/`chunk_layout`; run `--dump-cull` (`cull_mismatch=` must be 0) and compare with `--cpu-cull` |
 | garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:149-151, 457, 492`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
@@ -398,6 +399,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   non-opaque candidates are confirmed from the merged `indices`. Its pixels differ from the walk's by rounding
   (~0.06% at 4 samples): compare with `parity_check.py --tolerance`. A graphics submission that rewrites a structure
   in place (`Vk_Cmd.accel_writes`) waits for the last compute submission that traced it (`Vk_Accel.compute_read`).
+- GPU culling (`gpu_cull.odin`, `Gpu_Caps.gpu_cull`: own Vulkan with multiDrawIndirect + drawIndirectCount, not on
+  lazily-allocated-memory tile GPUs): `prepare_draws` hands an item with chunk groups, no `hidden`, no simplify to
+  `cull_count`/`cull_write` (`cull.slang`, the CPU's tests); commands after a 20-byte header (count, triangles,
+  frustum, back) in `mb.indirect`, drawn with `gpu_draw_indexed_primitives_indirect_count`. The GPU copy of the
+  chunks (`Mesh_Cull`) re-uploads only groups whose `sculptor_chunk_stamps` stamp is newer, all on a new layout.
+  Stats come back `CULL_SLOTS` frames late, per pass number in the frame (`gpu_cull_frame` each frame).
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's
   waiting acquire under vsync waits for the present `frames_in_flight` back to be on screen (`VK_KHR_present_wait`),
   or reads `VK_GOOGLE_display_timing` on Android; the app tags a present with `render.present_input` before the submit

@@ -53,6 +53,9 @@ Gpu_Caps :: struct {
 	// (gpu_build_blas, gpu_build_tlas, gpu_create_compute_pipeline_traced): the own Vulkan
 	// backend on a device with VK_KHR_ray_query, which hardware ray tracing GPUs have.
 	ray_query:         bool,
+	// Objects' chunks are culled on the GPU (gpu_cull.odin, Renderer.gpu_cull): see
+	// gpu_cull_offered.
+	gpu_cull:          bool,
 }
 
 Async_Compute :: enum u8 {
@@ -109,6 +112,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
 	r.caps.async_compute = gpu_async_compute_offered(r.device)
 	r.caps.ray_query = gpu_ray_query_offered(r.device)
+	r.caps.gpu_cull = gpu_cull_offered(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

@@ -53,6 +53,10 @@ Renderer :: struct {
 	anisotropy:      bool, // the device was made with anisotropic filtering
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
+	// ...on the GPU where Gpu_Caps.gpu_cull (gpu_cull.odin): Stats > Drawing's Cull on the
+	// GPU, --cpu-cull off.
+	gpu_cull:       bool,
+	gpu_culling:    Gpu_Cull,
 	// The app's worker pool, which culling by groups spreads a big mesh's chunks over; nil
 	// culls on the calling thread. Only the frame thread draws, so it is never busy here.
 	pool:           ^jobs.Pool,
@@ -233,8 +237,9 @@ Mesh_Buffers :: struct {
 	indirect:          ^sdl.GPUBuffer,
 	indirect_transfer: ^sdl.GPUTransferBuffer,
 	indirect_capacity: u32, // commands
-	draw_count:        u32, // commands recorded this frame
+	draw_count:        u32, // commands recorded this frame (with cull.culled, the most the kernels may write)
 	visible:           [dynamic]geom.Index_Range, // scratch
+	cull:              Mesh_Cull, // GPU culling's copy of the chunks (gpu_cull.odin)
 
 	// Per vertex, a Paint_Packed: its polypaint and the polygroup it carries, read by the
 	// mesh shader as a storage buffer (8 bytes a vertex). Nil until a mesh has paint or
@@ -353,6 +358,10 @@ Draw_Item :: struct {
 	source: ^geom.Mesh,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
+	// When each group was last made and the chunks' layout (sculpt.sculptor_chunk_stamps),
+	// for GPU culling's copy of them; nil and 0 to cull on the CPU.
+	group_stamps: []u64,
+	chunk_layout: u64,
 	// Mesh-space box around everything that changed since the previous frame, before
 	// and after the change; empty (lo > hi) when nothing did. A mesh whose buffers
 	// changed without a damage box makes the next frame a full redraw.
@@ -604,6 +613,7 @@ renderer_present_name :: proc(r: ^Renderer) -> string {
 renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = gpu_wait_for_idle(r.device)
+	gpu_cull_destroy(r)
 	mesh_pipelines_destroy(r, &r.single)
 	mesh_pipelines_destroy(r, &r.multi)
 	if r.no_paint != nil do gpu_release_buffer(r.device, r.no_paint)
@@ -1128,6 +1138,10 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect != nil do gpu_release_buffer(r.device, mb.indirect)
 	if mb.indirect_transfer != nil do gpu_release_transfer_buffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do gpu_release_buffer(r.device, mb.lod_indices)
+	gpu_cull_release(r, mb)
+	if mb.cull.download != nil do gpu_release_transfer_buffer(r.device, mb.cull.download)
+	delete(mb.cull.expect)
+	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
 	if mb.trace != nil {
@@ -1633,16 +1647,32 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 	// back along it makes the back-facing test agree.
 	eye_world := linalg.inverse(view) * [4]f32{0, 0, 1e4 if proj[3, 3] == 1 else 0, 1}
 	copy_pass: ^sdl.GPUCopyPass
+	gpu_culled := false
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		if !r.cull && item.hidden == nil do continue
 		mb := item.mesh
 		mb.lod_draw_count = 0
+		mb.cull.culled = false
 		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil
-		commands := len(item.chunks) + (len(item.lod.groups) if simplify else 0)
-		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(commands)) do continue
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
+		// The GPU writes the commands itself, between this frame's copy passes, so one of
+		// those open must end first.
+		if r.cull && len(item.chunks) > 0 && gpu_cull_wanted(r, item, simplify) {
+			if copy_pass != nil {
+				gpu_end_copy_pass(copy_pass)
+				copy_pass = nil
+			}
+			if gpu_cull_item(r, cmd, item, clip, eye.xyz) {
+				mb.draw_count = u32(len(item.chunks))
+				stats.chunks += u64(len(item.chunks))
+				gpu_culled = true
+				continue
+			}
+		}
+		commands := len(item.chunks) + (len(item.lod.groups) if simplify else 0)
+		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(commands)) do continue
 		clear(&mb.visible)
 		clear(&mb.lod_visible)
 		switch {
@@ -1681,6 +1711,18 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		gpu_upload_to_buffer(copy_pass, {transfer_buffer = mb.indirect_transfer}, {buffer = mb.indirect, size = size}, true)
 	}
 	if copy_pass != nil do gpu_end_copy_pass(copy_pass)
+	// This pass's numbers from the GPU, as the same pass of a few frames back found them.
+	if gpu_culled {
+		g := &r.gpu_culling
+		if g.call < CULL_CALLS {
+			late := g.late[g.call]
+			stats.draws += late[0]
+			stats.triangles += late[1]
+			stats.culled_view += late[2]
+			stats.culled_back += late[3]
+		}
+		g.call += 1
+	}
 }
 
 // Creates the mesh's indirect command buffer for up to `commands` draws. On failure
@@ -1691,7 +1733,9 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 	if mb.indirect != nil do gpu_release_buffer(r.device, mb.indirect)
 	if mb.indirect_transfer != nil do gpu_release_transfer_buffer(r.device, mb.indirect_transfer)
 	size := commands * size_of(sdl.GPUIndexedIndirectDrawCommand)
-	mb.indirect = gpu_create_buffer(r.device, {usage = {.INDIRECT}, size = size})
+	// Kernels write the commands where the GPU culls.
+	usage: sdl.GPUBufferUsageFlags = {.INDIRECT, .COMPUTE_STORAGE_WRITE} if r.caps.gpu_cull else {.INDIRECT}
+	mb.indirect = gpu_create_buffer(r.device, {usage = usage, size = size})
 	mb.indirect_transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = size})
 	mb.indirect_capacity = commands
 	if mb.indirect == nil || mb.indirect_transfer == nil {
@@ -2087,7 +2131,10 @@ WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
 draw_item_triangles :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, item: Draw_Item, stats: ^Viewport_Stats) {
 	mb := item.mesh
 	gpu_bind_index_buffer(pass, {buffer = mb.indices}, ._32BIT)
-	if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
+	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != nil {
+		// The kernels wrote the commands and their count; prepare_draws counted the stats.
+		gpu_draw_indexed_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count)
+	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
 		if mb.draw_count > 0 do gpu_draw_indexed_primitives_indirect(pass, mb.indirect, 0, mb.draw_count)
 		if mb.lod_draw_count > 0 {
 			gpu_bind_index_buffer(pass, {buffer = mb.lod_indices}, ._32BIT)

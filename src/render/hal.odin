@@ -482,6 +482,22 @@ gpu_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, bu
 	sdl.DrawGPUIndexedPrimitivesIndirect(render_pass, buffer, offset, draw_count)
 }
 
+// An indirect draw whose count a kernel wrote: up to `max_draws` commands from `offset`,
+// as many as the u32 at `count_offset` of `count_buffer` says. Only where
+// gpu_cull_offered.
+gpu_draw_indexed_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset: u32, max_draws: u32) {
+	if gpu_backend == .Vulkan do vk_draw_indexed_primitives_indirect_count(render_pass, buffer, offset, count_buffer, count_offset, max_draws)
+}
+
+// Whether objects' chunks can be culled on the GPU (gpu_cull.odin): the own Vulkan backend
+// with indirect draws that take many commands and read their count from a buffer, so the
+// culled-away chunks cost the GPU nothing. Not on a tile GPU (one with lazily allocated
+// memory: the tablets' and phones'), whose command processor may read every command up to
+// the most a draw may take, until a tablet's numbers say it pays there.
+gpu_cull_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	return gpu_backend == .Vulkan && vk_state.multi_draw && vk_state.indirect_count && !vk_state.lazy_memory
+}
+
 gpu_draw_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_vertices: sdl.Uint32, num_instances: sdl.Uint32, first_vertex: sdl.Uint32, first_instance: sdl.Uint32) {
 	if gpu_backend == .Vulkan {
 		vk_draw_primitives(render_pass, num_vertices, num_instances, first_vertex, first_instance)
