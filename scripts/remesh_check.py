@@ -46,6 +46,8 @@ import subprocess
 import sys
 import time
 
+import headless
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "build", "remesh_check")
 EXE = os.path.join(ROOT, "build", "sculpt.exe" if os.name == "nt" else "sculpt")
@@ -406,9 +408,7 @@ EXIT_SCRIPT_FAILED = 2
 
 
 def run_app(fixture_obj, script, out_obj, timeout, threads=0):
-    env = dict(os.environ, SDL_ASSERT="abort")
-    if os.name != "nt" and sys.platform != "darwin" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        env.setdefault("SDL_VIDEODRIVER", "offscreen")
+    env = headless.env(dict(os.environ, SDL_ASSERT="abort"))
     cmd = [EXE, "--import=" + fixture_obj, "--script=" + script, "--frames=2", "--export=" + out_obj]
     if threads:
         cmd.append("--threads=%d" % threads)

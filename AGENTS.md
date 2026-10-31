@@ -28,6 +28,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 3. The loop: small change → check → run → look
     python scripts\gate.py                          # section 6 in one command: check, reports, test, build, smoke, touch, iphonecheck, maccheck (+ wincheck, androidcheck on Linux)
+    python scripts\gate.py --changed                # each PR of a series: only what the branch's changes reach; the full gate ends the series
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
     build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, usd, fbx, quadmesh, app
@@ -69,7 +70,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist`, `PrivacyInfo.xcprivacy` (also the Mac's) and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `mac/` | the Mac app's `Info.plist`; `./build.sh mac` links SDL3, stb and `src/app` into `Sculpt.app` on macOS |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_autoremesher.py` (AutoRemesher's core with our boundary, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `remesh_check.py` (Remesh and Quad Remesh over a fixture corpus, judged against the plan's acceptance), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_autoremesher.py` (AutoRemesher's core with our boundary, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command; `--changed` for one PR), `headless.py` (how scripts open the app's window with no display: offscreen SDL or Xvfb), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `remesh_check.py` (Remesh and Quad Remesh over a fixture corpus, judged against the plan's acceptance), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents and permissions; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
@@ -102,7 +103,8 @@ skill whose description fits the request BEFORE you form a plan.
   `build.bat` per shell call, never piped into `head`, `tail` or `findstr`.
 
 ## 6. Done means
-- `python scripts/gate.py` runs every check below in order, one line a step, each log in `build/gate/` (`--fast`, `--only`, `--skip`).
+- `python scripts/gate.py` runs every check below in order, one line a step, each log in `build/gate/` (`--fast`, `--changed`, `--only`, `--skip`).
+  Each PR of a series passes `gate.py --changed`; the last one passes the full gate.
 - `build.bat check` and `build.bat test` are green; `build.bat smoke` too for render, app or sculpt changes;
   `scripts/touch_check.py` too for input, camera or panel changes, reported as a desktop simulation (sm-touch-testing).
 - You ran it and looked: a described PNG for anything visual, the exit stats or bench rows (release, A/B ranges) for

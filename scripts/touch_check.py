@@ -20,6 +20,7 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py --jobs=1        # one at a time (default: one per CPU)
     python scripts/touch_check.py --screens       # also write build/touch/<name>.png (of the last run)
     python scripts/touch_check.py x --screen-run=2  # ...of run 2 instead, to look at a middle state
+    python scripts/touch_check.py --exe=PATH      # another build of the app (a copy, so a rebuild meanwhile is safe)
 The window is 1600 x 900 points, the default layout; positions below are in points.
 """
 import ast
@@ -35,6 +36,8 @@ import sys
 import threading
 import time
 import zlib
+
+import headless
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "sculpt.exe" if os.name == "nt" else "sculpt")
@@ -9386,7 +9389,7 @@ def run_one(name, step, screens, displays):
     if screens and not any(a.startswith("--dump-screen") for a in args):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
-    env = dict(os.environ, SDL_ASSERT="abort")
+    env = headless.env(dict(os.environ, SDL_ASSERT="abort"))
     display = displays.get() if displays else None
     try:
         if display:
@@ -9440,7 +9443,7 @@ def start_displays(count):
     need a display of their own. Returns the servers and a queue of their names, or no
     queue when there is no Xvfb, or one job and a display already (the current one is used).
     """
-    if os.name == "nt" or not shutil.which("Xvfb"):
+    if os.name == "nt" or not shutil.which("Xvfb") or headless.mode() == "offscreen":
         return [], None
     # One job on a desktop uses its display; with no display at all it gets a private one.
     if count < 2 and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
@@ -13397,8 +13400,11 @@ def main(argv):
             print(f"{name:40s} {fn.__doc__}")
         return 0
     screens = 0 if "--screens" in argv else None
-    # Side by side only where each scenario can have a display of its own (start_displays).
-    jobs = (os.cpu_count() or 1) if os.name != "nt" and shutil.which("Xvfb") else 1
+    # Side by side only where each scenario can have a window of its own that keeps its
+    # focus: a private Xvfb display each (start_displays) or SDL's offscreen driver, where
+    # every window is alone (headless.py).
+    alone = headless.mode() == "offscreen" or (os.name != "nt" and shutil.which("Xvfb"))
+    jobs = (os.cpu_count() or 1) if alone else 1
     for a in argv:
         if a.startswith("--jobs="):
             jobs = max(1, int(a.split("=", 1)[1]))
@@ -13411,6 +13417,10 @@ def main(argv):
     if unknown:
         print(f"no scenario matches {', '.join(unknown)}: see --list")
         return 1
+    global EXE
+    for a in argv:
+        if a.startswith("--exe="):
+            EXE = os.path.abspath(a.split("=", 1)[1])
     if not os.path.exists(EXE):
         print(f"{EXE} is missing: build the debug app first")
         return 1
