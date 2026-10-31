@@ -63,6 +63,12 @@ Mtl_Cmd :: struct {
 	compute_storage:   [MTL_STORAGE_BUFFERS]^MTL.Buffer,
 	compute_written:   [MTL_COMPUTE_WRITES]^MTL.Texture,
 	compute_rw:        [MTL_COMPUTE_WRITES]^MTL.Buffer,
+	// Objects retained until the command buffer has run: acceleration structures, their
+	// scratch and instance buffers (mtl_accel.odin).
+	kept:              [dynamic]^NS.Object,
+	// Buffers a traced kernel reads through their GPU address (mtl_buffer_address), which
+	// each traced dispatch declares used, since Metal cannot see them through the address.
+	addressed:         [dynamic]^MTL.Buffer,
 }
 
 Mtl_Fence :: struct {
@@ -94,6 +100,8 @@ mtl_cmd_free :: proc(cmd: ^Mtl_Cmd) {
 	delete(cmd.buffers)
 	delete(cmd.textures)
 	delete(cmd.presents)
+	delete(cmd.kept)
+	delete(cmd.addressed)
 	free(cmd)
 }
 
@@ -112,6 +120,9 @@ mtl_cmd_recycle :: proc(cmd: ^Mtl_Cmd) {
 	clear(&cmd.textures)
 	for p in cmd.presents do NS.release(p.drawable)
 	clear(&cmd.presents)
+	for o in cmd.kept do NS.release(o)
+	clear(&cmd.kept)
+	clear(&cmd.addressed)
 	if cmd.render != nil do NS.release(cmd.render)
 	if cmd.blit != nil do NS.release(cmd.blit)
 	if cmd.compute != nil do NS.release(cmd.compute)
@@ -166,6 +177,9 @@ mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 		NS.release(p.drawable)
 	}
 	clear(&cmd.presents)
+	for o in cmd.kept do NS.release(o)
+	clear(&cmd.kept)
+	clear(&cmd.addressed)
 	append(&mtl_state.in_flight, cmd)
 	mtl_collect()
 	return serial, true
@@ -556,8 +570,8 @@ mtl_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pip
 	enc := cmd.compute
 	MTL.ComputeCommandEncoder_setComputePipelineState(enc, p.state)
 	cmd.compute_pipeline = p
-	for i in 0 ..< p.readwrite_textures do MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_written[i], NS.UInteger(p.samplers + p.readonly_textures + i))
-	for i in 0 ..< p.readwrite_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_rw[i], 0, NS.UInteger(p.uniforms + p.readonly_buffers + i))
+	for i in 0 ..< p.readwrite_textures do MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_written[i], NS.UInteger(p.slots.rw_textures[i]))
+	for i in 0 ..< p.readwrite_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_rw[i], 0, NS.UInteger(p.slots.rw_buffers[i]))
 	cmd.storage_dirty, cmd.samplers_dirty = true, true
 	for &u in cmd.uniforms[.Compute] do u.dirty = true
 }
@@ -583,7 +597,7 @@ mtl_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, firs
 	cmd.storage_dirty = true
 }
 
-// Sends what changed since the last dispatch, at SDL_GPU's slots. A uniform slot nothing
+// Sends what changed since the last dispatch, at the pipeline's slots (SDL_GPU's but for traced kernels). A uniform slot nothing
 // was pushed to gets the whole 4 KiB block, as for draws.
 @(private = "file")
 mtl_bind_dispatch :: proc(cmd: ^Mtl_Cmd) -> bool {
@@ -592,19 +606,19 @@ mtl_bind_dispatch :: proc(cmd: ^Mtl_Cmd) -> bool {
 	if p == nil || enc == nil do return false
 	if cmd.samplers_dirty {
 		for i in 0 ..< p.samplers {
-			MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_textures[i], NS.UInteger(i))
-			MTL.ComputeCommandEncoder_setSamplerState(enc, cmd.compute_samplers[i], NS.UInteger(i))
+			MTL.ComputeCommandEncoder_setTexture(enc, cmd.compute_textures[i], NS.UInteger(p.slots.samplers[i][0]))
+			MTL.ComputeCommandEncoder_setSamplerState(enc, cmd.compute_samplers[i], NS.UInteger(p.slots.samplers[i][1]))
 		}
 		cmd.samplers_dirty = false
 	}
 	if cmd.storage_dirty {
-		for i in 0 ..< p.readonly_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_storage[i], 0, NS.UInteger(p.uniforms + i))
+		for i in 0 ..< p.readonly_buffers do MTL.ComputeCommandEncoder_setBuffer(enc, cmd.compute_storage[i], 0, NS.UInteger(p.slots.ro_buffers[i]))
 		cmd.storage_dirty = false
 	}
 	for i in 0 ..< p.uniforms {
 		u := &cmd.uniforms[.Compute][i]
 		if !u.dirty do continue
-		MTL.ComputeCommandEncoder_setBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(i))
+		MTL.ComputeCommandEncoder_setBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(p.slots.uniforms[i]))
 		u.dirty = false
 	}
 	return true

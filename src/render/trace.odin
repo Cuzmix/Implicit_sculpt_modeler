@@ -24,11 +24,9 @@ import "../jobs"
 // shadow-map gather, which stays as it was.
 
 STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT)
-// The same kernel over the driver's acceleration structures (Gpu_Caps.ray_query), which
-// only the own Vulkan backend offers, so it has no Metal source.
-when ODIN_OS != .Darwin {
-	STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp.spv")
-}
+// The same kernel over the driver's acceleration structures (Gpu_Caps.ray_query), whose
+// Metal source comes from slangc (RQ_EXT).
+STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp" + RQ_EXT)
 STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT)
 BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT)
 
@@ -510,15 +508,13 @@ trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk
 // queries and they are on (Renderer.ray_query): whether trace_prepare may trace this
 // tracer's view that way. A refusal is logged and the studio walks its own trees from then.
 trace_rq_kernel :: proc(r: ^Renderer, tr: ^Tracer) -> bool {
-	if !r.ray_query || !r.caps.ray_query || tr.rq_failed do return false
+	if !r.ray_query || !r.caps.ray_query || tr.rq_failed || !ray_query_trusted(r) do return false
 	if tr.rq_pipeline == nil {
-		when ODIN_OS != .Darwin {
-			tr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, {
-				code_size = len(STUDIO_TRACE_RQ_COMP_CODE), code = raw_data(STUDIO_TRACE_RQ_COMP_CODE), entrypoint = SHADER_ENTRY,
-				format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
-				num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
-			})
-		}
+		tr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, {
+			code_size = len(STUDIO_TRACE_RQ_COMP_CODE), code = raw_data(STUDIO_TRACE_RQ_COMP_CODE), entrypoint = RQ_ENTRY,
+			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
+			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
+		})
 		if tr.rq_pipeline == nil {
 			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
 			tr.rq_failed = true

@@ -600,7 +600,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.display_link = false
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
-	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, true, true
+	case .Graphics:        app.graphics, app.async_compute, app.ray_query = .Auto, true, RAY_QUERY_DEFAULT
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0

@@ -216,13 +216,14 @@ rem Each name.stage.slang to the name.stage.spv the renderer embeds (build.sh ha
 for %%s in ("%ROOT%src\render\shaders\*.vert.slang") do call :shader "%%s" vertex || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.frag.slang") do call :shader "%%s" fragment || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.comp.slang") do call :shader "%%s" compute || exit /b 1
-rem Each new .spv's Metal source for the iPad build, when SDL_shadercross is built (build.sh says more).
-if exist "%DEPS%\shadercross\shadercross.exe" python "%ROOT%scripts\shaders_msl.py" || exit /b 1
+rem Each new .spv's Metal source for the iPad build: the .msl when SDL_shadercross is built, a ray
+rem query kernel's .metal with slangc alone (build.sh says more).
+python "%ROOT%scripts\shaders_msl.py" || exit /b 1
 exit /b 0
 
 :shader
 set FLAGS=
 findstr /b /c:"// slangc: -fp-mode precise" %1 >nul && set FLAGS=-fp-mode precise
-findstr /b /c:"// vulkan only" %1 >nul && set FLAGS=%FLAGS% -warnings-disable 41012
+findstr /b /c:"// vulkan only" /c:"// ray query" %1 >nul && set FLAGS=%FLAGS% -warnings-disable 41012
 "%SLANGC%" %1 -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage %2 -entry main %FLAGS% -o "%~dpn1.spv"
 exit /b
