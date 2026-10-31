@@ -576,7 +576,9 @@ autosave_run :: proc(w: ^Autosave_Worker) {
 	before := read_hash(job) if job.check else 0
 	ok := true
 	for obj, i in job.objects {
+		at := scene_chunk_begin(&out, CHUNK_OBJECT)
 		ok = object_put_bytes(&out, obj, {serial = true, abort = &w.abort, synced = true, hd_open = job.hd[i]}, job.refs[i])
+		scene_chunk_end(&out, at)
 		free_all(context.temp_allocator)
 		if !ok do break
 	}
