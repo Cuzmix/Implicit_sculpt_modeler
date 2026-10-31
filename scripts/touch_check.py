@@ -1314,6 +1314,38 @@ def stamp_edit_shows_its_ring():
 
 
 @scenario
+def curve_drawn_by_pen_undone_and_redone():
+    """The Curve tool's Curve kind: a pen drag over the model makes a curve object of a few
+    points (one undo step); Ctrl+Z takes it away and Ctrl+Shift+Z brings it back."""
+    s = Script()
+    pen_stroke(s, [(700, 470), (730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)])
+    s.wait(3)
+    s.press("z", ("ctrl",))
+    s.wait(2)
+    s.press("z", ("ctrl", "shift"))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curves_made": near(1),
+                                                                     "curve_points": lambda v: 2 <= int(v) <= 12, "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def curve_placed_by_taps_shows_its_line():
+    """Three pen taps on the model and a tap back on the first close a curve, drawn over the
+    model as a line with its points while selected (look with --screens)."""
+    s = Script()
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(5)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_placing": near(0),
+                                                                     "undo_steps": near(1)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""

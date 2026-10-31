@@ -603,7 +603,7 @@ autosave_run :: proc(w: ^Autosave_Worker) {
 	sync.unlock(&w.lock)
 	ok := true
 	for obj, i in job.objects {
-		at := scene_chunk_begin(&out, CHUNK_OBJECT)
+		at := scene_chunk_begin(&out, object_chunk_tag(obj))
 		ok = object_put_bytes(&out, obj, {serial = true, abort = &w.abort, synced = true, hd_open = job.hd[i]}, job.refs[i])
 		scene_chunk_end(&out, at)
 		free_all(context.temp_allocator)

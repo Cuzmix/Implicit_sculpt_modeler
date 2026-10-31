@@ -222,6 +222,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			// it in the view plane, whatever the gizmo's mode.
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			index, hit, ok := scene_raycast(app, origin, dir)
+			// A curve has no surface to hit: a press near its line on screen takes it.
+			if curve := curve_pick(app, input.mouse_pos, input.size); !ok && curve >= 0 {
+				index, hit, ok = curve, app.scene.objects[curve].transform.position, true
+			}
 			// Shift, or Select several, adds the object to the selection or takes it out,
 			// and moves nothing; missing every object then keeps the selection built so far.
 			several := app.device.shift || app.kit.select_several
@@ -235,7 +239,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			}
 			selection_make_primary(app, index)
 			// Ctrl, or the rail's Mask, makes a topological mask from the press instead.
-			if input.mask_shape {
+			if input.mask_shape && !object_is_curve(selected_object(app)) {
 				topo_press(app, selected_object(app), input.mouse_pos, origin, dir, hit, input.size, input.alt)
 				return
 			}

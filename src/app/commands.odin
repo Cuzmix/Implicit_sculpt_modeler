@@ -2528,6 +2528,7 @@ command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
 	if long_job_holds(app, id) do return false
 	if id in CAGE_REFUSED_COMMANDS && selected_cage(app) do return false
+	if id in CURVE_REFUSED_COMMANDS && object_is_curve(selected_object(app)) do return false
 	if id in VOXEL_REFUSED_COMMANDS {
 		if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
 	}

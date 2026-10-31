@@ -907,6 +907,10 @@ selected_cage :: proc(app: ^App) -> bool {
 // Whether `obj`'s level may be changed in place (a stroke, a mask, paint); a cage's may
 // not, which is said once a press (`say`) so the press does not do nothing in silence.
 object_editable :: proc(app: ^App, obj: ^Object, say: bool) -> bool {
+	if obj.curve != nil {
+		if say do report(app, nil, {.Warning}, "%s is a curve: it has no surface to sculpt", object_label(obj))
+		return false
+	}
 	if obj.cage == nil do return true
 	if say do report(app, nil, {.Warning}, "%s is a cage: edit it with the Model tool, or Apply to sculpt to sculpt it", object_label(obj))
 	return false

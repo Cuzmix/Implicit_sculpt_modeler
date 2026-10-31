@@ -133,6 +133,7 @@ History_Kind :: enum u8 {
 	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
 	Lights,   // the scene's lights changed
 	Model,    // a swap entry of Model mode: a cage edited or applied
+	Curve,    // a swap entry of a curve object: drawn, edited or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap

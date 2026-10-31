@@ -31,11 +31,12 @@ Scene_Kind :: enum u8 {
 	Meshes,
 	Voxels,
 	Cages,
+	Curves,
 	Lights,
 }
 
 @(rodata)
-SCENE_KIND_NAMES := [Scene_Kind]string{.All = "All", .Meshes = "Meshes", .Voxels = "Voxels", .Cages = "Cages", .Lights = "Lights"}
+SCENE_KIND_NAMES := [Scene_Kind]string{.All = "All", .Meshes = "Meshes", .Voxels = "Voxels", .Cages = "Cages", .Curves = "Curves", .Lights = "Lights"}
 
 // The outliner's state between frames: the chip picked, the lights' row unfolded, the Add
 // menu and its folded groups, and counts for the exit stats.
@@ -60,6 +61,7 @@ Outliner :: struct {
 object_scene_kind :: proc(obj: ^Object) -> Scene_Kind {
 	if obj.voxel != nil do return .Voxels
 	if obj.cage != nil do return .Cages
+	if obj.curve != nil do return .Curves
 	return .Meshes
 }
 
@@ -168,6 +170,8 @@ object_row_detail :: proc(obj: ^Object) -> string {
 		return fmt.tprintf("Voxels · %d³", obj.voxel.resolution)
 	case obj.cage != nil:
 		return fmt.tprintf("Cage · %d faces", poly.face_count(&obj.cage.mesh))
+	case obj.curve != nil:
+		return fmt.tprintf("Curve · %d points", len(obj.curve.points))
 	}
 	// A mesh, the usual kind, says only its triangles' count: the row is narrow beside the
 	// spaces dots and three toggles, and the object menu's head spells it out.

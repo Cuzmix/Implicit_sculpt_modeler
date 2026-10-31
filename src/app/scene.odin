@@ -89,6 +89,9 @@ Object :: struct {
 	// A Model mode cage (model.odin); nil for anything else. A cage object's one level is
 	// the cage cut into triangles, made again from the cage after every edit.
 	cage:      ^Cage_Part,
+	// A curve object's Bézier points (curve_object.odin); nil for anything else. Its one
+	// level is empty and it has no GPU buffers: the overlay draws it.
+	curve:     ^Curve_Part,
 	// How it is shaded: a preset's values or its own (label "Custom"); a nil label until
 	// materials_settle gives it the default (object_material).
 	material:  Material,
@@ -181,6 +184,10 @@ Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete,
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
 MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair}
+
+// The commands a curve object refuses: everything that works on a surface, as a voxel
+// object's or a cage's do; placing, copying, listing, showing and deleting work on it.
+CURVE_REFUSED_SCENE :: MESH_ONLY_COMMANDS + bit_set[Scene_Command_Kind]{.Boolean, .Material, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample, .Apply_Cage, .Edit_Cage, .Tidy_Cage, .Select_Cage, .Cage_Look, .Crease_Cage}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -857,6 +864,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
 		return true
 	}
+	if obj := selected_object(app); obj != nil && obj.curve != nil && cmd.kind in CURVE_REFUSED_SCENE {
+		report(app, nil, {.Warning}, "%v does not apply to a curve: %s has no surface", cmd.kind, object_label(obj))
+		return true
+	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {
 		report(app, nil, {.Warning}, "%v does not apply to a cage: Apply to sculpt makes %s a mesh first", cmd.kind, object_label(obj))
 		return true
@@ -1256,6 +1267,8 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		app.stats.level_sync_ms = time.duration_milliseconds(time.tick_diff(start, synced))
 		app.stats.level_show_ms = time.duration_milliseconds(time.tick_since(synced))
 	}
+	// A curve has no triangles, so no buffers to make for its empty level.
+	if !object_draws_triangles(obj) do return true
 	lv := object_level(obj)
 	ranges := sculpt.sculptor_flush(&lv.sculptor)
 	gpu := object_gpu(obj)
@@ -1485,6 +1498,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 	cage_part_free(obj)
+	curve_part_free(obj)
 }
 
 object_free :: proc(app: ^App, obj: ^Object) {
