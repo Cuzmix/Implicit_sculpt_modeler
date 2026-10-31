@@ -97,6 +97,8 @@ panel_body :: proc(app: ^App, kind: Panel_Kind, inner: f32) {
 	k := &app.kit
 	k.in_tray = true
 	defer k.in_tray = false
+	hints := hints_push(app)
+	defer k.ctx.hints = hints
 	sec, section := panel_section(kind)
 	if !section {
 		stack_card_body(app, kind, inner)
