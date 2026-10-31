@@ -19,6 +19,9 @@ long_jobs_go_async_only_where_allowed :: proc(t: ^testing.T) {
 	testing.expect(t, !long_job_async(&app, obj, cmd), "a scripted run went async")
 	app.long_job.allowed = true
 	testing.expect(t, !long_job_async(&app, obj, cmd), "a small object went async")
+	big := cmd
+	big.vertices = LONG_JOB_MIN_VERTICES
+	testing.expect(t, long_job_async(&app, obj, big), "a small object remeshed to a large one stayed on the frame")
 	app.long_job.forced = true
 	testing.expect(t, long_job_async(&app, obj, cmd), "--async-jobs did not go async")
 	adjusted := cmd

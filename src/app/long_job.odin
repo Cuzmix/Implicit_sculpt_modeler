@@ -198,7 +198,9 @@ long_job_async :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> bool {
 	if !j.allowed || j.on || cmd.adjust do return false
 	if app.macro.recording || app.macro.pending.active || app.script.running do return false
 	if replay_busy(app) || app.replay.recording || timeline_busy(app) || app.turntable.on do return false
-	return j.forced || object_vertex_count(obj) >= LONG_JOB_MIN_VERTICES
+	// A Remesh or Quad Remesh of a small object can make a large one: what it makes counts
+	// too, since getting that ready to sculpt and drawn is most of the wait.
+	return j.forced || max(object_vertex_count(obj), cmd.vertices) >= LONG_JOB_MIN_VERTICES
 }
 
 // Starts command `cmd` on `obj` on the job's thread, after what the command does first on
