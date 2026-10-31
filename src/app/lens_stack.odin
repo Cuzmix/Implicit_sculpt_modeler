@@ -710,9 +710,15 @@ stack_brush :: proc(app: ^App, inner: f32) {
 	_, favourite := brush_favorite(&k.brushes, key)
 	if ui.icon_button(ctx, "Favorite (on)##stack" if favourite else "Favorite##stack", ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
 	ui.end(ctx)
-	_ = ui.slider(ctx, "Radius##stack", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
+	// Size and Strength, unless the off-hand island holds both as sliders: then a line
+	// says how they are set and the card opens on what the island cannot do.
 	strength := brush_strength(app)
-	_ = ui.slider(ctx, "Strength##stack", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^))
+	if island_has_size_strength(k) {
+		ui.label(ctx, fmt.tprintf("Size %.0f px · Strength %.2f", app.brush.radius_px, strength^), size = t.small_size, color = t.text_secondary)
+	} else {
+		_ = ui.slider(ctx, "Size##stack", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
+		_ = ui.slider(ctx, "Strength##stack", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^))
+	}
 	k.in_stack = true
 	defer k.in_stack = false
 	for sec in BRUSH_SECTIONS {
@@ -735,6 +741,11 @@ stack_brush :: proc(app: ^App, inner: f32) {
 		}
 		if open do sec.draw(app)
 	}
+}
+
+// Whether the off-hand island showed Size and Strength as sliders this frame or the last.
+island_has_size_strength :: proc(k: ^Kit_State) -> bool {
+	return k.island_frame >= k.frame - 1 && bit_set[Brush_Value]{.Size, .Strength} <= k.island_sliders
 }
 
 // How a Brush card group is set, for its header: the stroke and lazy mouse, the falloff,

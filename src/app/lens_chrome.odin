@@ -73,6 +73,7 @@ kit_offhand :: proc(app: ^App) {
 		sliders -= 1
 	}
 	ui.begin_anchored(ctx, "brush bar", x, y, offset, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
+	k.island_sliders, k.island_frame = {}, k.frame
 	for s, i in used {
 		v, value := value_of(s)
 		switch {
@@ -80,6 +81,7 @@ kit_offhand :: proc(app: ^App) {
 			bar_slot_button(app, .Offhand, i, s)
 		case bar_look(k, .Offhand, i) == .Slider && sliders > 0 && !k.bars_edit:
 			offhand_slider(app, i, v)
+			k.island_sliders += {v}
 			sliders -= 1
 		case:
 			value_item(app, .Offhand, i, v)
@@ -96,7 +98,7 @@ offhand_slider :: proc(app: ^App, slot: int, v: Brush_Value) {
 	ctx := &app.kit.ctx
 	#partial switch v {
 	case .Size:
-		_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
+		_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
 		if roll := island_roll(ctx); roll != 0 do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
 	case .Strength:
 		strength := brush_strength(app)

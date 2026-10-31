@@ -98,7 +98,7 @@ draw_adjust :: proc(app: ^App, o: Overlay) -> bool {
 	case .None:
 	case .Size:
 		overlay_circle(o, a.center, app.brush.radius_px, overlay_color({1, 0.8, 0.4, 0.95}), 2)
-		label = fmt.tprintf("Radius %.0f px", app.brush.radius_px)
+		label = fmt.tprintf("Size %.0f px", app.brush.radius_px)
 	case .Strength:
 		s := brush_strength(app)^
 		overlay_circle(o, a.center, STRENGTH_PX, overlay_color({1, 1, 1, 0.35}), 1.5)
@@ -173,7 +173,7 @@ draw_size_preview :: proc(app: ^App, o: Overlay, size: [2]f32, hovered: bool) {
 		flat := radius * brush_size_scale(app, camera.orbit_world_per_px(app.camera, app.camera.target, size.y), size.y)
 		overlay_circle(o, center, flat, overlay_color({1, 1, 1, 0.9 * fade}), 2)
 		overlay_disc(o, center, 2, overlay_color({1, 1, 1, 0.6 * fade}))
-		label = fmt.tprintf("Radius %.0f px", radius)
+		label = fmt.tprintf("Size %.0f px", radius)
 	case .Strength:
 		overlay_circle(o, center, STRENGTH_PX, overlay_color({1, 1, 1, 0.35 * fade}), 1.5)
 		overlay_disc(o, center, strength * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.25 * fade}))

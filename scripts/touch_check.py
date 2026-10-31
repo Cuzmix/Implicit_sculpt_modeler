@@ -4098,7 +4098,7 @@ def search_pins_a_brush_to_the_shelf():
 
 # The Lens stack at 1440 x 900 (lens_stack.odin): the Brush card's header and its Stroke
 # group open; with Brush folded, the Symmetry card's grip and Layers' Float.
-LENS_STACK = {"brush": (1180, 94), "stroke": (1200, 370), "symmetry_grip": (1075, 154), "layers_float": (1300, 214)}
+LENS_STACK = {"brush": (1180, 94), "stroke": At("stack body/Stroke", 1200, 277), "symmetry_grip": (1075, 154), "layers_float": (1300, 214)}
 
 
 @scenario
