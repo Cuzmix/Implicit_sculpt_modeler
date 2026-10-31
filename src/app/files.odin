@@ -611,7 +611,7 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
 	}
 	added := app.scene.objects[first:]
-	app.import_folders, app.import_rig = 0, m.rig
+	app.import_folders, app.import_rig, app.import_joined = 0, m.rig, m.joined
 	if len(added) > 1 {
 		before := layout_take(app) if record else nil
 		holders := import_folder_names(m.parts[:len(added)], name)
@@ -731,6 +731,7 @@ Mesh_Import :: struct {
 	start:             time.Tick,
 	read_ms, parse_ms: f64,
 	rig:               geom.Rig_Found, // what the file holds for animation, left out
+	joined:            int, // quads found again from the file's triangle pairs (STL, glTF)
 	levels:            []sculpt.Levels, // per part, once mesh_import_prepare made them (each taken by its object)
 }
 
@@ -791,6 +792,7 @@ Mesh_File_Info :: struct {
 	rig:     geom.Rig_Found, // skins, animations and shape keys found and left for later
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
+	joined:  int, // quads found again from an STL or glTF file's triangle pairs
 }
 
 // Parses a mesh file's bytes into `parts` and cleans each, as Import and a content
@@ -867,6 +869,14 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 			k += 1
 		}
 		if failed == .None && len(parts) == 0 do failed = .Empty
+		// STL and glTF hold only triangles, so the quads an exporter cut in two are found
+		// again where the triangles plainly were quads (geom.mesh_join_quads).
+		if failed == .None && (kind == .STL || kind == .GLTF) {
+			for &p in parts {
+				joined := geom.mesh_join_quads(&p.mesh, &p.groups, &p.uvs, &p.polys, pool)
+				if joined.kept do info.joined += joined.pairs
+			}
+		}
 		if failed == .None && len(parts) > geom.MESH_PARTS_MAX {
 			info.merged = len(parts)
 			geom.mesh_parts_merge(parts)
@@ -993,14 +1003,19 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 	if info.merged > 0 do strings.write_string(&text, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
 	else if grouped do strings.write_string(&text, "; its groups are polygroups")
 	// UVs stay only on an object of quads (import_take_polygons).
-	if polygons do strings.write_string(&text, "; its quads and polygons stay, with their UVs on objects of quads" if mapped else "; its quads and polygons stay")
+	switch {
+	case info.joined > 0:
+		strings.write_string(&text, fmt.tprintf("; its %d quads found again from its triangle pairs%s", info.joined, ", with their UVs on objects of quads" if mapped else ""))
+	case polygons:
+		strings.write_string(&text, "; its quads and polygons stay, with their UVs on objects of quads" if mapped else "; its quads and polygons stay")
+	}
 	if info.skipped.compressed > 0 do strings.write_string(&text, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
 	if info.usd.composed > 0 do strings.write_string(&text, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
 	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&text, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
 	// Rigs and animation are named so nobody wonders where they went: the meshes come in
 	// their rest pose, and nothing of them is kept yet.
 	if rig := geom.rig_found_text(info.rig); rig != "" do strings.write_string(&text, fmt.tprintf("; %s found and left out: the meshes come in their rest pose", rig))
-	m.rig = info.rig
+	m.rig, m.joined = info.rig, info.joined
 	return m, strings.clone(strings.to_string(text)), !closed, true
 }
 

@@ -23,6 +23,8 @@ import_reads_one_file_of_each_format :: proc(t: ^testing.T) {
 		{DIR + "cubes.obj", 2, {"cubes", "cubes"}, true, {}, "its quads and polygons stay"},
 		{DIR + "cube.ply", 1, {"cube"}, true, {}, "its quads and polygons stay"},
 		{DIR + "tet.stl", 1, {"tet"}, false, {}, "4 vertices, 4 triangles"},
+		{DIR + "quad_cube.stl", 1, {"quad_cube"}, true, {}, "its 6 quads found again from its triangle pairs"},
+		{DIR + "quad_cube.gltf", 1, {"quad_cube"}, true, {}, "its 6 quads found again from its triangle pairs, with their UVs on objects of quads"},
 		{DIR + "rig.gltf", 3, {"Character", "Arms", "rig"}, false, {skins = 1, animations = 1, shapes = 2}, "1 skin, 1 animation and 2 shape keys found and left out"},
 		{DIR + "rig.usda", 2, {"Character", "Props"}, false, {skins = 1, animations = 1, shapes = 1}, "1 skin, 1 animation and 1 shape key found and left out"},
 		{#directory + "../../deps/ufbx-src/data/blender_279_sausage_7400_binary.fbx", 1, {"blender_279_sausage_7400_binary"}, true, {skins = 1, animations = 3}, "found and left out"},
