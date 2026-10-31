@@ -201,6 +201,10 @@ App :: struct {
 	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
 	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
 	tap_switches: int, // finger taps that switched the selected object (tap_switch_target), for the exit stats
+	// The folders the last import made and what its file held for animation, left out, for
+	// the exit stats.
+	import_folders: int,
+	import_rig:     geom.Rig_Found,
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -1655,6 +1659,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places))
+		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes)
 		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
 		paint_off, booleans := 0, 0

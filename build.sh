@@ -99,6 +99,9 @@ need_luau() {
 	[ -f "$DEPS/luau/libluau.a" ] || { echo "Luau missing: run scripts/setup_deps.sh, which builds deps/luau"; exit 1; }
 	# And ufbx for FBX import, with the app's shim round it (scripts/build_ufbx.py).
 	[ -f "$DEPS/ufbx/libufbx.a" ] || { echo "ufbx missing: run scripts/setup_deps.sh, which builds deps/ufbx"; exit 1; }
+	# A shim changed since the library was built is compiled again (a library built from
+	# this shim and tag is kept, so this costs nothing most runs).
+	python3 "$ROOT/scripts/build_ufbx.py" > /dev/null || { echo "ufbx: src/fbx/fbx_shim.c changed and rebuilding deps/ufbx failed: run python3 scripts/build_ufbx.py"; exit 1; }
 	# And AutoRemesher's core for Quad Remesh, with its boundary (scripts/build_autoremesher.py).
 	[ -f "$DEPS/autoremesher/libautoremesher.a" ] || { echo "AutoRemesher missing: run scripts/setup_deps.sh, which builds deps/autoremesher"; exit 1; }
 }

@@ -2,6 +2,7 @@ package geom
 
 import "base:runtime"
 import "core:bytes"
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:mem"
@@ -34,17 +35,17 @@ Mesh_File_Error :: enum u8 {
 
 MESH_FILE_ERROR_TEXT := [Mesh_File_Error]string {
 	.None           = "no error",
-	.Not_Recognised = "not a file of that format",
+	.Not_Recognised = "it is not a file of that format: it may be damaged, or named with another format's extension",
 	.Bad_Header     = "a PLY header without a vertex element with x, y and z, or one this reader does not follow",
 	.Bad_Number     = "a number that does not parse",
-	.Bad_Index      = "a face corner that is 0 or past the vertices",
-	.Truncated      = "less data than the header says",
-	.Not_Finite     = "a NaN or infinite coordinate",
-	.Too_Large      = "more vertices than 32-bit indices reach",
-	.Empty          = "no triangles",
+	.Bad_Index      = "a face names a vertex the file does not have (0, or past the last)",
+	.Truncated      = "the file ends before the data it promises: it may have been cut short while copying",
+	.Not_Finite     = "a coordinate that is not a number or is infinite",
+	.Too_Large      = "more vertices or triangles than 32-bit indices reach (over 4 billion)",
+	.Empty          = "no surfaces in it: only points, lines, or nothing",
 	.Not_Clean      = "a triangle with a repeated corner, or a vertex no triangle uses",
-	.Bad_Structure  = "parts of the file that do not fit together",
-	.Missing_File   = "a file it needs beside it is missing",
+	.Bad_Structure  = "parts of the file that do not fit together: it may be damaged",
+	.Missing_File   = "a file it names beside it (a buffer) is missing: keep the files together, or export it as one file (.glb, .usdz or a binary FBX)",
 }
 
 // Bytes of OBJ text one parse job takes: enough lines to be worth a job, few enough
@@ -190,6 +191,10 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 // mesh_polygons turns it back into the polygons.
 Mesh_Part :: struct {
 	name:      string, // owned; "" for none
+	// The name of the node, prim or group holding it in the file's hierarchy (its nearest
+	// named parent), owned; "" for one at the top or a format without one. Import makes a
+	// folder of each.
+	folder:    string,
 	mesh:      Mesh,
 	colors:    [dynamic]Vertex_Color, // one a vertex, or empty
 	groups:    [dynamic]u16, // one a triangle, or empty
@@ -200,6 +205,7 @@ Mesh_Part :: struct {
 
 mesh_part_destroy :: proc(p: ^Mesh_Part) {
 	delete(p.name)
+	delete(p.folder)
 	mesh_destroy(&p.mesh)
 	delete(p.colors)
 	delete(p.groups)
@@ -207,6 +213,30 @@ mesh_part_destroy :: proc(p: ^Mesh_Part) {
 	delete(p.uvs)
 	delete(p.polys)
 	p^ = {}
+}
+
+// What a file holds for animation that Import leaves for later, for the note: the meshes
+// come in their rest pose, as modelled.
+Rig_Found :: struct {
+	skins:      int, // skins or skeletons binding meshes to joints
+	animations: int, // animations, clips or animation stacks
+	shapes:     int, // morph targets, blend shapes or shape keys
+}
+
+// The note's words for what `r` counts, "" for nothing: "1 skin, 2 animations and 3 shape
+// keys". Temp memory.
+rig_found_text :: proc(r: Rig_Found) -> string {
+	words := make([dynamic]string, context.temp_allocator)
+	plural :: proc(n: int, one, many: string) -> string {return fmt.tprintf("%d %s", n, one if n == 1 else many)}
+	if r.skins > 0 do append(&words, plural(r.skins, "skin", "skins"))
+	if r.animations > 0 do append(&words, plural(r.animations, "animation", "animations"))
+	if r.shapes > 0 do append(&words, plural(r.shapes, "shape key", "shape keys"))
+	switch len(words) {
+	case 0: return ""
+	case 1: return words[0]
+	}
+	head := strings.join(words[:len(words) - 1], ", ", context.temp_allocator)
+	return fmt.tprintf("%s and %s", head, words[len(words) - 1])
 }
 
 mesh_parts_destroy :: proc(parts: ^[dynamic]Mesh_Part) {

@@ -1,4 +1,4 @@
-// The app's way into ufbx (deps/ufbx-src, UFBX_TAG in scripts/versions.env): the five
+// The app's way into ufbx (deps/ufbx-src, UFBX_TAG in scripts/versions.env): the few
 // calls src/fbx/fbx.odin binds, so Odin never mirrors ufbx's large structs. ufbx.c is
 // included whole, making the shim and the library one translation unit that each
 // platform compiles once (scripts/build_ufbx.py, Android's CMakeLists, build.sh ios).
@@ -13,7 +13,10 @@
 // mesh's material k. For the paint the scene's materials give their base colour (linear,
 // as ufbx's PBR view of any FBX material has it) and the texture file of their base
 // colour map, whose bytes come from the file when embedded or are named by path; each
-// triangle names its scene material, and each corner its texture coordinate.
+// triangle names its scene material, and each corner its texture coordinate. Each
+// triangle names the face it was cut from, so quads and polygons come back whole, and a
+// part names the node above its own for its folder. Skins, animation stacks and blend
+// shape channels are counted, never applied: a skinned mesh comes in its bind pose.
 
 #include "ufbx.c"
 
@@ -34,7 +37,8 @@ sculpt_fbx *sculpt_fbx_load(const void *data, size_t size, char *error, size_t e
 	// Only FBX: ufbx reads OBJ too, which the app's own reader handles.
 	opts.file_format = UFBX_FILE_FORMAT_FBX;
 	opts.load_external_files = false;
-	opts.ignore_animation = true;
+	// Animation is read only to be counted (sculpt_fbx_rig); nothing evaluates it.
+	opts.ignore_animation = false;
 	opts.ignore_embedded = false;
 	ufbx_error err;
 	ufbx_scene *scene = ufbx_load_memory(data, size, &opts, &err);
@@ -62,6 +66,14 @@ sculpt_fbx *sculpt_fbx_load(const void *data, size_t size, char *error, size_t e
 
 size_t sculpt_fbx_part_count(const sculpt_fbx *f) {
 	return f ? f->parts : 0;
+}
+
+// What the scene holds for animation, which Import leaves for later: its skin deformers,
+// its animation stacks (takes) and its blend shape channels (shape keys).
+void sculpt_fbx_rig(const sculpt_fbx *f, size_t *skins, size_t *animations, size_t *shapes) {
+	*skins = f ? f->scene->skin_deformers.count : 0;
+	*animations = f ? f->scene->anim_stacks.count : 0;
+	*shapes = f ? f->scene->blend_channels.count : 0;
 }
 
 size_t sculpt_fbx_material_count(const sculpt_fbx *f) {
@@ -99,14 +111,19 @@ void sculpt_fbx_texture_file(const sculpt_fbx *f, size_t k, const void **content
 	*absolute_len = t->absolute_filename.length;
 }
 
-// Part `part`'s name (UTF-8, not terminated; valid until sculpt_fbx_free) and sizes: its
-// vertices, its triangles, and whether it has colours, more than one group and texture
-// coordinates.
-void sculpt_fbx_part_size(const sculpt_fbx *f, size_t part, const char **name, size_t *name_len, size_t *vertices, size_t *triangles, bool *colors, bool *groups, bool *uvs) {
+// Part `part`'s name and the name of the node above it ("" under the scene's root; both
+// UTF-8, not terminated, valid until sculpt_fbx_free) and sizes: its vertices, its
+// triangles, and whether it has colours, more than one group, texture coordinates and
+// faces of more than three corners.
+void sculpt_fbx_part_size(const sculpt_fbx *f, size_t part, const char **name, size_t *name_len, const char **folder, size_t *folder_len, size_t *vertices, size_t *triangles, bool *colors, bool *groups, bool *uvs, bool *polygons) {
 	ufbx_node *node = f->nodes[part];
 	ufbx_mesh *mesh = node->mesh;
 	*name = node->name.data;
 	*name_len = node->name.length;
+	const ufbx_node *parent = node->parent;
+	*folder = parent && !parent->is_root ? parent->name.data : "";
+	*folder_len = parent && !parent->is_root ? parent->name.length : 0;
+	*polygons = mesh->num_triangles > mesh->faces.count;
 	*vertices = mesh->num_vertices;
 	*triangles = mesh->num_triangles;
 	*colors = mesh->vertex_color.exists;
@@ -134,10 +151,11 @@ static uint8_t sculpt_fbx_byte(double x) {
 
 // Fills part `part`'s positions (3 floats a vertex), triangles (3 indices each), and,
 // when not NULL, its colours (RGBA bytes a vertex, alpha 255 where corners gave one),
-// groups (one a triangle), scene materials (one a triangle, -1 for none) and texture
-// coordinates (2 floats a corner, v down from the image's top), sized as
-// sculpt_fbx_part_size said. False when out of memory.
-bool sculpt_fbx_part_fill(const sculpt_fbx *f, size_t part, float *positions, uint32_t *indices, uint8_t *colors, uint16_t *groups, int32_t *materials, float *uvs) {
+// groups (one a triangle), scene materials (one a triangle, -1 for none), texture
+// coordinates (2 floats a corner, v down from the image's top) and the face each triangle
+// was cut from (one a triangle), sized as sculpt_fbx_part_size said. False when out of
+// memory.
+bool sculpt_fbx_part_fill(const sculpt_fbx *f, size_t part, float *positions, uint32_t *indices, uint8_t *colors, uint16_t *groups, int32_t *materials, float *uvs, uint32_t *polys) {
 	ufbx_node *node = f->nodes[part];
 	ufbx_mesh *mesh = node->mesh;
 	const ufbx_matrix *to_world = &node->geometry_to_world;
@@ -169,6 +187,7 @@ bool sculpt_fbx_part_fill(const sculpt_fbx *f, size_t part, float *positions, ui
 			}
 			if (groups) groups[t] = group > 65535 ? 65535 : (uint16_t)group;
 			if (materials) materials[t] = material;
+			if (polys) polys[t] = (uint32_t)face;
 		}
 	}
 	free(corners);
@@ -179,6 +198,7 @@ bool sculpt_fbx_part_fill(const sculpt_fbx *f, size_t part, float *positions, ui
 		if (groups) groups[t] = 0;
 		if (materials) materials[t] = -1;
 		if (uvs) memset(&uvs[6 * t], 0, 6 * sizeof(float));
+		if (polys) polys[t] = (uint32_t)mesh->faces.count + (uint32_t)t;
 	}
 	if (colors && mesh->vertex_color.exists) {
 		double *sum = (double *)calloc(mesh->num_vertices, 4 * sizeof(double));
