@@ -1536,6 +1536,22 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 	first, last := owned(s, s.hit[i])
 	out := s.smooth_to[s.offsets[i]:]
 	polish := d.brush.smooth_mode == .Polish
+	n := s.nodes[s.node_of[s.hit[i]]]
+	// Most of a vertex's triangles are its node's own, and each of those has three corners
+	// in the node: their corner sums and the exclusive or of their corners are worked out
+	// once per triangle into these, rather than once per corner.
+	face_sum: [MAX_CACHED_FACES]Vec3 = ---
+	face_xor: [MAX_CACHED_FACES]u32 = ---
+	cached := u32(0)
+	if s.dyn == nil && n.tri_count <= MAX_CACHED_FACES {
+		cached = n.tri_count
+		for k in 0 ..< cached {
+			f := n.tri_first + k
+			a, b, c := m.indices[3 * f], m.indices[3 * f + 1], m.indices[3 * f + 2]
+			face_sum[k] = m.positions[a] + m.positions[b] + m.positions[c]
+			face_xor[k] = a ~ b ~ c
+		}
+	}
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		if linalg.dot(delta, delta) >= d.r2 {
@@ -1543,7 +1559,12 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 			if polish do s.smooth_b[s.offsets[i] + v - first] = {}
 			continue
 		}
-		q := smooth_target(s, v)
+		q: Vec3
+		if cached > 0 {
+			q = smooth_target_cached(s, v, n.tri_first, face_sum[:cached], face_xor[:cached])
+		} else {
+			q = smooth_target(s, v)
+		}
 		out[v - first] = q
 		if polish {
 			slot := s.offsets[i] + v - first
@@ -1608,24 +1629,59 @@ job_polish_targets :: proc(data: rawptr, i: int) {
 // so a hole's edge evens out along itself instead of shrinking into the surface.
 @(private)
 smooth_target :: #force_inline proc(s: ^Sculptor, v: u32) -> Vec3 {
-	m := s.mesh
-	faces := faces_of(s, v)
-	sum: Vec3
-	n: f32
 	// Inside a closed fan every neighbour is a corner of two of its triangles, so the
 	// exclusive or of the other corners is zero; on a border the two border neighbours
 	// are corners once and leave it non-zero (or, past a rare non-manifold tie, this
-	// keeps the plain middle).
+	// keeps the plain middle). Each triangle holds `v` once, so its other corners'
+	// exclusive or is that of all three with `v`.
+	sum, n, odd := smooth_corners(s, v)
+	if odd == 0 || n > 96 do return sum / n
+	return smooth_border(s, v, sum, n)
+}
+
+// The same, with the corner sums and corner exclusive ors of the triangles from `tri_first`
+// on already worked out (the node's own triangles).
+@(private)
+smooth_target_cached :: #force_inline proc(s: ^Sculptor, v: u32, tri_first: u32, face_sum: []Vec3, face_xor: []u32) -> Vec3 {
+	m := s.mesh
+	sum: Vec3
+	n: f32
 	odd: u32
-	for f in faces {
-		for k in u32(0) ..< 3 {
-			w := m.indices[3 * f + k]
-			sum += m.positions[w]
-			if w != v do odd ~= w
+	for f in faces_of(s, v) {
+		if local := f - tri_first; local < u32(len(face_sum)) {
+			sum += face_sum[local]
+			odd ~= face_xor[local] ~ v
+		} else {
+			a, b, c := m.indices[3 * f], m.indices[3 * f + 1], m.indices[3 * f + 2]
+			sum += m.positions[a] + m.positions[b] + m.positions[c]
+			odd ~= a ~ b ~ c ~ v
 		}
 		n += 3
 	}
-	if odd == 0 || len(faces) > 32 do return sum / n
+	if odd == 0 || n > 96 do return sum / n
+	return smooth_border(s, v, sum, n)
+}
+
+// The corners of vertex `v`'s triangles: their sum, their count and the exclusive or of
+// the corners other than `v`.
+@(private)
+smooth_corners :: #force_inline proc(s: ^Sculptor, v: u32) -> (sum: Vec3, n: f32, odd: u32) {
+	m := s.mesh
+	for f in faces_of(s, v) {
+		a, b, c := m.indices[3 * f], m.indices[3 * f + 1], m.indices[3 * f + 2]
+		sum += m.positions[a] + m.positions[b] + m.positions[c]
+		odd ~= a ~ b ~ c ~ v
+		n += 3
+	}
+	return
+}
+
+// Smooth's target for a vertex whose corners left `odd` non-zero: the middle of its
+// neighbours along an open border, or `sum / n` when it has none.
+@(private)
+smooth_border :: proc(s: ^Sculptor, v: u32, sum: Vec3, n: f32) -> Vec3 {
+	m := s.mesh
+	faces := faces_of(s, v)
 	// The neighbours that are corners of only one of its triangles lie along the border.
 	seen: [64]u32
 	times: [64]u8
