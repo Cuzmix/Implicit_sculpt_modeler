@@ -22,7 +22,6 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k.passes.chip_held = false
 	k.object_chip_fit = .None
 	k.chip_at = {}
-	if lens_focus(k) do return kit_top_islands(app)
 	arranging := k.bars_edit
 	// With every section out, the bar is drawn only while arranging, to take them back.
 	if !chip_islands_none(k) {
@@ -37,6 +36,8 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	for s in Chip_Section do in_bar[s] = chip_in_bar(k, s)
 	width := area.w - 2 * TOP_BAR_INSET
 	// Arranging keeps the one bar, whose middle holds what arranging needs.
+	// Focus is always the three islands, its middle the workspace and X symmetry.
+	if lens_focus(k) && !arranging do return kit_top_three(app, in_bar, width, focus = true)
 	if k.top_islands && !arranging {
 		menu_anchor, search_anchor = kit_top_three(app, in_bar, width)
 		for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
@@ -166,6 +167,7 @@ TOP_ISLAND_PAD :: 2
 // What the three islands show, from everything down to the least that still works.
 @(private = "file")
 Top_Three :: struct {
+	focus: bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the right
 	file:  bool, // the file block after the menu button
 	field: bool, // Search as its field rather than its icon
 	tabs:  int, // the space tabs (0), the layout's chip (1) or neither (2)
@@ -180,7 +182,7 @@ Top_Three :: struct {
 // chip's badges, Search's field, the chip's tag, the file block, the tabs to the layout's
 // chip, the chip to its icon), and only then does the middle leave the centre.
 @(private = "file")
-kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (menu_anchor, search_anchor: ui.Rect) {
+kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus := false) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -204,7 +206,9 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (men
 		t := app.kit.ctx.theme
 		search: f32 = 0
 		if in_bar[.Search] do search = TOP_SEARCH_W if v.field else t.target
-		return island_w({search, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0})
+		// Focus, with no view bar, keeps View layout and Passes here.
+		view: f32 = TOP_DIVIDER_W + 2 * t.target + TOP_ISLAND_PAD if v.focus else 0
+		return island_w({search, view, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0})
 	}
 	middle_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip) -> f32 {
 		ctx := &app.kit.ctx
@@ -212,10 +216,12 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (men
 		if in_bar[.Spaces] && v.tabs == 0 do tabs = space_tabs_width(app)
 		if in_bar[.Spaces] && v.tabs == 1 do tabs = WORKSPACE_CHIP_ROOM
 		obj: f32 = object_chip_width(ctx, chip, v.fit) if in_bar[.Object] else 0
+		if v.focus do return island_w({WORKSPACE_CHIP_ROOM, FOCUS_SYMMETRY_W})
 		return island_w({tabs, TOP_DIVIDER_W if tabs > 0 && obj > 0 else 0, obj})
 	}
 	v := Top_Three {
-		file  = true,
+		focus = focus,
+		file  = !focus,
 		field = k.search_field && in_bar[.Search],
 		tabs  = 0 if in_bar[.Spaces] else 2,
 		fit   = .Full if in_bar[.Object] else .None,
@@ -249,9 +255,11 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (men
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = h, center = true})
 	// The islands as drawn last frame, so the middle sits on the centre to the point; the
 	// sums above stand in on the first frame and when what shows changes.
-	drawn :: proc(ctx: ^ui.Context, name: string, sum: f32) -> f32 {
+	// Focus's middle holds chips whose widths the sums only guess, so it takes last
+	// frame's width whenever there is one.
+	drawn :: proc(ctx: ^ui.Context, name: string, sum: f32, trust := false) -> f32 {
 		size, _ := ui.prev_layout(ctx, name)
-		return size.x if size.x > 0 && abs(size.x - sum) < 24 else sum
+		return size.x if size.x > 0 && (trust || abs(size.x - sum) < 24) else sum
 	}
 	used: f32 = 0
 	if l > 0 {
@@ -264,14 +272,15 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (men
 		used = lw
 	}
 	if m > 0 {
-		mw := drawn(ctx, "work island", m)
+		mw := drawn(ctx, "work island", m, trust = v.focus)
 		at := clamp((width - mw) * 0.5, used + TOP_ISLAND_GAP, max(width - r - TOP_ISLAND_GAP - mw, used + TOP_ISLAND_GAP))
 		ui.spacer(ctx, at - used)
 		ui.begin(ctx, "work island", island)
-		if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
+		if v.focus do top_focus_middle(app)
+		else if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
 		if v.tabs == 1 do kit_workspace_chip(app)
-		if v.tabs < 2 && v.fit != .None do top_divider(ctx)
-		if v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
+		if !v.focus && v.tabs < 2 && v.fit != .None do top_divider(ctx)
+		if !v.focus && v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
 		ui.end(ctx)
 		used = at + mw
 	}
@@ -280,6 +289,7 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (men
 		ui.spacer(ctx, max(width - rw - used, 0))
 		ui.begin(ctx, "app island", island)
 		if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = v.field)
+		if v.focus do top_focus_view(app)
 		if in_bar[.Search] && in_bar[.End] do top_divider(ctx)
 		if in_bar[.End] do k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
 		ui.end(ctx)
@@ -295,57 +305,28 @@ lens_focus :: proc(k: ^Kit_State) -> bool {
 	return zone_hidden(k, .View_Bar)
 }
 
-// How far the islands stand in from the top of the safe area, in points.
-ISLAND_TOP :: 6
+// The width the X symmetry chip takes in Focus's middle island, in points.
+FOCUS_SYMMETRY_W :: 64
 
-// The focused top bar: Menu, Undo and Redo in an island at the off-hand corner; the
-// workspace (its chip opens the switcher's menu) and X symmetry in the middle; Search,
-// View layout, Passes and History at the pen side. Returns the menu button and Search, as
-// the bar does.
+// Focus's middle island: the workspace (its chip opens the switcher's menu) and X symmetry.
 @(private = "file")
-kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
+top_focus_middle :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	island := ui.Box{direction = .Row, padding = 4, gap = 2, radius = t.radius_large, background = .Panel, center = true}
-	ui.begin_anchored(ctx, "top bar", .Start, .Start, {LENS_EDGE, ISLAND_TOP}, island)
-	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
-		k.menu = !k.menu
-		k.menu_scroll = 0
-	}
-	menu_anchor = ctx.last_rect
-	// A long press on either, slid sideways, scrubs the History, and let go unslid (or a
-	// right-click) opens the History panel, to go back or forward many steps.
-	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
-	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
-	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
-	quick_scrub_button(app, .Undo)
-	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
-	quick_scrub_button(app, .Redo)
-	ui.end(ctx)
-
-	ui.begin_anchored(ctx, "focus middle", .Center, .Start, {0, ISLAND_TOP}, island)
-	w := &k.workspaces
-	if a := lens_chip(ctx, "Workspace##focus", workspace_name(k, w.current), chevron = true, lit = w.menu, keys = command_hint(app, .Workspace, w.current)); a.clicked {
-		was := w.menu
-		kit_floats_close(k)
-		w.menu = !was
-	}
-	w.menu_at = ctx.last_rect
-	// The amber dot while the layout differs from the saved one, as the switcher has it.
-	if w.modified do ui.fill_circle(ctx, {w.menu_at.x + w.menu_at.w - 6, w.menu_at.y + 12}, 3, t.warning)
+	kit_workspace_chip(app)
 	x := command_checked(app, .Symmetry_X)
 	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
 	if x do ui.stroke_rect(ctx, {ctx.last_rect.x, ctx.last_rect.y + (ctx.last_rect.h - LENS_CHIP_H) * 0.5, ctx.last_rect.w, LENS_CHIP_H}, t.radius_medium, t.accent, 1)
-	ui.end(ctx)
+}
 
-	ui.begin_anchored(ctx, "focus tools", .End, .Start, {LENS_EDGE, ISLAND_TOP}, island)
-	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
-		if k.palette do palette_close(app)
-		else do palette_open(app)
-	}
-	search_anchor = ctx.last_rect
-	// The menus these open come down from their buttons, from keys and search too.
+// View layout and Passes, which Focus keeps at the right as its view bar is away; the
+// menus they open come down from their buttons, from keys and Search too.
+@(private = "file")
+top_focus_view :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	top_divider(ctx)
 	layout := bar_pop_showing(app, .View_Layout)
 	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
@@ -354,10 +335,6 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		pass_menu_toggle(app)
 	}
 	k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
-	k.history_at = ctx.last_rect
-	ui.end(ctx)
-	return
 }
 
 // How opaque the chips over the view are, of 255.
