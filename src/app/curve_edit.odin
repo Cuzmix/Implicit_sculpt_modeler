@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "core:math/linalg"
 
 import "../camera"
@@ -178,7 +179,7 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	case .Point:
 		p := &cp.points[d.index]
 		// Onto the surface under the pointer when there is one, else the view plane.
-		if _, hit, _, ok := scene_raycast_surface(app, origin, dir); ok do p.p = to_local(t, hit)
+		if _, hit, _, ok := scene_raycast_surface(app, origin, dir, skip_curves = true); ok do p.p = to_local(t, hit)
 		else do p.p = on_plane(app, t, lo, ld, p.p)
 	case .In, .Out:
 		p := &cp.points[d.index]
@@ -198,6 +199,8 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 		// put the curve's place `u` exactly under the pointer.
 		curve_rope_pull(cp, d.u, on_plane(app, t, lo, ld, geom.bezier_at(cp.points[:], cp.closed, d.u)) - geom.bezier_at(cp.points[:], cp.closed, d.u))
 	}
+	// Once a frame, as this runs once a frame while the press lasts.
+	curve_changed(app, obj)
 }
 
 // Moves the line's place `u` by `delta`, moving the points either side with their handles.
@@ -260,6 +263,7 @@ curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	}
 	history_record_swap(app, obj.id, d.before, kind = .Curve)
 	c.edits += 1
+	curve_changed(app, obj)
 }
 
 // Deletes the picked point of the selected curve, as one undo step, when it keeps at least
@@ -272,6 +276,7 @@ curve_delete_point :: proc(app: ^App) {
 	app.curve.picked = min(app.curve.picked, len(obj.curve.points))
 	history_record_swap(app, obj.id, before, kind = .Curve)
 	app.curve.edits += 1
+	curve_changed(app, obj)
 }
 
 curve_point_deletable :: proc(app: ^App) -> bool {
@@ -293,6 +298,7 @@ curve_toggle_corner :: proc(app: ^App) {
 	else do geom.bezier_make_corner(cp.points[:], cp.closed, i)
 	history_record_swap(app, obj.id, before, kind = .Curve)
 	app.curve.edits += 1
+	curve_changed(app, obj)
 }
 
 // Closes the selected curve into a loop, or opens it, as one undo step; a loop needs three
@@ -304,6 +310,7 @@ curve_toggle_closed :: proc(app: ^App) {
 	obj.curve.closed = !obj.curve.closed
 	history_record_swap(app, obj.id, before, kind = .Curve)
 	app.curve.edits += 1
+	curve_changed(app, obj)
 }
 
 // Draws the selected curve's editing handles: orange handles on lines to their point, a
@@ -333,4 +340,11 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		overlay_disc(o, sc.radius, 4 * o.scale, white)
 		if i == app.curve.picked - 1 do overlay_circle(o, sc.point, 9 * o.scale, blue, 2 * o.scale)
 	}
+}
+
+// Makes the selected curve's tube again after an edit, when it makes one. A GPU failure
+// leaves the curve with an empty level, drawn as its line, and says so in the log.
+curve_changed :: proc(app: ^App, obj: ^Object) {
+	if obj.curve == nil || obj.curve.use == .None do return
+	if !curve_rebuild(app, obj) do log.errorf("curve: could not make the tube of %s on the GPU", object_label(obj))
 }

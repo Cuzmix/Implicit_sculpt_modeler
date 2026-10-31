@@ -169,6 +169,7 @@ Command_Id :: enum u16 {
 	Curve_Delete_Point,
 	Curve_Corner,
 	Curve_Close,
+	Curve_Bake,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1515,6 +1516,16 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
 			return obj != nil && obj.curve.closed
+		},
+	},
+	.Curve_Bake = {
+		label = "Bake curve",
+		help = "Makes the selected curve's tube a mesh object to sculpt, in the curve's place; the curve goes, and Undo brings it back (Duplicate first to keep it).",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Bake_Curve}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && object_draws_triangles(obj)
 		},
 	},
 	.Convert_To_Mesh = {

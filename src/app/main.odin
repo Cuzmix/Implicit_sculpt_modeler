@@ -575,6 +575,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer print_checks_stop(&app)
 	// A look slider still held when the app ends has its snapshot unrecorded.
 	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
+	defer if app.curve.look_drag.before != nil do history_snapshot_drop(app.curve.look_drag.before)
 	timeline_init(&app.timeline)
 	defer timeline_destroy(&app.timeline)
 	app.history.began = time.tick_now()

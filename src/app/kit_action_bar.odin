@@ -74,6 +74,7 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 		{.Curve_Delete_Point, 0, "Delete point"},
 		{.Curve_Corner, 0, "Corner"},
 		{.Curve_Close, 0, "Close"},
+		{.Curve_Bake, 0, "Bake"},
 	}},
 }
 

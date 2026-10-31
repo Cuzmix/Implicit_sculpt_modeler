@@ -17,6 +17,7 @@ Object_Type :: enum u8 {
 	Sculpt_Mesh,
 	Voxel_Clay,
 	Cage,
+	Curve,
 }
 
 @(rodata)
@@ -24,6 +25,7 @@ OBJECT_TYPE_NAMES := [Object_Type]string {
 	.Sculpt_Mesh = "Sculpt mesh",
 	.Voxel_Clay  = "Voxel clay",
 	.Cage        = "Cage",
+	.Curve       = "Curve",
 }
 
 @(rodata)
@@ -31,12 +33,14 @@ OBJECT_TYPE_ICONS := [Object_Type]rune {
 	.Sculpt_Mesh = ICON_SCULPT_MESH,
 	.Voxel_Clay  = ICON_VOXEL_CLAY,
 	.Cage        = ICON_CAGE,
+	.Curve       = ui.ICON_SPLINE,
 }
 
-// What `obj` is, as its chip says: clay, then a cage, else a mesh to sculpt.
+// What `obj` is, as its chip says: clay, then a cage, then a curve, else a mesh to sculpt.
 object_type :: proc(obj: ^Object) -> Object_Type {
 	if obj.voxel != nil do return .Voxel_Clay
 	if obj.cage != nil do return .Cage
+	if obj.curve != nil do return .Curve
 	return .Sculpt_Mesh
 }
 
@@ -68,6 +72,13 @@ OBJECT_VERBS := [Object_Type][Space][]Object_Verb {
 		.Model  = {{id = .Cage_Smooth, arg = 2, label = "Smooth twice"}, {id = .Cage_Smooth, arg = 0, label = "Draw unsmoothed"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Dissolve_Flat), label = "Dissolve flat faces"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Merge_Close), label = "Merge close points"}},
 		.Render = {},
 	},
+	// A curve is drawn and edited in Sculpt's Curve tool; Bake makes its tube a mesh in any
+	// space.
+	.Curve = {
+		.Sculpt = {{id = .Curve_Bake, label = "Bake to mesh"}, {id = .Curve_Close}},
+		.Model  = {{id = .Curve_Bake, label = "Bake to mesh"}},
+		.Render = {},
+	},
 }
 
 // The conversion every type offers among the rows always there.
@@ -76,6 +87,7 @@ OBJECT_CONVERSIONS := [Object_Type]Object_Verb {
 	.Sculpt_Mesh = {id = .Convert_To_Voxels},
 	.Voxel_Clay  = {id = .Convert_To_Mesh},
 	.Cage        = {id = .Apply_Cage, label = "Make sculptable"},
+	.Curve       = {id = .Curve_Bake, label = "Bake to mesh"},
 }
 
 // What opened the object menu or the scene menu, for the exit stats.

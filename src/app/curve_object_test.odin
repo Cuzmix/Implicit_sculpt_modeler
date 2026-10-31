@@ -217,7 +217,7 @@ curve_selection_without_curves :: proc(t: ^testing.T) {
 // than bytes, a corner or use no version wrote, a value that is not a number.
 @(test)
 curve_damage_is_refused :: proc(t: ^testing.T) {
-	good := Curve_Part{closed = false}
+	good := Curve_Part{tube = geom.TUBE_DEFAULTS}
 	defer delete(good.points)
 	append(&good.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1})
 	bytes: [dynamic]u8
@@ -226,13 +226,15 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	check :: proc(t: ^testing.T, data: []u8, want: bool, what: string) {
 		obj: Object
 		r := geom.byte_reader(data)
-		got := curve_part_get(&r, &obj)
+		app: App
+		got, _ := curve_part_get(&app, &r, &obj)
 		testing.expectf(t, got == want, "%s: read %v", what, got)
 		curve_part_free(&obj)
 		sculpt.levels_destroy(&obj.levels)
 	}
 	check(t, bytes[:], true, "whole")
-	check(t, bytes[:len(bytes) - 1], false, "cut short")
+	check(t, bytes[:len(bytes) - 1], false, "tube options cut short")
+	check(t, bytes[:6 + CURVE_POINT_BYTES], false, "points cut short")
 	one := make([]u8, len(bytes), context.temp_allocator)
 	copy(one, bytes[:])
 	one[0] = 1
@@ -254,6 +256,72 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	bits := transmute([4]u8)math.nan_f32()
 	copy(nan[6:][:4], bits[:])
 	check(t, nan, false, "not a number")
+}
+
+// A curve's tube options come back as written; a curve from before them (no block after
+// its points) takes the defaults, and options no version wrote are damage.
+@(test)
+curve_tube_options_read_back :: proc(t: ^testing.T) {
+	cp := Curve_Part{closed = true}
+	defer delete(cp.points)
+	append(&cp.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1}, geom.Bezier_Point{p = {0, 1, 0}, radius = 1})
+	cp.tube = {profile = .Star, radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, flatness = 0.4}
+	bytes: [dynamic]u8
+	defer delete(bytes)
+	curve_part_put(&bytes, &cp)
+	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES)
+	read :: proc(data: []u8) -> (o: geom.Tube_Options, ok: bool) {
+		obj: Object
+		app: App
+		r := geom.byte_reader(data)
+		ok, _ = curve_part_get(&app, &r, &obj)
+		if ok do o = obj.curve.tube
+		curve_part_free(&obj)
+		sculpt.levels_destroy(&obj.levels)
+		return
+	}
+	got, ok := read(bytes[:])
+	testing.expect(t, ok && got == cp.tube, "options did not come back")
+	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES])
+	testing.expect(t, ok && got == geom.TUBE_DEFAULTS, "a curve without options did not take the defaults")
+	sides := make([]u8, len(bytes), context.temp_allocator)
+	copy(sides, bytes[:])
+	sides[6 + 3 * CURVE_POINT_BYTES + 6] = 2
+	_, ok = read(sides)
+	testing.expect(t, !ok, "two sides were read")
+	profile := make([]u8, len(bytes), context.temp_allocator)
+	copy(profile, bytes[:])
+	profile[6 + 3 * CURVE_POINT_BYTES] = 9
+	_, ok = read(profile)
+	testing.expect(t, !ok, "a profile past the last was read")
+}
+
+// Cleaning keeps a tube buildable: sides in range, density and flatness positive.
+@(test)
+curve_tube_clean_bounds :: proc(t: ^testing.T) {
+	o := curve_tube_clean({sides = 1, density = 0, flatness = -1, one = -2})
+	testing.expect_value(t, o.sides, 3)
+	testing.expect(t, o.density > 0 && o.flatness > 0 && o.one == 0)
+	o = curve_tube_clean({sides = 999, density = 100, flatness = 0.5, one = 0.2})
+	testing.expect_value(t, o.sides, geom.TUBE_SIDES_MAX)
+	testing.expect(t, o.density <= 16 && o.flatness == 0.5 && o.one == 0.2)
+}
+
+// A curve is its own type: the chip says Curve and its conversion is Bake, which needs a tube.
+@(test)
+curve_is_its_own_type :: proc(t: ^testing.T) {
+	app: App
+	defer curve_scene_free(&app)
+	curve_scene(&app)
+	pts := []geom.Bezier_Point{{p = {0, 0, 2}, radius = 0.1}, {p = {1, 0, 2}, radius = 0.1}}
+	testing.expect(t, curve_object_add(&app, pts, false))
+	obj := selected_object(&app)
+	testing.expect_value(t, object_type(obj), Object_Type.Curve)
+	testing.expect_value(t, OBJECT_CONVERSIONS[.Curve].id, Command_Id.Curve_Bake)
+	testing.expect(t, !command_enabled(&app, .Curve_Bake), "Bake runs on a curve with no tube")
+	testing.expect(t, !object_draws_triangles(obj), "a line has triangles")
+	chip := object_chip_of(&app)
+	testing.expect_value(t, chip.tag, "Curve")
 }
 
 // Commands that need a surface refuse a selected curve.
