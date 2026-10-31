@@ -7,6 +7,7 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -585,8 +586,10 @@ scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 }
 
 // Makes an object of each of the import's parts (taking their meshes), at `at` plus each
-// part's middle, and puts them in a new folder named `name` when there are several; the
-// selection ends on the first. With `record` it is one undo step: each add chained to the
+// part's middle, and when there are several puts them in folders as the file has them:
+// each in a folder named after the node holding it in the file, one at the file's top in
+// a folder named `name`, and all of them in that one when the file names a single holder
+// or none; the selection ends on the first. With `record` it is one undo step: each add chained to the
 // first, then the folder as an Arrange step chained after them, so undo takes the folder
 // away and then the objects. Returns false on a GPU failure (what was added stays, and
 // is recorded).
@@ -608,15 +611,47 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
 	}
 	added := app.scene.objects[first:]
+	app.import_folders, app.import_rig = 0, m.rig
 	if len(added) > 1 {
 		before := layout_take(app) if record else nil
-		f := folder_new(app)
-		f.name = strings.clone(name)
-		for obj in added do obj.folder = f.id
+		holders := import_folder_names(m.parts[:len(added)], name)
+		// Folders in the order the file first names them, so the tree reads as the file does.
+		Made :: struct {
+			name: string,
+			id:   int,
+		}
+		made := make([dynamic]Made, context.temp_allocator)
+		for obj, k in added {
+			holder := holders[k]
+			id := -1
+			for f in made do if f.name == holder do id = f.id
+			if id < 0 {
+				f := folder_new(app)
+				f.name = strings.clone(holder)
+				id = f.id
+				append(&made, Made{holder, id})
+			}
+			obj.folder = id
+		}
+		app.import_folders = len(made)
 		if record do _ = history_record_arrange(app, before, "import", chain = true)
 	}
 	if len(added) > 0 do app.scene.selected = first
 	return ok
+}
+
+// The folder each of `parts` goes in when imported together: the node holding it in the
+// file, or `name` (the file's) for one at the file's top; all of them `name` when the file
+// names one holder or none, as a lone root node is the file itself. Temp memory.
+import_folder_names :: proc(parts: []geom.Mesh_Part, name: string) -> []string {
+	holders := make([]string, len(parts), context.temp_allocator)
+	one := true
+	for &h, k in holders {
+		h = parts[k].folder if parts[k].folder != "" else name
+		one &&= h == holders[0]
+	}
+	if one do for &h in holders do h = name
+	return holders
 }
 
 // Takes an imported part's polygons (in the part's numbering, which `old_to_new` and
@@ -695,6 +730,7 @@ Mesh_Import :: struct {
 	files:             []Transform,
 	start:             time.Tick,
 	read_ms, parse_ms: f64,
+	rig:               geom.Rig_Found, // what the file holds for animation, left out
 	levels:            []sculpt.Levels, // per part, once mesh_import_prepare made them (each taken by its object)
 }
 
@@ -752,6 +788,7 @@ Mesh_File_Info :: struct {
 	usd:     usd.Skipped,
 	paint:   geom.Mesh_Paint_Report, // materials and textures painted as polypaint
 	reason:  string, // why ufbx refused an FBX file (temp memory), or ""
+	rig:     geom.Rig_Found, // skins, animations and shape keys found and left for later
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
 }
@@ -799,10 +836,12 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 		else do geom.mesh_part_destroy(&p)
 	case .GLTF:
 		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside, &look)
+		info.rig = info.skipped.rig
 	case .USD:
 		info.usd, failed, line = usd.read(parts, data)
+		info.rig = info.usd.rig
 	case .FBX:
-		failed, info.reason = fbx.read(parts, data, &look, resolve, &beside)
+		failed, info.reason, info.rig = fbx.read(parts, data, &look, resolve, &beside)
 	case .OBJ, .None:
 		failed, line = geom.mesh_read_obj_parts(parts, data, pool, look = &look, resolve = resolve, resolve_data = &beside)
 	}
@@ -918,7 +957,14 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 	closed := geom.mesh_edges_closed(open)
 	text := strings.builder_make(context.temp_allocator)
 	strings.write_string(&text, head)
-	if len(m.parts) > 1 do strings.write_string(&text, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
+	if len(m.parts) > 1 {
+		// As import_add_parts will file them: one folder, or the file's own groups.
+		holders := import_folder_names(m.parts[:], filepath.stem(path))
+		folders := 0
+		for h, k in holders do if !slice.contains(holders[:k], h) do folders += 1
+		if folders > 1 do strings.write_string(&text, fmt.tprintf(" as %d objects in %d folders, as the file groups them", len(m.parts), folders))
+		else do strings.write_string(&text, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
+	}
 	if closed {
 		strings.write_string(&text, ":")
 	} else {
@@ -951,6 +997,10 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 	if info.skipped.compressed > 0 do strings.write_string(&text, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
 	if info.usd.composed > 0 do strings.write_string(&text, fmt.tprintf("; %d references, payloads or variants not followed (only what the file itself defines comes in)", info.usd.composed))
 	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&text, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
+	// Rigs and animation are named so nobody wonders where they went: the meshes come in
+	// their rest pose, and nothing of them is kept yet.
+	if rig := geom.rig_found_text(info.rig); rig != "" do strings.write_string(&text, fmt.tprintf("; %s found and left out: the meshes come in their rest pose", rig))
+	m.rig = info.rig
 	return m, strings.clone(strings.to_string(text)), !closed, true
 }
 

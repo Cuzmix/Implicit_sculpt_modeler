@@ -9,7 +9,7 @@ import "../geom"
 // FBX in through ufbx (deps/ufbx-src at UFBX_TAG in scripts/versions.env, MIT or public
 // domain), which reads every FBX version, binary and text, as Blender 4.5's importer
 // does. The app's shim (fbx_shim.c) holds ufbx's large structs on the C side, so this
-// binding is six calls. Knows nothing of the app, rendering or the interface; the
+// binding is a handful of calls. Knows nothing of the app, rendering or the interface; the
 // caller reads the file.
 
 FBX_BINARY_MAGIC :: "Kaydara FBX Binary"
@@ -42,12 +42,13 @@ when ODIN_OS == .Windows {
 foreign lib {
 	sculpt_fbx_load :: proc(data: rawptr, size: c.size_t, error: [^]u8, error_size: c.size_t) -> ^Scene ---
 	sculpt_fbx_part_count :: proc(f: ^Scene) -> c.size_t ---
+	sculpt_fbx_rig :: proc(f: ^Scene, skins, animations, shapes: ^c.size_t) ---
 	sculpt_fbx_material_count :: proc(f: ^Scene) -> c.size_t ---
 	sculpt_fbx_material :: proc(f: ^Scene, k: c.size_t, color: ^[3]f32, texture_file: ^i32) ---
 	sculpt_fbx_texture_file_count :: proc(f: ^Scene) -> c.size_t ---
 	sculpt_fbx_texture_file :: proc(f: ^Scene, k: c.size_t, content: ^rawptr, content_size: ^c.size_t, relative: ^[^]u8, relative_len: ^c.size_t, absolute: ^[^]u8, absolute_len: ^c.size_t) ---
-	sculpt_fbx_part_size :: proc(f: ^Scene, part: c.size_t, name: ^[^]u8, name_len: ^c.size_t, vertices, triangles: ^c.size_t, colors, groups, uvs: ^bool) ---
-	sculpt_fbx_part_fill :: proc(f: ^Scene, part: c.size_t, positions: [^]f32, indices: [^]u32, colors: [^]u8, groups: [^]u16, materials: [^]i32, uvs: [^]f32) -> bool ---
+	sculpt_fbx_part_size :: proc(f: ^Scene, part: c.size_t, name: ^[^]u8, name_len: ^c.size_t, folder: ^[^]u8, folder_len: ^c.size_t, vertices, triangles: ^c.size_t, colors, groups, uvs, polygons: ^bool) ---
+	sculpt_fbx_part_fill :: proc(f: ^Scene, part: c.size_t, positions: [^]f32, indices: [^]u32, colors: [^]u8, groups: [^]u16, materials: [^]i32, uvs: [^]f32, polys: [^]u32) -> bool ---
 	sculpt_fbx_free :: proc(f: ^Scene) ---
 }
 
@@ -55,14 +56,19 @@ foreign lib {
 // a mesh, placed in the scene Y up and in metres, with its vertex colours, a group for
 // each material when it has several, and, given a `look`, its materials' base colours
 // and textures (embedded in the file, or files beside it that `resolve` gives) for the
-// paint. A file ufbx refuses is Not_Recognised, with ufbx's reason in `reason` (temp
-// memory); a file with no mesh is Empty.
-read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look = nil, resolve: geom.Mesh_Resolve = nil, resolve_data: rawptr = nil) -> (err: geom.Mesh_File_Error, reason: string) {
-	if len(data) == 0 do return .Empty, ""
+// paint. Each part keeps its faces as polygons and names the node above it as its
+// folder; `rig` counts the skins, animation stacks and shape keys left for later. A file
+// ufbx refuses is Not_Recognised, with ufbx's reason in `reason` (temp memory); a file
+// with no mesh is Empty.
+read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look = nil, resolve: geom.Mesh_Resolve = nil, resolve_data: rawptr = nil) -> (err: geom.Mesh_File_Error, reason: string, rig: geom.Rig_Found) {
+	if len(data) == 0 do return .Empty, "", {}
 	message := make([]u8, ERROR_MAX, context.temp_allocator)
 	scene := sculpt_fbx_load(raw_data(data), c.size_t(len(data)), raw_data(message), c.size_t(len(message)))
-	if scene == nil do return .Not_Recognised, string(cstring(raw_data(message)))
+	if scene == nil do return .Not_Recognised, string(cstring(raw_data(message))), {}
 	defer sculpt_fbx_free(scene)
+	skins, animations, shapes: c.size_t
+	sculpt_fbx_rig(scene, &skins, &animations, &shapes)
+	rig = {int(skins), int(animations), int(shapes)}
 
 	material_base := 0
 	if look != nil {
@@ -96,12 +102,12 @@ read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look 
 
 	count := int(sculpt_fbx_part_count(scene))
 	for k in 0 ..< count {
-		name: [^]u8
-		name_len, vertices, triangles: c.size_t
-		colored, grouped, textured: bool
-		sculpt_fbx_part_size(scene, c.size_t(k), &name, &name_len, &vertices, &triangles, &colored, &grouped, &textured)
-		if int(vertices) >= int(max(u32)) || int(triangles) > int(max(u32)) / 3 do return .Too_Large, ""
-		part := geom.Mesh_Part{name = strings.clone(string(name[:name_len]))}
+		name, folder: [^]u8
+		name_len, folder_len, vertices, triangles: c.size_t
+		colored, grouped, textured, polygons: bool
+		sculpt_fbx_part_size(scene, c.size_t(k), &name, &name_len, &folder, &folder_len, &vertices, &triangles, &colored, &grouped, &textured, &polygons)
+		if int(vertices) >= int(max(u32)) || int(triangles) > int(max(u32)) / 3 do return .Too_Large, "", rig
+		part := geom.Mesh_Part{name = strings.clone(string(name[:name_len])), folder = strings.clone(string(folder[:folder_len]))}
 		resize(&part.mesh.positions, int(vertices))
 		resize(&part.mesh.normals, int(vertices))
 		resize(&part.mesh.indices, 3 * int(triangles))
@@ -111,16 +117,17 @@ read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look 
 			resize(&part.materials, int(triangles))
 			if textured do resize(&part.uvs, 3 * int(triangles))
 		}
-		ok := sculpt_fbx_part_fill(scene, c.size_t(k), ([^]f32)(raw_data(part.mesh.positions)), raw_data(part.mesh.indices), ([^]u8)(raw_data(part.colors)) if colored else nil, raw_data(part.groups) if grouped else nil, raw_data(part.materials) if look != nil else nil, ([^]f32)(raw_data(part.uvs)) if textured && look != nil else nil)
+		if polygons do resize(&part.polys, int(triangles))
+		ok := sculpt_fbx_part_fill(scene, c.size_t(k), ([^]f32)(raw_data(part.mesh.positions)), raw_data(part.mesh.indices), ([^]u8)(raw_data(part.colors)) if colored else nil, raw_data(part.groups) if grouped else nil, raw_data(part.materials) if look != nil else nil, ([^]f32)(raw_data(part.uvs)) if textured && look != nil else nil, raw_data(part.polys) if polygons else nil)
 		if !ok {
 			geom.mesh_part_destroy(&part)
-			return .Too_Large, "out of memory"
+			return .Too_Large, "out of memory", rig
 		}
 		for &m in part.materials do if m >= 0 do m += i32(material_base)
 		append(parts, part)
 	}
-	if len(parts) == 0 do return .Empty, ""
-	return .None, ""
+	if len(parts) == 0 do return .Empty, "", rig
+	return .None, "", rig
 }
 
 // The bytes of a texture the file names but does not hold: by its relative path, by

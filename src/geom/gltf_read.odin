@@ -14,7 +14,8 @@ import "core:strings"
 // and fans; points and lines are left out), its POSITION, its COLOR_0 as sRGB vertex
 // colours, and a group for each material its primitives use. Primitives compressed with
 // Draco or meshopt, which this reader does not decode, are left out and counted, and so
-// are morph targets and skins (a skinned mesh comes in its bind pose). glTF is Y up and
+// are skins, animations and morph targets (a skinned mesh comes in its bind pose). A part's
+// folder is the nearest named node above its own. glTF is Y up and
 // metres, as the app's space is, so nothing turns. Given a Mesh_Look, the materials'
 // base colour factors and textures fill it, and the parts' triangles and corners get
 // their materials and texture coordinates.
@@ -23,6 +24,7 @@ import "core:strings"
 Gltf_Skipped :: struct {
 	compressed: int, // primitives compressed by KHR_draco_mesh_compression or EXT_meshopt_compression
 	not_faces:  int, // primitives of points or lines
+	rig:        Rig_Found, // its skins, animations and the morph targets of the meshes placed
 }
 
 GLB_MAGIC :: "glTF"
@@ -109,13 +111,17 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Mesh_Res
 	}
 	// Depth first with an explicit stack; a node reached a second time down one path (a
 	// cycle, which glTF forbids) is not followed again.
+	// `folder` is the nearest named node above it, which names its parts' folder.
 	Visit :: struct {
-		node:  int,
-		world: matrix[4, 4]f64,
-		depth: int,
+		node:   int,
+		world:  matrix[4, 4]f64,
+		depth:  int,
+		folder: string,
 	}
 	stack := make([dynamic]Visit, context.temp_allocator)
-	#reverse for r in roots do append(&stack, Visit{r, 1, 0})
+	#reverse for r in roots do append(&stack, Visit{r, 1, 0, ""})
+	skipped.rig.skins = len(gltf_array(root, "skins"))
+	skipped.rig.animations = len(gltf_array(root, "animations"))
 	for len(stack) > 0 {
 		v := pop(&stack)
 		if v.node < 0 || v.node >= len(nodes) || v.depth > len(nodes) do continue
@@ -126,11 +132,15 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Mesh_Res
 			// A skinned mesh's node transform is ignored (the joints place it), so it
 			// comes in its bind pose, where it was modelled.
 			_, skinned := no["skin"]
+			before := len(parts)
 			err = gltf_mesh(&g, parts, gltf_number_int(mesh), 1 if skinned else world, name, &skipped)
 			if err != .None do return
+			if len(parts) > before do parts[len(parts) - 1].folder = strings.clone(v.folder)
 		}
 		children := gltf_array(no, "children")
-		#reverse for c in children do append(&stack, Visit{gltf_number_int(c), world, v.depth + 1})
+		folder := v.folder
+		if name, _ := no["name"].(json.String); name != "" do folder = name
+		#reverse for c in children do append(&stack, Visit{gltf_number_int(c), world, v.depth + 1, folder})
 	}
 	if len(parts) == 0 do return skipped, .Empty
 	return skipped, .None
@@ -225,8 +235,12 @@ gltf_mesh :: proc(g: ^Gltf_Reader, parts: ^[dynamic]Mesh_Part, index: int, world
 	colored, grouped := false, false
 	first_group := -2
 	mirrored := linalg.determinant(world) < 0
+	// Every primitive of a mesh has the same morph targets, which are its shape keys.
+	shapes := 0
+	defer skipped.rig.shapes += shapes
 	for prim in gltf_array(mo, "primitives") {
 		po, _ := prim.(json.Object)
+		shapes = max(shapes, len(gltf_array(po, "targets")))
 		mode := gltf_int(po, "mode", 4)
 		if mode < 4 || mode > 6 {
 			skipped.not_faces += 1

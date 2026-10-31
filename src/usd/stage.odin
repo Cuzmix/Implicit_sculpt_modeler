@@ -58,6 +58,7 @@ Stage :: struct {
 Skipped :: struct {
 	composed: int, // prims whose references, payloads, variants or instancing were not followed
 	not_mesh: int, // Mesh prims without points or faces
+	rig:      geom.Rig_Found, // Skeleton, SkelAnimation and BlendShape prims, left for later
 }
 
 // Each Mesh prim the stage defines (every prim up to the root a def, active and visible) as a part appended to `parts`: its faces split into fans (holes left
@@ -65,7 +66,8 @@ Skipped :: struct {
 // leftHanded or mirrored, in metres and Y up; its displayColor as sRGB vertex colours
 // (a face's or corner's colours averaged at each vertex), and its materialBind
 // GeomSubsets as polygroups (one each, from 1, in the order they come), or else the
-// primvars:polygroup the app's own export writes.
+// primvars:polygroup the app's own export writes. Each part's folder is its parent prim's
+// name; Skeleton, SkelAnimation and BlendShape prims are counted for the note.
 stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skipped) -> geom.Mesh_File_Error {
 	world := make([]matrix[4, 4]f64, len(s.prims), context.temp_allocator)
 	units := s.meters_per_unit if s.meters_per_unit > 0 else 0.01
@@ -83,10 +85,20 @@ stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skippe
 		if p.type_name != "Mesh" do continue
 		if !prim_defined(s, i) do continue
 		if p.composed do skipped.composed += 1
+		before := len(parts)
 		err := mesh_part(s, i, world[i], parts, skipped)
 		if err != .None do return err
+		// Its folder is the prim it sits under, as a scene tree's group.
+		if len(parts) > before && p.parent >= 0 do parts[len(parts) - 1].folder = strings.clone(s.prims[p.parent].name)
 	}
-	for p in s.prims do if p.composed && p.type_name != "Mesh" do skipped.composed += 1
+	for p in s.prims {
+		if p.composed && p.type_name != "Mesh" do skipped.composed += 1
+		switch p.type_name {
+		case "Skeleton":      skipped.rig.skins += 1
+		case "SkelAnimation": skipped.rig.animations += 1
+		case "BlendShape":    skipped.rig.shapes += 1
+		}
+	}
 	return .None
 }
 

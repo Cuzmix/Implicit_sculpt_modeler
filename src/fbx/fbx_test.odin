@@ -35,7 +35,7 @@ binary_and_text_fbx_read_the_same_coloured_cube :: proc(t: ^testing.T) {
 		testing.expect(t, recognised(data), name)
 		parts := make([dynamic]geom.Mesh_Part)
 		defer geom.mesh_parts_destroy(&parts)
-		err, _ := read(&parts, data)
+		err, _, _ := read(&parts, data)
 		testing.expect_value(t, err, geom.Mesh_File_Error.None)
 		if len(parts) != 1 do continue
 		p := parts[0]
@@ -55,7 +55,7 @@ fbx_instances_each_become_a_part :: proc(t: ^testing.T) {
 	defer delete(data)
 	parts := make([dynamic]geom.Mesh_Part)
 	defer geom.mesh_parts_destroy(&parts)
-	err, _ := read(&parts, data)
+	err, _, _ := read(&parts, data)
 	testing.expect_value(t, err, geom.Mesh_File_Error.None)
 	testing.expect_value(t, len(parts), 8)
 	for p in parts do testing.expect_value(t, len(p.mesh.indices), 3 * 968)
@@ -71,7 +71,7 @@ fbx_materials_give_groups_and_paint :: proc(t: ^testing.T) {
 	defer geom.mesh_parts_destroy(&parts)
 	look: geom.Mesh_Look
 	defer geom.mesh_look_destroy(&look)
-	err, _ := read(&parts, data, &look)
+	err, _, _ := read(&parts, data, &look)
 	testing.expect_value(t, err, geom.Mesh_File_Error.None)
 	testing.expect_value(t, len(look.materials), 7)
 	if len(parts) != 1 do return
@@ -96,7 +96,7 @@ fbx_textures_paint_embedded_or_beside :: proc(t: ^testing.T) {
 		look: geom.Mesh_Look
 		defer geom.mesh_look_destroy(&look)
 		// The second names its images by a Windows path below the file.
-		err, _ := read(&parts, data, &look, beside, &files)
+		err, _, _ := read(&parts, data, &look, beside, &files)
 		testing.expect_value(t, err, geom.Mesh_File_Error.None)
 		if len(parts) != 1 do continue
 		testing.expect_value(t, len(parts[0].uvs), 36)
@@ -112,13 +112,65 @@ not_fbx_is_refused_with_a_reason :: proc(t: ^testing.T) {
 	defer geom.mesh_parts_destroy(&parts)
 	text := "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
 	testing.expect(t, !recognised(transmute([]u8)text), "OBJ is not FBX")
-	err, reason := read(&parts, transmute([]u8)text)
+	err, reason, _ := read(&parts, transmute([]u8)text)
 	testing.expect_value(t, err, geom.Mesh_File_Error.Not_Recognised)
 	testing.expect(t, reason != "", "ufbx says why")
 	// A binary file cut short.
 	data := load("blender_279_color_sets_7400_binary.fbx")
 	defer delete(data)
-	cut, _ := read(&parts, data[:len(data) / 2])
+	cut, _, _ := read(&parts, data[:len(data) / 2])
 	testing.expect_value(t, cut, geom.Mesh_File_Error.Not_Recognised)
 	testing.expect_value(t, len(parts), 0)
+}
+
+// A Blender cube keeps its six quads; nested meshes name the node above them as their
+// folder; a skinned, animated sausage and a mesh with animated shape keys say what they hold
+// for animation, which Import leaves for later.
+@(test)
+fbx_keeps_polygons_folders_and_counts_rigs :: proc(t: ^testing.T) {
+	{
+		data := load("blender_272_cube_7400_binary.fbx")
+		defer delete(data)
+		parts := make([dynamic]geom.Mesh_Part)
+		defer geom.mesh_parts_destroy(&parts)
+		err, _, rig := read(&parts, data)
+		testing.expect_value(t, err, geom.Mesh_File_Error.None)
+		testing.expect_value(t, rig, geom.Rig_Found{})
+		if len(parts) == 1 {
+			p := parts[0]
+			testing.expect_value(t, len(p.polys), len(p.mesh.indices) / 3)
+			faces := map[u32]int{}
+			defer delete(faces)
+			for f in p.polys do faces[f] += 1
+			testing.expect_value(t, len(faces), 6)
+			for _, n in faces do testing.expect_value(t, n, 2)
+		}
+	}
+	{
+		data := load("blender_279_nested_meshes_7400_binary.fbx")
+		defer delete(data)
+		parts := make([dynamic]geom.Mesh_Part)
+		defer geom.mesh_parts_destroy(&parts)
+		err, _, _ := read(&parts, data)
+		testing.expect_value(t, err, geom.Mesh_File_Error.None)
+		nested := 0
+		for p in parts do if p.folder != "" do nested += 1
+		testing.expectf(t, nested > 0 && nested < len(parts), "%d of %d parts sit under another node", nested, len(parts))
+	}
+	{
+		data := load("blender_279_sausage_7400_binary.fbx")
+		defer delete(data)
+		parts := make([dynamic]geom.Mesh_Part)
+		defer geom.mesh_parts_destroy(&parts)
+		_, _, rig := read(&parts, data)
+		testing.expectf(t, rig.skins > 0 && rig.animations > 0, "%v", rig)
+	}
+	{
+		data := load("blender440_shape_weight_anim_7400_binary.fbx")
+		defer delete(data)
+		parts := make([dynamic]geom.Mesh_Part)
+		defer geom.mesh_parts_destroy(&parts)
+		_, _, rig := read(&parts, data)
+		testing.expectf(t, rig.shapes > 0 && rig.animations > 0, "%v", rig)
+	}
 }
