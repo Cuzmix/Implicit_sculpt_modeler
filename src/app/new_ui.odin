@@ -1332,6 +1332,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	shape_waits := app.shape_pending.kind != .None && app.tool == .Brush
 	quiet := !floating && !kit_floating(app) && !typed
 	if shape_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do app.shape_pending.request = .Apply
+	// A stroke held to edit is kept by Enter too, and put back by Escape before what is open.
+	edit_waits := app.stroke_edit.open
+	if edit_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do stroke_edit_validate(app)
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
 	// the object or the mask back (move_tool_frame).
@@ -1346,6 +1349,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if k.clean && quiet do clean_view_set(app, false)
 		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
+		else if edit_waits && quiet do stroke_edit_cancel(app)
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		// A job is cancelled last, once nothing else took the key.

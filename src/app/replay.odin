@@ -105,6 +105,9 @@ replay_frame_begin :: proc(app: ^App) {
 // part in a stroke: one was under way, began, or came and went within the frame.
 replay_record :: proc(app: ^App, input: Viewport_Input, res: Sculpt_Frame_Result) {
 	p := &app.replay
+	// A stroke held to edit is laid from its curve, not from the pointer: its frames are not
+	// samples a replay could lay again.
+	if app.stroke_edit.open do return
 	if !p.was_active && !app.stroke.active && res.dabs == 0 do return
 	began := !p.was_active
 	if began do take_clear(&p.last)

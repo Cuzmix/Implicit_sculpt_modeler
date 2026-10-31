@@ -162,6 +162,10 @@ Command_Id :: enum u16 {
 	Crease_Cage,
 	Cage_Check,
 	Adjust_Last,
+	Stroke_Validate,
+	Stroke_Cancel,
+	Stroke_Radius_Each,
+	Stroke_Intensity_Each,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1451,6 +1455,32 @@ COMMANDS := [Command_Id]Command {
 			else do adjust_open(app)
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return adjust_live(app)},
+	},
+	.Stroke_Validate = {
+		label = "Validate stroke",
+		help = "Keeps the stroke held to edit as its curve stands, as one undo step.",
+		run = proc(app: ^App, _: int) {stroke_edit_validate(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+	},
+	.Stroke_Cancel = {
+		label = "Cancel stroke",
+		help = "Puts the surface back as it was before the stroke held to edit; nothing is recorded.",
+		run = proc(app: ^App, _: int) {stroke_edit_cancel(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+	},
+	.Stroke_Radius_Each = {
+		label = "Radius per point",
+		help = "Gives each point of the stroke held to edit its own radius; off, one radius for the whole stroke.",
+		run = proc(app: ^App, _: int) {stroke_edit_set_each(app, true, !app.stroke_edit.radius_each)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.radius_each},
+	},
+	.Stroke_Intensity_Each = {
+		label = "Intensity per point",
+		help = "Gives each point of the stroke held to edit its own intensity, so it can start faint, swell and fade; off, one for the whole stroke.",
+		run = proc(app: ^App, _: int) {stroke_edit_set_each(app, false, !app.stroke_edit.intensity_each)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.intensity_each},
 	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
