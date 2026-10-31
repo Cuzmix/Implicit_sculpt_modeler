@@ -19,6 +19,7 @@ import "../voxel"
 // booleans straight away (a cylinder marked Subtract drills a hole).
 
 Curve_Kind :: enum u8 {
+	Curve, // a curve object, editable until baked (curve_object.odin)
 	Tube,
 	Stitches,
 	Zipper,
@@ -34,6 +35,10 @@ Curve_Tool :: struct {
 	points: [dynamic]geom.Curve_Point,
 	screen: [dynamic][2]f32,
 	radius: f32, // the brush's radius in world units where the path began
+	// Points tapped one by one for a curve (world space), until Enter, Done or a tap on the
+	// first point ends it.
+	placing: [dynamic]Vec3,
+	made:    int, // curve objects made, for the exit stats
 }
 
 Insert_Tool :: struct {
@@ -57,6 +62,7 @@ INSERT_DEFAULTS :: Insert_Tool{shape = .Sphere, vertices = 20_000, sink = 0.3}
 curve_tool_destroy :: proc(c: ^Curve_Tool) {
 	delete(c.points)
 	delete(c.screen)
+	delete(c.placing)
 }
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
@@ -105,7 +111,75 @@ curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	}
 	if !c.active do return true
 	c.active = false
+	if c.kind == .Curve {
+		curve_drawn(app, input.mouse_pos, input.size)
+		return true
+	}
 	return curve_make(app)
+}
+
+// How far a press may move on screen and still be a tap that places a point.
+CURVE_TAP_PX :: 6
+
+// How closely a freehand curve follows the path drawn, as a share of the brush's radius:
+// more keeps fewer points.
+CURVE_FIT_TOLERANCE :: 0.25
+
+// Ends a press of the Curve kind at `pos`: a drag becomes a curve object fitted to its
+// path; a tap places a point, and a tap on the first of three or more closes the curve.
+curve_drawn :: proc(app: ^App, pos, size: [2]f32) {
+	c := &app.curve
+	defer {
+		clear(&c.points)
+		clear(&c.screen)
+	}
+	travel: f32
+	for i in 1 ..< len(c.screen) do travel += linalg.length(c.screen[i] - c.screen[i - 1])
+	if len(c.points) >= 2 && travel > CURVE_TAP_PX {
+		path := make([]Vec3, len(c.points), context.temp_allocator)
+		for p, i in c.points do path[i] = p.p
+		points, _ := geom.bezier_fit(path, CURVE_FIT_TOLERANCE * c.radius, context.temp_allocator)
+		for &p in points do p.radius, p.intensity = c.radius * c.size, 1
+		_ = curve_object_add(app, points, false)
+		clear(&c.placing)
+		return
+	}
+	// A tap on the first point placed closes the curve.
+	if len(c.placing) >= 3 {
+		view_proj := edit_view_proj(app, size)
+		if first, ok := gizmo_project_point(view_proj, c.placing[0], size); ok && linalg.length(first - pos) < CURVE_PICK_PX {
+			curve_place_finish(app, true)
+			return
+		}
+	}
+	origin, dir := mouse_ray(app.camera, pos, size)
+	if _, hit, _, ok := scene_raycast_surface(app, origin, dir); ok {
+		if len(c.placing) == 0 do c.radius = app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)
+		append(&c.placing, hit)
+	} else if len(c.placing) > 0 {
+		// Off the model, on the plane facing the view through the last point.
+		last := c.placing[len(c.placing) - 1]
+		facing := camera.orbit_toward(app.camera, last)
+		if den := linalg.dot(dir, facing); abs(den) > 1e-6 do append(&c.placing, origin + dir * (linalg.dot(last - origin, facing) / den))
+	}
+}
+
+// Makes the points placed one by one into a curve object (closed or not), smooth through
+// each as a Catmull-Rom spline is: each handle a sixth of the way between its neighbours.
+// Fewer than two points make nothing. Enter ends an open curve.
+curve_place_finish :: proc(app: ^App, closed: bool) {
+	c := &app.curve
+	defer clear(&c.placing)
+	n := len(c.placing)
+	if n < 2 do return
+	points := make([]geom.Bezier_Point, n, context.temp_allocator)
+	for p, i in c.placing {
+		prev := c.placing[(i + n - 1) % n] if closed || i > 0 else p
+		next := c.placing[(i + 1) % n] if closed || i < n - 1 else p
+		way := (next - prev) / 6
+		points[i] = {p = p, h_in = -way, h_out = way, radius = c.radius * c.size, intensity = 1}
+	}
+	_ = curve_object_add(app, points, closed)
 }
 
 // Adds the surface point under `pos` (a viewport point) to the path, when there is one
@@ -134,6 +208,8 @@ curve_make :: proc(app: ^App) -> bool {
 	mesh: geom.Mesh
 	made: bool
 	switch c.kind {
+	case .Curve:
+		return true
 	case .Tube:
 		r := width / 2
 		sides := int(clamp(c.sides, 3, 64))
@@ -254,6 +330,15 @@ insert_make :: proc(app: ^App, at, normal: Vec3, half: f32) -> bool {
 draw_curve_overlay :: proc(app: ^App, o: Overlay) {
 	color := overlay_color({0.4, 0.85, 1, 1})
 	if c := &app.curve; c.active && len(c.screen) >= 2 do overlay_polyline(o, c.screen[:], color, 2)
+	// The points placed so far, joined, the first larger since a tap on it closes the curve.
+	if c := &app.curve; len(c.placing) > 0 {
+		size := app.ui.viewport_size
+		view_proj := edit_view_proj(app, size)
+		line := make([dynamic][2]f32, 0, len(c.placing), context.temp_allocator)
+		for p in c.placing do if at, ok := gizmo_project_point(view_proj, p, size); ok do append(&line, at)
+		if len(line) >= 2 do overlay_polyline(o, line[:], color, 2)
+		for at, i in line do overlay_disc(o, at, (6 if i == 0 else 4) * o.scale, color)
+	}
 	if s := &app.insert; s.active do overlay_circle(o, s.start, s.px, color, 1.5)
 }
 

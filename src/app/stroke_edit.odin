@@ -257,7 +257,6 @@ stroke_edit_surface :: proc(app: ^App, obj: ^Object, s: geom.Bezier_Sample) -> (
 }
 
 // The camera's view and projection for a viewport `size`.
-@(private = "file")
 edit_view_proj :: proc(app: ^App, size: [2]f32) -> matrix[4, 4]f32 {
 	return camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
 }

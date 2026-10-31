@@ -536,7 +536,7 @@ kit_move_tab :: proc(app: ^App) {
 @(private = "file")
 kit_curve_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Drag over the surface: when you let go, a new object follows the path. Its width is a share of the brush's diameter (S changes the brush size).")
+	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag over the surface for a curve that follows the path with as few points as keep it close, or tap points one by one (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model. Tube, Stitches and Zipper make a new object along the path when you let go, its width a share of the brush's diameter (S changes the brush size).")
 	kit_curve_settings(app)
 }
 
