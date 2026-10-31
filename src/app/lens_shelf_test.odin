@@ -15,7 +15,7 @@ shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .Shelf_Sculpt), "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer")
+	testing.expect_value(t, bar_names(&a, .Shelf_Sculpt), "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer,Remesh,Dyntopo_Toggle")
 	testing.expect_value(t, bar_names(&a, .Shelf_Curve), "Tool_Curve,Tool_Insert,Brush:Smooth")
 	for p in Shelf_Page do testing.expect(t, !bar_changed(&a, shelf_which(p)))
 	page, ok := shelf_page_of(.Shelf_Move)

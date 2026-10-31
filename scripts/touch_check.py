@@ -102,16 +102,18 @@ UI = {
     "frame": At("view bar/Focus selected", 1563, 277), "sym_x": At("view bar/Symmetry across X", 1563, 325),
     "wireframe": At("view bar/Wireframe", 1563, 373), "lights": At("view bar/Lights", 1563, 421),
     "mini": At("view bar/Second view", 1563, 470),
-    # The shelf's Sculpt page, All, and its tools after the divider.
-    "shelf_clay": At("shelf brushes/Clay", 331, 835), "shelf_draw": At("shelf brushes/Draw", 395, 835),
-    "shelf_smooth": At("shelf brushes/Smooth", 459, 835), "shelf_inflate": At("shelf brushes/Inflate", 523, 835),
-    "shelf_pinch": At("shelf brushes/Pinch", 587, 835), "shelf_crease": At("shelf brushes/Crease", 651, 835),
-    "shelf_grab": At("shelf brushes/Grab", 715, 835), "shelf_flatten": At("shelf brushes/Flatten", 779, 835),
-    "shelf_mask": At("shelf brushes/Mask", 843, 835), "shelf_layer": At("shelf brushes/Layer", 907, 835),
-    "browser": At("dock/All", 971, 835),
-    "gizmo": At("dock/Gizmo", 1036, 833), "remesh": At("dock/Remesh", 1084, 833),
-    "dyntopo": At("dock/Dynamic topology", 1132, 833), "retopo": At("dock/Quad Remesh", 1180, 833),
-    "subdivide": At("dock/Subdivide", 1228, 833), "live_boolean": At("dock/Live boolean", 1276, 833),
+    # The shelf: All at the off-hand end, then after the divider the Brushes page's tiles,
+    # Remesh and Dyntopo last.
+    "browser": At("dock/All", 411, 833),
+    "shelf_clay": At("shelf brushes/Clay", 484, 833), "shelf_draw": At("shelf brushes/Draw", 548, 833),
+    "shelf_smooth": At("shelf brushes/Smooth", 612, 833), "shelf_inflate": At("shelf brushes/Inflate", 676, 833),
+    "shelf_pinch": At("shelf brushes/Pinch", 740, 833), "shelf_crease": At("shelf brushes/Crease", 804, 833),
+    "shelf_grab": At("shelf brushes/Grab", 868, 833), "shelf_flatten": At("shelf brushes/Flatten", 932, 833),
+    "shelf_mask": At("shelf brushes/Mask", 996, 833), "shelf_layer": At("shelf brushes/Layer", 1060, 833),
+    "remesh": At("dock/Remesh", 1124, 833), "dyntopo": At("dock/Dyntopo", 1188, 833),
+    # The old tools strip's tools, on a Brushes page of their own (tools_page).
+    "retopo": At("dock/Quad Remesh", 868, 833), "subdivide": At("dock/Subdivide", 932, 833),
+    "live_boolean": At("dock/Live boolean", 996, 833),
 }
 # The menu's rows by name, and where each was at 1600x900 in lens_menu.odin's order, 44
 # points apart with a little more at each divider.
@@ -294,12 +296,12 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "gizmo", "shelf_draw", "sym_x", "sym_x",
+    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "sym_x", "sym_x",
                  "camera", "camera", "passes", "passes", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
                  "shelf_smooth", "shelf_draw", "browser", "browser", "inspector", "inspector", "status"]:
         s.ftap(UI[name])
     # Just past the drawn edge of the shelf and the top bar, inside their targets.
-    s.ftap(490, 815)
+    s.ftap(377, 833)
     s.ftap(692, 4)
     return s, [], camera_still({"dabs": near(0)})
 
@@ -403,18 +405,18 @@ VALUE_MENU_SETTINGS = (200, 454)
 # the Size popover's 96 step.
 VALUE_CHIPS = {"size": (44, 387), "strength": (44, 450), "focal": (44, 512)}
 VALUE_STEP_96 = (282, 508)
-# The shelf's tool strip with Strength and Pressure after Move and Remesh (value_bars), and
-# the Pressure popover's Strength switch.
-STRIP_STRENGTH, STRIP_PRESSURE = (1181, 832), (1229, 832)
-PRESSURE_STRENGTH_SWITCH = (1343, 761)
+# The shelf's Brushes page holding Move, Remesh, Strength and Pressure (value_bars), and the
+# Pressure popover's Strength switch.
+STRIP_STRENGTH, STRIP_PRESSURE = (868, 833), (932, 833)
+PRESSURE_STRENGTH_SWITCH = At("bar value/Pressure changes the strength", 1050, 760)
 
 
 def value_bars(island=(), strip=()):
-    """Arguments that start the run with the island holding `island` and the shelf's tools
-    `strip`, each a list of (value, look) or a command name, through the scenario's settings
-    file."""
-    lines = ["version 6"]
-    for zone, items in (("offhand_island", island), ("bottom_tools", strip)):
+    """Arguments that start the run with the island holding `island` and the shelf's Brushes
+    page `strip`, each a list of (value, look) or a command name, through the scenario's
+    settings file (with no old tools strip for version 12 to bring onto the pages)."""
+    lines = ["version 6", "bar_count bottom_tools 0"]
+    for zone, items in (("offhand_island", island), ("shelf_sculpt", strip)):
         if not items:
             continue
         lines.append(f"bar_count {zone} {len(items)}")
@@ -425,6 +427,16 @@ def value_bars(island=(), strip=()):
             value, look = item
             lines.append(f"bar {zone} {i} Brush_Value:{value}")
             lines.append(f"bar_look {zone} {i} {look}")
+    with open(settings_file(), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return [f"--settings-file={settings_file()}"]
+
+
+def tools_page():
+    """Arguments that start the run with the shelf's Brushes page holding the tools the old
+    tools strip held, through the scenario's settings file."""
+    tools = ["Tool_Move", "Remesh", "Dyntopo_Toggle", "Retopologize", "Subdivide", "Live_Boolean"]
+    lines = ["version 12", f"bar_count shelf_sculpt {len(tools)}"] + [f"bar shelf_sculpt {i} {t}" for i, t in enumerate(tools)]
     with open(settings_file(), "w") as f:
         f.write("\n".join(lines) + "\n")
     return [f"--settings-file={settings_file()}"]
@@ -518,7 +530,7 @@ def long_press_a_value_picks_its_look():
 
 @scenario
 def strip_value_scrubs_up_and_down():
-    """Strength on the shelf's tools scrubs up and down: a finger dragged 50 points up from it raises the strength and leaves the page; a sideways swipe from it still turns the page."""
+    """Strength on the shelf's page scrubs up and down: a finger dragged 50 points up from it raises the strength and leaves the page; a sideways swipe from it still turns the page."""
     strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
     s = Script()
     x, y = STRIP_STRENGTH
@@ -534,7 +546,7 @@ def strip_value_scrubs_up_and_down():
 
 @scenario
 def pressure_chip_opens_its_switches():
-    """Pressure on the shelf's tools is a tap, not a scrub: its popover's Strength switch turns pressure on the strength off."""
+    """Pressure on the shelf's page is a tap, not a scrub: its popover's Strength switch turns pressure on the strength off."""
     strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
     s = Script()
     s.ftap(STRIP_PRESSURE)
@@ -882,7 +894,7 @@ def field_of_view_from_the_camera_menu():
 
 @scenario
 def mesh_tools_on_the_shelf():
-    """The shelf's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the shelf; a tap on Quad Remesh runs it (a new object beside the sphere, one undo step) and a long press opens its section."""
+    """The shelf's mesh tools, on a page of them: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the shelf; a tap on Quad Remesh runs it (a new object beside the sphere, one undo step) and a long press opens its section."""
     toggles, divide, remesh, retopo, retopo_held = Script(), Script(), Script(), Script(), Script()
     toggles.ftap(UI["dyntopo"])
     toggles.wait(8)
@@ -897,11 +909,11 @@ def mesh_tools_on_the_shelf():
     long_press(retopo_held, UI["retopo"])
     retopo_held.wait(8)
     return Steps([
-        (toggles, [], camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
-        (divide, [], camera_still({"dabs": near(0), "selected_levels": near(2)})),
-        (remesh, [], camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
-        (retopo, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "objects": near(2), "undo_steps": near(1)})),
-        (retopo_held, [], camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
+        (toggles, tools_page(), camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
+        (divide, tools_page(), camera_still({"dabs": near(0), "selected_levels": near(2)})),
+        (remesh, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
+        (retopo, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "objects": near(2), "undo_steps": near(1)})),
+        (retopo_held, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
     ])
 
 
@@ -3023,7 +3035,7 @@ def a_press_in_render_turns_the_view():
 # Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
 # Exposure chip, the dial's top sector (Place highlight in Render) and left sector (the
 # Select action in Model), and a press on the model.
-RENDER_EXPOSURE_CHIP = (864, 830)
+RENDER_EXPOSURE_CHIP = (932, 833)
 DIAL_TOP, DIAL_LEFT = (78, 778), (35, 822)
 ON_MODEL = (520, 330)
 
@@ -3073,7 +3085,9 @@ def model_dial_picks_select():
 # row and a point on the view clear of every bar.
 DRAG_1280 = ["--width=1280", "--height=720"]
 DRAG_RAIL = {"layout": (1243, 133), "camera": (1243, 229), "focus": (1243, 277), "wireframe": (1243, 373)}
-DRAG_CLAY, DRAG_TOOLS_LAST = (219, 653), (1069, 653)
+DRAG_CLAY = (324, 653)
+# The Curve page's last tile at 1280 x 720 (Smooth, after the Curve and Insert tools).
+DRAG_CURVE_LAST = (740, 653)
 DRAG_SEARCH, DRAG_ROW1, DRAG_CLEAR = (1130, 29), (640, 150), (640, 300)
 
 
@@ -3118,10 +3132,12 @@ def bar_drag_off_takes_it_off():
 
 @scenario
 def bar_drag_to_another_bar_moves_it():
-    """The rail's Wireframe carried onto the right half of the tool strip's last button shown (Retopologize: the strip shows four at this width) goes after it and off the rail."""
+    """The rail's Wireframe carried onto the right half of the Curve page's last tile (Smooth) goes after it and off the rail."""
     s = Script()
-    hold_and_carry(s, DRAG_RAIL["wireframe"], (DRAG_TOOLS_LAST[0] + 10, DRAG_TOOLS_LAST[1]))
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "bar_tools": lambda v: "Retopologize,Wireframe,Subdivide" in v,
+    s.ftap(At("page Curve", 704, 704))
+    s.wait(10)
+    hold_and_carry(s, DRAG_RAIL["wireframe"], (DRAG_CURVE_LAST[0] + 15, DRAG_CURVE_LAST[1]))
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "shelf": is_text("Tool_Curve,Tool_Insert,Brush:Smooth,Wireframe"),
                                        "view_rail": lambda v: "Wireframe" not in v})
 
 
@@ -3430,17 +3446,22 @@ def lens_left_handed_mirrors_the_chrome():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 900, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
 
 
-# The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the tools after them, the
-# page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
-LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
-              "move_tool": (957, 833), "curve_remesh": (819, 833)}
-# Sculpt's pages; Model's one page shows only in the Model space, reached by its tab.
-LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883), "curve": (810, 883)}
+# The Lens shelf at 1440 x 900 (lens_shelf.odin): All at the off-hand end, the Brushes
+# page's tiles after it, the page names under it, and in the brush picker the Paint page
+# and the Draw and Inflate cards.
+LENS_SHELF = {"all": At("dock/All", 331, 833), "clay": At("shelf brushes/Clay", 404, 833), "draw": At("shelf brushes/Draw", 468, 833),
+              "inflate": At("shelf brushes/Inflate", 596, 833), "pinch": At("shelf brushes/Pinch", 660, 833),
+              "layer": At("shelf brushes/Layer", 980, 833), "remesh": At("shelf brushes/Remesh", 1044, 833)}
+# Sculpt's pages, by name ("page Sculpt" shows as Brushes); Model's one page shows only in
+# the Model space, reached by its tab.
+LENS_SHELF_PAGES = {"sculpt": At("page Sculpt", 630, 884), "paint": At("page Paint", 696, 884),
+                    "move": At("page Move", 755, 884), "curve": At("page Curve", 816, 884)}
 LENS_MODEL_TAB = (594, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
-LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
+LENS_MODEL_TILES = {"extrude": At("shelf brushes/Extrude", 404, 833), "inset": At("shelf brushes/Inset", 468, 833),
+                    "cube": At("shelf brushes/Cube", 980, 833)}
 LENS_SHEET = {"paint": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
-LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
+LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer,Remesh,Dyntopo_Toggle"
 
 
 @scenario
@@ -3463,7 +3484,7 @@ def lens_shelf_long_press_shows_quick_settings():
 
 @scenario
 def lens_shelf_shows_every_tile_it_adds():
-    """Every tile of the Sculpt page shows, narrowed to fit on a tablet-shaped window, where a page with no room left refuses one more rather than add it out of sight; on a wide window brushes put on the shelf from Search show at its end, up to its twelve."""
+    """Every tile of the Brushes page shows, all twelve, narrowed to fit on a tablet-shaped window; a page with no room left refuses one more from Search rather than add it out of sight."""
     def run(size, more, count, fits):
         s = Script()
         for name in ["snake hook", "clay strips", "elastic"][:more]:
@@ -3476,12 +3497,12 @@ def lens_shelf_shows_every_tile_it_adds():
             s.wait(4)
         return s, size, camera_still({"shelf_shown": near(count), "shelf": lambda v: len(v.split(",")) == count, "shelf_fits": near(fits), "dabs": near(0)})
     tablet = ["--width=1180", "--height=820"]
-    return Steps([run(tablet, 0, 10, 10), run(tablet, 1, 10, 10), run(LENS_1440, 1, 11, 12), run(LENS_1440, 3, 12, 12)])
+    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 12, 12)])
 
 
 # At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
 # page is added, the new page's name and its menu's Rename.
-SHELF_PAGES_720 = {"curve": (727, 703), "new_page": (682, 656), "added": (800, 704), "rename": (710, 568)}
+SHELF_PAGES_720 = {"curve": (736, 704), "new_page": (691, 656), "added": (736, 704), "rename": (736, 568)}
 
 
 @scenario
@@ -3945,22 +3966,19 @@ def lens_shelf_swipe_turns_the_page():
 
 
 @scenario
-def lens_shelf_tools_follow_the_brushes():
-    """The tools come after the shelf's brushes and All on every page: a tap on Move picks the gizmo; on the Curve page the same buttons are there, and a long press on Remesh opens its quick menu."""
-    def run(curve):
+def lens_shelf_tiles_are_the_pages_own():
+    """The shelf has no tools strip: Remesh is a tile of the Brushes page, whose long press opens its quick menu, and the Move page's Gizmo tile picks the gizmo."""
+    def run(move):
         s = Script()
-        if curve:
-            s.ftap(LENS_SHELF_PAGES["curve"])
+        if move:
+            s.ftap(LENS_SHELF_PAGES["move"])
             s.wait(10)
-            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it,
-            # and 39 points right again, as Draw, held from the Sculpt page, has its own
-            # tile left of the shelf there.
-            s.ftap(LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
+            s.ftap(At("shelf brushes/Gizmo", 700, 833))
             s.wait(10)
-            return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_tools": near(6), "bar_pop": is_text("remesh_quick"), "dabs": near(0)})
-        s.ftap(LENS_SHELF["move_tool"])
+            return s, LENS_1440, camera_still({"shelf_page": is_text("Move"), "tool": is_text("move"), "dabs": near(0)})
+        s.ftap(LENS_SHELF["remesh"], hold=LONG_PRESS_FRAMES)
         s.wait(10)
-        return s, LENS_1440, camera_still({"tool": is_text("move"), "shelf_tools": near(6), "shelf_shown": near(10), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"shelf_page": is_text("Sculpt"), "bar_pop": is_text("remesh_quick"), "shelf_shown": near(12), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -3995,13 +4013,15 @@ def lens_picker_swipe_scrolls_the_cards():
     return Steps([run(False), run(True)])
 
 
-# The active brush's tile, left of the shelf at 1440 x 900 while the brush held is not on it.
-LENS_SHELF_ACTIVE = (212, 832)
+# The visiting tile, right after All at 1440 x 900 while the brush held is not on the page,
+# and the pin on its corner.
+LENS_SHELF_ACTIVE = At("dock/shelf visiting", 340, 833)
+LENS_SHELF_PIN = At("shelf visiting pin/visiting", 364, 812)
 
 
 @scenario
 def lens_shelf_shows_the_active_brush():
-    """A brush not on the shelf (Snake hook, picked by script as from All or Search) shows on a tile of its own left of the shelf, lit; a tap on it shows its quick settings. A brush on the shelf (Clay) shows none."""
+    """A brush not on the shelf (Snake hook, picked by script as from All or Search) visits it as the tile after All, lit, the page's own tiles staying where they were; a tap on it shows its quick settings. A brush on the shelf (Clay) shows none."""
     def run(on_shelf):
         s = Script()
         s.wait(10)
@@ -4011,6 +4031,69 @@ def lens_shelf_shows_the_active_brush():
         s.wait(10)
         return s, LENS_1440 + ["--script=brush snake_hook"], camera_still({"shelf_active": near(1), "shelf_quick": near(1), "brush_kind": is_text("snake_hook"), "dabs": near(0)})
     return Steps([run(True), run(False)])
+
+
+@scenario
+def lens_shelf_pin_keeps_the_visiting_brush():
+    """The visiting tile's pin keeps the brush on the page shown, first after All: on the Paint page, with room, at once; on the full Brushes page the next tap on a tile gives its place to it, and Escape before that gives the pin up, the tap then picking that tile's brush."""
+    def run(how):
+        s = Script()
+        s.wait(10)
+        if how == "room":
+            s.ftap(LENS_SHELF_PAGES["paint"])
+            s.wait(10)
+        s.ftap(LENS_SHELF_PIN)
+        s.wait(6)
+        if how == "room":
+            return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf_page": is_text("Paint"), "shelf": lambda v: v.startswith("Brush:Elastic,"),
+                                                                           "shelf_pins": near(1), "shelf_active": near(0), "dabs": near(0)})
+        if how == "cancel":
+            s.press("Escape")
+            s.wait(4)
+        s.ftap(LENS_SHELF["pinch"])
+        s.wait(6)
+        if how == "cancel":
+            return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf": is_text(LENS_SHELF_SCULPT), "shelf_pins": near(0), "brush_kind": is_text("pinch"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf": is_text(LENS_SHELF_SCULPT.replace("Brush:Pinch", "Brush:Elastic")),
+                                                                       "shelf_pins": near(1), "shelf_active": near(0), "brush_kind": is_text("elastic"), "dabs": near(0)})
+    return Steps([run("room"), run("full"), run("cancel")])
+
+
+@scenario
+def lens_shelf_quick_settings_pin_and_remove():
+    """A tile's quick settings take it off the page (Remove from shelf); the visiting tile's quick settings pin it to a page with room."""
+    def run(remove):
+        s = Script()
+        s.wait(10)
+        if remove:
+            s.ftap(LENS_SHELF["clay"], hold=LONG_PRESS_FRAMES)
+            s.wait(10)
+            s.ftap(At("shelf quick/Remove from shelf", 400, 700))
+            s.wait(6)
+            return s, LENS_1440, camera_still({"shelf": is_text(LENS_SHELF_SCULPT.replace("Brush:Clay,", "")), "shelf_quick": near(0), "dabs": near(0)})
+        s.ftap(LENS_SHELF_PAGES["move"])
+        s.wait(10)
+        s.ftap(At("dock/shelf visiting", 600, 833))
+        s.wait(10)
+        s.ftap(At("shelf quick/Pin to shelf", 400, 700))
+        s.wait(6)
+        return s, LENS_1440 + ["--script=brush inflate"], camera_still({"shelf_page": is_text("Move"), "shelf": lambda v: v.startswith("Brush:Inflate,"), "shelf_pins": near(1), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def search_pins_a_brush_to_the_shelf():
+    """Search's pin beside a brush found there keeps it on the shelf's page shown (Move, with room), first after All."""
+    s = Script()
+    s.wait(4)
+    s.ftap(LENS_SHELF_PAGES["move"])
+    s.wait(10)
+    s.press("k", ("ctrl",))
+    s.type("elastic")
+    s.wait(6)
+    s.ftap(At("palette footer/Pin to shelf", 900, 500))
+    s.wait(6)
+    return s, LENS_1440, camera_still({"shelf_page": is_text("Move"), "shelf": lambda v: v.startswith("Brush:Elastic,"), "shelf_pins": near(1), "dabs": near(0)})
 
 
 # The Lens stack at 1440 x 900 (lens_stack.odin): the Brush card's header and its Stroke
@@ -4873,7 +4956,7 @@ def help_labels_kept_until_done():
 # The tour at 1440x900 (--tour): the space tabs, each step's Next and the dial step's
 # Skip, the History button, the Paint toggle and the dial's Smooth.
 TOUR = {"model": (604, 28), "sculpt": (504, 28), "next_spaces": (737, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
-        "next_palettes": (975, 487), "history": (1355, 28), "paint": (1267, 833), "smooth": (78, 778)}
+        "next_palettes": (975, 487), "history": (1355, 28), "paint": At("shelf brushes/Paint", 404, 833), "smooth": (78, 778)}
 
 
 @scenario
@@ -4920,7 +5003,7 @@ def tour_dial_step_tried():
 
 @scenario
 def tour_finishes_with_paint():
-    """Opening History does the fourth step, and turning Paint on and painting a stroke the last, which finishes the tour."""
+    """Opening History does the fourth step, and picking the Paint page's Paint brush and painting a stroke the last, which finishes the tour."""
     def run(paint):
         s = Script()
         s.wait(8)
@@ -4933,11 +5016,13 @@ def tour_finishes_with_paint():
             return s, LENS_1440 + ["--tour"], camera_still({"tour": near(4), "tour_step": is_text("paint"), "dabs": near(0)})
         s.ftap(TOUR["history"])
         s.wait(10)
+        s.ftap(LENS_SHELF_PAGES["paint"])
+        s.wait(10)
         s.ftap(TOUR["paint"])
         s.wait(10)
         s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
         s.wait(70)
-        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_finished": near(1), "tour_shown": near(0), "dabs": lambda v: int(v) > 0})
+        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_finished": near(1), "tour_shown": near(0), "brush_kind": is_text("paint"), "shelf_page": is_text("Paint"), "dabs": lambda v: int(v) > 0})
     return Steps([run(False), run(True)])
 
 
@@ -5184,7 +5269,7 @@ def lens_arrange_drags_the_rail_to_the_left():
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
-SHELF_TAG = (230, 796)
+SHELF_TAG = (300, 796)
 
 
 def dock_centre_x(v):
@@ -5236,7 +5321,7 @@ def lens_arrange_floats_the_shelf():
                                                                              "dabs": near(0)})
         # Wider where it floats, the shelf was kept in the window, its tag with it, clear
         # of the Library.
-        s.ftap(360, 700)
+        s.ftap(600, 700)
         s.wait(4)
         s.ftap(a["reset_zone"])
         s.wait(6)
@@ -5296,7 +5381,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
     """Left-handed in portrait, the pen drags the Shelf tag to the screen's bottom right: the shelf stands at the layout's start end of the bottom, which is the screen's right, still clear of the dial in that corner."""
     s = Script()
     s.wait(6)
-    x0, y0 = 200, 1176
+    x0, y0 = 240, 1176
     s.add("pnear")
     s.add(f"pdown:{x0},{y0}")
     for x, y in line((x0, y0), (700, 1250), 30)[1:]:
@@ -6532,13 +6617,13 @@ def scene_ghost_lets_a_click_through():
     scene_tab(ghost)
     ghost.ftap(SCENE_GHOST_X, SCENE_ROWS_Y[0])
     ghost.wait(6)
-    click(ghost, UI["gizmo"])
+    ghost.press("w")
     click(ghost, SPHERES3[0])
     solid = Script()
     scene_tab(solid)
     solid.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
     solid.wait(6)
-    click(solid, UI["gizmo"])
+    solid.press("w")
     click(solid, SPHERES3[0])
     return Steps([
         (ghost, scene_args(), {"objects_ghost": near(1), "objects_shown": near(3), "selected": near(-1), "undo_steps": near(0)}),
@@ -6837,7 +6922,7 @@ def shift_click_rows_then_drag_moves_both():
         click(s, (SCENE_ROW_X, SCENE_ROWS_Y[2]))
         s.add("keyup:shift")
         s.wait(2)
-        click(s, UI["gizmo"])
+        s.press("w")
         s.mouse_drag(line(SPHERES3[0], (SPHERES3[0][0] + 80, SPHERES3[0][1]), 8))
         if undo:
             s.press("z", ["ctrl"])
@@ -6859,7 +6944,7 @@ def shift_click_rows_then_drag_moves_both():
 def shift_click_objects_in_the_viewport():
     """With the Move tool, Shift + click on the third sphere adds it to the selection without moving anything; then, with Select several on, a finger tap on empty space misses and keeps both selected."""
     s = Script()
-    click(s, UI["gizmo"])
+    s.press("w")
     s.add("key:shift")
     click(s, SPHERES3[2])
     s.add("keyup:shift")
@@ -13355,48 +13440,53 @@ def offer_line_converts_clay_for_a_mesh_brush():
     return Steps([run("crease", "Convert_To_Mesh"), run("clay", "None")])
 
 
-# PR 8b: the Paint toggle at the end of the Sculpt dock, and the colour island's Paint only,
-# at the default 1600x900.
-PAINT_TOGGLE = (1347, 832)
+# PR 8b, then the shelf's Brushes page: painting with a sculpting brush is Also paint colour
+# in the brush's quick settings (a long press on its tile), and the colour island's Paint
+# only, at the default 1600x900.
+ALSO_PAINT = At("shelf quick/Also paint colour", 800, 640)
 ISLAND_PAINT_ONLY = (944, 764)
+
+
+def paint_switch(s):
+    """Opens Clay's quick settings and flips Also paint colour, then closes them."""
+    s.ftap(UI["shelf_clay"], hold=LONG_PRESS_FRAMES)
+    s.wait(8)
+    s.ftap(ALSO_PAINT)
+    s.wait(6)
+    s.add("key:Escape")
+    s.wait(6)
 
 
 @scenario
 def paint_toggle_turns_painting_on_and_off():
-    """The dock's Paint turns the brushes' painting on (Sculpt + paint) with the colour island over the dock, and off again; Paint only, picked on the island, is what it turns back on."""
+    """Also paint colour turns the brushes' painting on (Sculpt + paint) with the colour island over the dock, and off again; Paint only, picked on the island, is what it turns back on."""
     def run(full):
         s = Script()
-        s.ftap(PAINT_TOGGLE)
-        s.wait(6)
+        paint_switch(s)
         if not full:
             return s, [], camera_still({"paint_channel": is_text("both"), "colour_island": near(1), "dabs": near(0)})
         s.ftap(ISLAND_PAINT_ONLY)
         s.wait(6)
-        s.ftap(PAINT_TOGGLE)
-        s.wait(6)
-        s.ftap(PAINT_TOGGLE)
-        s.wait(6)
+        paint_switch(s)
+        paint_switch(s)
         return s, [], camera_still({"paint_channel": is_text("color"), "paint_on": is_text("color"), "colour_island": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
 @scenario
 def paint_toggle_off_hides_the_island():
-    """A second tap on Paint turns painting off and the colour island goes."""
+    """A second flip of Also paint colour turns painting off and the colour island goes."""
     s = Script()
-    s.ftap(PAINT_TOGGLE)
-    s.wait(6)
-    s.ftap(PAINT_TOGGLE)
-    s.wait(6)
+    paint_switch(s)
+    paint_switch(s)
     return s, [], camera_still({"paint_channel": is_text("sculpt"), "paint_on": is_text("both"), "colour_island": near(0), "dabs": near(0)})
 
 
 @scenario
 def paint_toggle_lays_colour_as_it_sculpts():
-    """With Paint on, a stroke on the model sculpts and paints it in one undo step."""
+    """With Also paint colour on, a stroke on the model sculpts and paints it in one undo step."""
     s = Script()
-    s.ftap(PAINT_TOGGLE)
-    s.wait(6)
+    paint_switch(s)
     strokes(s, 1)
     return s, [], {"paint_channel": is_text("both"), "painted_vertices": lambda v: int(v) > 0, "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 

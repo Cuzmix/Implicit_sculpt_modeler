@@ -53,7 +53,7 @@ TOUR_TEXT := [Tour_Step]string {
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
 	.Palettes = "Each card is a palette: fold it to its header, drag it out to float it, or join it to the card above as a tab. Search finds any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
-	.Paint    = "The Paint toggle turns the brush to colour, so Draw paints instead of sculpting. Turn it on and paint a stroke.",
+	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
 }
 
 // Starts the tour from its first step (Take the tour), closing what would cover it.
@@ -81,7 +81,10 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 	case .History:
 		return k.history_at
 	case .Paint:
-		return ui.prev_rect(&k.ctx, "shelf paint")
+		// The shelf with its page names, so the card stands clear of the tiles to tap.
+		dock, pages := ui.prev_root_rect(&k.ctx, "dock"), ui.prev_root_rect(&k.ctx, "dock pages")
+		if dock.w <= 0 do return pages
+		return ui.rect_union(dock, pages) if pages.w > 0 else dock
 	}
 	return {}
 }
@@ -121,7 +124,7 @@ tour_update :: proc(app: ^App) {
 		case .Dial:     did = app.stroke.active && (app.rail.press.mods != {} || app.rail.latched != {})
 		case .Palettes: did = pressed_in
 		case .History:  did = k.history
-		case .Paint:    did = app.brush.channel != .Sculpt && (app.stroke.active || tr.paint)
+		case .Paint:    did = (app.brush.channel != .Sculpt || .Paint in BRUSHES[app.brush.kind].flags) && (app.stroke.active || tr.paint)
 		}
 		if did do tr.done, tr.done_at = true, ctx.time
 		return

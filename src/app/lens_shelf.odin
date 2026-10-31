@@ -8,10 +8,10 @@ import "../poly"
 import "../sculpt"
 import "../ui"
 
-// The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
-// centre with All at their end, then after a divider the tool strip
-// (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its pages
-// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model; Render in Render; then the pages
+// The Lens shelf (round 2 of the mockups): a floating strip at the bottom centre, All at
+// its off-hand end and after a divider the page's tiles, any brush or command the person
+// put there (Remesh and Dynamic topology are tiles like the brushes), and under it the
+// names of its pages (Brushes, Paint, Move, Curve in Sculpt; Model in Model; Render in Render; then the pages
 // the person added in that space: shelf_pages), which replace the old mode switch: each page is
 // a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
 // the tools. A finger or a pen swiped sideways along the shelf turns its page; the wheel over it does the same for a mouse. A tap on a tile picks
@@ -42,7 +42,7 @@ SHELF_EXTRA_FIRST :: Shelf_Page.Extra_1
 
 @(rodata)
 SHELF_PAGE_NAMES := [Shelf_Page]string {
-	.Sculpt = "Sculpt",
+	.Sculpt = "Brushes",
 	.Paint  = "Paint",
 	.Move   = "Move",
 	.Curve  = "Curve",
@@ -67,13 +67,14 @@ SHELF_TILE_MIN :: 42
 // How many tiles the focused shelf shows (screen focus2): seven brushes, then All.
 SHELF_FOCUS :: 7
 
-// A fresh install's pages: the brushes most reached for; painting and its colours; what
-// moves the surface; the curve and insert tools.
+// A fresh install's pages: the brushes most reached for, with Remesh and Dynamic topology,
+// which the shelf's fixed tools held before every tile became the person's; painting and
+// its colours; what moves the surface; the curve and insert tools.
 SHELF_SCULPT :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Clay)}, {.Brush, int(sculpt.Brush_Kind.Draw)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 	{.Brush, int(sculpt.Brush_Kind.Inflate)}, {.Brush, int(sculpt.Brush_Kind.Pinch)}, {.Brush, int(sculpt.Brush_Kind.Crease)},
 	{.Brush, int(sculpt.Brush_Kind.Grab)}, {.Brush, int(sculpt.Brush_Kind.Flatten)}, {.Brush, int(sculpt.Brush_Kind.Mask)},
-	{.Brush, int(sculpt.Brush_Kind.Layer)},
+	{.Brush, int(sculpt.Brush_Kind.Layer)}, {.Remesh, 0}, {.Dyntopo_Toggle, 0},
 }
 SHELF_PAINT :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Paint)}, {.Brush, int(sculpt.Brush_Kind.Mask)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
@@ -118,7 +119,6 @@ Shelf :: struct {
 	// How many tiles the page shown has room for, at the narrowest, as last laid out: a
 	// page that has as many takes no more (bar_insert), since a new one would not show.
 	fits:     int,
-	tools:    int, // tool buttons laid out last frame
 	row:      ui.Rect, // where the brushes' row was laid out last frame
 	slide:    f32, // how far the page just turned still slides in, points (eases to 0)
 	wheel:    f32, // the mouse wheel over the shelf, until it adds up to a page
@@ -127,7 +127,11 @@ Shelf :: struct {
 	drops:    int,
 	turns:    int,
 	swipes:   int,
-	active:   bool, // the active brush's tile showed beside the shelf (shelf_active_item)
+	active:   bool, // the brush held visited the shelf (shelf_active_item)
+	// A brush being pinned to a full page, waiting for the tile it replaces, and how many
+	// pins were made, for the exit stats.
+	pinning:  Maybe(Bar_Slot),
+	pins:     int,
 	// The pages' own names (empty for the one each comes with), the added pages in use and
 	// the space each was added in.
 	names:    [Shelf_Page][NAME_BYTES]u8,
@@ -321,6 +325,8 @@ shelf_slot_of :: proc(it: Brush_Item) -> (Bar_Slot, bool) {
 // bar's name for the command.
 shelf_label :: proc(s: Bar_Slot) -> string {
 	if s.id == .Brush && s.arg >= 0 && s.arg < len(sculpt.Brush_Kind) do return BRUSHES[sculpt.Brush_Kind(s.arg)].name
+	// Dynamic topology's full name does not fit under a tile.
+	if s.id == .Dyntopo_Toggle do return "Dyntopo"
 	return bar_label(s)
 }
 
@@ -394,7 +400,6 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if !shelf_page_used(k, sh.page) || shelf_page_space(k, sh.page) != k.spaces.current do sh.page = pages[0]
 	which := shelf_which(sh.page)
 	used := bar_used(app, which)
-	tools := bar_used(app, .Tools)
 	n := len(used)
 	// On a tablet-shaped window the tiles' row keeps to SHELF_TABLET full tiles' width.
 	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if lens_palm(app) > 0 else 0
@@ -412,7 +417,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	}
 	if ctx.mirror do shift = -shift
 	centre := area.x + area.w * 0.5 + shift
-	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0)
+	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0) - SHELF_DIVIDER_W
 	// Moved in Arrange (bar_place.odin), it stands where its place says, with that room;
 	// its page names stay under it.
 	place_x, place_y := ui.Anchor.Center, ui.Anchor.End
@@ -428,35 +433,26 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		pages_at.x = place_at.x + size.x * 0.5 - pages.x * 0.5
 		if place_y == .Start do pages_y, pages_at.y = .Start, place_at.y + size.y + 2
 	}
-	// Focused, the shelf is the brushes most reached for and All, without the page names
-	// or the tools.
+	// Focused, the shelf is All and the tiles most reached for, without the page names.
 	focus := lens_focus(k)
-	// The Model page's cage has its own tools on the page, and the mesh tools do not work
-	// on a cage, so they make room for its tiles there, as on Render's pages.
-	tools_here := !focus && shelf_page_space(k, sh.page) == .Sculpt
-	m := len(tools) if tools_here else 0
-	// The Paint toggle ends the Sculpt dock (paint_toggle.odin), on the pen side beside it,
-	// within the room kept clear there to match the dial's side, so the dock neither moves
-	// nor loses a tile for it.
-	paint_here := !focus && k.spaces.current == .Sculpt && k.places[.Shelf].edge == .Default
 	if focus do n = min(n, SHELF_FOCUS)
 	// The Add tile shows while arranging, and on an empty page (one just added) always, so
 	// the page says what it is for and a tap fills it.
 	adding := (k.bars_edit || n == 0) && !focus
 	tile: f32
-	n, m, tile = shelf_layout(n, m, room, adding, row)
-	// A brush picked from All, Search or the pie that is not among the tiles shown gets its
-	// own tile beside the shelf, so what the pen holds is always in sight; the shelf gives it
-	// room as it does its tools.
-	active, active_on := shelf_active_item(app, used[:n], tools[:m], k.bars_edit)
+	n, _, tile = shelf_layout(n, 0, room, adding, row)
+	// A brush picked from All, Search or the pie that is not among the tiles shown visits
+	// the shelf as the first tile after All, so what the pen holds is always in sight; the
+	// shelf grows toward the off-hand side for it, so the tiles under the pen hand stay put.
+	active, active_on := shelf_active_item(app, used[:n], k.bars_edit)
 	if active_on {
-		room = max(room - SHELF_ACTIVE_W, 0)
-		n, m, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), m, room, adding, row)
-		// The tile and the shelf stand centred together, so the tile keeps clear of the dial.
+		room = max(room - ui.BRUSH_TILE.x, 0)
+		n, _, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), 0, room, adding, row)
 		if k.places[.Shelf].edge == .Default {
-			off := SHELF_ACTIVE_W * 0.5 * (-1 if ctx.mirror else 1)
-			place_at.x += off
-			pages_at.x += off
+			// Left-handed, begin_anchored turns the offset round, so it grows right then.
+			off := ui.BRUSH_TILE.x * 0.5
+			place_at.x -= off
+			pages_at.x -= off
 		}
 	}
 
@@ -472,7 +468,22 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Past the first or the last page the row gives a little, as a scroll view's edge does.
 	if (offset > 0 && sh.page == pages[0]) || (offset < 0 && sh.page == pages[len(pages) - 1]) do offset *= 0.3
 	slide := offset + sh.slide
+	// Pinning to a full page waits for a tile; Escape, the system taking the pointer back, a
+	// press clear of the shelf or a page turned (shelf_turn) gives it up.
+	if sh.pinning != nil {
+		in_ := ctx.input
+		outside := .Left in in_.pressed && shelf_at.w > 0 && !ui.rect_contains(shelf_at, in_.mouse)
+		if key_pressed(&app.device, KEY_ESCAPE) || in_.cancel || outside {
+			sh.pinning = nil
+			report(app, nil, {}, "Pin to shelf cancelled")
+		}
+	}
 	ui.begin_anchored(ctx, "dock", place_x, place_y, place_at, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	// All at the off-hand end beside the dial, a thumb's reach (first, or last when
+	// left-handed), then the visiting tile; All is never taken off, as every page's way to
+	// the rest.
+	visiting: ui.Rect
+	if !ctx.mirror do visiting = shelf_head(app, active, active_on, which)
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
 	brushes_at := sh.row
@@ -480,7 +491,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	mark := ui.vertex_mark(ctx)
 	sh.shown, sh.tile_w = n, tile
 	// What the page has room for, as many as fit at the narrowest; never fewer than it shows.
-	most, _, _ := shelf_layout(SHELF_MAX, m, room, adding, row)
+	most, _, _ := shelf_layout(SHELF_MAX, 0, room, adding, row)
 	sh.fits = max(most, n)
 	for s, i in used[:n] {
 		// A brush value is a chip as on any bar, scrubbed up and down so a sideways
@@ -492,9 +503,16 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
 		if ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
-			if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
+			if pin, pinning := sh.pinning.?; pinning {
+				// Pinning to a full page: the tile tapped gives its place to the brush.
+				bar_list(app, which).slots[i] = pin
+				sh.pinning = nil
+				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(pin), shelf_page_name(k, sh.page), shelf_label(s))
+				sh.pins += 1
+			} else if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
 			else do bar_slot_run(app, s, ctx.last_rect, .Above_Center)
 		}
+		if sh.pinning != nil do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.warning, 1)
 		sh.tiles[i] = ctx.last_rect
 		if k.bars_edit {
 			bar_edit_ring(app, ctx.last_rect)
@@ -524,14 +542,10 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		w := max(brushes_at.w, ui.BRUSH_TILE.x)
 		ui.transform_since(ctx, mark, opacity = 1 - min(abs(slide) / w, 1) * 0.7, offset = {slide, 0}, follows = true)
 	}
-	if ui.brush_tile(ctx, "All##shelf all", ui.ICON_GRID, k.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
-	sheet_anchor = ctx.last_rect
-	// The tools, the same on every page and kept by the workspace's layout.
-	sh.tools = m
-	if m > 0 || (k.bars_edit && adding && tools_here) do ui.divider(ctx, 32)
-	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
-	if k.bars_edit && adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
+	if ctx.mirror do visiting = shelf_head(app, active, active_on, which)
 	ui.end(ctx)
+	// The visiting tile's pin, after the shelf ends so it is on top of it for the pointer.
+	if active_on do shelf_visiting_pin(app, active, which, visiting)
 	pen_zone(app, shelf_at, .Shelf, shelf_id)
 	// The pen's roll over the shelf, where no value chip on it took the roll, turns its
 	// page as a swipe does: a page for every SHELF_ROLL_PAGE degrees, clockwise the next.
@@ -551,48 +565,59 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
 	sh.active = active_on
-	if active_on do shelf_active_tile(app, active)
-	if paint_here do shelf_paint_toggle(app)
 	return
 }
 
-// The width the active brush's tile takes beside the shelf: the tile, its padding and the
-// gap between them.
-SHELF_ACTIVE_W :: ui.BRUSH_TILE.x + 2 * SHELF_PAD + 6
+// The room a divider takes in the shelf's row: after All.
+SHELF_DIVIDER_W :: 9
 
-// The item the active brush's tile shows, and whether it shows: the brush, preset or curve
-// tool held, when the shelf is not being arranged and no tile shown (`tiles`, `tools`) is
-// lit for it already. A tool such as Move or Model lights its own button, so it shows none.
-shelf_active_item :: proc(app: ^App, tiles, tools: []Bar_Slot, arranging: bool) -> (it: Brush_Item, shows: bool) {
+// The item the visiting tile shows, and whether it shows: the brush, preset or curve tool
+// held, when the shelf is not being arranged and no tile shown (`tiles`) is lit for it
+// already. A tool such as Move or Model lights its own tile, so it visits none.
+shelf_active_item :: proc(app: ^App, tiles: []Bar_Slot, arranging: bool) -> (it: Brush_Item, shows: bool) {
 	if arranging do return
 	if shelf_page_space(&app.kit, app.kit.shelf.page) != .Sculpt do return
 	it = brush_item_current(app)
 	if it.what == .Tool && it.tool == .Model do return
 	if !brush_item_on(app, it) do return
 	for s in tiles do if bar_lit(app, s) do return
-	for s in tools do if bar_lit(app, s) do return
 	return it, true
 }
 
-// The active brush's tile, beside the shelf on the off-hand side (its first tile's side),
-// lit as the brush held is: a tap or a long press shows its quick settings over it, as a
-// long press on a shelf tile does. Laid out where the shelf stood last frame, so the shelf
-// itself never moves for it.
+// The shelf's end on the off-hand side: All, the divider and the visiting tile, if one
+// visits, in that order from the off-hand edge (mirrored when left-handed). Returns where
+// the visiting tile stands.
 @(private = "file")
-shelf_active_tile :: proc(app: ^App, it: Brush_Item) {
+shelf_head :: proc(app: ^App, active: Brush_Item, active_on: bool, which: Bar_Which) -> (visiting: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	all :: proc(app: ^App) {
+		if ui.brush_tile(&app.kit.ctx, "All##shelf all", ui.ICON_GRID, app.kit.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
+	}
+	if !ctx.mirror {
+		all(app)
+		ui.divider(ctx, 32)
+	}
+	if active_on do visiting = shelf_visiting_tile(app, active, which)
+	if ctx.mirror {
+		ui.divider(ctx, 32)
+		all(app)
+	}
+	return
+}
+
+// The visiting tile: the brush held that is not on the page, lit, ringed by a dashed line
+// as a guest is; it returns where it stands, for its pin (shelf_visiting_pin), drawn
+// once the shelf ends.
+// A tap or a long press on it shows its quick settings over it, as a long press on a
+// shelf tile does.
+@(private = "file")
+shelf_visiting_tile :: proc(app: ^App, it: Brush_Item, which: Bar_Which) -> ui.Rect {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	strip := ui.prev_rect(ctx, "dock")
-	if strip.w <= 0 do return
-	area := ui.safe_area(ctx)
-	w := SHELF_ACTIVE_W - 6
-	x := strip.x + strip.w + 6 if ctx.mirror else strip.x - 6 - w
-	// Against the window's edge (a shelf moved there in Arrange), it goes on the other side.
-	if x < area.x || x + w > area.x + area.w do x = strip.x - 6 - w if ctx.mirror else strip.x + strip.w + 6
-	ui.begin_at(ctx, "shelf active", {x, strip.y}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, height = strip.h})
-	name := fmt.tprintf("%s##shelf active", brush_item_name(app, it))
+	name := fmt.tprintf("%s##shelf visiting", brush_item_name(app, it))
 	tapped := ui.brush_tile(ctx, name, brush_item_icon(it), true, brush_item_hint(app, it))
 	at := ctx.last_rect
 	if tapped || (ctx.last_id != 0 && ui.secondary(ctx)) {
@@ -603,7 +628,106 @@ shelf_active_tile :: proc(app: ^App, it: Brush_Item) {
 			brush_item_settings(app, it)
 		}
 	}
+	shelf_dashed_ring(ctx, {at.x + 3, at.y + 3, at.w - 6, at.h - 6}, t.accent)
+	return at
+}
+
+// The visiting tile's pin over its top corner `at` on the pen side, where the eye goes from
+// the tile, that keeps the brush on page `which`.
+@(private = "file")
+shelf_visiting_pin :: proc(app: ^App, it: Brush_Item, which: Bar_Which, at: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	sh := &k.shelf
+	slot, pinnable := shelf_slot_of(it)
+	if !pinnable do return
+	r := ui.Rect{at.x + at.w - 20 if !ctx.mirror else at.x - 4, at.y - 4, 24, 24}
+	ui.begin_at(ctx, "shelf visiting pin", {r.x, r.y}, {direction = .Row})
+	a := ui.area(ctx, "Pin to shelf##visiting", {r.w, r.h})
+	ui.fill_circle(ctx, {r.x + 12, r.y + 12}, 10, t.surface_raised)
+	ui.stroke_circle(ctx, {r.x + 12, r.y + 12}, 10, t.border_strong, 1)
+	ui.icon(ctx, ICON_PIN, {r.x + 12, r.y + 12}, 12, t.text if !a.hovered else t.accent)
+	ui.tip(ctx, a.id, r, fmt.tprintf("Pin %s to %s", brush_item_name(app, it), shelf_page_name(k, sh.page)), "Keeps it on this page")
+	if a.clicked do shelf_pin(app, slot, which)
 	ui.end(ctx)
+}
+
+// A dashed outline round `r`: short strokes along each side, the visiting tile's mark.
+@(private = "file")
+shelf_dashed_ring :: proc(ctx: ^ui.Context, r: ui.Rect, c: ui.Color) {
+	DASH :: 5
+	GAP :: 4
+	for x := r.x + 6; x < r.x + r.w - 6; x += DASH + GAP {
+		w := min(DASH, r.x + r.w - 6 - x)
+		ui.fill_rect(ctx, {x, r.y, w, 1.5}, 0, c)
+		ui.fill_rect(ctx, {x, r.y + r.h - 1.5, w, 1.5}, 0, c)
+	}
+	for y := r.y + 6; y < r.y + r.h - 6; y += DASH + GAP {
+		h := min(DASH, r.y + r.h - 6 - y)
+		ui.fill_rect(ctx, {r.x, y, 1.5, h}, 0, c)
+		ui.fill_rect(ctx, {r.x + r.w - 1.5, y, 1.5, h}, 0, c)
+	}
+}
+
+// The Lucide pin, the visiting tile's way onto the page, and its struck-through twin for
+// taking a tile off.
+ICON_PIN :: rune(0xe259)
+ICON_PIN_OFF :: rune(0xe2b6)
+
+// Keeps `slot` on shelf page `which`: first after All, where it visited, so it does not
+// move. A page with no room asks for the tile it replaces (the next tap on one), saying
+// so; Undo on the note takes a pin back off.
+shelf_pin :: proc(app: ^App, slot: Bar_Slot, which: Bar_Which) {
+	k := &app.kit
+	sh := &k.shelf
+	page, _ := shelf_page_of(which)
+	for s in bar_used(app, which) do if s == slot {
+		report(app, nil, {}, "%s is already on %s", shelf_label(slot), shelf_page_name(k, page))
+		return
+	}
+	count := bar_count(app, which)
+	if count^ >= bar_capacity(which) || (page == sh.page && sh.fits > 0 && count^ >= sh.fits) {
+		sh.pinning = slot
+		report(app, nil, {}, "%s is full: tap the tile %s replaces", shelf_page_name(k, page), shelf_label(slot))
+		return
+	}
+	l := bar_list(app, which)
+	copy(l.slots[1:count^ + 1], l.slots[0:count^])
+	copy(l.looks[1:count^ + 1], l.looks[0:count^])
+	l.slots[0], l.looks[0] = slot, bar_default_look(which)
+	count^ += 1
+	sh.pins += 1
+	k.bar_removed = {carry = {slot = slot, from = which, from_slot = 0}, serial = ui.toast(&k.ctx, fmt.tprintf("%s is on %s", shelf_label(slot), shelf_page_name(k, page)), .Success, "Undo"), pinned = true}
+}
+
+// Takes tile `at` off shelf page `which`, with Undo on the note, as a tile dragged off.
+shelf_unpin :: proc(app: ^App, which: Bar_Which, at: int) {
+	used := bar_used(app, which)
+	if at < 0 || at >= len(used) do return
+	bar_drop_off(app, {slot = used[at], from = which, from_slot = at, look = bar_list(app, which).looks[at]})
+}
+
+// Puts the old tools strip's tools (Bar_Which.Tools) at the end of every Sculpt page that
+// lacks them, while the page has room: settings from before version 12.
+shelf_tools_merge :: proc(app: ^App) {
+	for page in shelf_pages(&app.kit, .Sculpt) {
+		which := shelf_which(page)
+		for s in bar_used(app, .Tools) {
+			if _, held := shelf_holds(app, which, s); held do continue
+			count := bar_count(app, which)
+			if count^ >= bar_capacity(which) do break
+			l := bar_list(app, which)
+			l.slots[count^], l.looks[count^] = s, bar_default_look(which)
+			count^ += 1
+		}
+	}
+}
+
+// Whether `slot` is on shelf page `which`, and where.
+shelf_holds :: proc(app: ^App, which: Bar_Which, slot: Bar_Slot) -> (at: int, ok: bool) {
+	for s, i in bar_used(app, which) do if s == slot do return i, true
+	return
 }
 
 // Turns the shelf `by` pages among the space's (on from its last, back from its first, it
@@ -617,7 +741,7 @@ shelf_turn :: proc(app: ^App, by: int) -> bool {
 	if to == sh.page do return false
 	w := sh.row.w
 	sh.slide = (1 if by > 0 else -1) * w * SHELF_SLIDE_FROM
-	sh.page, sh.quick = to, false
+	sh.page, sh.quick, sh.pinning = to, false, nil
 	sh.turns += 1
 	return true
 }
@@ -828,7 +952,23 @@ kit_shelf_quick :: proc(app: ^App) {
 		ui.end(ctx)
 		kit_stabiliser(app, full = false)
 	}
+	// A sculpting brush can lay the main colour as it goes (Paint_Toggle), Nomad's Paint
+	// switch, which took the place of the shelf's own Paint tile; the Paint brushes always do.
+	if channel_brush(kind) && .Paint not_in BRUSHES[kind].flags {
+		painting := app.brush.channel != .Sculpt
+		if ui.switch_row(ctx, "Also paint colour", &painting, keys = command_hint(app, .Paint_Toggle)) do command_run(app, .Paint_Toggle)
+	}
 	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = 6})
+	// Pin to shelf keeps the brush on the page shown, Remove from shelf takes it off.
+	if slot, ok := shelf_slot_of(cur); ok {
+		which := shelf_which(sh.page)
+		at, held := shelf_holds(app, which, slot)
+		if ui.icon_button(ctx, "Remove from shelf##quick" if held else "Pin to shelf##quick", ICON_PIN_OFF if held else ICON_PIN, selected = held) {
+			sh.quick = false
+			if held do shelf_unpin(app, which, at)
+			else do shelf_pin(app, slot, which)
+		}
+	}
 	pinned := command_checked(app, .Pin_Section, int(Kit_Section.Stroke))
 	if command_button(app, .Pin_Section, int(Kit_Section.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {

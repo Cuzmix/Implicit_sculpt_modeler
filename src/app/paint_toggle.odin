@@ -5,7 +5,8 @@ import "core:fmt"
 import "../ui"
 
 // Paint as a toggle (the overhaul's round 3, PR 8b), as Nomad's Paint switch and ZBrush's
-// Rgb/Zadd pair: at the end of the Sculpt dock, its dot the main colour. On, the sculpting
+// Rgb/Zadd pair: Also paint colour in a brush's quick settings, and the Paint toggle
+// command any bar, key or Search runs. On, the sculpting
 // brushes lay colour, moving the surface too (Sculpt + paint) or not (Paint only), as the
 // colour island's switch says; off, they only sculpt. The brush's channel stays the one
 // truth, so strokes, replay and files are unchanged; the toggle only remembers which
@@ -100,26 +101,3 @@ kit_colour_island :: proc(app: ^App) {
 	shown := ui.presence(ctx, ui.id_of(ctx, "colour island shown"), true, t.popover_time, motion_class(.Popovers))
 	if shown < 1 do ui.transform_since(ctx, mark, shown, offset = {0, (1 - shown) * 8})
 }
-
-// The Paint toggle's tile at the end of the Sculpt dock, on the pen side beside it as the
-// active brush's tile stands on the other: lit while the brushes paint, a dot of the main
-// colour in its corner. Laid out where the dock stood last frame, so the dock never moves.
-shelf_paint_toggle :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	b := &app.brush
-	strip := ui.prev_rect(ctx, "dock")
-	if strip.w <= 0 do return
-	w := PAINT_TOGGLE_W - 6
-	x := strip.x - 6 - w if ctx.mirror else strip.x + strip.w + 6
-	ui.begin_at(ctx, "shelf paint", {x, strip.y}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, height = strip.h})
-	defer ui.end(ctx)
-	if ui.brush_tile(ctx, "Paint##shelf paint", ui.ICON_PAINTBRUSH, b.channel != .Sculpt, command_hint(app, .Paint_Toggle)) do command_run(app, .Paint_Toggle)
-	r := ctx.last_rect
-	dot := [2]f32{r.x + r.w - 14, r.y + 14}
-	ui.fill_circle(ctx, dot, 5, overlay_color({b.color.r, b.color.g, b.color.b, 1}))
-	ui.stroke_circle(ctx, dot, 5, t.border_strong, 1)
-}
-
-// The width the Paint toggle takes beside the dock: its tile, padding and the gap.
-PAINT_TOGGLE_W :: ui.BRUSH_TILE.x + 2 * SHELF_PAD + 6
