@@ -57,6 +57,9 @@ Renderer :: struct {
 	// GPU, --cpu-cull off.
 	gpu_cull:       bool,
 	gpu_culling:    Gpu_Cull,
+	// Makes a multisampled viewport keep its samples in tile memory (Viewport_Target.tile)
+	// on a GPU without transient targets too (--tile-msaa), so a desktop can test that mode.
+	tile_msaa:      bool,
 	// The app's worker pool, which culling by groups spreads a big mesh's chunks over; nil
 	// culls on the calling thread. Only the frame thread draws, so it is never busy here.
 	pool:           ^jobs.Pool,
@@ -179,6 +182,12 @@ Viewport_Target :: struct {
 	// `depth` lives only inside the one pass that clears it (gpu_create_texture_transient),
 	// for targets whose depth nothing reads after their pass.
 	transient_depth: bool,
+	// With multisampling where Gpu_Caps.transient_targets and partial redraw is off: the
+	// samples and their depth live only inside the pass that draws them (in tile memory on
+	// a tile GPU, which then never gives them memory) and only the resolved `color` is
+	// stored. Every frame then draws everything in one pass: no partial redraw loads the
+	// samples back, and no idle cache is copied into them.
+	tile: bool,
 	cache:  Static_Cache, // at `samples`
 	// Identifies what color and depth hold: camera, size, and every item's identity,
 	// transform and colour (not its contents, which Draw_Item.damage accounts for).
@@ -877,22 +886,24 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl
 // defers the actual free until in-flight command buffers no longer reference them.
 viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32, samples := sdl.GPUSampleCount._1, transient_depth := false) -> bool {
 	width, height := max(requested_width, 1), max(requested_height, 1)
-	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples && vt.transient_depth == transient_depth do return true
+	multi := samples != ._1
+	tile := multi && !transient_depth && (r.caps.transient_targets || r.tile_msaa) && !r.partial
+	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples && vt.transient_depth == transient_depth && vt.tile == tile do return true
 	viewport_target_destroy(r, vt)
 
-	multi := samples != ._1
 	vt.color = gpu_create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	if multi {
-		vt.multi_color = gpu_create_texture(r.device, {
+		info := sdl.GPUTextureCreateInfo{
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
-		})
+		}
+		vt.multi_color = gpu_create_texture_transient(r.device, info) if tile else gpu_create_texture(r.device, info)
 	}
 	// A multisampled texture cannot be sampled: the studio render draws its own depth then.
-	if transient_depth {
+	if transient_depth || tile {
 		vt.depth = gpu_create_texture_transient(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
@@ -908,7 +919,7 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 		viewport_target_destroy(r, vt)
 		return false
 	}
-	vt.width, vt.height, vt.samples, vt.transient_depth = width, height, samples, transient_depth
+	vt.width, vt.height, vt.samples, vt.transient_depth, vt.tile = width, height, samples, transient_depth, tile
 	gpu_set_texture_name(r.device, vt.color, "viewport colour")
 	gpu_set_texture_name(r.device, vt.depth, "viewport depth")
 	if multi do gpu_set_texture_name(r.device, vt.multi_color, "viewport colour (multisampled)")
@@ -1404,7 +1415,7 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 	pipes := mesh_pipelines(r, vt.samples)
 	see := false
 	for item in items do see ||= blended(pipes, item)
-	if r.partial && key == vt.frame_key && !(see && vt.samples != ._1) {
+	if r.partial && !vt.tile && key == vt.frame_key && !(see && vt.samples != ._1) {
 		if rect, ok := damage_rect(vt^, view, proj, items); ok {
 			stats.partial = true
 			if rect.w > 0 && rect.h > 0 do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
@@ -1575,7 +1586,7 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	// must blend over everything drawn before them, which a cache of the idle ones drawn
 	// first would break (while the scene is see-through, the idle ones are all
 	// see-through anyway).
-	if !use_cache || see > 0 || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
+	if !use_cache || vt.tile || see > 0 || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
 		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
 		pass := target_pass(r, cmd, vt, load = false)
@@ -1802,9 +1813,25 @@ target_color :: proc(vt: ^Viewport_Target) -> ^sdl.GPUTexture {
 
 // Opens a pass drawing into the viewport, keeping its depth; with multisampling it keeps
 // the samples too, for the next partial redraw to load, and resolves them into `color`.
+// A `tile` target keeps neither: only the resolve leaves the pass.
 @(private)
 target_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, load: bool) -> ^sdl.GPURenderPass {
-	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = true, background = r.background.top, resolve = vt.color if vt.multi_color != nil else nil)
+	assert(!(vt.tile && load), "a tile target's samples cannot be loaded")
+	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = !vt.tile, background = r.background.top, resolve = vt.color if vt.multi_color != nil else nil, resolve_only = vt.tile)
+}
+
+// The bytes of memory the target's textures take, leaving out the transient ones a tile
+// GPU never gives memory (for the exit stats; the cache is counted when it exists).
+viewport_target_bytes :: proc(vt: Viewport_Target) -> u64 {
+	px := u64(vt.width) * u64(vt.height)
+	samples := u64(1) << u32(vt.samples)
+	depth := u64(4)
+	total := px * 4
+	if vt.multi_color != nil && !vt.tile do total += px * 4 * samples
+	if !vt.tile && !vt.transient_depth do total += px * depth * samples
+	if vt.cache.color != nil do total += px * 4 * samples
+	if vt.cache.depth != nil do total += px * depth * samples
+	return total
 }
 
 // Paints Renderer.background over the pass (its scissor, if set) at the far plane, or the
@@ -1837,12 +1864,14 @@ draw_background :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPU
 // `pipes.mesh` bound. With `resolve`, `color_tex` is multisampled and the pass ends by
 // resolving it into `resolve`, keeping its samples.
 @(private)
-begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pipes: ^Mesh_Pipelines, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool, background := BACKGROUND, resolve: ^sdl.GPUTexture = nil) -> ^sdl.GPURenderPass {
+begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pipes: ^Mesh_Pipelines, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool, background := BACKGROUND, resolve: ^sdl.GPUTexture = nil, resolve_only := false) -> ^sdl.GPURenderPass {
+	store: sdl.GPUStoreOp = .STORE
+	if resolve != nil do store = .RESOLVE if resolve_only else .RESOLVE_AND_STORE
 	color := sdl.GPUColorTargetInfo {
 		texture     = color_tex,
 		clear_color = sdl.FColor(background),
 		load_op     = .LOAD if load else .CLEAR,
-		store_op    = .RESOLVE_AND_STORE if resolve != nil else .STORE,
+		store_op    = store,
 		cycle       = !load,
 		// The resolve writes all of it, so a frame still showing the last one need not wait.
 		resolve_texture = resolve,

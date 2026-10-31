@@ -58,6 +58,7 @@ Options :: struct {
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
+	tile_msaa: bool `usage:"With anti-aliasing and partial redraw off, keep the viewport's samples only inside its pass, as a tile GPU does, on any GPU (for testing that mode)."`,
 	no_trace: bool `usage:"Give the studio render's occlusion and shadow from shadow maps only, never by casting rays at the triangles (for comparison)."`,
 	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
 	orbit:     bool `usage:"Turn the camera around the scene by itself, once every 240 frames (to watch or time drawing while the view moves)."`,
@@ -688,6 +689,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.gpu_cull = !opts.cpu_cull
 	app.renderer.gpu_culling.check = opts.dump_cull
 	app.renderer.partial = !opts.no_partial
+	app.renderer.tile_msaa = opts.tile_msaa
 	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
@@ -2097,6 +2099,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
+	fmt.printfln("viewport_tile=%v viewport_target_mb=%.1f", app.target.tile, f64(render.viewport_target_bytes(app.target)) / (1 << 20))
 	lod_pending := 0
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
