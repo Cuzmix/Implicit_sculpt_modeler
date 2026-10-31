@@ -358,8 +358,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
   slots too: uniforms at buffer 0+, then read-only and read-write storage buffers; sampled textures and samplers at 0+,
   then read-only and read-write storage textures (each a view of one level and layer, made when the pass begins and
-  released when it ends); bindings reach the encoder at dispatch. The Graphics menu offers it only as Metal (trial), guarded by a start marker
-  (`graphics_trial_begin`, `src/app/graphics.odin`), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
+  released when it ends); bindings reach the encoder at dispatch. Automatic is it on Apple's platforms (Metal too), guarded by a start marker
+  (`graphics_trial_begin`, `src/app/graphics.odin`: a failed start moves the setting to SDL_GPU), and it has drawn frames on an iPad; its compute was written before running on Apple hardware, which `maccheck` and `iphonecheck` only compile. `backend_fail` keeps a backend's reason for
   `backend_fallback` whichever one failed.
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app

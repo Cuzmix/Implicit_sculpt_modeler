@@ -11,17 +11,17 @@ import "../ui"
 // Which GPU backend draws, as Settings > System > Graphics chooses it. The backend is fixed
 // once the window exists, so a change applies when Sculpt next starts.
 Graphics :: enum u8 {
-	// Vulkan where the platform and device allow it, SDL_GPU elsewhere.
+	// render's own Vulkan backend, or on Apple's platforms its own Metal one, where the
+	// platform and device allow it; SDL_GPU elsewhere.
 	Auto,
 	Vulkan,
 	SDL_GPU,
-	// render's own Metal backend, on Apple's platforms only. The menu offers it as a trial
-	// until it has been tried on a Mac and an iPad, guarded by graphics_trial_begin.
+	// render's own Metal backend, on Apple's platforms only.
 	Metal,
 }
 
-// Whether the platform can run the Vulkan backend at all. Mac and iPad draw with SDL_GPU
-// (Metal) unless the menu's trial or --gpu=metal asks for render's own Metal backend.
+// Whether the platform can run the Vulkan backend at all; Mac and iPad run render's own
+// Metal backend instead, and both fall back to SDL_GPU where they cannot start.
 GRAPHICS_VULKAN :: ODIN_OS != .Darwin
 GRAPHICS_METAL :: ODIN_OS == .Darwin
 
@@ -31,23 +31,24 @@ when GRAPHICS_VULKAN {
 	GRAPHICS_OFFERED := [?]Graphics{.Auto, .Vulkan, .SDL_GPU}
 } else {
 	@(rodata)
-	GRAPHICS_OFFERED := [?]Graphics{.Auto, .SDL_GPU, .Metal}
+	GRAPHICS_OFFERED := [?]Graphics{.Auto, .Metal, .SDL_GPU}
 }
 
 GRAPHICS_NAMES := [Graphics]string {
 	.Auto    = "Automatic",
 	.Vulkan  = "Vulkan",
 	.SDL_GPU = "SDL_GPU",
-	.Metal   = "Metal (trial)",
+	.Metal   = "Metal",
 }
 
-// Frames a Metal trial start must show before it counts as started: about two seconds at
-// 60 Hz, past the first uploads, passes and presents.
+// Frames a start on render's own Metal backend must show before it counts as started:
+// about two seconds at 60 Hz, past the first uploads, passes and presents.
 GRAPHICS_TRIAL_FRAMES :: 120
 
-// The file beside the settings that a Metal trial start leaves until it has shown its first
-// frames. Found at the next start, it means the trial stopped Sculpt as it started, so that
-// run draws with Automatic instead: the menu can never lock the person out of the app.
+// The file beside the settings that a start on render's own Metal backend leaves until it
+// has shown its first frames. Found at the next start, it means that backend stopped
+// Sculpt as it started, so that run, and the setting, draw with SDL_GPU instead: neither
+// Automatic nor the menu can lock the person out of the app.
 graphics_trial_path :: proc(settings: string) -> string {
 	if settings == "" do return ""
 	dir, base := filepath.split(settings)
@@ -55,21 +56,23 @@ graphics_trial_path :: proc(settings: string) -> string {
 	return path
 }
 
-// Leaves the marker for a Metal start the setting chose and returns its path (temp), or,
-// finding the marker a start before left, removes it and returns Automatic with `failed`.
-// A start --gpu=metal chose is not guarded, since whoever typed the flag can leave it out.
+// Leaves the marker for a Metal start the setting chose (Metal, or Automatic on Apple's
+// platforms) and returns its path (temp), or, finding the marker a start before left,
+// removes it and returns SDL_GPU with `failed` (the setting then moves to SDL_GPU too). A start --gpu chose is not guarded, since
+// whoever typed the flag can leave it out.
 graphics_trial_begin :: proc(choice: Graphics, flag, settings: string) -> (start: Graphics, marker: string, failed: bool) {
 	path := graphics_trial_path(settings)
-	if choice != .Metal || flag != "" || path == "" do return choice, "", false
+	metal := choice == .Metal || choice == .Auto && GRAPHICS_METAL
+	if !metal || flag != "" || path == "" do return choice, "", false
 	if os.exists(path) {
 		_ = os.remove(path)
-		return .Auto, "", true
+		return .SDL_GPU, "", true
 	}
 	if os.write_entire_file(path, transmute([]u8)string("metal trial starting\n")) != nil do return choice, "", false
 	return choice, path, false
 }
 
-// The trial has shown its first frames (or the run ended without a crash): its marker goes.
+// The Metal start has shown its first frames (or the run ended without a crash): its marker goes.
 graphics_trial_end :: proc(app: ^App) {
 	if app.graphics_trial == "" do return
 	_ = os.remove(app.graphics_trial)
@@ -79,9 +82,9 @@ graphics_trial_end :: proc(app: ^App) {
 
 // The backend a choice asks for on this platform.
 graphics_backend :: proc(choice: Graphics) -> render.Gpu_Backend {
-	if choice == .Metal do return .Metal if GRAPHICS_METAL else .SDL_GPU
-	if !GRAPHICS_VULKAN || choice == .SDL_GPU do return .SDL_GPU
-	return .Vulkan
+	if choice == .SDL_GPU do return .SDL_GPU
+	when GRAPHICS_METAL do return .Metal if choice == .Metal || choice == .Auto else .SDL_GPU
+	else do return .SDL_GPU if choice == .Metal else .Vulkan
 }
 
 // The choice `--gpu` makes for this run, or the one the settings file at `path` holds when
@@ -113,9 +116,11 @@ graphics_saved :: proc(path: string) -> Graphics {
 	return .Auto
 }
 
-// The backend a choice named, for the words of a fallback: Automatic asks for Vulkan.
+// The backend a choice named, for the words of a fallback: Automatic asks for Vulkan, or
+// Metal on Apple's platforms.
 graphics_asked :: proc(choice: Graphics) -> Graphics {
-	return .Vulkan if choice == .Auto else choice
+	if choice != .Auto do return choice
+	return .Metal if GRAPHICS_METAL else .Vulkan
 }
 
 // The Graphics block of Settings > System: the menu, what draws now and why.
@@ -137,7 +142,7 @@ graphics_controls :: proc(app: ^App) {
 	case "metal":  running = "Metal"
 	}
 	status := fmt.tprintf("Drawing with %s.", running)
-	if app.graphics_trial_failed do status = fmt.tprintf("%s Metal (trial) stopped Sculpt as it started last time, so this run is back on Automatic.", status)
+	if app.graphics_trial_failed do status = fmt.tprintf("%s Metal stopped Sculpt as it started last time, so Graphics is now SDL_GPU; choose Automatic or Metal to try it again.", status)
 	if why := render.backend_fallback(); why != "" {
 		asked := GRAPHICS_NAMES[graphics_asked(app.graphics_start)]
 		status = fmt.tprintf("Drawing with SDL_GPU: %s could not start here (%s).", asked, why)
@@ -157,6 +162,6 @@ graphics_controls :: proc(app: ^App) {
 	when GRAPHICS_VULKAN {
 		ui.paragraph(ctx, "Automatic draws with Vulkan, the app's own renderer, and with SDL_GPU on a device whose Vulkan lacks what it needs. Both draw the same image; SDL_GPU is there in case a driver misbehaves.")
 	} else {
-		ui.paragraph(ctx, "This device draws with SDL_GPU (Metal). Metal (trial) draws with the app's own Metal renderer, which has not yet been tried on every Mac and iPad and leaves out the studio render, render mode and Smooth all on the GPU; if it stops Sculpt as it starts, the next start is back on Automatic.")
+		ui.paragraph(ctx, "Automatic draws with Metal, the app's own renderer, and with SDL_GPU where Metal cannot start; if Metal stops Sculpt as it starts, the next start switches to SDL_GPU. Both draw the same image; SDL_GPU is there in case a driver misbehaves, and leaves out Smooth all on the GPU.")
 	}
 }

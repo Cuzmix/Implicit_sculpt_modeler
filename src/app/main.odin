@@ -73,7 +73,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
-	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) sdl (SDL_GPU) or, on a Mac or iPad, metal (render's own Metal backend, not yet in the menu)."`,
+	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or Metal on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs), sdl (SDL_GPU) or, on a Mac or iPad, metal (render's own Metal backend, which falls back to SDL_GPU where it cannot start)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
@@ -398,8 +398,8 @@ App :: struct {
 	no_ray_query_run: bool, // --no-ray-query: off for this run
 	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
 	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
-	graphics_trial: string, // the Metal trial's start marker, until its first frames are shown (graphics_trial_begin)
-	graphics_trial_failed: bool, // the trial stopped the start before, so this run is on Automatic
+	graphics_trial: string, // a Metal start's marker, until its first frames are shown (graphics_trial_begin)
+	graphics_trial_failed: bool, // Metal stopped the start before, so this run and the setting are on SDL_GPU
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -729,8 +729,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	// A Metal start that stopped Sculpt moves the setting to SDL_GPU, so a device whose
+	// Metal fails every time is not stopped every other start; the menu says why.
 	if trial_failed {
-		app.graphics = .Auto
+		app.graphics = .SDL_GPU
 		app.graphics_trial_failed = true
 	}
 	app.graphics_loaded = app.graphics
