@@ -132,6 +132,7 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	mid := [2]f32{vis.x + vis.w * 0.5, vis.y + vis.h * 0.5}
 	if !enabled {
 		icon(ctx, glyph, mid, t.icon_size, color_fade(t.text_secondary, 0.35))
+		if ctx.names.on do names_place(ctx, id_of(ctx, name), cell)
 		return false
 	}
 	id := id_of(ctx, name)
@@ -245,6 +246,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	hovered, held, clicked := false, false, false
 	if enabled do hovered, held, clicked, _ = interact(ctx, id, cell)
 	else if reason != "" do _, _, _, _ = interact(ctx, id, cell)
+	else if ctx.names.on do names_place(ctx, id, cell)
 	mark := vertex_mark(ctx)
 	if bg.a > 0 do fill_rect(ctx, vis, t.radius_medium, bg)
 	if variant == .Bordered do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
@@ -374,6 +376,7 @@ switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys
 	id := id_of(ctx, s)
 	clicked, held := false, false
 	if enabled do _, held, clicked, _ = interact(ctx, id, r)
+	else if ctx.names.on do names_place(ctx, id, r)
 	if clicked do value^ = !value^
 	on := tween(ctx, salt(id, 1), 1 if value^ else 0, t.indicator_time, .Out_Back, class = MOTION_TABS)
 	tint := tween(ctx, salt(id, 2), 1 if value^ else 0, t.hover_time, class = MOTION_PRESS)
@@ -1014,6 +1017,7 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	hovered, held, clicked := false, false, false
 	if enabled do hovered, held, clicked, _ = interact(ctx, id, hit_area(ctx, cell))
 	else if reason != "" do _, _, _, _ = interact(ctx, id, hit_area(ctx, cell))
+	else if ctx.names.on do names_place(ctx, id, hit_area(ctx, cell))
 	// `highlight` is the keyboard's pick (the palette's Up and Down), shown as a hover.
 	_ = feedback(ctx, id, vis, t.radius_small + 2, hovered || highlight, held)
 	fg := t.danger if tone == .Danger else t.text
@@ -1273,6 +1277,7 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 		faded := color_fade(t.text_secondary, 0.35)
 		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
 		text(ctx, text_fit(ctx, label_text(s), t.caption_size, cell.w - 2), vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, faded, .Regular, .Center)
+		if ctx.names.on do names_place(ctx, id_of(ctx, s), cell)
 		return false
 	}
 	id := id_of(ctx, s)
@@ -1404,6 +1409,7 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 	id := id_of(ctx, s)
 	hovered, held, pressed := false, false, false
 	if enabled do hovered, held, _, pressed = interact(ctx, id, cell)
+	else if ctx.names.on do names_place(ctx, id, cell)
 	if pressed do ctx.press_value = value^
 	changed := false
 	// From where it won the drag: in a drag-scrolled panel a finger's press waits to see

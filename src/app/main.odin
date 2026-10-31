@@ -54,6 +54,7 @@ Options :: struct {
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it) and FRAME:drop:PATH (a file dropped on the window), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
+	ui_map: string `usage:"On exit, write the controls the interface drew in its last frame to this file, a line each: its path (the labels of the containers it sits in and its own, joined by /), a tab, and its rectangle's x, y, width and height in points. The names --ui-events taps by."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
@@ -677,6 +678,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	kit_init(&app)
 	defer kit_destroy(&app)
 	if !kit_events_parse(&app, opts.ui_events) do return false
+	// Scripted events that name a control, and --ui-map, need the interface's control map.
+	ui.names_show(&app.kit.ctx, opts.ui_map != "" || strings.contains(opts.ui_events, "@"))
 	defer diag_destroy(&app)
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
@@ -1486,6 +1489,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _ = screenshot_save(&app, opts.dump_viewport)
 	if opts.dump_view_window != "" do _ = view_window_save(&app, 1, opts.dump_view_window)
+	if opts.ui_map != "" {
+		b := strings.builder_make(context.temp_allocator)
+		ui.names_write(&app.kit.ctx, &b)
+		if os.write_entire_file(opts.ui_map, b.buf[:]) != nil do log.errorf("--ui-map: cannot write %s", opts.ui_map)
+	}
 	if opts.dump_screen != "" {
 		if app.kit_drew {
 			_ = kit_screen_save(&app, opts.dump_screen, app.kit_size)
@@ -1589,6 +1597,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if r := app.startup_script; r.statements > 0 {
 		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", r.statements, r.ran, r.frames, int(r.failed))
 		if r.failed && r.scripted do exit_code^ = 2
+	}
+	if app.kit.events_unnamed > 0 {
+		fmt.printfln("ui_events_unnamed=%d", app.kit.events_unnamed)
+		exit_code^ = 2
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
