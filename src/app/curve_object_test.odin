@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:math/linalg"
 import "core:os"
 import "core:testing"
 
@@ -217,7 +218,7 @@ curve_selection_without_curves :: proc(t: ^testing.T) {
 // than bytes, a corner or use no version wrote, a value that is not a number.
 @(test)
 curve_damage_is_refused :: proc(t: ^testing.T) {
-	good := Curve_Part{tube = geom.TUBE_DEFAULTS}
+	good := Curve_Part{look = CURVE_LOOK_DEFAULTS}
 	defer delete(good.points)
 	append(&good.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1})
 	bytes: [dynamic]u8
@@ -233,7 +234,8 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 		sculpt.levels_destroy(&obj.levels)
 	}
 	check(t, bytes[:], true, "whole")
-	check(t, bytes[:len(bytes) - 1], false, "tube options cut short")
+	check(t, bytes[:len(bytes) - 1], false, "lathe options cut short")
+	check(t, bytes[:len(bytes) - CURVE_LATHE_BYTES - 1], false, "tube options cut short")
 	check(t, bytes[:6 + CURVE_POINT_BYTES], false, "points cut short")
 	one := make([]u8, len(bytes), context.temp_allocator)
 	copy(one, bytes[:])
@@ -258,32 +260,41 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	check(t, nan, false, "not a number")
 }
 
-// A curve's tube options come back as written; a curve from before them (no block after
-// its points) takes the defaults, and options no version wrote are damage.
+// A curve's tube and lathe options come back as written; a curve from before them (no
+// block after its points, or only the tube's) takes the defaults, and options no version
+// wrote are damage.
 @(test)
 curve_tube_options_read_back :: proc(t: ^testing.T) {
-	cp := Curve_Part{closed = true}
+	cp := Curve_Part{closed = true, look = CURVE_LOOK_DEFAULTS}
 	defer delete(cp.points)
 	append(&cp.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1}, geom.Bezier_Point{p = {0, 1, 0}, radius = 1})
 	cp.tube = {profile = .Star, radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, flatness = 0.4}
+	cp.lathe = {axis = {0, 0, 1}, through = .End, angle = 270, segments = 200, caps = false}
 	bytes: [dynamic]u8
 	defer delete(bytes)
 	curve_part_put(&bytes, &cp)
-	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES)
-	read :: proc(data: []u8) -> (o: geom.Tube_Options, ok: bool) {
+	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES)
+	read :: proc(data: []u8) -> (o: Curve_Look, ok: bool) {
 		obj: Object
 		app: App
 		r := geom.byte_reader(data)
 		ok, _ = curve_part_get(&app, &r, &obj)
-		if ok do o = obj.curve.tube
+		if ok do o = obj.curve.look
 		curve_part_free(&obj)
 		sculpt.levels_destroy(&obj.levels)
 		return
 	}
 	got, ok := read(bytes[:])
-	testing.expect(t, ok && got == cp.tube, "options did not come back")
+	testing.expect(t, ok && got == cp.look, "options did not come back")
 	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES])
-	testing.expect(t, ok && got == geom.TUBE_DEFAULTS, "a curve without options did not take the defaults")
+	testing.expect(t, ok && got.tube == geom.TUBE_DEFAULTS && got.lathe == geom.LATHE_DEFAULTS, "a curve without options did not take the defaults")
+	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES])
+	testing.expect(t, ok && got.tube == cp.tube && got.lathe == geom.LATHE_DEFAULTS, "a curve with only tube options did not take the lathe's defaults")
+	axis := make([]u8, len(bytes), context.temp_allocator)
+	copy(axis, bytes[:])
+	for &b in axis[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES:][:size_of(Vec3)] do b = 0
+	_, ok = read(axis)
+	testing.expect(t, !ok, "a lathe with no axis was read")
 	sides := make([]u8, len(bytes), context.temp_allocator)
 	copy(sides, bytes[:])
 	sides[6 + 3 * CURVE_POINT_BYTES + 6] = 2
@@ -294,6 +305,28 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	profile[6 + 3 * CURVE_POINT_BYTES] = 9
 	_, ok = read(profile)
 	testing.expect(t, !ok, "a profile past the last was read")
+}
+
+// Choosing Lathe sets the axis to the view's vertical in the curve's space, through the
+// middle of a closed curve and the start of an open one; Tube keeps the lathe's options.
+@(test)
+curve_lathe_takes_the_view_axis :: proc(t: ^testing.T) {
+	app: App
+	defer curve_scene_free(&app)
+	curve_scene(&app)
+	pts := []geom.Bezier_Point{{p = {0, 0, 2}, radius = 0.1}, {p = {1, 0, 2}, radius = 0.1}, {p = {1, 1, 2}, radius = 0.1}}
+	testing.expect(t, curve_object_add(&app, pts, false))
+	obj := selected_object(&app)
+	look := curve_use_look(&app, obj, .Lathe)
+	_, up, _ := camera.orbit_basis(app.camera)
+	testing.expect(t, linalg.length(look.lathe.axis - up) < 1e-4, "not the view's vertical")
+	testing.expect_value(t, look.lathe.through, geom.Lathe_Through.Start)
+	obj.curve.closed = true
+	testing.expect_value(t, curve_use_look(&app, obj, .Lathe).lathe.through, geom.Lathe_Through.Middle)
+	testing.expect(t, command_enabled(&app, .Curve_Use, int(Curve_Use.Lathe)))
+	testing.expect(t, !command_enabled(&app, .Curve_Use, int(Curve_Use.Brush_Path)), "a use not built is offered")
+	c := curve_lathe_clean({axis = {0, 0, 0}, angle = 999, segments = 1})
+	testing.expect(t, c.axis == geom.LATHE_DEFAULTS.axis && c.angle == 360 && c.segments == 3)
 }
 
 // Cleaning keeps a tube buildable: sides in range, density and flatness positive.

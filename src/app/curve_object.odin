@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:strings"
 import "core:time"
 
+import "../camera"
 import "../geom"
 import "../gizmo"
 import "../render"
@@ -27,11 +28,47 @@ Curve_Use :: enum u8 {
 	Brush_Path,
 }
 
+@(rodata)
+CURVE_USE_NAMES := [Curve_Use]string {
+	.None       = "Line",
+	.Tube       = "Tube",
+	.Lathe      = "Lathe",
+	.Along      = "Along",
+	.Brush_Path = "Brush path",
+}
+
+// The uses built so far, as the settings offer them; Along and Brush path join them as
+// they come.
+CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe}
+
+// `obj`'s curve's look with `use` chosen. Choosing Lathe sets its axis to the view's
+// vertical in the curve's space, as Nomad does, through the middle of a closed curve (a
+// loop through its own first point would pinch) or the first point of an open one.
+curve_use_look :: proc(app: ^App, obj: ^Object, use: Curve_Use) -> Curve_Look {
+	look := obj.curve.look
+	look.use = use
+	if use == .Lathe && obj.curve.use != .Lathe {
+		_, up, _ := camera.orbit_basis(app.camera)
+		look.lathe.axis = linalg.normalize0(to_local_dir(obj.transform, up))
+		look.lathe.through = .Middle if obj.curve.closed else .Start
+	}
+	return look
+}
+
+// What a curve makes and each use's options, kept for every use so switching back and
+// forth loses nothing.
+Curve_Look :: struct {
+	use:   Curve_Use,
+	tube:  geom.Tube_Options,
+	lathe: geom.Lathe_Options,
+}
+
+CURVE_LOOK_DEFAULTS :: Curve_Look{use = .None, tube = geom.TUBE_DEFAULTS, lathe = geom.LATHE_DEFAULTS}
+
 Curve_Part :: struct {
-	points: [dynamic]geom.Bezier_Point,
-	closed: bool,
-	use:    Curve_Use,
-	tube:   geom.Tube_Options,
+	points:     [dynamic]geom.Bezier_Point,
+	closed:     bool,
+	using look: Curve_Look,
 }
 
 // The fewest points a curve has: a curve of one point would be nothing to see or edit.
@@ -43,6 +80,9 @@ CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
 // Bytes the tube's options take after the points: profile, radius mode, one, sides,
 // density, caps, flatness.
 CURVE_TUBE_BYTES :: 4 + 3 * size_of(f32)
+
+// Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
+CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
 
 // How far, in pixels, a press may land from a curve's line on screen and pick it.
 CURVE_PICK_PX :: 10
@@ -74,16 +114,25 @@ curve_part_free :: proc(obj: ^Object) {
 // drop.
 curve_part_attach :: proc(app: ^App, obj: ^Object, cp: ^Curve_Part) -> bool {
 	obj.curve = cp
-	if cp.use == .Tube {
-		mesh, ok := geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
-		if ok && len(mesh.indices) > 0 {
-			return object_build_from(app, obj, mesh, time.tick_now(), normals = true)
-		}
+	if mesh, ok := curve_part_mesh(cp); ok {
+		if len(mesh.indices) > 0 do return object_build_from(app, obj, mesh, time.tick_now(), normals = true)
 		geom.mesh_destroy(&mesh)
 	}
 	empty := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	sculpt.levels_init(&obj.levels, empty, nil, 64)
 	return true
+}
+
+// The mesh `cp` makes for its use, in its own space; ok false when it makes nothing (a
+// line, or a use whose shape comes to nothing, such as a lathe of a curve on its axis).
+curve_part_mesh :: proc(cp: ^Curve_Part) -> (mesh: geom.Mesh, ok: bool) {
+	#partial switch cp.use {
+	case .Tube:
+		return geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
+	case .Lathe:
+		return geom.bezier_lathe(cp.points[:], cp.closed, cp.lathe)
+	}
+	return {}, false
 }
 
 // Makes the curve's level again after its points or options changed: the autosave thread
@@ -114,6 +163,17 @@ curve_tube_clean :: proc(o: geom.Tube_Options) -> geom.Tube_Options {
 	return c
 }
 
+// A lathe's options made safe to build: a unit axis (the default's for none), angle 1 to
+// 360, segments 3 to LATHE_SEGMENTS_MAX.
+curve_lathe_clean :: proc(o: geom.Lathe_Options) -> geom.Lathe_Options {
+	c := o
+	c.axis = linalg.normalize0(c.axis) if finite(c.axis) else {}
+	if c.axis == {} do c.axis = geom.LATHE_DEFAULTS.axis
+	c.angle = clamp(c.angle, 1, 360) if c.angle == c.angle else 360
+	c.segments = clamp(c.segments, 3, geom.LATHE_SEGMENTS_MAX)
+	return c
+}
+
 // A Use or tube slider's drag in progress: the curve it changes and the snapshot from
 // before it.
 Curve_Look_Drag :: struct {
@@ -121,15 +181,15 @@ Curve_Look_Drag :: struct {
 	before: ^Object_Snapshot,
 }
 
-// Sets what `obj`'s curve makes and its tube's options, and makes its level again, as one
+// Sets what `obj`'s curve makes and its uses' options, and makes its level again, as one
 // undo step; with `drag` (a slider moving) the step starts at the first change and ends
 // when the slider lets go (curve_look_drag_end), as a cage's look does. Returns false
 // only on a GPU failure.
-object_set_curve_look :: proc(app: ^App, obj: ^Object, use: Curve_Use, tube: geom.Tube_Options, drag := false) -> bool {
+object_set_curve_look :: proc(app: ^App, obj: ^Object, wanted: Curve_Look, drag := false) -> bool {
 	cp := obj.curve
-	o := curve_tube_clean(tube)
-	if cp.use == use && cp.tube == o do return true
-	what := "curve use" if cp.use != use else "tube"
+	look := Curve_Look{wanted.use, curve_tube_clean(wanted.tube), curve_lathe_clean(wanted.lathe)}
+	if cp.look == look do return true
+	what := "curve use" if cp.use != look.use else "tube" if cp.tube != look.tube else "lathe"
 	ld := &app.curve.look_drag
 	if drag && ld.before != nil && ld.object != obj.id do curve_look_drag_end(app, force = true)
 	before: ^Object_Snapshot
@@ -138,7 +198,7 @@ object_set_curve_look :: proc(app: ^App, obj: ^Object, use: Curve_Use, tube: geo
 	} else if ld.before == nil {
 		ld^ = {object = obj.id, before = history_snapshot(app, obj, what)}
 	}
-	cp.use, cp.tube = use, o
+	cp.look = look
 	if !curve_rebuild(app, obj) {
 		if before != nil do history_snapshot_drop(before)
 		return false
@@ -167,7 +227,7 @@ curve_look_drag_end :: proc(app: ^App, force := false) {
 curve_bake :: proc(app: ^App, obj: ^Object) -> bool {
 	cp := obj.curve
 	if cp == nil || !object_draws_triangles(obj) do return true
-	mesh, ok := geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
+	mesh, ok := curve_part_mesh(cp)
 	if !ok do return true
 	stroke_finish(app)
 	// The name is copied, since the curve and its name go below.
@@ -198,7 +258,8 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, u
 	for p in points do geom.aabb_grow(&bounds, p.p)
 	middle := 0.5 * (bounds.lo + bounds.hi)
 	cp := new(Curve_Part)
-	cp.closed, cp.use, cp.tube = closed, use, tube
+	cp.closed, cp.look = closed, CURVE_LOOK_DEFAULTS
+	cp.use, cp.tube = use, tube
 	reserve(&cp.points, len(points))
 	for p in points {
 		q := p
@@ -252,12 +313,18 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 	geom.byte_put(out, o.density)
 	geom.byte_put(out, u8(o.caps))
 	geom.byte_put(out, o.flatness)
+	l := cp.lathe
+	geom.byte_put(out, l.axis)
+	geom.byte_put(out, u8(l.through))
+	geom.byte_put(out, l.angle)
+	geom.byte_put(out, u16(l.segments))
+	geom.byte_put(out, u8(l.caps))
 }
 
 // Reads what curve_part_put wrote into a new curve on `obj`, and makes its level. `read`
 // is false, with nothing made, for damage: too few points, more than the bytes hold, a
-// flag, use or option no version wrote, a value that is not a number, or tube options only
-// partly there (a curve from before them has none, and takes the defaults). `made` is
+// flag, use or option no version wrote, a value that is not a number, or tube or lathe
+// options only partly there (a curve from before them has none, and takes the defaults). `made` is
 // false on a GPU failure, with the curve on the object for object_discard.
 curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
 	count := int(geom.byte_get(r, u32))
@@ -265,7 +332,8 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 	use := geom.byte_get(r, u8)
 	if !r.ok || count < CURVE_MIN_POINTS || count > (len(r.data) - r.at) / CURVE_POINT_BYTES || closed > 1 || int(use) >= len(Curve_Use) do return false, false
 	cp := new(Curve_Part)
-	cp.closed, cp.use, cp.tube = closed == 1, Curve_Use(use), geom.TUBE_DEFAULTS
+	cp.closed, cp.look = closed == 1, CURVE_LOOK_DEFAULTS
+	cp.use = Curve_Use(use)
 	reserve(&cp.points, count)
 	damaged := false
 	for _ in 0 ..< count {
@@ -295,6 +363,17 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		damaged = !r.ok || int(profile) >= len(geom.Tube_Profile) || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, o.flatness}) || o.one < 0 || o.density <= 0 || o.flatness <= 0
 		o.profile, o.radius, o.caps = geom.Tube_Profile(profile), geom.Tube_Radius(radius), geom.Tube_Caps(caps)
 		cp.tube = o
+	}
+	if !damaged && r.at < len(r.data) {
+		l: geom.Lathe_Options
+		l.axis = geom.byte_get(r, Vec3)
+		through := geom.byte_get(r, u8)
+		l.angle = geom.byte_get(r, f32)
+		l.segments = int(geom.byte_get(r, u16))
+		caps := geom.byte_get(r, u8)
+		damaged = !r.ok || !finite(l.axis) || linalg.length(l.axis) < 1e-6 || int(through) >= len(geom.Lathe_Through) || !(l.angle >= 1 && l.angle <= 360) || l.segments < 3 || l.segments > geom.LATHE_SEGMENTS_MAX || caps > 1
+		l.through, l.caps = geom.Lathe_Through(through), caps == 1
+		cp.lathe = l
 	}
 	if damaged {
 		delete(cp.points)

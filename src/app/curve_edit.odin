@@ -1,6 +1,7 @@
 package main
 
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 
 import "../camera"
@@ -324,6 +325,7 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	white := overlay_color({1, 1, 1, 1})
 	dark := overlay_color({0.04, 0.06, 0.08, 0.8})
 	blue := overlay_color({0.4, 0.85, 1, 1})
+	if cp.use == .Lathe do draw_lathe_axis(app, o, obj, view_proj, size)
 	for i in 0 ..< len(cp.points) {
 		sc := curve_point_screen(app, obj, view_proj, size, i)
 		if !sc.ok do continue
@@ -342,7 +344,33 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	}
 }
 
-// Makes the selected curve's tube again after an edit, when it makes one. A GPU failure
+// A lathe's axis as a dashed line over the view, a little longer than the curve reaches
+// along it either way.
+@(private = "file")
+draw_lathe_axis :: proc(app: ^App, o: Overlay, obj: ^Object, view_proj: matrix[4, 4]f32, size: [2]f32) {
+	cp := obj.curve
+	axis := linalg.normalize0(cp.lathe.axis)
+	if axis == {} do return
+	origin := geom.lathe_origin(cp.points[:], cp.lathe)
+	lo, hi := max(f32), -max(f32)
+	for p in cp.points {
+		h := linalg.dot(p.p - origin, axis)
+		lo, hi = min(lo, h), max(hi, h)
+	}
+	reach := max(hi - lo, 1e-3)
+	lo, hi = lo - 0.15 * reach, hi + 0.15 * reach
+	DASHES :: 24
+	color := overlay_color({1, 1, 1, 0.7})
+	for k in 0 ..< DASHES {
+		a := to_world(obj.transform, origin + axis * math.lerp(lo, hi, f32(2 * k) / f32(2 * DASHES)))
+		b := to_world(obj.transform, origin + axis * math.lerp(lo, hi, f32(2 * k + 1) / f32(2 * DASHES)))
+		sa, ok_a := gizmo.project(view_proj, a, size)
+		sb, ok_b := gizmo.project(view_proj, b, size)
+		if ok_a && ok_b do overlay_line(o, sa, sb, color, 1.5 * o.scale)
+	}
+}
+
+// Makes the selected curve's tube or lathe again after an edit, when it makes one. A GPU failure
 // leaves the curve with an empty level, drawn as its line, and says so in the log.
 curve_changed :: proc(app: ^App, obj: ^Object) {
 	if obj.curve == nil || obj.curve.use == .None do return

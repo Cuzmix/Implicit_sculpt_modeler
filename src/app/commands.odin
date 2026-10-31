@@ -170,6 +170,7 @@ Command_Id :: enum u16 {
 	Curve_Corner,
 	Curve_Close,
 	Curve_Bake,
+	Curve_Use,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1528,6 +1529,24 @@ COMMANDS := [Command_Id]Command {
 			return obj != nil && object_draws_triangles(obj)
 		},
 	},
+	.Curve_Use = {
+		label = "Curve use",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it) or Lathe (the curve spun round an axis, the view's vertical when chosen). It stays editable until Bake. One undo step.",
+		icon = ui.ICON_SPLINE,
+		args = len(Curve_Use),
+		run = proc(app: ^App, arg: int) {
+			if obj := selected_curve(app); obj != nil do app.ui.scene_command = {kind = .Curve_Look, curve = curve_use_look(app, obj, Curve_Use(arg))}
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			built := CURVE_USES_BUILT
+			for use in built do if int(use) == arg do return selected_curve(app) != nil
+			return false
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && int(obj.curve.use) == arg
+		},
+	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
 		help = "Rebuilds the selected voxel object as a mesh of its surface, for the mesh tools; its clay goes, as one undo step.",
@@ -2621,6 +2640,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Curve_Use:
+		return fmt.tprintf("Curve use: %s", CURVE_USE_NAMES[Curve_Use(arg)])
 	case .Select_Cage:
 		return CAGE_SELECT_NAMES[poly.Select_Op(arg)]
 	case .Cage_Thickness:

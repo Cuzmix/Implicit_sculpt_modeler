@@ -1438,6 +1438,29 @@ def tube_baked_is_a_mesh():
 
 
 @scenario
+def lathe_chosen_from_the_palette():
+    """An open curve of three tapped points (Enter ends it) turned into a Lathe from the
+    palette: the curve spun round the view's vertical through its first point, one undo
+    step; shows the lathe with its dashed axis (look with --screens)."""
+    s = Script()
+    for x, y in [(780, 300), (900, 420), (800, 560)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.press("Return")
+    s.wait(2)
+    s.press("k", ("ctrl",))
+    s.type("curve use lathe")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_lathes": near(1), "curve_tubes": near(0),
+                                                                     "curve_lathe_vertices": lambda v: int(v) > 100, "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
