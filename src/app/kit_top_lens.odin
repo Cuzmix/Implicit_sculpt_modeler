@@ -12,7 +12,7 @@ import "../ui"
 // (spaces.odin); the object chip (object_chip.odin); Search; History and Settings. Home,
 // Save, Import, Export and Help are in the menu, the passes on the pane. A section Arrange
 // took out stands as an island of its own (chip_islands.odin) and the bar closes up round
-// the rest. Returns the menu button and the Search field, which the menu and the command
+// the rest. Returns the menu button and the Search button, which the menu and the command
 // palette open under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
@@ -57,9 +57,9 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		left += 2 * t.target
 		things += 2
 	}
-	// What the ends take, the middle gets. The object chip gives up its badges, then its
-	// tag, before Search shrinks to its icon; then the chip shrinks to its icon, and last
-	// the space tabs go to the layout's chip.
+	// What the ends take, the middle gets. Search is an icon (the palette it opens has its
+	// own field), so the object chip gives up its badges, then its tag, then shrinks to
+	// its icon, and last the space tabs go to the layout's chip.
 	before := things > 0
 	tabs: f32 = space_tabs_width(app) if in_bar[.Spaces] else 0
 	tab_div: f32 = TOP_DIVIDER_W if in_bar[.Spaces] && before else 0
@@ -80,24 +80,9 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	row := 2 * 2 + 2 * f32(things - 1)
 	middle := width - row - left - right
 	chip := object_chip_of(app)
-	field := false
+	if in_bar[.Search] do middle -= t.target
 	fit := Object_Chip_Fit.None
-	if !arranging {
-		with_field := middle - TOP_SEARCH_W - tabs - tab_div - chip_div
-		switch {
-		case !in_bar[.Object]:
-			field = in_bar[.Search] && with_field >= 0
-		case !in_bar[.Search]:
-			fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
-		case object_chip_fit(ctx, chip, with_field) >= .Name:
-			field, fit = true, object_chip_fit(ctx, chip, with_field)
-		case:
-			fit = object_chip_fit(ctx, chip, middle - t.target - tabs - tab_div - chip_div)
-		}
-	} else {
-		field = in_bar[.Search] && middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
-	}
-	if in_bar[.Search] do middle -= TOP_SEARCH_W if field else t.target
+	if !arranging && in_bar[.Object] do fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
 	if arranging {
 		// Arranging, the middle holds what arranging needs in place of the tabs and the chip.
 		pill := arrange_top_width(app)
@@ -138,7 +123,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	} else {
 		ui.spacer(ctx, max(middle, 0))
 	}
-	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = field)
+	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor)
 	if in_bar[.End] {
 		if in_bar[.Search] do top_divider(ctx)
 		k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
@@ -222,8 +207,6 @@ kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	return
 }
 
-// The Search field's width, in points.
-TOP_SEARCH_W :: 300
 // How opaque the chips over the view are, of 255.
 TOP_GLASS_ALPHA :: 189
 // The chip bar floats this far in from the safe area's sides and down from its top, in
@@ -291,35 +274,3 @@ saved_ago :: proc(d: time.Duration) -> string {
 
 // Lucide's plus.
 ICON_PLUS_SMALL :: rune(0xe141)
-
-// The Search field: a tap opens the command palette under it (Ctrl+K does too).
-top_search_field :: proc(app: ^App) -> ui.Rect {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	a := ui.area(ctx, "Search field", {TOP_SEARCH_W, t.target})
-	r := ui.Rect{a.rect.x, a.rect.y + (a.rect.h - 34) * 0.5, a.rect.w, 34}
-	ui.fill_rect(ctx, r, t.radius_medium, t.surface)
-	ui.stroke_rect(ctx, r, t.radius_medium, t.border, 1)
-	if a.held do ui.fill_rect(ctx, r, t.radius_medium, t.fill_pressed)
-	else if a.hovered do ui.fill_rect(ctx, r, t.radius_medium, t.fill_hover)
-	if k.palette do ui.stroke_rect(ctx, r, t.radius_medium, t.accent, 1)
-	mid := r.y + r.h * 0.5
-	ui.icon(ctx, ui.ICON_SEARCH, {r.x + 18, mid}, 16, t.text_tertiary)
-	keys := command_keys(app, .Command_Palette)
-	kw: f32 = 0
-	if keys != "" {
-		kw = ui.text_width(ctx, keys, t.caption_size, .Semibold) + 10
-		chip := ui.Rect{r.x + r.w - 8 - kw, mid - 10, kw, 20}
-		ui.fill_rect(ctx, chip, t.radius_small, t.track)
-		ui.text(ctx, keys, chip.x + chip.w * 0.5, mid, t.caption_size, t.text_secondary, .Semibold, .Center)
-	}
-	hint := ui.text_fit(ctx, "Search commands, brushes, panels", t.small_size, r.w - 36 - kw - 16)
-	ui.text(ctx, hint, r.x + 34, mid, t.small_size, t.text_tertiary)
-	ui.tip(ctx, a.id, r, "Search commands", command_hint(app, .Command_Palette))
-	if a.clicked {
-		if k.palette do palette_close(app)
-		else do palette_open(app)
-	}
-	return r
-}

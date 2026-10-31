@@ -52,8 +52,8 @@ PEN_RESPONSE_CLAY = (193, 451)  # the Pen section's Response page, its Clay tab
 
 UI = {
     # The top bar (kit_top_lens.odin): Menu, Undo and Redo at the left, History and
-    # Settings at the right, the Search field before them.
-    "menu": (33, 26), "undo": (217, 26), "redo": (267, 26), "search": (1340, 26), "history": (1520, 26), "settings": (1570, 26),
+    # Settings at the right, the Search button before them.
+    "menu": (33, 26), "undo": (217, 26), "redo": (267, 26), "search": (1455, 26), "history": (1520, 26), "settings": (1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
     # The view chips over the view's top-left corner, and the chip bar's object chip.
@@ -2686,15 +2686,20 @@ def show_where_marks_the_control():
                                 "tray_section": is_text("Mask"), "more": is_text("mask"), "tray_marked": near(1)})
 
 
+# The palette footer's Show where it lives at 1600 x 900 with one result row.
+PALETTE_SHOW_ONE_ROW = (885, 268)
+
+
 @scenario
 def long_press_a_search_row_shows_where():
-    """A finger's long press on search's first row (Layers' New layer) shows where it lives rather than running it: the Object palette's Layers section."""
+    """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Object palette's Layers section."""
     s = Script()
     s.ftap(*UI["search"])
     s.wait(4)
     s.type("new layer")
     s.wait(4)
     long_press(s, *UI["palette_row1"])
+    s.ftap(*PALETTE_SHOW_ONE_ROW)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette_runs": near(0), "tray_section": is_text("Layers"), "tray_marked": near(1)})
 
@@ -2853,9 +2858,9 @@ def focus_moves_undo_and_search_to_the_top_bar():
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
-# space tabs in the middle, the Search field at the right.
+# space tabs in the middle, the Search button at the right.
 LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (217, 26), (267, 26)
-LENS_SEARCH = (1340, 26)
+LENS_SEARCH = (1455, 26)
 # The Lens menu's first row, Home.
 LENS_MENU_HOME = (120, 82)
 
@@ -2954,12 +2959,70 @@ def model_dial_picks_select():
 
 
 @scenario
-def lens_search_field_opens_the_palette():
-    """A tap on the Lens top bar's Search field opens the command palette."""
+def lens_search_icon_opens_the_palette():
+    """A tap on the Lens top bar's Search icon opens the command palette, and a second tap closes it."""
     s = Script()
     s.ftap(*LENS_SEARCH)
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "palette": near(1)})
+    first = (s, [], camera_still({"dabs": near(0), "palette": near(1), "layout_overlaps": near(0)}))
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(10)
+    s.ftap(*LENS_SEARCH)
+    s.wait(10)
+    return Steps([first, (s, [], camera_still({"dabs": near(0), "palette": near(0)}))])
+
+
+# The command palette's rows at 1600 x 900 once "smooth" is typed: Smooth all, then Mask
+# by smoothness, each 40 points and a gap of 2 under the COMMANDS caption.
+PALETTE_SMOOTH_ROW2 = (700, 200)
+
+
+@scenario
+def palette_moving_pointer_picks_a_row():
+    """A mouse moved over the palette's second row picks it, so its Put on a bar and the footer's buttons are for it; nothing runs."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(8)
+    s.type("smooth")
+    s.wait(4)
+    s.add("move:{:g},{:g}".format(*PALETTE_SMOOTH_ROW2))
+    s.wait(2)
+    s.add("move:{:g},{:g}".format(PALETTE_SMOOTH_ROW2[0] + 2, PALETTE_SMOOTH_ROW2[1] + 1))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Mask_By:Smoothness")})
+
+
+@scenario
+def palette_resting_pointer_leaves_the_keys_pick():
+    """With the mouse resting on the second row after picking it, Down twice moves the pick on from there: a still pointer never takes it back."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(8)
+    s.type("smooth")
+    s.wait(4)
+    s.add("move:{:g},{:g}".format(*PALETTE_SMOOTH_ROW2))
+    s.wait(2)
+    s.add("move:{:g},{:g}".format(PALETTE_SMOOTH_ROW2[0] + 2, PALETTE_SMOOTH_ROW2[1] + 1))
+    s.wait(4)
+    s.press("Down")
+    s.press("Down")
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Cage_Smooth:2")})
+
+
+@scenario
+def palette_finger_press_picks_and_long_press_keeps_it():
+    """A finger's long press on the second row picks it and keeps the palette open, running nothing, so its footer buttons can be reached."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(8)
+    s.type("smooth")
+    s.wait(4)
+    long_press(s, *PALETTE_SMOOTH_ROW2)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette": near(1), "palette_runs": near(0),
+                                "palette_pick": is_text("Mask_By:Smoothness"), "tray_section": is_text("none")})
 
 
 @scenario
@@ -4810,7 +4873,7 @@ def export_sheet_checks_a_print():
 # and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
 # top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
 LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
-                "reset_zone": (601, 26), "done": (941, 26), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+                "reset_zone": (717, 26), "done": (1057, 26), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
 
 
 @scenario
@@ -5223,7 +5286,7 @@ def lens_arrange_place_stays_with_its_space():
 
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
-LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}
+LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1295, 26)}
 
 
 @scenario

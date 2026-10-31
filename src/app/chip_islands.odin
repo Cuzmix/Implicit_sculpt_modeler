@@ -21,7 +21,7 @@ Chip_Section :: enum u8 {
 	Undo, // Undo and Redo
 	Spaces, // the space tabs
 	Object, // the object chip
-	Search, // the Search field
+	Search, // the Search button
 	End, // History and Settings
 }
 
@@ -101,9 +101,9 @@ kit_chip_islands :: proc(app: ^App, menu_anchor, search_anchor: ^ui.Rect) {
 }
 
 // Lays section `s` out in the current row and answers it, as the bar and an island both
-// hold it; returns the rect it took. An island holds it whole: Search as its field, the
-// object chip with its badges.
-chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor: ^ui.Rect, field := true, fit := Object_Chip_Fit.Full) -> ui.Rect {
+// hold it; returns the rect it took. An island holds it whole: the object chip with its
+// badges.
+chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor: ^ui.Rect, fit := Object_Chip_Fit.Full) -> ui.Rect {
 	k := &app.kit
 	ctx := &k.ctx
 	switch s {
@@ -139,10 +139,6 @@ chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor
 		else do top_object_chip(app, chip, fit)
 		return ctx.last_rect
 	case .Search:
-		if field {
-			search_anchor^ = top_search_field(app)
-			return ctx.last_rect
-		}
 		if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
 			if k.palette do palette_close(app)
 			else do palette_open(app)
@@ -184,7 +180,6 @@ chip_island_spot :: proc(app: ^App, s: Chip_Section) -> [2]f32 {
 	home := k.chip_home[s]
 	// The island is the section with its padding round it.
 	size := [2]f32{max(home.w, t.target) + 8, t.target + 8}
-	if s == .Search do size.x = TOP_SEARCH_W + 8
 	keep := make([dynamic]ui.Rect, 0, 16, context.temp_allocator)
 	for name in ([]string{"points", "view bar", "brush bar", "navigation head"}) do append(&keep, ui.prev_root_rect(ctx, name))
 	for r in k.panels.rect do append(&keep, r)
