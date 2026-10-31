@@ -1178,8 +1178,10 @@ Mesh_Clean_Report :: struct {
 // and infinite coordinates. Normals become zero, for the sculptor to compute. `colors`,
 // one a vertex when not empty, follow the vertices: a welded vertex keeps the colour of
 // the first at its place; `groups` and `polys`, one a triangle when not empty, and `uvs`,
-// one a corner when not empty, follow the triangles.
-mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, groups: ^[dynamic]u16 = nil, polys: ^[dynamic]u32 = nil, uvs: ^[dynamic][2]f32 = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
+// one a corner when not empty, follow the triangles. `remap`, one a vertex when not nil,
+// receives each vertex's number in the result (max(u32) for one that was dropped), for
+// callers that keep data by vertex number beside the mesh (Mirror and weld's creases).
+mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, groups: ^[dynamic]u16 = nil, polys: ^[dynamic]u32 = nil, uvs: ^[dynamic][2]f32 = nil, remap: []u32 = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
 	colored := colors != nil && len(colors) > 0
 	assert(!colored || len(colors) == len(m.positions), "one colour a vertex")
 	grouped := groups != nil && len(groups) > 0
@@ -1189,6 +1191,7 @@ mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = 
 	mapped := uvs != nil && len(uvs) > 0
 	assert(!mapped || len(uvs) == len(m.indices), "one texture coordinate a corner")
 	n := len(m.positions)
+	assert(remap == nil || len(remap) == n, "one number a vertex")
 	if !positions_finite(m.positions[:], pool) do return {}, .Not_Finite
 
 	// Weld: sort the vertices by a hash of their bits; within a run of equal hashes,
@@ -1258,6 +1261,7 @@ mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = 
 	if mapped do resize(uvs, kept)
 
 	// Drop unused vertices: number the used ones in order, then move them down.
+	if remap != nil do copy(remap, w.rep)
 	new_of := w.rep // reused: no longer needed
 	slice.fill(new_of, max(u32))
 	for i in m.indices do new_of[i] = 0
@@ -1270,6 +1274,9 @@ mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = 
 		next += 1
 	}
 	report.dropped_vertices = n - int(next)
+	// A welded vertex is numbered as the one it joined; new_of is max(u32) for both
+	// when neither is used.
+	for &r in remap do r = new_of[r]
 	if report.dropped_vertices > 0 {
 		w.rep, w.indices = new_of, m.indices[:]
 		jobs.parallel_ranges(pool, len(w.indices), &w, proc(data: rawptr, lo, hi: int) {

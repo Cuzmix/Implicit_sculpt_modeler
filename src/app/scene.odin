@@ -491,32 +491,56 @@ decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, bef
 
 // Mirrors one half of the level the object is on onto the other across its own `axis`
 // plane, welded along the cut (geom.mesh_symmetrize), keeping the `keep_positive` half.
-// Like a remesh it rebuilds the object, so its levels, HD detail, mask and strokes go
-// (the caller records the swap that takes it back). `changed` says whether it did; ok
-// is false only when the old mesh is gone and the new one could not be uploaded.
+// The level's polygons come through as polygons (a quad mesh stays quads, its creases
+// mirrored too), as ZBrush's Mirror And Weld keeps a quad mesh's topology. Like a remesh
+// it rebuilds the object, so its levels, HD detail, mask and strokes go (the caller
+// records the swap that takes it back). `changed` says whether it did; ok is false only
+// when the old mesh is gone and the new one could not be uploaded.
 object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: bool) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	source := object_mesh(obj)^
 	packed: geom.Mesh
+	polygons: geom.Polygons
+	creases: geom.Creases
+	rule := sculpt.Subdivision_Rule.Smooth
 	if object_dynamic(obj) {
+		// Dynamic topology has no polygons to keep.
 		mask: []u8
 		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
 		delete(mask)
 		source = packed
+	} else {
+		polygons, creases, rule = object_level_polygons(obj)
 	}
-	mesh, built := geom.mesh_symmetrize(source, axis, keep_positive, &app.pool)
+	kept: geom.Symmetrized_Polygons
+	defer geom.symmetrized_polygons_destroy(&kept)
+	mesh, built := geom.mesh_symmetrize(source, axis, keep_positive, &app.pool, polygons = polygons, creases = creases, out_polygons = &kept if polygons.first != nil else nil)
 	geom.mesh_destroy(&packed)
+	// The polygons in the new mesh's numbers, before the levels renumber it.
+	polys: sculpt.Polys
+	if built && polygons.first != nil do polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], kept.polys[:])
 	free_all(context.temp_allocator)
 	if !built {
 		log.warn("mirror and weld: nothing of the object is on the side to keep")
 		return false, true
 	}
+	old_to_new, tri_from: []u32
+	if polys.first != nil {
+		old_to_new = make([]u32, len(mesh.positions))
+		tri_from = make([]u32, len(mesh.indices) / 3)
+	}
+	defer delete(old_to_new)
+	defer delete(tri_from)
 	cut := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}) do return true, false
-	log.infof("mirror and weld: %d vertices in %.0f ms", object_vertex_count(obj), time.duration_milliseconds(time.tick_diff(start, cut)))
+	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}, old_to_new = old_to_new, tri_from = tri_from) {
+		sculpt.polys_destroy(&polys)
+		return true, false
+	}
+	if polys.first != nil do symmetrize_take_polygons(&obj.levels, &polys, kept.creases, rule, old_to_new, tri_from)
+	log.infof("mirror and weld: %d vertices, %d polygons in %.0f ms", object_vertex_count(obj), sculpt.levels_polygon_source(&obj.levels, 0).polygons, time.duration_milliseconds(time.tick_diff(start, cut)))
 	return true, true
 }
 
