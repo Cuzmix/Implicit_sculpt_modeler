@@ -692,6 +692,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.simplify_px = 1
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
 	app.frame_limit = FRAME_LIMIT_DEFAULT
+	app.low_latency = LOW_LATENCY_DEFAULT
 	app.idle_sleep = true
 	app.ray_query = RAY_QUERY_DEFAULT
 	app.async_compute = true

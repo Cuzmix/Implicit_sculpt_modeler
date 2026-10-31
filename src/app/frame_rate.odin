@@ -38,6 +38,10 @@ Low_Latency :: enum u8 {
 	Off,
 }
 
+// Off by default: one frame in flight saves a refresh of latency but makes the CPU and the
+// GPU take turns, which a heavy scene feels as lag; those who want the refresh turn it on.
+LOW_LATENCY_DEFAULT :: Low_Latency.Off
+
 LOW_LATENCY_NAMES := [Low_Latency]string {
 	.During_Strokes = "During strokes",
 	.Always         = "Always",
