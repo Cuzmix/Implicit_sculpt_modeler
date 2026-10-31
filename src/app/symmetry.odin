@@ -34,6 +34,34 @@ symmetry_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
 	return c.center
 }
 
+// The planes Keep symmetry keeps a rebuild of `obj` symmetric across (Remesh, Decimate,
+// Quad Remesh): the brush's symmetry planes, through the centre its dabs mirror about,
+// so a sculpt made with symmetry comes out as symmetric as it went in, ready for more
+// symmetric strokes. Radial symmetry asks nothing of them. None without an object.
+symmetry_planes :: proc(app: ^App, obj: ^Object) -> (mirror: geom.Remesh_Mirror) {
+	if obj == nil do return
+	for a in sculpt.Axis do mirror.axes[int(a)] = a in app.brush.symmetry
+	if mirror.axes != {} do mirror.center = symmetry_center(app, obj)
+	return
+}
+
+// "X", "X and Z", "X, Y and Z": the planes a result line names.
+planes_label :: proc(mirror: geom.Remesh_Mirror) -> string {
+	axis_names := [3]string{"X", "Y", "Z"}
+	names: [3]string
+	n := 0
+	for a in 0 ..< 3 do if mirror.axes[a] {
+		names[n] = axis_names[a]
+		n += 1
+	}
+	switch n {
+	case 0: return ""
+	case 1: return names[0]
+	case 2: return fmt.tprintf("%s and %s", names[0], names[1])
+	}
+	return fmt.tprintf("%s, %s and %s", names[0], names[1], names[2])
+}
+
 // A brush carrying only the selected brush's symmetry on `obj`: its planes, its radial
 // copies and the centre they turn about, as the dabs and Clip take them.
 brush_symmetry :: proc(app: ^App, obj: ^Object) -> sculpt.Brush {

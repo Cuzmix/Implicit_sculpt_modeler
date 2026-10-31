@@ -132,6 +132,14 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `distribute_objects` move positions only, one chained `history_record_transform` per moved object. Past the swap
   limit `history_record_swap` drops whole steps and never the newest, so a chained rebuild and delete undo together.
 - Quad Remesh's engine is `src/quadmesh` (sm-geom): AutoRemesher's core behind a C boundary, `quadmesh.remesh(positions, indices, params, progress, share, allocator) -> (Polygon_Mesh, Report, Error, reason)`, nearly all quads with 95 %+ regular vertices, bit-identical for any thread count, desktops only (`AVAILABLE`). Quad Remesh (the work in `src/retopo`, `retopo.compute` returning a `retopo.Result`; the object made from it in `src/app/retopo.odin`; scene command `.Retopo`, command `.Retopologize`, script `retopologize`) runs it by default (`retopo.Engine.Auto`, `app.ui.retopo_engine`, carried in `Scene_Command.engine` so the job thread reads no UI): decimate past `QUAD_REMESH_MAX_TRIANGLES`, `mesh_integrity` refuses non-manifold, flipped, degenerate, duplicate, NaN or fragmented input, then `polygon_mesh_triangulate` (quads along the shorter diagonal, n-gons as fans, unused vertices dropped) and the base level keeps the polygons through `levels_set_polys(..., .Smooth)` after `retopo.polys_renumber` with `levels_init`'s `old_to_new` and `tri_from` (`scene_add_mesh(..., tri_from)`); a refusal or failure falls back to the own `geom.mesh_retopo` (`.Own`, the Built-in tab) with the reason in the result line.
+- Keep symmetry (Remesh, Decimate, Quad Remesh; one switch each, on by default, `symmetry_planes(app, obj)` gives the
+  brush's planes as a `geom.Remesh_Mirror` through `symmetry_center`): Remesh evens its lattice about the planes;
+  the others rebuild the + part alone and mirror it (`src/geom/mirror_half.odin`): `mirror_cut` (sequential
+  `mesh_slice`, open or capped, `Slice_From` traces vertices and triangles back), `mirror_seam` (cut-edge vertices
+  as plane bits), `Simplify_Guide.seam` (the seam slides along itself in the final pass, and no collapse joins two
+  seam vertices across the surface: a chord doubles into an edge of four triangles), `mirror_polygons`/`mesh_mirror`
+  (seam shared, flat faces dropped, `from`/`face_from` carried). A plane that misses, or a seam that does not
+  close, falls back to the whole mesh with the reason in the result line (`decimate_note`, `Result.unmirrored`).
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
 - There are no booleans or trims, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,

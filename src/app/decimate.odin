@@ -1,5 +1,8 @@
 package main
 
+import "core:fmt"
+import "core:log"
+import "core:math/linalg"
 import "core:slice"
 
 import "../geom"
@@ -52,12 +55,16 @@ Decimate_Setup :: struct {
 	keep_groups:  bool, // polygroups follow the triangles, and the lines between them stay
 	keep_borders: bool, // open edges stay exactly as they are rather than thin out along themselves
 	use_mask:     bool, // masked areas keep more triangles
+	// Keep symmetry: the planes the result is its own mirror image across (the brush's
+	// symmetry, symmetry_planes), none when the switch is off or there is no symmetry.
+	mirror:       geom.Remesh_Mirror,
 }
 
 // The panel's options as a command takes them.
 decimate_setup :: proc(app: ^App) -> Decimate_Setup {
 	u := &app.ui
-	return {u.decimate_percent if u.decimate_by == .Percent else 0, u.decimate_keep_paint, u.decimate_keep_groups, u.decimate_keep_borders, u.decimate_use_mask}
+	mirror := symmetry_planes(app, selected_object(app)) if u.decimate_keep_symmetry else {}
+	return {u.decimate_percent if u.decimate_by == .Percent else 0, u.decimate_keep_paint, u.decimate_keep_groups, u.decimate_keep_borders, u.decimate_use_mask, mirror}
 }
 
 // The panel set to a command's options (Adjust last).
@@ -66,6 +73,7 @@ decimate_setup_set :: proc(app: ^App, s: Decimate_Setup) {
 	if s.percent > 0 do u.decimate_by, u.decimate_percent = .Percent, s.percent
 	else do u.decimate_by = .Count
 	u.decimate_keep_paint, u.decimate_keep_groups, u.decimate_keep_borders, u.decimate_use_mask = s.keep_paint, s.keep_groups, s.keep_borders, s.use_mask
+	if s.mirror.axes != {} do u.decimate_keep_symmetry = true
 }
 
 // The vertices a decimation of an object of `now` vertices aims for: the share `setup`
@@ -152,8 +160,14 @@ decimate_weights :: proc(src: Decimate_Source, allocator := context.allocator) -
 // Decimates `src` to about `vertices` vertices under `setup`, on the frame thread or a
 // long job's: the new mesh with zero normals, the largest stray (geom.mesh_decimate), and
 // the polypaint and polygroups that followed it (the caller frees them). Not built when
-// the object has no more vertices than asked, or after a cancel.
-decimate_compute :: proc(src: Decimate_Source, vertices: int, setup: Decimate_Setup, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (mesh: geom.Mesh, error: f32, surface: Surface, built: bool) {
+// the object has no more vertices than asked, or after a cancel. With symmetry planes in
+// `setup` the part on the + side of them is decimated and mirrored (decimate_mirrored);
+// when that cannot be done the whole is decimated and `unmirrored` says why (a literal).
+decimate_compute :: proc(src: Decimate_Source, vertices: int, setup: Decimate_Setup, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> (mesh: geom.Mesh, error: f32, surface: Surface, built: bool, unmirrored: string) {
+	if setup.mirror.axes != {} && vertices < len(src.mesh.positions) {
+		mesh, error, surface, built, unmirrored = decimate_mirrored(src, vertices, setup, pool, progress, share)
+		if built || unmirrored == "" do return
+	}
 	weight := decimate_weights(src)
 	defer delete(weight)
 	guide := geom.Simplify_Guide{weight = weight, labels = src.groups, slide_borders = !setup.keep_borders}
@@ -172,6 +186,94 @@ decimate_compute :: proc(src: Decimate_Source, vertices: int, setup: Decimate_Se
 	return
 }
 
+// Keep symmetry, as Blender's Decimate keeps it: the part of `src` on the + side of every
+// plane of `setup.mirror` (geom.mirror_cut) is decimated to its share alone, its cut a
+// seam that thins out along the planes and stays on them (Simplify_Guide.seam), then
+// mirrored (geom.mesh_mirror), so the result is its own mirror image and both sides match
+// triangle for triangle. The other side takes this side's shape, paint and groups, as
+// Mirror and weld gives it them. Not built, with why in `unmirrored`, when a plane leaves
+// the mesh on one side or the mirrored halves do not close along the seam; not built and
+// no why after a cancel or when there is nothing to take away.
+@(private = "file")
+decimate_mirrored :: proc(src: Decimate_Source, vertices: int, setup: Decimate_Setup, pool: ^jobs.Pool, progress: ^jobs.Progress, share: [2]f32) -> (mesh: geom.Mesh, error: f32, surface: Surface, built: bool, unmirrored: string) {
+	mirror := setup.mirror
+	sources: geom.Slice_From
+	defer geom.slice_from_destroy(&sources)
+	half_mesh, cut := geom.mirror_cut(src.mesh, mirror, false, pool, from = &sources)
+	if !cut do return {}, 0, {}, false, "the object does not cross the plane"
+	// The part's own paint, groups and mask, from the vertices and triangles it was cut
+	// from (a cut point takes its nearer end's).
+	half := Decimate_Source{mesh = half_mesh}
+	defer decimate_source_free(&half)
+	if src.color != nil {
+		half.color = make([]sculpt.Color, len(half.mesh.positions))
+		for v, k in sources.vertex do half.color[k] = src.color[v]
+	}
+	if src.mask != nil {
+		half.mask = make([]u8, len(half.mesh.positions))
+		for v, k in sources.vertex do half.mask[k] = src.mask[v]
+	}
+	if src.groups != nil {
+		half.groups = make([]u16, len(half.mesh.indices) / 3)
+		for t, k in sources.triangle do half.groups[k] = src.groups[t]
+	}
+	// The seam: the cut's open edges, which mesh_slice put on the planes.
+	lo, hi := src.mesh.positions[0], src.mesh.positions[0]
+	for p in src.mesh.positions do lo, hi = linalg.min(lo, p), linalg.max(hi, p)
+	extent := hi - lo
+	planes := geom.mirror_seam(half.mesh, mirror, max(extent.x, extent.y, extent.z) * DECIMATE_SEAM_SNAP)
+	defer delete(planes)
+	seam := make([]bool, len(planes))
+	defer delete(seam)
+	for p, v in planes do seam[v] = p != 0
+	parts := 0
+	for a in mirror.axes do if a do parts += 1
+	weight := decimate_weights(half)
+	defer delete(weight)
+	guide := geom.Simplify_Guide{weight = weight, labels = half.groups, slide_borders = !setup.keep_borders, seam = seam}
+	from: [dynamic]u32
+	defer delete(from)
+	labels: [dynamic]u16
+	defer delete(labels)
+	mesh, error, built = geom.mesh_decimate(half.mesh, max(2 * vertices >> uint(parts), 8), pool, progress = progress, share = share, from = &from, guide = guide, out_labels = &labels)
+	if !built do return
+	// Each kept vertex's seam planes, then the mirror, which follows the vertices and
+	// triangles back to the part's.
+	at := make([dynamic]u8, len(from))
+	defer delete(at)
+	for v, k in from do at[k] = planes[v]
+	tri_from: [dynamic]u32
+	defer delete(tri_from)
+	geom.mesh_mirror(&mesh, &at, mirror, &from, &tri_from)
+	check := geom.mesh_check(mesh)
+	if check.non_manifold_edges > 0 || check.inconsistent_edges > 0 {
+		log.warnf("decimate: the mirrored halves left %d non-manifold and %d flipped edges, so the whole object is decimated", check.non_manifold_edges, check.inconsistent_edges)
+		geom.mesh_destroy(&mesh)
+		return {}, 0, {}, false, "the seam did not close"
+	}
+	if half.color != nil {
+		surface.color = make([]sculpt.Color, len(from))
+		for v, k in from do surface.color[k] = half.color[v]
+	}
+	if half.groups != nil {
+		surface.groups = make([]u16, len(tri_from))
+		for t, k in tri_from do surface.groups[k] = labels[t]
+	}
+	return
+}
+
+// Within this share of the object's size of a symmetry plane, a vertex on the cut's open
+// edge is its seam: mesh_slice puts what is within a tenth of that onto the plane.
+@(private = "file")
+DECIMATE_SEAM_SNAP :: f32(1e-4)
+
+// The result line's note on symmetry: the planes kept, or why they were not.
+decimate_note :: proc(setup: Decimate_Setup, unmirrored: string) -> string {
+	if setup.mirror.axes == {} do return ""
+	if unmirrored != "" do return fmt.tprintf(", not mirrored since %s", unmirrored)
+	return fmt.tprintf(", mirrored across %s", planes_label(setup.mirror))
+}
+
 // Rebuild's Fewer goal under More options: whether it keeps a share or a count, and what it
 // keeps besides the shape. Keep groups and Use mask grey out on an object with nothing for
 // them to keep.
@@ -187,4 +289,5 @@ kit_decimate_options :: proc(app: ^App, obj: ^Object) {
 	_ = ui.switch_row(ctx, "Keep groups", &u.decimate_keep_groups, enabled = sculpt.sculptor_has_groups(s) && !dynamic_layout)
 	_ = ui.switch_row(ctx, "Keep borders", &u.decimate_keep_borders)
 	_ = ui.switch_row(ctx, "Use mask", &u.decimate_use_mask, enabled = s.mask != nil)
+	kit_keep_symmetry(app, &u.decimate_keep_symmetry)
 }

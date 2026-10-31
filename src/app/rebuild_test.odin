@@ -132,7 +132,7 @@ decimate_keeps_paint_and_groups :: proc(t: ^testing.T) {
 	for &g, i in src.groups do g = 7 if src.mesh.positions[src.mesh.indices[3 * i]].x > 0 else 3
 	src.mask = make([]u8, n)
 	for &m, v in src.mask do m = 255 if src.mesh.positions[v].y > 0.5 else 0
-	mesh, _, surface, built := decimate_compute(src, 500, {keep_paint = true, keep_groups = true, keep_borders = true, use_mask = true}, nil)
+	mesh, _, surface, built, _ := decimate_compute(src, 500, {keep_paint = true, keep_groups = true, keep_borders = true, use_mask = true}, nil)
 	defer geom.mesh_destroy(&mesh)
 	defer surface_free(&surface)
 	if !testing.expect(t, built) do return
@@ -165,4 +165,61 @@ decimate_keeps_paint_and_groups :: proc(t: ^testing.T) {
 		if p.y < -0.5 do bottom += 1
 	}
 	testing.expectf(t, top > 2 * bottom, "masked %d, unmasked %d", top, bottom)
+}
+
+// Keep symmetry: a lopsided, painted, grouped sphere decimated across X through a centre
+// off the origin comes out its own mirror image, closed, near the count asked, with its
+// paint and groups carried on both sides and the result line saying so.
+@(test)
+decimate_keeps_symmetry :: proc(t: ^testing.T) {
+	src: Decimate_Source
+	src.mesh = geom.icosphere(5)
+	defer decimate_source_free(&src)
+	for &p in src.mesh.positions {
+		if p.x > 0.4 do p.x *= 1.3
+		p.x += 0.25
+	}
+	n := len(src.mesh.positions)
+	src.color = make([]sculpt.Color, n)
+	for &c, v in src.color do c = {255, 0, 0, 255} if src.mesh.positions[v].z > 0 else {0, 0, 255, 255}
+	src.groups = make([]u16, len(src.mesh.indices) / 3)
+	for &g, i in src.groups do g = 7 if src.mesh.positions[src.mesh.indices[3 * i]].y > 0 else 3
+	setup := Decimate_Setup{keep_paint = true, keep_groups = true, keep_borders = true, mirror = {axes = {true, false, false}, center = {0.25, 0, 0}}}
+	mesh, _, surface, built, unmirrored := decimate_compute(src, 1000, setup, nil)
+	defer geom.mesh_destroy(&mesh)
+	defer surface_free(&surface)
+	if !testing.expect(t, built) do return
+	testing.expect_value(t, unmirrored, "")
+	testing.expectf(t, abs(len(mesh.positions) - 1000) < 120, "%d vertices", len(mesh.positions))
+	testing.expect_value(t, len(surface.color), len(mesh.positions))
+	testing.expect_value(t, len(surface.groups), len(mesh.indices) / 3)
+	r := geom.mesh_check(mesh)
+	testing.expectf(t, r.closed && r.non_manifold_edges == 0 && !r.inverted && r.degenerate_triangles == 0, "%v", r)
+	unmatched, on := 0, 0
+	for p in mesh.positions {
+		if p.x == 0.25 do on += 1
+		found := false
+		for q in mesh.positions do if abs(q.x - (0.5 - p.x)) <= 1e-5 && q.y == p.y && q.z == p.z {
+			found = true
+			break
+		}
+		if !found do unmatched += 1
+	}
+	testing.expect_value(t, unmatched, 0)
+	testing.expectf(t, on >= 8, "%d vertices on the plane", on)
+	for c, v in surface.color {
+		want := sculpt.Color{255, 0, 0, 255} if mesh.positions[v].z > 0 else sculpt.Color{0, 0, 255, 255}
+		if abs(mesh.positions[v].z) > 0.05 && c != want {
+			testing.expectf(t, false, "vertex %d at %v took %v", v, mesh.positions[v], c)
+			break
+		}
+	}
+	testing.expect_value(t, decimate_note(setup, unmirrored), ", mirrored across X")
+	// An object the plane misses is decimated whole, and the line says why.
+	setup.mirror.center.x = 5
+	whole, _, whole_surface, whole_built, why := decimate_compute(src, 1000, setup, nil)
+	defer geom.mesh_destroy(&whole)
+	defer surface_free(&whole_surface)
+	testing.expect(t, whole_built, "not decimated whole")
+	testing.expect_value(t, why, "the object does not cross the plane")
 }
