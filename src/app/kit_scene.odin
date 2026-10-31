@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:slice"
 import "core:strings"
 
 import "../camera"
@@ -19,26 +18,12 @@ kit_scene_objects :: proc(app: ^App) {
 	k.tree_rows = 0
 	base := boolean_base(app)
 	// The list's order is the tree's: a folder's objects are next to each other, so one
-	// walk draws each folder's row before its objects.
-	objects := app.scene.objects[:]
-	spots := make([dynamic]Tree_Spot, 0, len(objects) + len(app.scene.folders), context.temp_allocator)
-	for i := 0; i < len(objects); {
-		obj := objects[i]
-		f := folder_by_id(app, obj.folder)
-		if f == nil {
-			kit_object_row(app, &spots, i, base, 0)
-			i += 1
-			continue
-		}
-		first, end := folder_span(app, f.id)
-		kit_folder_row(app, &spots, f, first, end)
-		if f.open do for j in first ..< end do kit_object_row(app, &spots, j, base, 1)
-		i = end
-	}
-	// Folders with nothing in them yet come last.
-	for &f in app.scene.folders {
-		if first, end := folder_span(app, f.id); end > first do continue
-		kit_folder_row(app, &spots, &f, 0, 0)
+	// walk draws each folder's row before what it holds.
+	lines := tree_lines(app)
+	spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
+	for line in lines {
+		if line.object >= 0 do kit_object_row(app, &spots, line.object, base, line.depth)
+		else do kit_folder_row(app, &spots, line)
 	}
 	kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit})
 	// The switch above the note, so it stays put under a finger as the note comes and goes.
@@ -71,7 +56,7 @@ kit_scene_objects :: proc(app: ^App) {
 	}
 }
 
-// An object's row in the Scene palette, the list's `i`th, under its folder's when `depth` is 1.
+// An object's row in the Scene palette, the list's `i`th, `depth` folders in.
 @(private = "file")
 kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Object, depth: int) {
 	k := &app.kit
@@ -85,8 +70,8 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 	if obj == base do detail = fmt.tprintf("base, %s", detail)
 	toggles := row_toggles(object_label(obj), obj.off, obj.ghost)
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
-	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, object_in_selection(app, obj), depth, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
-	append(spots, Tree_Spot{rect = row.rect, id = obj.id, folder = obj.folder, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost})
+	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, object_in_selection(app, obj), min(depth, TREE_DEPTH_SHOWN), all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
+	append(spots, object_spot(app, row.rect, i, depth))
 	kit_row_drags(app, row.grip, row.held_toggle, row.rect, obj.id, obj.ghost, obj.off)
 	// A press running down the column sets the rows it crosses instead (kit_tree_drags).
 	if !k.tree_column.active {
@@ -112,29 +97,26 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 	k.tree_rows += 1
 }
 
-// A folder's row, its objects being the list's [first, end): its chevron folds it, its
-// eye and ghost apply to everything in it, its grip drags them all, a tap selects its
-// first object and a long press or right-click opens its menu.
+// A folder's row, from tree_lines: its chevron folds it, its eye and ghost apply to
+// everything in it, its grip drags it with all it holds, a tap selects its first object
+// and a long press or right-click opens its menu.
 @(private = "file")
-kit_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first, end: int) {
+kit_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, line: Tree_Line) {
 	k := &app.kit
 	ctx := &k.ctx
-	objects := app.scene.objects[:]
-	members := objects[first:end]
+	f := line.folder
+	members := app.scene.objects[line.first:line.end]
 	vertices := 0
 	for obj in members do vertices += object_vertex_count(obj)
 	detail := "empty" if len(members) == 0 else fmt.tprintf("%d · %s", len(members), count_label(vertices))
 	selected := false
-	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder == f.id
+	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder != 0 && folder_within(app, sel.folder, f.id)
 	toggles := row_toggles(folder_label(f), f.off, f.ghost)
 	// The panel only reads the folder: folding it is a view command like its eye.
 	open := f.open
 	dragged := k.tree_drag.active && k.tree_drag.key == -f.id
-	row := ui.tree_row(ctx, fmt.tprintf("%s##folder %d", folder_label(f), f.id), detail, selected, open = &open, all_toggles = toggles[:], glyph = ui.ICON_FOLDER, dim = dragged || f.off, grip = len(members) > 0)
-	spot := Tree_Spot{rect = row.rect, id = f.id, is_folder = true, folder = f.id, off = f.off, ghost = f.ghost}
-	if len(members) > 0 do spot.first = members[0].id
-	if end < len(objects) && len(members) > 0 do spot.next = objects[end].id
-	append(spots, spot)
+	row := ui.tree_row(ctx, fmt.tprintf("%s##folder %d", folder_label(f), f.id), detail, selected, min(line.depth, TREE_DEPTH_SHOWN), open = &open, all_toggles = toggles[:], glyph = ui.ICON_FOLDER, dim = dragged || folder_hidden(app, f.id), grip = true)
+	append(spots, folder_spot(app, row.rect, line))
 	kit_row_drags(app, row.grip, row.held_toggle, row.rect, -f.id, f.ghost, f.off)
 	if row.folded do app.ui.scene_command = {kind = .View, view = .Folder_Fold, id = f.id}
 	if !k.tree_column.active {
@@ -156,12 +138,37 @@ Tree_Spot :: struct {
 	id:        int, // the object's id, or the folder's
 	is_folder: bool,
 	folder:    int, // the object's folder (0 for none), or a folder row's own id
+	parent:    int, // the folder the row is in: an object's own, or the one a folder is in
+	depth:     int, // how many folders in it is
 	first:     int, // a folder row: its first object's id, 0 when it has none
 	// The id of the object after the row's object, or after the folder's objects; 0 at
 	// the end of the list.
 	next:      int,
 	off:       bool, // its own eye and ghost, which its toggles show
 	ghost:     bool,
+}
+
+// The most folders in a row is drawn indented: deeper rows line up with the last, so a
+// narrow panel keeps room for their names.
+TREE_DEPTH_SHOWN :: 6
+
+// The spot of the row `rect` of the list's `i`th object, `depth` folders in.
+object_spot :: proc(app: ^App, rect: ui.Rect, i, depth: int) -> Tree_Spot {
+	objects := app.scene.objects[:]
+	obj := objects[i]
+	return {rect = rect, id = obj.id, folder = obj.folder, parent = obj.folder, depth = depth, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost}
+}
+
+// The spot of the row `rect` of a folder's line.
+folder_spot :: proc(app: ^App, rect: ui.Rect, line: Tree_Line) -> Tree_Spot {
+	objects := app.scene.objects[:]
+	f := line.folder
+	spot := Tree_Spot{rect = rect, id = f.id, is_folder = true, folder = f.id, parent = f.parent, depth = line.depth, off = f.off, ghost = f.ghost}
+	if line.end > line.first {
+		spot.first = objects[line.first].id
+		if line.end < len(objects) do spot.next = objects[line.end].id
+	}
+	return spot
 }
 
 // A row dragged by its grip: which (an object's id, or minus a folder's; 0 for none),
@@ -203,49 +210,76 @@ Tree_Set :: struct {
 Tree_Drop :: struct {
 	ok:     bool, // the pointer is over the tree's column
 	before: int, // the object it goes before, 0 for the end of the list
-	folder: int, // the folder an object ends in, 0 for none
+	folder: int, // the folder it ends in, 0 for none
 	into:   int, // the spot of the folder row it goes into, -1 for none
+	depth:  int, // how many folders in it ends, where the drop line starts
 	y:      f32, // where the drop line is drawn
 }
 
-// Where a row dragged to `at` goes. An object over the middle half of a folder's row
-// goes into the folder, after its objects. Otherwise each row has a gap above it and the
-// list one under its last row: the gap nearest the pointer takes the row, into the folder
-// of the row under it, and one under a folder's last object keeps it in that folder when
-// the pointer is right of the indent. A folder goes only into the gaps above rows outside
-// folders, its objects going along.
-tree_drop :: proc(spots: []Tree_Spot, folder_drag: bool, at: [2]f32) -> (d: Tree_Drop) {
+// Where the row `dragged` (an object's id, or minus a folder's) goes when let go at `at`,
+// the rows indented `indent` a folder. Over the middle half of a folder's row it goes
+// into the folder, after what it holds. Otherwise each row has a gap above it and the
+// list one under its last row: the gap nearest the pointer takes the row, into the
+// folder of the row under it; in a gap where folders end (under a folder's last row),
+// the further right the pointer, the deeper of them it stays in, as Blender's outliner
+// reads the pointer's indent. A folder never goes into itself or a folder inside it,
+// and takes what it holds along.
+tree_drop :: proc(spots: []Tree_Spot, dragged: int, at: [2]f32, indent: f32 = ui.TREE_INDENT) -> (d: Tree_Drop) {
 	d.into = -1
 	if len(spots) == 0 do return
-	top, last := spots[0].rect, spots[len(spots) - 1].rect
+	top := spots[0].rect
 	if at.x < top.x || at.x > top.x + top.w do return
 	d.ok = true
-	if !folder_drag {
-		for s, i in spots {
-			if !s.is_folder || at.y < s.rect.y + s.rect.h * 0.25 || at.y > s.rect.y + s.rect.h * 0.75 do continue
-			d.into, d.before, d.folder, d.y = i, s.next, s.id, s.rect.y + s.rect.h * 0.5
-			return
+	// The dragged folder's rows, itself and those inside it: [lo, hi).
+	lo, hi := -1, -1
+	if dragged < 0 {
+		for s, i in spots do if s.is_folder && s.id == -dragged {
+			lo, hi = i, i + 1
+			for hi < len(spots) && spots[hi].depth > s.depth do hi += 1
+			break
 		}
 	}
-	// Empty folders come after every object, so the list's end is above them.
+	for s, i in spots {
+		if !s.is_folder || at.y < s.rect.y + s.rect.h * 0.25 || at.y > s.rect.y + s.rect.h * 0.75 do continue
+		if i >= lo && i < hi do continue
+		d.into, d.before, d.folder, d.depth, d.y = i, s.next, s.id, s.depth + 1, s.rect.y + s.rect.h * 0.5
+		return
+	}
+	// Empty folders at the top come after every object, so the list's end is above them.
 	n := len(spots)
-	for n > 1 && spots[n - 1].is_folder && spots[n - 1].first == 0 do n -= 1
-	last = spots[n - 1].rect
+	for n > 1 && spots[n - 1].is_folder && spots[n - 1].first == 0 && spots[n - 1].depth == 0 do n -= 1
+	last := spots[n - 1].rect
 	best, best_dist := n, abs(at.y - (last.y + last.h))
 	d.y = last.y + last.h
 	for s, j in spots[:n] {
-		if folder_drag && !s.is_folder && s.folder != 0 do continue
+		if j > lo && j < hi do continue
 		y := s.rect.y if j == 0 else (spots[j - 1].rect.y + spots[j - 1].rect.h + s.rect.y) * 0.5
 		if dist := abs(at.y - y); dist < best_dist do best, best_dist, d.y = j, dist, y
 	}
-	if best < n {
-		s := spots[best]
-		if s.is_folder do d.before = s.first
-		else do d.before, d.folder = s.id, s.folder
+	// How deep it can go: as deep as the row under the gap at least, and as the row above
+	// at most; never inside the dragged folder.
+	below := spots[best].depth if best < n else 0
+	above := spots[best - 1].depth if best > 0 else 0
+	deepest := max(above, below)
+	if lo >= 0 && best == hi do deepest = min(deepest, spots[lo].depth)
+	d.depth = clamp(int((at.x - top.x - 8) / indent), below, max(deepest, below))
+	// The folder at that depth is the nearest folder row above one less deep.
+	d.folder = 0
+	if d.depth > 0 {
+		#reverse for s in spots[:best] do if s.is_folder && s.depth == d.depth - 1 {
+			d.folder = s.id
+			break
+		}
 	}
-	if !folder_drag && best > 0 {
-		a := spots[best - 1]
-		if !a.is_folder && a.folder != 0 && a.folder != d.folder && at.x >= top.x + ui.TREE_INDENT + 8 do d.before, d.folder = a.next, a.folder
+	// Before the first object at or after the gap that is not the dragged folder's own.
+	d.before = 0
+	for s, j in spots[best:] {
+		if best + j >= lo && best + j < hi do continue
+		lead := s.first if s.is_folder else s.id
+		if lead != 0 {
+			d.before = lead
+			break
+		}
 	}
 	return
 }
@@ -283,7 +317,7 @@ Tree_Scroll :: struct {
 // After the tree's rows: runs a column drag over the rows it crossed, shows where a
 // dragged row would go and moves it there when let go, scrolls the body the rows are in
 // while either is near its top or bottom, and sends the column's next change.
-kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
+kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll, indent: f32 = ui.TREE_INDENT) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -305,13 +339,15 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
 			lo, hi := min(c.last_y, y), max(c.last_y, y)
 			for s in spots {
 				if s.rect.y + s.rect.h < lo || s.rect.y > hi do continue
-				// A folder's row the sweep crossed decides for its objects: theirs keep
-				// their own flags, so turning the folder back shows them as they were.
+				// A folder's row the sweep crossed decides for what it holds: their rows
+				// keep their own flags, so turning the folder back shows them as they were.
+				within := false
+				for f in c.folders[:c.folder_count] do within ||= s.parent != 0 && folder_within(app, s.parent, f)
+				if within do continue
 				if s.is_folder && c.folder_count < len(c.folders) {
 					c.folders[c.folder_count] = s.id
 					c.folder_count += 1
 				}
-				if !s.is_folder && slice.contains(c.folders[:c.folder_count], s.folder) do continue
 				if (s.ghost if c.column == 0 else s.off) == c.value do continue
 				view: View_Change
 				switch {
@@ -335,7 +371,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
 
 	d := &k.tree_drag
 	if d.key == 0 do return
-	drop := tree_drop(spots, d.key < 0, in_.mouse)
+	drop := tree_drop(spots, d.key, in_.mouse, indent)
 	if d.held {
 		d.held = false
 		if !d.active || !drop.ok do return
@@ -346,7 +382,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
 			return
 		}
 		top := spots[0].rect
-		x := top.x + 8 + (ui.TREE_INDENT if drop.folder != 0 else 0)
+		x := top.x + 8 + indent * f32(min(drop.depth, TREE_DEPTH_SHOWN))
 		ui.fill_circle(ctx, {x, drop.y}, 4, t.accent)
 		ui.fill_circle(ctx, {x, drop.y}, 2, t.surface)
 		ui.fill_rect(ctx, {x + 4, drop.y - 1, top.x + top.w - 8 - x - 4, 2}, 1, t.accent)
@@ -354,7 +390,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
 	}
 	// Let go: a drag that went somewhere moves the row; a cancelled one does nothing.
 	if d.active && drop.ok && .Left in in_.released && !in_.cancel {
-		if d.key < 0 do app.ui.scene_command = {kind = .Arrange, arrange = .Reorder_Folder, id = -d.key, before = drop.before}
+		if d.key < 0 do app.ui.scene_command = {kind = .Arrange, arrange = .Reorder_Folder, id = -d.key, before = drop.before, folder = drop.folder}
 		else do app.ui.scene_command = {kind = .Arrange, arrange = .Reorder, id = d.key, before = drop.before, folder = drop.folder}
 	}
 	d^ = {}

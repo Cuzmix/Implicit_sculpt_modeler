@@ -328,13 +328,14 @@ merge_down :: proc(app: ^App) -> bool {
 }
 
 // Makes the shown objects into one new object at the end of the list, as ZBrush's
-// MergeVisible: of the whole scene, or with `folder` of that folder (Merge folder). The
+// MergeVisible: of the whole scene, or with `folder` of that folder and those inside it
+// (Merge folder). The
 // objects stay as they are. One undo step; false only on a GPU failure.
 merge_visible :: proc(app: ^App, folder: int) -> bool {
 	stroke_finish(app)
 	objs := make([dynamic]^Object, 0, len(app.scene.objects), context.temp_allocator)
 	for obj in app.scene.objects {
-		if folder != 0 && obj.folder != folder do continue
+		if folder != 0 && (obj.folder == 0 || !folder_within(app, obj.folder, folder)) do continue
 		if object_shown(app, obj) do append(&objs, obj)
 	}
 	what := "Merge folder" if folder != 0 else "Merge visible"

@@ -12,11 +12,13 @@ import "../ui"
 // scene have them). These are view state, saved with the scene but not undo steps, as
 // the eye is in Blender and ZBrush. Whatever draws or picks objects asks object_shown
 // and object_pickable rather than reading the flags, so the draw list, the raycasts and
-// the panels agree. Folders gather objects one level deep; changes to them, and to
-// names, are undo steps (History_Kind.Arrange) holding the tree before and after.
+// the panels agree. Folders gather objects and other folders, as Blender's collections
+// nest; changes to them, and to names, are undo steps (History_Kind.Arrange) holding the
+// tree before and after.
 
-// A folder of objects. Its eye and ghost apply to every object in it, over the objects'
-// own; `open` shows its objects in the Scene palette.
+// A folder of objects, inside folder `parent` or at the top. Its eye and ghost apply to
+// every object in it and in the folders inside it, over their own; `open` shows what it
+// holds in the Scene palette.
 Folder :: struct {
 	id:    int, // never reused within a scene
 	name:  string, // owned
@@ -24,7 +26,12 @@ Folder :: struct {
 	off:   bool,
 	ghost: bool,
 	vis_off: u8, // its eye in each stored visibility, as Object.vis_off
+	parent: int, // the folder it is in, 0 for none
 }
+
+// How deep folders go: deeper than any file's hierarchy needs once its common top is
+// left out, and shallow enough that the rows keep room for their names.
+FOLDER_DEPTH_MAX :: 16
 
 // The longest name a rename takes, in bytes.
 NAME_BYTES :: 64
@@ -74,13 +81,15 @@ Arrange_Change :: enum u8 {
 // blending, and plainly not part of the work.
 GHOST_SHADE :: 0.45
 
-// Whether `obj` and its folder have their eyes off (or `obj` is left out of the current
-// space), and whether either is a ghost.
+// Whether `obj` or a folder it is in has its eye off (or `obj` is left out of the current
+// space), and whether any of them is a ghost.
 object_flags :: proc(app: ^App, obj: ^Object) -> (off, ghost: bool) {
 	off, ghost = obj.off || app.kit.spaces.current in obj.spaces_off, obj.ghost
-	if f := folder_by_id(app, obj.folder); f != nil {
+	f := folder_by_id(app, obj.folder)
+	for steps := 0; f != nil && steps < FOLDER_DEPTH_MAX; steps += 1 {
 		off ||= f.off
 		ghost ||= f.ghost
+		f = folder_by_id(app, f.parent)
 	}
 	return
 }
@@ -285,7 +294,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int, space := Space.Sculp
 		if obj == nil do return
 		obj.off, obj.ghost, obj.locked = false, false, false
 		obj.spaces_off -= {app.kit.spaces.current}
-		if f := folder_by_id(app, obj.folder); f != nil do f.off, f.ghost = false, false
+		for f in folder_chain(app, obj.folder) do f.off, f.ghost = false, false
 		for o, i in s.objects do if o == obj do s.selected = i
 	case .Folder_Hide, .Folder_Show:
 		if folder == nil do return
@@ -301,7 +310,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int, space := Space.Sculp
 		obj.paint_off = change == .Paint_Hide
 	case .Folder_Paint_Hide, .Folder_Paint_Show:
 		if folder == nil do return
-		for o in s.objects do if o.folder == folder.id do o.paint_off = change == .Folder_Paint_Hide
+		for o in s.objects do if folder_within(app, o.folder, folder.id) do o.paint_off = change == .Folder_Paint_Hide
 	case .Visibility_Slot:
 		visibility_slot(app, id)
 	case .Lock, .Unlock:
@@ -346,7 +355,7 @@ visibility_slot :: proc(app: ^App, slot: int) {
 	s.vis_slot = slot
 	if sel := selected_object(app); sel != nil {
 		sel.off = false
-		if f := folder_by_id(app, sel.folder); f != nil do f.off = false
+		for f in folder_chain(app, sel.folder) do f.off = false
 	}
 }
 
@@ -376,10 +385,57 @@ row_toggles :: proc(label: string, off, ghost: bool) -> [2]ui.Row_Toggle {
 	}
 }
 
+// The folder `id` names, nil for 0 or one not there. The folders are kept in order of id
+// (scene_folders_normalize), so it searches by halves, every object's flags asking it up
+// its chain of folders each frame; a list out of order is searched through.
 folder_by_id :: proc(app: ^App, id: int) -> ^Folder {
 	if id == 0 do return nil
-	for &f in app.scene.folders do if f.id == id do return &f
+	folders := app.scene.folders[:]
+	if at, found := slice.binary_search_by(folders, id, proc(f: Folder, id: int) -> slice.Ordering {return slice.cmp(f.id, id)}); found do return &folders[at]
+	for &f in folders do if f.id == id do return &f
 	return nil
+}
+
+// Folder `id` and those it is in, innermost first, in temp memory.
+folder_chain :: proc(app: ^App, id: int) -> []^Folder {
+	chain := make([dynamic]^Folder, 0, 4, context.temp_allocator)
+	for f := folder_by_id(app, id); f != nil && len(chain) < FOLDER_DEPTH_MAX; f = folder_by_id(app, f.parent) do append(&chain, f)
+	return chain[:]
+}
+
+// Whether folder `id` is folder `outer` or inside it, however deep; everything is inside
+// the top (0).
+folder_within :: proc(app: ^App, id, outer: int) -> bool {
+	if outer == 0 do return true
+	f := folder_by_id(app, id)
+	for steps := 0; f != nil && steps < FOLDER_DEPTH_MAX; steps += 1 {
+		if f.id == outer do return true
+		f = folder_by_id(app, f.parent)
+	}
+	return false
+}
+
+// Whether folder `id` or a folder holding it has its eye off, so its row is drawn dimmed
+// as what it holds is out of view.
+folder_hidden :: proc(app: ^App, id: int) -> bool {
+	for f in folder_chain(app, id) do if f.off do return true
+	return false
+}
+
+// How many folders deep folder `id` is: 1 for one at the top, 0 for none.
+folder_depth :: proc(app: ^App, id: int) -> int {
+	depth := 0
+	for f := folder_by_id(app, id); f != nil && depth < FOLDER_DEPTH_MAX; f = folder_by_id(app, f.parent) do depth += 1
+	return depth
+}
+
+// How many levels of folders folder `id` holds, itself included: 1 for one with no
+// folders inside it.
+folder_height :: proc(app: ^App, id: int) -> int {
+	base := folder_depth(app, id)
+	height := 0
+	for f in app.scene.folders do if folder_within(app, f.id, id) do height = max(height, folder_depth(app, f.id) - base + 1)
+	return height
 }
 
 folder_label :: proc(f: ^Folder) -> string {
@@ -387,16 +443,26 @@ folder_label :: proc(f: ^Folder) -> string {
 	return fmt.tprintf("Folder %d", f.id)
 }
 
+// A folder's name after the names of the folders holding it ("Character / Arms"), in
+// temp memory.
+folder_path_label :: proc(app: ^App, f: ^Folder) -> string {
+	chain := folder_chain(app, f.id)
+	names := make([]string, len(chain), context.temp_allocator)
+	for g, i in chain do names[len(chain) - 1 - i] = folder_label(g)
+	return strings.join(names, " / ", context.temp_allocator)
+}
+
 folders_clear :: proc(folders: ^[dynamic]Folder) {
 	for f in folders do delete(f.name)
 	clear(folders)
 }
 
-// Where folder `id`'s objects are in the list: [first, end), empty when it has none.
+// Where folder `id`'s objects, with those of the folders inside it, are in the list:
+// [first, end), empty when it has none.
 folder_span :: proc(app: ^App, id: int) -> (first, end: int) {
 	first, end = -1, -1
 	for obj, i in app.scene.objects {
-		if obj.folder != id do continue
+		if obj.folder == 0 || !folder_within(app, obj.folder, id) do continue
 		if first < 0 do first = i
 		end = i + 1
 	}
@@ -404,41 +470,118 @@ folder_span :: proc(app: ^App, id: int) -> (first, end: int) {
 	return
 }
 
-// Keeps the tree whole: an object naming a folder that is not there (a damaged file, an
-// undo that brought back an object whose folder went since) is in none, and each
-// folder's objects are moved together to where its first one is, keeping their order.
-// The selected object stays selected. Cheap when nothing is out of place.
+// Keeps the tree whole: the folders in order of id, a folder in one that is not there,
+// in itself or in a ring of folders (a damaged file) or deeper than FOLDER_DEPTH_MAX at
+// the top, an object naming a folder that is not there (a damaged file, an undo that
+// brought back an object whose folder went since) in none, and each folder's objects,
+// with those of the folders inside it, moved together to where its first one is,
+// keeping their order. The selected object stays selected. Cheap when nothing is out of
+// place.
 scene_folders_normalize :: proc(app: ^App) {
 	s := &app.scene
-	for obj in s.objects do if obj.folder != 0 && folder_by_id(app, obj.folder) == nil do obj.folder = 0
-	if folders_contiguous(s.objects[:]) do return
-	sel := selected_object(app)
-	out := make([dynamic]^Object, 0, len(s.objects), context.temp_allocator)
-	placed := make(map[int]bool, context.temp_allocator)
-	for obj in s.objects {
-		if obj.folder == 0 {
-			append(&out, obj)
-			continue
-		}
-		if placed[obj.folder] do continue
-		placed[obj.folder] = true
-		for o in s.objects do if o.folder == obj.folder do append(&out, o)
+	if !slice.is_sorted_by(s.folders[:], proc(a, b: Folder) -> bool {return a.id < b.id}) {
+		slice.sort_by(s.folders[:], proc(a, b: Folder) -> bool {return a.id < b.id})
 	}
-	copy(s.objects[:], out[:])
+	for &f in s.folders {
+		if f.parent == f.id || folder_by_id(app, f.parent) == nil do f.parent = 0
+		// A chain that does not reach the top in FOLDER_DEPTH_MAX steps is a ring or too
+		// deep: this folder goes to the top, which ends either.
+		steps := 0
+		for g := folder_by_id(app, f.parent); g != nil && steps < FOLDER_DEPTH_MAX; g = folder_by_id(app, g.parent) do steps += 1
+		if steps >= FOLDER_DEPTH_MAX do f.parent = 0
+	}
+	for obj in s.objects do if obj.folder != 0 && folder_by_id(app, obj.folder) == nil do obj.folder = 0
+	if folders_contiguous(app) do return
+	sel := selected_object(app)
+	// Each folder's place is its first object's, over its objects and those inside it; an
+	// object sorts by the places of its folders from the top down, then its own, so each
+	// folder's objects end up together where its first one was.
+	first := make(map[int]int, len(s.folders), context.temp_allocator)
+	for obj, i in s.objects do for f in folder_chain(app, obj.folder) do if f.id not_in first do first[f.id] = i
+	Keyed :: struct {
+		obj: ^Object,
+		key: []int,
+	}
+	keyed := make([]Keyed, len(s.objects), context.temp_allocator)
+	for obj, i in s.objects {
+		chain := folder_chain(app, obj.folder)
+		key := make([]int, len(chain) + 1, context.temp_allocator)
+		for f, k in chain do key[len(chain) - 1 - k] = first[f.id]
+		key[len(chain)] = i
+		keyed[i] = {obj, key}
+	}
+	slice.sort_by(keyed, proc(a, b: Keyed) -> bool {
+		for k in 0 ..< min(len(a.key), len(b.key)) do if a.key[k] != b.key[k] do return a.key[k] < b.key[k]
+		return len(a.key) < len(b.key)
+	})
+	for k, i in keyed do s.objects[i] = k.obj
 	select_object(app, sel)
 }
 
-// Whether every folder's objects are next to each other.
-folders_contiguous :: proc(objects: []^Object) -> bool {
-	closed := make(map[int]bool, context.temp_allocator)
-	last := 0
-	for obj in objects {
-		if obj.folder == last do continue
-		if last != 0 do closed[last] = true
-		if obj.folder != 0 && closed[obj.folder] do return false
-		last = obj.folder
+// Whether every folder's objects, with those of the folders inside it, are next to each
+// other.
+folders_contiguous :: proc(app: ^App) -> bool {
+	last := make(map[int]int, len(app.scene.folders), context.temp_allocator)
+	for obj, i in app.scene.objects {
+		for f in folder_chain(app, obj.folder) {
+			if at, seen := last[f.id]; seen && at != i - 1 do return false
+			last[f.id] = i
+		}
 	}
 	return true
+}
+
+// One row of the tree as the panels list it: an object's (`object`, its place in the
+// list) or a folder's (`object` -1), `depth` folders in. A folder's row holds where its
+// objects, with those of the folders inside it, are in the list: [first, end), empty for
+// one with none.
+Tree_Line :: struct {
+	object:     int,
+	folder:     ^Folder,
+	depth:      int,
+	first, end: int,
+}
+
+// The tree's rows in order: each folder's row before what it holds, folders with no
+// objects after their folder's objects, and what a folded folder holds left out unless
+// `unfolded`. Temp memory.
+tree_lines :: proc(app: ^App, unfolded := false) -> []Tree_Line {
+	lines := make([dynamic]Tree_Line, 0, len(app.scene.objects) + len(app.scene.folders), context.temp_allocator)
+	held := make(map[int]bool, len(app.scene.folders), context.temp_allocator)
+	for obj in app.scene.objects do for f in folder_chain(app, obj.folder) do held[f.id] = true
+	tree_walk(app, &lines, held, 0, len(app.scene.objects), 0, 0, unfolded)
+	return lines[:]
+}
+
+// The rows of objects [lo, hi) of the list, all inside folder `parent`, `depth` in.
+@(private = "file")
+tree_walk :: proc(app: ^App, lines: ^[dynamic]Tree_Line, held: map[int]bool, lo, hi, parent, depth: int, unfolded: bool) {
+	objects := app.scene.objects[:]
+	for i := lo; i < hi; {
+		// The folder inside `parent` this object is in, however deep, if any.
+		child: ^Folder
+		for f in folder_chain(app, objects[i].folder) {
+			if f.parent == parent {
+				child = f
+				break
+			}
+		}
+		if child == nil || depth >= FOLDER_DEPTH_MAX {
+			append(lines, Tree_Line{object = i, depth = depth})
+			i += 1
+			continue
+		}
+		end := i + 1
+		for end < hi && folder_within(app, objects[end].folder, child.id) do end += 1
+		append(lines, Tree_Line{object = -1, folder = child, depth = depth, first = i, end = end})
+		if child.open || unfolded do tree_walk(app, lines, held, i, end, child.id, depth + 1, unfolded)
+		i = end
+	}
+	for &f in app.scene.folders {
+		if f.parent != parent || held[f.id] do continue
+		append(lines, Tree_Line{object = -1, folder = &f, depth = depth})
+		if (f.open || unfolded) && depth + 1 < FOLDER_DEPTH_MAX do tree_walk(app, lines, held, 0, 0, f.id, depth + 1, unfolded)
+	}
 }
 
 // Takes `moved` (in list order) out of the list and puts them back together before the
@@ -462,13 +605,25 @@ select_object :: proc(app: ^App, obj: ^Object) {
 	for o, i in app.scene.objects do if o == obj do app.scene.selected = i
 }
 
-// A new, empty folder at the end of the list.
-folder_new :: proc(app: ^App) -> ^Folder {
+// A new, empty folder inside folder `parent` (0: at the top), after what it holds. Its id
+// is the highest yet, so the folders stay in order of id.
+folder_new :: proc(app: ^App, parent := 0) -> ^Folder {
 	s := &app.scene
 	s.next_folder_id = max(s.next_folder_id, 0) + 1
 	for f in s.folders do s.next_folder_id = max(s.next_folder_id, f.id + 1)
-	append(&s.folders, Folder{id = s.next_folder_id, open = true})
+	append(&s.folders, Folder{id = s.next_folder_id, open = true, parent = parent})
 	return &s.folders[len(s.folders) - 1]
+}
+
+// Takes folder `id` out of the list of folders.
+@(private = "file")
+folder_remove :: proc(app: ^App, id: int) {
+	s := &app.scene
+	for f, i in s.folders do if f.id == id {
+		delete(f.name)
+		ordered_remove(&s.folders, i)
+		return
+	}
 }
 
 // The tree as an Arrange step keeps it: the objects' order, folders and names, and the
@@ -509,7 +664,7 @@ layout_free :: proc(l: ^Scene_Layout) {
 @(private = "file")
 layout_same :: proc(a, b: ^Scene_Layout) -> bool {
 	if !slice.equal(a.ids, b.ids) || !slice.equal(a.folder, b.folder) || !slice.equal(a.names, b.names) || len(a.folders) != len(b.folders) do return false
-	for f, i in a.folders do if f.id != b.folders[i].id || f.name != b.folders[i].name do return false
+	for f, i in a.folders do if f.id != b.folders[i].id || f.name != b.folders[i].name || f.parent != b.folders[i].parent do return false
 	return true
 }
 
@@ -593,7 +748,11 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 	switch cmd.arrange {
 	case .New_Folder:
 		if obj == nil do break
-		f := folder_new(app)
+		// Inside the object's own folder, as Blender makes a collection inside the one
+		// holding what is selected; at the deepest a folder goes, beside it instead.
+		parent := obj.folder
+		if folder_depth(app, parent) >= FOLDER_DEPTH_MAX do parent = folder_by_id(app, parent).parent
+		f := folder_new(app, parent)
 		// Every selected object goes in with it, as Blender and Photoshop group a selection.
 		if object_in_selection(app, obj) {
 			for id in selection_ids(app) do if o := object_by_id(app, id); o != nil do o.folder = f.id
@@ -605,26 +764,31 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 		obj.folder = cmd.folder
 		what = "Move to folder"
 	case .Out_Of_Folder:
+		// One level up: into the folder that holds its own, or to the top.
 		if obj == nil do break
-		obj.folder = 0
+		f := folder_by_id(app, obj.folder)
+		obj.folder = f.parent if f != nil else 0
 		what = "Take out of folder"
-	case .Ungroup, .Delete_Folder:
+	case .Ungroup:
+		// What it holds, objects and folders, goes into the folder holding it.
+		if folder == nil do break
+		id, parent := folder.id, folder.parent
+		for o in s.objects do if o.folder == id do o.folder = parent
+		for &f in s.folders do if f.parent == id do f.parent = parent
+		folder_remove(app, id)
+		what = "Ungroup folder"
+	case .Delete_Folder:
+		// With every object and folder inside it.
 		if folder == nil do break
 		id := folder.id
 		// Not in temp memory, which taking each object's snapshot may free.
 		members := make([dynamic]int, 0, 8)
 		defer delete(members)
-		for o in s.objects do if o.folder == id do append(&members, o.id)
-		for o in s.objects do if o.folder == id do o.folder = 0
-		for f, i in s.folders do if f.id == id {
-			delete(f.name)
-			ordered_remove(&s.folders, i)
-			break
-		}
-		if cmd.arrange == .Ungroup {
-			what = "Ungroup folder"
-			break
-		}
+		for o in s.objects do if o.folder != 0 && folder_within(app, o.folder, id) do append(&members, o.id)
+		inside := make([dynamic]int, 0, 4, context.temp_allocator)
+		for f in s.folders do if folder_within(app, f.id, id) do append(&inside, f.id)
+		for o in s.objects do if slice.contains(inside[:], o.folder) do o.folder = 0
+		for f in inside do folder_remove(app, f)
 		// Its objects go after the folder, each a swap chained to the tree's step.
 		if !history_record_arrange(app, before, "Delete folder") do return
 		for m in members {
@@ -654,12 +818,20 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 		select_object(app, sel)
 		what = "Move object"
 	case .Reorder_Folder:
-		if folder == nil do break
-		if b := object_by_id(app, cmd.before); b != nil && b.folder == folder.id do break
+		// Before object `before`, inside folder `folder` (0: at the top); never into
+		// itself or a folder inside it.
+		if folder == nil || (cmd.folder != 0 && (folder_by_id(app, cmd.folder) == nil || folder_within(app, cmd.folder, folder.id))) do break
+		if folder_depth(app, cmd.folder) + folder_height(app, folder.id) > FOLDER_DEPTH_MAX {
+			report(app, nil, {.Warning}, "Folders go %d deep at most, so %s stays where it is", FOLDER_DEPTH_MAX, folder_label(folder))
+			break
+		}
 		sel := selected_object(app)
 		moved := make([dynamic]^Object, 0, 8, context.temp_allocator)
-		for o in s.objects do if o.folder == folder.id do append(&moved, o)
-		objects_move(app, moved[:], cmd.before)
+		for o in s.objects do if o.folder != 0 && folder_within(app, o.folder, folder.id) do append(&moved, o)
+		// Before one of its own objects it keeps its place and may change folder only.
+		b := object_by_id(app, cmd.before)
+		if b == nil || b.folder == 0 || !folder_within(app, b.folder, folder.id) do objects_move(app, moved[:], cmd.before)
+		folder.parent = cmd.folder
 		select_object(app, sel)
 		what = "Move folder"
 	}

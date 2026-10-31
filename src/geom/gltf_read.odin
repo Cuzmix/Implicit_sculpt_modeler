@@ -111,15 +111,15 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Mesh_Res
 	}
 	// Depth first with an explicit stack; a node reached a second time down one path (a
 	// cycle, which glTF forbids) is not followed again.
-	// `folder` is the nearest named node above it, which names its parts' folder.
+	// `path` is the named nodes above it, from the top, which name its parts' folders.
 	Visit :: struct {
-		node:   int,
-		world:  matrix[4, 4]f64,
-		depth:  int,
-		folder: string,
+		node:  int,
+		world: matrix[4, 4]f64,
+		depth: int,
+		path:  []string,
 	}
 	stack := make([dynamic]Visit, context.temp_allocator)
-	#reverse for r in roots do append(&stack, Visit{r, 1, 0, ""})
+	#reverse for r in roots do append(&stack, Visit{r, 1, 0, nil})
 	skipped.rig.skins = len(gltf_array(root, "skins"))
 	skipped.rig.animations = len(gltf_array(root, "animations"))
 	for len(stack) > 0 {
@@ -135,12 +135,17 @@ mesh_read_gltf :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, resolve: Mesh_Res
 			before := len(parts)
 			err = gltf_mesh(&g, parts, gltf_number_int(mesh), 1 if skinned else world, name, &skipped)
 			if err != .None do return
-			if len(parts) > before do parts[len(parts) - 1].folder = strings.clone(v.folder)
+			if len(parts) > before do parts[len(parts) - 1].folders = mesh_part_folders(v.path)
 		}
 		children := gltf_array(no, "children")
-		folder := v.folder
-		if name, _ := no["name"].(json.String); name != "" do folder = name
-		#reverse for c in children do append(&stack, Visit{gltf_number_int(c), world, v.depth + 1, folder})
+		path := v.path
+		if name, _ := no["name"].(json.String); name != "" && len(children) > 0 {
+			longer := make([]string, len(path) + 1, context.temp_allocator)
+			copy(longer, path)
+			longer[len(path)] = name
+			path = longer
+		}
+		#reverse for c in children do append(&stack, Visit{gltf_number_int(c), world, v.depth + 1, path})
 	}
 	if len(parts) == 0 do return skipped, .Empty
 	return skipped, .None

@@ -1,5 +1,6 @@
 package main
 
+import "core:slice"
 import "core:testing"
 
 import "../geom"
@@ -267,7 +268,7 @@ folders_keep_their_objects_together :: proc(t: ^testing.T) {
 	f := folder_new(&app)
 	objs[0].folder, objs[2].folder = f.id, f.id
 	app.scene.selected = 1
-	testing.expect(t, !folders_contiguous(app.scene.objects[:]))
+	testing.expect(t, !folders_contiguous(&app))
 	scene_folders_normalize(&app)
 	ids, folders := tree_of(&app)
 	testing.expect_value(t, ids, [8]int{1, 3, 2, 0, 0, 0, 0, 0})
@@ -422,7 +423,7 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	lights: [dynamic]u8
 	defer delete(lights)
 	lights_put(&lights, app.scene.lights)
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES)
+	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
@@ -441,11 +442,38 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 		geom.byte_put_string(&twice, "a")
 		geom.byte_put(&twice, u8(0))
 		geom.byte_put(&twice, u8(0))
+		geom.byte_put(&twice, i32(0))
 	}
 	geom.byte_put(&twice, i32(1))
 	rt := geom.byte_reader(twice[:])
 	bad, _, bad_ok := folders_get(&rt, SCENE_VERSION)
 	testing.expect(t, !bad_ok && bad == nil)
+
+	// Version 35 keeps the folder each folder is in; version 34 has them all at the top,
+	// and a parent below zero is damage.
+	nested :: proc(version: u32, parent: i32) -> [dynamic]u8 {
+		b: [dynamic]u8
+		geom.byte_put(&b, u32(2))
+		for id in 1 ..= 2 {
+			geom.byte_put(&b, i32(id))
+			geom.byte_put_string(&b, "a")
+			geom.byte_put(&b, u8(1))
+			geom.byte_put(&b, u8(0))
+			if version >= 35 do geom.byte_put(&b, parent if id == 2 else 0)
+		}
+		geom.byte_put(&b, i32(2))
+		return b
+	}
+	for c in ([3]struct {version: u32, parent: i32, ok: bool, want: int}{{35, 1, true, 1}, {34, 1, true, 0}, {35, -1, false, 0}}) {
+		b := nested(c.version, c.parent)
+		defer delete(b)
+		rb := geom.byte_reader(b[:])
+		got, _, got_ok := folders_get(&rb, c.version)
+		testing.expectf(t, got_ok == c.ok, "version %d parent %d: read %v", c.version, c.parent, got_ok)
+		if got_ok do testing.expect_value(t, got[1].parent, c.want)
+		folders_clear(&got)
+		delete(got)
+	}
 
 	out: [dynamic]u8
 	defer delete(out)
@@ -554,8 +582,8 @@ drop_rows :: proc() -> [5]Tree_Spot {
 	return {
 		{rect = row(0), id = 1, next = 2},
 		{rect = row(1), id = 7, is_folder = true, folder = 7, first = 2, next = 4},
-		{rect = row(2), id = 2, folder = 7, next = 3},
-		{rect = row(3), id = 3, folder = 7, next = 4},
+		{rect = row(2), id = 2, folder = 7, parent = 7, depth = 1, next = 3},
+		{rect = row(3), id = 3, folder = 7, parent = 7, depth = 1, next = 4},
 		{rect = row(4), id = 4},
 	}
 }
@@ -563,39 +591,183 @@ drop_rows :: proc() -> [5]Tree_Spot {
 @(test)
 tree_drop_picks_the_gap_or_the_folder :: proc(t: ^testing.T) {
 	spots := drop_rows()
-	// Above the first row, and under the last.
-	d := tree_drop(spots[:], false, {20, 2})
+	// An object (9, not in the rows) above the first row, and under the last.
+	d := tree_drop(spots[:], 9, {20, 2})
 	testing.expect(t, d.ok && d.before == 1 && d.folder == 0 && d.into == -1)
-	d = tree_drop(spots[:], false, {20, 260})
+	d = tree_drop(spots[:], 9, {20, 260})
 	testing.expect(t, d.before == 0 && d.folder == 0)
 	// Over the middle of the folder's row: into it, after its objects.
-	d = tree_drop(spots[:], false, {20, 72})
-	testing.expect(t, d.into == 1 && d.before == 4 && d.folder == 7)
+	d = tree_drop(spots[:], 9, {20, 72})
+	testing.expect(t, d.into == 1 && d.before == 4 && d.folder == 7 && d.depth == 1)
 	// The top edge of the folder's row: before its objects, outside it.
-	d = tree_drop(spots[:], false, {20, 50})
+	d = tree_drop(spots[:], 9, {20, 50})
 	testing.expect(t, d.into == -1 && d.before == 2 && d.folder == 0)
-	// Between the folder's two objects: inside it.
-	d = tree_drop(spots[:], false, {20, 148})
-	testing.expect(t, d.before == 3 && d.folder == 7)
+	// Between the folder's two objects: inside it, wherever the pointer is across.
+	d = tree_drop(spots[:], 9, {20, 148})
+	testing.expect(t, d.before == 3 && d.folder == 7 && d.depth == 1)
 	// Under its last object: outside it, unless right of the indent.
-	d = tree_drop(spots[:], false, {20, 196})
-	testing.expect(t, d.before == 4 && d.folder == 0)
-	d = tree_drop(spots[:], false, {ui.TREE_INDENT + 20, 196})
+	d = tree_drop(spots[:], 9, {20, 196})
+	testing.expect(t, d.before == 4 && d.folder == 0 && d.depth == 0)
+	d = tree_drop(spots[:], 9, {ui.TREE_INDENT + 20, 196})
 	testing.expect(t, d.before == 4 && d.folder == 7)
-	// A folder skips the gaps inside folders, and never goes into one.
-	d = tree_drop(spots[:], true, {20, 148})
-	testing.expect(t, d.into == -1 && d.before == 4 && d.folder == 0)
-	d = tree_drop(spots[:], true, {20, 72})
-	testing.expect(t, d.into == -1 && d.before == 2)
+	// A folder goes into the gaps inside folders, and into another folder's row...
+	d = tree_drop(spots[:], -8, {20, 148})
+	testing.expect(t, d.into == -1 && d.before == 3 && d.folder == 7)
+	d = tree_drop(spots[:], -8, {20, 72})
+	testing.expect(t, d.into == 1 && d.folder == 7)
+	// ...but never into itself or what it holds: over its own row it takes the gap, and
+	// its objects' gaps are passed over.
+	d = tree_drop(spots[:], -7, {20, 72})
+	testing.expect(t, d.into == -1 && d.folder == 0)
+	d = tree_drop(spots[:], -7, {ui.TREE_INDENT + 20, 148})
+	testing.expect(t, d.folder == 0 && d.depth == 0)
 	// Off the column, nowhere.
-	d = tree_drop(spots[:], false, {320, 72})
+	d = tree_drop(spots[:], 9, {320, 72})
 	testing.expect(t, !d.ok)
 	// The end of the list is above an empty folder, which comes after every object.
 	more: [6]Tree_Spot
 	copy(more[:], spots[:])
 	more[5] = {rect = {0, 250, 300, 44}, id = 8, is_folder = true, folder = 8}
-	d = tree_drop(more[:], false, {20, 296})
+	d = tree_drop(more[:], 9, {20, 296})
 	testing.expect(t, d.before == 0 && d.folder == 0 && d.y == 244)
-	d = tree_drop(more[:], false, {20, 272})
+	d = tree_drop(more[:], 9, {20, 272})
 	testing.expect(t, d.into == 5 && d.folder == 8)
+}
+
+// Two folders deep: the pointer's indent picks which of the folders ending under a row
+// the drop stays in.
+@(test)
+tree_drop_reads_the_indent_where_folders_end :: proc(t: ^testing.T) {
+	row :: proc(i: int) -> ui.Rect {return {0, f32(i) * 50, 300, 44}}
+	spots := [5]Tree_Spot{
+		{rect = row(0), id = 7, is_folder = true, folder = 7, first = 1, next = 3},
+		{rect = row(1), id = 8, is_folder = true, folder = 8, parent = 7, depth = 1, first = 1, next = 2},
+		{rect = row(2), id = 1, folder = 8, parent = 8, depth = 2, next = 2},
+		{rect = row(3), id = 2, folder = 7, parent = 7, depth = 1, next = 3},
+		{rect = row(4), id = 3},
+	}
+	// Under object 1 (two in), above object 2 (one in): one or two folders in.
+	d := tree_drop(spots[:], 9, {20, 146})
+	testing.expect(t, d.folder == 7 && d.depth == 1 && d.before == 2)
+	d = tree_drop(spots[:], 9, {2 * ui.TREE_INDENT + 20, 146})
+	testing.expect(t, d.folder == 8 && d.depth == 2 && d.before == 2)
+	// Under object 2 (one in), above the loose object 3: the top or folder 7.
+	d = tree_drop(spots[:], 9, {20, 196})
+	testing.expect(t, d.folder == 0 && d.before == 3)
+	d = tree_drop(spots[:], 9, {3 * ui.TREE_INDENT + 20, 196})
+	testing.expect(t, d.folder == 7 && d.depth == 1)
+	// Folder 8 dragged under object 2 stays a folder of folder 7 at most.
+	d = tree_drop(spots[:], -8, {3 * ui.TREE_INDENT + 20, 196})
+	testing.expect(t, d.folder == 7 && d.before == 3)
+}
+
+// Folders nest: a new folder goes inside the selected object's, the flags of every folder
+// up the chain apply, the tree's rows indent as deep as the folders go, ungrouping hands
+// what a folder holds to its own folder, and deleting a folder takes everything inside
+// it. Undo brings each back.
+@(test)
+folders_nest :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	// Objects 2 and 3 in an outer folder, then 3 alone in a folder inside it.
+	app.scene.selected = 1
+	scene_arrange(&app, {kind = .Arrange, arrange = .New_Folder, id = objs[1].id})
+	outer := objs[1].folder
+	scene_arrange(&app, {kind = .Arrange, arrange = .Into_Folder, id = objs[2].id, folder = outer})
+	app.scene.selected = 2
+	scene_arrange(&app, {kind = .Arrange, arrange = .New_Folder, id = objs[2].id})
+	inner := objs[2].folder
+	testing.expect(t, inner != outer && folder_by_id(&app, inner).parent == outer)
+	testing.expect(t, folder_within(&app, inner, outer) && !folder_within(&app, outer, inner))
+	testing.expect_value(t, folder_depth(&app, inner), 2)
+	testing.expect_value(t, folder_height(&app, outer), 2)
+	first, end := folder_span(&app, outer)
+	testing.expect(t, first == 1 && end == 3)
+
+	// Rows: object 1, the outer folder, object 2, the inner folder, object 3.
+	lines := tree_lines(&app)
+	testing.expect_value(t, len(lines), 5)
+	depths: [5]int
+	for l, i in lines[:5] do depths[i] = l.depth
+	testing.expect_value(t, depths, [5]int{0, 0, 1, 1, 2})
+	testing.expect(t, lines[1].folder.id == outer && lines[3].folder.id == inner && lines[4].object == 2)
+	// Folding the outer folder hides all it holds; a filtered list unfolds it.
+	scene_view(&app, .Folder_Fold, outer)
+	testing.expect_value(t, len(tree_lines(&app)), 2)
+	testing.expect_value(t, len(tree_lines(&app, unfolded = true)), 5)
+	scene_view(&app, .Folder_Fold, outer)
+
+	// The outer folder's eye hides the inner folder's object too.
+	scene_view(&app, .Folder_Hide, outer)
+	testing.expect(t, !object_shown(&app, objs[2]) && object_shown(&app, objs[0]))
+	scene_view(&app, .Select, objs[2].id)
+	testing.expect(t, !folder_by_id(&app, outer).off && object_shown(&app, objs[2]))
+
+	// Out of the inner folder goes one level up, into the outer one.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Out_Of_Folder, id = objs[2].id})
+	testing.expect_value(t, objs[2].folder, outer)
+	history_undo(&app)
+	testing.expect_value(t, objs[2].folder, inner)
+
+	// The outer folder moved into... its own inner folder: refused.
+	steps := len(app.history.done)
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder_Folder, id = outer, folder = inner})
+	testing.expect_value(t, len(app.history.done), steps)
+	// The inner folder to the top, before object 1.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder_Folder, id = inner, before = objs[0].id})
+	ids, folders := tree_of(&app)
+	testing.expect_value(t, ids, [8]int{3, 1, 2, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{inner, 0, outer, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folder_by_id(&app, inner).parent, 0)
+	history_undo(&app)
+	ids, _ = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{1, 2, 3, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folder_by_id(&app, inner).parent, outer)
+
+	// Ungrouping the outer folder hands object 2 and the inner folder to the top.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Ungroup, id = outer})
+	testing.expect(t, folder_by_id(&app, outer) == nil && objs[1].folder == 0)
+	testing.expect_value(t, folder_by_id(&app, inner).parent, 0)
+	history_undo(&app)
+	testing.expect_value(t, folder_by_id(&app, inner).parent, outer)
+}
+
+// A damaged tree is mended: a folder in itself, in a ring, or in one not there goes to the
+// top, and nested folders' objects are gathered where their first one is.
+@(test)
+folders_normalize_mends_nesting :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	a := folder_new(&app).id
+	b := folder_new(&app, a).id
+	c := folder_new(&app, b).id
+	// A ring: a in c, which is in b, which is in a.
+	folder_by_id(&app, a).parent = c
+	objs[0].folder, objs[2].folder = c, a
+	scene_folders_normalize(&app)
+	chain_ends := false
+	for f in app.scene.folders do chain_ends ||= f.parent == 0
+	testing.expect(t, chain_ends)
+	testing.expect(t, folders_contiguous(&app))
+	// A folder in itself or in one not there.
+	folder_by_id(&app, b).parent = b
+	folder_by_id(&app, c).parent = 99
+	scene_folders_normalize(&app)
+	testing.expect(t, folder_by_id(&app, b).parent == 0 && folder_by_id(&app, c).parent == 0)
+	// Folders out of order of id are put in order, so lookups by halves find them.
+	slice.reverse(app.scene.folders[:])
+	scene_folders_normalize(&app)
+	testing.expect(t, app.scene.folders[0].id < app.scene.folders[1].id)
+	testing.expect(t, folder_by_id(&app, b) != nil && folder_by_id(&app, b).id == b)
+
+	// Object 2 in folder c, inside a, with object 1 (in c) and object 3 (in a) apart:
+	// gathered as a's objects, c's together.
+	folder_by_id(&app, c).parent = a
+	objs[0].folder, objs[1].folder, objs[2].folder = c, 0, a
+	scene_folders_normalize(&app)
+	ids, _ := tree_of(&app)
+	testing.expect_value(t, ids, [8]int{1, 3, 2, 0, 0, 0, 0, 0})
+	testing.expect(t, folders_contiguous(&app))
 }

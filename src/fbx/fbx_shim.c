@@ -111,18 +111,14 @@ void sculpt_fbx_texture_file(const sculpt_fbx *f, size_t k, const void **content
 	*absolute_len = t->absolute_filename.length;
 }
 
-// Part `part`'s name and the name of the node above it ("" under the scene's root; both
-// UTF-8, not terminated, valid until sculpt_fbx_free) and sizes: its vertices, its
-// triangles, and whether it has colours, more than one group, texture coordinates and
-// faces of more than three corners.
-void sculpt_fbx_part_size(const sculpt_fbx *f, size_t part, const char **name, size_t *name_len, const char **folder, size_t *folder_len, size_t *vertices, size_t *triangles, bool *colors, bool *groups, bool *uvs, bool *polygons) {
+// Part `part`'s name (UTF-8, not terminated, valid until sculpt_fbx_free) and sizes: its
+// vertices, its triangles, and whether it has colours, more than one group, texture
+// coordinates and faces of more than three corners.
+void sculpt_fbx_part_size(const sculpt_fbx *f, size_t part, const char **name, size_t *name_len, size_t *vertices, size_t *triangles, bool *colors, bool *groups, bool *uvs, bool *polygons) {
 	ufbx_node *node = f->nodes[part];
 	ufbx_mesh *mesh = node->mesh;
 	*name = node->name.data;
 	*name_len = node->name.length;
-	const ufbx_node *parent = node->parent;
-	*folder = parent && !parent->is_root ? parent->name.data : "";
-	*folder_len = parent && !parent->is_root ? parent->name.length : 0;
 	*polygons = mesh->num_triangles > mesh->faces.count;
 	*vertices = mesh->num_vertices;
 	*triangles = mesh->num_triangles;
@@ -151,6 +147,23 @@ static uint8_t sculpt_fbx_byte(double x) {
 
 // Fills part `part`'s positions (3 floats a vertex), triangles (3 indices each), and,
 // when not NULL, its colours (RGBA bytes a vertex, alpha 255 where corners gave one),
+// How many nodes part `part`'s node is under, the scene's root left out.
+size_t sculpt_fbx_part_folders(const sculpt_fbx *f, size_t part) {
+	size_t n = 0;
+	for (const ufbx_node *p = f->nodes[part]->parent; p && !p->is_root; p = p->parent) n++;
+	return n;
+}
+
+// The name of the `k`th node above part `part`'s node, counted from the top (UTF-8, not
+// terminated, valid until sculpt_fbx_free), as sculpt_fbx_part_folders counts them.
+void sculpt_fbx_part_folder(const sculpt_fbx *f, size_t part, size_t k, const char **name, size_t *name_len) {
+	size_t n = sculpt_fbx_part_folders(f, part);
+	const ufbx_node *p = f->nodes[part]->parent;
+	for (size_t up = n - 1 - k; up > 0 && p; up--) p = p->parent;
+	*name = p ? p->name.data : "";
+	*name_len = p ? p->name.length : 0;
+}
+
 // groups (one a triangle), scene materials (one a triangle, -1 for none), texture
 // coordinates (2 floats a corner, v down from the image's top) and the face each triangle
 // was cut from (one a triangle), sized as sculpt_fbx_part_size said. False when out of

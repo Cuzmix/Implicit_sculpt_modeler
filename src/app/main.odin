@@ -1669,9 +1669,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.sbprintf(&folders, "%s%d", "," if i > 0 else "", obj.folder)
 			fmt.sbprintf(&names, "%s%s", "," if i > 0 else "", object_label(obj))
 		}
-		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
+		// Each folder's name, whether it is open, and the folder it is in (0 for none).
+		parents := strings.builder_make(context.temp_allocator)
+		for &f, i in app.scene.folders {
+			fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
+			fmt.sbprintf(&parents, "%s%d:%d", "," if i > 0 else "", f.id, f.parent)
+		}
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
-		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places))
+		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s folder_parents=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places), strings.to_string(parents))
 		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d import_quads_joined=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes, app.import_joined)
 		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
