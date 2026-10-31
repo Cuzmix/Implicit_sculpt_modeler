@@ -1230,6 +1230,46 @@ def join_strokes_by_pen():
 
 
 @scenario
+def hold_to_edit_by_pen():
+    """A pen stroke held still at its end opens for editing and stays open when the pen
+    lifts; Enter keeps it as one undo step. A second stroke held, then Escape, puts it back
+    with nothing recorded."""
+    s = Script()
+    for k, key in enumerate(["Return", "Escape"]):
+        y = 420 + 90 * k
+        s.add("pnear")
+        s.add(f"pdown:720,{y}")
+        for x, yy in line((720, y), (860, y + 30), 10)[1:]:
+            s.wait(1)
+            s.add(f"pmove:{x:g},{yy:g}")
+        s.wait(45)  # held still past Hold for (0.45 s)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(3)
+        s.press(key)
+    return s, [], camera_still({"stroke_edits": near(2), "stroke_edit_open": lambda v: v == "false", "undo_steps": near(1)})
+
+
+@scenario
+def hold_to_edit_shows_its_curve():
+    """A held pen stroke left open: its curve, handles and dots over the model and the
+    context bar's Stroke group (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:700,470")
+    for x, y in [(730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)]:
+        s.wait(2)
+        s.add(f"pmove:{x},{y}")
+    s.wait(45)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, [], camera_still({"stroke_edits": near(1), "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
@@ -1326,10 +1366,30 @@ def orbit_default_is_turntable():
 
 @scenario
 def pinch_zoom():
-    """Two fingers spreading three times apart zoom three times closer."""
+    """Two fingers spreading three times apart over empty space zoom three times closer,
+    about the plane through the view's middle since nothing lies between them."""
     s = Script()
-    s.fingers([(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20)
+    s.fingers([(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20)
     return s, [], {"camera_distance": near(3.5 / 3, 0.02), "dabs": near(0), "camera_yaw": near(0.6), "camera_pitch": near(0.35)}
+
+
+@scenario
+def pinch_zooms_toward_the_surface_between_the_fingers():
+    """Two fingers spreading four times apart over the sphere's upper right zoom toward the
+    surface between them: the view's middle moves to that surface's depth, so the eye ends a
+    quarter of its depth away (not the 3.5 / 4 a zoom about the middle's plane gives) and
+    the target leaves the origin toward the fingers."""
+    s = Script()
+    mid = (850, 330)
+    s.fingers([(mid[0] - 40, mid[1]), (mid[0] + 40, mid[1])], [(-120, 0), (120, 0)], 20)
+    # The surface's depth along the view from the default eye.
+    hit = sphere_normal_under(*mid)
+    yaw, pitch = 0.6, 0.35
+    back = (math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch))
+    depth = 3.5 - sum(h * b for h, b in zip(hit, back))
+    return s, [], {"dabs": near(0), "camera_distance": near(depth / 4, 0.02),
+                   "camera_yaw": near(0.6), "camera_pitch": near(0.35),
+                   "@target_moved": lambda st: math.dist(tuple(float(v) for v in st["camera_target"].split(",")), (0, 0, 0)) > 0.3}
 
 
 @scenario
@@ -6265,9 +6325,9 @@ def rail_finger_while_pen_near():
 
 @scenario
 def rail_finger_during_pinch():
-    """A finger landing on the rail during a pinch is no third finger: the pinch zooms on and the brush keeps its size."""
+    """A finger landing on the rail during a pinch (over empty space) is no third finger: the pinch zooms on and the brush keeps its size."""
     s = Script()
-    starts, moves, frames = [(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20
+    starts, moves, frames = [(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20
     for i, (x, y) in enumerate(starts):
         s.add(f"fdown:{i}:{x:g},{y:g}")
     s.wait(2)
