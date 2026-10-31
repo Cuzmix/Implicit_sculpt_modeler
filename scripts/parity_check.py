@@ -14,7 +14,8 @@ pictures traced two ways whose rounding differs (render mode with ray queries, w
 Settings > System > Graphics > Ray tracing hardware turns on, against the app's own walk
 through --no-ray-query or an older build): a path that meets a triangle a hair elsewhere
 bounces another way, so a few pixels of a few samples move by a few levels.
-Needs a display (Xvfb on Linux) and a built app (build/sculpt or build\\sculpt.exe).
+Opens the app's window where scripts/headless.py says (offscreen or under Xvfb on a Linux with no
+display) and needs a built app (build/sculpt or build\\sculpt.exe).
 """
 import argparse
 import os
@@ -22,6 +23,8 @@ import pathlib
 import re
 import subprocess
 import sys
+
+import headless
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -69,7 +72,7 @@ def run_case(exe, out, name, script, frames, want, extra) -> bool:
     if script:
         args.append(f"--script={script}")
     args += extra
-    r = subprocess.run(args, capture_output=True, text=True)
+    r = subprocess.run(headless.wrap(args), capture_output=True, text=True, env=headless.env())
     text = r.stdout + r.stderr
     (out / f"{name}.log").write_text(text)
     # A run under --gpu-debug logs every validation message; any fails the case.
