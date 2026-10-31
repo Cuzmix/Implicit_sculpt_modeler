@@ -745,6 +745,10 @@ lod_waiting :: proc(app: ^App) -> bool {
 LOD_SLACK :: 1 * time.Millisecond
 
 lod_budget :: proc(app: ^App, frame_start: time.Tick) -> time.Duration {
+	// While the view moves the copies are what it lacks: a frame drawing everything is
+	// slow and leaves no spare time, so the copies take the whole budget and arrive in
+	// seconds rather than a batch a frame.
+	if time.tick_since(app.view_moved) < LOD_SETTLE do return sculpt.LOD_FRAME_BUDGET
 	hz: f32
 	switch app.frame_rate {
 	case .Match_Display: hz = display_refresh(app.window)
