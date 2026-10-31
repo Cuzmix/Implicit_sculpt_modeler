@@ -122,29 +122,80 @@ quad_remesh_mirrors_one_half :: proc(t: ^testing.T) {
 	}
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
-	r := compute(shape_view(&m), 1200, {engine = .Auto, symmetry = .X}, nil)
+	mirror := geom.Remesh_Mirror{axes = {true, false, false}}
+	r := compute(shape_view(&m), 1200, {engine = .Auto, mirror = mirror}, nil)
 	defer result_destroy(&r)
 	if !testing.expect(t, r.built, "nothing built") do return
 	testing.expect_value(t, r.engine, Engine.Auto)
 	testing.expect(t, r.mirrored, "not mirrored")
 	testing.expect(t, r.quads > 800 && r.quads == r.faces, "not every face a quad")
-	check := geom.mesh_check(r.mesh)
-	testing.expect(t, check.closed, "not closed")
-	testing.expect_value(t, check.non_manifold_edges, 0)
-	testing.expect(t, !check.inverted, "inside out")
-	// Each vertex's image across the plane is a vertex too, and the seam is exact.
-	unmatched, seam := 0, 0
-	for p in r.mesh.positions {
-		if p.x == 0 do seam += 1
-		found := false
-		for q in r.mesh.positions do if abs(q.x + p.x) <= 1e-6 && abs(q.y - p.y) <= 1e-6 && abs(q.z - p.z) <= 1e-6 {
-			found = true
-			break
-		}
-		if !found do unmatched += 1
+	expect_mirrored(t, r.mesh, mirror, 16)
+}
+
+// Keep symmetry follows the brush's: two planes at once, through a centre off the
+// origin (Local symmetry), on a shape that is not symmetric itself, with either engine.
+@(test)
+quad_remesh_keeps_two_planes_off_the_origin :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	// Moved off the origin and bulged on one side, so only the mirror makes it symmetric.
+	for &p in m.positions {
+		if p.x > 0.3 do p.x *= 1.25
+		p += {0.4, -0.1, 0.25}
 	}
-	testing.expect_value(t, unmatched, 0)
-	testing.expect(t, seam >= 16, "too few seam vertices")
+	mirror := geom.Remesh_Mirror{axes = {true, false, true}, center = {0.4, -0.1, 0.25}}
+	for engine in Engine {
+		when !quadmesh.AVAILABLE do if engine == .Auto do continue
+		r := compute(shape_view(&m), 1600, {engine = engine, mirror = mirror}, nil)
+		defer result_destroy(&r)
+		if !testing.expectf(t, r.built, "%v: nothing built", engine) do continue
+		testing.expectf(t, r.mirrored, "%v: not mirrored (%s)", engine, r.unmirrored)
+		testing.expectf(t, r.quads == r.faces && r.quads > 400, "%v: %d quads of %d faces", engine, r.quads, r.faces)
+		expect_mirrored(t, r.mesh, mirror, 8)
+	}
+}
+
+// The built-in engine keeps one plane as AutoRemesher does.
+@(test)
+quad_remesh_built_in_mirrors_one_half :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	mirror := geom.Remesh_Mirror{axes = {true, false, false}}
+	r := compute(shape_view(&m), 2000, {engine = .Own, mirror = mirror}, nil)
+	defer result_destroy(&r)
+	if !testing.expect(t, r.built, "nothing built") do return
+	testing.expect_value(t, r.engine, Engine.Own)
+	testing.expect(t, r.mirrored, "not mirrored")
+	testing.expect(t, r.q.quads != nil && len(r.q.quads) > 1000, "too few quads")
+	expect_mirrored(t, r.mesh, mirror, 16)
+}
+
+// Closed, manifold, facing out, and its own mirror image across every plane of `mirror`:
+// each vertex's image is a vertex, and at least `seam` vertices lie on each plane to the bit.
+@(private = "file")
+expect_mirrored :: proc(t: ^testing.T, mesh: geom.Mesh, mirror: geom.Remesh_Mirror, seam: int, loc := #caller_location) {
+	check := geom.mesh_check(mesh)
+	testing.expect(t, check.closed, "not closed", loc = loc)
+	testing.expect_value(t, check.non_manifold_edges, 0, loc = loc)
+	testing.expect(t, !check.inverted, "inside out", loc = loc)
+	for a in 0 ..< 3 {
+		if !mirror.axes[a] do continue
+		c := mirror.center[a]
+		unmatched, on := 0, 0
+		for p in mesh.positions {
+			if p[a] == c do on += 1
+			image := p
+			image[a] = 2 * c - p[a]
+			found := false
+			for q in mesh.positions do if abs(q.x - image.x) <= 1e-5 && abs(q.y - image.y) <= 1e-5 && abs(q.z - image.z) <= 1e-5 {
+				found = true
+				break
+			}
+			if !found do unmatched += 1
+		}
+		testing.expectf(t, unmatched == 0, "axis %d: %d vertices without their image", a, unmatched, loc = loc)
+		testing.expectf(t, on >= seam, "axis %d: %d seam vertices", a, on, loc = loc)
+	}
 }
 
 // Close first: an open hemisphere keeps its border through AutoRemesher (which fills only

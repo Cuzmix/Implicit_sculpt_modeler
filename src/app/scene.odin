@@ -459,7 +459,7 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_
 	start := time.tick_now()
 	src := decimate_source(obj, setup, borrow = true)
 	defer decimate_source_free(&src)
-	mesh, error, surface, built := decimate_compute(src, vertices, setup, &app.pool)
+	mesh, error, surface, built, unmirrored := decimate_compute(src, vertices, setup, &app.pool)
 	defer surface_free(&surface)
 	before := len(src.mesh.positions)
 	free_all(context.temp_allocator)
@@ -467,20 +467,28 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_
 		log.warnf("decimate: the object already has %d vertices, no more than %d", before, vertices)
 		return false, true
 	}
-	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now(), surface = surface)
+	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now(), surface = surface, setup = setup, unmirrored = unmirrored)
 }
 
 // The second half of a decimation, as remesh_apply is a remesh's: the object rebuilt on
 // `mesh`, made from `before` vertices with `error` the largest stray, with the polypaint
 // and polygroups that followed it (`surface`; a long job's prepared levels carry them).
-decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}) -> bool {
+// Under Keep symmetry the result line names the planes kept, or why they were not
+// (`unmirrored`, from decimate_compute).
+decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, setup: Decimate_Setup = {}, unmirrored := "") -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, ready, normals = true, surface = surface, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
-	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
-		app.stats.decimate_ms, error, time.duration_milliseconds(time.tick_since(ready)))
+	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
+	// Made after the rebuild, which frees the temp memory a note would sit in.
+	note := decimate_note(setup, unmirrored)
+	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more%s", before, vertices,
+		app.stats.decimate_ms, error, time.duration_milliseconds(time.tick_since(ready)), note)
+	flags: Report_Flags
+	if unmirrored != "" do flags += {.Warning}
+	if note != "" do report(app, .Remesh, flags, "%s%s", scene_report_line("Decimated %s", object_label(obj), vertices, time.duration_milliseconds(time.tick_since(start))), note)
 	return true
 }
 

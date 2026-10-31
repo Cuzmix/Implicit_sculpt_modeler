@@ -59,11 +59,15 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_symmetry, app.ui.retopo_close_first}
+	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first}
 }
 
+// The panel set to a command's options (Adjust last); Keep symmetry turns on when the
+// command kept some, and is left as it is when there was none to keep.
 quad_options_set :: proc(app: ^App, o: retopo.Options) {
-	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_symmetry, app.ui.retopo_close_first = o.engine, o.adaptivity, o.symmetry, o.close_first
+	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_close_first = o.engine, o.adaptivity, o.close_first
+	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
 // Makes a new object of about `quads` quads on the shape of the level the selected
@@ -127,7 +131,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	// when it was not asked for.
 	engine := retopo.ENGINE_NAMES[res.engine]
 	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
-	if res.mirrored do engine = fmt.tprintf("%s, mirrored", engine)
+	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
 	flags: Report_Flags

@@ -64,6 +64,7 @@ Long_Job :: struct {
 	levels:     sculpt.Levels, // made from `mesh` when `prepared`
 	prepared:   bool,
 	error:      f32,
+	unmirrored: string, // Decimate: why the symmetry asked was not kept (a literal)
 	retopo:     retopo.Result,
 	// Remesh and Decimate: the old polypaint and polygroups copied with the input when
 	// their options carry them (Decimate: and the mask that steers it), what the remesh
@@ -318,7 +319,7 @@ long_job_thread :: proc(data: rawptr) {
 		long_job_prepare(j, normals = false)
 	case .Decimate:
 		src := Decimate_Source{mesh = j.input, color = j.color, groups = j.groups, mask = j.mask}
-		j.mesh, j.error, j.surface, j.built = decimate_compute(src, j.cmd.vertices, j.cmd.decimate, &j.pool, &j.progress, {0, share})
+		j.mesh, j.error, j.surface, j.built, j.unmirrored = decimate_compute(src, j.cmd.vertices, j.cmd.decimate, &j.pool, &j.progress, {0, share})
 		long_job_prepare(j, normals = true)
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
@@ -464,7 +465,7 @@ long_job_frame :: proc(app: ^App) -> bool {
 			// Prepared levels already carry the surface.
 			applied = remesh_apply(app, obj, mesh, j.start, j.computed, prepared, surface = j.surface if prepared == nil else {}, remeshed = j.remesh, setup = cmd.remesh)
 		} else {
-			applied = decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared, surface = j.surface if prepared == nil else {})
+			applied = decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared, surface = j.surface if prepared == nil else {}, setup = cmd.decimate, unmirrored = j.unmirrored)
 		}
 	case .Retopo:
 		made, built := retopo_apply(app, obj, &j.retopo, j.start)

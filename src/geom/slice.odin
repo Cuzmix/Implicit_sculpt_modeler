@@ -13,6 +13,22 @@ import "../jobs"
 // both halves share; with `close`, every loop the cut leaves on the plane is filled
 // with a flat cap (cap_fill), so a closed mesh gives two closed meshes.
 
+// Where a slice's front came from (mesh_slice's `front_from`): per vertex the source
+// vertex (a cut point's nearer edge end), per triangle the source triangle; SLICE_NONE
+// for a cap's.
+Slice_From :: struct {
+	vertex:   [dynamic]u32,
+	triangle: [dynamic]u32,
+}
+
+SLICE_NONE :: max(u32)
+
+slice_from_destroy :: proc(f: ^Slice_From) {
+	delete(f.vertex)
+	delete(f.triangle)
+	f^ = {}
+}
+
 // A cap's edges are about as long as the cut's, but a cap never has more triangles than
 // this (on a dense mesh it is then coarser than the surface around it): filling it takes
 // time in proportion, and a cap is flat, so detail there is only for sculpting later.
@@ -22,8 +38,9 @@ SLICE_CAP_MAX_TRIANGLES :: 100_000
 // the part on the side `normal` points to, `back` the rest, each with zero normals for
 // the sculptor to compute. With `close`, each loop the cut leaves on the plane is
 // capped. Returns ok false when the plane misses the mesh or leaves all of it on one
-// side.
-mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, allocator := context.allocator) -> (front, back: Mesh, ok: bool) {
+// side. With `front_from`, where each of the front's vertices and triangles came from
+// (made with `allocator`).
+mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, allocator := context.allocator, front_from: ^Slice_From = nil) -> (front, back: Mesh, ok: bool) {
 	n := len(m.positions)
 	tcount := len(m.indices) / 3
 	if n == 0 || tcount == 0 do return
@@ -48,6 +65,7 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 		counts:       [][3]int, // per chunk of triangles: wholly front, wholly back, crossing
 		offsets:      [][2]int, // ...where its whole ones go in each half
 		halves:       [2][]u32,
+		halves_from:  [2][]u32, // each whole triangle's own number, when asked
 	}
 	job := Side_Job {
 		m         = m,
@@ -122,6 +140,12 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 		h = make([dynamic]u32, 3 * whole[k], 3 * whole[k] + 6 * crossing + 64, context.temp_allocator)
 		job.halves[k] = h[:]
 	}
+	// The front's triangles' sources, when asked: the back's are never wanted.
+	tri_from: [dynamic]u32
+	if front_from != nil {
+		tri_from = make([dynamic]u32, whole[0], whole[0] + 2 * crossing + 64, context.temp_allocator)
+		job.halves_from[0] = tri_from[:]
+	}
 	jobs.parallel_ranges(pool, tcount, &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Side_Job)data
 		at := job.offsets[lo / RANGE_GRAIN]
@@ -130,6 +154,7 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 			k := kind(job.side, idx, t)
 			if k >= 2 do continue
 			copy(job.halves[k][3 * at[k]:][:3], idx[3 * t:][:3])
+			if job.halves_from[k] != nil do job.halves_from[k][at[k]] = u32(t)
 			at[k] += 1
 		}
 	}, RANGE_GRAIN)
@@ -137,6 +162,7 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 	// One cut point per crossing edge, made from its lower-numbered end so both of its
 	// triangles agree.
 	extra_cuts := make([dynamic]Vec3, 0, 2 * crossing + 16, context.temp_allocator)
+	cut_near := make([dynamic]u32, 0, 2 * crossing + 16, context.temp_allocator) // each cut point's nearer edge end
 	cuts := make(map[u64]u32, 2 * crossing + 16, context.temp_allocator)
 	crossed: f64 // the lengths of the crossing edges, summed in the order they are met
 	Cutter :: struct {
@@ -144,10 +170,11 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 		extra:     ^[dynamic]Vec3,
 		cuts:      ^map[u64]u32,
 		crossed:   ^f64,
+		near:      ^[dynamic]u32,
 		point:     Vec3,
 		normal:    Vec3,
 	}
-	cutter := Cutter{job.positions, &extra_cuts, &cuts, &crossed, point, normal}
+	cutter := Cutter{job.positions, &extra_cuts, &cuts, &crossed, &cut_near, point, normal}
 	cut :: proc(c: Cutter, a, b: u32) -> u32 {
 		lo, hi := min(a, b), max(a, b)
 		key := u64(lo) << 32 | u64(hi)
@@ -158,6 +185,7 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 		p := pa + (pb - pa) * (da / (da - db))
 		p -= linalg.dot(p - c.point, c.normal) * c.normal
 		append(c.extra, p)
+		append(c.near, lo if abs(da) <= abs(db) else hi)
 		v := u32(len(c.positions) + len(c.extra) - 1)
 		c.cuts[key] = v
 		return v
@@ -182,7 +210,10 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 					count += 1
 				}
 			}
-			for k2 in 1 ..< count - 1 do append(&out, poly[0], poly[k2], poly[k2 + 1])
+			for k2 in 1 ..< count - 1 {
+				append(&out, poly[0], poly[k2], poly[k2 + 1])
+				if k == 0 && front_from != nil do append(&tri_from, u32(t))
+			}
 		}
 	}
 	if len(halves[0]) == 0 || len(halves[1]) == 0 do return
@@ -206,6 +237,23 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 			cap_normal := -normal if k == 0 else normal
 			cap_fill(positions[:], &out, &extra, on_plane, point, cap_normal, edge)
 		}
+		if k == 0 && front_from != nil {
+			// Vertices: a source vertex as it is, a cut point its nearer end, a cap's none.
+			from_of := make([]u32, len(positions) + len(extra), context.temp_allocator)
+			for v in 0 ..< len(from_of) {
+				switch {
+				case v < n:              from_of[v] = u32(v)
+				case v < len(positions): from_of[v] = cut_near[v - n]
+				case:                    from_of[v] = SLICE_NONE
+				}
+			}
+			front_from.vertex = make([dynamic]u32, 0, 0, allocator)
+			results[k] = slice_compact(positions[:], extra[:], out[:], pool, allocator, from_of, &front_from.vertex)
+			front_from.triangle = make([dynamic]u32, len(out) / 3, allocator)
+			copy(front_from.triangle[:], tri_from[:])
+			for &f in front_from.triangle[len(tri_from):] do f = SLICE_NONE
+			continue
+		}
 		results[k] = slice_compact(positions[:], extra[:], out[:], pool, allocator)
 	}
 	return results[0], results[1], true
@@ -215,10 +263,11 @@ mesh_slice :: proc(m: Mesh, point, normal: Vec3, close: bool, pool: ^jobs.Pool, 
 // mark what is used, number it chunk by chunk, then copy; most of the time is the first
 // touch of the new arrays' memory.
 @(private = "file")
-slice_compact :: proc(positions, extra: []Vec3, indices: []u32, pool: ^jobs.Pool, allocator := context.allocator) -> Mesh {
+slice_compact :: proc(positions, extra: []Vec3, indices: []u32, pool: ^jobs.Pool, allocator := context.allocator, from_of: []u32 = nil, from: ^[dynamic]u32 = nil) -> Mesh {
 	Compact :: struct {
 		positions, extra: []Vec3,
 		indices:          []u32,
+		from_of, from:    []u32, // with `from`: each kept vertex's source
 		used:             []u8, // set from many threads, always to 1
 		remap:            []u32,
 		counts:           []u32, // per chunk of vertices: how many are used, then where they start
@@ -247,6 +296,10 @@ slice_compact :: proc(positions, extra: []Vec3, indices: []u32, pool: ^jobs.Pool
 	for &k in c.counts {
 		k, count = count, count + k
 	}
+	if from != nil {
+		resize(from, int(count))
+		c.from_of, c.from = from_of, from[:]
+	}
 	c.out = Mesh {
 		positions = make([dynamic]Vec3, count, allocator),
 		normals   = make([dynamic]Vec3, count, allocator),
@@ -259,6 +312,7 @@ slice_compact :: proc(positions, extra: []Vec3, indices: []u32, pool: ^jobs.Pool
 			if c.used[v] == 0 do continue
 			c.remap[v] = at
 			c.out.positions[at] = c.positions[v] if v < len(c.positions) else c.extra[v - len(c.positions)]
+			if c.from != nil do c.from[at] = c.from_of[v]
 			at += 1
 		}
 	}, RANGE_GRAIN)

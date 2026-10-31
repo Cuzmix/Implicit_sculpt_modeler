@@ -159,6 +159,16 @@ rebuild_command :: proc(app: ^App) {
 	}
 }
 
+// Keep symmetry, the same switch under each goal's More options and on by default: the
+// result keeps the brush's symmetry (symmetry_planes), as ZBrush's ZRemesher keeps the
+// active symmetry. With no symmetry on there is nothing to keep, so it greys out and says so.
+kit_keep_symmetry :: proc(app: ^App, value: ^bool) {
+	ctx := &app.kit.ctx
+	planes := symmetry_planes(app, selected_object(app))
+	label := fmt.tprintf("Keep symmetry %s", planes_label(planes)) if planes.axes != {} else "Keep symmetry (none on)"
+	_ = ui.switch_row(ctx, label, value, enabled = planes.axes != {})
+}
+
 kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -192,7 +202,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		}
 	case .Quads:
 		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
-		// The engine, Adaptivity, Mirror and Close first under the same fold, for the same
+		// The engine, Adaptivity, Close first and Keep symmetry under the same fold, for the same
 		// reasons.
 		if kit_more(app, .Remesh) {
 			// Where only the built-in engine is compiled there is nothing to choose.
@@ -203,12 +213,10 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 				if app.ui.retopo_engine == .Auto {
 					a := app.ui.retopo_adaptivity
 					_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
-					axes: [len(retopo.Symmetry)]string
-					for x in retopo.Symmetry do axes[int(x)] = retopo.SYMMETRY_NAMES[x]
-					if picked := ui.tabs(ctx, "quad symmetry", axes[:], int(app.ui.retopo_symmetry)); picked >= 0 do app.ui.retopo_symmetry = retopo.Symmetry(picked)
 				}
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
+			kit_keep_symmetry(app, &app.ui.retopo_keep_symmetry)
 			kit_more_end(app)
 		}
 	}
