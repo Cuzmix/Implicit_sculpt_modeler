@@ -328,6 +328,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	// back to its layer first, as layer commands do.
 	if s.layers.picked != 0 && (step.layer_op.active || step.layer_move.active || step.layer_stack.active) do _ = sculptor_layer_mask_pick(s, -1)
 	layer_step_swap(s, &step)
+	positions := 0
 	for &sv in step.saved {
 		n := s.nodes[sv.node]
 		if sv.full do continue
@@ -358,9 +359,22 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			for &g, i in live do g, sv.groups[i] = sv.groups[i], g
 			continue
 		}
-		live := m.positions[n.vert_first:][:n.vert_count]
-		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
+		positions += int(n.vert_count)
 	}
+	// Positions trade places in parallel: a large stroke's are millions.
+	Swap :: struct {
+		s:     ^Sculptor,
+		saved: []Saved_Node,
+	}
+	swap := Swap{s, step.saved[:]}
+	jobs.parallel_for(s.pool if positions >= PARALLEL_MIN_VERTS else nil, len(swap.saved), &swap, proc(data: rawptr, i: int) {
+		swap := cast(^Swap)data
+		sv := swap.saved[i]
+		if !saved_positions(sv) do return
+		n := swap.s.nodes[sv.node]
+		live := swap.s.mesh.positions[n.vert_first:][:n.vert_count]
+		for &p, k in live do p, sv.positions[k] = sv.positions[k], p
+	})
 	for id in step.painted do mark_stale(s, id, .Paint)
 	if len(step.shown) > 0 do hide_refresh(s, step.shown[:])
 	if len(step.grouped) > 0 {
@@ -378,9 +392,17 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
 		geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
 		for id in step.nodes do mark_shape_changed(s, id)
+		if len(step.nodes) > 0 do s.cones_later = true
 	}
 	append(to, step)
 	return true
+}
+
+// Whether a saved node holds positions, the case step_move's loop leaves to the swap
+// after it.
+@(private)
+saved_positions :: #force_inline proc(sv: Saved_Node) -> bool {
+	return !sv.full && !sv.is_delta && sv.hidden == nil && sv.masks == nil && sv.colors == nil && sv.groups == nil
 }
 
 // Called by apply_dab before the dab changes anything: saves the owned positions of

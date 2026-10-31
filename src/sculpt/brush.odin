@@ -330,6 +330,9 @@ Sculptor :: struct {
 	// Nodes whose normal cone waits for the end of the stroke.
 	cone_waiting: []bool,
 	waiting_cones: [dynamic]u32,
+	// Set by an undo or redo: the next flush holds the cones back as a stroke does, so
+	// the frame that undoes a large stroke pays its normals but not its cones.
+	cones_later: bool,
 	ranges:      [dynamic]Vertex_Range,
 	// Box around everything the last sculptor_flush reported as changed, before and
 	// after the change (AABB_EMPTY when nothing changed), for partial redraws.
@@ -726,7 +729,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	if len(s.dirty_nodes) > 0 {
 		slice.sort(s.dirty_nodes[:])
 		for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
-		if s.history.recording {
+		if cones_held(s) {
 			for id in s.dirty_nodes {
 				if s.stale[id] != .Shape || s.cone_waiting[id] do continue
 				s.cone_waiting[id] = true
@@ -737,7 +740,9 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		for id in s.dirty_nodes do verts += s.nodes[id].vert_count
 		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
 	}
-	if !s.history.recording && len(s.waiting_cones) > 0 {
+	if cones_held(s) {
+		s.cones_later = false
+	} else if len(s.waiting_cones) > 0 {
 		count := min(len(s.waiting_cones), CONE_BATCH)
 		jobs.parallel_for(s.pool, count, s, job_waiting_cone)
 		for id in s.waiting_cones[len(s.waiting_cones) - count:] do s.cone_waiting[id] = false
@@ -1889,7 +1894,7 @@ job_node_normals :: proc(data: rawptr, i: int) {
 		}
 		m.normals[v] = linalg.normalize0(sum)
 	}
-	if s.history.recording {
+	if cones_held(s) {
 		// Bounds stay current for frustum culling; the cone waits for the end of the stroke.
 		s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
 		s.chunks[id].cone_cutoff = 1
@@ -1920,6 +1925,13 @@ edge_normals :: proc(s: ^Sculptor, n: Node) {
 		for f in faces do sum += face_normal(m, f)
 		m.normals[v] = linalg.normalize0(sum)
 	}
+}
+
+// Whether a flush holds the normal cones of the nodes whose shape changed back for later
+// flushes: during a stroke, and in the flush after an undo or redo.
+@(private)
+cones_held :: #force_inline proc(s: ^Sculptor) -> bool {
+	return s.history.recording || s.cones_later
 }
 
 // The cone of a node whose shape changed during a stroke that has ended, unless this

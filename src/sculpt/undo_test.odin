@@ -17,7 +17,9 @@ State :: struct {
 
 @(private = "file")
 snapshot :: proc(s: ^Sculptor) -> State {
+	// Normal cones held back after a stroke, an undo or a redo come over later flushes.
 	_ = sculptor_flush(s)
+	for len(s.waiting_cones) > 0 do _ = sculptor_flush(s)
 	bounds := make([]geom.Aabb, len(s.bvh.nodes), context.temp_allocator)
 	for n, i in s.bvh.nodes do bounds[i] = n.bounds
 	return {
@@ -67,6 +69,10 @@ undo_and_redo_restore_exact_state :: proc(t: ^testing.T) {
 	testing.expect(t, !slice.equal(after_three.positions, start.positions), "strokes moved nothing")
 
 	testing.expect(t, sculptor_undo(&s), "undo 3")
+	// The flush after an undo works out the normals but holds the cones back, as a
+	// stroke's flushes do, so the frame that undoes a large stroke stays short.
+	_ = sculptor_flush(&s)
+	testing.expect(t, len(s.waiting_cones) > 0, "the undo's cones wait for later flushes")
 	testing.expect(t, sculptor_undo(&s), "undo 2")
 	expect_state(t, &s, after_one, "after two undos")
 	testing.expect(t, sculptor_undo(&s), "undo 1")
