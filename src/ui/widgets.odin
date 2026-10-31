@@ -120,19 +120,28 @@ label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font :
 	text(ctx, s, r.x, r.y + r.h * 0.5, size, color, font)
 }
 
-// An icon-only button in a touch-target cell (`size` points square, the target by
-// default), drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its
-// shortcut, beside it. `corner` marks its bottom left with a small triangle, which says
-// a long press opens more (its settings). Returns true when clicked.
-icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false) -> bool {
+// An icon button in a touch-target cell (`size` points square, the target by default),
+// drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its shortcut,
+// beside it. `corner` marks its bottom right with a small chevron, which says a long press
+// opens more (its settings). With `named` the cell is `width` wide and names the button
+// beside its icon, as a labelled rail does. Returns true when clicked.
+icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false, named := "", width: f32 = 0) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	size := size if size > 0 else t.target
-	cell := place(ctx, {size, size})
+	labelled := named != "" && width > size
+	cell := place(ctx, {width if labelled else size, size})
 	vis := centered(cell, {t.control, t.control})
-	mid := [2]f32{vis.x + vis.w * 0.5, vis.y + vis.h * 0.5}
+	if labelled do vis = {cell.x + (size - t.control) * 0.5, vis.y, cell.w - (size - t.control), t.control}
+	mid := [2]f32{vis.x + t.control * 0.5, vis.y + vis.h * 0.5}
+	words :: proc(ctx: ^Context, s: string, vis: Rect, color: Color) {
+		t := ctx.theme
+		x := vis.x + t.control + 2
+		text(ctx, text_fit(ctx, s, t.small_size, vis.x + vis.w - x - 6), x, vis.y + vis.h * 0.5, t.small_size, color, .Regular)
+	}
 	if !enabled {
 		icon(ctx, glyph, mid, t.icon_size, color_fade(t.text_secondary, 0.35))
+		if labelled do words(ctx, named, vis, color_fade(t.text_secondary, 0.35))
 		if ctx.names.on do names_place(ctx, id_of(ctx, name), cell)
 		return false
 	}
@@ -145,14 +154,19 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time, class = MOTION_PRESS)
 	color := color_mix(color_mix(t.text_secondary, t.text, h), t.accent, sel)
 	icon(ctx, glyph, mid, t.icon_size, color)
-	if corner {
-		CORNER :: 5
-		x, y := vis.x + 3, vis.y + vis.h - 3
-		fill_convex(ctx, [][2]f32{{x, y}, {x, y - CORNER}, {x + CORNER, y}}, t.text_tertiary)
-	}
+	if labelled do words(ctx, named, vis, color)
+	if corner do more_chevron(ctx, {vis.x + vis.w - 7, vis.y + vis.h - 6}, color)
 	press_scale(ctx, mark, vis, scale)
 	tip(ctx, id, vis, label_text(name), keys)
 	return clicked
+}
+
+// The small chevron, pointing down, that marks a control whose long press opens more,
+// centred on `at`: a stroke a finger can see at arm's length, where a filled corner
+// triangle was too small to notice on a tablet.
+more_chevron :: proc(ctx: ^Context, at: [2]f32, color: Color) {
+	HALF :: 3.5
+	polyline(ctx, [][2]f32{{at.x - HALF, at.y - HALF * 0.5}, {at.x, at.y + HALF * 0.5}, {at.x + HALF, at.y - HALF * 0.5}}, color_fade(color, 0.8), 1.6)
 }
 
 // One label of a chip.
@@ -1301,11 +1315,8 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	name := label_text(s)
 	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)
 	text(ctx, shown, vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, color, .Semibold if selected else .Regular, .Center)
-	if corner {
-		CORNER :: 5
-		x, y := vis.x + 3, vis.y + vis.h - 3
-		fill_convex(ctx, [][2]f32{{x, y}, {x, y - CORNER}, {x + CORNER, y}}, t.text_tertiary)
-	}
+	// At the top right, clear of the name under the icon.
+	if corner do more_chevron(ctx, {vis.x + vis.w - 8, vis.y + 8}, color)
 	press_scale(ctx, mark, vis, scale)
 	if keys != "" || shown != name do tip(ctx, id, vis, name, keys)
 	return clicked

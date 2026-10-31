@@ -366,6 +366,9 @@ long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	}
 	j.mesh = {}
 	if normals do sculpt.sculptor_recompute_all(&sculpt.levels_current(&j.levels).sculptor)
+	// The simplified copies too, so the result orbits at full speed from its first frame
+	// instead of drawing everything while the frames build them.
+	if !jobs.progress_cancelled(&j.progress) do _, _ = sculpt.sculptor_lod_update(&sculpt.levels_current(&j.levels).sculptor, finish = true)
 	j.prepared = true
 }
 
