@@ -417,6 +417,50 @@ def value_chip_scrub_sets_the_size():
 
 
 @scenario
+def pen_roll_on_a_size_chip_doubles_it():
+    """The pen hovering on the island's Size chip and turned 100 degrees clockwise doubles the size by the 90 past ROLL_ENGAGE, as on the slider, and names it by the pen."""
+    s = Script()
+    pen_hover(s, *VALUE_CHIPS["size"], frames=4)
+    for deg in range(0, 101, 2):
+        s.add(f"proll:{deg}")
+        s.wait(1)
+    s.wait(2)
+    return s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": near(120, 1),
+                                                           "roll_hint": is_text("Size_120_px")})
+
+
+# The island's Size as an icon (value_bars with VALUE_ICON_ISLAND): its middle at 1600 x 900.
+VALUE_ICON_ISLAND = [("Size", "Icon"), ("Strength", "Icon")]
+VALUE_ICON_SIZE = (41, 424)
+
+
+@scenario
+def pen_roll_on_a_size_icon_doubles_it():
+    """The same turn on the island's Size shown as an icon doubles the size too."""
+    s = Script()
+    pen_hover(s, *VALUE_ICON_SIZE, frames=4)
+    for deg in range(0, 101, 2):
+        s.add(f"proll:{deg}")
+        s.wait(1)
+    s.wait(2)
+    return s, value_bars(VALUE_ICON_ISLAND), camera_still({"dabs": near(0), "brush_radius_px": near(120, 1)})
+
+
+@scenario
+def pen_roll_on_the_exposure_chip_steps_it():
+    """In Render the pen hovering on the shelf's Exposure chip and turned 40 degrees clockwise raises the exposure a stop, in tenths, by the 30 past ROLL_ENGAGE."""
+    s = Script()
+    s.ftap(*SPACE_TABS["render"])
+    s.wait(10)
+    pen_hover(s, *RENDER_EXPOSURE_CHIP, frames=4)
+    for deg in range(0, 41, 2):
+        s.add(f"proll:{deg}")
+        s.wait(1)
+    s.wait(2)
+    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "exposure": near(1.0, 1e-3)})
+
+
+@scenario
 def long_press_a_value_picks_its_look():
     """A long press on the island's Size slider opens its menu; its Chip row turns it into a chip, which the settings file keeps."""
     s = Script()
