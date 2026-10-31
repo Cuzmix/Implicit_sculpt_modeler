@@ -939,11 +939,35 @@ def look_switch_is_remembered():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "interface")
-    s.ftap(1081, 248)  # Graphite, right of Lens and Studio
+    s.ftap(LOOK_CARD_GRAPHITE)
     s.wait(4)
     s.ftap(SETTINGS_CLOSE)
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "@saved": saved(look="Graphite")})
+    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "theme_draft": near(0), "@saved": saved(look="Graphite")})
+
+
+# Settings > Interface > Look at 1600 x 900: the gallery's Graphite card (third of the first
+# row, under the draft's row), the blue accent swatch and the draft's Keep as new.
+LOOK_CARD_GRAPHITE = (893, 350)
+LOOK_ACCENT_BLUE = (704, 586)
+LOOK_KEEP = (756, 276)
+
+
+@scenario
+def look_theme_kept():
+    """Settings > Interface > Look: an accent swatch makes a draft of Lens at once; Keep as new saves it as "Lens 2", a theme of one's own, which the settings file keeps."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_ACCENT_BLUE)
+    s.wait(4)
+    s.ftap(LOOK_KEEP)
+    s.wait(4)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Lens%202"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "theme_accent": is_text("#5b8cff"), "@saved": saved(look_user="0")})
 
 
 @scenario

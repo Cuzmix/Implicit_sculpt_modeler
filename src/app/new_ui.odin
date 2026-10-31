@@ -89,7 +89,8 @@ Kit_State :: struct {
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
-	look:       Look, // the interface's colours (Settings > Interface)
+	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
+	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
 	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
 	browser_at: Browser_At, // ...which of the two
 	// The shelf's tool strip (bars.odin), and Arrange (once Customise bars): on, and the
@@ -1027,7 +1028,7 @@ kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
 	k.inspector = true
-	k.look = .Lens
+	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
 	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
@@ -1162,6 +1163,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	if k.fixed_dt > 0 do in_.dt = k.fixed_dt
 	k.last_frame = now
 	k.scale = scale
+	theme_follow_device(k, platform_dark())
 	k.ctx.theme = kit_theme(app)
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
@@ -1179,7 +1181,7 @@ HAND_SLIDE_TIME :: 0.3
 // window's: with Settings > Touch > Hold delay, the ring that counts toward the long press
 // showing from halfway, never later than the theme has it, so a quick tap still shows nothing.
 kit_theme :: proc(app: ^App) -> ui.Theme {
-	t := LOOK_THEMES[app.kit.look]
+	t := theme_current(&app.kit)
 	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
 		t.long_press = d
 		t.long_ring = min(t.long_ring, d / 2)
@@ -2036,7 +2038,7 @@ kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
 // The window's frame colour, as the GPU's clear wants it: what shows where nothing is
 // drawn, between view panes and in a screen dump.
 kit_frame_color :: proc(k: ^Kit_State) -> [4]f32 {
-	return color_f32(LOOK_THEMES[k.look].frame)
+	return color_f32(theme_current(k).frame)
 }
 
 // An interface colour as the GPU takes it, opaque.

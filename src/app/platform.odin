@@ -89,3 +89,9 @@ read_file_read :: proc(f: Read_File, buf: []u8) -> int {
 read_file_close :: proc(f: Read_File) {
 	_ = sdl.CloseIO(f.io)
 }
+
+// Whether the device is set to its dark appearance; a system that does not say counts as
+// dark, as the app's own default theme is.
+platform_dark :: proc() -> bool {
+	return sdl.GetSystemTheme() != .LIGHT
+}

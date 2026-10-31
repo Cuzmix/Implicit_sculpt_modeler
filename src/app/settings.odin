@@ -714,6 +714,8 @@ settings_load :: proc(app: ^App, path: string) {
 	pen_button_seen: bit_set[Gesture_Slot]
 	// Sections an older file pinned, kept as cards once the stack is read.
 	old_pins: Panels_Old
+	// The file is where a person's themes are kept, so its list replaces the one in memory.
+	app.kit.themes.count = 0
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -736,6 +738,7 @@ settings_load :: proc(app: ^App, path: string) {
 			light_name_set(&app.start_lights.lights[i], preset_unescape(strings.join(f[1:], " ", context.temp_allocator)))
 			continue lines
 		}
+		if themes_line(&app.kit, f) do continue lines
 		switch f[0] {
 		case "version":
 			version, _ = strconv.parse_int(f[1])
@@ -1067,6 +1070,7 @@ settings_load :: proc(app: ^App, path: string) {
 		}
 	}
 	if fixed_lights do lights_fixed_set(app, &app.start_lights, true)
+	themes_settle(&app.kit)
 	if !size_curve_seen do b.pressure_size_curve = b.pressure_curve
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
@@ -1221,6 +1225,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for p in app.env.recent do fmt.sbprintfln(&out, "environment_recent %s", preset_escape(p))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
+	themes_save(&app.kit, &out)
 	for w, which in k.windows do window_save_line(&out, which, w)
 	workspaces_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {

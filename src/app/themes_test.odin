@@ -1,0 +1,124 @@
+package main
+
+import "core:os"
+import "core:testing"
+
+import "../ui"
+
+// Moving a control starts a draft of the chosen theme; Undo puts it back; Keep on a
+// built-in theme makes a theme of one's own named after it, which is then chosen and no
+// longer a draft, and Keep again writes over that one.
+@(test)
+a_draft_is_kept_as_a_theme_of_ones_own :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	testing.expect(t, !theme_draft(&k))
+	k.themes.seed.accent = {0x5b, 0x8c, 0xff, 0xff}
+	testing.expect(t, theme_draft(&k))
+	theme_choose(&k, theme_ref(&k))
+	testing.expect(t, !theme_draft(&k))
+	testing.expect_value(t, k.themes.seed, LOOK_SEEDS[.Lens])
+
+	k.themes.seed.tint = 0.9
+	testing.expect(t, theme_keep(&k))
+	testing.expect_value(t, k.themes.count, 1)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Lens, 0})
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Lens 2")
+	testing.expect(t, !theme_draft(&k))
+	k.themes.seed.contrast = 1
+	testing.expect(t, theme_keep(&k))
+	testing.expect_value(t, k.themes.count, 1)
+	testing.expect_value(t, k.themes.list[0].seed.contrast, 1)
+
+	// A second theme kept from Lens takes the next free name.
+	theme_choose(&k, {.Lens, -1})
+	k.themes.seed.hue = 30
+	testing.expect(t, theme_keep(&k))
+	testing.expect_value(t, theme_ref_name(&k, theme_ref(&k)), "Lens 3")
+}
+
+// Picking a light theme makes it the day theme and a dark one the night theme; with
+// Match device on, the device's setting picks between them, but never over a draft.
+@(test)
+match_device_follows_the_system_but_spares_a_draft :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	theme_choose(&k, {.Midnight, -1})
+	testing.expect_value(t, k.themes.night, Theme_Ref{.Midnight, -1})
+	testing.expect_value(t, k.themes.day, THEME_DAY_DEFAULT)
+	k.themes.match = true
+	theme_follow_device(&k, false)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Paper, -1})
+	theme_follow_device(&k, true)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Midnight, -1})
+	k.themes.seed.opacity = 0.7
+	theme_follow_device(&k, false)
+	testing.expect_value(t, theme_ref(&k), Theme_Ref{.Midnight, -1})
+	testing.expect(t, theme_draft(&k))
+}
+
+// Untouched, Lens, Studio and Graphite are their exact hand-made colours.
+@(test)
+built_in_themes_keep_their_exact_colours :: proc(t: ^testing.T) {
+	k: Kit_State
+	themes_init(&k)
+	testing.expect(t, theme_current(&k) == ui.THEME_LENS)
+	theme_choose(&k, {.Studio, -1})
+	testing.expect(t, theme_current(&k) == ui.THEME_STUDIO)
+	theme_choose(&k, {.Graphite, -1})
+	testing.expect(t, theme_current(&k) == ui.THEME_DARK)
+}
+
+// The themes' settings lines read back as they were written, and a seed line with words
+// it does not know, or values out of range, still reads.
+@(test)
+themes_read_back_from_the_settings :: proc(t: ^testing.T) {
+	path := "build/themes_test.txt"
+	defer os.remove(path)
+	a: App
+	themes_init(&a.kit)
+	a.kit.themes.seed.accent = {0xff, 0x86, 0xb9, 0xff}
+	a.kit.themes.seed.corners = .Square
+	testing.expect(t, theme_keep(&a.kit))
+	theme_choose(&a.kit, {.Paper, -1})
+	a.kit.themes.seed.contrast = 0.75
+	a.kit.themes.match = true
+	testing.expect(t, settings_save(&a, path))
+
+	b: App
+	themes_init(&b.kit)
+	settings_load(&b, path)
+	testing.expect_value(t, b.kit.themes.count, 1)
+	testing.expect_value(t, theme_ref_name(&b.kit, {.Lens, 0}), "Lens 2")
+	testing.expect_value(t, b.kit.themes.list[0], a.kit.themes.list[0])
+	testing.expect_value(t, theme_ref(&b.kit), Theme_Ref{.Paper, -1})
+	testing.expect_value(t, b.kit.themes.seed, a.kit.themes.seed)
+	testing.expect(t, theme_draft(&b.kit))
+	testing.expect(t, b.kit.themes.match)
+	testing.expect_value(t, b.kit.themes.day, Theme_Ref{.Paper, -1})
+	testing.expect_value(t, b.kit.themes.night, Theme_Ref{.Lens, 0})
+
+	words := []string{"light", "hue=400", "opacity=5", "accent=#123", "sparkle=9", "corners=round"}
+	s, ok := theme_seed_parse(words, LOOK_SEEDS[.Lens])
+	testing.expect(t, ok)
+	testing.expect_value(t, s.mode, ui.Theme_Mode.Light)
+	testing.expect_value(t, s.hue, 360)
+	testing.expect_value(t, s.opacity, ui.THEME_OPACITY_MIN)
+	testing.expect_value(t, s.accent, ui.Color{0x11, 0x22, 0x33, 0xff})
+	testing.expect_value(t, s.corners, ui.Theme_Corners.Round)
+	free_all(context.temp_allocator)
+}
+
+// A settings file from before themes names only its look: the seed shown is that look's.
+@(test)
+an_old_settings_file_shows_its_look :: proc(t: ^testing.T) {
+	path := "build/themes_old_test.txt"
+	defer os.remove(path)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("version 13\nlook Graphite\n")) == nil)
+	a: App
+	themes_init(&a.kit)
+	settings_load(&a, path)
+	testing.expect_value(t, theme_ref(&a.kit), Theme_Ref{.Graphite, -1})
+	testing.expect(t, !theme_draft(&a.kit))
+	free_all(context.temp_allocator)
+}
