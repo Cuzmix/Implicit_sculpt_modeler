@@ -175,6 +175,23 @@ STROKE_MODE_NAMES := [Stroke_Mode]string {
 	.Drag_Dot  = "Drag dot",
 }
 
+// The stroke modes as their tabs show them: an icon over a short name, the full name in
+// the tooltip (stroke_tabs).
+STROKE_MODE_SHORT := [Stroke_Mode]string {
+	.Dots      = "Dots",
+	.Drag_Rect = "Rect",
+	.Spray     = "Spray",
+	.Roll      = "Roll",
+	.Drag_Dot  = "Drag",
+}
+STROKE_MODE_ICONS := [Stroke_Mode]rune {
+	.Dots      = rune(0xe0ba), // Lucide ellipsis
+	.Drag_Rect = rune(0xe37a), // rectangle-horizontal
+	.Spray     = rune(0xe49a), // spray-can
+	.Roll      = rune(0xe5a3), // paint-roller
+	.Drag_Dot  = rune(0xe495), // move-right
+}
+
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
 // rim in: sculpt.falloff_set_shaped), reshaped by its hardness and focal shift, and
 // measured round a ball or across the view (sculpt.Brush.projected).

@@ -357,8 +357,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "A double tap on the model pins the pivot there until the next stroke, whatever Turn about says.")
 	case .Safe_Zone:
 		_ = ui.switch_row(ctx, "Edges always turn the view", &n.edge_orbit)
-		_ = ui.slider(ctx, "Edge width", &n.edge_size, EDGE_MIN, EDGE_MAX, .Linear, fmt.tprintf("%.0f pt", n.edge_size), enabled = n.edge_orbit)
-		_ = ui.switch_row(ctx, "Show the edges", &n.edge_show, enabled = n.edge_orbit)
+		if ui.slider(ctx, "Edge width", &n.edge_size, EDGE_MIN, EDGE_MAX, .Linear, fmt.tprintf("%.0f pt", n.edge_size), enabled = n.edge_orbit) do app.kit.edge_set_at = ctx.time
+		_ = ui.switch_row(ctx, "Show the edges always", &n.edge_show, enabled = n.edge_orbit)
+		ui.paragraph(ctx, "Otherwise their outline shows while a drag that began there turns the view, and while Edge width changes.")
 		ui.paragraph(ctx, "A drag that starts this close to an edge of the screen turns the view even over the model, so when the model fills the screen there is still somewhere to turn it from. Ctrl keeps the edges for mask and hide shapes.")
 	case .Pan_Zoom:
 		speed_slider(ctx, "Pan speed", &n.pan_speed)

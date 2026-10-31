@@ -164,10 +164,16 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 	draw_pie(app, o)
 }
 
+// How long the safe zone stays outlined after its width last changed, in seconds.
+EDGE_SET_SHOW :: 1.0
+
 @(private = "file")
 overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
-	// Where the safe zone ends, faintly, so it is clear where a press turns the view.
-	if app.nav.edge_orbit && app.nav.edge_show && !app.kit.clean {
+	// Where the safe zone ends, faintly, so it is clear where a press turns the view: while
+	// a drag that began in it turns the view and while its width is set, or always when
+	// Settings ask, as a guide line through the sculpt the rest of the time.
+	edge_in_use := (app.drag.owner != .None && app.drag.edge) || app.kit.ctx.time - app.kit.edge_set_at < EDGE_SET_SHOW
+	if app.nav.edge_orbit && (app.nav.edge_show || edge_in_use) && !app.kit.clean {
 		lo, hi := edge_inner(app)
 		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
 	}

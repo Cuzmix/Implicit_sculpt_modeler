@@ -49,7 +49,8 @@ settings_path :: proc() -> string {
 // remesh do. 10: Async compute is on where the GPU has a second queue (`async_compute`).
 // 11: Ray tracing hardware starts off on Apple's platforms (`ray_query`, RAY_QUERY_DEFAULT).
 // 12: the shelf lost its fixed tools strip, its tools joining each Sculpt page's own tiles.
-SETTINGS_VERSION :: 12
+// 13: the safe zone's outline shows only while in use (`edge_show` off).
+SETTINGS_VERSION :: 13
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -1113,6 +1114,9 @@ settings_load :: proc(app: ^App, path: string) {
 	// page's tiles once, after what it holds, where they are not there already and the
 	// page has room.
 	if version < 12 do shelf_tools_merge(app)
+	// Every file before version 13 holds Show the edges on, the default then, whether or not
+	// anyone picked it: the outline only while in use takes its place once.
+	if version < 13 do app.nav.edge_show = false
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	// Before the current layout is put, which brings its own pins along when there is one.

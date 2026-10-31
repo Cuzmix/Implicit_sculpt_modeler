@@ -325,8 +325,16 @@ shelf_slot_of :: proc(it: Brush_Item) -> (Bar_Slot, bool) {
 // bar's name for the command.
 shelf_label :: proc(s: Bar_Slot) -> string {
 	if s.id == .Brush && s.arg >= 0 && s.arg < len(sculpt.Brush_Kind) do return BRUSHES[sculpt.Brush_Kind(s.arg)].name
-	// Dynamic topology's full name does not fit under a tile.
-	if s.id == .Dyntopo_Toggle do return "Dyntopo"
+	// Names too long for a tile get a short one there; the full name stays in Search, the
+	// card and the action bar.
+	#partial switch s.id {
+	case .Dyntopo_Toggle: return "Dyntopo"
+	case .Model_Action:
+		#partial switch Model_Action(s.arg) {
+		case .Insert_Loop:  return "Add loop"
+		case .Remove_Loop:  return "Cut loop"
+		}
+	}
 	return bar_label(s)
 }
 
@@ -937,9 +945,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
 		ui.caption(ctx, "STROKE")
-		strokes: [len(Stroke_Mode)]string
-		for m, i in Stroke_Mode do strokes[i] = STROKE_MODE_NAMES[m]
-		if picked := ui.tabs(ctx, "shelf stroke kind", strokes[:], int(app.brush.stroke)); picked >= 0 do app.brush.stroke = Stroke_Mode(picked)
+		stroke_tabs(app, "shelf stroke kind")
 		ui.caption(ctx, "ALPHA")
 		ui.begin(ctx, "shelf quick alphas", {direction = .Row})
 		kit_alpha_cell(app, -1, 56)

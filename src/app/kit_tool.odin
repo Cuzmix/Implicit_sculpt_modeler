@@ -288,9 +288,7 @@ kit_stroke :: proc(app: ^App) {
 	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
 	// stroke mode means nothing to them.
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
-		strokes: [len(Stroke_Mode)]string
-		for m, i in Stroke_Mode do strokes[i] = STROKE_MODE_NAMES[m]
-		if picked := ui.tabs(ctx, "stroke kind", strokes[:], int(app.brush.stroke)); picked >= 0 do app.brush.stroke = Stroke_Mode(picked)
+		stroke_tabs(app, "stroke kind")
 		switch app.brush.stroke {
 		case .Dots:
 		case .Drag_Rect:
@@ -535,4 +533,14 @@ kit_insert_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Object palette) to cut it out.")
 	kit_insert_settings(app)
+}
+
+// The stroke mode's tabs, `name` the row's: each an icon over its short name, the full
+// name in its tooltip. Sets the brush's stroke when one is picked.
+stroke_tabs :: proc(app: ^App, name: string) {
+	short: [len(Stroke_Mode)]string
+	glyphs: [len(Stroke_Mode)]rune
+	full: [len(Stroke_Mode)]string
+	for m, i in Stroke_Mode do short[i], glyphs[i], full[i] = fmt.tprintf("%s##%s", STROKE_MODE_SHORT[m], STROKE_MODE_NAMES[m]), STROKE_MODE_ICONS[m], STROKE_MODE_NAMES[m]
+	if picked := ui.tabs(&app.kit.ctx, name, short[:], int(app.brush.stroke), glyphs = glyphs[:], keys = full[:], stacked = true); picked >= 0 do app.brush.stroke = Stroke_Mode(picked)
 }
