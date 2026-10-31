@@ -189,6 +189,11 @@ grid_redo :: proc(app: ^App) {
 
 // The Undo and Redo commands: the layout's step or the scene's, whichever came last.
 undo_run :: proc(app: ^App) {
+	// Undo while a stroke is held to edit puts the stroke back: it was never kept.
+	if app.stroke_edit.open {
+		stroke_edit_cancel(app)
+		return
+	}
 	if grid_undo_first(app) {
 		grid_undo(app)
 		return
@@ -209,7 +214,7 @@ redo_run :: proc(app: ^App) {
 }
 
 undo_can :: proc(app: ^App) -> bool {
-	return history_can_undo(app) || grid_undo_first(app)
+	return app.stroke_edit.open || history_can_undo(app) || grid_undo_first(app)
 }
 
 redo_can :: proc(app: ^App) -> bool {

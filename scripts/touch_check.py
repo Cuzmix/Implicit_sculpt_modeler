@@ -1210,6 +1210,46 @@ def join_strokes_by_pen():
 
 
 @scenario
+def hold_to_edit_by_pen():
+    """A pen stroke held still at its end opens for editing and stays open when the pen
+    lifts; Enter keeps it as one undo step. A second stroke held, then Escape, puts it back
+    with nothing recorded."""
+    s = Script()
+    for k, key in enumerate(["Return", "Escape"]):
+        y = 420 + 90 * k
+        s.add("pnear")
+        s.add(f"pdown:720,{y}")
+        for x, yy in line((720, y), (860, y + 30), 10)[1:]:
+            s.wait(1)
+            s.add(f"pmove:{x:g},{yy:g}")
+        s.wait(45)  # held still past Hold for (0.45 s)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(3)
+        s.press(key)
+    return s, [], camera_still({"stroke_edits": near(2), "stroke_edit_open": lambda v: v == "false", "undo_steps": near(1)})
+
+
+@scenario
+def hold_to_edit_shows_its_curve():
+    """A held pen stroke left open: its curve, handles and dots over the model and the
+    context bar's Stroke group (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:700,470")
+    for x, y in [(730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)]:
+        s.wait(2)
+        s.add(f"pmove:{x},{y}")
+    s.wait(45)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, [], camera_still({"stroke_edits": near(1), "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
