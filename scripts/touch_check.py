@@ -7457,6 +7457,16 @@ def remesh_runs_as_a_long_job():
 
 
 @scenario
+def decimate_runs_as_a_long_job():
+    """Rebuild from Search, set by a start-up script to keep a tenth of a grouped sphere, decimates on the job's thread with --async-jobs and lands as one undo step of about a tenth of the vertices."""
+    s = Script()
+    palette_run(s, "rebuild")
+    s.wait(300)
+    setup = "--script=group normals; set rebuild_goal fewer; set decimate_by percent; set decimate_percent 10"
+    return s, ["--async-jobs", "--vertices=60000", setup], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "undo_steps": near(1), "vertices": lambda v: 5400 <= int(v) <= 6600})
+
+
+@scenario
 def retopologize_runs_as_a_long_job():
     """Retopologize from Search with --async-jobs makes the quad object beside the sculpt once its thread is done, as one undo step."""
     s = Script()
@@ -12511,7 +12521,7 @@ REBUILD_GOALS = {k: on_card(v, "object") for k, v in {"even": (1283, 287), "fewe
 REBUILD_DENSITY = on_card((1406, 346), "object")
 # The button sits lower under Even and Quads, whose More options row and preview line take
 # more room than Fewer's paragraph.
-REBUILD_APPLY = {k: on_card((1377, v), "object") for k, v in {"even": 504, "fewer": 459, "quads": 504}.items()}
+REBUILD_APPLY = {k: on_card((1377, v), "object") for k, v in {"even": 504, "fewer": 504, "quads": 504}.items()}
 
 
 def open_rebuild(s, goal=None, tap=click):

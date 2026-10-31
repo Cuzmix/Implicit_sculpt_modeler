@@ -92,7 +92,13 @@ Ui_State :: struct {
 	remesh_keep_detail: bool, // ...put back on the old surface, polypaint and polygroups along...
 	remesh_groups:      bool, // ...each polygroup a closed piece of its own
 	remesh_quads:       bool, // ...a mesh of quads only, kept as the object's polygons
-	rebuild_fewer:      i32,  // ...and its Fewer goal
+	rebuild_fewer:      i32,  // ...and its Fewer goal, when it keeps a count...
+	decimate_by:        Decimate_By, // ...or a share of the object's vertices...
+	decimate_percent:   f32,  // ...this one (decimate.odin)...
+	decimate_keep_paint:   bool, // ...carrying the polypaint...
+	decimate_keep_groups:  bool, // ...and the polygroups with their lines...
+	decimate_keep_borders: bool, // ...holding open edges where they are...
+	decimate_use_mask:     bool, // ...and keeping more where it is masked
 	bake:               Bake_Settings,
 	boolean:            Boolean_State,
 	project:            Project_Settings,
@@ -173,7 +179,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_quads = true, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_quads = true, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

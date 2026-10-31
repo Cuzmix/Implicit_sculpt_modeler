@@ -184,9 +184,10 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
-	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
+	vertices: int, // Remesh, Decimate: the count (Decimate: unless its setup keeps a share); Retopo: the quads
 	quad:     retopo.Options, // Retopo: the engine and its options (retopo.odin)
 	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
+	decimate: Decimate_Setup, // Decimate: the share to keep and what to keep besides the shape (decimate.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -452,36 +453,30 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 // flat. Like a remesh, its levels, HD detail, mask and strokes go (the caller records
 // the swap). `changed` says whether it did; ok is false only when the old mesh is gone
 // and the new one could not be uploaded.
-object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: bool) {
+object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_Setup) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	source := object_mesh(obj)^
-	packed: geom.Mesh
-	if object_dynamic(obj) {
-		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
-		source = packed
-	}
-	// A closed surface has about two triangles a vertex.
-	mesh, error, built := geom.mesh_decimate(source, 2 * vertices, &app.pool)
-	before := len(source.positions)
-	geom.mesh_destroy(&packed)
+	src := decimate_source(obj, setup, borrow = true)
+	defer decimate_source_free(&src)
+	mesh, error, surface, built := decimate_compute(src, vertices, setup, &app.pool)
+	defer surface_free(&surface)
+	before := len(src.mesh.positions)
 	free_all(context.temp_allocator)
 	if !built {
 		log.warnf("decimate: the object already has %d vertices, no more than %d", before, vertices)
 		return false, true
 	}
-	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now())
+	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now(), surface = surface)
 }
 
 // The second half of a decimation, as remesh_apply is a remesh's: the object rebuilt on
-// `mesh`, made from `before` vertices with `error` the largest stray.
-decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
+// `mesh`, made from `before` vertices with `error` the largest stray, with the polypaint
+// and polygroups that followed it (`surface`; a long job's prepared levels carry them).
+decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = true, prepared = prepared) do return false
+	if !object_rebuild(app, obj, mesh, ready, normals = true, surface = surface, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
 	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
@@ -1000,9 +995,13 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		selection_set(app, copies[:])
 	case .Decimate:
 		if obj := selected_object(app); obj != nil {
+			// A share becomes a count of the object as it is now, so the job, the result
+			// line and Adjust last's rerun (from the object as it was) all agree.
+			cmd := cmd
+			cmd.vertices = decimate_target(object_vertex_count(obj), cmd.vertices, cmd.decimate)
 			before := history_snapshot(app, obj, "decimate")
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
-			changed, ok := object_decimate(app, obj, cmd.vertices)
+			changed, ok := object_decimate(app, obj, cmd.vertices, cmd.decimate)
 			if !ok {
 				history_snapshot_drop(before)
 				scene_delete_selected(app, undoable = false)
