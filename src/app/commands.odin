@@ -166,6 +166,9 @@ Command_Id :: enum u16 {
 	Stroke_Cancel,
 	Stroke_Radius_Each,
 	Stroke_Intensity_Each,
+	Curve_Delete_Point,
+	Curve_Corner,
+	Curve_Close,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1481,6 +1484,38 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {stroke_edit_set_each(app, false, !app.stroke_edit.intensity_each)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
 		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.intensity_each},
+	},
+	.Curve_Delete_Point = {
+		label = "Delete curve point",
+		help = "Deletes the point picked on the selected curve (tap a point to pick it); a curve keeps two points, a loop three.",
+		run = proc(app: ^App, _: int) {curve_delete_point(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_point_deletable(app)},
+	},
+	.Curve_Corner = {
+		label = "Corner point",
+		help = "Turns the point picked on the selected curve into a corner, whose handles turn freely, or back into a smooth one.",
+		run = proc(app: ^App, _: int) {curve_toggle_corner(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].corner
+		},
+	},
+	.Curve_Close = {
+		label = "Close curve",
+		help = "Joins the selected curve's ends into a loop, or opens the loop again.",
+		run = proc(app: ^App, _: int) {curve_toggle_closed(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && (obj.curve.closed || len(obj.curve.points) >= 3)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && obj.curve.closed
+		},
 	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",

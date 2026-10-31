@@ -20,6 +20,7 @@ Action_Group :: enum u8 {
 	Hidden,
 	Adjust,
 	Stroke_Edit,
+	Curve,
 }
 
 Action :: struct {
@@ -67,6 +68,12 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 		{.Stroke_Cancel, 0, "Cancel"},
 		{.Stroke_Radius_Each, 0, "Radius each"},
 		{.Stroke_Intensity_Each, 0, "Intensity each"},
+	}},
+	// A selected curve in the Curve tool (curve_edit.odin): its picked point and its ends.
+	.Curve = {"Curve", {
+		{.Curve_Delete_Point, 0, "Delete point"},
+		{.Curve_Corner, 0, "Corner"},
+		{.Curve_Close, 0, "Close"},
 	}},
 }
 
@@ -116,6 +123,11 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	if obj == nil do return
 	// While a stroke is held to edit, its actions are all that apply.
 	if app.stroke_edit.open do return {.Stroke_Edit}
+	if obj.curve != nil {
+		if app.tool == .Curve do groups += {.Curve}
+		if app.tool == .Move do groups += {.Gizmo}
+		return
+	}
 	if app.tool == .Move do groups += {.Gizmo}
 	if object_in_hd(obj) do groups += {.Hd}
 	if object_has_mask(app, obj) do groups += {.Mask}
