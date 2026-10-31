@@ -137,8 +137,9 @@ Scene :: struct {
 	selected: int, // index into objects, -1 when nothing is selected
 	next_id:  int,
 	solo:     bool, // only the selected object is shown, whichever that is (scene_tree.odin)
-	// One level of folders, as ZBrush's SubTool folders. A folder's objects stay next to
-	// each other in `objects` (scene_folders_normalize), so the list's order is the tree's.
+	// Folders, nested as Blender's collections. A folder's objects, with those of the
+	// folders inside it, stay next to each other in `objects` (scene_folders_normalize),
+	// so the list's order is the tree's.
 	folders:  [dynamic]Folder,
 	next_folder_id: int,
 	// The other selected objects' ids, while the selected one's id is still `also_for`

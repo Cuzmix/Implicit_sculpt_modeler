@@ -88,8 +88,12 @@ stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skippe
 		before := len(parts)
 		err := mesh_part(s, i, world[i], parts, skipped)
 		if err != .None do return err
-		// Its folder is the prim it sits under, as a scene tree's group.
-		if len(parts) > before && p.parent >= 0 do parts[len(parts) - 1].folder = strings.clone(s.prims[p.parent].name)
+		// Its folders are the prims it sits under, from the top, as a scene tree's groups.
+		if len(parts) > before && p.parent >= 0 {
+			path := make([dynamic]string, 0, 4, context.temp_allocator)
+			for at := p.parent; at >= 0 && len(path) < len(s.prims); at = s.prims[at].parent do inject_at(&path, 0, s.prims[at].name)
+			parts[len(parts) - 1].folders = geom.mesh_part_folders(path[:])
+		}
 	}
 	for p in s.prims {
 		if p.composed && p.type_name != "Mesh" do skipped.composed += 1

@@ -191,10 +191,10 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 // mesh_polygons turns it back into the polygons.
 Mesh_Part :: struct {
 	name:      string, // owned; "" for none
-	// The name of the node, prim or group holding it in the file's hierarchy (its nearest
-	// named parent), owned; "" for one at the top or a format without one. Import makes a
-	// folder of each.
-	folder:    string,
+	// The names of the nodes, prims or groups holding it in the file's hierarchy, from the
+	// file's top down to its nearest named parent, owned; empty for one at the top or a
+	// format without one. Import makes a folder of each, nested as the file nests them.
+	folders:   []string,
 	mesh:      Mesh,
 	colors:    [dynamic]Vertex_Color, // one a vertex, or empty
 	groups:    [dynamic]u16, // one a triangle, or empty
@@ -203,9 +203,18 @@ Mesh_Part :: struct {
 	polys:     [dynamic]u32, // one a triangle, or empty
 }
 
+// A copy of `path` for a part's folders, each name owned.
+mesh_part_folders :: proc(path: []string) -> []string {
+	if len(path) == 0 do return nil
+	out := make([]string, len(path))
+	for name, i in path do out[i] = strings.clone(name)
+	return out
+}
+
 mesh_part_destroy :: proc(p: ^Mesh_Part) {
 	delete(p.name)
-	delete(p.folder)
+	for f in p.folders do delete(f)
+	delete(p.folders)
 	mesh_destroy(&p.mesh)
 	delete(p.colors)
 	delete(p.groups)

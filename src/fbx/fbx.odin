@@ -47,7 +47,9 @@ foreign lib {
 	sculpt_fbx_material :: proc(f: ^Scene, k: c.size_t, color: ^[3]f32, texture_file: ^i32) ---
 	sculpt_fbx_texture_file_count :: proc(f: ^Scene) -> c.size_t ---
 	sculpt_fbx_texture_file :: proc(f: ^Scene, k: c.size_t, content: ^rawptr, content_size: ^c.size_t, relative: ^[^]u8, relative_len: ^c.size_t, absolute: ^[^]u8, absolute_len: ^c.size_t) ---
-	sculpt_fbx_part_size :: proc(f: ^Scene, part: c.size_t, name: ^[^]u8, name_len: ^c.size_t, folder: ^[^]u8, folder_len: ^c.size_t, vertices, triangles: ^c.size_t, colors, groups, uvs, polygons: ^bool) ---
+	sculpt_fbx_part_size :: proc(f: ^Scene, part: c.size_t, name: ^[^]u8, name_len: ^c.size_t, vertices, triangles: ^c.size_t, colors, groups, uvs, polygons: ^bool) ---
+	sculpt_fbx_part_folders :: proc(f: ^Scene, part: c.size_t) -> c.size_t ---
+	sculpt_fbx_part_folder :: proc(f: ^Scene, part, k: c.size_t, name: ^[^]u8, name_len: ^c.size_t) ---
 	sculpt_fbx_part_fill :: proc(f: ^Scene, part: c.size_t, positions: [^]f32, indices: [^]u32, colors: [^]u8, groups: [^]u16, materials: [^]i32, uvs: [^]f32, polys: [^]u32) -> bool ---
 	sculpt_fbx_free :: proc(f: ^Scene) ---
 }
@@ -56,8 +58,8 @@ foreign lib {
 // a mesh, placed in the scene Y up and in metres, with its vertex colours, a group for
 // each material when it has several, and, given a `look`, its materials' base colours
 // and textures (embedded in the file, or files beside it that `resolve` gives) for the
-// paint. Each part keeps its faces as polygons and names the node above it as its
-// folder; `rig` counts the skins, animation stacks and shape keys left for later. A file
+// paint. Each part keeps its faces as polygons and names the named nodes above it, from
+// the top, as its folders; `rig` counts the skins, animation stacks and shape keys left for later. A file
 // ufbx refuses is Not_Recognised, with ufbx's reason in `reason` (temp memory); a file
 // with no mesh is Empty.
 read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look = nil, resolve: geom.Mesh_Resolve = nil, resolve_data: rawptr = nil) -> (err: geom.Mesh_File_Error, reason: string, rig: geom.Rig_Found) {
@@ -102,12 +104,21 @@ read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look 
 
 	count := int(sculpt_fbx_part_count(scene))
 	for k in 0 ..< count {
-		name, folder: [^]u8
-		name_len, folder_len, vertices, triangles: c.size_t
+		name: [^]u8
+		name_len, vertices, triangles: c.size_t
 		colored, grouped, textured, polygons: bool
-		sculpt_fbx_part_size(scene, c.size_t(k), &name, &name_len, &folder, &folder_len, &vertices, &triangles, &colored, &grouped, &textured, &polygons)
+		sculpt_fbx_part_size(scene, c.size_t(k), &name, &name_len, &vertices, &triangles, &colored, &grouped, &textured, &polygons)
 		if int(vertices) >= int(max(u32)) || int(triangles) > int(max(u32)) / 3 do return .Too_Large, "", rig
-		part := geom.Mesh_Part{name = strings.clone(string(name[:name_len])), folder = strings.clone(string(folder[:folder_len]))}
+		// The named nodes above it; an unnamed one (a transform the exporter added) is
+		// no folder.
+		path := make([dynamic]string, 0, 4, context.temp_allocator)
+		for j in 0 ..< int(sculpt_fbx_part_folders(scene, c.size_t(k))) {
+			folder: [^]u8
+			folder_len: c.size_t
+			sculpt_fbx_part_folder(scene, c.size_t(k), c.size_t(j), &folder, &folder_len)
+			if folder_len > 0 do append(&path, string(folder[:folder_len]))
+		}
+		part := geom.Mesh_Part{name = strings.clone(string(name[:name_len])), folders = geom.mesh_part_folders(path[:])}
 		resize(&part.mesh.positions, int(vertices))
 		resize(&part.mesh.normals, int(vertices))
 		resize(&part.mesh.indices, 3 * int(triangles))
