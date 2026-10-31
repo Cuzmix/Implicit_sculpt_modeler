@@ -72,7 +72,18 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(35) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look); 29: Catmull-Clark levels, an applied cage's rule, polygons and creases (sculpt.levels_write); 30: the sculpt a cage was taken from by Edit cage (Cage_Part.held), after its look; 31: a cage's live stack (Thickness, Bevel creases) after Smooth and Flat; 32: a cage's live mirror axes after the stack; 33: the spaces each object is left out of (three more view bits); 34: each sculpt layer's mask (sculpt.levels_write); 35: the folder each folder is in
+// The newest version this app writes. From 36 the scene is a list of chunks after the
+// preview block (scene_chunk_begin): a field the file gains goes at the end of its chunk,
+// read only where the chunk has bytes left, or in a chunk of its own, which an older app
+// steps over; the version moves only for a change an older reader would misread. Up to
+// 35 every addition moved it: 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look); 29: Catmull-Clark levels, an applied cage's rule, polygons and creases (sculpt.levels_write); 30: the sculpt a cage was taken from by Edit cage (Cage_Part.held), after its look; 31: a cage's live stack (Thickness, Bevel creases) after Smooth and Flat; 32: a cage's live mirror axes after the stack; 33: the spaces each object is left out of (three more view bits); 34: each sculpt layer's mask (sculpt.levels_write); 35: the folder each folder is in; 36: chunks.
+SCENE_VERSION :: u32(36)
+// The first version written in chunks; files before it are read field after field as
+// each version wrote them, which nothing new changes.
+SCENE_CHUNKED :: u32(36)
+// The chunks of a scene file: the scene's own fields, then one an object.
+CHUNK_SCENE :: "SCEN"
+CHUNK_OBJECT :: "OBJ "
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -1311,7 +1322,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	for obj in app.scene.objects {
 		object_hd_leave(app, obj)
 		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
-		object_put(app, &out, obj)
+		object_chunk_put(app, &out, obj)
 	}
 	partial, err := write_partial(path, out[:])
 	if err != "" {
@@ -1419,12 +1430,15 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 	}
 }
 
-// The scene file's start: its magic and version, how many objects follow, the selected
-// one, the next id and the camera.
+// The scene file's start: its magic and version, the preview block, then the scene's
+// chunk: how many objects follow, the selected one, the next id, the camera and the rest
+// of what the scene itself keeps. A field added later goes at the chunk's end.
 scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	append(out, SCENE_MAGIC)
 	geom.byte_put(out, SCENE_VERSION)
 	preview_block_put(app, out) // version 22
+	at := scene_chunk_begin(out, CHUNK_SCENE)
+	defer scene_chunk_end(out, at)
 	geom.byte_put(out, u32(len(app.scene.objects)))
 	geom.byte_put(out, i32(app.scene.selected))
 	geom.byte_put(out, i32(app.scene.next_id))
@@ -1452,6 +1466,43 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	lights_put(out, app.scene.lights) // version 19, 20, 21
 	geom.byte_put(out, print_scale(app)) // version 23
 	guides_put(out, app.scene.guides) // version 24
+}
+
+// Starts a chunk of `tag` in `out`: its four letters and a size, filled in by
+// scene_chunk_end once its payload is written. Returns where the size is.
+scene_chunk_begin :: proc(out: ^[dynamic]u8, tag: string) -> int {
+	assert(len(tag) == 4)
+	append(out, tag)
+	at := len(out)
+	geom.byte_put(out, u64(0))
+	return at
+}
+
+// Ends the chunk whose size is at `at`: everything written since is its payload.
+scene_chunk_end :: proc(out: ^[dynamic]u8, at: int) {
+	size := transmute([8]u8)u64(len(out) - at - size_of(u64))
+	copy(out[at:][:8], size[:])
+}
+
+// The next chunk of a scene file: its tag and a reader over its payload alone. ok is
+// false at the end of the file and for a size past it, which is damage.
+scene_chunk_next :: proc(r: ^geom.Byte_Reader) -> (tag: string, chunk: geom.Byte_Reader, ok: bool) {
+	if r.at >= len(r.data) do return
+	head := geom.byte_get_bytes(r, 4)
+	size := geom.byte_get(r, u64)
+	if !r.ok || size > u64(len(r.data) - r.at) {
+		r.ok = false
+		return
+	}
+	payload := geom.byte_get_bytes(r, int(size))
+	return string(head), geom.byte_reader(payload), r.ok
+}
+
+// An object as its own chunk of a scene file.
+object_chunk_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
+	at := scene_chunk_begin(out, CHUNK_OBJECT)
+	object_put(app, out, obj)
+	scene_chunk_end(out, at)
 }
 
 // The proportion guides as a scene file stores them: a byte of flags (shown, seeded) and
@@ -1574,6 +1625,74 @@ folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Fo
 // More folders than a scene file may list: a count past it is damage.
 MAX_FOLDERS :: 4096
 
+// What a scene file keeps of the scene itself, before its objects.
+Scene_Fields :: struct {
+	count:          int, // objects that follow
+	selected:       int,
+	next_id:        int,
+	view:           camera.Orbit,
+	solo:           u8,
+	folders:        [dynamic]Folder, // owned
+	next_folder_id: int,
+	vis_slot:       u8,
+	vis_used:       u8,
+	link_token:     u64,
+	lights:         Light_Set,
+	lights_own:     bool, // the file kept lights (version 19 on); else the starting lights
+	print_mm:       f32,
+	guides:         Guides,
+}
+
+scene_fields_destroy :: proc(f: ^Scene_Fields) {
+	if f.folders != nil {
+		folders_clear(&f.folders)
+		delete(f.folders)
+	}
+	f.folders = nil
+}
+
+// The scene's own fields as a file of `version` wrote them (scene_header_put), checked:
+// ok is false for any damage, with nothing kept. A field added from version 36 on is
+// read at the end, only where the chunk has bytes left.
+scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32) -> (f: Scene_Fields, ok: bool) {
+	f.count = int(geom.byte_get(r, u32))
+	f.selected = int(geom.byte_get(r, i32))
+	f.next_id = int(geom.byte_get(r, i32))
+	view := app.camera
+	view.target = geom.byte_get(r, Vec3)
+	view.distance = geom.byte_get(r, f32)
+	view.yaw = geom.byte_get(r, f32)
+	view.pitch = geom.byte_get(r, f32)
+	view.roll = geom.byte_get(r, f32) if version >= 7 else 0
+	f.solo = geom.byte_get(r, u8) if version >= 8 else 0
+	folders_ok: bool
+	f.folders, f.next_folder_id, folders_ok = folders_get(r, version)
+	if version >= 12 {
+		f.vis_slot = geom.byte_get(r, u8)
+		f.vis_used = geom.byte_get(r, u8)
+	}
+	f.link_token = geom.byte_get(r, u64) if version >= 17 else 0
+	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
+	lights_ok := true
+	f.lights = app.start_lights
+	if version >= 19 do f.lights, lights_ok = lights_get(r, app.start_lights, version)
+	f.lights_own = version >= 19
+	// A scene from before prints were sized prints at a new scene's scale.
+	f.print_mm = f32(PRINT_MM_DEFAULT)
+	if version >= 23 do f.print_mm = geom.byte_get(r, f32)
+	// A scene from before guides were kept has them off, seeded when first shown.
+	guides_ok := true
+	if version >= 24 do f.guides, guides_ok = guides_get(r)
+	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+		scene_fields_destroy(&f)
+		return {}, false
+	}
+	view.distance = clamp(view.distance, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
+	view.yaw, view.pitch, view.roll = camera.wrap_angle(view.yaw), camera.wrap_angle(view.pitch), camera.wrap_angle(view.roll)
+	f.view = view
+	return f, true
+}
+
 // Replaces the scene with a saved one: every object is read and uploaded before
 // anything of the old scene goes, so a damaged file leaves the scene as it was (and
 // for a moment both are in memory). `opened` says whether it was; ok is false only on
@@ -1599,61 +1718,80 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
-	count := int(geom.byte_get(&r, u32))
-	selected := int(geom.byte_get(&r, i32))
-	next_id := int(geom.byte_get(&r, i32))
-	view := app.camera
-	view.target = geom.byte_get(&r, Vec3)
-	view.distance = geom.byte_get(&r, f32)
-	view.yaw = geom.byte_get(&r, f32)
-	view.pitch = geom.byte_get(&r, f32)
-	view.roll = geom.byte_get(&r, f32) if version >= 7 else 0
-	solo := geom.byte_get(&r, u8) if version >= 8 else 0
-	folders, next_folder_id, folders_ok := folders_get(&r, version)
+	f: Scene_Fields
+	defer scene_fields_destroy(&f)
+	objects := make([dynamic]^Object, 0, 16)
+	defer delete(objects)
+	render.wait_idle(&app.renderer)
+	missing := 0
+	damaged := ""
+	// Each object is read and built as it comes; one that is damaged, or a GPU failure,
+	// drops those built so far.
+	read_object :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32, missing: ^int, objects: ^[dynamic]^Object, f: ^Scene_Fields) -> (read, made: bool) {
+		obj: ^Object
+		obj, read, made = object_get(app, r, version, missing)
+		if !read || !made do return
+		f.next_id = max(f.next_id, obj.id)
+		append(objects, obj)
+		return
+	}
+	if version < SCENE_CHUNKED {
+		// Field after field, as each version up to 35 wrote them.
+		fields_ok: bool
+		f, fields_ok = scene_fields_get(app, &r, version)
+		if !fields_ok || f.count > len(data) do damaged = "it is damaged"
+		for i := 0; damaged == "" && i < f.count; i += 1 {
+			read, made := read_object(app, &r, version, &missing, &objects, &f)
+			if !read do damaged = fmt.tprintf("object %d of %d is damaged", i + 1, f.count)
+			if read && !made {
+				for other in objects do object_discard(app, other)
+				return false, false
+			}
+		}
+	} else {
+		// Chunks: the scene's first, then an object each; a chunk of a newer app's that
+		// this one does not know is stepped over, as are fields added at a chunk's end.
+		seen := false
+		for damaged == "" {
+			tag, chunk, more := scene_chunk_next(&r)
+			if !more {
+				if !r.ok do damaged = "it is damaged"
+				break
+			}
+			switch tag {
+			case CHUNK_SCENE:
+				fields_ok: bool
+				if !seen do f, fields_ok = scene_fields_get(app, &chunk, version)
+				if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
+				seen = true
+			case CHUNK_OBJECT:
+				if !seen || len(objects) >= f.count {
+					damaged = "it is damaged"
+					break
+				}
+				read, made := read_object(app, &chunk, version, &missing, &objects, &f)
+				if !read do damaged = fmt.tprintf("object %d of %d is damaged", len(objects) + 1, f.count)
+				if read && !made {
+					for other in objects do object_discard(app, other)
+					return false, false
+				}
+			}
+		}
+		if damaged == "" && (!seen || len(objects) != f.count) do damaged = "it is damaged"
+	}
+	if damaged != "" {
+		file_note(app, true, "Cannot open %s: %s", name, damaged)
+		for other in objects do object_discard(app, other)
+		return false, true
+	}
+	count, selected, next_id, view := f.count, f.selected, f.next_id, f.view
+	folders := f.folders
+	f.folders = nil
 	defer if folders != nil {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	vis_slot, vis_used: u8
-	if version >= 12 {
-		vis_slot = geom.byte_get(&r, u8)
-		vis_used = geom.byte_get(&r, u8)
-	}
-	link_token := geom.byte_get(&r, u64) if version >= 17 else 0
-	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
-	lights, lights_ok := app.start_lights, true
-	if version >= 19 do lights, lights_ok = lights_get(&r, app.start_lights, version)
-	// A scene from before prints were sized prints at a new scene's scale.
-	print_mm := f32(PRINT_MM_DEFAULT)
-	if version >= 23 do print_mm = geom.byte_get(&r, f32)
-	// A scene from before guides were kept has them off, seeded when first shown.
-	guides, guides_ok := Guides{}, true
-	if version >= 24 do guides, guides_ok = guides_get(&r)
-	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(print_mm >= PRINT_MM_MIN && print_mm <= PRINT_MM_MAX) || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
-		file_note(app, true, "Cannot open %s: it is damaged", name)
-		return false, true
-	}
-	view.distance = clamp(view.distance, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
-	view.yaw, view.pitch, view.roll = camera.wrap_angle(view.yaw), camera.wrap_angle(view.pitch), camera.wrap_angle(view.roll)
-
-	objects := make([dynamic]^Object, 0, count)
-	defer delete(objects)
-	render.wait_idle(&app.renderer)
-	missing := 0
-	for i in 0 ..< count {
-		obj, read, made := object_get(app, &r, version, &missing)
-		if !read {
-			file_note(app, true, "Cannot open %s: object %d of %d is damaged", name, i + 1, count)
-			for other in objects do object_discard(app, other)
-			return false, true
-		}
-		if !made {
-			for other in objects do object_discard(app, other)
-			return false, false
-		}
-		next_id = max(next_id, obj.id)
-		append(&objects, obj)
-	}
+	solo, next_folder_id, vis_slot, vis_used, link_token, lights, print_mm, guides := f.solo, f.next_folder_id, f.vis_slot, f.vis_used, f.link_token, f.lights, f.print_mm, f.guides
 
 	scene_replace(app, objects[:], selected if selected >= 0 else (0 if count > 0 else -1), next_id, view)
 	app.scene.solo = solo == 1
@@ -1662,7 +1800,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.next_folder_id = max(next_folder_id, 0)
 	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	app.scene.link_token = link_token
-	app.scene.lights, app.scene.lights_own = lights, version >= 19
+	app.scene.lights, app.scene.lights_own = lights, f.lights_own
 	app.scene.print_mm = print_mm
 	app.scene.guides = guides
 	scene_folders_normalize(app)
