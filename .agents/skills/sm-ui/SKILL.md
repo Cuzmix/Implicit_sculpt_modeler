@@ -294,6 +294,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   with them; anything measured from a real rect's `x` must mirror itself (`kit_card_place`, the wheel's drag sign).
 - Ids hash the label into the parent container's id; text after `##` is part of the id but not shown. Two widgets with
   one label in one container are one widget: give repeated rows `##index` suffixes.
+- The control map (`src/ui/names.odin`, on for `--ui-map` and named `--ui-events`): `id_of` records each label and
+  its container, `interact` places the control by the part of it that shows, so a label is a control's name in
+  tests. Keep labels stable, put the changing part before `##` and a fixed key after it (`"Undo stroke##undo"`), and
+  give a dimmed control the same label as its live one: dimmed controls are in the map too.
 - The pointer: only the topmost anchored container under it answers; a press outside every container is a
   `viewport_drag` until all buttons are up, so a stroke over a panel never presses it. `wants_pointer` decides whether
   the viewport gets the pointer.

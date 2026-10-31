@@ -53,40 +53,80 @@ MODEL = (800, 450)
 EMPTY = (250, 150)  # viewport with nothing on it
 PEN_RESPONSE_CLAY = (193, 451)  # the Pen section's Response page, its Clay tab
 
+
+class At(tuple):
+    """A control by its name in the interface's control map (--ui-map; the path of
+    container labels and its own, or the key after its "##"): a tap on it lands on the
+    control wherever the layout has moved it, since the app finds it in the frame before
+    (--ui-events @NAME). It is also the (x, y) it had at 1600 x 900, for the few checks
+    that take a position from it by arithmetic."""
+
+    def __new__(cls, name, x, y):
+        point = super().__new__(cls, (x, y))
+        point.name = name
+        return point
+
+
+def where(x, y=None):
+    """The --ui-events text for a point: x,y; or, with one argument, a named control (At,
+    or a string), or an (x, y) pair."""
+    if y is None:
+        if isinstance(x, At):
+            return f"@{x.name}"
+        if isinstance(x, str):
+            return x if x.startswith("@") else f"@{x}"
+        x, y = x
+    return f"{x:g},{y:g}"
+
+
+# The controls every scenario reaches, by name (At: the app finds each in the frame before
+# a tap, wherever the layout put it) and by where each was at 1600 x 900, which the few
+# checks doing arithmetic on a position use. The island's Size and Strength are their
+# knobs' positions, since a tap elsewhere on a slider sets its value.
 UI = {
     # The top bar (kit_top_lens.odin): Menu, Undo and Redo at the left, History and
     # Settings at the right, the Search button before them.
-    "menu": (33, 26), "undo": (217, 26), "redo": (267, 26), "search": (1455, 26), "history": (1520, 26), "settings": (1570, 26),
+    "menu": At("top bar/Menu", 33, 26), "undo": At("top bar/undo", 217, 26), "redo": At("top bar/redo", 267, 26),
+    "search": At("top bar/Search commands", 1455, 26), "history": At("top bar/History", 1520, 26),
+    "settings": At("top bar/Settings", 1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
     # The view chips over the view's top-left corner, and the chip bar's object chip.
-    "camera_chip": (75, 77), "pass_chip": (187, 77), "status": (700, 28),
+    "camera_chip": At("view chips/Camera", 75, 77), "pass_chip": At("view chips/Shading", 187, 77),
+    "status": At("top bar/Object", 700, 28),
     # The navigation head, left of the panel stack.
     "nav_head": (1185, 90),
     # The view rail down the right edge: the tray (the panel stack), then its view tools.
-    "inspector": (1563, 85), "view_layout": (1563, 133), "passes": (1563, 181), "camera": (1563, 229),
-    "frame": (1563, 277), "sym_x": (1563, 325), "wireframe": (1563, 373), "lights": (1563, 421), "mini": (1563, 470),
+    "inspector": At("view bar/Palettes", 1563, 85), "view_layout": At("view bar/View layout", 1563, 133),
+    "passes": At("view bar/Passes", 1563, 181), "camera": At("view bar/Camera", 1563, 229),
+    "frame": At("view bar/Focus selected", 1563, 277), "sym_x": At("view bar/Symmetry across X", 1563, 325),
+    "wireframe": At("view bar/Wireframe", 1563, 373), "lights": At("view bar/Lights", 1563, 421),
+    "mini": At("view bar/Second view", 1563, 470),
     # The shelf's Sculpt page, All, and its tools after the divider.
-    "shelf_clay": (331, 835), "shelf_draw": (395, 835), "shelf_smooth": (459, 835), "shelf_inflate": (523, 835),
-    "shelf_pinch": (587, 835), "shelf_crease": (651, 835), "shelf_grab": (715, 835), "shelf_flatten": (779, 835),
-    "shelf_mask": (843, 835), "shelf_layer": (907, 835), "browser": (971, 835),
-    "gizmo": (1036, 833), "remesh": (1084, 833), "dyntopo": (1132, 833), "retopo": (1180, 833), "subdivide": (1228, 833),
-    "live_boolean": (1276, 833),
+    "shelf_clay": At("shelf brushes/Clay", 331, 835), "shelf_draw": At("shelf brushes/Draw", 395, 835),
+    "shelf_smooth": At("shelf brushes/Smooth", 459, 835), "shelf_inflate": At("shelf brushes/Inflate", 523, 835),
+    "shelf_pinch": At("shelf brushes/Pinch", 587, 835), "shelf_crease": At("shelf brushes/Crease", 651, 835),
+    "shelf_grab": At("shelf brushes/Grab", 715, 835), "shelf_flatten": At("shelf brushes/Flatten", 779, 835),
+    "shelf_mask": At("shelf brushes/Mask", 843, 835), "shelf_layer": At("shelf brushes/Layer", 907, 835),
+    "browser": At("dock/All", 971, 835),
+    "gizmo": At("dock/Gizmo", 1036, 833), "remesh": At("dock/Remesh", 1084, 833),
+    "dyntopo": At("dock/Dynamic topology", 1132, 833), "retopo": At("dock/Quad Remesh", 1180, 833),
+    "subdivide": At("dock/Subdivide", 1228, 833), "live_boolean": At("dock/Live boolean", 1276, 833),
 }
-# The menu's rows at 1600x900, in lens_menu.odin's order, 44 points apart with a little more
-# at each divider: add a row here, not to every coordinate under it.
-MENU_ROWS = {"home": 84, "new": 129, "open": 173, "recent": 217, "save": 261, "save_as": 305, "save_copy": 349,
-             "earlier_saves": 393, "import": 438, "export": 482, "workspaces": 527, "customise": 571, "settings": 615,
-             "help": 659, "more": 703}
-UI.update({f"menu_{name}": (120, y) for name, y in MENU_ROWS.items()})
+# The menu's rows by name, and where each was at 1600x900 in lens_menu.odin's order, 44
+# points apart with a little more at each divider.
+MENU_ROWS = {"home": ("Home", 84), "new": ("New", 129), "open": ("Open scene...", 173), "recent": ("Open recent", 217),
+             "save": ("Save scene", 261), "save_as": ("Save scene as...", 305), "save_copy": ("Save a copy...", 349),
+             "earlier_saves": ("Earlier saves...", 393), "import": ("Import", 438), "export": ("Export...", 482),
+             "workspaces": ("Workspaces", 527), "customise": ("Customise...", 571), "settings": ("Settings...", 615),
+             "help": ("Help and shortcuts", 659), "more": ("More", 703)}
+UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y) in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({
     "new_sphere": (317, 159), "new_head": (403, 159), "new_bust": (489, 159), "new_figure": (317, 207), "new_hand": (403, 207),
     "more_stats": (400, 692), "more_macros": (400, 736), "more_library": (400, 780), "more_reduce_motion": (400, 824),
     "more_left_handed": (400, 868),
 })
-# On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
-MENU_SHORT_LAST_Y = 688
 # Search's first row, while something is typed (left of its Put on a bar button).
 UI["palette_row1"] = (700, 150)
 # The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
@@ -113,8 +153,9 @@ class Script:
     def wait(self, frames):
         self.frame += frames
 
-    def ftap(self, x, y, finger=0, hold=2, gap=4):
-        self.add(f"fdown:{finger}:{x:g},{y:g}")
+    def ftap(self, x, y=None, finger=0, hold=2, gap=4):
+        """A finger tapping x, y, or the point or named control `x` (where)."""
+        self.add(f"fdown:{finger}:{where(x, y)}")
         self.wait(hold)
         self.add(f"fup:{finger}")
         self.wait(gap)
@@ -256,7 +297,7 @@ def tap_ui():
     for name in ["menu", "menu", "undo", "history", "history", "gizmo", "shelf_draw", "sym_x", "sym_x",
                  "camera", "camera", "passes", "passes", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
                  "shelf_smooth", "shelf_draw", "browser", "browser", "inspector", "inspector", "status"]:
-        s.ftap(*UI[name])
+        s.ftap(UI[name])
     # Just past the drawn edge of the shelf and the top bar, inside their targets.
     s.ftap(490, 815)
     s.ftap(692, 4)
@@ -281,9 +322,9 @@ def pen_response_page_sets_clay():
     Blender's Clay (size by the cube of the pressure, at least a fifth of the radius), and
     nothing is sculpted (look with --screens)."""
     s = Script()
-    long_press(s, *UI["size"])
+    long_press(s, UI["size"])
     s.wait(4)
-    s.ftap(*VALUE_MENU_SETTINGS)
+    s.ftap(VALUE_MENU_SETTINGS)
     s.wait(4)
     s.ftap(264, 355)
     s.wait(3)
@@ -296,13 +337,13 @@ def pen_response_page_sets_clay():
 def long_press_draw_size_opens_its_menu():
     """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) in its place."""
     s = Script()
-    long_press(s, *UI["size"])
+    long_press(s, UI["size"])
     s.wait(4)
     first = (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "value_pop": is_text("size"), "brush_radius_px": near(60)}))
     s = Script()
-    long_press(s, *UI["size"])
+    long_press(s, UI["size"])
     s.wait(4)
-    s.ftap(*VALUE_MENU_SETTINGS)
+    s.ftap(VALUE_MENU_SETTINGS)
     s.wait(4)
     return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)}))])
 
@@ -311,7 +352,7 @@ def long_press_draw_size_opens_its_menu():
 def hold_delay_is_short_by_default():
     """The island's Size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: its menu opens, where the old 0.3 s would still have tapped."""
     s = Script()
-    long_press(s, *UI["size"], frames=17)
+    long_press(s, UI["size"], frames=17)
     s.wait(8)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
@@ -320,7 +361,7 @@ def hold_delay_is_short_by_default():
 def hold_delay_setting_goes_down_to_a_tenth():
     """With the Hold delay at its floor of 0.1 s, the island's Size held still 0.13 s is already a long press: its menu opens."""
     s = Script()
-    long_press(s, *UI["size"], frames=8)
+    long_press(s, UI["size"], frames=8)
     s.wait(8)
     return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
@@ -339,7 +380,7 @@ def mouse_drags_strength_at_once():
 def hold_delay_setting_keeps_a_shorter_hold_a_tap():
     """With the Hold delay at 0.8 s, the island's Size held 0.5 s is still a tap: its menu stays shut and the size as it was."""
     s = Script()
-    long_press(s, *UI["size"], frames=30)
+    long_press(s, UI["size"], frames=30)
     s.wait(8)
     return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "long_tip": lambda v: v == "none",
                                                             "brush_radius_px": near(60)})
@@ -349,7 +390,7 @@ def hold_delay_setting_keeps_a_shorter_hold_a_tap():
 def hold_delay_setting_still_long_presses():
     """With the Hold delay at 0.8 s, the island's Size held 0.9 s is a long press: its menu opens."""
     s = Script()
-    long_press(s, *UI["size"], frames=54)
+    long_press(s, UI["size"], frames=54)
     s.wait(8)
     return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
@@ -396,14 +437,14 @@ VALUE_CHIP_ISLAND = [("Size", "Chip"), ("Strength", "Chip"), ("Focal_Shift", "Ch
 def value_chip_tap_opens_its_steps():
     """A tap on the island's Size chip opens its popover beside it; a tap on its 96 step sets the size, and nothing is sculpted."""
     s = Script()
-    s.ftap(*VALUE_CHIPS["size"])
+    s.ftap(VALUE_CHIPS["size"])
     s.wait(6)
     first = (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("size"), "value_pops": near(1),
                                                             "brush_radius_px": near(60)}))
     s = Script()
-    s.ftap(*VALUE_CHIPS["size"])
+    s.ftap(VALUE_CHIPS["size"])
     s.wait(6)
-    s.ftap(*VALUE_STEP_96)
+    s.ftap(VALUE_STEP_96)
     s.wait(4)
     return Steps([first, (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "brush_radius_px": near(96)}))])
 
@@ -453,7 +494,7 @@ def pen_roll_on_a_size_icon_doubles_it():
 def pen_roll_on_the_exposure_chip_steps_it():
     """In Render the pen hovering on the shelf's Exposure chip and turned 40 degrees clockwise raises the exposure a stop, in tenths, by the 30 past ROLL_ENGAGE."""
     s = Script()
-    s.ftap(*SPACE_TABS["render"])
+    s.ftap(SPACE_TABS["render"])
     s.wait(10)
     pen_hover(s, *RENDER_EXPOSURE_CHIP, frames=4)
     for deg in range(0, 41, 2):
@@ -467,9 +508,9 @@ def pen_roll_on_the_exposure_chip_steps_it():
 def long_press_a_value_picks_its_look():
     """A long press on the island's Size slider opens its menu; its Chip row turns it into a chip, which the settings file keeps."""
     s = Script()
-    long_press(s, *UI["size"])
+    long_press(s, UI["size"])
     s.wait(4)
-    s.ftap(*VALUE_MENU_CHIP)
+    s.ftap(VALUE_MENU_CHIP)
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "offhand_looks": is_text("Chip,Slider"),
                                                                      "@saved": saved_line("bar_look offhand_island 0 Chip")})
@@ -496,9 +537,9 @@ def pressure_chip_opens_its_switches():
     """Pressure on the shelf's tools is a tap, not a scrub: its popover's Strength switch turns pressure on the strength off."""
     strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
     s = Script()
-    s.ftap(*STRIP_PRESSURE)
+    s.ftap(STRIP_PRESSURE)
     s.wait(6)
-    s.ftap(*PRESSURE_STRENGTH_SWITCH)
+    s.ftap(PRESSURE_STRENGTH_SWITCH)
     s.wait(4)
     return s, value_bars(strip=strip), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("pressure"),
                                                     "pressure_strength": near(0)})
@@ -523,11 +564,11 @@ def cancelled_drag_puts_the_size_back():
 def symmetry_tap_and_long_press():
     """A tap on Symmetry turns X on; a long press opens the three axes, where a tap on Y adds it."""
     s = Script()
-    s.ftap(*UI["sym_x"])
+    s.ftap(UI["sym_x"])
     s.wait(4)
-    long_press(s, *UI["sym_x"])
+    long_press(s, UI["sym_x"])
     s.wait(8)
-    s.ftap(*SYMMETRY_AXES["y"])
+    s.ftap(SYMMETRY_AXES["y"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
 
@@ -537,17 +578,17 @@ def local_symmetry_tap():
     """A tap on Local in the symmetry popover mirrors about the object's own middle, beside
     the X axis a tap on Symmetry turned on; a second tap puts the world's middle back."""
     s = Script()
-    s.ftap(*UI["sym_x"])
+    s.ftap(UI["sym_x"])
     s.wait(4)
-    long_press(s, *UI["sym_x"])
+    long_press(s, UI["sym_x"])
     s.wait(8)
-    s.ftap(*SYMMETRY_AXES["local"])
+    s.ftap(SYMMETRY_AXES["local"])
     s.wait(4)
     twice = Script()
-    long_press(twice, *UI["sym_x"])
+    long_press(twice, UI["sym_x"])
     twice.wait(8)
     for _ in range(2):
-        twice.ftap(*SYMMETRY_AXES["local"])
+        twice.ftap(SYMMETRY_AXES["local"])
         twice.wait(4)
     return Steps([(s, [], camera_still({"dabs": near(0), "symmetry": is_text("x+local")})),
                   (twice, [], camera_still({"dabs": near(0), "symmetry": is_text("none")}))])
@@ -559,11 +600,11 @@ def radial_symmetry_from_the_popover():
     Z, and dragging Copies to its end gives the most copies; with no mirror axis on, the
     Symmetry button still shows lit."""
     s = Script()
-    long_press(s, *UI["sym_x"])
+    long_press(s, UI["sym_x"])
     s.wait(8)
-    s.ftap(*RADIAL_ROW["radial"])
+    s.ftap(RADIAL_ROW["radial"])
     s.wait(4)
-    s.ftap(*RADIAL_ROW["z"])
+    s.ftap(RADIAL_ROW["z"])
     s.wait(4)
     (x0, y), (x1, _) = RADIAL_COPIES
     s.fdrag([(x0 + (x1 - x0) * i / 6, y) for i in range(7)])
@@ -576,9 +617,9 @@ def radial_stroke_lays_its_copies():
     """With Radial on from the popover, a short mouse stroke on the model lays its dab and
     the copies round Y, all in one undo step."""
     s = Script()
-    long_press(s, *UI["sym_x"])
+    long_press(s, UI["sym_x"])
     s.wait(8)
-    s.ftap(*RADIAL_ROW["radial"])
+    s.ftap(RADIAL_ROW["radial"])
     s.wait(4)
     s.mouse_drag([(760, 200)])
     s.wait(4)
@@ -624,14 +665,14 @@ def colour_well_opens_the_picker():
     in the history, with the popover still open; a second tap on the well puts it away."""
     setup = "--script=brush paint; show_section paint_color"
     s = Script()
-    s.ftap(*COLOUR_WELL)
+    s.ftap(COLOUR_WELL)
     s.wait(10)
-    s.ftap(*POPOVER_SKIN)
+    s.ftap(POPOVER_SKIN)
     s.wait(6)
     closed = Script()
-    closed.ftap(*COLOUR_WELL)
+    closed.ftap(COLOUR_WELL)
     closed.wait(10)
-    closed.ftap(*COLOUR_WELL)
+    closed.ftap(COLOUR_WELL)
     closed.wait(10)
     return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1)})),
                   (closed, [setup], camera_still({"dabs": near(0), "color_popover": near(0)}))])
@@ -644,13 +685,13 @@ def colors_card_picks_a_swatch():
     and the view stays."""
     s = Script()
     s.wait(4)
-    s.ftap(*COLORS_CARD["skin"])
+    s.ftap(COLORS_CARD["skin"])
     s.wait(4)
-    s.ftap(*COLORS_CARD["classic"])
+    s.ftap(COLORS_CARD["classic"])
     s.wait(4)
     closed = Script()
     closed.wait(4)
-    closed.ftap(*COLORS_CARD["close"])
+    closed.ftap(COLORS_CARD["close"])
     closed.wait(10)
     return Steps([(s, [COLORS], camera_still({"window_colors": lambda v: v.startswith("1,"), "paint_color": is_text("F8E1D4"), "color_history": near(1),
                                              "colors_tab": is_text("classic"), "dabs": near(0)})),
@@ -662,9 +703,9 @@ def colors_secondary_swatch_takes_the_pick():
     """With the secondary swatch chosen, a palette swatch sets the secondary colour and leaves the main one."""
     s = Script()
     s.wait(4)
-    s.ftap(*COLORS_CARD["secondary"])
+    s.ftap(COLORS_CARD["secondary"])
     s.wait(4)
-    s.ftap(*COLORS_CARD["skin"])
+    s.ftap(COLORS_CARD["skin"])
     s.wait(4)
     return s, [COLORS], {"paint_color": is_text("BF3326"), "paint_color2": is_text("F8E1D4"), "dabs": near(0)}
 
@@ -675,9 +716,9 @@ def colors_eyedropper_picks_from_the_model():
     model, whose drag and lift pick the paint under it, sculpting nothing and turning nothing."""
     s = Script()
     s.wait(4)
-    s.ftap(*COLORS_CARD["gradient"])
+    s.ftap(COLORS_CARD["gradient"])
     s.wait(4)
-    s.ftap(*COLORS_CARD["eyedropper"])
+    s.ftap(COLORS_CARD["eyedropper"])
     s.wait(4)
     s.fdrag([(800, 220)] + line((800, 240), (800, 260), 6))
     s.wait(4)
@@ -762,9 +803,9 @@ def colors_value_hex_sets_the_colour():
     """On the Value tab, typing a hex code and Enter sets the main colour."""
     s = Script()
     s.wait(4)
-    s.ftap(*COLORS_CARD["value"])
+    s.ftap(COLORS_CARD["value"])
     s.wait(6)
-    s.ftap(*COLORS_CARD["hex"])
+    s.ftap(COLORS_CARD["hex"])
     s.wait(4)
     s.type("3A7")
     s.press("Return")
@@ -798,15 +839,15 @@ def colors_palettes_keep_the_cards_size():
     the tabs with it)."""
     s = Script()
     s.wait(4)
-    s.ftap(*COLORS_CARD["palettes"])
+    s.ftap(COLORS_CARD["palettes"])
     s.wait(8)
-    s.ftap(*COLORS_PALETTES["skin"])
+    s.ftap(COLORS_PALETTES["skin"])
     s.wait(4)
     s.fdrag(line((250, 600), (250, 150), 15))
     s.wait(20)
-    s.ftap(*COLORS_PALETTES["vivid"])
+    s.ftap(COLORS_PALETTES["vivid"])
     s.wait(4)
-    s.ftap(*COLORS_CARD["value"])
+    s.ftap(COLORS_CARD["value"])
     s.wait(6)
     return s, [COLORS], camera_still({"paint_color": is_text("E6194B"), "color_history": near(2), "colors_tab": is_text("value"),
                                       "window_colors": lambda v: v.startswith("1,"), "dabs": near(0)})
@@ -818,11 +859,11 @@ def polyframe_long_press_picks_fill():
     """A long press on Wireframe opens what the polyframe shows; Fill adds the polygroups'
     colours to the lines, and a tap on the button shows it."""
     s = Script()
-    long_press(s, *UI["wireframe"])
+    long_press(s, UI["wireframe"])
     s.wait(8)
-    s.ftap(*POLYFRAME_FILL)
+    s.ftap(POLYFRAME_FILL)
     s.wait(4)
-    s.ftap(*UI["wireframe"])
+    s.ftap(UI["wireframe"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "polyframe_fill": near(1), "polyframe_lines": near(1), "wireframe": near(1)})
 
@@ -832,7 +873,7 @@ def field_of_view_from_the_camera_menu():
     """The view rail's Camera button opens the Camera menu, whose Field of view slider widens
     the lens; the eye comes in to keep the model's size, so the distance shrinks."""
     s = Script()
-    s.ftap(*UI["camera"])
+    s.ftap(UI["camera"])
     s.wait(8)
     s.fdrag([(FOV_SLIDER[0] + 12 * i, FOV_SLIDER[1]) for i in range(11)])
     s.wait(4)
@@ -843,17 +884,17 @@ def field_of_view_from_the_camera_menu():
 def mesh_tools_on_the_shelf():
     """The shelf's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the shelf; a tap on Quad Remesh runs it (a new object beside the sphere, one undo step) and a long press opens its section."""
     toggles, divide, remesh, retopo, retopo_held = Script(), Script(), Script(), Script(), Script()
-    toggles.ftap(*UI["dyntopo"])
+    toggles.ftap(UI["dyntopo"])
     toggles.wait(8)
-    toggles.ftap(*UI["live_boolean"])
+    toggles.ftap(UI["live_boolean"])
     toggles.wait(4)
-    divide.ftap(*UI["subdivide"])
+    divide.ftap(UI["subdivide"])
     divide.wait(10)
-    long_press(remesh, *UI["remesh"])
+    long_press(remesh, UI["remesh"])
     remesh.wait(8)
-    retopo.ftap(*UI["retopo"])
+    retopo.ftap(UI["retopo"])
     retopo.wait(12)
-    long_press(retopo_held, *UI["retopo"])
+    long_press(retopo_held, UI["retopo"])
     retopo_held.wait(8)
     return Steps([
         (toggles, [], camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
@@ -873,7 +914,7 @@ def look_switch_is_remembered():
     open_settings(s, "interface")
     s.ftap(1081, 248)  # Graphite, right of Lens and Studio
     s.wait(4)
-    s.ftap(*SETTINGS_CLOSE)
+    s.ftap(SETTINGS_CLOSE)
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "@saved": saved(look="Graphite")})
 
@@ -882,10 +923,10 @@ def look_switch_is_remembered():
 def tap_viewport_far_apart():
     """Touching down far from where the last finger lifted is no drag (SDL's mouse jump bug)."""
     s = Script()
-    s.ftap(*EMPTY)
+    s.ftap(EMPTY)
     s.ftap(1196, 800)
     s.ftap(150, 820)
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.ftap(1196, 120, hold=8)
     return s, [], camera_still({"dabs": near(0)})
 
@@ -936,9 +977,9 @@ def lights_added_and_switched_off_in_the_list():
     """In Scene: Lights, a tap on Add Point adds a fifth light, a point light, and picks it; a tap on the first light's eye switches it off; each is one undo step and nothing is sculpted."""
     s = Script()
     palettes_section(s)
-    s.ftap(*LIGHT_ADD_POINT)
+    s.ftap(LIGHT_ADD_POINT)
     s.wait(4)
-    s.ftap(*LIGHT1_EYE)
+    s.ftap(LIGHT1_EYE)
     s.wait(4)
     return s, palettes_only("lights"), camera_still({"dabs": near(0), "light_count": near(5), "light_pick": near(5), "light1_on": near(0), "undo_steps": near(2)})
 
@@ -954,7 +995,7 @@ def light_sphere_moves_and_flips_lights():
     to = (cx + 0.5 * LIGHT_SPHERE_R, cy)
     s.fdrag(line(key, to, 16))
     s.wait(4)
-    s.ftap(*to)
+    s.ftap(to)
     s.wait(4)
     return s, palettes_only("lights"), camera_still({"dabs": near(0), "light_pick": near(1), "light1_on": near(1), "light_flips": near(1),
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
@@ -1003,9 +1044,9 @@ def place_highlight_lights_where_the_finger_taps():
     """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""
     s = Script()
     palettes_section(s)
-    s.ftap(*LIGHT_PLACE)
+    s.ftap(LIGHT_PLACE)
     s.wait(4)
-    s.ftap(*MIDDLE)
+    s.ftap(MIDDLE)
     s.wait(4)
     return s, palettes_only("lights"), camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0, 0, 1)))})
@@ -1025,7 +1066,7 @@ def light_renamed_by_typing_is_one_step():
     palettes_section(s)
     s.fdrag(LIGHT_SCROLL)
     s.wait(20)
-    s.ftap(*LIGHT_NAME_FIELD)
+    s.ftap(LIGHT_NAME_FIELD)
     s.wait(4)
     s.type("Key lamp")
     s.press("Return")
@@ -2227,11 +2268,11 @@ def saved(**want):
 
 
 def open_settings(s, tab):
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_settings"])
+    s.ftap(UI["menu_settings"])
     s.wait(16)
-    s.ftap(*SETTINGS_TABS[tab])
+    s.ftap(SETTINGS_TABS[tab])
     s.wait(10)
 
 
@@ -2253,7 +2294,7 @@ def settings_scroll_and_persist():
     s.wait(4)
     s.fdrag(line((650, 450), (655, 150), 20))  # from the Orbit speed slider, upward
     s.wait(16)
-    s.ftap(*SETTINGS_CLOSE)
+    s.ftap(SETTINGS_CLOSE)
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
@@ -2267,9 +2308,9 @@ def settings_reset_everything():
     with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\nfinger_model orbit\nstats 1\n")
     open_settings(s, "touch")
-    s.ftap(*SETTINGS_RESET)  # Reset all settings: arms it
+    s.ftap(SETTINGS_RESET)  # Reset all settings: arms it
     s.wait(10)
-    s.ftap(*SETTINGS_RESET)  # Tap again to reset all
+    s.ftap(SETTINGS_RESET)  # Tap again to reset all
     s.wait(4)
     s.add("key:Escape")
     s.wait(8)
@@ -2284,9 +2325,9 @@ def settings_reset_needs_second_tap():
     with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\n")
     open_settings(s, "camera")
-    s.ftap(*SETTINGS_RESET)
+    s.ftap(SETTINGS_RESET)
     s.wait(4)
-    s.ftap(*SETTINGS_CLOSE)
+    s.ftap(SETTINGS_CLOSE)
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], {"@saved": saved(orbit_speed="2", invert_wheel="1")}
 
@@ -2295,11 +2336,11 @@ def settings_reset_needs_second_tap():
 def settings_scroll_right_after_opening():
     """The Settings body scrolls from the first touch the frame after its tab opens."""
     s = Script()
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_settings"])
+    s.ftap(UI["menu_settings"])
     s.wait(2)
-    s.ftap(*SETTINGS_TABS["touch"])
+    s.ftap(SETTINGS_TABS["touch"])
     s.wait(1)
     s.fdrag(line((800, 600), (805, 300), 15))
     return s, [], camera_still({"dabs": near(0), "settings_open": near(1), "settings_scroll": lambda v: float(v) > 100})
@@ -2310,15 +2351,15 @@ def settings_open_scroll_close_repeat():
     """Open Settings, scroll, close it, three times over: it opens, scrolls and closes every time."""
     s = Script()
     for _ in range(3):
-        s.ftap(*UI["menu"])
+        s.ftap(UI["menu"])
         s.wait(10)
-        s.ftap(*UI["menu_settings"])
+        s.ftap(UI["menu_settings"])
         s.wait(4)
-        s.ftap(*SETTINGS_TABS["touch"])
+        s.ftap(SETTINGS_TABS["touch"])
         s.wait(2)
         s.fdrag(line((800, 600), (805, 300), 15))
         s.wait(4)
-        s.ftap(*SETTINGS_CLOSE)
+        s.ftap(SETTINGS_CLOSE)
         s.wait(10)
     return s, [], camera_still({"dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100})
 
@@ -2334,7 +2375,7 @@ def changed_touch_setting_takes_effect():
     s.wait(6)
     s.ftap(1010, 488)  # Turn the view
     s.wait(4)
-    s.ftap(*SETTINGS_CLOSE)
+    s.ftap(SETTINGS_CLOSE)
     s.wait(10)
     s.fdrag(past_slop((760, 430), (860, 430), 20))
     return s, [f"--settings-file={settings_file()}", "--script=set orbit_style turntable"], {
@@ -2347,9 +2388,9 @@ def rapid_taps():
     double taps on empty space may frame the model, which moves the camera but does not turn it)."""
     s = Script()
     for _ in range(10):
-        s.ftap(*EMPTY, hold=1, gap=1)
+        s.ftap(EMPTY, hold=1, gap=1)
     for _ in range(6):
-        s.ftap(*UI["sym_x"], hold=1, gap=1)
+        s.ftap(UI["sym_x"], hold=1, gap=1)
     for x in range(200, 400, 20):
         s.ftap(x, 700 - x, hold=1, gap=1)
     return s, [], {"dabs": near(0), "undo_steps": near(0), **{k: near(CAMERA0[k]) for k in ("camera_yaw", "camera_pitch", "camera_roll")}}
@@ -2371,9 +2412,9 @@ def more_options_open_and_fold():
     """A finger tap on the Mask section's More options opens it; a second tap folds it again, and nothing is sculpted."""
     s = Script()
     select_page(s)
-    s.ftap(*MASK_MORE)
+    s.ftap(MASK_MORE)
     s.wait(20)
-    s.ftap(*MASK_MORE)
+    s.ftap(MASK_MORE)
     s.wait(20)
     return s, palettes_only("mask"), camera_still({"dabs": near(0), "more": is_text("none"), "object_page": is_text("Select")})
 
@@ -2385,7 +2426,7 @@ def more_options_show_the_rest():
     s.press("i", ("ctrl",))
     s.wait(4)
     select_page(s)
-    s.ftap(*MASK_MORE_AFTER_LAST)
+    s.ftap(MASK_MORE_AFTER_LAST)
     s.wait(20)
     return s, palettes_only("mask"), camera_still({"dabs": near(0), "more": is_text("mask"), "masked": near(1)})
 
@@ -2397,7 +2438,7 @@ def show_every_option_needs_no_fold():
         f.write("all_options 1\n")
     s = Script()
     select_page(s)
-    s.ftap(*MASK_MORE)
+    s.ftap(MASK_MORE)
     s.wait(10)
     return s, palettes_only("mask") + [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "more": is_text("none"), "all_options": near(1)})
 
@@ -2415,7 +2456,7 @@ def mask_by_from_the_section():
     select_page(s)
     s.fdrag(line((1380, 760), (1380, 160), 30))
     s.wait(20)
-    s.ftap(*MASK_BY_APPLY)
+    s.ftap(MASK_BY_APPLY)
     s.wait(10)
     return s, palettes_only("mask") + [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "undo_steps": near(1), "mask_by": is_text("facing_away"), "last_op": is_text("Mask_by_facing_away"),
@@ -2433,7 +2474,7 @@ def grow_visibility_from_the_section():
         f.write("all_options 1\n")
     s = Script()
     s.wait(10)
-    s.ftap(*HIDE_GROW)
+    s.ftap(HIDE_GROW)
     s.wait(10)
     # hide x hides 40,960 of the 81,920 triangles; a ring more shows about 400 of them.
     return s, palettes_only("visibility", "hide x") + [f"--settings-file={settings_file()}"], camera_still({
@@ -2451,7 +2492,7 @@ def layer_duplicate_from_the_section():
         f.write("all_options 1\n")
     s = Script()
     s.wait(10)
-    s.ftap(*LAYER_DUPLICATE)
+    s.ftap(LAYER_DUPLICATE)
     s.wait(10)
     return s, palettes_only("layers", "new_layer") + [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "layers": near(2), "undo_steps": near(1)})
 
@@ -2499,7 +2540,7 @@ def coach_skip_ends_the_tips():
     """A finger tap on Skip tips ends them at once, sculpting nothing."""
     s = Script()
     s.wait(10)
-    s.ftap(*COACH_SKIP)
+    s.ftap(COACH_SKIP)
     s.wait(6)
     return s, ["--coach"], camera_still({"coach": near(7), "coach_step": is_text("none"), "dabs": near(0)})
 
@@ -2509,7 +2550,7 @@ def coach_tips_come_back_from_the_palette():
     """After skipping, the palette's Show the first-run tips starts them again from the first."""
     s = Script()
     s.wait(10)
-    s.ftap(*COACH_SKIP)
+    s.ftap(COACH_SKIP)
     s.wait(6)
     s.press("k", ("ctrl",))
     s.type("first-run tips")
@@ -2536,7 +2577,7 @@ PRESET_REVERT = on_card((1451, 537), "brush")
 
 def save_a_preset(s):
     s.wait(8)
-    s.ftap(*PRESET_SAVE_NEW)
+    s.ftap(PRESET_SAVE_NEW)
     s.wait(8)
 
 
@@ -2547,7 +2588,7 @@ def preset_saves_changes_and_reverts():
     save_a_preset(s)
     s.press("]", ("shift",))
     s.wait(4)
-    s.ftap(*PRESET_REVERT)
+    s.ftap(PRESET_REVERT)
     s.wait(6)
     return s, palettes_only("preset"), {"presets": near(1), "preset": near(1), "preset_name": is_text("Draw_1"), "preset_changed": near(0),
                    "brush_strength": near(0.5), "dabs": near(0)}
@@ -2558,7 +2599,7 @@ def preset_renames_as_typed():
     """A tap on the preset's name field, typing and Enter rename it."""
     s = Script()
     save_a_preset(s)
-    s.ftap(*PRESET_NAME)
+    s.ftap(PRESET_NAME)
     s.wait(4)
     s.type(" soft")
     s.press("Return")
@@ -2573,7 +2614,7 @@ def preset_left_gives_the_plain_brush_back():
     save_a_preset(s)
     s.press("]", ("shift",))
     s.wait(4)
-    s.ftap(*UI["shelf_draw"])
+    s.ftap(UI["shelf_draw"])
     s.wait(6)
     return s, palettes_only("preset"), {"preset": near(0), "presets": near(1), "brush_strength": near(0.5), "dabs": near(0)}
 
@@ -2602,11 +2643,11 @@ def new_scene_settings():
 def new_scene_starts_over_at_once():
     """On an untouched scene, Menu > New > Head replaces the sphere with a head at once: three levels, no undo step, the menu closed."""
     s = Script()
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_new"])
+    s.ftap(UI["menu_new"])
     s.wait(10)
-    s.ftap(*UI["new_head"])
+    s.ftap(UI["new_head"])
     s.wait(10)
     return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(3), "selected_name": is_text("Head_2"),
                                        "undo_steps": near(0), "menu": near(0), "dabs": near(0), **{k: near(v) for k, v in CAMERA0.items()}}
@@ -2618,11 +2659,11 @@ def new_scene_after_a_stroke_asks_first():
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_new"])
+    s.ftap(UI["menu_new"])
     s.wait(10)
-    s.ftap(*UI["new_head"])
+    s.ftap(UI["new_head"])
     s.wait(10)
     return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(1), "selected_name": is_text("Sphere_1"),
                                        "undo_steps": near(1), "new_armed": near(2), "menu": near(1)}
@@ -2634,13 +2675,13 @@ def new_scene_second_tap_discards():
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_new"])
+    s.ftap(UI["menu_new"])
     s.wait(10)
-    s.ftap(*UI["new_hand"])
+    s.ftap(UI["new_hand"])
     s.wait(6)
-    s.ftap(*UI["new_hand"])
+    s.ftap(UI["new_hand"])
     s.wait(10)
     return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(3), "selected_name": is_text("Hand_2"),
                                        "undo_steps": near(0), "redo_steps": near(0), "new_armed": near(0), "menu": near(0)}
@@ -2741,12 +2782,12 @@ PALETTE_SHOW_ONE_ROW = (885, 268)
 def long_press_a_search_row_shows_where():
     """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Object palette's Layers section."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(4)
     s.type("new layer")
     s.wait(4)
-    long_press(s, *UI["palette_row1"])
-    s.ftap(*PALETTE_SHOW_ONE_ROW)
+    long_press(s, UI["palette_row1"])
+    s.ftap(PALETTE_SHOW_ONE_ROW)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette_runs": near(0), "tray_section": is_text("Layers"), "tray_marked": near(1)})
 
@@ -2778,9 +2819,9 @@ STATS_TITLE = (156, 148)
 def window_close_and_reopen():
     """The view rail's Panels button hides the stack; a second tap brings it back."""
     s = Script()
-    s.ftap(*INSPECTOR_CLOSE)
+    s.ftap(INSPECTOR_CLOSE)
     s.wait(10)
-    s.ftap(*UI["inspector"])
+    s.ftap(UI["inspector"])
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,")})
 
@@ -2810,7 +2851,7 @@ def stack_docks_left_from_its_options():
     s = Script()
     s.wait(6)
     for at in ("more", "where", "left"):
-        s.ftap(*STACK_WHERE[at])
+        s.ftap(STACK_WHERE[at])
         s.wait(10)
     s.fdrag(line((800, 450), (860, 470), 12))
     s.wait(6)
@@ -2860,7 +2901,7 @@ TOP_UNDO, TOP_SEARCH = (91, 33), (1411, 33)
 def workspace_menu_turns_focus_on():
     """The lit tab's menu, then Focus mode: the side bars and the action bar go and the menu with them, and the layout is unchanged."""
     s = Script()
-    s.ftap(*WORKSPACE_CHIP)
+    s.ftap(WORKSPACE_CHIP)
     s.wait(10)
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["focus"])
     s.wait(10)
@@ -2872,9 +2913,9 @@ def workspace_menu_turns_focus_on():
 def a_closed_panel_marks_the_workspace_and_revert_puts_it_back():
     """Closing the tray marks Sculpt as changed; Revert in the switcher's menu opens it again and clears the mark."""
     s = Script()
-    s.ftap(*INSPECTOR_CLOSE)
+    s.ftap(INSPECTOR_CLOSE)
     s.wait(10)
-    s.ftap(*WORKSPACE_CHIP)
+    s.ftap(WORKSPACE_CHIP)
     s.wait(10)
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["revert"])
     s.wait(10)
@@ -2886,7 +2927,7 @@ def a_closed_panel_marks_the_workspace_and_revert_puts_it_back():
 def a_changed_workspace_shows_its_mark():
     """Closing the tray leaves Sculpt marked as changed."""
     s = Script()
-    s.ftap(*INSPECTOR_CLOSE)
+    s.ftap(INSPECTOR_CLOSE)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "workspace_modified": near(1)})
 
@@ -2897,9 +2938,9 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
-    s.ftap(*TOP_UNDO)
+    s.ftap(TOP_UNDO)
     s.wait(4)
-    s.ftap(*TOP_SEARCH)
+    s.ftap(TOP_SEARCH)
     s.wait(10)
     return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Sculpt"), "focus_mode": near(1)}
 
@@ -2916,7 +2957,7 @@ LENS_MENU_HOME = (120, 82)
 def space_tab_switches_to_model():
     """A tap on the Model tab goes to Model with the Model tool and Model's layout, with no menu."""
     s = Script()
-    s.ftap(*SPACE_TABS["model"])
+    s.ftap(SPACE_TABS["model"])
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"), "workspace": is_text("Model"),
                                 "workspace_menu": near(0), "space_switches": near(1)})
@@ -2926,11 +2967,11 @@ def space_tab_switches_to_model():
 def space_lit_tab_and_chevron_open_the_menu():
     """A tap on the lit tab opens its layouts, a second closes them, and the chevron opens them again."""
     s = Script()
-    s.ftap(*SPACE_TABS["sculpt"])
+    s.ftap(SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*SPACE_TABS["sculpt"])
+    s.ftap(SPACE_TABS["sculpt"])
     s.wait(10)
-    s.ftap(*SPACE_TABS["chevron"])
+    s.ftap(SPACE_TABS["chevron"])
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "workspace_menu": near(1), "space_switches": near(0)})
 
@@ -2939,9 +2980,9 @@ def space_lit_tab_and_chevron_open_the_menu():
 def space_tab_gives_back_the_brush():
     """Inflate in hand, the Model tab, then the Sculpt tab: Sculpt comes back with Inflate and the Brush tool."""
     s = Script()
-    s.ftap(*SPACE_TABS["model"])
+    s.ftap(SPACE_TABS["model"])
     s.wait(10)
-    s.ftap(*SPACE_TABS["sculpt"])
+    s.ftap(SPACE_TABS["sculpt"])
     s.wait(10)
     return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
                                                         "workspace": is_text("Sculpt"), "space_switches": near(2)})
@@ -2951,7 +2992,7 @@ def space_tab_gives_back_the_brush():
 def a_press_in_render_turns_the_view():
     """In Render a drag across the model turns the view and lays no dab, since Render keeps no brush in hand."""
     s = Script()
-    s.ftap(*SPACE_TABS["render"])
+    s.ftap(SPACE_TABS["render"])
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
@@ -2970,7 +3011,7 @@ ON_MODEL = (520, 330)
 def render_exposure_chip_scrubs_the_exposure():
     """In Render the shelf shows Render's page; a finger dragged 50 points up from its Exposure chip raises the exposure, opens nothing and turns nothing."""
     s = Script()
-    s.ftap(*SPACE_TABS["render"])
+    s.ftap(SPACE_TABS["render"])
     s.wait(10)
     x, y = RENDER_EXPOSURE_CHIP
     s.fdrag(line((x, y), (x, y - 50), 20))
@@ -2983,9 +3024,9 @@ def render_exposure_chip_scrubs_the_exposure():
 def render_dial_places_a_highlight():
     """In Render the dial's top sector switches Place highlight on; a press on the model then moves the picked light, not the view."""
     s = Script()
-    s.ftap(*SPACE_TABS["render"])
+    s.ftap(SPACE_TABS["render"])
     s.wait(10)
-    s.ftap(*DIAL_TOP)
+    s.ftap(DIAL_TOP)
     s.wait(6)
     s.fdrag(line(ON_MODEL, (ON_MODEL[0] + 30, ON_MODEL[1] + 20), 10))
     s.wait(6)
@@ -2997,9 +3038,9 @@ def render_dial_places_a_highlight():
 def model_dial_picks_select():
     """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
     s = Script()
-    s.ftap(*SPACE_TABS["model"])
+    s.ftap(SPACE_TABS["model"])
     s.wait(10)
-    s.ftap(*DIAL_LEFT)
+    s.ftap(DIAL_LEFT)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
@@ -3104,7 +3145,7 @@ def bar_customise_drag_reorders_at_once():
 def bar_search_row_dragged_onto_the_rail():
     """Search's first row for "remesh" dragged out and let go on the lower half of the rail's Focus goes on the rail after it, and Search closes."""
     s = Script()
-    s.ftap(*DRAG_SEARCH)
+    s.ftap(DRAG_SEARCH)
     s.wait(8)
     s.type("remesh")
     s.wait(4)
@@ -3118,13 +3159,13 @@ def bar_search_row_dragged_onto_the_rail():
 def lens_search_icon_opens_the_palette():
     """A tap on the Lens top bar's Search icon opens the command palette, and a second tap closes it."""
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(10)
     first = (s, [], camera_still({"dabs": near(0), "palette": near(1), "layout_overlaps": near(0)}))
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(10)
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(10)
     return Steps([first, (s, [], camera_still({"dabs": near(0), "palette": near(0)}))])
 
@@ -3138,7 +3179,7 @@ PALETTE_SMOOTH_ROW2 = (700, 200)
 def palette_moving_pointer_picks_a_row():
     """A mouse moved over the palette's second row picks it, so its Put on a bar and the footer's buttons are for it; nothing runs."""
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(8)
     s.type("smooth")
     s.wait(4)
@@ -3153,7 +3194,7 @@ def palette_moving_pointer_picks_a_row():
 def palette_resting_pointer_leaves_the_keys_pick():
     """With the mouse resting on the second row after picking it, Down twice moves the pick on from there: a still pointer never takes it back."""
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(8)
     s.type("smooth")
     s.wait(4)
@@ -3171,11 +3212,11 @@ def palette_resting_pointer_leaves_the_keys_pick():
 def palette_finger_press_picks_and_long_press_keeps_it():
     """A finger's long press on the second row picks it and keeps the palette open, running nothing, so its footer buttons can be reached."""
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(8)
     s.type("smooth")
     s.wait(4)
-    long_press(s, *PALETTE_SMOOTH_ROW2)
+    long_press(s, PALETTE_SMOOTH_ROW2)
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette": near(1), "palette_runs": near(0),
                                 "palette_pick": is_text("Mask_By:Smoothness"), "tray_section": is_text("none")})
@@ -3187,9 +3228,9 @@ def lens_undo_and_redo_in_the_top_bar():
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
-    s.ftap(*LENS_UNDO)
+    s.ftap(LENS_UNDO)
     s.wait(10)
-    s.ftap(*LENS_REDO)
+    s.ftap(LENS_REDO)
     s.wait(10)
     return s, [], {"undo_steps": near(1), "redo_steps": near(0), "file_status": is_text("Unsaved%20changes")}
 
@@ -3206,9 +3247,9 @@ def lens_file_block_says_saved():
 def lens_menu_heads_with_home():
     """The Lens menu's first row is Home, which shows the Home screen."""
     s = Script()
-    s.ftap(*LENS_MENU)
+    s.ftap(LENS_MENU)
     s.wait(10)
-    s.ftap(*LENS_MENU_HOME)
+    s.ftap(LENS_MENU_HOME)
     s.wait(10)
     return s, [], {"home": near(1), "menu": near(0)}
 
@@ -3311,7 +3352,7 @@ def lens_island_drag_raises_the_size():
 def lens_camera_chip_opens_the_camera_menu():
     """A tap on the camera chip opens the Camera menu under it."""
     s = Script()
-    s.ftap(*LENS_CHIP_CAMERA)
+    s.ftap(LENS_CHIP_CAMERA)
     s.wait(10)
     return s, LENS_1440, camera_still({"bar_pop": is_text("camera")})
 
@@ -3320,7 +3361,7 @@ def lens_camera_chip_opens_the_camera_menu():
 def lens_object_chip_opens_the_scene_palette():
     """A long press on the chip bar's object chip opens the stack's Scene card."""
     s = Script()
-    long_press(s, *LENS_CHIP_OBJECT)
+    long_press(s, LENS_CHIP_OBJECT)
     s.wait(10)
     return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,"), "stack": lambda v: "Scene+" in v.split(",")})
 
@@ -3330,7 +3371,7 @@ def lens_rail_opens_beside_itself():
     """The rail's Passes and Lights open beside the rail, and View layout its menu of grids."""
     def run(name, checks):
         s = Script()
-        s.ftap(*LENS_RAIL[name])
+        s.ftap(LENS_RAIL[name])
         s.wait(10)
         return (s, LENS_1440, camera_still(checks))
     return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"bar_pop": is_text("lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
@@ -3340,7 +3381,7 @@ def lens_rail_opens_beside_itself():
 def lens_rail_mini_view_turns_it_on():
     """The rail's Mini view shows the second view as the mini view at the pen side's bottom."""
     s = Script()
-    s.ftap(*LENS_RAIL["mini"])
+    s.ftap(LENS_RAIL["mini"])
     s.wait(10)
     return s, LENS_1440, camera_still({"thumbnail": near(1), "mini": rect_x(1150, 1250)})
 
@@ -3349,12 +3390,12 @@ def lens_rail_mini_view_turns_it_on():
 def lens_mini_view_tap_swaps_the_cameras():
     """A tap on the mini view's picture gives the main view its Front camera, and a second tap swaps back."""
     s = Script()
-    s.ftap(*LENS_MINI_PICTURE)
+    s.ftap(LENS_MINI_PICTURE)
     s.wait(10)
     second = Script()
-    second.ftap(*LENS_MINI_PICTURE)
+    second.ftap(LENS_MINI_PICTURE)
     second.wait(10)
-    second.ftap(*LENS_MINI_PICTURE)
+    second.ftap(LENS_MINI_PICTURE)
     second.wait(10)
     return Steps([(s, LENS_1440 + LENS_MINI, {"mini_swaps": near(1), "camera_ortho": near(1), "second_camera": is_text("Free")}),
                   (second, LENS_1440 + LENS_MINI, camera_still({"mini_swaps": near(2), "camera_ortho": near(0)}))])
@@ -3385,7 +3426,7 @@ LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinc
 def lens_shelf_tap_picks_a_brush():
     """A tap on a shelf tile picks its brush, and nothing else opens."""
     s = Script()
-    s.ftap(*LENS_SHELF["clay"])
+    s.ftap(LENS_SHELF["clay"])
     s.wait(10)
     return s, LENS_1440, camera_still({"brush_kind": is_text("clay"), "shelf_quick": near(0), "brush_sheet": near(0), "dabs": near(0)})
 
@@ -3394,7 +3435,7 @@ def lens_shelf_tap_picks_a_brush():
 def lens_shelf_long_press_shows_quick_settings():
     """A long press on a shelf tile picks its brush and shows its quick settings above it."""
     s = Script()
-    s.ftap(*LENS_SHELF["clay"], hold=LONG_PRESS_FRAMES)
+    s.ftap(LENS_SHELF["clay"], hold=LONG_PRESS_FRAMES)
     s.wait(10)
     return s, LENS_1440, camera_still({"brush_kind": is_text("clay"), "shelf_quick": near(1), "dabs": near(0)})
 
@@ -3443,7 +3484,7 @@ def lens_shelf_page_added_renamed_and_kept():
     s.wait(2)
     s.add("rup")
     s.wait(10)
-    s.ftap(*SHELF_PAGES_720["rename"])
+    s.ftap(SHELF_PAGES_720["rename"])
     s.wait(6)
     s.type("Detail")
     s.press("Return")
@@ -3461,7 +3502,7 @@ def lens_shelf_page_added_renamed_and_kept():
 def lens_shelf_page_names_turn_the_page():
     """A tap on Paint under the shelf turns it to the Paint page, whose first tile is the Paint brush."""
     s = Script()
-    s.ftap(*LENS_SHELF_PAGES["paint"])
+    s.ftap(LENS_SHELF_PAGES["paint"])
     s.wait(10)
     return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1),
                                        "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Colors_Card")})
@@ -3471,11 +3512,11 @@ def lens_shelf_page_names_turn_the_page():
 def lens_shelf_model_page_adds_a_cage():
     """The Model space's shelf is the Model page: the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes Inset."""
     s = Script()
-    s.ftap(*LENS_MODEL_TAB)
+    s.ftap(LENS_MODEL_TAB)
     s.wait(10)
-    s.ftap(*LENS_MODEL_TILES["cube"])
+    s.ftap(LENS_MODEL_TILES["cube"])
     s.wait(10)
-    s.ftap(*LENS_MODEL_TILES["inset"])
+    s.ftap(LENS_MODEL_TILES["inset"])
     s.wait(10)
     return s, LENS_1440, camera_still({"shelf_page": is_text("Model"), "cages": near(1), "cage_faces": near(6), "cage_broken": near(0),
                                        "tool": is_text("model"), "model_action": is_text("Inset"),
@@ -3853,13 +3894,13 @@ def lens_shelf_all_opens_the_picker():
     """All opens the brush picker over the shelf; a tap on a card picks it and closes the picker; the picker's Paint turns the shelf too."""
     def run(card):
         s = Script()
-        s.ftap(*LENS_SHELF["all"])
+        s.ftap(LENS_SHELF["all"])
         s.wait(10)
         if card:
-            s.ftap(*LENS_SHEET["inflate"])
+            s.ftap(LENS_SHEET["inflate"])
             s.wait(10)
             return s, LENS_1440, camera_still({"brush_sheet": near(0), "brush_kind": is_text("inflate"), "dabs": near(0)})
-        s.ftap(*LENS_SHEET["paint"])
+        s.ftap(LENS_SHEET["paint"])
         s.wait(10)
         return s, LENS_1440, camera_still({"brush_sheet": near(1), "shelf_page": is_text("Paint"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -3888,15 +3929,15 @@ def lens_shelf_tools_follow_the_brushes():
     def run(curve):
         s = Script()
         if curve:
-            s.ftap(*LENS_SHELF_PAGES["curve"])
+            s.ftap(LENS_SHELF_PAGES["curve"])
             s.wait(10)
             # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it,
             # and 39 points right again, as Draw, held from the Sculpt page, has its own
             # tile left of the shelf there.
-            s.ftap(*LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
+            s.ftap(LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
             s.wait(10)
             return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_tools": near(6), "bar_pop": is_text("remesh_quick"), "dabs": near(0)})
-        s.ftap(*LENS_SHELF["move_tool"])
+        s.ftap(LENS_SHELF["move_tool"])
         s.wait(10)
         return s, LENS_1440, camera_still({"tool": is_text("move"), "shelf_tools": near(6), "shelf_shown": near(10), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -3906,7 +3947,7 @@ def lens_shelf_tools_follow_the_brushes():
 def lens_picker_card_dragged_onto_a_tile_keeps_it():
     """A card dragged from the picker sideways, then down onto the shelf's last tile, takes its place there; the picker stays open and nothing is sculpted."""
     s = Script()
-    s.ftap(*LENS_SHELF["all"])
+    s.ftap(LENS_SHELF["all"])
     s.wait(10)
     aside = (LENS_SHEET["inflate"][0] - 80, LENS_SHEET["inflate"][1])
     s.fdrag(line(LENS_SHEET["inflate"], aside, 4)[:-1] + line(aside, LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
@@ -3920,7 +3961,7 @@ def lens_picker_swipe_scrolls_the_cards():
     """A finger, then the pen, swiped up over the picker's cards scrolls them, as on an iPad: no card is picked or carried, the picker stays open and nothing is sculpted."""
     def run(pen):
         s = Script()
-        s.ftap(*LENS_SHELF["all"])
+        s.ftap(LENS_SHELF["all"])
         s.wait(10)
         path = line((900, 560), (900, 300), 13) + [(900, 300)] * 2
         if pen:
@@ -3945,7 +3986,7 @@ def lens_shelf_shows_the_active_brush():
         s.wait(10)
         if on_shelf:
             return s, LENS_1440 + ["--script=brush clay"], camera_still({"shelf_active": near(0), "brush_kind": is_text("clay"), "dabs": near(0)})
-        s.ftap(*LENS_SHELF_ACTIVE)
+        s.ftap(LENS_SHELF_ACTIVE)
         s.wait(10)
         return s, LENS_1440 + ["--script=brush snake_hook"], camera_still({"shelf_active": near(1), "shelf_quick": near(1), "brush_kind": is_text("snake_hook"), "dabs": near(0)})
     return Steps([run(True), run(False)])
@@ -3961,7 +4002,7 @@ def lens_stack_header_tap_folds_the_card():
     """A tap on the Brush card's header folds it to its header, and a Brush group's header folds that group."""
     def run(group):
         s = Script()
-        s.ftap(*(LENS_STACK["stroke"] if group else LENS_STACK["brush"]))
+        s.ftap((LENS_STACK["stroke"] if group else LENS_STACK["brush"]))
         s.wait(10)
         if group:
             return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,"), "stack_shut": lambda v: "Stroke" in v.split(","), "dabs": near(0)})
@@ -3973,7 +4014,7 @@ def lens_stack_header_tap_folds_the_card():
 def lens_stack_grip_drag_moves_a_card():
     """With Brush folded, Symmetry's grip dragged below Scene moves it there."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
     grip = LENS_STACK["symmetry_grip"]
     s.fdrag(line(grip, (grip[0], 300), 8) + [(grip[0], 300)] * 3)
@@ -3985,9 +4026,9 @@ def lens_stack_grip_drag_moves_a_card():
 def lens_stack_float_floats_a_card():
     """Layers' Float takes it out of the stack as a card of its own, open."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
-    s.ftap(*LENS_STACK["layers_float"])
+    s.ftap(LENS_STACK["layers_float"])
     s.wait(10)
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
@@ -4001,9 +4042,9 @@ LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 650)}
 def lens_floating_card_touched_comes_to_the_front():
     """Of two floating cards, the one floated last is in front; a touch on the other brings it in front, and runs nothing."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
-    s.ftap(*LENS_STACK["layers_float"])
+    s.ftap(LENS_STACK["layers_float"])
     s.wait(8)
     grip = LENS_FLOATS["layers_grip"]
     # Far enough down that the Scene card, floated next where Layers was, leaves the
@@ -4011,9 +4052,9 @@ def lens_floating_card_touched_comes_to_the_front():
     s.fdrag(line(grip, (grip[0], grip[1] + 380), 8))
     s.wait(6)
     # Scene is now where Layers was in the stack.
-    s.ftap(*LENS_STACK["layers_float"])
+    s.ftap(LENS_STACK["layers_float"])
     s.wait(8)
-    s.ftap(*LENS_FLOATS["layers_padding"])
+    s.ftap(LENS_FLOATS["layers_padding"])
     s.wait(8)
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(",") and "Scene+^" in v.split(","),
                                        "float_front": is_text("Layers"), "layer_rows": near(0), "dabs": near(0)})
@@ -4023,13 +4064,13 @@ def lens_floating_card_touched_comes_to_the_front():
 def lens_dial_stays_over_a_floating_card():
     """A floating card dragged over the dial goes under it: a tap on the dial's top sector latches Smooth."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
-    s.ftap(*LENS_STACK["layers_float"])
+    s.ftap(LENS_STACK["layers_float"])
     s.wait(8)
     s.fdrag(line(LENS_FLOATS["layers_grip"], (182, 718), 8))
     s.wait(6)
-    s.ftap(*LENS_ARRANGE["dial_top"])
+    s.ftap(LENS_ARRANGE["dial_top"])
     s.wait(8)
     return s, LENS_1440, camera_still({"float_front": is_text("Layers"), "rail_latched": is_text("smooth"), "dabs": near(0)})
 
@@ -4050,8 +4091,8 @@ def lens_stack_edge_sets_the_width():
         s.wait(6)
         if not reset:
             return s, LENS_1440, camera_still({"stack_width": near(352), "stack_resizes": near(1), "dabs": near(0)})
-        s.ftap(*LENS_RESIZE["wider_edge"], gap=2)
-        s.ftap(*LENS_RESIZE["wider_edge"])
+        s.ftap(LENS_RESIZE["wider_edge"], gap=2)
+        s.ftap(LENS_RESIZE["wider_edge"])
         s.wait(6)
         return s, LENS_1440, camera_still({"stack_width": near(312), "stack_resizes": near(2), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -4062,9 +4103,9 @@ def lens_stack_grip_sets_a_card_height():
     """An open card's grip dragged up shows less of it, which then scrolls; dragged up past its header it folds the card."""
     def run(fold):
         s = Script()
-        s.ftap(*LENS_STACK["brush"])
+        s.ftap(LENS_STACK["brush"])
         s.wait(6)
-        s.ftap(*LENS_RESIZE["symmetry_title"])
+        s.ftap(LENS_RESIZE["symmetry_title"])
         s.wait(8)
         grip = LENS_RESIZE["symmetry_grip"]
         s.fdrag(line(grip, (grip[0], 140 if fold else 336), 4))
@@ -4079,9 +4120,9 @@ def lens_stack_grip_sets_a_card_height():
 def lens_stack_floating_card_resizes_from_a_corner():
     """A floating card's bottom-left corner dragged out and down makes it wider and taller, on the 8 point grid (no shorter than the Layers panel's content)."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
-    s.ftap(*LENS_STACK["layers_float"])
+    s.ftap(LENS_STACK["layers_float"])
     s.wait(8)
     s.fdrag(line(LENS_RESIZE["layers_corner"], (692, 420), 4))
     s.wait(6)
@@ -4100,9 +4141,9 @@ LENS_PANES = {"divider": (862, 300), "divider_right": (1150, 451), "front_camera
 def lens_pane_camera_chip_lists_cameras():
     """A view pane's camera chip lists the cameras under it; Top there turns the pane to the top view."""
     s = Script()
-    s.ftap(*LENS_PANES["front_camera"])
+    s.ftap(LENS_PANES["front_camera"])
     s.wait(8)
-    s.ftap(*LENS_PANES["top"])
+    s.ftap(LENS_PANES["top"])
     s.wait(8)
     return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_camera": is_text("Top"), "pane_menu": near(0), "dabs": near(0)})
 
@@ -4126,8 +4167,8 @@ def lens_divider_to_the_edge_closes_panes():
 def lens_divider_double_tap_evens_it_out():
     """A double tap on the divider gives both sides half the room."""
     s = Script()
-    s.ftap(*LENS_PANES["divider"], gap=2)
-    s.ftap(*LENS_PANES["divider"])
+    s.ftap(LENS_PANES["divider"], gap=2)
+    s.ftap(LENS_PANES["divider"])
     s.wait(8)
     return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_split": lambda v: v.startswith("0.500,"), "grid_evens": near(1), "dabs": near(0)})
 
@@ -4144,7 +4185,7 @@ def lens_new_panes_start_as_the_setting_says():
 def lens_split_stack_becomes_tabs():
     """With panes beside the main one the stack is a strip of tabs; the Brush tab opens its card over the view."""
     s = Script()
-    s.ftap(*LENS_PANES["brush_tab"])
+    s.ftap(LENS_PANES["brush_tab"])
     s.wait(8)
     return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
 
@@ -4153,9 +4194,9 @@ def lens_split_stack_becomes_tabs():
 def lens_view_layout_menu_draws_the_presets():
     """The View layout menu's Four drawing shows four panes."""
     s = Script()
-    s.ftap(*LENS_PANES["layout"])
+    s.ftap(LENS_PANES["layout"])
     s.wait(8)
-    s.ftap(*LENS_PANES["four"])
+    s.ftap(LENS_PANES["four"])
     s.wait(8)
     return s, LENS_1440, camera_still({"grid": is_text("Four"), "dabs": near(0)})
 
@@ -4283,9 +4324,9 @@ def lens_focus_draws_islands():
     """Focus in Lens: the top bar becomes islands, X symmetry is a chip there, and Passes opens its menu."""
     s = Script()
     s.wait(6)
-    s.ftap(*LENS_FOCUS["symmetry"])
+    s.ftap(LENS_FOCUS["symmetry"])
     s.wait(4)
-    s.ftap(*LENS_FOCUS["passes"])
+    s.ftap(LENS_FOCUS["passes"])
     s.wait(6)
     return s, ["--script=focus_mode on"], camera_still({"workspace": is_text("Sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
@@ -4293,7 +4334,7 @@ def lens_focus_draws_islands():
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
 # of the submenu Open recent opens.
 LENS_MENU = (33, 26)
-LENS_MENU_ROWS = {"new": (120, 129), "recent": (120, 217), "export": (120, 482), "more": (120, 703)}
+LENS_MENU_ROWS = {name: UI[f"menu_{name}"] for name in ("new", "recent", "export", "more")}
 LENS_SUBMENU_FIRST = (380, 248)
 
 
@@ -4308,12 +4349,12 @@ def lens_menu_recent_opens_sideways():
 
     def tap(open_it):
         s = Script()
-        s.ftap(*LENS_MENU)
+        s.ftap(LENS_MENU)
         s.wait(6)
-        s.ftap(*LENS_MENU_ROWS["recent"])
+        s.ftap(LENS_MENU_ROWS["recent"])
         s.wait(8)
         if open_it:
-            s.ftap(*LENS_SUBMENU_FIRST)
+            s.ftap(LENS_SUBMENU_FIRST)
             s.wait(8)
         # Each run its own settings file: the first run's exit writes its own back.
         settings = settings_file()[:-4] + ("-open.txt" if open_it else ".txt")
@@ -4328,7 +4369,7 @@ def lens_menu_recent_opens_sideways():
 
     def rest():
         s = Script()
-        s.ftap(*LENS_MENU)
+        s.ftap(LENS_MENU)
         s.wait(6)
         s.add(f"move:{LENS_MENU_ROWS['more'][0]},{LENS_MENU_ROWS['more'][1]}")
         s.wait(30)
@@ -4361,9 +4402,9 @@ LAYERS_PANEL = {"top_zone": (1180, 327), "top_mask": (1112, 337), "top_delete": 
 
 
 def lens_card_open(s, card):
-    s.ftap(*LENS_CARDS["brush"])
+    s.ftap(LENS_CARDS["brush"])
     s.wait(6)
-    s.ftap(*LENS_CARDS[card])
+    s.ftap(LENS_CARDS[card])
     s.wait(6)
 
 
@@ -4372,7 +4413,7 @@ def lens_scene_card_locks_an_object():
     """The Scene card's lock locks the sphere, so a stroke over it passes it by and sculpts nothing."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*LENS_CARDS["first_lock"])
+    s.ftap(LENS_CARDS["first_lock"])
     s.wait(6)
     s.fdrag(line((700, 430), (780, 470), 16))
     s.wait(6)
@@ -4384,7 +4425,7 @@ def lens_scene_card_finds_by_name():
     """With twelve objects, typing sphere 3 in the Scene card's Find field leaves only Sphere 3's row."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*LENS_CARDS["filter"])
+    s.ftap(LENS_CARDS["filter"])
     s.wait(4)
     s.type("sphere 3")
     s.wait(6)
@@ -4411,9 +4452,9 @@ def outliner_add_menu_adds_a_cube():
     def run(undo):
         s = Script()
         lens_card_open(s, "scene")
-        s.ftap(*OUTLINER["add"])
+        s.ftap(OUTLINER["add"])
         s.wait(6)
-        s.ftap(*OUTLINER["cube"])
+        s.ftap(OUTLINER["cube"])
         s.wait(10)
         if undo:
             s.press("z", ("ctrl",))
@@ -4430,11 +4471,11 @@ def outliner_kind_chips_show_one_kind():
     """Once the scene holds a mesh and voxels the outliner offers a chip per kind; Voxels leaves only the voxel sphere's row."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*OUTLINER["add"])
+    s.ftap(OUTLINER["add"])
     s.wait(6)
-    s.ftap(*OUTLINER["voxel"])
+    s.ftap(OUTLINER["voxel"])
     s.wait(12)
-    s.ftap(*OUTLINER_CHIPS["voxels"])
+    s.ftap(OUTLINER_CHIPS["voxels"])
     s.wait(6)
     return s, LENS_1440, {"objects": near(2), "scene_kind": is_text("voxels"), "scene_rows": near(1), "dabs": near(0)}
 
@@ -4444,7 +4485,7 @@ def outliner_dots_open_the_object_menu():
     """A tap on a row's dots opens the object menu under them for that object, as a long press does, without dragging or sculpting."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*outliner_row(1, "dots_x"))
+    s.ftap(outliner_row(1, "dots_x"))
     s.wait(6)
     return s, LENS_1440 + THREE, {"object_menu": near(1), "scene_row_menus": near(1), "selected": near(1), "scene_order": is_text("1,2,3"), "dabs": near(0)}
 
@@ -4454,9 +4495,9 @@ def outliner_light_row_switches_a_light():
     """The outliner's folded Lights row unfolds to a row per light; the first one's eye (its only toggle, at the dots' place) switches it off as one undo step."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*outliner_row(1))
+    s.ftap(outliner_row(1))
     s.wait(6)
-    s.ftap(*outliner_row(2, "dots_x"))
+    s.ftap(outliner_row(2, "dots_x"))
     s.wait(8)
     return s, LENS_1440, camera_still({"light1_on": near(0), "scene_light_switches": near(1), "undo_steps": near(1), "dabs": near(0)})
 
@@ -4466,13 +4507,13 @@ def outliner_group_takes_the_selection():
     """With two objects selected (a tap, then Shift and a click), the outliner's Group puts both in one new folder as one undo step."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*outliner_row(0))
+    s.ftap(outliner_row(0))
     s.wait(4)
     s.add("key:shift")
     click(s, outliner_row(1))
     s.add("keyup:shift")
     s.wait(4)
-    s.ftap(*OUTLINER["group"])
+    s.ftap(OUTLINER["group"])
     s.wait(8)
     return s, LENS_1440 + THREE, {"folders": near(1), "scene_folders": is_text("1,1,0"), "undo_steps": near(1), "dabs": near(0)}
 
@@ -4482,9 +4523,9 @@ def outliner_spaces_dots_leave_an_object_out():
     """A tap on Sphere 2's spaces dots opens Show in; unticking Model leaves it out of Model only, so it stays in view in Sculpt, and no undo step is made."""
     s = Script()
     lens_card_open(s, "scene")
-    s.ftap(*OUTLINER["row1_dots"])
+    s.ftap(OUTLINER["row1_dots"])
     s.wait(6)
-    s.ftap(*OUTLINER["show_in_model"])
+    s.ftap(OUTLINER["show_in_model"])
     s.wait(6)
     return s, LENS_1440 + THREE, {"objects_spaces_off": near(1), "scene_space_changes": near(1), "objects_off": near(0), "undo_steps": near(0), "dabs": near(0)}
 
@@ -4494,7 +4535,7 @@ def lens_layers_card_records_and_picks():
     def run(dot):
         s = Script()
         lens_card_open(s, "layers")
-        s.ftap(*LENS_CARDS["layer1_dot" if dot else "layer1_name"])
+        s.ftap(LENS_CARDS["layer1_dot" if dot else "layer1_name"])
         s.wait(6)
         return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layer_rows": near(2), "layer_picked": near(0), "layer_recording": near(0 if dot else 1), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -4514,7 +4555,7 @@ def layers_panel_swipe_opens_merge_and_delete():
         s.wait(1)
     s.add("fup:0")
     s.wait(8)
-    s.ftap(*LAYERS_PANEL["top_delete"])
+    s.ftap(LAYERS_PANEL["top_delete"])
     s.wait(8)
     return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layers": near(1), "layer_swipes": near(1), "undo_steps": near(1), "dabs": near(0)})
 
@@ -4575,12 +4616,12 @@ def layers_panel_mask_badge_paints_the_mask():
         s.wait(4)
         lens_card_open(s, "layers")
         s.wait(10)
-        s.ftap(*LAYERS_PANEL["top_mask"])
+        s.ftap(LAYERS_PANEL["top_mask"])
         s.wait(6)
         s.mouse_drag(line((660, 330), (660, 520), 14))
         s.wait(8)
         if again:
-            s.ftap(*LAYERS_PANEL["top_mask"])
+            s.ftap(LAYERS_PANEL["top_mask"])
             s.wait(6)
         want = {"layer_masks": near(1), "layer_mask_picks": near(1), "undo_steps": near(2),
                 "layer_mask_picked": near(-1 if again else 0), "brush_kind": is_text("draw" if again else "mask")}
@@ -4596,12 +4637,12 @@ LENS_TOOLS = {"header": (1150, 334), "geometry": (1253, 384), "invert": (1118, 4
 
 
 def lens_tools_open(s, tab=None):
-    s.ftap(*LENS_CARDS["brush"])
+    s.ftap(LENS_CARDS["brush"])
     s.wait(6)
-    s.ftap(*LENS_TOOLS["header"])
+    s.ftap(LENS_TOOLS["header"])
     s.wait(6)
     if tab:
-        s.ftap(*LENS_TOOLS[tab])
+        s.ftap(LENS_TOOLS[tab])
         s.wait(6)
 
 
@@ -4610,7 +4651,7 @@ def lens_tools_card_inverts_the_mask():
     """With the sphere masked (by the start-up script, which makes no undo step), the Tools card's Invert tile unmasks it as one undo step."""
     s = Script()
     lens_tools_open(s)
-    s.ftap(*LENS_TOOLS["invert"])
+    s.ftap(LENS_TOOLS["invert"])
     s.wait(8)
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"tools_tab": is_text("mask"), "mask_mean": near(0, 1e-3), "undo_steps": near(1), "dabs": near(0)})
 
@@ -4620,7 +4661,7 @@ def lens_tools_card_hides_the_mask_view():
     """Show the mask off draws the masked sphere as the rest; the mask stays, and no undo step is made."""
     s = Script()
     lens_tools_open(s)
-    s.ftap(*LENS_TOOLS["show_mask"])
+    s.ftap(LENS_TOOLS["show_mask"])
     s.wait(6)
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"mask_hidden": near(1), "mask_mean": near(1, 1e-3), "undo_steps": near(0), "dabs": near(0)})
 
@@ -4630,7 +4671,7 @@ def lens_tools_card_level_chip_steps_down():
     """On Geometry, the first level chip takes a subdivided sphere down to its first level."""
     s = Script()
     lens_tools_open(s, "geometry")
-    s.ftap(*LENS_TOOLS["level1"])
+    s.ftap(LENS_TOOLS["level1"])
     s.wait(10)
     return s, LENS_1440 + ["--script=subdivide"], camera_still({"tools_tab": is_text("geometry"), "selected_levels": near(2), "selected_level": near(0), "dabs": near(0)})
 
@@ -4639,7 +4680,7 @@ def lens_tools_card_level_chip_steps_down():
 def lens_context_bar_extracts_the_mask():
     """While a mask covers the sphere, Lens's context bar offers Extract, which makes a shell of it as a new object."""
     s = Script()
-    s.ftap(*LENS_TOOLS["bar_extract"])
+    s.ftap(LENS_TOOLS["bar_extract"])
     s.wait(12)
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
@@ -4654,13 +4695,13 @@ LENS_INSPECT = {"tab": (357, 26), "inspect": (357, 451), "pass_chip": (186, 77),
 def lens_pass_popover_groups_the_passes():
     """Inspect from the lit tab's menu, then the main pane's pass chip: its popover picks Curvature from DIAGNOSTICS."""
     s = Script()
-    s.ftap(*LENS_INSPECT["tab"])
+    s.ftap(LENS_INSPECT["tab"])
     s.wait(10)
-    s.ftap(*LENS_INSPECT["inspect"])
+    s.ftap(LENS_INSPECT["inspect"])
     s.wait(12)
-    s.ftap(*LENS_INSPECT["pass_chip"])
+    s.ftap(LENS_INSPECT["pass_chip"])
     s.wait(8)
-    s.ftap(*LENS_INSPECT["curvature"])
+    s.ftap(LENS_INSPECT["curvature"])
     s.wait(8)
     return s, LENS_1440, camera_still({"workspace": is_text("Sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
@@ -4674,9 +4715,9 @@ LENS_STUDIO = {"workspace": (538, 26), "intensity": (1218, 206), "add": (1220, 4
 def lens_studio_stack_shows_lights_material_environment():
     """Render shows the Lights and Material cards open and Environment folded, the mini view rendering; a tap on a sphere puts that material on."""
     s = Script()
-    s.ftap(*LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["workspace"])
     s.wait(20)
-    s.ftap(*LENS_STUDIO["red_wax"])
+    s.ftap(LENS_STUDIO["red_wax"])
     s.wait(10)
     return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Red_wax"), "dabs": near(0)})
@@ -4696,9 +4737,9 @@ def material_card_scrub_previews_and_keeps():
     Neither is an undo step, as a material pick is not."""
     def run(keep):
         s = Script()
-        s.ftap(*LENS_STUDIO["workspace"])
+        s.ftap(LENS_STUDIO["workspace"])
         s.wait(20)
-        s.ftap(*LENS_MATERIALS["lights_fold"])
+        s.ftap(LENS_MATERIALS["lights_fold"])
         s.wait(10)
         end = LENS_MATERIALS["gold"] if keep else LENS_MATERIALS["off"]
         path = line(LENS_MATERIALS["clay"], LENS_MATERIALS["gold"], 10)
@@ -4716,13 +4757,13 @@ def material_card_matcap_tab_puts_a_matcap_on():
     """The Material card's Matcaps tab shows the built-in MatCaps as their own pictures; a tap on
     Red wax shades the sphere with it."""
     s = Script()
-    s.ftap(*LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["workspace"])
     s.wait(20)
-    s.ftap(*LENS_MATERIALS["lights_fold"])
+    s.ftap(LENS_MATERIALS["lights_fold"])
     s.wait(10)
-    s.ftap(*LENS_MATERIALS["matcaps"])
+    s.ftap(LENS_MATERIALS["matcaps"])
     s.wait(8)
-    s.ftap(*LENS_MATERIALS["red_wax_matcap"])
+    s.ftap(LENS_MATERIALS["red_wax_matcap"])
     s.wait(10)
     return s, LENS_1440, camera_still({"material_tab": is_text("matcaps"), "selected_matcap": near(1), "material_keeps": near(1), "dabs": near(0)})
 
@@ -4732,17 +4773,17 @@ def material_card_favourites_hold_a_sphere():
     """A right-click on Gold adds it to the Material card's favourites without putting it on;
     Favourites then shows Gold alone, first in the grid, where a tap puts it on."""
     s = Script()
-    s.ftap(*LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["workspace"])
     s.wait(20)
-    s.ftap(*LENS_MATERIALS["lights_fold"])
+    s.ftap(LENS_MATERIALS["lights_fold"])
     s.wait(10)
     s.add("move:{:g},{:g}".format(*LENS_MATERIALS["gold"]))
     s.wait(3)
     s.add("right")
     s.wait(6)
-    s.ftap(*LENS_MATERIALS["favourites"])
+    s.ftap(LENS_MATERIALS["favourites"])
     s.wait(6)
-    s.ftap(*LENS_MATERIALS["clay"])
+    s.ftap(LENS_MATERIALS["clay"])
     s.wait(8)
     return s, LENS_1440, camera_still({"material_favorites": near(1), "material_favorite_changes": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
@@ -4752,16 +4793,16 @@ def lens_lights_card_picks_and_adds():
     """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
     def run(add):
         s = Script()
-        s.ftap(*LENS_STUDIO["workspace"])
+        s.ftap(LENS_STUDIO["workspace"])
         s.wait(20)
         if add:
-            s.ftap(*LENS_STUDIO["add"])
+            s.ftap(LENS_STUDIO["add"])
             s.wait(10)
             return s, LENS_1440, camera_still({"light_count": near(5), "light_pick": near(5), "dabs": near(0)})
         x, y = LENS_STUDIO["intensity"]
         s.fdrag([(x + 14 * i, y) for i in range(7)])
         s.wait(10)
-        s.ftap(*LENS_STUDIO["undo"])
+        s.ftap(LENS_STUDIO["undo"])
         s.wait(10)
         return s, LENS_1440, camera_still({"light_count": near(4), "light_pick": near(1), "light_pick_strength": near(1.0), "redo_steps": near(1), "dabs": near(0)})
     return Steps([run(True), run(False)])
@@ -4798,11 +4839,11 @@ def help_labels_kept_until_done():
         s.wait(6)
         s.press("/", ("shift",))
         s.wait(6)
-        s.ftap(*HELP_LABELS["model"])
+        s.ftap(HELP_LABELS["model"])
         s.wait(30)
         if not done:
             return s, LENS_1440, camera_still({"labels_on": near(1), "labels_kept": near(1), "space": is_text("model"), "dabs": near(0)})
-        s.ftap(*HELP_LABELS["done"])
+        s.ftap(HELP_LABELS["done"])
         s.wait(6)
         return s, LENS_1440, camera_still({"labels_on": near(0), "labels_kept": near(0), "space": is_text("model"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -4819,9 +4860,9 @@ def tour_moves_on_when_a_step_is_tried():
     """The tour's first step lights the space tabs; tapping Model, then Sculpt, does it, and a moment later the tour moves on to the dial by itself."""
     s = Script()
     s.wait(8)
-    s.ftap(*TOUR["model"])
+    s.ftap(TOUR["model"])
     s.wait(6)
-    s.ftap(*TOUR["sculpt"])
+    s.ftap(TOUR["sculpt"])
     s.wait(70)
     return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_shown": near(1), "tour_step": is_text("dial"), "space": is_text("sculpt"), "dabs": near(0)})
 
@@ -4832,11 +4873,11 @@ def tour_next_and_skip():
     def run(skip):
         s = Script()
         s.wait(8)
-        s.ftap(*TOUR["next_spaces"])
+        s.ftap(TOUR["next_spaces"])
         s.wait(20)
         if not skip:
             return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_step": is_text("dial"), "dabs": near(0)})
-        s.ftap(*TOUR["skip_dial"])
+        s.ftap(TOUR["skip_dial"])
         s.wait(10)
         return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_shown": near(0), "tour_finished": near(0), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -4847,9 +4888,9 @@ def tour_dial_step_tried():
     """On the dial's step, a tap latches Smooth and a stroke made with it does the step, and the tour moves on to the palettes."""
     s = Script()
     s.wait(8)
-    s.ftap(*TOUR["next_spaces"])
+    s.ftap(TOUR["next_spaces"])
     s.wait(20)
-    s.ftap(*TOUR["smooth"])
+    s.ftap(TOUR["smooth"])
     s.wait(6)
     s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
     s.wait(70)
@@ -4863,15 +4904,15 @@ def tour_finishes_with_paint():
         s = Script()
         s.wait(8)
         for k in ("next_spaces", "next_dial", "next_palettes"):
-            s.ftap(*TOUR[k])
+            s.ftap(TOUR[k])
             s.wait(20)
-        s.ftap(*TOUR["history"])
+        s.ftap(TOUR["history"])
         s.wait(70)
         if not paint:
             return s, LENS_1440 + ["--tour"], camera_still({"tour": near(4), "tour_step": is_text("paint"), "dabs": near(0)})
-        s.ftap(*TOUR["history"])
+        s.ftap(TOUR["history"])
         s.wait(10)
-        s.ftap(*TOUR["paint"])
+        s.ftap(TOUR["paint"])
         s.wait(10)
         s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
         s.wait(70)
@@ -4889,13 +4930,13 @@ def lens_settings_sections_and_search():
     """Settings in Lens is one sheet with sections down the side: a tap on Touch opens it, and Search settings narrows the sections to those whose settings match."""
     def run(find):
         s = Script()
-        s.ftap(*LENS_SETTINGS["open"])
+        s.ftap(LENS_SETTINGS["open"])
         s.wait(12)
         if not find:
-            s.ftap(*LENS_SETTINGS["touch"])
+            s.ftap(LENS_SETTINGS["touch"])
             s.wait(8)
             return s, LENS_1440, camera_still({"settings_open": near(1), "settings_section": is_text("Touch"), "settings_found": is_text("all"), "dabs": near(0)})
-        s.ftap(*LENS_SETTINGS["search"])
+        s.ftap(LENS_SETTINGS["search"])
         s.wait(4)
         s.add("text:autosave")
         s.wait(8)
@@ -4913,15 +4954,15 @@ def lens_export_sheet_picks_a_format():
     """Menu > Export... opens the Export sheet on its first preset, a 3D print as STL; a tap on Game engine picks it on glTF and its OBJ tab picks OBJ, and Esc closes the sheet keeping both; Ctrl+E opens it again on the game engine's OBJ."""
     def run(again):
         s = Script()
-        s.ftap(*LENS_MENU)
+        s.ftap(LENS_MENU)
         s.wait(6)
-        s.ftap(*LENS_EXPORT["menu_row"])
+        s.ftap(LENS_EXPORT["menu_row"])
         s.wait(8)
         if not again:
             return s, LENS_1440, camera_still({"export_open": near(1), "export_preset": is_text("Print"), "export_format": is_text("Print"), "dabs": near(0)})
-        s.ftap(*LENS_EXPORT["game"])
+        s.ftap(LENS_EXPORT["game"])
         s.wait(6)
-        s.ftap(*LENS_EXPORT["second_format"])
+        s.ftap(LENS_EXPORT["second_format"])
         s.wait(6)
         s.press("Escape")
         s.wait(4)
@@ -4943,9 +4984,9 @@ def export_sheet_prints_every_object():
     s.wait(4)
     s.press("e", ("ctrl",))
     s.wait(10)
-    s.ftap(*EXPORT_PRINT["3mf"])
+    s.ftap(EXPORT_PRINT["3mf"])
     s.wait(4)
-    s.ftap(*EXPORT_PRINT["only_selected"])
+    s.ftap(EXPORT_PRINT["only_selected"])
     s.wait(6)
     return s, LENS_1440 + ["--script=duplicate_object"], camera_still({"export_format": is_text("Print_3MF"), "export_print_all": near(1), "objects": near(2), "dabs": near(0)})
 
@@ -4963,9 +5004,9 @@ def export_sheet_decimates_for_the_file():
         s.wait(4)
         s.press("e", ("ctrl",))
         s.wait(10)
-        s.ftap(*LENS_EXPORT["game"])
+        s.ftap(LENS_EXPORT["game"])
         s.wait(6)
-        s.ftap(*EXPORT_DECIMATE["switch"])
+        s.ftap(EXPORT_DECIMATE["switch"])
         s.wait(6)
         if not drag:
             return s, LENS_1440, camera_still({"export_preset": is_text("Game"), "export_decimate": near(1), "export_decimate_to": near(0), "dabs": near(0)})
@@ -4989,7 +5030,7 @@ def export_sheet_hollows_a_print():
         s.wait(4)
         s.press("e", ("ctrl",))
         s.wait(10)
-        s.ftap(*EXPORT_HOLLOW["switch"])
+        s.ftap(EXPORT_HOLLOW["switch"])
         s.wait(6)
         if not drag:
             return s, LENS_1440, camera_still({"export_preset": is_text("Print"), "export_hollow": near(1), "export_hollow_wall": near(2), "dabs": near(0)})
@@ -5018,7 +5059,7 @@ def export_sheet_checks_a_print():
                                                "print_wall": near(2, 0.02), "dabs": near(0)})
         if step == 1:
             return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_holes": near(1), "print_open_edges": lambda v: int(v) > 0, "print_wall": near(0), "dabs": near(0)})
-        s.ftap(*EXPORT_CHECKS["repair"])
+        s.ftap(EXPORT_CHECKS["repair"])
         s.wait(12)
         return s, LENS_1440 + ["--script=delete_half"], camera_still({"print_checks": lambda v: int(v) >= 2, "print_holes": near(0), "print_open_edges": near(0),
                                                                       "print_wall": lambda v: float(v) > 0, "export_open": near(1), "dabs": near(0)})
@@ -5038,19 +5079,19 @@ def lens_arrange_dial_sector_runs_a_command():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(*a["dial_tab"])
+    s.ftap(a["dial_tab"])
     s.wait(6)
-    s.ftap(*a["top"])
+    s.ftap(a["top"])
     s.wait(6)
-    s.ftap(*a["choose"])
+    s.ftap(a["choose"])
     s.wait(8)
     s.type("frame all")
     s.wait(4)
     s.press("Return")
     s.wait(6)
-    s.ftap(*a["done"])
+    s.ftap(a["done"])
     s.wait(8)
-    s.ftap(*a["dial_top"])
+    s.ftap(a["dial_top"])
     s.wait(30)
     return s, LENS_1440 + ["--script=customise_bars"], {"dial_sectors": lambda v: v.startswith("Frame_All,Brush_Pie"), "rail_latched": is_text("none"),
                                                         "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1, "dabs": near(0)}
@@ -5063,19 +5104,19 @@ def lens_arrange_reset_zone():
     def run(reset):
         s = Script()
         s.wait(6)
-        s.ftap(*a["rail_tag"])
+        s.ftap(a["rail_tag"])
         s.wait(4)
         if not reset:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Rail"), "dabs": near(0)})
-        s.ftap(*a["dial_tab"])
+        s.ftap(a["dial_tab"])
         s.wait(6)
-        s.ftap(*a["bottom"])
+        s.ftap(a["bottom"])
         s.wait(6)
-        s.ftap(*a["hide"])
+        s.ftap(a["hide"])
         s.wait(6)
-        s.ftap(*a["dial_tag"])
+        s.ftap(a["dial_tag"])
         s.wait(4)
-        s.ftap(*a["reset_zone"])
+        s.ftap(a["reset_zone"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
                                                                          "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
@@ -5088,13 +5129,13 @@ def lens_arrange_dial_is_the_spaces():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(*a["dial_tab"])
+    s.ftap(a["dial_tab"])
     s.wait(6)
-    s.ftap(*a["bottom"])
+    s.ftap(a["bottom"])
     s.wait(6)
-    s.ftap(*a["hide"])
+    s.ftap(a["hide"])
     s.wait(6)
-    s.ftap(*a["done"])
+    s.ftap(a["done"])
     s.wait(8)
     return s, LENS_1440 + ["--script=space_switch model; customise_bars", f"--settings-file={settings_file()}"], camera_still({
         "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "dial_spaces": near(1), "dabs": near(0),
@@ -5111,11 +5152,11 @@ def lens_arrange_drags_the_rail_to_the_left():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(*a["dial_tab"])
+    s.ftap(a["dial_tab"])
     s.wait(4)
     s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
     s.wait(6)
-    s.ftap(*a["done"])
+    s.ftap(a["done"])
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
         "bar_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
@@ -5136,11 +5177,11 @@ def lens_arrange_slides_the_shelf_along_the_bottom():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(*a["dial_tab"])
+    s.ftap(a["dial_tab"])
     s.wait(4)
     s.fdrag(line(SHELF_TAG, (80, 862), 30))
     s.wait(6)
-    s.ftap(*a["done"])
+    s.ftap(a["done"])
     s.wait(8)
     pages = {}
     def dock(v):
@@ -5159,7 +5200,7 @@ def lens_arrange_floats_the_shelf():
     def run(reset):
         s = Script()
         s.wait(6)
-        s.ftap(*a["dial_tab"])
+        s.ftap(a["dial_tab"])
         s.wait(4)
         s.mouse_drag(line(SHELF_TAG, (700, 700), 30))
         s.wait(6)
@@ -5176,7 +5217,7 @@ def lens_arrange_floats_the_shelf():
         # of the Library.
         s.ftap(360, 700)
         s.wait(4)
-        s.ftap(*a["reset_zone"])
+        s.ftap(a["reset_zone"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
                                                                          "layout_dock": lambda v: float(v.split(",")[1]) > 780, "dabs": near(0)})
@@ -5190,7 +5231,7 @@ def lens_arrange_floats_the_island():
     def run(reset):
         s = Script()
         s.wait(6)
-        s.ftap(*a["dial_tab"])
+        s.ftap(a["dial_tab"])
         s.wait(4)
         tag = (44, 354)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
@@ -5199,9 +5240,9 @@ def lens_arrange_floats_the_island():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
                                                                              "layout_brush_bar": lambda v: float(v.split(",")[0]) > 700})
         # The tag went with the island, under where the pointer let go.
-        s.ftap(*ARRANGE_MIDDLE)
+        s.ftap(ARRANGE_MIDDLE)
         s.wait(4)
-        s.ftap(*a["reset_zone"])
+        s.ftap(a["reset_zone"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5261,19 +5302,19 @@ def dock_new_from_the_library():
     """Library > Docks > New dock makes Dock 1 floating in the middle with Arrange still on; its + picks Frame all in Search, and after Done a tap on the dock's button frames the scene."""
     s = Script()
     s.wait(6)
-    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.ftap(ARRANGE_DOCKS_TAB)
     s.wait(6)
-    s.ftap(*DOCK_NEW)
+    s.ftap(DOCK_NEW)
     s.wait(8)
-    s.ftap(*DOCK_ONE_ADD)
+    s.ftap(DOCK_ONE_ADD)
     s.wait(8)
     s.type("frame all")
     s.wait(4)
     s.press("Return")
     s.wait(6)
-    s.ftap(*LENS_ARRANGE["done"])
+    s.ftap(LENS_ARRANGE["done"])
     s.wait(8)
-    s.ftap(*DOCK_ONE_ADD)
+    s.ftap(DOCK_ONE_ADD)
     s.wait(10)
     return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:icons:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
                                                           "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 814) < 2, "dabs": near(0)}
@@ -5282,9 +5323,9 @@ def dock_new_from_the_library():
 def dock_made(s):
     """Library > Docks > New dock, from Arrange with the Library open."""
     s.wait(6)
-    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.ftap(ARRANGE_DOCKS_TAB)
     s.wait(6)
-    s.ftap(*DOCK_NEW)
+    s.ftap(DOCK_NEW)
     s.wait(8)
 
 
@@ -5310,11 +5351,11 @@ def dock_tiles_then_delete():
     def run(delete):
         s = Script()
         dock_made(s)
-        s.ftap(*DOCK_ROW_TILES)
+        s.ftap(DOCK_ROW_TILES)
         s.wait(6)
         if not delete:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:tiles:0"), "layout_user_dock_1": lambda v: float(v.split(",")[2]) >= 70, "dabs": near(0)})
-        s.ftap(*DOCK_ROW_DELETE)
+        s.ftap(DOCK_ROW_DELETE)
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5344,13 +5385,13 @@ def dock_stays_with_its_space():
     def run(back):
         s = Script()
         dock_made(s)
-        s.ftap(*a["done"])
+        s.ftap(a["done"])
         s.wait(8)
-        s.ftap(*SPACE_TABS["model"])
+        s.ftap(SPACE_TABS["model"])
         s.wait(10)
         if not back:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
-        s.ftap(*SPACE_TABS["sculpt"])
+        s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:icons:0"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5394,7 +5435,7 @@ def chip_island_dragged_back_onto_the_bar():
     s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
     s.wait(8)
     # The Library is put away first, as it covers the island.
-    s.ftap(*LIBRARY_AWAY)
+    s.ftap(LIBRARY_AWAY)
     s.wait(6)
     s.mouse_drag(line(CHIP_ISLAND_REDO, (600, 30), 30))
     s.wait(6)
@@ -5406,13 +5447,13 @@ def chip_section_library_toggle_makes_a_working_island():
     """Library > Docks' Spaces toggle stands the space tabs on their own under the bar; after Done a tap on the island's Model tab switches to Model, and the island stays (the chip bar is every space's)."""
     s = Script()
     s.wait(6)
-    s.ftap(*ARRANGE_DOCKS_TAB)
+    s.ftap(ARRANGE_DOCKS_TAB)
     s.wait(6)
-    s.ftap(*CHIP_SPACES_TOGGLE)
+    s.ftap(CHIP_SPACES_TOGGLE)
     s.wait(6)
     s.press("Escape")
     s.wait(8)
-    s.ftap(*CHIP_SPACES_MODEL)
+    s.ftap(CHIP_SPACES_MODEL)
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars"], {"chip_islands": lambda v: v.startswith("spaces:") and v.endswith(":58"), "space": is_text("model"), "dabs": near(0)}
 
@@ -5424,17 +5465,17 @@ def lens_arrange_place_stays_with_its_space():
     def run(back):
         s = Script()
         s.wait(6)
-        s.ftap(*a["dial_tab"])
+        s.ftap(a["dial_tab"])
         s.wait(4)
         s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
         s.wait(6)
-        s.ftap(*a["done"])
+        s.ftap(a["done"])
         s.wait(8)
-        s.ftap(*SPACE_TABS["model"])
+        s.ftap(SPACE_TABS["model"])
         s.wait(10)
         if not back:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
-        s.ftap(*SPACE_TABS["sculpt"])
+        s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "bar_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5450,11 +5491,11 @@ def lens_brush_pie_dial_then_tap_picks():
     """The dial's Pie opens the brush pie in the middle, pointing at nothing; a tap on its top slice picks Clay and closes it."""
     def run(tap):
         s = Script()
-        s.ftap(*LENS_PIE["dial"])
+        s.ftap(LENS_PIE["dial"])
         s.wait(10)
         if not tap:
             return s, LENS_1440, camera_still({"pie_open": near(0), "pie_hover": near(-1), "dabs": near(0)})
-        s.ftap(*LENS_PIE["top"])
+        s.ftap(LENS_PIE["top"])
         s.wait(10)
         return s, LENS_1440, camera_still({"pie_open": near(-1), "brush_kind": is_text("clay"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5494,12 +5535,12 @@ def lens_brush_pie_rest_shows_quick_settings():
 def lens_pie_editor_brush_slot_chooses_in_search():
     """In Lens the pie editor's first row is the brush pie; a tap on a slot there opens Search, and what is chosen there takes the slot."""
     s = Script()
-    s.ftap(*LENS_PIE["search"])
+    s.ftap(LENS_PIE["search"])
     s.wait(8)
     s.type("pies")
     s.press("Return")
     s.wait(8)
-    s.ftap(*LENS_PIE["editor_first"])
+    s.ftap(LENS_PIE["editor_first"])
     s.wait(8)
     s.type("snake hook")
     s.press("Return")
@@ -5511,7 +5552,7 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
     s = Script()
-    s.ftap(*WORKSPACE_CHIP)
+    s.ftap(WORKSPACE_CHIP)
     s.wait(10)
     s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["save_as"])
     s.wait(10)
@@ -5544,12 +5585,12 @@ def shading_chip_picks_wireframe_then_solid():
     """A tap on the view's shading chip lists the shading modes; Wireframe there draws every edge, closes the list and marks the workspace, and Solid from it again comes back to the workspace's own shading, the list staying open for Solid's options."""
     def run(back):
         s = Script()
-        s.ftap(*PASS_CHIP)
+        s.ftap(PASS_CHIP)
         s.wait(10)
-        s.ftap(*PASS_MENU_WIREFRAME)
+        s.ftap(PASS_MENU_WIREFRAME)
         s.wait(10)
         if back:
-            s.ftap(*PASS_CHIP)
+            s.ftap(PASS_CHIP)
             s.wait(10)
             s.ftap(PASS_MENU_WIREFRAME[0], PASS_MENU_WIREFRAME[1] + 44)
             s.wait(10)
@@ -5562,9 +5603,9 @@ def shading_chip_picks_wireframe_then_solid():
 def pass_chip_picks_normals_from_its_list():
     """A tap on the view's pass chip opens the list of passes; Normals there shows the normals and marks the workspace."""
     s = Script()
-    s.ftap(*PASS_CHIP)
+    s.ftap(PASS_CHIP)
     s.wait(10)
-    s.ftap(*PASS_NORMALS)
+    s.ftap(PASS_NORMALS)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "pass": is_text("Normals"), "pass_shown": is_text("Normals"), "pass_menu": near(0),
                                 "workspace_modified": near(1)})
@@ -5655,7 +5696,7 @@ def pen_stroke(s, path, pressure=None):
 
 
 def rail_tap(s, which):
-    s.ftap(*RAIL[which], finger=RAIL_FINGER)
+    s.ftap(RAIL[which], finger=RAIL_FINGER)
 
 
 def rail_hold(s, which):
@@ -5704,7 +5745,7 @@ def action_bar_finger_inverts_the_mask():
     s = Script()
     s.press("i", ("ctrl",))
     s.wait(8)
-    s.ftap(*BAR_MASK_INVERT)
+    s.ftap(BAR_MASK_INVERT)
     s.wait(8)
     return s, [], camera_still({"masked": near(0), "action_bar": is_text("none"), "dabs": near(0), "undo_steps": near(2)})
 
@@ -5714,7 +5755,7 @@ def action_bar_finger_shows_all():
     """With half the sphere hidden the bar offers Show all; a finger tap on it shows everything and the bar goes."""
     s = Script()
     s.wait(8)
-    s.ftap(*BAR_SHOW_ALL)
+    s.ftap(BAR_SHOW_ALL)
     s.wait(8)
     # Nothing hidden is left: the exit's hide line (only printed for hidden triangles) is
     # gone, and with no mask either the bar has nothing to show.
@@ -5778,7 +5819,7 @@ def selection_set_restores_by_finger():
     s.press("m", ("alt",))
     s.wait(4)
     open_sets(s)
-    s.ftap(*SETS_RESTORE_FIRST)
+    s.ftap(SETS_RESTORE_FIRST)
     s.wait(8)
     return s, [], camera_still({"masked": near(1), "selection_sets": near(1), "undo_steps": near(3), "toast_undo": near(1),
                                 "last_op": is_text("Restored_Set_1")})
@@ -5837,9 +5878,9 @@ def action_bar_folds_on_a_narrow_window():
     s = Script()
     s.press("i", ("ctrl",))
     s.wait(8)
-    s.ftap(*BAR_NARROW_MASK)
+    s.ftap(BAR_NARROW_MASK)
     s.wait(12)
-    s.ftap(*BAR_NARROW_FIRST)
+    s.ftap(BAR_NARROW_FIRST)
     s.wait(8)
     return s, ["--width=820", "--height=640", "--script=hide x"], camera_still({"masked": near(0), "action_pop": near(0),
                                                                          "action_bar": is_text("hidden"), "dabs": near(0)})
@@ -5855,7 +5896,7 @@ def action_bar_escape_closes_its_popover():
     s.type("touch")
     s.press("Return")
     s.wait(12)
-    s.ftap(*BAR_SETTINGS_MASK)
+    s.ftap(BAR_SETTINGS_MASK)
     s.wait(12)
     s.press("Escape")
     s.wait(4)
@@ -5869,7 +5910,7 @@ def action_bar_popover_goes_with_its_group():
     s = Script()
     s.press("i", ("ctrl",))
     s.wait(8)
-    s.ftap(*BAR_NARROW_MASK)
+    s.ftap(BAR_NARROW_MASK)
     s.wait(12)
     s.press("z", ("ctrl",))
     s.wait(8)
@@ -5917,7 +5958,7 @@ def finger_tap_with_invert_latched_dabs_inverted():
     s = Script()
     rail_tap(s, "invert")
     s.wait(4)
-    s.ftap(*MODEL, hold=2)
+    s.ftap(MODEL, hold=2)
     s.wait(24)  # the dab waits out the double tap's gap
     return s, [], camera_still({"dabs": lambda v: int(v) >= 1, "undo_steps": near(1), "stroke_invert": near(1)})
 
@@ -5982,7 +6023,7 @@ def wheel_moves_by_its_grip():
     moved = Script()
     moved.fdrag(line(RAIL["grip"], (378, 622), 12))
     moved.wait(6)
-    moved.ftap(*UI["settings"])
+    moved.ftap(UI["settings"])
     moved.wait(12)
     moved.ftap(1427, 750)  # Done
     moved.wait(6)
@@ -6137,9 +6178,10 @@ def rail_on_the_right_clears_the_panels():
     return s, [f"--settings-file={settings_file()}"], {"@layout": rail_clear("points", "inspector", "dock", "brush_bar")}
 
 
-def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
-    """A finger held still on (x, y) long enough to be a long press, then lifted."""
-    s.add(f"fdown:{finger}:{x:g},{y:g}")
+def long_press(s, x, y=None, finger=0, frames=LONG_PRESS_FRAMES):
+    """A finger held still on (x, y), or on the point or named control `x` (where), long
+    enough to be a long press, then lifted."""
+    s.add(f"fdown:{finger}:{where(x, y)}")
     s.wait(frames)
     s.add(f"fup:{finger}")
     s.wait(4)
@@ -6157,7 +6199,7 @@ def long_press_a_button_shows_its_shortcut_and_gesture():
     s = Script()
     s.press("w")
     s.wait(4)
-    long_press(s, *FRAME_ALL_BUTTON)
+    long_press(s, FRAME_ALL_BUTTON)
     return s, [], {"long_tip": is_text("Frame_all"), "long_tip_keys": is_text("Double_tap_empty_space,_nothing_selected"), "tool": is_text("move"), "framed": near(0)}
 
 
@@ -6167,7 +6209,7 @@ def long_press_focus_shows_f_and_double_tap():
     s = Script()
     s.press("w")
     s.wait(4)
-    long_press(s, *FOCUS_BUTTON)
+    long_press(s, FOCUS_BUTTON)
     return s, [], {"long_tip": is_text("Focus_selected"), "long_tip_keys": is_text("F_·_Double_tap_empty_space")}
 
 
@@ -6178,7 +6220,7 @@ def gesture_hints_follow_the_settings():
     write_settings("double_tap 0\n")
     s.press("w")
     s.wait(4)
-    long_press(s, *FOCUS_BUTTON)
+    long_press(s, FOCUS_BUTTON)
     return s, [f"--settings-file={settings_file()}"], {"long_tip_keys": is_text("F")}
 
 
@@ -6186,7 +6228,7 @@ def gesture_hints_follow_the_settings():
 def long_press_shows_the_tooltip_and_does_not_tap():
     """A long press on the Inspector button shows its tooltip and leaves the inspector open; nothing is sculpted."""
     s = Script()
-    long_press(s, *INSPECTOR_BUTTON)
+    long_press(s, INSPECTOR_BUTTON)
     return s, [], camera_still({"dabs": near(0), "long_tip": lambda v: v == "Palettes",
                                 "window_inspector": lambda v: v.startswith("1,0,")})
 
@@ -6196,7 +6238,7 @@ def long_press_a_scene_row_opens_its_menu():
     """A long press on an object in the Scene tab opens its menu (Focus, Duplicate, Delete), as a right-click does."""
     s = Script()
     scene_tab(s)
-    long_press(s, *SCENE_ROW)
+    long_press(s, SCENE_ROW)
     return s, palettes_only("objects"), camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
 
 
@@ -6313,7 +6355,7 @@ def objects_card_holding_its_dots_docks_it():
     """Holding the card's dots puts it back in the stack: the card closes and the stack opens with its Scene card unfolded."""
     s = Script()
     objects_card(s)
-    long_press(s, *OBJECTS_CARD["dots"])
+    long_press(s, OBJECTS_CARD["dots"])
     s.wait(6)
     return s, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,0,"), "stack": lambda v: "Scene+" in v.split(",")}
 
@@ -6323,11 +6365,11 @@ def objects_card_gives_way_to_the_tray():
     """Opening the palette tray closes the card, which shares its place; the Objects button opens the card again and closes the tray."""
     closed = Script()
     objects_card(closed)
-    closed.ftap(*UI["inspector"])
+    closed.ftap(UI["inspector"])
     closed.wait(8)
     again = Script()
     objects_card(again)
-    again.ftap(*UI["inspector"])
+    again.ftap(UI["inspector"])
     again.wait(8)
     objects_card(again)
     return Steps([
@@ -6347,7 +6389,7 @@ CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1250, 36.5, 518
 def card_actions(s):
     """Opens the Objects card and unfolds its Actions."""
     objects_card(s)
-    s.ftap(*OBJECTS_CARD["actions"])
+    s.ftap(OBJECTS_CARD["actions"])
     s.wait(12)
 
 
@@ -6356,11 +6398,11 @@ def objects_card_actions_store_visibility():
     """Store visibility: V1 keeps the eyes turned while it is chosen, V2 its own, and choosing V1 again brings its eyes back."""
     s = Script()
     card_actions(s)
-    s.ftap(*card_slot(1))
+    s.ftap(card_slot(1))
     s.wait(4)
     s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
     s.wait(4)
-    s.ftap(*card_slot(2))
+    s.ftap(card_slot(2))
     s.wait(4)
     s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
     s.wait(2)
@@ -6368,8 +6410,8 @@ def objects_card_actions_store_visibility():
     s.wait(4)
     back = Script()
     card_actions(back)
-    for step in (lambda: back.ftap(*card_slot(1)), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(*card_slot(2)),
-                 lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[2]), lambda: back.ftap(*card_slot(1))):
+    for step in (lambda: back.ftap(card_slot(1)), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(card_slot(2)),
+                 lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[2]), lambda: back.ftap(card_slot(1))):
         step()
         back.wait(4)
     return Steps([
@@ -6383,15 +6425,15 @@ def objects_card_actions_merge_down_and_split_to_parts():
     """Merge down makes the first two objects one, as one undo step; Split to parts makes them two again, with the third left as it was."""
     merged = Script()
     card_actions(merged)
-    merged.ftap(*OBJECTS_CARD["merge"])
+    merged.ftap(OBJECTS_CARD["merge"])
     merged.wait(6)
-    merged.ftap(*OBJECTS_CARD["merge_down"])
+    merged.ftap(OBJECTS_CARD["merge_down"])
     merged.wait(12)
     split = Script()
     card_actions(split)
-    split.ftap(*OBJECTS_CARD["merge"])
+    split.ftap(OBJECTS_CARD["merge"])
     split.wait(6)
-    split.ftap(*OBJECTS_CARD["merge_down"])
+    split.ftap(OBJECTS_CARD["merge_down"])
     split.wait(12)
     # One row fewer: everything under the list is a row higher.
     x, y = OBJECTS_CARD["split"]
@@ -6413,11 +6455,11 @@ def objects_card_actions_align_lines_up():
     """Align's X max tile moves the selected object, alone, to the right edge of everything shown, as one undo step."""
     s = Script()
     card_actions(s)
-    s.ftap(*OBJECTS_CARD["align"])
+    s.ftap(OBJECTS_CARD["align"])
     s.wait(10)
     s.fdrag(line((1380, 820), (1380, 560), 12))
     s.wait(20)
-    s.ftap(*OBJECTS_CARD["align_x_max"])
+    s.ftap(OBJECTS_CARD["align_x_max"])
     s.wait(6)
     return s, THREE, {"aligned": near(1), "undo_steps": near(1), "dabs": near(0)}
 
@@ -6579,7 +6621,7 @@ def folder_chevron_folds_its_objects():
     """A tap on a folder's chevron folds it: its objects leave the list, nothing is selected or undone."""
     s = Script()
     folder_first(s)
-    s.ftap(*FOLDER_CHEVRON)
+    s.ftap(FOLDER_CHEVRON)
     s.wait(6)
     return s, scene_args(), {"tree_rows": near(3), "scene_names": lambda v: v.endswith("Folder_1:folded"), "undo_steps": near(1), "selected": near(0)}
 
@@ -6656,7 +6698,7 @@ def folders_come_back_from_the_scene_file():
     os.makedirs(os.path.dirname(path))
     save = Script()
     folder_first(save)
-    save.ftap(*FOLDER_CHEVRON)
+    save.ftap(FOLDER_CHEVRON)
     save.wait(4)
     save.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
     save.wait(6)
@@ -6802,7 +6844,7 @@ def shift_click_objects_in_the_viewport():
     s.add("keyup:shift")
     s.wait(2)
     scene_tab(s)
-    s.ftap(*SELECT_SEVERAL)
+    s.ftap(SELECT_SEVERAL)
     s.wait(4)
     s.ftap(300, 700)
     s.wait(6)
@@ -6814,7 +6856,7 @@ def select_several_with_a_finger_then_delete_takes_both():
     """With Select several on, a finger tap on a row adds it rather than replacing the selection; Delete then takes both objects as one undo step."""
     s = Script()
     scene_tab(s)
-    s.ftap(*SELECT_SEVERAL)
+    s.ftap(SELECT_SEVERAL)
     s.wait(4)
     s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
     s.wait(4)
@@ -6889,7 +6931,7 @@ def long_press_undo_opens_history():
     """After a stroke, a long press on Undo opens the History panel and undoes nothing."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
-    long_press(s, *UI["undo"])
+    long_press(s, UI["undo"])
     return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(0), "window_history": lambda v: v.startswith("1,")})
 
 
@@ -7026,13 +7068,13 @@ def browser_picks_a_preset():
     """The brush picker's Search finds your preset Soft clay by part of its name, in any
     case; a tap on it puts the brush on it and closes the browser."""
     s = Script()
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_SEARCH)
+    s.ftap(BROWSER_SEARCH)
     s.wait(4)
     s.type("SOFT")
     s.wait(4)
-    s.ftap(*browser_tile(0, 0))
+    s.ftap(browser_tile(0, 0))
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0),
                                                      "brush_browser_picks": near(1)})
@@ -7044,11 +7086,11 @@ def browser_picks_a_built_in_preset():
     alphabetically: a tap on the fourth, Move all depth, puts the brush on it (Grab
     reaching through the depth) and closes the browser."""
     s = Script()
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_CATEGORY["move"])
+    s.ftap(BROWSER_CATEGORY["move"])
     s.wait(6)
-    s.ftap(*browser_tile(3, 0))
+    s.ftap(browser_tile(3, 0))
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})
@@ -7062,17 +7104,17 @@ def browser_picks_the_knife_and_mask_lasso():
     Mask lasso (Mask, Mask lasso) does the same for Ctrl + drag's shape, and the browser
     stays on the last category."""
     s = Script()
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_CATEGORY["clip"])
+    s.ftap(BROWSER_CATEGORY["clip"])
     s.wait(6)
-    s.ftap(*browser_tile(3, 0))
+    s.ftap(browser_tile(3, 0))
     s.wait(6)
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_CATEGORY["mask"])
+    s.ftap(BROWSER_CATEGORY["mask"])
     s.wait(6)
-    s.ftap(*browser_tile(1, 0))
+    s.ftap(browser_tile(1, 0))
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "gesture": is_text("knife"), "mask_shape": is_text("lasso"),
                                 "brush_kind": is_text("draw"), "browser": near(0), "brush_category": is_text("mask")})
@@ -7084,15 +7126,15 @@ def browser_heart_keeps_a_favorite():
     and list in the brush picker show it; a brush picked from the shelf comes first in
     Recent; both are remembered."""
     s = Script()
-    s.ftap(*UI["shelf_smooth"])
+    s.ftap(UI["shelf_smooth"])
     s.wait(4)
-    s.ftap(*BROWSER_HEART)
+    s.ftap(BROWSER_HEART)
     s.wait(4)
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_CATEGORY["favorites"])
+    s.ftap(BROWSER_CATEGORY["favorites"])
     s.wait(6)
-    s.ftap(*browser_tile(0, 0))
+    s.ftap(browser_tile(0, 0))
     s.wait(6)
     return Steps([
         (s, [f"--settings-file={settings_file()}"],
@@ -7183,7 +7225,7 @@ def bind_conflict_moves_the_key():
     bind_inspector(s)
     s.press("z", mods=("ctrl",))
     s.wait(4)
-    s.ftap(*BIND_USE_HERE)
+    s.ftap(BIND_USE_HERE)
     s.wait(4)
     s.press("Escape")
     s.press("z", mods=("ctrl",))
@@ -7198,7 +7240,7 @@ def bind_conflict_can_keep_the_key():
     bind_inspector(s)
     s.press("z", mods=("ctrl",))
     s.wait(4)
-    s.ftap(*BIND_KEEP)
+    s.ftap(BIND_KEEP)
     s.wait(4)
     return s, [], camera_still({"key_overrides": near(0), "bind_open": near(1), "bind_state": is_text("listening")})
 
@@ -7217,11 +7259,11 @@ def bind_refuses_space():
 def bind_from_the_palette():
     """The palette's Assign key gives the picked command (Wireframe) a key, by touch."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("wire")
     s.wait(6)
-    s.ftap(*PALETTE_ASSIGN)
+    s.ftap(PALETTE_ASSIGN)
     s.wait(10)
     s.press("k")
     s.wait(4)
@@ -7236,7 +7278,7 @@ def pie_key_opens_and_runs():
     s.wait(4)
     s.press("q")
     s.wait(4)
-    s.ftap(*PIE_RIGHT)
+    s.ftap(PIE_RIGHT)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "wireframe": near(1)})
 
@@ -7504,11 +7546,11 @@ def pie_escape_closes_only_the_pie():
 def pie_from_palette_stays_open():
     """Pie 1 run from the palette with one tap opens in the window's middle and stays open; a tap over the shelf then picks the slice that way (Orthographic), not the shelf's brush."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("pie 1")
     s.wait(6)
-    s.ftap(*UI["palette_row1"])
+    s.ftap(UI["palette_row1"])
     s.wait(6)
     s.ftap(800, 835)  # over the shelf's Flatten, under the pie's Orthographic slice
     s.wait(6)
@@ -7519,7 +7561,7 @@ def pie_from_palette_stays_open():
 def pie_held_open_after_palette_tap():
     """A click on the palette whose press and release come in one frame (a slow frame) opens Pie 2 and picks nothing from it: the pie is still open after."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("pie 2")
     s.wait(6)
@@ -7535,17 +7577,17 @@ def pie_held_open_after_palette_tap():
 def star_puts_a_command_first():
     """The palette's Star on Wireframe; reopened with nothing typed, its first row is Wireframe, and a tap on it runs it."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("wire")
     s.wait(6)
-    s.ftap(*PALETTE_STAR)
+    s.ftap(PALETTE_STAR)
     s.wait(4)
     s.press("Escape")
     s.wait(6)
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
-    s.ftap(*PALETTE_FIRST_STARRED)
+    s.ftap(PALETTE_FIRST_STARRED)
     s.wait(6)
     return s, [], camera_still({"favourites": near(1), "wireframe": near(1), "palette": near(0)})
 
@@ -7554,13 +7596,13 @@ def star_puts_a_command_first():
 def put_in_a_pie_from_palette():
     """Put in a pie on Wireframe opens the pie editor; a tap on Pie 3's first slot puts it there."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("wire")
     s.wait(6)
-    s.ftap(*PALETTE_PIE)
+    s.ftap(PALETTE_PIE)
     s.wait(8)
-    s.ftap(*EDITOR_PIE3_FIRST)
+    s.ftap(EDITOR_PIE3_FIRST)
     s.wait(6)
     return s, [], camera_still({"pie_editor": near(1), "pie3": lambda v: v.startswith("Wireframe,empty")})
 
@@ -7569,13 +7611,13 @@ def put_in_a_pie_from_palette():
 def pie_editor_long_press_empties():
     """A long press on Pie 1's first slot in the pie editor empties it."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(8)
     s.type("wire")
     s.wait(6)
-    s.ftap(*PALETTE_PIE)
+    s.ftap(PALETTE_PIE)
     s.wait(8)
-    long_press(s, *EDITOR_PIE1_FIRST)
+    long_press(s, EDITOR_PIE1_FIRST)
     s.wait(4)
     return s, [], camera_still({"pie_editor": near(1), "pie1": lambda v: v.startswith("empty,Frame_All")})
 
@@ -7661,11 +7703,11 @@ def keys_tab_row_assigns_a_key():
     """Settings > Shortcuts: typing "wire" finds Wireframe, a tap on its row opens Assign key beside it, and K becomes its key."""
     s = Script()
     open_settings(s, "keys")
-    s.ftap(*KEYS_SEARCH)
+    s.ftap(KEYS_SEARCH)
     s.wait(4)
     s.type("wire")
     s.wait(6)
-    s.ftap(*KEYS_FIRST_ROW)
+    s.ftap(KEYS_FIRST_ROW)
     s.wait(8)
     s.press("k")
     s.wait(4)
@@ -7677,7 +7719,7 @@ def keys_search_escape_keeps_settings():
     """Escape in Settings > Shortcuts' search field lets the field go and leaves Settings open."""
     s = Script()
     open_settings(s, "keys")
-    s.ftap(*KEYS_SEARCH)
+    s.ftap(KEYS_SEARCH)
     s.wait(4)
     s.type("undo")
     s.wait(4)
@@ -7691,7 +7733,7 @@ def keys_popover_closes_when_its_row_scrolls_away():
     """Assign key opened from a row of Settings > Shortcuts closes once the wheel scrolls that row out of view."""
     s = Script()
     open_settings(s, "keys")
-    s.ftap(*KEYS_FIRST_ROW)
+    s.ftap(KEYS_FIRST_ROW)
     s.wait(8)
     s.add("move:900,650")
     s.wait(2)
@@ -7720,9 +7762,9 @@ def keys_come_back_from_settings():
 def status_chip_tap_and_long_press():
     """A long press on the chip bar's object chip shows the Scene palette's objects; a tap on it opens the object menu."""
     s = Script()
-    long_press(s, *STATUS_CHIP)
+    long_press(s, STATUS_CHIP)
     s.wait(6)
-    s.ftap(*STATUS_CHIP)
+    s.ftap(STATUS_CHIP)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "scene", "object_menu": near(1)})
 
@@ -7806,7 +7848,7 @@ def double_tap_too_far_is_two_taps():
     """Two quick taps on empty space 80 points apart frame nothing."""
     s = Script()
     zoom_a_little(s)
-    s.ftap(*EMPTY, hold=2, gap=6)
+    s.ftap(EMPTY, hold=2, gap=6)
     s.ftap(EMPTY[0] + 80, EMPTY[1], hold=2)
     s.wait(4)
     return s, [], {"camera_distance": near(ZOOMED), "framed": near(0)}
@@ -7871,7 +7913,7 @@ def double_tap_model_while_sculpting_pins_without_dabs():
 def single_tap_dab_lands_after_the_gap():
     """One finger tap on the model lays its dab once the double tap's gap ran out."""
     s = Script()
-    s.ftap(*MODEL)
+    s.ftap(MODEL)
     s.wait(24)
     return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
 
@@ -7889,7 +7931,7 @@ def tap_another_object_switches_to_it():
     def taps(*points, wait=24):
         s = Script()
         for p in points:
-            s.ftap(*p)
+            s.ftap(p)
             s.wait(wait)
         return s
     stroke = Script()
@@ -7912,8 +7954,8 @@ def tap_another_object_switches_to_it():
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()
-    s.ftap(*MODEL, gap=2)
-    s.ftap(*UI["undo"])
+    s.ftap(MODEL, gap=2)
+    s.ftap(UI["undo"])
     s.wait(24)
     return s, [], camera_still({"undo_steps": near(0), "redo_steps": near(1)})
 
@@ -7922,7 +7964,7 @@ def tap_dab_waits_for_nothing_else():
 def tap_then_stroke_keeps_both():
     """A tap, then straight away a stroke starting where it was: the tap's dab and the stroke are two undo steps."""
     s = Script()
-    s.ftap(*MODEL, gap=4)
+    s.ftap(MODEL, gap=4)
     s.fdrag(line(MODEL, (MODEL[0] + 120, MODEL[1] + 30), 12))
     s.wait(6)
     return s, [], camera_still({"undo_steps": near(2), "pinned": near(0)})
@@ -7932,7 +7974,7 @@ def tap_then_stroke_keeps_both():
 def tap_then_two_fingers_keeps_the_dab():
     """A tap, then two fingers pinching at once: the tap's dab lands where it was tapped and the pinch zooms."""
     s = Script()
-    s.ftap(*MODEL, gap=3)
+    s.ftap(MODEL, gap=3)
     s.fingers([(700, 450), (900, 450)], [(-60, 0), (60, 0)], 10)
     return s, [], {"undo_steps": near(1), "camera_distance": lambda v: float(v) < 3.4, "pinned": near(0)}
 
@@ -7941,7 +7983,7 @@ def tap_then_two_fingers_keeps_the_dab():
 def tap_then_palm_nearby_still_dabs():
     """A tap, then a finger resting beside it with the pen near (a palm, which the touch ignores): the tap's dab still lands."""
     s = Script()
-    s.ftap(*MODEL, gap=2)
+    s.ftap(MODEL, gap=2)
     s.add("pnear")
     s.add(f"fdown:3:{MODEL[0] + 20},{MODEL[1] + 10}")
     s.wait(30)
@@ -8321,7 +8363,7 @@ def one_finger_tap_runs_its_command():
     """With One-finger tap set to Wireframe, a tap on empty space turns wireframe on once no second tap came, and sculpts nothing."""
     s = Script()
     write_settings("gesture_map One_Tap Wireframe\n")
-    s.ftap(*EMPTY)
+    s.ftap(EMPTY)
     s.wait(24)
     return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "dabs": near(0), "framed": near(0)})
 
@@ -8342,7 +8384,7 @@ def one_finger_tap_dropped_by_the_pen():
     """A finger's tap on empty space that the pen comes near within the gap was the hand, not a tap: wireframe stays off."""
     s = Script()
     write_settings("gesture_map One_Tap Wireframe\n")
-    s.ftap(*EMPTY, gap=2)
+    s.ftap(EMPTY, gap=2)
     s.add("pnear")
     s.add("pmove:800,450")
     s.wait(24)
@@ -8357,7 +8399,7 @@ def one_finger_tap_keeps_the_move_selection():
     s = Script()
     write_settings("gesture_map One_Tap Wireframe\n")
     s.press("w")
-    s.ftap(*EMPTY)
+    s.ftap(EMPTY)
     s.wait(24)
     return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "selected": near(0), "tool": is_text("move")})
 
@@ -8384,7 +8426,7 @@ def gesture_any_command_from_search():
     s.type("wireframe")
     s.press("Return")
     s.wait(6)
-    s.ftap(*SETTINGS_CLOSE)
+    s.ftap(SETTINGS_CLOSE)
     s.wait(16)
     s.add("pnear")
     s.add("pmove:800,450")
@@ -8813,7 +8855,7 @@ PALETTE_FIELD = (800, 81)  # the command palette's search field, once Search ope
 def keyboard_put_away_and_brought_back():
     """Search tapped by a finger and typed in, the on-screen keyboard put away by the system (kbhide, as an iPad's SDL reports its hide-keyboard key or the Scribble palette taking the keyboard's place): the palette stays open and its field keeps what was typed; a pen tap on the field brings the keyboard back (text input started anew), the rest typed runs the command."""
     s = Script()
-    s.ftap(*LENS_SEARCH)
+    s.ftap(LENS_SEARCH)
     s.wait(10)
     s.type("wire")
     s.add("kbhide")
@@ -8881,7 +8923,7 @@ def diag_finger_taps_are_answered():
     """Input diagnostics' finger taps: three taps on the pad are three downs received and three presses answered, a pass."""
     s = Script()
     for _ in range(3):
-        s.ftap(*DIAG["pad"])
+        s.ftap(DIAG["pad"])
     s.wait(4)
     return s, ["--diag-test=finger_tap"], {"diag_auto": is_text("pass"), "diag_finger_downs": near(3), "diag_presses": near(3), "diag_palms": near(0), "dabs": near(0)}
 
@@ -8895,7 +8937,7 @@ def diag_finger_after_a_pen_that_left():
     s.add("pfar")
     s.wait(10)
     for _ in range(3):
-        s.ftap(*DIAG["pad"])
+        s.ftap(DIAG["pad"])
     s.wait(4)
     return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("pass"), "diag_palms": near(0), "diag_anomalies": is_text("none")}
 
@@ -8907,7 +8949,7 @@ def diag_finger_after_a_pen_that_never_left():
     diag_pen_tap(s, *DIAG["pad"])
     s.wait(150)
     for _ in range(3):
-        s.ftap(*DIAG["pad"])
+        s.ftap(DIAG["pad"])
     s.wait(4)
     anomalies = lambda v: all(a in v.split(",") for a in ("finger_palm", "pen_near_stuck", "received_not_responded"))
     return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("fail"), "diag_palms": near(3), "diag_anomalies": anomalies}
@@ -8995,7 +9037,7 @@ def diag_size_slider_ratio_by_finger():
 def diag_text_typing_keeps_scul():
     """Typing and Backspace: a tap on the diagnostic field, sculpt typed and two Backspaces leave scul, a pass."""
     s = Script()
-    s.ftap(*DIAG["field"])
+    s.ftap(DIAG["field"])
     s.wait(3)
     s.type("sculpt")
     s.press("Backspace")
@@ -9017,7 +9059,7 @@ def diag_export_writes_the_report():
     """--diag-export writes the report's three files in one ZIP: a session line first, every line JSON, the summary's verdict as the run's."""
     s = Script()
     for _ in range(3):
-        s.ftap(*DIAG["pad"])
+        s.ftap(DIAG["pad"])
     s.wait(4)
     path = diag_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -9088,7 +9130,7 @@ def mask_tap_off_the_model_inverts():
     """With Mask latched, a tap on empty space inverts the mask, says so with Undo, and paints nothing."""
     s = Script()
     masked_first(s)
-    s.ftap(*EMPTY)
+    s.ftap(EMPTY)
     s.wait(4)
     return s, [], camera_still({"last_op": lambda v: v == "Invert_mask", "toast_undo": near(1), "undo_steps": near(2),
                                 "mask_mean": lambda v: float(v) > 0.8})
@@ -9109,7 +9151,7 @@ def mask_tap_off_the_mask_sharpens():
     """With Mask latched, a tap on the model away from the mask sharpens it."""
     s = Script()
     masked_first(s)
-    s.ftap(*UNMASKED)
+    s.ftap(UNMASKED)
     s.wait(4)
     return s, [], camera_still({"last_op": lambda v: v == "Sharpen_mask", "undo_steps": near(2)})
 
@@ -9220,11 +9262,11 @@ def palette_settings_tab_then_escape_closes_only_the_palette():
 def palette_finger_taps_search_and_a_row():
     """A finger taps Search, types "wire" on the tablet keyboard and taps the first row: the wireframe goes on, and nothing is sculpted."""
     s = Script()
-    s.ftap(*UI["search"])
+    s.ftap(UI["search"])
     s.wait(4)
     s.type("wire")
     s.wait(4)
-    s.ftap(*UI["palette_row1"])
+    s.ftap(UI["palette_row1"])
     s.wait(4)
     return s, [], {"palette": near(0), "palette_last": is_text("Wireframe"), "dabs": near(0), "undo_steps": near(0)}
 
@@ -9555,7 +9597,7 @@ def stroke_then_rest(s, frames=150):
 
 
 def click(s, at):
-    s.add(f"move:{at[0]},{at[1]}")
+    s.add(f"move:{where(at)}")
     s.wait(1)
     s.add("down")
     s.wait(1)
@@ -9694,7 +9736,7 @@ THUMBNAIL_FLIP, SECOND_LINK, THUMBNAIL_CLOSE = (1386, 859), (1437, 859), (1491, 
 def second_choices(s):
     """Waits for the mini view and taps its chip to show the choices under its picture."""
     s.wait(4)
-    s.ftap(*SECOND_CHIP)
+    s.ftap(SECOND_CHIP)
 
 
 @scenario
@@ -9703,11 +9745,11 @@ def thumbnail_switches_to_shaded_and_flips():
     s = Script()
     second_choices(s)
     s.wait(4)
-    s.ftap(*SECOND_PASS)
+    s.ftap(SECOND_PASS)
     s.wait(4)
-    s.ftap(*SECOND_SHADED)
+    s.ftap(SECOND_SHADED)
     s.wait(4)
-    s.ftap(*THUMBNAIL_FLIP)
+    s.ftap(THUMBNAIL_FLIP)
     s.wait(10)
     return s, ["--script=thumbnail on"], camera_still({"thumbnail": near(1, 0), "second_pass": is_text("Shaded"), "thumbnail_flip": near(1, 0),
                                                      "thumbnail_draws": lambda v: int(v) >= 2, "dabs": near(0)})
@@ -9719,13 +9761,13 @@ def second_view_looks_from_the_front_in_normals():
     s = Script()
     second_choices(s)
     s.wait(4)
-    s.ftap(*SECOND_CAMERA)
+    s.ftap(SECOND_CAMERA)
     s.wait(4)
-    s.ftap(*SECOND_FRONT)
+    s.ftap(SECOND_FRONT)
     s.wait(4)
-    s.ftap(*SECOND_PASS)
+    s.ftap(SECOND_PASS)
     s.wait(4)
-    s.ftap(*SECOND_NORMALS)
+    s.ftap(SECOND_NORMALS)
     s.wait(10)
     return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Front"), "second_pass": is_text("Normals"),
                                                      "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
@@ -9737,9 +9779,9 @@ def second_view_drag_turns_its_own_camera():
     s = Script()
     second_choices(s)
     s.wait(4)
-    s.ftap(*SECOND_CAMERA)
+    s.ftap(SECOND_CAMERA)
     s.wait(4)
-    s.ftap(*SECOND_FRONT)
+    s.ftap(SECOND_FRONT)
     s.wait(4)
     x, y = SECOND_PICTURE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
@@ -9766,7 +9808,7 @@ def second_view_unlinks_to_free():
     s = Script()
     second_choices(s)
     s.wait(4)
-    s.ftap(*SECOND_LINK)
+    s.ftap(SECOND_LINK)
     s.wait(4)
     x, y = SECOND_PICTURE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
@@ -9785,7 +9827,7 @@ def transparent_screenshots_switch_in_the_background_section():
     nothing."""
     s = Script()
     s.wait(4)
-    s.ftap(*TRANSPARENT_SWITCH)
+    s.ftap(TRANSPARENT_SWITCH)
     s.wait(4)
     return s, palettes_only("background"), camera_still({"screenshot_transparent": near(1, 0), "dabs": near(0)})
 
@@ -9825,9 +9867,9 @@ def camera_menu_splits_the_view_side_by_side():
     """The Camera menu's View grid row Side by side splits the viewport: the main view keeps the left half of the window, and the view pane beside it, under the panels, looks from the front."""
     s = Script()
     s.wait(3)
-    s.ftap(*UI["camera"])
+    s.ftap(UI["camera"])
     s.wait(8)
-    s.ftap(*GRID_SIDE_BY_SIDE)
+    s.ftap(GRID_SIDE_BY_SIDE)
     s.wait(10)
     return s, [], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 780 < float(v.split("x")[0]) < 820,
                                 "pane_camera": is_text("Front"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
@@ -9892,9 +9934,9 @@ def wipe_compare_from_the_pass_menu():
         s = Script()
         s.wait(4)
         for _ in range(taps):
-            s.ftap(*PASS_CHIP)
+            s.ftap(PASS_CHIP)
             s.wait(8)
-            s.ftap(*PASS_MENU_WIPE)
+            s.ftap(PASS_MENU_WIPE)
             s.wait(8)
         return s, [], camera_still({"wipe": near(taps % 2), "dabs": near(0)})
     return Steps([run(1), run(2)])
@@ -9963,10 +10005,10 @@ def narrow_window_puts_the_column_away():
         s = Script()
         s.wait(6)
         if taps > 0:
-            s.ftap(*NARROW_TAB)
+            s.ftap(NARROW_TAB)
             s.wait(8)
         if taps > 1:
-            s.ftap(*NARROW_VIEW)
+            s.ftap(NARROW_VIEW)
             s.wait(8)
         return s, NARROW, camera_still({"columns_narrow": near(1), "column_popped": is_text("right" if taps == 1 else "none"),
                                         "column_pops": near(1 if taps > 0 else 0), "dabs": near(0), "undo_steps": near(0)})
@@ -9980,7 +10022,7 @@ def narrow_window_palettes_pops_the_column():
         s = Script()
         s.wait(6)
         for _ in range(taps):
-            s.ftap(*NARROW_PALETTES)
+            s.ftap(NARROW_PALETTES)
             s.wait(8)
         return s, NARROW, camera_still({"column_popped": is_text("right" if taps == 1 else "none"), "window_inspector": lambda v: v.startswith("1,"), "dabs": near(0)})
     return Steps([run(1), run(2)])
@@ -9991,7 +10033,7 @@ def narrow_window_escape_puts_the_stack_away():
     """On a narrow window Escape (or Android's back) puts the popped stack away, as a press on the view does, before anything else it would close."""
     s = Script()
     s.wait(6)
-    s.ftap(*NARROW_PALETTES)
+    s.ftap(NARROW_PALETTES)
     s.wait(8)
     s.press("Escape")
     s.wait(8)
@@ -10060,7 +10102,7 @@ def view_pane_link_turns_the_main_camera():
     """The view pane's link button links it to the main camera: a drag across it turns the main view with it, and the pane stays linked."""
     s = Script()
     s.wait(4)
-    s.ftap(*GRID_PANE_LINK)
+    s.ftap(GRID_PANE_LINK)
     s.wait(4)
     x, y = GRID_PANE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
@@ -10075,9 +10117,9 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
     def run(mirrored):
         s = Script()
         s.wait(4)
-        s.ftap(*GRID_PANE_CAMERA)
+        s.ftap(GRID_PANE_CAMERA)
         s.wait(4)
-        s.ftap(*(GRID_PANE_MIRRORED if mirrored else GRID_PANE_LINKED))
+        s.ftap((GRID_PANE_MIRRORED if mirrored else GRID_PANE_LINKED))
         s.wait(4)
         x, y = GRID_PANE
         s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
@@ -10126,7 +10168,7 @@ def view_pane_linked_stroke_keeps_the_link():
     """A stroke in a pane linked to the main camera sculpts through the main camera's view and the pane stays linked; the main camera does not move."""
     s = Script()
     s.wait(30)
-    s.ftap(*FOUR_FRONT_LINK)
+    s.ftap(FOUR_FRONT_LINK)
     s.wait(6)
     x, y = FOUR_FRONT_MODEL
     s.fdrag(line((x - 40, y), (x + 40, y + 20), 16))
@@ -10141,9 +10183,9 @@ def view_pane_studio_gathers_at_rest():
     def run(stroke):
         s = Script()
         s.wait(30)
-        s.ftap(*FOUR_FRONT_PASS)
+        s.ftap(FOUR_FRONT_PASS)
         s.wait(10)
-        s.ftap(*FOUR_FRONT_STUDIO)
+        s.ftap(FOUR_FRONT_STUDIO)
         s.wait(290)
         if stroke:
             s.fdrag(line((340, 220), (420, 260), 12))
@@ -10158,9 +10200,9 @@ def view_pane_studio_stroke_in_it_gathers_again():
     """A stroke worked in a Studio pane draws Shaded live there; once it is done the pane draws its studio picture again and gathers anew (about 190 samples before it, fewer than 120 after)."""
     s = Script()
     s.wait(30)
-    s.ftap(*FOUR_FRONT_PASS)
+    s.ftap(FOUR_FRONT_PASS)
     s.wait(10)
-    s.ftap(*FOUR_FRONT_STUDIO)
+    s.ftap(FOUR_FRONT_STUDIO)
     s.wait(200)
     x, y = FOUR_FRONT_MODEL
     s.fdrag(line((x - 40, y), (x + 40, y + 20), 16))
@@ -10174,7 +10216,7 @@ def view_pane_shading_is_its_own():
     """Wireframe in the Front pane's Shows draws that pane in Wireframe only: the other panes and the main view stay Solid, and the workspace is marked."""
     s = Script()
     s.wait(30)
-    s.ftap(*FOUR_FRONT_PASS)
+    s.ftap(FOUR_FRONT_PASS)
     s.wait(10)
     s.ftap(FOUR_FRONT_PASS[0], 170)
     s.wait(30)
@@ -10219,9 +10261,9 @@ def view_pane_ao_only_shows():
     """AO only in the Front pane's Shows is a heavy pass the pane draws at rest; the main view's pass stays Shaded."""
     s = Script()
     s.wait(30)
-    s.ftap(*FOUR_FRONT_PASS)
+    s.ftap(FOUR_FRONT_PASS)
     s.wait(10)
-    s.ftap(*FOUR_FRONT_AO)
+    s.ftap(FOUR_FRONT_AO)
     s.wait(30)
     return s, ["--script=view_grid four"], camera_still({"pane_heavy": near(1), "pass": is_text("Shaded"), "pane_draws": lambda v: int(v) >= 4, "dabs": near(0)})
 
@@ -10307,7 +10349,7 @@ def view_window_head_picks_what_it_shows():
     s = Script()
     s.wait(10)
     s.window = 1
-    s.ftap(*WINDOW_SHOWS)
+    s.ftap(WINDOW_SHOWS)
     s.wait(10)
     s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 5 * 44)
     s.window = 0
@@ -10320,7 +10362,7 @@ def view_pane_opens_in_a_window():
     """Open in a window on a view pane's head opens a view window showing that pane's camera and pass (Front, Shaded); the pane stays."""
     s = Script()
     s.wait(4)
-    s.ftap(*GRID_PANE_WINDOW)
+    s.ftap(GRID_PANE_WINDOW)
     s.wait(20)
     return s, ["--script=view_grid side_by_side"], camera_still({"view_windows": near(1), "view_window_camera": is_text("Front"),
                                                                                           "view_window_pass": is_text("Shaded"), "grid": is_text("Side_By_Side"), "dabs": near(0)})
@@ -10332,7 +10374,7 @@ def view_window_close_button_closes_it():
     s = Script()
     s.wait(10)
     s.window = 1
-    s.ftap(*WINDOW_CLOSE)
+    s.ftap(WINDOW_CLOSE)
     s.window = 0
     s.wait(10)
     return s, ["--view-windows=1"], camera_still({"view_windows": near(0), "view_window_opens": near(1), "dabs": near(0)})
@@ -10358,10 +10400,10 @@ def view_pane_maximises_and_restores():
     def run(restore):
         s = Script()
         s.wait(4)
-        s.ftap(*GRID_PANE_MAX)
+        s.ftap(GRID_PANE_MAX)
         s.wait(8)
         if restore:
-            s.ftap(*GRID_PANE_RESTORE)
+            s.ftap(GRID_PANE_RESTORE)
             s.wait(8)
         size = (lambda v: 780 < int(v.split("x")[0]) < 820) if restore else (lambda v: int(v.split("x")[0]) > 1000)
         # The main view's chips stand aside while the pane covers it, so they never sit on its head.
@@ -10379,7 +10421,7 @@ def thumbnail_follows_a_stroke_and_closes():
     s.wait(12)
     second_choices(s)
     s.wait(6)
-    s.ftap(*THUMBNAIL_CLOSE)
+    s.ftap(THUMBNAIL_CLOSE)
     s.wait(4)
     return s, ["--script=thumbnail on"], {"thumbnail": near(0, 0), "thumbnail_draws": lambda v: int(v) >= 2, "dabs": lambda v: int(v) > 0}
 
@@ -10398,7 +10440,7 @@ def print_height_by_finger_and_inches():
     x, y = PRINT_HEIGHT
     s.fdrag(line((x, y), (x + 120, y), 12))
     s.wait(4)
-    s.ftap(*PRINT_INCHES)
+    s.ftap(PRINT_INCHES)
     s.wait(4)
     return s, palettes_only("print"), camera_still({"print_mm": lambda v: float(v) > 26, "print_unit": near(2, 0), "dabs": near(0)})
 
@@ -10431,9 +10473,9 @@ def delete_hidden_then_close_holes_by_finger():
     turning nothing."""
     s = Script()
     s.wait(4)
-    s.ftap(*TOPOLOGY_DELETE_HIDDEN)
+    s.ftap(TOPOLOGY_DELETE_HIDDEN)
     s.wait(6)
-    s.ftap(*TOPOLOGY_CLOSE_HOLES)
+    s.ftap(TOPOLOGY_CLOSE_HOLES)
     s.wait(6)
     return s, palettes_only("mirror", "hide y") + ["--check-mesh"], camera_still({"repairs": near(2, 0), "mesh_closed": lambda got: got == "true", "dabs": near(0)})
 
@@ -10445,9 +10487,9 @@ HOME_TILE1 = (125, 590)
 
 def open_home(s):
     """Opens the Home screen from the menu."""
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_home"])
+    s.ftap(UI["menu_home"])
 
 
 @scenario
@@ -10475,7 +10517,7 @@ def home_starts_a_new_scene_from_a_tile():
     s = Script()
     open_home(s)
     s.wait(4)
-    s.ftap(*HOME_NEW_HEAD)
+    s.ftap(HOME_NEW_HEAD)
     s.wait(10)
     return s, [], {"home": near(0, 0), "objects": near(1, 0), "selected_name": lambda v: v.startswith("Head")}
 
@@ -10487,7 +10529,7 @@ def home_opens_a_recent_scene():
     s = Script()
     open_home(s)
     s.wait(20)
-    s.ftap(*HOME_TILE1)
+    s.ftap(HOME_TILE1)
     s.wait(6)
 
     def second():
@@ -10504,7 +10546,7 @@ def home_drops_a_scene_that_is_gone():
     s = Script()
     open_home(s)
     s.wait(10)
-    s.ftap(*HOME_TILE1)
+    s.ftap(HOME_TILE1)
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], {"home": near(1, 0), "recent_scenes": near(0, 0), "scene_name": is_text("none")}
 
@@ -10520,7 +10562,7 @@ def lens_home_starts_and_continues():
     def start(tile, expect):
         s = Script()
         s.wait(6)
-        s.ftap(*LENS_HOME[tile])
+        s.ftap(LENS_HOME[tile])
         s.wait(10)
         return s, LENS_1440 + ["--script=home"], expect
 
@@ -10529,7 +10571,7 @@ def lens_home_starts_and_continues():
         write_settings(f"recent_scenes {path}\n")
         s = Script()
         s.wait(20)
-        s.ftap(*LENS_HOME["continue"])
+        s.ftap(LENS_HOME["continue"])
         s.wait(8)
         return s, LENS_1440 + ["--script=home", f"--settings-file={settings_file()}"], {"home": near(0), "scene_name": is_text("head.sculpt"), "home_pictures": near(1)}
     return Steps([start("plane", {"home": near(0), "objects": near(1), "selected_name": lambda v: v.startswith("Plane")}),
@@ -10545,7 +10587,7 @@ def home_recovers_a_crashed_sessions_autosave():
     after.wait(10)
     open_home(after)
     after.wait(10)
-    after.ftap(*HOME_TILE1)
+    after.ftap(HOME_TILE1)
     after.wait(10)
     return Steps([crash_after_stroke(), (after, autosave_args(), {"home": near(0, 0), "home_autosaves": near(1, 0), "recovered": near(1, 0)})])
 
@@ -10661,8 +10703,7 @@ def menu_scrolls_on_a_short_window():
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    rows = list(MENU_ROWS)
-    click(s, (120, MENU_SHORT_LAST_Y - 44 * (len(rows) - 1 - rows.index("settings"))))
+    click(s, UI["menu_settings"])
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -10822,7 +10863,7 @@ def stack_grip_drag_joins_a_header():
     """Symmetry's grip carried onto the middle of Brush's header joins it as a tab, by finger and by mouse."""
     def run(mouse):
         s = Script()
-        s.ftap(*LENS_STACK["brush"])
+        s.ftap(LENS_STACK["brush"])
         s.wait(6)
         grip, head = STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"]
         if mouse:
@@ -10857,7 +10898,7 @@ def stack_carry_shows_where_it_goes():
     """While Symmetry's grip is held over Brush's header the target is a join, with the group outlined and a pill saying Join Brush; over the top of Scene's header it is the line."""
     def run(line_target):
         s = Script()
-        s.ftap(*LENS_STACK["brush"])
+        s.ftap(LENS_STACK["brush"])
         s.wait(6)
         to = (1200, 256) if line_target else STACK_CARRY["brush_head"]
         s.fdrag(line(STACK_CARRY["symmetry_grip"], to, 8) + [to] * 3, lift=False)
@@ -10871,7 +10912,7 @@ def stack_carry_shows_where_it_goes():
 def stack_carry_escape_drops_nothing():
     """Escape while Symmetry's grip carries it onto Brush's header drops nothing: the stack is as it was."""
     s = Script()
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
     s.fdrag(line(STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"], 8), lift=False)
     s.press("Escape")
@@ -10984,7 +11025,7 @@ STACK_BESIDE = {"brush_left": (1000, 94), "divider": (1057, 400)}
 
 def stack_beside_drop(s, grip=None, to=None):
     """Folds Brush and carries Symmetry's grip (or `grip`) to just left of Brush's card."""
-    s.ftap(*LENS_STACK["brush"])
+    s.ftap(LENS_STACK["brush"])
     s.wait(6)
     grip, to = grip or STACK_CARRY["symmetry_grip"], to or STACK_BESIDE["brush_left"]
     s.fdrag(line(grip, to, 8) + [to] * 3)
@@ -11012,8 +11053,8 @@ def stack_column_divider_sets_the_width():
         if not reset:
             return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:352"), "stack_resizes": near(1), "dabs": near(0)})
         # Column two grows toward the view, so the divider stays where it was.
-        s.ftap(*d, gap=2)
-        s.ftap(*d)
+        s.ftap(d, gap=2)
+        s.ftap(d)
         s.wait(6)
         return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:312"), "stack_resizes": near(2), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -11116,24 +11157,24 @@ def macros_panel_runs_renames_and_deletes():
         f.write("# Macro: Flat\nflat_shading on\n")
     s = Script()
     s.wait(3)
-    s.ftap(*UI["menu"])
+    s.ftap(UI["menu"])
     s.wait(10)
-    s.ftap(*UI["menu_more"])
+    s.ftap(UI["menu_more"])
     s.wait(10)
-    s.ftap(*UI["more_macros"])
+    s.ftap(UI["more_macros"])
     s.wait(16)
-    s.ftap(*UI["macro1_run"])
+    s.ftap(UI["macro1_run"])
     s.wait(5)
-    s.ftap(*UI["macro1_rename"])
+    s.ftap(UI["macro1_rename"])
     s.wait(10)
     s.type("Wires")
     s.press("Return")
     s.wait(5)
-    s.ftap(*UI["macro2_delete"])
+    s.ftap(UI["macro2_delete"])
     s.wait(10)
-    s.ftap(*UI["macro2_delete"])
+    s.ftap(UI["macro2_delete"])
     s.wait(10)
-    s.ftap(*UI["macro1_delete"])
+    s.ftap(UI["macro1_delete"])
     s.wait(10)
 
     def files(_):
@@ -11275,13 +11316,13 @@ def pack_presets_reach_the_browser():
     s.wait(3)
     s.press("1")
     s.wait(3)
-    s.ftap(*UI["browser"])
+    s.ftap(UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_SEARCH)
+    s.ftap(BROWSER_SEARCH)
     s.wait(4)
     s.type("stone")
     s.wait(4)
-    s.ftap(*browser_tile(0, 0))
+    s.ftap(browser_tile(0, 0))
     s.wait(6)
     return Steps([
         (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; preset brush-set/stone clay"],
@@ -11823,13 +11864,13 @@ def history_list_groups_and_goes_to_a_step():
     def run(root):
         s = Script()
         history_three_strokes(s)
-        s.ftap(*HISTORY_GROUP_OPEN)
+        s.ftap(HISTORY_GROUP_OPEN)
         s.wait(6)
         if not root:
-            s.ftap(*HISTORY_OLDEST_SUB)
+            s.ftap(HISTORY_OLDEST_SUB)
             s.wait(30)
             return s, [], camera_still({"history_view": is_text("list"), "history_rows": near(2), "undo_steps": near(1, 0), "redo_steps": near(2, 0), "dabs": near(0, 30)})
-        s.ftap(*HISTORY_GROUP_OPEN)
+        s.ftap(HISTORY_GROUP_OPEN)
         s.wait(6)
         s.add("pnear")
         s.add("pdown:{:g},{:g}".format(*HISTORY_ROOT))
@@ -11870,11 +11911,11 @@ def history_step_menu_from_the_list():
             return s, [], camera_still({"history_menus": near(1, 0), "history_bookmarks": near(1, 0), "history_rows": near(2, 0),
                                         "undo_steps": near(3, 0), "redo_steps": near(0, 0)})
         if how == "finger":
-            long_press(s, *HISTORY_GROUP_ROW)
+            long_press(s, HISTORY_GROUP_ROW)
             s.wait(10)
-            s.ftap(*HISTORY_MENU_DELETE)
+            s.ftap(HISTORY_MENU_DELETE)
             s.wait(4)
-            s.ftap(*HISTORY_MENU_DELETE)
+            s.ftap(HISTORY_MENU_DELETE)
             s.wait(6)
             return s, [], camera_still({"history_menus": near(1, 0), "history_dropped": near(2, 0), "undo_steps": near(1, 0),
                                         "redo_steps": near(0, 0)})
@@ -11923,9 +11964,9 @@ def history_tint_shows_what_a_step_changed():
             s.add("move:{:g},{:g}".format(*HISTORY_GROUP_ROW))
             s.wait(12)
             return s, [], camera_still({"history_tints": near(1, 0), "history_tint": near(1, 0), "undo_steps": near(3, 0)})
-        long_press(s, *HISTORY_GROUP_ROW)
+        long_press(s, HISTORY_GROUP_ROW)
         s.wait(10)
-        s.ftap(*HISTORY_MENU_SHOW)
+        s.ftap(HISTORY_MENU_SHOW)
         s.wait(12)
         return s, [], camera_still({"history_menus": near(1, 0), "history_tint": near(1, 0), "undo_steps": near(3, 0)})
     return Steps([run(False), run(True)])
@@ -11941,10 +11982,10 @@ def history_settings_page_from_the_list():
     def run(back):
         s = Script()
         history_three_strokes(s)
-        s.ftap(*HISTORY_GEAR)
+        s.ftap(HISTORY_GEAR)
         s.wait(10)
         if back:
-            s.ftap(*HISTORY_LIST_TAB)
+            s.ftap(HISTORY_LIST_TAB)
             s.wait(6)
         return s, [], camera_still({"history_page": is_text("steps" if back else "settings"), "undo_steps": near(3, 0)})
     return Steps([run(True), run(False)])
@@ -11980,7 +12021,7 @@ def history_point_from_the_timeline():
             s.add("pfar")
             s.wait(4)
         else:
-            long_press(s, *TIMELINE_STEPS_OF_3[2])
+            long_press(s, TIMELINE_STEPS_OF_3[2])
             s.wait(6)
             s.ftap(x, STRIP_MENU_PAINT_BACK_Y)
             s.wait(4)
@@ -12032,7 +12073,7 @@ def history_strip_menu_paint_back_and_delete_older():
         strip_three_strokes(s)
         x = TIMELINE_STEPS_OF_3[1][0]
         if not delete:
-            long_press(s, *TIMELINE_STEPS_OF_3[1])
+            long_press(s, TIMELINE_STEPS_OF_3[1])
             s.wait(6)
             s.ftap(x, STRIP_MENU_PAINT_BACK_Y)
             s.wait(6)
@@ -12040,7 +12081,7 @@ def history_strip_menu_paint_back_and_delete_older():
                                         "recall_pinned": near(1, 0)})
         s.press("z", ("ctrl",))
         s.wait(4)
-        long_press(s, *TIMELINE_STEPS_OF_3[1])
+        long_press(s, TIMELINE_STEPS_OF_3[1])
         s.wait(6)
         s.ftap(x, STRIP_MENU_DELETE_Y)
         s.wait(4)
@@ -12091,7 +12132,7 @@ def history_bookmark_flies_over_the_strip():
     s.type("Start")
     s.press("Return")
     s.wait(10)
-    s.ftap(*STRIP_FIRST_FLAG)
+    s.ftap(STRIP_FIRST_FLAG)
     s.wait(30)
     return s, HISTORY_STRIP, camera_still({"history_bookmarks": near(1, 0), "undo_steps": near(1, 0), "redo_steps": near(2, 0)})
 
@@ -12351,9 +12392,9 @@ def shape_finger_waits_for_apply():
     waits, applied, cancelled = Script(), Script(), Script()
     for sc in (waits, applied, cancelled):
         finger_mask_shape(sc)
-    applied.ftap(*SHAPE_APPLY)
+    applied.ftap(SHAPE_APPLY)
     applied.wait(4)
-    cancelled.ftap(*SHAPE_CANCEL)
+    cancelled.ftap(SHAPE_CANCEL)
     cancelled.wait(4)
     return Steps([
         (waits, [], camera_still({"shape_pending": is_text("mask"), "shape_points": near(2, 0), "masked": near(0), "undo_steps": near(0)})),
@@ -12483,7 +12524,7 @@ def open_rebuild(s, goal=None, tap=click):
 
 
 def ftap_at(s, at):
-    s.ftap(*at)
+    s.ftap(at)
 
 
 @scenario
@@ -12520,11 +12561,11 @@ def remesh_long_press_opens_its_quick_menu():
     step, with the menu still open to try again."""
     s = Script()
     s.wait(3)
-    long_press(s, *UI["remesh"])
+    long_press(s, UI["remesh"])
     s.wait(8)
-    s.ftap(*REMESH_QUICK["double"])
+    s.ftap(REMESH_QUICK["double"])
     s.wait(3)
-    s.ftap(*REMESH_QUICK["remesh"])
+    s.ftap(REMESH_QUICK["remesh"])
     s.wait(10)
     return s, [], camera_still({"bar_pop": is_text("remesh_quick"), "rebuild_goal": is_text("even"), "undo_steps": near(1),
                                 "vertices": lambda v: 75_000 < int(v) < 90_000, "dabs": near(0)})
@@ -12537,12 +12578,12 @@ def remesh_quick_menu_density_shows_the_cells():
     held, more = Script(), Script()
     for sc in (held, more):
         sc.wait(3)
-        long_press(sc, *UI["remesh"])
+        long_press(sc, UI["remesh"])
         sc.wait(8)
     x, y = REMESH_QUICK["density"]
     held.fdrag([(x, y), (x - 30, y), (x - 50, y)], lift=False)
     held.wait(20)
-    more.ftap(*REMESH_QUICK["more"])
+    more.ftap(REMESH_QUICK["more"])
     more.wait(8)
     return Steps([
         (more, [], camera_still({"bar_pop": is_text("remesh"), "undo_steps": near(0)})),
@@ -13119,7 +13160,7 @@ CAGE_MENU_SCULPTABLE = (734, 361)
 
 def object_menu_open(s):
     s.wait(4)
-    s.ftap(*STATUS_CHIP)
+    s.ftap(STATUS_CHIP)
     s.wait(8)
 
 
@@ -13140,7 +13181,7 @@ def object_menu_other_space_row_switches_and_runs():
     """A cage's Sculpt-tagged row in Model space switches to Sculpt (the second switch, after adding the cage went to Model) and makes the cage a mesh to sculpt, closing the menu."""
     s = Script()
     object_menu_open(s)
-    s.ftap(*CAGE_MENU_SCULPTABLE)
+    s.ftap(CAGE_MENU_SCULPTABLE)
     s.wait(8)
     return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "space": is_text("sculpt"), "space_switches": near(2),
                                                          "object_chip": lambda v: v.startswith("Full,Sculpt_mesh")})
@@ -13151,7 +13192,7 @@ def object_menu_quick_row_locks_the_object():
     """The object menu's quick row locks the object and closes the menu."""
     s = Script()
     object_menu_open(s)
-    s.ftap(*CAGE_MENU_LOCK)
+    s.ftap(CAGE_MENU_LOCK)
     s.wait(6)
     return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "object_locks": near(1)})
 
@@ -13235,7 +13276,7 @@ def finger_hold_with_a_brush_still_sculpts():
     """With a brush, one finger held still on the model sculpts as before, opening no menu; a quick tap on empty space opens none either."""
     s = Script()
     finger_hold(s, 800, 450)
-    s.ftap(*EMPTY)
+    s.ftap(EMPTY)
     s.wait(6)
     return s, [], camera_still({"object_menu": near(0), "scene_menu": near(0), "dabs": lambda v: int(v) > 0})
 
@@ -13255,7 +13296,7 @@ def offer_line_makes_a_cage_sculptable():
         s.wait(6)
         if not fix:
             return s, ["--script=add_cage cube"], camera_still({"offer": is_text("Apply_Cage"), "space": is_text("sculpt"), "dabs": near(0)})
-        s.ftap(*OFFER_FIX)
+        s.ftap(OFFER_FIX)
         s.wait(8)
         return s, ["--script=add_cage cube"], camera_still({"offer": is_text("None"), "offer_fixes": near(1), "object_chip": lambda v: v.startswith("Full,Sculpt_mesh"), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -13295,15 +13336,15 @@ def paint_toggle_turns_painting_on_and_off():
     """The dock's Paint turns the brushes' painting on (Sculpt + paint) with the colour island over the dock, and off again; Paint only, picked on the island, is what it turns back on."""
     def run(full):
         s = Script()
-        s.ftap(*PAINT_TOGGLE)
+        s.ftap(PAINT_TOGGLE)
         s.wait(6)
         if not full:
             return s, [], camera_still({"paint_channel": is_text("both"), "colour_island": near(1), "dabs": near(0)})
-        s.ftap(*ISLAND_PAINT_ONLY)
+        s.ftap(ISLAND_PAINT_ONLY)
         s.wait(6)
-        s.ftap(*PAINT_TOGGLE)
+        s.ftap(PAINT_TOGGLE)
         s.wait(6)
-        s.ftap(*PAINT_TOGGLE)
+        s.ftap(PAINT_TOGGLE)
         s.wait(6)
         return s, [], camera_still({"paint_channel": is_text("color"), "paint_on": is_text("color"), "colour_island": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -13313,9 +13354,9 @@ def paint_toggle_turns_painting_on_and_off():
 def paint_toggle_off_hides_the_island():
     """A second tap on Paint turns painting off and the colour island goes."""
     s = Script()
-    s.ftap(*PAINT_TOGGLE)
+    s.ftap(PAINT_TOGGLE)
     s.wait(6)
-    s.ftap(*PAINT_TOGGLE)
+    s.ftap(PAINT_TOGGLE)
     s.wait(6)
     return s, [], camera_still({"paint_channel": is_text("sculpt"), "paint_on": is_text("both"), "colour_island": near(0), "dabs": near(0)})
 
@@ -13324,7 +13365,7 @@ def paint_toggle_off_hides_the_island():
 def paint_toggle_lays_colour_as_it_sculpts():
     """With Paint on, a stroke on the model sculpts and paints it in one undo step."""
     s = Script()
-    s.ftap(*PAINT_TOGGLE)
+    s.ftap(PAINT_TOGGLE)
     s.wait(6)
     strokes(s, 1)
     return s, [], {"paint_channel": is_text("both"), "painted_vertices": lambda v: int(v) > 0, "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
@@ -13339,7 +13380,7 @@ def motion_levels_still_open_menus():
         s = Script()
         if off:
             write_settings(f"motion_off {off}\n")
-        s.ftap(*STATUS_CHIP)
+        s.ftap(STATUS_CHIP)
         s.wait(6)
         args = [f"--script=set motion {level}"] + ([f"--settings-file={settings_file()}"] if off else [])
         return s, args, camera_still({"object_menu": near(1), "motion": is_text(level), "motion_off": is_text(off or "none"), "dabs": near(0)})
@@ -13385,9 +13426,9 @@ def a_pinned_visit_stays_in_the_stack():
     s = Script()
     palette_run(s, "object polypaint")
     s.wait(6)
-    s.ftap(*VISIT_MORE)
+    s.ftap(VISIT_MORE)
     s.wait(8)
-    s.ftap(*VISIT_PIN)
+    s.ftap(VISIT_PIN)
     s.wait(8)
     palette_run(s, "object selection sets")
     s.wait(6)

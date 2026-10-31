@@ -123,11 +123,18 @@ are on the device checklist.
 
 ## 5. Writing a new scenario
 - A scenario is a function under `@scenario` returning `(Script, extra_args, checks)`. `Script` builds `--ui-events`
-  frame by frame: `ftap(x, y)`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, button="left|middle|right", keys=...)`,
+  frame by frame: `ftap(x, y)` or `ftap(UI["undo"])`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, button="left|middle|right", keys=...)`,
   `press(key, mods)`, `type("text")` (each letter as its key and as `text:` input, which lands only while a text field
   has the keys, so from about the second frame after the palette opens), or
   `add("pdown:x,y")` and the rest of the raw events (README "App flags"). `line(a, b, n)` makes a path; `past_slop`
   makes one whose first move only crosses the slop, so the rest counts in full.
+- Tap controls by name, not by position: `At("top bar/undo", 25, 25)` (in the `UI` dict) is a control's path in
+  the control map plus where it sat when it was written, and becomes `@top bar/undo` in `--ui-events` (`FRAME:down:@NAME`
+  or `@NAME~DX,DY` for a point that far from its middle). The app finds it in the last frame drawn by its shown label or
+  its `##` key, case-insensitive, with any of its containers before it (`menu body/Settings`); a name it cannot find
+  logs `no control named` and the run exits 2 with `ui_events_unnamed=N`. `build/sculpt --ui-map=PATH --frames=5`
+  writes every control's path and rectangle, a line each, to pick names from. Keep raw points for what has no
+  name: the viewport, knob drags, a spot inside a picture.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,

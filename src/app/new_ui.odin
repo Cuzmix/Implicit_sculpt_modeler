@@ -396,6 +396,7 @@ Kit_State :: struct {
 	},
 	frame:      int, // frames drawn, for --ui-events
 	events_offset: int, // frames a start-up script took, which --ui-events frames count after
+	events_unnamed: int, // --ui-events that named a control no frame drew, which fails the run
 	events:     [dynamic]Kit_Event, // --ui-events, in frame order
 	ms:         f64, // last frame's layout and tessellation, CPU
 }
@@ -605,6 +606,10 @@ Kit_Event :: struct {
 	finger: u64,
 	key:    string, // a key's name, as SDL names keys
 	window: int, // the view window it goes to (1 to VIEW_WINDOWS_MAX), 0 for the main window
+	// The control it lands on, by name (@NAME), instead of `at`: found in the frame before
+	// it, so it follows the control wherever the layout moved it; `at` is then an offset
+	// from the control's middle (@NAME~DX,DY).
+	name:   string,
 }
 
 Kit_Event_Kind :: enum u8 {
@@ -670,8 +675,16 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			ev.window = n
 			parts = parts[1:]
 		}
-		// FRAME:kind, then the kind's own fields: a finger's id, then X,Y.
-		point :: proc(s: string) -> (at: [2]f32, ok: bool) {
+		// FRAME:kind, then the kind's own fields: a finger's id, then X,Y, or @NAME for the
+		// middle of the control of that name, or @NAME~DX,DY for a point that far from it.
+		point :: proc(s: string, ev: ^Kit_Event) -> (at: [2]f32, ok: bool) {
+			if strings.has_prefix(s, "@") {
+				name, _, offset := strings.partition(s[1:], "~")
+				if name == "" do return
+				ev.name = strings.clone(name)
+				if offset == "" do return {}, true
+				return point(offset, ev)
+			}
 			xy := strings.split(s, ",", context.temp_allocator)
 			if len(xy) != 2 do return
 			x, okx := strconv.parse_f32(xy[0])
@@ -686,7 +699,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			switch parts[1] {
 			case "move", "pdown", "pmove", "pedown", "ptilt":
 				ok = len(parts) == 3
-				if ok do ev.at, ok = point(parts[2])
+				if ok do ev.at, ok = point(parts[2], &ev)
 				switch parts[1] {
 				case "move":  ev.kind = .Move
 				case "pdown": ev.kind = .Pen_Down
@@ -697,7 +710,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pcoal":
 				// FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:PRESSURE.
 				ok = len(parts) == 3 || len(parts) == 4
-				if ok do ev.at, ok = point(parts[2])
+				if ok do ev.at, ok = point(parts[2], &ev)
 				ev.value = -1
 				if ok && len(parts) == 4 do ev.value, ok = strconv.parse_f32(parts[3])
 				ev.kind = .Pen_Coalesced
@@ -753,7 +766,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "fdown", "fmove":
 				ok = len(parts) == 4
 				if ok do ev.finger, ok = finger(parts[2])
-				if ok do ev.at, ok = point(parts[3])
+				if ok do ev.at, ok = point(parts[3], &ev)
 				ev.kind = .Finger_Down if parts[1] == "fdown" else .Finger_Move
 			case "fup", "fcancel":
 				ok = len(parts) == 3
@@ -797,6 +810,17 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			target, d = vw.window, &vw.device
 		}
 		scale := kit_content_scale(target) * k.ui_scale
+		ev := ev
+		if ev.name != "" {
+			// Named controls are the main window's interface's.
+			r, count := ui.named_find(&k.ctx, ev.name)
+			if ev.window != 0 || count == 0 {
+				log.errorf("--ui-events: no control named %q on screen at frame %d (write the names with --ui-map)", ev.name, ev.frame)
+				k.events_unnamed += 1
+				continue
+			}
+			ev.at += {r.x + r.w * 0.5, r.y + r.h * 0.5}
+		}
 		w, h: i32
 		_ = sdl.GetWindowSize(target, &w, &h)
 		win := sdl.GetWindowID(target)
@@ -1027,7 +1051,10 @@ kit_floating :: proc(app: ^App) -> bool {
 }
 
 kit_destroy :: proc(app: ^App) {
-	for ev in app.kit.events do delete(ev.key)
+	for ev in app.kit.events {
+		delete(ev.key)
+		delete(ev.name)
+	}
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)

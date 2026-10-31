@@ -301,6 +301,7 @@ Context :: struct {
 	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
 	tip_pressed:    Id, // pressed since the pointer came onto it: no tooltip
 	labels:         Labels, // every control named at once (labels.odin)
+	names:          Names, // every control and where it shows, for scripted input by name (names.odin)
 	toasts:         [TOASTS]Toast,
 	toast_count:    int,
 	toast_serial:   Id,
@@ -401,6 +402,7 @@ destroy :: proc(ctx: ^Context) {
 	delete(ctx.scratch_ids)
 	delete(ctx.select_text)
 	delete(ctx.select_ends)
+	names_destroy(&ctx.names)
 	ctx^ = {}
 }
 
@@ -411,6 +413,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if ctx.input.pixel_density <= 0 do ctx.input.pixel_density = 1
 	ctx.clicked_now = false
 	ctx.marked = {}
+	names_frame(ctx)
 	ctx.fonts.cache.frame += 1
 	// A frame that took long (a remesh) moves animations on by at most a tenth of a
 	// second, so a panel does not skip from start to end mid-animation.
@@ -513,7 +516,9 @@ viewport_dragging :: proc(ctx: ^Context) -> bool {
 id_of :: proc(ctx: ^Context, label: string) -> Id {
 	seed := ctx.id_seed
 	if n := len(ctx.stack); n > 0 do seed = ctx.stack[n - 1].id
-	return hash_under(seed, label)
+	id := hash_under(seed, label)
+	if ctx.names.on do names_seen(ctx, id, seed, label)
+	return id
 }
 
 // The id `label` has in the container whose id is `parent` (0 at the root, outside every
@@ -903,6 +908,7 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 	inside_clip := rect_contains(ctx.clip, in_input.mouse * d)
 	over := in_input.mouse_valid && !ctx.viewport_drag && !ctx.swallow && root == ctx.pointer_root && rect_contains(r, in_input.mouse) && inside_clip
 	hit_extend(ctx, r)
+	if ctx.names.on do names_place(ctx, id, r)
 	// Hit areas may overlap a little (each is at least a touch target, larger than what
 	// is drawn); the first widget laid out under the pointer takes it.
 	if over && (ctx.active == 0 || ctx.active == id) && (ctx.hot == 0 || ctx.hot == id) do ctx.hot = id
