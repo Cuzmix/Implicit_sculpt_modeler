@@ -43,6 +43,7 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	cpu_cull:  bool `usage:"Cull chunks on the CPU for this run, as Stats > Drawing > Cull on the GPU off does, where the GPU could (for comparison)."`,
+	gpu_cull:  bool `usage:"Cull chunks on the GPU for this run where it is offered but starts off: a tablet's or phone's tile GPU (for comparison; Stats > Drawing > Cull on the GPU)."`,
 	dump_cull: bool `usage:"Check GPU culling against the CPU's: at exit, print cull_meshes=, cull_commands= and cull_mismatch= (triangles the two disagree on) for each mesh's last pass."`,
 	system_palms: bool `usage:"Act as an iPad does, whose system rejects a hand resting on the screen while its pen is in use: only the pen's tip, and the fifth of a second after it lifts, makes a lone finger a palm, not the pen hovering near (for testing that on a desktop)."`,
 	pen_no_leave: bool `usage:"Act as the iPad's SDL does, which never says that the pen left: the pen then counts as gone half a second after its last report while its tip is up (for testing that on a desktop)."`,
@@ -678,7 +679,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
-	app.renderer.gpu_cull = !opts.cpu_cull
+	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
 	app.renderer.partial = !opts.no_partial
 	app.renderer.tile_msaa = opts.tile_msaa
