@@ -111,7 +111,7 @@ layer_pictures_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_It
 		for d in draws do if d.mesh == gpu do append(&items, d)
 		if len(items) == 0 do continue
 		view, proj := layer_picture_camera(app, box_to_world(obj, local))
-		pane := color_f32(LOOK_THEMES[app.kit.look].pane)
+		pane := color_f32(theme_current(&app.kit).pane)
 		if render.step_pictures_draw(&app.renderer, &app.layer_pictures, cmd, i, view, proj, items[:], pane) {
 			s.drawn = s.want
 			ls.drawn += 1

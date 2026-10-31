@@ -81,7 +81,7 @@ step_pictures_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4,
 		0, 0, 1, 0,
 		0, 0, 0, 1,
 	}
-	pane := color_f32(LOOK_THEMES[app.kit.look].pane)
+	pane := color_f32(theme_current(&app.kit).pane)
 	if !render.step_pictures_draw(&app.renderer, &app.step_pictures, cmd, sp.next, view, narrow * proj, draws, pane) do return
 	sp.at[sp.next] = at
 	sp.next = (sp.next + 1) % render.STEP_PICTURE_SLOTS

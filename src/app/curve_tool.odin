@@ -3,10 +3,12 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
+import "core:strings"
 import "core:time"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 import "../sculpt"
 import "../ui"
 import "../voxel"
@@ -19,6 +21,7 @@ import "../voxel"
 // booleans straight away (a cylinder marked Subtract drills a hole).
 
 Curve_Kind :: enum u8 {
+	Curve, // a curve object, editable until baked (curve_object.odin)
 	Tube,
 	Stitches,
 	Zipper,
@@ -34,6 +37,22 @@ Curve_Tool :: struct {
 	points: [dynamic]geom.Curve_Point,
 	screen: [dynamic][2]f32,
 	radius: f32, // the brush's radius in world units where the path began
+	// Points tapped one by one for a curve (world space), until Enter, Done or a tap on the
+	// first point ends it.
+	placing: [dynamic]Vec3,
+	placing_n: [dynamic]Vec3, // the surface's normal under each, for a tube's lift
+	made:    int, // curve objects made, for the exit stats
+	// Tubes made again after an edit, and how long the last took, for the exit stats.
+	rebuilds: int,
+	tube_ms:  f64,
+	bakes:    int,
+	// Editing the selected curve (curve_edit.odin): the press under way, the point picked
+	// for the context bar (from 1; 0 for none) and edits made, for the exit stats.
+	drag:    Curve_Drag,
+	picked:  int,
+	edits:   int,
+	// A Use or tube slider's drag on the selected curve, one undo step when it lets go.
+	look_drag: Curve_Look_Drag,
 }
 
 Insert_Tool :: struct {
@@ -57,13 +76,18 @@ INSERT_DEFAULTS :: Insert_Tool{shape = .Sphere, vertices = 20_000, sink = 0.3}
 curve_tool_destroy :: proc(c: ^Curve_Tool) {
 	delete(c.points)
 	delete(c.screen)
+	delete(c.placing)
+	delete(c.placing_n)
+	if c.drag.before != nil do history_snapshot_drop(c.drag.before)
 }
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
-scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit, normal: Vec3, ok: bool) {
+// With `skip_curves`, a curve's tube is passed through, so a curve drawn or edited never
+// lands on a tube, its own above all.
+scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3, skip_curves := false) -> (index: int, hit, normal: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
-		if !object_pickable(app, obj) do continue
+		if !object_pickable(app, obj) || (skip_curves && obj.curve != nil) do continue
 		t := obj.transform
 		s := object_sculptor(obj)
 		lo, ld := to_local(t, origin), to_local_dir(t, dir)
@@ -94,6 +118,8 @@ scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit,
 // Follows a Curve drag; on release makes its object. Returns false only on a GPU failure.
 curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
+	// A press on the selected curve's points, handles or line edits it instead.
+	if curve_kind_draws(c.kind) && !c.active && curve_edit_frame(app, input) do return true
 	if input.primary {
 		if input.press {
 			c.active = true
@@ -105,7 +131,110 @@ curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	}
 	if !c.active do return true
 	c.active = false
+	if curve_kind_draws(c.kind) {
+		curve_drawn(app, input.mouse_pos, input.size)
+		return true
+	}
 	return curve_make(app)
+}
+
+// Whether a kind draws a curve object (Curve, and Tube as a curve whose use is Tube) rather
+// than making a mesh straight away.
+curve_kind_draws :: proc(kind: Curve_Kind) -> bool {
+	return kind == .Curve || kind == .Tube
+}
+
+// Makes a curve object of `points` for the tool's kind: Tube lifts the points along the
+// surface's normals by Lift radii and sweeps a tube of the tool's sides along them.
+@(private = "file")
+curve_kind_add :: proc(app: ^App, points: []geom.Bezier_Point, normals: []Vec3, closed: bool) {
+	c := &app.curve
+	if c.kind != .Tube {
+		_ = curve_object_add(app, points, closed)
+		return
+	}
+	for &p, i in points do p.p += normals[i] * (c.lift * p.radius)
+	tube := geom.TUBE_DEFAULTS
+	tube.one = c.radius * c.size
+	tube.sides = int(clamp(c.sides, 3, geom.TUBE_SIDES_MAX))
+	_ = curve_object_add(app, points, closed, .Tube, tube)
+}
+
+// How far a press may move on screen and still be a tap that places a point.
+CURVE_TAP_PX :: 6
+
+// How closely a freehand curve follows the path drawn, as a share of the brush's radius:
+// more keeps fewer points.
+CURVE_FIT_TOLERANCE :: 0.25
+
+// Ends a press of the Curve kind at `pos`: a drag becomes a curve object fitted to its
+// path; a tap places a point, and a tap on the first of three or more closes the curve.
+curve_drawn :: proc(app: ^App, pos, size: [2]f32) {
+	c := &app.curve
+	defer {
+		clear(&c.points)
+		clear(&c.screen)
+	}
+	travel: f32
+	for i in 1 ..< len(c.screen) do travel += linalg.length(c.screen[i] - c.screen[i - 1])
+	if len(c.points) >= 2 && travel > CURVE_TAP_PX {
+		path := make([]Vec3, len(c.points), context.temp_allocator)
+		for p, i in c.points do path[i] = p.p
+		points, source := geom.bezier_fit(path, CURVE_FIT_TOLERANCE * c.radius, context.temp_allocator)
+		normals := make([]Vec3, len(points), context.temp_allocator)
+		for &p, i in points {
+			p.radius, p.intensity = c.radius * c.size, 1
+			normals[i] = c.points[source[i]].n
+		}
+		curve_kind_add(app, points, normals, false)
+		clear(&c.placing)
+		clear(&c.placing_n)
+		return
+	}
+	// A tap on the first point placed closes the curve.
+	if len(c.placing) >= 3 {
+		view_proj := edit_view_proj(app, size)
+		if first, ok := gizmo.project(view_proj, c.placing[0], size); ok && linalg.length(first - pos) < CURVE_PICK_PX {
+			curve_place_finish(app, true)
+			return
+		}
+	}
+	origin, dir := mouse_ray(app.camera, pos, size)
+	if _, hit, n, ok := scene_raycast_surface(app, origin, dir, skip_curves = true); ok {
+		if len(c.placing) == 0 do c.radius = app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)
+		append(&c.placing, hit)
+		append(&c.placing_n, n)
+	} else if len(c.placing) > 0 {
+		// Off the model, on the plane facing the view through the last point, lifted toward
+		// the viewer.
+		last := c.placing[len(c.placing) - 1]
+		facing := camera.orbit_toward(app.camera, last)
+		if den := linalg.dot(dir, facing); abs(den) > 1e-6 {
+			append(&c.placing, origin + dir * (linalg.dot(last - origin, facing) / den))
+			append(&c.placing_n, -facing)
+		}
+	}
+}
+
+// Makes the points placed one by one into a curve object (closed or not), smooth through
+// each as a Catmull-Rom spline is: each handle a sixth of the way between its neighbours.
+// Fewer than two points make nothing. Enter ends an open curve.
+curve_place_finish :: proc(app: ^App, closed: bool) {
+	c := &app.curve
+	defer {
+		clear(&c.placing)
+		clear(&c.placing_n)
+	}
+	n := len(c.placing)
+	if n < 2 do return
+	points := make([]geom.Bezier_Point, n, context.temp_allocator)
+	for p, i in c.placing {
+		prev := c.placing[(i + n - 1) % n] if closed || i > 0 else p
+		next := c.placing[(i + 1) % n] if closed || i < n - 1 else p
+		way := (next - prev) / 6
+		points[i] = {p = p, h_in = -way, h_out = way, radius = c.radius * c.size, intensity = 1}
+	}
+	curve_kind_add(app, points, c.placing_n[:], closed)
 }
 
 // Adds the surface point under `pos` (a viewport point) to the path, when there is one
@@ -113,7 +242,7 @@ curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 curve_add_point :: proc(app: ^App, pos, size: [2]f32) {
 	c := &app.curve
 	origin, dir := mouse_ray(app.camera, pos, size)
-	_, hit, n, ok := scene_raycast_surface(app, origin, dir)
+	_, hit, n, ok := scene_raycast_surface(app, origin, dir, skip_curves = true)
 	if !ok do return
 	if len(c.points) == 0 do c.radius = app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)
 	if len(c.points) > 0 && linalg.length(hit - c.points[len(c.points) - 1].p) < 0.05 * c.radius do return
@@ -134,11 +263,8 @@ curve_make :: proc(app: ^App) -> bool {
 	mesh: geom.Mesh
 	made: bool
 	switch c.kind {
-	case .Tube:
-		r := width / 2
-		sides := int(clamp(c.sides, 3, 64))
-		path := geom.curve_resample(c.points[:], 2 * 3.14159 * r / f32(sides), 3, context.temp_allocator)
-		mesh, made = geom.curve_tube(path, r, c.lift * r, sides)
+	case .Curve, .Tube:
+		return true
 	case .Stitches, .Zipper:
 		stitch := c.kind == .Stitches
 		path := geom.curve_resample(c.points[:], width * (0.6 if stitch else 0.28), 3, context.temp_allocator)
@@ -254,6 +380,15 @@ insert_make :: proc(app: ^App, at, normal: Vec3, half: f32) -> bool {
 draw_curve_overlay :: proc(app: ^App, o: Overlay) {
 	color := overlay_color({0.4, 0.85, 1, 1})
 	if c := &app.curve; c.active && len(c.screen) >= 2 do overlay_polyline(o, c.screen[:], color, 2)
+	// The points placed so far, joined, the first larger since a tap on it closes the curve.
+	if c := &app.curve; len(c.placing) > 0 {
+		size := app.ui.viewport_size
+		view_proj := edit_view_proj(app, size)
+		line := make([dynamic][2]f32, 0, len(c.placing), context.temp_allocator)
+		for p in c.placing do if at, ok := gizmo.project(view_proj, p, size); ok do append(&line, at)
+		if len(line) >= 2 do overlay_polyline(o, line[:], color, 2)
+		for at, i in line do overlay_disc(o, at, (6 if i == 0 else 4) * o.scale, color)
+	}
 	if s := &app.insert; s.active do overlay_circle(o, s.start, s.px, color, 1.5)
 }
 
@@ -270,6 +405,66 @@ kit_curve_settings :: proc(app: ^App) {
 		sides := f32(c.sides)
 		if ui.slider(ctx, "Sides", &sides, 3, 64, .Linear, fmt.tprintf("%d", c.sides)) do c.sides = i32(sides + 0.5)
 	}
+	if obj := selected_curve(app); obj != nil do kit_curve_look(app, obj)
+}
+
+// The selected curve's own settings under the tool's: what it makes and, for a tube, its
+// profile, radius, sides, density and caps. Each change is a Curve_Look command, one undo
+// step; a slider's drag is one step when it lets go.
+@(private = "file")
+kit_curve_look :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.curve
+	o := cp.tube
+	set :: proc(app: ^App, use: Curve_Use, o: geom.Tube_Options, drag := false) {
+		app.ui.scene_command = {kind = .Curve_Look, curve_use = use, tube = o, look_drag = drag}
+	}
+	ui.caption(ctx, strings.to_upper(object_label(obj), context.temp_allocator))
+	// The uses built so far; Lathe, Along and Brush path join them as they come.
+	USES :: [?]string{"Line", "Tube"}
+	uses := USES
+	if picked := ui.tabs(ctx, "curve use", uses[:], min(int(cp.use), len(uses) - 1)); picked >= 0 do set(app, Curve_Use(picked), o)
+	if cp.use != .Tube do return
+	profiles := [len(geom.Tube_Profile)]string{"Round", "Square", "Ribbon", "Star", "Half"}
+	if picked := ui.tabs(ctx, "tube profile", profiles[:], int(o.profile)); picked >= 0 {
+		o.profile = geom.Tube_Profile(picked)
+		set(app, cp.use, o)
+	}
+	radii := [len(geom.Tube_Radius)]string{"One radius", "Ends", "Each point"}
+	if picked := ui.tabs(ctx, "tube radius", radii[:], int(o.radius)); picked >= 0 {
+		o.radius = geom.Tube_Radius(picked)
+		// One starts from the points' mean, so the tube keeps its size.
+		if o.radius == .One {
+			mean: f32
+			for p in cp.points do mean += p.radius
+			o.one = mean / f32(len(cp.points))
+		}
+		set(app, cp.use, o)
+	}
+	if o.radius == .One {
+		r := o.one * obj.transform.scale
+		if ui.slider(ctx, "Radius", &r, 1e-3, 1, .Logarithmic, fmt.tprintf("%.3f", r)) {
+			o.one = r / obj.transform.scale
+			set(app, cp.use, o, true)
+		}
+	}
+	sides := f32(o.sides)
+	if ui.slider(ctx, "Tube sides", &sides, 3, geom.TUBE_SIDES_MAX, .Linear, fmt.tprintf("%d", o.sides)) {
+		o.sides = int(sides + 0.5)
+		set(app, cp.use, o, true)
+	}
+	if ui.slider(ctx, "Density", &o.density, 0.25, 8, .Logarithmic, fmt.tprintf("%.2f rings a radius", o.density)) do set(app, cp.use, o, true)
+	if !cp.closed {
+		caps := [len(geom.Tube_Caps)]string{"Flat caps", "Round caps", "Open"}
+		if picked := ui.tabs(ctx, "tube caps", caps[:], int(o.caps)); picked >= 0 {
+			o.caps = geom.Tube_Caps(picked)
+			set(app, cp.use, o)
+		}
+	}
+	if o.profile == .Ribbon {
+		if ui.slider(ctx, "Flatness", &o.flatness, 0.02, 1, .Linear, fmt.tprintf("%.2f", o.flatness)) do set(app, cp.use, o, true)
+	}
+	_ = command_button(app, .Curve_Bake, width = ui.fill_width(ctx))
 }
 
 // The Insert tool's settings in the interface: a shape, or a copy of an object.

@@ -35,6 +35,8 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 		if app.tool == .Move do break
 		if kind == .Cage {
 			offer = {fmt.tprintf("%s is a cage", name), "Sculpt needs a mesh", .Apply_Cage, 0, "Make sculptable"}
+		} else if kind == .Curve && app.tool != .Curve {
+			offer = {fmt.tprintf("%s is a curve", name), "Sculpt needs a mesh", .Curve_Bake, 0, "Bake to mesh"}
 		} else if kind == .Voxel_Clay && app.tool == .Brush {
 			if _, ok := voxel_brush_of({kind = app.brush.kind}, {}); !ok {
 				offer = {fmt.tprintf("%s is voxel clay", name), fmt.tprintf("%s needs a mesh", BRUSHES[app.brush.kind].name), .Convert_To_Mesh, 0, "Convert to mesh"}
@@ -43,7 +45,7 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 	case .Model:
 		if app.tool != .Model do break
 		switch kind {
-		case .Cage:
+		case .Cage, .Curve:
 		case .Voxel_Clay:
 			offer = {fmt.tprintf("%s is voxel clay", name), "Model edits a cage", .Convert_To_Mesh, 0, "Make a mesh to edit"}
 		case .Sculpt_Mesh:
@@ -71,6 +73,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	if obj == nil do return ""
 	if obj.cage != nil && id in CAGE_REFUSED_COMMANDS do return fmt.tprintf("%s is a cage: Make sculptable first, or edit it with the Model tool", object_label(obj))
 	if obj.voxel != nil && id in VOXEL_REFUSED_COMMANDS do return fmt.tprintf("%s is voxel clay: Convert to mesh first", object_label(obj))
+	if obj.curve != nil && id in CURVE_REFUSED_COMMANDS do return fmt.tprintf("%s is a curve: it has no surface", object_label(obj))
 	return ""
 }
 
@@ -83,6 +86,9 @@ VOXEL_REFUSED_COMMANDS :: Command_Set{
 	.Delete_Hidden, .Weld_Points, .Fix_Mesh, .Delete_Half, .Retopologize, .Extract_Masked, .Split_Object, .Merge_Down,
 	.Merge_Visible, .Remove_Textures,
 }
+
+// The commands a curve refuses: those of a voxel object and a cage, as it has no surface.
+CURVE_REFUSED_COMMANDS :: VOXEL_REFUSED_COMMANDS + CAGE_REFUSED_COMMANDS
 
 // The offer line, in the action bar's place over the dock (it keeps the bar's name, so
 // what keeps clear of the bar keeps clear of it): the object's type icon in amber, what it

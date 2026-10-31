@@ -199,6 +199,7 @@ KIND_GLYPHS := [History_Kind]rune {
 	.Textures  = ui.ICON_IMAGE,
 	.Lights    = ui.ICON_SUN,
 	.Model     = ICON_CAGE,
+	.Curve     = ui.ICON_SPLINE,
 }
 
 // One row: a tap goes to its step (a group's newest), a long press, a right click or the

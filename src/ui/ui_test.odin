@@ -1888,3 +1888,50 @@ layout_faults_are_counted :: proc(t: ^testing.T) {
 	testing.expect_value(t, ctx.overlaps_prev, 0)
 	frame_end(&ctx)
 }
+
+// A hint's short line is its text's first sentence: a full stop inside a number or after
+// a lower-case word does not end it.
+@(test)
+a_hint_shows_the_first_sentence :: proc(t: ^testing.T) {
+	testing.expect_value(t, hint_short("Shorter is quicker. Below about 0.2 s a tap may open it."), "Shorter is quicker.")
+	testing.expect_value(t, hint_short("Waits 0.5 s, e.g. for a slow tap."), "Waits 0.5 s, e.g. for a slow tap.")
+	testing.expect_value(t, hint_short("Is it on? Then it shows."), "Is it on?")
+	testing.expect_value(t, hint_short("One line\nand another."), "One line")
+}
+
+// With hints on a long paragraph takes one hint line, a tap on it opens the whole text,
+// and a warning in its own colour still shows whole.
+@(test)
+a_hint_opens_its_whole_text :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	LONG :: "The first sentence is short. The rest goes on for long enough to need several lines in a column this narrow, so it waits behind the question mark."
+	frame := proc(ctx: ^Context, input: Input, hints: bool, color: Color = {}) -> Rect {
+		frame_begin(ctx, input)
+		ctx.hints = hints
+		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
+		paragraph(ctx, LONG, color = color)
+		r := ctx.last_rect
+		end(ctx)
+		return r
+	}
+	whole := frame(&ctx, input_at({500, 500}), false)
+	frame_end(&ctx)
+	hint := frame(&ctx, input_at({500, 500}), true)
+	frame_end(&ctx)
+	testing.expect_value(t, hint.h, f32(HINT_H))
+	testing.expect(t, whole.h > hint.h)
+	warning := frame(&ctx, input_at({500, 500}), true, ctx.theme.warning)
+	frame_end(&ctx)
+	testing.expect_value(t, warning.h, whole.h)
+	mid := [2]f32{hint.x + 40, hint.y + hint.h * 0.5}
+	_ = frame(&ctx, input_at(mid), true)
+	frame_end(&ctx)
+	_ = frame(&ctx, input_at(mid, down = {.Left}, pressed = {.Left}), true)
+	frame_end(&ctx)
+	_ = frame(&ctx, input_at(mid, released = {.Left}), true)
+	frame_end(&ctx)
+	testing.expect(t, ctx.hint_open != 0)
+	testing.expect_value(t, string(ctx.hint_text[:]), LONG)
+}

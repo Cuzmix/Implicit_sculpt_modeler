@@ -287,6 +287,20 @@ orbit_zoom_toward :: proc(c: ^Orbit, factor: f32, offset: Vec2, viewport_height:
 	c.target += (right * from.x - up * from.y) * per_pixel_change
 }
 
+// Moves the target along the view to `depth` in front of the eye, keeping the eye and
+// everything on screen where they are, so a zoom or roll about a point (orbit_zoom_toward,
+// orbit_roll_about) keeps the plane at that depth exactly: a pinch over the model then
+// holds the surface between the fingers rather than the target's plane behind it, and
+// zooms in toward that surface at its own pace, as ZBrush, Nomad and Procreate do. A
+// parallel view, whose width is the distance, keeps every depth anyway and is left alone.
+orbit_rebase :: proc(c: ^Orbit, depth: f32) {
+	if c.ortho || depth <= 0 do return
+	_, _, back := orbit_basis(c^)
+	eye := orbit_eye(c^)
+	c.distance = clamp(depth, MIN_DISTANCE, MAX_DISTANCE)
+	c.target = eye - back * c.distance
+}
+
 // The turn a leaning pen gives the brush (the direction it pushes along): `tilt` is the
 // pen's lean in degrees, x to the right and y toward the bottom of the screen, as SDL
 // reports it, and `strength` how much of it the brush follows. The brush direction

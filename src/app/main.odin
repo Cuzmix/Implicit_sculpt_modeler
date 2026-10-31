@@ -137,6 +137,7 @@ App :: struct {
 		built:   bool,
 	},
 	stroke:   Stroke,
+	stroke_edit: Stroke_Edit, // the stroke held to edit, while one is (stroke_edit.odin)
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
@@ -574,6 +575,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer print_checks_stop(&app)
 	// A look slider still held when the app ends has its snapshot unrecorded.
 	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
+	defer if app.curve.look_drag.before != nil do history_snapshot_drop(app.curve.look_drag.before)
 	timeline_init(&app.timeline)
 	defer timeline_destroy(&app.timeline)
 	app.history.began = time.tick_now()
@@ -585,6 +587,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(app.drag.held)
 	defer delete(app.dab_wait.samples)
 	defer delete(app.stroke.pending)
+	defer delete(app.stroke.path)
+	defer stroke_edit_destroy(&app.stroke_edit)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
 	defer symmetry_lines_destroy(&app.sym_lines)

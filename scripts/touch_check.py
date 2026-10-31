@@ -18,7 +18,7 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py tap_ui pinch    # only these
     python scripts/touch_check.py 'long_press*'   # every scenario whose name matches
     python scripts/touch_check.py --jobs=1        # one at a time (default: one per CPU)
-    python scripts/touch_check.py --screens       # also write build/touch/<name>.png (of the last run)
+    python scripts/touch_check.py --screens       # also write build/touch/<name>.png and .map (of the last run)
     python scripts/touch_check.py x --screen-run=2  # ...of run 2 instead, to look at a middle state
     python scripts/touch_check.py --exe=PATH      # another build of the app (a copy, so a rebuild meanwhile is safe)
 The window is 1600 x 900 points, the default layout; positions below are in points.
@@ -682,7 +682,7 @@ COLORS = "--script=colors_card"
 
 # The Colour section's well with the Paint brush (the Brush card's Colour group), and the
 # popover's first Skin swatch, left of it, at 1600 by 900.
-COLOUR_WELL, POPOVER_SKIN = (1321, 597), (901, 806)
+COLOUR_WELL, POPOVER_SKIN = At("stack Brush/Pick a colour", 1322, 514), At("colour popover/#F8E1D4", 902, 806)
 
 
 @scenario
@@ -939,11 +939,55 @@ def look_switch_is_remembered():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "interface")
-    s.ftap(1081, 248)  # Graphite, right of Lens and Studio
+    s.ftap(LOOK_CARD_GRAPHITE)
     s.wait(4)
     s.ftap(SETTINGS_CLOSE)
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "@saved": saved(look="Graphite")})
+    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "theme_draft": near(0), "@saved": saved(look="Graphite")})
+
+
+# Settings > Interface > Look at 1600 x 900: the gallery's Graphite card (third of the first
+# row, under the draft's row), the blue accent swatch and the draft's Keep as new.
+LOOK_CARD_GRAPHITE = (893, 350)
+LOOK_ACCENT_BLUE = (704, 586)
+LOOK_KEEP = (756, 276)
+# The Paper card, and its menu's Duplicate once a long press opened it.
+LOOK_CARD_PAPER = (990, 350)
+LOOK_MENU_DUPLICATE = (1014, 430)
+
+
+@scenario
+def look_card_menu_duplicates():
+    """Settings > Interface > Look: a long press on the Paper card opens its menu without choosing it; Duplicate makes "Paper 2", a theme of one's own, and shows it; the settings file keeps it."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_CARD_PAPER, hold=40)
+    s.wait(10)
+    s.ftap(LOOK_MENU_DUPLICATE)
+    s.wait(6)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Paper%202"), "theme_mode": is_text("Light"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "@saved": saved_line("look_user 0")})
+
+
+@scenario
+def look_theme_kept():
+    """Settings > Interface > Look: an accent swatch makes a draft of Lens at once; Keep as new saves it as "Lens 2", a theme of one's own, which the settings file keeps."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_ACCENT_BLUE)
+    s.wait(4)
+    s.ftap(LOOK_KEEP)
+    s.wait(4)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Lens%202"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "theme_accent": is_text("#5b8cff"), "@saved": saved(look_user="0")})
 
 
 @scenario
@@ -1107,10 +1151,11 @@ MASK_STEPS = on_card((1376, 412), "object")
 
 @scenario
 def slider_drag_sideways():
-    """A sideways finger drag on the Brush card's Strength slider sets it, without orbiting or scrolling."""
+    """A sideways finger drag on the Brush card's Strength slider (there while the island holds only Size) sets it, without orbiting or scrolling."""
     s = Script()
+    s.wait(6)
     s.fdrag(line((1376, 273), (1466, 275), 12))
-    return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
+    return s, value_bars(island=[("Size", "Slider")]), camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
 @scenario
@@ -1186,6 +1231,213 @@ def join_strokes_by_pen():
 
 
 @scenario
+def hold_to_edit_by_pen():
+    """A pen stroke held still at its end opens for editing and stays open when the pen
+    lifts; Enter keeps it as one undo step. A second stroke held, then Escape, puts it back
+    with nothing recorded."""
+    s = Script()
+    for k, key in enumerate(["Return", "Escape"]):
+        y = 420 + 90 * k
+        s.add("pnear")
+        s.add(f"pdown:720,{y}")
+        for x, yy in line((720, y), (860, y + 30), 10)[1:]:
+            s.wait(1)
+            s.add(f"pmove:{x:g},{yy:g}")
+        s.wait(45)  # held still past Hold for (0.45 s)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(3)
+        s.press(key)
+    return s, [], camera_still({"stroke_edits": near(2), "stroke_edit_open": lambda v: v == "false", "undo_steps": near(1)})
+
+
+@scenario
+def hold_to_edit_shows_its_curve():
+    """A held pen stroke left open: its curve, handles and dots over the model and the
+    context bar's Stroke group (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:700,470")
+    for x, y in [(730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)]:
+        s.wait(2)
+        s.add(f"pmove:{x},{y}")
+    s.wait(45)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, [], camera_still({"stroke_edits": near(1), "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
+def stamp_edit_by_pen():
+    """A Rectangle stamp dragged out by pen stays open when the pen lifts; a drag inside
+    its ring slides it over the model, and Enter keeps it as one undo step."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (840, 460), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pdown:765,465")
+    for x, y in line((765, 465), (765, 525), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1), "stroke_edit_open": lambda v: v == "false",
+                                                              "undo_steps": near(1)})
+
+
+@scenario
+def stamp_edit_shows_its_ring():
+    """A Rectangle stamp left open: its notched ring with the orange 0° notch, the blue turn
+    dot, the white size square, the green intensity dot, the angle and the context bar's
+    Validate and Cancel (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (830, 410), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1),
+                                                              "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
+def curve_drawn_by_pen_undone_and_redone():
+    """The Curve tool's Curve kind: a pen drag over the model makes a curve object of a few
+    points (one undo step); Ctrl+Z takes it away and Ctrl+Shift+Z brings it back."""
+    s = Script()
+    pen_stroke(s, [(700, 470), (730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)])
+    s.wait(3)
+    s.press("z", ("ctrl",))
+    s.wait(2)
+    s.press("z", ("ctrl", "shift"))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curves_made": near(1),
+                                                                     "curve_points": lambda v: 2 <= int(v) <= 12, "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def curve_placed_by_taps_shows_its_line():
+    """Three pen taps on the model and a tap back on the first close a curve, drawn over the
+    model as a line with its points while selected (look with --screens)."""
+    s = Script()
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(5)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_placing": near(0),
+                                                                     "undo_steps": near(1)})
+
+
+@scenario
+def curve_edited_by_pen():
+    """A curve of three tapped points (closed by a tap on the first), then by pen one of its
+    points dragged, one undo step, which Ctrl+Z takes back. Shows the points, orange handles
+    and radius dots over the model (look with --screens)."""
+    s = Script()
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+    s.press("z", ("ctrl",))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_edits": near(1),
+                                                                     "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
+
+
+def tube_loop(s):
+    """Three pen taps and a tap back on the first: a closed curve making a tube, then its
+    second point dragged by pen, which makes the tube again."""
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+
+
+@scenario
+def tube_drawn_by_pen_follows_its_points():
+    """A closed curve of tapped points with Tube makes a live tube, which a dragged point
+    reshapes (one undo step each); shows the tube with the curve's points over it (look with
+    --screens)."""
+    s = Script()
+    tube_loop(s)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_points": near(3),
+                                                                    "curve_edits": near(1), "curve_rebuilds": lambda v: int(v) >= 1,
+                                                                    "curve_tube_vertices": lambda v: int(v) > 100, "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_from_the_palette_and_undone():
+    """A tube curve baked by the palette's Bake curve becomes a mesh object in its place (the
+    curve goes, one undo step), and Ctrl+Z brings the curve and its tube back."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_bakes": near(1),
+                                                                    "objects": near(2), "undo_steps": near(2), "redo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_is_a_mesh():
+    """After Bake the scene holds the sphere and the baked tube, and no curve; Bake's two
+    entries (the mesh added, the curve deleted) are one step, chained."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(0), "curve_bakes": near(1), "objects": near(2),
+                                                                    "undo_steps": near(4), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
@@ -1220,10 +1472,13 @@ def roll_stroke_by_finger():
 @scenario
 def drag_dot_stroke_by_finger():
     """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
-    moves, and is one undo step."""
+    moves; the stamp stays open to edit when the finger lifts (Edit stamps), and Enter
+    keeps it as one undo step."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
-    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1), "stamp_edits": near(1)})
 
 
 @scenario
@@ -1282,10 +1537,30 @@ def orbit_default_is_turntable():
 
 @scenario
 def pinch_zoom():
-    """Two fingers spreading three times apart zoom three times closer."""
+    """Two fingers spreading three times apart over empty space zoom three times closer,
+    about the plane through the view's middle since nothing lies between them."""
     s = Script()
-    s.fingers([(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20)
+    s.fingers([(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20)
     return s, [], {"camera_distance": near(3.5 / 3, 0.02), "dabs": near(0), "camera_yaw": near(0.6), "camera_pitch": near(0.35)}
+
+
+@scenario
+def pinch_zooms_toward_the_surface_between_the_fingers():
+    """Two fingers spreading four times apart over the sphere's upper right zoom toward the
+    surface between them: the view's middle moves to that surface's depth, so the eye ends a
+    quarter of its depth away (not the 3.5 / 4 a zoom about the middle's plane gives) and
+    the target leaves the origin toward the fingers."""
+    s = Script()
+    mid = (850, 330)
+    s.fingers([(mid[0] - 40, mid[1]), (mid[0] + 40, mid[1])], [(-120, 0), (120, 0)], 20)
+    # The surface's depth along the view from the default eye.
+    hit = sphere_normal_under(*mid)
+    yaw, pitch = 0.6, 0.35
+    back = (math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch))
+    depth = 3.5 - sum(h * b for h, b in zip(hit, back))
+    return s, [], {"dabs": near(0), "camera_distance": near(depth / 4, 0.02),
+                   "camera_yaw": near(0.6), "camera_pitch": near(0.35),
+                   "@target_moved": lambda st: math.dist(tuple(float(v) for v in st["camera_target"].split(",")), (0, 0, 0)) > 0.3}
 
 
 @scenario
@@ -2398,9 +2673,9 @@ def changed_touch_setting_takes_effect():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "touch")
-    s.ftap(1063, 394)  # One finger on the model
+    s.ftap(At("gesture row One finger on the model/One finger on the model", 1063, 348))
     s.wait(6)
-    s.ftap(1010, 488)  # Turn the view
+    s.ftap(At("select list/Turn the view", 1010, 442))
     s.wait(4)
     s.ftap(SETTINGS_CLOSE)
     s.wait(10)
@@ -2426,7 +2701,7 @@ def rapid_taps():
 # The Mask section's More options row, where the tray shows it at 1600 x 900: with no mask
 # command run yet, and after one, whose "Last:" line moves it down.
 MASK_MORE = on_card((1275, 687), "object")
-MASK_MORE_AFTER_LAST = on_card((1275, 711), "object")
+MASK_MORE_AFTER_LAST = At("stack Mask/more", 1378, 433)
 
 
 def select_page(s):
@@ -2471,7 +2746,7 @@ def show_every_option_needs_no_fold():
 
 
 # The Mask by Apply button once the tray is dragged 600 px up, with every option shown.
-MASK_BY_APPLY = on_card((1378, 762), "object")
+MASK_BY_APPLY = At("stack Mask/Apply", 1378, 419)
 
 
 @scenario
@@ -2491,7 +2766,7 @@ def mask_by_from_the_section():
 
 
 # Hide, clip and slice's Grow at 1600 x 900 with every option shown.
-HIDE_GROW = on_card((1302, 670), "object")
+HIDE_GROW = At("stack Visibility/Grow", 1302, 399)
 
 
 @scenario
@@ -2597,9 +2872,9 @@ def coach_card_clears_the_bars_on_a_narrow_window():
 
 
 # The Brush card's Preset group, as palettes_only("preset") opens it.
-PRESET_SAVE_NEW = on_card((1303, 483), "brush")  # Save as preset, on a plain brush
-PRESET_NAME = on_card((1378, 483), "brush")  # on a preset: its name field
-PRESET_REVERT = on_card((1451, 537), "brush")
+PRESET_SAVE_NEW = At("Save as preset|Reset brush/Save as preset", 1303, 330)  # on a plain brush
+PRESET_NAME = At("stack Brush/name", 1378, 330)  # on a preset: its name field
+PRESET_REVERT = At("stack Brush/Revert", 1453, 384)
 
 
 def save_a_preset(s):
@@ -2942,7 +3217,7 @@ SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top b
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
-TOP_UNDO, TOP_SEARCH = (91, 33), (1411, 33)
+TOP_UNDO, TOP_SEARCH = (91, 33), At("app island/Search commands", 1336, 30)
 
 
 @scenario
@@ -6221,9 +6496,9 @@ def rail_finger_while_pen_near():
 
 @scenario
 def rail_finger_during_pinch():
-    """A finger landing on the rail during a pinch is no third finger: the pinch zooms on and the brush keeps its size."""
+    """A finger landing on the rail during a pinch (over empty space) is no third finger: the pinch zooms on and the brush keeps its size."""
     s = Script()
-    starts, moves, frames = [(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20
+    starts, moves, frames = [(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20
     for i, (x, y) in enumerate(starts):
         s.add(f"fdown:{i}:{x:g},{y:g}")
     s.wait(2)
@@ -6325,7 +6600,7 @@ def long_press(s, x, y=None, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = UI["inspector"]
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 228), (1452, 228)  # the Move tool's palette, above the gizmo's settings
 # The first object's row in the tray's Scene palette (scene_tab opens it).
 SCENE_ROW = on_card((1376, 236), "objects")
 
@@ -8561,14 +8836,14 @@ def gesture_any_command_from_search():
     # Down the tab to the gesture map's last row, Pen side button.
     s.add("wheel:-6")
     s.wait(20)
-    s.ftap(1063, 656)
+    s.ftap(At("gesture row Pen_Button/Pen side button", 1063, 656))
     s.wait(12)
     # Its list opens above it; the list's last row is Any command...
     for _ in range(10):
         s.fdrag(line((1063, 600), (1063, 20), 10))
         s.wait(4)
     s.wait(20)
-    s.ftap(1018, 618)
+    s.ftap(At("select list/Any command...", 1018, 618))
     s.wait(14)
     s.type("wireframe")
     s.press("Return")
@@ -9578,6 +9853,9 @@ def run_one(name, step, screens, displays):
     if screens and not any(a.startswith("--dump-screen") for a in args):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
+        # With its controls' names and places, to aim a tap at one by name (At).
+        if not any(a.startswith("--ui-map") for a in args):
+            cmd.append(f"--ui-map={os.path.join(ROOT, 'build', 'touch', name + '.map')}")
     env = headless.env(dict(os.environ, SDL_ASSERT="abort"))
     display = displays.get() if displays else None
     try:
@@ -9964,7 +10242,7 @@ def second_view_unlinks_to_free():
 
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
-TRANSPARENT_SWITCH = on_card((1499, 619), "scene")
+TRANSPARENT_SWITCH = At("stack Background/stack body/Screenshots without background", 1378, 506)
 
 
 @scenario
@@ -12958,7 +13236,7 @@ def transform_values_undo_per_drag():
     write_settings("all_options 1\n")
     s.wait(8)
     s.mouse_drag(line(on_card((1377, 293), "object"), on_card((1477, 293), "object"), 10))
-    click(s, on_card((1377, 747), "object"))
+    click(s, on_card((1377, 719), "object"))
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, palettes_only("transform") + [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})

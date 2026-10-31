@@ -80,7 +80,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Hide          = {"hide", "x, y or z to hide the + side of the middle, -x, -y or -z the - side"},
 	.Mask_Rect     = {"mask_rect", "four numbers from 0 to 1: the left, top, right and bottom of the view to mask"},
 	.Project       = {"project", "the number of the object to project from, counting from 1"},
-	.Draw_Curve    = {"draw_curve", "tube, stitches or zipper"},
+	.Draw_Curve    = {"draw_curve", "curve, tube, stitches or zipper"},
 	.Insert_Middle = {"insert_middle", "sphere, cube, cylinder, cone, torus or plane"},
 	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
 	.Focal         = {"focal", "a number from -100 to 100: every brush's focal shift"},
@@ -645,7 +645,8 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		// A gentle wave across the middle of the view, from 30% to 70% of its width.
 		app.curve.kind = Curve_Kind(st.arg)
 		for i in 0 ..= 40 do curve_add_point(app, {size.x * (0.3 + 0.01 * f32(i)), size.y * (0.5 + 0.08 * math.sin(f32(i) / 6))}, size)
-		if !curve_make(app) do return "", false
+		if app.curve.kind == .Curve do curve_drawn(app, {size.x * 0.7, size.y * 0.5}, size)
+		else if !curve_make(app) do return "", false
 	case .Insert_Middle:
 		app.insert.shape = geom.Primitive(st.arg)
 		origin, dir := mouse_ray(app.camera, 0.5 * size, size)

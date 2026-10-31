@@ -78,6 +78,9 @@ Renderer :: struct {
 	floor:          Floor_Grid,
 	// What the viewport shows behind everything; set by the app each frame, as floor is.
 	background:     Background,
+	// The wireframe's colour, linear; zero for WIRE_COLOR. Set by the app each frame from
+	// the theme, and folded into the redraw keys only when set, so their values stay.
+	wire_color:     [4]f32,
 	// The image environment the physically based materials light with (environment.odin),
 	// nil for the built-in studio, and how it shows; set by the app each frame. The app
 	// owns the environment. Bound in its place while there is none: a black texture; and
@@ -1381,7 +1384,7 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
 	debug_group(cmd, "Viewport", .Viewport)
-	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r))
+	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r), r.wire_color)
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
@@ -1487,7 +1490,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 
 // Hash of what frame_key in Viewport_Target describes.
 @(private)
-frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background, environment: Environment_Keyed) -> u64 {
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1520,6 +1523,11 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid) + size_of(Background) + size_of(Environment_Keyed))
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
+	// A wireframe colour set by the theme redraws what it lines; none leaves the key as it was.
+	if wire_color != {} {
+		wire := wire_color
+		h = hash.fnv64a(slice.bytes_from_ptr(&wire, size_of(wire)), h)
+	}
 	for item in items {
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
@@ -1573,7 +1581,7 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	}
 	stats.cache_used = true
 
-	key := static_key(vt^, view, proj, items, r.lod_px, r.background, environment_keyed(r))
+	key := static_key(vt^, view, proj, items, r.lod_px, r.background, environment_keyed(r), r.wire_color)
 	redraw := key != vt.cache.key
 	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
@@ -1738,7 +1746,7 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 // Identifies the cache contents: the target size, camera, simplification, and every
 // idle item's buffers (by identity and version), transform and colour.
 @(private)
-static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background, environment: Environment_Keyed) -> u64 {
+static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1771,6 +1779,11 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Background) + size_of(Environment_Keyed))
 	header := Header{view, proj, vt.width, vt.height, lod_px, background, 0, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
+	// A wireframe colour set by the theme redraws what it lines; none leaves the key as it was.
+	if wire_color != {} {
+		wire := wire_color
+		h = hash.fnv64a(slice.bytes_from_ptr(&wire, size_of(wire)), h)
+	}
 	for item in items {
 		if item.live do continue
 		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
@@ -1994,7 +2007,7 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32) ->
 // tells the shader so), with the sculpt buffers bound by the caller.
 @(private)
 wire_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item) {
-	wire := Material_Uniforms{base_color = WIRE_COLOR, params = {0, -1, 0, 0}}
+	wire := Material_Uniforms{base_color = r.wire_color if r.wire_color != {} else WIRE_COLOR, params = {0, -1, 0, 0}}
 	gpu_push_fragment_uniform_data(cmd, 0, &wire, size_of(wire))
 	gpu_bind_graphics_pipeline(pass, pipes.wire)
 	draw_item_triangles(r, pass, item, nil)

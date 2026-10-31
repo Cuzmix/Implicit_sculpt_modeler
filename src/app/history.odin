@@ -133,6 +133,7 @@ History_Kind :: enum u8 {
 	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
 	Lights,   // the scene's lights changed
 	Model,    // a swap entry of Model mode: a cage edited or applied
+	Curve,    // a swap entry of a curve object: drawn, edited or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -408,8 +409,12 @@ stroke_finish :: proc(app: ^App) {
 // The frame loop calls this each frame a tool other than the brush is on, which leaves a
 // pose under way alone.
 brush_stroke_finish :: proc(app: ^App) {
+	// A stroke held to edit keeps its curve as it stands, whoever ends it.
+	if app.stroke_edit.open do stroke_edit_close(app, keep = true)
 	if !app.stroke.active do return
 	app.stroke.active = false
+	delete(app.stroke.path)
+	app.stroke.path = nil
 	if st := app.stroke; st.pivot_count > 0 {
 		app.pivot.object, app.pivot.at, app.pivot.set, app.pivot.pinned = st.object, st.pivot_sum / f32(st.pivot_count), true, false
 	}
@@ -995,6 +1000,8 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	start := time.tick_now()
 	stroke_finish(app)
 	app.move.drag = {}
+	// A press on a curve's point is forgotten; its curve may be the one coming back.
+	curve_drag_drop(app)
 	obj := object_by_id(app, e.id)
 	live := history_snapshot(app, obj, snap.what)
 	defer snapshot_free(live)

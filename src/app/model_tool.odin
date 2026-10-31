@@ -1760,7 +1760,7 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	for obj in app.scene.objects {
 		if obj.cage == nil || !object_shown(app, obj) do continue
 		poly.selected_faces(&obj.cage.mesh, &picked)
-		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], MODEL_SELECTION_COLOR)
+		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], theme_selection_color(&app.kit))
 		if m.check do draw_model_check(app, o, input, obj)
 		draw_model_creases(app, o, input, obj)
 	}

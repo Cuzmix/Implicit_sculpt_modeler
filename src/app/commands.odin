@@ -162,6 +162,14 @@ Command_Id :: enum u16 {
 	Crease_Cage,
 	Cage_Check,
 	Adjust_Last,
+	Stroke_Validate,
+	Stroke_Cancel,
+	Stroke_Radius_Each,
+	Stroke_Intensity_Each,
+	Curve_Delete_Point,
+	Curve_Corner,
+	Curve_Close,
+	Curve_Bake,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1452,6 +1460,74 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return adjust_live(app)},
 	},
+	.Stroke_Validate = {
+		label = "Validate stroke",
+		help = "Keeps the stroke held to edit as its curve stands, as one undo step.",
+		run = proc(app: ^App, _: int) {stroke_edit_validate(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+	},
+	.Stroke_Cancel = {
+		label = "Cancel stroke",
+		help = "Puts the surface back as it was before the stroke held to edit; nothing is recorded.",
+		run = proc(app: ^App, _: int) {stroke_edit_cancel(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+	},
+	.Stroke_Radius_Each = {
+		label = "Radius per point",
+		help = "Gives each point of the stroke held to edit its own radius; off, one radius for the whole stroke.",
+		run = proc(app: ^App, _: int) {stroke_edit_set_each(app, true, !app.stroke_edit.radius_each)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.radius_each},
+	},
+	.Stroke_Intensity_Each = {
+		label = "Intensity per point",
+		help = "Gives each point of the stroke held to edit its own intensity, so it can start faint, swell and fade; off, one for the whole stroke.",
+		run = proc(app: ^App, _: int) {stroke_edit_set_each(app, false, !app.stroke_edit.intensity_each)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
+		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.intensity_each},
+	},
+	.Curve_Delete_Point = {
+		label = "Delete curve point",
+		help = "Deletes the point picked on the selected curve (tap a point to pick it); a curve keeps two points, a loop three.",
+		run = proc(app: ^App, _: int) {curve_delete_point(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_point_deletable(app)},
+	},
+	.Curve_Corner = {
+		label = "Corner point",
+		help = "Turns the point picked on the selected curve into a corner, whose handles turn freely, or back into a smooth one.",
+		run = proc(app: ^App, _: int) {curve_toggle_corner(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].corner
+		},
+	},
+	.Curve_Close = {
+		label = "Close curve",
+		help = "Joins the selected curve's ends into a loop, or opens the loop again.",
+		run = proc(app: ^App, _: int) {curve_toggle_closed(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && (obj.curve.closed || len(obj.curve.points) >= 3)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && obj.curve.closed
+		},
+	},
+	.Curve_Bake = {
+		label = "Bake curve",
+		help = "Makes the selected curve's tube a mesh object to sculpt, in the curve's place; the curve goes, and Undo brings it back (Duplicate first to keep it).",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Bake_Curve}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && object_draws_triangles(obj)
+		},
+	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
 		help = "Rebuilds the selected voxel object as a mesh of its surface, for the mesh tools; its clay goes, as one undo step.",
@@ -2498,6 +2574,7 @@ command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
 	if long_job_holds(app, id) do return false
 	if id in CAGE_REFUSED_COMMANDS && selected_cage(app) do return false
+	if id in CURVE_REFUSED_COMMANDS && object_is_curve(selected_object(app)) do return false
 	if id in VOXEL_REFUSED_COMMANDS {
 		if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
 	}

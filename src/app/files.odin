@@ -84,6 +84,13 @@ SCENE_CHUNKED :: u32(36)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
+// A curve object (curve_object.odin), in its own chunk so that an app from before curves
+// steps over it and opens the rest of the scene; the scene chunk's object count is of the
+// other objects alone.
+CHUNK_CURVE :: "CURV"
+// The scene chunk's fields from curves on, at its end: the curves' count and the selected
+// object's place among all objects.
+SCENE_CURVE_FIELD_BYTES :: 2 * size_of(i32)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -1441,8 +1448,9 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	preview_block_put(app, out) // version 22
 	at := scene_chunk_begin(out, CHUNK_SCENE)
 	defer scene_chunk_end(out, at)
-	geom.byte_put(out, u32(len(app.scene.objects)))
-	geom.byte_put(out, i32(app.scene.selected))
+	curves, _ := curve_counts(app)
+	geom.byte_put(out, u32(len(app.scene.objects) - curves))
+	geom.byte_put(out, i32(scene_selected_without_curves(app)))
 	geom.byte_put(out, i32(app.scene.next_id))
 	c := main_camera(app)
 	geom.byte_put(out, c.target)
@@ -1468,6 +1476,27 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	lights_put(out, app.scene.lights) // version 19, 20, 21
 	geom.byte_put(out, print_scale(app)) // version 23
 	guides_put(out, app.scene.guides) // version 24
+	// From curves on, at the chunk's end (SCENE_CURVE_FIELD_BYTES): how many CURV chunks
+	// follow, and the selected object's place in the whole list, curves and all.
+	geom.byte_put(out, i32(curves))
+	geom.byte_put(out, i32(app.scene.selected))
+}
+
+// The selected object's place among the objects that are not curves, as the scene chunk's
+// first selection keeps it for apps from before curves: a selected curve gives the nearest
+// object before it (or the first), and -1 when there is none.
+scene_selected_without_curves :: proc(app: ^App) -> int {
+	place, last, first := -1, -1, -1
+	for obj, i in app.scene.objects {
+		if obj.curve != nil {
+			if i == app.scene.selected do place = last
+			continue
+		}
+		last += 1
+		if first < 0 do first = last
+		if i == app.scene.selected do return last
+	}
+	return place if place >= 0 else first
 }
 
 // Starts a chunk of `tag` in `out`: its four letters and a size, filled in by
@@ -1500,9 +1529,13 @@ scene_chunk_next :: proc(r: ^geom.Byte_Reader) -> (tag: string, chunk: geom.Byte
 	return string(head), geom.byte_reader(payload), r.ok
 }
 
+// The chunk an object is written as: a curve's own, or an object's. Both writers, the save
+// and the autosave, take it from here.
+object_chunk_tag :: proc(obj: ^Object) -> string {return CHUNK_CURVE if obj.curve != nil else CHUNK_OBJECT}
+
 // An object as its own chunk of a scene file.
 object_chunk_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
-	at := scene_chunk_begin(out, CHUNK_OBJECT)
+	at := scene_chunk_begin(out, object_chunk_tag(obj))
 	object_put(app, out, obj)
 	scene_chunk_end(out, at)
 }
@@ -1643,6 +1676,10 @@ Scene_Fields :: struct {
 	lights_own:     bool, // the file kept lights (version 19 on); else the starting lights
 	print_mm:       f32,
 	guides:         Guides,
+	// From curves on: how many CURV chunks follow, and the selected object's place among
+	// all of them (selected is among the rest); -2 when the file has no such field.
+	curves:         int,
+	selected_any:   int,
 }
 
 scene_fields_destroy :: proc(f: ^Scene_Fields) {
@@ -1685,6 +1722,13 @@ scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32) -> (f: S
 	// A scene from before guides were kept has them off, seeded when first shown.
 	guides_ok := true
 	if version >= 24 do f.guides, guides_ok = guides_get(r)
+	// Fields after these came later in version 36, read only where the chunk has them.
+	f.selected_any = -2
+	if version >= SCENE_CHUNKED && r.ok && r.at < len(r.data) {
+		f.curves = int(geom.byte_get(r, i32))
+		f.selected_any = int(geom.byte_get(r, i32))
+		if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do r.ok = false
+	}
 	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		scene_fields_destroy(&f)
 		return {}, false
@@ -1729,9 +1773,9 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	damaged := ""
 	// Each object is read and built as it comes; one that is damaged, or a GPU failure,
 	// drops those built so far.
-	read_object :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32, missing: ^int, objects: ^[dynamic]^Object, f: ^Scene_Fields) -> (read, made: bool) {
+	read_object :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32, missing: ^int, objects: ^[dynamic]^Object, f: ^Scene_Fields, source := Object_Source.Object_Chunk) -> (read, made: bool) {
 		obj: ^Object
-		obj, read, made = object_get(app, r, version, missing)
+		obj, read, made = object_get(app, r, version, missing, source)
 		if !read || !made do return
 		f.next_id = max(f.next_id, obj.id)
 		append(objects, obj)
@@ -1754,6 +1798,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		// Chunks: the scene's first, then an object each; a chunk of a newer app's that
 		// this one does not know is stepped over, as are fields added at a chunk's end.
 		seen := false
+		curves_read := 0
 		for damaged == "" {
 			tag, chunk, more := scene_chunk_next(&r)
 			if !more {
@@ -1766,12 +1811,14 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 				if !seen do f, fields_ok = scene_fields_get(app, &chunk, version)
 				if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
 				seen = true
-			case CHUNK_OBJECT:
-				if !seen || len(objects) >= f.count {
+			case CHUNK_OBJECT, CHUNK_CURVE:
+				curve := tag == CHUNK_CURVE
+				if !seen || (curve && curves_read >= f.curves) || (!curve && len(objects) - curves_read >= f.count) {
 					damaged = "it is damaged"
 					break
 				}
-				read, made := read_object(app, &chunk, version, &missing, &objects, &f)
+				if curve do curves_read += 1
+				read, made := read_object(app, &chunk, version, &missing, &objects, &f, .Curve_Chunk if curve else .Object_Chunk)
 				if !read do damaged = fmt.tprintf("object %d of %d is damaged", len(objects) + 1, f.count)
 				if read && !made {
 					for other in objects do object_discard(app, other)
@@ -1779,14 +1826,15 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 				}
 			}
 		}
-		if damaged == "" && (!seen || len(objects) != f.count) do damaged = "it is damaged"
+		if damaged == "" && (!seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
 	}
 	if damaged != "" {
 		file_note(app, true, "Cannot open %s: %s", name, damaged)
 		for other in objects do object_discard(app, other)
 		return false, true
 	}
-	count, selected, next_id, view := f.count, f.selected, f.next_id, f.view
+	count, selected, next_id, view := f.count + f.curves, f.selected, f.next_id, f.view
+	if f.selected_any >= -1 do selected = f.selected_any
 	folders := f.folders
 	f.folders = nil
 	defer if folders != nil {
@@ -1950,6 +1998,11 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {}) // version 14, its references 16
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil) // version 15, their references 16
 	textures_put(out, obj.textures) // version 18
+	// A curve's points stand where a mesh's levels go; its empty level is made on reading.
+	if cp := obj.curve; cp != nil {
+		curve_part_put(out, cp)
+		return true
+	}
 	// A voxel object's clay and the resolution it started at stand where a mesh's levels
 	// go; its empty level is made again on reading.
 	if vp := obj.voxel; vp != nil {
@@ -1979,6 +2032,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 object_kind :: proc(obj: ^Object) -> int {
 	if obj.voxel != nil do return OBJECT_KIND_VOXEL
 	if obj.cage != nil do return OBJECT_KIND_CAGE
+	if obj.curve != nil do return OBJECT_KIND_CURVE
 	return OBJECT_KIND_MESH
 }
 
@@ -1988,6 +2042,18 @@ object_kind :: proc(obj: ^Object) -> int {
 OBJECT_KIND_MESH :: 0
 OBJECT_KIND_VOXEL :: 1
 OBJECT_KIND_CAGE :: 2
+// A curve object: its points in the levels' place (curve_part_put). Only in a CURV chunk,
+// never an OBJ one, which an app from before curves would refuse as damage.
+OBJECT_KIND_CURVE :: 3
+
+// Where object_get reads an object from, which says what kinds it may be: an OBJ chunk
+// (or an older file) never holds a curve and a CURV chunk only a curve, while the app's
+// own copies (undo snapshots, Duplicate, Paste) hold any kind.
+Object_Source :: enum u8 {
+	Copy,
+	Object_Chunk,
+	Curve_Chunk,
+}
 
 // About how many bytes object_put writes for `obj`: every level's positions and sculpt
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
@@ -2009,6 +2075,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
 	// A cage writes each point, corner and face once, with a few bytes a corner.
+	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points)
 	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he) + len(cp.held)
 	bytes += textures_bytes(obj.textures)
 	return bytes
@@ -2027,7 +2094,7 @@ object_view_bits :: proc(obj: ^Object) -> u8 {
 // counts in `missing` (material_get). `read` is false
 // when the bytes are damaged (no object is made); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
-object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, missing: ^int = nil) -> (obj: ^Object, read, made: bool) {
+object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, missing: ^int = nil, source := Object_Source.Copy) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
 	object_get_fields(r, obj, version)
 	kind := geom.byte_get(r, u8) if version >= 13 else OBJECT_KIND_MESH
@@ -2038,9 +2105,17 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 	if version >= 18 do obj.textures = textures_get(r)
 	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
 	most := OBJECT_KIND_CAGE if version >= 26 else OBJECT_KIND_VOXEL
-	// Nor has a cage UVs to lay maps on, yet.
-	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && int(kind) <= most && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj))
-	if fields_ok && kind == OBJECT_KIND_VOXEL {
+	if source == .Copy do most = OBJECT_KIND_CURVE
+	// Nor has a cage UVs to lay maps on, yet, nor a curve anything at all.
+	curve_ok := (int(kind) == OBJECT_KIND_CURVE) == (source == .Curve_Chunk) || source == .Copy
+	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && (int(kind) <= most || source == .Curve_Chunk) && curve_ok && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj)) && !(kind == OBJECT_KIND_CURVE && (len(obj.group_materials) > 0 || object_has_textures(obj)))
+	if fields_ok && kind == OBJECT_KIND_CURVE {
+		read, made = curve_part_get(app, r, obj)
+		if read {
+			free_all(context.temp_allocator)
+			return obj, true, made
+		}
+	} else if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
 		if read {
 			free_all(context.temp_allocator)
@@ -2107,6 +2182,7 @@ object_discard :: proc(app: ^App, obj: ^Object) {
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 	cage_part_free(obj)
+	curve_part_free(obj)
 	delete(obj.name)
 	delete(obj.group_materials)
 	textures_free(&obj.textures)
