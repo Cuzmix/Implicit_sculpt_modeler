@@ -519,7 +519,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// and accent, and how many themes of their own the settings hold.
 		ts := &k.themes
 		shown := theme_current(k)
-		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match))
+		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d theme_background=%d theme_marks=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match), int(ts.bring), card(theme_shown_over(k).set & {.Space_Sculpt, .Space_Model, .Space_Render, .Wire, .Selection}))
 		// The brush's colours and channel, whether it subtracts, and how many vertices of the
 		// selected object carry paint.
 		painted := 0
