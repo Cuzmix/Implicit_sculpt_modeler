@@ -110,3 +110,57 @@ retopologize_tile_runs_the_command :: proc(t: ^testing.T) {
 	testing.expect(t, !bar_enabled(&app, {.Retopologize, 0}), "Retopologize takes a tap with no object")
 	testing.expect(t, bar_has_more(.Retopologize), "Retopologize lost its long press")
 }
+
+// A carried button let go within its bar moves there, before the button it is let go by;
+// on another bar it goes there and off its own; a full bar, one that has it already and
+// one that does not take it refuse; let go clear of the bars it comes off, and Undo puts
+// it back where it was.
+@(test)
+bars_drag_and_drop :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	bars_reset(&app.kit)
+	rail := bar_used(&app, .View_Rail)
+	camera := Bar_Carry{slot = rail[2], look = .Chip, from = .View_Rail, from_slot = 2}
+	testing.expect(t, bar_drop(&app, camera, {which = .View_Rail, at = 0, ok = true}))
+	testing.expect_value(t, bar_used(&app, .View_Rail)[0], Bar_Slot{.Camera_Menu, 0})
+	testing.expect_value(t, bar_used(&app, .View_Rail)[1], Bar_Slot{.View_Layout_Menu, 0})
+	// Let go after itself, it stays.
+	first := Bar_Carry{slot = {.Camera_Menu, 0}, look = .Chip, from = .View_Rail, from_slot = 0}
+	testing.expect(t, bar_drop(&app, first, {which = .View_Rail, at = 1, ok = true}))
+	testing.expect_value(t, bar_used(&app, .View_Rail)[0], Bar_Slot{.Camera_Menu, 0})
+	// Down the bar: before the button at 3 is after the one at 2 once it has left its place.
+	testing.expect(t, bar_drop(&app, first, {which = .View_Rail, at = 3, ok = true}))
+	testing.expect_value(t, bar_used(&app, .View_Rail)[2], Bar_Slot{.Camera_Menu, 0})
+
+	// Onto the tool strip: it joins there and leaves the rail.
+	n := bar_count(&app, .View_Rail)^
+	wire := Bar_Carry{slot = {.Wireframe, 0}, look = .Chip, from = .View_Rail, from_slot = 5}
+	testing.expect_value(t, bar_used(&app, .View_Rail)[5], wire.slot)
+	spots := []Bar_Spot{{which = .Tools, slot = 0, rect = {0, 0, 40, 40}}}
+	target, found := bar_target(&app, wire, spots, {30, 20})
+	testing.expect(t, found && target.ok && target.at == 1)
+	testing.expect(t, bar_drop(&app, wire, target))
+	testing.expect_value(t, bar_used(&app, .Tools)[1], wire.slot)
+	testing.expect_value(t, bar_count(&app, .View_Rail)^, n - 1)
+	// The strip has it now: from Search it is refused there.
+	again, _ := bar_target(&app, {slot = wire.slot}, spots, {10, 20})
+	testing.expect(t, !again.ok)
+	// A brush is the shelf's and the docks', never the rail's.
+	ok, _ := bar_takes(.View_Rail, {.Brush, 0})
+	testing.expect(t, !ok)
+	ok, _ = bar_takes(.Shelf_Sculpt, {.Brush, 0})
+	testing.expect(t, ok)
+	// Full: the strip holds TOOLS_MAX.
+	for bar_count(&app, .Tools)^ < TOOLS_MAX do bar_put(&app, {which = .Tools, slot = 0, add = true}, {.Flat_Shading, 0})
+	full, _ := bar_target(&app, {slot = {.Polygroups, 0}, from = .View_Rail, from_slot = 0}, spots, {10, 20})
+	testing.expect(t, !full.ok)
+
+	// Off: it comes off the rail, and Undo puts it back in its place.
+	before := bar_names(&app, .View_Rail)
+	focus := Bar_Carry{slot = bar_used(&app, .View_Rail)[3], look = .Chip, from = .View_Rail, from_slot = 3}
+	bar_drop_off(&app, focus)
+	testing.expect_value(t, bar_count(&app, .View_Rail)^, n - 2)
+	bar_removed_undo(&app)
+	testing.expect_value(t, bar_names(&app, .View_Rail), before)
+}

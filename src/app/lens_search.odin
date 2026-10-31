@@ -168,6 +168,11 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 		else do row.picked = true
 	}
 	row.picked ||= a.pressed || (a.hovered && moved && !picked)
+	// Dragged out of the list, the row is carried to a bar and let go where it should go
+	// (bar_drag.odin), Search staying open under it until it lands.
+	if k.bar_carry == nil && k.palette_for == nil && e.kind == .Command && bar_lists(e.id) && ui.lift(ctx, at_once = true) {
+		bar_lift(app, {slot = {e.id, e.arg}, look = bar_default_look(.View_Rail)})
+	}
 	r := a.rect
 	full := ui.Rect{r.x, r.y, width, r.h}
 	if picked do ui.fill_rect(ctx, full, t.radius_small + 2, ui.color_fade(t.accent, 0.16))

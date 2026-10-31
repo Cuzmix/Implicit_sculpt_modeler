@@ -511,8 +511,12 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		}
 		// The card carried from the picker lands on the tile it is let go over.
 		if sh.carry != nil && ui.rect_contains(ctx.last_rect, sh.carry_at) do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.accent, 2)
+		bar_slot_lift(app, which, i, s)
 	}
-	if adding && ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false, width = tile) do bar_choose(app, {which = which, slot = len(used), add = true})
+	if adding {
+		if ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false, width = tile) do bar_choose(app, {which = which, slot = len(used), add = true})
+		bar_spot(app, which, len(used), ctx.last_rect, end = true)
+	}
 	ui.end(ctx)
 	// After the row ends, so the highlight under the picked tile, drawn as it ends, slides
 	// with it.
