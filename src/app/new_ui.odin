@@ -116,6 +116,17 @@ Kit_State :: struct {
 	bars_edit:  bool,
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	bar_slot:   Bar_Slot_Menu,
+	// Drag and drop on the bars (bar_drag.odin): the button carried, where each bar's
+	// buttons stood this frame, the one the last drop took off for its Undo, and for the
+	// exit stats how many were lifted, let go on a bar, refused there and taken off.
+	bar_carry:      Maybe(Bar_Carry),
+	bar_spots:      [BAR_SPOTS_MAX]Bar_Spot,
+	bar_spot_count: int,
+	bar_removed:    Bar_Removed,
+	bar_lifts:      int,
+	bar_drops:      int,
+	bar_refusals:   int,
+	bar_drops_off:  int,
 	rail_scroll: f32, // the view rail's, on a window too short for all of it
 	docks:       [USER_DOCKS]User_Dock, // the person's own docks, the layout's (user_docks.odin)
 	dock_scroll: [USER_DOCKS]f32,
@@ -1151,6 +1162,9 @@ kit_results :: proc(app: ^App) {
 	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
 		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
 		k.undo_toast = {}
+	} else if serial != 0 && serial == k.bar_removed.serial {
+		// A button let go clear of every bar goes back where it was.
+		bar_removed_undo(app)
 	}
 	// Once its step is no longer the newest (undone, or another made since), the toast
 	// stays but its Undo goes: it would take back something else.
@@ -1418,6 +1432,8 @@ kit_layout :: proc(app: ^App) {
 	// A bar the workspace hides is not laid out (workspaces.odin): what opened from it opens
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
 	workspaces_frame(k)
+	// Each bar notes where its buttons stand as it is drawn (bar_spot).
+	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
 	kit_job_pill(app)
 	// Round the view (lens_chrome.odin): the view chips at the top corner, the off-hand
@@ -1517,6 +1533,8 @@ kit_layout :: proc(app: ^App) {
 	kit_folder_menu(app)
 	kit_rename(app)
 	kit_palette(app, search_anchor)
+	// After every bar and Search, which lift what it carries.
+	bar_carry_update(app)
 	kit_action_popover(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)

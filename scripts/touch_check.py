@@ -3002,6 +3002,115 @@ def model_dial_picks_select():
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
+# Drag and drop on the bars (bar_drag.odin) at 1280 x 720: the view rail's buttons down the
+# right edge (View layout, Passes, Camera, Focus, Symmetry, Wireframe, Lights, Mini view),
+# the shelf's Clay tile and the tool strip's last button shown (Retopologize), Search, its first
+# row and a point on the view clear of every bar.
+DRAG_1280 = ["--width=1280", "--height=720"]
+DRAG_RAIL = {"layout": (1243, 133), "camera": (1243, 229), "focus": (1243, 277), "wireframe": (1243, 373)}
+DRAG_CLAY, DRAG_TOOLS_LAST = (219, 653), (1069, 653)
+DRAG_SEARCH, DRAG_ROW1, DRAG_CLEAR = (1130, 29), (640, 150), (640, 300)
+
+
+def hold_and_carry(s, start, end, finger=0, steps=12):
+    """A finger held still on `start` for a long press, then carried to `end` and lifted."""
+    s.add(f"fdown:{finger}:{start[0]:g},{start[1]:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for x, y in line(start, end, steps)[1:]:
+        s.add(f"fmove:{finger}:{x:g},{y:g}")
+        s.wait(1)
+    s.wait(2)
+    s.add(f"fup:{finger}")
+    s.wait(4)
+
+
+@scenario
+def bar_hold_and_drag_reorders_the_rail():
+    """A finger held on the rail's Camera, then carried up onto the top half of View layout, puts Camera first; nothing turns or sculpts."""
+    s = Script()
+    hold_and_carry(s, DRAG_RAIL["camera"], (DRAG_RAIL["layout"][0], DRAG_RAIL["layout"][1] - 10))
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_lifts": near(1), "bar_drops": near(1), "bar_carry": near(0),
+                                       "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu,Pass_Menu,Focus_Selected")})
+
+
+@scenario
+def bar_quick_drag_on_the_rail_lifts_nothing():
+    """A finger dragged at once from the rail's Camera, without the hold, lifts nothing: the rail stays as it was."""
+    s = Script()
+    s.fdrag(line(DRAG_RAIL["camera"], (DRAG_RAIL["camera"][0], DRAG_RAIL["layout"][1] - 10), 12))
+    s.wait(4)
+    return s, DRAG_1280, {"dabs": near(0), "bar_lifts": near(0), "view_rail": lambda v: v.startswith("View_Layout_Menu,Pass_Menu,Camera_Menu")}
+
+
+@scenario
+def bar_drag_off_takes_it_off():
+    """The rail's Wireframe held and carried onto the view, clear of every bar, comes off the rail with Undo on its note; nothing is sculpted."""
+    s = Script()
+    hold_and_carry(s, DRAG_RAIL["wireframe"], DRAG_CLEAR)
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops_off": near(1), "toast_undo": near(0),
+                                       "view_rail": lambda v: "Wireframe" not in v and v.startswith("View_Layout_Menu")})
+
+
+@scenario
+def bar_drag_to_another_bar_moves_it():
+    """The rail's Wireframe carried onto the right half of the tool strip's last button shown (Retopologize: the strip shows four at this width) goes after it and off the rail."""
+    s = Script()
+    hold_and_carry(s, DRAG_RAIL["wireframe"], (DRAG_TOOLS_LAST[0] + 10, DRAG_TOOLS_LAST[1]))
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "bar_tools": lambda v: "Retopologize,Wireframe,Subdivide" in v,
+                                       "view_rail": lambda v: "Wireframe" not in v})
+
+
+@scenario
+def bar_brush_onto_the_rail_is_refused():
+    """The shelf's Clay held and carried onto the rail is refused there: the rail and the shelf stay as they were."""
+    s = Script()
+    hold_and_carry(s, DRAG_CLAY, DRAG_RAIL["focus"])
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_refusals": near(1), "bar_drops": near(0), "shelf": lambda v: v.startswith("Brush:Clay,Brush:Draw"),
+                                       "view_rail": lambda v: "Brush" not in v})
+
+
+@scenario
+def bar_mouse_hold_and_drag_reorders():
+    """The mouse held on the rail's Camera for a long press, then dragged onto View layout's top half, puts Camera first."""
+    s = Script()
+    x, y = DRAG_RAIL["camera"]
+    s.add(f"move:{x:g},{y:g}")
+    s.wait(1)
+    s.add("down")
+    s.wait(LONG_PRESS_FRAMES)
+    for px, py in line((x, y), (x, DRAG_RAIL["layout"][1] - 10), 12)[1:]:
+        s.add(f"move:{px:g},{py:g}")
+        s.wait(1)
+    s.add("up")
+    s.wait(4)
+    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu")})
+
+
+@scenario
+def bar_customise_drag_reorders_at_once():
+    """In Customise bars a drag from the rail's Camera carries it without the hold: let go on View layout's top half it goes first."""
+    s = Script()
+    s.wait(4)
+    s.fdrag(line(DRAG_RAIL["camera"], (DRAG_RAIL["camera"][0], DRAG_RAIL["layout"][1] - 10), 12))
+    s.wait(4)
+    return s, DRAG_1280 + ["--script=customise_bars"], camera_still({"dabs": near(0), "bars_edit": near(1), "bar_drops": near(1),
+                                                                    "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu")})
+
+
+@scenario
+def bar_search_row_dragged_onto_the_rail():
+    """Search's first row for "remesh" dragged out and let go on the lower half of the rail's Focus goes on the rail after it, and Search closes."""
+    s = Script()
+    s.ftap(*DRAG_SEARCH)
+    s.wait(8)
+    s.type("remesh")
+    s.wait(4)
+    s.fdrag(line(DRAG_ROW1, (DRAG_RAIL["focus"][0], DRAG_RAIL["focus"][1] + 10), 16))
+    s.wait(4)
+    return s, DRAG_1280, camera_still({"dabs": near(0), "palette": near(0), "bar_drops": near(1),
+                                       "view_rail": lambda v: "Focus_Selected,Remesh" in v})
+
+
 @scenario
 def lens_search_icon_opens_the_palette():
     """A tap on the Lens top bar's Search icon opens the command palette, and a second tap closes it."""

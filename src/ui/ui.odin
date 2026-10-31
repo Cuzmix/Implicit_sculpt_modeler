@@ -81,6 +81,10 @@ Long_Press :: struct {
 	fired:   Long_Fired,
 	travel:  f32, // the furthest the pointer went from the press, points
 	claimed: Id, // a widget that has a secondary action this frame (secondary)
+	// Held still for the theme's long_press, so a move from here on lifts it (lift); and
+	// lifted already, so it lifts once.
+	steady:  bool,
+	lifted:  bool,
 	// The text and keys of the last tooltip a long press showed, for the app's exit stats.
 	shown:   [64]u8,
 	shown_len: int,
@@ -445,6 +449,9 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.popup_open = 0
 	ctx.long.claimed = 0
 	if ctx.active != 0 && ctx.active == ctx.long.id {
+		// Still until now, by its travel up to the last frame: a hold that only moves after
+		// the long press is a lift, not a drag.
+		if !ctx.long.steady && ctx.long.fired != .Off && ctx.long.travel <= ctx.theme.slop && ctx.time - ctx.press_at >= f64(ctx.theme.long_press) do ctx.long.steady = true
 		ctx.long.travel = max(ctx.long.travel, linalg.length(input.mouse - ctx.press_mouse))
 	}
 }
@@ -1291,6 +1298,32 @@ held_long :: proc(ctx: ^Context) -> bool {
 	ctx.long.fired = .Action
 	ctx.press_won = true
 	return true
+}
+
+// Called right after a widget: true once when the press on it lifts it, to be carried
+// somewhere else: held still for the theme's long_press by any pointer (the mouse's left
+// button too) and then moved past the slop, as a home screen's icon is; with `at_once`
+// (an edit mode, where every drag carries) a move past the slop is enough. Letting go is
+// then no click, and the press wins the gesture arena, so no scroll or swipe takes it.
+lift :: proc(ctx: ^Context, at_once := false) -> bool {
+	id := ctx.last_id
+	in_ := ctx.input
+	if id == 0 || ctx.active != id || ctx.long.id != id || ctx.long.lifted || .Left not_in in_.down || in_.cancel do return false
+	if !ctx.long.steady && !at_once do return false
+	// Held still long enough (or in the edit mode), the press is this widget's from now
+	// on, so the scroll or the swipe round it no longer takes the move that lifts it.
+	ctx.press_won = true
+	if linalg.length(in_.mouse - ctx.press_mouse) <= ctx.theme.slop do return false
+	ctx.long.lifted = true
+	ctx.long.fired = .Action
+	ctx.press_won = true
+	return true
+}
+
+// Whether the press on `id` was held still for the theme's long_press: a drag from here on
+// lifts it (lift) rather than moving what it holds.
+held_still :: proc(ctx: ^Context, id: Id) -> bool {
+	return id != 0 && ctx.active == id && ctx.long.id == id && ctx.long.steady
 }
 
 // The held widget moved a value (a slider's drag): this press is no long press.

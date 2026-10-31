@@ -279,6 +279,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
 		if k.bars_edit do bar_edit_ring(app, ctx.last_rect)
 		else if ctx.last_id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, ctx.last_rect, side)
+		bar_slot_lift(app, which, slot, value_slot(v), look)
 		return
 	}
 	size := cell if cell.x > 0 else VALUE_CHIP
@@ -286,7 +287,8 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	pill := ui.Rect{a.rect.x + 2, a.rect.y + 2, a.rect.w - 4, a.rect.h - 4}
 	axis := 0 if column else 1
 	scrubbing := false
-	if enabled && !k.bars_edit && v != .Pressure {
+	// Held still, a drag lifts the chip to carry it (bar_drag.odin) rather than scrubbing.
+	if enabled && !k.bars_edit && v != .Pressure && !ui.held_still(ctx, a.id) {
 		if a.pressed do ctx.press_value = value_fraction(app, v)
 		if a.held && ui.claim_drag(ctx, axis) {
 			d := ctx.input.mouse - ctx.won_mouse
@@ -320,6 +322,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	ui.fill_rect(ctx, line, 1, t.track)
 	if enabled do ui.fill_rect(ctx, {line.x, line.y, line.w * value_fraction(app, v), line.h}, 1, t.accent)
 	ui.tip(ctx, a.id, pill, BRUSH_VALUE_NAMES[v], hint)
+	if a.id != 0 do bar_slot_lift(app, which, slot, value_slot(v), look)
 	if k.bars_edit {
 		bar_edit_ring(app, a.rect)
 		if a.clicked do bar_slot_open(app, which, slot, a.rect)

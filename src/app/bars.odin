@@ -581,11 +581,13 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	}
 	if k.bars_edit {
 		bar_edit_ring(app, ctx.last_rect)
+		bar_slot_lift(app, which, slot, s)
 		return
 	}
 	job_ring(app, s.id, ctx.last_rect)
 	// A disabled button takes no press, so it has no long press either.
 	if more && ctx.last_id != 0 && ui.secondary(ctx) do bar_slot_more(app, s, ctx.last_rect, side)
+	bar_slot_lift(app, which, slot, s)
 }
 
 // Which side of a bar's buttons its popovers open: away from the edge the rail and the
@@ -618,6 +620,8 @@ bar_add_button :: proc(app: ^App, which: Bar_Which, at: int, size: f32 = 0) {
 	ctx := &app.kit.ctx
 	full := bar_count(app, which)^ >= bar_capacity(which)
 	if ui.icon_button(ctx, fmt.tprintf("Add a button##%v", which), ui.ICON_PLUS, enabled = !full, size = size) do bar_choose(app, {which = which, slot = at, add = true})
+	// A carried button let go on it goes last.
+	bar_spot(app, which, at, ctx.last_rect, end = true)
 }
 
 // Opens the slot popover on slot `slot` of bar `which`, over its button.

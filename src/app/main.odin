@@ -1743,7 +1743,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
-			fmt.printfln("browser=%d bar_tools=%s bars_edit=%d bar_slot_menu=%d", int(app.kit.browser), bar_names(&app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open))
+			fmt.printfln("browser=%d bar_tools=%s bars_edit=%d bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), bar_names(&app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open),
+				app.kit.bar_lifts, app.kit.bar_drops, app.kit.bar_refusals, app.kit.bar_drops_off, int(app.kit.bar_carry != nil))
 			// The island's items and how its values show, the values on every bar, and the
 			// value popovers opened, the chips scrubbed and the value the popover is on.
 			fmt.printfln("offhand=%s offhand_looks=%s values=%d value_pops=%d value_scrubs=%d value_pop=%s pressure_size=%d pressure_strength=%d", bar_names(&app, .Offhand), bar_looks(&app, .Offhand),
