@@ -53,6 +53,7 @@ Curve_Tool :: struct {
 	edits:   int,
 	// A Use or tube slider's drag on the selected curve, one undo step when it lets go.
 	look_drag: Curve_Look_Drag,
+	brush_runs: int, // Run brush along a curve (curve_brush.odin), for the exit stats
 }
 
 Insert_Tool :: struct {
@@ -405,6 +406,10 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		kit_curve_lathe(app, obj, look)
 	case .Along:
 		kit_curve_along(app, look)
+	case .Brush_Path:
+		ui.paragraph(ctx, "Runs the brush in hand along the curve on the model under it, as a stroke held to edit: reshape it, then Validate (Enter) or Cancel (Escape).")
+		_ = command_button(app, .Curve_Brush_Run, width = ui.fill_width(ctx))
+		return
 	case:
 		return
 	}

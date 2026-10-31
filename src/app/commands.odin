@@ -171,6 +171,7 @@ Command_Id :: enum u16 {
 	Curve_Close,
 	Curve_Bake,
 	Curve_Use,
+	Curve_Brush_Run,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1531,7 +1532,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) or Along (stitches, zipper teeth or balls set along it). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) or Brush path (a path to run the brush along). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {
@@ -1546,6 +1547,13 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_curve(app)
 			return obj != nil && int(obj.curve.use) == arg
 		},
+	},
+	.Curve_Brush_Run = {
+		label = "Run brush along curve",
+		help = "Lays the brush in hand along the selected curve on the model under it, each point's radius and intensity its own, and opens the stroke for editing as a stroke held still does: drag its points, then Validate keeps it as one undo step. Not for Grab, Snake hook or Cloth, whose dabs follow the pointer.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {_ = curve_brush_run(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_brush_refusal(app) == ""},
 	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
