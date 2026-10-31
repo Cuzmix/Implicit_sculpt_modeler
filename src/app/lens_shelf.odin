@@ -940,7 +940,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	ui.spacer(ctx, ui.row_room(ctx) - 8 - t.target)
 	if ui.icon_button(ctx, "Favorite (on)##quick" if favourite else "Favorite##quick", ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
 	ui.end(ctx)
-	_ = ui.slider(ctx, "Radius", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
+	_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
 	s := brush_strength(app)
 	_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
