@@ -460,8 +460,11 @@ record_hit :: proc(s: ^Sculptor, masks: bool) {
 }
 
 // Saved positions from one dab past this many share an allocation and copy in parallel.
+// Low, since on a large mesh each dab of a stroke reaches a few nodes it has not saved
+// yet, and their fresh memory's first touch is slow enough that copying them on the
+// frame thread alone cost about a tenth of a large Draw dab at 25M vertices.
 @(private)
-RECORD_PARALLEL_VERTS :: 1 << 16
+RECORD_PARALLEL_VERTS :: 1 << 12
 
 // Saves a node's masks before the stroke first changes them, and lists the node as
 // painted. The sculptor must have a mask.
