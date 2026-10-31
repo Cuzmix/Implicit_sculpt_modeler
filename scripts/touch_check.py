@@ -1270,6 +1270,50 @@ def hold_to_edit_shows_its_curve():
 
 
 @scenario
+def stamp_edit_by_pen():
+    """A Rectangle stamp dragged out by pen stays open when the pen lifts; a drag inside
+    its ring slides it over the model, and Enter keeps it as one undo step."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (840, 460), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pdown:765,465")
+    for x, y in line((765, 465), (765, 525), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1), "stroke_edit_open": lambda v: v == "false",
+                                                              "undo_steps": near(1)})
+
+
+@scenario
+def stamp_edit_shows_its_ring():
+    """A Rectangle stamp left open: its notched ring with the orange 0° notch, the blue turn
+    dot, the white size square, the green intensity dot, the angle and the context bar's
+    Validate and Cancel (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (830, 410), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1),
+                                                              "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
@@ -1304,10 +1348,13 @@ def roll_stroke_by_finger():
 @scenario
 def drag_dot_stroke_by_finger():
     """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
-    moves, and is one undo step."""
+    moves; the stamp stays open to edit when the finger lifts (Edit stamps), and Enter
+    keeps it as one undo step."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
-    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1), "stamp_edits": near(1)})
 
 
 @scenario

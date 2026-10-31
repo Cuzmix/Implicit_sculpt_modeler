@@ -96,6 +96,8 @@ action_list :: proc(app: ^App, g: Action_Group) -> []Action {
 	#partial switch g {
 	case .Mask:   return LENS_MASK_ACTIONS[:]
 	case .Hidden: return LENS_HIDDEN_ACTIONS[:]
+	// A stamp has one radius and one intensity, so only Validate and Cancel apply.
+	case .Stroke_Edit: if app.stroke_edit.stamp do return ACTION_GROUPS[g].actions[:2]
 	}
 	return ACTION_GROUPS[g].actions
 }

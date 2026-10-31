@@ -239,7 +239,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// moved from one put back exactly.
 			mesh_sum: f64
 			if obj := selected_object(app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
-			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_edit.open)
+			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stamp_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_end.stamp_edits, app.stroke_edit.open)
 			fmt.printfln("gesture=%s mask_shape=%s", lower(app.gesture), lower(app.ui.mask_shape_kind))
 			// The lights: which is picked, how many are on, the first one's view-space
 			// direction as the sphere shows it, and taps that flipped a light's side.
