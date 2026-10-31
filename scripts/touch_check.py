@@ -1347,6 +1347,34 @@ def curve_placed_by_taps_shows_its_line():
 
 
 @scenario
+def curve_edited_by_pen():
+    """A curve of three tapped points (closed by a tap on the first), then by pen one of its
+    points dragged, one undo step, which Ctrl+Z takes back. Shows the points, orange handles
+    and radius dots over the model (look with --screens)."""
+    s = Script()
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+    s.press("z", ("ctrl",))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_edits": near(1),
+                                                                     "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""

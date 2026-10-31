@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:strings"
 
 import "../geom"
+import "../gizmo"
 import "../sculpt"
 
 // A curve object: cubic Bézier points that stay editable in the scene until they are
@@ -89,6 +90,7 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool) -
 	obj.name = strings.clone(curve_name(app, obj.id))
 	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), kind = .Curve)
 	app.curve.made += 1
+	app.curve.picked = 0
 	return true
 }
 
@@ -161,7 +163,7 @@ curve_screen_line :: proc(app: ^App, obj: ^Object, size: [2]f32, allocator := co
 	length_px: f32
 	prev: [2]f32
 	for p, i in cp.points {
-		at, ok := gizmo_project_point(view_proj, to_world(t, p.p), size)
+		at, ok := gizmo.project(view_proj, to_world(t, p.p), size)
 		if !ok do return nil
 		if i > 0 do length_px += linalg.length(at - prev)
 		prev = at
@@ -172,7 +174,7 @@ curve_screen_line :: proc(app: ^App, obj: ^Object, size: [2]f32, allocator := co
 	samples := geom.bezier_sample(cp.points[:], cp.closed, length / f32(pieces), context.temp_allocator)
 	line := make([dynamic][2]f32, 0, len(samples), allocator)
 	for s in samples {
-		at, ok := gizmo_project_point(view_proj, to_world(t, s.p), size)
+		at, ok := gizmo.project(view_proj, to_world(t, s.p), size)
 		if !ok {
 			delete(line)
 			return nil
@@ -180,14 +182,6 @@ curve_screen_line :: proc(app: ^App, obj: ^Object, size: [2]f32, allocator := co
 		append(&line, at)
 	}
 	return line[:]
-}
-
-// A world point on screen, and whether it is in front of the eye.
-gizmo_project_point :: proc(view_proj: matrix[4, 4]f32, p: Vec3, size: [2]f32) -> ([2]f32, bool) {
-	h := view_proj * [4]f32{p.x, p.y, p.z, 1}
-	if h.w <= 1e-6 do return {}, false
-	ndc := h.xy / h.w
-	return {(ndc.x + 1) * 0.5 * size.x, (1 - ndc.y) * 0.5 * size.y}, true
 }
 
 // The index of the shown, unlocked curve whose line passes nearest `pos` within
@@ -198,19 +192,10 @@ curve_pick :: proc(app: ^App, pos, size: [2]f32) -> int {
 		if obj.curve == nil || !object_shown(app, obj) || obj.locked || obj.ghost do continue
 		line := curve_screen_line(app, obj, size)
 		for k in 1 ..< len(line) {
-			if d := segment_distance(pos, line[k - 1], line[k]); d < best do best, found = d, i
+			if d := gizmo.segment_distance(pos, line[k - 1], line[k]); d < best do best, found = d, i
 		}
 	}
 	return found
-}
-
-// How far `p` is from the segment from `a` to `b`.
-@(private = "file")
-segment_distance :: proc(p, a, b: [2]f32) -> f32 {
-	ab := b - a
-	l := linalg.dot(ab, ab)
-	t := clamp(linalg.dot(p - a, ab) / l, 0, 1) if l > 0 else 0
-	return linalg.length(p - (a + ab * t))
 }
 
 // Draws every shown curve as its line: white, brighter and wider when selected, its
@@ -231,7 +216,7 @@ draw_curve_objects :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		view_proj := edit_view_proj(app, size)
 		half := 3.5 * o.scale
 		for p in obj.curve.points {
-			at, ok := gizmo_project_point(view_proj, to_world(obj.transform, p.p), size)
+			at, ok := gizmo.project(view_proj, to_world(obj.transform, p.p), size)
 			if !ok do continue
 			overlay_rect(o, at - half, at + half, 1 * o.scale, overlay_color({1, 1, 1, 1}), dark, 1 * o.scale)
 		}

@@ -111,6 +111,8 @@ curve_placed_by_taps :: proc(t: ^testing.T) {
 	closed := app.scene.objects[1].curve
 	testing.expect(t, closed != nil && closed.closed && len(closed.points) == 3, "not a closed curve of three points")
 
+	// With the sphere selected again, a tap places rather than edits the curve's point.
+	app.scene.selected = 0
 	curve_tap(&app, taps[0])
 	curve_tap(&app, taps[1])
 	curve_place_finish(&app, false)

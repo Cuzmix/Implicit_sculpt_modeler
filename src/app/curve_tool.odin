@@ -7,6 +7,7 @@ import "core:time"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 import "../sculpt"
 import "../ui"
 import "../voxel"
@@ -39,6 +40,11 @@ Curve_Tool :: struct {
 	// first point ends it.
 	placing: [dynamic]Vec3,
 	made:    int, // curve objects made, for the exit stats
+	// Editing the selected curve (curve_edit.odin): the press under way, the point picked
+	// for the context bar (from 1; 0 for none) and edits made, for the exit stats.
+	drag:    Curve_Drag,
+	picked:  int,
+	edits:   int,
 }
 
 Insert_Tool :: struct {
@@ -63,6 +69,7 @@ curve_tool_destroy :: proc(c: ^Curve_Tool) {
 	delete(c.points)
 	delete(c.screen)
 	delete(c.placing)
+	if c.drag.before != nil do history_snapshot_drop(c.drag.before)
 }
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
@@ -100,6 +107,8 @@ scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit,
 // Follows a Curve drag; on release makes its object. Returns false only on a GPU failure.
 curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
+	// A press on the selected curve's points, handles or line edits it instead.
+	if c.kind == .Curve && !c.active && curve_edit_frame(app, input) do return true
 	if input.primary {
 		if input.press {
 			c.active = true
@@ -147,7 +156,7 @@ curve_drawn :: proc(app: ^App, pos, size: [2]f32) {
 	// A tap on the first point placed closes the curve.
 	if len(c.placing) >= 3 {
 		view_proj := edit_view_proj(app, size)
-		if first, ok := gizmo_project_point(view_proj, c.placing[0], size); ok && linalg.length(first - pos) < CURVE_PICK_PX {
+		if first, ok := gizmo.project(view_proj, c.placing[0], size); ok && linalg.length(first - pos) < CURVE_PICK_PX {
 			curve_place_finish(app, true)
 			return
 		}
@@ -335,7 +344,7 @@ draw_curve_overlay :: proc(app: ^App, o: Overlay) {
 		size := app.ui.viewport_size
 		view_proj := edit_view_proj(app, size)
 		line := make([dynamic][2]f32, 0, len(c.placing), context.temp_allocator)
-		for p in c.placing do if at, ok := gizmo_project_point(view_proj, p, size); ok do append(&line, at)
+		for p in c.placing do if at, ok := gizmo.project(view_proj, p, size); ok do append(&line, at)
 		if len(line) >= 2 do overlay_polyline(o, line[:], color, 2)
 		for at, i in line do overlay_disc(o, at, (6 if i == 0 else 4) * o.scale, color)
 	}
