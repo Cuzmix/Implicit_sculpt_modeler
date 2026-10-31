@@ -51,6 +51,8 @@ Gpu_Caps :: struct {
 	// Objects' chunks are culled on the GPU (gpu_cull.odin, Renderer.gpu_cull): see
 	// gpu_cull_offered.
 	gpu_cull:          bool,
+	// GPU culling starts on (gpu_cull_by_default); off where it is offered for trying.
+	gpu_cull_default:  bool,
 }
 
 Async_Compute :: enum u8 {
@@ -107,6 +109,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.async_compute = gpu_async_compute_offered(r.device)
 	r.caps.ray_query = gpu_ray_query_offered(r.device)
 	r.caps.gpu_cull = gpu_cull_offered(r.device)
+	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu_cull_by_default(r.device)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

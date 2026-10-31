@@ -88,6 +88,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		if render.caps(&app.renderer).gpu_cull {
 			_ = ui.switch_row(ctx, "Cull on the GPU", &app.renderer.gpu_cull)
 			ui.paragraph(ctx, "Kernels cull still views and strokes and write the draws; the counts above are then a few frames late. Simplified drawing while the view moves culls on the CPU.")
+			if !render.caps(&app.renderer).gpu_cull_default do ui.paragraph(ctx, "Starts off on this tile GPU: compare the frame times with it on and off.")
 		}
 		_ = ui.switch_row(ctx, "Cache idle objects", &app.cache_idle)
 		ui.paragraph(ctx, fmt.tprintf("%s, redrawn %d times.", "In use" if v.cache_used else "Not in use", s.cache_redraws))

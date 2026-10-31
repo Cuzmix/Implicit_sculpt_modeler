@@ -425,13 +425,21 @@ gpu_draw_indexed_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPa
 
 // Whether objects' chunks can be culled on the GPU (gpu_cull.odin): the own Vulkan backend
 // with indirect draws that take many commands and read their count from a buffer, so the
-// culled-away chunks cost the GPU nothing. Not on a tile GPU (one with lazily allocated
-// memory: the tablets' and phones'), whose command processor may read every command up to
-// the most a draw may take, until a tablet's numbers say it pays there.
+// culled-away chunks cost the GPU nothing.
 @(require_results)
 gpu_cull_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	when METAL do return false
-	else do return vk_state.multi_draw && vk_state.indirect_count && !vk_state.lazy_memory
+	else do return vk_state.multi_draw && vk_state.indirect_count
+}
+
+// Whether GPU culling, where offered, starts on. Not on a tile GPU (one with lazily
+// allocated memory: the tablets' and phones'), whose command processor may read every
+// command up to the most a draw may take: there it is offered off, for a tablet's
+// numbers to say whether it pays (Stats > Drawing, --gpu-cull).
+@(require_results)
+gpu_cull_by_default :: proc(device: ^sdl.GPUDevice) -> bool {
+	when METAL do return false
+	else do return !vk_state.lazy_memory
 }
 
 gpu_draw_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_vertices: sdl.Uint32, num_instances: sdl.Uint32, first_vertex: sdl.Uint32, first_instance: sdl.Uint32) {
