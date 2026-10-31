@@ -698,6 +698,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.frame_limit = FRAME_LIMIT_DEFAULT
 	app.idle_sleep = true
 	app.ray_query = true
+	app.async_compute = true
 	app.start_home = true
 	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT

@@ -47,8 +47,8 @@ settings_path :: proc() -> string {
 // response and follows the global pressure as every other brush does. 8: the pen's side
 // button opens the object menu, over the model and over empty space, where it opened the
 // brush pie. 9: Remesh makes quads at first (`remesh_quads`), as DynaMesh and Blender's voxel
-// remesh do.
-SETTINGS_VERSION :: 9
+// remesh do. 10: Async compute is on where the GPU has a second queue (`async_compute`).
+SETTINGS_VERSION :: 10
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -1092,6 +1092,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// Every file saved before version 9 holds Remesh's Quads off, the default then, whether
 	// or not anyone picked it: the quads that replaced it as the default take its place once.
 	if version < 9 do app.ui.remesh_quads = true
+	// Likewise Async compute, off by default before version 10 while it was a trial.
+	if version < 10 do app.async_compute = true
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	// Before the current layout is put, which brings its own pins along when there is one.
