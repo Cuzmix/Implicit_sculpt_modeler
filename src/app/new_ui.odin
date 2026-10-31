@@ -375,6 +375,9 @@ Kit_State :: struct {
 	open:       [Kit_Section]bool,
 	more:       [Kit_Section]bool,
 	all_options: bool,
+	// Every paragraph of the cards and Settings shown whole rather than as a one-line hint
+	// with a ? (Settings > Interface > Inspector, ui.hint_line).
+	explain_all: bool,
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
@@ -1337,6 +1340,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// A stroke held to edit is kept by Enter too, and put back by Escape before what is open.
 	edit_waits := app.stroke_edit.open
 	if edit_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do stroke_edit_validate(app)
+	// Points placed one by one for a curve end as a curve by Enter, and go by Escape.
+	placing := len(app.curve.placing) > 0
+	if placing && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do curve_place_finish(app, false)
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
 	// the object or the mask back (move_tool_frame).
@@ -1352,6 +1358,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if edit_waits && quiet do stroke_edit_cancel(app)
+		else if placing && quiet do clear(&app.curve.placing)
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		// A job is cancelled last, once nothing else took the key.

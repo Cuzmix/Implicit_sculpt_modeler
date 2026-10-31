@@ -183,6 +183,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	draw_pivot(app, o, input.size)
 	draw_hold_history(app, o)
 	draw_light_markers(app, o, input.size)
+	draw_curve_objects(app, o, input.size)
 	draw_focus_marker(app, o, input.size)
 	// While the eyedropper's loupe shows, the brush ring under it would only hide the
 	// colour being picked.
@@ -253,6 +254,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		draw_gizmo(app, o, input)
 	case .Curve, .Insert:
 		draw_curve_overlay(app, o)
+		if app.tool == .Curve && app.curve.kind == .Curve do draw_curve_edit(app, o, input.size)
 	case .Model:
 		draw_model_overlay(app, o, input)
 	}

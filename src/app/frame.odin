@@ -182,6 +182,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// What each item was made from, for the main view's shading to make it again.
 	froms := make([dynamic]Item_From, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 	for obj, i in app.scene.objects {
+		// A curve is drawn by the overlay (curve_object.odin).
+		if !object_draws_triangles(obj) do continue
 		if vp := obj.voxel; vp != nil {
 			// A voxel object draws its clay's surface, remeshed where the frame's dabs landed.
 			t_flush := time.tick_now()

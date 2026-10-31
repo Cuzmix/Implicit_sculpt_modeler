@@ -111,7 +111,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Bars             = "bars customise customize buttons dock rail labels names",
 	.Action_Bar       = "action bar next steps",
 	.Wheel            = "dial modifier wheel side size sectors turn smooth mask invert",
-	.Inspector        = "inspector show every option",
+	.Inspector        = "inspector show every option explain every setting hints help text",
 	.Pies             = "pies pie editor slices",
 	.Panel_Places     = "reset panel positions panels move",
 	.Orbit            = "orbit turntable trackball speed invert turn about pivot",
@@ -152,6 +152,16 @@ settings_entry_matches :: proc(e: Settings_Entry, q, section: string) -> bool {
 	return strings.contains(section, q)
 }
 
+// Turns hints on for what is drawn next (a card's body, a block of Settings): each
+// paragraph its first sentence and a ? that opens the rest, unless Explain every setting
+// is on. Returns what it was, for the caller to put back.
+hints_push :: proc(app: ^App) -> (was: bool) {
+	ctx := &app.kit.ctx
+	was = ctx.hints
+	ctx.hints = !app.kit.explain_all
+	return
+}
+
 // Draws `entries` one after another, each caption after a gap, the blocks without
 // one going on under the block before.
 settings_entries_draw :: proc(app: ^App, entries: []Settings_Entry, q := "", section := "") {
@@ -174,6 +184,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	ctx := &k.ctx
 	t := ctx.theme
 	n := &app.nav
+	hints := hints_push(app)
+	defer ctx.hints = hints
 	switch b {
 	case .Look:
 		settings_look(app)
@@ -248,6 +260,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
+		_ = ui.switch_row(ctx, "Explain every setting", &k.explain_all)
+		ui.paragraph(ctx, "Cards and Settings show the first line of each explanation, with a ? that opens the rest. On, every explanation shows whole, as a manual beside the controls.")
 	case .Pies:
 		// Beside the button that opened it, rather than at the top of the window.
 		if command_button(app, .Pie_Editor, variant = .Bordered, glyph = ui.ICON_PIE) do k.pie_editor_at = ctx.last_rect
@@ -488,7 +502,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
 		k.dials = DIAL_DEFAULTS
-	case .Inspector:       k.all_options = false
+	case .Inspector:       k.all_options, k.explain_all = false, false
 	case .Pies, .Mouse, .Blender_Link:
 	case .Printer:         app.print_bed, app.print_wall = {}, 0
 	case .Panel_Places:    windows_reset(k)

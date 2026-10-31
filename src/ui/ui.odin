@@ -330,6 +330,16 @@ Context :: struct {
 	// its chosen option in view.
 	select_scroll:    f32,
 	select_scrolled:  Id,
+	// While set, a paragraph in the default colour shows as a hint: its first sentence on
+	// one line and a ? that opens the whole text in a popover (hint_draw). The app sets it
+	// round its cards and Settings unless the person asked for every setting explained.
+	hints:            bool,
+	// The hint whose popover is open (or closing), its line, and its whole text, copied.
+	hint_open:        Id,
+	hint_id:          Id,
+	hint_anchor:      Rect,
+	hint_text:        [dynamic]u8,
+	hint_fresh:       bool,
 	// Whether a widget was clicked this frame, and where: what the app shows beside the
 	// control a click acted on (the key binding popover).
 	clicked_now:      bool,
@@ -402,6 +412,7 @@ destroy :: proc(ctx: ^Context) {
 	delete(ctx.scratch_ids)
 	delete(ctx.select_text)
 	delete(ctx.select_ends)
+	delete(ctx.hint_text)
 	names_destroy(&ctx.names)
 	ctx^ = {}
 }
@@ -474,6 +485,7 @@ root_at :: proc(ctx: ^Context, p: [2]f32) -> Id {
 frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	assert(len(ctx.stack) == 0, "a container was begun and not ended")
 	select_list_draw(ctx)
+	hint_draw(ctx)
 	toasts_draw(ctx)
 	ring := long_press_decide(ctx)
 	labels_draw(ctx)
