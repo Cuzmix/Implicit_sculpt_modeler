@@ -36,6 +36,13 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	in_bar := [Chip_Section]bool{}
 	for s in Chip_Section do in_bar[s] = chip_in_bar(k, s)
 	width := area.w - 2 * TOP_BAR_INSET
+	// Arranging keeps the one bar, whose middle holds what arranging needs.
+	if k.top_islands && !arranging {
+		menu_anchor, search_anchor = kit_top_three(app, in_bar, width)
+		for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
+		kit_chip_islands(app, &menu_anchor, &search_anchor)
+		return
+	}
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = TOP_BAR_H - TOP_BAR_TOP, padding = 2, gap = 2, center = true, radius = t.radius_large, background = .Panel})
 	// What the row holds, for the gaps between: the bar has always counted fourteen
 	// things with every section in it (the middle's spacer among them).
@@ -59,7 +66,9 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	}
 	// What the ends take, the middle gets. Search is an icon (the palette it opens has its
 	// own field), so the object chip gives up its badges, then its tag, then shrinks to
-	// its icon, and last the space tabs go to the layout's chip.
+	// its icon, and last the space tabs go to the layout's chip. With Settings' Search as
+	// a field, the field stays while the chip keeps at least its name, and shrinks to the
+	// icon before the chip gives up more.
 	before := things > 0
 	tabs: f32 = space_tabs_width(app) if in_bar[.Spaces] else 0
 	tab_div: f32 = TOP_DIVIDER_W if in_bar[.Spaces] && before else 0
@@ -80,9 +89,23 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	row := 2 * 2 + 2 * f32(things - 1)
 	middle := width - row - left - right
 	chip := object_chip_of(app)
-	if in_bar[.Search] do middle -= t.target
 	fit := Object_Chip_Fit.None
-	if !arranging && in_bar[.Object] do fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
+	field := false
+	if k.search_field && in_bar[.Search] {
+		if !arranging {
+			with_field := middle - TOP_SEARCH_W - tabs - tab_div - chip_div
+			switch {
+			case !in_bar[.Object]:
+				field = with_field >= 0
+			case object_chip_fit(ctx, chip, with_field) >= .Name:
+				field, fit = true, object_chip_fit(ctx, chip, with_field)
+			}
+		} else {
+			field = middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
+		}
+	}
+	if in_bar[.Search] do middle -= TOP_SEARCH_W if field else t.target
+	if !arranging && in_bar[.Object] && !field do fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
 	if arranging {
 		// Arranging, the middle holds what arranging needs in place of the tabs and the chip.
 		pill := arrange_top_width(app)
@@ -123,7 +146,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	} else {
 		ui.spacer(ctx, max(middle, 0))
 	}
-	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor)
+	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = field)
 	if in_bar[.End] {
 		if in_bar[.Search] do top_divider(ctx)
 		k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
@@ -132,6 +155,136 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	// Where each section stood in the bar, for an island Arrange's Library takes out.
 	if !arranging do for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
 	kit_chip_islands(app, &menu_anchor, &search_anchor)
+	return
+}
+
+// The room kept between two islands of the top bar, in points.
+TOP_ISLAND_GAP :: 8
+// The padding inside an island and the gap between its items, in points.
+TOP_ISLAND_PAD :: 2
+
+// What the three islands show, from everything down to the least that still works.
+@(private = "file")
+Top_Three :: struct {
+	file:  bool, // the file block after the menu button
+	field: bool, // Search as its field rather than its icon
+	tabs:  int, // the space tabs (0), the layout's chip (1) or neither (2)
+	fit:   Object_Chip_Fit,
+}
+
+// The top bar as three islands (Settings > Interface > Top bar): the menu, the file and
+// Undo and Redo at the left; the spaces and the object chip centred on the window; Search,
+// History and Settings at the right. One full-width row holds them, so a control's name
+// stays "top bar/..." and a section dragged in Arrange goes back by the same rectangle.
+// When the sides would reach the middle island, parts give way in a fixed order (the
+// chip's badges, Search's field, the chip's tag, the file block, the tabs to the layout's
+// chip, the chip to its icon), and only then does the middle leave the centre.
+@(private = "file")
+kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32) -> (menu_anchor, search_anchor: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	chip := object_chip_of(app)
+	file_w := top_file_width(app)
+	// An island's width: its items, the gaps between them and its padding.
+	island_w :: proc(items: []f32) -> f32 {
+		w: f32 = 0
+		n := 0
+		for x in items do if x > 0 {
+			w += x
+			n += 1
+		}
+		return 0 if n == 0 else w + f32(n - 1) * TOP_ISLAND_PAD + 2 * TOP_ISLAND_PAD
+	}
+	left_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, file_w: f32) -> f32 {
+		t := app.kit.ctx.theme
+		return island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.Undo] else 0})
+	}
+	right_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three) -> f32 {
+		t := app.kit.ctx.theme
+		search: f32 = 0
+		if in_bar[.Search] do search = TOP_SEARCH_W if v.field else t.target
+		return island_w({search, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0})
+	}
+	middle_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip) -> f32 {
+		ctx := &app.kit.ctx
+		tabs: f32 = 0
+		if in_bar[.Spaces] && v.tabs == 0 do tabs = space_tabs_width(app)
+		if in_bar[.Spaces] && v.tabs == 1 do tabs = WORKSPACE_CHIP_ROOM
+		obj: f32 = object_chip_width(ctx, chip, v.fit) if in_bar[.Object] else 0
+		return island_w({tabs, TOP_DIVIDER_W if tabs > 0 && obj > 0 else 0, obj})
+	}
+	v := Top_Three {
+		file  = true,
+		field = k.search_field && in_bar[.Search],
+		tabs  = 0 if in_bar[.Spaces] else 2,
+		fit   = .Full if in_bar[.Object] else .None,
+	}
+	fits :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip, file_w, width: f32) -> bool {
+		side := max(left_w(app, in_bar, v, file_w), right_w(app, in_bar, v))
+		return middle_w(app, in_bar, v, chip) <= width - 2 * (side + TOP_ISLAND_GAP)
+	}
+	for step in 0 ..< 6 {
+		if fits(app, in_bar, v, chip, file_w, width) do break
+		switch step {
+		case 0: if v.fit > .Tag do v.fit = .Tag
+		case 1: v.field = false
+		case 2: if v.fit > .Name do v.fit = .Name
+		case 3: v.file = false
+		case 4: if v.tabs == 0 do v.tabs = 1
+		case 5: if v.fit > .Icon do v.fit = .Icon
+		}
+	}
+	l, r := left_w(app, in_bar, v, file_w), right_w(app, in_bar, v)
+	// Off centre at last: the middle takes what the sides leave, and gives up the layout's
+	// chip, then shrinks the object chip, before anything overlaps.
+	room := width - l - r - 2 * TOP_ISLAND_GAP
+	if middle_w(app, in_bar, v, chip) > room {
+		v.tabs = 2
+		if in_bar[.Object] do v.fit = object_chip_fit(ctx, chip, room - 2 * TOP_ISLAND_PAD)
+	}
+	m := middle_w(app, in_bar, v, chip)
+	h: f32 = TOP_BAR_H - TOP_BAR_TOP
+	island := ui.Box{direction = .Row, height = h, padding = TOP_ISLAND_PAD, gap = TOP_ISLAND_PAD, center = true, radius = t.radius_large, background = .Panel}
+	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = h, center = true})
+	// The islands as drawn last frame, so the middle sits on the centre to the point; the
+	// sums above stand in on the first frame and when what shows changes.
+	drawn :: proc(ctx: ^ui.Context, name: string, sum: f32) -> f32 {
+		size, _ := ui.prev_layout(ctx, name)
+		return size.x if size.x > 0 && abs(size.x - sum) < 24 else sum
+	}
+	used: f32 = 0
+	if l > 0 {
+		lw := drawn(ctx, "file island", l)
+		ui.begin(ctx, "file island", island)
+		if in_bar[.Menu] do k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor, file = v.file)
+		if in_bar[.Menu] && in_bar[.Undo] do top_divider(ctx)
+		if in_bar[.Undo] do k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
+		ui.end(ctx)
+		used = lw
+	}
+	if m > 0 {
+		mw := drawn(ctx, "work island", m)
+		at := clamp((width - mw) * 0.5, used + TOP_ISLAND_GAP, max(width - r - TOP_ISLAND_GAP - mw, used + TOP_ISLAND_GAP))
+		ui.spacer(ctx, at - used)
+		ui.begin(ctx, "work island", island)
+		if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
+		if v.tabs == 1 do kit_workspace_chip(app)
+		if v.tabs < 2 && v.fit != .None do top_divider(ctx)
+		if v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
+		ui.end(ctx)
+		used = at + mw
+	}
+	if r > 0 {
+		rw := drawn(ctx, "app island", r)
+		ui.spacer(ctx, max(width - rw - used, 0))
+		ui.begin(ctx, "app island", island)
+		if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = v.field)
+		if in_bar[.Search] && in_bar[.End] do top_divider(ctx)
+		if in_bar[.End] do k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
+		ui.end(ctx)
+	}
+	ui.end(ctx)
 	return
 }
 
@@ -232,16 +385,23 @@ top_divider :: proc(ctx: ^ui.Context) {
 	ui.fill_rect(ctx, {r.x + 6, r.y, 1, r.h}, 0, ctx.theme.border)
 }
 
+// The file block's width: as wide as its widest status line whatever it says now, so
+// Undo and Redo stay put when a stroke makes the scene unsaved.
+top_file_width :: proc(app: ^App) -> f32 {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	name := filepath.base(app.scene_path) if app.scene_path != "" else "Untitled"
+	widest := max(ui.text_width(ctx, "Unsaved changes", t.small_size), ui.text_width(ctx, "Saved 59 min ago", t.small_size))
+	return min(max(ui.text_width(ctx, name, t.text_size, .Semibold), widest) + 16, 220)
+}
+
 // The file the scene saves to over whether it is saved; returns its width.
 top_file_block :: proc(app: ^App) -> f32 {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	name := filepath.base(app.scene_path) if app.scene_path != "" else "Untitled"
 	status := file_status(app, time.now())
-	// As wide as its widest status line whatever it says now, so Undo and Redo stay put
-	// when a stroke makes the scene unsaved.
-	widest := max(ui.text_width(ctx, "Unsaved changes", t.small_size), ui.text_width(ctx, "Saved 59 min ago", t.small_size))
-	w := min(max(ui.text_width(ctx, name, t.text_size, .Semibold), widest) + 16, 220)
+	w := top_file_width(app)
 	r := ui.place(ctx, {w, TOP_BAR_H - TOP_BAR_TOP - 8})
 	mid := r.y + r.h * 0.5
 	ui.text(ctx, ui.text_fit(ctx, name, t.text_size, w - 16, .Semibold), r.x + 8, mid - 8, t.text_size, t.text, .Semibold)
@@ -274,3 +434,39 @@ saved_ago :: proc(d: time.Duration) -> string {
 
 // Lucide's plus.
 ICON_PLUS_SMALL :: rune(0xe141)
+
+// The Search field's width, in points: room for its hint and its keys.
+TOP_SEARCH_W :: 300
+
+// The Search field (Settings > Interface > Top bar): a tap opens the command palette
+// under it, as the icon does and Ctrl+K does.
+top_search_field :: proc(app: ^App) -> ui.Rect {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	a := ui.area(ctx, "Search field", {TOP_SEARCH_W, t.target})
+	r := ui.Rect{a.rect.x, a.rect.y + (a.rect.h - 34) * 0.5, a.rect.w, 34}
+	ui.fill_rect(ctx, r, t.radius_medium, t.surface)
+	ui.stroke_rect(ctx, r, t.radius_medium, t.border, 1)
+	if a.held do ui.fill_rect(ctx, r, t.radius_medium, t.fill_pressed)
+	else if a.hovered do ui.fill_rect(ctx, r, t.radius_medium, t.fill_hover)
+	if k.palette do ui.stroke_rect(ctx, r, t.radius_medium, t.accent, 1)
+	mid := r.y + r.h * 0.5
+	ui.icon(ctx, ui.ICON_SEARCH, {r.x + 18, mid}, 16, t.text_tertiary)
+	keys := command_keys(app, .Command_Palette)
+	kw: f32 = 0
+	if keys != "" {
+		kw = ui.text_width(ctx, keys, t.caption_size, .Semibold) + 10
+		chip := ui.Rect{r.x + r.w - 8 - kw, mid - 10, kw, 20}
+		ui.fill_rect(ctx, chip, t.radius_small, t.track)
+		ui.text(ctx, keys, chip.x + chip.w * 0.5, mid, t.caption_size, t.text_secondary, .Semibold, .Center)
+	}
+	hint := ui.text_fit(ctx, "Search commands, brushes, panels", t.small_size, r.w - 36 - kw - 16)
+	ui.text(ctx, hint, r.x + 34, mid, t.small_size, t.text_tertiary)
+	ui.tip(ctx, a.id, r, "Search commands", command_hint(app, .Command_Palette))
+	if a.clicked {
+		if k.palette do palette_close(app)
+		else do palette_open(app)
+	}
+	return r
+}

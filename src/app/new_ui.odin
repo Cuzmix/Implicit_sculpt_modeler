@@ -374,6 +374,12 @@ Kit_State :: struct {
 	open:       [Kit_Section]bool,
 	more:       [Kit_Section]bool,
 	all_options: bool,
+	// Search in the top bar as the field naming what it finds rather than its icon
+	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
+	search_field: bool,
+	// The top bar as three islands, the spaces centred (the default), or as one bar
+	// (Settings > Interface > Top bar).
+	top_islands: bool,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
@@ -1015,6 +1021,7 @@ kit_init :: proc(app: ^App) {
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
+	k.top_islands = true
 	// The Export sheet starts on its first preset, a 3D print, as its cards read.
 	k.export.format = .Print
 	bars_reset(k)

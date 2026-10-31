@@ -55,6 +55,7 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
 	{.Size, "SIZE"},
 	{.Hands, "SCREEN LAYOUT"},
+	{.Top_Bar, "TOP BAR"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},

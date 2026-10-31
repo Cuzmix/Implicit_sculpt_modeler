@@ -17,6 +17,7 @@ Settings_Block :: enum u8 {
 	Size,
 	Clean_Dial,
 	Hands,
+	Top_Bar,
 	Motion,
 	Starting,
 	Brush_Ring,
@@ -82,6 +83,7 @@ SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Size, "SIZE"},
 	{.Clean_Dial, "CLEAN VIEW"},
 	{.Hands, "SCREEN LAYOUT"},
+	{.Top_Bar, "TOP BAR"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
@@ -150,6 +152,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Size             = "size interface scale bigger text touch targets zoom",
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
+	.Top_Bar          = "top bar search field icon chip bar command palette three islands one bar centred style",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
@@ -268,6 +271,12 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons down the view rail, on each of the shelf's pages and in its tools after All: any command, in any order.")
+	case .Top_Bar:
+		styles := [2]string{"Three islands", "One bar"}
+		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
+		ui.paragraph(ctx, "Three islands: the file and Undo at the left, the spaces and the selected object centred on the window, Search, History and Settings at the right; as the window narrows the middle keeps its place while the others give up their least needed parts. One bar: the same in one strip across the top.")
+		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
+		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
 	case .Action_Bar:
 		_ = ui.switch_row(ctx, "Show next steps over the shelf", &k.action_bar)
 		ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
@@ -542,6 +551,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
+	case .Top_Bar:         k.search_field, k.top_islands = false, true
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
