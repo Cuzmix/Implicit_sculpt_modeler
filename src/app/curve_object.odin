@@ -37,9 +37,44 @@ CURVE_USE_NAMES := [Curve_Use]string {
 	.Brush_Path = "Brush path",
 }
 
-// The uses built so far, as the settings offer them; Along and Brush path join them as
-// they come.
-CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe}
+// The uses built so far, as the settings offer them; Brush path joins them as it comes.
+CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe, .Along}
+
+// What Along sets along a curve: a stitch, a zipper's tooth or a ball. Copies of another
+// object wait for a way to keep a curve in step with the object it copies (rebuilt when
+// that object is sculpted, deleted or brought back), which reading a scene must order too.
+Along_Part :: enum u8 {
+	Stitch,
+	Tooth,
+	Sphere,
+}
+
+@(rodata)
+ALONG_PART_NAMES := [Along_Part]string {
+	.Stitch = "Stitch",
+	.Tooth  = "Tooth",
+	.Sphere = "Sphere",
+}
+
+Along_Look :: struct {
+	part: Along_Part,
+	opts: geom.Along_Options,
+}
+
+// Each part's own spacing and lift, as the Curve tool's Stitches and Zipper made them:
+// stitches lean into each other a little and sit just proud of the surface; teeth
+// alternate sides, touching.
+along_preset :: proc(part: Along_Part) -> Along_Look {
+	look := Along_Look{part = part, opts = geom.ALONG_DEFAULTS}
+	switch part {
+	case .Stitch:
+		look.opts.gap, look.opts.lift = -0.1, 0.02
+	case .Tooth:
+		look.opts.gap, look.opts.alternate = 0, true
+	case .Sphere:
+	}
+	return look
+}
 
 // `obj`'s curve's look with `use` chosen. Choosing Lathe sets its axis to the view's
 // vertical in the curve's space, as Nomad does, through the middle of a closed curve (a
@@ -61,9 +96,10 @@ Curve_Look :: struct {
 	use:   Curve_Use,
 	tube:  geom.Tube_Options,
 	lathe: geom.Lathe_Options,
+	along: Along_Look,
 }
 
-CURVE_LOOK_DEFAULTS :: Curve_Look{use = .None, tube = geom.TUBE_DEFAULTS, lathe = geom.LATHE_DEFAULTS}
+CURVE_LOOK_DEFAULTS :: Curve_Look{use = .None, tube = geom.TUBE_DEFAULTS, lathe = geom.LATHE_DEFAULTS, along = {part = .Stitch, opts = {gap = -0.1, lift = 0.02, up = {0, 1, 0}}}}
 
 Curve_Part :: struct {
 	points:     [dynamic]geom.Bezier_Point,
@@ -83,6 +119,9 @@ CURVE_TUBE_BYTES :: 4 + 3 * size_of(f32)
 
 // Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
 CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
+
+// Bytes Along's options take after the lathe's: part, gap, alternate, lift, up.
+CURVE_ALONG_BYTES :: 1 + size_of(f32) + 1 + size_of(f32) + size_of(Vec3)
 
 // How far, in pixels, a press may land from a curve's line on screen and pick it.
 CURVE_PICK_PX :: 10
@@ -127,12 +166,29 @@ curve_part_attach :: proc(app: ^App, obj: ^Object, cp: ^Curve_Part) -> bool {
 // line, or a use whose shape comes to nothing, such as a lathe of a curve on its axis).
 curve_part_mesh :: proc(cp: ^Curve_Part) -> (mesh: geom.Mesh, ok: bool) {
 	#partial switch cp.use {
+	case .Along:
+		part := along_part_mesh(cp.along.part)
+		defer geom.mesh_destroy(&part)
+		return geom.bezier_along(cp.points[:], cp.closed, part, cp.along.opts)
 	case .Tube:
 		return geom.bezier_tube(cp.points[:], cp.closed, cp.tube, geom.tube_up(cp.points[:]))
 	case .Lathe:
 		return geom.bezier_lathe(cp.points[:], cp.closed, cp.lathe)
 	}
 	return {}, false
+}
+
+// The part Along sets, at width 1 (geom.bezier_along), in a new mesh.
+along_part_mesh :: proc(part: Along_Part) -> geom.Mesh {
+	switch part {
+	case .Stitch:
+		return geom.curve_stitch_part(1)
+	case .Tooth:
+		return geom.curve_tooth_part(1)
+	case .Sphere:
+		return geom.icosphere(2, 0.5)
+	}
+	return geom.icosphere(2, 0.5)
 }
 
 // Makes the curve's level again after its points or options changed: the autosave thread
@@ -174,6 +230,17 @@ curve_lathe_clean :: proc(o: geom.Lathe_Options) -> geom.Lathe_Options {
 	return c
 }
 
+// Along's options made safe to build: a gap of more than -0.9 (copies overlapping by no
+// more than nine tenths), a lift within four widths, a unit up (the default's for none).
+curve_along_clean :: proc(a: Along_Look) -> Along_Look {
+	c := a
+	c.opts.gap = clamp(c.opts.gap, -0.9, 10) if c.opts.gap == c.opts.gap else 0
+	c.opts.lift = clamp(c.opts.lift, -4, 4) if c.opts.lift == c.opts.lift else 0
+	c.opts.up = linalg.normalize0(c.opts.up) if finite(c.opts.up) else {}
+	if c.opts.up == {} do c.opts.up = geom.ALONG_DEFAULTS.up
+	return c
+}
+
 // A Use or tube slider's drag in progress: the curve it changes and the snapshot from
 // before it.
 Curve_Look_Drag :: struct {
@@ -187,9 +254,9 @@ Curve_Look_Drag :: struct {
 // only on a GPU failure.
 object_set_curve_look :: proc(app: ^App, obj: ^Object, wanted: Curve_Look, drag := false) -> bool {
 	cp := obj.curve
-	look := Curve_Look{wanted.use, curve_tube_clean(wanted.tube), curve_lathe_clean(wanted.lathe)}
+	look := Curve_Look{wanted.use, curve_tube_clean(wanted.tube), curve_lathe_clean(wanted.lathe), curve_along_clean(wanted.along)}
 	if cp.look == look do return true
-	what := "curve use" if cp.use != look.use else "tube" if cp.tube != look.tube else "lathe"
+	what := "curve use" if cp.use != look.use else "tube" if cp.tube != look.tube else "lathe" if cp.lathe != look.lathe else "along"
 	ld := &app.curve.look_drag
 	if drag && ld.before != nil && ld.object != obj.id do curve_look_drag_end(app, force = true)
 	before: ^Object_Snapshot
@@ -251,15 +318,14 @@ curve_bake :: proc(app: ^App, obj: ^Object) -> bool {
 // over) making `use`, as a new selected object named "Curve N" placed at their middle, as
 // one undo step. Returns false, adding nothing, for fewer than CURVE_MIN_POINTS points or
 // on a GPU failure.
-curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, use := Curve_Use.None, tube := geom.TUBE_DEFAULTS) -> bool {
+curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, look := CURVE_LOOK_DEFAULTS) -> bool {
 	if len(points) < CURVE_MIN_POINTS do return false
 	stroke_finish(app)
 	bounds := geom.AABB_EMPTY
 	for p in points do geom.aabb_grow(&bounds, p.p)
 	middle := 0.5 * (bounds.lo + bounds.hi)
 	cp := new(Curve_Part)
-	cp.closed, cp.look = closed, CURVE_LOOK_DEFAULTS
-	cp.use, cp.tube = use, tube
+	cp.closed, cp.look = closed, look
 	reserve(&cp.points, len(points))
 	for p in points {
 		q := p
@@ -319,12 +385,18 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 	geom.byte_put(out, l.angle)
 	geom.byte_put(out, u16(l.segments))
 	geom.byte_put(out, u8(l.caps))
+	a := cp.along
+	geom.byte_put(out, u8(a.part))
+	geom.byte_put(out, a.opts.gap)
+	geom.byte_put(out, u8(a.opts.alternate))
+	geom.byte_put(out, a.opts.lift)
+	geom.byte_put(out, a.opts.up)
 }
 
 // Reads what curve_part_put wrote into a new curve on `obj`, and makes its level. `read`
 // is false, with nothing made, for damage: too few points, more than the bytes hold, a
-// flag, use or option no version wrote, a value that is not a number, or tube or lathe
-// options only partly there (a curve from before them has none, and takes the defaults). `made` is
+// flag, use or option no version wrote, a value that is not a number, or tube, lathe or
+// Along options only partly there (a curve from before them has none, and takes the defaults). `made` is
 // false on a GPU failure, with the curve on the object for object_discard.
 curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
 	count := int(geom.byte_get(r, u32))
@@ -374,6 +446,17 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		damaged = !r.ok || !finite(l.axis) || linalg.length(l.axis) < 1e-6 || int(through) >= len(geom.Lathe_Through) || !(l.angle >= 1 && l.angle <= 360) || l.segments < 3 || l.segments > geom.LATHE_SEGMENTS_MAX || caps > 1
 		l.through, l.caps = geom.Lathe_Through(through), caps == 1
 		cp.lathe = l
+	}
+	if !damaged && r.at < len(r.data) {
+		a: Along_Look
+		part := geom.byte_get(r, u8)
+		a.opts.gap = geom.byte_get(r, f32)
+		alternate := geom.byte_get(r, u8)
+		a.opts.lift = geom.byte_get(r, f32)
+		a.opts.up = geom.byte_get(r, Vec3)
+		damaged = !r.ok || int(part) >= len(Along_Part) || alternate > 1 || !finite({a.opts.gap, a.opts.lift, 0}) || !finite(a.opts.up) || linalg.length(a.opts.up) < 1e-6
+		a.part, a.opts.alternate = Along_Part(part), alternate == 1
+		cp.along = a
 	}
 	if damaged {
 		delete(cp.points)

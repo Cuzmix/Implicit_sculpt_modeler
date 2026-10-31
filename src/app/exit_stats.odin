@@ -242,7 +242,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stamp_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_end.stamp_edits, app.stroke_edit.open)
 			curves, curve_points := curve_counts(app)
 			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits)
-			tubes, lathes, tube_vertices, lathe_vertices := 0, 0, 0, 0
+			tubes, lathes, alongs, tube_vertices, lathe_vertices, along_vertices := 0, 0, 0, 0, 0, 0
 			for obj in app.scene.objects do if obj.curve != nil && object_draws_triangles(obj) {
 				n := len(sculpt.levels_current(&obj.levels).mesh.positions)
 				#partial switch obj.curve.use {
@@ -252,9 +252,12 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				case .Lathe:
 					lathes += 1
 					lathe_vertices += n
+				case .Along:
+					alongs += 1
+					along_vertices += n
 				}
 			}
-			fmt.printfln("curve_tubes=%d curve_tube_vertices=%d curve_lathes=%d curve_lathe_vertices=%d curve_rebuilds=%d curve_tube_ms=%.2f curve_bakes=%d", tubes, tube_vertices, lathes, lathe_vertices, app.curve.rebuilds, app.curve.tube_ms, app.curve.bakes)
+			fmt.printfln("curve_tubes=%d curve_tube_vertices=%d curve_lathes=%d curve_lathe_vertices=%d curve_alongs=%d curve_along_vertices=%d curve_rebuilds=%d curve_tube_ms=%.2f curve_bakes=%d", tubes, tube_vertices, lathes, lathe_vertices, alongs, along_vertices, app.curve.rebuilds, app.curve.tube_ms, app.curve.bakes)
 			fmt.printfln("gesture=%s mask_shape=%s", lower(app.gesture), lower(app.ui.mask_shape_kind))
 			// The lights: which is picked, how many are on, the first one's view-space
 			// direction as the sphere shows it, and taps that flipped a light's side.

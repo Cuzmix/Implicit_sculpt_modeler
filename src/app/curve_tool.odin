@@ -22,9 +22,9 @@ import "../voxel"
 
 Curve_Kind :: enum u8 {
 	Curve, // a curve object, editable until baked (curve_object.odin)
-	Tube,
-	Stitches,
-	Zipper,
+	Tube, // a curve whose use is Tube
+	Stitches, // a curve whose use is Along, stitches
+	Zipper, // a curve whose use is Along, alternate teeth
 }
 
 Curve_Tool :: struct {
@@ -119,7 +119,7 @@ scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3, skip_curves := false
 curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
 	// A press on the selected curve's points, handles or line edits it instead.
-	if curve_kind_draws(c.kind) && !c.active && curve_edit_frame(app, input) do return true
+	if !c.active && curve_edit_frame(app, input) do return true
 	if input.primary {
 		if input.press {
 			c.active = true
@@ -131,33 +131,31 @@ curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	}
 	if !c.active do return true
 	c.active = false
-	if curve_kind_draws(c.kind) {
-		curve_drawn(app, input.mouse_pos, input.size)
-		return true
-	}
-	return curve_make(app)
-}
-
-// Whether a kind draws a curve object (Curve, and Tube as a curve whose use is Tube) rather
-// than making a mesh straight away.
-curve_kind_draws :: proc(kind: Curve_Kind) -> bool {
-	return kind == .Curve || kind == .Tube
+	curve_drawn(app, input.mouse_pos, input.size)
+	return true
 }
 
 // Makes a curve object of `points` for the tool's kind: Tube lifts the points along the
-// surface's normals by Lift radii and sweeps a tube of the tool's sides along them.
+// surface's normals by Lift radii and sweeps a tube of the tool's sides along them;
+// Stitches and Zipper set the Along use's presets with the surface's normal at the first
+// point as the copies' up.
 @(private = "file")
 curve_kind_add :: proc(app: ^App, points: []geom.Bezier_Point, normals: []Vec3, closed: bool) {
 	c := &app.curve
-	if c.kind != .Tube {
-		_ = curve_object_add(app, points, closed)
-		return
+	look := CURVE_LOOK_DEFAULTS
+	switch c.kind {
+	case .Curve:
+	case .Tube:
+		for &p, i in points do p.p += normals[i] * (c.lift * p.radius)
+		look.use = .Tube
+		look.tube.one = c.radius * c.size
+		look.tube.sides = int(clamp(c.sides, 3, geom.TUBE_SIDES_MAX))
+	case .Stitches, .Zipper:
+		look.use = .Along
+		look.along = along_preset(.Stitch if c.kind == .Stitches else .Tooth)
+		if len(normals) > 0 do look.along.opts.up = normals[0]
 	}
-	for &p, i in points do p.p += normals[i] * (c.lift * p.radius)
-	tube := geom.TUBE_DEFAULTS
-	tube.one = c.radius * c.size
-	tube.sides = int(clamp(c.sides, 3, geom.TUBE_SIDES_MAX))
-	_ = curve_object_add(app, points, closed, .Tube, tube)
+	_ = curve_object_add(app, points, closed, look)
 }
 
 // How far a press may move on screen and still be a tap that places a point.
@@ -248,36 +246,6 @@ curve_add_point :: proc(app: ^App, pos, size: [2]f32) {
 	if len(c.points) > 0 && linalg.length(hit - c.points[len(c.points) - 1].p) < 0.05 * c.radius do return
 	append(&c.points, geom.Curve_Point{hit, n})
 	append(&c.screen, pos)
-}
-
-// Makes the object along the path drawn. Returns false only on a GPU failure.
-curve_make :: proc(app: ^App) -> bool {
-	c := &app.curve
-	defer {
-		clear(&c.points)
-		clear(&c.screen)
-	}
-	width := 2 * c.radius * c.size
-	if len(c.points) < 2 || !(width > 0) do return true
-	start := time.tick_now()
-	mesh: geom.Mesh
-	made: bool
-	switch c.kind {
-	case .Curve, .Tube:
-		return true
-	case .Stitches, .Zipper:
-		stitch := c.kind == .Stitches
-		path := geom.curve_resample(c.points[:], width * (0.6 if stitch else 0.28), 3, context.temp_allocator)
-		part := geom.curve_stitch_part(width) if stitch else geom.curve_tooth_part(width)
-		defer geom.mesh_destroy(&part)
-		mesh, made = geom.curve_place(path, part, 0.02 * width if stitch else 0, alternate = !stitch)
-	}
-	free_all(context.temp_allocator)
-	if !made {
-		log.warn("curve: the path is too short for its width")
-		return true
-	}
-	return add_made_object(app, &mesh, fmt.tprintf("%v", c.kind), .None, start)
 }
 
 // Adds `mesh` (in world space) as a new object around its middle, selected, as one undo
@@ -435,6 +403,8 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		kit_curve_tube(app, obj, look)
 	case .Lathe:
 		kit_curve_lathe(app, obj, look)
+	case .Along:
+		kit_curve_along(app, look)
 	case:
 		return
 	}
@@ -484,6 +454,24 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		if o.profile == .Ribbon {
 			if ui.slider(ctx, "Flatness", &o.flatness, 0.02, 1, .Linear, fmt.tprintf("%.2f", o.flatness)) do set(app, look, true)
 		}
+	}
+
+	kit_curve_along :: proc(app: ^App, look: Curve_Look) {
+		ctx := &app.kit.ctx
+		look := look
+		a := &look.along
+		parts: [len(Along_Part)]string
+		for part, i in Along_Part do parts[i] = ALONG_PART_NAMES[part]
+		if picked := ui.tabs(ctx, "along part", parts[:], int(a.part)); picked >= 0 {
+			// A part comes with its own spacing and lift; the way up stays the curve's.
+			up := a.opts.up
+			a^ = along_preset(Along_Part(picked))
+			a.opts.up = up
+			set(app, look)
+		}
+		if ui.slider(ctx, "Gap", &a.opts.gap, -0.9, 3, .Linear, fmt.tprintf("%.2f of a copy", a.opts.gap)) do set(app, look, true)
+		if ui.slider(ctx, "Lift", &a.opts.lift, -1, 1, .Linear, fmt.tprintf("%.2f of a width", a.opts.lift)) do set(app, look, true)
+		if ui.switch_row(ctx, "Alternate sides", &a.opts.alternate) do set(app, look)
 	}
 
 	kit_curve_lathe :: proc(app: ^App, obj: ^Object, look: Curve_Look) {
