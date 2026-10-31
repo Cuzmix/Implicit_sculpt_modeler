@@ -333,7 +333,7 @@ curve_lathe_takes_the_view_axis :: proc(t: ^testing.T) {
 	obj.curve.closed = true
 	testing.expect_value(t, curve_use_look(&app, obj, .Lathe).lathe.through, geom.Lathe_Through.Middle)
 	testing.expect(t, command_enabled(&app, .Curve_Use, int(Curve_Use.Lathe)))
-	testing.expect(t, !command_enabled(&app, .Curve_Use, int(Curve_Use.Brush_Path)), "a use not built is offered")
+	testing.expect(t, !command_enabled(&app, .Curve_Use, len(Curve_Use)), "a use past the last is offered")
 	c := curve_lathe_clean({axis = {0, 0, 0}, angle = 999, segments = 1})
 	testing.expect(t, c.axis == geom.LATHE_DEFAULTS.axis && c.angle == 360 && c.segments == 3)
 }

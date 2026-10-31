@@ -37,8 +37,8 @@ CURVE_USE_NAMES := [Curve_Use]string {
 	.Brush_Path = "Brush path",
 }
 
-// The uses built so far, as the settings offer them; Brush path joins them as it comes.
-CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe, .Along}
+// The uses the settings offer, in their order.
+CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe, .Along, .Brush_Path}
 
 // What Along sets along a curve: a stitch, a zipper's tooth or a ball. Copies of another
 // object wait for a way to keep a curve in step with the object it copies (rebuilt when

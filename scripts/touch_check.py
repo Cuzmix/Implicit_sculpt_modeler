@@ -1472,6 +1472,28 @@ def zipper_drawn_by_pen_stays_a_curve():
 
 
 @scenario
+def brush_run_along_a_curve_from_the_palette():
+    """A pen-drawn curve made a brush path, then Run brush along curve from the palette:
+    the brush is laid along it on the sphere as a stroke held to edit, which Enter keeps,
+    one undo step (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("curve use brush path")
+    s.press("Return")
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("run brush along curve")
+    s.press("Return")
+    s.wait(6)
+    s.press("Return")
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_brush_runs": near(1), "dabs": lambda v: int(v) > 0,
+                                                                     "undo_steps": near(3), "stroke_edit_open": lambda v: v == "false"})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
