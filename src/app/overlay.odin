@@ -204,6 +204,10 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			break
 		}
 		if draw_adjust(app, o) do break
+		if app.stroke_edit.open {
+			draw_stroke_edit(app, o, input.size)
+			break
+		}
 		if st := app.stroke; st.active && st.rect {
 			// The stamp being dragged out: its circle around where it began, and a line to
 			// the pointer, the way its top faces.

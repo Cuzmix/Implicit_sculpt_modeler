@@ -939,11 +939,55 @@ def look_switch_is_remembered():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "interface")
-    s.ftap(1081, 248)  # Graphite, right of Lens and Studio
+    s.ftap(LOOK_CARD_GRAPHITE)
     s.wait(4)
     s.ftap(SETTINGS_CLOSE)
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "@saved": saved(look="Graphite")})
+    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "theme_draft": near(0), "@saved": saved(look="Graphite")})
+
+
+# Settings > Interface > Look at 1600 x 900: the gallery's Graphite card (third of the first
+# row, under the draft's row), the blue accent swatch and the draft's Keep as new.
+LOOK_CARD_GRAPHITE = (893, 350)
+LOOK_ACCENT_BLUE = (704, 586)
+LOOK_KEEP = (756, 276)
+# The Paper card, and its menu's Duplicate once a long press opened it.
+LOOK_CARD_PAPER = (990, 350)
+LOOK_MENU_DUPLICATE = (1014, 430)
+
+
+@scenario
+def look_card_menu_duplicates():
+    """Settings > Interface > Look: a long press on the Paper card opens its menu without choosing it; Duplicate makes "Paper 2", a theme of one's own, and shows it; the settings file keeps it."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_CARD_PAPER, hold=40)
+    s.wait(10)
+    s.ftap(LOOK_MENU_DUPLICATE)
+    s.wait(6)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Paper%202"), "theme_mode": is_text("Light"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "@saved": saved_line("look_user 0")})
+
+
+@scenario
+def look_theme_kept():
+    """Settings > Interface > Look: an accent swatch makes a draft of Lens at once; Keep as new saves it as "Lens 2", a theme of one's own, which the settings file keeps."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(LOOK_ACCENT_BLUE)
+    s.wait(4)
+    s.ftap(LOOK_KEEP)
+    s.wait(4)
+    s.ftap(SETTINGS_CLOSE)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"theme": is_text("Lens%202"), "theme_draft": near(0), "user_themes": near(1),
+                                                                  "theme_accent": is_text("#5b8cff"), "@saved": saved(look_user="0")})
 
 
 @scenario
@@ -1187,6 +1231,90 @@ def join_strokes_by_pen():
 
 
 @scenario
+def hold_to_edit_by_pen():
+    """A pen stroke held still at its end opens for editing and stays open when the pen
+    lifts; Enter keeps it as one undo step. A second stroke held, then Escape, puts it back
+    with nothing recorded."""
+    s = Script()
+    for k, key in enumerate(["Return", "Escape"]):
+        y = 420 + 90 * k
+        s.add("pnear")
+        s.add(f"pdown:720,{y}")
+        for x, yy in line((720, y), (860, y + 30), 10)[1:]:
+            s.wait(1)
+            s.add(f"pmove:{x:g},{yy:g}")
+        s.wait(45)  # held still past Hold for (0.45 s)
+        s.add("pup")
+        s.wait(2)
+        s.add("pfar")
+        s.wait(3)
+        s.press(key)
+    return s, [], camera_still({"stroke_edits": near(2), "stroke_edit_open": lambda v: v == "false", "undo_steps": near(1)})
+
+
+@scenario
+def hold_to_edit_shows_its_curve():
+    """A held pen stroke left open: its curve, handles and dots over the model and the
+    context bar's Stroke group (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:700,470")
+    for x, y in [(730, 440), (770, 425), (810, 430), (850, 450), (880, 480), (900, 520)]:
+        s.wait(2)
+        s.add(f"pmove:{x},{y}")
+    s.wait(45)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, [], camera_still({"stroke_edits": near(1), "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
+def stamp_edit_by_pen():
+    """A Rectangle stamp dragged out by pen stays open when the pen lifts; a drag inside
+    its ring slides it over the model, and Enter keeps it as one undo step."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (840, 460), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pdown:765,465")
+    for x, y in line((765, 465), (765, 525), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1), "stroke_edit_open": lambda v: v == "false",
+                                                              "undo_steps": near(1)})
+
+
+@scenario
+def stamp_edit_shows_its_ring():
+    """A Rectangle stamp left open: its notched ring with the orange 0° notch, the blue turn
+    dot, the white size square, the green intensity dot, the angle and the context bar's
+    Validate and Cancel (look with --screens)."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:760,460")
+    for x, y in line((760, 460), (830, 410), 8)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(10)
+    return s, ["--script=set stroke drag_rect"], camera_still({"stamp_edits": near(1),
+                                                              "stroke_edit_open": lambda v: v == "true", "undo_steps": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
@@ -1221,10 +1349,13 @@ def roll_stroke_by_finger():
 @scenario
 def drag_dot_stroke_by_finger():
     """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
-    moves, and is one undo step."""
+    moves; the stamp stays open to edit when the finger lifts (Edit stamps), and Enter
+    keeps it as one undo step."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
-    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+    s.wait(3)
+    s.press("Return")
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1), "stamp_edits": near(1)})
 
 
 @scenario
@@ -1283,10 +1414,30 @@ def orbit_default_is_turntable():
 
 @scenario
 def pinch_zoom():
-    """Two fingers spreading three times apart zoom three times closer."""
+    """Two fingers spreading three times apart over empty space zoom three times closer,
+    about the plane through the view's middle since nothing lies between them."""
     s = Script()
-    s.fingers([(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20)
+    s.fingers([(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20)
     return s, [], {"camera_distance": near(3.5 / 3, 0.02), "dabs": near(0), "camera_yaw": near(0.6), "camera_pitch": near(0.35)}
+
+
+@scenario
+def pinch_zooms_toward_the_surface_between_the_fingers():
+    """Two fingers spreading four times apart over the sphere's upper right zoom toward the
+    surface between them: the view's middle moves to that surface's depth, so the eye ends a
+    quarter of its depth away (not the 3.5 / 4 a zoom about the middle's plane gives) and
+    the target leaves the origin toward the fingers."""
+    s = Script()
+    mid = (850, 330)
+    s.fingers([(mid[0] - 40, mid[1]), (mid[0] + 40, mid[1])], [(-120, 0), (120, 0)], 20)
+    # The surface's depth along the view from the default eye.
+    hit = sphere_normal_under(*mid)
+    yaw, pitch = 0.6, 0.35
+    back = (math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch))
+    depth = 3.5 - sum(h * b for h, b in zip(hit, back))
+    return s, [], {"dabs": near(0), "camera_distance": near(depth / 4, 0.02),
+                   "camera_yaw": near(0.6), "camera_pitch": near(0.35),
+                   "@target_moved": lambda st: math.dist(tuple(float(v) for v in st["camera_target"].split(",")), (0, 0, 0)) > 0.3}
 
 
 @scenario
@@ -6222,9 +6373,9 @@ def rail_finger_while_pen_near():
 
 @scenario
 def rail_finger_during_pinch():
-    """A finger landing on the rail during a pinch is no third finger: the pinch zooms on and the brush keeps its size."""
+    """A finger landing on the rail during a pinch (over empty space) is no third finger: the pinch zooms on and the brush keeps its size."""
     s = Script()
-    starts, moves, frames = [(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20
+    starts, moves, frames = [(200, 150), (300, 150)], [(-100, 0), (100, 0)], 20
     for i, (x, y) in enumerate(starts):
         s.add(f"fdown:{i}:{x:g},{y:g}")
     s.wait(2)

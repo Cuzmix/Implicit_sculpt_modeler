@@ -19,6 +19,7 @@ Action_Group :: enum u8 {
 	Mask,
 	Hidden,
 	Adjust,
+	Stroke_Edit,
 }
 
 Action :: struct {
@@ -59,6 +60,14 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}, {.Grow_Visible, 0, "Grow"}, {.Shrink_Visible, 0, "Shrink##hidden"}, {.Mask, int(sculpt.Mask_Command.Hidden), "Mask it"}}},
 	// Captioned by the operation (action_caption).
 	.Adjust = {"Adjust", {{.Adjust_Last, 0, "Adjust..."}}},
+	// A stroke held to edit (stroke_edit.odin): keep it, put it back, and whether its points
+	// each have their own radius and intensity.
+	.Stroke_Edit = {"Stroke", {
+		{.Stroke_Validate, 0, "Validate"},
+		{.Stroke_Cancel, 0, "Cancel"},
+		{.Stroke_Radius_Each, 0, "Radius each"},
+		{.Stroke_Intensity_Each, 0, "Intensity each"},
+	}},
 }
 
 // Lens's context bar (round 2's tools2 screen) keeps the mask's commonest steps and the
@@ -87,6 +96,8 @@ action_list :: proc(app: ^App, g: Action_Group) -> []Action {
 	#partial switch g {
 	case .Mask:   return LENS_MASK_ACTIONS[:]
 	case .Hidden: return LENS_HIDDEN_ACTIONS[:]
+	// A stamp has one radius and one intensity, so only Validate and Cancel apply.
+	case .Stroke_Edit: if app.stroke_edit.stamp do return ACTION_GROUPS[g].actions[:2]
 	}
 	return ACTION_GROUPS[g].actions
 }
@@ -103,6 +114,8 @@ action_caption :: proc(app: ^App, g: Action_Group) -> string {
 action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	obj := selected_object(app)
 	if obj == nil do return
+	// While a stroke is held to edit, its actions are all that apply.
+	if app.stroke_edit.open do return {.Stroke_Edit}
 	if app.tool == .Move do groups += {.Gizmo}
 	if object_in_hd(obj) do groups += {.Hd}
 	if object_has_mask(app, obj) do groups += {.Mask}

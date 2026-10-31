@@ -89,7 +89,8 @@ Kit_State :: struct {
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
-	look:       Look, // the interface's colours (Settings > Interface)
+	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
+	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
 	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
 	browser_at: Browser_At, // ...which of the two
 	// The shelf's tool strip (bars.odin), and Arrange (once Customise bars): on, and the
@@ -1030,7 +1031,7 @@ kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
 	k.inspector = true
-	k.look = .Lens
+	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
 	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
@@ -1079,7 +1080,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1165,6 +1166,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	if k.fixed_dt > 0 do in_.dt = k.fixed_dt
 	k.last_frame = now
 	k.scale = scale
+	theme_follow_device(k, platform_dark())
 	k.ctx.theme = kit_theme(app)
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
@@ -1182,7 +1184,7 @@ HAND_SLIDE_TIME :: 0.3
 // window's: with Settings > Touch > Hold delay, the ring that counts toward the long press
 // showing from halfway, never later than the theme has it, so a quick tap still shows nothing.
 kit_theme :: proc(app: ^App) -> ui.Theme {
-	t := LOOK_THEMES[app.kit.look]
+	t := theme_current(&app.kit)
 	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
 		t.long_press = d
 		t.long_ring = min(t.long_ring, d / 2)
@@ -1335,6 +1337,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	shape_waits := app.shape_pending.kind != .None && app.tool == .Brush
 	quiet := !floating && !kit_floating(app) && !typed
 	if shape_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do app.shape_pending.request = .Apply
+	// A stroke held to edit is kept by Enter too, and put back by Escape before what is open.
+	edit_waits := app.stroke_edit.open
+	if edit_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do stroke_edit_validate(app)
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
 	// the object or the mask back (move_tool_frame).
@@ -1349,6 +1354,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if k.clean && quiet do clean_view_set(app, false)
 		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
+		else if edit_waits && quiet do stroke_edit_cancel(app)
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		// A job is cancelled last, once nothing else took the key.
@@ -1590,6 +1596,7 @@ kit_layout :: proc(app: ^App) {
 	kit_scene_menu(app)
 	kit_objects_card_menus(app)
 	kit_folder_menu(app)
+	kit_theme_menus(app)
 	kit_rename(app)
 	kit_palette(app, search_anchor)
 	// After every bar and Search, which lift what it carries.
@@ -1872,6 +1879,7 @@ Rename_Entry :: struct {
 	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
+	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1902,6 +1910,7 @@ kit_rename :: proc(app: ^App) {
 	}
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
+	if r.theme > 0 do gone = r.theme > k.themes.count
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1909,10 +1918,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.theme > 0 {
+		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
 		now = shelf_page_name(k, page)
 	} else if r.layer > 0 {
@@ -1938,6 +1949,9 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.theme > 0 {
+		// A theme is the settings', no part of the scene; a name another theme has is refused.
+		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false
 	} else if apply && r.open && r.shelf_page > 0 {
 		// A page's name is the settings', no part of the scene, so it changes at once.
 		shelf_page_rename(k, page, rename_text(r.text[:]))
@@ -2039,7 +2053,7 @@ kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
 // The window's frame colour, as the GPU's clear wants it: what shows where nothing is
 // drawn, between view panes and in a screen dump.
 kit_frame_color :: proc(k: ^Kit_State) -> [4]f32 {
-	return color_f32(LOOK_THEMES[k.look].frame)
+	return color_f32(theme_current(k).frame)
 }
 
 // An interface colour as the GPU takes it, opaque.

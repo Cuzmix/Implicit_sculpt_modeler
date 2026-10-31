@@ -11,26 +11,28 @@ import "../ui"
 // the interface's looks, the one popover a bar button opens beside itself, and where the
 // panels start clear of the bars.
 
-// The interface's colours (Settings > Interface): Lens's near-black frame and sea green,
-// Studio's greys and orange, or Graphite's cool blue.
+// The interface's built-in themes (Settings > Interface > Look, themes.odin): Lens's
+// near-black frame and sea green, Studio's greys and orange, Graphite's cool blue, Paper's
+// light warm greys, Midnight's pure black and High contrast's plain white on black. New
+// ones go at the end: the settings file names them, and themes of a person's own name
+// the one they began as.
 Look :: enum u8 {
 	Lens,
 	Studio,
 	Graphite,
-}
-
-@(rodata)
-LOOK_THEMES := [Look]ui.Theme {
-	.Lens     = ui.THEME_LENS,
-	.Studio   = ui.THEME_STUDIO,
-	.Graphite = ui.THEME_DARK,
+	Paper,
+	Midnight,
+	High_Contrast,
 }
 
 @(rodata)
 LOOK_NAMES := [Look]string {
-	.Lens     = "Lens",
-	.Studio   = "Studio",
-	.Graphite = "Graphite",
+	.Lens          = "Lens",
+	.Studio        = "Studio",
+	.Graphite      = "Graphite",
+	.Paper         = "Paper",
+	.Midnight      = "Midnight",
+	.High_Contrast = "High contrast",
 }
 
 // The top bar's height, and how far the side bars sit from the window's edges, in points.

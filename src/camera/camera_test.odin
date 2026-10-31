@@ -246,6 +246,39 @@ zoom_toward_keeps_the_point_between_the_fingers :: proc(t: ^testing.T) {
 }
 
 @(test)
+rebase_keeps_the_view_and_zooms_toward_a_nearer_point :: proc(t: ^testing.T) {
+	c := orbit_default()
+	c.shift = {0.2, -0.1}
+	height: f32 = 800
+	view := orbit_proj(c, 1) * orbit_view(c)
+	// A point on the surface a unit nearer than the target, right of and above the middle.
+	origin, dir := ray(c, {200, -100}, height)
+	_, _, back := orbit_basis(c)
+	depth := c.distance - 1
+	p := origin + dir * (depth / linalg.dot(dir, -back))
+	before := project(view, p)
+	orbit_rebase(&c, depth)
+	testing.expect(t, near_eq(c.distance, depth), "the target is not at the depth")
+	moved := project(orbit_proj(c, 1) * orbit_view(c), p)
+	testing.expect(t, near_eq(before.x, moved.x, 1e-4) && near_eq(before.y, moved.y, 1e-4), "rebasing moved the view")
+	orbit_zoom_toward(&c, 3, {200, -100}, height)
+	after := project(orbit_proj(c, 1) * orbit_view(c), p)
+	testing.expect(t, near_eq(before.x, after.x, 1e-4) && near_eq(before.y, after.y, 1e-4), "the surface under the fingers moved")
+	testing.expect(t, near_eq(c.distance, depth / 3), "did not zoom toward the surface")
+
+	// The ray through `offset` pixels from the middle (x right, y down).
+	ray :: proc(c: Orbit, offset: Vec2, height: f32) -> (origin, dir: Vec3) {
+		inv := linalg.inverse(orbit_proj(c, 1) * orbit_view(c))
+		ndc := Vec2{2 * offset.x / height, -2 * offset.y / height}
+		near := inv * [4]f32{ndc.x, ndc.y, 0, 1}
+		far := inv * [4]f32{ndc.x, ndc.y, 1, 1}
+		origin = near.xyz / near.w
+		dir = linalg.normalize(far.xyz / far.w - origin)
+		return
+	}
+}
+
+@(test)
 pan_follows_cursor :: proc(t: ^testing.T) {
 	c := orbit_default()
 	height: f32 = 800

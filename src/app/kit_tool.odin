@@ -337,10 +337,22 @@ kit_stroke_path :: proc(app: ^App) {
 	}
 	_ = ui.switch_row(ctx, "Line", &app.brush.line)
 	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
+	_ = ui.switch_row(ctx, "Hold to edit", &app.brush.hold_edit)
+	if app.brush.hold_edit {
+		_ = ui.slider(ctx, "Hold for", &app.brush.hold_edit_s, HOLD_EDIT_MIN_S, HOLD_EDIT_MAX_S, .Linear, fmt.tprintf("%.2f s", app.brush.hold_edit_s))
+		// Changed while a stroke is held, the curve is fitted again to the dabs drawn.
+		if ui.slider(ctx, "Smoothness", &app.brush.hold_edit_smoothness, 0.01, HOLD_EDIT_SMOOTHNESS_MAX, .Logarithmic, fmt.tprintf("%.2f", app.brush.hold_edit_smoothness)) && app.stroke_edit.open {
+			stroke_edit_begin(app, app.stroke_edit.size)
+		}
+	}
+	_ = ui.switch_row(ctx, "Edit stamps", &app.brush.stamp_edit)
+	if app.brush.stamp_edit {
+		if picked := ui.tabs(ctx, "turn snap", {"Off", "5°", "15°", "45°"}, int(app.brush.stamp_snap)); picked >= 0 do app.brush.stamp_snap = Stamp_Snap(picked)
+	}
 	// Turned on, the size is taken afresh from the view as it is, so nothing jumps.
 	if ui.switch_row(ctx, "Size fixed in the scene", &app.brush.size_world) do app.brush.size_ref = 0
 	_ = kit_stroke_amount(app, "Last stroke")
-	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. No back and forth lays dabs only while the stroke goes the way it first went, so a zigzag lays parallel hatching; Directional only while it moves away from where it was pressed. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again. Size fixed in the scene keeps the brush the same size on the model as the view zooms, as ZBrush's Dynamic size: the ring grows as you zoom in.")
+	ui.paragraph(ctx, "Lazy mouse trails the brush behind the pointer on a string; Smoothing makes it follow the average of the pointer's last few positions and Pressure smoothing the pen's last few pressures, for steadier lines and swells; the rope shows where the brush is. Catch up on lift carries the stroke on to where the pen lifted. Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one; Even strength keeps a stroke's height the same at any spacing, and Scene spacing measures the gaps on the model, so they stay as far apart where the surface turns away. No back and forth lays dabs only while the stroke goes the way it first went, so a zigzag lays parallel hatching; Directional only while it moves away from where it was pressed. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Hold to edit: end a stroke and keep the pen still for Hold for, and the stroke becomes a curve over the model: drag its points, handles, white radius dots and green intensity dots, tap a point to make it a corner or smooth again, tap the curve to add a point, drop a point on its neighbour to merge them; Validate (Enter, or a press away from the curve) keeps it, Cancel (Escape or Undo) puts it back. Smoothness sets how closely the curve follows what was drawn. Edit stamps keeps a Rectangle or Drag dot stamp open when you let go: drag the blue dot round the ring to turn it (it clicks to every 15°, or what the snap row under the switch picks; the orange notch is 0°), the white square to size it, the green dot for intensity, or inside the ring to slide it over the model, then Validate. Last stroke sets how much of the newest stroke stays, from none to half as much again. Size fixed in the scene keeps the brush the same size on the model as the view zooms, as ZBrush's Dynamic size: the ring grows as you zoom in.")
 	kit_more_end(app)
 }
 

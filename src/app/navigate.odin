@@ -928,6 +928,20 @@ stroke_cancel :: proc(app: ^App) {
 	if len(app.history.done) > before && history_can_undo(app) do history_undo(app)
 }
 
+// Moves the camera's target along the view to the depth of the surface under `at` (in
+// viewport pixels), leaving the view as it is (camera.orbit_rebase), so a zoom or roll
+// about `at` keeps that surface in place. Nothing under it, or a surface behind the eye
+// or nearer than the closest the camera comes, leaves the target where it is.
+rebase_under :: proc(app: ^App, at, size: [2]f32) {
+	c := &app.camera
+	if c.ortho || size.x <= 0 || size.y <= 0 do return
+	origin, dir := mouse_ray(c^, at, size)
+	_, hit, ok := scene_raycast(app, origin, dir)
+	if !ok do return
+	_, _, back := camera.orbit_basis(c^)
+	if depth := linalg.dot(hit - camera.orbit_eye(c^), -back); depth > camera.MIN_DISTANCE do camera.orbit_rebase(c, depth)
+}
+
 // Moves the camera by this frame's viewport input, as the settings say.
 camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	c := &app.camera
@@ -945,6 +959,13 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	}
 	// Two or more fingers on the viewport (touch_route) navigate with no pointer down.
 	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
+	// A pinch zooms and a twist rolls about the surface between the fingers: the target
+	// moves along the view to its depth first, which changes nothing on screen, so that
+	// surface stays under them. Off the model the target's own plane is kept. Two fingers
+	// panning together spread by a rounding error each frame, which is no zoom: that leaves
+	// the target, and so the distance a later wheel zoom scales, as it was.
+	zooms := in_.touch_zoom > 0 && abs(math.ln(in_.touch_zoom)) > 1e-4
+	if (zooms || in_.touch_roll != 0) && nav.zoom_toward do rebase_under(app, in_.touch_at + in_.size * 0.5, in_.size)
 	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_at, in_.size.y)
 	if in_.touch_roll != 0 do camera.orbit_roll_about(c, in_.touch_roll, in_.touch_at, in_.size.y)
 	if in_.touch_orbit != {} {
@@ -968,7 +989,9 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	if in_.hovered && in_.wheel != 0 {
 		steps := (-in_.wheel if nav.invert_wheel else in_.wheel) * nav.zoom_speed
 		if nav.wheel_toward {
-			// orbit_zoom's step, as a factor closer.
+			// orbit_zoom's step, as a factor closer, toward the surface under the pointer
+			// as a pinch zooms toward the one between the fingers.
+			rebase_under(app, in_.mouse_pos, in_.size)
 			camera.orbit_zoom_toward(c, math.pow(f32(0.88), -steps), in_.mouse_pos - in_.size * 0.5, in_.size.y)
 		} else {
 			camera.orbit_zoom(c, steps)

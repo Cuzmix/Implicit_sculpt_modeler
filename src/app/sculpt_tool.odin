@@ -111,6 +111,16 @@ Brush_Settings :: struct {
 	plane_height:      f32,
 	plane_depth:       f32,
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
+	// Hold to edit: a stroke ended with the pen held still this many seconds becomes a curve to
+	// edit before it is kept (stroke_edit.odin), as Nomad's editable strokes.
+	hold_edit:         bool,
+	hold_edit_s:       f32,
+	// How far the fitted curve may stray from the dabs, in brush radii: more, fewer points.
+	hold_edit_smoothness: f32,
+	// A Rectangle or Drag dot stamp stays open when let go, to move, turn, size and weaken
+	// before it is kept (stroke_edit.odin), as Nomad's.
+	stamp_edit:        bool,
+	stamp_snap:        Stamp_Snap, // what a stamp's turn clicks to on its ring
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
 	// instead of its origin (symmetry_center).
@@ -319,6 +329,32 @@ Stroke :: struct {
 	// pivot orbits turn about once it ends (Stroke_Pivot).
 	pivot_sum:   Vec3,
 	pivot_count: int,
+
+	// Where its dabs landed, for Hold to edit to fit a curve to (stroke_edit.odin); freed when
+	// the stroke ends.
+	path:        [dynamic]Stroke_Path_Point,
+	// Hold to edit's watch: where the pointer has stayed within HOLD_SLOP_PX of, and since when.
+	still_pos:   [2]f32,
+	still_since: f64,
+	// A Rectangle or Drag dot stroke's dab as last laid, for editing the stamp once let go:
+	// where (its object's space), its radius there, the alpha's up and its strength.
+	stamp_set:      bool,
+	stamp_at:       Vec3,
+	stamp_radius:   f32,
+	stamp_up:       Vec3,
+	stamp_strength: f32,
+	// The stamp has an alpha, so turning it changes what it lays.
+	stamp_turns:    bool,
+}
+
+// One dab of a stroke as Hold to edit fits a curve to it: where on the object it landed and
+// the surface's normal there (the object's space), and its radius (the object's units) and
+// strength before Even strength and any mode's scatter, with the pen's lean.
+Stroke_Path_Point :: struct {
+	at, normal: Vec3,
+	radius:     f32,
+	strength:   f32,
+	tilt:       [2]f32,
 }
 
 // Where the last stroke laying dabs ended, for Join strokes: a press within SNAP_PX of
@@ -334,9 +370,9 @@ Stroke_End :: struct {
 	size:   [2]f32,
 	camera: camera.Orbit,
 	locked: sculpt.Locked_Plane, // its Lock plane, which a stroke joining it keeps
-	// How many strokes joined one before, and how many straight lines were laid, for
-	// the exit stats.
-	joins, lines: int,
+	// How many strokes joined one before, how many straight lines were laid, and how many
+	// strokes were held to edit, for the exit stats.
+	joins, lines, edits, stamp_edits: int,
 }
 
 // How near the last stroke's end a press joins it: about a fingertip, so a finger or
@@ -410,6 +446,9 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		stroke_finish(app)
 		return
 	}
+	// A stroke held to edit takes every frame, hovering and letting go included, until it is
+	// kept or put back; a press away from its curve keeps it and starts the next stroke.
+	if app.stroke_edit.open && stroke_edit_frame(app, input, &res) do return
 	samples := input.samples
 	cursor := [1]Input_Sample{{pos = input.mouse_pos, pressure = 1, tilt = input.pen_tilt}}
 	if len(samples) == 0 do samples = cursor[:] // synthetic input has only the cursor position
@@ -421,7 +460,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		}
 		stroke_catch_up(app, input, &res)
 		line_complete(app, input, &res)
-		stroke_finish(app)
+		if !stamp_edit_try(app, input.size) do stroke_finish(app)
 		return
 	}
 
@@ -442,10 +481,11 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 	// as held: a replayed or synthetic frame need not agree with its samples.
 	rest := until_release(samples)
 	stroke_follow(app, input, rest, &res)
+	if len(rest) == len(samples) do stroke_hold_watch(app, input)
 	if len(rest) < len(samples) {
 		stroke_catch_up(app, input, &res)
 		line_complete(app, input, &res)
-		stroke_finish(app)
+		if !stamp_edit_try(app, input.size) do stroke_finish(app)
 	}
 	return
 }
@@ -685,6 +725,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.last_set = false
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
+	clear(&st.path)
+	st.stamp_set = false
+	st.still_pos, st.still_since = s.pos, input_clock(app)
 	stroke_steady_start(st, s)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	if vp := obj.voxel; vp != nil do voxel.clay_stroke_begin(&vp.clay)
@@ -965,12 +1008,15 @@ rect_follow :: proc(app: ^App, input: Viewport_Input, s: Input_Sample, res: ^Scu
 	_ = sculpt.sculptor_stroke_restore(sculptor)
 	brush := brush_at(app, input, t, st.at, s.pressure, s.tilt)
 	brush.radius = length * camera.orbit_world_per_px(app.camera, to_world(t, st.at), input.size.y) / t.scale
-	if brush.alpha != nil {
-		view := camera.orbit_view(app.camera)
-		right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
-		up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
-		brush.alpha_up = to_local_dir(t, linalg.normalize(right * d.x - up * d.y))
-	}
+	// The drag's way is kept even without an alpha, so a stamp held to edit shows its top
+	// where the drag went.
+	view := camera.orbit_view(app.camera)
+	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	drag_up := to_local_dir(t, linalg.normalize(right * d.x - up * d.y))
+	if brush.alpha != nil do brush.alpha_up = drag_up
+	st.stamp_set, st.stamp_at, st.stamp_radius, st.stamp_up, st.stamp_strength = true, st.at, brush.radius, drag_up, brush.strength
+	st.stamp_turns = brush.alpha != nil
 	sculpt.apply_dab(sculptor, brush, st.at)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
@@ -1165,6 +1211,7 @@ stroke_restart :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matr
 	st := &app.stroke
 	st.pos, st.pressure, st.tilt, st.travel, st.dir = pos, pressure, tilt, 0, {}
 	st.step, st.turn, st.pivot_sum, st.pivot_count = 0, 0, {}, 0
+	clear(&st.path)
 	if st.joined {
 		// A joined stroke goes on from the last one's end as it did at its press, with no
 		// first dab of its own, and on its plane.
@@ -1286,11 +1333,37 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	st := &app.stroke
+	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
+	stroke_dab_at(app, obj, input, hit, normal, pressure, tilt, res, scatter)
+}
+
+// The radius and strength a dab of an edited stroke is laid with, in place of those the
+// pressure gives (stroke_edit_lay).
+Dab_Fixed :: struct {
+	radius, strength: f32,
+}
+
+// Dabs the stroke's object at `hit` (its own space), where the surface faces `normal`: the
+// brush under `pressure` and `tilt`, or with `fixed` its radius and strength, then Even
+// strength and the mode's scatter.
+@(private = "file")
+stroke_dab_at :: proc(app: ^App, obj: ^Object, input: Viewport_Input, hit, normal: Vec3, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, scatter := Dab_Scatter{size = 1, strength = 1}, fixed: Maybe(Dab_Fixed) = nil) {
+	st := &app.stroke
+	t := obj.transform
 	st.pivot_sum += hit
 	st.pivot_count += 1
-	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
 	t1 := time.tick_now()
 	brush := brush_at(app, input, t, hit, pressure, tilt)
+	if f, is := fixed.?; is {
+		brush.radius, brush.strength = f.radius, f.strength
+	} else if !app.stroke_edit.open && app.brush.hold_edit {
+		append(&st.path, Stroke_Path_Point{hit, normal, brush.radius, brush.strength, tilt})
+	}
+	if st.rect {
+		up := brush.alpha_up if brush.alpha != nil else to_local_dir(t, alpha_world_up(app))
+		st.stamp_set, st.stamp_at, st.stamp_radius, st.stamp_up, st.stamp_strength = true, hit, brush.radius, up, brush.strength
+		st.stamp_turns = brush.alpha != nil
+	}
 	// Even strength, for a row of dabs only: a single stamp or a scattered one has no
 	// neighbours to overlap. A stroke never gets stronger than full strength by it.
 	// Not on voxel clay, whose Add and Subtract meet their neighbours as a union and never
@@ -1478,6 +1551,8 @@ brush_defaults :: proc() -> Brush_Settings {
 	b.tip_roundness, b.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
 	b.trim_angle, b.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
 	b.plane_height, b.plane_depth = 1, 1
+	b.hold_edit, b.hold_edit_s, b.hold_edit_smoothness = true, HOLD_EDIT_DEFAULT_S, HOLD_EDIT_SMOOTHNESS_DEFAULT
+	b.stamp_edit, b.stamp_snap = true, .Fifteen
 	b.detail_radius = DETAIL_RADIUS_DEFAULT
 	for &d in b.dyns do d.px, d.radius = b.detail_px, b.detail_radius
 	// Clay strips starts on Blender's: its size follows the pen as p^1.5, never under 0.3.
@@ -1737,4 +1812,71 @@ first_object_on_screen :: proc(app: ^App, size: [2]f32) -> (center: [2]f32, radi
 	up := Vec3{0, obj.transform.scale, 0}
 	radius = linalg.length(to_px(view_proj, obj.transform.position + up, size) - center)
 	return
+}
+
+// Lays the stroke held to edit again along its curve (stroke_edit.odin) when the curve has
+// changed since it was last laid: the stroke put back, then a dab each time the walk along
+// the curve has gone the brush's spacing at the radius there, with that point's radius and
+// intensity, on the surface under the curve. A lay under way is finished before a newer
+// curve is laid, as line_lay does, so a drag that keeps changing the curve still sees it
+// laid whole. Bounded like any stroke's frame; returns true once the curve as it stands is
+// laid.
+stroke_edit_lay :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Result, bounded: bool) -> bool {
+	e := &app.stroke_edit
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if e.stamp do return stamp_edit_lay(app, obj, input, res)
+	if obj == nil || len(e.points) < 2 do return true
+	if !e.laying {
+		if e.version == e.laid_version do return true
+		if !sculpt.sculptor_stroke_restore(object_sculptor(obj)) {
+			e.laid_version = e.version
+			return true
+		}
+		stroke_edit_sample(app)
+		e.laying, e.lay_at, e.travel, e.laid_version = true, 0, max(f32), e.version
+		st.last_set, st.step, st.turn, st.pivot_sum, st.pivot_count, st.even = false, 0, 0, {}, 0, 0
+	}
+	// The stroke's own modifiers, not those held now: a Ctrl let go must not flip it.
+	lay := input
+	lay.invert, lay.alt, lay.smooth, lay.mask = st.invert, false, false, false
+	if lay.size.x <= 0 || lay.size.y <= 0 do lay.size = e.size
+	for e.lay_at < len(e.samples) {
+		slow := app.kit.fixed_dt == 0 && res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME
+		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || slow) do return false
+		s := e.samples[e.lay_at]
+		if e.lay_at > 0 do e.travel += linalg.length(s.p - e.samples[e.lay_at - 1].p)
+		e.lay_at += 1
+		last := e.lay_at == len(e.samples)
+		if e.travel < dot_spacing(app) * s.radius && !(last && e.travel > 0.5 * dot_spacing(app) * s.radius) do continue
+		e.travel = 0
+		at, normal := stroke_edit_surface(app, obj, s)
+		stroke_dab_at(app, obj, lay, at, normal, 1, e.tilt, res, fixed = Dab_Fixed{s.radius, s.intensity})
+	}
+	e.laying = false
+	return e.version == e.laid_version
+}
+
+// Lays a stamp held to edit again when it changed: the stroke put back, then its one dab
+// with the stamp's place, size, turn and strength, as rect_follow lays it while dragged.
+@(private = "file")
+stamp_edit_lay :: proc(app: ^App, obj: ^Object, input: Viewport_Input, res: ^Sculpt_Frame_Result) -> bool {
+	e := &app.stroke_edit
+	st := &app.stroke
+	if obj == nil || e.version == e.laid_version do return true
+	e.laid_version = e.version
+	s := object_sculptor(obj)
+	if !sculpt.sculptor_stroke_restore(s) do return true
+	lay := input
+	lay.invert, lay.alt, lay.smooth, lay.mask = st.invert, false, false, false
+	if lay.size.x <= 0 || lay.size.y <= 0 do lay.size = e.size
+	t1 := time.tick_now()
+	brush := brush_at(app, lay, obj.transform, e.stamp_at, 1, e.tilt)
+	brush.radius, brush.strength = e.stamp_radius, e.stamp_strength
+	if brush.alpha != nil do brush.alpha_up = e.stamp_up
+	sculpt.apply_dab(s, brush, e.stamp_at)
+	st.pivot_sum, st.pivot_count = e.stamp_at, 1
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+	res.dabs += 1
+	return true
 }

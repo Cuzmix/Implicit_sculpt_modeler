@@ -747,6 +747,8 @@ mesh_import_prepare :: proc(m: ^Mesh_Import, pool: ^jobs.Pool, progress: ^jobs.P
 		if surface.color != nil || surface.groups != nil do sculpt.levels_take_surface(l, surface.color, surface.groups, old_to_new, tri_from)
 		sculpt.sculptor_recompute_all(&sculpt.levels_current(l).sculptor)
 		if polys.first != nil do import_take_polygons(l, &polys, old_to_new, tri_from, uv if mapped else nil)
+		// The simplified copies too, as a long job's result gets them (long_job_prepare).
+		_, _ = sculpt.sculptor_lod_update(&sculpt.levels_current(l).sculptor, finish = true)
 		free_all(context.temp_allocator)
 	}
 }

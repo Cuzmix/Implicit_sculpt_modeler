@@ -97,7 +97,7 @@ settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
 // what they are called elsewhere, in lower case.
 @(rodata)
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
-	.Look             = "look theme colour color lens studio graphite accent dark",
+	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled",
 	.Size             = "size interface scale bigger text touch targets zoom",
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
@@ -188,10 +188,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	defer ctx.hints = hints
 	switch b {
 	case .Look:
-		looks: [len(Look)]string
-		for l in Look do looks[int(l)] = LOOK_NAMES[l]
-		if picked := ui.tabs(ctx, "Look", looks[:], int(k.look)); picked >= 0 do k.look = Look(picked)
-		ui.paragraph(ctx, "Lens frames the views in near-black with a sea-green accent no clay is near; Studio is neutral grey with an orange accent; Graphite is the cooler dark grey with a blue accent.")
+		settings_look(app)
 	case .Size:
 		names: [len(UI_SCALES)]string
 		chosen := 0
@@ -485,7 +482,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	n := &app.nav
 	d := NAV_DEFAULT
 	switch b {
-	case .Look:            k.look = .Lens
+	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false

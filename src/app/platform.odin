@@ -89,3 +89,17 @@ read_file_read :: proc(f: Read_File, buf: []u8) -> int {
 read_file_close :: proc(f: Read_File) {
 	_ = sdl.CloseIO(f.io)
 }
+
+// Whether the device is set to its dark appearance; a system that does not say counts as
+// dark, as the app's own default theme is.
+platform_dark :: proc() -> bool {
+	return sdl.GetSystemTheme() != .LIGHT
+}
+
+// The text on the system clipboard, in temp memory; "" when it holds none.
+platform_clipboard_text :: proc() -> string {
+	text := sdl.GetClipboardText()
+	if text == nil do return ""
+	defer sdl.free(rawptr(text))
+	return strings.clone(string(cstring(text)), context.temp_allocator)
+}
