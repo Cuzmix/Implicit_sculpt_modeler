@@ -235,9 +235,45 @@ kit_view_chips :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
+// When the view rail names its buttons beside their icons (Settings > Interface > Bars).
+Rail_Labels :: enum u8 {
+	Off,
+	Wide, // while the window is at least RAIL_LABELS_WIDE wide
+	Always,
+}
+
+// How wide a window is, in points, before Wide names the rail's buttons: a large desktop
+// display's (1920 at 100%, 2560 at 150%), wider than any tablet held either way, where the
+// room is there for the names without taking it from the view.
+RAIL_LABELS_WIDE :: 1700
+
+// Whether the view rail names its buttons now.
+rail_labelled :: proc(app: ^App) -> bool {
+	k := &app.kit
+	switch k.rail_labels {
+	case .Off:    return false
+	case .Always: return true
+	case .Wide:   return ui.safe_area(&k.ctx).w >= RAIL_LABELS_WIDE
+	}
+	return false
+}
+
+// A rail button's name beside its icon: one short word where the command's name is long.
+rail_label :: proc(s: Bar_Slot) -> string {
+	#partial switch s.id {
+	case .Inspector:        return "Panels"
+	case .View_Layout_Menu: return "Layout"
+	case .Focus_Selected:   return "Frame"
+	case .Symmetry_X:       return "Symmetry"
+	case .Thumbnail:        return "Mini view"
+	}
+	return bar_label(s)
+}
+
 // The view rail down the pen side, under the top bar: the tray's button, then the rail's
-// slots the user arranges (bars.odin, at first the eight view tools), each opening what it
+// slots the user arranges (bars.odin, at first four view tools), each opening what it
 // opens beside the rail. A rail taller than the room down to the window's edge scrolls.
+// Labelled, every button is as wide as the longest name needs.
 kit_view_rail :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -254,28 +290,24 @@ kit_view_rail :: proc(app: ^App) {
 		x, y, offset, room = bar_place_anchor(app, .Rail, bar)
 		room -= t.target + 12
 	}
+	used := bar_used(app, .View_Rail)
+	width := t.target
+	if rail_labelled(app) {
+		longest := ui.text_width(ctx, rail_label({.Inspector, 0}), t.small_size)
+		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(s), t.small_size))
+		width = t.target + longest + 10
+	}
+	panels := tray_shown(app)
 	ui.begin_anchored(ctx, "view bar", x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
 	// The panels collapse rather than close once the stack has its headers; until then the
 	// tray needs a way back.
-	_ = bar_command_lens(app, .Inspector, ui.ICON_PANEL, tray_shown(app))
-	ui.divider(ctx, 32, across = true)
-	used := bar_used(app, .View_Rail)
-	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, t.target, max(room, t.target * 3), 0)
-	for s, i in used do bar_slot_button(app, .View_Rail, i, s)
+	if ui.icon_button(ctx, bar_label({.Inspector, 0}), ui.ICON_PANEL, panels, command_enabled(app, .Inspector), command_hint(app, .Inspector), named = rail_label({.Inspector, 0}), width = width) do command_run(app, .Inspector)
+	ui.divider(ctx, width - 12 if width > t.target else 32, across = true)
+	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
+	for s, i in used do bar_slot_button(app, .View_Rail, i, s, named = rail_label(s), width = width)
 	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
 	kit_scroll_end(ctx, scroll)
 	ui.end(ctx)
-}
-
-// A button on the rail that runs command `id`, lit with `selected`.
-@(private = "file")
-bar_command_lens :: proc(app: ^App, id: Command_Id, glyph: rune, selected: bool) -> bool {
-	ctx := &app.kit.ctx
-	if ui.icon_button(ctx, bar_label({id, 0}), glyph, selected, command_enabled(app, id), command_hint(app, id)) {
-		command_run(app, id)
-		return true
-	}
-	return false
 }
 
 // How far in from the pen side's edge the navigation head stands in Lens: left of whatever

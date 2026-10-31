@@ -108,7 +108,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
-	.Bars             = "bars customise customize buttons dock",
+	.Bars             = "bars customise customize buttons dock rail labels names",
 	.Action_Bar       = "action bar next steps",
 	.Wheel            = "dial modifier wheel side size sectors turn smooth mask invert",
 	.Inspector        = "inspector show every option",
@@ -216,6 +216,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons down the view rail, on each of the shelf's pages and in its tools after All: any command, in any order.")
+		ui.label(ctx, "Names on the view rail")
+		labels := [len(Rail_Labels)]string{"Off", "Wide windows", "Always"}
+		if picked := ui.tabs(ctx, "Rail labels", labels[:], int(k.rail_labels)); picked >= 0 do k.rail_labels = Rail_Labels(picked)
+		ui.paragraph(ctx, "The rail's buttons named beside their icons. Wide windows names them on a desktop's window, where the room is there, and keeps a tablet's rail to its icons.")
 	case .Top_Bar:
 		styles := [2]string{"Three islands", "One bar"}
 		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
@@ -481,6 +485,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		bars_reset(k)
 		k.bars_edit = false
+		k.rail_labels = .Wide
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}

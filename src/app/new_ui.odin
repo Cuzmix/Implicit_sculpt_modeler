@@ -387,6 +387,8 @@ Kit_State :: struct {
 	// The top bar as three islands, the spaces centred (the default), or as one bar
 	// (Settings > Interface > Top bar).
 	top_islands: bool,
+	// When the view rail names its buttons (Settings > Interface > Bars, lens_chrome.odin).
+	rail_labels: Rail_Labels,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
@@ -1039,6 +1041,7 @@ kit_init :: proc(app: ^App) {
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
 	k.top_islands = true
+	k.rail_labels = .Wide
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
 	// The Export sheet starts on its first preset, a 3D print, as its cards read.
