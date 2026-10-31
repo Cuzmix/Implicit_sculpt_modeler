@@ -408,63 +408,117 @@ kit_curve_settings :: proc(app: ^App) {
 	if obj := selected_curve(app); obj != nil do kit_curve_look(app, obj)
 }
 
-// The selected curve's own settings under the tool's: what it makes and, for a tube, its
-// profile, radius, sides, density and caps. Each change is a Curve_Look command, one undo
-// step; a slider's drag is one step when it lets go.
+// The selected curve's own settings under the tool's: what it makes and that use's
+// options. Each change is a Curve_Look command, one undo step; a slider's drag is one step
+// when it lets go.
 @(private = "file")
 kit_curve_look :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	cp := obj.curve
-	o := cp.tube
-	set :: proc(app: ^App, use: Curve_Use, o: geom.Tube_Options, drag := false) {
-		app.ui.scene_command = {kind = .Curve_Look, curve_use = use, tube = o, look_drag = drag}
+	look := cp.look
+	set :: proc(app: ^App, look: Curve_Look, drag := false) {
+		app.ui.scene_command = {kind = .Curve_Look, curve = look, look_drag = drag}
 	}
 	ui.caption(ctx, strings.to_upper(object_label(obj), context.temp_allocator))
-	// The uses built so far; Lathe, Along and Brush path join them as they come.
-	USES :: [?]string{"Line", "Tube"}
-	uses := USES
-	if picked := ui.tabs(ctx, "curve use", uses[:], min(int(cp.use), len(uses) - 1)); picked >= 0 do set(app, Curve_Use(picked), o)
-	if cp.use != .Tube do return
-	profiles := [len(geom.Tube_Profile)]string{"Round", "Square", "Ribbon", "Star", "Half"}
-	if picked := ui.tabs(ctx, "tube profile", profiles[:], int(o.profile)); picked >= 0 {
-		o.profile = geom.Tube_Profile(picked)
-		set(app, cp.use, o)
+	uses: [len(CURVE_USES_BUILT)]string
+	hints: [len(CURVE_USES_BUILT)]string
+	at := -1
+	built := CURVE_USES_BUILT
+	for use, i in built {
+		uses[i] = CURVE_USE_NAMES[use]
+		hints[i] = command_hint(app, .Curve_Use, int(use))
+		if use == cp.use do at = i
 	}
-	radii := [len(geom.Tube_Radius)]string{"One radius", "Ends", "Each point"}
-	if picked := ui.tabs(ctx, "tube radius", radii[:], int(o.radius)); picked >= 0 {
-		o.radius = geom.Tube_Radius(picked)
-		// One starts from the points' mean, so the tube keeps its size.
-		if o.radius == .One {
-			mean: f32
-			for p in cp.points do mean += p.radius
-			o.one = mean / f32(len(cp.points))
-		}
-		set(app, cp.use, o)
-	}
-	if o.radius == .One {
-		r := o.one * obj.transform.scale
-		if ui.slider(ctx, "Radius", &r, 1e-3, 1, .Logarithmic, fmt.tprintf("%.3f", r)) {
-			o.one = r / obj.transform.scale
-			set(app, cp.use, o, true)
-		}
-	}
-	sides := f32(o.sides)
-	if ui.slider(ctx, "Tube sides", &sides, 3, geom.TUBE_SIDES_MAX, .Linear, fmt.tprintf("%d", o.sides)) {
-		o.sides = int(sides + 0.5)
-		set(app, cp.use, o, true)
-	}
-	if ui.slider(ctx, "Density", &o.density, 0.25, 8, .Logarithmic, fmt.tprintf("%.2f rings a radius", o.density)) do set(app, cp.use, o, true)
-	if !cp.closed {
-		caps := [len(geom.Tube_Caps)]string{"Flat caps", "Round caps", "Open"}
-		if picked := ui.tabs(ctx, "tube caps", caps[:], int(o.caps)); picked >= 0 {
-			o.caps = geom.Tube_Caps(picked)
-			set(app, cp.use, o)
-		}
-	}
-	if o.profile == .Ribbon {
-		if ui.slider(ctx, "Flatness", &o.flatness, 0.02, 1, .Linear, fmt.tprintf("%.2f", o.flatness)) do set(app, cp.use, o, true)
+	if picked := ui.tabs(ctx, "curve use", uses[:], at, keys = hints[:]); picked >= 0 do command_run(app, .Curve_Use, int(built[picked]))
+	#partial switch cp.use {
+	case .Tube:
+		kit_curve_tube(app, obj, look)
+	case .Lathe:
+		kit_curve_lathe(app, obj, look)
+	case:
+		return
 	}
 	_ = command_button(app, .Curve_Bake, width = ui.fill_width(ctx))
+
+	kit_curve_tube :: proc(app: ^App, obj: ^Object, look: Curve_Look) {
+		ctx := &app.kit.ctx
+		cp := obj.curve
+		look := look
+		o := &look.tube
+		profiles := [len(geom.Tube_Profile)]string{"Round", "Square", "Ribbon", "Star", "Half"}
+		if picked := ui.tabs(ctx, "tube profile", profiles[:], int(o.profile)); picked >= 0 {
+			o.profile = geom.Tube_Profile(picked)
+			set(app, look)
+		}
+		radii := [len(geom.Tube_Radius)]string{"One radius", "Ends", "Each point"}
+		if picked := ui.tabs(ctx, "tube radius", radii[:], int(o.radius)); picked >= 0 {
+			o.radius = geom.Tube_Radius(picked)
+			// One starts from the points' mean, so the tube keeps its size.
+			if o.radius == .One {
+				mean: f32
+				for p in cp.points do mean += p.radius
+				o.one = mean / f32(len(cp.points))
+			}
+			set(app, look)
+		}
+		if o.radius == .One {
+			r := o.one * obj.transform.scale
+			if ui.slider(ctx, "Radius", &r, 1e-3, 1, .Logarithmic, fmt.tprintf("%.3f", r)) {
+				o.one = r / obj.transform.scale
+				set(app, look, true)
+			}
+		}
+		sides := f32(o.sides)
+		if ui.slider(ctx, "Tube sides", &sides, 3, geom.TUBE_SIDES_MAX, .Linear, fmt.tprintf("%d", o.sides)) {
+			o.sides = int(sides + 0.5)
+			set(app, look, true)
+		}
+		if ui.slider(ctx, "Density", &o.density, 0.25, 8, .Logarithmic, fmt.tprintf("%.2f rings a radius", o.density)) do set(app, look, true)
+		if !cp.closed {
+			caps := [len(geom.Tube_Caps)]string{"Flat caps", "Round caps", "Open"}
+			if picked := ui.tabs(ctx, "tube caps", caps[:], int(o.caps)); picked >= 0 {
+				o.caps = geom.Tube_Caps(picked)
+				set(app, look)
+			}
+		}
+		if o.profile == .Ribbon {
+			if ui.slider(ctx, "Flatness", &o.flatness, 0.02, 1, .Linear, fmt.tprintf("%.2f", o.flatness)) do set(app, look, true)
+		}
+	}
+
+	kit_curve_lathe :: proc(app: ^App, obj: ^Object, look: Curve_Look) {
+		ctx := &app.kit.ctx
+		look := look
+		o := &look.lathe
+		// The axis: the view's vertical as it is now, or a world axis, each in the curve's
+		// space. Which world axis it is lights its tab; View lights none, being a moment's.
+		axes := [4]string{"View", "X", "Y", "Z"}
+		lit := -1
+		for i in 1 ..= 3 {
+			w: Vec3
+			w[i - 1] = 1
+			if linalg.length(linalg.normalize0(to_local_dir(obj.transform, w)) - o.axis) < 1e-4 do lit = i
+		}
+		if picked := ui.tabs(ctx, "lathe axis", axes[:], lit); picked >= 0 {
+			w: Vec3
+			if picked == 0 do _, w, _ = camera.orbit_basis(app.camera)
+			else do w[picked - 1] = 1
+			o.axis = linalg.normalize0(to_local_dir(obj.transform, w))
+			set(app, look)
+		}
+		through := [len(geom.Lathe_Through)]string{"Through start", "End", "Middle"}
+		if picked := ui.tabs(ctx, "lathe through", through[:], int(o.through)); picked >= 0 {
+			o.through = geom.Lathe_Through(picked)
+			set(app, look)
+		}
+		if ui.slider(ctx, "Angle", &o.angle, 1, 360, .Linear, fmt.tprintf("%.0f°", o.angle)) do set(app, look, true)
+		segments := f32(o.segments)
+		if ui.slider(ctx, "Segments", &segments, 3, 128, .Linear, fmt.tprintf("%d", o.segments)) {
+			o.segments = int(segments + 0.5)
+			set(app, look, true)
+		}
+		if !obj.curve.closed && ui.switch_row(ctx, "Caps", &o.caps) do set(app, look)
+	}
 }
 
 // The Insert tool's settings in the interface: a shape, or a copy of an object.

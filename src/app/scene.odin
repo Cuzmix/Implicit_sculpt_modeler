@@ -237,8 +237,7 @@ Scene_Command :: struct {
 	look:     Cage_Look, // Cage_Look: how the selected cage is drawn
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
-	curve_use: Curve_Use, // Curve_Look: what the selected curve makes...
-	tube:     geom.Tube_Options, // ...and its tube's options (look_drag as Cage_Look's)
+	curve:    Curve_Look, // Curve_Look: what the selected curve makes and its options (look_drag as Cage_Look's)
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -924,7 +923,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Crease_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_crease_cage(app, obj, cmd.crease)
 	case .Curve_Look:
-		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve_use, cmd.tube, cmd.look_drag)
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve, cmd.look_drag)
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
 	case .New:
