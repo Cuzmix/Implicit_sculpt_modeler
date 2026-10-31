@@ -304,7 +304,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Every position change goes through `apply_dab` or `sculptor_nodes_moved`; otherwise BVH bounds, normals, chunks, LOD
   staleness and `edited` drift apart (tests `incremental_updates_match_full_recompute`, `flush_leaves_no_stale_normal`,
   `synced_levels_stay_consistent`).
-- Call `sculptor_flush` once per frame per visible level and upload what it returns (`src/app/main.odin:431-440`).
+- Call `sculptor_flush` once per frame per visible level and upload what it returns (`frame_step`, `src/app/frame.odin`).
 - `stroke_finish` before any level, HD or scene change (`scene.odin:292, 386, 410`); leave the HD window before
   `levels_set_current` or a delete (the asserts at `levels.odin:93, 131, 139`).
 - A new `Brush_Kind`: a `when` branch in `displace` and a one-line `job_*` (or its own pair, as Smooth), a case in
@@ -316,7 +316,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   (end the stroke, leave HD, clear the history, recreate the GPU buffers) happens when it is turned on or off
   (`object_set_dyntopo`). The app uploads changed index pages with `level_upload`, which remakes the buffers when the
   pages outgrow them. Never read `len(mesh.positions)` as a vertex count on a dynamic object.
-- Simplified copies are never built during a stroke (`main.odin:440-441`, `lod.odin:164`); the brush works in the
+- Simplified copies are never built during a stroke (`frame_step` in `frame.odin`, `lod.odin:164`); the brush works in the
   object's local space (`scene.odin:14-16`), symmetry included.
 - A mask-only change is stale `.Paint`: it re-uploads the node's vertices without recomputing normals; pass
   `sculptor.mask` to every `mesh_buffers_create`/`upload_ranges`, or the mask vanishes from the screen (sm-render).

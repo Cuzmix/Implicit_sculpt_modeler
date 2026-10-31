@@ -90,7 +90,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
   `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and
   `View_Pass_Last` (Alt+0); a peek is `chip_held` (from `ui.held_long`, true while a press stays past the long press, mouse
-  too) or `key_held` (backquote by keycode, intercepted in main.odin's event loop as Space is, reserved in
+  too) or `key_held` (backquote by keycode, intercepted in `frame_events` (`frame.odin`) as Space is, reserved in
   `chord_reserved`), ignored while a time-lapse or turntable records (`recording`).
   Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
 - Wipe compare (`passes.wipe`, `wipe_at` a share of the main pane, command `View_Wipe`, `kit_wipe` after the grid's

@@ -25,12 +25,12 @@ GPU_NAME = re.compile(r"\bsdl\.\w*GPU\w*")
 # with GPU, so a conversion such as sdl.GPUSampleCount(x) is not one.
 GPU_CALL = re.compile(r"\bsdl\.((?!GPU)\w*GPU\w*|GPU\w*Supports\w*)\(")
 SDL_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:sdl3[^"]*"', re.M)
-# The files of src/app that may import SDL: the frame loop and its windows, the device
+# The files of src/app that may import SDL: the run, its frame and its windows, the device
 # and its events, touch, the pen and its bridges, the input diagnostics, the file dialogs,
 # frame pacing and idling, the kit's window glue, and the system services.
 APP_SDL_FILES = {
     "android.odin", "device.odin", "diagnostics.odin", "diagnostics_test.odin", "files.odin", "frame_rate.odin",
-    "help_labels.odin", "idle.odin", "ios.odin", "keys_sdl.odin", "main.odin", "navigate.odin", "new_ui.odin",
+    "frame.odin", "help_labels.odin", "idle.odin", "ios.odin", "keys_sdl.odin", "main.odin", "navigate.odin", "new_ui.odin",
     "pen_samples.odin", "pen_samples_test.odin", "pen_samples_windows.odin", "pencil.odin", "pencil_test.odin",
     "platform.odin", "touch.odin", "view_window.odin",
 }
