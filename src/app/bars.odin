@@ -105,13 +105,10 @@ Bar_List :: struct {
 
 // What a fresh install has: the gizmo and the mesh tools after All.
 TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
-// The view rail's eight one-tap view tools, as the mockups have them: the view
-// layout, the passes, the camera, framing, symmetry, the wireframe, the lights and the
-// mini view.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
-	{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Focus_Selected, 0}, {.Symmetry_X, 0}, {.Wireframe, 0},
-	{.Show_Section, int(Kit_Section.Lights)}, {.Thumbnail, 0},
-}
+// The view rail's four view tools under its Panels button, five buttons in all, so a new
+// rail reads at a glance: the view layout, the passes, the camera and the lights. Framing,
+// symmetry, the wireframe and the mini view wait in Customise bars and Search.
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Show_Section, int(Kit_Section.Lights)}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
 OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}
@@ -560,7 +557,7 @@ bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 // Slot `slot` of bar `which` as its button, `size` points (0 for the kit's): a tap runs
 // it (bar_slot_run) and a long press does its more (bar_slot_more), or while customising a
 // tap opens the slot's popover and the button is ringed.
-bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0, tile := false) {
+bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0, tile := false, named := "", width: f32 = 0) {
 	k := &app.kit
 	ctx := &k.ctx
 	if v, ok := value_of(s); ok {
@@ -574,7 +571,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	name := fmt.tprintf("%s##%v %d", bar_label(s), which, slot)
 	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
 	enabled := k.bars_edit || bar_enabled(app, s)
-	pressed := ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit)
+	pressed := ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
 	if pressed {
 		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
