@@ -1568,6 +1568,14 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 	t := ctx.theme
 	w := width if width > 0 else fill_width(ctx)
 	if w <= 0 do w = 260
+	// A warning, in a colour of its own, always shows whole.
+	// One that takes more than a line shows as a hint.
+	if ctx.hints && color.a == 0 {
+		if short := hint_short(s); len(short) < len(s) || text_width(ctx, s, t.small_size) > w {
+			hint_line(ctx, s, short, w)
+			return
+		}
+	}
 	color := color if color.a > 0 else t.text_tertiary
 	size := t.small_size
 	line_h := math.ceil(size * 1.45)
@@ -1596,6 +1604,83 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 	}
 	r := place(ctx, {w, line_h * f32(len(lines))})
 	for l, i in lines do text(ctx, s[l[0]:l[1]], r.x, r.y + line_h * (f32(i) + 0.5), size, color)
+}
+
+// The first sentence of `s`: up to the first full stop, question or exclamation mark
+// followed by a space and a capital (so "e.g. a" and "0.5 s" stay inside it), or by a
+// line's end; all of `s` when it is one sentence.
+hint_short :: proc(s: string) -> string {
+	for i := 0; i < len(s); i += 1 {
+		switch s[i] {
+		case '\n':
+			return s[:i]
+		case '.', '!', '?':
+			if i + 2 < len(s) && s[i + 1] == ' ' && s[i + 2] >= 'A' && s[i + 2] <= 'Z' do return s[:i + 1]
+			if i + 1 < len(s) && s[i + 1] == '\n' do return s[:i + 1]
+		}
+	}
+	return s
+}
+
+// HINT_H is a hint line's height: taller than its text so a finger finds it.
+HINT_H :: 26
+
+// A paragraph shown as a hint: `short`, cut to one line, and a ? at the line's end. A tap
+// anywhere on the line opens the whole of `s` in a popover under it, and a second tap or a
+// press elsewhere closes it.
+@(private)
+hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
+	ctx.controls += 1
+	t := ctx.theme
+	r := place(ctx, {w, HINT_H})
+	id := id_of(ctx, s)
+	hovered, _, clicked, _ := interact(ctx, id, r)
+	if clicked {
+		ctx.hint_open = 0 if ctx.hint_open == id else id
+		if ctx.hint_open == id do ctx.hint_id = id
+	}
+	open := ctx.hint_open == id
+	QUESTION :: 18
+	color := t.text_secondary if hovered || open else t.text_tertiary
+	shown := text_fit(ctx, short, t.small_size, r.w - QUESTION - 8)
+	text(ctx, shown, r.x, r.y + r.h * 0.5, t.small_size, color)
+	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, r.y + r.h * 0.5}, t.icon_small, t.accent if open else color)
+	tip(ctx, id, r, "More about this")
+	// The popover belongs to the hint drawn last with it open (or closing).
+	if ctx.hint_id == id {
+		ctx.hint_anchor = r
+		clear(&ctx.hint_text)
+		append(&ctx.hint_text, s)
+		ctx.hint_fresh = true
+	}
+}
+
+// The open hint's whole text in a popover under its line, drawn by frame_end over
+// everything else.
+@(private)
+hint_draw :: proc(ctx: ^Context) {
+	if ctx.hint_id == 0 do return
+	// Its hint was not drawn this frame (its card closed): the popover goes with it.
+	if !ctx.hint_fresh {
+		ctx.hint_id, ctx.hint_open = 0, 0
+		return
+	}
+	ctx.hint_fresh = false
+	id := ctx.hint_id
+	open := ctx.hint_open == id
+	clear(&ctx.stack)
+	ctx.id_seed = id
+	a := ctx.hint_anchor
+	width := clamp(a.w, 220, 340)
+	if popover_begin(ctx, "hint popover", &open, a, .Below, {direction = .Column, padding = 12, width = width}) {
+		hints := ctx.hints
+		ctx.hints = false
+		paragraph(ctx, string(ctx.hint_text[:]), width - 24, ctx.theme.text_secondary)
+		ctx.hints = hints
+		popover_end(ctx)
+	}
+	ctx.id_seed = 0
+	if !open && ctx.hint_open == id do ctx.hint_open = 0
 }
 
 // A slider whose track shows what each place on it gives (a colour channel): `colors`

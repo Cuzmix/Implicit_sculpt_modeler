@@ -18,7 +18,7 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py tap_ui pinch    # only these
     python scripts/touch_check.py 'long_press*'   # every scenario whose name matches
     python scripts/touch_check.py --jobs=1        # one at a time (default: one per CPU)
-    python scripts/touch_check.py --screens       # also write build/touch/<name>.png (of the last run)
+    python scripts/touch_check.py --screens       # also write build/touch/<name>.png and .map (of the last run)
     python scripts/touch_check.py x --screen-run=2  # ...of run 2 instead, to look at a middle state
     python scripts/touch_check.py --exe=PATH      # another build of the app (a copy, so a rebuild meanwhile is safe)
 The window is 1600 x 900 points, the default layout; positions below are in points.
@@ -682,7 +682,7 @@ COLORS = "--script=colors_card"
 
 # The Colour section's well with the Paint brush (the Brush card's Colour group), and the
 # popover's first Skin swatch, left of it, at 1600 by 900.
-COLOUR_WELL, POPOVER_SKIN = (1321, 597), (901, 806)
+COLOUR_WELL, POPOVER_SKIN = At("stack Brush/Pick a colour", 1322, 514), At("colour popover/#F8E1D4", 902, 806)
 
 
 @scenario
@@ -1107,10 +1107,11 @@ MASK_STEPS = on_card((1376, 412), "object")
 
 @scenario
 def slider_drag_sideways():
-    """A sideways finger drag on the Brush card's Strength slider sets it, without orbiting or scrolling."""
+    """A sideways finger drag on the Brush card's Strength slider (there while the island holds only Size) sets it, without orbiting or scrolling."""
     s = Script()
+    s.wait(6)
     s.fdrag(line((1376, 273), (1466, 275), 12))
-    return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
+    return s, value_bars(island=[("Size", "Slider")]), camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
 @scenario
@@ -2398,9 +2399,9 @@ def changed_touch_setting_takes_effect():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "touch")
-    s.ftap(1063, 394)  # One finger on the model
+    s.ftap(At("gesture row One finger on the model/One finger on the model", 1063, 348))
     s.wait(6)
-    s.ftap(1010, 488)  # Turn the view
+    s.ftap(At("select list/Turn the view", 1010, 442))
     s.wait(4)
     s.ftap(SETTINGS_CLOSE)
     s.wait(10)
@@ -2426,7 +2427,7 @@ def rapid_taps():
 # The Mask section's More options row, where the tray shows it at 1600 x 900: with no mask
 # command run yet, and after one, whose "Last:" line moves it down.
 MASK_MORE = on_card((1275, 687), "object")
-MASK_MORE_AFTER_LAST = on_card((1275, 711), "object")
+MASK_MORE_AFTER_LAST = At("stack Mask/more", 1378, 433)
 
 
 def select_page(s):
@@ -2471,7 +2472,7 @@ def show_every_option_needs_no_fold():
 
 
 # The Mask by Apply button once the tray is dragged 600 px up, with every option shown.
-MASK_BY_APPLY = on_card((1378, 762), "object")
+MASK_BY_APPLY = At("stack Mask/Apply", 1378, 419)
 
 
 @scenario
@@ -2491,7 +2492,7 @@ def mask_by_from_the_section():
 
 
 # Hide, clip and slice's Grow at 1600 x 900 with every option shown.
-HIDE_GROW = on_card((1302, 670), "object")
+HIDE_GROW = At("stack Visibility/Grow", 1302, 399)
 
 
 @scenario
@@ -2597,9 +2598,9 @@ def coach_card_clears_the_bars_on_a_narrow_window():
 
 
 # The Brush card's Preset group, as palettes_only("preset") opens it.
-PRESET_SAVE_NEW = on_card((1303, 483), "brush")  # Save as preset, on a plain brush
-PRESET_NAME = on_card((1378, 483), "brush")  # on a preset: its name field
-PRESET_REVERT = on_card((1451, 537), "brush")
+PRESET_SAVE_NEW = At("Save as preset|Reset brush/Save as preset", 1303, 330)  # on a plain brush
+PRESET_NAME = At("stack Brush/name", 1378, 330)  # on a preset: its name field
+PRESET_REVERT = At("stack Brush/Revert", 1453, 384)
 
 
 def save_a_preset(s):
@@ -2942,7 +2943,7 @@ SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top b
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
-TOP_UNDO, TOP_SEARCH = (91, 33), (1411, 33)
+TOP_UNDO, TOP_SEARCH = (91, 33), At("app island/Search commands", 1336, 30)
 
 
 @scenario
@@ -6325,7 +6326,7 @@ def long_press(s, x, y=None, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = UI["inspector"]
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 228), (1452, 228)  # the Move tool's palette, above the gizmo's settings
 # The first object's row in the tray's Scene palette (scene_tab opens it).
 SCENE_ROW = on_card((1376, 236), "objects")
 
@@ -8561,14 +8562,14 @@ def gesture_any_command_from_search():
     # Down the tab to the gesture map's last row, Pen side button.
     s.add("wheel:-6")
     s.wait(20)
-    s.ftap(1063, 656)
+    s.ftap(At("gesture row Pen_Button/Pen side button", 1063, 656))
     s.wait(12)
     # Its list opens above it; the list's last row is Any command...
     for _ in range(10):
         s.fdrag(line((1063, 600), (1063, 20), 10))
         s.wait(4)
     s.wait(20)
-    s.ftap(1018, 618)
+    s.ftap(At("select list/Any command...", 1018, 618))
     s.wait(14)
     s.type("wireframe")
     s.press("Return")
@@ -9578,6 +9579,9 @@ def run_one(name, step, screens, displays):
     if screens and not any(a.startswith("--dump-screen") for a in args):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
+        # With its controls' names and places, to aim a tap at one by name (At).
+        if not any(a.startswith("--ui-map") for a in args):
+            cmd.append(f"--ui-map={os.path.join(ROOT, 'build', 'touch', name + '.map')}")
     env = headless.env(dict(os.environ, SDL_ASSERT="abort"))
     display = displays.get() if displays else None
     try:
@@ -9964,7 +9968,7 @@ def second_view_unlinks_to_free():
 
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
-TRANSPARENT_SWITCH = on_card((1499, 619), "scene")
+TRANSPARENT_SWITCH = At("stack Background/stack body/Screenshots without background", 1378, 506)
 
 
 @scenario
@@ -12958,7 +12962,7 @@ def transform_values_undo_per_drag():
     write_settings("all_options 1\n")
     s.wait(8)
     s.mouse_drag(line(on_card((1377, 293), "object"), on_card((1477, 293), "object"), 10))
-    click(s, on_card((1377, 747), "object"))
+    click(s, on_card((1377, 719), "object"))
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, palettes_only("transform") + [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})

@@ -374,6 +374,9 @@ Kit_State :: struct {
 	open:       [Kit_Section]bool,
 	more:       [Kit_Section]bool,
 	all_options: bool,
+	// Every paragraph of the cards and Settings shown whole rather than as a one-line hint
+	// with a ? (Settings > Interface > Inspector, ui.hint_line).
+	explain_all: bool,
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
