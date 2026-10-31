@@ -184,9 +184,10 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
-	vertices: int, // Remesh, Decimate: the count; Retopo: the quads
+	vertices: int, // Remesh, Decimate: the count (Decimate: unless its setup keeps a share); Retopo: the quads
 	quad:     retopo.Options, // Retopo: the engine and its options (retopo.odin)
 	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
+	decimate: Decimate_Setup, // Decimate: the share to keep and what to keep besides the shape (decimate.odin)
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
@@ -452,36 +453,30 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 // flat. Like a remesh, its levels, HD detail, mask and strokes go (the caller records
 // the swap). `changed` says whether it did; ok is false only when the old mesh is gone
 // and the new one could not be uploaded.
-object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: bool) {
+object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_Setup) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	source := object_mesh(obj)^
-	packed: geom.Mesh
-	if object_dynamic(obj) {
-		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
-		source = packed
-	}
-	// A closed surface has about two triangles a vertex.
-	mesh, error, built := geom.mesh_decimate(source, 2 * vertices, &app.pool)
-	before := len(source.positions)
-	geom.mesh_destroy(&packed)
+	src := decimate_source(obj, setup, borrow = true)
+	defer decimate_source_free(&src)
+	mesh, error, surface, built := decimate_compute(src, vertices, setup, &app.pool)
+	defer surface_free(&surface)
+	before := len(src.mesh.positions)
 	free_all(context.temp_allocator)
 	if !built {
 		log.warnf("decimate: the object already has %d vertices, no more than %d", before, vertices)
 		return false, true
 	}
-	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now())
+	return true, decimate_apply(app, obj, mesh, error, before, start, time.tick_now(), surface = surface)
 }
 
 // The second half of a decimation, as remesh_apply is a remesh's: the object rebuilt on
-// `mesh`, made from `before` vertices with `error` the largest stray.
-decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
+// `mesh`, made from `before` vertices with `error` the largest stray, with the polypaint
+// and polygroups that followed it (`surface`; a long job's prepared levels carry them).
+decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}) -> bool {
 	ready := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, ready, normals = true, prepared = prepared) do return false
+	if !object_rebuild(app, obj, mesh, ready, normals = true, surface = surface, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
 	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
@@ -491,32 +486,56 @@ decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, bef
 
 // Mirrors one half of the level the object is on onto the other across its own `axis`
 // plane, welded along the cut (geom.mesh_symmetrize), keeping the `keep_positive` half.
-// Like a remesh it rebuilds the object, so its levels, HD detail, mask and strokes go
-// (the caller records the swap that takes it back). `changed` says whether it did; ok
-// is false only when the old mesh is gone and the new one could not be uploaded.
+// The level's polygons come through as polygons (a quad mesh stays quads, its creases
+// mirrored too), as ZBrush's Mirror And Weld keeps a quad mesh's topology. Like a remesh
+// it rebuilds the object, so its levels, HD detail, mask and strokes go (the caller
+// records the swap that takes it back). `changed` says whether it did; ok is false only
+// when the old mesh is gone and the new one could not be uploaded.
 object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: bool) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	source := object_mesh(obj)^
 	packed: geom.Mesh
+	polygons: geom.Polygons
+	creases: geom.Creases
+	rule := sculpt.Subdivision_Rule.Smooth
 	if object_dynamic(obj) {
+		// Dynamic topology has no polygons to keep.
 		mask: []u8
 		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
 		delete(mask)
 		source = packed
+	} else {
+		polygons, creases, rule = object_level_polygons(obj)
 	}
-	mesh, built := geom.mesh_symmetrize(source, axis, keep_positive, &app.pool)
+	kept: geom.Symmetrized_Polygons
+	defer geom.symmetrized_polygons_destroy(&kept)
+	mesh, built := geom.mesh_symmetrize(source, axis, keep_positive, &app.pool, polygons = polygons, creases = creases, out_polygons = &kept if polygons.first != nil else nil)
 	geom.mesh_destroy(&packed)
+	// The polygons in the new mesh's numbers, before the levels renumber it.
+	polys: sculpt.Polys
+	if built && polygons.first != nil do polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], kept.polys[:])
 	free_all(context.temp_allocator)
 	if !built {
 		log.warn("mirror and weld: nothing of the object is on the side to keep")
 		return false, true
 	}
+	old_to_new, tri_from: []u32
+	if polys.first != nil {
+		old_to_new = make([]u32, len(mesh.positions))
+		tri_from = make([]u32, len(mesh.indices) / 3)
+	}
+	defer delete(old_to_new)
+	defer delete(tri_from)
 	cut := time.tick_now()
 	render.wait_idle(&app.renderer)
-	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}) do return true, false
-	log.infof("mirror and weld: %d vertices in %.0f ms", object_vertex_count(obj), time.duration_milliseconds(time.tick_diff(start, cut)))
+	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}, old_to_new = old_to_new, tri_from = tri_from) {
+		sculpt.polys_destroy(&polys)
+		return true, false
+	}
+	if polys.first != nil do symmetrize_take_polygons(&obj.levels, &polys, kept.creases, rule, old_to_new, tri_from)
+	log.infof("mirror and weld: %d vertices, %d polygons in %.0f ms", object_vertex_count(obj), sculpt.levels_polygon_source(&obj.levels, 0).polygons, time.duration_milliseconds(time.tick_diff(start, cut)))
 	return true, true
 }
 
@@ -976,9 +995,13 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		selection_set(app, copies[:])
 	case .Decimate:
 		if obj := selected_object(app); obj != nil {
+			// A share becomes a count of the object as it is now, so the job, the result
+			// line and Adjust last's rerun (from the object as it was) all agree.
+			cmd := cmd
+			cmd.vertices = decimate_target(object_vertex_count(obj), cmd.vertices, cmd.decimate)
 			before := history_snapshot(app, obj, "decimate")
 			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, before)
-			changed, ok := object_decimate(app, obj, cmd.vertices)
+			changed, ok := object_decimate(app, obj, cmd.vertices, cmd.decimate)
 			if !ok {
 				history_snapshot_drop(before)
 				scene_delete_selected(app, undoable = false)

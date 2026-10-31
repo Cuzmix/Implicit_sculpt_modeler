@@ -65,10 +65,12 @@ Long_Job :: struct {
 	prepared:   bool,
 	error:      f32,
 	retopo:     retopo.Result,
-	// Remesh: the old polypaint and polygroups copied with the input when its options
-	// carry them, what the remesh reported and the surface the new mesh takes from them.
+	// Remesh and Decimate: the old polypaint and polygroups copied with the input when
+	// their options carry them (Decimate: and the mask that steers it), what the remesh
+	// reported and the surface the new mesh takes from them.
 	color:      []sculpt.Color,
 	groups:     []u16,
+	mask:       []u8,
 	remesh:     geom.Remesh_Report,
 	surface:    Surface,
 	level:      ^sculpt.Level, // Subdivide's new level
@@ -221,6 +223,9 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 			if cmd.remesh.keep_detail && s.color != nil do j.color = slice.clone(s.color)
 			if (cmd.remesh.keep_detail || cmd.remesh.groups) && sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 		}
+	case .Decimate:
+		src := decimate_source(obj, cmd.decimate)
+		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
 	case .Subdivide:
@@ -234,7 +239,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		if f := voxel.clay_flush(clay); len(f.ranges) > 0 || len(f.indices) > 0 || f.regrow do clay.surface.regrow = true
 		j.masked = voxel.clay_has_mask(clay)
 	}
-	if cmd.kind == .Remesh || cmd.kind == .Decimate || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj)
+	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj)
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -312,8 +317,8 @@ long_job_thread :: proc(data: rawptr) {
 		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups)
 		long_job_prepare(j, normals = false)
 	case .Decimate:
-		// A closed surface has about two triangles a vertex.
-		j.mesh, j.error, j.built = geom.mesh_decimate(j.input, 2 * j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share})
+		src := Decimate_Source{mesh = j.input, color = j.color, groups = j.groups, mask = j.mask}
+		j.mesh, j.error, j.surface, j.built = decimate_compute(src, j.cmd.vertices, j.cmd.decimate, &j.pool, &j.progress, {0, share})
 		long_job_prepare(j, normals = true)
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
@@ -382,7 +387,8 @@ long_job_drop :: proc(j: ^Long_Job) {
 	retopo.result_destroy(&j.retopo)
 	delete(j.color)
 	delete(j.groups)
-	j.color, j.groups = nil, nil
+	delete(j.mask)
+	j.color, j.groups, j.mask = nil, nil, nil
 	geom.remesh_report_destroy(&j.remesh)
 	surface_free(&j.surface)
 	if j.level != nil do sculpt.levels_subdivide_discard(&j.object.levels, j.level)
@@ -458,7 +464,7 @@ long_job_frame :: proc(app: ^App) -> bool {
 			// Prepared levels already carry the surface.
 			applied = remesh_apply(app, obj, mesh, j.start, j.computed, prepared, surface = j.surface if prepared == nil else {}, remeshed = j.remesh, setup = cmd.remesh)
 		} else {
-			applied = decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared)
+			applied = decimate_apply(app, obj, mesh, j.error, len(j.input.positions), j.start, j.computed, prepared, surface = j.surface if prepared == nil else {})
 		}
 	case .Retopo:
 		made, built := retopo_apply(app, obj, &j.retopo, j.start)

@@ -154,7 +154,7 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
 	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even), remesh = remesh_setup(app)}
-	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer)}
+	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer), decimate = decimate_setup(app)}
 	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}
 	}
 }
@@ -176,7 +176,20 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			kit_remesh_options(app, obj)
 			kit_more_end(app)
 		}
-	case .Fewer: _ = kit_count(ctx, label, &app.ui.rebuild_fewer, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+	case .Fewer:
+		// A share by default, as Blender's Ratio and Decimation Master's percent; a count
+		// under More options, for a budget such as a game engine's.
+		if app.ui.decimate_by == .Percent {
+			p := app.ui.decimate_percent
+			_ = ui.slider(ctx, "Keep", &app.ui.decimate_percent, DECIMATE_PERCENT_MIN, DECIMATE_PERCENT_MAX, .Logarithmic, fmt.tprintf("%.0f%%", p))
+			app.ui.decimate_percent = math.round(app.ui.decimate_percent)
+		} else {
+			_ = kit_count(ctx, label, &app.ui.rebuild_fewer, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+		}
+		if kit_more(app, .Remesh) {
+			kit_decimate_options(app, obj)
+			kit_more_end(app)
+		}
 	case .Quads:
 		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
 		// The engine, Adaptivity, Mirror and Close first under the same fold, for the same
@@ -225,7 +238,14 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			ui.paragraph(ctx, "Measuring the surface..." if p.measuring else "Hold Density to see its cells on the object.")
 		}
 	case .Fewer:
-		ui.paragraph(ctx, "About this many vertices, dense where the detail is and sparse where the surface is flat, so there is no one size to preview.")
+		ui.paragraph(ctx, "Keeps the shape with fewer vertices: dense where the detail is, sparse where it is flat.")
+		now := object_vertex_count(obj)
+		after := decimate_target(now, int(app.ui.rebuild_fewer), decimate_setup(app))
+		if after < now {
+			ui.paragraph(ctx, fmt.tprintf("Now %s vertices; about %s after.", count_label(now), count_label(after)))
+		} else {
+			ui.paragraph(ctx, fmt.tprintf("Now %s vertices: already no more than that.", count_label(now)))
+		}
 	case .Quads:
 		ui.paragraph(ctx, "A new object of about this many quads lying on this one, with UVs for baking.")
 		if measured && p.shown {

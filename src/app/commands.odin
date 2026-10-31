@@ -1358,7 +1358,12 @@ COMMANDS := [Command_Id]Command {
 		label = "Decimate to",
 		help = "Keeps the selected object's shape with about this many vertices, dense where the detail is.",
 		args = len(SPHERE_PRESETS),
-		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Decimate, vertices = int(SPHERE_PRESETS[arg].vertices)}},
+		run = proc(app: ^App, arg: int) {
+			// A count, with what the Rebuild section keeps besides the shape.
+			setup := decimate_setup(app)
+			setup.percent = 0
+			app.ui.scene_command = {kind = .Decimate, vertices = int(SPHERE_PRESETS[arg].vertices), decimate = setup}
+		},
 		enabled = has_object,
 	},
 	.Rebuild = {
