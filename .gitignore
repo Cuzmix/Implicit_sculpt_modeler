@@ -2,8 +2,6 @@
 /build/
 /.claude/settings.local.json
 __pycache__/
-/src/dart_trial/dart/.dart_tool/
-/src/dart_trial/dart/pubspec.lock
 /android/.gradle/
 /android/build/
 /android/app/build/

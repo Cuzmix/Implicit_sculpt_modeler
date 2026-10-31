@@ -26,7 +26,7 @@ this, which only matters for ray marching step sizes and the blend band estimate
 ## CSG and smooth blends
 - Union `min(a, b)`, intersection `max(a, b)`, difference `max(a, −b)`. These are exact outside the blend region only
   as lower bounds; their gradient is discontinuous along the seam, which the mesher sees as a crease.
-- Smooth minimum, polynomial (the spike's `smooth_union`): `h = clamp(0.5 + 0.5 (b − a) / k, 0, 1); lerp(b, a, h) − k h (1 − h)`,
+- Smooth minimum, polynomial (the voxel brushes' `smin`): `h = clamp(0.5 + 0.5 (b − a) / k, 0, 1); lerp(b, a, h) − k h (1 − h)`,
   with `k` the blend radius in world units; smooth intersection is `−smin(−a, −b, k)`, smooth difference
   `−smin(−a, b, k)`. Exponential and power variants trade cost for symmetry; keep one and name its `k`.
 - A dab is a smooth union with a sphere: only cells within `radius + k` (plus a cell of margin) can change, which is what
@@ -44,7 +44,7 @@ this, which only matters for ray marching step sizes and the blend band estimate
 ## Meshing: surface nets, dual contouring, marching cubes
 - Marching cubes: vertices on cell edges, triangles from a 256-case table; produces many slivers, no sharp features,
   and needs the ambiguity-resolved table to stay manifold.
-- Surface nets (the spike): one vertex per crossed cell at the mean of its edge crossings, one quad per crossing edge
+- Surface nets (`src/voxel/mesh.odin`): one vertex per crossed cell at the mean of its edge crossings, one quad per crossing edge
   connecting the four cells around it; smooth, cheap, simple to chunk; sharp features are rounded; ambiguous cells can
   yield non-manifold edges, which `mesh_check` reports.
 - Dual contouring (Ju, Losasso, Schaefer, Warren, SIGGRAPH 2002): same connectivity as surface nets, but the vertex
@@ -52,14 +52,14 @@ this, which only matters for ray marching step sizes and the blend band estimate
   crossings and an SVD or Gram–Schmidt solve per cell, plus clamping of the solution into the cell. Manifold dual
   contouring (Schaefer, Ju, Warren 2007; libfive's mesher) fixes the non-manifold cases.
 - All three share the chunking scheme: a chunk owns its cells' vertices and the quads of the edges it owns; its
-  vertex pass extends one cell into the previous chunk so border quads find all four vertices (the spike's `−1`).
+  vertex pass extends one cell into the previous chunk so border quads find all four vertices (the voxel mesher's −1 neighbour).
 
 ## Chunked and sparse grids
-- Bricks of 16³ or 32³ with a dirty flag per brick (the spike); a brick table that allocates bricks only where the
+- Bricks of 16³ or 32³ with a dirty flag per brick; a brick table that allocates bricks only where the
   surface passes (a narrow band), which turns n³ memory into roughly surface area × band width; a boundary layer per
   brick (one or two voxels) copied from neighbours before remeshing, which lets bricks remesh in parallel without
   reading each other (`jobs.parallel_for` over dirty bricks, heap-allocated per-brick output).
-- Keep the field in a fixed-point or f16 format only after measuring: f32 is the simplest and the spike's numbers are
+- Keep the field in a fixed-point or f16 format only after measuring: f32 is the simplest and the first numbers were
   the baseline.
 
 ## From field to geom.Mesh
@@ -75,8 +75,8 @@ this, which only matters for ray marching step sizes and the blend band estimate
 | Representation | Vertices shown | MB (field or mesh) | Dab ms p50 | Remesh / normals ms p50 | Frame ms (4 dabs) | Upload MB/frame |
 |---|---|---|---|---|---|---|
 | mesh sculptor (`build.bat bench N --threads=T`) | | | | | | |
-| SDF grid n³ (`sdf_trial.exe n`) | | | | | | |
-Same thread count, release builds, both on the 77-dab r = 0.13 stroke; note that the spike's `_max` is the maximum.
+| Voxel clay (`bench --voxel`) | | | | | | |
+Same thread count, release builds, both on the 77-dab r = 0.13 stroke.
 
 ## Sources
 - Inigo Quilez, distance functions: https://iquilezles.org/articles/distfunctions/

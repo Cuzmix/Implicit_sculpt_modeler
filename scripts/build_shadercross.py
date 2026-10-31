@@ -104,10 +104,15 @@ def main():
         "-DSPIRV_CROSS_ENABLE_TESTS=OFF",
     ])
     subprocess.run(["cmake", "--install", os.path.join(builds, "spirv-cross"), "--config", "Release"], check=True)
+    # The tool opens no window, so a Linux machine without the X11 and Wayland development
+    # packages (a cloud container) builds SDL with the offscreen video driver only, as
+    # setup_deps.sh does for the app's own SDL.
+    headless = sys.platform.startswith("linux") and not os.path.exists("/usr/include/X11/Xcursor/Xcursor.h") \
+        and not os.path.exists("/usr/include/wayland-client.h")
     cmake_build(SDL_SRC, os.path.join(builds, "sdl3"), [
         "-DSDL_SHARED=OFF", "-DSDL_STATIC=ON", "-DSDL_TEST_LIBRARY=OFF", "-DSDL_TESTS=OFF",
         "-DSDL_EXAMPLES=OFF",
-    ])
+    ] + (["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF", "-DSDL_OFFSCREEN=ON", "-DSDL_UNIX_CONSOLE_BUILD=ON"] if headless else []))
     subprocess.run(["cmake", "--install", os.path.join(builds, "sdl3"), "--config", "Release"], check=True)
     cmake_build(SRC, os.path.join(builds, "shadercross"), [
         "-DSDLSHADERCROSS_VENDORED=OFF", "-DSDLSHADERCROSS_DXC=OFF",

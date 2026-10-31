@@ -1,7 +1,7 @@
 // Package voxel is the volume sculptor: a signed distance field kept only in a narrow
 // band around the surface, in bricks of 8³ voxels, sculpted by brushes that change the
 // field and shown through a triangle surface meshed brick group by brick group
-// (mesh.odin). Negative is inside, as in sdf_trial and sm-sdf.
+// (mesh.odin). Negative is inside, as in sm-sdf.
 //
 // The field is sparse. A brick exists only where the band passes; everywhere else a tile
 // code says the voxels are all outside (Empty) or all inside (Inside). Values are fixed

@@ -36,8 +36,15 @@ if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 	echo "== SDL $SDL_TAG"
 	rm -rf "$DEPS/sdl3-src"
 	git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git "$DEPS/sdl3-src"
+	# A machine without the X11 and Wayland development packages (a cloud container) gets an
+	# SDL with only the offscreen video driver, which the smoke, touch and gate runs use there.
+	sdl_video=()
+	if [ ! -f /usr/include/X11/Xcursor/Xcursor.h ] && [ ! -f /usr/include/wayland-client.h ]; then
+		echo "   (no X11 or Wayland headers: offscreen video only)"
+		sdl_video=(-DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_OFFSCREEN=ON -DSDL_UNIX_CONSOLE_BUILD=ON)
+	fi
 	cmake -S "$DEPS/sdl3-src" -B "$DEPS/sdl3-src/build" -G Ninja \
-		-DCMAKE_BUILD_TYPE=Release -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+		-DCMAKE_BUILD_TYPE=Release -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF "${sdl_video[@]}" \
 		-DCMAKE_INSTALL_PREFIX="$DEPS/sdl3" > "$DEPS/sdl3-configure.log"
 	ninja -C "$DEPS/sdl3-src/build" install > "$DEPS/sdl3-build.log"
 fi

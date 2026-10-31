@@ -195,7 +195,7 @@ Glossary_Entry :: struct {
 	others:   string,
 	means:    string,
 	searches: string,
-	finds:    bit_set[Command_Id; [4]u64], // an array backing: there are more than 128 commands
+	finds:    Command_Set,
 }
 
 @(rodata)

@@ -66,7 +66,6 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/quadmesh` | Quad Remesh's engine: the binding to AutoRemesher's core (`deps/autoremesher-src` at `AUTOREMESHER_COMMIT`, built with our C boundary `quadmesh_shim.cpp` and the TBB stand-ins in `shim/tbb` by `scripts/build_autoremesher.py`; desktops only, `AVAILABLE`): `remesh` turns triangles into a `Polygon_Mesh` of nearly all quads, with progress and cancel |
 | `src/usd` | USD in (Import): `.usda` text, the `.usdc` binary crate (LZ4, integer coding) and `.usdz` through `zip`, read into a stage whose Mesh prims become `geom.Mesh_Part`s; composition not followed |
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
-| `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist`, `PrivacyInfo.xcprivacy` (also the Mac's) and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `mac/` | the Mac app's `Info.plist`; `./build.sh mac` links SDL3, stb and `src/app` into `Sculpt.app` on macOS |
@@ -82,7 +81,7 @@ skill whose description fits the request BEFORE you form a plan.
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
   (`gpu_*`, each handed to the Vulkan backend `vk_*.odin` under `--gpu=vulkan`), both enforced by `scripts/boundary_check.py` in `check`;
-  `bench` never imports `render` or `app`; `sdf_trial` stands alone.
+  `bench` never imports `render` or `app`.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
   paths call `free_all(context.temp_allocator)` (the autosave thread frees its own arena); nothing temp is stored.
