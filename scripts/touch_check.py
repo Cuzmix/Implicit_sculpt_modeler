@@ -8542,6 +8542,23 @@ def tap_another_object_switches_to_it():
 
 
 @scenario
+def stroke_on_another_object_keeps_to_the_selected():
+    """A mouse stroke on an object that is not the selected one selects it and sculpts it; with A stroke on another
+    object switches to it off (Settings > Pen), the same stroke leaves the selection alone and, missing the selected
+    object, sculpts nothing."""
+    def stroke():
+        s = Script()
+        s.wait(4)
+        s.mouse_drag(line(SPHERE_3, (SPHERE_3[0] + 60, SPHERE_3[1] + 20), 12))
+        s.wait(4)
+        return s
+    return Steps([
+        (stroke(), THREE, ({"selected": near(2), "undo_steps": near(1)})),
+        (stroke(), THREE + ["--script=set stroke_switches 0"], ({"selected": near(0), "undo_steps": near(0), "dabs": near(0)})),
+    ])
+
+
+@scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()
