@@ -57,6 +57,7 @@ Settings_Block :: enum u8 {
 	Anti_Aliasing,
 	Graphics,
 	Autosave,
+	Crash_Log,
 	Earlier_Saves,
 	Undo_History,
 	History_Steps,
@@ -135,6 +136,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
 	.Graphics         = "graphics gpu backend vulkan metal driver renderer async compute ray tracing hardware rtx",
 	.Autosave         = "autosave recovery copy",
+	.Crash_Log        = "crash log crashed bug report send",
 	.Earlier_Saves    = "earlier saves versions kept",
 	.Undo_History     = "undo history steps memory limit may use mb gb meshes textures device",
 	.History_Steps    = "history steps lights scene tree names folders order undo",
@@ -409,6 +411,12 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, autosave_status(app), color = t.warning if a.failed else t.text_secondary)
 		ui.paragraph(ctx, "Written in the background once you pause, never during a stroke. If Sculpt closes unexpectedly, the next start offers it back.")
 		_ = command_button(app, .Open_Last_Autosave)
+	case .Crash_Log:
+		ui.label(ctx, "The last crash")
+		last := crash_log.last
+		ui.paragraph(ctx, fmt.tprintf("The last start found a crash: %s.", last) if last != "" else ("A crash log from an earlier run is kept." if crash_log_kept() else "No crash has been recorded."))
+		ui.paragraph(ctx, CRASH_LOG_WHERE)
+		_ = command_button(app, .Save_Crash_Log)
 	case .Earlier_Saves:
 		kept := versions_kept(app.versions_kept)
 		chosen := 0
@@ -542,6 +550,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
 	case .Graphics:        app.async_compute, app.ray_query = true, RAY_QUERY_DEFAULT
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
+	case .Crash_Log:
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0
 	case .History_Steps:   app.history_no_lights, app.history_no_tree = false, false

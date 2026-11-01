@@ -100,7 +100,7 @@ LENS_FRAME_RATE := [?]Settings_Entry{{.Frame_Rate, ""}}
 @(rodata)
 LENS_BARS := [?]Settings_Entry{{.Bars, "BARS"}, {.Action_Bar, "ACTION BAR"}, {.Pies, "PIES"}}
 @(rodata)
-LENS_FILES := [?]Settings_Entry{{.Autosave, "AUTOSAVE"}, {.Earlier_Saves, "EARLIER SAVES"}, {.Undo_History, "UNDO HISTORY"}, {.History_Steps, "WHAT BECOMES A STEP"}, {.History_Back, "GOING BACK"}, {.Blender_Link, "BLENDER LINK"}, {.Printer, "3D PRINTER"}}
+LENS_FILES := [?]Settings_Entry{{.Autosave, "AUTOSAVE"}, {.Crash_Log, "CRASH LOG"}, {.Earlier_Saves, "EARLIER SAVES"}, {.Undo_History, "UNDO HISTORY"}, {.History_Steps, "WHAT BECOMES A STEP"}, {.History_Back, "GOING BACK"}, {.Blender_Link, "BLENDER LINK"}, {.Printer, "3D PRINTER"}}
 
 // Section `s`'s blocks in Lens.
 settings_section_entries :: proc(s: Settings_Section) -> []Settings_Entry {
