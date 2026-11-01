@@ -57,3 +57,35 @@ chip_sections_drop_where_they_are_let_go :: proc(t: ^testing.T) {
 	ui.frame_end(ctx)
 	free_all(context.temp_allocator)
 }
+
+// The top bar's islands snap to the third of the bar under the pointer, counted from the
+// start side, and trade places with the island there; the order is written only when it
+// differs from the bar as it comes, and a line not naming each island once is refused.
+@(test)
+top_islands_snap_and_read_back :: proc(t: ^testing.T) {
+	bar := ui.Rect{8, 4, 1200, 48}
+	testing.expect_value(t, top_island_slot(bar, 100, false), 0)
+	testing.expect_value(t, top_island_slot(bar, 600, false), 1)
+	testing.expect_value(t, top_island_slot(bar, 1100, false), 2)
+	testing.expect_value(t, top_island_slot(bar, 1100, true), 0)
+	testing.expect_value(t, top_island_slot({}, 1100, false), 1)
+	testing.expect_value(t, top_order_put(TOP_ORDER_DEFAULT, .File, 2), [3]Top_Island{.App, .Work, .File})
+	testing.expect_value(t, top_order_put(TOP_ORDER_DEFAULT, .App, 1), [3]Top_Island{.File, .App, .Work})
+	testing.expect_value(t, top_order_put(TOP_ORDER_DEFAULT, .Work, 1), TOP_ORDER_DEFAULT)
+
+	a: Kit_State
+	testing.expect_value(t, top_order(&a), TOP_ORDER_DEFAULT)
+	out := strings.builder_make(context.temp_allocator)
+	top_order_save(&a, &out)
+	testing.expect_value(t, strings.to_string(out), "")
+	a.top_order = {.Work, .App, .File}
+	top_order_save(&a, &out)
+	text := strings.to_string(out)
+	testing.expect_value(t, text, "top_order work app file\n")
+	b: Kit_State
+	top_order_read(&b, strings.fields(text, context.temp_allocator))
+	testing.expect_value(t, top_order_text(&b), "work,app,file")
+	c: Kit_State
+	for line in ([]string{"top_order work work file", "top_order work app", "top_order work app tray"}) do top_order_read(&c, strings.fields(line, context.temp_allocator))
+	testing.expect_value(t, top_order_text(&c), "file,work,app")
+}

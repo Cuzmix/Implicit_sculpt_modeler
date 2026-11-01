@@ -5634,7 +5634,7 @@ def export_sheet_checks_a_print():
 # and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
 # top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
 LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
-                "reset_zone": (717, 26), "done": (1057, 26), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+                "reset_zone": At("arrange top bar/Reset zone", 675, 30), "done": At("arrange top bar/Done", 1014, 30), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
 
 
 @scenario
@@ -5964,7 +5964,10 @@ def dock_stays_with_its_space():
 # The chip bar's sections in Arrange at 1440x900 (PR 14): Undo and Redo's middle, where an
 # island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
 # toggles for Spaces, with the Model tab of the Spaces island it makes.
-CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (242, 30), (700, 420), (730, 424)
+# Undo stands after the file island's grip while arranging.
+CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (268, 30), (700, 420), (730, 424)
+# The file island's grip while arranging, and the bar's end corner it is carried to.
+GRIP_FILE, BAR_END = At("top bar/file island/grip file", 22, 30), (1380, 30)
 CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), At("chip island spaces/Model", 789, 80)
 # The Library's close button.
 LIBRARY_AWAY = (753, 129)
@@ -5989,6 +5992,20 @@ def chip_section_dragged_out_of_the_bar():
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
         "chip_islands": lambda v: v.startswith("undo:6") and ":39" in v, "chip_carries": near(1), "bars_edit": near(0),
         "layout_top_bar": is_text("8,4,1424,48"), "dabs": near(0), "@saved": settings_hold("chip_island undo ")})
+
+
+@scenario
+def top_island_carried_to_the_end_corner():
+    """In Arrange a finger drags the file island by its grip to the bar's end corner: it snaps there, Search's island takes its old corner, and the settings file keeps the order."""
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(GRIP_FILE, BAR_END, 30))
+    s.wait(6)
+    s.press("Escape")
+    s.wait(8)
+    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
+        "top_order": is_text("app,work,file"), "island_carries": near(1), "chip_islands": is_text("none"), "bars_edit": near(0),
+        "dabs": near(0), "@saved": settings_hold("top_order app work file")})
 
 
 @scenario

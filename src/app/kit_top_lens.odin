@@ -35,12 +35,13 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	in_bar := [Chip_Section]bool{}
 	for s in Chip_Section do in_bar[s] = chip_in_bar(k, s)
 	width := area.w - 2 * TOP_BAR_INSET
-	// Arranging keeps the one bar, whose middle holds what arranging needs.
-	// Focus is always the three islands, its middle the workspace and X symmetry.
+	// Focus is always the three islands, its middle the workspace and X symmetry. Arranging
+	// keeps the bar's style, the work island (or the one bar's middle) holding what
+	// arranging needs.
 	if lens_focus(k) && !arranging do return kit_top_three(app, in_bar, width, focus = true)
-	if k.top_islands && !arranging {
-		menu_anchor, search_anchor = kit_top_three(app, in_bar, width)
-		for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
+	if k.top_islands {
+		menu_anchor, search_anchor = kit_top_three(app, in_bar, width, arranging = arranging)
+		if !arranging do for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
 		kit_chip_islands(app, &menu_anchor, &search_anchor)
 		return
 	}
@@ -167,71 +168,88 @@ TOP_ISLAND_PAD :: 2
 // What the three islands show, from everything down to the least that still works.
 @(private = "file")
 Top_Three :: struct {
-	focus: bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the right
-	file:  bool, // the file block after the menu button
-	field: bool, // Search as its field rather than its icon
-	tabs:  int, // the space tabs (0), the layout's chip (1) or neither (2)
-	fit:   Object_Chip_Fit,
+	focus:   bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the right
+	arrange: bool, // arranging: each island leads with its grip, the work island holds Arrange's controls
+	file:    bool, // the file block after the menu button
+	field:   bool, // Search as its field rather than its icon
+	tabs:    int, // the space tabs (0), the layout's chip (1) or neither (2); arranging, all of Arrange's controls (0) or Done alone
+	fit:     Object_Chip_Fit,
 }
 
+// The width Done takes alone in the work island while arranging, when Arrange's other
+// controls have no room (they are in the Library and Search too).
+ARRANGE_DONE_W :: 84
+
 // The top bar as three islands (Settings > Interface > Top bar): the menu, the file and
-// Undo and Redo at the left; the spaces and the object chip centred on the window; Search,
-// History and Settings at the right. One full-width row holds them, so a control's name
-// stays "top bar/..." and a section dragged in Arrange goes back by the same rectangle.
-// When the sides would reach the middle island, parts give way in a fixed order (the
-// chip's badges, Search's field, the chip's tag, the file block, the tabs to the layout's
-// chip, the chip to its icon), and only then does the middle leave the centre.
+// Undo and Redo; the spaces and the object chip; Search, History and Settings. They stand in
+// the bar's start corner, its middle on the window's centre line and its end corner, in
+// the order Arrange left them (top_islands.odin). One full-width row holds them, so a
+// control's name stays "top bar/..." and a section dragged in Arrange goes back by the same
+// rectangle. When the corners would reach the middle island, parts give way in a fixed
+// order (the chip's badges, Search's field, the chip's tag, the file block, the tabs to the
+// layout's chip, the chip to its icon), and only then does the middle leave the centre.
 @(private = "file")
-kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus := false) -> (menu_anchor, search_anchor: ui.Rect) {
+kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus := false, arranging := false) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	chip := object_chip_of(app)
 	file_w := top_file_width(app)
-	// An island's width: its items, the gaps between them and its padding.
-	island_w :: proc(items: []f32) -> f32 {
+	order := top_order(k)
+	// An island's width: its items, the gaps between them and its padding, and its grip
+	// first while arranging when it holds anything.
+	island_w :: proc(items: []f32, v: Top_Three) -> f32 {
 		w: f32 = 0
 		n := 0
 		for x in items do if x > 0 {
 			w += x
 			n += 1
 		}
-		return 0 if n == 0 else w + f32(n - 1) * TOP_ISLAND_PAD + 2 * TOP_ISLAND_PAD
+		if n == 0 do return 0
+		if v.arrange {
+			w += TOP_GRIP_W
+			n += 1
+		}
+		return w + f32(n - 1) * TOP_ISLAND_PAD + 2 * TOP_ISLAND_PAD
 	}
-	left_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, file_w: f32) -> f32 {
-		t := app.kit.ctx.theme
-		return island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.Undo] else 0})
-	}
-	right_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three) -> f32 {
-		t := app.kit.ctx.theme
+	widths :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip, file_w: f32) -> [Top_Island]f32 {
+		ctx := &app.kit.ctx
+		t := ctx.theme
+		w: [Top_Island]f32
+		w[.File] = island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.Undo] else 0}, v)
 		search: f32 = 0
 		if in_bar[.Search] do search = TOP_SEARCH_W if v.field else t.target
 		// Focus, with no view bar, keeps View layout and Passes here.
 		view: f32 = TOP_DIVIDER_W + 2 * t.target + TOP_ISLAND_PAD if v.focus else 0
-		return island_w({search, view, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0})
-	}
-	middle_w :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip) -> f32 {
-		ctx := &app.kit.ctx
-		tabs: f32 = 0
-		if in_bar[.Spaces] && v.tabs == 0 do tabs = space_tabs_width(app)
-		if in_bar[.Spaces] && v.tabs == 1 do tabs = WORKSPACE_CHIP_ROOM
-		obj: f32 = object_chip_width(ctx, chip, v.fit) if in_bar[.Object] else 0
-		if v.focus do return island_w({WORKSPACE_CHIP_ROOM, FOCUS_SYMMETRY_W})
-		return island_w({tabs, TOP_DIVIDER_W if tabs > 0 && obj > 0 else 0, obj})
+		w[.App] = island_w({search, view, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0}, v)
+		switch {
+		case v.arrange:
+			w[.Work] = island_w({arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W}, v)
+		case v.focus:
+			w[.Work] = island_w({WORKSPACE_CHIP_ROOM, FOCUS_SYMMETRY_W}, v)
+		case:
+			tabs: f32 = 0
+			if in_bar[.Spaces] && v.tabs == 0 do tabs = space_tabs_width(app)
+			if in_bar[.Spaces] && v.tabs == 1 do tabs = WORKSPACE_CHIP_ROOM
+			obj: f32 = object_chip_width(ctx, chip, v.fit) if in_bar[.Object] else 0
+			w[.Work] = island_w({tabs, TOP_DIVIDER_W if tabs > 0 && obj > 0 else 0, obj}, v)
+		}
+		return w
 	}
 	v := Top_Three {
-		focus = focus,
-		file  = !focus,
-		field = k.search_field && in_bar[.Search],
-		tabs  = 0 if in_bar[.Spaces] else 2,
-		fit   = .Full if in_bar[.Object] else .None,
+		focus   = focus,
+		arrange = arranging,
+		file    = !focus,
+		field   = k.search_field && in_bar[.Search],
+		tabs    = 0 if in_bar[.Spaces] || arranging else 2,
+		fit     = .Full if in_bar[.Object] && !arranging else .None,
 	}
-	fits :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip, file_w, width: f32) -> bool {
-		side := max(left_w(app, in_bar, v, file_w), right_w(app, in_bar, v))
-		return middle_w(app, in_bar, v, chip) <= width - 2 * (side + TOP_ISLAND_GAP)
+	fits :: proc(w: [Top_Island]f32, order: [3]Top_Island, width: f32) -> bool {
+		side := max(w[order[0]], w[order[2]])
+		return w[order[1]] <= width - 2 * (side + TOP_ISLAND_GAP)
 	}
 	for step in 0 ..< 6 {
-		if fits(app, in_bar, v, chip, file_w, width) do break
+		if fits(widths(app, in_bar, v, chip, file_w), order, width) do break
 		switch step {
 		case 0: if v.fit > .Tag do v.fit = .Tag
 		case 1: v.field = false
@@ -241,58 +259,72 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus :
 		case 5: if v.fit > .Icon do v.fit = .Icon
 		}
 	}
-	l, r := left_w(app, in_bar, v, file_w), right_w(app, in_bar, v)
-	// Off centre at last: the middle takes what the sides leave, and gives up the layout's
-	// chip, then shrinks the object chip, before anything overlaps.
-	room := width - l - r - 2 * TOP_ISLAND_GAP
-	if middle_w(app, in_bar, v, chip) > room {
+	// Off centre at last: the work island takes what the others leave, and gives up the
+	// layout's chip, then shrinks the object chip, before anything overlaps.
+	w := widths(app, in_bar, v, chip, file_w)
+	if !v.arrange && !v.focus && w[.File] + w[.Work] + w[.App] + 2 * TOP_ISLAND_GAP > width {
+		room := width - w[.File] - w[.App] - 2 * TOP_ISLAND_GAP
 		v.tabs = 2
 		if in_bar[.Object] do v.fit = object_chip_fit(ctx, chip, room - 2 * TOP_ISLAND_PAD)
+		w = widths(app, in_bar, v, chip, file_w)
 	}
-	m := middle_w(app, in_bar, v, chip)
 	h: f32 = TOP_BAR_H - TOP_BAR_TOP
 	island := ui.Box{direction = .Row, height = h, padding = TOP_ISLAND_PAD, gap = TOP_ISLAND_PAD, center = true, radius = t.radius_large, background = .Panel}
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = h, center = true})
 	// The islands as drawn last frame, so the middle sits on the centre to the point; the
 	// sums above stand in on the first frame and when what shows changes.
-	// Focus's middle holds chips whose widths the sums only guess, so it takes last
-	// frame's width whenever there is one.
+	// Focus's and Arrange's work island holds chips whose widths the sums only guess, so it
+	// takes last frame's width whenever there is one.
 	drawn :: proc(ctx: ^ui.Context, name: string, sum: f32, trust := false) -> f32 {
 		size, _ := ui.prev_layout(ctx, name)
 		return size.x if size.x > 0 && (trust || abs(size.x - sum) < 24) else sum
 	}
+	k.top_island_at = {}
 	used: f32 = 0
-	if l > 0 {
-		lw := drawn(ctx, "file island", l)
-		ui.begin(ctx, "file island", island)
-		if in_bar[.Menu] do k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor, file = v.file)
-		if in_bar[.Menu] && in_bar[.Undo] do top_divider(ctx)
-		if in_bar[.Undo] do k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
-		ui.end(ctx)
-		used = lw
-	}
-	if m > 0 {
-		mw := drawn(ctx, "work island", m, trust = v.focus)
-		at := clamp((width - mw) * 0.5, used + TOP_ISLAND_GAP, max(width - r - TOP_ISLAND_GAP - mw, used + TOP_ISLAND_GAP))
+	for isl, slot in order {
+		if w[isl] <= 0 do continue
+		dw := drawn(ctx, TOP_ISLAND_ROOTS[isl], w[isl], trust = isl == .Work && (v.focus || v.arrange))
+		at: f32
+		switch slot {
+		case 0:
+			at = 0
+		case 1:
+			at = clamp((width - dw) * 0.5, used + TOP_ISLAND_GAP, max(width - w[order[2]] - TOP_ISLAND_GAP - dw, used + TOP_ISLAND_GAP))
+		case:
+			at = max(width - dw, used)
+		}
 		ui.spacer(ctx, at - used)
-		ui.begin(ctx, "work island", island)
-		if v.focus do top_focus_middle(app)
-		else if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
-		if v.tabs == 1 do kit_workspace_chip(app)
-		if !v.focus && v.tabs < 2 && v.fit != .None do top_divider(ctx)
-		if !v.focus && v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
+		ui.begin(ctx, TOP_ISLAND_ROOTS[isl], island)
+		if v.arrange do top_island_grip(app, isl)
+		switch isl {
+		case .File:
+			if in_bar[.Menu] do k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor, file = v.file)
+			if in_bar[.Menu] && in_bar[.Undo] do top_divider(ctx)
+			if in_bar[.Undo] do k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
+		case .Work:
+			switch {
+			case v.arrange:
+				// Arranging, the work island holds what arranging needs in place of the tabs
+				// and the chip, or Done alone when the rest has no room.
+				if v.tabs == 0 do _ = arrange_top_controls(app)
+				else if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = ARRANGE_DONE_W) do k.bars_edit = false
+			case v.focus:
+				top_focus_middle(app)
+			case:
+				if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
+				if v.tabs == 1 do kit_workspace_chip(app)
+				if v.tabs < 2 && v.fit != .None do top_divider(ctx)
+				if v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
+			}
+		case .App:
+			if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = v.field)
+			if v.focus do top_focus_view(app)
+			if in_bar[.Search] && in_bar[.End] do top_divider(ctx)
+			if in_bar[.End] do k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
+		}
 		ui.end(ctx)
-		used = at + mw
-	}
-	if r > 0 {
-		rw := drawn(ctx, "app island", r)
-		ui.spacer(ctx, max(width - rw - used, 0))
-		ui.begin(ctx, "app island", island)
-		if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = v.field)
-		if v.focus do top_focus_view(app)
-		if in_bar[.Search] && in_bar[.End] do top_divider(ctx)
-		if in_bar[.End] do k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
-		ui.end(ctx)
+		k.top_island_at[isl] = ui.last_ended(ctx)
+		used = at + dw
 	}
 	ui.end(ctx)
 	return

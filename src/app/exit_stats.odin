@@ -402,6 +402,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
 		// The chip bar's sections standing on their own, and how many Arrange let go.
 		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
+		// The top bar's islands from the start corner, and how many Arrange let go.
+		fmt.printfln("top_order=%s island_carries=%d", top_order_text(k), k.arrange.island_carries)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[i].used {

@@ -486,7 +486,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
-	case .Top_Bar:         k.search_field, k.top_islands = false, true
+	case .Top_Bar:         k.search_field, k.top_islands, k.top_order = false, true, TOP_ORDER_DEFAULT
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
