@@ -1,11 +1,6 @@
 package geom
 
 import "core:image"
-import _ "core:image/bmp"
-import _ "core:image/jpeg"
-import _ "core:image/png"
-import _ "core:image/qoi"
-import _ "core:image/tga"
 import "core:math"
 import "core:path/slashpath"
 import "core:strconv"

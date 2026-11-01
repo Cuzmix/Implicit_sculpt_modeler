@@ -216,6 +216,24 @@
 			}
 		},
 		{
+			"label": "Web: build and serve",
+			"detail": "scripts/web_build.py --serve: the web version into build/web/site, served at http://localhost:8000 (WebGPU browser needed)",
+			"type": "process",
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/web_build.py", "--serve"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\web_build.py", "--serve"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"isBackground": false,
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
 			"label": "iPad: build on GitHub and download",
 			"detail": "scripts/ipad_build.py: the pushed branch built on GitHub's Mac, saved as build\\ios\\Sculpt.ipa for AltStore",
 			"type": "process",

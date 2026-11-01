@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|maccheck|android|androidrun|all|clean]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|web|webcheck|iphonecheck|maccheck|android|androidrun|all|clean]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
@@ -19,6 +19,8 @@ set MAC_MIN=14.4
 if "%MODE%"=="check" goto check
 if "%MODE%"=="all" goto all
 if "%MODE%"=="iphonecheck" goto iphonecheck
+if "%MODE%"=="web" goto web
+if "%MODE%"=="webcheck" goto webcheck
 if "%MODE%"=="maccheck" goto maccheck
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
@@ -78,7 +80,20 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
-echo check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current
+rem The web version compiles the engine for js, where a core:os or core:thread call on a
+rem sculpt path would fail; checking it here keeps that from going unnoticed.
+python "%ROOT%scripts\web_build.py" --check || exit /b 1
+echo check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current, the web version type-checks
+exit /b 0
+
+:web
+rem The web version (README "Web") into build\web\site; extra arguments go to the script
+rem (--debug, --serve, --test).
+python "%ROOT%scripts\web_build.py" %2 %3 %4 || exit /b 1
+exit /b 0
+
+:webcheck
+python "%ROOT%scripts\web_build.py" --check || exit /b 1
 exit /b 0
 
 :iphonecheck

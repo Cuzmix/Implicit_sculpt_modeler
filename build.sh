@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|maccheck|check|android|androidrun|ios|iosupload|mac|macnotarize|all|clean] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|web|webcheck|wincheck|androidcheck|iphonecheck|maccheck|check|android|androidrun|ios|iosupload|mac|macnotarize|all|clean] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -19,6 +19,9 @@
 #   computebench release build, then time Smooth all on the CPU and as a GPU compute
 #           shader (upload and readback included) at the same sizes, check the GPU's
 #           result against the CPU's, and write build/computebench.md (needs a display)
+#   web     the web version (README "Web") into build/web/site with scripts/web_build.py;
+#           extra args go to it (--debug, --serve, --test)
+#   webcheck type-check the web version for js_wasm64p32 (check runs it too)
 #   wincheck compile the app and bench for Windows (x64) to object files, without
 #           linking, so Windows-only compile errors show up on Linux too
 #   androidcheck compile the app for Android (arm64) to an object file, as the Android
@@ -251,7 +254,16 @@ case "$mode" in
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
-		echo "check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current"
+		# The web version compiles the engine for js, where a core:os or core:thread call on a
+		# sculpt path would fail; checking it here keeps that from going unnoticed.
+		python3 "$ROOT/scripts/web_build.py" --check
+		echo "check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current, the web version type-checks"
+		;;
+	web)
+		python3 "$ROOT/scripts/web_build.py" "$@"
+		;;
+	webcheck)
+		python3 "$ROOT/scripts/web_build.py" --check
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

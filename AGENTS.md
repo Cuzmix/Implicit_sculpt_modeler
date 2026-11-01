@@ -41,6 +41,7 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat release | bench [sizes] [--threads=N] | gpubench
     python scripts\agents_sync.py                     # after editing a skill or agent (check verifies the mirror)
     build.bat android | androidrun                    # the Android APK; androidrun installs and starts it on the tablet
+    build.bat web | webcheck                          # the web version into build\web\site (scripts/web_build.py: --serve, --test)
     build.bat iphonecheck                             # the app compiled for the iPad to an object (no Mac): iOS-only compile errors
     build.bat maccheck                                # the app compiled for the Mac (Apple silicon) to an object: Mac-only compile errors
     python scripts\try_it.py [names] [--debug]      # on a real machine: 11 checks on its own GPU, build\try_it\report.md and build\try_it.zip
@@ -70,6 +71,9 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/hdri` | environment panoramas in: Radiance `.hdr`, OpenEXR (all but its newest compressions, HTJ2K and ZSTD) and pictures, as linear RGB halved to a width, and their nine-term diffuse light; decoded on a thread, uploaded by `app` |
 | `src/usd` | USD in (Import): `.usda` text, the `.usdc` binary crate (LZ4, integer coding) and `.usdz` through `zip`, read into a stage whose Mesh prims become `geom.Mesh_Part`s; composition not followed |
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
+| `src/web` | the web version's entry (js_wasm64p32 only): the engine in a browser tab, pointer, wheel and key events through Odin's js runtime, one thread; `scripts/web_build.py` builds it from a copy of `src` without test files, with `web/odin_overlay` over Odin's `base/` (README "Web") |
+| `src/render/webgpu` | the web version's WebGPU viewport (`vendor:wgpu`): one mesh and the brush ring, until render's seam has a WebGPU backend |
+| `web/` | the web page (`index.html`: canvas, brush rail, bar, status) and `odin_overlay` (the js heap allocator Odin's runtime lacks) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist`, `PrivacyInfo.xcprivacy` (also the Mac's) and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `mac/` | the Mac app's `Info.plist`; `./build.sh mac` links SDL3, stb and `src/app` into `Sculpt.app` on macOS |
