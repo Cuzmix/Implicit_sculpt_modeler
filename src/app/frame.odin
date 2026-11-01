@@ -162,6 +162,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	pack_matcaps_settle(app)
 	// Likewise a finished environment decode, whose prefilter has its own.
 	_ = environment_poll(app)
+	brush_previews_poll(app)
 
 	// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 	// presents, so its GPU time can be measured on its own.
