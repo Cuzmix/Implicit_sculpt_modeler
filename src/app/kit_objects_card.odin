@@ -1,36 +1,20 @@
 package main
 
 import "core:fmt"
-import "core:strings"
 
-import "../geom"
 import "../sculpt"
 import "../ui"
 
-// The Objects card: the Objects card command opens it beside the view rail, as ZBrush for
-// iPad's quick-access Subtools card. A strip of dots on top drags it (holding them puts it
-// back in the Scene palette), a big title, four buttons (Add, Duplicate, New folder and
-// More), then the objects as tall rows with a picture of each (object_thumbs.odin), its
-// name, its boolean switch, its polypaint and its eye, and a bar under the list that sets
-// how tall the list is. A tap selects a row; a long press opens its menu, and a drag
-// after that moves the row (a mouse drags it at once). The Scene palette's Objects
-// section stays as the other place to reach the same objects, as ZBrush keeps Tool >
-// Subtool. The card and the palette tray share their place, so one opening closes the other.
+// The Scene card's Pictures (lens_scene.odin), once the floating Objects card, as ZBrush
+// for iPad's quick-access Subtools card: the objects as tall rows with a picture of each
+// (object_thumbs.odin), its name, its boolean switch, its polypaint and its eye; a tap
+// selects a row, a long press opens its menu (Boolean process among it) and a drag after
+// that moves the row. The card's More menu and its Actions (Store visibility, Split,
+// Merge, Boolean, Align, Distribute, Project, Extract) stand in the Scene card too.
 
-// The list's height to start with, and the least the bar under it sets.
-CARD_LIST_H :: 5 * ui.THUMB_ROW_H
-CARD_LIST_MIN :: 2 * ui.THUMB_ROW_H
-
-// The card's state between frames.
+// The pictures' menus and Actions between frames.
 Objects_Card :: struct {
-	scroll:   f32, // the list's, where it is heading
-	list_h:   f32, // the list's height as the bar set it; 0 until then (CARD_LIST_H)
-	from_h:   f32, // the height and the pointer's y when the bar was pressed
-	from_y:   f32,
-	// The Add menu (Insert below the selection, or Append at the end), and More.
-	add:      bool,
-	add_at:   ui.Rect,
-	append:   bool,
+	// The More menu (the Scene card's More).
 	more:     bool,
 	more_at:  ui.Rect,
 	// A row's menu: on which object, where, and whether that object was selected when it
@@ -40,13 +24,10 @@ Objects_Card :: struct {
 	menu_at:  ui.Rect,
 	menu_all: bool,
 	booleans: bool, // the menu's Boolean process rows are unfolded
-	// The Actions under the list: unfolded or not, where they are scrolled, and which of
-	// their sections are open.
+	// The Actions under the list: unfolded or not, and which of their sections are open.
 	actions:  bool,
-	actions_scroll: f32,
 	open:     [Card_Action]bool,
-	tray_was: bool, // the tray or a side panel was open last frame
-	rows:     int, // rows drawn last frame, for the exit stats
+	rows:     int, // picture rows drawn last frame, for the exit stats
 }
 
 // The sections of the card's Actions, in ZBrush's order.
@@ -73,9 +54,6 @@ CARD_ACTION_NAMES := [Card_Action]string {
 	.Extract    = "Extract",
 }
 
-// The least height the Actions get when open: the list gives up the rest of its room.
-CARD_ACTIONS_MIN :: 3 * ui.THUMB_ROW_H
-
 // The icons of Align's and Distribute's tiles, by axis (the rows) and edge (low side,
 // middle, high side): lines and blocks as ZBrush's card draws them. Z, the depth, takes
 // X's, as seen from above.
@@ -92,110 +70,27 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 	{0xe03f, 0xe03d, 0xe03e},
 }
 
-// Opens the card, closing the tray and the side panels, which share its place while it
-// floats, or closes it.
+// The Objects card is the Scene card's Pictures now: what opens it (its command, a layout
+// that kept it open, Arrange's Show) shows the Scene card with pictures instead, so a
+// gesture or a workspace that named the card keeps working.
 objects_card_toggle :: proc(app: ^App) {
-	k := &app.kit
-	k.objects_card = !k.objects_card
-	if k.objects_card {
-		side_panel_close(app)
-		k.inspector = false
-	}
+	app.kit.objects_card = true
 }
 
-// Draws the card; returns true when a press landed on it, to bring it to the front.
+// Turns a request for the old floating card into the Scene card with its pictures; draws
+// nothing itself, so it never raises a window.
 kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	c := &k.card
-	// The tray or a side panel opening takes the floating card's place.
-	tray := k.inspector || side_panel_open(k)
-	if tray && !c.tray_was do k.objects_card = false
-	c.tray_was = tray
-	if !k.objects_card do c.add, c.more, c.menu = false, false, false
-	shown := ui.presence(ctx, panel_id(Kit_Window.Objects), k.objects_card, t.panel_time)
-	c.rows = 0
-	if shown <= 0 do return
-	win := &k.windows[.Objects]
-	PADDING :: 12
-	GAP :: 6
-	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
-	top := kit_top()
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Objects, "Objects", .End, .Start, {kit_right(app), top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.objects_card}, card = true)
-	raised = p.raised
-	id := p.owner
-	if p.closed do k.objects_card = false
-	if p.dock && k.objects_card {
-		k.objects_card = false
-		tray_open(app, .Objects)
-		c.tray_was = true
-	}
-	if !p.body {
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-		return
-	}
-
-	// The four buttons, spread across the card as ZBrush has them.
-	ui.begin(ctx, "objects card buttons", {direction = .Row, width = inner, gap = (inner - 4 * t.target) / 3})
-	if ui.icon_button(ctx, "Add", ui.ICON_CIRCLE_PLUS, selected = c.add) {
-		c.add, c.more = !c.add, false
-		c.add_at = ctx.last_rect
-	}
-	if ui.icon_button(ctx, command_label(.Duplicate_Object), ui.ICON_COPY, enabled = command_enabled(app, .Duplicate_Object), keys = command_hint(app, .Duplicate_Object)) do command_run(app, .Duplicate_Object)
-	if ui.icon_button(ctx, command_label(.New_Folder), ui.ICON_FOLDER_PLUS, enabled = command_enabled(app, .New_Folder), keys = command_hint(app, .New_Folder)) do command_run(app, .New_Folder)
-	if ui.icon_button(ctx, "More", ui.ICON_MORE, selected = c.more) {
-		c.more, c.add = !c.more, false
-		c.more_at = ctx.last_rect
-	}
-	ui.end(ctx)
-
-	// The list, as tall as the bar under it says and no taller than the window has room for
-	// beside the Actions' header, and with the Actions open, beside some of them too.
-	header := t.target - 8 + GAP
-	room := p.room - (t.target + t.target + 2 * GAP) - header
-	list_room := room - CARD_ACTIONS_MIN - GAP if c.actions else room
-	list_h := clamp(c.list_h if c.list_h > 0 else CARD_LIST_H, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
-	scroll := kit_scroll_begin(ctx, "objects card list", &c.scroll, id, inner, list_h, 0)
-	lines := tree_lines(app)
-	spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
-	for line in lines {
-		if line.object >= 0 do card_object_row(app, &spots, line.object, line.depth)
-		else do card_folder_row(app, &spots, line, &c.rows)
-	}
-	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "No objects yet: Add puts a shape in the scene.")
-	kit_tree_drags(app, spots[:], {scroll.at, &c.scroll, scroll.limit}, ui.THUMB_INDENT)
-	kit_scroll_end(ctx, scroll)
-
-	// The bar under the list: dragging it makes the list taller or shorter.
-	bar := ui.area(ctx, "objects card size", {inner, t.target * 0.6})
-	if bar.pressed {
-		c.from_h, c.from_y = list_h, bar.mouse.y
-		_ = ui.claim_drag(ctx, -1)
-	}
-	if bar.held do c.list_h = clamp(c.from_h + bar.mouse.y - c.from_y, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
-	pill := t.accent if bar.held else (t.text if bar.hovered else t.text_tertiary)
-	ui.fill_rect(ctx, {bar.rect.x + bar.rect.w * 0.5 - 20, bar.rect.y + bar.rect.h * 0.5 - 2, 40, 4}, 2, pill)
-
-	// The Actions, folded under the list at first, as ZBrush's card has them; open, they
-	// scroll in the room the list leaves.
-	if ui.section(ctx, "Actions##objects card", &c.actions) {
-		// The list takes no more than its rows need, so the rest goes to the Actions.
-		shown_h := min(list_h, scroll.natural) if scroll.natural > 0 else list_h
-		body := kit_scroll_begin(ctx, "objects card actions", &c.actions_scroll, id, inner, max(room - shown_h - GAP, CARD_ACTIONS_MIN), GAP)
-		card_actions(app, inner)
-		kit_scroll_end(ctx, body)
-		ui.section_end(ctx)
-	}
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
+	if !k.objects_card do return
+	k.objects_card = false
+	k.scene_pictures = true
+	side_panel_close(app)
+	k.inspector = true
+	stack_reveal_card(app, .Scene)
 	return
 }
 
 // The Actions' content: Store visibility's V1 to V8, then a section for each action.
-@(private = "file")
 card_actions :: proc(app: ^App, inner: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
@@ -256,9 +151,8 @@ card_actions :: proc(app: ^App, inner: f32) {
 }
 
 // An object's row, the list's `i`th, `depth` folders in: its picture, name, boolean
-// switch, polypaint and eye.
-@(private = "file")
-card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int) {
+// switch, polypaint and eye; with `drags` false (a filtered list) it does not move.
+card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int, drags := true) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.card
@@ -279,7 +173,7 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int) {
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
 	selected := object_in_selection(app, obj)
 	parts.depth = min(depth, TREE_DEPTH_SHOWN)
-	row := ui.thumb_row(ctx, fmt.tprintf("%s##card %d", label, obj.id), parts, selected, dim = dragged || !object_shown(app, obj), all_toggles = toggles[:], drags = true)
+	row := ui.thumb_row(ctx, fmt.tprintf("%s##card %d", label, obj.id), parts, selected, dim = dragged || !object_shown(app, obj), all_toggles = toggles[:], drags = drags)
 	append(spots, object_spot(app, row.rect, i, depth))
 	// Only the eye's column sweeps down the rows (the tree's column 1).
 	kit_row_drags(app, row.dragged, 1 if row.held_toggle == 1 else -1, row.rect, obj.id, obj.ghost, obj.off)
@@ -302,7 +196,7 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int) {
 	}
 	if row.menu {
 		c.menu, c.menu_id, c.menu_at, c.menu_all, c.booleans = true, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, i == app.scene.selected, false
-		c.add, c.more = false, false
+		c.more = false
 	}
 	c.rows += 1
 }
@@ -340,42 +234,11 @@ object_has_paint :: proc(obj: ^Object) -> bool {
 	return sculpt.sculptor_has_color(&sculpt.levels_current(&obj.levels).sculptor)
 }
 
-// The card's menus, drawn over everything with the other popovers: Add, More and a row's.
+// The pictures' menus, drawn over everything with the other popovers: More and a row's.
 kit_objects_card_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.card
-	if ui.popover_begin(ctx, "objects card add", &c.add, c.add_at, .Below, {direction = .Column, padding = 6, width = 248}) {
-		places := [2]string{"Insert", "Append"}
-		if picked := ui.tabs(ctx, "objects card add where", places[:], 1 if c.append else 0); picked >= 0 do c.append = picked == 1
-		ui.caption(ctx, "  BELOW THE SELECTED OBJECT" if !c.append else "  AT THE END OF THE LIST")
-		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		for shape in geom.Primitive {
-			if ui.menu_item(ctx, fmt.tprintf("%v##objects card add", shape), glyph = ui.ICON_PLUS, trailing = true) {
-				app.ui.scene_command = {kind = .Add, shape = shape, vertices = vertices, on = !c.append}
-				c.add = false
-			}
-		}
-		if ui.menu_item(ctx, "Voxel sphere##objects card add", glyph = ui.ICON_PLUS, trailing = true) {
-			app.ui.scene_command = {kind = .Add, vertices = vertices, voxels = voxel_resolution_for(vertices), on = !c.append}
-			c.add = false
-		}
-		// Each content pack's meshes, under its name.
-		for pack in app.library.packs {
-			if pack.meshes == 0 do continue
-			ui.caption(ctx, fmt.tprintf("  %s", strings.to_upper(pack.name, context.temp_allocator)))
-			for m, j in app.library.meshes {
-				if m.gone || m.pack != pack.id do continue
-				if ui.menu_item(ctx, fmt.tprintf("%s##objects card mesh %d", m.stem, j), glyph = ui.ICON_PLUS, trailing = true) {
-					app.ui.scene_command = {kind = .Add, mesh = j + 1, on = !c.append}
-					c.add = false
-				}
-			}
-		}
-		ui.divider(ctx, across = true)
-		if command_menu_item(app, .Import_Mesh, trailing = true) do c.add = false
-		ui.popover_end(ctx)
-	}
 	if ui.popover_begin(ctx, "objects card more", &c.more, c.more_at, .Below, {direction = .Column, padding = 6, width = 248}) {
 		picked := false
 		for id in ([?]Command_Id{.Rename_Object, .All_Lowest_Level, .All_Highest_Level, .Copy_Object, .Paste_Object, .Duplicate_Object, .Convert_To_Voxels, .Convert_To_Mesh}) {

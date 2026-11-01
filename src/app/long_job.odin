@@ -107,7 +107,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
 	.Swap_Colors, .Colors_Card, .Front_Only, .Lock_Plane, .Connected, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
 	.Brush_Value, .Brush_Reset,
-	.Frame_All, .Objects_Card,
+	.Frame_All,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
 	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Thumbnail,
 	.Transparency,

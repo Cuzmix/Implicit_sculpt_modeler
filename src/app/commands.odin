@@ -189,7 +189,6 @@ Command_Id :: enum u16 {
 	Lock_Object,
 	Object_Menu,
 	New_Folder,
-	Objects_Card,
 	Copy_Object,
 	Paste_Object,
 	Object_To_Top,
@@ -1748,13 +1747,6 @@ COMMANDS := [Command_Id]Command {
 			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Arrange, arrange = .New_Folder, id = obj.id}
 		},
 		enabled = has_object,
-	},
-	.Objects_Card = {
-		label = "Objects card",
-		help = "Opens the card listing every object with its picture, beside the view rail; hold its dots to put it back in the Scene palette.",
-		icon = ICON_OBJECTS,
-		run = proc(app: ^App, _: int) {objects_card_toggle(app)},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.objects_card},
 	},
 	.Copy_Object = {
 		label = "Copy",

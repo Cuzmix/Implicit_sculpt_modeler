@@ -72,12 +72,19 @@ kit_lens_scene :: proc(app: ^App) {
 	ol := &k.outliner
 	objects := app.scene.objects[:]
 	lights := int(app.scene.lights.count)
-	// Find and Add, the field taking what Add leaves.
-	add_w: f32 = 84
+	// Find, Add, Pictures and More, the field taking what the buttons leave.
+	t := ctx.theme
 	ui.begin(ctx, "scene head", {direction = .Row, gap = 8, width = ui.fill_width(ctx), center = true})
-	_ = ui.text_field(ctx, "Find an object##scene", k.scene_filter[:], width = ui.row_room(ctx) - add_w - 8, hint = "Find an object")
-	if ui.button(ctx, "Add##scene add", .Bordered, width = add_w, glyph = ui.ICON_PLUS) {
+	_ = ui.text_field(ctx, "Find an object##scene", k.scene_filter[:], width = ui.row_room(ctx) - 3 * t.target - 24, hint = "Find an object")
+	if ui.icon_button(ctx, "Add##scene add", ui.ICON_PLUS, ol.add) {
 		ol.add, ol.add_at = !ol.add, ctx.last_rect
+	}
+	// Pictures: the rows as the Objects card had them, tall with each object's picture, its
+	// boolean switch and polypaint; More: the card's menu of commands for every object.
+	if ui.icon_button(ctx, "Pictures##scene", ui.ICON_IMAGE, k.scene_pictures) do k.scene_pictures = !k.scene_pictures
+	if ui.icon_button(ctx, "More##scene", ui.ICON_MORE, k.card.more) {
+		k.card.more = !k.card.more
+		k.card.more_at = ctx.last_rect
 	}
 	ui.end(ctx)
 	query := strings.to_lower(strings.trim_space(string(cstring(&k.scene_filter[0]))), context.temp_allocator)
@@ -87,6 +94,7 @@ kit_lens_scene :: proc(app: ^App) {
 	// A filtered list is not the scene's order, so its rows do not move.
 	drags := query == "" && kind == .All
 	k.scene_rows = 0
+	k.card.rows = 0
 	if kind != .Lights {
 		// A filtered list shows every folder open, and only those holding an object that
 		// matches, however deep.
@@ -95,7 +103,11 @@ kit_lens_scene :: proc(app: ^App) {
 		spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
 		for line in lines {
 			if line.object >= 0 {
-				if scene_matches(objects[line.object], query, kind) do lens_object_row(app, &spots, line.object, line.depth, drags)
+				if !scene_matches(objects[line.object], query, kind) do continue
+				if k.scene_pictures {
+					card_object_row(app, &spots, line.object, line.depth, drags)
+					k.scene_rows += 1
+				} else do lens_object_row(app, &spots, line.object, line.depth, drags)
 				continue
 			}
 			shown := !filtered
@@ -113,6 +125,11 @@ kit_lens_scene :: proc(app: ^App) {
 	}
 	scene_foot(app)
 	lens_scene_sets(app)
+	// The Objects card's Actions, folded at first as its card had them.
+	if len(objects) > 0 && ui.section(ctx, "Actions##scene", &k.card.actions) {
+		card_actions(app, ui.fill_width(ctx))
+		ui.section_end(ctx)
+	}
 }
 
 // The chips, one per kind the scene holds with how many, only once its objects are of two
@@ -372,6 +389,20 @@ kit_scene_add_menu :: proc(app: ^App) {
 			}
 		}
 	}
+	// Each content pack's meshes under its name, and Import mesh, as the Objects card's Add
+	// menu had them.
+	for pack in app.library.packs {
+		if pack.meshes == 0 do continue
+		ui.caption(ctx, fmt.tprintf("  %s", strings.to_upper(pack.name, context.temp_allocator)))
+		for m, j in app.library.meshes {
+			if m.gone || m.pack != pack.id do continue
+			if ui.menu_item(ctx, fmt.tprintf("%s##scene add mesh %d", m.stem, j), glyph = ui.ICON_PLUS) {
+				app.ui.scene_command = {kind = .Add, mesh = j + 1, on = true}
+				picked = true
+			}
+		}
+	}
+	if command_menu_item(app, .Import_Mesh) do picked = true
 	ui.divider(ctx, across = true)
 	for kind in Light_Kind {
 		if ui.menu_item(ctx, fmt.tprintf("%s light##scene add", LIGHT_KIND_LABELS[kind]), glyph = LIGHT_KIND_ICONS[kind], enabled = app.scene.lights.count < LIGHT_COUNT) {

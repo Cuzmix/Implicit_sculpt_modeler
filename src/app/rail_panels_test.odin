@@ -19,7 +19,7 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	bars_reset(&app.kit)
 	testing.expect(t, rail_panel_toggle(&app, .Symmetry))
 	testing.expect(t, rail_panel_toggle(&app, .Camera))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Objects_Card,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Section:Camera")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Section:Camera")
 	// The rail's Material is the section's palette, which counts as the Material card; a tap
 	// on the card's tile takes it off.
 	_, on := rail_panel_at(&app, .Material)
@@ -27,9 +27,12 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	testing.expect(t, !rail_panel_toggle(&app, .Material))
 	testing.expect(t, rail_panel_toggle(&app, .Material))
 	testing.expect(t, !rail_panel_toggle(&app, .Symmetry))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Objects_Card,Show_Section:Layers,Show_Section:Camera,Show_Panel:Material")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Camera,Show_Panel:Material")
 	id, arg, ok := command_from_name("Show_Panel:Lights")
 	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Lights)
+	// The retired Objects card's name, in an older bar, key or gesture, opens the Scene card.
+	id, arg, ok = command_from_name("Objects_Card")
+	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Scene)
 
 	// Full, it refuses another and leaves the rail as it was.
 	for c in Panel_Kind {
@@ -58,4 +61,18 @@ show_panel_opens_the_card :: proc(t: ^testing.T) {
 	testing.expect(t, .Lights not_in app.kit.stack.hidden)
 	testing.expect(t, .Lights in app.kit.stack.open)
 	testing.expect(t, app.kit.inspector)
+}
+
+// What opened the retired Objects card (a layout that kept it open, Arrange's Show) opens
+// the Scene card with its pictures instead, drawing no window of its own.
+@(test)
+objects_card_opens_the_scene_card :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	bars_reset(&app.kit)
+	stack_default(&app.kit)
+	app.kit.objects_card = true
+	testing.expect(t, !kit_objects_card(&app))
+	testing.expect(t, !app.kit.objects_card && app.kit.scene_pictures && app.kit.inspector)
+	testing.expect(t, .Scene in app.kit.stack.open && .Scene not_in app.kit.stack.hidden)
 }
