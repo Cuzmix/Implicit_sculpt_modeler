@@ -7966,7 +7966,7 @@ def size_preview_fades_after_the_change():
 
 @scenario
 def import_runs_as_a_long_job():
-    """A file dropped on the window imports on a thread of its own: the pill's job runs while the frames go on, and once it is done the quad cube is a new object whose wireframe draws its 12 edges (no diagonals), as one undo step."""
+    """A file dropped on the window imports on a thread of its own: the pill's job runs while the frames go on, and once it is done the quad cube takes the untouched starting sphere's place, its wireframe drawing its 12 edges (no diagonals), the sphere's removal and the add two entries chained into one undo step."""
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".obj")
     with open(path, "w") as f:
         f.write("v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n"
@@ -7976,7 +7976,7 @@ def import_runs_as_a_long_job():
     s.wait(60)
     s.press("f", ("shift",))
     s.wait(10)
-    return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(2), "poly_edges": near(12), "undo_steps": near(1)})
+    return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(1), "poly_edges": near(12), "undo_steps": near(2)})
 
 
 @scenario
