@@ -1,6 +1,6 @@
 package main
 
-import "base:runtime"
+@(require) import "base:runtime"
 import "core:log"
 import "core:strings"
 import sdl "vendor:sdl3"
