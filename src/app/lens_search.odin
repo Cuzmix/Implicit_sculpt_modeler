@@ -48,7 +48,7 @@ palette_group :: proc(e: Palette_Entry) -> Palette_Group {
 	#partial switch e.id {
 	// A preset is a brush, as the shelf and the picker show it, so it never pushes a command down.
 	case .Brush, .Brush_Preset:                 return .Brushes
-	case .Show_Section, .Show_Panel, .Pin_Section, .Settings, .Help: return .Panels
+	case .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Settings, .Help: return .Panels
 	}
 	return .Commands
 }

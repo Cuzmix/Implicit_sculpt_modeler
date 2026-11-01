@@ -237,6 +237,7 @@ Command_Id :: enum u16 {
 	Inspector,
 	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
 	Show_Panel, // the argument is a card's Panel_Kind, below STACK_CARD_COUNT (rail_panels.odin)
+	Rail_Group, // the argument is the rail group, below RAIL_GROUPS (rail_groups.odin)
 	Pin_Section, // the argument is the Kit_Section, below TRAY_SECTIONS (panels.odin)
 	Panels_Reset,
 	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
@@ -2135,6 +2136,20 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return palette_on_screen(app, Panel_Kind(arg))},
 	},
+	.Rail_Group = {
+		label = "Panel group",
+		help = "Shows this group of panels beside the view rail, as tabs or one under another.",
+		icon = ui.ICON_PANEL,
+		args = RAIL_GROUPS,
+		run = proc(app: ^App, arg: int) {
+			k := &app.kit
+			at := ui.prev_rect(&k.ctx, "view bar")
+			if slot, ok := rail_group_at(app, arg); ok && k.rail_group_at[slot].w > 0 do at = k.rail_group_at[slot]
+			rail_group_open(app, arg, at, bar_side(app, .View_Rail))
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {return arg >= 0 && arg < RAIL_GROUPS && app.kit.rail_groups[arg].used},
+		checked = proc(app: ^App, arg: int) -> bool {return bar_pop_showing(app, .Group) && app.kit.bar_pop.group == arg},
+	},
 	.Pin_Section = {
 		label = "Pin to the stack",
 		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
@@ -2806,6 +2821,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
 	case .Show_Panel:
 		return fmt.tprintf("Panel: %s", STACK_CARD_NAMES[Panel_Kind(arg)])
+	case .Rail_Group:
+		return fmt.tprintf("Panel group %d", arg + 1)
 	case .View_Pass:
 		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:

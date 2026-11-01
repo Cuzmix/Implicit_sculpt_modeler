@@ -59,14 +59,11 @@ rail_panels_button :: proc(app: ^App, width: f32) {
 }
 
 // The popover's width and padding, as a section's popover has them.
-@(private = "file")
 PANEL_POP_W :: KIT_INSPECTOR_W
-@(private = "file")
 PANEL_POP_PAD :: 12
 
 // The room a popover's scrolling body has under its head: down to the window's foot, or
 // above it up to the top bar where it opens above its button.
-@(private = "file")
 panel_pop_room :: proc(app: ^App, root, body: string) -> f32 {
 	ctx := &app.kit.ctx
 	p := &app.kit.bar_pop
@@ -79,7 +76,6 @@ panel_pop_room :: proc(app: ^App, root, body: string) -> f32 {
 
 // A popover's head: its title and Close, with room for `extra` buttons the caller adds
 // between them (begun here, ended by the caller after them).
-@(private = "file")
 panel_pop_head :: proc(app: ^App, name, title: string, extra: int) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
