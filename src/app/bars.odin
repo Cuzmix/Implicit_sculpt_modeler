@@ -441,6 +441,7 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Shading_Mode: return "Preview" if Shading_Mode(s.arg) == .Material_Preview else SHADING_MODE_NAMES[Shading_Mode(s.arg)]
 	case .Solid_Lighting: return SOLID_LIGHTING_NAMES[Solid_Lighting(s.arg)]
 	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
+	case .Brush_Preset: return BUILT_IN_PRESETS[s.arg].name
 	}
 	return command_label(s.id, s.arg)
 }
@@ -469,6 +470,7 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .Objects_Card:    return ICON_OBJECTS_CARD
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
+	case .Brush_Preset:    return BRUSHES[BUILT_IN_PRESETS[s.arg].kind].icon
 	case .Camera_Menu:     return ICON_CAMERA
 	case .Shading_Menu:    return ICON_SHADING
 	case .Thumbnail:       return ICON_MINI_VIEW

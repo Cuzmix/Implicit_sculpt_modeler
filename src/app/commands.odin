@@ -58,6 +58,7 @@ Command_Id :: enum u16 {
 	Gizmo_Pivot,
 	Gizmo_Pivot_Reset,
 	Brush, // the argument is the sculpt.Brush_Kind
+	Brush_Preset, // the argument is the built-in preset, from 0 (BUILT_IN_PRESETS)
 	Symmetry_X,
 	Local_Symmetry,
 	Radial_Symmetry,
@@ -826,6 +827,19 @@ COMMANDS := [Command_Id]Command {
 			space_picked(app)
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg) && app.brush.preset == 0},
+	},
+	// The library's brushes (Clay buildup, Move topological, ...) as commands of their own,
+	// so the shelf, a dock, a key or a pie can hold one as it holds a plain brush.
+	.Brush_Preset = {
+		label = "Library brush",
+		help = "Picks a brush from the built-in library and the Sculpt tool.",
+		icon = ui.ICON_BRUSH,
+		args = len(BUILT_IN_PRESETS),
+		run = proc(app: ^App, arg: int) {
+			preset_use(app, BUILT_IN_PRESET + arg)
+			space_picked(app)
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.preset == BUILT_IN_PRESET + arg},
 	},
 	.Symmetry_X = {
 		label = "Symmetry across X",
@@ -2697,6 +2711,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return CAGE_CREASE_NAMES[Cage_Crease(arg)]
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
+	case .Brush_Preset:
+		return fmt.tprintf("%s brush", BUILT_IN_PRESETS[arg].name)
 	case .Brush_Value:
 		// Exposure is the view's, not the brush's.
 		if Brush_Value(arg) == .Exposure do return BRUSH_VALUE_NAMES[.Exposure]

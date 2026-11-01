@@ -57,6 +57,17 @@ shelf_takes_brushes_and_tools :: proc(t: ^testing.T) {
 	testing.expect(t, ok && s.id == .Tool_Curve)
 	_, ok = shelf_slot_of({what = .Slot, slot = {kind = .Clay, preset = 1}})
 	testing.expect(t, !ok)
+	// A library brush, such as Clay buildup, goes on as a command of its own, named in
+	// settings.txt by its name.
+	clay := built_in_preset_find("Clay buildup")
+	s, ok = shelf_slot_of({what = .Slot, slot = {kind = .Clay, preset = clay}})
+	testing.expect(t, ok && s == Bar_Slot{.Brush_Preset, clay - BUILT_IN_PRESET})
+	testing.expect_value(t, shelf_label(s), "Clay buildup")
+	testing.expect_value(t, command_name(s.id, s.arg), "Brush_Preset:Clay_buildup")
+	id, arg, named := command_from_name("Brush_Preset:Clay_buildup")
+	testing.expect(t, named && Bar_Slot{id, arg} == s)
+	ok, _ = bar_takes(.Shelf_Sculpt, s)
+	testing.expect(t, ok)
 	testing.expect_value(t, shelf_label({.Brush, int(sculpt.Brush_Kind.Snake_Hook)}), "Snake hook")
 }
 
@@ -241,4 +252,18 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	bars_reset(k)
 	testing.expect_value(t, len(shelf_pages(k, .Render)), 1)
 	testing.expect_value(t, shelf_page_name(k, .Paint), "Paint")
+}
+
+// A library brush's tile picks its preset and is lit while the brush is on it, and only then.
+@(test)
+library_brush_tile_picks_its_preset :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	j := built_in_preset_find("Clay buildup") - BUILT_IN_PRESET
+	COMMANDS[.Brush_Preset].run(app, j)
+	testing.expect_value(t, app.brush.preset, BUILT_IN_PRESET + j)
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Clay)
+	testing.expect(t, bar_lit(app, {.Brush_Preset, j}))
+	testing.expect(t, !bar_lit(app, {.Brush_Preset, j + 1}))
+	testing.expect(t, !bar_lit(app, {.Brush, int(sculpt.Brush_Kind.Clay)}))
 }
