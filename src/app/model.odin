@@ -946,6 +946,9 @@ Model_Tool :: struct {
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
+	// Spine, Extrude and Knife along a curve, and curves made by Loop to curve.
+	follows:     int,
+	loop_curves: int,
 }
 
 // The segments Add cage uses: the ones set, and the defaults for those never set.

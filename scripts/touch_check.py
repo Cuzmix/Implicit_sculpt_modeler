@@ -4262,6 +4262,37 @@ def model_align_sets_a_cage_on_another():
                   (run((550, 330), ("ctrl",)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(0, 0.001)})])
 
 @scenario
+def model_knife_tap_on_a_curve_cuts_along_it():
+    """A curve drawn over the cube's front, then a Knife tap on it: the right face it crosses is cut along it as seen (two new points, one face more), one undo step; the curve under the pen is drawn in the selection's colour (look with --screens)."""
+    s = Script()
+    s.mouse_drag([(650, 487)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; draw_curve curve; model_action knife"], {"curves": near(1), "cage_points": near(10), "cage_faces": near(7), "cage_broken": near(0), "undo_steps": near(1), "model_follows": near(1)}
+
+
+@scenario
+def model_loop_to_curve_makes_a_curve():
+    """Loop to curve tapped on an edge of a torus cage makes a closed curve object through that loop's points, selected, one undo step; the cage is unchanged (look with --screens)."""
+    s = Script()
+    s.mouse_drag([(720, 470)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage torus; select 1; delete_object; frame_all; model_action loop_curve"], {"curves": near(1), "objects": near(2), "cage_broken": near(0), "undo_steps": near(1), "model_loop_curves": near(1)}
+
+
+@scenario
+def model_spine_and_extrude_follow_a_curve():
+    """Spine pressed on the cube's right face and lifted over a curve beside it grows the face along the curve in four steps (22 faces), one undo step; Extrude dragged from the same face and lifted over the curve grows the same instead of its plain pull (look with --screens)."""
+    base = "add_cage cube; select 1; delete_object; frame_all; draw_curve curve; select 2; move 2.4 -0.3 -1.6"
+    def run():
+        s = Script()
+        s.mouse_drag(line((820, 580), (914, 438), 12))
+        s.wait(10)
+        return s
+    return Steps([(run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action spine"], {"curves": near(1), "cage_faces": near(22), "cage_broken": near(0), "model_follows": near(1), "undo_steps": near(1)}),
+                  (run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action extrude"], {"curves": near(1), "cage_faces": near(22), "cage_broken": near(0), "model_follows": near(1), "undo_steps": near(1)})])
+
+
+@scenario
 def model_spine_grows_along_the_path():
     """Spine: a stroke drawn out of a cube's right face grows it along the path in two steps (14 faces), as one undo step; under Symmetry X the left face grows along the mirrored path too (22 faces); with Ctrl the path is an arc from the face (three steps)."""
     base = "add_cage cube; select 1; delete_object; frame_all"

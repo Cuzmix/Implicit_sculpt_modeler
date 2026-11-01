@@ -70,5 +70,7 @@ kit_curve_cage :: proc(app: ^App) {
 	if ui.slider(ctx, "Steps between points", &steps, 1, 8, .Linear, fmt.tprint(o.steps)) do o.steps = int(steps + 0.5)
 	_ = ui.switch_row(ctx, "Cage caps", &o.caps)
 	kit_command_pair(app, .Curve_Pipe_Cage, .Curve_Lathe_Cage, label_a = "Pipe cage", label_b = "Lathe cage")
+	ui.paragraph(ctx, "In Model mode, Spine and Extrude lifted over a curve grow along it, and a Knife tap on a curve cuts along it. Loop to curve makes a curve from a cage's edge loop.")
+	if ui.button(ctx, "Loop to curve", keys = command_hint(app, .Model_Action, int(Model_Action.Loop_Curve))) do command_run(app, .Model_Action, int(Model_Action.Loop_Curve))
 }
 
