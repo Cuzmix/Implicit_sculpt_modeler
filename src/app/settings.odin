@@ -363,6 +363,7 @@ SETTINGS := [?]Setting {
 	{"rail_labels", K + offset_of(Kit_State, rail_labels), Rail_Labels, 0, 0},
 	{"nav_place", K + offset_of(Kit_State, nav_place), Nav_Place, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
+	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},

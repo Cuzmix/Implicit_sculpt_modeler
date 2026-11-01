@@ -209,6 +209,9 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 		case "Studio":  return .Workspace, int(Built_In.Render), true
 		}
 	}
+	// The Objects card became the Scene card's Pictures, so a bar, key or gesture that named
+	// it opens the Scene card.
+	if head == "Objects_Card" && tail == "" do return .Show_Panel, int(Panel_Kind.Scene), true
 	id = reflect.enum_from_name(Command_Id, head) or_return
 	if id == .None do return
 	n := COMMANDS[id].args

@@ -63,7 +63,7 @@ bars_are_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&c)
 	bars_reset(&c.kit)
 	settings_load(&c, path)
-	testing.expect_value(t, bar_names(&c, .View_Rail), "Objects_Card,Floor_Grid")
+	testing.expect_value(t, bar_names(&c, .View_Rail), "Show_Panel:Scene,Floor_Grid")
 	for which in Bar_Which do if which != .View_Rail do testing.expectf(t, !bar_changed(&c, which), "%v changed", which)
 }
 
@@ -77,7 +77,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Objects_Card,Show_Section:Layers,Show_Section:Material")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material")
 	testing.expect_value(t, bar_names(&a, .View_Island), "View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")
 	testing.expect(t, !bar_changed(&a, .View_Rail) && !bar_changed(&a, .View_Island))
 	bar_remove(&a, .View_Rail, 2)

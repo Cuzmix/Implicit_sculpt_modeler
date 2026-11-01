@@ -113,7 +113,7 @@ TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}
 // The view rail holds the panels, so it reads as "my panels": under its Panels button the
 // Objects card, the Layers and the Material, four buttons in all. The view's own tools are
 // the View island's.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Objects_Card, 0}, {.Show_Section, int(Kit_Section.Layers)}, {.Show_Section, int(Kit_Section.Material)}}
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Section, int(Kit_Section.Layers)}, {.Show_Section, int(Kit_Section.Material)}}
 
 // The View island's buttons after its head, camera and shading chips: the view layout,
 // symmetry, the wireframe, the lights and framing, so the view is one place to learn.
@@ -439,7 +439,6 @@ bar_slot_moved :: proc(app: ^App, slot: int) {
 bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Tool_Move:    return "Gizmo"
-	case .Objects_Card: return "Objects"
 	case .Inspector:    return "Palettes"
 	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
 	case .Show_Panel:   return stack_title(app, Panel_Kind(s.arg))
@@ -476,8 +475,6 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Ghost_Object:    return ui.ICON_GHOST
 	case .Solo_Object:     return ICON_SOLO
 	case .Inspector:       return ui.ICON_PANEL
-	// Boxes, as the Layers card has the layers' glyph and the two stand together on the rail.
-	case .Objects_Card:    return ICON_OBJECTS_CARD
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
 	case .Brush_Preset:    return preset_slot_icon(app, s.arg)

@@ -3539,7 +3539,7 @@ def rail_panel_carried_onto_another_makes_a_group():
             s.ftap(DRAG_LAYERS)
         s.wait(6)
         return s
-    group = {"view_rail": is_text("Objects_Card,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layer_Settings+Material_Settings"),
+    group = {"view_rail": is_text("Show_Panel:Scene,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layer_Settings+Material_Settings"),
              "rail_joins": near(1), "dabs": near(0)}
     return Steps([(made("menu"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group_menu")))),
                   (made("tap"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group")))),
@@ -3810,7 +3810,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's panels (the View island holds the view's tools); nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Objects_Card,Show_Section:Layers,Show_Section:Material"
+    rail = "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -5051,7 +5051,7 @@ def lens_scene_card_finds_by_name():
 # The outliner (the Lens Scene card) at 1440x900 with the Brush card folded: Add, its menu's
 # Cube, Voxel sphere and Sun light, and the rows: the first object row's centre, each row
 # 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
-OUTLINER = {"add": (1322, 330), "cube": (1240, 426), "voxel": (1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
+OUTLINER = {"add": At("scene add", 1322, 330), "cube": (1240, 426), "voxel": (1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
             "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": (1110, 600),
             "row1_dots": (1170, 446), "show_in_model": (1200, 552)}
 # The kind chips under Find once a voxel sphere joins the sphere: All, Meshes, Voxels, Lights.
@@ -6896,31 +6896,46 @@ def scene_args():
     return THREE + palettes_only("objects")
 
 
+def scene_pictures():
+    """Arguments that start the run on a workspace whose stack holds only the Scene card, open at its top, its rows as
+    pictures as the Objects card had them (the card is the Scene card's Pictures now)."""
+    path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + "-scene.workspace")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    layout = "open Inspector\nstack Scene+ -Brush -Symmetry -Layers -Tools\nbars\n"
+    escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
+    with open(path, "w") as f:
+        f.write(f"SCULPT_WORKSPACE 1\nname Scene\nlayout {escaped}\n")
+    return [f"--import-workspace={path}", "--script=set scene_pictures 1"]
+
+
+def pictures():
+    """THREE's spheres on scene_pictures()'s workspace."""
+    return THREE + scene_pictures()
+
+
 def objects_card(s):
-    """Opens the Objects card from Search, waiting for its pictures to be drawn."""
-    palette_run(s, "objects card")
+    """Waits for the Scene card's pictures (pictures()) to be drawn."""
     s.wait(12)
 
 
-# The Objects card at 1600 x 900 (kit_objects_card.odin): its dots, its buttons, and its
-# rows' bodies, boolean switches, polypaint toggles and eyes.
-OBJECTS_CARD = {"dots": (1378, 89), "add": (1258, 174), "more": (1497, 174), "actions": (1300, 444),
+# The Scene card's Pictures at 1600 x 900, beside the rail (kit_objects_card.odin): its
+# Actions, and its rows' bodies, boolean switches, polypaint toggles and eyes.
+OBJECTS_CARD = {"actions": At("stack body/Actions", 1300, 588),
                 # With the Actions open and their sections folded: the headers, then what a
                 # section shows open (Split above Merge, Align once scrolled up).
-                "split": (1300, 567), "merge": (1300, 613), "align": (1300, 751),
-                "split_parts": (1451, 670), "merge_down": (1378, 664), "align_x_max": (1480, 563)}
-CARD_ROWS_Y = [233, 293, 353]
+                "split": At("Actions/Split", 1300, 707), "merge": At("Actions/Merge", 1300, 751),
+                "align": At("Actions/Align", 1300, 883), "split_parts": At("Split/Split to parts", 1451, 810),
+                "merge_down": At("Merge/Merge down", 1378, 799), "align_x_max": At("Align/Align X max", 1480, 695)}
+CARD_ROWS_Y = [210, 276, 342]
 CARD_ROW_X, CARD_SWITCH_X, CARD_PAINT_X, CARD_EYE_X = 1360, 1312, 1446, 1494
-CARD_ROW_H = 60
 
 
 @scenario
 def objects_card_opens_with_pictures():
-    """Search's Objects card opens the Objects card in the tray's place, with a row and a picture for each object."""
+    """With Pictures the Scene card shows a tall row and a picture for each object, as the Objects card did."""
     s = Script()
     objects_card(s)
-    return s, THREE, {"dabs": near(0), "window_objects": lambda v: v.startswith("1,0,"), "window_inspector": lambda v: v.startswith("0,"),
-                      "card_rows": near(3), "thumbs_drawn": near(3)}
+    return s, pictures(), {"dabs": near(0), "window_objects": lambda v: v.startswith("0,"), "card_rows": near(3), "thumbs_drawn": near(3)}
 
 
 @scenario
@@ -6933,8 +6948,8 @@ def objects_card_long_press_opens_the_menu():
     objects_card(other)
     long_press(other, CARD_ROW_X, CARD_ROWS_Y[1])
     return Steps([
-        (mine, THREE, {"card_menu": near(1), "card_menu_full": near(1), "selected": near(0), "dabs": near(0)}),
-        (other, THREE, {"card_menu": near(1), "card_menu_full": near(0), "selected": near(0), "dabs": near(0)}),
+        (mine, pictures(), {"card_menu": near(1), "card_menu_full": near(1), "selected": near(0), "dabs": near(0)}),
+        (other, pictures(), {"card_menu": near(1), "card_menu_full": near(0), "selected": near(0), "dabs": near(0)}),
     ])
 
 
@@ -6956,8 +6971,8 @@ def objects_card_long_press_then_drag_moves_a_row():
     quick.fdrag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
     quick.wait(6)
     return Steps([
-        (held, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "card_menu": near(0), "dabs": near(0)}),
-        (quick, THREE, {"scene_order": is_text("1,2,3"), "undo_steps": near(0), "dabs": near(0)}),
+        (held, pictures(), {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "card_menu": near(0), "dabs": near(0)}),
+        (quick, pictures(), {"scene_order": is_text("1,2,3"), "undo_steps": near(0), "dabs": near(0)}),
     ])
 
 
@@ -6968,7 +6983,7 @@ def objects_card_mouse_drag_moves_a_row():
     objects_card(s)
     s.mouse_drag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
     s.wait(6)
-    return s, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "dabs": near(0)}
+    return s, pictures(), {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "dabs": near(0)}
 
 
 @scenario
@@ -6982,35 +6997,7 @@ def objects_card_toggles_eye_paint_and_boolean():
     s.wait(6)
     s.ftap(CARD_SWITCH_X, CARD_ROWS_Y[2] + 12)
     s.wait(6)
-    return s, THREE, {"objects_off": near(1), "paint_off": near(1), "booleans": near(1), "selected": near(0), "dabs": near(0)}
-
-
-@scenario
-def objects_card_holding_its_dots_docks_it():
-    """Holding the card's dots puts it back in the stack: the card closes and the stack opens with its Scene card unfolded."""
-    s = Script()
-    objects_card(s)
-    long_press(s, OBJECTS_CARD["dots"])
-    s.wait(6)
-    return s, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,0,"), "stack": lambda v: "Scene+" in v.split(",")}
-
-
-@scenario
-def objects_card_gives_way_to_the_tray():
-    """Opening the palette tray closes the card, which shares its place; the Objects button opens the card again and closes the tray."""
-    closed = Script()
-    objects_card(closed)
-    closed.ftap(UI["inspector"])
-    closed.wait(8)
-    again = Script()
-    objects_card(again)
-    again.ftap(UI["inspector"])
-    again.wait(8)
-    objects_card(again)
-    return Steps([
-        (closed, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,")}),
-        (again, THREE, {"window_objects": lambda v: v.startswith("1,"), "window_inspector": lambda v: v.startswith("0,")}),
-    ])
+    return s, pictures(), {"objects_off": near(1), "paint_off": near(1), "booleans": near(1), "selected": near(0), "dabs": near(0)}
 
 
 def card_slot(k):
@@ -7018,7 +7005,7 @@ def card_slot(k):
     return (CARD_SLOT_X0 + (k - 1) * CARD_SLOT_STEP, CARD_SLOT_Y)
 
 
-CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1250, 36.5, 518
+CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1249, 36.5, 659
 
 
 def card_actions(s):
@@ -7050,8 +7037,8 @@ def objects_card_actions_store_visibility():
         step()
         back.wait(4)
     return Steps([
-        (s, THREE, {"card_actions": near(1), "vis_slot": near(2), "vis_used": near(3), "objects_off": near(1), "dabs": near(0)}),
-        (back, THREE, {"vis_slot": near(1), "objects_off": near(1), "dabs": near(0)}),
+        (s, pictures(), {"card_actions": near(1), "vis_slot": near(2), "vis_used": near(3), "objects_off": near(1), "dabs": near(0)}),
+        (back, pictures(), {"vis_slot": near(1), "objects_off": near(1), "dabs": near(0)}),
     ])
 
 
@@ -7070,18 +7057,15 @@ def objects_card_actions_merge_down_and_split_to_parts():
     split.wait(6)
     split.ftap(OBJECTS_CARD["merge_down"])
     split.wait(12)
-    # One row fewer: everything under the list is a row higher.
-    x, y = OBJECTS_CARD["split"]
-    split.ftap(x, y - CARD_ROW_H)
+    split.ftap(OBJECTS_CARD["split"])
     split.wait(10)
-    x, y = OBJECTS_CARD["split_parts"]
-    split.ftap(x, y - CARD_ROW_H)
+    split.ftap(OBJECTS_CARD["split_parts"])
     split.wait(12)
     return Steps([
         # undo_steps counts entries: a merge is two chained (the rebuild and the delete),
         # a split two more (the rebuild and the part it added).
-        (merged, THREE, {"objects": near(2), "scene_order": is_text("1,3"), "merged": near(2), "undo_steps": near(2), "dabs": near(0)}),
-        (split, THREE, {"objects": near(3), "scene_order": is_text("1,4,3"), "split_made": near(1), "undo_steps": near(4), "dabs": near(0)}),
+        (merged, pictures(), {"objects": near(2), "scene_order": is_text("1,3"), "merged": near(2), "undo_steps": near(2), "dabs": near(0)}),
+        (split, pictures(), {"objects": near(3), "scene_order": is_text("1,4,3"), "split_made": near(1), "undo_steps": near(4), "dabs": near(0)}),
     ])
 
 
@@ -7090,13 +7074,15 @@ def objects_card_actions_align_lines_up():
     """Align's X max tile moves the selected object, alone, to the right edge of everything shown, as one undo step."""
     s = Script()
     card_actions(s)
+    s.fdrag(line((1380, 640), (1380, 260), 16))
+    s.wait(20)
     s.ftap(OBJECTS_CARD["align"])
     s.wait(10)
-    s.fdrag(line((1380, 820), (1380, 560), 12))
+    s.fdrag(line((1380, 640), (1380, 260), 16))
     s.wait(20)
     s.ftap(OBJECTS_CARD["align_x_max"])
     s.wait(6)
-    return s, THREE, {"aligned": near(1), "undo_steps": near(1), "dabs": near(0)}
+    return s, pictures(), {"aligned": near(1), "undo_steps": near(1), "dabs": near(0)}
 
 
 @scenario
@@ -8636,7 +8622,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_SYMMETRY)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("panel_symmetry"),
-                                "view_rail": is_text("Objects_Card,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+                                "view_rail": is_text("Show_Panel:Scene,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
 
 
 @scenario
@@ -13822,11 +13808,11 @@ def voxel_convert_to_mesh_undoes_and_redoes():
 
 @scenario
 def voxel_object_has_a_picture_in_the_objects_card():
-    """The Objects card shows a picture of a voxel object, drawn from its clay's surface as a
-    mesh's is from its current level."""
+    """The Scene card's Pictures show a picture of a voxel object, drawn from its clay's surface
+    as a mesh's is from its current level."""
     s = Script()
     objects_card(s)
-    return s, ["--voxels=96"], {"voxel_objects": near(1), "card_rows": near(1), "thumbs_drawn": near(1), "dabs": near(0)}
+    return s, ["--voxels=96"] + scene_pictures(), {"voxel_objects": near(1), "card_rows": near(1), "thumbs_drawn": near(1), "dabs": near(0)}
 
 
 @scenario

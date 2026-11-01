@@ -262,6 +262,8 @@ Kit_State :: struct {
 	// Lens's Scene card's filter, whether it holds anything, and the rows the Scene and
 	// Layers cards drew (lens_scene.odin, lens_layers.odin).
 	scene_filter:   [48]u8,
+	// The Scene card's rows as tall pictures (the Objects card's) rather than compact ones.
+	scene_pictures: bool,
 	scene_query:    bool,
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
