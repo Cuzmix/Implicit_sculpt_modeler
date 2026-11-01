@@ -46,13 +46,16 @@ Bar_Which :: enum u8 {
 	Dock_2,
 	Dock_3,
 	Dock_4,
+	// The View island's buttons after its head and chips, at the top corner on the
+	// off-hand side (lens_chrome.odin).
+	View_Island,
 }
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
 // person's brushes, and the island the person's values, which are no layout's; the
 // person's own docks are the screen's, as the rail is.
 @(rodata)
-BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4}
+BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4, .View_Island}
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
 // moves bars about keeps each one's buttons by where they are. The tool strip keeps the
@@ -80,6 +83,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Dock_2       = "dock_2",
 	.Dock_3       = "dock_3",
 	.Dock_4       = "dock_4",
+	.View_Island  = "view_island",
 }
 
 // The bar a zone name names.
@@ -90,6 +94,7 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 
 TOOLS_MAX :: 8
 VIEW_RAIL_MAX :: 12
+VIEW_ISLAND_MAX :: 8
 OFFHAND_MAX :: 8
 USER_DOCK_MAX :: 12
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
@@ -105,10 +110,16 @@ Bar_List :: struct {
 
 // What a fresh install has: the gizmo and the mesh tools after All.
 TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
-// The view rail's four view tools under its Panels button, five buttons in all, so a new
-// rail reads at a glance: the view layout, the passes, the camera and the lights. Framing,
-// symmetry, the wireframe and the mini view wait in Customise bars and Search.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Show_Section, int(Kit_Section.Lights)}}
+// The view rail holds the panels, so it reads as "my panels": under its Panels button the
+// Objects card, the Layers and the Material, four buttons in all. The view's own tools are
+// the View island's.
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Objects_Card, 0}, {.Show_Section, int(Kit_Section.Layers)}, {.Show_Section, int(Kit_Section.Material)}}
+
+// The View island's buttons after its head, camera and shading chips: the view layout,
+// symmetry, the wireframe, the lights and framing, so the view is one place to learn.
+VIEW_ISLAND_DEFAULT :: [?]Bar_Slot {
+	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Section, int(Kit_Section.Lights)}, {.Focus_Selected, 0},
+}
 
 // The island a fresh install has: Size and Strength as tall sliders.
 OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}
@@ -160,6 +171,9 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .View_Rail:
 		d := VIEW_RAIL_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
+	case .View_Island:
+		d := VIEW_ISLAND_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
 	case .Brush_Pie:
 		d := BRUSH_PIE_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
@@ -186,6 +200,7 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 		page, _ := shelf_page_of(which)
 		return &k.shelf.lists[page]
 	case .View_Rail: return &k.view_rail
+	case .View_Island: return &k.view_island
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
@@ -207,6 +222,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
 	case .Tools:     return TOOLS_MAX
 	case .View_Rail: return VIEW_RAIL_MAX
+	case .View_Island: return VIEW_ISLAND_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
@@ -324,6 +340,7 @@ bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
 	case .Tools:     return "The shelf's tools"
 	case .View_Rail: return "The view rail"
+	case .View_Island: return "The View island"
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
@@ -448,7 +465,8 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .Ghost_Object:    return ui.ICON_GHOST
 	case .Solo_Object:     return ICON_SOLO
 	case .Inspector:       return ui.ICON_PANEL
-	case .Objects_Card:    return ICON_OBJECTS
+	// Boxes, as the Layers card has the layers' glyph and the two stand together on the rail.
+	case .Objects_Card:    return ICON_OBJECTS_CARD
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
 	case .Camera_Menu:     return ICON_CAMERA
@@ -456,7 +474,13 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .Thumbnail:       return ICON_MINI_VIEW
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
-	case .Show_Section:    if Kit_Section(s.arg) == .Lights do return ui.ICON_SUN
+	case .Show_Section:
+		// The sections a fresh rail and View island hold, by their cards' own icons.
+		#partial switch Kit_Section(s.arg) {
+		case .Lights:   return ui.ICON_SUN
+		case .Layers:   return ICON_LAYERS
+		case .Material: return ICON_MATERIAL
+		}
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})
@@ -592,6 +616,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
 	#partial switch which {
 	case .View_Rail: return bar_place_side(app, .Rail)
+	case .View_Island: return .Below
 	case .Offhand:   return bar_place_side(app, .Offhand)
 	}
 	if i, dock := user_dock_of(which); dock do return bar_place_side(app, user_dock_place(i))

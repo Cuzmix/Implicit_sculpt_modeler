@@ -8,7 +8,8 @@ import "../geom"
 import "../render"
 import "../ui"
 
-// The navigation head in the top-right corner, under the top bar: a small head that
+// The navigation head, the View island's first button (lens_chrome.odin), or on its own
+// under the top bar at the pen side where the island is not shown: a small head that
 // turns with the camera, so the view's turn reads at a glance (the face is the front,
 // +Z). Tapping a side of it looks at the scene from that side (View_Axis); dragging it
 // turns the view as dragging empty space does. The renderer draws it into a texture of
@@ -89,25 +90,33 @@ nav_head_side :: proc(rotation: matrix[3, 3]f32, at: [2]f32, aspect: f32) -> (si
 	return side, true
 }
 
-// Lays the head out under the top bar on the pen side, with the axis triad at its foot,
-// and answers a tap (a view from that side) or a drag (a turn) on it. Records where it
-// is drawn, in physical pixels, for the renderer to size its texture.
+// Lays the head out under the top bar on the pen side, on its own, where the View island
+// that otherwise holds it is not shown (Focus, a pane maximised over the main view).
 kit_nav_head :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
+	ctx := &app.kit.ctx
 	// Left of what stands at the top of the pen side.
 	ui.begin_anchored(ctx, "navigation head", .End, .Start, {lens_nav_offset(app), TOP_BAR_H + 6}, {direction = .Column})
-	a := ui.area(ctx, "navigation head", {NAV_HEAD_W, NAV_HEAD_H})
-	pen_zone(app, a.rect, .Nav_Head)
+	nav_head_place(app, {NAV_HEAD_W, NAV_HEAD_H})
 	ui.end(ctx)
+}
+
+// Places the head, `size` points, in the container being laid out, with the axis triad at
+// its foot, and answers a tap (a view from that side) or a drag (a turn) on it. Records
+// where it is drawn, in physical pixels, for the renderer to size its texture.
+nav_head_place :: proc(app: ^App, size: [2]f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	a := ui.area(ctx, "navigation head", size)
+	pen_zone(app, a.rect, .Nav_Head)
 	// On whole pixels, so its texture shows pixel for pixel.
 	d := ctx.input.pixel_density
 	px := [4]f32{math.round(a.rect.x * d), math.round(a.rect.y * d), math.round(a.rect.w * d), math.round(a.rect.h * d)}
 	r := ui.Rect{px[0] / d, px[1] / d, px[2] / d, px[3] / d}
 	k.nav.size = {u32(px[2]), u32(px[3])}
+	k.nav.placed = true
 	if a.hovered || a.held {
 		c := ctx.theme.fill_pressed if a.held else ctx.theme.fill_hover
-		ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, r.w * 0.5, c)
+		ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.w, r.h) * 0.5, c)
 	}
 	ui.image(ctx, r, KIT_NAV_HEAD_IMAGE)
 	nav_axes_draw(app, r)
@@ -165,6 +174,7 @@ nav_axes_draw :: proc(app: ^App, r: ui.Rect) {
 // it, which becomes a turn once it moves past the slop and is a tap otherwise.
 Nav_State :: struct {
 	size:   [2]u32, // physical pixels; zero while it is not laid out
+	placed: bool, // laid out this frame, in the View island or on its own
 	from:   [2]f32, // where the press went down, in points
 	last:   [2]f32, // where the pointer was the frame before, in points
 	turned: bool, // the press became a drag that turns the view
@@ -177,7 +187,7 @@ nav_head_frame :: proc(app: ^App, cmd: render.Cmd) {
 	app.nav_shown = nil
 	nh := &app.nav_head
 	size := app.kit.nav.size
-	if size.x == 0 || size.y == 0 || nh.failed do return
+	if !app.kit.nav.placed || size.x == 0 || size.y == 0 || nh.failed do return
 	if nh.mesh.positions == nil {
 		m := nav_head_mesh()
 		defer geom.mesh_destroy(&m)

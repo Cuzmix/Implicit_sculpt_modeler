@@ -97,6 +97,7 @@ Kit_State :: struct {
 	// slot popover a tap on a slot opens while it is.
 	tools:      Bar_List,
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
+	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
 	brush_pie:  Bar_List, // the brush pie's eight slots (pie.odin)
 	offhand:    Bar_List, // the off-hand island's values and commands (lens_chrome.odin)
@@ -1508,16 +1509,17 @@ kit_layout :: proc(app: ^App) {
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
 	kit_job_pill(app)
-	// Round the view (lens_chrome.odin): the view chips at the top corner, the off-hand
-	// island down the off-hand side, the navigation head and the view rail down the pen
-	// side. The brushes open from the shelf's All, and Search from the top bar.
+	// Round the view (lens_chrome.odin): the View island at the top corner, the off-hand
+	// island down the off-hand side, and the view rail of panels down the pen side. The brushes open from the shelf's All, and Search from the top bar.
 	// Focused (kit_top_lens.odin), the view's own chips stand aside, but the off-hand island
 	// stays: Size and Strength are what the other hand reaches for while sculpting.
 	focus := lens_focus(k)
+	k.nav.placed = false
 	if !focus do kit_view_chips(app)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_offhand(app)
 	if !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
-	kit_nav_head(app)
+	// The head is the View island's first button; with the island aside it stands alone.
+	if !k.nav.placed do kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
 		kit_view_rail(app)
 	} else {
