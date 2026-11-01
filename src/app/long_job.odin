@@ -111,7 +111,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
 	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Thumbnail,
 	.Transparency,
-	.Stats, .Inspector, .Show_Section, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
+	.Stats, .Inspector, .Show_Section, .Show_Panel, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
 	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Stack_Density, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,

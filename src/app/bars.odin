@@ -434,6 +434,7 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	case .Objects_Card: return "Objects"
 	case .Inspector:    return "Palettes"
 	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
+	case .Show_Panel:   return stack_title(app, Panel_Kind(s.arg))
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
@@ -478,13 +479,8 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Thumbnail:       return ICON_MINI_VIEW
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
-	case .Show_Section:
-		// The sections a fresh rail and View island hold, by their cards' own icons.
-		#partial switch Kit_Section(s.arg) {
-		case .Lights:   return ui.ICON_SUN
-		case .Layers:   return ICON_LAYERS
-		case .Material: return ICON_MATERIAL
-		}
+	case .Show_Section:    return SECTION_ICONS[Kit_Section(s.arg)] if s.arg < len(Kit_Section) else ui.ICON_PANEL
+	case .Show_Panel:      return panel_kind_icon(app, Panel_Kind(s.arg))
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})
@@ -527,6 +523,7 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
 	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg)
+	case .Show_Panel:      return p.open && p.kind == .Panel && p.panel == Panel_Kind(s.arg)
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Inspector:       return tray_shown(app)
 	case .Command_Palette: return k.palette
@@ -554,6 +551,9 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 		// A section on a bar opens beside its button rather than in the tray across the
 		// window.
 		bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
+		return
+	case .Show_Panel:
+		bar_pop_toggle(app, .Panel, at, side, panel = Panel_Kind(s.arg))
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)

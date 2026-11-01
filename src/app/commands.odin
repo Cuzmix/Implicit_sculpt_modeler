@@ -236,6 +236,7 @@ Command_Id :: enum u16 {
 	Stats,
 	Inspector,
 	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
+	Show_Panel, // the argument is a card's Panel_Kind, below STACK_CARD_COUNT (rail_panels.odin)
 	Pin_Section, // the argument is the Kit_Section, below TRAY_SECTIONS (panels.odin)
 	Panels_Reset,
 	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
@@ -2122,6 +2123,18 @@ COMMANDS := [Command_Id]Command {
 		// The brush's Colour and History brush sections only for the brushes that have them.
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
+	.Show_Panel = {
+		label = "Show panel",
+		help = "Opens this card of the panel stack; on a bar, beside its button.",
+		icon = ui.ICON_PANEL,
+		args = STACK_CARD_COUNT,
+		run = proc(app: ^App, arg: int) {
+			side_panel_close(app)
+			app.kit.inspector = true
+			stack_reveal_card(app, Panel_Kind(arg))
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return palette_on_screen(app, Panel_Kind(arg))},
+	},
 	.Pin_Section = {
 		label = "Pin to the stack",
 		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
@@ -2791,6 +2804,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Pin_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
+	case .Show_Panel:
+		return fmt.tprintf("Panel: %s", STACK_CARD_NAMES[Panel_Kind(arg)])
 	case .View_Pass:
 		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:

@@ -317,7 +317,9 @@ kit_view_rail :: proc(app: ^App) {
 	ui.divider(ctx, width - 12 if width > t.target else 32, across = true)
 	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
 	for s, i in used do bar_slot_button(app, .View_Rail, i, s, named = rail_label(app, s), width = width)
+	// Arrange adds any command; otherwise the + opens the Panels picker (rail_panels.odin).
 	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
+	else do rail_panels_button(app, width)
 	kit_scroll_end(ctx, scroll)
 	ui.end(ctx)
 }
