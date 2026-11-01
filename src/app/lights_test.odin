@@ -10,6 +10,7 @@ import "../camera"
 import "../geom"
 import "../gizmo"
 import "../render"
+import "../sculpt"
 
 @(private = "file")
 near :: proc(a, b: [3]f32, eps: f32 = 1e-5) -> bool {
@@ -714,4 +715,52 @@ light_gizmo_moves_along_an_axis_or_across_a_plane :: proc(t: ^testing.T) {
 	light_gizmo_drag(&app, &p, 2, inside + {40, 25}, size)
 	moved = set.lights[2].pos - start
 	testing.expectf(t, moved.y == 0 && abs(moved.x) + abs(moved.z) > 0.01, "across xz by %v", moved)
+}
+
+// Each preset puts a whole rig in place of the lights, every light of it on and moving
+// with the camera, the first picked.
+@(test)
+light_presets_replace_the_rig :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	lights_reset(&app)
+	app.light_pick = 3
+	for p in Light_Preset {
+		light_preset_apply(&app, p)
+		set := app.scene.lights
+		testing.expectf(t, set.count >= 1 && set.count <= LIGHT_COUNT, "%v: %d lights", p, set.count)
+		testing.expect_value(t, app.light_pick, 0)
+		for l in set.lights[:set.count] do testing.expectf(t, l.on && l.space == .Camera && l.strength > 0, "%v: %v", p, l)
+	}
+	testing.expect_value(t, app.scene.lights.count, i32(1))
+}
+
+// Aim turns a spot to shine at the selected object's middle from where it stands, in
+// either space; with nothing selected it does nothing.
+@(test)
+spot_aims_at_the_selected_object :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	lights_reset(&app)
+	app.scene.selected = -1
+	app.scene.lights.lights[2] = {on = true, kind = .Spot, dir = {0, 0, 1}, pos = {1, 2, 2}, ref = 2, strength = 1, color = 1, cone = 45}
+	testing.expect(t, !light_aim_at_selected(&app, 2))
+	obj := new(Object)
+	obj.transform = {scale = 1, position = {2, 0, -1}}
+	sculpt.levels_init(&obj.levels, geom.icosphere(2), nil, 64)
+	append(&app.scene.objects, obj)
+	app.scene.selected = 0
+	defer {
+		sculpt.levels_destroy(&obj.levels)
+		free(obj)
+		delete(app.scene.objects)
+	}
+	target := to_world(obj.transform, object_local_middle(obj))
+	for space in Light_Space {
+		light_set_space(&app, 2, space)
+		at := light_world_pos(&app, app.scene.lights.lights[2])
+		testing.expect(t, light_aim_at_selected(&app, 2))
+		testing.expectf(t, near(light_world_dir(&app, 2), linalg.normalize(at - target), 1e-4), "%v: %v", space, light_world_dir(&app, 2))
+		testing.expect(t, near(light_world_pos(&app, app.scene.lights.lights[2]), at, 1e-4))
+	}
 }
