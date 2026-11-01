@@ -291,6 +291,8 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 		if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name == "" do continue
 		if e.kind == .Command && e.id == .Run_Plugin && !plugin_slot_loaded(app, e.arg) do continue
 		if e.kind == .Command && e.id == .Reload_Plugins && !PLUGINS_AVAILABLE do continue
+		// Only the presets there are, of the room kept for them.
+		if e.kind == .Command && e.id == .Brush_Preset && !command_enabled(app, e.id, e.arg) do continue
 		append(&out, e)
 	}
 	return out[:]
@@ -300,6 +302,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name != "" do return fmt.tprintf("Macro: %s", app.macro.slots[e.arg].name)
 	if e.kind == .Command && e.id == .Run_Plugin && app.plugins.slots[e.arg].key != "" do return plugin_slot_title(app, e.arg)
+	if e.kind == .Command && e.id == .Brush_Preset && e.arg >= PRESET_SLOT_OWN do return fmt.tprintf("%s brush", preset_slot_label(app, e.arg))
 	return palette_label(e)
 }
 

@@ -288,6 +288,7 @@ preset_delete :: proc(app: ^App, i: int) {
 	app.preset_count -= 1
 	app.presets[app.preset_count] = {}
 	if b.preset > i + 1 && !preset_read_only(b.preset) do b.preset -= 1
+	preset_slots_deleted(app, i)
 }
 
 // The preset named `name` (ignoring case), or -1.

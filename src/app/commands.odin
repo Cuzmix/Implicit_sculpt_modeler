@@ -58,7 +58,9 @@ Command_Id :: enum u16 {
 	Gizmo_Pivot,
 	Gizmo_Pivot_Reset,
 	Brush, // the argument is the sculpt.Brush_Kind
-	Brush_Preset, // the argument is the built-in preset, from 0 (BUILT_IN_PRESETS)
+	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
+	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
+	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
 	Local_Symmetry,
 	Radial_Symmetry,
@@ -829,18 +831,37 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg) && app.brush.preset == 0},
 	},
-	// The library's brushes (Clay buildup, Move topological, ...) as commands of their own,
-	// so the shelf, a dock, a key or a pie can hold one as it holds a plain brush.
+	// Every preset (the library's Clay buildup and the rest, the person's own, the packs')
+	// as a command of its own, so the shelf, a dock, a key or a pie can hold one as it holds
+	// a plain brush.
 	.Brush_Preset = {
-		label = "Library brush",
-		help = "Picks a brush from the built-in library and the Sculpt tool.",
+		label = "Preset",
+		help = "Picks a brush preset and the Sculpt tool.",
 		icon = ui.ICON_BRUSH,
-		args = len(BUILT_IN_PRESETS),
+		args = PRESET_SLOTS,
 		run = proc(app: ^App, arg: int) {
-			preset_use(app, BUILT_IN_PRESET + arg)
+			preset_use(app, preset_slot_number(arg))
 			space_picked(app)
 		},
-		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.preset == BUILT_IN_PRESET + arg},
+		enabled = proc(app: ^App, arg: int) -> bool {_, ok := preset_at(app, preset_slot_number(arg)); return ok},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.preset == preset_slot_number(arg)},
+	},
+	// The mask and hide shapes the modifiers draw, as the brush picker picks them.
+	.Mask_Shape_Pick = {
+		label = "Mask shape",
+		help = "Makes Ctrl + drag on empty space (and Mask on the wheel) mask this shape.",
+		icon = ui.ICON_BRUSH,
+		args = len(Mask_Shape_Kind),
+		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Mask_Shape_Kind(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.ui.mask_shape_kind == Mask_Shape_Kind(arg)},
+	},
+	.Hide_Gesture_Pick = {
+		label = "Hide shape",
+		help = "Makes Ctrl + Shift + drag (and Hide on the wheel) run this shape: hide, clip, slice or knife.",
+		icon = ui.ICON_BRUSH,
+		args = len(Gesture_Tool),
+		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Gesture_Tool(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.gesture == Gesture_Tool(arg)},
 	},
 	.Symmetry_X = {
 		label = "Symmetry across X",
@@ -2720,7 +2741,13 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .Brush_Preset:
-		return fmt.tprintf("%s brush", BUILT_IN_PRESETS[arg].name)
+		// Only a built-in's name is known without the app; entry_title names the rest.
+		if arg < PRESET_SLOT_OWN do return fmt.tprintf("%s brush", BUILT_IN_PRESETS[arg].name)
+		return fmt.tprintf("Preset %s", preset_slot_name(arg))
+	case .Mask_Shape_Pick:
+		return fmt.tprintf("Mask %s", MASK_SHAPE_NAMES[Mask_Shape_Kind(arg)])
+	case .Hide_Gesture_Pick:
+		return string(GESTURE_NAMES[Gesture_Tool(arg)])
 	case .Brush_Value:
 		// Exposure is the view's, not the brush's.
 		if Brush_Value(arg) == .Exposure do return BRUSH_VALUE_NAMES[.Exposure]

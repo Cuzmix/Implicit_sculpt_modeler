@@ -78,7 +78,7 @@ panel_kind_title :: proc(app: ^App, kind: Panel_Kind) -> string {
 
 // Its icon: the card's, or the one Show section has on a bar.
 panel_kind_icon :: proc(app: ^App, kind: Panel_Kind) -> rune {
-	if sec, ok := panel_section(kind); ok do return bar_icon({.Show_Section, int(sec)})
+	if sec, ok := panel_section(kind); ok do return bar_icon(app, {.Show_Section, int(sec)})
 	if kind == .Brush do return stack_brush_icon(app)
 	return STACK_CARD_ICONS[kind]
 }

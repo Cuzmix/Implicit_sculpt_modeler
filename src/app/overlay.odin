@@ -641,7 +641,7 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		room := 2 * r * math.sin(step / 2) + 16
 		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_WAND)
 		name := pie_slot_label(slot)
-		if lens && slot.id != .None do glyph, name = bar_icon(slot), shelf_label(slot)
+		if lens && slot.id != .None do glyph, name = bar_icon(app, slot), shelf_label(app, slot)
 		ui.icon(ctx, glyph, {label.x, label.y - 12}, t.icon_small, color)
 		ui.text(ctx, ui.text_fit(ctx, name, t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
 	}
@@ -658,7 +658,7 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		c := at(o, p.center)
 		slot := pie_slot(app, 0, p.hover)
 		if slot.id != .None {
-			ui.text(ctx, ui.text_fit(ctx, shelf_label(slot), t.small_size, PIE_INNER * 2 - 8, .Semibold), c.x, c.y - 7, t.small_size, t.accent, .Semibold, .Center)
+			ui.text(ctx, ui.text_fit(ctx, shelf_label(app, slot), t.small_size, PIE_INNER * 2 - 8, .Semibold), c.x, c.y - 7, t.small_size, t.accent, .Semibold, .Center)
 			ui.text(ctx, "lift to pick" if p.hold || p.pressed_on > 0 else "tap to pick", c.x, c.y + 8, t.small_size - 1, t.text_tertiary, .Regular, .Center)
 		}
 	}

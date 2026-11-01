@@ -271,7 +271,7 @@ rail_labelled :: proc(app: ^App) -> bool {
 }
 
 // A rail button's name beside its icon: one short word where the command's name is long.
-rail_label :: proc(s: Bar_Slot) -> string {
+rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Inspector:        return "Panels"
 	case .View_Layout_Menu: return "Layout"
@@ -279,7 +279,7 @@ rail_label :: proc(s: Bar_Slot) -> string {
 	case .Symmetry_X:       return "Symmetry"
 	case .Thumbnail:        return "Mini view"
 	}
-	return bar_label(s)
+	return bar_label(app, s)
 }
 
 // The view rail down the pen side, under the top bar: the tray's button, then the rail's
@@ -305,18 +305,18 @@ kit_view_rail :: proc(app: ^App) {
 	used := bar_used(app, .View_Rail)
 	width := t.target
 	if rail_labelled(app) {
-		longest := ui.text_width(ctx, rail_label({.Inspector, 0}), t.small_size)
-		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(s), t.small_size))
+		longest := ui.text_width(ctx, rail_label(app, {.Inspector, 0}), t.small_size)
+		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(app, s), t.small_size))
 		width = t.target + longest + 10
 	}
 	panels := tray_shown(app)
 	ui.begin_anchored(ctx, "view bar", x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
 	// The panels collapse rather than close once the stack has its headers; until then the
 	// tray needs a way back.
-	if ui.icon_button(ctx, bar_label({.Inspector, 0}), ui.ICON_PANEL, panels, command_enabled(app, .Inspector), command_hint(app, .Inspector), named = rail_label({.Inspector, 0}), width = width) do command_run(app, .Inspector)
+	if ui.icon_button(ctx, bar_label(app, {.Inspector, 0}), ui.ICON_PANEL, panels, command_enabled(app, .Inspector), command_hint(app, .Inspector), named = rail_label(app, {.Inspector, 0}), width = width) do command_run(app, .Inspector)
 	ui.divider(ctx, width - 12 if width > t.target else 32, across = true)
 	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
-	for s, i in used do bar_slot_button(app, .View_Rail, i, s, named = rail_label(s), width = width)
+	for s, i in used do bar_slot_button(app, .View_Rail, i, s, named = rail_label(app, s), width = width)
 	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
 	kit_scroll_end(ctx, scroll)
 	ui.end(ctx)

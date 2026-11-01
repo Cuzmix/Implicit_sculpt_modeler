@@ -34,7 +34,7 @@ dock_slot_on :: proc(app: ^App, s: Dock_Slot) -> bool {
 
 // What a slot's tile shows: the preset's name or the brush's, over the brush's icon.
 dock_slot_label :: proc(app: ^App, s: Dock_Slot) -> string {
-	if s.command.id != .None do return bar_label(s.command)
+	if s.command.id != .None do return bar_label(app, s.command)
 	if p, ok := preset_at(app, s.preset); ok do return preset_name(p)
 	return BRUSHES[s.kind].name
 }

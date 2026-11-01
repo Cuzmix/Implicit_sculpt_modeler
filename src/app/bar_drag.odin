@@ -113,7 +113,7 @@ bar_target :: proc(app: ^App, c: Bar_Carry, spots: []Bar_Spot, p: [2]f32) -> (t:
 				t.ok, t.why = false, "it is full"
 			} else {
 				for u in bar_used(app, sp.which) do if u == c.slot {
-					t.ok, t.why = false, fmt.tprintf("it has %s already", bar_label(c.slot))
+					t.ok, t.why = false, fmt.tprintf("it has %s already", bar_label(app, c.slot))
 					break
 				}
 			}
@@ -127,7 +127,7 @@ bar_target :: proc(app: ^App, c: Bar_Carry, spots: []Bar_Spot, p: [2]f32) -> (t:
 // taken off its own. Returns whether it went.
 bar_drop :: proc(app: ^App, c: Bar_Carry, t: Bar_Target) -> bool {
 	if !t.ok {
-		report(app, nil, {.Warning}, "%s does not take %s: %s", bar_title(app, t.which), bar_label(c.slot), t.why)
+		report(app, nil, {.Warning}, "%s does not take %s: %s", bar_title(app, t.which), bar_label(app, c.slot), t.why)
 		return false
 	}
 	at := t.at
@@ -144,7 +144,7 @@ bar_drop :: proc(app: ^App, c: Bar_Carry, t: Bar_Target) -> bool {
 	if !bar_insert(app, t.which, at) do return false
 	bar_set(app, t.which, clamp(at, 0, bar_count(app, t.which)^ - 1), c)
 	if from, ok := c.from.?; ok do bar_remove(app, from, c.from_slot)
-	report(app, nil, {}, "%s now has %s", bar_title(app, t.which), bar_label(c.slot))
+	report(app, nil, {}, "%s now has %s", bar_title(app, t.which), bar_label(app, c.slot))
 	return true
 }
 
@@ -164,7 +164,7 @@ bar_drop_off :: proc(app: ^App, c: Bar_Carry) {
 	if !ok do return
 	k := &app.kit
 	bar_remove(app, from, c.from_slot)
-	k.bar_removed = {carry = c, serial = ui.toast(&k.ctx, fmt.tprintf("%s came off %s", bar_label(c.slot), bar_title(app, from)), .Info, "Undo")}
+	k.bar_removed = {carry = c, serial = ui.toast(&k.ctx, fmt.tprintf("%s came off %s", bar_label(app, c.slot), bar_title(app, from)), .Info, "Undo")}
 	k.bar_drops_off += 1
 }
 
@@ -216,7 +216,7 @@ bar_carry_update :: proc(app: ^App) {
 				ui.fill_rect(ctx, {x - 1.5, r.y + 4, 3, r.h - 8}, 1.5, t.accent)
 			}
 		}
-		label := bar_label(c.slot)
+		label := bar_label(app, c.slot)
 		off := !over && c.from != nil
 		if off do label = fmt.tprintf("Remove %s", label)
 		w := ui.text_width(ctx, label, t.small_size, .Semibold) + 44
@@ -226,7 +226,7 @@ bar_carry_update :: proc(app: ^App) {
 		ui.begin_at(ctx, "bar carry", {r.x, r.y}, {width = r.w, height = r.h, inert = true})
 		ui.fill_rect(ctx, r, t.radius_medium, t.frame)
 		ui.stroke_rect(ctx, r, t.radius_medium, t.warning if off || (over && !target.ok) else t.accent, 1.5)
-		ui.icon(ctx, ui.ICON_TRASH if off else bar_icon(c.slot), {r.x + 18, r.y + r.h * 0.5}, t.icon_small, t.text)
+		ui.icon(ctx, ui.ICON_TRASH if off else bar_icon(app, c.slot), {r.x + 18, r.y + r.h * 0.5}, t.icon_small, t.text)
 		ui.text(ctx, label, r.x + 32, r.y + r.h * 0.5, t.small_size, t.text, .Semibold)
 		ui.end(ctx)
 		return

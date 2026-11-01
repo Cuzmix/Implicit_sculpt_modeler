@@ -180,9 +180,9 @@ kit_pie_editor :: proc(app: ^App) {
 	ui.caption(ctx, fmt.tprintf("BRUSH PIE · %s", brush_keys) if brush_keys != "" else "BRUSH PIE")
 	ui.begin(ctx, "pie row brush", {direction = .Row, gap = 0})
 	for &s, i in k.brush_pie.slots[:PIE_SLOTS] {
-		glyph := ui.ICON_PLUS if s.id == .None else bar_icon(s)
+		glyph := ui.ICON_PLUS if s.id == .None else bar_icon(app, s)
 		lit := put.id != .None && s == put
-		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(s) if s.id != .None else "Empty", i), glyph, lit) {
+		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(app, s) if s.id != .None else "Empty", i), glyph, lit) {
 			if put.id != .None && bar_lists(put.id) {
 				s = put
 				pies_saved(app)

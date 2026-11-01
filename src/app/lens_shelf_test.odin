@@ -1,6 +1,8 @@
 package main
 
+import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../sculpt"
@@ -47,28 +49,109 @@ shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	testing.expect(t, bar_changed(&a, .Shelf_Paint))
 }
 
-// What the picker can put on a tile: a plain brush or a tool's command; a preset has no
-// command of its own, so it stays in the picker.
+// Everything the picker shows can go on a tile: a plain brush, a tool's command, a preset
+// (the library's, the person's own, a pack's) and the mask and hide shapes.
 @(test)
 shelf_takes_brushes_and_tools :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
 	s, ok := shelf_slot_of({what = .Slot, slot = {kind = .Crease}})
 	testing.expect(t, ok && s == Bar_Slot{.Brush, int(sculpt.Brush_Kind.Crease)})
 	s, ok = shelf_slot_of({what = .Tool, tool = .Curve})
 	testing.expect(t, ok && s.id == .Tool_Curve)
-	_, ok = shelf_slot_of({what = .Slot, slot = {kind = .Clay, preset = 1}})
-	testing.expect(t, !ok)
+	s, ok = shelf_slot_of({what = .Mask_Shape, mask = .Lasso})
+	testing.expect(t, ok && s == Bar_Slot{.Mask_Shape_Pick, int(Mask_Shape_Kind.Lasso)})
+	testing.expect_value(t, command_name(s.id, s.arg), "Mask_Shape_Pick:Lasso")
+	s, ok = shelf_slot_of({what = .Gesture, gesture = .Knife})
+	testing.expect(t, ok && s == Bar_Slot{.Hide_Gesture_Pick, int(Gesture_Tool.Knife)})
+	testing.expect_value(t, shelf_label(app, s), "Knife")
 	// A library brush, such as Clay buildup, goes on as a command of its own, named in
 	// settings.txt by its name.
 	clay := built_in_preset_find("Clay buildup")
 	s, ok = shelf_slot_of({what = .Slot, slot = {kind = .Clay, preset = clay}})
 	testing.expect(t, ok && s == Bar_Slot{.Brush_Preset, clay - BUILT_IN_PRESET})
-	testing.expect_value(t, shelf_label(s), "Clay buildup")
+	testing.expect_value(t, shelf_label(app, s), "Clay buildup")
 	testing.expect_value(t, command_name(s.id, s.arg), "Brush_Preset:Clay_buildup")
 	id, arg, named := command_from_name("Brush_Preset:Clay_buildup")
 	testing.expect(t, named && Bar_Slot{id, arg} == s)
 	ok, _ = bar_takes(.Shelf_Sculpt, s)
 	testing.expect(t, ok)
-	testing.expect_value(t, shelf_label({.Brush, int(sculpt.Brush_Kind.Snake_Hook)}), "Snake hook")
+	// The person's own first preset, by its place.
+	s, ok = shelf_slot_of({what = .Slot, slot = {kind = .Clay, preset = 1}})
+	testing.expect(t, ok && s == Bar_Slot{.Brush_Preset, PRESET_SLOT_OWN})
+	testing.expect_value(t, command_name(s.id, s.arg), "Brush_Preset:Own1")
+	testing.expect_value(t, shelf_label(app, {.Brush, int(sculpt.Brush_Kind.Snake_Hook)}), "Snake hook")
+}
+
+// The person's own presets pinned keep their preset when one before them is deleted, and
+// the deleted one's tile goes, the page closing up.
+@(test)
+own_preset_tiles_follow_a_delete :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	defer free_all(context.temp_allocator)
+	for name in ([?]string{"Soft", "Hard", "Sharp"}) {
+		testing.expect(t, preset_save_new(app))
+		testing.expect(t, preset_rename(app, app.preset_count - 1, name))
+	}
+	which := Bar_Which.Shelf_Sculpt
+	bar_list(app, which)^ = {}
+	for n in 1 ..= 3 {
+		arg, _ := preset_slot_of(n)
+		shelf_pin(app, {.Brush_Preset, arg}, which)
+	}
+	// Pinned in turn, each goes first: Sharp, Hard, Soft.
+	names :: proc(app: ^App, which: Bar_Which) -> string {
+		out := ""
+		for s in bar_used(app, which) do out = fmt.tprintf("%s%s,", out, shelf_label(app, s))
+		return out
+	}
+	testing.expect_value(t, names(app, which), "Sharp,Hard,Soft,")
+	preset_delete(app, 0)
+	testing.expect_value(t, names(app, which), "Sharp,Hard,")
+	testing.expect_value(t, bar_count(app, which)^, 2)
+	testing.expect(t, bar_enabled(app, bar_used(app, which)[0]))
+}
+
+// A pack's preset pinned is named in settings.txt by pack and name, and the next run finds
+// it where its library put it; one the library lost leaves the page.
+@(test)
+pack_preset_tiles_follow_the_library :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	defer free_all(context.temp_allocator)
+	add :: proc(app: ^App, pack, name: string) {
+		p := Pack_Preset{pack = pack}
+		preset_name_set(&p.preset, name)
+		append(&app.library.presets, p)
+	}
+	add(app, "rocks", "Chip")
+	add(app, "rocks", "Crack")
+	defer delete(app.library.presets)
+	which := Bar_Which.Shelf_Sculpt
+	bar_list(app, which)^ = {}
+	crack, _ := preset_slot_of(PACK_PRESET + 1)
+	chip, _ := preset_slot_of(PACK_PRESET)
+	bar_list(app, which).slots[0], bar_list(app, which).slots[1] = {.Brush_Preset, crack}, {.Brush_Preset, chip}
+	bar_list(app, which).count = 2
+	out := strings.builder_make(context.temp_allocator)
+	preset_slots_save(app, &out)
+	text := strings.to_string(out)
+	testing.expect_value(t, text, "preset_slot Pack1 rocks Chip\npreset_slot Pack2 rocks Crack\n")
+	// The next run's library has Crack first and no Chip.
+	clear(&app.library.presets)
+	add(app, "rocks", "Crack")
+	from, to: [dynamic]int
+	from.allocator, to.allocator = context.temp_allocator, context.temp_allocator
+	for line in strings.split_lines(text, context.temp_allocator) {
+		if old, now, ok := preset_slot_line(app, strings.fields(line, context.temp_allocator)); ok {
+			append(&from, old)
+			append(&to, now)
+		}
+	}
+	preset_slots_retarget(app, from[:], to[:])
+	testing.expect_value(t, bar_count(app, which)^, 1)
+	testing.expect_value(t, shelf_label(app, bar_used(app, which)[0]), "Crack")
 }
 
 // B opens the brush picker over the shelf, and again closes it.

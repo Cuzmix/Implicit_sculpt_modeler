@@ -633,7 +633,7 @@ kit_modifier_rail :: proc(app: ^App) {
 			} else {
 				// A command's own icon and label, lit while it is on (Symmetry X, say).
 				look := ui.Modifier_Look.Lit if command_checked(app, v.id, v.arg) else .Off
-				sectors[i] = {name = bar_label(v), glyph = bar_icon(v), caption = bar_label(v), look = look, keys = command_hint(app, v.id, v.arg)}
+				sectors[i] = {name = bar_label(app, v), glyph = bar_icon(app, v), caption = bar_label(app, v), look = look, keys = command_hint(app, v.id, v.arg)}
 			}
 		case Modifier:
 			look := ui.Modifier_Look.Latched if lit_of(v, r.latched) else (.Lit if lit_of(v, held) || lit_of(v, keys) else .Off)
