@@ -2045,6 +2045,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			draws[i].image, draws[i].smooth = tex, true
 			if tex == nil do draws[i].index_count = 0
 		}
+		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
+			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
+			if app.brush_previews.atlas == nil do draws[i].index_count = 0
+		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
 			if app.home.pictures.atlas == nil do draws[i].index_count = 0

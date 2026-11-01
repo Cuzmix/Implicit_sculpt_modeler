@@ -64,3 +64,11 @@ texture_upload :: proc(r: ^Renderer, tex: ^sdl.GPUTexture, pixels: []u8, width, 
 	defer gpu_release_fence(r.device, fence)
 	return gpu_wait_for_fences(r.device, true, &fence, 1)
 }
+
+// Makes a picture the interface draws from `pixels`: RGBA8 already encoded for the display
+// (as the viewport's own pictures are, so the interface draws it unchanged), rows top to
+// bottom, `width` by `height`, with mips for drawing it smaller. Release it with
+// matcap_destroy. Nil, with the reason logged, when the device refuses.
+picture_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
+	return texture_create(r, VIEWPORT_COLOR_FORMAT, pixels, width, height)
+}

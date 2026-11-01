@@ -1177,14 +1177,17 @@ shelf_carry_update :: proc(app: ^App) {
 	}
 }
 
-// What a brush does, drawn small: a stroke laid on a strip of clay, shaded light above and
-// dark below, its path and width by the brush (an arc for Draw, a wide one for Inflate, a
-// narrow groove for Crease, a hook for Grab), as Procreate's library shows each brush's
-// stroke. A tool or a mask shape shows its icon on the strip.
+// What a brush does, drawn small: the picture the brush made of its own stroke
+// (brush_previews.odin) when it has one; until then, and for what has none, a stroke
+// sketched on a strip of clay, shaded light above and dark below, its path and width by the
+// brush (an arc for Draw, a wide one for Inflate, a narrow groove for Crease, a hook for
+// Grab), as Procreate's library shows each brush's stroke. A tool or a mask shape shows its
+// icon on the strip.
 lens_stroke_preview :: proc(ctx: ^ui.Context, r: ui.Rect, it: Brush_Item, app: ^App) {
 	t := ctx.theme
 	CLAY :: ui.Color{184, 148, 130, 255}
 	ui.fill_rect(ctx, r, t.radius_small, CLAY)
+	if it.what == .Slot && brush_preview_draw(app, brush_item_key(app, it), r) do return
 	if it.what != .Slot {
 		ui.icon(ctx, brush_item_icon(it), {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.h * 0.5, 26), {90, 62, 50, 255})
 		return
