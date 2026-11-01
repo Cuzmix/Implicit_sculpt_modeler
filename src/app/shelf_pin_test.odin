@@ -16,8 +16,9 @@ shelf_tools_join_the_pages_once :: proc(t: ^testing.T) {
 	defer workspaces_destroy(&app.kit)
 	paint := len(bar_used(&app, .Shelf_Paint))
 	shelf_tools_merge(&app)
-	// The fresh Brushes page is full already; Paint takes the six, less what it holds.
-	testing.expect_value(t, len(bar_used(&app, .Shelf_Sculpt)), SHELF_MAX)
+	// The fresh Brushes page takes the six tools after its twelve tiles, less Remesh and
+	// Dynamic topology, which it holds already; Paint takes the six, less what it holds.
+	testing.expect_value(t, len(bar_used(&app, .Shelf_Sculpt)), len(SHELF_SCULPT) + 4)
 	page := bar_used(&app, .Shelf_Paint)
 	testing.expect(t, len(page) > paint)
 	testing.expect(t, len(page) <= SHELF_MAX)
@@ -48,6 +49,12 @@ shelf_pin_puts_the_brush_first :: proc(t: ^testing.T) {
 	_, held := shelf_holds(&app, .Shelf_Curve, elastic)
 	testing.expect(t, !held)
 	testing.expect_value(t, app.kit.shelf.pins, 1)
+	// Filled to SHELF_MAX with copies, the Brushes page is full.
+	l := bar_list(&app, .Shelf_Sculpt)
+	for l.count < SHELF_MAX {
+		l.slots[l.count] = {.Brush, int(sculpt.Brush_Kind.Clay)}
+		l.count += 1
+	}
 	shelf_pin(&app, elastic, .Shelf_Sculpt)
 	_, waiting := app.kit.shelf.pinning.?
 	testing.expect(t, waiting)

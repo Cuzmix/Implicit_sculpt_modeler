@@ -1353,10 +1353,10 @@ next_free_position :: proc(app: ^App) -> Vec3 {
 
 // Nearest object a press can pick hit by a world-space ray (dir normalised). The hit is
 // in world space.
-scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, ok: bool) {
+scene_raycast :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index: int, hit: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
-		if !object_pickable(app, obj) do continue
+		if (only >= 0 && i != only) || !object_pickable(app, obj) do continue
 		t := obj.transform
 		local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
 		if !local_ok do continue
@@ -1371,10 +1371,10 @@ scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, o
 // For a Grab pressed off the model: the surface point nearest the pointer's ray within the
 // brush ring, over every mesh object, the nearest on screen winning (the first object on a
 // tie). Each object's ring is its radius at the object's middle's distance.
-scene_grab_near :: proc(app: ^App, origin, dir: Vec3, size: [2]f32) -> (index: int, hit: Vec3, ok: bool) {
+scene_grab_near :: proc(app: ^App, origin, dir: Vec3, size: [2]f32, only := -1) -> (index: int, hit: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
-		if !object_pickable(app, obj) || obj.voxel != nil do continue
+		if (only >= 0 && i != only) || !object_pickable(app, obj) || obj.voxel != nil do continue
 		t := obj.transform
 		per_px := camera.orbit_world_per_px(app.camera, to_world(t, object_local_middle(obj)), size.y)
 		local, found := sculpt.sculptor_nearest_to_line(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir), app.brush.radius_px * per_px / t.scale)

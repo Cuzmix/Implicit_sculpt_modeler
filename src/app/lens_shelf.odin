@@ -57,8 +57,10 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 }
 
 // The most tiles a page holds, and how many full-width tiles' room a tablet-shaped window
-// gives the page's row, so the shelf ends before the pen hand's palm.
-SHELF_MAX :: 12
+// gives the page's row, so the shelf ends before the pen hand's palm (which holds twelve
+// at SHELF_TILE_MIN; Settings > Bars > Keep the shelf clear of the palm off gives it the
+// window's width). A desktop's window shows them all.
+SHELF_MAX :: 24
 SHELF_TABLET :: 8
 // The narrowest a tile gets: a page with more tiles than fit at full width narrows them,
 // down to this, before any is left out, so a tile added in Arrange is never added out of
@@ -419,10 +421,11 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	used := bar_used(app, which)
 	n := len(used)
 	// On a tablet-shaped window the tiles' row keeps to SHELF_TABLET full tiles' width.
-	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if lens_palm(app) > 0 else 0
+	palm := lens_palm(app) > 0 && k.shelf_palm
+	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if palm else 0
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
-	if lens_palm(app) > 0 do shift = -area.w * 0.09
+	if palm do shift = -area.w * 0.09
 	// Between the dial's reach and as much on the other side, of the window or, with panes
 	// beside the main one, of the main pane, under which the shelf then stands, as the
 	// off-hand set stays with it.

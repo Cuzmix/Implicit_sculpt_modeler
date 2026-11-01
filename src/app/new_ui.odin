@@ -398,6 +398,11 @@ Kit_State :: struct {
 	top_island_at: [Top_Island]ui.Rect,
 	// When the view rail names its buttons (Settings > Interface > Bars, lens_chrome.odin).
 	rail_labels: Rail_Labels,
+	// Where the navigation head stands (Settings > Interface > Navigation head, nav_head.odin).
+	nav_place: Nav_Place,
+	// On a tablet-shaped window the shelf keeps to SHELF_TABLET tiles' width left of the
+	// middle, clear of the pen hand's palm (Settings > Bars, lens_shelf.odin).
+	shelf_palm: bool,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
@@ -1051,6 +1056,7 @@ kit_init :: proc(app: ^App) {
 	k.action_bar = true
 	k.top_islands = true
 	k.rail_labels = .Wide
+	k.shelf_palm = true
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
 	// The Export sheet starts on its first preset, a 3D print, as its cards read.

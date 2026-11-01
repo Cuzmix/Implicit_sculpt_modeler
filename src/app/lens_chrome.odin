@@ -222,7 +222,7 @@ kit_view_chips :: proc(app: ^App) {
 	k.view_chips_at = at
 	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
 	ui.begin(ctx, "view chips", {direction = .Row, gap = 4, padding = 3, center = true, radius = t.radius_large, background = .Panel})
-	nav_head_place(app, {VIEW_ISLAND_HEAD, VIEW_ISLAND_HEAD})
+	if k.nav_place == .View_Island do nav_head_place(app, {VIEW_ISLAND_HEAD, VIEW_ISLAND_HEAD})
 	c := main_camera(app)
 	projection := "Ortho" if c.ortho else "Persp"
 	sub := "" if c.ortho else fmt.tprintf("%.0f mm", lens_focal_mm(c.fov_y))
