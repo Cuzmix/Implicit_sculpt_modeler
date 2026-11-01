@@ -71,6 +71,7 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Size, "SIZE"},
 	{.Hands, "SCREEN LAYOUT"},
 	{.Top_Bar, "TOP BAR"},
+	{.Nav_Head, "NAVIGATION HEAD"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
@@ -90,7 +91,7 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}, {.Pen_Areas, "WHERE THE PEN POINTS"}}
+LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Objects, "OTHER OBJECTS"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}, {.Pen_Areas, "WHERE THE PEN POINTS"}}
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)

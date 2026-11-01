@@ -18,6 +18,7 @@ Settings_Block :: enum u8 {
 	Clean_Dial,
 	Hands,
 	Top_Bar,
+	Nav_Head,
 	Motion,
 	Starting,
 	Brush_Ring,
@@ -39,6 +40,7 @@ Settings_Block :: enum u8 {
 	Touch_Strength,
 	Hold,
 	Pen_Empty,
+	Pen_Objects,
 	Pen_Tips,
 	Pen_Predict,
 	Pen_Buttons,
@@ -103,13 +105,14 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon chip bar command palette three islands one bar centred style",
+	.Nav_Head         = "navigation head gizmo view cube axes corner top right view island orientation",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
-	.Bars             = "bars customise customize buttons dock rail labels names",
+	.Bars             = "bars customise customize buttons dock rail labels names shelf palm tablet width",
 	.Action_Bar       = "action bar next steps",
 	.Wheel            = "dial modifier wheel side size sectors turn smooth mask invert",
 	.Inspector        = "inspector show every option explain every setting hints help text",
@@ -122,6 +125,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Touch_Strength   = "touch strength finger",
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
+	.Pen_Objects      = "pen pencil stroke switch object mesh subtool select another lock selected only",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
 	.Pen_Buttons      = "pen barrel eraser end flip",
@@ -231,12 +235,18 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		labels := [len(Rail_Labels)]string{"Off", "Wide windows", "Always"}
 		if picked := ui.tabs(ctx, "Rail labels", labels[:], int(k.rail_labels)); picked >= 0 do k.rail_labels = Rail_Labels(picked)
 		ui.paragraph(ctx, "The rail's buttons named beside their icons. Wide windows names them on a desktop's window, where the room is there, and keeps a tablet's rail to its icons.")
+		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
+		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
 	case .Top_Bar:
 		styles := [2]string{"Three islands", "One bar"}
 		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
 		ui.paragraph(ctx, "Three islands: the file and Undo at the left, the spaces and the selected object centred on the window, Search, History and Settings at the right; as the window narrows the middle keeps its place while the others give up their least needed parts. One bar: the same in one strip across the top.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
+	case .Nav_Head:
+		places := [len(Nav_Place)]string{"Top corner", "View island"}
+		if picked := ui.tabs(ctx, "Navigation head place", places[:], int(k.nav_place)); picked >= 0 do k.nav_place = Nav_Place(picked)
+		ui.paragraph(ctx, "Top corner: the head stands on its own under the top bar on the pen side, beside the view rail, where the pen reaches it. View island: it is the island's first button, beside the Camera and Shading chips, on the off-hand side.")
 	case .Action_Bar:
 		_ = ui.switch_row(ctx, "Show next steps over the shelf", &k.action_bar)
 		ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
@@ -347,6 +357,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "Mouse")
 		if picked := ui.tabs(ctx, "Mouse on empty space", empty[:], int(n.empty_drag[.Mouse])); picked >= 0 do n.empty_drag[.Mouse] = Empty_Drag(picked)
 		ui.paragraph(ctx, "Waits for the model: a stroke that starts off the model begins once it reaches it.")
+	case .Pen_Objects:
+		_ = ui.switch_row(ctx, "A stroke on another object switches to it", &n.stroke_switches)
+		ui.paragraph(ctx, "On, a stroke that starts on an object other than the selected one selects it and sculpts it. Off, the pen, the mouse and a sculpting finger work on the selected object alone, even through another object in front of it, as ZBrush's active subtool does; change objects from the Scene card, the object chip, or a finger's tap when Tap another object is on.")
 	case .Pen_Tips:
 		ui.label(ctx, "Names while the pen hovers")
 		tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
@@ -495,6 +508,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
 	case .Top_Bar:         k.search_field, k.top_islands, k.top_order = false, true, TOP_ORDER_DEFAULT
+	case .Nav_Head:        k.nav_place = .Corner
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
@@ -505,6 +519,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		bars_reset(k)
 		k.bars_edit = false
 		k.rail_labels = .Wide
+		k.shelf_palm = true
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
@@ -523,6 +538,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Touch_Strength:  n.touch_strength = d.touch_strength
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
+	case .Pen_Objects:     n.stroke_switches = d.stroke_switches
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:     n.eraser = d.eraser

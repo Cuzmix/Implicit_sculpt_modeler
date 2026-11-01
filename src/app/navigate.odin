@@ -249,6 +249,10 @@ Nav_Prefs :: struct {
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	tap_switches:   bool, // a finger's tap on an object that is not the selected one selects it, sculpting nothing
+	// A stroke that starts on an object that is not the selected one selects it and works on
+	// it; off, strokes work on the selected object alone, through any other in front of it,
+	// as ZBrush's active subtool and Blender's sculpt mode do (stroke_start).
+	stroke_switches: bool,
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
 	// Pointer off the model: turn about the point under the pointer as deep as the view's
 	// middle (Nomad's Allow air pivot) instead of about the last stroke.
@@ -344,6 +348,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	palm_rejection = true,
 	double_tap     = true,
 	tap_switches   = true,
+	stroke_switches = true,
 	lift_one_orbit = true,
 	pivot_dot      = true,
 	gestures       = GESTURE_DEFAULTS,

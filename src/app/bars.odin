@@ -93,12 +93,12 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 }
 
 TOOLS_MAX :: 8
-VIEW_RAIL_MAX :: 12
+VIEW_RAIL_MAX :: 24
 VIEW_ISLAND_MAX :: 8
 OFFHAND_MAX :: 8
 USER_DOCK_MAX :: 12
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
-BAR_SLOTS_MAX :: 12
+BAR_SLOTS_MAX :: 24
 
 // A bar's commands, `count` of them in use, and how each value item among them shows
 // (brush_values.odin; nothing for any other command).

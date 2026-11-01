@@ -90,8 +90,19 @@ nav_head_side :: proc(rotation: matrix[3, 3]f32, at: [2]f32, aspect: f32) -> (si
 	return side, true
 }
 
-// Lays the head out under the top bar on the pen side, on its own, where the View island
-// that otherwise holds it is not shown (Focus, a pane maximised over the main view).
+// Where the navigation head stands (Settings > Interface > Navigation head).
+Nav_Place :: enum u8 {
+	// On its own under the top bar on the pen side, left of the view rail, where the pen
+	// reaches it and ZBrush, Blender and Nomad all keep their view gizmo: the top right for
+	// the right-handed.
+	Corner,
+	// The View island's first button, with the Camera and Shading chips on the off-hand side.
+	View_Island,
+}
+
+// Lays the head out under the top bar on the pen side, on its own: where Settings puts it
+// there, and where the View island that otherwise holds it is not shown (Focus, a pane
+// maximised over the main view).
 kit_nav_head :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	// Left of what stands at the top of the pen side.
