@@ -308,24 +308,31 @@ shelf_pages_load_line :: proc(k: ^Kit_State, f: []string) {
 	}
 }
 
-// The picker's item as a shelf slot: a plain brush, a library brush (a built-in preset) or
-// a tool's command. The person's own and the packs' presets and the mask and hide shapes
-// are picked from the picker, as they have no command of their own.
+// The picker's item as a shelf slot: a plain brush, a preset (the library's, the person's
+// own or a pack's), a tool's command, or a mask or hide shape. Everything the picker
+// shows can go on the shelf.
 shelf_slot_of :: proc(it: Brush_Item) -> (Bar_Slot, bool) {
-	#partial switch it.what {
+	switch it.what {
 	case .Slot:
 		if it.slot.command.id != .None do return it.slot.command, true
 		if it.slot.preset == 0 do return {.Brush, int(it.slot.kind)}, true
-		if preset_built_in(it.slot.preset) do return {.Brush_Preset, it.slot.preset - BUILT_IN_PRESET}, true
-	case .Tool:
-		return {TOOL_COMMANDS[it.tool], 0}, true
+		if arg, ok := preset_slot_of(it.slot.preset); ok do return {.Brush_Preset, arg}, true
+	case .Tool:       return {TOOL_COMMANDS[it.tool], 0}, true
+	case .Mask_Shape: return {.Mask_Shape_Pick, int(it.mask)}, true
+	case .Gesture:    return {.Hide_Gesture_Pick, int(it.gesture)}, true
 	}
 	return {}, false
 }
 
+// Whether command `id` is one of the brush picker's own: a brush, a preset, a mask or hide
+// shape, which Search pins to the shelf and finds in the picker.
+shelf_holds_brushes :: proc(id: Command_Id) -> bool {
+	return id == .Brush || id == .Brush_Preset || id == .Mask_Shape_Pick || id == .Hide_Gesture_Pick
+}
+
 // A tile's name: a brush's own ("Clay", as the tiles are all brushes or tools), else the
 // bar's name for the command.
-shelf_label :: proc(s: Bar_Slot) -> string {
+shelf_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	if s.id == .Brush && s.arg >= 0 && s.arg < len(sculpt.Brush_Kind) do return BRUSHES[sculpt.Brush_Kind(s.arg)].name
 	// Names too long for a tile get a short one there; the full name stays in Search, the
 	// card and the action bar.
@@ -337,7 +344,7 @@ shelf_label :: proc(s: Bar_Slot) -> string {
 		case .Remove_Loop:  return "Cut loop"
 		}
 	}
-	return bar_label(s)
+	return bar_label(app, s)
 }
 
 // How much of the main pane's width the shelf leaves each side: the dial's reach from the
@@ -511,13 +518,13 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 			sh.tiles[i] = ctx.last_rect
 			continue
 		}
-		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
-		if ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
+		name := fmt.tprintf("%s##shelf %v %d", shelf_label(app, s), sh.page, i)
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin
 				sh.pinning = nil
-				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(pin), shelf_page_name(k, sh.page), shelf_label(s))
+				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(app, pin), shelf_page_name(k, sh.page), shelf_label(app, s))
 				sh.pins += 1
 			} else if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
 			else do bar_slot_run(app, s, ctx.last_rect, .Above_Center)
@@ -693,13 +700,13 @@ shelf_pin :: proc(app: ^App, slot: Bar_Slot, which: Bar_Which) {
 	sh := &k.shelf
 	page, _ := shelf_page_of(which)
 	for s in bar_used(app, which) do if s == slot {
-		report(app, nil, {}, "%s is already on %s", shelf_label(slot), shelf_page_name(k, page))
+		report(app, nil, {}, "%s is already on %s", shelf_label(app, slot), shelf_page_name(k, page))
 		return
 	}
 	count := bar_count(app, which)
 	if count^ >= bar_capacity(which) || (page == sh.page && sh.fits > 0 && count^ >= sh.fits) {
 		sh.pinning = slot
-		report(app, nil, {}, "%s is full: tap the tile %s replaces", shelf_page_name(k, page), shelf_label(slot))
+		report(app, nil, {}, "%s is full: tap the tile %s replaces", shelf_page_name(k, page), shelf_label(app, slot))
 		return
 	}
 	l := bar_list(app, which)
@@ -708,7 +715,7 @@ shelf_pin :: proc(app: ^App, slot: Bar_Slot, which: Bar_Which) {
 	l.slots[0], l.looks[0] = slot, bar_default_look(which)
 	count^ += 1
 	sh.pins += 1
-	k.bar_removed = {carry = {slot = slot, from = which, from_slot = 0}, serial = ui.toast(&k.ctx, fmt.tprintf("%s is on %s", shelf_label(slot), shelf_page_name(k, page)), .Success, "Undo"), pinned = true}
+	k.bar_removed = {carry = {slot = slot, from = which, from_slot = 0}, serial = ui.toast(&k.ctx, fmt.tprintf("%s is on %s", shelf_label(app, slot), shelf_page_name(k, page)), .Success, "Undo"), pinned = true}
 }
 
 // Takes tile `at` off shelf page `which`, with Undo on the note, as a tile dragged off.
@@ -792,7 +799,7 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	mark := ui.vertex_mark(ctx)
 	tile := k.shelf.tile_w if k.shelf.tile_w > 0 else ui.BRUSH_TILE.x
 	for s, j in used[:min(len(used), int(at.w / tile) + 1)] {
-		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(s), page, j), bar_icon(s), false, width = tile)
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(app, s), page, j), bar_icon(app, s), false, width = tile)
 	}
 	ui.end(ctx)
 	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)
@@ -1156,14 +1163,14 @@ shelf_carry_update :: proc(app: ^App) {
 		return
 	}
 	if .Left in in_.down {
-		label := shelf_label(s)
+		label := shelf_label(app, s)
 		w := ui.text_width(ctx, label, t.small_size, .Semibold) + 44
 		// Above the finger, which would cover it; the tile under the finger is ringed.
 		r := ui.Rect{in_.mouse.x - w * 0.5, in_.mouse.y - 64, w, 36}
 		ui.begin_at(ctx, "shelf carry", {r.x, r.y}, {width = r.w, height = r.h, inert = true})
 		ui.fill_rect(ctx, r, t.radius_medium, t.frame)
 		ui.stroke_rect(ctx, r, t.radius_medium, t.accent, 1.5)
-		ui.icon(ctx, bar_icon(s), {r.x + 18, r.y + r.h * 0.5}, t.icon_small, t.text)
+		ui.icon(ctx, bar_icon(app, s), {r.x + 18, r.y + r.h * 0.5}, t.icon_small, t.text)
 		ui.text(ctx, label, r.x + 32, r.y + r.h * 0.5, t.small_size, t.text, .Semibold)
 		ui.end(ctx)
 		return
@@ -1174,7 +1181,7 @@ shelf_carry_update :: proc(app: ^App) {
 		if !ui.rect_contains(r, in_.mouse) do continue
 		bar_list(app, which).slots[i] = s
 		sh.drops += 1
-		report(app, nil, {}, "The shelf's %s page now has %s", shelf_page_name(k, sh.page), shelf_label(s))
+		report(app, nil, {}, "The shelf's %s page now has %s", shelf_page_name(k, sh.page), shelf_label(app, s))
 		return
 	}
 }

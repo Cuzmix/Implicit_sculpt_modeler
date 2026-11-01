@@ -722,6 +722,9 @@ settings_load :: proc(app: ^App, path: string) {
 	old_pins: Panels_Old
 	// The file is where a person's themes are kept, so its list replaces the one in memory.
 	app.kit.themes.count = 0
+	// Each pack preset a slot held as the file wrote it, and where the library has it now.
+	pack_from, pack_to: [dynamic]int
+	pack_from.allocator, pack_to.allocator = context.temp_allocator, context.temp_allocator
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -1026,6 +1029,13 @@ settings_load :: proc(app: ^App, path: string) {
 			// holds chrome, panes_under_panels, dock, dock_count and dock_pack lines and
 			// right_rail bars: nothing reads them now, so they are passed over.
 			bars_load_line(&app.kit, f)
+		case "preset_slot":
+			// preset_slot Pack<n> <pack id> <name, escaped>: the pack preset behind a slot's
+			// Brush_Preset:Pack<n> (preset_slots.odin).
+			if old, now, ok := preset_slot_line(app, f); ok {
+				append(&pack_from, old)
+				append(&pack_to, now)
+			}
 		case "shelf_extra", "shelf_page_name":
 			// shelf_extra <zone> <space>: a page of the shelf's own added in that space;
 			// shelf_page_name <zone> <name, escaped>: a page's own name (lens_shelf.odin).
@@ -1089,6 +1099,8 @@ settings_load :: proc(app: ^App, path: string) {
 		return name
 	}
 	on_preset = follow(renamed[:], on_preset)
+	// The pack presets the slots hold, where this run's library put them.
+	preset_slots_retarget(app, pack_from[:], pack_to[:])
 	if n := preset_by_ref(app, on_preset); n > 0 {
 		if p, _ := preset_at(app, n); p.values.kind == b.kind do preset_use(app, n)
 	}
@@ -1284,6 +1296,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
 	}
 	bars_save(&app.kit, &out)
+	preset_slots_save(app, &out)
 	shelf_pages_save(&app.kit, &out)
 	for n in 0 ..< USER_PIES {
 		if !pie_changed(app, n) do continue

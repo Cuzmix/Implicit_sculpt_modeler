@@ -85,7 +85,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 		return fmt.tprintf("Panel · %s palette", palette_name(section_palette(sec)))
 	}
 	s := Bar_Slot{e.id, e.arg}
-	if e.id == .Brush || e.id == .Brush_Preset {
+	if shelf_holds_brushes(e.id) {
 		for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 		return "Brush picker"
 	}
@@ -129,7 +129,7 @@ palette_put_on_bar :: proc(app: ^App, e: Palette_Entry) -> bool {
 	which := palette_bar_for(app, e)
 	s := Bar_Slot{e.id, e.arg}
 	if slice.contains(bar_used(app, which), s) {
-		report(app, nil, {}, "%s has %s already", bar_title(app, which), bar_label(s))
+		report(app, nil, {}, "%s has %s already", bar_title(app, which), bar_label(app, s))
 		return false
 	}
 	before := bar_count(app, which)^
@@ -229,9 +229,9 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
 	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
-	// Four buttons, and a fifth, the shelf's pin, for a brush in Sculpt.
+	// Four buttons, and a fifth, the shelf's pin, for a brush, a preset or a shape in Sculpt.
 	pin := false
-	if c, ok := e.?; ok && c.kind == .Command && (c.id == .Brush || c.id == .Brush_Preset) && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true
+	if c, ok := e.?; ok && c.kind == .Command && shelf_holds_brushes(c.id) && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true
 	buttons: f32 = (5 if pin else 4) * t.target
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)

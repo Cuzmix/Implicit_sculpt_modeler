@@ -332,7 +332,7 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 	at := clamp(pick.slot, 0, count^ - 1)
 	bar_list(app, pick.which).slots[at] = s
 	bar_list(app, pick.which).looks[at] = bar_default_look(pick.which)
-	report(app, nil, {}, "%s now has %s", bar_title(app, pick.which), bar_label(s))
+	report(app, nil, {}, "%s now has %s", bar_title(app, pick.which), bar_label(app, s))
 }
 
 // "The view rail", for notes.
@@ -428,7 +428,7 @@ bar_slot_moved :: proc(app: ^App, slot: int) {
 }
 
 // What a slot's button is called: the command's label, or the bar's own short name.
-bar_label :: proc(s: Bar_Slot) -> string {
+bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Tool_Move:    return "Gizmo"
 	case .Objects_Card: return "Objects"
@@ -441,13 +441,13 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Shading_Mode: return "Preview" if Shading_Mode(s.arg) == .Material_Preview else SHADING_MODE_NAMES[Shading_Mode(s.arg)]
 	case .Solid_Lighting: return SOLID_LIGHTING_NAMES[Solid_Lighting(s.arg)]
 	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
-	case .Brush_Preset: return BUILT_IN_PRESETS[s.arg].name
+	case .Brush_Preset: return preset_slot_label(app, s.arg)
 	}
 	return command_label(s.id, s.arg)
 }
 
 // A slot's icon: the bars' own for the commands they always had, the command's, or a wand.
-bar_icon :: proc(s: Bar_Slot) -> rune {
+bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	#partial switch s.id {
 	case .Tool_Move:       return ICON_GIZMO
 	case .Remesh:          return ICON_REMESH
@@ -470,7 +470,9 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .Objects_Card:    return ICON_OBJECTS_CARD
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
-	case .Brush_Preset:    return BRUSHES[BUILT_IN_PRESETS[s.arg].kind].icon
+	case .Brush_Preset:    return preset_slot_icon(app, s.arg)
+	case .Mask_Shape_Pick: return SHAPE_TOOL_ICONS[Mask_Shape_Kind(s.arg)]
+	case .Hide_Gesture_Pick: return GESTURE_ICONS[Gesture_Tool(s.arg)]
 	case .Camera_Menu:     return ICON_CAMERA
 	case .Shading_Menu:    return ICON_SHADING
 	case .Thumbnail:       return ICON_MINI_VIEW
@@ -594,10 +596,10 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	}
 	side := bar_side(app, which)
 	more := bar_has_more(s.id)
-	name := fmt.tprintf("%s##%v %d", bar_label(s), which, slot)
+	name := fmt.tprintf("%s##%v %d", bar_label(app, s), which, slot)
 	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
 	enabled := k.bars_edit || bar_enabled(app, s)
-	pressed := ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
+	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
 	if pressed {
 		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
@@ -669,7 +671,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	s := used[m.slot]
 	ui.begin(ctx, "bar slot head", {direction = .Row, center = true})
 	ui.begin(ctx, "bar slot title", {direction = .Column, width = 248 - t.target})
-	ui.label(ctx, ui.text_fit(ctx, bar_label(s), t.title_size, 248 - t.target, .Semibold), t.title_size, t.text, .Semibold)
+	ui.label(ctx, ui.text_fit(ctx, bar_label(app, s), t.title_size, 248 - t.target, .Semibold), t.title_size, t.text, .Semibold)
 	ui.end(ctx)
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do m.open = false
 	ui.end(ctx)

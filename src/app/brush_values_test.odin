@@ -41,6 +41,8 @@ brush_values_set_and_read :: proc(t: ^testing.T) {
 @(test)
 brush_values_are_commands :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
+	app := new(App)
+	defer free(app)
 	n := 0
 	for e in palette_entries() do if e.kind == .Command && e.id == .Brush_Value {
 		n += 1
@@ -53,7 +55,7 @@ brush_values_are_commands :: proc(t: ^testing.T) {
 		testing.expect(t, ok && id == .Brush_Value && arg == int(v))
 		got, is_value := value_of(s)
 		testing.expect(t, is_value && got == v)
-		testing.expect_value(t, bar_label(s), BRUSH_VALUE_NAMES[v])
+		testing.expect_value(t, bar_label(app, s), BRUSH_VALUE_NAMES[v])
 	}
 	_, is_value := value_of({.Brush, int(Brush_Value.Size)})
 	testing.expect(t, !is_value)

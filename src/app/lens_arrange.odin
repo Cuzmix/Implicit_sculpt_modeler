@@ -412,7 +412,7 @@ library_dial :: proc(app: ^App, width: f32) {
 		case Bar_Slot:
 			chosen = len(Modifier)
 			if v.id != .Brush_Pie {
-				append(&options, bar_label(v))
+				append(&options, bar_label(app, v))
 				chosen = len(options) - 1
 			}
 		}

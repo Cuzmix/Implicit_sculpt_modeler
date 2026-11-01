@@ -232,9 +232,9 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
 	// By name with underscores for spaces, as settings.txt splits its lines at spaces and
 	// the table is only appended to.
-	case .Brush_Preset:
-		name, _ := strings.replace_all(BUILT_IN_PRESETS[arg].name, " ", "_", context.temp_allocator)
-		return name
+	case .Brush_Preset: return preset_slot_name(arg)
+	case .Mask_Shape_Pick: return fmt.tprint(Mask_Shape_Kind(arg))
+	case .Hide_Gesture_Pick: return fmt.tprint(Gesture_Tool(arg))
 	case .Brush_Value: return fmt.tprint(Brush_Value(arg))
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
