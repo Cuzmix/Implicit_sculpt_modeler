@@ -45,7 +45,6 @@ bezier_segments :: proc(count: int, closed: bool) -> int {
 }
 
 // The four control positions of segment `i`.
-@(private = "file")
 bezier_controls :: proc(points: []Bezier_Point, i: int) -> (a, b, c, d: Vec3) {
 	p, q := points[i], points[(i + 1) % len(points)]
 	return p.p, p.p + p.h_out, q.p + q.h_in, q.p
@@ -83,7 +82,6 @@ bezier_split_u :: proc(u: f32, segs: int) -> (int, f32) {
 
 // The values of point `a` blended towards point `b` by `t`: smoothstep, so the values ease
 // out of each point and the radius never kinks at one.
-@(private = "file")
 bezier_blend :: proc(a, b: Bezier_Point, t: f32) -> (radius, intensity, twist: f32) {
 	w := t * t * (3 - 2 * t)
 	return math.lerp(a.radius, b.radius, w), math.lerp(a.intensity, b.intensity, w), math.lerp(a.twist, b.twist, w)

@@ -257,7 +257,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 					along_vertices += n
 				}
 			}
-			fmt.printfln("curve_tubes=%d curve_tube_vertices=%d curve_lathes=%d curve_lathe_vertices=%d curve_alongs=%d curve_along_vertices=%d curve_rebuilds=%d curve_tube_ms=%.2f curve_bakes=%d curve_brush_runs=%d", tubes, tube_vertices, lathes, lathe_vertices, alongs, along_vertices, app.curve.rebuilds, app.curve.tube_ms, app.curve.bakes, app.curve.brush_runs)
+			fmt.printfln("curve_tubes=%d curve_tube_vertices=%d curve_lathes=%d curve_lathe_vertices=%d curve_alongs=%d curve_along_vertices=%d curve_rebuilds=%d curve_tube_ms=%.2f curve_bakes=%d curve_brush_runs=%d curve_cages=%d", tubes, tube_vertices, lathes, lathe_vertices, alongs, along_vertices, app.curve.rebuilds, app.curve.tube_ms, app.curve.bakes, app.curve.brush_runs, app.curve.cages)
 			fmt.printfln("gesture=%s mask_shape=%s", lower(app.gesture), lower(app.ui.mask_shape_kind))
 			// The lights: which is picked, how many are on, the first one's view-space
 			// direction as the sphere shows it, and taps that flipped a light's side.

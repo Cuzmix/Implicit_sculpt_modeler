@@ -72,11 +72,11 @@ OBJECT_VERBS := [Object_Type][Space][]Object_Verb {
 		.Model  = {{id = .Cage_Smooth, arg = 2, label = "Smooth twice"}, {id = .Cage_Smooth, arg = 0, label = "Draw unsmoothed"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Dissolve_Flat), label = "Dissolve flat faces"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Merge_Close), label = "Merge close points"}},
 		.Render = {},
 	},
-	// A curve is drawn and edited in Sculpt's Curve tool; Bake makes its tube a mesh in any
-	// space.
+	// A curve is drawn and edited in Sculpt's Curve tool; in Model it makes cages, and Bake
+	// makes what it shows a mesh in any space.
 	.Curve = {
 		.Sculpt = {{id = .Curve_Bake, label = "Bake to mesh"}, {id = .Curve_Close}},
-		.Model  = {{id = .Curve_Bake, label = "Bake to mesh"}},
+		.Model  = {{id = .Curve_Pipe_Cage, label = "Pipe cage"}, {id = .Curve_Lathe_Cage, label = "Lathe cage"}, {id = .Curve_Bake, label = "Bake to mesh"}},
 		.Render = {},
 	},
 }

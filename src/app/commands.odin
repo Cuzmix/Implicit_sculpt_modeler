@@ -172,6 +172,8 @@ Command_Id :: enum u16 {
 	Curve_Bake,
 	Curve_Use,
 	Curve_Brush_Run,
+	Curve_Pipe_Cage,
+	Curve_Lathe_Cage,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1554,6 +1556,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SPLINE,
 		run = proc(app: ^App, _: int) {_ = curve_brush_run(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return curve_brush_refusal(app) == ""},
+	},
+	.Curve_Pipe_Cage = {
+		label = "Pipe cage from curve",
+		help = "Makes a new Model mode cage of quads round the selected curve: a ring of Around points at each of its points and Steps between, as wide as its radius there, a corner point's ring creased; the ends closed with Cage caps. The curve stays. One undo step.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
+	},
+	.Curve_Lathe_Cage = {
+		label = "Lathe cage from curve",
+		help = "Makes a new Model mode cage of quads by spinning the selected curve round its lathe axis (the view's vertical if it has none yet) in Around steps, a point on the axis a pole of triangles. The curve stays. One undo step.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
 	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
