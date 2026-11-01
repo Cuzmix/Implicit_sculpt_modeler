@@ -91,9 +91,10 @@ UI = {
     "settings": At("top bar/Settings", 1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
-    # The View island over the view's top-left corner: the navigation head, the camera and
-    # shading chips, then its buttons; and the chip bar's object chip.
-    "nav_head": (38, 81),
+    # The navigation head under the top bar at the pen side, left of the panel stack; the
+    # View island over the view's top-left corner: the camera and shading chips, then its
+    # buttons; and the chip bar's object chip.
+    "nav_head": At("navigation head/navigation head", 1186, 86),
     "camera_chip": At("view chips/Camera", 129, 81), "pass_chip": At("view chips/Shading", 231, 81),
     "island_layout": At("view chips/View layout", 305, 81), "island_sym": At("view chips/Symmetry across X", 357, 81),
     "island_wire": At("view chips/Wireframe", 409, 81), "island_lights": At("view chips/Lights", 461, 81),
@@ -3910,7 +3911,7 @@ def lens_shelf_long_press_shows_quick_settings():
 
 @scenario
 def lens_shelf_shows_every_tile_it_adds():
-    """Every tile of the Brushes page shows, all twelve, narrowed to fit on a tablet-shaped window; a page with no room left refuses one more from Search rather than add it out of sight."""
+    """Every tile of the Brushes page shows, all twelve, narrowed to fit on a tablet-shaped window; a page with no room left refuses one more from Search rather than add it out of sight, and a wider row takes it."""
     def run(size, more, count, fits):
         s = Script()
         for name in ["snake hook", "clay strips", "elastic"][:more]:
@@ -3923,7 +3924,11 @@ def lens_shelf_shows_every_tile_it_adds():
             s.wait(4)
         return s, size, camera_still({"shelf_shown": near(count), "shelf": lambda v: len(v.split(",")) == count, "shelf_fits": near(fits), "dabs": near(0)})
     tablet = ["--width=1180", "--height=820"]
-    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 12, 12)])
+    # The tablet's palm-safe row holds twelve at the narrowest, so a thirteenth is refused
+    # there; a desktop window, or the tablet with Keep the shelf clear of the palm off, shows
+    # it (a page holds up to 24).
+    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 13, 24),
+                  run(tablet + ["--script=set shelf_palm 0"], 1, 13, 18)])
 
 
 # At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
@@ -4490,6 +4495,20 @@ def lens_shelf_shows_the_active_brush():
     return Steps([run(True), run(False)])
 
 
+def full_brushes_page(step=""):
+    """Arguments that start the run with the Brushes page full: its twelve tiles, then
+    twelve more, so a pin there waits for the tile it replaces on any window."""
+    more = ["Brush:Snake_Hook", "Brush:Morph", "Brush:Paint", "Brush:Cloth", "Brush:History", "Brush:Clay_Strips", "Brush:Trim_Dynamic",
+            "Tool_Move", "Retopologize", "Subdivide", "Live_Boolean", "Symmetry_X"]
+    tiles = LENS_SHELF_SCULPT.split(",") + more
+    lines = ["version 13", f"bar_count shelf_sculpt {len(tiles)}"] + [f"bar shelf_sculpt {i} {t}" for i, t in enumerate(tiles)]
+    path = settings_file()[:-len(".txt")] + "_full" + step + ".txt"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return [f"--settings-file={path}"], ",".join(tiles)
+
+
 @scenario
 def lens_shelf_pin_keeps_the_visiting_brush():
     """The visiting tile's pin keeps the brush on the page shown, first after All: on the Paint page, with room, at once; on the full Brushes page the next tap on a tile gives its place to it, and Escape before that gives the pin up, the tap then picking that tile's brush."""
@@ -4509,9 +4528,10 @@ def lens_shelf_pin_keeps_the_visiting_brush():
             s.wait(4)
         s.ftap(LENS_SHELF["pinch"])
         s.wait(6)
+        full, tiles = full_brushes_page(how)
         if how == "cancel":
-            return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf": is_text(LENS_SHELF_SCULPT), "shelf_pins": near(0), "brush_kind": is_text("pinch"), "dabs": near(0)})
-        return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf": is_text(LENS_SHELF_SCULPT.replace("Brush:Pinch", "Brush:Elastic")),
+            return s, LENS_1440 + full + ["--script=brush elastic"], camera_still({"shelf": is_text(tiles), "shelf_pins": near(0), "brush_kind": is_text("pinch"), "dabs": near(0)})
+        return s, LENS_1440 + full + ["--script=brush elastic"], camera_still({"shelf": is_text(tiles.replace("Brush:Pinch", "Brush:Elastic")),
                                                                        "shelf_pins": near(1), "shelf_active": near(0), "brush_kind": is_text("elastic"), "dabs": near(0)})
     return Steps([run("room"), run("full"), run("cancel")])
 
@@ -9240,7 +9260,7 @@ def pen_roll_while_grabbing_twists_what_it_holds():
 # and the navigation head (left of the open Brush card), at 1600 x 900.
 PEN_SHELF_TILE = (780, 833)
 PEN_UNDO = (268, 26)
-PEN_NAV_HEAD = (38, 81)  # the View island's first button
+PEN_NAV_HEAD = (1186, 86)  # under the top bar at the pen side, left of the panel stack
 
 
 @scenario
@@ -9282,7 +9302,7 @@ def pen_roll_over_settings_scrolls_it():
     """Settings > Pen open, the pen hovering over a paragraph and turned 100 degrees clockwise scrolls the body down, as a mouse wheel does."""
     s = Script()
     open_settings(s, "pen")
-    pen_hover(s, 900, 480, frames=4)
+    pen_hover(s, 900, 380, frames=4)
     pen_rolls(s, range(0, 101, 5), frames=1)
     s.wait(20)
     return s, [], camera_still({"settings_open": near(1), "settings_scroll": lambda v: float(v) > 100, "dabs": near(0)})
