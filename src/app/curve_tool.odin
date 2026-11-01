@@ -55,10 +55,11 @@ Curve_Tool :: struct {
 	// A Use or tube slider's drag on the selected curve, one undo step when it lets go.
 	look_drag: Curve_Look_Drag,
 	brush_runs: int, // Run brush along a curve (curve_brush.odin), for the exit stats
-	// Pipe and Lathe cages made from a curve (curve_cage.odin): their rings and steps, and
-	// how many were made, for the exit stats.
+	// Pipe, Lathe and Loft cages made from curves (curve_cage.odin): their rings and steps,
+	// and how many were made and how many of them lofts, for the exit stats.
 	cage:       poly.Curve_Cage_Options,
 	cages:      int,
+	lofts:      int,
 }
 
 Insert_Tool :: struct {
