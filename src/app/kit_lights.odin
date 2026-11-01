@@ -8,9 +8,10 @@ import "core:strings"
 import "../ui"
 import "../geom"
 
-// The Scene palette's Lights section: the light sphere, the light it edits, its strength
-// and colour, the ambient light, and under More options whether the lights stay with the
-// camera or the scene and the turn of the whole set (lights.odin).
+// The Scene palette's Lights section: the light sphere, the lights, the picked light's
+// kind, strength, colour, size and spot cone, presets for whole rigs, and under More
+// options its name, what it moves with, and the ambient light and the turn of the whole
+// set (lights.odin).
 
 // The light sphere's height, in points.
 LIGHT_SPHERE_SIZE :: 176
@@ -84,40 +85,66 @@ kit_lights :: proc(app: ^App) {
 		return
 	}
 	light := &set.lights[app.light_pick]
+	// The picked light's own settings show whole, its kind, strength, colour and size, so
+	// the card reads as a lamp's: More keeps its name, what it moves with and the set's.
+	// Under its name, so its kind's tabs never read as more of the Add buttons above.
+	ui.caption(ctx, strings.to_upper(light_name(set, app.light_pick), context.temp_allocator))
+	if kind := ui.tabs(ctx, "light kind", LIGHT_KIND_LABELS[:], int(light.kind)); kind >= 0 do light.kind = Light_Kind(kind)
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
+	// The colour it shines in: picked, or a colour temperature, as a lamp is bought.
+	shown := light_rgb(light^)
+	if kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &shown, linear = true) do light.color, light.kelvin = shown, 0
+	warm := light.kelvin > 0
+	if ui.switch_row(ctx, "Colour temperature", &warm) do light.kelvin = 6500 if warm else 0
+	if light.kelvin > 0 do _ = ui.slider(ctx, "Temperature", &light.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX, .Logarithmic, fmt.tprintf("%.0f K", light.kelvin))
+	// Its size, which broadens and softens its highlights: a sun's angle in the sky, a
+	// lamp's radius, its slider reaching half the camera's distance or the radius set.
+	if light.kind == .Sun {
+		_ = ui.slider(ctx, "Angle", &light.angle, 0, LIGHT_ANGLE_MAX, .Linear, fmt.tprintf("%.1f°", light.angle))
+	} else {
+		widest := clamp(max(light.radius, app.camera.distance * 0.5), 1e-3, LIGHT_RADIUS_MAX)
+		_ = ui.slider(ctx, "Radius", &light.radius, 0, widest, .Linear, fmt.tprintf("%.2f", light.radius))
+	}
+	if light.kind == .Spot {
+		_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
+		_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
+	}
+	if light.kind != .Sun && light.pos != {} {
+		// How far it stands from the orbit's centre, the depth a marker's drag keeps.
+		far := light_center_distance(app, app.light_pick)
+		near_end, far_end := app.camera.distance * LIGHT_DISTANCE_MIN, app.camera.distance * LIGHT_DISTANCE_MAX
+		moved := clamp(far, near_end, far_end)
+		if ui.slider(ctx, "Distance", &moved, near_end, far_end, .Logarithmic, fmt.tprintf("%.2f", far)) do light_set_center_distance(app, app.light_pick, moved)
+	}
 	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place, keys = command_hint(app, .Place_Light))
+	// A spot turned to shine at the selected object's middle, where it stands, as
+	// Marmoset's aim and a theatre's follow spot.
+	if light.kind == .Spot && light.pos != {} {
+		if ui.button(ctx, "Aim at the selected object", .Bordered, glyph = ICON_LAMP_CEILING, enabled = selected_object(app) != nil) {
+			if light_aim_at_selected(app, app.light_pick) do what = "Aim light"
+		}
+	}
+	// Whole rigs at once, as KeyShot's and Marmoset's presets: each replaces the lights.
+	ui.label(ctx, "Presets")
+	// Two a row, so each name has room on a narrow card.
+	half := (ui.fill_width(ctx) - 8) * 0.5
+	for row in 0 ..< (len(Light_Preset) + 1) / 2 {
+		ui.begin(ctx, fmt.tprintf("light presets %d", row), {direction = .Row, gap = 8})
+		for i in row * 2 ..< min(row * 2 + 2, len(Light_Preset)) {
+			p := Light_Preset(i)
+			if ui.button(ctx, fmt.tprintf("%s##light preset", LIGHT_PRESET_NAMES[p]), .Bordered, width = half) {
+				light_preset_apply(app, p)
+				what = "Light preset"
+			}
+		}
+		ui.end(ctx)
+	}
 	if kit_more(app, .Lights) {
 		// Its name, typed: the typing is one undo step until the field lets the keys go.
 		name_field := fmt.tprintf("name##light %d", app.light_pick + 1)
 		if ui.text_field(ctx, name_field, light.name[:LIGHT_NAME - 1], hint = fmt.tprintf("Light %d", app.light_pick + 1)) {
 			what = "Rename light"
 			typed = ui.id_of(ctx, name_field)
-		}
-		// The colour it shines in: picked, or a colour temperature, as a lamp is bought.
-		shown := light_rgb(light^)
-		if kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &shown, linear = true) do light.color, light.kelvin = shown, 0
-		warm := light.kelvin > 0
-		if ui.switch_row(ctx, "Colour temperature", &warm) do light.kelvin = 6500 if warm else 0
-		if light.kelvin > 0 do _ = ui.slider(ctx, "Temperature", &light.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX, .Logarithmic, fmt.tprintf("%.0f K", light.kelvin))
-		if kind := ui.tabs(ctx, "light kind", LIGHT_KIND_LABELS[:], int(light.kind)); kind >= 0 do light.kind = Light_Kind(kind)
-		if light.kind != .Sun && light.pos != {} {
-			// How far it stands from the orbit's centre, the depth a marker's drag keeps.
-			far := light_center_distance(app, app.light_pick)
-			near_end, far_end := app.camera.distance * LIGHT_DISTANCE_MIN, app.camera.distance * LIGHT_DISTANCE_MAX
-			moved := clamp(far, near_end, far_end)
-			if ui.slider(ctx, "Distance", &moved, near_end, far_end, .Logarithmic, fmt.tprintf("%.2f", far)) do light_set_center_distance(app, app.light_pick, moved)
-		}
-		// Its size, which broadens and softens its highlights: a sun's angle in the sky, a
-		// lamp's radius, its slider reaching half the camera's distance or the radius set.
-		if light.kind == .Sun {
-			_ = ui.slider(ctx, "Angle", &light.angle, 0, LIGHT_ANGLE_MAX, .Linear, fmt.tprintf("%.1f°", light.angle))
-		} else {
-			widest := clamp(max(light.radius, app.camera.distance * 0.5), 1e-3, LIGHT_RADIUS_MAX)
-			_ = ui.slider(ctx, "Radius", &light.radius, 0, widest, .Linear, fmt.tprintf("%.2f", light.radius))
-		}
-		if light.kind == .Spot {
-			_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
-			_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
 		}
 		ui.label(ctx, "Moves with")
 		if space := ui.tabs(ctx, "light space", LIGHT_SPACE_LABELS[:], int(light.space)); space >= 0 do light_set_space(app, app.light_pick, Light_Space(space))

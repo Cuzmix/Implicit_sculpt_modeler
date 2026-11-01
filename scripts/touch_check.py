@@ -1079,7 +1079,7 @@ def light_sphere_moves_and_flips_lights():
 
 # The Lights section's Place highlight switch, in points; and the first light's marker
 # in the viewport, on the circle 0.42 of the view's height round its middle.
-LIGHT_PLACE = on_card((1500, 745), "scene")
+LIGHT_PLACE = At("stack body/Place highlight", 1500, 745)
 LIGHT1_MARKER = (MIDDLE[0] - 0.508 * 378, MIDDLE[1] - 0.609 * 378)
 
 
@@ -1120,6 +1120,8 @@ def place_highlight_lights_where_the_finger_taps():
     """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""
     s = Script()
     palettes_section(s)
+    s.fdrag(LIGHT_SCROLL)
+    s.wait(20)
     s.ftap(LIGHT_PLACE)
     s.wait(4)
     s.ftap(MIDDLE)
@@ -1128,9 +1130,9 @@ def place_highlight_lights_where_the_finger_taps():
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0, 0, 1)))})
 
 
-# The Lights section's name field for the picked light, with every option shown, once
-# the card is scrolled up by LIGHT_SCROLL.
-LIGHT_NAME_FIELD = on_card((1376, 514), "scene")
+# The Lights section's name field for the picked light, with every option shown, by its
+# name, once the card is scrolled up by LIGHT_SCROLL three times.
+LIGHT_NAME_FIELD = At("light 1", 1376, 514)
 LIGHT_SCROLL = line((1380, 700), (1380, 400), 20)
 
 
@@ -1140,8 +1142,9 @@ def light_renamed_by_typing_is_one_step():
     s = Script()
     write_settings("all_options 1\n")
     palettes_section(s)
-    s.fdrag(LIGHT_SCROLL)
-    s.wait(20)
+    for _ in range(3):
+        s.fdrag(LIGHT_SCROLL)
+        s.wait(20)
     s.ftap(LIGHT_NAME_FIELD)
     s.wait(4)
     s.type("Key lamp")

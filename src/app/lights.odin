@@ -489,3 +489,61 @@ history_record_lights :: proc(app: ^App, before: Light_Set, what: string) {
 	step^ = {before, app.scene.lights}
 	history_push(app, History_Entry{kind = .Lights, what = what, at = time.tick_now(), lights = step})
 }
+
+// The rigs the Lights card's presets put in place of the lights, each a whole set in the
+// lights' own frame, moving with the camera so it lights the model the same way from
+// wherever it is seen, as KeyShot's and Marmoset's starting rigs do.
+Light_Preset :: enum u8 {
+	Studio,   // a broad key above left, a cool fill at the right and a rim behind
+	Rim,      // a warm and a cool rim behind either side, a faint key in front
+	Top,      // one broad light from above, as a skylight or a softbox overhead
+	Dramatic, // one warm, low, hard light from the side and little ambient
+}
+
+@(rodata)
+LIGHT_PRESET_NAMES := [Light_Preset]string{.Studio = "Studio", .Rim = "Rim", .Top = "Top", .Dramatic = "Dramatic"}
+
+// The lights preset `p` holds, with the ambient light it sets.
+light_preset :: proc(p: Light_Preset) -> Light_Set {
+	sun :: proc(dir: [3]f32, strength, angle, kelvin: f32) -> Light {
+		return {on = true, kind = .Sun, dir = dir, strength = strength, angle = angle, kelvin = kelvin, color = 1, cone = 45, blend = 0.25}
+	}
+	set := LIGHTS_DEFAULT
+	lights: []Light
+	switch p {
+	case .Studio:
+		lights = {sun({-0.55, 0.6, 0.58}, 1, 12, 0), sun({0.75, 0.1, 0.65}, 0.4, 20, 7500), sun({0.45, 0.5, -0.75}, 0.9, 6, 0)}
+		set.ambient = 0.8
+	case .Rim:
+		lights = {sun({-0.8, 0.3, -0.5}, 1.1, 4, 3400), sun({0.8, 0.3, -0.5}, 1.1, 4, 9000), sun({0, 0.3, 0.95}, 0.3, 20, 0)}
+		set.ambient = 0.5
+	case .Top:
+		lights = {sun({0, 1, 0.2}, 1.2, 30, 0), sun({0, -0.6, 0.8}, 0.2, 30, 0)}
+		set.ambient = 0.7
+	case .Dramatic:
+		lights = {sun({-0.9, 0.25, 0.35}, 1.5, 1, 3200)}
+		set.ambient = 0.3
+	}
+	for l, i in lights do set.lights[i] = l
+	set.count = i32(len(lights))
+	return set
+}
+
+// Puts preset `p`'s lights in place of the scene's, and picks the first.
+light_preset_apply :: proc(app: ^App, p: Light_Preset) {
+	app.scene.lights = light_preset(p)
+	app.light_pick = 0
+}
+
+// Turns spot light `i` to shine at the selected object's middle from where it stands;
+// false when nothing is selected or the light stands on that middle.
+light_aim_at_selected :: proc(app: ^App, i: int) -> bool {
+	obj := selected_object(app)
+	if obj == nil do return false
+	target := to_world(obj.transform, object_local_middle(obj))
+	at := light_world_pos(app, app.scene.lights.lights[i])
+	toward := at - target
+	if linalg.length(toward) < 1e-6 do return false
+	light_set_world(app, i, linalg.normalize(toward))
+	return true
+}
