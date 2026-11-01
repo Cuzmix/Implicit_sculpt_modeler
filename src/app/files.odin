@@ -603,6 +603,19 @@ scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 	return true
 }
 
+// Whether the scene is still only the sphere a run or New scene starts with, untouched:
+// one mesh object named as a sphere is (""), in no folder, with no file behind the scene
+// and nothing on the History, not even an undone step. An import then takes its place
+// rather than standing beside it, as the person meant to work on the file and not on the
+// sphere; anything they did to the scene keeps it.
+import_replaces_starter :: proc(app: ^App) -> bool {
+	if len(app.scene.objects) != 1 || app.scene_path != "" do return false
+	h := &app.history
+	if len(h.done) > 0 || len(h.undone) > 0 || h.dropped > 0 do return false
+	obj := app.scene.objects[0]
+	return obj.name == "" && obj.folder == 0 && obj.voxel == nil && obj.curve == nil && obj.cage == nil
+}
+
 // Makes an object of each of the import's parts (taking their meshes), at `at` plus each
 // part's middle, and when there are several puts them in folders as the file has them:
 // one folder named `name` (the file's) holding them all, and inside it a folder for each
@@ -613,6 +626,14 @@ scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 // is recorded).
 import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, record: bool) -> bool {
 	if m.levels == nil do mesh_import_prepare(m, &app.pool)
+	place := at
+	// The untouched starting sphere goes first, in the same undo step: undo brings it back.
+	replaced := len(m.parts) > 0 && import_replaces_starter(app)
+	if replaced {
+		app.scene.selected = 0
+		scene_delete_selected(app, undoable = record)
+		place = next_free_position(app)
+	}
 	first := len(app.scene.objects)
 	ok := true
 	for &p, k in m.parts {
@@ -622,11 +643,11 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 			label = strings.clone(p.name) if p.name != "" else fmt.aprintf("%s %d", name, k + 1)
 		}
 		defer if len(m.parts) > 1 do delete(label)
-		if !scene_add_mesh(app, {}, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, prepared = &m.levels[k]) {
+		if !scene_add_mesh(app, {}, label, m.files[k], {position = place + m.middles[k], scale = 1}, m.start, prepared = &m.levels[k]) {
 			ok = false
 			break
 		}
-		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
+		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0 || replaced)
 	}
 	added := app.scene.objects[first:]
 	app.import_folders, app.import_rig, app.import_joined = 0, m.rig, m.joined
