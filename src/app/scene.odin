@@ -199,14 +199,14 @@ Scene_Command :: struct {
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
-	// Curve_Cage: a lathe cage rather than a pipe; Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
+	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
 	// Merge: the shown objects into a new one, rather than the selected one and the next;
 	// Repair: Close holes leaves the largest open, Delete half keeps the + side; New: an
 	// empty scene, with no object.
 	on:       bool,
-	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z
+	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
@@ -927,7 +927,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
 	case .Curve_Cage:
-		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_make_cage(app, obj, lathe = cmd.on)
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_make_cage(app, obj, Curve_Cage_Kind(cmd.axis))
 	case .New:
 		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
 		return scene_new(app, cmd.shape, cmd.vertices, cmd.voxels, empty = cmd.on)

@@ -1535,6 +1535,17 @@ def lathe_cage_from_a_curve():
 
 
 @scenario
+def loft_cage_between_two_curves():
+    """Two curves drawn over the sphere, one lifted above the other, the sphere deleted, then Loft cage from the palette: a quad cage bridging them, selected, one undo step; the curves stay (look with --screens)."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("loft cage from curves")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--check-mesh", "--script=draw_curve curve; draw_curve curve; move 0 0.9 0.3; select 1; delete_object; select 1"], camera_still({"curves": near(2), "curve_lofts": near(1), "curve_cages": near(1), "objects": near(3), "cage_broken": near(0), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
