@@ -352,6 +352,11 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
+	// The view rail's panel groups (rail_groups.odin), where each rail slot was laid out
+	// this frame (for a group opened from Search) and, for the exit stats, the joins.
+	rail_groups:    [RAIL_GROUPS]Rail_Group,
+	rail_group_at:  [VIEW_RAIL_MAX]ui.Rect,
+	rail_joins:     int,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.

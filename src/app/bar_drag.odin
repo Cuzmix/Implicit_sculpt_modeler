@@ -42,6 +42,9 @@ Bar_Target :: struct {
 	after: bool,
 	ok:    bool,
 	why:   string,
+	// On the middle of a rail panel button with a panel carried: joins it as a group
+	// (rail_groups.odin) rather than going beside it.
+	join:  bool,
 }
 
 // The button the last drop took off its bar, or the brush just pinned to a shelf page
@@ -88,6 +91,8 @@ bar_lift :: proc(app: ^App, c: Bar_Carry) {
 bar_takes :: proc(which: Bar_Which, s: Bar_Slot) -> (ok: bool, why: string) {
 	if which == .Brush_Pie do return false, "the brush pie is set in its editor"
 	if !bar_lists(s.id) do return false, "it is not a button"
+	// A group's panels live with the rail, so a group stays on it.
+	if s.id == .Rail_Group && which != .View_Rail do return false, "panel groups stay on the view rail"
 	_, page := shelf_page_of(which)
 	_, dock := user_dock_of(which)
 	if (s.id == .Brush || s.id == .Brush_Preset) && !page && !dock do return false, "brushes go on the shelf or a dock"
@@ -105,6 +110,11 @@ bar_target :: proc(app: ^App, c: Bar_Carry, spots: []Bar_Spot, p: [2]f32) -> (t:
 			mid := sp.rect.y + sp.rect.h * 0.5 if column else sp.rect.x + sp.rect.w * 0.5
 			along := p.y if column else p.x
 			if along > mid do t.at, t.after = sp.slot + 1, true
+		}
+		if rail_join_spot(app, c, sp, p) {
+			t.join, t.ok, t.after = true, true, false
+			t.at = sp.slot
+			return t, true
 		}
 		t.ok, t.why = bar_takes(sp.which, c.slot)
 		same := c.from != nil && c.from.? == sp.which
@@ -130,6 +140,7 @@ bar_drop :: proc(app: ^App, c: Bar_Carry, t: Bar_Target) -> bool {
 		report(app, nil, {.Warning}, "%s does not take %s: %s", bar_title(app, t.which), bar_label(app, c.slot), t.why)
 		return false
 	}
+	if t.join do return rail_join(app, c.slot, c.from_slot if c.from != nil else -1, t.at)
 	at := t.at
 	if from, ok := c.from.?; ok && from == t.which {
 		// Within its own bar: out of its place, then in before the button it was let go by,
@@ -208,6 +219,8 @@ bar_carry_update :: proc(app: ^App) {
 			r := target.rect
 			if !target.ok {
 				ui.stroke_rect(ctx, r, t.radius_medium, t.warning, 2)
+			} else if target.join {
+				ui.stroke_rect(ctx, r, t.radius_medium, t.accent, 2)
 			} else if bar_column(target.which) {
 				y := r.y + r.h if target.after else r.y
 				ui.fill_rect(ctx, {r.x + 4, y - 1.5, r.w - 8, 3}, 1.5, t.accent)
@@ -217,6 +230,7 @@ bar_carry_update :: proc(app: ^App) {
 			}
 		}
 		label := bar_label(app, c.slot)
+		if over && target.join do label = fmt.tprintf("Group with %s", bar_label(app, bar_used(app, .View_Rail)[target.at]))
 		off := !over && c.from != nil
 		if off do label = fmt.tprintf("Remove %s", label)
 		w := ui.text_width(ctx, label, t.small_size, .Semibold) + 44

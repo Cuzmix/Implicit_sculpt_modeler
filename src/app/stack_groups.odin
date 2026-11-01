@@ -275,8 +275,7 @@ stack_tab_reset :: proc(s: ^Lens_Stack, c: Panel_Kind) {
 
 // Takes `cards` out of the stack's order and puts them back, in their order, right after
 // the group of card `after` (whose other cards stay where they are), or right after
-// `after` itself when `exact`.
-@(private = "file")
+// `after` itself when `exact` (a pinned rail group's cards too, rail_groups.odin).
 stack_order_place :: proc(s: ^Lens_Stack, cards: []Panel_Kind, after: Panel_Kind, exact := false) {
 	last := after
 	if !exact do for x in stack_group(s, stack_host(s, after)) do if !slice.contains(cards, x) do last = x

@@ -160,6 +160,7 @@ bars_reset :: proc(k: ^Kit_State) {
 // them.
 bar_lists_reset :: proc(k: ^Kit_State) {
 	for which in BAR_LAYOUT do bar_list_k(k, which)^ = bar_fresh(which)
+	k.rail_groups = {}
 }
 
 // A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
@@ -272,6 +273,11 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
+		// The rail's groups go before its slots, so a reader has them when a slot names one.
+		if which == .View_Rail {
+			rail_groups_settle(k)
+			rail_groups_save(k, out)
+		}
 		for s, i in used {
 			fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
 			if _, value := value_of(s); value && bar_look(k, which, i) != bar_default_look(which) {
@@ -300,6 +306,8 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 			l.slots[slot] = {id, arg}
 			l.looks[slot] = bar_default_look(which)
 		}
+	case "rail_group":
+		rail_group_read(k, f)
 	case "bar_look":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])
@@ -312,7 +320,7 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one
 // that acts at the pointer over the model, which is on the bar when the button is pressed.
 bar_lists :: proc(id: Command_Id) -> bool {
-	return palette_lists(id) || id == .Command_Palette
+	return palette_lists(id) || id == .Command_Palette || id == .Rail_Group
 }
 
 // Opens Search to choose the command for `pick`.
@@ -435,6 +443,7 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	case .Inspector:    return "Palettes"
 	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
 	case .Show_Panel:   return stack_title(app, Panel_Kind(s.arg))
+	case .Rail_Group:   if s.arg >= 0 && s.arg < RAIL_GROUPS && app.kit.rail_groups[s.arg].used do return rail_group_name(app, s.arg)
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
@@ -481,6 +490,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Pass_Menu:       return ICON_PASSES
 	case .Show_Section:    return SECTION_ICONS[Kit_Section(s.arg)] if s.arg < len(Kit_Section) else ui.ICON_PANEL
 	case .Show_Panel:      return panel_kind_icon(app, Panel_Kind(s.arg))
+	case .Rail_Group:      if s.arg >= 0 && s.arg < RAIL_GROUPS do return rail_group_icon(app, s.arg)
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})

@@ -3515,6 +3515,37 @@ def bar_hold_and_drag_reorders_the_rail():
                                        "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu,Pass_Menu,Focus_Selected")})
 
 
+# A fresh rail at 1280 x 720: Layers and Material under the Objects card.
+DRAG_LAYERS, DRAG_MATERIAL = (1243, 181), (1243, 229)
+
+
+@scenario
+def rail_panel_carried_onto_another_makes_a_group():
+    """A finger holds the rail's Material and carries it onto the middle of Layers: the two become one group button,
+    and a tap on it shows the group beside the rail. A long press on the group opens its menu, whose Stacked shows the
+    two one under the other; nothing turns or sculpts."""
+    def made(then=None):
+        s = Script()
+        hold_and_carry(s, DRAG_MATERIAL, DRAG_LAYERS)
+        s.wait(4)
+        if then == "tap":
+            s.ftap(DRAG_LAYERS)
+        elif then in ("menu", "stacked"):
+            long_press(s, DRAG_LAYERS)
+        if then == "stacked":
+            s.wait(6)
+            s.ftap("Stacked")
+            s.wait(4)
+            s.ftap(DRAG_LAYERS)
+        s.wait(6)
+        return s
+    group = {"view_rail": is_text("Objects_Card,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layer_Settings+Material_Settings"),
+             "rail_joins": near(1), "dabs": near(0)}
+    return Steps([(made("menu"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group_menu")))),
+                  (made("tap"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group")))),
+                  (made("stacked"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group"), rail_groups=is_text("0:stacked:0:Layer_Settings+Material_Settings"))))])
+
+
 @scenario
 def bar_quick_drag_on_the_rail_lifts_nothing():
     """A finger dragged at once from the rail's Camera, without the hold, lifts nothing: the rail stays as it was."""

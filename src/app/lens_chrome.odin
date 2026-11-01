@@ -316,7 +316,11 @@ kit_view_rail :: proc(app: ^App) {
 	if ui.icon_button(ctx, bar_label(app, {.Inspector, 0}), ui.ICON_PANEL, panels, command_enabled(app, .Inspector), command_hint(app, .Inspector), named = rail_label(app, {.Inspector, 0}), width = width) do command_run(app, .Inspector)
 	ui.divider(ctx, width - 12 if width > t.target else 32, across = true)
 	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
-	for s, i in used do bar_slot_button(app, .View_Rail, i, s, named = rail_label(app, s), width = width)
+	for s, i in used {
+		if s.id == .Rail_Group do rail_group_button(app, i, s, rail_label(app, s), width)
+		else do bar_slot_button(app, .View_Rail, i, s, named = rail_label(app, s), width = width)
+		k.rail_group_at[i] = ctx.last_rect
+	}
 	// Arrange adds any command; otherwise the + opens the Panels picker (rail_panels.odin).
 	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
 	else do rail_panels_button(app, width)
