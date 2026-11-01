@@ -246,7 +246,10 @@ brush_item_on :: proc(app: ^App, it: Brush_Item) -> bool {
 
 brush_item_hint :: proc(app: ^App, it: Brush_Item) -> string {
 	switch it.what {
-	case .Slot:       return command_hint(app, .Brush, int(it.slot.kind)) if it.slot.preset == 0 else ""
+	case .Slot:
+		if it.slot.preset == 0 do return command_hint(app, .Brush, int(it.slot.kind))
+		if preset_built_in(it.slot.preset) do return command_hint(app, .Brush_Preset, it.slot.preset - BUILT_IN_PRESET)
+		return ""
 	case .Tool:       return command_hint(app, TOOL_COMMANDS[it.tool])
 	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the wheel"
 	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the wheel"

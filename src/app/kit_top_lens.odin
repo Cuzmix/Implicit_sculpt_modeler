@@ -8,9 +8,9 @@ import "../ui"
 
 // The chip bar (the overhaul's round 3, which replaced the full-width top bar): one
 // floating bar across the top in the docks' style, its sections split by hairlines. The
-// menu and the file with whether it is saved; Undo and Redo; the spaces as tabs
+// menu and the file with whether it is saved; Save, Undo and Redo; the spaces as tabs
 // (spaces.odin); the object chip (object_chip.odin); Search; History and Settings. Home,
-// Save, Import, Export and Help are in the menu, the passes on the pane. A section Arrange
+// Save as, Import, Export and Help are in the menu, the passes on the pane. A section Arrange
 // took out stands as an island of its own (chip_islands.odin) and the bar closes up round
 // the rest. Returns the menu button and the Search button, which the menu and the command
 // palette open under.
@@ -46,7 +46,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		return
 	}
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = TOP_BAR_H - TOP_BAR_TOP, padding = 2, gap = 2, center = true, radius = t.radius_large, background = .Panel})
-	// What the row holds, for the gaps between: the bar has always counted fourteen
+	// What the row holds, for the gaps between: the bar counts fifteen
 	// things with every section in it (the middle's spacer among them).
 	things := 0
 	left: f32 = 0
@@ -63,8 +63,8 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 			things += 1
 		}
 		k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
-		left += 2 * t.target
-		things += 2
+		left += 3 * t.target
+		things += 3
 	}
 	// What the ends take, the middle gets. Search is an icon (the palette it opens has its
 	// own field), so the object chip gives up its badges, then its tag, then shrinks to
@@ -216,7 +216,7 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus :
 		ctx := &app.kit.ctx
 		t := ctx.theme
 		w: [Top_Island]f32
-		w[.File] = island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.Undo] else 0}, v)
+		w[.File] = island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 3 * t.target + 2 * TOP_ISLAND_PAD if in_bar[.Undo] else 0}, v)
 		search: f32 = 0
 		if in_bar[.Search] do search = TOP_SEARCH_W if v.field else t.target
 		// Focus, with no view bar, keeps View layout and Passes here.
