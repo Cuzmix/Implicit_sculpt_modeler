@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
+import "../geom"
 import "../ui"
 
 // Settings > Interface > Look: the interface's colours as themes. Six come with the app
@@ -48,6 +49,11 @@ Theme_State :: struct {
 	menu_at: ui.Rect,
 	menu_of: Theme_Ref,
 	code:   Theme_Code, // the Share code or Import code popover
+	// Bring its background: a change of theme paints the viewport's background to go with
+	// it. `brought` is what it painted last, so the background stays free to change by
+	// hand until the theme next changes.
+	bring:   bool,
+	brought: Background_Settings,
 }
 
 // The popover that shows a theme as a code to copy, or takes one pasted to import.
@@ -169,6 +175,51 @@ theme_saved :: proc(k: ^Kit_State) -> ui.Theme {
 theme_current :: proc(k: ^Kit_State) -> ui.Theme {
 	if k.themes.compare do return theme_saved(k)
 	return theme_of(k.themes.seed, k.themes.over, theme_ref_base(k, theme_ref(k)))
+}
+
+// The colours set by hand in the theme shown now (the saved ones while Hold to compare
+// is held).
+theme_shown_over :: proc(k: ^Kit_State) -> ui.Theme_Overrides {
+	return theme_ref_over(k, theme_ref(k)) if k.themes.compare else k.themes.over
+}
+
+// The wireframe's colour for the renderer, linear as it takes it: zero, the renderer's
+// own, until the theme shown sets one by hand, so a theme alone never changes a render.
+theme_wire_color :: proc(k: ^Kit_State) -> [4]f32 {
+	over := theme_shown_over(k)
+	if .Wire not_in over.set do return {}
+	c := over.colors[.Wire]
+	return {geom.srgb_decode(f32(c.r) / 255), geom.srgb_decode(f32(c.g) / 255), geom.srgb_decode(f32(c.b) / 255), 1}
+}
+
+// Model mode's selected faces: their own orange until the theme shown sets a colour by
+// hand, drawn as see-through as the orange is.
+theme_selection_color :: proc(k: ^Kit_State) -> [4]f32 {
+	over := theme_shown_over(k)
+	if .Selection not_in over.set do return MODEL_SELECTION_COLOR
+	c := over.colors[.Selection]
+	return {f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255, MODEL_SELECTION_COLOR.a}
+}
+
+// A viewport background to go with theme `t`: a pale wash of a light theme's ground, a
+// lift of a dark one's in the default's own steps, and plain black behind pure black.
+theme_background :: proc(t: ui.Theme) -> Background_Settings {
+	frame := ui.Color{t.frame.r, t.frame.g, t.frame.b, 255}
+	rgb :: proc(c: ui.Color) -> [3]f32 {return {f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255}}
+	white, black := ui.Color{255, 255, 255, 255}, ui.Color{0, 0, 0, 255}
+	if ui.color_luminance(frame) > 0.5 do return {true, rgb(ui.color_mix(frame, white, 0.5)), rgb(ui.color_mix(frame, black, 0.18))}
+	if max(frame.r, frame.g, frame.b) < 4 do return {false, {}, {}}
+	return {true, rgb(ui.color_mix(frame, white, 0.2)), rgb(ui.color_mix(frame, white, 0.03))}
+}
+
+// Each frame: with Bring its background on, a theme that changed paints the background.
+theme_bring_background :: proc(app: ^App) {
+	ts := &app.kit.themes
+	if !ts.bring do return
+	b := theme_background(theme_current(&app.kit))
+	if b == ts.brought do return
+	ts.brought = b
+	app.background = b
 }
 
 // Whether a control moved the chosen theme away from what it was saved as.
@@ -339,6 +390,7 @@ themes_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	fmt.sbprintfln(out, "look_user %d", ts.user)
 	fmt.sbprintfln(out, "look_seed %s", theme_seed_text(ts.seed, ts.over))
 	fmt.sbprintfln(out, "look_match %d", 1 if ts.match else 0)
+	fmt.sbprintfln(out, "look_background %d", 1 if ts.bring else 0)
 	fmt.sbprintfln(out, "look_day %v %d", ts.day.look, ts.day.user)
 	fmt.sbprintfln(out, "look_night %v %d", ts.night.look, ts.night.user)
 }
@@ -355,6 +407,9 @@ themes_settle :: proc(k: ^Kit_State) {
 		ts.over = theme_ref_over(k, theme_ref(k))
 	}
 	ts.seed_read = false
+	// The background read with the settings is the one to keep: only a later change of
+	// theme brings another.
+	ts.brought = theme_background(theme_current(k))
 }
 
 // Reads one themes line; false when `f` is not one. The `look` row comes through the
@@ -383,6 +438,8 @@ themes_line :: proc(k: ^Kit_State, f: []string) -> bool {
 		ts.seed_read = true
 	case "look_match":
 		ts.match = f[1] == "1"
+	case "look_background":
+		ts.bring = f[1] == "1"
 	case "look_day", "look_night":
 		if len(f) < 3 do return true
 		l, ok := look_of(f[1])
@@ -530,6 +587,9 @@ settings_look :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "Corners##look", corners[:], int(seed.corners)); picked >= 0 do seed.corners = ui.Theme_Corners(picked)
 	if seed.mode == .Dark do _ = ui.switch_row(ctx, "Pure black##look", &seed.black)
 	_ = ui.switch_row(ctx, "Panel shadows##look", &seed.shadow)
+	ui.caption(ctx, "VIEWPORT")
+	if ui.switch_row(ctx, "Bring its background##look", &ts.bring) && ts.bring do ts.brought = {}
+	ui.paragraph(ctx, "Changing theme also changes the viewport's background to go with it. The wireframe, Model mode's selection and the spaces' colours are under Every colour.")
 
 	// The contrast check: how the theme's text and accent read on its panels (WCAG 2).
 	shown := theme_current(k)

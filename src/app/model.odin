@@ -946,6 +946,9 @@ Model_Tool :: struct {
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
+	// Spine, Extrude and Knife along a curve, and curves made by Loop to curve.
+	follows:     int,
+	loop_curves: int,
 }
 
 // The segments Add cage uses: the ones set, and the defaults for those never set.
@@ -1004,6 +1007,8 @@ kit_model_tab :: proc(app: ^App) {
 		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
 		kit_cage_live(app, obj)
 	}
+	// A selected curve makes cages here (curve_cage.odin).
+	if obj := selected_object(app); obj != nil && obj.curve != nil do kit_curve_cage(app)
 	check := m.check
 	if ui.switch_row(ctx, "Mesh check", &check, keys = command_hint(app, .Cage_Check)) do command_run(app, .Cage_Check)
 	ui.caption(ctx, "SELECTION")

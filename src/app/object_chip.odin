@@ -58,6 +58,8 @@ object_chip_of :: proc(app: ^App) -> (c: Object_Chip) {
 	case .Voxel_Clay:
 	case .Cage:
 		if s := obj.cage.look.smooth; s > 0 do badge(&c, fmt.tprintf("Smooth %d", s))
+	case .Curve:
+		if obj.curve.use != .None do badge(&c, CURVE_USE_NAMES[obj.curve.use])
 	case .Sculpt_Mesh:
 		if n := len(obj.levels.levels); n > 1 do badge(&c, fmt.tprintf("L%d", obj.levels.current + 1))
 		if object_in_hd(obj) do badge(&c, "HD")

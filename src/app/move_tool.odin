@@ -15,7 +15,7 @@ import "../ui"
 Tool :: enum u8 {
 	Move, // select objects by clicking them; move them with the gizmo or by dragging
 	Brush, // sculpt the object under the cursor
-	Curve, // draw a tube, stitches or a zipper over the surface (curve_tool.odin)
+	Curve, // draw a curve or a tube to edit, or stitches or a zipper, over the surface (curve_tool.odin)
 	Insert, // put a shape on the surface (curve_tool.odin)
 	Model, // edit a cage's points, edges and faces (model.odin)
 }
@@ -222,7 +222,8 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			// it in the view plane, whatever the gizmo's mode.
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			index, hit, ok := scene_raycast(app, origin, dir)
-			// A curve has no surface to hit: a press near its line on screen takes it.
+			// A curve making nothing has no surface to hit: a press near its line on screen
+			// takes it.
 			if curve := curve_pick(app, input.mouse_pos, input.size); !ok && curve >= 0 {
 				index, hit, ok = curve, app.scene.objects[curve].transform.position, true
 			}

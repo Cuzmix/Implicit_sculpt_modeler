@@ -153,7 +153,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			}
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, app.tool)
-		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
+		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d model_follows=%d model_loop_curves=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused, app.model.follows, app.model.loop_curves)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(app); obj != nil do at = obj.transform.position
@@ -241,7 +241,23 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			if obj := selected_object(app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
 			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stamp_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_end.stamp_edits, app.stroke_edit.open)
 			curves, curve_points := curve_counts(app)
-			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d", curves, curve_points, app.curve.made, len(app.curve.placing))
+			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits)
+			tubes, lathes, alongs, tube_vertices, lathe_vertices, along_vertices := 0, 0, 0, 0, 0, 0
+			for obj in app.scene.objects do if obj.curve != nil && object_draws_triangles(obj) {
+				n := len(sculpt.levels_current(&obj.levels).mesh.positions)
+				#partial switch obj.curve.use {
+				case .Tube:
+					tubes += 1
+					tube_vertices += n
+				case .Lathe:
+					lathes += 1
+					lathe_vertices += n
+				case .Along:
+					alongs += 1
+					along_vertices += n
+				}
+			}
+			fmt.printfln("curve_tubes=%d curve_tube_vertices=%d curve_lathes=%d curve_lathe_vertices=%d curve_alongs=%d curve_along_vertices=%d curve_rebuilds=%d curve_tube_ms=%.2f curve_bakes=%d curve_brush_runs=%d curve_cages=%d", tubes, tube_vertices, lathes, lathe_vertices, alongs, along_vertices, app.curve.rebuilds, app.curve.tube_ms, app.curve.bakes, app.curve.brush_runs, app.curve.cages)
 			fmt.printfln("gesture=%s mask_shape=%s", lower(app.gesture), lower(app.ui.mask_shape_kind))
 			// The lights: which is picked, how many are on, the first one's view-space
 			// direction as the sphere shows it, and taps that flipped a light's side.
@@ -521,7 +537,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// and accent, and how many themes of their own the settings hold.
 		ts := &k.themes
 		shown := theme_current(k)
-		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match))
+		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d theme_background=%d theme_marks=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match), int(ts.bring), card(theme_shown_over(k).set & {.Space_Sculpt, .Space_Model, .Space_Render, .Wire, .Selection}))
 		// The brush's colours and channel, whether it subtracts, and how many vertices of the
 		// selected object carry paint.
 		painted := 0

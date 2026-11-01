@@ -349,6 +349,13 @@ Theme_Token :: enum u8 {
 	Success,
 	Warning,
 	Danger,
+	// The working spaces' tints (the Spaces tabs, the dots by an object's name), then the
+	// viewport's marks.
+	Space_Sculpt,
+	Space_Model,
+	Space_Render,
+	Wire,
+	Selection,
 }
 
 // Each token's word in a theme code and a settings line, which never changes once written.
@@ -379,6 +386,11 @@ THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Success        = "success",
 	.Warning        = "warning",
 	.Danger         = "danger",
+	.Space_Sculpt   = "space_sculpt",
+	.Space_Model    = "space_model",
+	.Space_Render   = "space_render",
+	.Wire           = "wire",
+	.Selection      = "selection",
 }
 
 // What each token colours, as Every colour lists it.
@@ -409,6 +421,11 @@ THEME_TOKEN_NAMES := [Theme_Token]string {
 	.Success        = "Done",
 	.Warning        = "Careful",
 	.Danger         = "Destructive",
+	.Space_Sculpt   = "Sculpt space",
+	.Space_Model    = "Model space",
+	.Space_Render   = "Render space",
+	.Wire           = "Wireframe",
+	.Selection      = "Model mode's selected faces",
 }
 
 // The colours set by hand: those in `set`, each its value in `colors`, opaque.
@@ -444,16 +461,28 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 	case .Success:        return &t.success
 	case .Warning:        return &t.warning
 	case .Danger:         return &t.danger
+	case .Space_Sculpt:   return &t.tints[0]
+	case .Space_Model:    return &t.tints[1]
+	case .Space_Render:   return &t.tints[2]
+	case .Wire:           return &t.wire
+	case .Selection:      return &t.selection
 	}
 	return &t.frame
 }
 
 // `t` with the colours set by hand put over it. The panels keep the seed's opacity, so a
-// hand-set surface colour still lets the view show through as much as before.
+// hand-set surface colour still lets the view show through as much as before, and the
+// selection keeps its own so the faces under it still show. A space's soft fill follows
+// its tint, mixed toward the panels as theme_derive mixes it.
 theme_overrides_apply :: proc(t: ^Theme, o: Theme_Overrides) {
 	for token in o.set {
 		c := o.colors[token]
 		p := theme_token(t, token)
-		p^ = {c.r, c.g, c.b, p.a if token == .Surface else 255}
+		p^ = {c.r, c.g, c.b, p.a if token == .Surface || token == .Selection else 255}
+	}
+	solid := Color{t.surface.r, t.surface.g, t.surface.b, 255}
+	light := color_luminance(solid) > 0.5
+	for token, i in ([3]Theme_Token{.Space_Sculpt, .Space_Model, .Space_Render}) {
+		if token in o.set do t.tints_soft[i] = color_mix(solid, t.tints[i], 0.16 if light else 0.2)
 	}
 }

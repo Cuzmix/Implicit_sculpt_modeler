@@ -645,8 +645,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		// A gentle wave across the middle of the view, from 30% to 70% of its width.
 		app.curve.kind = Curve_Kind(st.arg)
 		for i in 0 ..= 40 do curve_add_point(app, {size.x * (0.3 + 0.01 * f32(i)), size.y * (0.5 + 0.08 * math.sin(f32(i) / 6))}, size)
-		if app.curve.kind == .Curve do curve_drawn(app, {size.x * 0.7, size.y * 0.5}, size)
-		else if !curve_make(app) do return "", false
+		curve_drawn(app, {size.x * 0.7, size.y * 0.5}, size)
 	case .Insert_Middle:
 		app.insert.shape = geom.Primitive(st.arg)
 		origin, dir := mouse_ray(app.camera, 0.5 * size, size)

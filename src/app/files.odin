@@ -2075,7 +2075,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
 	// A cage writes each point, corner and face once, with a few bytes a corner.
-	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points)
+	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES
 	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he) + len(cp.held)
 	bytes += textures_bytes(obj.textures)
 	return bytes
@@ -2110,9 +2110,10 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 	curve_ok := (int(kind) == OBJECT_KIND_CURVE) == (source == .Curve_Chunk) || source == .Copy
 	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && (int(kind) <= most || source == .Curve_Chunk) && curve_ok && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj)) && !(kind == OBJECT_KIND_CURVE && (len(obj.group_materials) > 0 || object_has_textures(obj)))
 	if fields_ok && kind == OBJECT_KIND_CURVE {
-		if curve_part_get(r, obj) {
+		read, made = curve_part_get(app, r, obj)
+		if read {
 			free_all(context.temp_allocator)
-			return obj, true, true
+			return obj, true, made
 		}
 	} else if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
@@ -2181,6 +2182,7 @@ object_discard :: proc(app: ^App, obj: ^Object) {
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 	cage_part_free(obj)
+	curve_part_free(obj)
 	delete(obj.name)
 	delete(obj.group_materials)
 	textures_free(&obj.textures)

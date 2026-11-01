@@ -166,6 +166,14 @@ Command_Id :: enum u16 {
 	Stroke_Cancel,
 	Stroke_Radius_Each,
 	Stroke_Intensity_Each,
+	Curve_Delete_Point,
+	Curve_Corner,
+	Curve_Close,
+	Curve_Bake,
+	Curve_Use,
+	Curve_Brush_Run,
+	Curve_Pipe_Cage,
+	Curve_Lathe_Cage,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1482,6 +1490,87 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {return app.stroke_edit.open},
 		checked = proc(app: ^App, _: int) -> bool {return app.stroke_edit.intensity_each},
 	},
+	.Curve_Delete_Point = {
+		label = "Delete curve point",
+		help = "Deletes the point picked on the selected curve (tap a point to pick it); a curve keeps two points, a loop three.",
+		run = proc(app: ^App, _: int) {curve_delete_point(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_point_deletable(app)},
+	},
+	.Curve_Corner = {
+		label = "Corner point",
+		help = "Turns the point picked on the selected curve into a corner, whose handles turn freely, or back into a smooth one.",
+		run = proc(app: ^App, _: int) {curve_toggle_corner(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].corner
+		},
+	},
+	.Curve_Close = {
+		label = "Close curve",
+		help = "Joins the selected curve's ends into a loop, or opens the loop again.",
+		run = proc(app: ^App, _: int) {curve_toggle_closed(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && (obj.curve.closed || len(obj.curve.points) >= 3)
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && obj.curve.closed
+		},
+	},
+	.Curve_Bake = {
+		label = "Bake curve",
+		help = "Makes the selected curve's tube a mesh object to sculpt, in the curve's place; the curve goes, and Undo brings it back (Duplicate first to keep it).",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Bake_Curve}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && object_draws_triangles(obj)
+		},
+	},
+	.Curve_Use = {
+		label = "Curve use",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) or Brush path (a path to run the brush along). It stays editable until Bake. One undo step.",
+		icon = ui.ICON_SPLINE,
+		args = len(Curve_Use),
+		run = proc(app: ^App, arg: int) {
+			if obj := selected_curve(app); obj != nil do app.ui.scene_command = {kind = .Curve_Look, curve = curve_use_look(app, obj, Curve_Use(arg))}
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			built := CURVE_USES_BUILT
+			for use in built do if int(use) == arg do return selected_curve(app) != nil
+			return false
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && int(obj.curve.use) == arg
+		},
+	},
+	.Curve_Brush_Run = {
+		label = "Run brush along curve",
+		help = "Lays the brush in hand along the selected curve on the model under it, each point's radius and intensity its own, and opens the stroke for editing as a stroke held still does: drag its points, then Validate keeps it as one undo step. Not for Grab, Snake hook or Cloth, whose dabs follow the pointer.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {_ = curve_brush_run(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_brush_refusal(app) == ""},
+	},
+	.Curve_Pipe_Cage = {
+		label = "Pipe cage from curve",
+		help = "Makes a new Model mode cage of quads round the selected curve: a ring of Around points at each of its points and Steps between, as wide as its radius there, a corner point's ring creased; the ends closed with Cage caps. The curve stays. One undo step.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
+	},
+	.Curve_Lathe_Cage = {
+		label = "Lathe cage from curve",
+		help = "Makes a new Model mode cage of quads by spinning the selected curve round its lathe axis (the view's vertical if it has none yet) in Around steps, a point on the axis a pole of triangles. The curve stays. One undo step.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
+	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",
 		help = "Rebuilds the selected voxel object as a mesh of its surface, for the mesh tools; its clay goes, as one undo step.",
@@ -2575,6 +2664,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Curve_Use:
+		return fmt.tprintf("Curve use: %s", CURVE_USE_NAMES[Curve_Use(arg)])
 	case .Select_Cage:
 		return CAGE_SELECT_NAMES[poly.Select_Op(arg)]
 	case .Cage_Thickness:

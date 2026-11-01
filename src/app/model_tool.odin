@@ -6,6 +6,7 @@ import "core:math/linalg"
 import "core:slice"
 
 import "../camera"
+import "../geom"
 import "../gizmo"
 import "../poly"
 import "../sculpt"
@@ -62,6 +63,8 @@ Model_Action :: enum u8 {
 	Align,
 	Spine,
 	Topo,
+	// Last, so the actions' stored numbers hold.
+	Loop_Curve,
 }
 
 @(rodata)
@@ -93,6 +96,7 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Align          = "Align parts",
 	.Spine          = "Spine",
 	.Topo           = "Topo pen",
+	.Loop_Curve     = "Loop to curve",
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -125,6 +129,7 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Align          = "align parts",
 	.Spine          = "spine",
 	.Topo           = "topo pen",
+	.Loop_Curve     = "loop to curve",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -157,12 +162,13 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Align          = "faces the same way, so the part passes into the other",
 	.Spine          = "an arc from the faces to where the pen lifts, in place of the path drawn",
 	.Topo           = "a tap takes a dot away or deletes a face; a drag from a border edge grows the whole border",
+	.Loop_Curve     = "",
 }
 
 // What each action's help line says it does.
 @(rodata)
 MODEL_ACTION_HOW := [Model_Action]string {
-	.Extrude        = "Press and drag to pull the faces out; Shift snaps to steps",
+	.Extrude        = "Press and drag to pull the faces out; Shift snaps to steps. Lift over a curve and the faces grow along it instead",
 	.Inset          = "Press and drag to set the inset's width; Shift snaps to steps",
 	.Move           = "Press and drag to move the faces along their normal; Shift snaps to steps",
 	.Delete         = "Tap a face to delete what the target reaches",
@@ -185,10 +191,11 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Circle_Loop    = "Tap an edge to round its closed loop into a circle in the loop's own plane",
 	.Space_Loop     = "Tap an edge to spread its loop's points evenly along it, the ends of an open loop staying",
 	.Flatten_Loop   = "Tap an edge to move its loop's points onto the plane the loop lies nearest",
-	.Knife          = "Draw a stroke across the cage, starting beside it if you like: each face it crosses is cut along it. Or tap edges in turn to cut a path between them; a tap off the cage ends it",
+	.Knife          = "Draw a stroke across the cage, starting beside it if you like: each face it crosses is cut along it. Or tap edges in turn to cut a path between them; a tap off the cage ends it. A tap on a curve cuts along it as seen",
 	.Align          = "Press on a part and lift over a face of another part: they join face to face, centre on centre, the edges lined up. Tap the part just joined to turn it a step; Alt and a tap flips it",
-	.Spine          = "Press on a face and draw a path: the target grows along it in steps about its edges long, turning as the path turns, and a pen's pressure sets its size along the way",
+	.Spine          = "Press on a face and draw a path: the target grows along it in steps about its edges long, turning as the path turns, and a pen's pressure sets its size along the way. Lift over a curve and they follow the curve instead, sized by its width",
 	.Topo           = "Retopologise a sculpt: tap to drop dots on it, drag over three or four points to make a face, drag a point to move it (lift on another to weld), drag a border edge to grow a quad; Shift and a drag relaxes",
+	.Loop_Curve     = "Tap an edge to make a curve object through its loop, each of its points a smooth point of the curve, as ZBrush's Frame mesh makes curves from edges; Spine, Extrude and Knife can then follow it",
 }
 
 // What kind of element each action takes.
@@ -227,6 +234,7 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Align          = .Face,
 	.Spine          = .Face,
 	.Topo           = .Point,
+	.Loop_Curve     = .Edge,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
@@ -310,6 +318,7 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Align          = {.Island},
 	.Spine          = FACE_TARGETS,
 	.Topo           = {.Single},
+	.Loop_Curve     = {.Edge_Loop, .Border_Loop},
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -343,6 +352,7 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Align          = .Island,
 	.Spine          = .Single,
 	.Topo           = .Single,
+	.Loop_Curve     = .Edge_Loop,
 }
 
 // ZModeler's flat island tolerance.
@@ -538,6 +548,10 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 			model_drag_follow(app, obj, input)
 			return true
 		}
+		// An extrude lifted over a curve grows along it instead.
+		if d.action == .Extrude {
+			if curve := model_follow_pick(app, input.mouse_pos, input.size); curve != nil do return model_extrude_follow(app, obj, curve)
+		}
 		model_drag_finish(app, obj)
 		return true
 	case .Pressed:
@@ -578,13 +592,18 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		if d.action == .Spine {
 			append(&d.stroke, input.mouse_pos)
 			append(&d.pressure, model_pressure(input))
-			return model_spine(app, input.size)
+			return model_spine(app, input.size, model_follow_pick(app, input.mouse_pos, input.size))
 		}
 		if d.action == .Knife {
 			append(&d.stroke, input.mouse_pos)
 			if model_stroke_reach(d.stroke[:], d.press) > app.kit.ctx.theme.slop do return model_knife(app, input.size)
+			// A tap cutting on from an earlier tap stays a tap, even near a curve.
+			if m.knife_from.object == 0 {
+				if curve := model_follow_pick(app, input.mouse_pos, input.size); curve != nil do return model_knife_curve(app, input.size, curve)
+			}
 			return model_knife_tap(app, input.size)
 		}
+		if d.action == .Loop_Curve do return model_loop_curve(app)
 		if d.action == .Insert_Loop {
 			if !model_drag_begin(app, input) do return false
 			if d.state == .Dragging do model_drag_end(app)
@@ -790,9 +809,11 @@ model_tap :: proc(app: ^App) -> bool {
 }
 
 // The knife's cut: where the stroke crossed the cage's edges in sight, in the order it
-// crossed them, cut as one undo step (with its mirror images under symmetry).
+// crossed them, cut as one undo step (with its mirror images under symmetry). With
+// `close`, the stroke is a loop, and its last crossing joins its first where they share a
+// face.
 @(private = "file")
-model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = {}) -> bool {
+model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = {}, close := false) -> bool {
 	d := &app.model.drag
 	obj := object_by_id(app, d.object)
 	if obj == nil || obj.cage == nil || len(d.stroke) < 2 do return true
@@ -849,6 +870,7 @@ model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = 
 	if p, ok := ends[0].?; ok do append(&chain, p)
 	for h in hits do append(&chain, h.point)
 	if p, ok := ends[1].?; ok do append(&chain, p)
+	if close && len(chain) >= 3 && model_edges_share_face(cage, chain[0].edge, chain[len(chain) - 1].edge) do append(&chain, chain[0])
 	chains := make([dynamic][]poly.Knife_Point, context.temp_allocator)
 	append(&chains, chain[:])
 	append(&chains, ..poly.knife_images(cage, chain[:], model_axes(app), context.temp_allocator))
@@ -856,6 +878,69 @@ model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = 
 	poly.edit_result_destroy(&r)
 	return model_commit(app, obj, before, err)
 }
+
+// Whether edges a and b (not the same) border one face.
+@(private = "file")
+model_edges_share_face :: proc(cage: ^poly.Mesh, a, b: u32) -> bool {
+	if a == b do return false
+	for i in 0 ..< u32(2) {
+		f := cage.he_face[2 * a + i]
+		if f == poly.NONE do continue
+		if cage.he_face[2 * b] == f || cage.he_face[2 * b + 1] == f do return true
+	}
+	return false
+}
+
+// A Knife tap on `curve`: the pressed or selected cage cut along the curve's line as seen,
+// as a stroke drawn there would cut it, one undo step.
+@(private = "file")
+model_knife_curve :: proc(app: ^App, size: [2]f32, curve: ^Object) -> bool {
+	m := &app.model
+	d := &m.drag
+	m.knife_from = {}
+	line := curve_screen_line(app, curve, size)
+	if len(line) < 2 {
+		report(app, nil, {}, "Knife: turn the view so all of the curve is in front of you")
+		return true
+	}
+	clear(&d.stroke)
+	append(&d.stroke, ..line)
+	closed := curve.curve.closed
+	if closed do append(&d.stroke, line[0])
+	m.follows += 1
+	return model_knife(app, size, close = closed)
+}
+
+// Loop to curve: a curve object through the tapped loop's points as shown, each a smooth
+// point, closed for a closed loop, as wide as a tenth of the loop's edges, as one undo step.
+@(private = "file")
+model_loop_curve :: proc(app: ^App) -> bool {
+	m := &app.model
+	d := &m.drag
+	obj := object_by_id(app, d.object)
+	if obj == nil || obj.cage == nil || len(d.items) == 0 do return true
+	verts, closed := poly.loop_points(&obj.cage.mesh, d.items[:], context.temp_allocator)
+	if len(verts) < CURVE_MIN_POINTS || (closed && len(verts) < 3) {
+		m.refused += 1
+		report(app, nil, {.Warning}, "Loop to curve: tap an edge of a loop that runs on from edge to edge")
+		return true
+	}
+	points := make([]geom.Bezier_Point, len(verts), context.temp_allocator)
+	for v, i in verts do points[i] = {p = to_world(obj.transform, cage_point(obj.cage, v)), intensity = 1}
+	length: f32
+	edges := len(verts) if closed else len(verts) - 1
+	for i in 0 ..< edges do length += linalg.length(points[(i + 1) % len(points)].p - points[i].p)
+	radius := MODEL_LOOP_CURVE_RADIUS * length / f32(max(edges, 1))
+	for &p in points do p.radius = radius
+	for i in 0 ..< len(points) do geom.bezier_make_smooth(points, closed, i)
+	if !curve_object_add(app, points, closed) do return false
+	m.loop_curves += 1
+	m.done += 1
+	return true
+}
+
+// A curve made from a loop is this share of the loop's mean edge wide (its radius).
+MODEL_LOOP_CURVE_RADIUS :: 0.1
 
 // The pen's pressure now: the last sample's, 1 from a mouse or with no samples.
 @(private = "file")
@@ -968,9 +1053,9 @@ MODEL_SPINE_SCALE_MAX :: 2
 // undo step (with their mirror images under symmetry, along the mirrored path). The path
 // lies on the plane through the faces' middle along their normal that faces the view
 // most squarely; with Alt it is the arc from the faces leaving along their normal to
-// where the pen lifted.
+// where the pen lifted; lifted over `follow`, a curve, it is that curve.
 @(private = "file")
-model_spine :: proc(app: ^App, size: [2]f32) -> bool {
+model_spine :: proc(app: ^App, size: [2]f32, follow: ^Object = nil) -> bool {
 	m := &app.model
 	d := &m.drag
 	obj := object_by_id(app, d.object)
@@ -981,30 +1066,13 @@ model_spine :: proc(app: ^App, size: [2]f32) -> bool {
 	}
 	// Before anything temporary: a snapshot frees the frame's temporary memory.
 	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[.Spine])
-	cage := &obj.cage.mesh
 	t := obj.transform
-	// The faces' middle, their mean normal, and how long their outline's edges are.
-	middle, normal: Vec3
-	area: f32
-	for f in d.items {
-		a := poly.face_area(cage, f)
-		middle += poly.face_center(cage, f) * a
-		area += a
-		normal += poly.face_area_vector(cage, f)
+	middle, normal, step := model_spine_base(&obj.cage.mesh, d.items[:])
+	if follow != nil {
+		path, scale := model_follow_path(obj, follow, middle, normal)
+		m.follows += 1
+		return model_spine_grow(app, obj, before, d.items[:], path, scale, middle, normal, step)
 	}
-	middle /= max(area, 1e-20)
-	normal = linalg.normalize0(normal)
-	outline, edges: f32
-	for f in d.items {
-		w := poly.face_walk(cage, f)
-		for h in poly.face_walk_next(&w) {
-			other := cage.he_face[poly.twin(h)]
-			if other != poly.NONE && slice.contains(d.items[:], other) do continue
-			outline += poly.edge_length(cage, poly.edge_of(h))
-			edges += 1
-		}
-	}
-	step := MODEL_SPINE_STEP * outline / max(edges, 1)
 	// The plane the path is drawn on.
 	_, look := mouse_ray(app.camera, d.press, size)
 	view := linalg.normalize0(to_local_dir(t, look))
@@ -1038,33 +1106,147 @@ model_spine :: proc(app: ^App, size: [2]f32) -> bool {
 			scale = model_spine_scale(kept[:])
 		}
 	}
-	steps := poly.spine_steps(path[:], scale, middle, normal, step, context.temp_allocator)
+	return model_spine_grow(app, obj, before, d.items[:], path[:], scale, middle, normal, step)
+}
+
+// What Spine grows from: the faces' middle (weighted by area), their mean normal, and the
+// step, half their outline's mean edge.
+@(private = "file")
+model_spine_base :: proc(cage: ^poly.Mesh, faces: []u32) -> (middle, normal: Vec3, step: f32) {
+	area: f32
+	for f in faces {
+		a := poly.face_area(cage, f)
+		middle += poly.face_center(cage, f) * a
+		area += a
+		normal += poly.face_area_vector(cage, f)
+	}
+	middle /= max(area, 1e-20)
+	normal = linalg.normalize0(normal)
+	outline, edges: f32
+	for f in faces {
+		w := poly.face_walk(cage, f)
+		for h in poly.face_walk_next(&w) {
+			other := cage.he_face[poly.twin(h)]
+			if other != poly.NONE && slice.contains(faces, other) do continue
+			outline += poly.edge_length(cage, poly.edge_of(h))
+			edges += 1
+		}
+	}
+	step = MODEL_SPINE_STEP * outline / max(edges, 1)
+	return
+}
+
+// The faces grown along `path` (the cage's space, from their middle) in steps, with their
+// mirror images along the mirrored path, committed as the undo step `before` began; a
+// path too short to grow drops it. With `stale`, the cage shown is not the cage (an
+// extrude put back), so it is rebuilt even when nothing grows.
+@(private = "file")
+model_spine_grow :: proc(app: ^App, obj: ^Object, before: ^Object_Snapshot, faces: []u32, path: []Vec3, scale: []f32, middle, normal: Vec3, step: f32, stale := false) -> bool {
+	cage := &obj.cage.mesh
+	steps := poly.spine_steps(path, scale, middle, normal, step, context.temp_allocator) if step > 0 else nil
 	if len(steps) == 0 {
 		history_snapshot_drop(before)
-		return true
+		return cage_rebuild(app, obj) if stale else true
 	}
 	// The faces, then each mirror image of them apart from those already taken.
 	regions := make([dynamic][]u32, context.temp_allocator)
 	runs := make([dynamic][]poly.Spine_Step, context.temp_allocator)
-	append(&regions, d.items[:])
+	append(&regions, faces)
 	append(&runs, steps)
 	taken := make(map[u32]bool, allocator = context.temp_allocator)
-	for f in d.items do taken[f] = true
+	for f in faces do taken[f] = true
 	signs := poly.mirror_signs(model_axes(app))
 	for sign in signs[1:] {
-		faces, found := poly.mirror_faces_by(cage, d.items[:], sign, poly.mirror_slack(cage), context.temp_allocator)
+		mirror, found := poly.mirror_faces_by(cage, faces, sign, poly.mirror_slack(cage), context.temp_allocator)
 		if !found do continue
 		apart := true
-		for f in faces do apart &&= !taken[f]
+		for f in mirror do apart &&= !taken[f]
 		if !apart do continue
-		for f in faces do taken[f] = true
+		for f in mirror do taken[f] = true
 		mirrored := make([]poly.Spine_Step, len(steps), context.temp_allocator)
 		for s, i in steps do mirrored[i] = poly.spine_step_mirror(s, sign)
-		append(&regions, faces)
+		append(&regions, mirror)
 		append(&runs, mirrored)
 	}
 	_, err := poly.spine_faces(cage, regions[:], runs[:], context.temp_allocator)
+	if err != .None && stale {
+		// Refused, the cage is as it was put back, which is not what is shown.
+		_ = model_commit(app, obj, before, err)
+		return cage_rebuild(app, obj)
+	}
 	return model_commit(app, obj, before, err)
+}
+
+// The curve whose line passes under the pen at `pos`, for Spine, Extrude and Knife to
+// follow, or nil.
+model_follow_pick :: proc(app: ^App, pos, size: [2]f32) -> ^Object {
+	i := curve_pick(app, pos, size)
+	return app.scene.objects[i] if i >= 0 else nil
+}
+
+// The path faces whose middle is `middle` and normal `normal` (in `cage`'s space) follow
+// along `curve`, in the cage's space: the curve from its end nearer the middle (a closed
+// one from its point nearest it, round the way that leaves along the normal, stopping a
+// piece short of it so the last ring does not lie on the faces), moved so it starts at
+// the middle; and the size along it, the curve's radius over its radius at the start.
+// Both in temp memory; nil for a curve with no length.
+model_follow_path :: proc(cage, curve: ^Object, middle, normal: Vec3) -> (path: []Vec3, scale: []f32) {
+	cp := curve.curve
+	if cp == nil || len(cp.points) < CURVE_MIN_POINTS do return nil, nil
+	length := geom.bezier_length(cp.points[:], cp.closed)
+	if !(length > 0) do return nil, nil
+	samples := geom.bezier_sample(cp.points[:], cp.closed, length / MODEL_FOLLOW_PIECES, context.temp_allocator)
+	n := len(samples)
+	// A closed curve's samples end where they began; that point is taken once.
+	if cp.closed && n > 2 && linalg.length(samples[n - 1].p - samples[0].p) < 1e-6 * length do n -= 1
+	if n < 2 do return nil, nil
+	local := make([]Vec3, n, context.temp_allocator)
+	for i in 0 ..< n do local[i] = to_local(cage.transform, to_world(curve.transform, samples[i].p))
+	start, way := 0, 1
+	if cp.closed {
+		best := max(f32)
+		for q, i in local do if d := linalg.length2(q - middle); d < best do best, start = d, i
+		if linalg.dot(local[(start + 1) % n] - local[start], normal) < 0 do way = -1
+	} else if linalg.length2(local[n - 1] - middle) < linalg.length2(local[0] - middle) {
+		start, way = n - 1, -1
+	}
+	count := n
+	path = make([]Vec3, count, context.temp_allocator)
+	scale = make([]f32, count, context.temp_allocator)
+	r0 := samples[start].radius
+	for k in 0 ..< count {
+		i := ((start + way * k) % n + n) % n
+		path[k] = middle + local[i] - local[start]
+		scale[k] = clamp(samples[i].radius / r0, poly.SPINE_SCALE_MIN, MODEL_SPINE_SCALE_MAX) if r0 > 0 else 1
+	}
+	return
+}
+
+// How many pieces a followed curve is cut into before Spine steps along it.
+MODEL_FOLLOW_PIECES :: 256
+
+// An extrude lifted over `curve`: the cage put back as pressed and the faces grown along
+// the curve as Spine grows them, as the drag's one undo step.
+@(private = "file")
+model_extrude_follow :: proc(app: ^App, obj: ^Object, curve: ^Object) -> bool {
+	m := &app.model
+	d := &m.drag
+	before := d.before
+	d.before = nil
+	d.state = .None
+	poly.drag_set_destroy(&d.set)
+	cage := &obj.cage.mesh
+	poly.mesh_destroy(cage)
+	cage^ = d.original
+	d.original = {}
+	middle, normal, step := model_spine_base(cage, d.items[:])
+	path, scale := model_follow_path(obj, curve, middle, normal)
+	if len(path) < 2 {
+		m.refused += 1
+		report(app, nil, {.Warning}, "Extrude: the curve has no length to follow")
+	}
+	m.follows += 1
+	return model_spine_grow(app, obj, before, d.items[:], path, scale, middle, normal, step, stale = true)
 }
 
 // How far from straight on the view must see the faces for Spine (the sine of the angle
@@ -1401,6 +1583,8 @@ model_drag_begin :: proc(app: ^App, input: Viewport_Input) -> bool {
 	rebuilt := false
 	#partial switch d.action {
 	case .Extrude:
+		// Kept as pressed, so a lift over a curve can grow the faces along it instead.
+		d.original = poly.mesh_clone(cage^)
 		ring, d.set, err = poly.extrude_faces(cage, model_all(d), false, d.alt)
 		rebuilt = true
 	case .Inset:
@@ -1760,9 +1944,18 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	for obj in app.scene.objects {
 		if obj.cage == nil || !object_shown(app, obj) do continue
 		poly.selected_faces(&obj.cage.mesh, &picked)
-		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], MODEL_SELECTION_COLOR)
+		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], theme_selection_color(&app.kit))
 		if m.check do draw_model_check(app, o, input, obj)
 		draw_model_creases(app, o, input, obj)
+	}
+	// The curve under the pen that Spine, Extrude or Knife would follow, in the selection's
+	// colour, so what a lift there does shows before it.
+	knife_tap := m.action == .Knife && m.knife_from.object == 0 && (d.state == .None || d.state == .Pressed && model_stroke_reach(d.stroke[:], d.press) <= app.kit.ctx.theme.slop)
+	follows := knife_tap || d.state == .Pressed && d.action == .Spine || d.state == .Dragging && d.action == .Extrude
+	if follows && (input.hovered || input.primary) {
+		if curve := model_follow_pick(app, input.mouse_pos, input.size); curve != nil {
+			if line := curve_screen_line(app, curve, input.size); len(line) > 1 do overlay_polyline(o, line, overlay_color(MODEL_SELECTION_COLOR), 4 * o.scale, curve.curve.closed)
+		}
 	}
 	// The Knife's last tap, and the cut the next tap would make from it.
 	if m.action == .Knife && m.knife_from.object != 0 && d.state != .Pressed {

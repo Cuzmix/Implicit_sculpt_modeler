@@ -182,7 +182,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// What each item was made from, for the main view's shading to make it again.
 	froms := make([dynamic]Item_From, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 	for obj, i in app.scene.objects {
-		// A curve is drawn by the overlay (curve_object.odin).
+		// A curve making nothing is only its line, which the overlay draws (curve_object.odin).
 		if !object_draws_triangles(obj) do continue
 		if vp := obj.voxel; vp != nil {
 			// A voxel object draws its clay's surface, remeshed where the frame's dabs landed.
@@ -337,7 +337,9 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	moving := time.tick_since(app.view_moved) < LOD_SETTLE
 	app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(app) && !turntable_recording(app) else 0
 	app.renderer.floor = floor_grid_frame(app)
+	theme_bring_background(app)
 	app.renderer.background = background_frame(app.background)
+	app.renderer.wire_color = theme_wire_color(&app.kit)
 	environment_view(app)
 	// A pass with a ground of its own shows it instead of the background or the
 	// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.

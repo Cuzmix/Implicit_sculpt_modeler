@@ -1000,6 +1000,8 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	start := time.tick_now()
 	stroke_finish(app)
 	app.move.drag = {}
+	// A press on a curve's point is forgotten; its curve may be the one coming back.
+	curve_drag_drop(app)
 	obj := object_by_id(app, e.id)
 	live := history_snapshot(app, obj, snap.what)
 	defer snapshot_free(live)

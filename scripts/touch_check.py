@@ -1351,6 +1351,190 @@ def curve_placed_by_taps_shows_its_line():
 
 
 @scenario
+def curve_edited_by_pen():
+    """A curve of three tapped points (closed by a tap on the first), then by pen one of its
+    points dragged, one undo step, which Ctrl+Z takes back. Shows the points, orange handles
+    and radius dots over the model (look with --screens)."""
+    s = Script()
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+    s.press("z", ("ctrl",))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_edits": near(1),
+                                                                     "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
+
+
+def tube_loop(s):
+    """Three pen taps and a tap back on the first: a closed curve making a tube, then its
+    second point dragged by pen, which makes the tube again."""
+    for x, y in [(700, 420), (860, 420), (780, 540), (701, 421)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.wait(2)
+    s.add("pnear")
+    s.add("pdown:860,420")
+    for x, y in line((860, 420), (900, 470), 6)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.add("pup")
+    s.add("pfar")
+    s.wait(3)
+
+
+@scenario
+def tube_drawn_by_pen_follows_its_points():
+    """A closed curve of tapped points with Tube makes a live tube, which a dragged point
+    reshapes (one undo step each); shows the tube with the curve's points over it (look with
+    --screens)."""
+    s = Script()
+    tube_loop(s)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_points": near(3),
+                                                                    "curve_edits": near(1), "curve_rebuilds": lambda v: int(v) >= 1,
+                                                                    "curve_tube_vertices": lambda v: int(v) > 100, "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_from_the_palette_and_undone():
+    """A tube curve baked by the palette's Bake curve becomes a mesh object in its place (the
+    curve goes, one undo step), and Ctrl+Z brings the curve and its tube back."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "curve_bakes": near(1),
+                                                                    "objects": near(2), "undo_steps": near(2), "redo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def tube_baked_is_a_mesh():
+    """After Bake the scene holds the sphere and the baked tube, and no curve; Bake's two
+    entries (the mesh added, the curve deleted) are one step, chained."""
+    s = Script()
+    tube_loop(s)
+    s.press("k", ("ctrl",))
+    s.type("bake curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(0), "curve_bakes": near(1), "objects": near(2),
+                                                                    "undo_steps": near(4), "dabs": near(0)})
+
+
+@scenario
+def lathe_chosen_from_the_palette():
+    """An open curve of three tapped points (Enter ends it) turned into a Lathe from the
+    palette: the curve spun round the view's vertical through its first point, one undo
+    step; shows the lathe with its dashed axis (look with --screens)."""
+    s = Script()
+    for x, y in [(780, 300), (900, 420), (800, 560)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.press("Return")
+    s.wait(2)
+    s.press("k", ("ctrl",))
+    s.type("curve use lathe")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_lathes": near(1), "curve_tubes": near(0),
+                                                                     "curve_lathe_vertices": lambda v: int(v) > 100, "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def zipper_drawn_by_pen_stays_a_curve():
+    """A pen drag with the Curve tool's Zipper kind makes a curve whose use is Along, its
+    teeth alternating sides, still a curve to edit (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve zipper"], camera_still({"curves": near(1), "curve_alongs": near(1), "curve_tubes": near(0),
+                                                                      "curve_along_vertices": lambda v: int(v) > 100, "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def brush_run_along_a_curve_from_the_palette():
+    """A pen-drawn curve made a brush path, then Run brush along curve from the palette:
+    the brush is laid along it on the sphere as a stroke held to edit, which Enter keeps,
+    one undo step (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("curve use brush path")
+    s.press("Return")
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("run brush along curve")
+    s.press("Return")
+    s.wait(6)
+    s.press("Return")
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_brush_runs": near(1), "dabs": lambda v: int(v) > 0,
+                                                                     "undo_steps": near(3), "stroke_edit_open": lambda v: v == "false"})
+
+
+@scenario
+def pipe_cage_from_a_curve():
+    """A pen-drawn curve made a Model mode pipe cage from the palette: a new quad cage round
+    the curve, selected, one undo step; the curve stays (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("pipe cage from curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_cages": near(1), "objects": near(3),
+                                                                     "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def lathe_cage_from_a_curve():
+    """Three tapped points, then Lathe cage from the palette: the curve spun round the view's
+    vertical into a quad cage with triangles at a pole, one undo step (look with --screens)."""
+    s = Script()
+    for x, y in [(780, 300), (900, 420), (800, 560)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.press("Return")
+    s.wait(2)
+    s.press("k", ("ctrl",))
+    s.type("lathe cage from curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_cages": near(1), "objects": near(3),
+                                                                     "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
@@ -4093,6 +4277,37 @@ def model_align_sets_a_cage_on_another():
     return Steps([(run(), LENS_1440 + [f"--script={base}"], {"model_done": near(1), "undo_steps": near(1), "selected_x": near(2.25, 0.001), "selected_y": near(1.1547, 0.001), "cages": near(2)}),
                   (run((550, 330)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(1.1547, 0.001)}),
                   (run((550, 330), ("ctrl",)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(0, 0.001)})])
+
+@scenario
+def model_knife_tap_on_a_curve_cuts_along_it():
+    """A curve drawn over the cube's front, then a Knife tap on it: the right face it crosses is cut along it as seen (two new points, one face more), one undo step; the curve under the pen is drawn in the selection's colour (look with --screens)."""
+    s = Script()
+    s.mouse_drag([(650, 487)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; draw_curve curve; model_action knife"], {"curves": near(1), "cage_points": near(10), "cage_faces": near(7), "cage_broken": near(0), "undo_steps": near(1), "model_follows": near(1)}
+
+
+@scenario
+def model_loop_to_curve_makes_a_curve():
+    """Loop to curve tapped on an edge of a torus cage makes a closed curve object through that loop's points, selected, one undo step; the cage is unchanged (look with --screens)."""
+    s = Script()
+    s.mouse_drag([(720, 470)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage torus; select 1; delete_object; frame_all; model_action loop_curve"], {"curves": near(1), "objects": near(2), "cage_broken": near(0), "undo_steps": near(1), "model_loop_curves": near(1)}
+
+
+@scenario
+def model_spine_and_extrude_follow_a_curve():
+    """Spine pressed on the cube's right face and lifted over a curve beside it grows the face along the curve in four steps (22 faces), one undo step; Extrude dragged from the same face and lifted over the curve grows the same instead of its plain pull (look with --screens)."""
+    base = "add_cage cube; select 1; delete_object; frame_all; draw_curve curve; select 2; move 2.4 -0.3 -1.6"
+    def run():
+        s = Script()
+        s.mouse_drag(line((820, 580), (914, 438), 12))
+        s.wait(10)
+        return s
+    return Steps([(run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action spine"], {"curves": near(1), "cage_faces": near(22), "cage_broken": near(0), "model_follows": near(1), "undo_steps": near(1)}),
+                  (run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action extrude"], {"curves": near(1), "cage_faces": near(22), "cage_broken": near(0), "model_follows": near(1), "undo_steps": near(1)})])
+
 
 @scenario
 def model_spine_grows_along_the_path():
