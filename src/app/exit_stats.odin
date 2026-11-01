@@ -23,6 +23,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("autosaves=%d autosave_aborts=%d autosave_torn=%d autosave_wait_ms=%.1f autosave_sync_ms=%.1f autosave_serialize_ms=%.1f autosave_write_ms=%.1f autosave_mb=%.1f recovered=%d recover_offers=%d",
 			as.written, as.aborts, as.torn, as.wait_ms, as.sync_ms, as.serialize_ms, as.write_ms, f64(as.bytes) / (1 << 20), as.recovered, len(as.offers))
 	}
+	// The log file: whether this run writes one, whether its start said the run before had
+	// crashed, and whether a crash log is kept to save.
+	fmt.printfln("crash_log=%d crash_reported=%d crash_kept=%d", int(crash_log.file != nil), int(crash_log.reported), int(crash_log_kept()))
 	// The scene file's preview picture: how many were taken, the last one's size and the
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)

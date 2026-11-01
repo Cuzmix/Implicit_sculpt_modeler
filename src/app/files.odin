@@ -60,6 +60,7 @@ File_Kind :: enum u8 {
 	Export_Workspace, // the current workspace goes to a .workspace file (workspace_file.odin)
 	Import_Workspace, // a .workspace file becomes a workspace of the user's own
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
+	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 }
 
 File_Request :: struct {
@@ -124,6 +125,8 @@ STL_FILTERS := [?]sdl.DialogFileFilter{{"STL (3D printing)", "stl"}}
 PRINT_OBJ_FILTERS := [?]sdl.DialogFileFilter{{"OBJ (3D printing)", "obj"}}
 @(private = "file")
 PRINT_3MF_FILTERS := [?]sdl.DialogFileFilter{{"3MF (3D printing)", "3mf"}}
+@(private = "file")
+TEXT_FILTERS := [?]sdl.DialogFileFilter{{"Text", "txt"}}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
@@ -267,6 +270,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
+	case .Crash_Log:                                             dialog_save(app, userdata, TEXT_FILTERS[:], "sculpt-log-crash.txt")
 	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
 	}
 }
@@ -307,6 +311,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
+		case .Crash_Log: suffix = ".txt"
 		}
 	}
 	delete(pending.req.path, heap)
@@ -513,6 +518,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = workspace_import(app, req.path)
 	case .Diagnostic_Report:
 		_ = diag_export(app, req.path)
+	case .Crash_Log:
+		_ = crash_log_save(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:

@@ -9966,6 +9966,43 @@ def palette_recents_come_first_and_are_remembered():
     return s, [f"--settings-file={settings_file()}"], {"palette_last": is_text("Brush:Clay"), "brush_kind": is_text("clay")}
 
 
+def crash_log_file(suffix=""):
+    """The log file of the scenario running on this thread (in its autosave folder, which
+    each run empties first), or the one beside it a suffix names: -previous or -crash."""
+    return os.path.join(autosave_folder(), f"log{suffix}.txt")
+
+
+def file_holds(path, text):
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return text in f.read()
+
+
+@scenario
+def crash_log_kept_after_a_crash():
+    """A run that crashes (a bad memory access on another thread) writes what happened and its stack into its log; the next start says so in a toast, keeps that log as the crash log, and Settings > Files > Crash log offers to save it."""
+    os.makedirs(autosave_folder(), exist_ok=True)
+    log_arg = f"--log-file={crash_log_file()}"
+    crash = Script()
+    crash.wait(2)
+    after = Script()
+    after.ftap(LENS_SETTINGS["open"])
+    after.wait(12)
+    after.ftap(LENS_SETTINGS["search"])
+    after.wait(4)
+    after.add("text:crash")
+    after.wait(8)
+    return Steps([
+        (crash, [log_arg, "--crash-test=thread"], {
+            "@crash written": lambda _: file_holds(crash_log_file(), "crash: SIGSEGV") and file_holds(crash_log_file(), "on another thread") and file_holds(crash_log_file(), "crash: end"),
+        }),
+        (after, LENS_1440 + [log_arg], camera_still({
+            "crash_log": near(1), "crash_reported": near(1), "crash_kept": near(1),
+            "settings_section": is_text("Files"), "dabs": near(0),
+            "@crash kept": lambda _: file_holds(crash_log_file("-crash"), "crash: SIGSEGV") and file_holds(crash_log_file("-previous"), "crash: SIGSEGV") and file_holds(crash_log_file(), "exit: clean"),
+        })),
+    ])
+
+
 class Steps(list):
     """Several runs of the app for one scenario, in order, each (script, args, checks): a
     crash, then the start after it. A run given --crash-after-autosave must end with exit
@@ -10050,7 +10087,9 @@ def run_one(name, step, screens, displays):
                 stats[k] = v
     failures = []
     want_exit = 3 if "--crash-after-autosave" in args else 0
-    if proc.returncode != want_exit:
+    # A crash test ends by the signal or exception it raised, whose code differs by system.
+    crashed = any(a.startswith("--crash-test=") for a in args)
+    if (proc.returncode == 0) if crashed else (proc.returncode != want_exit):
         failures.append(f"exit code {proc.returncode}: {proc.stderr.strip().splitlines()[-3:]}")
     for key, ok in checks.items():
         if key.startswith("@"):

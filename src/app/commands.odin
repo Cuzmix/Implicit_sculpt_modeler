@@ -288,6 +288,7 @@ Command_Id :: enum u16 {
 	Input_Diagnostics, // diagnostics.odin
 	History_Panel,
 	Pen_As_Empty, // pen_roll.odin: only a pencil gesture's slot over a place of the interface holds it
+	Save_Crash_Log, // crash_log.odin
 }
 
 // A set of commands. The backing holds 512 ids, room past today's count; a set over
@@ -2529,6 +2530,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_HISTORY,
 		run = proc(app: ^App, _: int) {app.kit.history = !app.kit.history},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.history},
+	},
+	.Save_Crash_Log = {
+		label = "Save the crash log...",
+		help = "Saves a copy of the log of the last run that crashed, which says what went wrong and where, to send with a bug report.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Crash_Log)},
+		enabled = proc(app: ^App, _: int) -> bool {return crash_log_kept()},
 	},
 	.Pen_As_Empty = {
 		label = "As over empty space",

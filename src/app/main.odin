@@ -97,6 +97,8 @@ Options :: struct {
 	autosave_rest: f32 `usage:"Seconds without a press, key or stroke before an autosave starts (default 1.5)."`,
 	check_autosave: bool `usage:"Check that nothing an autosave reads changes while it reads it: the exit stats count it as autosave_torn."`,
 	crash_after_autosave: bool `usage:"Exit with code 3 right after the first autosave is written, skipping the clean exit, as a crash would: the kill test of autosave and recovery."`,
+	log_file: string `usage:"Write the run's log to this file, and a crash's lines with it, as an interactive run does to sculpt-log.txt in the app's folder; the log before is kept beside it as NAME-previous and a crashed one as NAME-crash."`,
+	crash_test: string `usage:"Crash on purpose once the scene is set up, to test the crash log: panic (an Odin panic), segv (a bad memory access on the main thread) or thread (one on another thread)."`,
 	autosave_hold: bool `usage:"Hold the first autosave before it reads the scene until a stroke, a command or the end of the run stops it, so a test sees the stop on a machine of any speed."`,
 	bench_after_autosave: bool `usage:"Start --bench-stroke only once an autosave of the scene as it starts is being written, so the stroke runs while the file is written (the autosave benchmark)."`,
 	load_strokes: string `usage:"Load the strokes in this .strokes file and replay them where they were drawn, as the Stroke recorder's Load and Replay do: once --bench-stroke ends, or at the start; the run lasts until they are done."`,
@@ -441,9 +443,6 @@ main :: proc() {
 // The whole run on the main thread: the logger, the debug build's leak tracking, the
 // flags, then run. Exits the process with 1 on a failure, or with the run's own code.
 app_main :: proc() {
-	context.logger = platform_logger()
-	defer platform_logger_destroy(context.logger)
-
 	when ODIN_DEBUG {
 		tracking: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&tracking, context.allocator)
@@ -452,6 +451,14 @@ app_main :: proc() {
 
 	opts := Options{subdiv = 6, width = 1600, height = 900, spheres = 1}
 	flags.parse_or_exit(&opts, os.args, .Unix)
+	// An interactive run keeps its log in the app's folder, and a crash's with it; a scripted
+	// one only where --log-file asks, so tests never touch the person's log.
+	log_path := opts.log_file if opts.log_file != "" else (platform_log_path() if run_interactive(opts) else "")
+	context.logger = platform_logger(log_path)
+	defer platform_logger_destroy(context.logger)
+	// Unconditionally, as a context change lasts only to the end of its block; with no log it
+	// only calls Odin's own.
+	context.assertion_failure_proc = crash_assertion
 	exit_code := 0
 	ok := run(opts, &exit_code)
 	if errors := render.validation_errors(); errors > 0 {
@@ -475,6 +482,12 @@ app_main :: proc() {
 	}
 	if !ok do os.exit(1)
 	if exit_code != 0 do os.exit(exit_code)
+}
+
+// Whether a run is a person's rather than a script's or a benchmark's: one that runs until
+// it is closed.
+run_interactive :: proc(opts: Options) -> bool {
+	return opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
 }
 
 // The app, from start to exit. False on a failure (exit code 1); a run that ends as it
@@ -782,7 +795,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		delete(app.recent_scenes)
 	}
 	defer if remember do _ = settings_save(&app, settings)
-	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
+	interactive := run_interactive(opts)
 	app.camera_ease.allowed = interactive || opts.camera_ease
 	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
@@ -818,6 +831,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer render.fence_finish(&app.renderer, &loop.present_fence)
 	for _ in 0 ..< min(opts.view_windows, VIEW_WINDOWS_MAX) do view_window_request(&app, view_window_default(&app))
+	crash_log_report(&app)
+	crash_test(opts.crash_test)
 	for app.running {
 		if !frame_step(&app, &loop) do return false
 	}

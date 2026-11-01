@@ -1,6 +1,8 @@
 package main
 
+@(require) import "base:runtime"
 import "core:log"
+import "core:strings"
 import sdl "vendor:sdl3"
 
 import "../render"
@@ -15,20 +17,42 @@ MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
 
 // A tablet app's standard output goes nowhere, so log lines go through SDL_Log, which
 // writes them to logcat on Android (`adb logcat -s SDL/APP`) and to the system log on the
-// iPad, and on the iPad to a file in Files as well (ios_log_open). Elsewhere the console
-// logger.
-platform_logger :: proc() -> log.Logger {
+// iPad; elsewhere the console logger. With a `log_path` every line also goes to that file,
+// and a crash is written there too (crash_log.odin).
+platform_logger :: proc(log_path: string) -> log.Logger {
+	inner: log.Logger
 	when MOBILE {
-		when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_open()
-		return log.Logger{procedure = system_logger_proc, lowest_level = .Info when !ODIN_DEBUG else .Debug}
+		inner = log.Logger{procedure = system_logger_proc, lowest_level = .Info when !ODIN_DEBUG else .Debug}
 	} else {
-		return log.create_console_logger(.Info when !ODIN_DEBUG else .Debug)
+		// From the heap: the debug build's leak tracking starts before the logger and reports
+		// after it is gone.
+		inner = log.create_console_logger(.Info when !ODIN_DEBUG else .Debug, allocator = runtime.heap_allocator())
 	}
+	if log_path == "" || !crash_log_open(log_path, crash_log_header()) do return inner
+	return crash_logger(inner)
 }
 
 platform_logger_destroy :: proc(logger: log.Logger) {
-	when !MOBILE do log.destroy_console_logger(logger)
-	when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_close()
+	inner := logger
+	if crash_log.file != nil {
+		inner = crash_log.inner
+		crash_log_close()
+	}
+	when !MOBILE do log.destroy_console_logger(inner, runtime.heap_allocator())
+}
+
+// Where an interactive run's log goes: the app's folder, which on the iPad is its Documents
+// folder, since Files shows it (On My iPad > Sculpt) and the log can be read on the iPad
+// itself. "" where the system gives no folder.
+platform_log_path :: proc() -> string {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		// SDL's Documents folder on iOS is the app's own, and ends with a slash.
+		documents := string(sdl.GetUserFolder(.DOCUMENTS))
+		return "" if documents == "" else strings.concatenate({documents, CRASH_LOG_NAME}, context.temp_allocator)
+	} else {
+		folder := platform_folder()
+		return "" if folder == "" else strings.concatenate({folder, CRASH_LOG_NAME}, context.temp_allocator)
+	}
 }
 
 @(private = "file")
@@ -46,7 +70,6 @@ system_logger_proc :: proc(data: rawptr, level: log.Level, text: string, options
 	n := copy(buf[:len(buf) - 1], text)
 	buf[n] = 0
 	sdl.LogMessage(i32(sdl.LogCategory.APPLICATION), priority, "%s", cstring(&buf[0]))
-	when ODIN_PLATFORM_SUBTARGET_IOS do ios_log_write(level, string(buf[:n]))
 }
 
 // Hints that must be set before SDL_Init.

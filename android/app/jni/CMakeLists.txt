@@ -68,6 +68,6 @@ add_custom_command(
 add_library(main SHARED android_main.c "${ODIN_OBJECT}")
 # nativewindow: android_main.c asks for the screen's frame rate (ANativeWindow_setFrameRate,
 # API 30), which the NDK puts in libnativewindow, not libandroid.
-target_link_libraries(main PRIVATE stb ufbx SDL3::SDL3-shared android nativewindow log m)
+target_link_libraries(main PRIVATE stb ufbx SDL3::SDL3-shared android nativewindow log m dl)
 # Every symbol the Odin object needs must resolve now, not when the tablet loads it.
 target_link_options(main PRIVATE "-Wl,--no-undefined")

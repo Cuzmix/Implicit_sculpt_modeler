@@ -2,10 +2,6 @@ package main
 
 @(require) import "base:runtime"
 @(require) import "core:c"
-@(require) import "core:fmt"
-@(require) import "core:log"
-@(require) import "core:os"
-@(require) import "core:sync"
 @(require) import sdl "vendor:sdl3"
 
 @(require) import "../ui"
@@ -14,49 +10,6 @@ package main
 // SDL lacks there, and `./build.sh ios` packages it. The imports serve the iOS build alone.
 
 when ODIN_PLATFORM_SUBTARGET_IOS {
-	// Without a Mac the iPad's system log is out of reach, so there every log line also goes
-	// to sculpt-log.txt in the app's Documents folder, which the Files app shows (On My iPad >
-	// Sculpt). The run before keeps its log as sculpt-log-previous.txt: the log of a run that
-	// crashed would otherwise be replaced by the next launch. Worker threads log too, hence
-	// the lock; each line is written as it comes, so a crash loses none.
-	@(private = "file")
-	ios_log: struct {
-		file: ^os.File,
-		lock: sync.Mutex,
-	}
-
-	ios_log_open :: proc() {
-		// SDL's Documents folder on iOS is the app's own, and ends with a slash.
-		documents := string(sdl.GetUserFolder(.DOCUMENTS))
-		if documents == "" do return
-		buf: [1024]u8
-		path := fmt.bprintf(buf[:512], "%ssculpt-log.txt", documents)
-		_ = os.rename(path, fmt.bprintf(buf[512:], "%ssculpt-log-previous.txt", documents))
-		if file, err := os.create(path); err == nil do ios_log.file = file
-	}
-
-	ios_log_write :: proc(level: log.Level, text: string) {
-		name: string
-		switch level {
-		case .Debug:   name = "debug"
-		case .Info:    name = "info"
-		case .Warning: name = "warning"
-		case .Error:   name = "error"
-		case .Fatal:   name = "fatal"
-		}
-		// One write a line, built on the stack: a worker's temp allocator is never freed.
-		buf: [2048]u8
-		line := fmt.bprintf(buf[:], "%s: %s\n", name, text)
-		// The file is looked at under the lock: a worker may log while ios_log_close runs.
-		sync.guard(&ios_log.lock)
-		if ios_log.file != nil do _, _ = os.write(ios_log.file, transmute([]u8)line)
-	}
-
-	ios_log_close :: proc() {
-		sync.guard(&ios_log.lock)
-		if ios_log.file != nil do _ = os.close(ios_log.file)
-		ios_log.file = nil
-	}
 	// SDL_RunApp enters UIApplicationMain, which never returns: UIKit takes the main thread
 	// and its run loop, and calls ios_main on that thread once the app has launched.
 	ios_start :: proc() {
