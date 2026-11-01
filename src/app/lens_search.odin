@@ -46,8 +46,9 @@ LENS_PUT_W :: 116
 palette_group :: proc(e: Palette_Entry) -> Palette_Group {
 	if e.kind == .Settings_Tab do return .Panels
 	#partial switch e.id {
-	case .Brush:                                return .Brushes
-	case .Show_Section, .Pin_Section, .Settings, .Help: return .Panels
+	// A preset is a brush, as the shelf and the picker show it, so it never pushes a command down.
+	case .Brush, .Brush_Preset:                 return .Brushes
+	case .Show_Section, .Show_Panel, .Pin_Section, .Settings, .Help: return .Panels
 	}
 	return .Commands
 }

@@ -223,6 +223,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Stats            = "performance fps statistics",
 	.Inspector        = "panel properties tray subpalette",
 	.Show_Section     = "palette section subpalette panel go",
+	.Show_Panel       = "panel card stack open show",
 	.Pin_Section      = "pin keep card stack panel unpin",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
 	.Workspace        = "workspace layout room switch focus sculpt inspect studio",

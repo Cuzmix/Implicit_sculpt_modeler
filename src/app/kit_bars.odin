@@ -51,6 +51,8 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
+	Panel, // one card of the stack (rail_panels.odin)
+	Panels, // the rail's Panels picker (rail_panels.odin)
 }
 
 // The one popover the bars open: one at a time, beside the button that opened it.
@@ -58,6 +60,7 @@ Bar_Pop :: struct {
 	open:    bool,
 	kind:    Bar_Pop_Kind,
 	section: Kit_Section,
+	panel:   Panel_Kind,
 	at:      ui.Rect,
 	side:    ui.Side,
 	scroll:  f32,
@@ -71,15 +74,15 @@ Bar_Pop :: struct {
 
 // Opens the bars' popover with `kind` (and `section`) beside `at`, or closes it when it
 // already shows that, as a second tap on its button does.
-bar_pop_toggle :: proc(app: ^App, kind: Bar_Pop_Kind, at: ui.Rect, side: ui.Side, section := Kit_Section.Stroke) {
+bar_pop_toggle :: proc(app: ^App, kind: Bar_Pop_Kind, at: ui.Rect, side: ui.Side, section := Kit_Section.Stroke, panel := Panel_Kind.Brush) {
 	k := &app.kit
 	p := &k.bar_pop
-	if p.open && p.kind == kind && (kind != .Section || p.section == section) {
+	if p.open && p.kind == kind && (kind != .Section || p.section == section) && (kind != .Panel || p.panel == panel) {
 		p.open = false
 		return
 	}
 	kit_floats_close(k)
-	k.bar_pop = {open = true, kind = kind, section = section, at = at, side = side}
+	k.bar_pop = {open = true, kind = kind, section = section, panel = panel, at = at, side = side}
 }
 
 // Whether the bars' popover shows `kind`.
@@ -241,6 +244,10 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
+	case .Panel:
+		kit_panel_pop(app)
+	case .Panels:
+		kit_panels_picker(app)
 	case .Section:
 		WIDTH :: KIT_INSPECTOR_W
 		PADDING :: 12

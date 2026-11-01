@@ -123,6 +123,9 @@ STACK_LOOK_CARDS :: bit_set[Panel_Kind]{.Lights, .Material, .Environment}
 // everything else; a complement keeps to the enum's cases.
 STACK_CARDS :: bit_set[Panel_Kind]{.Brush, .Symmetry, .Layers, .Scene, .Tools, .Lights, .Material, .Environment}
 STACK_SECTION_PANELS :: ~STACK_CARDS
+// The cards come first in Panel_Kind (STACK_CARDS), so Show panel's argument is below this.
+STACK_CARD_COUNT :: int(Panel_Kind.Environment) + 1
+
 STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder}
 
 // The stack's state, in Kit_State: the cards' order, which are open and which float (each

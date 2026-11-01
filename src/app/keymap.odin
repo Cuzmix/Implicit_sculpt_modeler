@@ -257,6 +257,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
+	case .Show_Panel: return fmt.tprint(Panel_Kind(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
 	case .Space_Switch: return fmt.tprint(Space(arg))

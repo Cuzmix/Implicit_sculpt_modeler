@@ -8581,6 +8581,33 @@ def stroke_on_another_object_keeps_to_the_selected():
     ])
 
 
+# The view rail's + (outside Arrange) and two of the Panels picker's tiles, and the rail's
+# button the Symmetry card gets at its foot.
+RAIL_ADD_PANELS = At("add panels", 1563, 229)
+PICKER_SYMMETRY = At("panel Symmetry", 1300, 160)
+PICKER_LIGHTS = At("panel Lights", 1300, 160)
+RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
+
+
+@scenario
+def rail_panels_picker_adds_a_card():
+    """A finger taps the rail's +, then the picker's Symmetry and Lights tiles: both go on the rail. The Symmetry
+    button the rail gets opens the Symmetry card beside it; nothing turns or sculpts."""
+    s = Script()
+    s.ftap(RAIL_ADD_PANELS)
+    s.wait(6)
+    s.ftap(PICKER_SYMMETRY)
+    s.wait(4)
+    s.ftap(PICKER_LIGHTS)
+    s.wait(4)
+    s.ftap(RAIL_ADD_PANELS)
+    s.wait(6)
+    s.ftap(RAIL_SYMMETRY)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("panel_symmetry"),
+                                "view_rail": is_text("Objects_Card,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""

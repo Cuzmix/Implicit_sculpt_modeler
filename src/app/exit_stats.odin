@@ -537,7 +537,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
-		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
+		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprintf("panel_%v", p.panel) if p.kind == .Panel else fmt.tprint(p.kind), context.temp_allocator)
 		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
 		// The theme shown: its name, whether a control moved it from what was saved, its mode
