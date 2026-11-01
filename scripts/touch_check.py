@@ -91,13 +91,17 @@ UI = {
     "settings": At("top bar/Settings", 1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
-    # The view chips over the view's top-left corner, and the chip bar's object chip.
-    "camera_chip": At("view chips/Camera", 75, 77), "pass_chip": At("view chips/Shading", 187, 77),
+    # The View island over the view's top-left corner: the navigation head, the camera and
+    # shading chips, then its buttons; and the chip bar's object chip.
+    "nav_head": (38, 81),
+    "camera_chip": At("view chips/Camera", 129, 81), "pass_chip": At("view chips/Shading", 231, 81),
+    "island_layout": At("view chips/View layout", 305, 81), "island_sym": At("view chips/Symmetry across X", 357, 81),
+    "island_wire": At("view chips/Wireframe", 409, 81), "island_lights": At("view chips/Lights", 461, 81),
+    "island_frame": At("view chips/Focus selected", 513, 81),
     "status": At("top bar/Object", 966, 28),
-    # The navigation head, left of the panel stack.
-    "nav_head": (1185, 90),
-    # The view rail down the right edge: the tray (the panel stack), then its view tools; past
-    # Camera these are where eight_rail() puts them (a fresh rail has Lights after Camera).
+    # The view rail down the right edge: the tray (the panel stack), then where eight_rail()
+    # puts them the view tools a rail held before the View island took them (a fresh rail
+    # holds the Objects, Layers and Material cards).
     "inspector": At("view bar/Palettes", 1563, 85), "view_layout": At("view bar/View layout", 1563, 133),
     "passes": At("view bar/Passes", 1563, 181), "camera": At("view bar/Camera", 1563, 229),
     "frame": At("view bar/Focus selected", 1563, 277), "sym_x": At("view bar/Symmetry across X", 1563, 325),
@@ -297,8 +301,8 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "lights", "lights",
-                 "camera", "camera", "passes", "passes", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
+    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "island_sym", "island_sym",
+                 "island_lights", "island_lights", "island_wire", "island_wire", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
                  "shelf_smooth", "shelf_draw", "browser", "browser", "inspector", "inspector", "status"]:
         s.ftap(UI[name])
     # Just past the drawn edge of the shelf and the top bar, inside their targets.
@@ -897,14 +901,14 @@ def polyframe_long_press_picks_fill():
 
 @scenario
 def field_of_view_from_the_camera_menu():
-    """The view rail's Camera button opens the Camera menu, whose Field of view slider widens
+    """The view rail's Camera button (put there, eight_rail) opens the Camera menu, whose Field of view slider widens
     the lens; the eye comes in to keep the model's size, so the distance shrinks."""
     s = Script()
     s.ftap(UI["camera"])
     s.wait(8)
     s.fdrag([(FOV_SLIDER[0] + 12 * i, FOV_SLIDER[1]) for i in range(11)])
     s.wait(4)
-    return s, [], {"dabs": near(0), "@wider": lambda st: float(st["fov"]) > 50, "@nearer": lambda st: float(st["camera_distance"]) < 3.4}
+    return s, eight_rail(), {"dabs": near(0), "@wider": lambda st: float(st["fov"]) > 50, "@nearer": lambda st: float(st["camera_distance"]) < 3.4}
 
 
 @scenario
@@ -2331,14 +2335,14 @@ def zoomed_in(s):
 
 def edge_drags(s):
     """A finger along the bottom edge (right of the shelf) and the pen along the top one
-    (under the top bar, right of the view's chips), both over the model, where no panel
+    (under the top bar, right of the View island), both over the model, where no panel
     is, each 200 points sideways."""
     zoomed_in(s)
     s.fdrag(past_slop((1320, 868), (1520, 868), 20))
     s.add("pnear")
     s.wait(1)
-    s.add("pdown:300,82")
-    for x, y in past_slop((300, 82), (500, 82), 20)[1:]:
+    s.add("pdown:640,82")
+    for x, y in past_slop((640, 82), (840, 82), 20)[1:]:
         s.wait(1)
         s.add(f"pmove:{x:g},{y:g}")
     s.wait(1)
@@ -2709,7 +2713,7 @@ def layer_duplicate_from_the_section():
 
 
 # The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
-COACH_SKIP = (960, 106)
+COACH_SKIP = At("coach/Skip tips", 960, 152)
 
 
 @scenario
@@ -3066,8 +3070,8 @@ def window_drag_by_title_is_remembered():
     s.wait(4)
     # Grabbed 84 points in from its left and 36 down from its top.
     return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "window_stats": lambda v: v == "1,0,616,264",
-        "@saved": saved_line("window Stats 1 Start Start 616 264 0")})
+        "dabs": near(0), "window_stats": lambda v: v == "1,0,616,270",
+        "@saved": saved_line("window Stats 1 Start Start 616 270 0")})
 
 
 # The Brush card's More at 1600 x 900, its Where the stack goes... row, and that menu's Dock on
@@ -3308,8 +3312,8 @@ def bar_hold_and_drag_reorders_the_rail():
     """A finger held on the rail's Camera, then carried up onto the top half of View layout, puts Camera first; nothing turns or sculpts."""
     s = Script()
     hold_and_carry(s, DRAG_RAIL["camera"], (DRAG_RAIL["layout"][0], DRAG_RAIL["layout"][1] - 10))
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_lifts": near(1), "bar_drops": near(1), "bar_carry": near(0),
-                                       "view_rail": is_text("Camera_Menu,View_Layout_Menu,Pass_Menu,Show_Section:Lights")})
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "bar_lifts": near(1), "bar_drops": near(1), "bar_carry": near(0),
+                                       "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu,Pass_Menu,Focus_Selected")})
 
 
 @scenario
@@ -3318,7 +3322,7 @@ def bar_quick_drag_on_the_rail_lifts_nothing():
     s = Script()
     s.fdrag(line(DRAG_RAIL["camera"], (DRAG_RAIL["camera"][0], DRAG_RAIL["layout"][1] - 10), 12))
     s.wait(4)
-    return s, DRAG_1280, {"dabs": near(0), "bar_lifts": near(0), "view_rail": lambda v: v.startswith("View_Layout_Menu,Pass_Menu,Camera_Menu")}
+    return s, DRAG_1280 + eight_rail(), {"dabs": near(0), "bar_lifts": near(0), "view_rail": lambda v: v.startswith("View_Layout_Menu,Pass_Menu,Camera_Menu")}
 
 
 @scenario
@@ -3364,7 +3368,7 @@ def bar_mouse_hold_and_drag_reorders():
         s.wait(1)
     s.add("up")
     s.wait(4)
-    return s, DRAG_1280, camera_still({"dabs": near(0), "bar_drops": near(1), "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu")})
+    return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "bar_drops": near(1), "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu")})
 
 
 @scenario
@@ -3374,7 +3378,7 @@ def bar_customise_drag_reorders_at_once():
     s.wait(4)
     s.fdrag(line(DRAG_RAIL["camera"], (DRAG_RAIL["camera"][0], DRAG_RAIL["layout"][1] - 10), 12))
     s.wait(4)
-    return s, DRAG_1280 + ["--script=customise_bars"], camera_still({"dabs": near(0), "bars_edit": near(1), "bar_drops": near(1),
+    return s, DRAG_1280 + eight_rail() + ["--script=customise_bars"], camera_still({"dabs": near(0), "bars_edit": near(1), "bar_drops": near(1),
                                                                     "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu")})
 
 
@@ -3557,7 +3561,8 @@ def a_stroke_under_the_tray_fades_it():
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
 LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
-LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 277)}
+# Where eight_rail() puts them.
+LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421)}
 # The mini view's button where eight_rail() puts it.
 LENS_RAIL_MINI = (1403, 470)
 LENS_1440 = ["--width=1440", "--height=900"]
@@ -3572,10 +3577,10 @@ def rect_x(lo, hi):
 
 @scenario
 def lens_rail_holds_the_view_tools():
-    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's four view tools; nothing moves the camera."""
+    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's panels (the View island holds the view's tools); nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "View_Layout_Menu,Pass_Menu,Camera_Menu,Show_Section:Lights"
+    rail = "Objects_Card,Show_Section:Layers,Show_Section:Material"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -3606,6 +3611,18 @@ def lens_object_chip_opens_the_scene_palette():
 
 
 @scenario
+def view_island_holds_the_view():
+    """The View island at the top-left holds the view's tools after the head and chips: a tap on its Symmetry turns X on and one on its Wireframe shows the lines, sculpting nothing."""
+    s = Script()
+    s.ftap(UI["island_sym"])
+    s.wait(4)
+    s.ftap(UI["island_wire"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("x"), "wireframe": near(1),
+                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")})
+
+
+@scenario
 def lens_rail_names_its_buttons_on_a_wide_window():
     """On a window as wide as a large desktop display's the rail names its buttons beside their icons, and Passes still opens its menu; at 1440 it keeps to its icons."""
     s = Script()
@@ -3613,18 +3630,18 @@ def lens_rail_names_its_buttons_on_a_wide_window():
     s.wait(10)
     narrow = Script()
     narrow.wait(10)
-    return Steps([(s, ["--width=1920", "--height=1080"], camera_still({"rail_named": near(1), "pass_menu": near(1)})),
+    return Steps([(s, ["--width=1920", "--height=1080"] + eight_rail(), camera_still({"rail_named": near(1), "pass_menu": near(1)})),
                   (narrow, LENS_1440, camera_still({"rail_named": near(0)}))])
 
 
 @scenario
 def lens_rail_opens_beside_itself():
-    """The rail's Passes and Lights open beside the rail, and View layout its menu of grids."""
+    """The rail's (eight_rail) Passes and Lights open beside the rail, and View layout its menu of grids."""
     def run(name, checks):
         s = Script()
         s.ftap(LENS_RAIL[name])
         s.wait(10)
-        return (s, LENS_1440, camera_still(checks))
+        return (s, LENS_1440 + eight_rail(), camera_still(checks))
     return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"bar_pop": is_text("lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
@@ -3657,7 +3674,7 @@ def lens_left_handed_mirrors_the_chrome():
     """Left-handed, the island and the chips go to the right and the rail to the left; the model moves right of the middle."""
     s = Script()
     s.wait(10)
-    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 900, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 800, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
 
 
 # The Lens shelf at 1440 x 900 (lens_shelf.odin): All at the off-hand end, the Brushes
@@ -4452,7 +4469,7 @@ def lens_stack_floating_card_resizes_from_a_corner():
 # and in the View layout menu (the rail's first slot) the Four drawing.
 LENS_SPLIT = ["--script=view_grid one_plus_two"]
 LENS_PANES = {"divider": (862, 300), "divider_right": (1150, 451), "front_camera": (920, 89), "top": (900, 390),
-              "brush_tab": (1348, 95), "layout": (1403, 133), "four": (1230, 263)}
+              "brush_tab": (1348, 95), "layout": At("view chips/View layout", 305, 81), "four": At("Four", 330, 211)}
 
 
 @scenario
@@ -5007,7 +5024,7 @@ def lens_context_bar_extracts_the_mask():
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
 # options, while nothing is recent.
-LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": (186, 77), "curvature": (260, 536)}
+LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("view chips/Shading", 231, 81), "curvature": (305, 540)}
 
 
 @scenario
@@ -5722,7 +5739,7 @@ def dock_stays_with_its_space():
 # island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
 # toggles for Spaces, with the Model tab of the Spaces island it makes.
 CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (242, 30), (700, 420), (730, 424)
-CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), (599, 80)
+CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), At("chip island spaces/Model", 789, 80)
 # The Library's close button.
 LIBRARY_AWAY = (753, 129)
 
@@ -8963,7 +8980,7 @@ def pen_roll_while_grabbing_twists_what_it_holds():
 # and the navigation head (left of the open Brush card), at 1600 x 900.
 PEN_SHELF_TILE = (780, 833)
 PEN_UNDO = (217, 26)
-PEN_NAV_HEAD = (1185, 88)
+PEN_NAV_HEAD = (38, 81)  # the View island's first button
 
 
 @scenario
@@ -9843,7 +9860,7 @@ def start_displays(count):
 
 # Autosave and crash recovery (autosave.odin): an interval of a second and a short rest,
 # in a folder of the scenario's own, so the runs are quick and touch nothing else.
-CARD = {"recover": (653, 198), "not_now": (800, 198), "discard": (946, 198)}
+CARD = {"recover": (653, 244), "not_now": (800, 244), "discard": (946, 244)}
 
 
 def autosave_args(*more):
@@ -10204,7 +10221,7 @@ def camera_menu_splits_the_view_side_by_side():
     s.wait(8)
     s.ftap(GRID_SIDE_BY_SIDE)
     s.wait(10)
-    return s, [], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 780 < float(v.split("x")[0]) < 820,
+    return s, eight_rail(), camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 780 < float(v.split("x")[0]) < 820,
                                 "pane_camera": is_text("Front"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
 
 
@@ -12660,7 +12677,7 @@ def camera_back_and_forward_from_the_camera_menu():
     s = Script()
     s.wait(3)
     two_orbits(s)
-    click(s, UI["camera"])  # the Camera button opens the Camera menu
+    click(s, UI["camera"])  # the rail's Camera button (eight_rail) opens the Camera menu
     s.wait(3)
     click(s, VIEW_BACK)
     s.wait(5)
@@ -12671,7 +12688,7 @@ def camera_back_and_forward_from_the_camera_menu():
     two_orbits(orbits)
     return Steps([
         (orbits, [], {"@remember": remember}),
-        (s, [], {"camera_steps": near(2, 0), "camera_view": near(3, 0),
+        (s, eight_rail(), {"camera_steps": near(2, 0), "camera_view": near(3, 0),
                  "@as the orbits left it": lambda stats: all(stats[k] == after[k] for k in CAMERA_KEYS)}),
     ])
 

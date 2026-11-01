@@ -325,6 +325,7 @@ bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(a
 ICON_MATERIAL :: rune(0xe5a2) // eclipse: a lit sphere
 ICON_COLOUR :: rune(0xe1dd) // palette
 ICON_OBJECTS :: rune(0xe104) // layers
+ICON_OBJECTS_CARD :: rune(0xe2d0) // boxes
 ICON_SPLIT :: rune(0xe445) // split
 ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
