@@ -179,7 +179,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -199,7 +199,7 @@ Scene_Command :: struct {
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
-	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
+	// Curve_Cage: a lathe cage rather than a pipe; Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
 	// Merge: the shown objects into a new one, rather than the selected one and the next;
@@ -926,6 +926,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve, cmd.look_drag)
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
+	case .Curve_Cage:
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_make_cage(app, obj, lathe = cmd.on)
 	case .New:
 		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
 		return scene_new(app, cmd.shape, cmd.vertices, cmd.voxels, empty = cmd.on)

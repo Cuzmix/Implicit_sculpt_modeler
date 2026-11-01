@@ -1494,6 +1494,43 @@ def brush_run_along_a_curve_from_the_palette():
 
 
 @scenario
+def pipe_cage_from_a_curve():
+    """A pen-drawn curve made a Model mode pipe cage from the palette: a new quad cage round
+    the curve, selected, one undo step; the curve stays (look with --screens)."""
+    s = Script()
+    pen_stroke(s, line((640, 380), (900, 520), 16))
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("pipe cage from curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_cages": near(1), "objects": near(3),
+                                                                     "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def lathe_cage_from_a_curve():
+    """Three tapped points, then Lathe cage from the palette: the curve spun round the view's
+    vertical into a quad cage with triangles at a pole, one undo step (look with --screens)."""
+    s = Script()
+    for x, y in [(780, 300), (900, 420), (800, 560)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.press("Return")
+    s.wait(2)
+    s.press("k", ("ctrl",))
+    s.type("lathe cage from curve")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_cages": near(1), "objects": near(3),
+                                                                     "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
 def connected_from_the_palette_by_pen():
     """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
     one undo step."""
