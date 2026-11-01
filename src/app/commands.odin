@@ -174,6 +174,7 @@ Command_Id :: enum u16 {
 	Curve_Brush_Run,
 	Curve_Pipe_Cage,
 	Curve_Lathe_Cage,
+	Curve_Loft_Cage,
 	Reset_Transform,
 	// The scene
 	Add_Object,
@@ -1561,15 +1562,25 @@ COMMANDS := [Command_Id]Command {
 		label = "Pipe cage from curve",
 		help = "Makes a new Model mode cage of quads round the selected curve: a ring of Around points at each of its points and Steps between, as wide as its radius there, a corner point's ring creased; the ends closed with Cage caps. The curve stays. One undo step.",
 		icon = ui.ICON_SPLINE,
-		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage}},
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Pipe)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
 	},
 	.Curve_Lathe_Cage = {
 		label = "Lathe cage from curve",
 		help = "Makes a new Model mode cage of quads by spinning the selected curve round its lathe axis (the view's vertical if it has none yet) in Around steps, a point on the axis a pole of triangles. The curve stays. One undo step.",
 		icon = ui.ICON_SPLINE,
-		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, on = true}},
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Lathe)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
+	},
+	.Curve_Loft_Cage = {
+		label = "Loft cage from curves",
+		help = "Makes a new Model mode cage of quads through two or more curves: the selected ones, or the selected curve and every other shown Line curve, from the selected one to the nearest next. Each is cut into Around points evenly by length and turned to follow the one before, with Steps rows between along a smooth path; a closed loft takes Cage caps. The curves stay. One undo step.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Loft)}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			_, why := curve_loft_sections(app)
+			return why == ""
+		},
 	},
 	.Convert_To_Mesh = {
 		label = "Convert to mesh",

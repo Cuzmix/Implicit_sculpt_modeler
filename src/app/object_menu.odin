@@ -76,7 +76,7 @@ OBJECT_VERBS := [Object_Type][Space][]Object_Verb {
 	// makes what it shows a mesh in any space.
 	.Curve = {
 		.Sculpt = {{id = .Curve_Bake, label = "Bake to mesh"}, {id = .Curve_Close}},
-		.Model  = {{id = .Curve_Pipe_Cage, label = "Pipe cage"}, {id = .Curve_Lathe_Cage, label = "Lathe cage"}, {id = .Curve_Bake, label = "Bake to mesh"}},
+		.Model  = {{id = .Curve_Pipe_Cage, label = "Pipe cage"}, {id = .Curve_Lathe_Cage, label = "Lathe cage"}, {id = .Curve_Loft_Cage, label = "Loft cage"}, {id = .Curve_Bake, label = "Bake to mesh"}},
 		.Render = {},
 	},
 }
