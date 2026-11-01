@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<!-- The web build's page (README "Web"): a full-window canvas the sculpt engine draws into
+     with WebGPU, a small bar of brushes and settings, and a status line. scripts/web_build.py
+     copies it into build/web/site beside sculpt.wasm, odin.js and wgpu.js. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sculpt</title>
+<style>
+	:root {
+		--bg: #15171c;
+		--panel: rgba(30, 33, 40, 0.92);
+		--line: rgba(255, 255, 255, 0.09);
+		--text: #e7e9ee;
+		--muted: #9aa0ad;
+		--accent: #f0b46a;
+		--accent-text: #20160a;
+		color-scheme: dark;
+	}
+	* { box-sizing: border-box; }
+	html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
+		font: 13px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+	#viewport { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
+		-webkit-user-select: none; user-select: none; outline: none; }
+	#bar { position: fixed; top: 10px; left: 0; right: 0; margin: 0 auto; width: fit-content; display: flex; gap: 10px;
+		align-items: center; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 20px);
+		padding: 6px 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+		box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); }
+	#rail { position: fixed; left: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column;
+		gap: 2px; padding: 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+		box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); max-height: calc(100% - 140px); overflow-y: auto; }
+	#rail button { text-align: left; min-width: 74px; }
+	.group { display: flex; gap: 2px; align-items: center; }
+	.sep { width: 1px; align-self: stretch; background: var(--line); }
+	button, select { font: inherit; color: var(--text); background: transparent; border: 0; border-radius: 8px;
+		padding: 6px 9px; cursor: pointer; min-height: 32px; }
+	button:hover, select:hover { background: rgba(255, 255, 255, 0.07); }
+	button.on { background: var(--accent); color: var(--accent-text); }
+	select { background: rgba(255, 255, 255, 0.05); }
+	label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+	input[type=range] { width: 96px; accent-color: var(--accent); }
+	output { min-width: 2.6em; color: var(--text); font-variant-numeric: tabular-nums; }
+	#status { position: fixed; left: 10px; bottom: 8px; color: var(--muted); font-variant-numeric: tabular-nums;
+		pointer-events: none; text-shadow: 0 1px 2px #000; }
+	#help { position: fixed; right: 10px; bottom: 8px; color: var(--muted); text-align: right; pointer-events: none;
+		text-shadow: 0 1px 2px #000; }
+	#failure { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; text-align: center;
+		font-size: 15px; background: var(--bg); }
+	#failure div { max-width: 520px; }
+	#state { display: none; }
+	@media (max-width: 760px) {
+		#help { display: none; }
+		input[type=range] { width: 64px; }
+		#rail { top: auto; bottom: 34px; transform: none; max-height: calc(100% - 200px); }
+		#rail button { min-width: 0; }
+	}
+</style>
+</head>
+<body>
+<canvas id="viewport" tabindex="0"></canvas>
+<div id="rail"></div>
+<div id="bar">
+	<label>Size <input id="radius" type="range" min="4" max="400" step="1"><output id="radius-out"></output></label>
+	<label>Strength <input id="strength" type="range" min="0" max="1" step="0.01"><output id="strength-out"></output></label>
+	<div class="sep"></div>
+	<div class="group">
+		<button id="sym" title="X symmetry (X)">Sym X</button>
+		<button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+		<button id="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+		<select id="sphere" title="Start over with a sphere of this many vertices">
+			<option value="">New sphere…</option>
+			<option value="100000">100k</option>
+			<option value="250000">250k</option>
+			<option value="500000">500k</option>
+			<option value="1000000">1M</option>
+			<option value="2000000">2M</option>
+			<option value="4000000">4M</option>
+		</select>
+	</div>
+</div>
+<div id="status">Starting…</div>
+<div id="help">Drag on the clay to sculpt · Shift smooths · Alt inverts<br>
+	Drag off it or right-drag to turn · middle or Alt-drag to move · wheel or pinch to zoom<br>
+	1–0 brushes · [ ] size · X symmetry · F reset view</div>
+<div id="failure"><div></div></div>
+<!-- Odin writes its state here each half second; the controls follow it. -->
+<div id="state"></div>
+<input id="vertices" type="hidden">
+
+<script src="odin.js"></script>
+<script src="wgpu.js"></script>
+<script>
+"use strict";
+// The order of the brushes in src/web/main.odin's BRUSHES, and the names its state uses.
+const BRUSHES = [["Draw", "Draw"], ["Clay", "Clay"], ["Clay_Strips", "Strips"], ["Smooth", "Smooth"],
+	["Inflate", "Inflate"], ["Pinch", "Pinch"], ["Crease", "Crease"], ["Flatten", "Flatten"], ["Grab", "Grab"], ["Layer", "Layer"]];
+// src/web/input.odin's Command.
+const Command = { Brush: 1, Radius: 2, Strength: 3, Symmetry: 4, Undo: 5, Redo: 6, New_Sphere: 7, Reset_View: 8 };
+
+const canvas = document.getElementById("viewport");
+const stateEl = document.getElementById("state");
+// The address's options as hidden fields the engine reads at its start (?vertices=1000000).
+for (const [key, value] of new URLSearchParams(location.search)) {
+	const field = document.getElementById(key);
+	if (field && field.type === "hidden") field.value = value;
+}
+
+function fail(message) {
+	const box = document.getElementById("failure");
+	box.firstElementChild.textContent = message;
+	box.style.display = "grid";
+}
+
+// A pressed pointer stays the canvas's until it lifts, so a stroke or a turn that leaves
+// the canvas carries on; the menu that a right-drag would open stays shut.
+canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); canvas.focus(); });
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+async function start() {
+	if (!navigator.gpu) {
+		fail("This browser has no WebGPU. Use a current Chrome, Edge or Safari, or Firefox 141 or later.");
+		return;
+	}
+	// The wasm's memory: up to 4 GB where the browser allows it, 1 GB where it does not.
+	let memory;
+	for (const maximum of [65536, 16384]) {
+		try { memory = new WebAssembly.Memory({ initial: 2048, maximum }); break; } catch (_) { }
+	}
+	const mem = new odin.WasmMemoryInterface();
+	mem.setIntSize(8); // js_wasm64p32: Odin's int is 64-bit
+	mem.setMemory(memory);
+	const gpu = new odin.WebGPUInterface(mem);
+	const imports = odin.setupDefaultImports(mem, null, memory);
+	imports.wgpu = gpu.getInterface();
+	const response = await fetch("sculpt.wasm");
+	const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), imports);
+	const ex = instance.exports;
+	mem.setExports(ex);
+	ex._start();
+
+	const send = (code, value = 0) => ex.command(code, value);
+	const brushes = document.getElementById("rail");
+	BRUSHES.forEach(([, label], i) => {
+		const b = document.createElement("button");
+		b.textContent = label;
+		b.title = `${label} (${(i + 1) % 10})`;
+		b.addEventListener("click", () => { send(Command.Brush, i); canvas.focus(); });
+		brushes.appendChild(b);
+	});
+	const radius = document.getElementById("radius"), strength = document.getElementById("strength");
+	radius.addEventListener("input", () => send(Command.Radius, +radius.value));
+	strength.addEventListener("input", () => send(Command.Strength, +strength.value));
+	const sym = document.getElementById("sym");
+	sym.addEventListener("click", () => send(Command.Symmetry, sym.classList.contains("on") ? 0 : 1));
+	document.getElementById("undo").addEventListener("click", () => send(Command.Undo));
+	document.getElementById("redo").addEventListener("click", () => send(Command.Redo));
+	const sphere = document.getElementById("sphere");
+	sphere.addEventListener("change", () => { if (sphere.value) send(Command.New_Sphere, +sphere.value); sphere.value = ""; canvas.focus(); });
+
+	// The page follows the engine's state rather than keeping its own.
+	let shown = "";
+	function follow() {
+		const text = stateEl.textContent;
+		if (text === shown) return;
+		shown = text;
+		if (text.startsWith("failed=")) { fail(text.slice(7)); return; }
+		const s = Object.fromEntries(text.split(" ").map((kv) => kv.split("=")));
+		BRUSHES.forEach(([name], i) => brushes.children[i].classList.toggle("on", s.brush === name));
+		if (document.activeElement !== radius) radius.value = s.radius;
+		if (document.activeElement !== strength) strength.value = s.strength;
+		document.getElementById("radius-out").textContent = s.radius;
+		document.getElementById("strength-out").textContent = (+s.strength).toFixed(2);
+		sym.classList.toggle("on", s.symmetry === "1");
+		document.getElementById("status").textContent =
+			`${(+s.vertices).toLocaleString()} vertices · ${s.fps} fps · frame ${s.frame_ms} ms · dab ${s.dab_ms} ms · one thread, WebGPU`;
+	}
+
+	let last;
+	function frame(now) {
+		const dt = last === undefined ? 0 : (now - last) / 1000;
+		last = now;
+		if (!ex.step(dt)) { follow(); return; }
+		follow();
+		requestAnimationFrame(frame);
+	}
+	requestAnimationFrame(frame);
+	canvas.focus();
+}
+start().catch((e) => { console.error(e); fail("The sculpt engine could not start: " + e); });
+</script>
+</body>
+</html>

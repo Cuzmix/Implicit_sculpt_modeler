@@ -6,7 +6,6 @@
 package jobs
 
 import "base:intrinsics"
-import "core:os"
 import "core:sync"
 import "core:thread"
 import "core:time"
@@ -152,9 +151,4 @@ wait_for_job :: proc(p: ^Pool, seen: u32) -> u32 {
 		if job != seen do return job
 		if job = current(p); job != seen do return job
 	}
-}
-
-@(private)
-thread_count_hint :: proc() -> int {
-	return max(os.get_processor_core_count(), 1)
 }

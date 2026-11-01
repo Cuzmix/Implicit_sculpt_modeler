@@ -58,7 +58,7 @@ GENERIC = {"kit", "lens", "app", "main", "test", "tests", "new", "odin", "draw",
 # Scenarios that cover the pointer, fingers and pen paths every interface change can reach.
 CORE_SCENARIOS = ["tap_ui", "pinch_zoom", "two_finger_pan", "orbit_default_is_turntable", "mouse_controls",
                   "pen_stroke_with_hand_resting", "long_press_shows_the_tooltip_and_does_not_tap"]
-ORDER = ["check", "reports", "test", "build", "smoke", "touch", "iphone", "mac", "wincheck", "android"]
+ORDER = ["check", "reports", "test", "build", "smoke", "touch", "iphone", "mac", "web", "wincheck", "android"]
 
 
 def build_cmd(mode):
@@ -110,6 +110,8 @@ def steps(touch_args):
         ("touch", needs_display([python, os.path.join(ROOT, "scripts", "touch_check.py")] + touch_args), summary_touch),
         ("iphone", build_cmd("iphonecheck"), summary_last),
         ("mac", build_cmd("maccheck"), summary_last),
+        # The web version built and sculpted in headless Chromium (skipped without Node and Playwright).
+        ("web", [python, os.path.join(ROOT, "scripts", "web_build.py"), "--test"], summary_last),
     ]
     if not WINDOWS:
         out += [
@@ -225,6 +227,9 @@ def changed_steps(base, touch_args):
     if platform:
         out.append(("iphone", build_cmd("iphonecheck"), summary_last, "platform code"))
         out.append(("mac", build_cmd("maccheck"), summary_last, "platform code"))
+    if "web" in reached or any(f.split("/")[0] == "web" or f.startswith("scripts/web_") for f in files):
+        out.append(("web", [python, os.path.join(ROOT, "scripts", "web_build.py"), "--test"], summary_last, "the web version"))
+    if platform:
         if not WINDOWS:
             out.append(("wincheck", build_cmd("wincheck"), summary_last, "platform code"))
             out.append(("android", build_cmd("androidcheck"), summary_last, "platform code"))

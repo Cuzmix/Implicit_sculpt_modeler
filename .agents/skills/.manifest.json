@@ -1,7 +1,7 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "cef5ec37918fc37e5cf492c45f72d8c53614c004a0ef53e3f90b732ea1fecd94",
+    "sm-build/SKILL.md": "e43256a31aabdd77125e2dc172085fe06ea9c902561f9e8f7b984a5001c0050e",
     "sm-cad/SKILL.md": "2fb0263c4e30b3c07985b3bd73be990f1330dabfba7411508a2b87e43675c8bd",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
