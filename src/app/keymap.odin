@@ -230,6 +230,11 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	#partial switch id {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
+	// By name with underscores for spaces, as settings.txt splits its lines at spaces and
+	// the table is only appended to.
+	case .Brush_Preset:
+		name, _ := strings.replace_all(BUILT_IN_PRESETS[arg].name, " ", "_", context.temp_allocator)
+		return name
 	case .Brush_Value: return fmt.tprint(Brush_Value(arg))
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))

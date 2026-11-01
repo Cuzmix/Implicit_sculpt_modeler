@@ -308,13 +308,15 @@ shelf_pages_load_line :: proc(k: ^Kit_State, f: []string) {
 	}
 }
 
-// The picker's item as a shelf slot: a plain brush, or a tool's command. Presets and the
-// mask and hide shapes are picked from the picker, as they have no command of their own.
+// The picker's item as a shelf slot: a plain brush, a library brush (a built-in preset) or
+// a tool's command. The person's own and the packs' presets and the mask and hide shapes
+// are picked from the picker, as they have no command of their own.
 shelf_slot_of :: proc(it: Brush_Item) -> (Bar_Slot, bool) {
 	#partial switch it.what {
 	case .Slot:
 		if it.slot.command.id != .None do return it.slot.command, true
 		if it.slot.preset == 0 do return {.Brush, int(it.slot.kind)}, true
+		if preset_built_in(it.slot.preset) do return {.Brush_Preset, it.slot.preset - BUILT_IN_PRESET}, true
 	case .Tool:
 		return {TOOL_COMMANDS[it.tool], 0}, true
 	}
@@ -527,8 +529,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		} else if ctx.last_id != 0 && ui.secondary(ctx) {
 			// A brush's long press picks it and shows its quick settings over the tile; a
 			// command's does what it does on any bar.
-			if s.id == .Brush {
-				command_run(app, .Brush, s.arg)
+			if s.id == .Brush || s.id == .Brush_Preset {
+				command_run(app, s.id, s.arg)
 				kit_floats_close(k)
 				sh.quick, sh.quick_at = true, ctx.last_rect
 			} else if bar_has_more(s.id) {

@@ -40,7 +40,7 @@ CHIP_SECTION_NAMES := [Chip_Section]string {
 @(rodata)
 CHIP_SECTION_LABELS := [Chip_Section]string {
 	.Menu   = "Menu and file",
-	.Undo   = "Undo and Redo",
+	.Undo   = "Save, Undo and Redo",
 	.Spaces = "Spaces",
 	.Object = "Object",
 	.Search = "Search",
@@ -120,6 +120,10 @@ chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor
 		_ = top_file_block(app)
 		return ui.rect_union(start, ctx.last_rect)
 	case .Undo:
+		// Save first, a tap away for a scene saved often, rather than two through the menu.
+		// It stands out while the scene has changes to save.
+		if ui.icon_button(ctx, "Save scene##top save", ui.ICON_SAVE, selected = scene_unsaved(app) && app.scene_path != "", keys = command_hint(app, .Save_Scene)) do command_run(app, .Save_Scene)
+		save_at := ctx.last_rect
 		// A long press on either, slid sideways, scrubs the History, and let go unslid (or a
 		// right-click) opens the History panel, to go back or forward many steps.
 		undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
@@ -132,7 +136,7 @@ chip_section_draw :: proc(app: ^App, s: Chip_Section, menu_anchor, search_anchor
 		both := ui.rect_union(undo_at, ctx.last_rect)
 		history_roll(app, both)
 		pen_zone(app, both, .History)
-		return both
+		return ui.rect_union(save_at, both)
 	case .Spaces:
 		_ = top_space_tabs(app)
 		return ui.last_ended(ctx)

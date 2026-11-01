@@ -86,7 +86,7 @@ def where(x, y=None):
 UI = {
     # The top bar (kit_top_lens.odin): Menu, Undo and Redo at the left, History and
     # Settings at the right, the Search button before them.
-    "menu": At("top bar/Menu", 33, 26), "undo": At("top bar/undo", 217, 26), "redo": At("top bar/redo", 267, 26),
+    "menu": At("top bar/Menu", 33, 26), "undo": At("top bar/undo", 268, 26), "redo": At("top bar/redo", 318, 26),
     "search": At("top bar/Search commands", 1455, 26), "history": At("top bar/History", 1520, 26),
     "settings": At("top bar/Settings", 1570, 26),
     # The off-hand island's Size and Strength sliders, by their knobs.
@@ -3325,7 +3325,7 @@ SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top b
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
-TOP_UNDO, TOP_SEARCH = (91, 33), At("app island/Search commands", 1336, 30)
+TOP_UNDO, TOP_SEARCH = (150, 33), At("app island/Search commands", 1336, 30)
 
 
 @scenario
@@ -3378,7 +3378,7 @@ def focus_moves_undo_and_search_to_the_top_bar():
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
 # space tabs in the middle, the Search button at the right.
-LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (217, 26), (267, 26)
+LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (268, 26), (318, 26)
 LENS_SEARCH = (1455, 26)
 # The Lens menu's first row, Home.
 LENS_MENU_HOME = (120, 82)
@@ -5270,7 +5270,7 @@ def lens_pass_popover_groups_the_passes():
 
 # Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
 # Red wax sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 206), "add": (1220, 442), "red_wax": (1180, 728), "undo": (217, 25)}
+LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 206), "add": (1220, 442), "red_wax": (1180, 728), "undo": (268, 25)}
 
 
 @scenario
@@ -7966,7 +7966,7 @@ def size_preview_fades_after_the_change():
 
 @scenario
 def import_runs_as_a_long_job():
-    """A file dropped on the window imports on a thread of its own: the pill's job runs while the frames go on, and once it is done the quad cube is a new object whose wireframe draws its 12 edges (no diagonals), as one undo step."""
+    """A file dropped on the window imports on a thread of its own: the pill's job runs while the frames go on, and once it is done the quad cube takes the untouched starting sphere's place, its wireframe drawing its 12 edges (no diagonals), the sphere's removal and the add two entries chained into one undo step."""
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".obj")
     with open(path, "w") as f:
         f.write("v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n"
@@ -7976,7 +7976,7 @@ def import_runs_as_a_long_job():
     s.wait(60)
     s.press("f", ("shift",))
     s.wait(10)
-    return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(2), "poly_edges": near(12), "undo_steps": near(1)})
+    return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(1), "poly_edges": near(12), "undo_steps": near(2)})
 
 
 @scenario
@@ -9222,7 +9222,7 @@ def pen_roll_while_grabbing_twists_what_it_holds():
 # The shelf's Flatten tile (the middle of the shelf on every page), the top bar's Undo
 # and the navigation head (left of the open Brush card), at 1600 x 900.
 PEN_SHELF_TILE = (780, 833)
-PEN_UNDO = (217, 26)
+PEN_UNDO = (268, 26)
 PEN_NAV_HEAD = (38, 81)  # the View island's first button
 
 
