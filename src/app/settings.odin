@@ -1009,6 +1009,9 @@ settings_load :: proc(app: ^App, path: string) {
 		case "chip_island":
 			// chip_island <section> <x> <y>: a chip bar section standing on its own.
 			chip_island_read(&app.kit, f)
+		case "top_order":
+			// top_order <start> <middle> <end>: the top bar's islands moved in Arrange.
+			top_order_read(&app.kit, f)
 		case "dial_space":
 			// dial_space <space> <0-3> modifier <name> | command <name>: Model's or Render's.
 			if len(f) != 5 do continue
@@ -1296,6 +1299,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		}
 	}
 	chip_islands_save(&app.kit, &out)
+	top_order_save(&app.kit, &out)
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	if off := motion_off_text(&app.kit.ctx); off != "" do fmt.sbprintfln(&out, "motion_off %s", off)
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))

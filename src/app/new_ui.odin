@@ -392,6 +392,10 @@ Kit_State :: struct {
 	// The top bar as three islands, the spaces centred (the default), or as one bar
 	// (Settings > Interface > Top bar).
 	top_islands: bool,
+	// Which island stands in each of the top bar's three places, and where each was drawn
+	// this frame (top_islands.odin).
+	top_order:     [3]Top_Island,
+	top_island_at: [Top_Island]ui.Rect,
 	// When the view rail names its buttons (Settings > Interface > Bars, lens_chrome.odin).
 	rail_labels: Rail_Labels,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),

@@ -278,7 +278,7 @@ arrange_chip_follow :: proc(app: ^App, s: Chip_Section, r: ui.Rect, a: ui.Area) 
 	ctx := &k.ctx
 	st := &k.arrange
 	if a.pressed {
-		st.carry = nil
+		st.carry, st.island_carry = nil, nil
 		st.chip_carry, st.carry_from, st.carry_press, st.carrying = s, r, a.mouse, false
 		return
 	}
@@ -319,6 +319,11 @@ library_chip_sections :: proc(app: ^App, width: f32) {
 	if ui.button(ctx, "All in the bar##library chips", .Bordered, width = width, enabled = !chip_islands_none(k)) {
 		k.islands = {}
 		report(app, nil, {}, "Every section is back in the chip bar")
+	}
+	// The three islands' places, which their grips change while arranging.
+	if k.top_islands && ui.button(ctx, "Islands in their places##library chips", .Bordered, width = width, enabled = top_order(k) != TOP_ORDER_DEFAULT) {
+		k.top_order = TOP_ORDER_DEFAULT
+		report(app, nil, {}, "The file island is back at the left and Search at the right")
 	}
 }
 

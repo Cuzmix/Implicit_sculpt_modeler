@@ -64,6 +64,10 @@ Arrange_State :: struct {
 	// carry_from, carry_press and carrying, and how many were let go.
 	chip_carry:   Maybe(Chip_Section),
 	chip_carries: int,
+	// The top bar's island being carried by its grip (top_islands.odin), which shares the
+	// same carry fields, and how many were let go.
+	island_carry:   Maybe(Top_Island),
+	island_carries: int,
 	// Whether Arrange was on last frame, and how many times it has opened, so its outlines
 	// draw in afresh each time (Arrange outlines motion).
 	was_on:      bool,
@@ -236,7 +240,7 @@ kit_arrange_lens :: proc(app: ^App) {
 	if !k.bars_edit {
 		k.arrange.picked, k.arrange.library_off = nil, false
 		k.arrange.carry, k.arrange.carrying = nil, false
-		k.arrange.chip_carry = nil
+		k.arrange.chip_carry, k.arrange.island_carry = nil, nil
 		k.arrange.was_on = false
 		return
 	}
@@ -288,9 +292,10 @@ kit_arrange_lens :: proc(app: ^App) {
 	}
 	if carrying do arrange_drop_edges(app, carried)
 	chips := arrange_chip_sections(app)
-	// The Library steps aside while a bar or a section is carried, so the view under it
-	// takes the drop.
-	if !carrying && !chips do kit_library(app)
+	islands := arrange_top_islands(app)
+	// The Library steps aside while a bar, a section or an island is carried, so the view
+	// under it takes the drop.
+	if !carrying && !chips && !islands do kit_library(app)
 }
 
 // Follows a press on bar `b`'s tag `a` (its outline `r`): past the slop it carries the
@@ -301,7 +306,7 @@ arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
 	ctx := &k.ctx
 	s := &k.arrange
 	if a.pressed {
-		s.chip_carry = nil
+		s.chip_carry, s.island_carry = nil, nil
 		s.carry, s.carry_from, s.carry_press, s.carrying = b, r, a.mouse, false
 		return
 	}
