@@ -416,3 +416,70 @@ skin_change_is_undone_with_its_heights :: proc(t: ^testing.T) {
 	testing.expect(t, sculptor_undo(s))
 	testing.expect(t, s.skin != nil && s.skin.segments == 4)
 }
+
+// The skin's samples as points with their heights, in an order of the points alone, so
+// differently numbered builds of the same skin compare.
+@(private = "file")
+Placed_Height :: struct {
+	p: Vec3,
+	h: f16,
+}
+
+@(private = "file")
+skin_by_place :: proc(s: ^Sculptor) -> []Placed_Height {
+	sk := s.skin
+	I := s.mesh.indices[:]
+	S := sk.segments
+	out := make([]Placed_Height, len(sk.heights), context.temp_allocator)
+	for t in u32(0) ..< sk.tri_count do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+		x := skin_sample(sk, I, t, i, j)
+		p, _ := skin_base(s, sk, t, i, j)
+		// The flat point rounded, since triangles meeting at a sample compute it apart.
+		out[x] = {{f32(i32(p.x * 1e5)), f32(i32(p.y * 1e5)), f32(i32(p.z * 1e5))}, sk.heights[x]}
+	}
+	slice.sort_by(out, proc(a, b: Placed_Height) -> bool {
+		return a.p.x < b.p.x || (a.p.x == b.p.x && (a.p.y < b.p.y || (a.p.y == b.p.y && (a.p.z < b.p.z || (a.p.z == b.p.z && a.h < b.h)))))
+	})
+	return out
+}
+
+// The skin goes into the scene file after the levels and comes back on the top level of a
+// fresh build, every height at its place, whatever numbers the build gives the vertices.
+@(test)
+skin_file_round_trip_keeps_every_height :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	l: Levels
+	levels_init(&l, geom.icosphere(1), &pool, 64)
+	defer levels_destroy(&l)
+	testing.expect(t, levels_subdivide(&l))
+	top := &l.levels[1].sculptor
+	testing.expect(t, sculptor_skin_set(top, 4))
+	skin_bumpy(top.skin)
+	out := make([dynamic]u8)
+	defer delete(out)
+	testing.expect(t, levels_write(&l, &out))
+	testing.expect(t, levels_skin_write(&l, &out))
+	want := skin_by_place(top)
+
+	back: Levels
+	r := geom.byte_reader(out[:])
+	testing.expect(t, levels_read(&back, &r, &pool, 64), "levels read failed")
+	defer levels_destroy(&back)
+	testing.expect(t, levels_skin_follows(&r))
+	testing.expect(t, levels_skin_read(&back, &r), "skin read failed")
+	testing.expect_value(t, r.at, len(out))
+	sk := levels_skin(&back)
+	testing.expect(t, sk != nil && sk.segments == 4)
+	if sk == nil do return
+	got := skin_by_place(&back.levels[1].sculptor)
+	testing.expect(t, slice.equal(got, want), "the heights moved")
+	// Damaged counts drop the skin and never assert.
+	cut := geom.byte_reader(out[:len(out) - 3])
+	again: Levels
+	testing.expect(t, levels_read(&again, &cut, &pool, 64))
+	defer levels_destroy(&again)
+	testing.expect(t, !levels_skin_read(&again, &cut))
+	testing.expect(t, levels_skin(&again) == nil)
+}

@@ -588,7 +588,7 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, pool: ^jobs.Pool, abort: ^
 // it, of the corner after it. On a mesh whose edges each have one triangle running
 // them either way, no two triangles share both, so only the topology decides this.
 // Temporary.
-@(private = "file")
+@(private)
 tri_canon :: proc(s: ^Sculptor, canon: []u32, abort: ^bool = nil) -> []u32 {
 	indices := s.mesh.indices[:]
 	tcount, vcount := len(indices) / 3, len(s.mesh.positions)
