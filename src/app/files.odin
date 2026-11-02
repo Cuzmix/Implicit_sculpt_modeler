@@ -2106,7 +2106,9 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 		append(out, ..cp.held)
 		return true
 	}
-	return sculpt.levels_write(&obj.levels, out, opts)
+	// The detail skin goes after the levels, where an app from before skins, reading the
+	// object's chunk, stops: it opens the object without it.
+	return sculpt.levels_write(&obj.levels, out, opts) && sculpt.levels_skin_write(&obj.levels, out, opts.abort)
 }
 
 // What `obj` is in the scene file.
@@ -2159,6 +2161,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES
 	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he) + len(cp.held)
 	bytes += textures_bytes(obj.textures)
+	if sk := sculpt.levels_skin(&obj.levels); sk != nil do bytes += 32 + size_of(f16) * len(sk.heights)
 	return bytes
 }
 
@@ -2209,6 +2212,10 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 			return obj, true, made
 		}
 	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
+		// A damaged skin is left out, and the object opens without it.
+		if version >= SCENE_CHUNKED && sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
+			report(app, Kit_Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
+		}
 		lv := sculpt.levels_current(&obj.levels)
 		obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		free_all(context.temp_allocator)

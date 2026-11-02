@@ -1540,6 +1540,9 @@ object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Lev
 // (`rebuild`) counts the selection sets that go for the command's note.
 object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	if rebuild do app.sets_lost += len(sculpt.levels_sets(&obj.levels))
+	// A skin lies on the triangles a rebuild replaces, so it goes; the swap entry the
+	// rebuild records keeps it for Undo.
+	if rebuild && sculpt.levels_skin(&obj.levels) != nil do report(app, Kit_Section.Hd, {.Warning}, "The detail skin of %s went with the rebuild: Undo brings it back", object_label(obj))
 	if app.stroke.object == obj.id do app.stroke.active = false
 	history_forget_strokes(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
