@@ -483,3 +483,76 @@ skin_file_round_trip_keeps_every_height :: proc(t: ^testing.T) {
 	testing.expect(t, !levels_skin_read(&again, &cut))
 	testing.expect(t, levels_skin(&again) == nil)
 }
+
+// Apply on a skin of 4 segments adds two levels whose top has a vertex at every sample,
+// raised by that sample's height off the Loop surface (each vertex as far from where a
+// plain Subdivide puts it as its sample's height says), leaves the skinned level where it
+// was and takes the skin off; with threads or without, to the same bits.
+@(test)
+skin_apply_bakes_every_sample_into_levels :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	tops: [2][]Vec3
+	for threaded, run in ([?]bool{false, true}) {
+		l: Levels
+		levels_init(&l, geom.icosphere(1), &pool if threaded else nil, 64)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_subdivide(&l))
+		skinned := &l.levels[1].sculptor
+		testing.expect(t, sculptor_skin_set(skinned, 4))
+		sk := skinned.skin
+		skin_bumpy(sk)
+		testing.expect_value(t, levels_skin_apply_steps(&l), 2)
+		vertices, _, _ := levels_skin_apply_estimate(&l)
+		want := make([]f32, len(sk.heights), context.temp_allocator)
+		for h, i in sk.heights do want[i] = f32(h)
+		slice.sort(want)
+		// The same levels made by plain Subdivides, numbered alike, are where each vertex
+		// rises from.
+		plain: Levels
+		levels_init(&plain, geom.icosphere(1), nil, 64)
+		defer levels_destroy(&plain)
+		for _ in 0 ..< 3 do testing.expect(t, levels_subdivide(&plain))
+		before := slice.clone(skinned.mesh.positions[:], context.temp_allocator)
+
+		testing.expect(t, levels_skin_apply(&l))
+		testing.expect_value(t, len(l.levels), 4)
+		testing.expect_value(t, l.current, 3)
+		testing.expect(t, levels_skin(&l) == nil && l.levels[1].sculptor.skin == nil, "the skin stayed")
+		top := l.levels[3].mesh.positions[:]
+		testing.expect_value(t, len(top), len(want))
+		testing.expect_value(t, vertices, len(want))
+		flat := plain.levels[3].mesh
+		testing.expect_value(t, len(flat.positions), len(top))
+		if len(flat.positions) != len(top) do return
+		got := make([]f32, len(top), context.temp_allocator)
+		off: f32
+		for p, v in top {
+			d := p - flat.positions[v]
+			n := linalg.normalize(flat.normals[v])
+			got[v] = linalg.dot(d, n)
+			off = max(off, linalg.length(d - n * got[v]))
+		}
+		slice.sort(got)
+		worst_h: f32
+		for h, i in got do worst_h = max(worst_h, abs(h - want[i]))
+		testing.expectf(t, worst_h < 1e-5, "a vertex rose %v away from its sample's height", worst_h)
+		testing.expectf(t, off < 1e-5, "a vertex moved %v off its normal", off)
+		testing.expect(t, slice.equal(l.levels[1].mesh.positions[:], before), "the skinned level moved")
+		tops[run] = slice.clone(top, context.temp_allocator)
+		// Going down a level and back keeps the baked detail.
+		levels_set_current(&l, 1)
+		levels_set_current(&l, 3)
+		worst: f32
+		for p, v in l.levels[3].mesh.positions do worst = max(worst, linalg.length(p - tops[run][v]))
+		testing.expectf(t, worst < 1e-5, "the detail drifted by %v", worst)
+	}
+	testing.expect(t, slice.equal(tops[0], tops[1]), "threads changed the result")
+	// No skin, nothing to apply.
+	l: Levels
+	levels_init(&l, geom.icosphere(1), nil, 64)
+	defer levels_destroy(&l)
+	testing.expect(t, !levels_skin_apply(&l))
+	testing.expect_value(t, len(l.levels), 1)
+}

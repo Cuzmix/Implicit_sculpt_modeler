@@ -155,6 +155,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Hd_Sculpt        = "hd geometry",
 	.Hd_Leave         = "hd geometry",
 	.Detail_Skin      = "detail skin displacement normal map micro bump height",
+	.Skin_Apply       = "detail skin bake apply levels subdivide",
 	.Detail_To        = "detail skin mesh route override",
 	.Detail_To_Next   = "detail skin mesh route override",
 	.Morph_Store      = "morph target",

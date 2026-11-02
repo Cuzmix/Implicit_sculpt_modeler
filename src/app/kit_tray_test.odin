@@ -2,6 +2,7 @@ package main
 
 import "core:testing"
 
+import "../sculpt"
 import "../ui"
 
 // Show where finds every command COMMAND_HOMES places: it opens the section's card as the
@@ -14,6 +15,9 @@ show_where_finds_every_home :: proc(t: ^testing.T) {
 	defer section_scene_free(&app)
 	// One light, so the Lights section shows a light's controls (Place highlight).
 	app.scene.lights.count, app.scene.lights.lights[0].on = 1, true
+	// A detail skin, so the HD detail section shows Apply skin; the commands a skin
+	// refuses keep their controls, shown off.
+	testing.expect(t, sculpt.sculptor_skin_set(object_sculptor(app.scene.objects[0]), 4))
 	ctx := &app.kit.ctx
 	for home, id in COMMAND_HOMES {
 		sec, ok := home.?

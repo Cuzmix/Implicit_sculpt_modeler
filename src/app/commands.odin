@@ -119,6 +119,7 @@ Command_Id :: enum u16 {
 	Hd_Sculpt,
 	Hd_Leave,
 	Detail_Skin, // the argument is the place in SKIN_SEGMENTS (0: off)
+	Skin_Apply,
 	Detail_To, // the argument is the Detail_To, for the brush held
 	Detail_To_Next,
 	Morph_Store,
@@ -1303,6 +1304,12 @@ COMMANDS := [Command_Id]Command {
 			sk := object_skin(selected_object(app))
 			return (sk.segments if sk != nil else 0) == SKIN_SEGMENTS[arg]
 		},
+	},
+	.Skin_Apply = {
+		label = "Apply skin",
+		help = "Turns the selected object's detail skin into subdivision levels, one for each halving of its segments, whose top level has a vertex at every height, and takes the skin off.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Skin_Apply}},
+		enabled = proc(app: ^App, _: int) -> bool {return skin_apply_refusal(selected_object(app)) == ""},
 	},
 	.Detail_To = {
 		label = "Detail goes to",

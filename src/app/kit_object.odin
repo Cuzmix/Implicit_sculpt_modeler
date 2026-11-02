@@ -141,6 +141,14 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 		tris := int(top.tri_count)
 		looks := tris * int(top.segments) * int(top.segments)
 		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth put their detail in the skin (Brush palette, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
+		_ = command_button(app, .Skin_Apply, variant = .Bordered)
+		steps := sculpt.levels_skin_apply_steps(&obj.levels)
+		if refused := skin_apply_refusal(obj); refused != "" {
+			ui.paragraph(ctx, refused)
+		} else {
+			vertices, _, bytes := sculpt.levels_skin_apply_estimate(&obj.levels)
+			ui.paragraph(ctx, fmt.tprintf("Apply adds %d level%s, the top one of %s vertices, about %s.", steps, "" if steps == 1 else "s", count_label(vertices), bytes_label(bytes)))
+		}
 	} else if why != "" {
 		ui.paragraph(ctx, why)
 	} else {
