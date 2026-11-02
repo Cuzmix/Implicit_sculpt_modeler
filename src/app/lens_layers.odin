@@ -15,8 +15,8 @@ import "../ui"
 // for a step; a sideways swipe to the left opens Merge down and Delete on the row, as iOS
 // lists do; a long press, a right click or the pen's side button opens the layer's menu.
 // Under the rows Base sculpt, everything outside the layers, then Duplicate, Merge down,
-// Bake all and the menu. The Object palette keeps its Layers section too
-// (kit_layers_section).
+// Bake all and the menu, how many layers and how much memory. It is the one Layers
+// interface: the Object palette's Layers section and the rail draw this card.
 
 // A layer row's height, in points, and its picture's side.
 LAYER_ROW_H :: 56
@@ -106,8 +106,19 @@ kit_lens_layers :: proc(app: ^App) {
 		_ = command_button(app, .Layer_Edit, int(Layer_Action.Bake_All), label = "Bake all", width = third)
 		if ui.icon_button(ctx, "Layer menu##lens layers foot", ui.ICON_MORE, enabled = allowed) do layer_menu_open(app, obj, selected^, ctx.last_rect, .Above_Center)
 		ui.end(ctx)
+		// What the menu also holds, as buttons for the picked layer, folded under More.
+		if kit_more(app, .Layers) {
+			ui.begin(ctx, "lens layers more", {direction = .Row, gap = 4, center = true, width = width})
+			_ = command_button(app, .Layer_Edit, int(Layer_Action.Invert), label = "Invert", width = third)
+			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Up), label = "Move up", width = third)
+			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Down), label = "Move down", width = third)
+			ui.end(ctx)
+			kit_more_end(app)
+		}
 	}
 	if !allowed do ui.paragraph(ctx, "Layers wait while the HD window or dynamic topology is on.")
+	if len(layers) > 0 do ui.label(ctx, fmt.tprintf("%d on this level, %.1f MB", len(layers), f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20)), t.small_size, t.text_tertiary)
+	ui.paragraph(ctx, "A layer holds sculpting you can dial up, down, past full or into reverse after the fact. While a layer records, strokes also go into it; its strength then dials them from -1 to 2, or -5 to 5 with Wide ±5. A swipe to the left on a row offers Merge down and Delete; its menu (hold it, right-click it or the ⋯) renames, inverts, reorders, masks or bakes it. Each level has its own layers: Subdivide moves the top level's up to the new level, Delete higher carries the higher levels' down, and rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them. Layers hold sculpting only, not polypaint.")
 }
 
 // One layer's row: its picture and name (which pick it, tint it, swipe and open its menu),

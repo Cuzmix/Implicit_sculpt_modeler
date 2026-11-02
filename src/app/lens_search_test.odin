@@ -25,7 +25,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_where(&a, {kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings")
 	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Layers))), "Panel · Layers card")
 	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Remesh))), "Panel · Rebuild card")
-	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layer settings card")
+	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layers card")
 	testing.expect_value(t, palette_where(&a, cmd(.Front_Only)), "Brush card · Options")
 }
 

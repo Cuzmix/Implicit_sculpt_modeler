@@ -2897,13 +2897,13 @@ def grow_visibility_from_the_section():
         "dabs": near(0), "undo_steps": near(1), "hidden_triangles": lambda v: 39000 < int(v) < 40900, "action_bar": is_text("hidden")})
 
 
-# Layer settings' Duplicate at 1600 x 900 with one layer and every option shown.
-LAYER_DUPLICATE = (1302, 448)
+# The Layers card's Duplicate, by name (at 1600 x 900 with one layer).
+LAYER_DUPLICATE = At("lens layers foot/Duplicate", 1270, 327)
 
 
 @scenario
 def layer_duplicate_from_the_section():
-    """With a layer and Show every option on, a finger tap on the Layers section's Duplicate adds a hidden copy as one undo step (the script's layer is no step of the run's)."""
+    """With a layer and Show every option on, a finger tap on the Layers section's (its card's) Duplicate adds a hidden copy as one undo step (the script's layer is no step of the run's)."""
     with open(settings_file(), "w") as f:
         f.write("all_options 1\n")
     s = Script()
@@ -3311,14 +3311,14 @@ def old_columns_float_their_windows():
 
 @scenario
 def pinned_sections_join_the_stack():
-    """Pin to the stack (here from a script) keeps Layers and then Camera as cards at the stack's foot, open, and the column holds only the stack."""
+    """Pin to the stack (here from a script) keeps Remesh and then Camera as cards at the stack's foot, open, and the column holds only the stack."""
     s = Script()
     s.add("move:800,450")
     s.wait(10)
-    return s, ["--script=pin_section layers; pin_section camera"], camera_still({
+    return s, ["--script=pin_section remesh; pin_section camera"], camera_still({
         "dabs": near(0), "stack_place": is_text("right"),
-        "panel_pins": is_text("layers,camera"),
-        "stack": lambda v: v.endswith(",Layer_Settings+,Camera+")})
+        "panel_pins": is_text("remesh,camera"),
+        "stack": lambda v: v.endswith(",Remesh+,Camera+")})
 
 
 # The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap

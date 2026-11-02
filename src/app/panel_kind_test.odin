@@ -12,6 +12,7 @@ panel_kinds_read_back :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	for c in Panel_Kind {
+		if c in RETIRED_PANELS do continue
 		kind, ok := panel_kind_from_name(panel_kind_name(c))
 		testing.expect(t, ok && kind == c, panel_kind_name(c))
 		kind, ok = panel_from_word(panel_word(c))
@@ -46,12 +47,18 @@ panel_of_section_is_one_to_one :: proc(t: ^testing.T) {
 		testing.expect(t, p not_in hit, "no two sections share a palette")
 		hit += {p}
 		if back, is := panel_section(p); is do testing.expect_value(t, back, s)
-		else do testing.expect(t, s == .Environment && p == .Environment)
+		else do testing.expect(t, (s == .Environment && p == .Environment) || (s == .Layers && p == .Layers))
 	}
-	testing.expect_value(t, hit, STACK_SECTION_PANELS + {.Environment})
+	testing.expect_value(t, hit, STACK_SECTION_PANELS - RETIRED_PANELS + {.Environment, .Layers})
+	// The Layers section is its card, one interface wherever it opens; a line from before,
+	// naming the section's palette, reads as the card.
 	p, _ := panel_of_section(.Layers)
-	testing.expect_value(t, p, Panel_Kind.Layer_Settings)
-	testing.expect_value(t, panel_kind_name(.Layer_Settings), "section:Layers")
+	testing.expect_value(t, p, Panel_Kind.Layers)
+	testing.expect(t, !panel_is_section(.Layer_Settings))
+	p, _ = panel_kind_from_name("section:Layers")
+	testing.expect_value(t, p, Panel_Kind.Layers)
+	p, _ = panel_from_word("section:Layers")
+	testing.expect_value(t, p, Panel_Kind.Layers)
 	testing.expect_value(t, panel_word(.Layers), "Layers")
 	free_all(context.temp_allocator)
 }

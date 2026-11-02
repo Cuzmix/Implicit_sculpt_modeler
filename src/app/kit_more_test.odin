@@ -109,6 +109,8 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	}
 	preset_delete(&app, 0)
 	for sec in OBJECT_SECTIONS {
+		// A section that is its card (Layers) keeps the card's own layout.
+		if p, _ := panel_of_section(sec.section); !panel_is_section(p) do continue
 		n := section_controls(&app, sec.section, sec.draw, obj, false)
 		testing.expectf(t, n <= 5, "Object palette, %s: %d controls", sec.title, n)
 	}
