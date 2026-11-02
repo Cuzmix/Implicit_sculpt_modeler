@@ -8,8 +8,9 @@ import "../jobs"
 import "../sculpt"
 
 // Detail skin (--skin): a sphere of each target size with a skin of 4 and then 16
-// segments. Times the HD table's small stroke three ways: on the plain mesh, into the
-// skin, and on the levels Apply turns the skin into (the same detail as real vertices),
+// segments. Times the HD table's small stroke four ways: on the plain mesh, into the
+// skin, split between the two (Detail goes to Auto), and on the levels Apply turns the
+// skin into (the same detail as real vertices),
 // with the memory of the skin against those levels and the bytes of skin normals a frame
 // uploads. Apply runs only while its top level stays under SKIN_BENCH_LEVELS_MAX
 // vertices; beyond that the levels' memory is the estimate Apply's panel shows.
@@ -20,8 +21,8 @@ SKIN_NORMAL_BYTES :: 4
 
 skin_header :: proc() {
 	fmt.printfln("Stroke: the HD table's small brush (radius %.2f), %.2f either side of the front; a frame is %d dabs and a flush.", HD_BENCH_RADIUS, HD_BENCH_WIDTH, DABS_PER_FRAME)
-	fmt.println("| Mesh vertices | Segments | Looks like vertices | Mesh stroke frame ms | Skin make ms | Skin MB | Skin stroke frame ms | Skin upload KB/frame | Levels instead | Levels MB | Apply s | Levels stroke frame ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Mesh vertices | Segments | Looks like vertices | Mesh stroke frame ms | Skin make ms | Skin MB | Skin stroke frame ms | Skin upload KB/frame | Auto stroke frame ms | Levels instead | Levels MB | Apply s | Levels stroke frame ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_skin :: proc(target: int, pool: ^jobs.Pool) {
@@ -45,9 +46,12 @@ run_skin :: proc(target: int, pool: ^jobs.Pool) {
 		upload: int
 		skin_ms := levels_stroke(&l, HD_BENCH_RADIUS, HD_BENCH_WIDTH, skin = true, skin_upload = &upload)
 		free_all(context.temp_allocator)
+		// Detail goes to Auto: each dab split between the vertices and the skin by its size.
+		auto_ms := levels_stroke(&l, HD_BENCH_RADIUS, HD_BENCH_WIDTH, skin = true, split = true)
+		free_all(context.temp_allocator)
 
-		fmt.printf("| %s | %d | %s | %.2f | %.0f | %.1f | %.2f | %.1f |", thousands(vertices), segments, thousands(samples),
-			mesh_ms, make_ms, skin_mb, skin_ms, f64(upload) / 1024)
+		fmt.printf("| %s | %d | %s | %.2f | %.0f | %.1f | %.2f | %.1f | %.2f |", thousands(vertices), segments, thousands(samples),
+			mesh_ms, make_ms, skin_mb, skin_ms, f64(upload) / 1024, auto_ms)
 		steps := sculpt.levels_skin_apply_steps(&l)
 		top_vertices, _, estimate := sculpt.levels_skin_apply_estimate(&l)
 		if top_vertices > SKIN_BENCH_LEVELS_MAX {

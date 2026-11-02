@@ -95,7 +95,7 @@ skin_bytes :: proc(sk: ^Skin) -> int {
 	if sk == nil do return 0
 	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
 	bytes += (len(sk.edge_first) + len(sk.near_first) + len(sk.near)) * size_of(u32) + len(sk.tri_edges) * size_of([3]u32)
-	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri)
+	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri) + len(sk.dab_moved) + len(sk.node_edge) * size_of(f32)
 	return bytes + len(sk.edges) * size_of(Skin_Edge) + len(sk.stale) * size_of(Skin_Stale)
 }
 
@@ -247,6 +247,88 @@ skin_tri_near :: #force_inline proc(sk: ^Skin, t: u32, boxes: [][2]Vec3, widen: 
 	return false
 }
 
+// The share of a split dab of `radius` the vertices take: none for a dab under one mean
+// edge of the nodes it hits (the mesh could not show it), all of it over four, and a
+// smooth step between (Brush.skin_split). Reads the hit leaves of the dab.
+@(private)
+skin_mesh_share :: proc(s: ^Sculptor, radius: f32) -> f32 {
+	sum: f32
+	for leaf in s.hit do sum += s.skin.node_edge[s.node_of[leaf]]
+	edge := sum / f32(max(len(s.hit), 1))
+	if edge <= 0 do return 1
+	return smoothstep(SKIN_SPLIT_FROM, SKIN_SPLIT_TO, radius / edge)
+}
+
+// A split dab is all skin under SKIN_SPLIT_FROM mean edges across and all mesh over
+// SKIN_SPLIT_TO.
+@(private)
+SKIN_SPLIT_FROM :: 1
+@(private)
+SKIN_SPLIT_TO :: 4
+
+// Whether a split dab's skin pass can change anything worth keeping. With the vertices
+// taking all of it, Draw, Inflate and Crease leave the skin only what the mesh's flat
+// triangles miss of the brush's curve, about the height times (edge / radius)² over two,
+// which is skipped under a quarter of the skin's step along an edge: a wide stroke then
+// costs what it costs without a skin. Smooth always runs, to smooth the skin's detail too.
+@(private)
+skin_split_needs_skin :: proc(s: ^Sculptor, d: ^Dab, share: f32) -> bool {
+	brush := d.brush
+	if share < 1 || brush.kind == .Smooth do return true
+	if brush.kind != .Draw && brush.kind != .Inflate && brush.kind != .Crease do return false
+	if brush.no_accumulate do return false
+	edge := skin_mesh_edge(s)
+	ratio := edge / max(brush.radius, 1e-12)
+	height := brush.radius * brush.strength * DRAW_HEIGHT
+	return height * ratio * ratio * 0.5 >= edge / (4 * f32(s.skin.segments))
+}
+
+// The hit nodes' mean edge (skin_mesh_share's).
+@(private)
+skin_mesh_edge :: proc(s: ^Sculptor) -> f32 {
+	sum: f32
+	for leaf in s.hit do sum += s.skin.node_edge[s.node_of[leaf]]
+	return sum / f32(max(len(s.hit), 1))
+}
+
+// Turns a copy of a split dab into its skin pass: Draw, Inflate and Crease take the brush
+// less what the corners take (Dab.mesh_share); Clay, Flatten, Layer and Accumulate off
+// take the skin's share of the strength; Smooth smooths the skin at full strength.
+@(private)
+skin_split_brush :: proc(d: ^Dab, share: f32) {
+	switch d.brush.kind {
+	case .Draw, .Inflate, .Crease:
+		if !d.brush.no_accumulate {
+			d.mesh_share = share
+			return
+		}
+		d.brush.strength *= 1 - share
+	case .Smooth:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Snake_Hook, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer:
+		d.brush.strength *= 1 - share
+	}
+}
+
+// After a split dab's vertices moved: their nodes and the nodes that own their shared
+// vertices need new skin normals only near the dab, an edge past its reach at most (a
+// vertex normal turns only beside a moved vertex, and a triangle at that vertex holds it
+// in its sphere, so the sphere comes within an edge, two sphere radii, of the reach), so
+// they are marked as dabs mark, with a box that wide, instead of whole.
+@(private)
+skin_split_moved :: proc(s: ^Sculptor, d: ^Dab) {
+	sk := s.skin
+	for leaf in s.changed {
+		id := s.node_of[leaf]
+		sk.dab_moved[id] = true
+		skin_mark_dab(s, id)
+		for owner in node_owners(s, id) {
+			sk.dab_moved[owner] = true
+			skin_mark_dab(s, owner)
+		}
+	}
+	skin_box_add(sk, d.center, math.sqrt(d.r2) + 2 * sk.sphere_max)
+}
+
 // One dab into the skin, called by dab_once once the area under the brush is known, in
 // place of moving vertices. Returns how many samples changed.
 @(private)
@@ -364,8 +446,13 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 	P := s.mesh.positions[:]
 	S := sk.segments
 	reach := math.sqrt(d.r2) + sk.height_max
+	own2 := reach * reach
+	// A split dab's skin pass also reaches the samples of every triangle with a corner the
+	// vertices' pass moves, which lie an edge (two sphere radii) past the brush at most.
+	if d.mesh_share > 0 do reach += 2 * sk.sphere_max
 	reach2 := reach * reach
 	inv_s := 1 / f32(S)
+	split := d.mesh_share > 0
 	N := s.mesh.normals[:]
 	moved: u32
 	top: f32
@@ -400,7 +487,9 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 		c := skin_corner_of(I, f, v)
 		fi: u32 = S if c == 1 else 0
 		fj: u32 = S if c == 2 else 0
-		skin_touch(d, v, f, fi, fj, K, ONCE, &moved, &top, targets, at)
+		corners: [3]f32
+		if split do corners = skin_corner_weights(d, f, K)
+		skin_touch(d, v, f, fi, fj, corners, K, ONCE, &moved, &top, targets, at)
 		at += 1
 	}
 	// Edge samples, each edge from its owner triangle, skipped when the edge is far.
@@ -413,9 +502,11 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 			at += int(S - 1)
 			continue
 		}
+		corners: [3]f32
+		if split do corners = skin_corner_weights(d, t, K)
 		for k in u32(1) ..< S {
 			fi, fj := skin_edge_place(S, edge.corner, k)
-			skin_touch(d, sk.vert_count + e * (S - 1) + (k - 1), t, fi, fj, K, ONCE, &moved, &top, targets, at)
+			skin_touch(d, sk.vert_count + e * (S - 1) + (k - 1), t, fi, fj, corners, K, ONCE, &moved, &top, targets, at)
 			at += 1
 		}
 	}
@@ -434,13 +525,18 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 		// its normal's length.
 		a, b, c := P[I[3 * t]], P[I[3 * t + 1]], P[I[3 * t + 2]]
 		na, nb, nc := N[I[3 * t]], N[I[3 * t + 1]], N[I[3 * t + 2]]
+		corners: [3]f32
+		if split do corners = skin_corner_weights(d, t, K)
+		// Only a triangle whose corners the vertices' pass moves needs its samples past the
+		// brush; the rest keep to the brush's own reach.
+		limit := reach2 if corners != {} else own2
 		x := base + t * F
 		for j in u32(1) ..= S - 2 do for ii in u32(1) ..= S - 1 - j {
 			b1, b2 := f32(ii) * inv_s, f32(j) * inv_s
 			b0 := 1 - b1 - b2
 			p := a * b0 + b * b1 + c * b2
-			if linalg.length2(p - d.center) < reach2 {
-				skin_touch_at(d, x, t, ii, j, p, na * b0 + nb * b1 + nc * b2, K, ONCE, &moved, &top, targets, at)
+			if linalg.length2(p - d.center) < limit {
+				skin_touch_at(d, x, t, ii, j, p, na * b0 + nb * b1 + nc * b2, corners, K, ONCE, &moved, &top, targets, at)
 			}
 			x += 1
 			at += 1
@@ -452,14 +548,33 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 // One sample: index x, at grid place (i, j) of triangle t, at position `at` among its
 // node's samples (for Smooth's targets).
 @(private)
-skin_touch :: #force_inline proc(d: ^Dab, x, t, i, j: u32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
+skin_touch :: #force_inline proc(d: ^Dab, x, t, i, j: u32, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
 	p, nn := skin_base(d.s, d.s.skin, t, i, j)
-	skin_touch_at(d, x, t, i, j, p, nn, K, ONCE, moved, top, targets, at)
+	skin_touch_at(d, x, t, i, j, p, nn, corners, K, ONCE, moved, top, targets, at)
+}
+
+// What a split dab's vertices' pass gives each corner of triangle t, as its weight (the
+// vertex path's dab_weight, shield and facing, at the corner before it moves), squared
+// for Crease, which moves a vertex by the square. Zero for corners out of reach.
+@(private)
+skin_corner_weights :: #force_inline proc(d: ^Dab, t: u32, $K: Brush_Kind) -> (w: [3]f32) {
+	s := d.s
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	for c in 0 ..< 3 {
+		v := I[3 * t + u32(c)]
+		delta := P[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 >= d.r2 do continue
+		w[c] = dab_weight(d, delta, d2) * shield(s.fade, s.mask, v) * facing_weight(d, s.mesh.normals[:], v)
+		when K == .Crease do w[c] *= w[c]
+	}
+	return
 }
 
 // skin_touch with the sample's flat point and interpolated normal already worked out.
 @(private)
-skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
+skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
 	s := d.s
 	sk := s.skin
 	nu := linalg.normalize0(nn)
@@ -467,10 +582,22 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, $K: B
 	q := p + nu * h
 	delta := q - d.center
 	d2 := linalg.dot(delta, delta)
-	if d2 >= d.r2 do return
-	w := dab_weight(d, delta, d2) * skin_gate(d, t, i, j)
-	if d.brush.facing != {} do w *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
-	if w <= 0 do return
+	// A split dab's Draw, Inflate and Crease: what the moved corners give the sample,
+	// mixed by where it lies between them, which its own share leaves out.
+	given: f32
+	when K == .Draw || K == .Inflate || K == .Crease {
+		if d.mesh_share > 0 {
+			S := f32(sk.segments)
+			b1, b2 := f32(i) / S, f32(j) / S
+			given = d.mesh_share * ((1 - b1 - b2) * corners[0] + b1 * corners[1] + b2 * corners[2])
+		}
+	}
+	w: f32
+	if d2 < d.r2 {
+		w = dab_weight(d, delta, d2) * skin_gate(d, t, i, j)
+		if d.brush.facing != {} do w *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
+	}
+	if w <= 0 && given == 0 do return
 	next := h
 	when ONCE {
 		l := &sk.layer[x]
@@ -481,9 +608,9 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, $K: B
 		next = h + (to - was) * along
 		l^ = {s.layer_stroke, to}
 	} else when K == .Draw {
-		next = h + d.amount * w * linalg.dot(d.normal, nu)
+		next = h + d.amount * (w - given) * linalg.dot(d.normal, nu)
 	} else when K == .Inflate {
-		next = h + d.amount * w
+		next = h + d.amount * (w - given)
 	} else when K == .Clay {
 		above := linalg.dot(q - d.plane, d.normal)
 		if above * d.amount < 0 do next = h - above * min(d.brush.strength * w * PLANE_RATE, 1) / max(linalg.dot(nu, d.normal), SKIN_PLANE_COS_MIN)
@@ -492,7 +619,7 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, $K: B
 		reach := d.brush.radius * (1 - clamp(d.brush.plane_short[0 if above > 0 else 1], 0, 1))
 		if abs(above) <= reach do next = h - above * d.amount * min(d.brush.strength * w * PLANE_RATE, 1) / max(linalg.dot(nu, d.normal), SKIN_PLANE_COS_MIN)
 	} else when K == .Crease {
-		next = h + d.amount * w * w
+		next = h + d.amount * (w * w - given)
 	} else when K == .Layer {
 		l := &sk.layer[x]
 		was := l.height if l.stroke == s.layer_stroke else 0
@@ -616,12 +743,14 @@ skin_flush :: proc(s: ^Sculptor) {
 	// Moved vertices move their triangles' spheres too.
 	for id in s.dirty_nodes {
 		if s.stale[id] != .Shape && s.stale[id] != .Edge do continue
-		skin_mark_as(s, id, .Whole)
+		skin_mark_as(s, id, .Near_Dabs if sk.dab_moved[id] else .Whole)
+		sk.dab_moved[id] = false
 		n := s.nodes[id]
 		for t in n.tri_first ..< n.tri_first + n.tri_count {
 			skin_sphere(s, sk, t)
 			sk.sphere_max = max(sk.sphere_max, sk.spheres[t].w)
 		}
+		skin_node_edge(s, sk, id)
 	}
 	if len(sk.stale_nodes) == 0 {
 		clear(&sk.boxes)

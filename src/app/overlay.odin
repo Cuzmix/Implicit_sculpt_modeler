@@ -251,8 +251,8 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			}
 			// A stroke here would go into the detail skin, not move vertices: said under the
 			// ring, as the brush's ring alone cannot show it.
-			if app.stroke.active ? app.stroke.skin : stroke_to_skin(app, selected_object(app), stroke_brush(app, input)) {
-				overlay_label(o, "skin", center + {0, app.brush.radius_px + 14})
+			if kind := stroke_brush(app, input); app.stroke.active ? app.stroke.skin : stroke_to_skin(app, selected_object(app), kind) {
+				overlay_label(o, "mesh + skin" if app.brush.detail_to[kind] == .Auto else "skin", center + {0, app.brush.radius_px + 14})
 			}
 		}
 	case .Move:

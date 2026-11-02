@@ -344,7 +344,7 @@ job_cloth_constrain :: proc(data: rawptr, k: int) {
 	}
 }
 
-@(private = "file")
+@(private)
 smoothstep :: #force_inline proc(lo, hi, x: f32) -> f32 {
 	t := clamp((x - lo) / (hi - lo), 0, 1)
 	return t * t * (3 - 2 * t)

@@ -59,6 +59,12 @@ Skin :: struct {
 	spheres:     [][4]f32,
 	// No triangle sphere's radius is larger (it only grows).
 	sphere_max:  f32,
+	// Per node id, its triangles' mean edge length, near enough (skin_node_edge), which a
+	// split dab measures its radius against (skin_mesh_share).
+	node_edge:   []f32,
+	// Per node id: its vertices moved under a split dab since the last flush, so only its
+	// samples near the dab boxes need new normals, not all of them (skin_split_moved).
+	dab_moved:   []bool,
 	// A dab's work, in runs of a hit node's triangles (skin_dab), so a dab that hits only
 	// a few nodes still keeps every thread busy.
 	items:       [dynamic]Skin_Item,
@@ -202,6 +208,8 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	sk.redo_edge = make([]bool, sk.edge_count, allocator)
 	sk.redo_tri = make([]bool, sk.tri_count, allocator)
 	sk.spheres = make([][4]f32, sk.tri_count, allocator)
+	sk.node_edge = make([]f32, len(s.nodes), allocator)
+	sk.dab_moved = make([]bool, len(s.nodes), allocator)
 	skin_spheres_all(s, &sk)
 	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
 	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
@@ -227,6 +235,8 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.redo_edge, allocator)
 	delete(sk.redo_tri, allocator)
 	delete(sk.spheres, allocator)
+	delete(sk.node_edge, allocator)
+	delete(sk.dab_moved, allocator)
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
 	delete(sk.smooth_to)
@@ -260,6 +270,17 @@ skin_spheres_all :: proc(s: ^Sculptor, sk: ^Skin) {
 		for t in u32(lo) ..< u32(hi) do skin_sphere(job.s, job.sk, t)
 	}, geom.RANGE_GRAIN)
 	for sp in sk.spheres do sk.sphere_max = max(sk.sphere_max, sp.w)
+	for _, id in s.nodes do skin_node_edge(s, sk, u32(id))
+}
+
+// Node id's mean edge length from its triangles' spheres: a triangle's corners lie a
+// radius from its middle at most, an edge of an even triangle √3 radii long.
+@(private)
+skin_node_edge :: proc(s: ^Sculptor, sk: ^Skin, id: u32) {
+	n := s.nodes[id]
+	sum: f32
+	for t in n.tri_first ..< n.tri_first + n.tri_count do sum += sk.spheres[t].w
+	sk.node_edge[id] = math.SQRT_THREE * sum / f32(max(n.tri_count, 1))
 }
 
 // Whether triangle t's sphere, widened by `widen`, comes within `reach` of `center`.
@@ -505,6 +526,7 @@ skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []
 	pa, pb, pc := P[ca], P[cb], P[cc]
 	na, nb, nc := N[ca], N[cb], N[cc]
 	x := sk.vert_count + sk.edge_count * u32(S - 1) + t * skin_face_samples(sk)
+	raised_any := false
 	for j in 0 ..= S do for i in 0 ..= S - j {
 		p, n: Vec3
 		h: f32
@@ -520,6 +542,7 @@ skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []
 		}
 		k := place(S, i, j)
 		flat[k], raised[k], base[k] = p, p + linalg.normalize0(n) * h, n
+		raised_any ||= h != 0
 	}
 	// The small triangle "up" at (i, j) has corners (i, j), (i+1, j), (i, j+1) and "down"
 	// at (i, j) has (i+1, j), (i+1, j+1), (i, j+1), in the order skin_turn_at takes them.
@@ -534,9 +557,25 @@ skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []
 		out.turn, out.half, out.ok = skin_small_turn(flat[a], raised[a], flat[b], raised[b], flat[c], raised[c])
 		return
 	}
-	for j in 0 ..< S do for i in 0 ..< S - j {
-		up[j * S + i] = small(flat[:], raised[:], place(S, i, j), place(S, i + 1, j), place(S, i, j + 1))
-		if i + j < S - 1 do down[j * S + i] = small(flat[:], raised[:], place(S, i + 1, j), place(S, i + 1, j + 1), place(S, i, j + 1))
+	// With no height in the triangle every raised small triangle is its flat one, and
+	// skin_small_turn's turn is exactly zero (its two unit normals are the same division),
+	// so only the areas are worked out: the same bits for less, as most of a skin under a
+	// stroke that moves the mesh is often still flat.
+	flat_small :: #force_inline proc(flat: []Vec3, a, b, c: int) -> (out: Small) {
+		twice := linalg.length(linalg.cross(flat[b] - flat[a], flat[c] - flat[a]))
+		if twice <= 0 do return
+		return {half = twice * 0.5, ok = true}
+	}
+	if raised_any {
+		for j in 0 ..< S do for i in 0 ..< S - j {
+			up[j * S + i] = small(flat[:], raised[:], place(S, i, j), place(S, i + 1, j), place(S, i, j + 1))
+			if i + j < S - 1 do down[j * S + i] = small(flat[:], raised[:], place(S, i + 1, j), place(S, i + 1, j + 1), place(S, i, j + 1))
+		}
+	} else {
+		for j in 0 ..< S do for i in 0 ..< S - j {
+			up[j * S + i] = flat_small(flat[:], place(S, i, j), place(S, i + 1, j), place(S, i, j + 1))
+			if i + j < S - 1 do down[j * S + i] = flat_small(flat[:], place(S, i + 1, j), place(S, i + 1, j + 1), place(S, i, j + 1))
+		}
 	}
 	// skin_turn_at's order and conditions: up at (i, j), (i-1, j), (i, j-1), then down at
 	// (i-1, j), (i-1, j-1), (i, j-1), each where it exists.

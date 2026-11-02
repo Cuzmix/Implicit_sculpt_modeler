@@ -1521,6 +1521,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		trim_fixed = !app.brush.trim_dynamic,
 		plane_short = {1 - app.brush.plane_height, 1 - app.brush.plane_depth},
 		skin       = app.stroke.skin,
+		// Auto splits each dab between the vertices and the skin by its size.
+		skin_split = app.stroke.skin && app.brush.detail_to[kind] == .Auto,
 	}
 }
 
