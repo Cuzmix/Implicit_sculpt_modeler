@@ -651,7 +651,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)
 		fmt.printfln("cull_meshes=%d cull_commands=%d cull_mismatch=%d", meshes, commands, mismatch)
 	}
-	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
+	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f idle_skipped=%d idle_recorded=%d cmds_dropped=%d background_frames=%d", app.idle.rests, app.idle.rest_ms, app.idle.skipped, app.idle.recorded, app.stats.cmds_dropped, app.idle.held)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	fmt.printfln("viewport_tile=%v viewport_target_mb=%.1f", app.target.tile, f64(render.viewport_target_bytes(app.target)) / (1 << 20))
 	lod_pending := 0

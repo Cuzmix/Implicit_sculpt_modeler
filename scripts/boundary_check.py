@@ -31,7 +31,7 @@ SDL_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:sdl3[^"]*"', re.M)
 # frame pacing and idling, the kit's window glue, and the system services.
 APP_SDL_FILES = {
     "android.odin", "device.odin", "diagnostics.odin", "diagnostics_test.odin", "files.odin", "frame_rate.odin",
-    "frame.odin", "help_labels.odin", "idle.odin", "ios.odin", "keys_sdl.odin", "main.odin", "navigate.odin", "new_ui.odin",
+    "frame.odin", "help_labels.odin", "idle.odin", "idle_test.odin", "ios.odin", "keys_sdl.odin", "main.odin", "navigate.odin", "new_ui.odin",
     "pen_samples.odin", "pen_samples_test.odin", "pen_samples_windows.odin", "pencil.odin", "pencil_test.odin",
     "platform.odin", "touch.odin", "view_window.odin",
 }

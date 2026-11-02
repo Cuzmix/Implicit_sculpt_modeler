@@ -150,6 +150,7 @@ mtl_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices
 	}
 	scratch := mtl_scratch(cmd, a.refit_scratch if refit else build_scratch)
 	enc := MTL.CommandBuffer_accelerationStructureCommandEncoder(cmd.cb)
+	cmd.recorded = cmd.recorded || enc != nil
 	if scratch == nil || enc == nil {
 		if !refit do mtl_accel_unref(a)
 		return nil
@@ -214,6 +215,7 @@ mtl_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_
 	}
 	scratch := mtl_scratch(cmd, NS.UInteger(sizes.buildScratchBufferSize))
 	enc := MTL.CommandBuffer_accelerationStructureCommandEncoder(cmd.cb)
+	cmd.recorded = cmd.recorded || enc != nil
 	if scratch == nil || enc == nil {
 		if a != old do mtl_accel_unref(a)
 		return nil

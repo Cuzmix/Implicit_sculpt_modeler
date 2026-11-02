@@ -94,8 +94,9 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 		// The pen gone hovers over nothing: no tooltip or highlight stays where it left, and
 		// coming back elsewhere is no drag from there.
 		if d.pointer == .Pen do d.over = false
-	case .WINDOW_FOCUS_LOST:
-		// What is let go while another window has the focus never arrives here.
+	case .WINDOW_FOCUS_LOST, .DID_ENTER_BACKGROUND:
+		// What is let go while another window has the focus, or while the app is in the
+		// background, never arrives here.
 		d.down = {}
 	}
 }

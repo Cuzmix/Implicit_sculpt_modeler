@@ -8574,6 +8574,44 @@ def single_tap_dab_lands_after_the_gap():
     return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
 
 
+@scenario
+def rest_when_idle_wakes_for_a_tap():
+    """Rest when idle (Settings > System), as a tablet's battery wants it: once nothing
+    has changed for a second the frames rest, taking no image and waking no GPU
+    (idle_skipped, cmds_dropped), and a finger tapping the model wakes the loop at once
+    and lays its dab. The frame rate is held to 15 a second, so the second of quiet is 15
+    frames and the rests after it, a tenth of a second each, cost the run little."""
+    s = Script()
+    s.wait(60)
+    s.ftap(MODEL)
+    s.wait(24)
+    return s, ["--idle-sleep", "--frame-limit=15"], camera_still({"dabs": lambda v: int(v) >= 1, "undo_steps": near(1),
+                                                                 "idle_rests": lambda v: int(v) > 0, "idle_skipped": lambda v: int(v) > 0,
+                                                                 "cmds_dropped": lambda v: int(v) > 0})
+
+
+@scenario
+def background_hold_keeps_a_dropped_file():
+    """Sent to the background (as a tablet's system does; bg and fg stand in for its events)
+    the frame loop holds: frames are held, not drawn, until the app comes back, and a file
+    handed over meanwhile (the iPad's Open in Sculpt arrives as a drop before the
+    foreground event) waits, queued, for the first frame back and imports then: the quad
+    cube takes the starting sphere's place."""
+    path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".obj")
+    with open(path, "w") as f:
+        f.write("v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n"
+                "f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n")
+    s = Script()
+    s.wait(4)
+    s.add("bg")
+    s.wait(3)
+    s.add(f"drop:{path}")
+    s.wait(3)
+    s.add("fg")
+    s.wait(20)
+    return s, [], camera_still({"background_frames": lambda v: int(v) >= 2, "objects": near(1), "undo_steps": near(2)})
+
+
 # The middle and right spheres of THREE on screen; the left one starts selected.
 SPHERE_2, SPHERE_3 = (647, 430), (860, 480)
 
