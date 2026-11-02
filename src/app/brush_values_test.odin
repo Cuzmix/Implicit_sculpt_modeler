@@ -81,13 +81,11 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	// elsewhere; a Slider never shows where the bar has no room for one.
 	bar_put(&a, {which = .Offhand, slot = 2, add = true}, value_slot(.Focal_Shift))
 	bar_put(&a, {which = .Offhand, slot = 3, add = true}, {.Wireframe, 0})
-	bar_put(&a, {which = .Tools, slot = 0, add = true}, value_slot(.Strength))
+	bar_put(&a, {which = .View_Rail, slot = 0, add = true}, value_slot(.Strength))
 	a.kit.offhand.looks[0] = .Chip
 	testing.expect_value(t, bar_looks(&a, .Offhand), "Chip,Slider,Slider,command")
-	testing.expect_value(t, bar_look(&a.kit, .Tools, 0), Value_Look.Chip)
-	a.kit.tools.looks[0] = .Slider
-	testing.expect_value(t, bar_look(&a.kit, .Tools, 0), Value_Look.Chip)
-	a.kit.tools.looks[0] = .Icon
+	testing.expect_value(t, bar_look(&a.kit, .View_Rail, 0), Value_Look.Chip)
+	a.kit.view_rail.looks[0] = .Icon
 	// A look moves with its value.
 	testing.expect_value(t, bar_move(&a, .Offhand, 0, 1), 1)
 	testing.expect_value(t, bar_looks(&a, .Offhand), "Slider,Chip,Slider,command")
@@ -100,8 +98,8 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	settings_load(&b, path)
 	testing.expect_value(t, bar_names(&b, .Offhand), bar_names(&a, .Offhand))
 	testing.expect_value(t, bar_looks(&b, .Offhand), bar_looks(&a, .Offhand))
-	testing.expect_value(t, bar_look(&b.kit, .Tools, 0), Value_Look.Icon)
-	// The island's three, the strip's Strength, and the Render page's Exposure.
+	testing.expect_value(t, bar_look(&b.kit, .View_Rail, 0), Value_Look.Icon)
+	// The island's three, the rail's Strength, and the Render page's Exposure.
 	testing.expect_value(t, values_on_bars(&b), 5)
 
 	// The island is the person's, as the brush pie is: a workspace's layout leaves it be.
@@ -112,15 +110,15 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	kit_layout_put(&c.kit, text)
 	testing.expect(t, !bar_changed(&c, .Offhand))
 
-	old := "version 5\nbar_count bottom_tools 1\nbar bottom_tools 0 Brush_Value:Lazy\nbar_look bottom_tools 0 No_Such_Look\n"
+	old := "bar_count view_rail 1\nbar view_rail 0 Brush_Value:Lazy\nbar_look view_rail 0 No_Such_Look\n"
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)old) == nil)
 	d: App
 	defer results_destroy(&d)
 	bars_reset(&d.kit)
 	settings_load(&d, path)
 	testing.expect(t, !bar_changed(&d, .Offhand))
-	testing.expect_value(t, bar_names(&d, .Tools), "Brush_Value:Lazy")
-	testing.expect_value(t, bar_look(&d.kit, .Tools, 0), Value_Look.Chip)
+	testing.expect_value(t, bar_names(&d, .View_Rail), "Brush_Value:Lazy")
+	testing.expect_value(t, bar_look(&d.kit, .View_Rail, 0), Value_Look.Chip)
 }
 
 // The pen's roll on a value item moves it as on the island's sliders: a quarter turn

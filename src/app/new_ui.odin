@@ -93,9 +93,7 @@ Kit_State :: struct {
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
 	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
 	browser_at: Browser_At, // ...which of the two
-	// The shelf's tool strip (bars.odin), and Arrange (once Customise bars): on, and the
-	// slot popover a tap on a slot opens while it is.
-	tools:      Bar_List,
+	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)

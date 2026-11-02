@@ -197,9 +197,6 @@ brush_bar_top :: proc(app: ^App) -> f32 {
 	return top
 }
 
-// The tool strip's buttons' size, the touch target, which keeps the shelf narrow enough
-// to leave the stack beside it in a 1600-point window.
-MESH_TOOL :: 48
 // How far above the edge's margin the shelf sits, for its page names under it.
 SHELF_LIFT :: 22
 

@@ -230,7 +230,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
-		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar, on each of the shelf's pages and in its tools after All: any command, in any order.")
+		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar and on each of the shelf's pages: any command, in any order.")
 		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")

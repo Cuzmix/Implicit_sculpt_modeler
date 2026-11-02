@@ -420,8 +420,8 @@ PRESSURE_STRENGTH_SWITCH = At("bar value/Pressure changes the strength", 1050, 7
 def value_bars(island=(), strip=()):
     """Arguments that start the run with the island holding `island` and the shelf's Brushes
     page `strip`, each a list of (value, look) or a command name, through the scenario's
-    settings file (with no old tools strip for version 12 to bring onto the pages)."""
-    lines = ["version 6", "bar_count bottom_tools 0"]
+    settings file."""
+    lines = []
     for zone, items in (("offhand_island", island), ("shelf_sculpt", strip)):
         if not items:
             continue

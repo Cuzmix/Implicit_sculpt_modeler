@@ -182,10 +182,10 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	// A layout written before workspaces held the bars keeps the bars as they are.
 	kit_layout_put(k, "open Inspector\n")
 	testing.expect_value(t, k.view_rail.count, fresh)
-	bar_remove(&a, .Tools, 0)
-	tools := k.tools.count
+	bar_remove(&a, .View_Rail, 0)
+	rail := k.view_rail.count
 	kit_layout_put(k, "open Stats\n")
-	testing.expect_value(t, k.tools.count, tools)
+	testing.expect_value(t, k.view_rail.count, rail)
 }
 
 @(test)

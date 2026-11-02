@@ -77,7 +77,7 @@ docks_read_back :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, b.dock_lists[0], a.dock_lists[0])
 	testing.expect_value(t, b.dock_lists[2].count, 0)
-	testing.expect_value(t, dock_looks_text(&b), "offhand:1:wide,rail:3:off,dock1:2:always,dock3:1:wide:nomore")
+	testing.expect_value(t, dock_looks_text(&b), "offhand:1:wide,rail:3:off,shelf:1:wide,dock1:2:always,dock3:1:wide:nomore")
 
 	// Wrong counts, names, edges and numbers, and buttons of a dock no line makes: none of them.
 	kit_layout_put(&b, "dock dock5 Float 0 0 0 1 Wide 1\ndock shelf Left 0.5 0 0 1 Wide 1\ndock rail Bottom 0.5 0 0 1 Wide 1\ndock offhand Left NaN 0 0 1 Wide 1\ndock offhand Float 0 inf 0 1 Wide 1\ndock rail Default 0 0 0 1 Tiles 1\ndock offhand Left 0 0 0 1\nbars\nbar_count dock_2 1\nbar dock_2 0 frame_all\n")
