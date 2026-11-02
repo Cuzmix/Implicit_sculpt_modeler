@@ -4652,7 +4652,7 @@ def lens_stack_float_floats_a_card():
 
 # Two floating cards at 1440x900: Layers floated and its grip dragged down 380 points, then
 # Scene floated over its top; a point in Layers' padding that Scene leaves clear.
-LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 650)}
+LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1000, 700)}
 
 
 @scenario
@@ -4696,7 +4696,7 @@ def lens_dial_stays_over_a_floating_card():
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
 LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
-               "symmetry_grip": (1218, 524), "layers_corner": (738, 340)}
+               "symmetry_grip": (1218, 524), "layers_corner": At("stack size Layers 6/handle", 728, 390)}
 
 
 @scenario
@@ -4741,9 +4741,9 @@ def lens_stack_floating_card_resizes_from_a_corner():
     s.wait(6)
     s.ftap(LENS_STACK["layers_float"])
     s.wait(8)
-    s.fdrag(line(LENS_RESIZE["layers_corner"], (692, 420), 4))
+    s.fdrag(line(LENS_RESIZE["layers_corner"], (682, 470), 4))
     s.wait(6)
-    return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x280"), "stack_resizes": near(1), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x312"), "stack_resizes": near(1), "dabs": near(0)})
 
 
 # Lens's split views at 1440x900 in One plus two: the vertical divider, the one between the
