@@ -57,9 +57,11 @@ summary.
   Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
   chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
   `arrange_show_chips` + `arrange_panel_rows` (the stack Hidden/Left/Right/Float, other windows Hidden/Shown), and
-  `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): a tray section by
-  `Kit_Section` (any palette's, `bar_section`), the symmetry axes, the polyframe parts, the Remesh quick menu, Shading,
-  Camera or View layout. `corner = true` on `icon_button` draws the triangle that says a long press does more.
+  `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
+  polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A section or card button off the rail (and a
+  long press's section, a value menu's or quick menu's settings) pops the stack's own card out as a floating window
+  beside it (`card_pop.odin`: `card_pop_toggle`, `card_pop_section`, one at a time, placed again by its laid-out size,
+  Keep open / Close in its head, `card_pop=` stat); a card the docked stack shows opens there instead. `corner = true` on `icon_button` draws the triangle that says a long press does more.
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
   press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the docked stack above it. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_lines_layout`/`shelf_fit` decide how many tiles (in the dock's lines as rows)

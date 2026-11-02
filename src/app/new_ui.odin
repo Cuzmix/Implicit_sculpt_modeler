@@ -88,6 +88,8 @@ Kit_State :: struct {
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
+	// The card popped out of a dock's button (card_pop.odin).
+	card_pop:   Card_Pop,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
@@ -1800,7 +1802,9 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
-		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Look)
+		at := app.kit.bar_pop.at
+		app.kit.bar_pop.open = false
+		card_pop_section(app, .Look, at, .Left)
 	}
 }
 

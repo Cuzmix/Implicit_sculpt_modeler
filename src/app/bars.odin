@@ -519,7 +519,7 @@ bar_has_more :: proc(id: Command_Id) -> bool {
 bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	k := &app.kit
 	p := &k.bar_pop
-	if sec, ok := bar_more_section(s.id); ok && p.open && p.kind == .Section && p.section == sec do return true
+	if sec, ok := bar_more_section(s.id); ok && card_pop_shows(k, stack_card_of(app, sec)) do return true
 	#partial switch s.id {
 	case .Symmetry_X:      return app.brush.symmetry != {} || app.brush.radial_on
 	case .Tool_Move:       return app.tool == .Move
@@ -528,8 +528,8 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg) || rail_dock_is(app, s)
-	case .Show_Panel:      return p.open && p.kind == .Panel && p.panel == Panel_Kind(s.arg) || rail_dock_is(app, s)
+	case .Show_Section:    return card_pop_shows(k, stack_card_of(app, Kit_Section(s.arg))) || rail_dock_is(app, s)
+	case .Show_Panel:      return card_pop_shows(k, Panel_Kind(s.arg)) || rail_dock_is(app, s)
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Inspector:       return rail_dock_is(app, s)
 	case .Command_Palette: return k.palette
@@ -554,12 +554,11 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	case .Pass_Menu:
 		k.passes.menu_at, k.passes.menu_side = at, side
 	case .Show_Section:
-		// A section on a bar opens beside its button rather than in the tray across the
-		// window.
-		bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
+		// A section or card on a dock pops its card out beside the button (card_pop.odin).
+		card_pop_section(app, Kit_Section(s.arg), at, side)
 		return
 	case .Show_Panel:
-		bar_pop_toggle(app, .Panel, at, side, panel = Panel_Kind(s.arg))
+		card_pop_toggle(app, Panel_Kind(s.arg), at, side)
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)
@@ -576,7 +575,7 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 // What a long press (or a right-click) on a slot's button does, for one that has more.
 bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	if sec, ok := bar_more_section(s.id); ok {
-		bar_pop_toggle(app, .Section, at, side, sec)
+		card_pop_section(app, sec, at, side)
 		return
 	}
 	#partial switch s.id {
