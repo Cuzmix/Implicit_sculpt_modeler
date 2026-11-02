@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:log"
 import "core:strings"
 import "../ui"
 
@@ -62,15 +61,10 @@ Workspaces :: struct {
 	menu_at:  ui.Rect,
 	deleting: bool, // the menu asks to confirm deleting the current workspace
 	switches: int, // how many times the workspace changed (an exit stat)
-	loaded:   bool, // the settings named workspaces (an older file names none)
+	loaded:   bool, // the settings named workspaces (a fresh install's names none)
 	// Workspace files written and read (workspace_file.odin), for the exit stats.
 	exports:  int,
 	imports:  int,
-	// A settings file from before spaces (version 4 or older) had Focus and Inspect workspaces:
-	// one saved with changes becomes an own workspace once the file is read (its layout
-	// here, heap, until then), and one that was current becomes its view toggle.
-	views_saved:   [2]string,
-	views_current: int, // 1 Focus, 2 Inspect, 0 neither
 }
 
 // The workspaces as they start: the three built-ins, Sculpt current.
@@ -94,10 +88,6 @@ workspaces_destroy :: proc(k: ^Kit_State) {
 	}
 	delete(k.workspaces.list)
 	k.workspaces.list = nil
-	for &text in k.workspaces.views_saved {
-		delete(text)
-		text = ""
-	}
 	spaces_destroy(k)
 }
 
@@ -163,8 +153,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	stack_density_save(k, &out)
 	stack_groups_save(k, &out)
 	stack_beside_save(k, &out)
-	user_docks_save(k, &out)
-	bar_places_save(k, &out)
+	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
@@ -180,9 +169,9 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	panels_default(k)
 	stack_default(k)
 	k.hidden = {}
-	k.places = {}
-	// No docks of the person's but those the layout names, with only the buttons it names.
-	k.docks = {}
+	// Every dock as it comes, and none of the person's but those the layout names, with
+	// only the buttons it names.
+	docks_clear(k)
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
 	k.passes.shading = {}
@@ -192,8 +181,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.undo = {}
 	k.second_in_layout = false
 	groups := make([dynamic][]string, 0, 4, context.temp_allocator)
-	// Sections an older layout pinned, kept as cards once the stack is read.
-	old_pins: Panels_Old
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -204,10 +191,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			pass_layout_read(k, f)
 		case "shading":
 			shading_layout_read(k, f)
-		case "bar_place":
-			bar_place_read(k, f)
-		case "user_dock":
-			user_dock_read(k, f)
+		case "dock":
+			dock_read(k, f)
 		case "thumbnail":
 			if len(f) < 3 do continue
 			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c
@@ -215,14 +200,12 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			k.second.shading = {}
 			if len(f) > 3 do shading_words_read(&k.second.shading, f[3:])
 			k.second_in_layout = true
-		case "panes", "grid", "pane":
+		case "panes", "pane":
 			grid_layout_read(&k.grid, f)
 		case "open":
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
 		case "window":
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
-		case "column", "pinned":
-			panels_load_line(k, f, &old_pins)
 		case "stack":
 			stack_layout_read(k, f)
 		case "stack_place":
@@ -238,15 +221,12 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			append(&groups, f)
 		case "bars":
 			bar_lists_reset(k)
-		case "bar_count", "bar", "bar_look", "rail_group", "rail_main":
+		case "bar_count", "bar", "bar_look", "rail_group":
 			bars_load_line(k, f)
 		}
 	}
 	if k.ctx.mirror do for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
-	panels_old_settle(k, &old_pins)
 	for f in groups do stack_group_read(k, f)
-	rail_main_settle(k)
-	user_docks_settle(k)
 	// The tray and the Objects card share a place: the card wins, as opening it does.
 	if k.objects_card do k.inspector = false
 	kit_floats_close(k)
@@ -518,42 +498,13 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	spaces_save(k, out)
 }
 
-// Settings before version 5 had four built-ins in slots 0 to 3 (Sculpt, Focus, Inspect,
-// Studio) before the own ones: Sculpt stays, Studio is Render's, the own ones move down
-// one, and Focus and Inspect are views now (`view` 1 and 2) with no slot.
-@(private = "file")
-workspace_slot_v3 :: proc(old: int) -> (slot, view: int) {
-	switch old {
-	case 0: return 0, 0
-	case 1: return -1, 1
-	case 2: return -1, 2
-	case 3: return int(Built_In.Render), 0
-	}
-	return old - 1, 0
-}
-
-// How many slots the settings had before version 5.
-WORKSPACE_SLOTS_V3 :: 4 + WORKSPACE_OWN
-
-// Reads one workspace line (`f` split by spaces) of a settings file of `version`. A slot
-// out of range, or a layout for a slot no line named, is passed over.
-workspaces_load_line :: proc(k: ^Kit_State, f: []string, version: int) {
+// Reads one workspace line (`f` split by spaces) of a settings file. A slot out of range,
+// or a layout for a slot no line named, is passed over.
+workspaces_load_line :: proc(k: ^Kit_State, f: []string) {
 	w := &k.workspaces
 	if len(f) < 2 || len(w.list) == 0 do return
 	slot := -1
-	for i in 0 ..< max(WORKSPACE_SLOTS, WORKSPACE_SLOTS_V3) do if f[1] == fmt.tprint(i) do slot = i
-	if version < 5 && slot >= 0 {
-		view: int
-		slot, view = workspace_slot_v3(slot)
-		if view > 0 {
-			w.loaded = true
-			switch f[0] {
-			case "workspace_saved": if len(f) == 3 do workspace_text_set(&w.views_saved[view - 1], preset_unescape(f[2]))
-			case "workspace_current": w.views_current = view
-			}
-			return
-		}
-	}
+	for i in 0 ..< WORKSPACE_SLOTS do if f[1] == fmt.tprint(i) do slot = i
 	if slot < 0 || slot >= WORKSPACE_SLOTS do return
 	ws := &w.list[slot]
 	w.loaded = true
@@ -568,7 +519,7 @@ workspaces_load_line :: proc(k: ^Kit_State, f: []string, version: int) {
 	case "workspace_live":
 		if len(f) == 3 && ws.used do workspace_text_set(&ws.live, preset_unescape(f[2]))
 	case "workspace_current":
-		if ws.used do w.current, w.views_current = slot, 0
+		if ws.used do w.current = slot
 	case "workspace_space":
 		if _, built_in := workspace_built_in(slot); built_in || len(f) != 3 do return
 		for s in Space do if strings.equal_fold(f[2], fmt.tprint(s)) do ws.space = s
@@ -576,8 +527,8 @@ workspaces_load_line :: proc(k: ^Kit_State, f: []string, version: int) {
 }
 
 // After the settings are read: the current workspace's live layout is put in place. A
-// file from before workspaces holds a layout and no workspace: that layout becomes
-// Sculpt's, saved, so nothing moves and no dot shows.
+// file that names no workspace keeps the layout it holds as Sculpt's, saved, so nothing
+// moves and no dot shows.
 workspaces_loaded :: proc(k: ^Kit_State) {
 	w := &k.workspaces
 	if len(w.list) == 0 do return
@@ -585,60 +536,11 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 		workspace_text_set(&w.list[int(Built_In.Sculpt)].saved, kit_layout_text(k))
 		return
 	}
-	// A layout saved before the grid was a tree names it with a grid line, and one saved
-	// while the stack had a Palettes card, or with columns or pins, names those: each
-	// written again once as this version writes it, so it reads as unchanged.
-	for &each in w.list do if each.used {
-		if up := grid_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
-		if up := grid_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
-		if up := stack_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
-		if up := stack_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
-	}
-	// Focus and Inspect saved with changes before spaces become own Sculpt workspaces of
-	// those names, where a slot is free.
-	for &text, i in w.views_saved {
-		if text == "" do continue
-		placed := false
-		for slot in len(Built_In) ..< len(w.list) {
-			ws := &w.list[slot]
-			if ws.used do continue
-			ws^ = {used = true, space = .Sculpt}
-			copy(ws.name[:len(ws.name) - 1], "Focus" if i == 0 else "Inspect")
-			ws.saved, text = text, ""
-			placed = true
-			break
-		}
-		if !placed {
-			log.warnf("settings: no free workspace for the %s layout of an older version; it is left out", "Focus" if i == 0 else "Inspect")
-			workspace_text_set(&text, "")
-		}
-	}
 	ws := &w.list[w.current]
 	kit_layout_put(k, ws.live if ws.live != "" else ws.saved)
 	workspace_text_set(&ws.live, "")
 	space := workspace_space(k, w.current)
 	k.spaces.current = space
 	k.spaces.layout[space] = w.current
-	switch w.views_current {
-	case 1: k.focus_mode = true
-	case 2: inspect_set(k, true)
-	}
-	w.views_current = 0
 }
 
-// Layout `text` written again as this version writes it when its stack lines name the
-// Palettes card, or it has column or pinned lines, all gone with round 3's PR 9; any other
-// text as it is.
-stack_layout_upgrade :: proc(text: string) -> string {
-	for line in strings.split_lines(text, context.temp_allocator) {
-		f := strings.fields(line, context.temp_allocator)
-		if len(f) > 0 && (f[0] == "column" || f[0] == "pinned") do return workspace_layout_clean(text)
-		if len(f) == 0 || !strings.has_prefix(f[0], "stack") do continue
-		for word in f[1:] {
-			name := strings.trim_suffix(strings.trim_prefix(strings.trim_prefix(strings.trim_prefix(word, "*"), "-"), "card:"), "+")
-			if eq := strings.index_byte(name, '='); eq >= 0 do name = name[:eq]
-			if strings.equal_fold(name, "Palettes") do return workspace_layout_clean(text)
-		}
-	}
-	return text
-}

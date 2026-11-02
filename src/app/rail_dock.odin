@@ -125,19 +125,3 @@ rail_dock_text :: proc(app: ^App) -> string {
 	return "none"
 }
 
-// A rail saved before Main stood on it (read with no `rail_main` line after its count) gets
-// Main as its first button, where the Palettes button stood; a rail saved since keeps what
-// its owner left on it.
-rail_main_settle :: proc(k: ^Kit_State) {
-	if !k.rail_main_check do return
-	k.rail_main_check = false
-	l := &k.view_rail
-	n := clamp(l.count, 0, VIEW_RAIL_MAX)
-	for s in l.slots[:n] do if s.id == .Inspector do return
-	if n >= VIEW_RAIL_MAX do return
-	copy(l.slots[1:n + 1], l.slots[:n])
-	copy(l.looks[1:n + 1], l.looks[:n])
-	l.slots[0] = {.Inspector, 0}
-	l.looks[0] = bar_default_look(.View_Rail)
-	l.count = n + 1
-}

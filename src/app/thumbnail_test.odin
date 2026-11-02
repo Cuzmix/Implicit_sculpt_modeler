@@ -42,7 +42,7 @@ second_view_presets_look_along_their_axis :: proc(t: ^testing.T) {
 }
 
 @(test)
-second_view_is_remembered_and_reads_the_old_shaded_switch :: proc(t: ^testing.T) {
+second_view_is_remembered :: proc(t: ^testing.T) {
 	path := "build/second_view_test.txt"
 	defer os.remove(path)
 	a := new(App)
@@ -57,11 +57,11 @@ second_view_is_remembered_and_reads_the_old_shaded_switch :: proc(t: ^testing.T)
 	testing.expect_value(t, b.kit.second.camera, Second_Camera.Left)
 	testing.expect_value(t, b.kit.second.pass, Second_Pass.Curvature)
 
-	// A file from before the passes said Shaded with a switch over the silhouette.
+	// A line of its own sets the pass.
 	for test in ([?]struct {
 		text: string,
 		want: Second_Pass,
-	}{{"thumbnail_shaded 1\n", .Shaded}, {"thumbnail_shaded 0\n", .Silhouette}, {"second_pass Normals\n", .Normals}}) {
+	}{{"second_pass Normals\n", .Normals}}) {
 		testing.expect(t, os.write_entire_file(path, transmute([]u8)test.text) == nil)
 		c := new(App)
 		defer free(c)

@@ -29,7 +29,7 @@ Home_Picture :: enum u8 {
 	Waiting, // not asked for yet
 	Asked, // the loader has it
 	Shown, // in its cell
-	None, // the file has no picture (saved before version 22)
+	None, // the file has no picture
 	Missing, // the file is gone, or no scene this app reads
 }
 

@@ -50,6 +50,13 @@ Mtl_Instance :: struct {
 }
 #assert(size_of(Mtl_Instance) == 68)
 
+// Whether fragment shaders can read barycentric coordinates (gpu_barycentric_offered):
+// Apple silicon and recent Macs' GPUs.
+mtl_barycentric_offered :: proc() -> bool {
+	if mtl_state.device == nil do return false
+	return bool(MTL.Device_supportsShaderBarycentricCoordinates(mtl_state.device))
+}
+
 // Metal 3 (A14, M1 and later), whose buffers have the GPU addresses the studio's kernel reads
 // indices through, and ray tracing.
 mtl_ray_query_offered :: proc() -> bool {

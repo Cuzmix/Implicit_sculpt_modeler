@@ -166,6 +166,13 @@ App :: struct {
 		splits: int,
 		ms:     f64,
 	},
+	// What Settle did at the end of the strokes that split between the mesh and a detail
+	// skin (sculptor_skin_settle), in all (exit stats).
+	skin_settle: struct {
+		strokes:  int,
+		vertices: int,
+		ms:       f64,
+	},
 	// ...and the Snake hook and Cloth strokes' stretch repairs (sculptor_stretch_repair).
 	stretch_repair: struct {
 		splits: int,
@@ -378,6 +385,9 @@ App :: struct {
 	// Objects other than the selected one show their material's muted colour (on by
 	// default), so the one being sculpted stands out; off, each shows its own colour.
 	dim_others:               bool,
+	// A detail skin is added by itself when a stroke that could go into one, under Detail
+	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
+	skin_auto:                bool,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -737,6 +747,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
+	app.skin_auto = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS

@@ -5783,7 +5783,7 @@ def lens_arrange_drags_the_rail_to_the_left():
     s.ftap(a["done"])
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "bar_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
@@ -5813,7 +5813,7 @@ def lens_arrange_slides_the_shelf_along_the_bottom():
         x = float(v.split(",")[0])
         return 144 < x < 190
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "arrange_zone": is_text("none"),
         "layout_dock": dock, "layout_dock_pages": lambda v: abs(dock_centre_x(v) - pages.get("dock", -99)) < 2, "dabs": near(0)})
 
 
@@ -5834,7 +5834,7 @@ def lens_arrange_floats_the_shelf():
                 x, y, w, h = (float(n) for n in v.split(","))
                 pages["below"] = y + h
                 return 640 < y < 760
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
                                                                              "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
                                                                              "dabs": near(0)})
         # Wider where it floats, the shelf was kept in the window, its tag with it, clear
@@ -5843,7 +5843,7 @@ def lens_arrange_floats_the_shelf():
         s.wait(4)
         s.ftap(a["reset_zone"])
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
                                                                          "layout_dock": lambda v: float(v.split(",")[1]) > 780, "dabs": near(0)})
     return Steps([run(False), run(True)])
 
@@ -5857,18 +5857,18 @@ def lens_arrange_floats_the_island():
         s.wait(6)
         s.ftap(a["dial_tab"])
         s.wait(4)
-        tag = (44, 354)
+        tag = At("arrange tag Offhand/Off-hand", 44, 338)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
         if not reset:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
                                                                              "layout_brush_bar": lambda v: float(v.split(",")[0]) > 700})
         # The tag went with the island, under where the pointer let go.
         s.ftap(ARRANGE_MIDDLE)
         s.wait(4)
         s.ftap(a["reset_zone"])
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -5890,7 +5890,7 @@ def lens_arrange_pen_drop_left_handed():
     s.add("pup")
     s.wait(6)
     return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({
-        "bar_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "dabs": near(0),
+        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "dabs": near(0),
         "layout_view_bar": lambda v: float(v.split(",")[0]) > 1300, "layout_brush_bar": lambda v: float(v.split(",")[0]) < 40})
 
 
@@ -5912,7 +5912,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
         x, _, w, _ = (float(n) for n in v.split(","))
         return 560 < x + w <= 650
     return s, ["--width=800", "--height=1280", "--script=set left_handed 1; customise_bars"], camera_still({
-        "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
+        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
 
 
 ARRANGE_DOCKS_TAB, DOCK_NEW = (542, 180), (520, 260)
@@ -5940,7 +5940,7 @@ def dock_new_from_the_library():
     s.wait(8)
     s.ftap(DOCK_ONE_ADD)
     s.wait(10)
-    return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:icons:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
+    return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
                                                           "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 814) < 2, "dabs": near(0)}
 
 
@@ -5954,7 +5954,9 @@ def dock_made(s):
 
 
 # The new dock's tag, over its top-left, and its row's controls in Library > Docks.
-DOCK_ONE_TAG, DOCK_ROW_TILES, DOCK_ROW_DELETE = (848, 386), (677, 260), (751, 260)
+DOCK_ONE_TAG, DOCK_ROW_DELETE = (848, 386), At("Delete Dock 1", 751, 260)
+# A dock's ⋯ and its menu's More lines.
+DOCK_ONE_MORE, DOCK_MORE_LINES = At("user dock 1/More", 800, 440), At("More lines", 900, 440)
 
 
 @scenario
@@ -5965,23 +5967,27 @@ def dock_carried_to_the_left_edge():
     s.mouse_drag(line(DOCK_ONE_TAG, ARRANGE_LEFT_MID, 30))
     s.wait(6)
     return s, LENS_1440 + ["--script=customise_bars"], camera_still({
-        "bar_places": lambda v: v.startswith("offhand:float:814,390,") and ",dock1:left:" in v, "bar_carries": near(1),
+        "dock_places": lambda v: v.startswith("offhand:float:814,390,") and ",dock1:left:" in v, "bar_carries": near(1),
         "layout_user_dock_1": lambda v: float(v.split(",")[0]) < 40, "layout_brush_bar": lambda v: float(v.split(",")[0]) > 800, "dabs": near(0)})
 
 
 @scenario
-def dock_tiles_then_delete():
-    """A dock's row in Library > Docks: Tiles widens it to a tile's width, and Delete takes it away with a note."""
+def dock_lines_then_delete():
+    """A dock's ⋯ opens its menu, whose More lines stands its buttons in two lines; its row in Library > Docks has Delete, which takes it away with a note."""
     def run(delete):
         s = Script()
         dock_made(s)
-        s.ftap(DOCK_ROW_TILES)
+        s.ftap(DOCK_ONE_MORE)
+        s.wait(6)
+        s.ftap(DOCK_MORE_LINES)
         s.wait(6)
         if not delete:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:tiles:0"), "layout_user_dock_1": lambda v: float(v.split(",")[2]) >= 70, "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:0"), "dock_looks": lambda v: ",dock1:2:" in v, "bar_pop": is_text("dock_menu"), "dabs": near(0)})
+        s.press("escape")
+        s.wait(4)
         s.ftap(DOCK_ROW_DELETE)
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -5999,7 +6005,7 @@ def dock_new_left_handed_by_pen():
     def dock(v):
         x, _, w, _ = (float(n) for n in v.split(","))
         return 0 <= x and x + w <= 1440 - 790
-    return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({"user_docks": is_text("1:icons:0"), "layout_user_dock_1": dock, "dabs": near(0)})
+    return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({"user_docks": is_text("1:0"), "layout_user_dock_1": dock, "dabs": near(0)})
 
 
 @scenario
@@ -6017,7 +6023,7 @@ def dock_stays_with_its_space():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
         s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:icons:0"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:0"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -6115,10 +6121,10 @@ def lens_arrange_place_stays_with_its_space():
         s.ftap(SPACE_TABS["model"])
         s.wait(10)
         if not back:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
         s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "bar_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "dock_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -8655,9 +8661,10 @@ def stroke_on_another_object_keeps_to_the_selected():
     ])
 
 
-# The view rail's + (outside Arrange) and two of the Panels picker's tiles, and the rail's
-# button the Symmetry card gets at its foot.
-RAIL_ADD_PANELS = At("add panels", 1563, 229)
+# The view rail's ⋯ and its menu's Add cards and groups, two of the Panels picker's tiles,
+# and the rail's button the Symmetry card gets at its foot.
+RAIL_MORE = At("view bar/More", 1563, 254)
+RAIL_ADD_CARDS = At("Add cards and groups...", 1400, 300)
 PICKER_SYMMETRY = At("panel Symmetry", 1300, 160)
 PICKER_LIGHTS = At("panel Lights", 1300, 160)
 RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
@@ -8665,21 +8672,23 @@ RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
 
 @scenario
 def rail_panels_picker_adds_a_card():
-    """A finger taps the rail's +, then the picker's Symmetry and Lights tiles: both go on the rail. The Symmetry
-    button the rail gets opens the Symmetry card beside it; nothing turns or sculpts."""
+    """A finger taps the rail's ⋯ and Add cards and groups, then the picker's Symmetry and Lights tiles: both go on
+    the rail. The Symmetry button the rail gets docks the Symmetry card in the panels' column; nothing turns or sculpts."""
     s = Script()
-    s.ftap(RAIL_ADD_PANELS)
+    s.ftap(RAIL_MORE)
+    s.wait(6)
+    s.ftap(RAIL_ADD_CARDS)
     s.wait(6)
     s.ftap(PICKER_SYMMETRY)
     s.wait(4)
     s.ftap(PICKER_LIGHTS)
     s.wait(4)
-    s.ftap(RAIL_ADD_PANELS)
+    s.press("escape")
     s.wait(6)
     s.ftap(RAIL_SYMMETRY)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("panel_symmetry"),
-                                "view_rail": is_text("Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Symmetry"),
+                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
 
 
 @scenario

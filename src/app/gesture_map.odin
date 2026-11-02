@@ -157,8 +157,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Two_Hold   = {.Undo, 0},
 	.Three_Hold = {.Redo, 0},
 	.Four_Hold  = {},
-	// The side button opens the menu of what the pen points at, as a right click does (a
-	// settings file from before version 8 keeps the brush pie it opened then).
+	// The side button opens the menu of what the pen points at, as a right click does.
 	.Pen_Button = {.Object_Menu, 0},
 	.One_Tap    = {},
 	// Unmapped, the second button stays SDL's middle button, which the mouse scheme drags.

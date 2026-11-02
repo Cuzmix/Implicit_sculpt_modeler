@@ -100,55 +100,6 @@ damaged_packed_bricks_are_refused :: proc(t: ^testing.T) {
 	}
 }
 
-// A file of the raw layout of versions 1 and 2: one chunk, its first brick holding the
-// plane (and in version 2 a mask), every other brick Empty.
-@(private = "file")
-old_file :: proc(version: u32, mask: ^Mask_Brick) -> [dynamic]u8 {
-	out := make([dynamic]u8)
-	geom.byte_put(&out, SVOX_TAG)
-	geom.byte_put(&out, version)
-	geom.byte_put(&out, f32(0.01))
-	geom.byte_put(&out, Vec3{1, 2, 3})
-	geom.byte_put(&out, u32(1))
-	geom.byte_put(&out, [3]u32{16, 16, 16})
-	codes := geom.byte_put_bytes(&out, CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS)
-	for &c in codes do c = 0
-	codes[0] = 3 if mask != nil else 2
-	b := plane_brick()
-	geom.byte_put_slice(&out, b.d[:])
-	if mask != nil do geom.byte_put_slice(&out, mask.m[:])
-	return out
-}
-
-// Files of versions 1 and 2, whose bricks are raw, still read, mask included.
-@(test)
-old_raw_files_still_read :: proc(t: ^testing.T) {
-	mask: Mask_Brick
-	for k in 0 ..< BRICK_VOXELS do mask.m[k] = u8(k)
-	for version in ([2]u32{1, 2}) {
-		bytes := old_file(version, &mask if version == 2 else nil)
-		defer delete(bytes)
-		rd := geom.byte_reader(bytes[:])
-		c: Clay
-		testing.expectf(t, clay_read(&c, &rd, nil), "a version %d file did not read", version)
-		defer clay_destroy(&c)
-		testing.expect_value(t, rd.at, len(bytes))
-		bc := [3]i32{16, 16, 16} * CHUNK_BRICKS
-		slot := volume_slot(&c.volume, bc)
-		testing.expect(t, slot != TILE_EMPTY && slot != TILE_INSIDE, "the brick did not come back")
-		if slot == TILE_EMPTY || slot == TILE_INSIDE do continue
-		plane := plane_brick()
-		testing.expectf(t, c.volume.bricks[slot] == plane, "version %d: the values changed", version)
-		m := mask_of(&c.volume, slot)
-		if version == 2 {
-			testing.expect(t, m != nil && m^ == mask, "version 2: the mask did not come back")
-		} else {
-			testing.expect(t, m == nil, "version 1: a mask appeared")
-		}
-		testing.expect(t, c.volume.voxel == 0.01 && c.volume.origin == {1, 2, 3}, "the placement changed")
-	}
-}
-
 // A sculpted clay's file is well under its raw size: the smooth band packs to about a byte
 // a voxel and the clamp either side to runs.
 @(test)

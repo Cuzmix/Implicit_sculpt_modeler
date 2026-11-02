@@ -48,6 +48,11 @@ Gpu_Caps :: struct {
 	// (gpu_build_blas, gpu_build_tlas, gpu_create_compute_pipeline_traced): the own Vulkan
 	// backend on a device with VK_KHR_ray_query, which hardware ray tracing GPUs have.
 	ray_query:         bool,
+	// Fragment shaders know where the pixel lies between the triangle's corners, so the
+	// wireframe is drawn in the shading pass itself (Renderer.wire_bary) instead of as the
+	// triangles again in lines: VK_KHR_fragment_shader_barycentric (desktop GPUs of the last
+	// years), Metal's barycentric coordinates (Apple silicon).
+	barycentric:       bool,
 	// Objects' chunks are culled on the GPU (gpu_cull.odin, Renderer.gpu_cull): see
 	// gpu_cull_offered.
 	gpu_cull:          bool,
@@ -108,6 +113,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
 	r.caps.async_compute = gpu_async_compute_offered(r.device)
 	r.caps.ray_query = gpu_ray_query_offered(r.device)
+	r.caps.barycentric = gpu_barycentric_offered(r.device)
 	r.caps.gpu_cull = gpu_cull_offered(r.device)
 	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu_cull_by_default(r.device)
 }

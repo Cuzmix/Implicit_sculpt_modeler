@@ -172,58 +172,29 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.locked, obj.locked)
 		testing.expect_value(t, back.transform, obj.transform)
 
-		// Version 7 had no flags byte, no folder and no stored eyes: write a 7-shaped head
-		// by dropping the six bytes after the boolean mode.
-		head := r.at
-		flags := head - 6
-		old := make([dynamic]u8, 0, len(out))
-		defer delete(old)
-		append(&old, ..out[:flags])
-		append(&old, ..out[head:])
-		seven: Object
-		r7 := geom.byte_reader(old[:])
-		object_get_fields(&r7, &seven, 7)
-		defer delete(seven.name)
-		testing.expect(t, r7.ok && !seven.off && !seven.ghost)
-		testing.expect_value(t, r7.at, flags)
+		// The flags byte sits six bytes before the end of the head: the flags, the folder
+		// and the stored eyes.
+		flags := r.at - 6
 
-		// The polypaint bit is known from version 11: a file of version 10 with it set is
-		// damaged, and no version knows the bit after it.
+		// Each known bit reads back; one past them is damage.
 		out[flags] = 4
 		painted: Object
 		rp := geom.byte_reader(out[:])
 		object_get_fields(&rp, &painted)
 		defer delete(painted.name)
 		testing.expect(t, rp.ok && painted.paint_off && !painted.off && !painted.ghost)
-		ten: Object
-		r10 := geom.byte_reader(out[:])
-		object_get_fields(&r10, &ten, 10)
-		defer delete(ten.name)
-		testing.expect(t, !r10.ok)
-		// The lock bit is known from version 25.
 		out[flags] = 8
 		locked: Object
 		rl := geom.byte_reader(out[:])
 		object_get_fields(&rl, &locked)
 		defer delete(locked.name)
 		testing.expect(t, rl.ok && locked.locked && !locked.off && !locked.ghost)
-		older: Object
-		r24 := geom.byte_reader(out[:])
-		object_get_fields(&r24, &older, 24)
-		defer delete(older.name)
-		testing.expect(t, !r24.ok)
-		// The spaces bits are known from version 33.
 		out[flags] = 32
 		spaced: Object
 		rs := geom.byte_reader(out[:])
 		object_get_fields(&rs, &spaced)
 		defer delete(spaced.name)
 		testing.expect(t, rs.ok && spaced.spaces_off == {.Model} && !spaced.off)
-		thirty_two: Object
-		r32 := geom.byte_reader(out[:])
-		object_get_fields(&r32, &thirty_two, 32)
-		defer delete(thirty_two.name)
-		testing.expect(t, !r32.ok)
 		out[flags] = 128
 		damaged: Object
 		rd := geom.byte_reader(out[:])
@@ -429,7 +400,7 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	lights_more_put(&more, app.scene.lights)
 	end := len(head) - len(more)
 	r.at = end - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
-	folders, next, ok := folders_get(&r, SCENE_VERSION)
+	folders, next, ok := folders_get(&r)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
@@ -451,12 +422,11 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	}
 	geom.byte_put(&twice, i32(1))
 	rt := geom.byte_reader(twice[:])
-	bad, _, bad_ok := folders_get(&rt, SCENE_VERSION)
+	bad, _, bad_ok := folders_get(&rt)
 	testing.expect(t, !bad_ok && bad == nil)
 
-	// Version 35 keeps the folder each folder is in; version 34 has them all at the top,
-	// and a parent below zero is damage.
-	nested :: proc(version: u32, parent: i32) -> [dynamic]u8 {
+	// Each folder keeps the folder it is in, and a parent below zero is damage.
+	nested :: proc(parent: i32) -> [dynamic]u8 {
 		b: [dynamic]u8
 		geom.byte_put(&b, u32(2))
 		for id in 1 ..= 2 {
@@ -464,17 +434,17 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 			geom.byte_put_string(&b, "a")
 			geom.byte_put(&b, u8(1))
 			geom.byte_put(&b, u8(0))
-			if version >= 35 do geom.byte_put(&b, parent if id == 2 else 0)
+			geom.byte_put(&b, parent if id == 2 else 0)
 		}
 		geom.byte_put(&b, i32(2))
 		return b
 	}
-	for c in ([3]struct {version: u32, parent: i32, ok: bool, want: int}{{35, 1, true, 1}, {34, 1, true, 0}, {35, -1, false, 0}}) {
-		b := nested(c.version, c.parent)
+	for c in ([2]struct {parent: i32, ok: bool, want: int}{{1, true, 1}, {-1, false, 0}}) {
+		b := nested(c.parent)
 		defer delete(b)
 		rb := geom.byte_reader(b[:])
-		got, _, got_ok := folders_get(&rb, c.version)
-		testing.expectf(t, got_ok == c.ok, "version %d parent %d: read %v", c.version, c.parent, got_ok)
+		got, _, got_ok := folders_get(&rb)
+		testing.expectf(t, got_ok == c.ok, "parent %d: read %v", c.parent, got_ok)
 		if got_ok do testing.expect_value(t, got[1].parent, c.want)
 		folders_clear(&got)
 		delete(got)

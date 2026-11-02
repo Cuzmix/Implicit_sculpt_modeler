@@ -57,6 +57,10 @@
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	float4 pass;
+#ifdef WIRE_BARY
+	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below).
+	float4 wire;
+#endif
 };
 
 #ifndef TEXTURED
@@ -177,6 +181,31 @@ float3 skin_view_normal() {
 	return n.x * frag_in.turn_x + n.y * frag_in.turn_y + n.z * frag_in.turn_z;
 }
 #endif
+
+// Skin detail (View_Pass.Skin_Detail): what a detail skin adds to its mesh's normal, as a
+// tangent-space normal map shows it, flat lavender (0.5, 0.5, 1) where the skin holds
+// nothing, the sideways part doubled so fine detail reads. The frame is built in the
+// mesh's own space from its smoothed normal, so the colours stay put as the view turns.
+// Without a skin the whole surface is flat lavender: nothing is in a skin there. Lit only
+// a little, by how squarely it faces the eye, so the form still reads. `n` is the shaded
+// normal and `v` the way to the eye, both in view space.
+float3 skin_detail_color(float3 n, float3 v) {
+	float3 flat_n = normalize(frag_in.view_normal);
+	if (!front_facing) flat_n = -flat_n;
+	float3 rgb = float3(0.5, 0.5, 1.0);
+#ifdef SKINNED
+	// Back into the mesh's space: the turn's rows are a rotation times the uniform scale.
+	float3 tx = frag_in.turn_x, ty = frag_in.turn_y, tz = frag_in.turn_z;
+	float3 m = normalize(float3(dot(flat_n, tx), dot(flat_n, ty), dot(flat_n, tz)));
+	float3 s = normalize(float3(dot(n, tx), dot(n, ty), dot(n, tz)));
+	float3 ref = abs(m.y) < 0.99 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+	float3 t = normalize(cross(ref, m));
+	float3 b = cross(m, t);
+	float3 d = float3(clamp(2.0 * dot(s, t), -1.0, 1.0), clamp(2.0 * dot(s, b), -1.0, 1.0), dot(s, m));
+	rgb = d * 0.5 + 0.5;
+#endif
+	return rgb * (0.7 + 0.3 * clamp(dot(flat_n, v), 0.0, 1.0));
+}
 
 #include "display.slang"
 #include "panorama.slang"
@@ -405,7 +434,35 @@ float underside(float3 n, float3x3 rig) {
 	return lerp(style.y, 1.0, sky_facing(n, rig));
 }
 
+#ifdef WIRE_BARY
+// The wireframe drawn in the shading itself (mesh_wire.frag.slang), on devices whose
+// fragment stage knows where it lies between the triangle's corners: the edges in one pass
+// with no second draw of the triangles as lines. Each corner's weight over its change per
+// pixel is how many pixels away the edge across from it is, so a line a little over a
+// pixel wide is anti-aliased whatever the triangle's size. Where the triangles shrink to a
+// pixel or two the lines would cover all of it in a moire of rings, so they even out to
+// WIRE_DENSE of the colour there: the surface reads as dense and its form still shows.
+#define WIRE_DENSE 0.5
+float4 wire_over(float4 c, float3 bary) {
+	float3 per_px = max(fwidth(bary), float3(1e-8));
+	float3 px = bary / per_px;
+	float near = min(px.x, min(px.y, px.z));
+	// The triangle's narrowest height in pixels, roughly.
+	float size = 1.0 / max(per_px.x, max(per_px.y, per_px.z));
+	float cover = lerp(WIRE_DENSE, saturate(1.2 - near), saturate((size - 1.5) / 3.0));
+	return float4(lerp(c.rgb, srgb_encode(wire.rgb), cover), c.a);
+}
+
+float4 shade(Mesh_Varyings v_in, float4 position, bool is_front);
+
+float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace, float3 bary : SV_Barycentrics) : SV_Target0 {
+	return wire_over(shade(v_in, position, is_front), bary);
+}
+
+float4 shade(Mesh_Varyings v_in, float4 position, bool is_front) {
+#else
 float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace) : SV_Target0 {
+#endif
 	frag_in = v_in;
 	frag_coord = position;
 	front_facing = is_front;
@@ -492,15 +549,15 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	// A diagnostic pass shows one quantity plainly, unlit and not tone mapped, so the
 	// form reads without the lights' help; the colours are written as shown.
 	int view_pass = int(pass.x + 0.5);
-	// A wipe compare: pass.w is 0 when off, else 1 + the pass right of its line + 8 times
+	// A wipe compare: pass.w is 0 when off, else 1 + the pass right of its line + 16 times
 	// the line's pixel column, and the pixels from that column on show that pass instead.
 	if (pass.w > 0.5) {
 		float wipe = pass.w - 1.0;
-		float line_px = floor(wipe / 8.0);
-		if (frag_coord.x >= line_px) view_pass = int(wipe - line_px * 8.0 + 0.5);
+		float line_px = floor(wipe / 16.0);
+		if (frag_coord.x >= line_px) view_pass = int(wipe - line_px * 16.0 + 0.5);
 	}
-	// Unlit (7) is no diagnostic pass: it shows the colour, below, once it is known.
-	if (view_pass != 0 && view_pass != 7) {
+	// Unlit (8) is no diagnostic pass: it shows the colour, below, once it is known.
+	if (view_pass != 0 && view_pass != 8) {
 		float3 shown = float3(0.0);
 		if (view_pass == 1) {
 			// Normals: the view-space normal as a colour, as Blender's and ZBrush's show it.
@@ -529,6 +586,8 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			// AO: a plain light grey, which the live occlusion darkens after the frame.
 			shown = float3(0.85);
 		} else if (view_pass == 6) {
+			shown = skin_detail_color(n, v);
+		} else if (view_pass == 7) {
 			// Wire: the Wireframe mode's hidden-line fill, a plain light grey that hides
 			// the edges behind it and lets the dark edges in front read.
 			shown = float3(0.78);
@@ -583,7 +642,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	float highlight = 1.0 - 0.5 * shown_mask;
 	// Unlit: Solid's Flat lighting, the colour as it is with no light, as Blender's Flat
 	// lighting shows it; exposed, with cavity and ridge, but not tone mapped.
-	if (view_pass == 7) return float4(srgb_encode(albedo * relief * exp2(look.x)), opacity());
+	if (view_pass == 8) return float4(srgb_encode(albedo * relief * exp2(look.x)), opacity());
 
 	if (surf.w > 0.5) {
 		// The matcap's sphere where it faces the way this pixel's normal does as the eye

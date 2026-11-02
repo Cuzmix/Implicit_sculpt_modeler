@@ -141,7 +141,7 @@ kit_arrange_ghosts :: proc(app: ^App) {
 		case .Dock:
 			x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app)}, {420, t.target + 16}
 			// Where Arrange put the shelf, if it moved it.
-			if k.places[.Shelf].edge != .Default do x, y, offset, _ = bar_place_anchor(app, .Shelf, size)
+			if k.docks[.Shelf].edge != .Default do x, y, offset, _ = dock_anchor(app, .Shelf, size)
 		case .Action_Bar: x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app) + t.target + 32}, {300, t.target}
 		}
 		// begin_anchored mirrors the anchor for the left hand itself.

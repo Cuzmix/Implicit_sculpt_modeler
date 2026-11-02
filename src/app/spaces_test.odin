@@ -2,7 +2,6 @@ package main
 
 import "core:os"
 import "core:slice"
-import "core:strings"
 import "core:testing"
 
 import "../sculpt"
@@ -122,47 +121,6 @@ names_of_the_old_workspaces_still_read :: proc(t: ^testing.T) {
 	testing.expect(t, ok && id == .Space_Switch && arg == int(Space.Render))
 }
 
-// A file from before spaces (version 3, and 4, the brush engine's spacing): four built-ins
-// (Sculpt, Focus, Inspect, Studio) then the own ones. Studio's changes become Render's, the
-// own ones move down a slot, a changed Focus becomes an own workspace, and Inspect current
-// comes back as Sculpt with Inspect on.
-@(test)
-a_settings_file_from_before_spaces_moves_its_workspaces :: proc(t: ^testing.T) {
-	path := "build/spaces_old_test.txt"
-	defer os.remove(path)
-	defer free_all(context.temp_allocator)
-	focus := "hidden Brush_Bar View_Bar\nopen Stats\n"
-	studio := "open Thumbnail Stats\n"
-	mine := "open Colors\n"
-	for version in ([]string{"version 3\n", "version 4\n"}) {
-		text := strings.concatenate({
-			version,
-			"workspace_saved 1 ", preset_escape(focus), "\n",
-			"workspace_saved 3 ", preset_escape(studio), "\n",
-			"workspace 4 Mine\n",
-			"workspace_saved 4 ", preset_escape(mine), "\n",
-			"workspace_current 2\n",
-		}, context.temp_allocator)
-		_ = os.write_entire_file(path, transmute([]u8)text)
-		a := new(App)
-		panels_default(&a.kit)
-		workspaces_init(&a.kit)
-		settings_load(a, path)
-		k := &a.kit
-		w := &k.workspaces
-		testing.expect_value(t, workspace_name(k, len(Built_In)), "Mine")
-		testing.expect(t, w.list[len(Built_In)].saved == mine)
-		testing.expect(t, w.list[int(Built_In.Render)].saved == studio)
-		testing.expect_value(t, workspace_name(k, len(Built_In) + 1), "Focus")
-		testing.expect(t, w.list[len(Built_In) + 1].saved == focus)
-		testing.expect_value(t, w.current, int(Built_In.Sculpt))
-		testing.expect(t, k.inspect.on, "Inspect current did not come back as the view")
-		testing.expect_value(t, k.spaces.current, Space.Sculpt)
-		workspaces_destroy(k)
-		free(a)
-	}
-}
-
 // A script written before spaces names the old workspaces: Focus and Inspect turn their
 // views on, Studio is Render's layout, and the new names read as they say.
 @(test)
@@ -216,10 +174,8 @@ each_space_has_its_own_dial :: proc(t: ^testing.T) {
 	testing.expect_value(t, modifier_name(a, .Smooth), "Smooth")
 }
 
-// The dials round-trip through settings: Sculpt's as the dial_sector lines an older build
-// reads, the others' as dial_space lines; a file of this version with only Sculpt's dial
-// changed leaves the others as they come, and a file from before version 6, when one dial
-// served every space, gives its changes to all three as far as they mean something there.
+// The dials round-trip through settings: Sculpt's as dial_sector lines, the others' as
+// dial_space lines; a file with only Sculpt's dial changed leaves the others as they come.
 @(test)
 the_dials_read_back :: proc(t: ^testing.T) {
 	path := "build/dials_test.txt"
@@ -245,18 +201,6 @@ the_dials_read_back :: proc(t: ^testing.T) {
 	settings_load(c, path)
 	testing.expect(t, c.kit.dials == a.kit.dials, "every dial read back")
 
-	old := "version 5\ndial_sector 0 command Frame_All\ndial_sector 1 command Brush_Pie\ndial_sector 2 modifier Invert\ndial_sector 3 modifier Hide\n"
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)old) == nil)
-	d := spaces_app()
-	defer spaces_app_free(d)
-	d.kit.dials = DIAL_DEFAULTS
-	settings_load(d, path)
-	dk := &d.kit
-	testing.expect(t, dk.dials[.Sculpt][0] == Bar_Slot{.Frame_All, 0} && dk.dials[.Sculpt][3] == Modifier.Hide)
-	testing.expect(t, dk.dials[.Model][0] == Bar_Slot{.Frame_All, 0} && dk.dials[.Model][3] == Modifier.Hide, "Model has the changed sectors")
-	testing.expect(t, dk.dials[.Model][2] == DIAL_DEFAULTS[.Model][2], "an unchanged sector keeps Model's own")
-	testing.expect(t, dk.dials[.Render][0] == Bar_Slot{.Frame_All, 0}, "Render has the changed command")
-	testing.expect(t, dk.dials[.Render][3] == DIAL_DEFAULTS[.Render][3], "but not a modifier")
 }
 
 // Render's shelf is a page of its own, with no tool strip: a fresh one holds the renders,

@@ -175,9 +175,9 @@ group_materials_replace :: proc(app: ^App, obj: ^Object, table: []Group_Material
 	append(&obj.group_materials, ..table)
 }
 
-// The scene file's form of an object's table (object_put, version 15): the count, then
+// The scene file's form of an object's table (object_put): the count, then
 // each group and its material, with its content pack parts by name, one of `refs` a
-// group (version 16; none for none).
+// group (none for none).
 group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object, refs: []Material_Refs = nil) {
 	geom.byte_put(out, u16(len(obj.group_materials)))
 	for e, k in obj.group_materials {
@@ -190,7 +190,7 @@ group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object, refs: []Material_Re
 // table no object has: too long, groups not rising from 1, or a material that is unset, a
 // MatCap or damaged. Groups need not exist: a table may hold groups a later step brings
 // back. A content pack's material is looked up in `app` as material_get does.
-group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object, app: ^App = nil, version := SCENE_VERSION, missing: ^int = nil) {
+group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object, app: ^App = nil, missing: ^int = nil) {
 	n := int(geom.byte_get(r, u16))
 	if !r.ok || n > GROUP_MATERIALS_MAX {
 		r.ok = false
@@ -199,7 +199,7 @@ group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object, app: ^App = nil,
 	last := u16(0)
 	for _ in 0 ..< n {
 		group := geom.byte_get(r, u16)
-		m := material_get(r, app, version, missing)
+		m := material_get(r, app, missing)
 		if !r.ok || group <= last || m.label == nil || !group_material_allowed(m) {
 			r.ok = false
 			return

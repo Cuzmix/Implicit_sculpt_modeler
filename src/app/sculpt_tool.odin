@@ -718,6 +718,13 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	say := s.kind == .Press && !offer_standing(app)
 	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), say) do return
 	if !object_editable(app, obj, say) do return
+	// A stroke finer than the mesh gives a skinless object a detail skin first, for its
+	// detail to go into (skin_auto_add). Any start counts, not only a press: a stroke can
+	// begin mid-drag, where the pointer first reaches the object.
+	if obj.voxel == nil {
+		radius := brush_radius_px(app, s.pressure, s.tilt) * camera.orbit_world_per_px(app.camera, hit, input.size.y) / obj.transform.scale
+		_ = skin_auto_add(app, obj, stroke_brush(app, input), radius)
+	}
 	if !skin_stroke_allowed(app, obj, stroke_brush(app, input), say) do return
 	st := &app.stroke
 	st.skin = stroke_to_skin(app, obj, stroke_brush(app, input))
@@ -1692,16 +1699,6 @@ PRESSURE_RESPONSES := [?]struct {
 	// Light touch, Nomad's light-pressure default: a light touch goes far, for size and
 	// strength alike (the Soft curve).
 	{"Light", {strength = true, size = true, strength_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_floor = 0.1}},
-}
-
-// Whether `p` is the Clay response Clay started on before settings version 7, as a
-// settings file wrote it back (to six places, so within a hair of the curves).
-pressure_is_old_clay :: proc(p: Pressure_Own) -> bool {
-	near :: proc(a, b: geom.Curve) -> bool {
-		return abs(a.c1.x - b.c1.x) + abs(a.c1.y - b.c1.y) + abs(a.c2.x - b.c2.x) + abs(a.c2.y - b.c2.y) < 1e-4
-	}
-	c := PRESSURE_RESPONSES[1].pressure
-	return p.own && p.strength == c.strength && p.size == c.size && abs(p.size_floor - c.size_floor) < 1e-4 && near(p.strength_curve, c.strength_curve) && near(p.size_curve, c.size_curve)
 }
 
 // A brush's own pressure, and whether it uses it rather than the global one.

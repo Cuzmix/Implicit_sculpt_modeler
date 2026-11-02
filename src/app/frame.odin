@@ -225,7 +225,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				style     = viewport_style(app),
 				matcap    = material_matcap(app, material),
 				lights    = viewport_lights(app),
-				wireframe = app.wireframe && app.polyframe_lines,
+				// The Wireframe overlay is the active object's alone, as ZBrush's PolyFrame is.
+				wireframe = app.wireframe && app.polyframe_lines && selected,
 				live      = live,
 				source    = &vp.clay.surface.mesh,
 				chunks    = vp.clay.surface.chunks[:],
@@ -271,9 +272,12 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			color, live, selected := object_draw_tint(app, obj, i)
 			material := object_material(app, obj)
 			// Polygon edges stand in for the triangles' edges on a level that has them: the
-			// Wireframe overlay's here, a view in Wireframe's in its shading_items.
+			// Wireframe overlay's here, a view in Wireframe's in its shading_items. The
+			// overlay, lines and group fill alike, is the active object's alone, as ZBrush's
+			// PolyFrame is: on every object it cost a second pass of every shown triangle.
 			poly_edges := part == 0 && poly_edges_shown(app, obj)
-			poly_lines := poly_edges && app.wireframe && app.polyframe_lines
+			overlay := app.wireframe && selected
+			poly_lines := poly_edges && overlay && app.polyframe_lines
 			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil, poly_edges = poly_edges})
 			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
 			// The groups are made first: the stamps say when.
@@ -293,9 +297,9 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				style = viewport_style(app),
 				lights = viewport_lights(app),
 				matcap = material_matcap(app, material),
-				wireframe = app.wireframe && app.polyframe_lines && !poly_edges,
+				wireframe = overlay && app.polyframe_lines && !poly_edges,
 				paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
-				groups = (app.show_groups || app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
+				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 				// A cage shows its edges, and its faces flat, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.
 				cage_lines = obj.cage != nil || poly_lines,

@@ -26,6 +26,10 @@ Gpubench_Case :: struct {
 	cull:     bool,
 	partial:  bool,
 	simplify: bool,
+	// The Wireframe overlay on the sphere, and drawn as its triangles again in lines even
+	// where the device could draw it in the shading pass (render.Renderer.wire_as_lines).
+	wire:       bool,
+	wire_lines: bool,
 }
 
 // How far the stroke moves each frame, as a share of the brush radius: two and a half dabs
@@ -35,14 +39,18 @@ GPUBENCH_STROKE_STEP :: 2 * SPACING_REFERENCE
 
 @(rodata)
 gpubench_cases := [?]Gpubench_Case {
-	{"Orbit", false, true, true, true},
-	{"Orbit, no simplify", false, true, true, false},
-	{"Orbit, no culling", false, false, true, false},
+	{"Orbit", false, true, true, true, false, false},
+	{"Orbit, no simplify", false, true, true, false, false, false},
+	{"Orbit, no culling", false, false, true, false, false, false},
+	// The wireframe at full detail, in the shading pass where the device offers
+	// barycentrics, then as lines: compare both with Orbit, no simplify.
+	{"Orbit, wireframe", false, true, true, false, true, false},
+	{"Orbit, wireframe as lines", false, true, true, false, true, true},
 	// Strokes keep the camera still, so they draw at full detail either way; with
 	// simplify off they skip the one full redraw that ends simplified drawing.
-	{"Stroke", true, true, true, false},
-	{"Stroke, no partial redraw", true, true, false, false},
-	{"Stroke, neither", true, false, false, false},
+	{"Stroke", true, true, true, false, false, false},
+	{"Stroke, no partial redraw", true, true, false, false, false, false},
+	{"Stroke, neither", true, false, false, false, false, false},
 }
 
 Gpubench_Cell :: struct {
@@ -106,6 +114,11 @@ gpubench_input :: proc(app: ^App, b: ^Gpubench, size: [2]f32) -> Viewport_Input 
 	app.renderer.cull = c.cull
 	app.renderer.partial = c.partial
 	app.simplify = c.simplify
+	app.wireframe = c.wire
+	if app.renderer.wire_as_lines != c.wire_lines {
+		app.renderer.wire_as_lines = c.wire_lines
+		render.viewport_invalidate(&app.target)
+	}
 	app.lod_finish = true // every copy is built before a case measures anything
 	app.tool = .Brush
 	app.scene.selected = 0
@@ -193,6 +206,7 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 	fmt.sbprintf(&sb, "Orbit turns the camera once around the sphere. Stroke drags the Draw brush (%.0f px) back and forth across it, ", app.brush.radius_px)
 	fmt.sbprintf(&sb, "%.0f px a frame, and counts only frames that sculpted.\n", GPUBENCH_STROKE_STEP * app.brush.radius_px)
 	fmt.sbprintf(&sb, "- Times in ms, p50 / p99. GPU is the 3D viewport's uploads and drawing; CPU is the whole frame minus waits.\n")
+	fmt.sbprintf(&sb, "- The wireframe cases draw the Wireframe overlay at full detail: in the shading pass (%s), then as the triangles again in lines.\n", "this GPU reads barycentrics" if render.caps(&app.renderer).barycentric else "not on this GPU, which draws lines in both")
 	fmt.sbprintf(&sb, "- Simplify draws far chunks from simplified copies (at most %.2f px off) while the view moves; every copy is built before the cases run.\n", app.simplify_px)
 
 	Table :: enum {

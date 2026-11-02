@@ -34,6 +34,11 @@ SDL_GPU's order, to the slot slangc gave it, as
 which mtl_slots_parse reads when the pipeline is made. Its first line carries the hash of the
 .spv made from the same source, so --check finds it stale exactly as an .msl; remaking it needs
 deps/slang (scripts/setup_deps.sh).
+
+A shader whose Slang source starts with "// barycentric" reads where the pixel lies between
+the triangle's corners, which Metal names only from language 2.2 on the Mac and 2.3 on the
+iPad, so its .msl is made for 2.3 (the renderer loads it only where the device offers
+barycentrics, src/render/mtl_device.odin).
 """
 
 import hashlib
@@ -77,6 +82,11 @@ def first_line(spv):
 def vulkan_only(spv):
     """Whether name.stage.spv's Slang source marks it as the own Vulkan backend's alone."""
     return first_line(spv).startswith("// vulkan only")
+
+
+def barycentric(spv):
+    """Whether name.stage.spv's Slang source reads barycentrics (Metal language 2.3)."""
+    return first_line(spv).startswith("// barycentric")
 
 
 def ray_query(spv):
@@ -201,7 +211,8 @@ def remake(spv, commit):
     stage = STAGES[spv.split(".")[-2]]
     with tempfile.TemporaryDirectory() as scratch:
         out = os.path.join(scratch, msl)
-        run = subprocess.run([TOOL, os.path.join(SHADERS, spv), "-s", "SPIRV", "-d", "MSL", "-t", stage, "-o", out],
+        version = ["--msl-version", "2.3.0"] if barycentric(spv) else []
+        run = subprocess.run([TOOL, os.path.join(SHADERS, spv), "-s", "SPIRV", "-d", "MSL", "-t", stage, "-o", out] + version,
                              capture_output=True, text=True)
         if run.returncode != 0 or not os.path.exists(out):
             print(f"shaders_msl: {spv} failed:\n{run.stdout}{run.stderr}", file=sys.stderr)

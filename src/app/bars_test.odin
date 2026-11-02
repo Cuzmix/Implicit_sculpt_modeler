@@ -172,26 +172,3 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&app, .View_Rail), before)
 }
 
-// A rail saved before Main stood on it gets Main as its first button once, where the
-// Palettes button stood; a rail saved since (with its rail_main line) keeps Main off when
-// its owner took it off.
-@(test)
-old_rail_gets_main :: proc(t: ^testing.T) {
-	path := "build/rail_main_test.txt"
-	defer os.remove(path)
-	old := "version 12\nbar_count view_rail 2\nbar view_rail 0 Show_Panel:Scene\nbar view_rail 1 Floor_Grid\n"
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)old) == nil)
-	a: App
-	defer results_destroy(&a)
-	bars_reset(&a.kit)
-	settings_load(&a, path)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Floor_Grid")
-
-	bar_remove(&a, .View_Rail, 0)
-	testing.expect(t, settings_save(&a, path))
-	b: App
-	defer results_destroy(&b)
-	bars_reset(&b.kit)
-	settings_load(&b, path)
-	testing.expect_value(t, bar_names(&b, .View_Rail), "Show_Panel:Scene,Floor_Grid")
-}

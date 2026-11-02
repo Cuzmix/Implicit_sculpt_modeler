@@ -21,8 +21,9 @@ import "../retopo"
 // viewport looks, the Scene palette's choices and the Settings panel's, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
-// command line win over what it holds. Unknown or malformed lines are skipped, so an
-// older or newer file never stops the app.
+// command line win over what it holds. Unknown or malformed lines are skipped, so a
+// damaged file never stops the app. Until release a line whose meaning changes is read
+// the new way only, with no conversion of what an earlier build wrote.
 
 SETTINGS_FILE :: "settings.txt"
 
@@ -37,20 +38,6 @@ settings_path :: proc() -> string {
 	return strings.concatenate({dir, SETTINGS_FILE}, context.temp_allocator)
 }
 
-// The version settings_save writes on the first line. A file from a newer version is
-// read as far as this one knows its lines. 2: the default orbit became the turntable.
-// 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
-// the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
-// (workspaces.odin). 6: each space its own dial, `dial_sector` lines being Sculpt's and
-// `dial_space` lines Model's and Render's. 7: Clay stopped starting on its own Clay
-// response and follows the global pressure as every other brush does. 8: the pen's side
-// button opens the object menu, over the model and over empty space, where it opened the
-// brush pie. 9: Remesh makes quads at first (`remesh_quads`), as DynaMesh and Blender's voxel
-// remesh do. 10: Async compute is on where the GPU has a second queue (`async_compute`).
-// 11: Ray tracing hardware starts off on Apple's platforms (`ray_query`, RAY_QUERY_DEFAULT).
-// 12: the shelf lost its fixed tools strip, its tools joining each Sculpt page's own tiles.
-// 13: the safe zone's outline shows only while in use (`edge_show` off).
-SETTINGS_VERSION :: 13
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -323,6 +310,7 @@ SETTINGS := [?]Setting {
 	{"environment_turn", offset_of(App, env) + offset_of(Environment_State, turn), f32, -180, 180},
 	{"environment_tilt", offset_of(App, env) + offset_of(Environment_State, tilt), f32, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
+	{"skin_auto", offset_of(App, skin_auto), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
@@ -367,7 +355,6 @@ SETTINGS := [?]Setting {
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
 	{"top_islands", K + offset_of(Kit_State, top_islands), bool, 0, 0},
-	{"rail_labels", K + offset_of(Kit_State, rail_labels), Rail_Labels, 0, 0},
 	{"nav_place", K + offset_of(Kit_State, nav_place), Nav_Place, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
@@ -505,9 +492,6 @@ setting_parse :: proc(s: Setting, value: string, strict: bool) -> (v: f64, ok: b
 	if strict do want, _ = strings.replace_all(value, "-", "_", context.temp_allocator)
 	names, values := reflect.enum_field_names(s.type), reflect.enum_field_values(s.type)
 	for name, i in names do if strings.equal_fold(name, want) do return f64(values[i]), true
-	// Render's Fast quality was called Preview, and settings files and scripts written
-	// before the rename still name it so.
-	if s.type == Render_Quality && strings.equal_fold(want, "preview") do return f64(Render_Quality.Fast), true
 	return
 }
 
@@ -713,24 +697,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// The preset the brush was on, by name, put back once every line is read: the presets
 	// and the plain brushes' own values all come first.
 	on_preset := ""
-	// Presets of the person's own named as a built-in one now is, from a file written
-	// before there were built-ins: each is kept as "<name> N", and the brush the file put
-	// on it follows it there.
-	renamed: [dynamic][2]string
-	renamed.allocator = context.temp_allocator
 	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
 	plain_alpha := ""
-	// The file's version, 0 for one written before the line existed.
-	version := 0
-	// A file from before each light had its own space fixed the whole set to the scene.
-	fixed_lights := false
-	// Before size had a pressure curve of its own it took the strength's.
-	size_curve_seen := false
-	// The pen's side button slots a gesture_map line set, which version 8's new default
-	// leaves alone.
-	pen_button_seen: bit_set[Gesture_Slot]
-	// Sections an older file pinned, kept as cards once the stack is read.
-	old_pins: Panels_Old
 	// The file is where a person's themes are kept, so its list replaces the one in memory.
 	app.kit.themes.count = 0
 	// Each pack preset a slot held as the file wrote it, and where the library has it now.
@@ -760,22 +728,6 @@ settings_load :: proc(app: ^App, path: string) {
 		}
 		if themes_line(&app.kit, f) do continue lines
 		switch f[0] {
-		case "version":
-			version, _ = strconv.parse_int(f[1])
-		case "vsync":
-			// Before the frame rate choice: VSync off is Unlimited now.
-			if f[1] != "1" do app.frame_rate = .Unlimited
-		case "lights_fixed":
-			// Before each light had its own space: the whole set fixed to the scene.
-			fixed_lights = f[1] == "1"
-		case "light_key":
-			// Before there were four lights: the key's strength, now the first light's.
-			l := &app.start_lights.lights[0]
-			l.strength = clamp(number(f[1], l.strength), 0, LIGHT_STRENGTH_MAX)
-		case "light_fill":
-			// ...and the fill's, as a share of its full strength then, now the second
-			// light's strength itself.
-			app.start_lights.lights[1].strength = clamp(number(f[1], 1) * render.FILL_STRENGTH, 0, LIGHT_STRENGTH_MAX)
 		case "brush":
 			if kind, ok := brush_by_name(f[1]); ok do b.kind = kind
 		case "strength":
@@ -796,10 +748,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
 		case "pressure_size_curve":
-			if len(f) == 5 {
-				b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
-				size_curve_seen = true
-			}
+			if len(f) == 5 do b.pressure_size_curve = curve(f[1:], b.pressure_size_curve)
 		case "hardness":
 			// hardness <brush> <0 to sculpt.HARDNESS_MAX>, for the brushes with one.
 			if len(f) == 3 {
@@ -890,13 +839,8 @@ settings_load :: proc(app: ^App, path: string) {
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
 		case "window":
 			window_load_line(&app.kit, f)
-		case "column", "pinned":
-			panels_load_line(&app.kit, f, &old_pins)
-		case "thumbnail_shaded":
-			// Before the second view had passes, Shaded was a switch over the silhouette.
-			if f[1] == "1" do app.kit.second.pass = .Shaded
 		case "workspace", "workspace_saved", "workspace_live", "workspace_current", "workspace_space":
-			workspaces_load_line(&app.kit, f, version)
+			workspaces_load_line(&app.kit, f)
 		case "space_layouts":
 			spaces_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
@@ -985,18 +929,7 @@ settings_load :: proc(app: ^App, path: string) {
 			v.alpha = alpha_find(app, alpha)
 			app.presets[app.preset_count].values = v
 			app.preset_count += 1
-			if built_in_preset_find(name) > 0 {
-				base := strings.clone(preset_name_fit_room(name, 3), context.temp_allocator)
-				for n := 1; ; n += 1 {
-					free_name := fmt.tprintf("%s %d", base, n)
-					if preset_find(app, free_name) < 0 && built_in_preset_find(free_name) == 0 {
-						append(&renamed, [2]string{name, free_name})
-						name = free_name
-						break
-					}
-				}
-			}
-			if !preset_rename(app, app.preset_count - 1, name) {
+			if built_in_preset_find(name) > 0 || !preset_rename(app, app.preset_count - 1, name) {
 				app.preset_count -= 1
 				app.presets[app.preset_count] = {}
 			}
@@ -1022,7 +955,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "dial_sector":
 			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>:
-			// Sculpt's dial, which was every space's before version 6 (moved after the loop).
+			// Sculpt's dial.
 			if len(f) != 4 do continue
 			i, i_ok := strconv.parse_int(f[1])
 			if !i_ok || i < 0 || i >= 4 do continue
@@ -1040,12 +973,10 @@ settings_load :: proc(app: ^App, path: string) {
 			i, i_ok := strconv.parse_int(f[2])
 			if !space_ok || !i_ok || i < 0 || i >= 4 do continue
 			if s, ok := dial_sector_parse(f[3], f[4]); ok do app.kit.dials[space][i] = s
-		case "bar_count", "bar", "bar_look", "rail_group", "rail_main":
+		case "bar_count", "bar", "bar_look", "rail_group":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
-			// install's is written whole. A file from before the Classic layout went also
-			// holds chrome, panes_under_panels, dock, dock_count and dock_pack lines and
-			// right_rail bars: nothing reads them now, so they are passed over.
+			// install's is written whole.
 			bars_load_line(&app.kit, f)
 		case "preset_slot":
 			// preset_slot Pack<n> <pack id> <name, escaped>: the pack preset behind a slot's
@@ -1075,26 +1006,16 @@ settings_load :: proc(app: ^App, path: string) {
 			// defaults ("gesture" alone is the Ctrl+Shift drag's tool).
 			slot, slot_ok := reflect.enum_from_name(Gesture_Slot, f[1])
 			if len(f) != 3 || !slot_ok do continue
-			pen_button_seen += {slot}
 			if f[2] == "none" {
 				app.nav.gestures[slot] = {}
 			} else if id, arg, ok := command_from_name(f[2]); ok && gesture_lists(id) {
 				app.nav.gestures[slot] = {id, arg}
 			}
-		case "tap_history", "hold_history":
-			// Before the gesture map: the taps, or the holds, of two and three fingers were
-			// turned off as a pair. A later gesture line wins.
-			if f[1] != "0" do continue
-			if f[0] == "tap_history" do app.nav.gestures[.Two_Tap], app.nav.gestures[.Three_Tap] = {}, {}
-			else do app.nav.gestures[.Two_Hold], app.nav.gestures[.Three_Hold] = {}, {}
 		case "plugin_slot":
 			// plugin_slot <slot> <file/name, escaped>: the Run plugin slot a plugin's command
 			// keeps, so its key stays on it however the folder changes.
 			slot, slot_ok := strconv.parse_int(f[1])
 			if len(f) == 3 && slot_ok do plugin_slot_remember(app, slot, preset_unescape(f[2]))
-		case "reduce_motion":
-			// Before Motion had three levels, Reduce motion turned every animation off.
-			if f[1] == "1" do app.kit.ctx.motion = .Off
 		case "motion_off":
 			motion_off_read(&app.kit.ctx, f[1:])
 		case "favourite":
@@ -1106,67 +1027,17 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		}
 	}
-	if fixed_lights do lights_fixed_set(app, &app.start_lights, true)
 	themes_settle(&app.kit)
-	if !size_curve_seen do b.pressure_size_curve = b.pressure_curve
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
-	follow :: proc(renamed: [][2]string, name: string) -> string {
-		for r in renamed do if strings.equal_fold(r[0], name) do return r[1]
-		return name
-	}
-	on_preset = follow(renamed[:], on_preset)
 	// The pack presets the slots hold, where this run's library put them.
 	preset_slots_retarget(app, pack_from[:], pack_to[:])
 	if n := preset_by_ref(app, on_preset); n > 0 {
 		if p, _ := preset_at(app, n); p.values.kind == b.kind do preset_use(app, n)
 	}
-	// Every file saved before version 2 holds the trackball, the default then, whether
-	// or not anyone picked it, so the turntable that replaced it as the default takes
-	// its place once; the file saved next keeps whatever is picked after.
-	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
-	// So too Studio, the look every file before version 3 holds: Lens replaces it once.
-	if version < 3 && app.kit.look == .Studio do app.kit.look = .Lens
-	// And the old default spacing, which every file before version 4 holds whether or not
-	// anyone set it: the closer default takes its place, Even strength keeping the height.
-	if version < 4 && app.brush.spacing == SPACING_REFERENCE do app.brush.spacing = DAB_SPACING
-	// One dial served every space before version 6: what was changed on it reaches the
-	// others as far as it means something there.
-	if version < 6 do dials_from_one(&app.kit)
-	// Clay started on the Clay response before version 7, which every file then holds as
-	// Clay's own pressure whether or not anyone picked it: on a pen it shrank the brush to a
-	// fifth and its strength to almost nothing, so Clay seemed to do nothing. It goes back
-	// on the global pressure once; a response changed since stays.
-	if version < 7 && pressure_is_old_clay(b.pressures[.Clay]) do b.pressures[.Clay] = {}
-	// The pen's side button opened the brush pie before version 8, a default every file then
-	// holds by having no line for it: it keeps the pie, so only a fresh install's button
-	// opens the object menu.
-	if version < 8 {
-		for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_Empty}) do if slot not_in pen_button_seen do app.nav.gestures[slot] = {.Brush_Pie, 0}
-	}
-	// A rail saved before Main stood on it gets Main where the Palettes button stood.
-	rail_main_settle(&app.kit)
-	// Every file saved before version 9 holds Remesh's Quads off, the default then, whether
-	// or not anyone picked it: the quads that replaced it as the default take its place once.
-	if version < 9 do app.ui.remesh_quads = true
-	// Likewise Async compute, off by default before version 10 while it was a trial.
-	if version < 10 do app.async_compute = true
-	// A file from before version 11 on an iPad or Mac holds Ray tracing hardware on, the
-	// default then, though nothing offered it there; now Metal offers it, it starts off once.
-	when !RAY_QUERY_DEFAULT do if version < 11 do app.ray_query = false
-	// Before version 12 the shelf ended in a strip of tools (`bottom_tools`) shown on every
-	// Sculpt page; the pages are wholly the person's own now, so those tools join each
-	// page's tiles once, after what it holds, where they are not there already and the
-	// page has room.
-	if version < 12 do shelf_tools_merge(app)
-	// Every file before version 13 holds Show the edges on, the default then, whether or not
-	// anyone picked it: the outline only while in use takes its place once.
-	if version < 13 do app.nav.edge_show = false
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
-	// Before the current layout is put, which brings its own pins along when there is one.
-	panels_old_settle(&app.kit, &old_pins)
 	workspaces_loaded(&app.kit)
 	log.infof("settings: read %s", path)
 
@@ -1219,7 +1090,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	b := app.brush
 	out := strings.builder_make(context.temp_allocator)
 	bit :: proc(v: bool) -> int {return 1 if v else 0}
-	fmt.sbprintfln(&out, "version %d", SETTINGS_VERSION)
 	for s in SETTINGS do fmt.sbprintfln(&out, "%s %s", s.key, setting_text(app, s))
 	fmt.sbprintfln(&out, "brush %s", fmt.tprint(b.kind))
 	for kind in sculpt.Brush_Kind {
@@ -1323,8 +1193,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
-	// Each space's dial only when it differs from a fresh install's, written whole: Sculpt's
-	// as the lines an older build reads as its one dial.
+	// Each space's dial only when it differs from a fresh install's, written whole.
 	for space in Space {
 		if dial_is_default(&app.kit, space) do continue
 		for s, i in app.kit.dials[space] {

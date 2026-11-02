@@ -129,9 +129,11 @@ Kit_State :: struct {
 	bar_drops:      int,
 	bar_refusals:   int,
 	bar_drops_off:  int,
-	rail_scroll: f32, // the view rail's, on a window too short for all of it
-	docks:       [USER_DOCKS]User_Dock, // the person's own docks, the layout's (user_docks.odin)
-	dock_scroll: [USER_DOCKS]f32,
+	// Every dock's place, lines and names, the layout's, the person's own docks' buttons,
+	// and each dock's scroll on a window too short for all of it (docks.odin).
+	docks:       [Dock_Id]Dock,
+	dock_lists:  [USER_DOCKS]Bar_List,
+	dock_scroll: [Dock_Id]f32,
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	bind:       Bind_Popover, // Assign key (kit_bind.odin)
@@ -223,7 +225,6 @@ Kit_State :: struct {
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
-	places:     [Place_Bar]Bar_Place, // where the island and the rail stand (bar_place.odin), the layout's
 	// The chip bar's sections out of it, each standing as an island at its top-left (layout
 	// terms, chip_islands.odin), a setting; where each was drawn this frame, and where each
 	// last stood in the bar, for one the Library takes out.
@@ -365,7 +366,6 @@ Kit_State :: struct {
 	rail_dock:        Rail_Dock,
 	rail_dock_scroll: f32,
 	rail_docks:       int,
-	rail_main_check:  bool,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
@@ -410,8 +410,6 @@ Kit_State :: struct {
 	// this frame (top_islands.odin).
 	top_order:     [3]Top_Island,
 	top_island_at: [Top_Island]ui.Rect,
-	// When the view rail names its buttons (Settings > Interface > Bars, lens_chrome.odin).
-	rail_labels: Rail_Labels,
 	// Where the navigation head stands (Settings > Interface > Navigation head, nav_head.odin).
 	nav_place: Nav_Place,
 	// On a tablet-shaped window the shelf keeps to SHELF_TABLET tiles' width left of the
@@ -1082,7 +1080,6 @@ kit_init :: proc(app: ^App) {
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
 	k.top_islands = true
-	k.rail_labels = .Wide
 	k.shelf_palm = true
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
@@ -1554,16 +1551,16 @@ kit_layout :: proc(app: ^App) {
 	focus := lens_focus(k)
 	k.nav.placed = false
 	if !focus do kit_view_chips(app)
-	if focus || !zone_hidden(k, .Brush_Bar) do kit_offhand(app)
+	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
 	if !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	// The head is the View island's first button; with the island aside it stands alone.
 	if !k.nav.placed do kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
-		kit_view_rail(app)
+		kit_dock(app, .Rail)
 	} else {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
-	// The person's own docks (user_docks.odin), where Arrange put them.
+	// The person's own docks (docks.odin), where Arrange put them.
 	kit_user_docks(app)
 
 	// Bottom middle: the shelf and its pages (lens_shelf.odin).

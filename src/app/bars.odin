@@ -41,7 +41,7 @@ Bar_Which :: enum u8 {
 	// off-hand side. Last, as settings name bars by zone and the shelf's pages count from
 	// Shelf_Sculpt.
 	Offhand,
-	// The person's own docks (user_docks.odin), made in Arrange: Dock_1 + i is Kit_State.docks[i]'s.
+	// The person's own docks (docks.odin), made in Arrange: Dock_1 + i is Kit_State.dock_lists[i].
 	Dock_1,
 	Dock_2,
 	Dock_3,
@@ -154,7 +154,7 @@ bars_reset :: proc(k: ^Kit_State) {
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
 	k.offhand = bar_fresh(.Offhand)
-	user_docks_clear(k)
+	docks_clear(k)
 }
 
 // Puts the strip and the view rail (the bars a layout holds) back as a fresh install has
@@ -207,7 +207,7 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .Offhand:   return &k.offhand
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		i, _ := user_dock_of(which)
-		return &k.docks[i].list
+		return &k.dock_lists[i]
 	case .Tools:
 	}
 	return &k.tools
@@ -269,16 +269,13 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 	for which in Bar_Which {
 		if layout && !bar_in_layout(which) do continue
 		// A dock is the layout's alone, and only while it is in use.
-		if i, dock := user_dock_of(which); dock && (!layout || !k.docks[i].used) do continue
+		if i, dock := user_dock_of(which); dock && (!layout || !k.docks[user_dock_id(i)].used) do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		// The rail's groups go before its slots, so a reader has them when a slot names one;
-		// `rail_main 1` says the rail was saved with Main a button of its own, so a reader puts
-		// none in.
+		// The rail's groups go before its slots, so a reader has them when a slot names one.
 		if which == .View_Rail {
-			strings.write_string(out, "rail_main 1\n")
 			rail_groups_settle(k)
 			rail_groups_save(k, out)
 		}
@@ -300,10 +297,6 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		which, zone_ok := bar_zone(f[1])
 		l := bar_list_k(k, which)
 		if n, ok := strconv.parse_int(f[2]); ok && zone_ok do l.count = clamp(n, 0, bar_capacity(which))
-		// A rail from before Main stood on it has no rail_main line after its count.
-		if zone_ok && which == .View_Rail do k.rail_main_check = true
-	case "rail_main":
-		k.rail_main_check = false
 	case "bar":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])
@@ -373,10 +366,10 @@ bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 		page, _ := shelf_page_of(which)
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
-	case .Offhand:      return "The off-hand island"
+	case .Offhand:      return "The brush bar"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		i, _ := user_dock_of(which)
-		return USER_DOCK_NAMES[i]
+		d, _ := dock_of_bar(which)
+		return DOCK_TITLES[d]
 	}
 	return ""
 }
@@ -644,14 +637,10 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 }
 
 // Which side of a bar's buttons its popovers open: away from the edge the rail and the
-// island stand on (bar_place_side), and above the rows.
+// island stand on (dock_side), and above the rows.
 bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
-	#partial switch which {
-	case .View_Rail: return bar_place_side(app, .Rail)
-	case .View_Island: return .Below
-	case .Offhand:   return bar_place_side(app, .Offhand)
-	}
-	if i, dock := user_dock_of(which); dock do return bar_place_side(app, user_dock_place(i))
+	if d, ok := dock_of_bar(which); ok do return dock_side(app, d)
+	if which == .View_Island do return .Below
 	return .Above_Center
 }
 

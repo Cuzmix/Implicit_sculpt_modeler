@@ -39,11 +39,10 @@ scene_chunks_read_back_and_skip :: proc(t: ^testing.T) {
 	testing.expect(t, !ok && !r.ok, "a chunk cut short is damage")
 }
 
-// The scene's own fields read back from the header's chunk; bytes a newer app added at
-// the chunk's end are left unread, and the same fields as version 35 wrote them, with no
-// chunk, read the same.
+// The scene's own fields read back from the header's chunk; bytes after them at the
+// chunk's end are left unread.
 @(test)
-scene_fields_read_back_chunked_and_from_35 :: proc(t: ^testing.T) {
+scene_fields_read_back_from_their_chunk :: proc(t: ^testing.T) {
 	app: App
 	defer tree_free(&app)
 	_ = tree_scene(&app)
@@ -66,24 +65,14 @@ scene_fields_read_back_chunked_and_from_35 :: proc(t: ^testing.T) {
 	copy(head[len(SCENE_MAGIC) + size_at:][:8], size[:])
 	tag, chunk, ok := scene_chunk_next(&r)
 	testing.expect(t, ok && tag == CHUNK_SCENE)
-	f, fields_ok := scene_fields_get(&app, &chunk, SCENE_VERSION)
+	f, fields_ok := scene_fields_get(&app, &chunk)
 	defer scene_fields_destroy(&f)
 	testing.expect(t, fields_ok)
 	testing.expect_value(t, f.count, 3)
 	testing.expect_value(t, f.selected, 2)
 	testing.expect_value(t, f.next_id, 9)
 	testing.expect_value(t, f.print_mm, 40)
-	testing.expect(t, f.lights_own)
 	testing.expect_value(t, len(chunk.data) - chunk.at, 4)
-
-	// Version 35: the same fields straight after the preview block.
-	r = geom.byte_reader(head[len(SCENE_MAGIC):])
-	_ = geom.byte_get(&r, u32)
-	_ = preview_block_skip(&r)
-	r.at += 4 + 8
-	old, old_ok := scene_fields_get(&app, &r, 35)
-	defer scene_fields_destroy(&old)
-	testing.expect(t, old_ok && old.count == 3 && old.selected == 2 && old.next_id == 9 && old.print_mm == 40)
 
 	// A selection past the objects is damage.
 	app.scene.selected = 5
@@ -94,6 +83,6 @@ scene_fields_read_back_chunked_and_from_35 :: proc(t: ^testing.T) {
 	_ = geom.byte_get(&rb, u32)
 	_ = preview_block_skip(&rb)
 	_, bad_chunk, _ := scene_chunk_next(&rb)
-	_, bad_ok := scene_fields_get(&app, &bad_chunk, SCENE_VERSION)
+	_, bad_ok := scene_fields_get(&app, &bad_chunk)
 	testing.expect(t, !bad_ok)
 }

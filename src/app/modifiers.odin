@@ -219,18 +219,6 @@ dial_latches_keep :: proc(app: ^App) {
 	}
 }
 
-// Moves a dial read from a settings file before version 6, when there was one dial for
-// every space, onto each space's: the sectors that differ from Sculpt's defaults reach
-// Model too, and Render (where a modifier does nothing, as a press there turns the view)
-// the commands among them.
-dials_from_one :: proc(k: ^Kit_State) {
-	for sector, i in k.dials[.Sculpt] {
-		if sector == DIAL_DEFAULTS[.Sculpt][i] do continue
-		k.dials[.Model][i] = sector
-		if _, is_command := sector.(Bar_Slot); is_command do k.dials[.Render][i] = sector
-	}
-}
-
 // A sector as the settings file writes it: "modifier Smooth", or "command <name>".
 dial_sector_text :: proc(s: Dial_Sector) -> string {
 	switch v in s {
@@ -573,8 +561,8 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	// A moved island keeps clear of the dial itself (bar_place_room).
-	if rail_shown(k) != .Left || k.places[.Offhand].edge != .Default do return t.edge
+	// A moved island keeps clear of the dial itself (dock_room).
+	if rail_shown(k) != .Left || k.docks[.Offhand].edge != .Default do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
 	// No brush bar (the workspace hides it), nothing to keep clear of.

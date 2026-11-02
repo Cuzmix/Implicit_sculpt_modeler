@@ -438,16 +438,16 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if ctx.mirror do shift = -shift
 	centre := area.x + area.w * 0.5 + shift
 	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0) - SHELF_DIVIDER_W
-	// Moved in Arrange (bar_place.odin), it stands where its place says, with that room;
+	// Moved in Arrange (docks.odin), it stands where its place says, with that room;
 	// its page names stay under it.
 	place_x, place_y := ui.Anchor.Center, ui.Anchor.End
 	place_at := [2]f32{shift, t.edge + dock_lift(app)}
 	pages_x, pages_y := ui.Anchor.Center, ui.Anchor.End
 	pages_at := [2]f32{shift, max(t.edge - 10, 2)}
-	if k.places[.Shelf].edge != .Default {
+	if k.docks[.Shelf].edge != .Default {
 		size, _ := ui.prev_layout(ctx, "dock")
 		pages, _ := ui.prev_layout(ctx, "dock pages")
-		place_x, place_y, place_at, room = bar_place_anchor(app, .Shelf, size)
+		place_x, place_y, place_at, room = dock_anchor(app, .Shelf, size)
 		room -= 2 * SHELF_PAD
 		pages_x = .Start
 		pages_at.x = place_at.x + size.x * 0.5 - pages.x * 0.5
@@ -468,7 +468,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if active_on {
 		room = max(room - ui.BRUSH_TILE.x, 0)
 		n, _, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), 0, room, adding, row)
-		if k.places[.Shelf].edge == .Default {
+		if k.docks[.Shelf].edge == .Default {
 			// Left-handed, begin_anchored turns the offset round, so it grows right then.
 			off := ui.BRUSH_TILE.x * 0.5
 			place_at.x -= off
@@ -726,22 +726,6 @@ shelf_unpin :: proc(app: ^App, which: Bar_Which, at: int) {
 	used := bar_used(app, which)
 	if at < 0 || at >= len(used) do return
 	bar_drop_off(app, {slot = used[at], from = which, from_slot = at, look = bar_list(app, which).looks[at]})
-}
-
-// Puts the old tools strip's tools (Bar_Which.Tools) at the end of every Sculpt page that
-// lacks them, while the page has room: settings from before version 12.
-shelf_tools_merge :: proc(app: ^App) {
-	for page in shelf_pages(&app.kit, .Sculpt) {
-		which := shelf_which(page)
-		for s in bar_used(app, .Tools) {
-			if _, held := shelf_holds(app, which, s); held do continue
-			count := bar_count(app, which)
-			if count^ >= bar_capacity(which) do break
-			l := bar_list(app, which)
-			l.slots[count^], l.looks[count^] = s, bar_default_look(which)
-			count^ += 1
-		}
-	}
 }
 
 // Whether `slot` is on shelf page `which`, and where.

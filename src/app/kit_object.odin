@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 
+import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -141,6 +142,13 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 		tris := int(top.tri_count)
 		looks := tris * int(top.segments) * int(top.segments)
 		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth put their detail in the skin (Brush palette, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
+		// The Skin detail pass shows what the skin holds, as a normal map's colours, so
+		// what the brushes put in it reads apart from the mesh's own form.
+		if app.kit.passes.pass == .Skin_Detail {
+			_ = command_button(app, .View_Pass, int(render.View_Pass.Shaded), label = "Hide skin detail", variant = .Bordered)
+		} else {
+			_ = command_button(app, .View_Pass, int(render.View_Pass.Skin_Detail), label = "Show skin detail", variant = .Bordered)
+		}
 		_ = command_button(app, .Skin_Apply, variant = .Bordered)
 		steps := sculpt.levels_skin_apply_steps(&obj.levels)
 		if refused := skin_apply_refusal(obj); refused != "" {
@@ -154,6 +162,9 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 	} else {
 		ui.paragraph(ctx, "Sculpt detail finer than the mesh without adding vertices: each triangle carries a grid of heights the brushes raise and lower.")
 	}
+	// The skin a fine stroke adds by itself (skin_auto_add), whichever object is picked.
+	_ = ui.switch_row(ctx, "Add a skin by itself", &app.skin_auto)
+	if app.skin_auto do ui.paragraph(ctx, "A Draw, Clay, Crease, Flatten, Inflate, Layer or Smooth stroke finer than the mesh adds a skin first, under Detail goes to Auto. Taking a skin off by hand keeps that object without one.")
 }
 
 // HD detail above the top level, sculpted a window at a time, as in ZBrush.

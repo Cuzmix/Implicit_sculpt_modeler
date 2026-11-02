@@ -41,19 +41,20 @@ WIPE_EDGE :: 0.05
 // The passes as the chip and menus name them.
 @(rodata)
 PASS_LABELS := [render.View_Pass]string {
-	.Shaded     = "Shaded",
-	.Normals    = "Normals",
-	.Depth      = "Depth",
-	.Curvature  = "Curvature",
-	.AO         = "AO only",
-	.Silhouette = "Silhouette",
+	.Shaded      = "Shaded",
+	.Normals     = "Normals",
+	.Depth       = "Depth",
+	.Curvature   = "Curvature",
+	.AO          = "AO only",
+	.Silhouette  = "Silhouette",
+	.Skin_Detail = "Skin detail",
 	// The shading modes' own, never picked as passes.
-	.Wire       = "Wireframe",
-	.Unlit      = "Flat",
+	.Wire        = "Wireframe",
+	.Unlit       = "Flat",
 }
 
 // The passes the View_Pass command picks: Shaded and those that check the form.
-PASS_PICKED :: int(render.View_Pass.Silhouette) + 1
+PASS_PICKED :: int(render.View_Pass.Skin_Detail) + 1
 
 // What the view shows in pass `p` is called: the main view's shading mode for Shaded,
 // else the pass's name.
@@ -156,7 +157,7 @@ live_ao_strengths :: proc(app: ^App) -> (left, right: f32) {
 }
 
 // Gives every viewport draw pass `p`, and with `line_px` 0 or more the wipe: pass `right`
-// from that pixel column on, packed into the pass's w as 1 + right + 8 x line_px (exact in
+// from that pixel column on, packed into the pass's w as 1 + right + 16 x line_px (exact in
 // a float for any target width), so every copy that sets its own pass drops it. Depth
 // spans the scene's sphere as the eye sees it, its radius snapped to sixteenths of an
 // octave and its distance to sixty-fourths of that, as live occlusion snaps its reach, so
@@ -182,7 +183,7 @@ pass_items :: proc(items: []render.Draw_Item, view: render.Mat4, p: render.View_
 			near, far = max(dist - radius * 0.58, 0), dist + radius * 0.1
 		}
 	}
-	wipe: f32 = 1 + f32(right) + 8 * line_px if wiping else 0
+	wipe: f32 = 1 + f32(right) + 16 * line_px if wiping else 0
 	for &d in items do d.pass = {f32(p), near, far, wipe}
 }
 
@@ -223,7 +224,7 @@ pass_menu_toggle :: proc(app: ^App) {
 		return
 	}
 	kit_floats_close(k)
-	if ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = ui.prev_rect(&k.ctx, "view bar"), bar_place_side(app, .Rail)
+	if ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = ui.prev_rect(&k.ctx, "view bar"), dock_side(app, .Rail)
 	ps.menu = true
 }
 
@@ -240,19 +241,20 @@ kit_pass_menu :: proc(app: ^App) {
 // The icon of each pass in Lens's list.
 @(rodata)
 PASS_ICONS := [render.View_Pass]rune {
-	.Shaded     = ui.ICON_SUN,
-	.Normals    = ICON_SCAN_EYE,
-	.Depth      = ICON_OBJECTS,
-	.Curvature  = ICON_CHANNEL_SCULPT,
-	.AO         = ICON_CONTRAST,
-	.Silhouette = ui.ICON_FOCUS,
-	.Wire       = ICON_WIREFRAME,
-	.Unlit      = ICON_SHADING,
+	.Shaded      = ui.ICON_SUN,
+	.Normals     = ICON_SCAN_EYE,
+	.Depth       = ICON_OBJECTS,
+	.Curvature   = ICON_CHANNEL_SCULPT,
+	.AO          = ICON_CONTRAST,
+	.Silhouette  = ui.ICON_FOCUS,
+	.Skin_Detail = ICON_SPARKLES,
+	.Wire        = ICON_WIREFRAME,
+	.Unlit       = ICON_SHADING,
 }
 
 // The passes that check the form, as Lens's list groups them.
 @(rodata)
-DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Silhouette}
+DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Silhouette, .Skin_Detail}
 
 // Lens's list (round 2's inspect2 screen, with Blender's shading modes): RECENT, the pass
 // shown and the last other one, to flip between; SHADING, the four modes, and under Solid
