@@ -110,7 +110,7 @@ mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, 
 mesh_buffers_drop_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
 	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
-	mb.skin_normals, mb.skin_tris, mb.skin_meta, mb.skin_samples, mb.skin_lead_stamp = nil, nil, {}, 0, 0
+	mb.skin_normals, mb.skin_tris, mb.skin_meta, mb.skin_samples, mb.skin_lead_stamp, mb.skin_stamp = nil, nil, {}, 0, 0, 0
 	mb_touch(r, mb)
 }
 

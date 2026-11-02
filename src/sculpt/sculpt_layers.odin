@@ -272,7 +272,7 @@ layer_take_stroke :: proc(s: ^Sculptor) {
 	h := &s.history
 	r := s.layers.recording - 1
 	if r < 0 || r >= len(s.layers.list) || s.dyn != nil do return
-	if h.current.layer_op.active || h.current.layer_set.active || h.current.layer_move.active || h.current.layer_stack.active do return
+	if h.current.layer_op.active || h.current.layer_set.active || h.current.layer_move.active || h.current.layer_stack.active || h.current.skin_op.active do return
 	// Painting a layer's mask moves the surface by the layers, never into them.
 	if h.current.mask_moved do return
 	l := &s.layers.list[r]

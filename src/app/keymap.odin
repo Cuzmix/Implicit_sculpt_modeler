@@ -243,6 +243,8 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))
 	case .Tidy_Cage: return fmt.tprint(Cage_Tidy(arg))
+	case .Detail_Skin: return fmt.tprint(SKIN_SEGMENTS[arg])
+	case .Detail_To: return fmt.tprint(Detail_To(arg))
 	case .Select_Cage: return fmt.tprint(poly.Select_Op(arg))
 	case .Cage_Smooth, .Cage_Thickness, .Cage_Bevel: return fmt.tprint(arg)
 	case .Cage_Thickness_Segments, .Cage_Bevel_Segments: return fmt.tprint(arg + 1)

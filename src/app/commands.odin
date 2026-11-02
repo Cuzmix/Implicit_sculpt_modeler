@@ -118,6 +118,9 @@ Command_Id :: enum u16 {
 	Hd_Delete,
 	Hd_Sculpt,
 	Hd_Leave,
+	Detail_Skin, // the argument is the place in SKIN_SEGMENTS (0: off)
+	Detail_To, // the argument is the Detail_To, for the brush held
+	Detail_To_Next,
 	Morph_Store,
 	Morph_Delete,
 	New_Layer,
@@ -1285,6 +1288,39 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_object(app)
 			return obj != nil && object_in_hd(obj)
 		},
+	},
+	.Detail_Skin = {
+		label = "Detail skin",
+		help = "Gives the selected object a detail skin of so many segments along each triangle edge, which skin brushes write their detail into without moving vertices, or takes it off.",
+		args = len(SKIN_SEGMENTS),
+		run = proc(app: ^App, arg: int) {skin_set(app, SKIN_SEGMENTS[arg])},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			if SKIN_SEGMENTS[arg] == 0 do return object_skin(obj) != nil
+			return skin_refusal(obj) == ""
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			sk := object_skin(selected_object(app))
+			return (sk.segments if sk != nil else 0) == SKIN_SEGMENTS[arg]
+		},
+	},
+	.Detail_To = {
+		label = "Detail goes to",
+		help = "Where the brush held puts its detail on an object with a detail skin: Auto into the skin, Mesh always moves vertices, Skin never moves one.",
+		args = len(Detail_To),
+		run = proc(app: ^App, arg: int) {app.brush.detail_to[app.brush.kind] = Detail_To(arg)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.brush.kind in sculpt.SKIN_KINDS},
+		checked = proc(app: ^App, arg: int) -> bool {return app.brush.detail_to[app.brush.kind] == Detail_To(arg)},
+	},
+	.Detail_To_Next = {
+		label = "Next detail target",
+		help = "Steps where the brush held puts its detail through Auto, Mesh and Skin.",
+		run = proc(app: ^App, _: int) {
+			d := &app.brush.detail_to[app.brush.kind]
+			d^ = Detail_To((int(d^) + 1) % len(Detail_To))
+			report(app, nil, {}, "%s: detail goes to %s", BRUSHES[app.brush.kind].name, DETAIL_TO_NAMES[d^])
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return app.brush.kind in sculpt.SKIN_KINDS},
 	},
 	.Morph_Store = {
 		label = "Store morph target",
@@ -2613,6 +2649,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_W, {.Ctrl}, false}, .Group_Shortcut, 0},
 	{{KEY_W, {.Shift}, false}, .Polygroups, 0},
 	{{KEY_W, {}, false}, .Tool_Move, 0},
+	{{KEY_D, {.Alt}, false}, .Detail_To_Next, 0},
 	{{KEY_B, {}, false}, .Brush_Picker, 0},
 	{{KEY_C, {}, false}, .Tool_Curve, 0},
 	{{KEY_I, {}, false}, .Tool_Insert, 0},
@@ -2695,6 +2732,7 @@ command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	if id in VOXEL_REFUSED_COMMANDS {
 		if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
 	}
+	if id in SKIN_REFUSED_COMMANDS && object_top_skin(selected_object(app)) != nil do return false
 	return c.enabled == nil || c.enabled(app, arg)
 }
 
@@ -2738,6 +2776,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Detail_Skin:
+		return "Detail skin off" if SKIN_SEGMENTS[arg] == 0 else fmt.tprintf("Detail skin %d", SKIN_SEGMENTS[arg])
+	case .Detail_To:
+		return fmt.tprintf("Detail goes to %s", DETAIL_TO_NAMES[Detail_To(arg)])
 	case .Curve_Use:
 		return fmt.tprintf("Curve use: %s", CURVE_USE_NAMES[Curve_Use(arg)])
 	case .Select_Cage:

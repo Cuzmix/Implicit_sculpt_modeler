@@ -297,6 +297,8 @@ Mesh_Buffers :: struct {
 	// The caller's stamp for the lead corners `skin_tris` holds (the sculptor's paint
 	// stamp, which moves with the polygroups); 0 for none.
 	skin_lead_stamp: u32,
+	// The caller's stamp for which skin the buffers hold (the sculptor's skin stamp).
+	skin_stamp:      u32,
 }
 
 Normal_Packed :: [2]i16

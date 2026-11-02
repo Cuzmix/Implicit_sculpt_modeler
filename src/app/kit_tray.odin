@@ -79,6 +79,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Delete_Lower_Levels   = .Levels,
 	.Delete_Higher_Levels  = .Levels,
 	.Hd_Divide             = .Hd,
+	.Detail_Skin           = .Hd,
 	.Hd_Delete             = .Hd,
 	.Dyntopo_Toggle        = .Topology,
 	.Rebuild               = .Remesh,

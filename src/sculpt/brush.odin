@@ -397,6 +397,8 @@ Sculptor :: struct {
 	dyn:         ^Dyn,
 	// The detail skin over the mesh (skin.odin); nil for none.
 	skin:        ^Skin,
+	// Moves whenever the sculptor's skin is replaced, added or taken off (sculptor_skin_stamp).
+	skin_stamp:  u32,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),

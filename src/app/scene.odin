@@ -826,7 +826,7 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 }
 
 // Brings the GPU's copy of the level's detail skin up to date: the whole skin when the
-// buffers have none or one of another size, else the samples whose normals the flush
+// buffers have none or another (the skin stamp moved), else the samples whose normals the flush
 // recomputed, and the triangles' records again when the polygroups moved their lead
 // corners. A skin taken off the level goes from the buffers too. Returns the bytes.
 @(private = "file")
@@ -841,10 +841,12 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 		return 0
 	}
 	stamp := sculpt.sculptor_paint_stamp(s)
-	if gpu.skin_normals == nil || gpu.skin_samples != u32(len(sk.normals)) {
+	skin_stamp := sculpt.sculptor_skin_stamp(s)
+	if gpu.skin_normals == nil || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
+		if gpu.skin_normals != nil do render.wait_idle(&app.renderer)
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.segments, sk.vert_count, sk.edge_count) do return 0
-		gpu.skin_lead_stamp = stamp
+		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
 		render.viewport_invalidate(&app.target)
 		return len(sk.normals) * size_of([2]i16) + len(tris) * size_of([4]u32)
 	}
@@ -905,6 +907,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	}
 	if obj := selected_object(app); obj != nil && obj.curve != nil && cmd.kind in CURVE_REFUSED_SCENE {
 		report(app, nil, {.Warning}, "%v does not apply to a curve: %s has no surface", cmd.kind, object_label(obj))
+		return true
+	}
+	if obj := selected_object(app); obj != nil && cmd.kind in SKIN_REFUSED_SCENE && object_top_skin(obj) != nil {
+		report(app, Kit_Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (Object palette, HD detail)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {

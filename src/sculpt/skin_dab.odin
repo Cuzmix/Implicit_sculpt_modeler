@@ -20,23 +20,89 @@ SKIN_KINDS :: bit_set[Brush_Kind]{.Draw, .Inflate, .Clay, .Flatten, .Crease, .La
 SKIN_PLANE_COS_MIN :: 0.25
 
 // Gives the sculptor a detail skin of `segments` (a power of two, 2 to 16) with flat
-// heights, replacing any it had. Refuses (false, nothing changed) under dynamic topology,
-// on an open or non-manifold mesh, or for other segments.
+// heights, replacing any it had, outside the undo history (a start-up's, a file's).
+// Refuses (false, nothing changed) under dynamic topology, on an open or non-manifold
+// mesh, or for other segments.
 sculptor_skin_set :: proc(s: ^Sculptor, segments: u32) -> bool {
 	if s.dyn != nil do return false
 	sk, ok := skin_make(s, segments, s.history.allocator)
 	if !ok do return false
 	sculptor_skin_remove(s)
 	s.skin = new_clone(sk, s.history.allocator)
+	s.skin_stamp += 1
 	return true
 }
 
-// Drops the sculptor's detail skin, if it has one.
+// Drops the sculptor's detail skin, if it has one, outside the undo history.
 sculptor_skin_remove :: proc(s: ^Sculptor) {
 	if s.skin == nil do return
-	skin_destroy(s.skin, s.history.allocator)
-	free(s.skin, s.history.allocator)
+	skin_free(s.skin, s.history.allocator)
 	s.skin = nil
+	s.skin_stamp += 1
+}
+
+// A skin replaced by an undo step (Undo_Step.skin_op): the one that is not live, nil for
+// none, which undo and redo trade with the live one.
+@(private)
+Skin_Op :: struct {
+	active: bool,
+	skin:   ^Skin,
+}
+
+// Gives the sculptor a detail skin of `segments` (2, 4, 8 or 16) with flat heights, or
+// with 0 takes its skin off, as an undo step of its own. Ends any stroke first. False,
+// with nothing changed, under dynamic topology, on an open or non-manifold mesh, for
+// other segments, or when the skin already has those segments.
+sculptor_skin_change :: proc(s: ^Sculptor, segments: u32) -> bool {
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil do return false
+	have := s.skin.segments if s.skin != nil else 0
+	if segments == have do return false
+	next: ^Skin
+	if segments != 0 {
+		sk, ok := skin_make(s, segments, s.history.allocator)
+		if !ok do return false
+		next = new_clone(sk, s.history.allocator)
+	}
+	sculptor_stroke_begin(s)
+	s.history.current.skin_op = {active = true, skin = s.skin}
+	s.skin = next
+	s.skin_stamp += 1
+	return sculptor_stroke_end(s)
+}
+
+// What sculptor_skin_stamp gives moves whenever the skin is added, replaced or taken off,
+// by a command or by undo: a copy elsewhere (the GPU's) is then stale as a whole.
+sculptor_skin_stamp :: proc(s: ^Sculptor) -> u32 {return s.skin_stamp}
+
+// Undo or redo of a step that replaced the skin: the live skin and the step's trade
+// places. The skin coming back was current with the surface when it left, which may have
+// moved since, so all of its normals are worked out again at the next flush.
+@(private)
+skin_step_swap :: proc(s: ^Sculptor, step: ^Undo_Step) {
+	op := &step.skin_op
+	if !op.active do return
+	s.skin, op.skin = op.skin, s.skin
+	s.skin_stamp += 1
+	if s.skin == nil do return
+	for id in 0 ..< u32(len(s.nodes)) do skin_mark(s, id)
+}
+
+// The bytes a skin holds.
+@(private)
+skin_bytes :: proc(sk: ^Skin) -> int {
+	if sk == nil do return 0
+	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
+	bytes += (len(sk.edge_first) + len(sk.near_first) + len(sk.near)) * size_of(u32) + len(sk.tri_edges) * size_of([3]u32)
+	return bytes + len(sk.edges) * size_of(Skin_Edge) + len(sk.stale)
+}
+
+// Destroys a skin made on the heap and frees it.
+@(private)
+skin_free :: proc(sk: ^Skin, allocator: runtime.Allocator) {
+	if sk == nil do return
+	skin_destroy(sk, allocator)
+	free(sk, allocator)
 }
 
 // The sculptor's detail skin, nil for none.
