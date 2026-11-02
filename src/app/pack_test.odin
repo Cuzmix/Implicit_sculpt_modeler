@@ -552,11 +552,11 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 		material_put(&out, m, material_refs(&a, m))
 		r := geom.byte_reader(out[:])
 		missing := 0
-		back := material_get(&r, &a, SCENE_VERSION, &missing)
+		back := material_get(&r, &a, &missing)
 		testing.expect(t, r.ok && r.at == len(out) && missing == 0)
 		testing.expect_value(t, back, m)
 		r = geom.byte_reader(out[:])
-		alone := material_get(&r, nil, SCENE_VERSION, &missing)
+		alone := material_get(&r, nil, &missing)
 		testing.expect(t, r.ok && missing == 1 && alone.label == "Custom" && alone.pack == 0 && alone.matcap == 0)
 		testing.expect_value(t, alone.selected, m.selected)
 	}
@@ -576,21 +576,13 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 		r := geom.byte_reader(out[:])
 		_ = material_get(&r, &a)
 		testing.expect(t, !r.ok)
-		// Version 14 had no references: its last field is the matcap.
-		clear(&out)
-		material_put(&out, MATERIALS[3])
-		resize(&out, len(out) - 8)
-		r = geom.byte_reader(out[:])
-		back := material_get(&r, &a, 14)
-		testing.expect(t, r.ok && r.at == len(out) && back == MATERIALS[3])
 	}
 
-	// A group's material is kept by name too; a table from version 15 has no references.
+	// A group's material is kept by name too.
 	{
-		obj, back, old: Object
+		obj, back: Object
 		defer delete(obj.group_materials)
 		defer delete(back.group_materials)
-		defer delete(old.group_materials)
 		append(&obj.group_materials, Group_Material{2, l.materials[brass].material})
 		out: [dynamic]u8
 		defer delete(out)
@@ -599,13 +591,6 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 		group_materials_get(&r, &back, &a)
 		testing.expect(t, r.ok && r.at == len(out) && len(back.group_materials) == 1)
 		testing.expect_value(t, back.group_materials[0].material, l.materials[brass].material)
-		clear(&out)
-		obj.group_materials[0].material = MATERIALS[5]
-		group_materials_put(&out, &obj)
-		resize(&out, len(out) - 8)
-		r = geom.byte_reader(out[:])
-		group_materials_get(&r, &old, &a, 15)
-		testing.expect(t, r.ok && r.at == len(out) && old.group_materials[0].material == MATERIALS[5])
 	}
 
 	// The settings keep the default and Custom's matcap by name.

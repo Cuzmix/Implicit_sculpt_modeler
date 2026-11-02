@@ -1694,16 +1694,6 @@ PRESSURE_RESPONSES := [?]struct {
 	{"Light", {strength = true, size = true, strength_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_floor = 0.1}},
 }
 
-// Whether `p` is the Clay response Clay started on before settings version 7, as a
-// settings file wrote it back (to six places, so within a hair of the curves).
-pressure_is_old_clay :: proc(p: Pressure_Own) -> bool {
-	near :: proc(a, b: geom.Curve) -> bool {
-		return abs(a.c1.x - b.c1.x) + abs(a.c1.y - b.c1.y) + abs(a.c2.x - b.c2.x) + abs(a.c2.y - b.c2.y) < 1e-4
-	}
-	c := PRESSURE_RESPONSES[1].pressure
-	return p.own && p.strength == c.strength && p.size == c.size && abs(p.size_floor - c.size_floor) < 1e-4 && near(p.strength_curve, c.strength_curve) && near(p.size_curve, c.size_curve)
-}
-
 // A brush's own pressure, and whether it uses it rather than the global one.
 Pressure_Own :: struct {
 	own:            bool,

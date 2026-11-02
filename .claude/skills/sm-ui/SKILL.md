@@ -66,11 +66,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   stack docks, laid out by `kit_stack_dock` as its own root at `k.panels.at` with its body scrolled
   (`k.panels.scroll`), and it writes `k.panels.rect[side]`, which what keeps clear of it reads. Size a body from
   `Panel_Frame.room`, scroll from `.owner`. `kit_panel_menu` (Dock on the left/right, Float for the stack; Fold, Close).
-  An older file's `column`/`pinned` lines go to `Panels_Old` (`panels_load_line`) and `panels_old_settle` (stack
-  place, kept section cards). Exit stats `stack_place= panel_pins= panel_moves= panel_menu=`.
+  Exit stats `stack_place= panel_pins= panel_moves= panel_menu=`.
 - Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
-  `stack*` lines, places written right-handed; an older `column`/`pinned` line is read into the stack and
-  `stack_layout_upgrade` rewrites such a saved text once) and `kit_layout_put(k, text)`; the modified dot is that text
+  `stack*` lines, places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
   against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,
   canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
   Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
@@ -79,17 +77,16 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   line, then `bars_save`); a text with no `bars` line keeps the bars.
   Workspace files (`workspace_file.odin`, commands `Workspace_Export/_Import`): `SCULPT_WORKSPACE 1` plus escaped
   `name` and `layout` lines; an import goes through `workspace_layout_clean` (put into a fresh `Kit_State`, written
-  again) and `workspace_add` (a free own slot, a unique name); a format change bumps `WORKSPACE_FILE_VERSION` and
-  keeps reading the older ones. Test by flag: `--export-workspace=PATH`, `--import-workspace=PATH`.
+  again) and `workspace_add` (a free own slot, a unique name); until release a format change edits the writer and the
+  reader together, with no reading of older files (AGENTS.md). Test by flag: `--export-workspace=PATH`, `--import-workspace=PATH`.
 - Spaces (`src/app/spaces.odin`, `k.spaces`): Sculpt, Model, Render. The tool decides the space: `space_follow`
   runs once a frame and switches when `app.tool` changes (Move keeps the space); a command that picks a tool calls
   `space_picked(app)` so the space follows even when the tool was already in hand. `space_switch(app, to)` stores the
   tool left (`Space_Tool`), the shelf page and the workspace slot of the space left, puts `to`'s back, and turns the
   views off. Every workspace slot belongs to one space (`workspace_space`; built-ins = `Built_In` = `Space`); the
   menu lists only the current space's. Focus and Inspect are views, not layouts (`k.focus_mode`, `inspect_set`,
-  `zone_hidden` adds their zones), so they never set the modified dot. Settings v5 maps the older slots
-  (`workspace_slot_v3`) and `command_from_name` / the script parser map `Workspace:Focus/Inspect/Studio`. Commands
-  `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
+  `zone_hidden` adds their zones), so they never set the modified dot. `command_from_name` / the script parser
+  map `Workspace:Focus/Inspect/Studio`. Commands `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
   inspect_mode=`.
 - Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
   `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and

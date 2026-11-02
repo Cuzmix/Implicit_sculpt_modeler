@@ -2,7 +2,7 @@
   "source": ".claude/skills",
   "files": {
     "sm-build/SKILL.md": "e43256a31aabdd77125e2dc172085fe06ea9c902561f9e8f7b984a5001c0050e",
-    "sm-cad/SKILL.md": "2fb0263c4e30b3c07985b3bd73be990f1330dabfba7411508a2b87e43675c8bd",
+    "sm-cad/SKILL.md": "6c66043c035d07caebe3f75b87d3de89a370205ed55ba1bc2027e97026cd59d5",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
     "sm-figma-ui/SKILL.md": "2fe0014b56571b18d3c3e38777adfddc5c69d3a9ba8b846c7c55db9459da1ba2",
@@ -13,12 +13,12 @@
     "sm-render/SKILL.md": "dd3a12f5317024a8b2d2f93fd88fd67713a101973e28c9f01c7b07ebac50029d",
     "sm-render/references/backends.md": "24c8a4bfdea3e49ab22a148276580165e7ffeb56456dbeda5dd43dbfb8267a15",
     "sm-sculpt/SKILL.md": "f1fbdd149988eb3f5cb98bd96be24d0d06487db3f610fc6b6aec310a6a0c7db9",
-    "sm-sdf/SKILL.md": "7be5b4751b31a4384b1fb0a8894c180adcf54d1376dc5b82862dc96435ac716e",
+    "sm-sdf/SKILL.md": "ab31f0149fb4dc0acc17024c5fe48295c32c3b7460e24186430ebfe994dc9da3",
     "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-store/SKILL.md": "5dc5ae80c27f696b38aff4bf1573fc81204d08274e3a8f2149c2d9b3c1284020",
     "sm-touch-testing/SKILL.md": "4f06f40c4a63f81b09d4fcdba089b1c186e5c92b3897e9de35446f5f201251ec",
-    "sm-ui/SKILL.md": "ba6f7e74959654c13dd03f67ab7a2bf3f84cd66c4ed9b52ab263943c893b08a5",
+    "sm-ui/SKILL.md": "059f545bb41368198dc1df99bab7718d7d0b1f5518aa4358ccac03e7a120bcc7",
     "sm-ui/references/input-routing.md": "3eecae80807b62094b1c06cf3ecc915cfb368183a3af782e469d30387bf21a0a",
-    "sm-ui/references/lens-layout.md": "558eeac245374a03feb98ddae2c79cbeb22e19f094b18eeb680aea80f0f088d0"
+    "sm-ui/references/lens-layout.md": "0d69cc0fc1619186cd2e75fff0b9e59b02ddde3f90ad553c245a6d4a1c8cdd64"
   }
 }

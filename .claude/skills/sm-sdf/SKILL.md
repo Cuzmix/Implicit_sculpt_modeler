@@ -27,7 +27,7 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   `object_dab` and picking through `object_raycast_local`, `brush_stroke_finish`/`history_step`/`history_drop_redo`/
   `object_forget_history` branch to `clay_stroke_end`/`clay_undo`/`clay_redo`/`clay_clear_redo`/`clay_clear_history`,
   the frame loop branches to `voxel_upload` before `levels_current`, and `object_put_bytes` writes the kind byte and the
-  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`) and
+  clay in the levels' place. `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`) and
   `Mesh_To_Voxels` the one that converts the other way (`object_mesh_to_voxels` → `clay_from_mesh`, which clears the
   object's `group_materials` too, since `object_get` refuses a voxel object with any).
 - Mesh → voxels (`voxelize.odin`): `clay_from_mesh(c, m, voxel, pool)` lays the voxel grid over the mesh's box (centred in

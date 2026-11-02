@@ -274,11 +274,8 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		// The rail's groups go before its slots, so a reader has them when a slot names one;
-		// `rail_main 1` says the rail was saved with Main a button of its own, so a reader puts
-		// none in.
+		// The rail's groups go before its slots, so a reader has them when a slot names one.
 		if which == .View_Rail {
-			strings.write_string(out, "rail_main 1\n")
 			rail_groups_settle(k)
 			rail_groups_save(k, out)
 		}
@@ -300,10 +297,6 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		which, zone_ok := bar_zone(f[1])
 		l := bar_list_k(k, which)
 		if n, ok := strconv.parse_int(f[2]); ok && zone_ok do l.count = clamp(n, 0, bar_capacity(which))
-		// A rail from before Main stood on it has no rail_main line after its count.
-		if zone_ok && which == .View_Rail do k.rail_main_check = true
-	case "rail_main":
-		k.rail_main_check = false
 	case "bar":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])

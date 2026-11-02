@@ -3,14 +3,15 @@ package poly
 import "../geom"
 
 // The cage in a scene file and in undo snapshots: its polygons, corner sharpness,
-// creases and (from version 2) its selected faces, which mesh_from_polygons turns back into the same half-edges (edges are
-// numbered by the order faces meet them, so writing and reading give the same ids).
+// creases and selected faces, which mesh_from_polygons turns back into the same
+// half-edges (edges are numbered by the order faces meet them, so writing and reading
+// give the same ids).
 // Damaged or impossible bytes are refused, never asserted on.
 
 @(private = "file")
 CAGE_MAGIC :: u32(0x4547_4143) // "CAGE"
 @(private = "file")
-CAGE_FILE_VERSION :: u32(2) // 2: the selected faces
+CAGE_FILE_VERSION :: u32(2) // the only one read: a change replaces the reader (AGENTS.md)
 
 mesh_write :: proc(m: ^Mesh, out: ^[dynamic]u8) {
 	p := mesh_polygons(m, context.temp_allocator)
@@ -45,7 +46,7 @@ mesh_write :: proc(m: ^Mesh, out: ^[dynamic]u8) {
 mesh_read :: proc(r: ^geom.Byte_Reader, allocator := context.allocator) -> (m: Mesh, ok: bool) {
 	if geom.byte_get(r, u32) != CAGE_MAGIC do return {}, false
 	version := geom.byte_get(r, u32)
-	if version < 1 || version > CAGE_FILE_VERSION do return {}, false
+	if version != CAGE_FILE_VERSION do return {}, false
 	nv := int(geom.byte_get(r, u32))
 	nf := int(geom.byte_get(r, u32))
 	nc := int(geom.byte_get(r, u32))
@@ -89,20 +90,19 @@ mesh_read :: proc(r: ^geom.Byte_Reader, allocator := context.allocator) -> (m: M
 		}
 		built.crease[edge_of(h)] = c
 	}
-	if version >= 2 {
-		chosen := int(geom.byte_get(r, u32))
-		if !r.ok || chosen > nf || chosen * 4 > len(r.data) - r.at {
+	// The selected faces.
+	chosen := int(geom.byte_get(r, u32))
+	if !r.ok || chosen > nf || chosen * 4 > len(r.data) - r.at {
+		mesh_destroy(&built)
+		return {}, false
+	}
+	for _ in 0 ..< chosen {
+		f := geom.byte_get(r, u32)
+		if !r.ok || int(f) >= nf {
 			mesh_destroy(&built)
 			return {}, false
 		}
-		for _ in 0 ..< chosen {
-			f := geom.byte_get(r, u32)
-			if !r.ok || int(f) >= nf {
-				mesh_destroy(&built)
-				return {}, false
-			}
-			built.selected[f] = true
-		}
+		built.selected[f] = true
 	}
 	return built, true
 }

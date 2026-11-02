@@ -124,7 +124,7 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	case kind == .Recent && tile.info.saved > 0:
 		line = fmt.tprintf("Saved %s · %s vertices · %d %s", saved_when(tile.info.saved), count_label(tile.info.vertices), tile.info.objects, "object" if tile.info.objects == 1 else "objects")
 	case kind == .Recent:
-		line = "Saved before scenes kept a picture"
+		line = "No picture"
 	}
 	if current do line = fmt.tprintf("Open now · %s", line)
 

@@ -73,24 +73,19 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-// The newest version this app writes. From 36 the scene is a list of chunks after the
-// preview block (scene_chunk_begin): a field the file gains goes at the end of its chunk,
-// read only where the chunk has bytes left, or in a chunk of its own, which an older app
-// steps over; the version moves only for a change an older reader would misread. Up to
-// 35 every addition moved it: 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look); 29: Catmull-Clark levels, an applied cage's rule, polygons and creases (sculpt.levels_write); 30: the sculpt a cage was taken from by Edit cage (Cage_Part.held), after its look; 31: a cage's live stack (Thickness, Bevel creases) after Smooth and Flat; 32: a cage's live mirror axes after the stack; 33: the spaces each object is left out of (three more view bits); 34: each sculpt layer's mask (sculpt.levels_write); 35: the folder each folder is in; 36: chunks.
+// The version this app writes and the only one it reads. The scene is a list of chunks
+// after the preview block (scene_chunk_begin), each read whole. Until release a format
+// change replaces the old reader: the writer and the reader change together, with no
+// branch for files an earlier build wrote, which then refuse to open.
 SCENE_VERSION :: u32(36)
-// The first version written in chunks; files before it are read field after field as
-// each version wrote them, which nothing new changes.
-SCENE_CHUNKED :: u32(36)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
-// A curve object (curve_object.odin), in its own chunk so that an app from before curves
-// steps over it and opens the rest of the scene; the scene chunk's object count is of the
-// other objects alone.
+// A curve object (curve_object.odin), in its own chunk; the scene chunk's object count is
+// of the other objects alone.
 CHUNK_CURVE :: "CURV"
-// The scene chunk's fields from curves on, at its end: the curves' count and the selected
-// object's place among all objects.
+// The scene chunk's fields after the guides: the curves' count and the selected object's
+// place among all objects.
 SCENE_CURVE_FIELD_BYTES :: 2 * size_of(i32)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
@@ -1470,11 +1465,11 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 
 // The scene file's start: its magic and version, the preview block, then the scene's
 // chunk: how many objects follow, the selected one, the next id, the camera and the rest
-// of what the scene itself keeps. A field added later goes at the chunk's end.
+// of what the scene itself keeps.
 scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	append(out, SCENE_MAGIC)
 	geom.byte_put(out, SCENE_VERSION)
-	preview_block_put(app, out) // version 22
+	preview_block_put(app, out)
 	at := scene_chunk_begin(out, CHUNK_SCENE)
 	defer scene_chunk_end(out, at)
 	curves, _ := curve_counts(app)
@@ -1487,33 +1482,32 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, c.yaw)
 	geom.byte_put(out, c.pitch)
 	geom.byte_put(out, c.roll)
-	geom.byte_put(out, u8(app.scene.solo)) // version 8
-	// Version 9: the folders, each with how it is shown.
+	geom.byte_put(out, u8(app.scene.solo))
+	// The folders, each with how it is shown.
 	geom.byte_put(out, u32(len(app.scene.folders)))
 	for f in app.scene.folders {
 		geom.byte_put(out, i32(f.id))
 		geom.byte_put_string(out, f.name)
 		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
-		geom.byte_put(out, f.vis_off) // version 12
-		geom.byte_put(out, i32(f.parent)) // version 35
+		geom.byte_put(out, f.vis_off)
+		geom.byte_put(out, i32(f.parent))
 	}
 	geom.byte_put(out, i32(app.scene.next_folder_id))
-	// Version 12: the stored visibility chosen and those in use.
+	// The stored visibility chosen and those in use.
 	geom.byte_put(out, u8(app.scene.vis_slot))
 	geom.byte_put(out, app.scene.vis_used)
-	geom.byte_put(out, app.scene.link_token) // version 17
-	lights_put(out, app.scene.lights) // version 19, 20, 21
-	geom.byte_put(out, print_scale(app)) // version 23
-	guides_put(out, app.scene.guides) // version 24
-	// From curves on, at the chunk's end (SCENE_CURVE_FIELD_BYTES): how many CURV chunks
-	// follow, and the selected object's place in the whole list, curves and all.
+	geom.byte_put(out, app.scene.link_token)
+	lights_put(out, app.scene.lights)
+	geom.byte_put(out, print_scale(app))
+	guides_put(out, app.scene.guides)
+	// How many CURV chunks follow (SCENE_CURVE_FIELD_BYTES), and the selected object's
+	// place in the whole list, curves and all.
 	geom.byte_put(out, i32(curves))
 	geom.byte_put(out, i32(app.scene.selected))
-	lights_more_put(out, app.scene.lights) // from area lights on, at the chunk's end
+	lights_more_put(out, app.scene.lights)
 }
 
-// What each light keeps besides lights_put's, at the scene chunk's end where an app from
-// before them steps over it: how many lights, then each one's kind (an area light is a
+// What each light keeps besides lights_put's, at the scene chunk's end: how many lights, then each one's kind (an area light is a
 // spot in lights_put's), its area's width and height, whether it is a disc, its
 // highlight and whether it casts shadows.
 lights_more_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
@@ -1553,7 +1547,7 @@ lights_more_get :: proc(r: ^geom.Byte_Reader, set: Light_Set) -> (out: Light_Set
 }
 
 // The selected object's place among the objects that are not curves, as the scene chunk's
-// first selection keeps it for apps from before curves: a selected curve gives the nearest
+// first selection keeps it: a selected curve gives the nearest
 // object before it (or the first), and -1 when there is none.
 scene_selected_without_curves :: proc(app: ^App) -> int {
 	place, last, first := -1, -1, -1
@@ -1636,8 +1630,7 @@ lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 	geom.byte_put(out, set.ambient)
 	for l in set.lights[:count] {
 		geom.byte_put(out, u8(l.on))
-		// An area light is a spot here, as an app from before area lights reads it (which
-		// refuses a kind it does not know); its own kind is in lights_more_put's.
+		// An area light is a spot here; its own kind is in lights_more_put's.
 		geom.byte_put(out, u8(Light_Kind.Spot if l.kind == .Area else l.kind))
 		geom.byte_put(out, u8(l.space))
 		geom.byte_put(out, l.dir)
@@ -1650,16 +1643,15 @@ lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 		geom.byte_put(out, l.color)
 		geom.byte_put(out, l.kelvin)
 		geom.byte_put(out, l.name)
-		geom.byte_put(out, l.angle) // version 21
+		geom.byte_put(out, l.angle)
 		geom.byte_put(out, l.radius)
 	}
 }
 
-// The lights lights_put wrote in a scene file of `version`, the ones past their count as
-// `rest` has them; ok is false when they are damaged: too many, an unknown kind or space,
+// The lights lights_put wrote, the ones past their count as `rest` has them; ok is false when they are damaged: too many, an unknown kind or space,
 // a number that is not finite or out of its range, a name not ended by a zero or not
 // UTF-8.
-lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSION) -> (set: Light_Set, ok: bool) {
+lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set) -> (set: Light_Set, ok: bool) {
 	set = rest
 	count := int(geom.byte_get(r, u8))
 	set.count = i32(count)
@@ -1681,33 +1673,26 @@ lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSI
 		if !(l.strength >= 0 && l.strength <= LIGHT_STRENGTH_MAX) || !(l.ref >= 0 && l.ref < 1e30) || !(l.reach >= 0 && l.reach < 1e30) do return {}, false
 		if !(l.cone >= LIGHT_CONE_MIN && l.cone <= LIGHT_CONE_MAX) || !(l.blend >= 0 && l.blend <= 1) || min(l.color.r, l.color.g, l.color.b) < 0 do return {}, false
 		l.on, l.kind, l.space = on == 1, Light_Kind(kind), Light_Space(space)
-		l.kelvin, l.name = 0, {}
-		// What lights_more_get reads, where the file has it: until then a light as before.
+		// What lights_more_get reads after the scene's other fields.
 		l.width, l.height, l.disc, l.shine, l.no_shadows = 0, 0, false, 0, false
-		if version >= 20 {
-			l.kelvin = geom.byte_get(r, f32)
-			l.name = geom.byte_get(r, [LIGHT_NAME]u8)
-			if !r.ok || !(l.kelvin == 0 || (l.kelvin >= LIGHT_KELVIN_MIN && l.kelvin <= LIGHT_KELVIN_MAX)) do return {}, false
-			n := 0
-			for n < LIGHT_NAME && l.name[n] != 0 do n += 1
-			if n == LIGHT_NAME || !utf8.valid_string(string(l.name[:n])) do return {}, false
-			for b in l.name[n:] do if b != 0 do return {}, false
-		}
-		l.angle, l.radius = 0, 0
-		if version >= 21 {
-			l.angle = geom.byte_get(r, f32)
-			l.radius = geom.byte_get(r, f32)
-			if !r.ok || !(l.angle >= 0 && l.angle <= LIGHT_ANGLE_MAX) || !(l.radius >= 0 && l.radius <= LIGHT_RADIUS_MAX) do return {}, false
-		}
+		l.kelvin = geom.byte_get(r, f32)
+		l.name = geom.byte_get(r, [LIGHT_NAME]u8)
+		if !r.ok || !(l.kelvin == 0 || (l.kelvin >= LIGHT_KELVIN_MIN && l.kelvin <= LIGHT_KELVIN_MAX)) do return {}, false
+		n := 0
+		for n < LIGHT_NAME && l.name[n] != 0 do n += 1
+		if n == LIGHT_NAME || !utf8.valid_string(string(l.name[:n])) do return {}, false
+		for b in l.name[n:] do if b != 0 do return {}, false
+		l.angle = geom.byte_get(r, f32)
+		l.radius = geom.byte_get(r, f32)
+		if !r.ok || !(l.angle >= 0 && l.angle <= LIGHT_ANGLE_MAX) || !(l.radius >= 0 && l.radius <= LIGHT_RADIUS_MAX) do return {}, false
 	}
 	return set, true
 }
 
-// The folders a scene file of `version` lists after its header, owned; ok is false
+// The folders a scene file lists after its header, owned; ok is false
 // when they are damaged (an id twice or not positive, a parent below zero, unknown
 // flags), with none kept.
-folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
-	if version < 9 do return nil, 0, true
+folders_get :: proc(r: ^geom.Byte_Reader) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
 	count := int(geom.byte_get(r, u32))
 	if !r.ok || count > MAX_FOLDERS do return nil, 0, false
 	folders = make([dynamic]Folder, 0, count)
@@ -1715,10 +1700,10 @@ folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Fo
 		f := Folder{id = int(geom.byte_get(r, i32)), name = geom.byte_get_string(r)}
 		bits := geom.byte_get(r, u8)
 		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
-		if version >= 12 do f.vis_off = geom.byte_get(r, u8)
-		// Older files have every folder at the top. A parent that is not there, or a ring,
-		// is mended by scene_folders_normalize, as an object's unknown folder is.
-		if version >= 35 do f.parent = int(geom.byte_get(r, i32))
+		f.vis_off = geom.byte_get(r, u8)
+		// A parent that is not there, or a ring, is mended by scene_folders_normalize, as an
+		// object's unknown folder is.
+		f.parent = int(geom.byte_get(r, i32))
 		append(&folders, f)
 		unique := true
 		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
@@ -1748,11 +1733,10 @@ Scene_Fields :: struct {
 	vis_used:       u8,
 	link_token:     u64,
 	lights:         Light_Set,
-	lights_own:     bool, // the file kept lights (version 19 on); else the starting lights
 	print_mm:       f32,
 	guides:         Guides,
-	// From curves on: how many CURV chunks follow, and the selected object's place among
-	// all of them (selected is among the rest); -2 when the file has no such field.
+	// How many CURV chunks follow, and the selected object's place among all of them
+	// (selected is among the rest).
 	curves:         int,
 	selected_any:   int,
 }
@@ -1765,10 +1749,9 @@ scene_fields_destroy :: proc(f: ^Scene_Fields) {
 	f.folders = nil
 }
 
-// The scene's own fields as a file of `version` wrote them (scene_header_put), checked:
-// ok is false for any damage, with nothing kept. A field added from version 36 on is
-// read at the end, only where the chunk has bytes left.
-scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32) -> (f: Scene_Fields, ok: bool) {
+// The scene's own fields as scene_header_put wrote them, checked: ok is false for any
+// damage, with nothing kept.
+scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader) -> (f: Scene_Fields, ok: bool) {
 	f.count = int(geom.byte_get(r, u32))
 	f.selected = int(geom.byte_get(r, i32))
 	f.next_id = int(geom.byte_get(r, i32))
@@ -1777,41 +1760,22 @@ scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32) -> (f: S
 	view.distance = geom.byte_get(r, f32)
 	view.yaw = geom.byte_get(r, f32)
 	view.pitch = geom.byte_get(r, f32)
-	view.roll = geom.byte_get(r, f32) if version >= 7 else 0
-	f.solo = geom.byte_get(r, u8) if version >= 8 else 0
+	view.roll = geom.byte_get(r, f32)
+	f.solo = geom.byte_get(r, u8)
 	folders_ok: bool
-	f.folders, f.next_folder_id, folders_ok = folders_get(r, version)
-	if version >= 12 {
-		f.vis_slot = geom.byte_get(r, u8)
-		f.vis_used = geom.byte_get(r, u8)
-	}
-	f.link_token = geom.byte_get(r, u64) if version >= 17 else 0
-	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
-	lights_ok := true
-	f.lights = app.start_lights
-	if version >= 19 do f.lights, lights_ok = lights_get(r, app.start_lights, version)
-	f.lights_own = version >= 19
-	// A scene from before prints were sized prints at a new scene's scale.
-	f.print_mm = f32(PRINT_MM_DEFAULT)
-	if version >= 23 do f.print_mm = geom.byte_get(r, f32)
-	// A scene from before guides were kept has them off, seeded when first shown.
-	guides_ok := true
-	if version >= 24 do f.guides, guides_ok = guides_get(r)
-	// Fields after these came later in version 36, read only where the chunk has them.
-	f.selected_any = -2
-	if version >= SCENE_CHUNKED && r.ok && r.at < len(r.data) {
-		f.curves = int(geom.byte_get(r, i32))
-		f.selected_any = int(geom.byte_get(r, i32))
-		if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do r.ok = false
-	}
-	// From area lights on: each light's kind, area, highlight and shadows. A file from
-	// before has none of these, and its lights shine as they did.
-	if version >= SCENE_CHUNKED && r.ok && r.at < len(r.data) {
-		more_ok: bool
-		f.lights, more_ok = lights_more_get(r, f.lights)
-		lights_ok &&= more_ok
-	}
-	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	f.folders, f.next_folder_id, folders_ok = folders_get(r)
+	f.vis_slot = geom.byte_get(r, u8)
+	f.vis_used = geom.byte_get(r, u8)
+	f.link_token = geom.byte_get(r, u64)
+	lights_ok, more_ok, guides_ok: bool
+	f.lights, lights_ok = lights_get(r, app.start_lights)
+	f.print_mm = geom.byte_get(r, f32)
+	f.guides, guides_ok = guides_get(r)
+	f.curves = int(geom.byte_get(r, i32))
+	f.selected_any = int(geom.byte_get(r, i32))
+	if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do r.ok = false
+	if r.ok && lights_ok do f.lights, more_ok = lights_more_get(r, f.lights)
+	if !guides_ok || !lights_ok || !more_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		scene_fields_destroy(&f)
 		return {}, false
 	}
@@ -1838,11 +1802,11 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	magic: [len(SCENE_MAGIC)]u8
 	geom.byte_get_slice(&r, magic[:])
 	version := geom.byte_get(&r, u32)
-	if !r.ok || string(magic[:]) != SCENE_MAGIC || version < 1 || version > SCENE_VERSION {
+	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION {
 		file_note(app, true, "Cannot open %s: it is not a scene this version of the app reads", name)
 		return false, true
 	}
-	if version >= 22 && !preview_block_skip(&r) {
+	if !preview_block_skip(&r) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -1855,68 +1819,52 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	damaged := ""
 	// Each object is read and built as it comes; one that is damaged, or a GPU failure,
 	// drops those built so far.
-	read_object :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32, missing: ^int, objects: ^[dynamic]^Object, f: ^Scene_Fields, source := Object_Source.Object_Chunk) -> (read, made: bool) {
+	read_object :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int, objects: ^[dynamic]^Object, f: ^Scene_Fields, source: Object_Source) -> (read, made: bool) {
 		obj: ^Object
-		obj, read, made = object_get(app, r, version, missing, source)
+		obj, read, made = object_get(app, r, missing, source)
 		if !read || !made do return
 		f.next_id = max(f.next_id, obj.id)
 		append(objects, obj)
 		return
 	}
-	if version < SCENE_CHUNKED {
-		// Field after field, as each version up to 35 wrote them.
-		fields_ok: bool
-		f, fields_ok = scene_fields_get(app, &r, version)
-		if !fields_ok || f.count > len(data) do damaged = "it is damaged"
-		for i := 0; damaged == "" && i < f.count; i += 1 {
-			read, made := read_object(app, &r, version, &missing, &objects, &f)
-			if !read do damaged = fmt.tprintf("object %d of %d is damaged", i + 1, f.count)
+	// Chunks: the scene's first, then an object or a curve each; a chunk of a tag this
+	// app does not know is stepped over.
+	seen := false
+	curves_read := 0
+	for damaged == "" {
+		tag, chunk, more := scene_chunk_next(&r)
+		if !more {
+			if !r.ok do damaged = "it is damaged"
+			break
+		}
+		switch tag {
+		case CHUNK_SCENE:
+			fields_ok: bool
+			if !seen do f, fields_ok = scene_fields_get(app, &chunk)
+			if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
+			seen = true
+		case CHUNK_OBJECT, CHUNK_CURVE:
+			curve := tag == CHUNK_CURVE
+			if !seen || (curve && curves_read >= f.curves) || (!curve && len(objects) - curves_read >= f.count) {
+				damaged = "it is damaged"
+				break
+			}
+			if curve do curves_read += 1
+			read, made := read_object(app, &chunk, &missing, &objects, &f, .Curve_Chunk if curve else .Object_Chunk)
+			if !read do damaged = fmt.tprintf("object %d of %d is damaged", len(objects) + 1, f.count)
 			if read && !made {
 				for other in objects do object_discard(app, other)
 				return false, false
 			}
 		}
-	} else {
-		// Chunks: the scene's first, then an object each; a chunk of a newer app's that
-		// this one does not know is stepped over, as are fields added at a chunk's end.
-		seen := false
-		curves_read := 0
-		for damaged == "" {
-			tag, chunk, more := scene_chunk_next(&r)
-			if !more {
-				if !r.ok do damaged = "it is damaged"
-				break
-			}
-			switch tag {
-			case CHUNK_SCENE:
-				fields_ok: bool
-				if !seen do f, fields_ok = scene_fields_get(app, &chunk, version)
-				if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
-				seen = true
-			case CHUNK_OBJECT, CHUNK_CURVE:
-				curve := tag == CHUNK_CURVE
-				if !seen || (curve && curves_read >= f.curves) || (!curve && len(objects) - curves_read >= f.count) {
-					damaged = "it is damaged"
-					break
-				}
-				if curve do curves_read += 1
-				read, made := read_object(app, &chunk, version, &missing, &objects, &f, .Curve_Chunk if curve else .Object_Chunk)
-				if !read do damaged = fmt.tprintf("object %d of %d is damaged", len(objects) + 1, f.count)
-				if read && !made {
-					for other in objects do object_discard(app, other)
-					return false, false
-				}
-			}
-		}
-		if damaged == "" && (!seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
 	}
+	if damaged == "" && (!seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
 	if damaged != "" {
 		file_note(app, true, "Cannot open %s: %s", name, damaged)
 		for other in objects do object_discard(app, other)
 		return false, true
 	}
-	count, selected, next_id, view := f.count + f.curves, f.selected, f.next_id, f.view
-	if f.selected_any >= -1 do selected = f.selected_any
+	count, selected, next_id, view := f.count + f.curves, f.selected_any, f.next_id, f.view
 	folders := f.folders
 	f.folders = nil
 	defer if folders != nil {
@@ -1932,7 +1880,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.next_folder_id = max(next_folder_id, 0)
 	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	app.scene.link_token = link_token
-	app.scene.lights, app.scene.lights_own = lights, f.lights_own
+	app.scene.lights, app.scene.lights_own = lights, true
 	app.scene.print_mm = print_mm
 	app.scene.guides = guides
 	scene_folders_normalize(app)
@@ -2071,15 +2019,15 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put_string(out, obj.name)
 	put_transform(out, obj.transform)
 	put_transform(out, obj.file)
-	geom.byte_put(out, obj.transform.rotation) // version 2
-	geom.byte_put(out, u8(obj.boolean)) // version 5
-	geom.byte_put(out, object_view_bits(obj)) // version 8
-	geom.byte_put(out, i32(obj.folder)) // version 9
-	geom.byte_put(out, obj.vis_off) // version 12
-	geom.byte_put(out, u8(object_kind(obj))) // version 13, cages 26
-	material_put(out, obj.material, refs[0] if len(refs) > 0 else {}) // version 14, its references 16
-	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil) // version 15, their references 16
-	textures_put(out, obj.textures) // version 18
+	geom.byte_put(out, obj.transform.rotation)
+	geom.byte_put(out, u8(obj.boolean))
+	geom.byte_put(out, object_view_bits(obj))
+	geom.byte_put(out, i32(obj.folder))
+	geom.byte_put(out, obj.vis_off)
+	geom.byte_put(out, u8(object_kind(obj)))
+	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
+	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
+	textures_put(out, obj.textures)
 	// A curve's points stand where a mesh's levels go; its empty level is made on reading.
 	if cp := obj.curve; cp != nil {
 		curve_part_put(out, cp)
@@ -2096,19 +2044,18 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 		poly.mesh_write(&cp.mesh, out)
 		geom.byte_put(out, u8(cp.look.smooth))
 		geom.byte_put(out, u8(cp.look.flat))
-		live := cp.look.live // version 31
+		live := cp.look.live
 		geom.byte_put(out, live.thickness)
 		geom.byte_put(out, u8(live.thickness_segments))
 		geom.byte_put(out, u8(live.side))
 		geom.byte_put(out, live.bevel)
 		geom.byte_put(out, u8(live.bevel_segments))
-		geom.byte_put(out, transmute(u8)live.mirror) // version 32
-		geom.byte_put(out, u32(len(cp.held))) // version 30
+		geom.byte_put(out, transmute(u8)live.mirror)
+		geom.byte_put(out, u32(len(cp.held)))
 		append(out, ..cp.held)
 		return true
 	}
-	// The detail skin goes after the levels, where an app from before skins, reading the
-	// object's chunk, stops: it opens the object without it.
+	// The detail skin, when there is one, goes after the levels (levels_skin_follows).
 	return sculpt.levels_write(&obj.levels, out, opts) && sculpt.levels_skin_write(&obj.levels, out, opts.abort)
 }
 
@@ -2120,18 +2067,18 @@ object_kind :: proc(obj: ^Object) -> int {
 	return OBJECT_KIND_MESH
 }
 
-// What an object is in the scene file, from version 13: a mesh with levels, or a voxel
-// object (its resolution and clay in the levels' place); from version 26 also a Model
-// mode cage (poly.mesh_write's bytes in the levels' place).
+// What an object is in the scene file: a mesh with levels, a voxel object (its resolution
+// and clay in the levels' place) or a Model mode cage (poly.mesh_write's bytes in the
+// levels' place).
 OBJECT_KIND_MESH :: 0
 OBJECT_KIND_VOXEL :: 1
 OBJECT_KIND_CAGE :: 2
 // A curve object: its points in the levels' place (curve_part_put). Only in a CURV chunk,
-// never an OBJ one, which an app from before curves would refuse as damage.
+// never an OBJ one.
 OBJECT_KIND_CURVE :: 3
 
 // Where object_get reads an object from, which says what kinds it may be: an OBJ chunk
-// (or an older file) never holds a curve and a CURV chunk only a curve, while the app's
+// never holds a curve and a CURV chunk only a curve, while the app's
 // own copies (undo snapshots, Duplicate, Paste) hold any kind.
 Object_Source :: enum u8 {
 	Copy,
@@ -2166,30 +2113,27 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	return bytes
 }
 
-// An object's eye (off is 1), ghost (2), polypaint left out (4, from version 11), lock
-// (8, from version 25) and the spaces it is left out of (16 Sculpt, 32 Model, 64 Render,
-// from version 33) as the scene file stores them.
+// An object's eye (off is 1), ghost (2), polypaint left out (4), lock (8) and the spaces
+// it is left out of (16 Sculpt, 32 Model, 64 Render) as the scene file stores them.
 OBJECT_VIEW_BITS :: 127
 object_view_bits :: proc(obj: ^Object) -> u8 {
 	return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2 | u8(obj.locked) << 3 | transmute(u8)obj.spaces_off << 4
 }
 
-// Reads one object written by object_put (by a scene file of `version`) and uploads
+// Reads one object written by object_put and uploads
 // its shown level; an object whose material is a content pack's that is not installed
 // counts in `missing` (material_get). `read` is false
 // when the bytes are damaged (no object is made); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
-object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, missing: ^int = nil, source := Object_Source.Copy) -> (obj: ^Object, read, made: bool) {
+object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source := Object_Source.Copy) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
-	object_get_fields(r, obj, version)
-	kind := geom.byte_get(r, u8) if version >= 13 else OBJECT_KIND_MESH
-	// An older scene has no materials: its objects take the default (materials_settle),
-	// which is how they showed.
-	if version >= 14 do obj.material = material_get(r, app, version, missing)
-	if version >= 15 do group_materials_get(r, obj, app, version, missing)
-	if version >= 18 do obj.textures = textures_get(r)
+	object_get_fields(r, obj)
+	kind := geom.byte_get(r, u8)
+	obj.material = material_get(r, app, missing)
+	group_materials_get(r, obj, app, missing)
+	obj.textures = textures_get(r)
 	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
-	most := OBJECT_KIND_CAGE if version >= 26 else OBJECT_KIND_VOXEL
+	most := OBJECT_KIND_CAGE
 	if source == .Copy do most = OBJECT_KIND_CURVE
 	// Nor has a cage UVs to lay maps on, yet, nor a curve anything at all.
 	curve_ok := (int(kind) == OBJECT_KIND_CURVE) == (source == .Curve_Chunk) || source == .Copy
@@ -2207,14 +2151,14 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 			return obj, true, made
 		}
 	} else if fields_ok && kind == OBJECT_KIND_CAGE {
-		read, made = cage_part_get(app, r, obj, version)
+		read, made = cage_part_get(app, r, obj)
 		if read {
 			free_all(context.temp_allocator)
 			return obj, true, made
 		}
 	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
-		if version >= SCENE_CHUNKED && sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
+		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
 			report(app, Kit_Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
 		}
 		lv := sculpt.levels_current(&obj.levels)
@@ -2233,34 +2177,25 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 }
 
 // Reads what object_put writes before the levels: the id, name, placement, boolean mode,
-// view flags, folder and stored eyes, as a file of `version` has them; r.ok goes false on damage. The
-// caller owns obj.name.
-object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) {
+// view flags, folder and stored eyes; r.ok goes false on damage. The caller owns
+// obj.name.
+object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.id = int(geom.byte_get(r, i32))
 	obj.name = geom.byte_get_string(r)
 	obj.transform = get_transform(r)
 	obj.file = get_transform(r)
-	if version >= 2 {
-		obj.transform.rotation = geom.byte_get(r, Vec3)
-		if !finite(obj.transform.rotation) do r.ok = false
-	}
-	if version >= 5 {
-		mode := geom.byte_get(r, u8)
-		if mode > u8(max(Boolean_Mode)) do r.ok = false
-		else do obj.boolean = Boolean_Mode(mode)
-	}
-	if version >= 8 {
-		bits := geom.byte_get(r, u8)
-		most: u8 = OBJECT_VIEW_BITS if version >= 33 else (15 if version >= 25 else (7 if version >= 11 else 3))
-		if bits > most do r.ok = false
-		obj.off, obj.ghost, obj.paint_off, obj.locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
-		obj.spaces_off = transmute(bit_set[Space; u8])(bits >> 4)
-	}
-	if version >= 9 {
-		obj.folder = int(geom.byte_get(r, i32))
-		if obj.folder < 0 do r.ok = false
-	}
-	if version >= 12 do obj.vis_off = geom.byte_get(r, u8)
+	obj.transform.rotation = geom.byte_get(r, Vec3)
+	if !finite(obj.transform.rotation) do r.ok = false
+	mode := geom.byte_get(r, u8)
+	if mode > u8(max(Boolean_Mode)) do r.ok = false
+	else do obj.boolean = Boolean_Mode(mode)
+	bits := geom.byte_get(r, u8)
+	if bits > OBJECT_VIEW_BITS do r.ok = false
+	obj.off, obj.ghost, obj.paint_off, obj.locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
+	obj.spaces_off = transmute(bit_set[Space; u8])(bits >> 4)
+	obj.folder = int(geom.byte_get(r, i32))
+	if obj.folder < 0 do r.ok = false
+	obj.vis_off = geom.byte_get(r, u8)
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

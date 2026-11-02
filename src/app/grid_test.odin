@@ -92,14 +92,6 @@ a_layout_keeps_its_grid_and_single_writes_none :: proc(t: ^testing.T) {
 	testing.expect_value(t, k.grid.views[1].pass, Second_Pass.Curvature)
 	testing.expect(t, kit_layout_text(k) == text, "the grid does not read back to itself")
 
-	// A script's or a hand's lower case names it too; a grid line alone gives the partners.
-	// An old layout's grid line reads as its preset's tree and is written as one.
-	kit_layout_put(k, "grid four\n")
-	testing.expect_value(t, grid_shape_name(&k.grid), "Four")
-	testing.expect_value(t, k.grid.views[2].camera, Second_Camera.Top)
-	kit_layout_put(k, "grid Three_Across 300 700\n")
-	testing.expect(t, strings.contains(kit_layout_text(k), "panes v300 0 v571 1 2\n"), "three across's old splits do not read as its tree")
-	testing.expect_value(t, grid_layout_upgrade("open Stats\ngrid Side_By_Side 400 500\npane 1 Top Shaded\n"), "open Stats\npanes v400 0 1\npane 1 Top Shaded\n")
 	// What is no tree is passed over: a pane twice, no main view, a share out of range.
 	for bad in ([]string{"panes v500 1 1", "panes v500 1 2", "panes v0 0 1", "panes h500 0", "panes v500 0 1 2"}) {
 		kit_layout_put(k, bad)
@@ -155,7 +147,7 @@ a_layout_keeps_a_heavy_pane_pass :: proc(t: ^testing.T) {
 	k := new(Kit_State)
 	defer free(k)
 	grid_reset(&k.grid)
-	grid_layout_read(&k.grid, {"grid", "Four"})
+	k.grid.tree = grid_preset_tree(.Four)
 	grid_layout_read(&k.grid, {"pane", "1", "Front", "Studio"})
 	grid_layout_read(&k.grid, {"pane", "2", "Right", "Occlusion"})
 	testing.expect_value(t, k.grid.views[0].pass, Second_Pass.Studio)
@@ -272,7 +264,7 @@ a_mirrored_pane_reads_back :: proc(t: ^testing.T) {
 	bars_reset(k)
 	panels_default(k)
 	grid_reset(&k.grid)
-	kit_layout_put(k, "grid Side_By_Side 500 500\npane 1 Mirror Normals\n")
+	kit_layout_put(k, "panes v500 0 1\npane 1 Mirror Normals\n")
 	testing.expect_value(t, k.grid.views[0], Second_View{camera = .Mirror, pass = .Normals})
 	testing.expect(t, strings.contains(kit_layout_text(k), "pane 1 Mirror Normals\n"), "a mirrored pane is not written")
 }

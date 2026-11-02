@@ -177,13 +177,6 @@ visibility_slots_round_trip_in_the_file :: proc(t: ^testing.T) {
 	defer delete(back.name)
 	testing.expect(t, r.ok)
 	testing.expect_value(t, back.vis_off, objs[0].vis_off)
-	// Version 11 had no such byte: it reads one byte less and keeps none.
-	eleven: Object
-	r11 := geom.byte_reader(out[:])
-	object_get_fields(&r11, &eleven, 11)
-	defer delete(eleven.name)
-	testing.expect(t, r11.ok && eleven.vis_off == 0)
-	testing.expect_value(t, r11.at, r.at - 1)
 
 	app.scene.vis_slot, app.scene.vis_used = 3, 0b100
 	head: [dynamic]u8

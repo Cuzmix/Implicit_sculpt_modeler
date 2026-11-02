@@ -396,8 +396,8 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 // Reads what curve_part_put wrote into a new curve on `obj`, and makes its level. `read`
 // is false, with nothing made, for damage: too few points, more than the bytes hold, a
 // flag, use or option no version wrote, a value that is not a number, or tube, lathe or
-// Along options only partly there (a curve from before them has none, and takes the defaults). `made` is
-// false on a GPU failure, with the curve on the object for object_discard.
+// Along options missing. `made` is false on a GPU failure, with the curve on the object
+// for object_discard.
 curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
 	count := int(geom.byte_get(r, u32))
 	closed := geom.byte_get(r, u8)
@@ -424,7 +424,7 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		}
 		append(&cp.points, p)
 	}
-	if !damaged && r.at < len(r.data) {
+	if !damaged {
 		o: geom.Tube_Options
 		profile, radius := geom.byte_get(r, u8), geom.byte_get(r, u8)
 		o.one = geom.byte_get(r, f32)
@@ -436,7 +436,7 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		o.profile, o.radius, o.caps = geom.Tube_Profile(profile), geom.Tube_Radius(radius), geom.Tube_Caps(caps)
 		cp.tube = o
 	}
-	if !damaged && r.at < len(r.data) {
+	if !damaged {
 		l: geom.Lathe_Options
 		l.axis = geom.byte_get(r, Vec3)
 		through := geom.byte_get(r, u8)
@@ -447,7 +447,7 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		l.through, l.caps = geom.Lathe_Through(through), caps == 1
 		cp.lathe = l
 	}
-	if !damaged && r.at < len(r.data) {
+	if !damaged {
 		a: Along_Look
 		part := geom.byte_get(r, u8)
 		a.opts.gap = geom.byte_get(r, f32)
