@@ -286,6 +286,26 @@ skin_flush_keeps_every_normal_current :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(live, sk.normals), "a flush left a stale normal")
 }
 
+// The grid pass that gives a triangle's normals in one go (skin_grid_pass) gives every
+// sample the bits skin_normal gives it alone, inside samples and border ones.
+@(test)
+skin_grid_pass_matches_each_normal :: proc(t: ^testing.T) {
+	sp := skin_sphere_with(2, 8)
+	defer skin_sphere_free(sp)
+	s := &sp.sculptor
+	sk := s.skin
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 1, skin = true}, linalg.normalize(Vec3{0.2, 0.1, 1}))
+	_ = apply_dab(s, {kind = .Crease, radius = 0.3, strength = 0.8, skin = true}, linalg.normalize(Vec3{-0.1, 0.2, 1}))
+	_ = sculptor_flush(s)
+	I := s.mesh.indices[:]
+	S := sk.segments
+	wrong := 0
+	for tri in u32(0) ..< sk.tri_count do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+		if sk.normals[skin_sample(sk, I, tri, i, j)] != geom.oct_encode(skin_normal(s, sk, tri, i, j)) do wrong += 1
+	}
+	testing.expectf(t, wrong == 0, "%d samples differ from skin_normal", wrong)
+}
+
 @(test)
 skin_dabs_match_serial_and_parallel :: proc(t: ^testing.T) {
 	pool: jobs.Pool
