@@ -643,6 +643,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	}
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
+	// The last frame's wireframes: items drawn with one, in the shading pass where the
+	// device reads barycentrics, else as lines; and whether it could.
+	fmt.printfln("wire_shaded=%d wire_lines=%d wire_barycentric=%v", v.wire_shaded, v.wire_lines, render.caps(&app.renderer).barycentric)
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls)
 	if app.renderer.gpu_culling.check {
 		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)

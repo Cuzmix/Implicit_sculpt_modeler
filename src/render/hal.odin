@@ -227,6 +227,15 @@ Tlas_Instance :: struct {
 	custom:    u32,
 }
 
+// Fragment shaders read where the pixel lies between the triangle's corners
+// (Gpu_Caps.barycentric): VK_KHR_fragment_shader_barycentric under the own Vulkan backend,
+// supportsShaderBarycentricCoordinates under the own Metal one.
+@(require_results)
+gpu_barycentric_offered :: proc(device: ^sdl.GPUDevice) -> bool {
+	when METAL do return mtl_barycentric_offered()
+	else do return vk_state.barycentric
+}
+
 @(require_results)
 gpu_ray_query_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	when METAL do return mtl_ray_query_offered()
