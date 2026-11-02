@@ -126,7 +126,7 @@ UI = {
 MENU_ROWS = {"home": ("Home", 84), "new": ("New", 129), "open": ("Open scene...", 173), "recent": ("Open recent", 217),
              "save": ("Save scene", 261), "save_as": ("Save scene as...", 305), "save_copy": ("Save a copy...", 349),
              "earlier_saves": ("Earlier saves...", 393), "import": ("Import", 438), "export": ("Export...", 482),
-             "workspaces": ("Workspaces", 527), "customise": ("Customise...", 571), "settings": ("Settings...", 615),
+             "workspaces": ("Workspaces", 527), "customise": ("Edit docks...", 571), "settings": ("Settings...", 615),
              "help": ("Help and shortcuts", 659), "more": ("More", 703)}
 UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y) in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
@@ -5690,11 +5690,14 @@ def export_sheet_checks_a_print():
     return Steps([run(0), run(1), run(2)])
 
 
-# Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
+# Lens's Edit docks at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
 # and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
-# top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
+# Dial tab's Put the dial back, the top bar's Done, the Rail's head, the dial's top sector,
+# and a dock menu's Put back as it comes and Delete dock.
 LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
-                "reset_zone": At("arrange top bar/Reset zone", 675, 30), "done": At("arrange top bar/Done", 1014, 30), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+                "dial_reset": At("arrange library/Put the dial back as it comes", 520, 712), "done": At("arrange top bar/Done", 1014, 30),
+                "rail_tag": (1404, 67), "dial_top": (78, 778), "dock_reset": At("dock menu/Put back as it comes", 400, 500),
+                "dock_delete": At("dock menu/Delete dock", 400, 544)}
 
 
 @scenario
@@ -5723,7 +5726,7 @@ def lens_arrange_dial_sector_runs_a_command():
 
 @scenario
 def lens_arrange_reset_zone():
-    """A tap on a zone's tag picks it; with Hide on the dial's bottom sector, picking the Dial and Reset zone puts the dial back as it comes."""
+    """A tap on a dock's head opens its menu; with Hide on the dial's bottom sector, the Dial tab's Put the dial back as it comes puts the dial back."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
@@ -5731,19 +5734,18 @@ def lens_arrange_reset_zone():
         s.ftap(a["rail_tag"])
         s.wait(4)
         if not reset:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Rail"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_pop": is_text("dock_menu"), "dabs": near(0)})
+        s.press("escape")
+        s.wait(4)
         s.ftap(a["dial_tab"])
         s.wait(6)
         s.ftap(a["bottom"])
         s.wait(6)
         s.ftap(a["hide"])
         s.wait(6)
-        s.ftap(a["dial_tag"])
-        s.wait(4)
-        s.ftap(a["reset_zone"])
+        s.ftap(a["dial_reset"])
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
-                                                                         "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_resets": near(1), "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -5783,7 +5785,7 @@ def lens_arrange_drags_the_rail_to_the_left():
     s.ftap(a["done"])
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "bar_pop": is_text("none"),
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
@@ -5813,13 +5815,13 @@ def lens_arrange_slides_the_shelf_along_the_bottom():
         x = float(v.split(",")[0])
         return 144 < x < 190
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "bar_pop": is_text("none"),
         "layout_dock": dock, "layout_dock_pages": lambda v: abs(dock_centre_x(v) - pages.get("dock", -99)) < 2, "dabs": near(0)})
 
 
 @scenario
 def lens_arrange_floats_the_shelf():
-    """The mouse drags the Shelf tag up into the view: the shelf floats there, kept in the window, with its page names under it, and Reset zone with it picked brings it home."""
+    """The mouse drags the Shelf head up into the view: the shelf floats there, kept in the window, with its page names under it, and its menu's Put back as it comes brings it home."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
@@ -5837,11 +5839,13 @@ def lens_arrange_floats_the_shelf():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
                                                                              "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
                                                                              "dabs": near(0)})
-        # Wider where it floats, the shelf was kept in the window, its tag with it, clear
-        # of the Library.
-        s.ftap(600, 700)
+        # Wider where it floats, the shelf was kept in the window, its head with it, clear
+        # of the Library, which is put away so the head's tap opens its menu.
+        s.ftap(LIBRARY_AWAY)
         s.wait(4)
-        s.ftap(a["reset_zone"])
+        s.ftap(At("arrange tag Shelf/Shelf", 600, 700))
+        s.wait(6)
+        s.ftap(a["dock_reset"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
                                                                          "layout_dock": lambda v: float(v.split(",")[1]) > 780, "dabs": near(0)})
@@ -5850,23 +5854,23 @@ def lens_arrange_floats_the_shelf():
 
 @scenario
 def lens_arrange_floats_the_island():
-    """The mouse drags the Off-hand tag into the view's middle: the island floats there, and Reset zone with it picked puts it back."""
+    """The mouse drags the Brush bar's head into the view's middle: the island floats there, and its menu's Put back as it comes puts it back."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
         s.wait(6)
         s.ftap(a["dial_tab"])
         s.wait(4)
-        tag = At("arrange tag Offhand/Off-hand", 44, 338)
+        tag = At("arrange tag Offhand/Brush bar", 44, 338)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
         if not reset:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
                                                                              "layout_brush_bar": lambda v: float(v.split(",")[0]) > 700})
-        # The tag went with the island, under where the pointer let go.
-        s.ftap(ARRANGE_MIDDLE)
-        s.wait(4)
-        s.ftap(a["reset_zone"])
+        # The head went with the island, under where the pointer let go.
+        s.ftap(tag)
+        s.wait(6)
+        s.ftap(a["dock_reset"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5953,8 +5957,8 @@ def dock_made(s):
     s.wait(8)
 
 
-# The new dock's tag, over its top-left, and its row's controls in Library > Docks.
-DOCK_ONE_TAG, DOCK_ROW_DELETE = (848, 386), At("Delete Dock 1", 751, 260)
+# The new dock's head, over its top-left.
+DOCK_ONE_TAG = (848, 386)
 # A dock's ⋯ and its menu's More lines.
 DOCK_ONE_MORE, DOCK_MORE_LINES = At("user dock 1/More", 800, 440), At("More lines", 900, 440)
 
@@ -5973,7 +5977,7 @@ def dock_carried_to_the_left_edge():
 
 @scenario
 def dock_lines_then_delete():
-    """A dock's ⋯ opens its menu, whose More lines stands its buttons in two lines; its row in Library > Docks has Delete, which takes it away with a note."""
+    """A dock's ⋯ opens its menu, whose More lines stands its buttons in two lines; a tap on its head opens the menu too, whose Delete dock takes it away with a note."""
     def run(delete):
         s = Script()
         dock_made(s)
@@ -5985,10 +5989,61 @@ def dock_lines_then_delete():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:0"), "dock_looks": lambda v: ",dock1:2:" in v, "bar_pop": is_text("dock_menu"), "dabs": near(0)})
         s.press("escape")
         s.wait(4)
-        s.ftap(DOCK_ROW_DELETE)
+        s.ftap(At("arrange tag Dock_1/Dock 1", 848, 386))
+        s.wait(6)
+        s.ftap(LENS_ARRANGE["dock_delete"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+# The Brush bar's resize corner while editing at 1440x900, and its ⋯.
+OFFHAND_CORNER, OFFHAND_MORE = (65, 556), At("brush bar/More", 39, 440)
+
+
+@scenario
+def dock_corner_adds_lines():
+    """While editing, a finger drags the Brush bar's curved corner one line's width toward the middle: the bar stands in two lines; dragged back it is one again."""
+    def run(back):
+        s = Script()
+        s.wait(6)
+        s.fdrag(line(OFFHAND_CORNER, (OFFHAND_CORNER[0] + 60, OFFHAND_CORNER[1]), 12))
+        s.wait(6)
+        if not back:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_looks": lambda v: v.startswith("offhand:2:"), "dock_resizes": near(1), "dabs": near(0)})
+        # Two lines wide and a row shorter, the bar's corner stands further out and higher.
+        s.fdrag(line((113, 528), (53, 528), 12))
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_looks": lambda v: v.startswith("offhand:1:"), "dock_resizes": near(2), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def dock_more_held_starts_editing():
+    """A long press on the Brush bar's ⋯ starts editing docks, with no menu left open; a tap on it opens its menu, which ends with Edit docks."""
+    def run(hold):
+        s = Script()
+        s.wait(6)
+        s.ftap(OFFHAND_MORE, hold=50 if hold else 2)
+        s.wait(8)
+        if hold:
+            return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
+        s.ftap(At("dock menu/Edit docks", 200, 600))
+        s.wait(8)
+        return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def dock_floats_in_line_with_its_neighbour():
+    """The mouse carries a new dock's head to float with its top a few points off the Brush bar's: it lets go lined up with it."""
+    s = Script()
+    dock_made(s)
+    s.ftap(LIBRARY_AWAY)
+    s.wait(6)
+    s.mouse_drag(line(DOCK_ONE_TAG, (500, 342), 30))
+    s.wait(6)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_aligns": near(1), "dock_places": lambda v: ",dock1:float:" in v, "dabs": near(0)})
 
 
 @scenario

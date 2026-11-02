@@ -7,7 +7,7 @@ import "../ui"
 // Arrange: the one mode in which the interface's layout is changed, grown from Customise
 // bars (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the
 // top bar and the Library (lens_arrange.odin) offer which bars show, where every panel
-// goes, Reset zone, Revert, Save as new and Done; both columns show where a panel can be
+// goes, Revert, Save as new and Done; both columns show where a panel can be
 // dropped, and a hidden bar shows as an outline in its place with Show. What is arranged
 // is the current workspace's live layout: the switcher's dot says it has changed, and
 // Save keeps it.

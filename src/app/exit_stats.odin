@@ -403,12 +403,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			case Bar_Slot: strings.write_string(&dial, command_name(v.id, v.arg))
 			}
 		}
-		zone := "none"
-		if z, ok := k.arrange.picked.?; ok do zone = fmt.tprint(z)
 		changed := 0
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
-		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries)
+		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
 		// The chip bar's sections standing on their own, and how many Arrange let go.
 		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
 		// The top bar's islands from the start corner, and how many Arrange let go.
@@ -420,7 +418,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
-		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
+		fmt.printfln("dial_sectors=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0
