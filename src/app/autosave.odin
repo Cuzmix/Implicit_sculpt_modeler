@@ -68,7 +68,7 @@ Autosave :: struct {
 	pending:  u64, // the fingerprint at the start of the autosave under way
 	last_at:  f64, // input_clock at the last autosave's start, or at the last clean point
 	busy_at:  f64, // input_clock of the last frame not at rest
-	background: bool, // the app went to the background: autosave now
+	background: bool, // the background's autosave is still to be written (autosave_background)
 	scripted: bool, // a scripted bench or replay drives this frame (main.odin)
 	check:    bool, // --check-autosave: the thread hashes what it read before and after
 	crash_after: bool, // --crash-after-autosave
@@ -352,8 +352,7 @@ autosave_guard :: proc(app: ^App) {
 }
 
 // At the end of each frame: takes the thread's result, and starts an autosave when one
-// is due, the scene changed and the app has rested long enough (or went to the
-// background).
+// is due, the scene changed and the app has rested long enough.
 autosave_frame :: proc(app: ^App) {
 	a := &app.autosave
 	if !a.on || a.worker == nil do return
@@ -366,12 +365,55 @@ autosave_frame :: proc(app: ^App) {
 	sync.unlock(&w.lock)
 	if !idle do return
 	interval := autosave_interval(a)
-	due := a.background || (interval > 0 && now - a.last_at >= interval && now - a.busy_at >= a.rest)
+	due := interval > 0 && now - a.last_at >= interval && now - a.busy_at >= a.rest
 	if !due do return
-	a.background = false
 	fp := scene_fingerprint(app)
 	if fp == a.clean do return
 	autosave_start(app, fp)
+}
+
+// Going to the background: the scene goes to the thread at once, whatever the interval
+// and the rest, since the system may stop the frame loop as soon as the event returns
+// (Android's SDL blocks the main thread in its pump until the resume) or end the app
+// without a word. On the frame loop's thread between two frames' work (lifecycle_watch),
+// so the rules of autosave_start hold: a reading under way of the scene as it stands
+// goes on (a held one let go, as nothing in the background would stop it), one of an
+// older scene stops, a write of the thread's own buffer finishes first (it reads nothing
+// of the scene), and then the scene is handed over when it changed. A long job under way
+// is no reason to wait: its start synced the levels it reads and the scene has held still
+// since, so autosave_start's sync writes nothing it reads. From here the frame loop either
+// holds (Android, until the resume) or goes on to autosave_guard, which stops the reading
+// on anything but rest, as for any autosave (the finger that swiped the app away is still
+// this frame's): `background` then stays set, and background_step hands it over again.
+autosave_background :: proc(app: ^App) {
+	a := &app.autosave
+	w := a.worker
+	if !a.on || w == nil do return
+	a.background = true
+	fp := scene_fingerprint(app)
+	sync.lock(&w.lock)
+	w.hold = false
+	current := w.phase == .Serializing && a.pending == fp
+	sync.unlock(&w.lock)
+	if current do return
+	autosave_settle(app)
+	autosave_wait(w)
+	autosave_collect(app)
+	if fp == a.clean {
+		a.background = false
+		return
+	}
+	autosave_start(app, fp)
+}
+
+// Whether the thread has an autosave under way, read or written (the iPad's background
+// task lasts until it has none).
+autosave_busy :: proc(app: ^App) -> bool {
+	w := app.autosave.worker
+	if w == nil do return false
+	sync.lock(&w.lock)
+	defer sync.unlock(&w.lock)
+	return w.phase == .Serializing || w.phase == .Writing
 }
 
 // Hands the scene to the thread: syncs the levels (which changes them, so here on the
@@ -427,6 +469,9 @@ autosave_collect :: proc(app: ^App) {
 		a.torn += 1
 		log.errorf("autosave: the scene changed while it was read (--check-autosave)")
 	}
+	// Written or failed, the background's autosave is no longer waiting to be handed over:
+	// a failure is not tried again every hold's tick.
+	a.background = false
 	if w.phase == .Done {
 		a.written += 1
 		a.bytes = job.bytes

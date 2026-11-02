@@ -1,6 +1,8 @@
 package main
 
+import "base:runtime"
 import "core:hash/xxhash"
+import "core:log"
 import "core:mem"
 import "core:time"
 import sdl "vendor:sdl3"
@@ -24,10 +26,12 @@ import "../render"
 // changes the interface's triangles.
 //
 // In the background the loop holds instead (background_step): iOS ends an app that keeps
-// the GPU busy there, and a frame nobody sees costs the battery. Android's SDL holds the
-// whole loop inside its event pump from the pause to the resume, so there the app learns
-// of the background and the foreground together on coming back, and the hold is a frame
-// long; a desktop system sends neither event, but a scripted run's bg and fg do.
+// the GPU busy there, and a frame nobody sees costs the battery. The app learns of the
+// background and the foreground through an event watch (lifecycle_watch), the only place
+// SDL sends them, which saves the settings and hands the scene to the autosave at once:
+// Android's SDL then holds the whole loop inside its event pump until the resume, and the
+// iPad gives a backgrounded app seconds. A desktop system sends neither event, but a
+// scripted run's bg and fg do, through the same watch.
 IDLE_AFTER :: 1 * time.Second
 IDLE_TICK :: 100 // milliseconds
 // How long a frame in the background waits between looks at the events: the life-cycle
@@ -82,9 +86,11 @@ idle_rest :: proc(app: ^App, interactive: bool) -> (rested: bool) {
 	return !woke
 }
 
-// The events of the app's life, which the frame and the background hold both answer:
-// the end of the run, and a tablet's app going to the background and coming back.
-// Whether `e` was one of them.
+// The events of the app's life the frame and the background hold read from the queue:
+// the end of the run, and the background and foreground events, which lifecycle_watch
+// has already answered when it is on (it queues SDL's after answering them), so here
+// they are only taken; without a watch (a test, or one SDL refused) they are answered
+// here. Whether `e` was one of them.
 lifecycle_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 	#partial switch e.type {
 	case .QUIT, .WINDOW_CLOSE_REQUESTED, .TERMINATING:
@@ -92,21 +98,109 @@ lifecycle_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 		// and session written; the scene was already handed to the background's autosave.
 		app.running = false
 	case .DID_ENTER_FOREGROUND:
-		// The window comes back with a new surface, which has to ask for its frame rate again.
-		app.pacer.voted_window = nil
-		app.preview.background = false
-		app.idle.background = false
-		// The new surface gets a drawn frame whatever the frames before showed.
-		app.idle.quiet_since = {}
-		pencil_only_read(app)
+		if lifecycle_watch_state.app == nil do app_foreground(app)
 	case .DID_ENTER_BACKGROUND:
-		// The system may end the app from the background without another word.
-		if app.settings_file != "" do _ = settings_save(app, app.settings_file)
-		app.autosave.background = true
-		app.preview.background = true
-		app.idle.background = true
+		if lifecycle_watch_state.app == nil do app_background(app)
 	case:
 		return false
+	}
+	return true
+}
+
+// Going to the background: the system may stop the app here, or end it without another
+// word, so the settings are saved and the scene handed to the autosave thread now, and
+// the loop holds from the next frame. A stroke under way ends as its undo step first, as
+// a save ends it: the finger that drew it has gone, and the autosave holds whole strokes.
+// On the iPad the system is asked for time to write it (ios.odin), until the thread is
+// done (background_step) or the app comes back.
+app_background :: proc(app: ^App) {
+	if app.idle.background do return
+	app.idle.background = true
+	app.preview.background = true
+	if app.settings_file != "" do _ = settings_save(app, app.settings_file)
+	stroke_finish(app)
+	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_background_begin()
+	autosave_background(app)
+	// Nothing to write (the scene is as the last autosave left it): the time goes back at once.
+	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) do sculpt_ios_background_end()
+	log.info("lifecycle: background")
+}
+
+// Coming back from the background: the hold ends.
+app_foreground :: proc(app: ^App) {
+	if !app.idle.background do return
+	// The window comes back with a new surface, which has to ask for its frame rate again.
+	app.pacer.voted_window = nil
+	app.preview.background = false
+	app.idle.background = false
+	// The new surface gets a drawn frame whatever the frames before showed.
+	app.idle.quiet_since = {}
+	pencil_only_read(app)
+	// An autosave stopped in the background is the interval's again, now there are frames.
+	app.autosave.background = false
+	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_background_end()
+	log.info("lifecycle: foreground")
+}
+
+// The life-cycle events reach the app only through a watch: SDL 3.4 sends TERMINATING,
+// LOW_MEMORY and the background and foreground events to its event watchers alone and
+// never queues them (SDL_SendAppEvent), synchronously on the thread that sends them. On
+// Android that is the app's main thread inside SDL's event pump, which blocks right after
+// until the resume; on the iPad it is UIKit's notification, which the main run loop
+// delivers, and that runs only nested in the app's own pumps. The app pumps in four places
+// (frame_events' poll, idle_wait, background_step and ios_wait_events), each between two
+// frames' work on the scene, so the watch may change the scene as a scene command would.
+// It runs with the frame loop's context, whose allocators the autosave's hand-over uses.
+Lifecycle_Watch :: struct {
+	app: ^App, // nil while no watch is on
+	ctx: runtime.Context,
+}
+
+lifecycle_watch_state: Lifecycle_Watch
+
+// Before the frame loop, once the autosave and the settings are set up; removed after it.
+lifecycle_watch_add :: proc(app: ^App) {
+	lifecycle_watch_state = {app, context}
+	if !sdl.AddEventWatch(lifecycle_watch, &lifecycle_watch_state) {
+		log.warnf("lifecycle: no event watch (%s): going to the background saves nothing", sdl.GetError())
+		lifecycle_watch_state = {}
+	}
+}
+
+lifecycle_watch_remove :: proc() {
+	if lifecycle_watch_state.app == nil do return
+	sdl.RemoveEventWatch(lifecycle_watch, &lifecycle_watch_state)
+	lifecycle_watch_state = {}
+	// A run ending in the background (the system ends it) gives back the time it asked for.
+	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_background_end()
+}
+
+// SDL's call for every event sent or pushed, from whichever thread sends it: all but the
+// app's life pass untouched, before anything of the app is touched. One SDL only sent (its
+// timestamp left 0, where SDL_PushEvent fills it in and queues the event itself, as for a
+// scripted bg) is then put on the queue past the watchers, so the device, touch, the
+// diagnostics and lifecycle_event read it as any other event. A scripted bg is answered
+// as the frame pushes it (kit_events_push), ahead of that frame's queued events, where a
+// tablet's comes in turn with the system's input: the same answer, a little earlier.
+@(private)
+lifecycle_watch :: proc "c" (userdata: rawptr, e: ^sdl.Event) -> bool {
+	#partial switch e.type {
+	case .TERMINATING, .LOW_MEMORY, .WILL_ENTER_BACKGROUND, .DID_ENTER_BACKGROUND, .WILL_ENTER_FOREGROUND, .DID_ENTER_FOREGROUND:
+	case:
+		return true
+	}
+	w := cast(^Lifecycle_Watch)userdata
+	context = w.ctx
+	#partial switch e.type {
+	case .DID_ENTER_BACKGROUND:
+		app_background(w.app)
+	case .DID_ENTER_FOREGROUND:
+		app_foreground(w.app)
+	}
+	if e.common.timestamp == 0 {
+		queued := e^
+		queued.common.timestamp = sdl.GetTicksNS()
+		if sdl.PeepEvents(&queued, 1, .ADDEVENT, .FIRST, .LAST) != 1 do log.warnf("lifecycle: the queue took no %v (%s)", e.type, sdl.GetError())
 	}
 	return true
 }
@@ -121,13 +215,15 @@ background_wait :: proc(ms: i32) {
 }
 
 // A frame in the background (Idle.background): no image is acquired and nothing is drawn
-// or submitted. The loop sleeps BACKGROUND_TICK, takes the app's own events alone from the
-// queue (SDL's QUIT to DID_ENTER_FOREGROUND range; the foreground event ends the hold)
-// and leaves every other queued, in order, for the first frame back, which reads them as
-// every frame does: a file handed over meanwhile (the iPad's Open in Sculpt arrives as a
-// drop before the foreground event) imports then. The background's autosave is the frame
-// loop's to hand over, so that still runs. A scripted run's events still go in by frame
-// (its bg and fg among them), so the frames count on while the loop holds.
+// or submitted. The loop sleeps BACKGROUND_TICK, pumps (the foreground event, answered by
+// lifecycle_watch there, ends the hold), takes the app's own events alone from the queue
+// (SDL's QUIT to DID_ENTER_FOREGROUND range: a quit ends the run) and leaves every other
+// queued, in order, for the first frame back, which reads them as every frame does: a file
+// handed over meanwhile (the iPad's Open in Sculpt arrives as a drop before the foreground
+// event) imports then. The autosave's answer is still taken, and on the iPad the time asked
+// of the system for it is given back once the thread is done. A scripted run's events
+// still go in by frame (its bg and fg among them), so the frames count on while the loop
+// holds.
 background_step :: proc(app: ^App, window: ^sdl.Window) {
 	id := &app.idle
 	background_wait(BACKGROUND_TICK)
@@ -141,6 +237,8 @@ background_step :: proc(app: ^App, window: ^sdl.Window) {
 		_ = lifecycle_event(app, &e)
 	}
 	autosave_frame(app)
+	if app.autosave.background do autosave_background(app)
+	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) do sculpt_ios_background_end()
 	free_all(context.temp_allocator)
 }
 
