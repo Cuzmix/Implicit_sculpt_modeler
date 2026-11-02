@@ -72,7 +72,7 @@ run_levels :: proc(target: int, pool: ^jobs.Pool) {
 // frame. With `skin`, the dabs go into the level's detail skin, and `skin_upload` (when
 // given) gets the median bytes of skin normals a frame sends the GPU. Returns the median
 // frame time.
-levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6, skin := false, skin_upload: ^int = nil) -> f64 {
+levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6, skin := false, skin_upload: ^int = nil, split := false) -> f64 {
 	s := &sculpt.levels_active(l).sculptor
 	frames := make([dynamic]f64, 0, DABS / DABS_PER_FRAME + 1, context.temp_allocator)
 	uploads := make([dynamic]int, 0, DABS / DABS_PER_FRAME + 1, context.temp_allocator)
@@ -84,7 +84,7 @@ levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6, skin := 
 		target := linalg.normalize(Vec3{width * (2 * k - 1), 0.5 * width * math.sin(k * 4 * math.PI), 1})
 		hit, ok := sculpt.sculptor_raycast(s, eye, linalg.normalize(target - eye))
 		if !ok do hit = target
-		_ = sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3, skin = skin}, hit)
+		_ = sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3, skin = skin, skin_split = split}, hit)
 		if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
 			_ = sculpt.sculptor_flush(s)
 			append(&frames, time.duration_milliseconds(time.tick_since(frame_start)))

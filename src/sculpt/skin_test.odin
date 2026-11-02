@@ -9,13 +9,13 @@ import "../jobs"
 
 // A sculptor over an icosphere with its normals worked out, for the skin's tests; free
 // with skin_sphere_free.
-@(private = "file")
+@(private)
 Skin_Sphere :: struct {
 	mesh:     geom.Mesh,
 	sculptor: Sculptor,
 }
 
-@(private = "file")
+@(private)
 skin_sphere_make :: proc(subdiv: int, pool: ^jobs.Pool = nil) -> ^Skin_Sphere {
 	sp := new(Skin_Sphere)
 	sp.mesh = geom.icosphere(subdiv)
@@ -25,7 +25,7 @@ skin_sphere_make :: proc(subdiv: int, pool: ^jobs.Pool = nil) -> ^Skin_Sphere {
 	return sp
 }
 
-@(private = "file")
+@(private)
 skin_sphere_free :: proc(sp: ^Skin_Sphere) {
 	sculptor_destroy(&sp.sculptor)
 	geom.mesh_destroy(&sp.mesh)
@@ -210,7 +210,7 @@ skin_normals_match_serial_and_parallel :: proc(t: ^testing.T) {
 }
 
 // A sphere with a skin of `segments`, for the dab tests; free with skin_sphere_free.
-@(private = "file")
+@(private)
 skin_sphere_with :: proc(subdiv: int, segments: u32, pool: ^jobs.Pool = nil) -> ^Skin_Sphere {
 	sp := skin_sphere_make(subdiv, pool)
 	ok := sculptor_skin_set(&sp.sculptor, segments)

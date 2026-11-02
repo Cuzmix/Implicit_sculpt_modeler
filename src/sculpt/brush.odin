@@ -214,6 +214,10 @@ Brush :: struct {
 	// Write into the sculptor's detail skin instead of moving vertices, for the kinds in
 	// SKIN_KINDS, when it has one (skin_dab).
 	skin: bool,
+	// With skin: split each dab by its size against the mesh under it (Detail goes to
+	// Auto): the vertices take the share they can show (skin_mesh_share) and the skin the
+	// rest, so a stroke looks like the brush at any mesh density.
+	skin_split: bool,
 }
 
 // Which vertices the Smooth brush moves: a vertex lies in a valley when the average of
@@ -977,6 +981,10 @@ Dab :: struct {
 	kelvin:   Kelvinlet,
 	pinch:    f32,
 	drag_dir: Vec3,
+	// A split dab (Brush.skin_split): the vertices' share of it, 0 to 1. In the skin's
+	// pass of Draw, Inflate and Crease, each sample then takes the brush less that share of
+	// what its triangle's corners took, the part the moved mesh gives it already.
+	mesh_share: f32,
 }
 
 // Applies one dab centred on `center`, and its mirror images across the brush's
@@ -1101,6 +1109,8 @@ facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
 
 @(private)
 dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: bool) -> int {
+	// A split dab (Brush.skin_split) weakens the vertices' pass to their share.
+	brush := brush
 	// An alpha may reach past the round brush, up to its square's corners; a Snake hook's
 	// Elastic tip reaches as the Elastic brush does.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
@@ -1171,7 +1181,22 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		painted = paint_channel_dab(s, &d, pool)
 		if brush.channel == .Color do return painted
 	}
-	if brush.skin && s.skin != nil && brush.kind in SKIN_KINDS do return painted + skin_dab(s, &d, pool)
+	if brush.skin && s.skin != nil && brush.kind in SKIN_KINDS {
+		if !brush.skin_split do return painted + skin_dab(s, &d, pool)
+		share := skin_mesh_share(s, brush.radius)
+		if skin_split_needs_skin(s, &d, share) {
+			// The skin's pass works on a copy: it moves the plane and sets the amount
+			// its own way, and the vertices' pass below starts from the area again.
+			ds := d
+			skin_split_brush(&ds, share)
+			painted += skin_dab(s, &ds, pool)
+			slice.zero(s.partials[:])
+		}
+		if share <= 0 do return painted
+		brush.strength *= share
+		d.brush.strength = brush.strength
+		d.mesh_share = share
+	}
 	if s.history.recording do record_hit(s, masks = false)
 
 	sign: f32 = -1 if brush.invert else 1
@@ -1293,6 +1318,7 @@ finish_move :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		mark_shape_changed(s, s.node_of[leaf])
 	}
 	if len(s.changed) == 0 do return 0
+	if d.mesh_share > 0 && s.skin != nil do skin_split_moved(s, d)
 	if s.history.recording do record_changed(s)
 	jobs.parallel_for(pool, len(s.hit), d, job_hit_bounds)
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
