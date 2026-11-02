@@ -710,7 +710,8 @@ Kit_Event_Kind :: enum u8 {
 	// A file dropped on the window from the desktop, its path in `key`.
 	Drop_File,
 	// The app sent to the background and brought back, as a tablet's system does
-	// (lifecycle_event): SDL_EVENT_DID_ENTER_BACKGROUND and SDL_EVENT_DID_ENTER_FOREGROUND.
+	// (lifecycle_watch, which SDL_PushEvent calls before queuing them):
+	// SDL_EVENT_DID_ENTER_BACKGROUND and SDL_EVENT_DID_ENTER_FOREGROUND.
 	Background,
 	Foreground,
 }
