@@ -708,3 +708,33 @@ bool sculpt_ios_exclude_from_backup(const char *path)
 	}
 	return true;
 }
+
+/*
+ * Time to finish the background's autosave (src/app/idle.odin). iOS suspends an app seconds
+ * after it leaves the screen unless it asks for more, so the frame loop asks as it hands the
+ * scene to its autosave thread, from SDL's event watch inside applicationDidEnterBackground,
+ * and gives the time back once the thread is done or the app comes back. If the system's
+ * time runs out first, the expiration handler gives it back at once, as iOS requires, and the
+ * write stops where the suspension finds it: autosaves are written to a partial file and
+ * renamed, so the earlier ones stay whole. Main thread only (the handler is called there
+ * too); one task at a time, so a second begin or end does nothing.
+ */
+static UIBackgroundTaskIdentifier sculpt_background_task = UIBackgroundTaskInvalid;
+
+void sculpt_ios_background_end(void)
+{
+	if (sculpt_background_task == UIBackgroundTaskInvalid) return;
+	UIBackgroundTaskIdentifier task = sculpt_background_task;
+	sculpt_background_task = UIBackgroundTaskInvalid;
+	[UIApplication.sharedApplication endBackgroundTask:task];
+}
+
+void sculpt_ios_background_begin(void)
+{
+	if (sculpt_background_task != UIBackgroundTaskInvalid) return;
+	sculpt_background_task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Autosave"
+	                                                                    expirationHandler:^{
+		SDL_Log("autosave: the background time ran out before the autosave was written");
+		sculpt_ios_background_end();
+	}];
+}

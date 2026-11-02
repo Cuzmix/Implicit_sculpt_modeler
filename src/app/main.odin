@@ -844,6 +844,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for _ in 0 ..< min(opts.view_windows, VIEW_WINDOWS_MAX) do view_window_request(&app, view_window_default(&app))
 	crash_log_report(&app)
 	crash_test(opts.crash_test)
+	// Only now: the watch saves the settings and hands the scene to the autosave, so both
+	// are set up, and it must be gone before anything the frame loop used is.
+	lifecycle_watch_add(&app)
+	defer lifecycle_watch_remove()
 	for app.running {
 		if !frame_step(&app, &loop) do return false
 	}

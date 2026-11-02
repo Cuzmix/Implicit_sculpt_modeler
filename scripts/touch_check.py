@@ -10426,6 +10426,87 @@ def autosave_crash_then_recover():
     ])
 
 
+def background_args(*more):
+    """Autosave with an interval far past the run, so only going to the background writes
+    one, and the log kept in the scenario's folder (made first: the log opens before the
+    autosave makes it) to say in what order things happened."""
+    os.makedirs(autosave_folder(), exist_ok=True)
+    return ["--autosave=600", "--autosave-rest=0.2", "--check-autosave", f"--autosave-folder={autosave_folder()}",
+            f"--log-file={crash_log_file()}", *more]
+
+
+def log_order(*texts):
+    """True when the scenario's log holds each text, in this order, else which is missing."""
+    with open(crash_log_file(), encoding="utf-8", errors="replace") as f:
+        log = f.read()
+    at = 0
+    for text in texts:
+        at = log.find(text, at)
+        if at < 0:
+            return f"no {text!r} after the earlier lines in {crash_log_file()}"
+    return True
+
+
+@scenario
+def background_autosaves_before_coming_back():
+    """Sent to the background (bg, as a tablet's system does) two frames after a stroke, long
+    before the interval, the app hands the scene to its autosave as the event arrives
+    (lifecycle_watch, as SDL sends it on a tablet), and the autosave is written while the loop
+    holds, before any fg: the run is killed there (--crash-after-autosave stands for the
+    system ending a backgrounded app) and its log never says it came back. The next start
+    recovers the stroke exactly: the mesh exported after Recover is the one a run that never
+    left exports."""
+    control = autosave_folder() + "-control.ply"
+    recovered = autosave_folder() + "-recovered.ply"
+    away = Script()
+    away.mouse_drag([(800, 450), (830, 465), (860, 480)])
+    away.wait(2)
+    away.add("bg")
+    away.wait(40)
+    away.add("fg")
+    away.wait(5)
+    after = Script()
+    after.wait(10)
+    click(after, CARD["recover"])
+    return Steps([
+        (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
+        (away, background_args("--crash-after-autosave"), {
+            "@one autosave": lambda _: len(autosave_files()) == 1,
+            "@written in the background": lambda _: log_order("lifecycle: background", "autosave: ", "--crash-after-autosave"),
+            "@never back": lambda _: not file_holds(crash_log_file(), "lifecycle: foreground") or "the run came back before the autosave"}),
+        (after, autosave_args(f"--export={recovered}"), {"recovered": near(1, 0), "recover_offers": near(0, 0),
+                                                         "@same mesh": lambda _: file_difference(control, recovered)}),
+    ])
+
+
+@scenario
+def background_mid_stroke_ends_the_stroke():
+    """Sent to the background with the button still down in a stroke, the stroke ends there as
+    its undo step and the autosave written in the background holds it; back in the
+    foreground the held button is forgotten (its release never came while away), so moving
+    on draws nothing more, and the clean exit has nothing left to write."""
+    s = Script()
+    s.add("move:800,450")
+    s.wait(1)
+    s.add("down")
+    for x, y in [(815, 457), (830, 465), (845, 472)]:
+        s.wait(1)
+        s.add(f"move:{x},{y}")
+    s.wait(1)
+    s.add("bg")
+    s.wait(12)
+    s.add("fg")
+    s.wait(2)
+    s.add("move:900,500")
+    s.wait(2)
+    s.add("up")
+    s.wait(6)
+    return s, background_args(), camera_still({
+        "undo_steps": near(1), "autosaves": near(1), "autosave_torn": near(0, 0), "background_frames": lambda v: int(v) >= 2,
+        "@one autosave": lambda _: len(autosave_files()) == 1,
+        "@written in the background": lambda _: log_order("lifecycle: background", "autosave: ", "lifecycle: foreground")})
+
+
 @scenario
 def autosave_crash_then_discard():
     """Discard deletes the crashed run's autosave, and nothing is offered again."""

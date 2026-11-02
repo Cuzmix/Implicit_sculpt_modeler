@@ -98,6 +98,16 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_exclude_from_backup :: proc(path: cstring) -> bool ---
 	}
 
+	// ios/sculpt_ios.m: time asked of the system to finish the background's autosave
+	// (beginBackgroundTask), since iOS suspends an app seconds after it leaves the screen,
+	// and given back once the autosave thread is done or the app comes back (idle.odin).
+	// Main thread only; one at a time, so either may be called twice.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_background_begin :: proc() ---
+		sculpt_ios_background_end :: proc() ---
+	}
+
 	// The main run loop, for waiting: SDL has no event wait of its own on iOS (its
 	// WaitEventTimeout polls every millisecond), so a frame waiting for an event (idle.odin)
 	// runs the run loop instead, which sleeps until a touch, a notification or the time.
