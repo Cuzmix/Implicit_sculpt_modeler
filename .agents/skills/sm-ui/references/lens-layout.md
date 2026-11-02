@@ -123,7 +123,7 @@ summary.
   The dial's sectors are each space's, `Kit_State.dials[Space]` (`Dial_Sector`, a Modifier or a Bar_Slot; defaults
   `DIAL_DEFAULTS`): read the current one through `dial_of(k)`, pass it to `rail_hit`, never index a fixed table; only
   a Modifier sector claims a finger. A space switch drops latches the new dial lacks (`dial_latches_keep`); settings
-  write Sculpt's as `dial_sector` and the others' as `dial_space` lines (v6; `dials_from_one` moves an older file).
+  write Sculpt's as `dial_sector` and the others' as `dial_space` lines.
   The History panel (`kit_history_panel`, `timeline.odin`) shows `Timeline.view`: List (`history_list.odin`, a
   setting `history_view`, anchored at the pen side under the chip bar, `KIT_HISTORY_LIST_W` wide) or Strip (the
   bar over the shelf, as before). The list's rows come from `history_rows`, newest first, a step being a non-chain

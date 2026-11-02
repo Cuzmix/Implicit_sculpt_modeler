@@ -113,71 +113,6 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// A file from before the turntable became the default orbit holds the trackball, the
-// default then, so it reads as the turntable; a style picked since is kept.
-@(test)
-settings_move_the_old_default_orbit :: proc(t: ^testing.T) {
-	path := "build/settings_orbit_test.txt"
-	defer os.remove(path)
-	for test in ([?]struct {
-		text: string,
-		want: camera.Orbit_Style,
-	} {
-		{"version 1\norbit_style Free\n", .Turntable},
-		{"orbit_style Free\n", .Turntable},
-		{"version 1\norbit_style Axis_X\n", .Axis_X},
-		{"version 2\norbit_style Free\n", .Free},
-	}) {
-		testing.expect(t, os.write_entire_file(path, transmute([]u8)test.text) == nil)
-		a: App
-		a.nav = NAV_DEFAULT
-		settings_load(&a, path)
-		testing.expectf(t, a.nav.orbit_style == test.want, "%q: read %v", test.text, a.nav.orbit_style)
-	}
-	a: App
-	a.nav = NAV_DEFAULT
-	a.nav.orbit_style = .Free
-	testing.expect(t, settings_save(&a, path))
-	b: App
-	settings_load(&b, path)
-	testing.expect_value(t, b.nav.orbit_style, camera.Orbit_Style.Free)
-	free_all(context.temp_allocator)
-}
-
-// A file from before Lens became the default look holds Studio, the default then, so it
-// reads as Lens; Graphite, and Studio picked since, are kept.
-@(test)
-settings_move_the_old_default_look :: proc(t: ^testing.T) {
-	path := "build/settings_look_test.txt"
-	defer os.remove(path)
-	for test in ([?]struct {
-		text: string,
-		want: Look,
-	} {
-		{"version 2\nlook Studio\n", .Lens},
-		{"look Studio\n", .Lens},
-		{"version 2\nlook Graphite\n", .Graphite},
-		{"version 3\nlook Studio\n", .Studio},
-	}) {
-		testing.expect(t, os.write_entire_file(path, transmute([]u8)test.text) == nil)
-		a := new(App)
-		defer free(a)
-		a.nav = NAV_DEFAULT
-		settings_load(a, path)
-		testing.expectf(t, a.kit.look == test.want, "%q: read %v", test.text, a.kit.look)
-	}
-	a := new(App)
-	defer free(a)
-	a.nav = NAV_DEFAULT
-	a.kit.look = .Studio
-	testing.expect(t, settings_save(a, path))
-	b := new(App)
-	defer free(b)
-	settings_load(b, path)
-	testing.expect_value(t, b.kit.look, Look.Studio)
-	free_all(context.temp_allocator)
-}
-
 // A value out of range is clamped; one that is not a value of its type leaves the field.
 @(test)
 settings_refuse_what_they_cannot_read :: proc(t: ^testing.T) {
@@ -215,67 +150,6 @@ settings_take_a_real_bound_by_its_text :: proc(t: ^testing.T) {
 		v, ok = setting_parse(s, "1.5", strict = true)
 		testing.expect(t, ok && f32(v) == HOLD_DELAY_MAX)
 	}
-}
-
-// Render's Fast quality was once named Preview: a settings file or script naming it so still
-// gets Fast, and the file now writes the new name.
-@(test)
-settings_read_preview_as_fast :: proc(t: ^testing.T) {
-	a: App
-	found := false
-	for s in SETTINGS {
-		if s.key != "render_quality" do continue
-		found = true
-		for text in ([]string{"preview", "Preview", "fast"}) {
-			for strict in ([]bool{false, true}) {
-				v, ok := setting_parse(s, text, strict)
-				testing.expect(t, ok, text)
-				testing.expect_value(t, Render_Quality(int(v)), Render_Quality.Fast)
-			}
-		}
-		a.render_quality = .Fast
-		testing.expect_value(t, setting_text(&a, s), "Fast")
-	}
-	testing.expect(t, found)
-	free_all(context.temp_allocator)
-}
-
-// Remesh makes quads at first from settings version 9 on: a file from before, which holds
-// Quads off whether or not anyone picked it, takes them on once, and a later file's off stays.
-@(test)
-remesh_quads_default_changes_once :: proc(t: ^testing.T) {
-	path := "build/remesh_quads_test.txt"
-	defer os.remove(path)
-	load :: proc(t: ^testing.T, path, text: string) -> bool {
-		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
-		a: App
-		defer results_destroy(&a)
-		a.ui = ui_state_default()
-		settings_load(&a, path)
-		return a.ui.remesh_quads
-	}
-	testing.expect(t, ui_state_default().remesh_quads, "a fresh install remeshes to quads")
-	testing.expect(t, load(t, path, "version 8\nremesh_quads 0\n"), "an old file's off becomes on")
-	testing.expect(t, !load(t, path, "version 9\nremesh_quads 0\n"), "a picked off stays off")
-	free_all(context.temp_allocator)
-}
-
-// Async compute is on from settings version 10, once, as Remesh's quads were from 9.
-@(test)
-async_compute_default_changes_once :: proc(t: ^testing.T) {
-	path := "build/async_compute_test.txt"
-	defer os.remove(path)
-	load :: proc(t: ^testing.T, path, text: string) -> bool {
-		testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
-		a: App
-		defer results_destroy(&a)
-		a.ui = ui_state_default()
-		settings_load(&a, path)
-		return a.async_compute
-	}
-	testing.expect(t, load(t, path, "version 9\nasync_compute 0\n"), "an old file's off becomes on")
-	testing.expect(t, !load(t, path, "version 10\nasync_compute 0\n"), "a picked off stays off")
-	free_all(context.temp_allocator)
 }
 
 // Ray tracing hardware was on in every file before version 11, though only Vulkan offered

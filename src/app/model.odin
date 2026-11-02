@@ -596,58 +596,49 @@ cage_quads :: proc(cage: ^poly.Mesh, vert_of: []u32) -> (quads: [][4]u32, all: b
 // Reads the cage object_put wrote in the levels' place into `obj` and builds its level.
 // `read` is false when the bytes are damaged (nothing is made); `made` is false on a GPU
 // failure.
-cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) -> (read, made: bool) {
+cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
 	cage, ok := poly.mesh_read(r)
 	if !ok do return false, false
-	// Smooth and Flat from version 28; an older cage is drawn as it is.
 	look: Cage_Look
-	if version >= 28 {
-		smooth := int(geom.byte_get(r, u8))
-		flat := geom.byte_get(r, u8)
-		if !r.ok || smooth > poly.SUBDIVIDE_MAX || flat > 1 {
-			poly.mesh_destroy(&cage)
-			return false, false
-		}
-		look = {smooth, flat == 1, {}}
+	smooth := int(geom.byte_get(r, u8))
+	flat := geom.byte_get(r, u8)
+	if !r.ok || smooth > poly.SUBDIVIDE_MAX || flat > 1 {
+		poly.mesh_destroy(&cage)
+		return false, false
 	}
-	// The live stack from version 31; an older cage has none.
-	if version >= 31 {
-		l: poly.Live
-		l.thickness = geom.byte_get(r, f32)
-		l.thickness_segments = int(geom.byte_get(r, u8))
-		side := geom.byte_get(r, u8)
-		l.bevel = geom.byte_get(r, f32)
-		l.bevel_segments = int(geom.byte_get(r, u8))
-		l.side = poly.Thickness_Side(side)
-		sizes_ok := l.thickness >= 0 && l.thickness < 1e6 && l.bevel >= 0 && l.bevel < 1e6
-		segments_ok := l.thickness_segments <= poly.LIVE_THICKNESS_SEGMENTS_MAX && l.bevel_segments <= poly.BEVEL_SEGMENTS_MAX
-		if !r.ok || side > u8(max(poly.Thickness_Side)) || !sizes_ok || !segments_ok {
-			poly.mesh_destroy(&cage)
-			return false, false
-		}
-		look.live = l
+	look = {smooth, flat == 1, {}}
+	// The live stack: Thickness and Bevel creases.
+	l: poly.Live
+	l.thickness = geom.byte_get(r, f32)
+	l.thickness_segments = int(geom.byte_get(r, u8))
+	side := geom.byte_get(r, u8)
+	l.bevel = geom.byte_get(r, f32)
+	l.bevel_segments = int(geom.byte_get(r, u8))
+	l.side = poly.Thickness_Side(side)
+	sizes_ok := l.thickness >= 0 && l.thickness < 1e6 && l.bevel >= 0 && l.bevel < 1e6
+	segments_ok := l.thickness_segments <= poly.LIVE_THICKNESS_SEGMENTS_MAX && l.bevel_segments <= poly.BEVEL_SEGMENTS_MAX
+	if !r.ok || side > u8(max(poly.Thickness_Side)) || !sizes_ok || !segments_ok {
+		poly.mesh_destroy(&cage)
+		return false, false
 	}
-	// The live mirror from version 32; an older cage has none.
-	if version >= 32 {
-		axes := geom.byte_get(r, u8)
-		all := transmute(u8)poly.Mirror_Axes{.X, .Y, .Z}
-		if !r.ok || axes & ~all != 0 {
-			poly.mesh_destroy(&cage)
-			return false, false
-		}
-		look.live.mirror = transmute(poly.Mirror_Axes)axes
+	look.live = l
+	// The live mirror's axes.
+	axes := geom.byte_get(r, u8)
+	all := transmute(u8)poly.Mirror_Axes{.X, .Y, .Z}
+	if !r.ok || axes & ~all != 0 {
+		poly.mesh_destroy(&cage)
+		return false, false
 	}
-	// The sculpt Edit cage took it from, from version 30: read only on Apply.
+	look.live.mirror = transmute(poly.Mirror_Axes)axes
+	// The sculpt Edit cage took it from, read only on Apply.
 	held: []u8
-	if version >= 30 {
-		size := int(geom.byte_get(r, u32))
-		bytes := geom.byte_get_bytes(r, size)
-		if !r.ok {
-			poly.mesh_destroy(&cage)
-			return false, false
-		}
-		if size > 0 do held = slice.clone(bytes)
+	size := int(geom.byte_get(r, u32))
+	bytes := geom.byte_get_bytes(r, size)
+	if !r.ok {
+		poly.mesh_destroy(&cage)
+		return false, false
 	}
+	if size > 0 do held = slice.clone(bytes)
 	return true, object_build_cage(app, obj, cage, look, held)
 }
 

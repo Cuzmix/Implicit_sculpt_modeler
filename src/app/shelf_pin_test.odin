@@ -5,31 +5,6 @@ import "core:testing"
 import "../sculpt"
 import "../ui"
 
-// Settings from before version 12 held a tools strip beside the shelf's pages: its tools
-// join each Sculpt page once, after what the page holds, skipping a tool already there and
-// stopping where the page is full.
-@(test)
-shelf_tools_join_the_pages_once :: proc(t: ^testing.T) {
-	app: App
-	kit_init(&app)
-	defer ui.destroy(&app.kit.ctx)
-	defer workspaces_destroy(&app.kit)
-	paint := len(bar_used(&app, .Shelf_Paint))
-	shelf_tools_merge(&app)
-	// The fresh Brushes page takes the six tools after its twelve tiles, less Remesh and
-	// Dynamic topology, which it holds already; Paint takes the six, less what it holds.
-	testing.expect_value(t, len(bar_used(&app, .Shelf_Sculpt)), len(SHELF_SCULPT) + 4)
-	page := bar_used(&app, .Shelf_Paint)
-	testing.expect(t, len(page) > paint)
-	testing.expect(t, len(page) <= SHELF_MAX)
-	for s, i in page do for u in page[i + 1:] do testing.expect(t, s != u)
-	_, moved := shelf_holds(&app, .Shelf_Move, {.Tool_Move, 0})
-	testing.expect(t, moved)
-	// Model's page is not a Sculpt page and gets none.
-	_, model := shelf_holds(&app, .Shelf_Model, {.Retopologize, 0})
-	testing.expect(t, !model)
-}
-
 // Pinning puts the brush first on a page with room, once, and Undo takes it off again; a
 // full page waits for the tile it replaces.
 @(test)

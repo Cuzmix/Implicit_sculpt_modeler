@@ -222,7 +222,7 @@ home_scene_tile :: proc(app: ^App, i: int, tw: f32) {
 	case recent && tile.info.saved > 0:
 		line = fmt.tprintf("%s · %s vertices", home_when(tile.info.saved), count_label(tile.info.vertices))
 	case recent && tile.state == .None:
-		line = "Saved before scenes kept a picture"
+		line = "No picture"
 	}
 	if current do line = "Open now"
 	if crashed do line = fmt.tprintf("%s · did not close", line)

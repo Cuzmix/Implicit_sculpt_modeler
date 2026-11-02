@@ -281,6 +281,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
 			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("stretch_repair_splits=%d stretch_repair_ms=%.2f", app.stretch_repair.splits, app.stretch_repair.ms)
+			fmt.printfln("skin_settle_strokes=%d skin_settle_vertices=%d skin_settle_ms=%.2f", app.skin_settle.strokes, app.skin_settle.vertices, app.skin_settle.ms)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)

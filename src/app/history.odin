@@ -453,6 +453,16 @@ brush_stroke_finish :: proc(app: ^App) {
 			app.stretch_repair.ms += time.duration_milliseconds(time.tick_since(start))
 		}
 	}
+	// A stroke split between the mesh and a detail skin (Detail goes to Auto) settles at
+	// its end, in its undo step: the skin's smooth part moves into the vertices.
+	if app.stroke.skin && app.brush.detail_to[app.stroke.kind] == .Auto {
+		start := time.tick_now()
+		if moved := sculpt.sculptor_skin_settle(object_sculptor(obj)); moved > 0 {
+			app.skin_settle.strokes += 1
+			app.skin_settle.vertices += moved
+			app.skin_settle.ms += time.duration_milliseconds(time.tick_since(start))
+		}
+	}
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {

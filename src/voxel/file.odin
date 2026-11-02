@@ -13,7 +13,7 @@ import "../jobs"
 // every count is checked against what is left before anything is read.
 
 SVOX_TAG :: u32(0x584F_5653) // "SVOX" in the file
-SVOX_VERSION :: u32(3) // 2: a brick may carry a mask (code 3: its values, then a byte a voxel); 3: values and masks packed (pack.odin), each after its byte count
+SVOX_VERSION :: u32(3) // the only one read: a change replaces the reader (AGENTS.md)
 
 // Tile codes in the file.
 @(private = "file")
@@ -72,7 +72,7 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator := context.allocator) -> bool {
 	if geom.byte_get(r, u32) != SVOX_TAG do return false
 	version := geom.byte_get(r, u32)
-	if version < 1 || version > SVOX_VERSION do return false
+	if version != SVOX_VERSION do return false
 	voxel := geom.byte_get(r, f32)
 	origin := geom.byte_get(r, Vec3)
 	count := int(geom.byte_get(r, u32))
@@ -80,19 +80,19 @@ clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator :=
 	for x in origin do if math.is_nan(x) || math.is_inf(x) do return false
 	clay_init(c, voxel, {}, pool, allocator)
 	c.volume.origin = origin
-	ok := clay_read_chunks(c, r, count, version)
+	ok := clay_read_chunks(c, r, count)
 	if !ok {
 		clay_destroy(c)
 		return false
 	}
-	// A file written before the field kept no saddle faces may hold some.
+	// The field is kept free of saddle faces, as every edit keeps it (clay.odin).
 	resolve_all_saddles(c)
 	surface_mark_all(c)
 	return true
 }
 
 @(private = "file")
-clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u32) -> bool {
+clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
 	v := &c.volume
 	for _ in 0 ..< count {
 		cc := geom.byte_get(r, [3]u32)
@@ -103,15 +103,13 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u3
 		if codes == nil do return false
 		bricks, masked := 0, 0
 		for code in codes {
-			if code > FILE_BRICK_MASKED || (version < 2 && code == FILE_BRICK_MASKED) do return false
+			if code > FILE_BRICK_MASKED do return false
 			if code == FILE_BRICK do bricks += 1
 			if code == FILE_BRICK_MASKED do masked += 1
 		}
-		// Before version 3 every brick is raw, so the chunk's bytes are known up front; a
-		// packed brick carries its own count and is checked as it is read.
+		// A packed brick carries its own count and is checked as it is read.
 		left := len(r.data) - r.at
-		if version < 3 && left < (bricks + masked) * size_of(Brick) + masked * size_of(Mask_Brick) do return false
-		if version >= 3 && left < (bricks + masked) * 2 + masked * 2 do return false
+		if left < (bricks + masked) * 2 + masked * 2 do return false
 		table := volume_table_make(v, bc)
 		for code, i in codes {
 			lb := [3]i32{i32(i % CHUNK_BRICKS), i32(i / CHUNK_BRICKS % CHUNK_BRICKS), i32(i / (CHUNK_BRICKS * CHUNK_BRICKS))}
@@ -120,13 +118,8 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u3
 				table.bricks[i] = TILE_INSIDE
 			case FILE_BRICK, FILE_BRICK_MASKED:
 				slot, brick := volume_brick_make(v, bc + lb, 0)
-				if version < 3 {
-					geom.byte_get_slice(r, brick.d[:])
-					if code == FILE_BRICK_MASKED do geom.byte_get_slice(r, mask_make(v, slot).m[:])
-				} else {
-					if !unpack_brick(r, brick) do return false
-					if code == FILE_BRICK_MASKED && !unpack_mask(r, mask_make(v, slot)) do return false
-				}
+				if !unpack_brick(r, brick) do return false
+				if code == FILE_BRICK_MASKED && !unpack_mask(r, mask_make(v, slot)) do return false
 			}
 		}
 	}

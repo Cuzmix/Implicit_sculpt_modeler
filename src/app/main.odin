@@ -166,6 +166,13 @@ App :: struct {
 		splits: int,
 		ms:     f64,
 	},
+	// What Settle did at the end of the strokes that split between the mesh and a detail
+	// skin (sculptor_skin_settle), in all (exit stats).
+	skin_settle: struct {
+		strokes:  int,
+		vertices: int,
+		ms:       f64,
+	},
 	// ...and the Snake hook and Cloth strokes' stretch repairs (sculptor_stretch_repair).
 	stretch_repair: struct {
 		splits: int,

@@ -728,22 +728,6 @@ shelf_unpin :: proc(app: ^App, which: Bar_Which, at: int) {
 	bar_drop_off(app, {slot = used[at], from = which, from_slot = at, look = bar_list(app, which).looks[at]})
 }
 
-// Puts the old tools strip's tools (Bar_Which.Tools) at the end of every Sculpt page that
-// lacks them, while the page has room: settings from before version 12.
-shelf_tools_merge :: proc(app: ^App) {
-	for page in shelf_pages(&app.kit, .Sculpt) {
-		which := shelf_which(page)
-		for s in bar_used(app, .Tools) {
-			if _, held := shelf_holds(app, which, s); held do continue
-			count := bar_count(app, which)
-			if count^ >= bar_capacity(which) do break
-			l := bar_list(app, which)
-			l.slots[count^], l.looks[count^] = s, bar_default_look(which)
-			count^ += 1
-		}
-	}
-}
-
 // Whether `slot` is on shelf page `which`, and where.
 shelf_holds :: proc(app: ^App, which: Bar_Which, slot: Bar_Slot) -> (at: int, ok: bool) {
 	for s, i in bar_used(app, which) do if s == slot do return i, true

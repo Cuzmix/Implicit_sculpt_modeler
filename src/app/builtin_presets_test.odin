@@ -79,20 +79,3 @@ built_in_presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, p.values.alpha, int(sculpt.Alpha_Shape.Square))
 }
 
-// A settings file from before the built-ins with a preset of the person's own named as one
-// now is keeps it as "<name> 1", the brush following it there, and its old dock line
-// is passed over.
-@(test)
-own_presets_named_as_a_built_in_are_kept :: proc(t: ^testing.T) {
-	path := "build/builtin_clash_test.txt"
-	defer os.remove(path)
-	text := "preset Trim Flatten 0.3 0 0 0 0 0 - Stroke 0 Dots 0 0 0 0 Drag\nbrush Flatten\nbrush_preset Trim\ndock 0 preset Trim\n"
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
-	a: App
-	defer results_destroy(&a)
-	settings_load(&a, path)
-	testing.expect_value(t, a.preset_count, 1)
-	testing.expect_value(t, preset_name(&a.presets[0]), "Trim 1")
-	testing.expect_value(t, a.brush.preset, 1)
-	testing.expect_value(t, a.brush.strengths[.Flatten], 0.3)
-}
