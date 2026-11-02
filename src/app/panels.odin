@@ -447,7 +447,7 @@ kit_stack_dock :: proc(app: ^App, draw: proc(app: ^App, ref: Panel_Ref) -> bool)
 		return
 	}
 	ref := Panel_Ref(Kit_Window.Inspector)
-	width := STACK_STRIP_W if stack_strip_shown(app) else stack_width(k) + stack_docked_extra(k)
+	width := STACK_STRIP_W if stack_strip_shown(app) else stack_width(k)
 	k.panels.width = width
 	offset, top, room := stack_room(app, side, width)
 	// The room it is given, by what it wanted last frame; never laid out yet, it asks for

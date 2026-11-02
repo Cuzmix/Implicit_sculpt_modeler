@@ -2,23 +2,23 @@
   "source": ".claude/skills",
   "files": {
     "sm-build/SKILL.md": "e43256a31aabdd77125e2dc172085fe06ea9c902561f9e8f7b984a5001c0050e",
+    "sm-cad/SKILL.md": "6c66043c035d07caebe3f75b87d3de89a370205ed55ba1bc2027e97026cd59d5",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
-    "sm-cad/SKILL.md": "6c66043c035d07caebe3f75b87d3de89a370205ed55ba1bc2027e97026cd59d5",
     "sm-figma-ui/SKILL.md": "2fe0014b56571b18d3c3e38777adfddc5c69d3a9ba8b846c7c55db9459da1ba2",
     "sm-geom/SKILL.md": "a7831c8df3732d324829b915e7c7a5f7ffd63aee3c7616255431bcd881e7f90a",
     "sm-lint/SKILL.md": "eef3d323aa914bdc9acc5d31b4a876f6ee821e61fdfe0102265020e4e229461a",
     "sm-odin/SKILL.md": "9178bc9b41f55e4c9c06b15ec68fb8deddc8d4a25458b4f65aa5bf776804cc50",
     "sm-perf/SKILL.md": "484ff4d7cb911fa312e2b9f726fe2612e82d3c031060c0a848926d621fae80c2",
-    "sm-render/references/backends.md": "24c8a4bfdea3e49ab22a148276580165e7ffeb56456dbeda5dd43dbfb8267a15",
     "sm-render/SKILL.md": "14a46ce7271ddba1b6536aec29b18bcfd949fa3f1b555bdf77c04af4d372fdc0",
+    "sm-render/references/backends.md": "24c8a4bfdea3e49ab22a148276580165e7ffeb56456dbeda5dd43dbfb8267a15",
     "sm-sculpt/SKILL.md": "f1fbdd149988eb3f5cb98bd96be24d0d06487db3f610fc6b6aec310a6a0c7db9",
-    "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-sdf/SKILL.md": "ab31f0149fb4dc0acc17024c5fe48295c32c3b7460e24186430ebfe994dc9da3",
+    "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-store/SKILL.md": "ff82f908039b5acfb6e3f32e4958a4dd7bfa3b7546b35c49262a5606dfe9789a",
     "sm-touch-testing/SKILL.md": "4f06f40c4a63f81b09d4fcdba089b1c186e5c92b3897e9de35446f5f201251ec",
+    "sm-ui/SKILL.md": "059f545bb41368198dc1df99bab7718d7d0b1f5518aa4358ccac03e7a120bcc7",
     "sm-ui/references/input-routing.md": "3eecae80807b62094b1c06cf3ecc915cfb368183a3af782e469d30387bf21a0a",
-    "sm-ui/SKILL.md": "059f545bb41368198dc1df99bab7718d7d0b1f5518aa4358ccac03e7a120bcc7"
-    "sm-ui/references/lens-layout.md": "4652c1d989b59da2da6e66209deeb437b4d6cc895f2c756d589b58a524a005f8"
+    "sm-ui/references/lens-layout.md": "1eaf7ec527cae84fe577bbf0a2da38806f688e25bdacf9a6593ca7fab37118f3"
   }
 }

@@ -81,17 +81,17 @@ summary.
   `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
   Split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
-  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view, or the layout's
-  `k.stack.density == .Icons`; `kit_stack_tab` draws a card over the view through `stack_card_body`, and
+  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view;
+  `kit_stack_tab` draws a card over the view through `stack_card_body`, and
   `stack_reveal` opens the strip's card at `s.strip_at`). Palette groups (`stack_groups.odin`) are runs in
   `s.order`: a host then the cards in `s.joined`; the host carries open, floated, hidden, window, height, size and
   scroll, `s.shown[host]` (read through `stack_shown`) the tab drawn. Iterate hosts only (skip `s.joined`), move runs
   (`stack_move_to_k`), and read `stack_group` lines after the whole layout (`kit_layout_put`). Carrying is
   `stack_carry.odin`: sources set `s.carry` (the grip; `ui.tabs(dragged = &i)`), `stack_carry_update` runs once after
   the floats (new_ui.odin) and targets only this frame's `s.seen` and `s.strip_seen` rects, cleared by `stack_frame_begin`; a strip icon
-  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`). Columns: `s.beside` (the
-  tab beginning column two), `stack_column`/`stack_column_head`, `stack_shown` per column head; the panel's width is
-  `stack_width + stack_docked_extra` everywhere (`tray_width`, `panel_width`), never `stack_width` alone; `view_grid_room` is the whole window, panes always under the panels.
+  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`). A group shows as tabs or, with its
+  host in `s.sections` (`stack_as_sections`), as sections (`stack_sections_body`, folds in `s.folded`); the panel's width is
+  `stack_width` everywhere (`tray_width`, `panel_width`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against
