@@ -718,6 +718,13 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	say := s.kind == .Press && !offer_standing(app)
 	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), say) do return
 	if !object_editable(app, obj, say) do return
+	// A stroke finer than the mesh gives a skinless object a detail skin first, for its
+	// detail to go into (skin_auto_add). Any start counts, not only a press: a stroke can
+	// begin mid-drag, where the pointer first reaches the object.
+	if obj.voxel == nil {
+		radius := brush_radius_px(app, s.pressure, s.tilt) * camera.orbit_world_per_px(app.camera, hit, input.size.y) / obj.transform.scale
+		_ = skin_auto_add(app, obj, stroke_brush(app, input), radius)
+	}
 	if !skin_stroke_allowed(app, obj, stroke_brush(app, input), say) do return
 	st := &app.stroke
 	st.skin = stroke_to_skin(app, obj, stroke_brush(app, input))

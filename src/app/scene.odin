@@ -52,6 +52,9 @@ to_world_dir :: proc(t: Transform, d: Vec3) -> Vec3 {return transform_rotation(t
 // top level (see object_hd_enter).
 Object :: struct {
 	id:        int, // never reused
+	// Its detail skin was taken off by hand, so none is added by itself again (skin_auto_add)
+	// until one is added by hand. Not saved: a scene opened later may grow one.
+	skin_declined: bool,
 	name:      string, // the file an imported object came from, or the shape it started as; "" for a sphere (owned)
 	transform: Transform,
 	// Where the object's own space sits in the file it was imported from (or is

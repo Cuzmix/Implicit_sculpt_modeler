@@ -77,13 +77,16 @@ a_wipe_packs_its_line_and_right_pass_into_the_last_field :: proc(t: ^testing.T) 
 	m: render.Mesh_Buffers
 	items := []render.Draw_Item{{mesh = &m}}
 	view := render.Mat4(1)
-	// The shader takes the line as floor((w - 1) / 8) and the right pass as what is left.
-	pass_items(items, view, .Shaded, .Normals, 960)
-	w := items[0].pass.w - 1
-	line := f32(int(w / 8))
-	testing.expect_value(t, items[0].pass.x, f32(render.View_Pass.Shaded))
-	testing.expect_value(t, line, f32(960))
-	testing.expect_value(t, int(w - line * 8 + 0.5), int(render.View_Pass.Normals))
+	// The shader takes the line as floor((w - 1) / 16) and the right pass as what is left,
+	// room for every pass the wipe compares, Skin detail the highest.
+	for right in ([2]render.View_Pass{.Normals, .Skin_Detail}) {
+		pass_items(items, view, .Shaded, right, 960)
+		w := items[0].pass.w - 1
+		line := f32(int(w / 16))
+		testing.expect_value(t, items[0].pass.x, f32(render.View_Pass.Shaded))
+		testing.expect_value(t, line, f32(960))
+		testing.expect_value(t, int(w - line * 16 + 0.5), int(right))
+	}
 	// Depth on the right measures the range though the left side is Shaded.
 	pass_items(items, view, .Shaded, .Depth, 0)
 	testing.expect_value(t, items[0].pass, [4]f32{f32(render.View_Pass.Shaded), 0, 1, 1 + f32(render.View_Pass.Depth)})

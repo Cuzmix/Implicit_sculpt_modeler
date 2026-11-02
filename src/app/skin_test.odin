@@ -66,3 +66,37 @@ detail_skin_routes_strokes_and_refuses_subdividing :: proc(t: ^testing.T) {
 	testing.expect(t, !skin_stroke_allowed(app, obj, .Draw, false), "Skin went ahead with no skin")
 	testing.expect(t, command_enabled(app, .Subdivide))
 }
+
+// A fine dab on a skinless object adds a skin, sized to the dab, as an undo step of its
+// own; a coarse one, a brush that moves the mesh, the switch off or a skin taken off by
+// hand add none.
+@(test)
+detail_skin_adds_itself_for_fine_dabs :: proc(t: ^testing.T) {
+	testing.expect_value(t, skin_auto_segments(1000, 1, 2), 0)
+	testing.expect_value(t, skin_auto_segments(1000, 1, 0.9), 4)
+	testing.expect_value(t, skin_auto_segments(1000, 1, 0.3), 8)
+	testing.expect_value(t, skin_auto_segments(1000, 1, 0.01), 16)
+	// Ten million triangles: 16 segments would take far past the limit, so fewer.
+	testing.expect(t, skin_auto_segments(10_000_000, 1, 0.01) < 16, "a skin past the memory limit")
+
+	app := new(App)
+	defer free(app)
+	obj := skin_object(app)
+	defer skin_scene_free(app)
+	app.skin_auto = true
+	testing.expect(t, !skin_auto_add(app, obj, .Draw, 10), "a dab wider than the mesh added a skin")
+	testing.expect(t, !skin_auto_add(app, obj, .Grab, 0.01), "Grab added a skin")
+	app.brush.detail_to[.Draw] = .Mesh
+	testing.expect(t, !skin_auto_add(app, obj, .Draw, 0.01), "Detail goes to Mesh added a skin")
+	app.brush.detail_to[.Draw] = .Auto
+	testing.expect(t, skin_auto_add(app, obj, .Draw, 0.01), "a fine dab added no skin")
+	testing.expect(t, object_skin(obj) != nil)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect(t, !skin_auto_add(app, obj, .Draw, 0.01), "a second skin was added")
+	// Off by hand: none comes back by itself.
+	testing.expect(t, command_run(app, .Detail_Skin, 0))
+	testing.expect(t, !skin_auto_add(app, obj, .Draw, 0.01), "a skin taken off by hand came back")
+	obj.skin_declined = false
+	app.skin_auto = false
+	testing.expect(t, !skin_auto_add(app, obj, .Draw, 0.01), "the switch off added a skin")
+}
