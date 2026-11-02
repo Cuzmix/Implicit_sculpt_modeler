@@ -21,9 +21,9 @@
 	float4 light_y;
 	float4 light_z;
 	// Each light (render.Lights), in view space: toward a sun, unit length, or where a
-	// point or spot light is, with its kind in w (0 sun, 1 point, 2 spot); its colour in
-	// linear light with its strength in w (0 for off); a spot's axis with the cosine of
-	// half its cone in w; and its shape: x the distance at which it is as bright as a sun
+	// point, spot or area light is, with its kind in w (0 sun, 1 point, 2 spot, 3 area);
+	// its colour in linear light with its strength in w (0 for off); a spot's axis with the
+	// cosine of half its cone in w, or an area's facing; and its shape: x the distance at which it is as bright as a sun
 	// of its strength, y where it fades to nothing (0: never), z the cosine where a spot's
 	// edge starts to fade, w its size: the sine of a sun's angular radius, or a point or
 	// spot light's radius (0: no size).
@@ -31,6 +31,11 @@
 	float4 light_color[LIGHT_COUNT];
 	float4 light_spot[LIGHT_COUNT];
 	float4 light_shape[LIGHT_COUNT];
+	// An area light's first edge with half its width in w; and each light's extra: x its
+	// highlight less or more than usual (-1 to 1, 0 as usual), y 1 for no shadows (the
+	// studio's and render mode's), z an area light's half height, w 1 for a disc.
+	float4 light_axis[LIGHT_COUNT];
+	float4 light_extra[LIGHT_COUNT];
 	// Textured items: x, y, z 1 where the base colour, ORM and normal maps are bound, w the
 	// view (1 the maps, 2 the normal map alone, 3 the UV checker); all 0 on the sculpt mesh.
 	float4 maps;
@@ -243,8 +248,9 @@ float curvature(float3 n, float3 p) {
 static const float CURVE_START = 0.01;
 static const float CURVE_FULL = 0.12;
 
-// One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style.
-float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a) {
+// One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style;
+// `shine` scales the specular, the light's Highlight (1 as usual).
+float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a, float shine) {
 	float n_dot_l = max(dot(n, l), 0.0);
 	if (n_dot_l <= 0.0) return float3(0.0);
 	float3 h = normalize(l + v);
@@ -255,7 +261,7 @@ float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a) 
 	float D = a2 / (PI * d * d);
 	float V = 0.5 / max(lerp(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, a), 1e-4); // Smith, height-correlated (fast fit)
 	float3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
-	return (diffuse / PI + D * V * F) * n_dot_l;
+	return (diffuse / PI + D * V * F * shine) * n_dot_l;
 }
 
 // The direction inside a light seen as a disc of angular radius asin(spread) about `l`
@@ -280,11 +286,11 @@ float widened(float a, float spread) {
 	return (a * a) / (wide * wide);
 }
 
-// direct() for a light with a size: the diffuse part from its middle, the specular from
-// the point of it nearest the mirror direction `r`, normalized by how much it widens.
-float3 direct_sized(float3 n, float3 v, float3 l, float3 r, float spread, float3 diffuse, float3 f0, float a) {
+// direct() for a light with a size: the diffuse part from `l`, the specular from `ls`, the
+// point of it nearest the mirror direction (nearest_in_light, area_mirror), normalized by
+// how much it widens.
+float3 direct_sized(float3 n, float3 v, float3 l, float3 ls, float spread, float3 diffuse, float3 f0, float a, float shine) {
 	float3 color = diffuse / PI * max(dot(n, l), 0.0);
-	float3 ls = nearest_in_light(l, r, spread);
 	float n_dot_l = max(dot(n, ls), 0.0);
 	if (n_dot_l <= 0.0) return color;
 	float3 h = normalize(ls + v);
@@ -295,7 +301,67 @@ float3 direct_sized(float3 n, float3 v, float3 l, float3 r, float spread, float3
 	float D = a2 / (PI * d * d) * widened(a, spread);
 	float V = 0.5 / max(lerp(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, a), 1e-4);
 	float3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
-	return color + D * V * F * n_dot_l;
+	return color + D * V * F * n_dot_l * shine;
+}
+
+// The point of area light `i` (its rectangle, or its disc where light_extra.w is 1) nearest
+// `q`, given as offsets along its edges from its middle.
+float2 area_clamp(int i, float2 q) {
+	float hw = light_axis[i].w;
+	if (light_extra[i].w > 0.5) {
+		float len = length(q);
+		return len > hw ? q * (hw / len) : q;
+	}
+	return clamp(q, float2(-hw, -light_extra[i].z), float2(hw, light_extra[i].z));
+}
+
+// The direction from this pixel to the point of area light `i` its mirror direction `r`
+// meets, or where it misses, the nearest the light comes to where it would: the
+// representative point of Karis's "Real Shading in Unreal Engine 4" for a rectangle, so a
+// softbox's highlight takes the softbox's shape.
+float3 area_mirror(int i, float3 r) {
+	float3 c = light_pos[i].xyz;
+	float3 f = light_spot[i].xyz;
+	float3 u = light_axis[i].xyz;
+	float3 w = cross(f, u);
+	float3 to = c - frag_in.view_pos;
+	float facing = dot(r, f);
+	// The mirror ray meets the light's plane ahead when it runs toward its face; else the
+	// point as far along it as the light's middle is.
+	float t = facing < -1e-4 ? dot(to, f) / facing : length(to);
+	float3 hit = frag_in.view_pos + r * t - c;
+	float2 q = area_clamp(i, float2(dot(hit, u), dot(hit, w)));
+	return normalize(to + u * q.x + w * q.y);
+}
+
+// Area light `i` at this pixel, as light_at gives the others: toward the point of it
+// nearest the pixel, so a surface beside a broad light is lit across it; its strength
+// falls with the square of the distance from its middle (the distance it equals a sun at,
+// light_shape.x), never closer than its disc's radius so it stays finite against it, times
+// the cosine at its face, nothing behind it; its reach as a point light's. `spread` is its
+// disc's size seen from here.
+float area_at(int i, out float3 l, out float spread) {
+	float3 c = light_pos[i].xyz;
+	float3 f = light_spot[i].xyz;
+	float3 u = light_axis[i].xyz;
+	float3 w = cross(f, u);
+	float4 shape = light_shape[i];
+	float3 d = frag_in.view_pos - c;
+	spread = 0.0;
+	l = f;
+	if (dot(d, f) <= 0.0) return 0.0;
+	float2 q = area_clamp(i, float2(dot(d, u), dot(d, w)));
+	float3 to = c + u * q.x + w * q.y - frag_in.view_pos;
+	l = normalize(to);
+	float dist2 = max(dot(d, d), shape.w * shape.w);
+	spread = min(shape.w * rsqrt(dist2), 1.0);
+	float k = shape.x * shape.x / max(dist2, 1e-8) * max(dot(-l, f), 0.0);
+	if (shape.y > 0.0) {
+		float x = dist2 / (shape.y * shape.y);
+		float win = clamp(1.0 - x * x, 0.0, 1.0);
+		k *= win * win;
+	}
+	return k;
 }
 
 // Light `i` at this pixel: toward it in `l`, and how much of its strength arrives. A sun
@@ -308,7 +374,7 @@ float3 direct_sized(float3 n, float3 v, float3 l, float3 r, float spread, float3
 float light_at(int i, out float3 l, out float spread) {
 	float4 p = light_pos[i];
 	float4 shape = light_shape[i];
-	if (p.w < 0.5) {
+		if (p.w < 0.5) {
 		l = p.xyz;
 		spread = shape.w;
 		return 1.0;
@@ -546,14 +612,36 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float3 r = reflect(-v, n);
 
 		float3 color = float3(0.0);
+#ifdef AREA_LIGHTS
+		// The area lights in a loop of their own, compiled only into the shaders drawn
+		// while one is on (mesh_area and textured_area), so the others run as lean as
+		// before area lights: their code in this shader at all, even skipped, cost a scene
+		// of none about a third more fragment time on SwiftShader, and its registers would
+		// be held on every GPU.
 		for (int i = 0; i < LIGHT_COUNT; i++) {
 			float s = light_color[i].w;
-			if (s <= 0.0) continue;
+			if (s <= 0.0 || light_pos[i].w < 2.5) continue;
+			float3 l;
+			float spread;
+			float k = area_at(i, l, spread);
+			if (k <= 0.0) continue;
+			color += direct_sized(n, v, l, area_mirror(i, r), spread, diffuse, f0, a, 1.0 + light_extra[i].x) * light_color[i].rgb * (3.0 * (s * k));
+		}
+#endif
+		for (int i = 0; i < LIGHT_COUNT; i++) {
+			float s = light_color[i].w;
+			if (s <= 0.0 || light_pos[i].w > 2.5) continue;
 			float3 l;
 			float spread;
 			float k = light_at(i, l, spread);
 			if (k <= 0.0) continue;
-			float3 lit = spread > 0.0 ? direct_sized(n, v, l, r, spread, diffuse, f0, a) : direct(n, v, l, diffuse, f0, a);
+			float shine = 1.0 + light_extra[i].x;
+			float3 lit;
+			if (spread > 0.0) {
+				lit = direct_sized(n, v, l, nearest_in_light(l, r, spread), spread, diffuse, f0, a, shine);
+			} else {
+				lit = direct(n, v, l, diffuse, f0, a, shine);
+			}
 			color += lit * light_color[i].rgb * (3.0 * (s * k));
 		}
 		// Light from the whole studio or image environment, which turns with the rig: the
@@ -581,9 +669,25 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	float3 lit = float3(shading.x * ao * ambient);
 	float3 spec = float3(0.0);
 	float3 mirror = reflect(-v, n);
+#ifdef AREA_LIGHTS
+	// The area lights first, in their own loop, as in the physically based path above.
+	float classic_a = sqrt(2.0 / (shading.z + 2.0));
 	for (int i = 0; i < LIGHT_COUNT; i++) {
 		float s = light_color[i].w;
+		if (s <= 0.0 || light_pos[i].w < 2.5) continue;
+		float3 l;
+		float spread;
+		s *= area_at(i, l, spread);
 		if (s <= 0.0) continue;
+		lit += light_color[i].rgb * (max((dot(n, l) + wrap) / (1.0 + wrap), 0.0) * s);
+		float3 h = normalize(area_mirror(i, mirror) + v);
+		float shrink = (1.0 + light_extra[i].x) * widened(classic_a, spread);
+		spec += light_color[i].rgb * (pow(max(dot(n, h), 0.0), shading.z) * shading.y * s * shrink);
+	}
+#endif
+	for (int i = 0; i < LIGHT_COUNT; i++) {
+		float s = light_color[i].w;
+		if (s <= 0.0 || light_pos[i].w > 2.5) continue;
 		float3 l;
 		float spread;
 		s *= light_at(i, l, spread);
@@ -591,12 +695,12 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		lit += light_color[i].rgb * (max((dot(n, l) + wrap) / (1.0 + wrap), 0.0) * s);
 		// A light with a size: the highlight from its point nearest the mirror direction,
 		// dimmed as it widens, taking the Blinn-Phong power as a GGX width
-		// (a = sqrt(2 / (power + 2)), Walter et al.).
+		// (a = sqrt(2 / (power + 2)), Walter et al.); every light's Highlight scales it.
 		float3 h = normalize(l + v);
-		float shrink = 1.0;
+		float shrink = 1.0 + light_extra[i].x;
 		if (spread > 0.0) {
 			h = normalize(nearest_in_light(l, mirror, spread) + v);
-			shrink = widened(sqrt(2.0 / (shading.z + 2.0)), spread);
+			shrink *= widened(sqrt(2.0 / (shading.z + 2.0)), spread);
 		}
 		spec += light_color[i].rgb * (pow(max(dot(n, h), 0.0), shading.z) * shading.y * s * shrink);
 	}

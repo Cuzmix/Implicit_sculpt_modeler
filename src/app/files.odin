@@ -1508,6 +1508,47 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	// follow, and the selected object's place in the whole list, curves and all.
 	geom.byte_put(out, i32(curves))
 	geom.byte_put(out, i32(app.scene.selected))
+	lights_more_put(out, app.scene.lights) // from area lights on, at the chunk's end
+}
+
+// What each light keeps besides lights_put's, at the scene chunk's end where an app from
+// before them steps over it: how many lights, then each one's kind (an area light is a
+// spot in lights_put's), its area's width and height, whether it is a disc, its
+// highlight and whether it casts shadows.
+lights_more_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
+	set := set
+	count := clamp(set.count, 0, LIGHT_COUNT)
+	geom.byte_put(out, u8(count))
+	for l in set.lights[:count] {
+		geom.byte_put(out, u8(l.kind))
+		geom.byte_put(out, l.width)
+		geom.byte_put(out, l.height)
+		geom.byte_put(out, u8(l.disc))
+		geom.byte_put(out, l.shine)
+		geom.byte_put(out, u8(l.no_shadows))
+	}
+}
+
+// The lights `set` (as lights_get read them) with what lights_more_put wrote after them;
+// ok is false when it is damaged: another count, an unknown kind, an area light where
+// lights_put wrote no spot, a flag past 1 or a number out of its range.
+lights_more_get :: proc(r: ^geom.Byte_Reader, set: Light_Set) -> (out: Light_Set, ok: bool) {
+	out = set
+	count := int(geom.byte_get(r, u8))
+	if !r.ok || count != int(set.count) do return {}, false
+	for &l in out.lights[:count] {
+		kind := geom.byte_get(r, u8)
+		l.width = geom.byte_get(r, f32)
+		l.height = geom.byte_get(r, f32)
+		disc := geom.byte_get(r, u8)
+		l.shine = geom.byte_get(r, f32)
+		no_shadows := geom.byte_get(r, u8)
+		if !r.ok || kind >= len(Light_Kind) || disc > 1 || no_shadows > 1 do return {}, false
+		if Light_Kind(kind) != l.kind && !(Light_Kind(kind) == .Area && l.kind == .Spot) do return {}, false
+		if !(l.width >= 0 && l.width <= LIGHT_RADIUS_MAX) || !(l.height >= 0 && l.height <= LIGHT_RADIUS_MAX) || !(l.shine >= -1 && l.shine <= 1) do return {}, false
+		l.kind, l.disc, l.no_shadows = Light_Kind(kind), disc == 1, no_shadows == 1
+	}
+	return out, true
 }
 
 // The selected object's place among the objects that are not curves, as the scene chunk's
@@ -1594,7 +1635,9 @@ lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 	geom.byte_put(out, set.ambient)
 	for l in set.lights[:count] {
 		geom.byte_put(out, u8(l.on))
-		geom.byte_put(out, u8(l.kind))
+		// An area light is a spot here, as an app from before area lights reads it (which
+		// refuses a kind it does not know); its own kind is in lights_more_put's.
+		geom.byte_put(out, u8(Light_Kind.Spot if l.kind == .Area else l.kind))
 		geom.byte_put(out, u8(l.space))
 		geom.byte_put(out, l.dir)
 		geom.byte_put(out, l.pos)
@@ -1631,12 +1674,15 @@ lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSI
 		l.cone = geom.byte_get(r, f32)
 		l.blend = geom.byte_get(r, f32)
 		l.color = geom.byte_get(r, Vec3)
-		if !r.ok || on > 1 || kind >= len(Light_Kind) || space >= len(Light_Space) || !finite(l.dir) || !finite(l.pos) || !finite(l.color) do return {}, false
+		// An area light is never written here (lights_put), so the kinds are the first three.
+		if !r.ok || on > 1 || kind > u8(Light_Kind.Spot) || space >= len(Light_Space) || !finite(l.dir) || !finite(l.pos) || !finite(l.color) do return {}, false
 		// Written as `!(in range)`, so NaN is refused too.
 		if !(l.strength >= 0 && l.strength <= LIGHT_STRENGTH_MAX) || !(l.ref >= 0 && l.ref < 1e30) || !(l.reach >= 0 && l.reach < 1e30) do return {}, false
 		if !(l.cone >= LIGHT_CONE_MIN && l.cone <= LIGHT_CONE_MAX) || !(l.blend >= 0 && l.blend <= 1) || min(l.color.r, l.color.g, l.color.b) < 0 do return {}, false
 		l.on, l.kind, l.space = on == 1, Light_Kind(kind), Light_Space(space)
 		l.kelvin, l.name = 0, {}
+		// What lights_more_get reads, where the file has it: until then a light as before.
+		l.width, l.height, l.disc, l.shine, l.no_shadows = 0, 0, false, 0, false
 		if version >= 20 {
 			l.kelvin = geom.byte_get(r, f32)
 			l.name = geom.byte_get(r, [LIGHT_NAME]u8)
@@ -1756,6 +1802,13 @@ scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader, version: u32) -> (f: S
 		f.curves = int(geom.byte_get(r, i32))
 		f.selected_any = int(geom.byte_get(r, i32))
 		if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do r.ok = false
+	}
+	// From area lights on: each light's kind, area, highlight and shadows. A file from
+	// before has none of these, and its lights shine as they did.
+	if version >= SCENE_CHUNKED && r.ok && r.at < len(r.data) {
+		more_ok: bool
+		f.lights, more_ok = lights_more_get(r, f.lights)
+		lights_ok &&= more_ok
 	}
 	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		scene_fields_destroy(&f)

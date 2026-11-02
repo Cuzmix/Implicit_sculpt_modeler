@@ -155,6 +155,23 @@ Mesh_Pipelines :: struct {
 	// Meshes with a detail skin (skin.odin), opaque; nil where the device refused it, and
 	// those items then draw with the mesh's own normals.
 	skinned:      ^sdl.GPUGraphicsPipeline,
+	// mesh, see, textured and textured_see with the area lights' code (mesh_area and
+	// textured_area.frag), drawn for an item lit by an area light so the others carry
+	// none of it; made the first time one is drawn (area_pipelines), each nil until then
+	// or where the device refused it, when the plain one draws and leaves the area light
+	// out.
+	area:         [Area_Pipeline]^sdl.GPUGraphicsPipeline,
+	area_made:    bool,
+	samples:      sdl.GPUSampleCount, // the targets' sample count they were made for
+}
+
+// Which of the area lights' pipelines (Mesh_Pipelines.area).
+@(private)
+Area_Pipeline :: enum u8 {
+	Mesh,
+	See,
+	Textured,
+	Textured_See,
 }
 
 // How a mesh pipeline draws its triangles: filled and opaque, as lines, or filled and
@@ -452,16 +469,18 @@ Material_Uniforms :: struct {
 	style:      [4]f32, // Draw_Item.style
 	pass:       [4]f32, // Draw_Item.pass
 }
-#assert(size_of(Material_Uniforms) == 896)
-#assert(offset_of(Material_Uniforms, pass) == 880)
-#assert(offset_of(Material_Uniforms, maps) == 640)
+#assert(size_of(Material_Uniforms) == 1152)
+#assert(offset_of(Material_Uniforms, pass) == 1136)
+#assert(offset_of(Material_Uniforms, maps) == 896)
 
 MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT)
 MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT)
+MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT)
 TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT)
 SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT)
 SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT)
 TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT)
+TEXTURED_AREA_FRAG_CODE :: #load("shaders/textured_area.frag" + SHADER_EXT)
 CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT)
 CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT)
 FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT)
@@ -682,13 +701,34 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 		textured = create_mesh_pipeline(r, .Solid, samples, textured = true),
 		textured_see = create_mesh_pipeline(r, .See_Through, samples, textured = true),
 		skinned = create_mesh_pipeline(r, .Solid, samples, skinned = true),
+		samples = samples,
 	}
 }
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	for pipeline in ([9]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
+	for pipeline in p.area do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	p^ = {}
+}
+
+// The area lights' pipelines of `p`'s sample count, made once, the first time an item lit
+// by an area light is drawn: a scene that never has one never builds them.
+@(private)
+area_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
+	if p.area_made do return
+	p.area_made = true
+	samples := p.samples
+	p.area[.Mesh] = create_mesh_pipeline(r, .Solid, samples, area = true)
+	p.area[.See] = create_mesh_pipeline(r, .See_Through, samples, area = true)
+	p.area[.Textured] = create_mesh_pipeline(r, .Solid, samples, textured = true, area = true)
+	p.area[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, area = true)
+}
+
+// Whether any light that is on in `l` is an area light.
+lights_have_area :: proc(l: Lights) -> bool {
+	for p, i in l.pos do if p.w == LIGHT_AREA && l.color[i].w > 0 do return true
+	return false
 }
 
 // With `textured`, the pipeline of textured meshes (textured.odin): their 32-byte
@@ -698,9 +738,9 @@ mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 // vertex pulled from the paint, index, position and normal buffers, and the skin's two
 // buffers in the fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false) -> ^sdl.GPUGraphicsPipeline {
-	vert_spv, frag_code := MESH_VERT_CODE, MESH_FRAG_CODE
-	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_FRAG_CODE
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false) -> ^sdl.GPUGraphicsPipeline {
+	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
+	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
 	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
 	vert := gpu_create_shader(r.device, {
 		code_size           = len(vert_spv),
@@ -782,6 +822,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 	})
 	switch {
 	case pipeline != nil:
+	case area:
+		log.warnf("area lights left out: the %v area pipeline could not be made: %s", mode, sdl.GetError())
 	case textured:
 		log.warnf("textured %v pipeline: %s", mode, sdl.GetError())
 	case skinned:
@@ -1539,7 +1581,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		slotted:  b32, // with Material_Slots, hashed after it
 		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
-	#assert(size_of(Keyed) == 768)
+	#assert(size_of(Keyed) == 1024)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1797,7 +1839,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		slotted:  b32, // with Material_Slots, hashed after it
 		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
-	#assert(size_of(Keyed) == 776)
+	#assert(size_of(Keyed) == 1032)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1922,6 +1964,13 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		skinned := !textured && !see && draws_skinned(pipes, item)
 		main := pipes.see if see else pipes.mesh
 		if textured do main = pipes.textured_see if see else pipes.textured
+		if lights_have_area(item.lights) {
+			area_pipelines(r, pipes)
+			which := Area_Pipeline.See if see else .Mesh
+			if textured do which = .Textured_See if see else .Textured
+			if pipes.area[which] != nil do main = pipes.area[which]
+		}
+		// The skin's own shader has no area lights' code: a skinned item leaves them out.
 		if skinned do main = pipes.skinned
 		if main != bound {
 			gpu_bind_graphics_pipeline(pass, main)
@@ -2103,10 +2152,12 @@ DEFAULT_MATERIAL :: [4]f32{0.08, 0.2, 40, 0}
 LIGHT_COUNT :: 8
 
 // What kind of light each of Lights' entries is, in its pos.w: a sun shines from a
-// direction, a point light from a place in every direction, a spot from a place into a cone.
+// direction, a point light from a place in every direction, a spot from a place into a cone,
+// an area light from one face of a rectangle or a disc, as a studio's softbox.
 LIGHT_SUN :: 0
 LIGHT_POINT :: 1
 LIGHT_SPOT :: 2
+LIGHT_AREA :: 3
 
 // The lights a Draw_Item is shaded with, as Material_Uniforms carries them (light_x, y
 // and z, light_pos, light_color, light_spot and light_shape in mesh_shading.slang), in
@@ -2115,23 +2166,35 @@ Lights :: struct {
 	// The columns of the rotation that takes the studio the physically based materials
 	// reflect into view space, with the ambient light's strength in [0].w.
 	rig:   [3][4]f32,
-	// Toward a sun, unit length, or where a point or spot light is, with its kind
-	// (LIGHT_SUN, LIGHT_POINT, LIGHT_SPOT) in w.
+	// Toward a sun, unit length, or where a point, spot or area light is (an area's
+	// middle), with its kind (LIGHT_SUN, LIGHT_POINT, LIGHT_SPOT, LIGHT_AREA) in w.
 	pos:   [LIGHT_COUNT][4]f32,
 	// Each light's colour in linear light, with its strength in w: 0 for a light that is
 	// off, which the shader skips.
 	color: [LIGHT_COUNT][4]f32,
-	// A spot's axis, the way it shines, unit length, with the cosine of half its cone in w.
+	// A spot's axis, the way it shines, unit length, with the cosine of half its cone in w;
+	// an area light's facing, the way its lit face looks, w unused.
 	spot:  [LIGHT_COUNT][4]f32,
 	// x: the distance at which a point or spot light is as bright as a sun of its strength
 	// (it falls off with the square of the distance from there), y: where it fades to
 	// nothing (0: never), z: the cosine of half a spot's cone less its blend, where its
 	// edge starts to fade; w: how big the light is, the sine of the angle a sun's disc
 	// spans from its middle to its edge, or a point or spot light's radius in view units,
-	// 0 for a light with no size (which shades exactly as before lights had one).
+	// 0 for a light with no size (which shades exactly as before lights had one); an area
+	// light's is the radius of the disc of its area, which render mode and the studio's
+	// shadows take it as.
 	shape: [LIGHT_COUNT][4]f32,
+	// An area light's first edge, unit length, with half its width in w (the second edge
+	// is the facing crossed with it); zero for the other kinds.
+	axis:  [LIGHT_COUNT][4]f32,
+	// x: how much more or less highlight the light gives than usual, -1 none (a fill that
+	// adds no shine) to 1 twice as much, 0 as usual; y: 1 for a light that casts no
+	// shadow in the studio and render mode; z: an area light's half height; w: 1 for an
+	// area light that is a disc of radius axis.w. All zero is a light as lights were
+	// before these, so a Lights made without them shades as it always did.
+	extra: [LIGHT_COUNT][4]f32,
 }
-#assert(size_of(Lights) == 560)
+#assert(size_of(Lights) == 816)
 
 // The key and fill lights' directions as the lights fixed to the camera have them, toward
 // the light in view space (not unit length): the key above and to the left of the
@@ -2162,15 +2225,16 @@ lights_turn :: proc(lights: Lights, dir: [3]f32) -> [3]f32 {
 	return l[0].xyz * dir.x + l[1].xyz * dir.y + l[2].xyz * dir.z
 }
 
-// The light that casts the studio render's shadow: the brightest one that is on (its
-// strength times its strongest colour channel), as the direction toward it in view space
-// from `centre` (the scene's middle, in view space), so a point or spot light shadows
-// from where it stands; false with every light off or black, when there is no shadow to
-// cast.
+// The light that casts the studio render's shadow: the brightest one that is on and casts
+// shadows (its strength times its strongest colour channel), as the direction toward it in
+// view space from `centre` (the scene's middle, in view space), so a point, spot or area
+// light shadows from where it stands; false with every light off, black or shadowless,
+// when there is no shadow to cast.
 lights_key :: proc(lights: Lights, centre: [3]f32) -> (dir: [3]f32, ok: bool) {
 	l := lights if lights != {} else lights_default()
 	best, at := f32(0), -1
 	for c, i in l.color {
+		if l.extra[i].y > 0.5 do continue
 		if b := c.w * max(c.r, c.g, c.b); b > best do best, at = b, i
 	}
 	if at < 0 do return {}, false

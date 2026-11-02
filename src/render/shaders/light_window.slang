@@ -1,7 +1,8 @@
 // The share of a point or spot light's light that reaches distance² `d2` from it along
 // `l` (toward the light), besides its fall with distance: Karis's window at its reach
 // (shape.y) and a spot's cone between its outer cosine (spot.w) and inner one (shape.z),
-// as light_at in mesh_shading.slang. Shared by render_trace.comp.slang and
+// as light_at in mesh_shading.slang; an area light (kind 3) shines from its face alone,
+// by the cosine between it (spot.xyz) and the way to `l`'s end, as a diffuse emitter does. Shared by render_trace.comp.slang and
 // studio_weight.slang; an include, never compiled alone.
 float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l) {
 	float k = 1.0;
@@ -10,6 +11,10 @@ float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l) {
 		float w = clamp(1.0 - x * x, 0.0, 1.0);
 		k *= w * w;
 	}
-	if (pos.w > 1.5) k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+	if (pos.w > 2.5) {
+		k *= max(dot(-l, spot.xyz), 0.0);
+	} else if (pos.w > 1.5) {
+		k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+	}
 	return k;
 }

@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from studio_gather.frag.spv sha256 84d5b9d9987a8c595725c711f90c7d335774510e27e8081abfacb31865f118cc
+// SDL_shadercross 1ff05bec5739 from studio_gather.frag.spv sha256 a2b5bb1ba5f07cf3b06c709c2f9e52355ea4c3ec406031729408d10cd1090f7c
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -92,16 +92,23 @@ float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
     if (shape.y > 0.0)
     {
         float x = d2 / (shape.y * shape.y);
-        float _389 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
-        k = _389 * _389;
+        float _399 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = _399 * _399;
     }
     else
     {
         k = 1.0;
     }
-    if (pos.w > 1.5)
+    if (pos.w > 2.5)
     {
-        k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+        k *= fast::max(dot(-l, spot.xyz), 0.0);
+    }
+    else
+    {
+        if (pos.w > 1.5)
+        {
+            k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+        }
     }
     return k;
 }
@@ -109,7 +116,7 @@ float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
 static inline __attribute__((always_inline))
 float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
 {
-    if (Gather_Uniforms.shadow_shape.data[i].w <= 0.0)
+    if (Gather_Uniforms.shadow_shape.data[i].w == 0.0)
     {
         return 0.0;
     }
@@ -118,9 +125,9 @@ float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Gath
         return fast::max(dot(n, Gather_Uniforms.shadow_pos.data[i].xyz), 0.0);
     }
     float3 to = Gather_Uniforms.shadow_pos.data[i].xyz - p;
-    float _350 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
-    float3 l = to * rsqrt(_350);
-    return (fast::max(dot(n, l), 0.0) * ((Gather_Uniforms.shadow_shape.data[i].x * Gather_Uniforms.shadow_shape.data[i].x) / _350)) * light_window(Gather_Uniforms.shadow_pos.data[i], Gather_Uniforms.shadow_shape.data[i], Gather_Uniforms.shadow_spot.data[i], _350, l);
+    float _357 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
+    float3 l = to * rsqrt(_357);
+    return (fast::max(dot(n, l), 0.0) * ((Gather_Uniforms.shadow_shape.data[i].x * Gather_Uniforms.shadow_shape.data[i].x) / _357)) * light_window(Gather_Uniforms.shadow_pos.data[i], Gather_Uniforms.shadow_shape.data[i], Gather_Uniforms.shadow_spot.data[i], _357, l);
 }
 
 static inline __attribute__((always_inline))
@@ -128,21 +135,27 @@ float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Un
 {
     int i = 0;
     float total = Gather_Uniforms.shadow_pick.z;
+    float unshadowed = Gather_Uniforms.shadow_pick.z;
     for (;;)
     {
         float total_1;
-        bool _287_ladder_break = false;
+        bool _288_ladder_break = false;
         do
         {
             if (!(i < 8))
             {
-                _287_ladder_break = true;
+                _288_ladder_break = true;
                 break;
             }
-            total_1 = total + (Gather_Uniforms.shadow_shape.data[i].w * shadow_light(i, p, n, Gather_Uniforms));
+            float lit = abs(Gather_Uniforms.shadow_shape.data[i].w) * shadow_light(i, p, n, Gather_Uniforms);
+            total_1 = total + lit;
+            if (Gather_Uniforms.shadow_shape.data[i].w < 0.0)
+            {
+                unshadowed += lit;
+            }
             break;
         } while(false);
-        if (_287_ladder_break)
+        if (_288_ladder_break)
         {
             break;
         }
@@ -154,7 +167,7 @@ float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Un
     {
         return float2(-1.0, 0.0);
     }
-    return float2(shadow_light(int(Gather_Uniforms.shadow_pick.x), p, n, Gather_Uniforms), Gather_Uniforms.shadow_pick.z) / float2(total);
+    return float2(Gather_Uniforms.shadow_pick.y * shadow_light(int(Gather_Uniforms.shadow_pick.x), p, n, Gather_Uniforms), unshadowed) / float2(total);
 }
 
 fragment main0_out main0(constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms [[buffer(0)]], texture2d<float> view_depth [[texture(0)]], texture2d<float> shadow_depth [[texture(1)]], sampler view_depthSmplr [[sampler(0)]], sampler shadow_depthSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
@@ -201,9 +214,9 @@ fragment main0_out main0(constant SLANG_ParameterGroup_Gather_Uniforms_std140& G
         out.entryPointParam_main = _11;
         return out;
     }
-    float4 _479 = Gather_Uniforms.light_view_proj * float4(p + (_148 * Gather_Uniforms.params.y), 1.0);
-    float3 s = _479.xyz / float3(_479.w);
-    float2 _490 = float2((s.x * 0.5) + 0.5, 0.5 - (s.y * 0.5));
+    float4 _509 = Gather_Uniforms.light_view_proj * float4(p + (_148 * Gather_Uniforms.params.y), 1.0);
+    float3 s = _509.xyz / float3(_509.w);
+    float2 _520 = float2((s.x * 0.5) + 0.5, 0.5 - (s.y * 0.5));
     int y = -1;
     float lit = 0.0;
     float _18;
@@ -229,8 +242,8 @@ fragment main0_out main0(constant SLANG_ParameterGroup_Gather_Uniforms_std140& G
                         _38_ladder_break = true;
                         break;
                     }
-                    float4 _513 = shadow_depth.sample(shadow_depthSmplr, (_490 + (float2(float(x), float(y)) * Gather_Uniforms.params.z)));
-                    if ((s.z - Gather_Uniforms.params.x) <= _513.x)
+                    float4 _543 = shadow_depth.sample(shadow_depthSmplr, (_520 + (float2(float(x), float(y)) * Gather_Uniforms.params.z)));
+                    if ((s.z - Gather_Uniforms.params.x) <= _543.x)
                     {
                         _18 = 1.0;
                     }

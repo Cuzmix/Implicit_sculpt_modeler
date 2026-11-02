@@ -387,9 +387,10 @@ usd_identifier :: proc(taken: ^[dynamic]string, name, fallback: string) -> strin
 }
 
 // Light `l` as a UsdLux light named `name`: a DistantLight for a directional one, a
-// SphereLight treated as a point for the others, a spot shaped into its cone
+// SphereLight treated as a point for a point or spot light, a spot shaped into its cone
 // (ShapingAPI: the cone's half angle, softened over the share of it the inner angle
-// leaves). Both shine along their -Z. The intensity is glTF's turned into the numbers
+// leaves), and a RectLight or DiskLight of its size for an area light, its width along
+// its x. All shine along their -Z. The intensity is glTF's turned into the numbers
 // Blender's USD importer reads as the watts its glTF importer gives the same light (it
 // takes a DistantLight's intensity times 4 as a sun's strength and a point's times pi as
 // its power), so a scene comes into Blender the same through either file.
@@ -401,14 +402,28 @@ usd_light :: proc(out: ^[dynamic]u8, u: ^Usd, l: Export_Light, name: string) {
 	case .Directional: fmt.sbprintf(&u.b, "\n    def DistantLight \"%s\"\n    {{\n", name)
 	case .Point:       fmt.sbprintf(&u.b, "\n    def SphereLight \"%s\"\n    {{\n", name)
 	case .Spot:        fmt.sbprintf(&u.b, "\n    def SphereLight \"%s\" (\n        prepend apiSchemas = [\"ShapingAPI\"]\n    )\n    {{\n", name)
+	case .Area:        fmt.sbprintf(&u.b, "\n    def %s \"%s\"\n    {{\n", "DiskLight" if l.disc else "RectLight", name)
 	}
 	usd_flush(out, u)
 	w(out, "        color3f inputs:color = ")
 	usd_vec3(out, {clamp(l.color.r, 0, 1), clamp(l.color.g, 0, 1), clamp(l.color.b, 0, 1)})
 	w(out, "\n        float inputs:intensity = ")
-	usd_float(out, max(intensity, 0) * usd_light_scale(l.kind))
+	usd_float(out, max(intensity, 0) * usd_light_scale(l.kind) / usd_light_area(u.m, l))
 	w(out, "\n")
-	if l.kind != .Directional do w(out, "        bool treatAsPoint = 1\n")
+	if l.kind == .Point || l.kind == .Spot do w(out, "        bool treatAsPoint = 1\n")
+	if l.kind == .Area {
+		scale := u.m.scale if u.m.scale != 0 else 1
+		if l.disc {
+			w(out, "        float inputs:radius = ")
+			usd_float(out, max(l.width, 0) * 0.5 * scale)
+		} else {
+			w(out, "        float inputs:width = ")
+			usd_float(out, max(l.width, 0) * scale)
+			w(out, "\n        float inputs:height = ")
+			usd_float(out, max(l.height, 0) * scale)
+		}
+		w(out, "\n")
+	}
 	// A sun's size is the angle it fills across, in degrees, as UsdLux's DistantLight
 	// gives it (the real sun's 0.53), which leaves its strength alone. Blender's importer
 	// reads it as half the angle (its Angle comes in twice this), but the file follows the
@@ -448,7 +463,22 @@ usd_light_scale :: proc(kind: Export_Light_Kind) -> f32 {
 	// Lux over 683 lumens a watt are a sun's watts a square metre; candela times 4 pi over
 	// 683 a point's watts, as glTF's importers count both.
 	if kind == .Directional do return 1.0 / (683 * 4)
+	// An area light's candela straight out of its face are its power over pi, a face's
+	// light falling with the cosine, as Blender counts an area light's watts.
+	if kind == .Area do return math.PI / 683
 	return 4.0 / 683
+}
+
+// What an area light's intensity is divided by: its area in the file's units, since UsdLux
+// gives an area light's intensity per unit of its area (Blender's importer multiplies it
+// back by the area for the light's power); 1 for the other kinds.
+@(private = "file")
+usd_light_area :: proc(m: Mesh_Export, l: Export_Light) -> f32 {
+	if l.kind != .Area do return 1
+	scale := m.scale if m.scale != 0 else 1
+	w := max(l.width, 1e-6) * scale
+	if l.disc do return math.PI * w * w * 0.25
+	return w * max(l.height, 1e-6) * scale
 }
 
 // The mesh's material as a UsdPreviewSurface, the surface every USD reader knows. With
