@@ -14,7 +14,10 @@ import "../ui"
 // the finger, sliding off the grid puts back what the objects had (Material_Preview). Under
 // the grid, Apply to says which objects take it: the selected ones, the selected one's
 // folder, or every object. Matcaps has Import (Load MatCap) by its head; Materials has
-// Roughness for a lit material; Environment is the Environment section. Holding a sphere
+// Roughness for a lit material; Environment is the Environment section. Under the grid the
+// colour, Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others;
+// with polygroups, Object or Group over it (kit_group_material). It is the one Material
+// interface: the Scene palette's Material section and the view rail open this card. Holding a sphere
 // (a long press, a right click or the pen's side button) adds it to the favourites or
 // takes it off, a star on its corner; Favourites over the grid shows only those, as the
 // brush browser's Favorites does, and settings.txt keeps them (material_favorite).
@@ -85,6 +88,15 @@ kit_lens_material :: proc(app: ^App) {
 		return
 	}
 	sel := selected_object(app)
+	// With polygroups the card sets the object's material or one group's.
+	if sel != nil && command_enabled(app, .Pick_Group, 0) {
+		targets := [2]string{"Object", "Group"}
+		if picked := ui.tabs(ctx, "material target", targets[:], int(app.ui.material_groups)); picked >= 0 do app.ui.material_groups = picked == 1
+		if app.ui.material_groups {
+			kit_group_material(app, sel)
+			return
+		}
+	}
 	m := object_material(app, sel) if sel != nil else current_material(app)
 	balls := material_balls(app, mc.tab)
 	// The head: Favourites or All, and on Matcaps, Import.
@@ -106,18 +118,32 @@ kit_lens_material :: proc(app: ^App) {
 	if mc.pressing {
 		ui.label(ctx, fmt.tprintf("Previewing %s: lift to keep it, slide off to go back", mc.label) if mc.shown != 0 else "Slide back onto a sphere, or lift to keep what was there", t.small_size, t.text_secondary)
 	}
-	// Roughness edits a lit material in use, which makes it Custom, as the section's
-	// sliders do; a MatCap's picture holds its sheen, so it has none.
-	if mc.tab == .Materials && m.matcap == 0 {
-		if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
-		if ui.slider(ctx, "Roughness##lens material", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness)) {
-			m.label = "Custom"
-			app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
-		}
-	}
+	// The colour (a MatCap's tint), and a lit material's Roughness and under More its
+	// Metallic: moving one makes the material Custom, so a preset is never changed. A
+	// classic preset has no roughness yet, so it starts rough; a MatCap's picture holds its
+	// sheen, so it has neither.
+	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
+	lit := m.matcap == 0
+	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
+	if lit do changed |= ui.slider(ctx, "Roughness##lens material", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
 	ui.label(ctx, "Apply to", t.small_size, t.text_tertiary)
 	targets := [len(Material_Target)]string{"Selected", "Its folder", "Every object"}
 	if picked := ui.tabs(ctx, "material apply to", targets[:], int(app.ui.material_to)); picked >= 0 do app.ui.material_to = Material_Target(picked)
+	// How every material is shown, kept apart from the materials themselves: Cavity
+	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
+	if kit_more(app, .Material) {
+		if lit do changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
+		_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
+		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
+		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
+		_ = ui.switch_row(ctx, "Dim the others", &app.dim_others)
+		kit_more_end(app)
+	}
+	if changed {
+		m.label = "Custom"
+		app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
+	}
+	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the objects Apply to names and the one new objects take. A press on a sphere and a slide over the others tries each on the objects; lift to keep one. Hold a sphere to add it to the favourites. Moving the colour, Roughness or Metallic makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. With polygroups, Group gives one group its own material. Cavity darkens creases and Ridge lightens crests on every material; Dim the others shows the objects not selected in a muted colour.")
 }
 
 // The spheres a tab shows: the built-in MatCaps, the loaded image and every content pack's

@@ -47,9 +47,9 @@ panel_of_section_is_one_to_one :: proc(t: ^testing.T) {
 		testing.expect(t, p not_in hit, "no two sections share a palette")
 		hit += {p}
 		if back, is := panel_section(p); is do testing.expect_value(t, back, s)
-		else do testing.expect(t, (s == .Environment && p == .Environment) || (s == .Layers && p == .Layers))
+		else do testing.expect(t, p in CARDS_AS_SECTIONS)
 	}
-	testing.expect_value(t, hit, STACK_SECTION_PANELS - RETIRED_PANELS + {.Environment, .Layers})
+	testing.expect_value(t, hit, STACK_SECTION_PANELS - RETIRED_PANELS + CARDS_AS_SECTIONS)
 	// The Layers section is its card, one interface wherever it opens; a line from before,
 	// naming the section's palette, reads as the card.
 	p, _ := panel_of_section(.Layers)

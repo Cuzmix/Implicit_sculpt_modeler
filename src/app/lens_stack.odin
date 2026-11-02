@@ -900,11 +900,10 @@ kit_stack_menu :: proc(app: ^App) {
 		stack_ungroup(k, c)
 		s.menu = false
 	}
-	// The look's cards hold the settings used most; the rest are their tray sections'.
-	if tab == .Lights || tab == .Material {
-		sec := Kit_Section.Lights if tab == .Lights else Kit_Section.Material
-		if ui.menu_item(ctx, "All light settings" if tab == .Lights else "All material settings", glyph = ui.ICON_SETTINGS) {
-			tray_open(app, sec, exact = true)
+	// The Lights card holds the settings used most; the rest are its tray section's.
+	if tab == .Lights {
+		if ui.menu_item(ctx, "All light settings", glyph = ui.ICON_SETTINGS) {
+			tray_open(app, .Lights, exact = true)
 			s.menu = false
 		}
 	}
