@@ -839,6 +839,7 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 		ui.icon(ctx, ui.ICON_MORE, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
 		ui.tip(ctx, a.id, a.rect, "More", "Add a button, or stand the tiles in more rows")
 		if a.clicked do dock_menu_toggle(app, .Shelf, a.rect)
+		dock_more_hold(app)
 	}
 	ui.end(ctx)
 }

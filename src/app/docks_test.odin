@@ -6,7 +6,7 @@ import "core:testing"
 
 import "../ui"
 
-// New dock makes the first free dock, floating in the middle, picked, with Arrange on; four
+// New dock makes the first free dock, floating in the middle, with Arrange on; four
 // at most; a deleted dock goes with its buttons and place, and the next New dock is that
 // one again, empty.
 @(test)
@@ -20,7 +20,6 @@ new_docks_float_and_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !user_dock_new(&app))
 	testing.expect_value(t, user_docks_used(k), USER_DOCKS)
 	testing.expect(t, k.bars_edit)
-	testing.expect_value(t, k.arrange.picked, Maybe(Arrange_Zone)(Arrange_Zone.Dock_4))
 	testing.expect_value(t, k.docks[.Dock_2].place, Dock_Place{edge = .Float, at = user_dock_middle(k)})
 	testing.expect_value(t, user_dock_middle(k), [2]f32{774, 390})
 

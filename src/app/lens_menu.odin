@@ -106,7 +106,7 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	if command_menu_item(app, .Export_Sheet) do pick = true
 	ui.divider(ctx, across = true)
 	lens_sub_row(app, .Workspaces, ui.ICON_PANEL)
-	if command_menu_item(app, .Customise_Bars, label = "Customise...") do pick = true
+	if command_menu_item(app, .Customise_Bars, label = "Edit docks...") do pick = true
 	if command_menu_item(app, .Settings) do pick = true
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help and shortcuts") do pick = true
 	lens_sub_row(app, .More, ui.ICON_MORE)

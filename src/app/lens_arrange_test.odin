@@ -47,10 +47,10 @@ dial_command_sectors_are_not_held :: proc(t: ^testing.T) {
 	testing.expect(t, m2 == .Mask && .Mask in r.latched)
 }
 
-// Reset zone puts back the zone picked and leaves the others: the dial's sectors, size
-// and turn; the rail's buttons without the shelf's.
+// Put back as it comes puts back the dock it is for and leaves the others: the dial's
+// sectors, size and turn; the rail's buttons without the shelf's.
 @(test)
-reset_zone_resets_only_that_zone :: proc(t: ^testing.T) {
+dock_reset_resets_only_that_dock :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	k := &app.kit
@@ -58,22 +58,22 @@ reset_zone_resets_only_that_zone :: proc(t: ^testing.T) {
 	bars_reset(k)
 	k.dials[.Sculpt][2] = Modifier.Hide
 	k.wheel_size, k.wheel_turn = .Large, 30
-	arrange_zone_reset(&app, .Dial)
+	dial_reset(&app)
 	testing.expect(t, dial_is_default(k, .Sculpt) && k.wheel_size == .Medium && k.wheel_turn == 0)
 
 	rail := bar_list_k(k, .View_Rail)
 	rail.count -= 1
 	k.shelf.lists[.Sculpt].count -= 1
-	arrange_zone_reset(&app, .Rail)
+	dock_reset(&app, .Rail)
 	testing.expect(t, !bar_changed(&app, .View_Rail))
 	testing.expect(t, bar_changed(&app, shelf_which(.Sculpt)))
-	arrange_zone_reset(&app, .Shelf)
+	dock_reset(&app, .Shelf)
 	testing.expect(t, !bar_changed(&app, shelf_which(.Sculpt)))
 	testing.expect_value(t, k.arrange.resets, 3)
-	testing.expect(t, !arrange_zone_resettable(k, .Offhand))
+	testing.expect(t, !dock_resettable(k, .Offhand))
 	k.docks[.Offhand].place = {edge = .Float, at = {300, 200}}
-	testing.expect(t, arrange_zone_resettable(k, .Offhand))
-	arrange_zone_reset(&app, .Offhand)
+	testing.expect(t, dock_resettable(k, .Offhand))
+	dock_reset(&app, .Offhand)
 	testing.expect_value(t, k.docks[.Offhand].place, Dock_Place{})
 }
 

@@ -236,7 +236,7 @@ shelf_layout_narrows_tiles_before_hiding_them :: proc(t: ^testing.T) {
 }
 
 // A turn steps the page and stays at either end; each one counts, slides the new page in,
-// and closes the quick settings; Reset zone on the shelf puts its page back.
+// and closes the quick settings; Put back as it comes on the shelf puts its page back.
 @(test)
 shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	app := new(App)
@@ -260,7 +260,7 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	bar_remove(app, .Shelf_Sculpt, 0)
 	testing.expect(t, bar_changed(app, .Shelf_Sculpt))
 	sh.page = .Sculpt
-	arrange_zone_reset(app, .Shelf)
+	dock_reset(app, .Shelf)
 	testing.expect(t, !bar_changed(app, .Shelf_Sculpt))
 }
 
