@@ -47,7 +47,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Select, .Sets, "Selection sets", kit_sets},
 	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
 	{.Select, .Visibility, "Hide, clip and slice", kit_visibility},
-	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_layers_section(app)}},
+	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
 	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Surface, .Morph, "Morph target", kit_morph},
 	{.Surface, .Deform, "Deformation", kit_deformation},

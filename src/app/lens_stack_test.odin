@@ -62,7 +62,7 @@ stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	stack_reveal(app, .Remesh)
 	testing.expect_value(t, app.kit.stack.open, bit_set[Panel_Kind]{.Scene, .Remesh})
 	testing.expect_value(t, stack_card_of(app, .Layers), Panel_Kind.Layers)
-	testing.expect_value(t, stack_card_of(app, .Layers, exact = true), Panel_Kind.Layer_Settings)
+	testing.expect_value(t, stack_card_of(app, .Layers, exact = true), Panel_Kind.Layers)
 	testing.expect_value(t, stack_card_of(app, .Objects, exact = true), Panel_Kind.Objects)
 	testing.expect_value(t, stack_card_of(app, .Environment, exact = true), Panel_Kind.Environment)
 	testing.expect_value(t, stack_card_of(app, .Stroke, exact = true), Panel_Kind.Brush)

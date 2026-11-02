@@ -11,13 +11,14 @@ import "../ui"
 // holds without knowing which kind it is. A visiting section and a kept one draw through
 // panel_body alike, so the two never drift apart.
 
-// The palette that draws tray section `sec` as the tray did: Layers, Material and Lights
-// their full sections beside their cards, Environment its card; false for the Stats
-// panel's sections, which no palette shows.
+// The palette that draws tray section `sec` as the tray did: Material and Lights their
+// full sections beside their cards, Layers and Environment their cards, so each has one
+// interface wherever it opens; false for the Stats panel's sections, which no palette
+// shows.
 panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
 	if int(sec) >= TRAY_SECTIONS do return .Brush, false
 	#partial switch sec {
-	case .Layers:      return .Layer_Settings, true
+	case .Layers:      return .Layers, true
 	case .Material:    return .Material_Settings, true
 	case .Lights:      return .Light_Settings, true
 	case .Environment: return .Environment, true
@@ -25,17 +26,22 @@ panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
 	return PANEL_OF_SECTION[sec], true
 }
 
-// The section palette `p` draws; false for the cards (Environment's too, which is a card
-// first).
+// The section palette `p` draws; false for the cards (Environment's and Layers' too, which
+// are cards first) and the retired palettes.
 panel_section :: proc(p: Panel_Kind) -> (Kit_Section, bool) {
-	if p not_in STACK_SECTION_PANELS do return .Preset, false
+	if p not_in STACK_SECTION_PANELS || p in RETIRED_PANELS do return .Preset, false
 	return SECTION_OF_PANEL[p], true
 }
 
 // Whether `p` is a tray section's palette rather than a card.
 panel_is_section :: proc(p: Panel_Kind) -> bool {
-	return p in STACK_SECTION_PANELS
+	return p in STACK_SECTION_PANELS && p not_in RETIRED_PANELS
 }
+
+// The section palettes that became their cards, one interface for one thing: Panel_Kind
+// keeps their cases (never reordered), but nothing opens them, and a saved line naming one
+// (`section:Layers`) reads as the card (panel_kind_from_name).
+RETIRED_PANELS :: bit_set[Panel_Kind]{.Layer_Settings}
 
 // The two directions of panel_of_section, as tables: the sections keep their order in
 // both enums, so these only spell it out.
