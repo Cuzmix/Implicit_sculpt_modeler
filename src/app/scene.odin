@@ -822,7 +822,43 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	for r in ranges do bytes += int(r.count) * render.VERTEX_BYTES
 	for r in triangles do bytes += int(r.index_count) * size_of(u32)
-	return bytes + hidden_upload(app, cmd, gpu, lv), true
+	return bytes + hidden_upload(app, cmd, gpu, lv) + skin_upload(app, cmd, gpu, lv), true
+}
+
+// Brings the GPU's copy of the level's detail skin up to date: the whole skin when the
+// buffers have none or one of another size, else the samples whose normals the flush
+// recomputed, and the triangles' records again when the polygroups moved their lead
+// corners. A skin taken off the level goes from the buffers too. Returns the bytes.
+@(private = "file")
+skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level) -> int {
+	s := &lv.sculptor
+	sk := sculpt.sculptor_skin(s)
+	if sk == nil {
+		if gpu.skin_normals != nil {
+			render.wait_idle(&app.renderer)
+			render.mesh_buffers_drop_skin(&app.renderer, gpu)
+		}
+		return 0
+	}
+	stamp := sculpt.sculptor_paint_stamp(s)
+	if gpu.skin_normals == nil || gpu.skin_samples != u32(len(sk.normals)) {
+		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
+		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.segments, sk.vert_count, sk.edge_count) do return 0
+		gpu.skin_lead_stamp = stamp
+		render.viewport_invalidate(&app.target)
+		return len(sk.normals) * size_of([2]i16) + len(tris) * size_of([4]u32)
+	}
+	bytes := 0
+	ranges := sculpt.sculptor_skin_ranges(s)
+	render.mesh_buffers_upload_skin(&app.renderer, cmd, gpu, sk.normals, ranges)
+	for r in ranges do bytes += int(r.count) * size_of([2]i16)
+	if gpu.skin_lead_stamp != stamp {
+		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
+		render.mesh_buffers_upload_skin_tris(&app.renderer, cmd, gpu, tris)
+		gpu.skin_lead_stamp = stamp
+		bytes += len(tris) * size_of([4]u32)
+	}
+	return bytes
 }
 
 // Brings the index buffer up to date with what is hidden on the level: hidden triangles

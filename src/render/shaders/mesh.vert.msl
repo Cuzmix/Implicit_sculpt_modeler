@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from mesh.vert.spv sha256 9036bd58acc93a15deb8edeafc3faf0fc4430b3f9ad8bbee3597b65d34a2673a
+// SDL_shadercross 1ff05bec5739 from mesh.vert.spv sha256 7210bb53cb69eea984a2b3481c69813f790ff6ee8fb67fc9b0673bf097c6ecd4
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -35,6 +35,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_std140
     float4x4 model;
     float4 options;
     _Array_std140_vector_uint_4_4 slot_group;
+    uint4 skin;
 };
 
 struct StructuredBuffer

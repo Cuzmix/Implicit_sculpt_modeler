@@ -39,6 +39,7 @@ Options :: struct {
 	subdivide: int `usage:"Give each starting sphere this many subdivision levels above it, as Ctrl+D does (e.g. --vertices=40000 --subdivide=4 tops out at 10M)."`,
 	level:     int `usage:"Start on this subdivision level, 1 being the base (default: the top one)."`,
 	hd:        int `usage:"Give each starting sphere an HD level this many Loop steps (1 to 3) above its top level, as Divide HD does."`,
+	skin:      int `usage:"Give each starting sphere's top level a detail skin of this many segments along each triangle edge (2, 4, 8 or 16): the brushes that can write into it (Draw, Clay, Crease, Flatten, Inflate, Layer, Smooth) do, and the viewport shades it by the skin's normals."`,
 	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
@@ -666,6 +667,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			geom.mesh_vertex_count(object_mesh(obj)^), time.duration_milliseconds(time.tick_since(start)))
 		if opts.level > 0 do sculpt.levels_set_current(&obj.levels, opts.level - 1)
 		if !object_show_level(&app, obj, start) do return false
+	}
+	if opts.skin != 0 {
+		for obj in app.scene.objects {
+			if obj.voxel != nil || obj.curve != nil || obj.cage != nil do continue
+			top := obj.levels.levels[len(obj.levels.levels) - 1]
+			if !sculpt.sculptor_skin_set(&top.sculptor, u32(max(opts.skin, 0))) {
+				log.errorf("--skin=%d: a skin needs 2, 4, 8 or 16 segments, a closed mesh and dynamic topology off", opts.skin)
+				return false
+			}
+		}
 	}
 	if len(app.scene.objects) == 0 {
 		log.error("the scene has no objects to start with")

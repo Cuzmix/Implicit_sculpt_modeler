@@ -86,6 +86,7 @@ Vk_Cmd :: struct {
 	targets:         [dynamic]Vk_Target,
 	pipeline:        ^Vk_Pipeline,
 	vertex_storage:  [8]vk.Buffer,
+	fragment_storage: [8]vk.Buffer, // read-only storage buffers of the fragment stage, after its samplers in set 2
 	samplers_bound:  [16]Vk_Sampled, // the fragment stage's in a render pass, the compute stage's in a compute pass
 	compute_storage: [8]vk.Buffer,   // read-only storage buffers
 	write_textures:  [8]vk.ImageView,
@@ -686,6 +687,7 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 		if cmd.set_dirty[2] {
 			cmd.sets[2] = vk_descriptor_set(cmd, l.sets[2])
 			for i in 0 ..< c[4] do vk_write_image(&w, cmd.sets[2], i, .COMBINED_IMAGE_SAMPLER, cmd.samplers_bound[i].view, cmd.samplers_bound[i].sampler, .SHADER_READ_ONLY_OPTIMAL)
+			for i in 0 ..< c[6] do vk_write_buffer(&w, cmd.sets[2], c[4] + c[5] + i, cmd.fragment_storage[i])
 		}
 		if cmd.set_dirty[3] do cmd.sets[3] = vk_uniform_set(cmd, l.sets[3], .Fragment, c[7])
 		for i in 0 ..< c[3] {
@@ -817,6 +819,7 @@ vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target
 	cmd.pass = .Render
 	cmd.pipeline = nil
 	cmd.vertex_storage = {}
+	cmd.fragment_storage = {}
 	cmd.samplers_bound = {}
 	return (^sdl.GPURenderPass)(cmd)
 }
@@ -889,6 +892,16 @@ vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]sdl.GPUText
 	}
 }
 
+vk_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+	cmd := (^Vk_Cmd)(render_pass)
+	for i in 0 ..< num_bindings {
+		b := (^Vk_Buffer)(storage_buffers[i]).active
+		vk_cmd_track_buffer(cmd, b)
+		cmd.fragment_storage[first_slot + i] = b.buffer
+	}
+	cmd.set_dirty[2] = true
+}
+
 vk_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	vk_bind_samplers(cmd, first_slot, texture_sampler_bindings, num_bindings)
@@ -924,6 +937,31 @@ vk_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buf
 	} else {
 		for i in 0 ..< draw_count do vk.CmdDrawIndexedIndirect(cmd.cb, b.buffer, vk.DeviceSize(offset + i * stride), 1, stride)
 	}
+}
+
+// Draws `draw_count` non-indexed commands from `offset`, `stride` bytes apart: a stride of
+// an indexed command (20) reads an indexed command's first four words as a non-indexed one,
+// so the index count and first index become the vertex count and first vertex.
+vk_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+	cmd := (^Vk_Cmd)(render_pass)
+	if !vk_bind_sets(cmd) do return
+	b := (^Vk_Buffer)(buffer).active
+	vk_cmd_track_buffer(cmd, b)
+	if vk_state.multi_draw || draw_count <= 1 {
+		vk.CmdDrawIndirect(cmd.cb, b.buffer, vk.DeviceSize(offset), draw_count, stride)
+	} else {
+		for i in 0 ..< draw_count do vk.CmdDrawIndirect(cmd.cb, b.buffer, vk.DeviceSize(offset + i * stride), 1, stride)
+	}
+}
+
+// vk_draw_primitives_indirect with its count read from `count_buffer` when the GPU runs it.
+vk_draw_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset, max_draws, stride: u32) {
+	cmd := (^Vk_Cmd)(render_pass)
+	if !vk_bind_sets(cmd) do return
+	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
+	vk_cmd_track_buffer(cmd, b)
+	vk_cmd_track_buffer(cmd, n)
+	vk.CmdDrawIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, stride)
 }
 
 // Draws up to `max_draws` commands from `offset`, as many as the u32 at `count_offset` of

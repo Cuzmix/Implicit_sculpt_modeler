@@ -134,6 +134,12 @@ gpu_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_s
 	else do vk_bind_vertex_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 }
 
+// Read-only storage buffers for the fragment stage, after its samplers (SDL_GPU's slots).
+gpu_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: sdl.Uint32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: sdl.Uint32) {
+	when METAL do mtl_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
+	else do vk_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
+}
+
 @(require_results)
 gpu_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
 	when METAL do return mtl_cancel_command_buffer(command_buffer)
@@ -412,6 +418,23 @@ gpu_draw_indexed_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_indices
 gpu_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: sdl.Uint32, draw_count: sdl.Uint32) {
 	when METAL do mtl_draw_indexed_primitives_indirect(render_pass, buffer, offset, draw_count)
 	else do vk_draw_indexed_primitives_indirect(render_pass, buffer, offset, draw_count)
+}
+
+// Non-indexed indirect draws, `stride` bytes apart. With the stride of an indexed command
+// (size_of(sdl.GPUIndexedIndirectDrawCommand)), the indexed commands a mesh's culling wrote
+// draw as non-indexed ones over the same index positions, for shaders that read the index
+// buffer themselves (the detail skin's, which take a triangle's number from its vertex's).
+gpu_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+	when METAL do mtl_draw_primitives_indirect(render_pass, buffer, offset, draw_count, stride)
+	else do vk_draw_primitives_indirect(render_pass, buffer, offset, draw_count, stride)
+}
+
+// gpu_draw_primitives_indirect with its count written by a kernel. Only where
+// gpu_cull_offered.
+gpu_draw_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset, max_draws, stride: u32) {
+	when !METAL {
+		vk_draw_primitives_indirect_count(render_pass, buffer, offset, count_buffer, count_offset, max_draws, stride)
+	}
 }
 
 // An indirect draw whose count a kernel wrote: up to `max_draws` commands from `offset`,

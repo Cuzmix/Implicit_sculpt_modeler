@@ -346,3 +346,32 @@ skin_symmetric_dabs_mirror :: proc(t: ^testing.T) {
 	testing.expect(t, raised > 0)
 	testing.expectf(t, worst < 1e-3, "a mirrored sample differs by %v", worst)
 }
+
+// The records the renderer draws the skin by hold each triangle's edges and the corner it
+// is drawn from, and turning the drawn corners back by that lead gives the mesh's corners,
+// as skin.frag.slang does to find the samples.
+@(test)
+skin_tris_turn_back_to_the_mesh_corners :: proc(t: ^testing.T) {
+	sp := skin_sphere_make(2)
+	defer skin_sphere_free(sp)
+	s := &sp.sculptor
+	testing.expect(t, sculptor_skin_set(s, 4))
+	tcount := len(sp.mesh.indices) / 3
+	// Three groups in stripes, so many triangles start from a corner other than their first.
+	s.groups.tris = make([]u16, tcount, s.history.allocator)
+	for &g, i in s.groups.tris do g = u16(i % 3)
+	groups_refresh(s)
+	tris := sculptor_skin_tris(s, context.temp_allocator)
+	testing.expect_value(t, len(tris), tcount)
+	turned := 0
+	for rec, f in tris {
+		testing.expect(t, rec.xyz == s.skin.tri_edges[f])
+		testing.expect_value(t, rec.w, u32(s.groups.lead[f]))
+		if rec.w != 0 do turned += 1
+		drawn := drawn_triangle(s, f)
+		for c in 0 ..< u32(3) {
+			testing.expect_value(t, drawn[(c + 3 - rec.w) % 3], sp.mesh.indices[3 * u32(f) + c])
+		}
+	}
+	testing.expect(t, turned > 0)
+}

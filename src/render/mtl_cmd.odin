@@ -50,6 +50,7 @@ Mtl_Cmd :: struct {
 	index_type:        MTL.IndexType,
 	uniforms:          [Mtl_Stage][4]Mtl_Uniform,
 	vertex_storage:    [8]^MTL.Buffer,
+	fragment_storage:  [8]^MTL.Buffer, // after the fragment stage's uniforms, as SDL_GPU places them
 	fragment_textures: [16]^MTL.Texture,
 	fragment_samplers: [16]^MTL.SamplerState,
 	storage_dirty:     bool,
@@ -272,6 +273,7 @@ mtl_bind_draw :: proc(cmd: ^Mtl_Cmd) -> bool {
 	c := p.counts
 	if cmd.storage_dirty {
 		for i in 0 ..< c[2] do MTL.RenderCommandEncoder_setVertexBuffer(enc, cmd.vertex_storage[i], 0, NS.UInteger(c[3] + i))
+		for i in 0 ..< c[6] do MTL.RenderCommandEncoder_setFragmentBuffer(enc, cmd.fragment_storage[i], 0, NS.UInteger(c[7] + i))
 		cmd.storage_dirty = false
 	}
 	if cmd.samplers_dirty {
@@ -393,6 +395,7 @@ mtl_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_targe
 	MTL.RenderCommandEncoder_setStencilReferenceValue(enc, 0)
 	cmd.pipeline = nil
 	cmd.vertex_storage = {}
+	cmd.fragment_storage = {}
 	cmd.fragment_textures = {}
 	cmd.fragment_samplers = {}
 	mtl_bindings_dirty(cmd)
@@ -460,6 +463,16 @@ mtl_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_s
 	cmd.storage_dirty = true
 }
 
+mtl_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+	cmd := (^Mtl_Cmd)(render_pass)
+	for i in 0 ..< num_bindings {
+		b := (^Mtl_Buffer)(storage_buffers[i]).active
+		mtl_cmd_track_buffer(cmd, b)
+		cmd.fragment_storage[first_slot + i] = b.buffer
+	}
+	cmd.storage_dirty = true
+}
+
 mtl_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
@@ -503,6 +516,19 @@ mtl_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, bu
 	stride :: u32(size_of(sdl.GPUIndexedIndirectDrawCommand))
 	for i in 0 ..< draw_count {
 		MTL.RenderCommandEncoder_drawIndexPrimitivesWithIndirect(cmd.render, cmd.pipeline.primitive, cmd.index_type, cmd.index_buffer, NS.UInteger(cmd.index_offset), b.buffer, NS.UInteger(offset + i * stride))
+	}
+}
+
+// Non-indexed indirect draws `stride` bytes apart, one call each: Metal reads the first four
+// words at each offset, which in an indexed command's place are its index count, instance
+// count and first index, and its vertex offset (always 0 here) as the base instance.
+mtl_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+	cmd := (^Mtl_Cmd)(render_pass)
+	if !mtl_bind_draw(cmd) do return
+	b := (^Mtl_Buffer)(buffer).active
+	mtl_cmd_track_buffer(cmd, b)
+	for i in 0 ..< draw_count {
+		MTL.RenderCommandEncoder_drawPrimitivesWithIndirect(cmd.render, cmd.pipeline.primitive, b.buffer, NS.UInteger(offset + i * stride))
 	}
 }
 

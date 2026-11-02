@@ -49,6 +49,21 @@ sculptor_skin_ranges :: proc(s: ^Sculptor) -> []Skin_Range {
 	return s.skin.ranges[:]
 }
 
+// Per triangle, the record the renderer draws the skin by (render.mesh_buffers_set_skin):
+// its three edge references (Skin.tri_edges) and in the fourth number the corner it is
+// drawn from (its polygroup lead corner, 0 without groups), in `allocator`.
+sculptor_skin_tris :: proc(s: ^Sculptor, allocator := context.allocator) -> [][4]u32 {
+	sk := s.skin
+	if sk == nil do return nil
+	out := make([][4]u32, len(sk.tri_edges), allocator)
+	grouped := s.groups.tris != nil && len(s.groups.lead) == len(out)
+	for e, t in sk.tri_edges {
+		lead := u32(s.groups.lead[t]) if grouped else 0
+		out[t] = {e[0], e[1], e[2], lead}
+	}
+	return out
+}
+
 // The samples node `id` alone writes: its vertices' samples, its edges' samples (the edges
 // its triangles number) and its triangles' inside samples, as three ranges in that order.
 skin_node_ranges :: proc(s: ^Sculptor, sk: ^Skin, id: u32) -> [3]Skin_Range {

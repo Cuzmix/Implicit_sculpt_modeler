@@ -58,10 +58,9 @@ Skin :: struct {
 	offsets:     [dynamic]u32,
 }
 
-// A run of samples: [first, first + count).
-Skin_Range :: struct {
-	first, count: u32,
-}
+// A run of samples: [first, first + count), as a vertex range is, so the renderer takes
+// both alike.
+Skin_Range :: geom.Vertex_Range
 
 // An edge's two triangles, its owner (the lower numbered) first, and the owner's corner
 // the edge starts from, which sets the edge's direction.
