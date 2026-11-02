@@ -19,7 +19,7 @@ Arrange_Zone :: enum u8 {
 	Shelf, // the brushes along the bottom
 	Panels, // the stack of cards at the right
 	Rail, // the view rail down the pen side
-	// The person's own docks (user_docks.odin), while they are in use.
+	// The person's own docks (docks.odin), while they are in use.
 	Dock_1,
 	Dock_2,
 	Dock_3,
@@ -55,7 +55,7 @@ Arrange_State :: struct {
 	library_off: bool,
 	tab:         Library_Tab,
 	resets:      int,
-	carry:       Maybe(Place_Bar),
+	carry:       Maybe(Dock_Id),
 	carry_from:  ui.Rect,
 	carry_press: [2]f32,
 	carrying:    bool,
@@ -78,12 +78,12 @@ Arrange_State :: struct {
 }
 
 // The bar a zone's tag carries, if it carries one.
-arrange_zone_bar :: proc(z: Arrange_Zone) -> (Place_Bar, bool) {
+arrange_zone_bar :: proc(z: Arrange_Zone) -> (Dock_Id, bool) {
 	#partial switch z {
 	case .Offhand: return .Offhand, true
 	case .Rail:    return .Rail, true
 	case .Shelf:   return .Shelf, true
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return Place_Bar(int(Place_Bar.Dock_1) + int(z) - int(Arrange_Zone.Dock_1)), true
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return Dock_Id(int(Dock_Id.Dock_1) + int(z) - int(Arrange_Zone.Dock_1)), true
 	}
 	return {}, false
 }
@@ -110,8 +110,8 @@ arrange_zone_rect :: proc(app: ^App, z: Arrange_Zone) -> ui.Rect {
 	case .Rail:   return ui.prev_rect(ctx, "view bar")
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		b, _ := arrange_zone_bar(z)
-		if !bar_place_shown(k, b) do return {}
-		return ui.prev_rect(ctx, PLACE_BAR_ROOTS[b])
+		if !dock_shown(k, b) do return {}
+		return ui.prev_rect(ctx, DOCK_ROOTS[b])
 	}
 	return {}
 }
@@ -129,7 +129,7 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 	case .Rail:  return fmt.tprintf("Rail · %d", len(bar_used(app, .View_Rail)))
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		i := int(z) - int(Arrange_Zone.Dock_1)
-		return fmt.tprintf("%s · %d", USER_DOCK_NAMES[i], k.docks[i].list.count)
+		return fmt.tprintf("%s · %d", DOCK_TITLES[user_dock_id(i)], k.dock_lists[i].count)
 	}
 	return ARRANGE_ZONE_NAMES[z]
 }
@@ -138,9 +138,9 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 // place, its items being the person's.
 arrange_zone_resettable :: proc(k: ^Kit_State, z: Arrange_Zone) -> bool {
 	#partial switch z {
-	case .Offhand: return k.places[.Offhand].edge != .Default
+	case .Offhand: return k.docks[.Offhand].edge != .Default
 	// A dock's reset empties it, keeping its place and how its buttons show.
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return k.docks[int(z) - int(Arrange_Zone.Dock_1)].list.count > 0
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return k.dock_lists[int(z) - int(Arrange_Zone.Dock_1)].count > 0
 	}
 	return true
 }
@@ -152,7 +152,7 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	k := &app.kit
 	switch z {
 	case .Offhand:
-		k.places[.Offhand] = {}
+		k.docks[.Offhand].place = {}
 	case .Dial:
 		k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
 	case .Shelf:
@@ -161,17 +161,17 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
 		if k.shelf.page < SHELF_EXTRA_FIRST do k.shelf.names[k.shelf.page] = {}
 		k.tools = bar_fresh(.Tools)
-		k.places[.Shelf] = {}
+		k.docks[.Shelf].place = {}
 	case .Panels:
 		stack_default(k)
 	case .Rail:
 		bar_list_k(k, .View_Rail)^ = bar_fresh(.View_Rail)
-		k.places[.Rail] = {}
+		k.docks[.Rail] = {}
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		i := int(z) - int(Arrange_Zone.Dock_1)
-		k.docks[i].list = bar_fresh(user_dock_which(i))
+		k.dock_lists[i] = bar_fresh(user_dock_which(i))
 		k.arrange.resets += 1
-		report(app, nil, {}, "Emptied %s", USER_DOCK_NAMES[i])
+		report(app, nil, {}, "Emptied %s", DOCK_TITLES[user_dock_id(i)])
 		return
 	}
 	k.arrange.resets += 1
@@ -299,9 +299,9 @@ kit_arrange_lens :: proc(app: ^App) {
 }
 
 // Follows a press on bar `b`'s tag `a` (its outline `r`): past the slop it carries the
-// bar, and let go it puts the bar where it was dropped (bar_place_drop).
+// bar, and let go it puts the bar where it was dropped (dock_drop).
 @(private = "file")
-arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
+arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	k := &app.kit
 	ctx := &k.ctx
 	s := &k.arrange
@@ -323,7 +323,7 @@ arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
 	if s.carrying {
 		box := ui.Rect{s.carry_from.x + a.mouse.x - s.carry_press.x, s.carry_from.y + a.mouse.y - s.carry_press.y, s.carry_from.w, s.carry_from.h}
 		default_top := brush_bar_top(app) if b == .Offhand else TOP_BAR_H + 6
-		bar_place_set(app, b, bar_place_drop(app, b, box, a.mouse, default_top))
+		dock_place_set(app, b, dock_drop(app, b, box, a.mouse, default_top))
 		s.carries += 1
 	}
 	s.carry, s.carrying = nil, false
@@ -332,7 +332,7 @@ arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
 // While bar `b` is carried: the edges it may go on as strips down the window's sides (or
 // along its bottom for the shelf), the one the pointer is near lit.
 @(private = "file")
-arrange_drop_edges :: proc(app: ^App, b: Place_Bar) {
+arrange_drop_edges :: proc(app: ^App, b: Dock_Id) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -342,15 +342,15 @@ arrange_drop_edges :: proc(app: ^App, b: Place_Bar) {
 		lo, hi := shelf_across(app)
 		x0, x1 := area.x + lo, area.x + hi
 		if ctx.mirror do x0, x1 = area.x + area.w - hi, area.x + area.w - lo
-		near := m.y > area.y + area.h - PLACE_REACH
+		near := m.y > area.y + area.h - DOCK_REACH
 		ui.fill_rect(ctx, {x0, area.y + area.h - 8, x1 - x0, 6}, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
 		return
 	}
-	for edge in ([]Bar_Edge{.Left, .Right}) {
-		lo, hi := bar_place_room(app, edge)
+	for edge in ([]Dock_Edge{.Left, .Right}) {
+		lo, hi := dock_room(app, edge)
 		screen_left := (edge == .Left) != ctx.mirror
 		x := area.x + 4 if screen_left else area.x + area.w - 10
-		near := m.x < area.x + PLACE_REACH if screen_left else m.x > area.x + area.w - PLACE_REACH
+		near := m.x < area.x + DOCK_REACH if screen_left else m.x > area.x + area.w - DOCK_REACH
 		strip := ui.Rect{x, area.y + lo, 6, hi - lo}
 		ui.fill_rect(ctx, strip, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
 	}

@@ -561,8 +561,8 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	// A moved island keeps clear of the dial itself (bar_place_room).
-	if rail_shown(k) != .Left || k.places[.Offhand].edge != .Default do return t.edge
+	// A moved island keeps clear of the dial itself (dock_room).
+	if rail_shown(k) != .Left || k.docks[.Offhand].edge != .Default do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
 	// No brush bar (the workspace hides it), nothing to keep clear of.

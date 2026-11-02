@@ -17,9 +17,9 @@ summary.
   rings it amber and `kit_offer_line` takes the action bar's place; a dimmed command passes `command_reason` as `reason`;
   `kit_colour_island` sits under both while painting, lifting them by `colour_island_lift`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
   loses hits to it); its width budget counts the row's gaps (`things`, 14 with every section in). Each section is `chip_section_draw` (`Chip_Section`); one taken out stands as an island (`chip_islands.odin`, `k.islands`: a setting, not the layout's, since the bar holds the space tabs), and Arrange outlines every drawn section with an overlay `ui.area` in `arrange_chip_sections` whose drag carries it (dropped over `prev_root_rect("top bar")` it goes back; inside another root use `prev_root_rect`, as `prev_rect` hashes under the current id); `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
-  a compact shelf. Then `kit_view_chips` ("points", skipped while a pane is maximised: `view_chips=`), `kit_offhand` (the island, "brush bar": Size and Strength
-  `ui.vslider`s, long press = Pen section, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_view_rail`
-  ("view bar", `Bar_Which.View_Rail`), the shelf `kit_shelf` (`lens_shelf.odin`, "dock", pages row "dock pages"),
+  a compact shelf. Then `kit_view_chips` ("points", skipped while a pane is maximised: `view_chips=`), `kit_dock(app, .Offhand)` (the island, "brush bar": Size and Strength
+  `ui.vslider`s via `dock_slider`, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_dock(app, .Rail)`
+  ("view bar", `Bar_Which.View_Rail`), `kit_user_docks`, the shelf `kit_shelf` (`lens_shelf.odin`, "dock", pages row "dock pages"),
   the action bar, the picker `kit_brush_sheet` (`k.browser` at `.Dock`; at `.Bar`, with the shelf hidden, the
   browser `kit_brush_browser`), Search, the menu `kit_menu_lens`. The containers keep the old bars' names so
   `kit_left`/`kit_right`/`kit_card_place`/`side_panel_below`/`dock_stack`/`lens_free_area` and Arrange's zone tags
@@ -31,15 +31,21 @@ summary.
   `MIDDLE` is where the sphere's middle lands at 1600x900 (the gizmo's points follow it). Panels fade under a viewport
   stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from `kit_layout`; Tab is
   bound to it and B to the brush picker in `DEFAULT_BINDINGS`.
-  Places (`bar_place.odin`): the island, the rail and the shelf stand where `Kit_State.places[Place_Bar]` says (`Bar_Place`:
-  Default, Left/Right at `along` for the columns, Bottom at `along` for the shelf (`bar_place_edges`), Float at `at`, layout terms, a `bar_place` layout line). Default must draw as before
+  Docks (`docks.odin`): every bar round the view is a `Dock_Id` (Offhand, Rail, Shelf, Dock_1..4) with a `Dock` in
+  `Kit_State.docks` (the layout's: `place`, `more_lines`, `names`, `more_off`, `used`; one `dock` layout line each) and its
+  buttons in the bar list `dock_which` names. `kit_dock` draws all but the shelf the same way: lines of `bar_slot_button`s
+  (names via `dock_named`, labels `rail_label`), tall sliders for values whose look is Slider (demoted to chips when short),
+  a scroll body, the + while arranging and the ⋯ (`More##<root>`, `Bar_Pop_Kind.Dock_Menu`, `kit_dock_menu`). A new
+  per-dock choice goes on `Dock` and its menu, never a Settings row.
+  Places: each dock stands where `Kit_State.docks[d].place` says (`Dock_Place`:
+  Default, Left/Right at `along` for the columns, Bottom at `along` for the shelf (`dock_edges`), Float at `at`, layout terms). Default must draw as before
   (parity); anything that keeps clear of a side bar asks `kit_left`/`kit_right` (they measure the bars on each edge) and
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
-  (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge). Whatever keeps clear of the
+  (`arrange_carry_follow`, `dock_drop`, `dock_place_set` swaps two docks on one edge). Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
-  User docks (`user_docks.odin`): `Kit_State.docks[i]` is `Bar_Which.Dock_1 + i`'s list, `Place_Bar.Dock_1 + i`'s place and
-  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float,
-  never left at Default (`user_docks_settle`). Ask `user_dock_shown`, and from inside a container find a root with
+  User docks: `Kit_State.dock_lists[i]` is `Bar_Which.Dock_1 + i`'s list, `Dock_Id.Dock_1 + i` (`user_dock_id`) its dock and
+  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float
+  (a Default one floats in the middle, `dock_anchor`). Ask `user_dock_shown`, and from inside a container find a root with
   `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
   Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/

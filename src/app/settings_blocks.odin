@@ -230,11 +230,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
-		ui.paragraph(ctx, "Choose the buttons down the view rail, on each of the shelf's pages and in its tools after All: any command, in any order.")
-		ui.label(ctx, "Names on the view rail")
-		labels := [len(Rail_Labels)]string{"Off", "Wide windows", "Always"}
-		if picked := ui.tabs(ctx, "Rail labels", labels[:], int(k.rail_labels)); picked >= 0 do k.rail_labels = Rail_Labels(picked)
-		ui.paragraph(ctx, "The rail's buttons named beside their icons. Wide windows names them on a desktop's window, where the room is there, and keeps a tablet's rail to its icons.")
+		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar, on each of the shelf's pages and in its tools after All: any command, in any order.")
+		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
 	case .Top_Bar:
@@ -518,7 +515,6 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		bars_reset(k)
 		k.bars_edit = false
-		k.rail_labels = .Wide
 		k.shelf_palm = true
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:

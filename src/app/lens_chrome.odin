@@ -33,85 +33,6 @@ LENS_CHIP_H :: 32
 MINI_W :: 168
 MINI_H :: 200
 
-// The off-hand island: a bar of the brush's values and any command (Bar_Which.Offhand),
-// at first Size and Strength as tall sliders that a thumb drags without looking, each
-// moving its value by how far the drag goes. A long press (or a right-click) on a value
-// opens its menu (brush_values.odin). The pen held over Size or Strength without touching
-// and turned about its own length on purpose sets it too (island_roll,
-// ui.hover_roll). A window too short for every
-// slider shows the last ones as chips.
-kit_offhand :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	used := bar_used(app, .Offhand)
-	if len(used) == 0 && !k.bars_edit do return
-	sliders := 0
-	tall: f32 = 2 * 6
-	for s, i in used {
-		_, value := value_of(s)
-		switch {
-		case !value: tall += t.target
-		case bar_look(k, .Offhand, i) == .Slider: tall += OFFHAND_TRACK + 80; sliders += 1
-		case bar_look(k, .Offhand, i) == .Chip: tall += VALUE_CHIP.y
-		case: tall += t.target
-		}
-		tall += 6
-	}
-	area := ui.safe_area(ctx)
-	room := area.h - points_bottom(app) - t.edge - dock_stack(app) - 16
-	// Moved in Arrange, it stands where its place says, with the room there.
-	x, y := ui.Anchor.Start, ui.Anchor.Start
-	offset := [2]f32{LENS_EDGE, brush_bar_top(app)}
-	if k.places[.Offhand].edge != .Default {
-		bar, _ := ui.prev_layout(ctx, "brush bar")
-		x, y, offset, room = bar_place_anchor(app, .Offhand, bar)
-		room -= 8
-	}
-	for sliders > 0 && tall > room {
-		tall -= OFFHAND_TRACK + 80 - VALUE_CHIP.y
-		sliders -= 1
-	}
-	ui.begin_anchored(ctx, "brush bar", x, y, offset, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
-	k.island_sliders, k.island_frame = {}, k.frame
-	for s, i in used {
-		v, value := value_of(s)
-		switch {
-		case !value:
-			bar_slot_button(app, .Offhand, i, s)
-		case bar_look(k, .Offhand, i) == .Slider && sliders > 0 && !k.bars_edit:
-			offhand_slider(app, i, v)
-			k.island_sliders += {v}
-			sliders -= 1
-		case:
-			value_item(app, .Offhand, i, v)
-		}
-	}
-	if k.bars_edit do bar_add_button(app, .Offhand, len(used))
-	ui.end(ctx)
-}
-
-// Value `v` in slot `slot` of the island as a tall slider. Size and Strength keep the
-// names, keys and pen roll they always had.
-@(private = "file")
-offhand_slider :: proc(app: ^App, slot: int, v: Brush_Value) {
-	ctx := &app.kit.ctx
-	#partial switch v {
-	case .Size:
-		_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
-		if roll := island_roll(ctx); roll != 0 do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
-	case .Strength:
-		strength := brush_strength(app)
-		_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
-		if roll := island_roll(ctx); roll != 0 do strength^ = clamp(strength^ + roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
-	case:
-		lo, hi, scale := value_range(v)
-		x := value_get(app, v)
-		if ui.vslider(ctx, fmt.tprintf("%s##island %d", BRUSH_VALUE_NAMES[v], slot), &x, lo, hi, scale, value_short(app, v), keys = command_hint(app, .Brush_Value, int(v)), track = OFFHAND_TRACK) && value_enabled(app, v) do value_set(app, v, x)
-	}
-	if ui.secondary(ctx) do value_menu_open(app, .Offhand, slot, v, ctx.last_rect, bar_place_side(app, .Offhand))
-}
-
 // A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
 slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
 	return hint_join(keys, command_gesture(app, step))
@@ -124,14 +45,6 @@ slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
 ROLL_POINTS :: f32(ROLL_STRENGTH_FULL) / 180
 ROLL_SIZE_DOUBLE :: 150
 ROLL_STRENGTH_FULL :: 300
-
-// The degrees the pen's roll moves the slider just drawn this frame (ui.hover_roll), which
-// its value follows by these figures rather than the kit's sweep, which its sliders are
-// told to leave alone.
-@(private = "file")
-island_roll :: proc(ctx: ^ui.Context) -> f32 {
-	return ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id)
-}
 
 // A chip over the view: a see-through pill a touch target tall holding an optional
 // camera dot and icon, `text`, a dimmer `sub` and a chevron when it opens a menu. Lit
@@ -247,30 +160,7 @@ kit_view_chips :: proc(app: ^App) {
 // the island's buttons.
 VIEW_ISLAND_HEAD :: 46
 
-// When the view rail names its buttons beside their icons (Settings > Interface > Bars).
-Rail_Labels :: enum u8 {
-	Off,
-	Wide, // while the window is at least RAIL_LABELS_WIDE wide
-	Always,
-}
-
-// How wide a window is, in points, before Wide names the rail's buttons: a large desktop
-// display's (1920 at 100%, 2560 at 150%), wider than any tablet held either way, where the
-// room is there for the names without taking it from the view.
-RAIL_LABELS_WIDE :: 1700
-
-// Whether the view rail names its buttons now.
-rail_labelled :: proc(app: ^App) -> bool {
-	k := &app.kit
-	switch k.rail_labels {
-	case .Off:    return false
-	case .Always: return true
-	case .Wide:   return ui.safe_area(&k.ctx).w >= RAIL_LABELS_WIDE
-	}
-	return false
-}
-
-// A rail button's name beside its icon: one short word where the command's name is long.
+// A dock button's name beside its icon: one short word where the command's name is long.
 rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Inspector:        return "Main"
@@ -280,47 +170,6 @@ rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	case .Thumbnail:        return "Mini view"
 	}
 	return bar_label(app, s)
-}
-
-// The view rail down the pen side, under the top bar: the rail's slots the user arranges
-// (bars.odin; at first Main and three cards), each palette docking in the panel stack's
-// column (rail_dock.odin) and any other command opening what it opens beside the rail. A rail taller than the room down to the window's edge scrolls.
-// Labelled, every button is as wide as the longest name needs.
-kit_view_rail :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	owner := ui.id_of(ctx, "view bar")
-	top: f32 = TOP_BAR_H + 6
-	area := ui.safe_area(ctx)
-	room := area.y + area.h - t.edge - top - t.target - 12
-	// Moved in Arrange, it stands where its place says, with the room there.
-	x, y := ui.Anchor.End, ui.Anchor.Start
-	offset := [2]f32{BAR_EDGE + 6, top}
-	if k.places[.Rail].edge != .Default {
-		bar, _ := ui.prev_layout(ctx, "view bar")
-		x, y, offset, room = bar_place_anchor(app, .Rail, bar)
-		room -= t.target + 12
-	}
-	used := bar_used(app, .View_Rail)
-	width := t.target
-	if rail_labelled(app) {
-		longest: f32 = 0
-		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(app, s), t.small_size))
-		width = t.target + longest + 10
-	}
-	ui.begin_anchored(ctx, "view bar", x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
-	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
-	for s, i in used {
-		if s.id == .Rail_Group do rail_group_button(app, i, s, rail_label(app, s), width)
-		else do bar_slot_button(app, .View_Rail, i, s, named = rail_label(app, s), width = width)
-		k.rail_group_at[i] = ctx.last_rect
-	}
-	// Arrange adds any command; otherwise the + opens the Panels picker (rail_panels.odin).
-	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
-	else do rail_panels_button(app, width)
-	kit_scroll_end(ctx, scroll)
-	ui.end(ctx)
 }
 
 // How far in from the pen side's edge the navigation head stands in Lens: left of whatever
@@ -343,8 +192,8 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 	take(ui.prev_rect(ctx, "view bar"), area, mid, near_top, ctx.mirror, &reach)
 	// The island too, and the person's docks, where Arrange put them at the top of the pen
 	// side.
-	if k.places[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
-	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, PLACE_BAR_ROOTS[user_dock_place(i)]), area, mid, near_top, ctx.mirror, &reach)
+	if k.docks[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
+	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, DOCK_ROOTS[user_dock_id(i)]), area, mid, near_top, ctx.mirror, &reach)
 	for c in k.panels.rect do take(c, area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
 	return reach
