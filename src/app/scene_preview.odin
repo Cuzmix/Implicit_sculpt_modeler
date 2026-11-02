@@ -9,7 +9,7 @@ import "../png_write"
 import "../render"
 
 // The scene file's preview: a small picture of the viewport and a few numbers stored
-// right after the file's version (scene version 22), as Blender keeps a thumbnail inside
+// right after the file's version, as Blender keeps a thumbnail inside
 // each .blend, so the Home screen can show a saved scene, and say when it was saved and
 // how big it is, by reading only the start of the file, never the whole scene.
 //
@@ -49,7 +49,7 @@ Scene_Preview :: struct {
 // What a saved scene's start says about it (scene_preview_read).
 Scene_File_Info :: struct {
 	version:  u32,
-	saved:    i64, // unix seconds when it was written; 0 for a file from before version 22
+	saved:    i64, // unix seconds when it was written; 0 when not known
 	objects:  int,
 	vertices: int,
 	w, h:     int, // the picture's size, 0 for none
@@ -152,7 +152,7 @@ preview_shrink :: proc(pixels: []u8, w, h, long: int, allocator := context.alloc
 	return
 }
 
-// Writes the preview block a scene file of version 22 keeps after its version: its
+// Writes the preview block a scene file keeps after its version: its
 // length, then when, how many objects and vertices, the picture's size and the PNG.
 preview_block_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	p := &app.preview
@@ -191,8 +191,7 @@ scene_preview_read :: proc(path: string, allocator := context.allocator) -> (inf
 	if got < len(SCENE_MAGIC) + 4 || string(head[:len(SCENE_MAGIC)]) != SCENE_MAGIC do return
 	r := geom.byte_reader(head[len(SCENE_MAGIC):got])
 	info.version = geom.byte_get(&r, u32)
-	if info.version < 1 || info.version > SCENE_VERSION do return
-	if info.version < 22 do return info, nil, true
+	if info.version != SCENE_VERSION do return
 	n := int(geom.byte_get(&r, u32))
 	if !r.ok || n < PREVIEW_HEAD || n > PREVIEW_BLOCK_MAX do return
 	block := make([]u8, n, context.temp_allocator)

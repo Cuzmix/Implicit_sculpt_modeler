@@ -237,24 +237,7 @@ replay_shortcut :: proc(app: ^App) {
 // (alpha, tilt, dynamic topology detail) comes from the brush as set when the file is
 // loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
-// 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
-// spread and seed after its cloth mode; 5: its Line and Join switches after those; 6: its
-// Lock plane and Connected switches after those; 7: its focal shift after those; 8: the
-// stroke's strength scale (Touch strength) after that; 9: local symmetry, radial symmetry
-// on, its copies and its axis after that; 10: the paint channel after those; 11: Grab's
-// All depth and Smooth's Smooth only after that; 12: each brush's spacing and colour
-// spray after those; 13: each frame's pen roll after its pen tilt; 14: each brush's Smooth
-// blurs, Invert erases switch after its colour spray; 15: its smoothing, pressure
-// smoothing and catch up after that; 16: its Even strength, Scene spacing and symmetry
-// Feather after those; 17: Alt in a frame's flags, and each brush's Grab mode, Same side
-// and Silhouette, then Normal weight, after those; 18: its Grab Topological after its
-// Normal weight; 19: its Elastic Volume after that; 20: its Snake hook Pinch, Rake and
-// Elastic tip after that; 21: its size's pressure curve after those; 22: its smallest
-// size under pressure after that; 23: Smooth's Stable after that; 24: its mode after
-// that; 25: its Stabilize orientation, Sample radius and Accumulate off after that; 26:
-// its falloff's Hardness and shape after those; 27: its No back and forth, Directional,
-// Size fixed in the scene and the world size of a pixel after those; 28: Clay strips' tip,
-// Trim dynamic's angle and switch and Flatten's plane height and depth after those.
+// The only version read: a change replaces the reader (AGENTS.md).
 STROKES_VERSION :: u32(30)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
@@ -377,9 +360,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 	r := geom.byte_reader(data)
 	if len(data) < len(STROKES_MAGIC) || string(data[:len(STROKES_MAGIC)]) != STROKES_MAGIC do return false
 	r.at = len(STROKES_MAGIC)
-	// Older files are read too: version 1 has no roll.
-	version := geom.byte_get(&r, u32)
-	if version < 1 || version > STROKES_VERSION do return false
+	if geom.byte_get(&r, u32) != STROKES_VERSION do return false
 	brushes := int(geom.byte_get(&r, u32))
 	if !r.ok || brushes < 1 || brushes > len(data) do return false
 	finite :: proc(xs: ..f32) -> bool {
@@ -407,128 +388,42 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		symmetry := geom.byte_get(&r, u8)
 		color := geom.byte_get(&r, [3]f32)
 		cloth := geom.byte_get(&r, u8)
-		// Before version 4 a stroke has the spread as set now and seed 0: those files were
-		// drawn before Spray, so neither changes how they replay.
-		spread, seed := b.spray_spread, u64(0)
-		if version >= 4 {
-			spread = geom.byte_get(&r, f32)
-			seed = geom.byte_get(&r, u64)
-		}
-		// Before version 5 neither switch existed, so both were off.
-		line, join: u8
-		if version >= 5 {
-			line = geom.byte_get(&r, u8)
-			join = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 6, these two.
-		lock_plane, connected: u8
-		if version >= 6 {
-			lock_plane = geom.byte_get(&r, u8)
-			connected = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 7, a focal shift.
-		focal: f32
-		if version >= 7 do focal = geom.byte_get(&r, f32)
-		// Nor, before version 8, a strength scale: every stroke was at full strength.
-		scale := f32(1)
-		if version >= 8 do scale = geom.byte_get(&r, f32)
-		// Nor, before version 9, local or radial symmetry.
-		radial := [4]u8{0, 0, RADIAL_DEFAULT, u8(sculpt.Axis.Y)}
-		if version >= 9 do radial = geom.byte_get(&r, [4]u8)
-		// Nor, before version 10, a paint channel: the brushes only sculpted.
-		channel: u8
-		if version >= 10 do channel = geom.byte_get(&r, u8)
-		// Nor, before version 11, All depth or Smooth only: Grab's reach was round and
-		// Smooth worked on everything.
-		reach: [2]u8
-		if version >= 11 do reach = geom.byte_get(&r, [2]u8)
-		// Nor, before version 12, a spacing or colour spray: dabs were SPACING_REFERENCE apart
-		// and every one painted the brush's colour.
-		spaced := [2]f32{SPACING_REFERENCE, 0}
-		if version >= 12 do spaced = geom.byte_get(&r, [2]f32)
-		// Nor, before version 14, the paint dial: Smooth smoothed and Invert dug whatever
-		// the brush painted.
-		dial: u8
-		if version >= 14 do dial = geom.byte_get(&r, u8)
-		// Nor, before version 15, the stabiliser: the brush followed the pointer as it
-		// came and stopped where it had got to at the lift.
-		steady := [2]f32{1, 1}
-		catch_up: u8
-		if version >= 15 {
-			steady = geom.byte_get(&r, [2]f32)
-			catch_up = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 16, Even strength, Scene spacing or feathering: every dab had
-		// the brush's strength and the spacing was on screen.
-		evened: [3]u8
-		if version >= 16 do evened = geom.byte_get(&r, [3]u8)
-		// Nor, before version 17, Grab's modes: it dragged as the pointer went.
-		grabbing: [3]u8
-		normal_weight: f32
-		if version >= 17 {
-			grabbing = geom.byte_get(&r, [3]u8)
-			normal_weight = geom.byte_get(&r, f32)
-		}
-		// Nor, before version 18, Topological: Grab weighed by straight distance.
-		topological: u8
-		if version >= 18 do topological = geom.byte_get(&r, u8)
-		// Nor, before version 19, Elastic (or its Volume).
-		volume: f32 = ELASTIC_VOLUME_DEFAULT
-		if version >= 19 do volume = geom.byte_get(&r, f32)
-		// Nor, before version 20, Snake hook's Pinch, Rake or Elastic tip.
-		hooked: [2]f32
-		hook_elastic: u8
-		if version >= 20 {
-			hooked = geom.byte_get(&r, [2]f32)
-			hook_elastic = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 21, a pressure curve for the size: it took the strength's.
-		pressure_size_curve := pressure_curve
-		if version >= 21 do pressure_size_curve = geom.byte_get(&r, geom.Curve)
-		// Nor, before version 22, a smallest size: pressure shrank it to MIN_PRESSURE_SIZE.
-		size_floor: f32
-		if version >= 22 do size_floor = geom.byte_get(&r, f32)
-		// Nor, before version 23, Stable: Smooth took the same passes at any density.
-		stable: u8
-		if version >= 23 do stable = geom.byte_get(&r, u8)
-		// Nor, before version 24, Relax or Polish.
-		smooth_mode: u8
-		if version >= 24 do smooth_mode = geom.byte_get(&r, u8)
-		// Nor, before version 25, the Samples section: each dab sampled the whole radius
-		// afresh and every stroke built up.
-		sampled := [2]f32{0, 1}
-		one_pass: u8
-		if version >= 25 {
-			sampled = geom.byte_get(&r, [2]f32)
-			one_pass = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 26, a Hardness or a Projected falloff.
-		hardness: f32
-		projected: u8
-		if version >= 26 {
-			hardness = geom.byte_get(&r, f32)
-			projected = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 27, the stroke's ways or a size fixed in the scene.
-		ways: [3]u8
-		size_ref: f32
-		if version >= 27 {
-			ways = geom.byte_get(&r, [3]u8)
-			size_ref = geom.byte_get(&r, f32)
-		}
-		// Nor, before version 28, Clay strips, Trim dynamic or Flatten's reach: those take
-		// a fresh brush's.
+		spread := geom.byte_get(&r, f32)
+		seed := geom.byte_get(&r, u64)
+		line := geom.byte_get(&r, u8)
+		join := geom.byte_get(&r, u8)
+		lock_plane := geom.byte_get(&r, u8)
+		connected := geom.byte_get(&r, u8)
+		focal := geom.byte_get(&r, f32)
+		scale := geom.byte_get(&r, f32)
+		radial := geom.byte_get(&r, [4]u8)
+		channel := geom.byte_get(&r, u8)
+		reach := geom.byte_get(&r, [2]u8)
+		spaced := geom.byte_get(&r, [2]f32)
+		dial := geom.byte_get(&r, u8)
+		steady := geom.byte_get(&r, [2]f32)
+		catch_up := geom.byte_get(&r, u8)
+		evened := geom.byte_get(&r, [3]u8)
+		grabbing := geom.byte_get(&r, [3]u8)
+		normal_weight := geom.byte_get(&r, f32)
+		topological := geom.byte_get(&r, u8)
+		volume := geom.byte_get(&r, f32)
+		hooked := geom.byte_get(&r, [2]f32)
+		hook_elastic := geom.byte_get(&r, u8)
+		pressure_size_curve := geom.byte_get(&r, geom.Curve)
+		size_floor := geom.byte_get(&r, f32)
+		stable := geom.byte_get(&r, u8)
+		smooth_mode := geom.byte_get(&r, u8)
+		sampled := geom.byte_get(&r, [2]f32)
+		one_pass := geom.byte_get(&r, u8)
+		hardness := geom.byte_get(&r, f32)
+		projected := geom.byte_get(&r, u8)
+		ways := geom.byte_get(&r, [3]u8)
+		size_ref := geom.byte_get(&r, f32)
 		// A tip scale of 0 is a whole one, as sculpt.Brush reads it.
-		shaped := [5]f32{sculpt.CLAY_TIP_ROUNDNESS, 1, TRIM_ANGLE_DEFAULT_DEGREES, 1, 1}
-		trim_dynamic: u8 = 1
-		if version >= 28 {
-			shaped = geom.byte_get(&r, [5]f32)
-			trim_dynamic = geom.byte_get(&r, u8)
-		}
-		// Nor, before version 29, Past the outline: from version 17 Grab always took hold
-		// past the outline, and before it never.
-		outline := u8(1 if version >= 17 else 0)
-		if version >= 29 do outline = geom.byte_get(&r, u8)
+		shaped := geom.byte_get(&r, [5]f32)
+		trim_dynamic := geom.byte_get(&r, u8)
+		outline := geom.byte_get(&r, u8)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
@@ -571,12 +466,6 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.grab_topological = topological == 1
 		b.elastic_volume = volume
 		b.hook_pinch, b.hook_rake, b.hook_elastic = hooked[0], hooked[1], hook_elastic == 1
-		// Grab left Connected alone before version 11, so a Grab stroke recorded with it
-		// on replays as it was drawn.
-		if version < 11 && b.kind == .Grab do b.connected = false
-		// Before version 30 Grab and Elastic moved as far as the pointer whatever their
-		// Strength, so a stroke recorded then replays at the Strength that moves so.
-		if version < 30 && .Grab in BRUSHES[b.kind].flags do b.strengths[b.kind] = GRAB_STRENGTH_EXACT
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
 		append(&t.scales, scale)
@@ -587,24 +476,17 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		f: Take_Frame
 		c := &f.camera
 		c.target = geom.byte_get(&r, Vec3)
-		k: [7]f32
-		if version >= 2 {
-			k = geom.byte_get(&r, [7]f32)
-		} else {
-			old := geom.byte_get(&r, [6]f32)
-			copy(k[:], old[:])
-		}
+		k := geom.byte_get(&r, [7]f32)
 		c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll = k[0], k[1], k[2], k[3], k[4], k[5], k[6]
 		ortho := geom.byte_get(&r, u8)
 		f.size = geom.byte_get(&r, [2]f32)
 		f.mouse_pos = geom.byte_get(&r, [2]f32)
 		f.pen_tilt = geom.byte_get(&r, [2]f32)
-		// Before version 13 a frame kept no roll: the pen faced up.
-		if version >= 13 do f.pen_roll = geom.byte_get(&r, f32)
+		f.pen_roll = geom.byte_get(&r, f32)
 		f.brush = geom.byte_get(&r, u32)
 		flags := geom.byte_get(&r, u8)
 		count := geom.byte_get(&r, u32)
-		if !r.ok || ortho > 1 || flags > (31 if version >= 17 else 15 if version >= 3 else 7) || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
+		if !r.ok || ortho > 1 || flags > 31 || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
 		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll) do return false
 		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y, f.pen_roll) || abs(f.pen_roll) > 180 do return false
 		if c.distance <= 0 || c.fov_y <= 0 || c.fov_y >= math.PI || c.near <= 0 || c.far <= c.near || f.size.x < 1 || f.size.y < 1 do return false

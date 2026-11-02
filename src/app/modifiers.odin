@@ -219,18 +219,6 @@ dial_latches_keep :: proc(app: ^App) {
 	}
 }
 
-// Moves a dial read from a settings file before version 6, when there was one dial for
-// every space, onto each space's: the sectors that differ from Sculpt's defaults reach
-// Model too, and Render (where a modifier does nothing, as a press there turns the view)
-// the commands among them.
-dials_from_one :: proc(k: ^Kit_State) {
-	for sector, i in k.dials[.Sculpt] {
-		if sector == DIAL_DEFAULTS[.Sculpt][i] do continue
-		k.dials[.Model][i] = sector
-		if _, is_command := sector.(Bar_Slot); is_command do k.dials[.Render][i] = sector
-	}
-}
-
 // A sector as the settings file writes it: "modifier Smooth", or "command <name>".
 dial_sector_text :: proc(s: Dial_Sector) -> string {
 	switch v in s {

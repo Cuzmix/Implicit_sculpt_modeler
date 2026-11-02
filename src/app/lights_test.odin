@@ -272,9 +272,7 @@ the_light_sphere_picks_the_nearest_light :: proc(t: ^testing.T) {
 }
 
 // The settings file keeps every starting light, its kind, place and colour, how many
-// there are and the ambient light; a file from before the four lights keeps its key and
-// fill strengths, the fill's as the share of its full strength it was, and one from
-// before each light had its own space keeps lights fixed to the scene where they were.
+// there are and the ambient light.
 @(test)
 lights_are_remembered :: proc(t: ^testing.T) {
 	path := "build/lights_test.txt"
@@ -305,18 +303,6 @@ lights_are_remembered :: proc(t: ^testing.T) {
 	// The scene's own lights are not the settings'.
 	testing.expect_value(t, b.scene.lights, LIGHTS_DEFAULT)
 
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("light_key 1.5\nlight_fill 2\nlight3_on 1\nlight3_x 0\nlight3_y 0\nlight3_z 1\nlight_turn 90\nlights_fixed 1\n")) == nil)
-	c: App
-	defer results_destroy(&c)
-	lights_reset(&c)
-	settings_load(&c, path)
-	testing.expect_value(t, c.start_lights.lights[0].strength, 1.5)
-	testing.expectf(t, abs(c.start_lights.lights[1].strength - 2 * render.FILL_STRENGTH) < 1e-6, "fill %v", c.start_lights.lights[1].strength)
-	// Fixed then meant the set turned by Turn all in the scene's axes: a light toward the
-	// viewer turned a quarter to the right is toward +x in the scene.
-	l3 := c.start_lights.lights[2]
-	testing.expectf(t, l3.space == .Scene && near(l3.dir, {1, 0, 0}, 1e-5), "the old fixed light 3 is %v", l3)
-	testing.expect(t, c.env.fixed)
 	// Older scripts still set the first two lights' strengths by their old names, and
 	// scripts set the scene's lights, not the starting ones.
 	for key in ([2]string{"light_key", "light_fill"}) {
@@ -403,27 +389,6 @@ lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	damage(t, set, 5 + LIGHT_BYTES + 63 + 10, 'x') // a byte after its name's zero
 	damage(t, set, 5 + LIGHT_BYTES + 87, 0xff, 4) // its angle a NaN
 	damage(t, set, 5 + LIGHT_BYTES + 91, 0x7f, 4) // its radius far too big
-	// A file from before version 20 has neither, and reads as no temperature and no name.
-	clear(&out)
-	set.count = 2
-	lights_put(&out, set)
-	old: [dynamic]u8
-	defer delete(old)
-	append(&old, ..out[:5])
-	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 8 - 4 - LIGHT_NAME])
-	r = geom.byte_reader(old[:])
-	back, ok = lights_get(&r, LIGHTS_DEFAULT, 19)
-	testing.expect(t, ok && r.at == len(old))
-	testing.expect(t, back.lights[1].kelvin == 0 && back.lights[1].name == {} && back.lights[1].color == set.lights[1].color)
-	testing.expect(t, back.lights[1].angle == 0 && back.lights[1].radius == 0)
-	// One from version 20 has the temperature and name but no size, which reads as none.
-	clear(&old)
-	append(&old, ..out[:5])
-	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 8])
-	r = geom.byte_reader(old[:])
-	back, ok = lights_get(&r, LIGHTS_DEFAULT, 20)
-	testing.expect(t, ok && r.at == len(old))
-	testing.expect(t, back.lights[1].kelvin == 4100 && light_name(&back, 1) == "Rim ü" && back.lights[1].angle == 0 && back.lights[1].radius == 0)
 	// Cut short.
 	clear(&out)
 	lights_put(&out, set)

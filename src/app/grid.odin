@@ -708,29 +708,7 @@ grid_tree_read :: proc(words: []string) -> (t: Grid_Tree, ok: bool) {
 	return t, true
 }
 
-// The tree an old layout's `grid <preset> <x> <y>` line meant: the preset with its splits,
-// where three across's second was a share of the whole room.
-@(private = "file")
-grid_tree_of_old :: proc(preset: Grid_Preset, s: [2]f32) -> Grid_Tree {
-	t := grid_preset_tree(preset)
-	switch preset {
-	case .Single:
-	case .Side_By_Side:
-		t.nodes[0].share = s.x
-	case .Stacked:
-		t.nodes[0].share = s.y
-	case .One_Plus_Two:
-		t.nodes[0].share, t.nodes[2].share = s.x, s.y
-	case .Four:
-		t.nodes[0].share, t.nodes[1].share, t.nodes[4].share = s.y, s.x, s.x
-	case .Three_Across:
-		t.nodes[0].share = s.x
-		t.nodes[2].share = clamp((s.y - s.x) / max(1 - s.x, 1e-3), GRID_PANE_MIN, 1 - GRID_PANE_MIN)
-	}
-	return t
-}
-
-// Reads a layout's panes, grid or pane line's words; a word naming nothing leaves what it
+// Reads a layout's panes or pane line's words; a word naming nothing leaves what it
 // named.
 grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 	switch {
@@ -739,21 +717,6 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 		if !ok do return
 		g.tree, g.maximised = t, 0
 		g.views = grid_views_default(.Four)
-		g.serial += 1
-	case f[0] == "grid" && len(f) >= 2:
-		preset := Grid_Preset.Single
-		for p in Grid_Preset do if strings.equal_fold(fmt.tprint(p), f[1]) do preset = p
-		s := [2]f32{0.5, 0.5}
-		if preset == .One_Plus_Two do s.x = 0.6
-		if preset == .Three_Across do s = {1.0 / 3, 2.0 / 3}
-		if len(f) >= 4 {
-			x, okx := strconv.parse_int(f[2])
-			y, oky := strconv.parse_int(f[3])
-			if okx && oky && x > 0 && x < 1000 && y > 0 && y < 1000 do s = {clamp(f32(x) / 1000, 0.15, 0.85), clamp(f32(y) / 1000, 0.15, 0.85)}
-		}
-		g.tree, g.maximised = grid_tree_of_old(preset, s), 0
-		// Its panes start as the preset's partners; the pane lines after it say otherwise.
-		g.views = grid_views_default(preset)
 		g.serial += 1
 	case f[0] == "pane" && len(f) >= 4:
 		i, ok := strconv.parse_int(f[1])
@@ -766,29 +729,6 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 		v.shading = {}
 		if len(f) > 4 do shading_words_read(&v.shading, f[4:])
 	}
-}
-
-// A layout's text with an old `grid` line written as the tree it reads as, a `panes`
-// line; the rest as it was.
-grid_layout_upgrade :: proc(text: string) -> string {
-	if !strings.contains(text, "grid ") do return text
-	b := strings.builder_make(context.temp_allocator)
-	lines := strings.split_lines(text, context.temp_allocator)
-	for line, i in lines {
-		f := strings.fields(line, context.temp_allocator)
-		if len(f) > 0 && f[0] == "grid" {
-			g: View_Grid
-			grid_layout_read(&g, f)
-			if grid_panes(&g) > 1 {
-				strings.write_string(&b, "panes ")
-				grid_tree_write(&b, &g.tree)
-			}
-		} else {
-			strings.write_string(&b, line)
-		}
-		if i + 1 < len(lines) do strings.write_byte(&b, '\n')
-	}
-	return strings.to_string(b)
 }
 
 // Shows the grid in `preset` with its default splits; panes already shown keep their

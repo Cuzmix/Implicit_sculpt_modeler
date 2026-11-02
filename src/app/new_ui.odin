@@ -365,7 +365,6 @@ Kit_State :: struct {
 	rail_dock:        Rail_Dock,
 	rail_dock_scroll: f32,
 	rail_docks:       int,
-	rail_main_check:  bool,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.

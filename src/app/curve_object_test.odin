@@ -155,7 +155,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	_ = preview_block_skip(&r)
 	tag, chunk, ok := scene_chunk_next(&r)
 	testing.expect(t, ok && tag == CHUNK_SCENE)
-	f, fields_ok := scene_fields_get(&app, &chunk, SCENE_VERSION)
+	f, fields_ok := scene_fields_get(&app, &chunk)
 	scene_fields_destroy(&f)
 	testing.expect(t, fields_ok && f.count == 0 && f.curves == 2 && f.selected_any == 0)
 	// Not temporary: object_get frees the temporary allocator.
@@ -167,9 +167,9 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 		testing.expect_value(t, next, CHUNK_CURVE)
 		// A curve in an object's chunk is damage; in its own it reads back.
 		wrong := body
-		_, wrong_read, _ := object_get(&app, &wrong, SCENE_VERSION, nil, .Object_Chunk)
+		_, wrong_read, _ := object_get(&app, &wrong, nil, .Object_Chunk)
 		testing.expect(t, !wrong_read, "a curve read from an object chunk")
-		obj, read, made := object_get(&app, &body, SCENE_VERSION, nil, .Curve_Chunk)
+		obj, read, made := object_get(&app, &body, nil, .Curve_Chunk)
 		testing.expect(t, read && made, "a curve chunk did not read")
 		if obj != nil do append(&got, obj)
 	}
@@ -261,9 +261,8 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	check(t, nan, false, "not a number")
 }
 
-// A curve's tube and lathe options come back as written; a curve from before them (no
-// block after its points, or only the tube's) takes the defaults, and options no version
-// wrote are damage.
+// A curve's tube, lathe and Along options come back as written; a curve whose options are
+// cut short, or hold values no version wrote, is damage.
 @(test)
 curve_tube_options_read_back :: proc(t: ^testing.T) {
 	cp := Curve_Part{closed = true, look = CURVE_LOOK_DEFAULTS}
@@ -288,12 +287,10 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	}
 	got, ok := read(bytes[:])
 	testing.expect(t, ok && got == cp.look, "options did not come back")
-	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES])
-	testing.expect(t, ok && got.tube == geom.TUBE_DEFAULTS && got.lathe == geom.LATHE_DEFAULTS, "a curve without options did not take the defaults")
-	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES])
-	testing.expect(t, ok && got.tube == cp.tube && got.lathe == geom.LATHE_DEFAULTS, "a curve with only tube options did not take the lathe's defaults")
-	got, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES])
-	testing.expect(t, ok && got.lathe == cp.lathe && got.along == CURVE_LOOK_DEFAULTS.along, "a curve from before Along did not take its defaults")
+	for cut in ([3]int{0, CURVE_TUBE_BYTES, CURVE_TUBE_BYTES + CURVE_LATHE_BYTES}) {
+		_, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + cut])
+		testing.expectf(t, !ok, "a curve cut after %d bytes of options was read", cut)
+	}
 	part := make([]u8, len(bytes), context.temp_allocator)
 	copy(part, bytes[:])
 	part[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES] = 7

@@ -234,7 +234,7 @@ material_saved_drop :: proc(app: ^App) {
 }
 
 // Gives each object that has no material yet (made this frame, or read from a scene
-// older than version 13) the default, so it keeps it when the default changes.
+// with none named) the default, so it keeps it when the default changes.
 materials_settle :: proc(app: ^App) {
 	for obj in app.scene.objects {
 		if obj.material.label != nil do continue
@@ -245,7 +245,7 @@ materials_settle :: proc(app: ^App) {
 
 // The scene file's form of a material (object_put): its label ("" for none yet, which
 // reads back as none), colours, classic shading, metallic, roughness and matcap, then
-// (version 16) what of it is a content pack's, by name: the material as `<id>/<name>`
+// what of it is a content pack's, by name: the material as `<id>/<name>`
 // and the matcap as `<id>/<stem>`, each "" for none (material_refs). A pack's matcap
 // goes as 0, so a scene opened where the pack is not installed shows the lights.
 material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
@@ -259,13 +259,13 @@ material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
 	geom.byte_put_string(out, refs.matcap)
 }
 
-// Reads what material_put writes (in a scene file of `version`); r.ok goes false on values
+// Reads what material_put writes; r.ok goes false on values
 // no material has. A preset's name takes the preset's own label and any other name
 // becomes Custom, so the label never points into the file's bytes. A content pack's
 // material or matcap is looked up in `app`'s library; one whose pack is not installed
 // (or with no app) leaves a Custom material with the same colours and the lights, and
 // counts in `missing`.
-material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, version := SCENE_VERSION, missing: ^int = nil) -> (m: Material) {
+material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, missing: ^int = nil) -> (m: Material) {
 	name := geom.byte_get_string(r)
 	defer delete(name)
 	m.selected.rgb = geom.byte_get(r, [3]f32)
@@ -275,10 +275,7 @@ material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, version := SCENE_VER
 	surface := geom.byte_get(r, [2]f32)
 	m.metallic, m.roughness = surface[0], surface[1]
 	m.matcap = int(geom.byte_get(r, i32))
-	refs: Material_Refs
-	if version >= 16 {
-		refs = {geom.byte_get_string(r), geom.byte_get_string(r)}
-	}
+	refs := Material_Refs{geom.byte_get_string(r), geom.byte_get_string(r)}
 	defer delete(refs.material)
 	defer delete(refs.matcap)
 	unit :: proc(v: f32) -> bool {return v >= 0 && v <= 1}

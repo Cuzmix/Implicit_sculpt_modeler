@@ -56,17 +56,3 @@ render_is_the_looks_cards :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(studio, "pinned"), studio)
 }
 
-// A workspace saved while the stack had its Palettes card reads as unchanged: the built-in
-// layouts as an older build wrote them are written again as this one writes them.
-@(test)
-an_old_layout_with_palettes_reads_unmodified :: proc(t: ^testing.T) {
-	defer free_all(context.temp_allocator)
-	model := "open Inspector\nstack Brush+ Layers Scene Symmetry -Tools Palettes\nbars\n"
-	render := "thumbnail Follow Render\nopen Inspector Thumbnail\nwindow Thumbnail 1 End End 390 112 0\nstack Lights+ Material+ Environment -Brush -Symmetry -Layers -Scene -Tools Palettes\nbars\n"
-	testing.expect_value(t, stack_layout_upgrade(model), built_in_layout(.Model))
-	testing.expect_value(t, stack_layout_upgrade(render), built_in_layout(.Render))
-	// Text that names no Palettes card is left as it is.
-	sculpt := built_in_layout(.Sculpt)
-	testing.expect_value(t, stack_layout_upgrade(sculpt), sculpt)
-	testing.expect(t, strings.contains(stack_layout_upgrade("open Inspector\nstack_size default Palettes=200\n"), "stack_size") == false)
-}

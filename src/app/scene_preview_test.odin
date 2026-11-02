@@ -30,7 +30,7 @@ preview_shrink_averages_what_each_pixel_covers :: proc(t: ^testing.T) {
 
 // A scene's start carries its preview block, which the Home screen reads alone: the
 // numbers and the picture's bytes as written; opening steps over it; a length past the
-// file or the limit is damage; a file from before version 22 has none.
+// file or the limit is damage; another version is not read.
 @(test)
 preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 	path := "build/preview_test.sculpt"
@@ -79,14 +79,14 @@ preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 	info, png, ok = scene_preview_read(path)
 	testing.expect(t, ok && png == nil && info.w == 0 && info.saved > 0)
 
-	// Version 21: no block, read as no picture and no numbers.
+	// Another version is not a scene this app reads.
 	clear(&out)
 	append(&out, SCENE_MAGIC)
 	geom.byte_put(&out, u32(21))
 	geom.byte_put(&out, u32(1))
 	testing.expect(t, os.write_entire_file(path, out[:]) == nil)
-	info, png, ok = scene_preview_read(path)
-	testing.expect(t, ok && png == nil && info.version == 21 && info.saved == 0)
+	_, _, ok = scene_preview_read(path)
+	testing.expect(t, !ok)
 	// Not a scene.
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("hello there, not a scene")) == nil)
 	_, _, ok = scene_preview_read(path)
