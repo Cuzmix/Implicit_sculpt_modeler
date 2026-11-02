@@ -12,7 +12,7 @@ import "../ui"
 // panel_body alike, so the two never drift apart.
 
 // The palette that draws tray section `sec` as the tray did: Layers, Material, Lights
-// and Environment their cards, so each has one
+// and Environment their cards, Objects and Add object the Scene card, so each has one
 // interface wherever it opens; false for the Stats panel's sections, which no palette
 // shows.
 panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
@@ -21,6 +21,7 @@ panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
 	case .Layers:      return .Layers, true
 	case .Material:    return .Material, true
 	case .Lights:      return .Lights, true
+	case .Objects, .Add: return .Scene, true
 	case .Environment: return .Environment, true
 	}
 	return PANEL_OF_SECTION[sec], true
@@ -41,9 +42,9 @@ panel_is_section :: proc(p: Panel_Kind) -> bool {
 // The section palettes that became their cards, one interface for one thing: Panel_Kind
 // keeps their cases (never reordered), but nothing opens them, and a saved line naming one
 // (`section:Layers`) reads as the card (panel_kind_from_name).
-RETIRED_PANELS :: bit_set[Panel_Kind]{.Layer_Settings, .Material_Settings, .Light_Settings}
+RETIRED_PANELS :: bit_set[Panel_Kind]{.Layer_Settings, .Material_Settings, .Light_Settings, .Objects, .Add}
 // The cards that are a tray section too, drawn wherever that section opens.
-CARDS_AS_SECTIONS :: bit_set[Panel_Kind]{.Layers, .Material, .Lights, .Environment}
+CARDS_AS_SECTIONS :: bit_set[Panel_Kind]{.Layers, .Scene, .Material, .Lights, .Environment}
 
 // The two directions of panel_of_section, as tables: the sections keep their order in
 // both enums, so these only spell it out.
@@ -113,11 +114,6 @@ panel_body :: proc(app: ^App, kind: Panel_Kind, inner: f32) {
 		return
 	}
 	for s in OBJECT_SECTIONS do if s.section == sec do k.object_page = s.page
-	// The Objects tree is the Scene palette's first section, in no section table.
-	if sec == .Objects {
-		kit_scene_objects(app)
-		return
-	}
 	ctx := &app.kit.ctx
 	_, draw, obj_draw, found := bar_section(app, sec)
 	obj := selected_object(app)

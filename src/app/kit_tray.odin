@@ -119,7 +119,6 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Voxel_Res_Down        = .Voxels,
 	.Duplicate_Object      = .Objects,
 	.Delete_Object         = .Objects,
-	.Add_Object            = .Add,
 	.Studio_Render         = .Render,
 	.Live_Occlusion        = .Look,
 	.Render_Mode           = .Render,

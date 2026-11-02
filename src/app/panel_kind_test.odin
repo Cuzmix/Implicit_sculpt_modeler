@@ -44,7 +44,8 @@ panel_of_section_is_one_to_one :: proc(t: ^testing.T) {
 	for s in Kit_Section do if int(s) < TRAY_SECTIONS {
 		p, ok := panel_of_section(s)
 		testing.expect(t, ok, "every tray section has a palette")
-		testing.expect(t, p not_in hit, "no two sections share a palette")
+		// Objects and Add object share the Scene card; no two sections share a palette.
+		if p not_in CARDS_AS_SECTIONS do testing.expect(t, p not_in hit, "no two sections share a palette")
 		hit += {p}
 		if back, is := panel_section(p); is do testing.expect_value(t, back, s)
 		else do testing.expect(t, p in CARDS_AS_SECTIONS)

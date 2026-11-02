@@ -6830,8 +6830,8 @@ def long_press(s, x, y=None, finger=0, frames=LONG_PRESS_FRAMES):
 
 INSPECTOR_BUTTON = UI["inspector"]
 FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 228), (1452, 228)  # the Move tool's palette, above the gizmo's settings
-# The first object's row in the tray's Scene palette (scene_tab opens it).
-SCENE_ROW = on_card((1376, 236), "objects")
+# The first object's row on the Scene card (scene_tab opens it): its name.
+SCENE_ROW = (1300, 204)
 
 
 @scenario
@@ -6883,12 +6883,12 @@ def long_press_a_scene_row_opens_its_menu():
     return s, palettes_only("objects"), camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
 
 
-# The Scene tab's rows with three spheres (--spheres=3), each a touch target tall: the
-# eye at a row's right end, its ghost just before it (scene_tree.odin, ui.tree_row), and
+# The Scene card's rows with three spheres (--spheres=3), 54 points apart: a row's name,
+# its eye after the name (then its lock and its ⋯; lens_scene.odin, ui.thumb_row), and
 # where each sphere shows in the starting view.
 THREE = ["--spheres=3", "--vertices=20000"]
-SCENE_ROWS_Y = [y + SECTION_DY["objects"] for y in (236, 290, 344)]
-SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1500, 1453, 1346
+SCENE_ROWS_Y = [204, 258, 312]
+SCENE_EYE_X, SCENE_ROW_X, SCENE_MENU_X = 1400, 1300, 1496
 SPHERES3 = [(477, 397), (647, 437), (853, 485)]
 
 
@@ -7136,7 +7136,10 @@ def scene_ghost_lets_a_click_through():
     """A ghost is drawn but out of reach: ghosting the selected sphere hands the selection on, and a Move click on the ghost goes through to the empty space behind, which selects nothing; on a solid sphere the same click selects it."""
     ghost = Script()
     scene_tab(ghost)
-    ghost.ftap(SCENE_GHOST_X, SCENE_ROWS_Y[0])
+    # The first row's ⋯, then Make a ghost in its menu.
+    ghost.ftap(SCENE_MENU_X, SCENE_ROWS_Y[0])
+    ghost.wait(6)
+    ghost.ftap(At("Make a ghost", 1400, 500))
     ghost.wait(6)
     ghost.press("w")
     click(ghost, SPHERES3[0])
@@ -7214,12 +7217,14 @@ def undo_keeps_an_object_hidden():
     return s, scene_args(), {"objects_off": near(1), "objects_shown": near(2), "undo_steps": near(0), "redo_steps": near(1)}
 
 
-# A folder's row with three spheres after Ctrl+G on the first: its chevron at the left,
-# and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
-FOLDER_CHEVRON = on_card((1260, 236), "objects")
-FOLDER_MENU_AT = on_card((1366, 236), "objects")
-FOLDER_MENU = {k: on_card(v, "objects") for k, v in {"rename": (1376, 264), "select": (1376, 308), "ungroup": (1376, 353), "show_paint": (1376, 397),
-                                                     "hide_paint": (1376, 442), "delete": (1376, 486)}.items()}
+# The Scene card's rows with three spheres after Ctrl+G on the first: Folder 1's taller
+# row, then the spheres' (the first inside it); the folder's eye at its right end and its
+# chevron before it, where a right-click opens its menu, and that menu's items by name.
+FOLDER_ROWS_Y = [210, 270, 324, 378]
+FOLDER_EYE_X = 1496
+FOLDER_CHEVRON = (1448, 210)
+FOLDER_MENU_AT = (1300, 210)
+FOLDER_MENU = {"select": At("Select its objects", 1400, 300), "delete": At("Delete folder and its objects", 1400, 480)}
 
 
 def folder_first(s):
@@ -7258,7 +7263,7 @@ def folder_eye_hides_everything_in_it():
     """A folder's eye takes every object in it out of view, and the selection moves on to one still in view."""
     s = Script()
     folder_first(s)
-    s.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    s.ftap(FOLDER_EYE_X, FOLDER_ROWS_Y[0])
     s.wait(6)
     return s, scene_args(), {"objects_off": near(1), "objects_shown": near(2), "selected": near(1), "undo_steps": near(1)}
 
@@ -7327,7 +7332,7 @@ def folders_come_back_from_the_scene_file():
     folder_first(save)
     save.ftap(FOLDER_CHEVRON)
     save.wait(4)
-    save.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    save.ftap(FOLDER_EYE_X, FOLDER_ROWS_Y[0])
     save.wait(6)
     opened = Script()
     opened.wait(4)
@@ -7348,7 +7353,7 @@ def ctrl_g_twice_nests_a_folder():
     folder_first(hide)
     hide.press("g", ["ctrl"])
     hide.wait(6)
-    hide.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    hide.ftap(FOLDER_EYE_X, FOLDER_ROWS_Y[0])
     hide.wait(6)
     return Steps([
         (nest, scene_args(), {"folders": near(2), "scene_folders": is_text("2,0,0"), "folder_parents": is_text("1:0,2:1"), "tree_rows": near(5), "undo_steps": near(2)}),
@@ -7362,19 +7367,17 @@ def folder_drags_into_another_folder():
     s = Script()
     folder_first(s)
     # Sphere 2 (the second row under Folder 1's) in a folder of its own: Folder 2.
-    s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[2])
+    s.ftap(SCENE_ROW_X, FOLDER_ROWS_Y[2])
     s.wait(4)
     s.press("g", ["ctrl"])
     s.wait(6)
-    # Rows: Folder 1, Sphere 1, Folder 2, Sphere 2, Sphere 3. Folder 2's grip (after its
-    # chevron) onto the middle of Folder 1's row.
-    s.mouse_drag(line((FOLDER_GRIP_X, SCENE_ROWS_Y[2]), (FOLDER_GRIP_X, SCENE_ROWS_Y[0]), 10))
+    # Rows: Folder 1, Sphere 1, Folder 2 (as tall as Folder 1's), Sphere 2, Sphere 3.
+    # Folder 2's row dragged by its name onto the middle of Folder 1's.
+    s.mouse_drag(line((SCENE_ROW_X, 330), (SCENE_ROW_X, FOLDER_ROWS_Y[0]), 10))
     s.wait(6)
     return s, scene_args(), {"folders": near(2), "folder_parents": is_text("1:0,2:1"), "scene_order": is_text("1,2,3"), "scene_folders": is_text("1,2,0"), "undo_steps": near(3)}
 
 
-SCENE_GRIP_X = 1254  # an object row's grip, outside folders
-FOLDER_GRIP_X = 1290  # a folder row's grip, after its chevron, outside folders
 
 
 @scenario
@@ -7382,11 +7385,11 @@ def grip_drag_moves_a_row_and_undo_puts_it_back():
     """A mouse drag on the third row's grip up above the first moves that object to the top of the list as one undo step, keeping the selection on the same object; Ctrl+Z puts it back."""
     drag = Script()
     scene_tab(drag)
-    drag.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0] - 22), 8))
+    drag.mouse_drag(line((SCENE_ROW_X, SCENE_ROWS_Y[2]), (SCENE_ROW_X, SCENE_ROWS_Y[0] - 22), 8))
     drag.wait(4)
     back = Script()
     scene_tab(back)
-    back.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0] - 22), 8))
+    back.mouse_drag(line((SCENE_ROW_X, SCENE_ROWS_Y[2]), (SCENE_ROW_X, SCENE_ROWS_Y[0] - 22), 8))
     back.wait(4)
     back.press("z", ["ctrl"])
     return Steps([
@@ -7397,10 +7400,16 @@ def grip_drag_moves_a_row_and_undo_puts_it_back():
 
 @scenario
 def finger_drags_an_object_into_a_folder():
-    """A finger on a grip drags the row rather than scrolling the inspector: Sphere 3 dropped on the middle of Folder 1's row goes into it, after Sphere 1."""
+    """A finger held on a row until its menu opens drags the row rather than scrolling the inspector: Sphere 3 dropped on the middle of Folder 1's row goes into it, after Sphere 1."""
     s = Script()
     folder_first(s)
-    s.fdrag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2] + 54), (SCENE_GRIP_X, SCENE_ROWS_Y[0]), 10))
+    start = (SCENE_ROW_X, FOLDER_ROWS_Y[3])
+    s.add(f"fdown:0:{where(start)}")
+    s.wait(LONG_PRESS_FRAMES + 4)
+    for x, y in line(start, (SCENE_ROW_X, FOLDER_ROWS_Y[0]), 10)[1:]:
+        s.add(f"fmove:0:{x:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
     s.wait(4)
     return s, scene_args(), {"scene_order": is_text("1,3,2"), "scene_folders": is_text("1,1,0"), "undo_steps": near(2), "inspector_scroll": near(0)}
 
@@ -7416,21 +7425,25 @@ def column_drag_hides_every_row_it_crosses():
 
 
 @scenario
-def finger_holds_a_ghost_then_slides_down_the_column():
-    """A finger held on a ghost toggle until its tooltip shows takes the column: sliding down makes the first two objects ghosts, the selection moving to the third; a quick drag would have scrolled the panel."""
+def finger_holds_an_eye_then_slides_down_the_column():
+    """A finger held on an eye until its tooltip shows takes the column: sliding down hides the first two objects, the selection moving to the third; a quick drag would have scrolled the panel."""
     s = Script()
     scene_tab(s)
-    s.add(f"fdown:0:{SCENE_GHOST_X},{SCENE_ROWS_Y[0]}")
+    s.add(f"fdown:0:{SCENE_EYE_X},{SCENE_ROWS_Y[0]}")
     s.wait(LONG_PRESS_FRAMES + 4)
-    for x, y in line((SCENE_GHOST_X, SCENE_ROWS_Y[0]), (SCENE_GHOST_X, SCENE_ROWS_Y[1] + 5), 6)[1:]:
+    for x, y in line((SCENE_EYE_X, SCENE_ROWS_Y[0]), (SCENE_EYE_X, SCENE_ROWS_Y[1] + 5), 6)[1:]:
         s.add(f"fmove:0:{x:g},{y:g}")
         s.wait(1)
     s.add("fup:0")
     s.wait(6)
-    return s, scene_args(), {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
+    return s, scene_args(), {"objects_off": near(2), "objects_ghost": near(0), "selected": near(2), "inspector_scroll": near(0)}
 
 
-SELECT_SEVERAL = on_card((1500, 398), "objects")  # the Objects card's switch, with three spheres and one selected
+def select_several(s):
+    """Turns Select several on from the Scene card's More menu."""
+    s.ftap(At("scene head/More", 1500, 150))
+    s.wait(6)
+    s.ftap(At("Select several", 1400, 200))
 
 
 @scenario
@@ -7471,7 +7484,7 @@ def shift_click_objects_in_the_viewport():
     s.add("keyup:shift")
     s.wait(2)
     scene_tab(s)
-    s.ftap(SELECT_SEVERAL)
+    select_several(s)
     s.wait(4)
     s.ftap(300, 700)
     s.wait(6)
@@ -7483,7 +7496,7 @@ def select_several_with_a_finger_then_delete_takes_both():
     """With Select several on, a finger tap on a row adds it rather than replacing the selection; Delete then takes both objects as one undo step."""
     s = Script()
     scene_tab(s)
-    s.ftap(SELECT_SEVERAL)
+    select_several(s)
     s.wait(4)
     s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
     s.wait(4)
@@ -7525,7 +7538,7 @@ def folder_menu_selects_its_objects():
     """A folder's menu selects every object in it, the first carrying the gizmo: Sphere 2 dragged into Sphere 1's folder, then Select its objects."""
     s = Script()
     folder_first(s)
-    s.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0]), 8))
+    s.mouse_drag(line((SCENE_ROW_X, FOLDER_ROWS_Y[2]), (SCENE_ROW_X, FOLDER_ROWS_Y[0]), 8))
     s.wait(4)
     s.add(f"move:{FOLDER_MENU_AT[0]},{FOLDER_MENU_AT[1]}")
     s.wait(1)

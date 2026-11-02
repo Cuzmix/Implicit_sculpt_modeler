@@ -216,7 +216,10 @@ kit_object_menu :: proc(app: ^App) {
 	if command_menu_item(app, .Show_Section, int(Kit_Section.Material), label = "Material") do picked = true
 	if command_menu_item(app, .Rename_Object) do picked = true
 	if command_menu_item(app, .Duplicate_Object) do picked = true
-	k.object_menu_rows += 3
+	// The Scene card's rows have no ghost of their own (an eye, a lock and this menu fit
+	// beside the name), so the menu makes an object a ghost; a tap on its row makes it solid.
+	if command_menu_item(app, .Ghost_Object) do picked = true
+	k.object_menu_rows += 4
 	conv := OBJECT_CONVERSIONS[kind]
 	seen := false
 	for v in shown do seen ||= v.id == conv.id && v.arg == conv.arg
