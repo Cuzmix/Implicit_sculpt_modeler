@@ -76,33 +76,6 @@ panel_pop_head :: proc(app: ^App, name, title: string, extra: int) {
 	ui.end(ctx)
 }
 
-// A card beside the bar button that opened it (Show panel): its head with Keep in the
-// stack and Close, and the card's content scrolling under it.
-kit_panel_pop :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	p := &k.bar_pop
-	owner := ui.id_of(ctx, "bar panel")
-	if !ui.popover_begin(ctx, "bar panel", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = PANEL_POP_PAD, width = PANEL_POP_W}) do return
-	defer ui.popover_end(ctx)
-	panel_pop_head(app, "bar panel head", panel_kind_title(app, p.panel), 1)
-	s := &k.stack
-	kept := s.set && p.panel not_in s.hidden
-	// Keep puts the card in the stack's column too, where it stays.
-	if ui.icon_button(ctx, "Keep in the panel stack", ui.ICON_PANEL, selected = kept) {
-		if !kept do stack_keep(k, p.panel, true)
-		k.inspector = true
-		stack_reveal_card(app, p.panel)
-		p.open = false
-	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
-	ui.end(ctx)
-	room := panel_pop_room(app, "bar panel", "bar panel body")
-	scroll := kit_scroll_begin(ctx, "bar panel body", &p.scroll, owner, PANEL_POP_W - 2 * PANEL_POP_PAD, room, 6)
-	panel_body(app, p.panel, PANEL_POP_W - 2 * PANEL_POP_PAD)
-	kit_scroll_end(ctx, scroll)
-}
-
 // The Panels picker: every panel as a tile, the stack's cards first and then each
 // palette's sections, lit where it is on the rail; a tap puts it on or takes it off.
 kit_panels_picker :: proc(app: ^App) {

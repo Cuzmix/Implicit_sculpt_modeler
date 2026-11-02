@@ -343,7 +343,7 @@ def pen_response_page_sets_clay():
 
 @scenario
 def long_press_draw_size_opens_its_menu():
-    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) in its place."""
+    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) on the Brush card the stack shows."""
     s = Script()
     long_press(s, UI["size"])
     s.wait(4)
@@ -353,7 +353,7 @@ def long_press_draw_size_opens_its_menu():
     s.wait(4)
     s.ftap(VALUE_MENU_SETTINGS)
     s.wait(4)
-    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)}))])
+    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "card_pop": is_text("none"), "stack_shut": lambda v: "pen" not in v.lower(), "brush_radius_px": near(60)}))])
 
 
 @scenario
@@ -933,7 +933,7 @@ def mesh_tools_on_the_shelf():
         (divide, tools_page(), camera_still({"dabs": near(0), "selected_levels": near(2)})),
         (remesh, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
         (retopo, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "objects": near(2), "undo_steps": near(1)})),
-        (retopo_held, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
+        (retopo_held, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "card_pop": is_text("retopo"), "undo_steps": near(0)})),
     ])
 
 
@@ -13448,7 +13448,7 @@ def remesh_quick_menu_density_shows_the_cells():
     more.ftap(REMESH_QUICK["more"])
     more.wait(8)
     return Steps([
-        (more, [], camera_still({"bar_pop": is_text("remesh"), "undo_steps": near(0)})),
+        (more, [], camera_still({"bar_pop": is_text("none"), "card_pop": is_text("remesh"), "undo_steps": near(0)})),
         (held, [], camera_still({"rebuild_preview": near(1), "rebuild_cell": lambda v: float(v) > 0, "undo_steps": near(0), "dabs": near(0)})),
     ])
 

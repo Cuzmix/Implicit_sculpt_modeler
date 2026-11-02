@@ -324,7 +324,11 @@ kit_remesh_quick :: proc(app: ^App) {
 		rebuild_command(app)
 	}
 	kit_last_result(app, .Remesh)
-	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) do bar_pop_toggle(app, .Section, k.bar_pop.at, k.bar_pop.side, .Remesh)
+	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) {
+		at, side := k.bar_pop.at, k.bar_pop.side
+		k.bar_pop.open = false
+		card_pop_section(app, .Remesh, at, side)
+	}
 }
 
 // A length in scene units with three significant figures.

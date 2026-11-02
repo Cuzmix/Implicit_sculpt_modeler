@@ -381,9 +381,17 @@ stack_float_card :: proc(app: ^App, c: Panel_Kind) -> (raised: bool) {
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.stack
-	if !k.inspector || side_panel_open(k) do return
+	// A card popped out of a dock's button shows while the stack is put away too.
+	if !k.inspector && !card_popped(k, c) || side_panel_open(k) do return
 	if c not_in s.floated || c in s.hidden do return
 	name := fmt.tprintf("stack card %v", c)
+	// A card just popped out of a button goes beside it again by the size it laid out at.
+	if card_popped(k, c) && k.card_pop.place {
+		if r := ui.prev_rect(ctx, name); r.h > 0 {
+			card_pop_place(app, {r.w, r.h})
+			k.card_pop.place = false
+		}
+	}
 	w := &s.windows[c]
 	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
 	pressed, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
@@ -512,7 +520,8 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 	v := c if stack_as_sections(s, c) else stack_shown(s, c)
 	ui.begin(ctx, "stack head", {direction = .Row, width = inner, center = true})
 	CHIP :: 26
-	extras: f32 = 2 * t.target
+	popped := floating && card_popped(k, c)
+	extras: f32 = (3 if popped else 2) * t.target
 	if v == .Symmetry do extras += 3 * CHIP + 4
 	if !floating {
 		g := ui.area(ctx, "stack grip", {18, t.target})
@@ -558,7 +567,12 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 		}
 		ui.spacer(ctx, 4)
 	}
-	if ui.icon_button(ctx, "Dock in the stack" if floating else "Float", ui.ICON_RESTORE if floating else ui.ICON_PANEL) {
+	// Popped out of a button (card_pop.odin): Keep open leaves it floating, Close puts it
+	// back as it was.
+	if popped {
+		if ui.icon_button(ctx, "Keep open", ICON_PIN) do card_pop_keep(app)
+		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do card_pop_close(app)
+	} else if ui.icon_button(ctx, "Dock in the stack" if floating else "Float", ui.ICON_RESTORE if floating else ui.ICON_PANEL) {
 		if floating do stack_dock(app, c)
 		else do stack_float(app, c)
 	}
