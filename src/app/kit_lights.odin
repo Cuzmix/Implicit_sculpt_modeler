@@ -8,10 +8,13 @@ import "core:strings"
 import "../ui"
 import "../geom"
 
-// The Scene palette's Lights section: the light sphere, the lights, the picked light's
-// kind, strength, colour, size and spot cone, presets for whole rigs, and under More
-// options its name, what it moves with, and the ambient light and the turn of the whole
-// set (lights.odin).
+// The Lights card, the one Lights interface (the Scene palette's Lights section, the view
+// rail and the View island's lights open it): the light sphere; each light a row with its
+// colour, name, kind, temperature and intensity and its eye, as Marmoset's and Blender's
+// light lists; Add a light of each kind and Lights follow the camera; the picked light's
+// kind, strength, colour, size and spot cone; presets for whole rigs; and under More
+// options its highlight, shadows, name, what it moves with, and the ambient light and the
+// turn of the whole set (lights.odin).
 
 // The light sphere's height, in points.
 LIGHT_SPHERE_SIZE :: 176
@@ -58,15 +61,7 @@ kit_lights :: proc(app: ^App) {
 	}
 	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
 	kit_light_sphere(app)
-	// The list: each light's kind, name and what it moves with, its eye switching it on or
-	// off, as the Scene palette lists objects.
-	for &l, i in set.lights[:set.count] {
-		toggles := [1]ui.Row_Toggle{{name = "Switch off" if l.on else "Switch on", glyph = ui.ICON_EYE if l.on else ui.ICON_EYE_OFF, faint = !l.on}}
-		detail := fmt.tprintf("%s, %s", LIGHT_KIND_LABELS[l.kind], "in the scene" if l.space == .Scene else "with the camera")
-		row := ui.tree_row(ctx, fmt.tprintf("%s##light row %d", light_name(set, i), i), detail, i == app.light_pick, all_toggles = toggles[:], glyph = LIGHT_KIND_ICONS[l.kind], dim = !l.on)
-		if row.toggled == 0 do l.on = !l.on
-		else if row.clicked do app.light_pick = i
-	}
+	for &l, i in set.lights[:set.count] do light_row(app, &l, i)
 	// Add, then one button a kind sharing the rest of the width, each showing the kind's
 	// icon and name.
 	add_w := ui.text_width(ctx, "Add", ctx.theme.text_size)
@@ -82,6 +77,10 @@ kit_lights :: proc(app: ^App) {
 		}
 	}
 	ui.end(ctx)
+	// The lights stay with the camera, so the model is lit the same way as it turns, or
+	// with the scene, as on a turntable: every light at once, kept where it is on screen.
+	follow := !lights_fixed(app)
+	if ui.switch_row(ctx, "Lights follow the camera", &follow) do lights_fix(app, !follow)
 	if set.count <= 0 {
 		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 		ui.paragraph(ctx, "The scene has no lights: its ambient light and the environment light it.")
@@ -134,21 +133,6 @@ kit_lights :: proc(app: ^App) {
 			if light_aim_at_selected(app, app.light_pick) do what = "Aim light"
 		}
 	}
-	// Whole rigs at once, as KeyShot's and Marmoset's presets: each replaces the lights.
-	ui.label(ctx, "Presets")
-	// Two a row, so each name has room on a narrow card.
-	half := (ui.fill_width(ctx) - 8) * 0.5
-	for row in 0 ..< (len(Light_Preset) + 1) / 2 {
-		ui.begin(ctx, fmt.tprintf("light presets %d", row), {direction = .Row, gap = 8})
-		for i in row * 2 ..< min(row * 2 + 2, len(Light_Preset)) {
-			p := Light_Preset(i)
-			if ui.button(ctx, fmt.tprintf("%s##light preset", LIGHT_PRESET_NAMES[p]), .Bordered, width = half) {
-				light_preset_apply(app, p)
-				what = "Light preset"
-			}
-		}
-		ui.end(ctx)
-	}
 	if kit_more(app, .Lights) {
 		// Under More options, as the section shows five controls before them: how much shine
 		// the light gives, as a lamp's specular in Blender (none makes a fill that lights the
@@ -172,8 +156,6 @@ kit_lights :: proc(app: ^App) {
 		}
 		// Then what holds for every light.
 		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
-		fixed := lights_fixed(app)
-		if ui.switch_row(ctx, "All fixed to the scene", &fixed) do lights_fix(app, fixed)
 		_ = ui.slider(ctx, "Turn all", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))
 		_ = ui.slider(ctx, "Height all", &app.light_height, -90, 90, .Linear, fmt.tprintf("%+.0f°", app.light_height))
 		if ui.button(ctx, "Use as starting lights", .Bordered) {
@@ -181,9 +163,55 @@ kit_lights :: proc(app: ^App) {
 			report(app, Kit_Section.Lights, {}, "New scenes start with these lights")
 		}
 		if ui.button(ctx, "Reset lights", .Bordered) do set^ = LIGHTS_DEFAULT
+		// Whole rigs at once, as KeyShot's and Marmoset's presets: each replaces the lights.
+		ui.label(ctx, "Presets")
+		// Two a row, so each name has room on a narrow card.
+		half := (ui.fill_width(ctx) - 8) * 0.5
+		for row in 0 ..< (len(Light_Preset) + 1) / 2 {
+			ui.begin(ctx, fmt.tprintf("light presets %d", row), {direction = .Row, gap = 8})
+			for i in row * 2 ..< min(row * 2 + 2, len(Light_Preset)) {
+				p := Light_Preset(i)
+				if ui.button(ctx, fmt.tprintf("%s##light preset", LIGHT_PRESET_NAMES[p]), .Bordered, width = half) {
+					light_preset_apply(app, p)
+					what = "Light preset"
+				}
+			}
+			ui.end(ctx)
+		}
 		kit_more_end(app)
 	}
 	ui.paragraph(ctx, "Drag on the sphere, or a light's marker in the view, to move it; tap the picked light on the sphere to send it behind the model or bring it back. With Place highlight on, touch the model where the picked light's highlight should be. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
+}
+
+// A light's row: its colour as a dot (faint while it is off), its name, and its kind,
+// temperature and intensity, the picked one tinted; a tap picks it, its eye switches it on
+// or off.
+@(private = "file")
+light_row :: proc(app: ^App, l: ^Light, i: int) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	set := &app.scene.lights
+	picked := i == app.light_pick
+	width := ui.fill_width(ctx)
+	name := fmt.tprintf("lens light %d", i)
+	if picked {
+		if r := ui.prev_rect(ctx, name); r.w > 0 do ui.fill_rect(ctx, r, t.radius_medium, ui.color_fade(t.accent, 0.16))
+	}
+	ui.begin(ctx, name, {direction = .Row, center = true, gap = 0, width = width, height = LIGHT_ROW_H})
+	a := ui.area(ctx, fmt.tprintf("%s##lens light pick %d", light_name(set, i), i), {width - t.target, LIGHT_ROW_H})
+	mid := a.rect.y + a.rect.h * 0.5
+	if a.hovered && !picked do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_hover)
+	rgb := light_rgb(l^)
+	dot := ui.Color{u8(geom.srgb_encode(min(rgb.r, 1)) * 255 + 0.5), u8(geom.srgb_encode(min(rgb.g, 1)) * 255 + 0.5), u8(geom.srgb_encode(min(rgb.b, 1)) * 255 + 0.5), 255}
+	ui.fill_circle(ctx, {a.rect.x + 14, mid}, LIGHT_DOT, dot if l.on else ui.color_fade(dot, 0.35))
+	fg := t.text if l.on else t.text_secondary
+	line := fmt.tprintf("%s · %s", LIGHT_KIND_LABELS[l.kind], light_line(l^))
+	line_w := ui.text_width(ctx, line, t.small_size)
+	ui.text(ctx, ui.text_fit(ctx, light_name(set, i), t.text_size, a.rect.w - line_w - 44, .Semibold if picked else .Regular), a.rect.x + 30, mid, t.text_size, fg, .Semibold if picked else .Regular)
+	ui.text(ctx, line, a.rect.x + a.rect.w - 6, mid, t.small_size, t.text_tertiary, .Regular, .Right)
+	if a.clicked do app.light_pick = i
+	if ui.icon_button(ctx, fmt.tprintf("%s##light eye %d", "Switch off" if l.on else "Switch on", i), ui.ICON_EYE if l.on else ui.ICON_EYE_OFF, size = t.target) do l.on = !l.on
+	ui.end(ctx)
 }
 
 // The light sphere: a ball lit by the lights as the camera sees them, each light that is

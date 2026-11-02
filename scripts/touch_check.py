@@ -5324,20 +5324,24 @@ def lens_pass_popover_groups_the_passes():
     return s, LENS_1440, camera_still({"workspace": is_text("Sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
-# Render at 1440x900: its tab, then on its stack Light 1's Intensity thumb, Add light, the
-# Red wax sphere of the Material card, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 206), "add": (1220, 442), "red_wax": (1180, 728), "undo": (268, 25)}
+# Render at 1440x900: its tab, then on its stack the Lights card's Intensity (the picked
+# light's) and Add point light, the Lights card's chevron, the Red wax sphere of the
+# Material card once Lights is folded, and Undo on the top bar.
+LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 680), "add": At("add point light", 1201, 500), "lights_fold": (1092, 94),
+               "red_wax": At("material card Materials 1", 1180, 302), "undo": (268, 25)}
 
 
 @scenario
 def lens_studio_stack_shows_lights_material_environment():
-    """Render shows the Lights and Material cards open and Environment folded, the mini view rendering; a tap on a sphere puts that material on."""
+    """Render shows the Lights and Material cards open and Environment folded, the mini view rendering; with Lights folded, a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(LENS_STUDIO["workspace"])
     s.wait(20)
+    s.ftap(LENS_STUDIO["lights_fold"])
+    s.wait(6)
     s.ftap(LENS_STUDIO["red_wax"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights+,Material+,Environment"),
+    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "stack": is_text("Lights,Material+,Environment"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Red_wax"), "dabs": near(0)})
 
 
@@ -5408,7 +5412,7 @@ def material_card_favourites_hold_a_sphere():
 
 @scenario
 def lens_lights_card_picks_and_adds():
-    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
+    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
     def run(add):
         s = Script()
         s.ftap(LENS_STUDIO["workspace"])
@@ -14126,14 +14130,14 @@ def search_opens_a_section_as_its_own_card():
 
 @scenario
 def show_where_opens_the_light_settings():
-    """Search's Shift+Enter on Place highlight opens Light settings, the Lights section as the
-    tray drew it, as the visit and rings the switch."""
+    """Search's Shift+Enter on Place highlight opens the Lights card, the one Lights
+    interface, and rings the switch."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("place highlight")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, [], camera_still({"stack_visit": is_text("Light_Settings"), "tray_marked": near(1), "dabs": near(0)})
+    return s, [], camera_still({"stack": lambda v: "Lights+" in v.split(","), "tray_marked": near(1), "dabs": near(0)})
 
 
 # The visit's More (a section opened by Search on the default stack, where it stands at the
