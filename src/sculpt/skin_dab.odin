@@ -766,6 +766,9 @@ skin_flush :: proc(s: ^Sculptor) {
 			if !listed[other] {
 				listed[other] = true
 				append(&todo, other)
+				// Its samples' normals change on screen too: the node joins the flush's
+				// changed ones, so a partial redraw takes its box.
+				mark_stale(s, other, .Skin)
 			}
 			sk.stale[other] = max(sk.stale[other], base[i])
 		}

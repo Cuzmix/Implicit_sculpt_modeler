@@ -380,7 +380,7 @@ Draw_Item :: struct {
 	style:     [4]f32,
 	// The pass the viewport shows it in (View_Pass): x the pass, y and z where Depth
 	// starts and ends, in view-space distance from the eye, w a wipe compare (0 for none,
-	// else 1 + the pass right of its line + 8 x the line's pixel column; app/passes.odin's
+	// else 1 + the pass right of its line + 16 x the line's pixel column; app/passes.odin's
 	// pass_items). Zero shades it as usual.
 	pass:      [4]f32,
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
@@ -424,7 +424,9 @@ Draw_Item :: struct {
 // one of the diagnostic passes that check form, as Blender's and ZBrush's do. Normals
 // shows the view-space normal as a colour; Depth near as white and far as black;
 // Curvature creases toward blue and crests toward orange; AO a plain grey that the live
-// occlusion darkens; Silhouette every object flat near-black. Two more are the viewport
+// occlusion darkens; Silhouette every object flat near-black; Skin detail what a detail
+// skin holds over its mesh, as a normal map's colours (flat lavender where it holds
+// nothing, and on objects with no skin). Two more are the viewport
 // shading's own rather than passes that check form: Wire, the Wireframe mode's hidden-line
 // fill, a plain light grey that the edges are drawn over; Unlit, Solid's Flat lighting, the
 // colour (with paint, the mask, cavity and ridge) shown as it is, with no light.
@@ -435,6 +437,7 @@ View_Pass :: enum u8 {
 	Curvature,
 	AO,
 	Silhouette,
+	Skin_Detail,
 	Wire,
 	Unlit,
 }
@@ -1147,12 +1150,15 @@ fill_normals :: proc(pool: ^jobs.Pool, dst: rawptr, normals: []geom.Vec3, mask: 
 	})
 }
 
-// Copies `data` to the start of `buffer` one transfer buffer at a time.
+// Copies `data` to the start of `buffer` one transfer buffer at a time. The transfer
+// buffer is cycled like the per-frame uploads cycle it: this frame's command buffer, not
+// yet submitted, may hold copies out of it (a level's vertex ranges before its skin is set),
+// and writing over their data would send those vertices someone else's bytes.
 @(private)
 upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer, data: []u8) -> bool {
 	for offset := 0; offset < len(data); offset += int(mb.transfer_size) {
 		chunk := data[offset:min(offset + int(mb.transfer_size), len(data))]
-		dst := gpu_map_transfer_buffer(r.device, mb.transfer, false)
+		dst := gpu_map_transfer_buffer(r.device, mb.transfer, true)
 		if dst == nil do return false
 		copy(([^]u8)(dst)[:len(chunk)], chunk)
 		gpu_unmap_transfer_buffer(r.device, mb.transfer)
@@ -1166,13 +1172,14 @@ upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer,
 	return true
 }
 
-// Packs and copies every normal, one transfer buffer at a time.
+// Packs and copies every normal, one transfer buffer at a time, cycling the transfer
+// buffer for the reason upload_blocking does.
 @(private)
 upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3, mask: []u8) -> bool {
 	per_batch := int(mb.transfer_size / size_of(Normal_Packed))
 	for first := 0; first < len(normals); first += per_batch {
 		batch := normals[first:min(first + per_batch, len(normals))]
-		dst := cast([^]Normal_Packed)gpu_map_transfer_buffer(r.device, mb.transfer, false)
+		dst := cast([^]Normal_Packed)gpu_map_transfer_buffer(r.device, mb.transfer, true)
 		if dst == nil do return false
 		if mask != nil {
 			for n, i in batch do dst[i] = pack_normal(n, mask[first + i])
