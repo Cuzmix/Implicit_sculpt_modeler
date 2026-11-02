@@ -382,6 +382,59 @@ shelf_drop :: proc(app: ^App, box: ui.Rect, x, py: f32) -> Dock_Place {
 	return {edge = .Bottom, along = math.round(along * 100) / 100}
 }
 
+// A faint line soft alignment draws while a floating dock lines up with a neighbour, from
+// `a` to `b` in screen points.
+Align_Line :: struct {
+	a, b:  [2]f32,
+	shown: bool,
+}
+
+// How near, in points, a floating dock's outline snaps to a neighbour's edge, middle or
+// the small gap beside or under it, and that gap.
+DOCK_ALIGN :: 10
+DOCK_ALIGN_GAP :: 8
+
+// Soft alignment: dock `b`'s outline `box` (screen points) moved onto the nearest match
+// within DOCK_ALIGN of another shown dock, across and down apart: the same left, right or
+// middle, or just beside it; the same top or bottom, or just under or over it. The lines
+// say which edges matched, from one dock's far end to the other's.
+dock_align :: proc(app: ^App, b: Dock_Id, box: ui.Rect) -> (out: ui.Rect, lines: [2]Align_Line) {
+	k := &app.kit
+	out = box
+	Match :: struct {
+		v, line, d: f32,
+		t:          ui.Rect,
+		found:      bool,
+	}
+	bx, by: Match
+	for other in Dock_Id {
+		if other == b || !dock_shown(k, other) do continue
+		t := ui.prev_root_rect(&k.ctx, DOCK_ROOTS[other])
+		if t.w <= 0 do continue
+		xs := [5][2]f32{{t.x, t.x}, {t.x + t.w - box.w, t.x + t.w}, {t.x + t.w * 0.5 - box.w * 0.5, t.x + t.w * 0.5}, {t.x + t.w + DOCK_ALIGN_GAP, t.x + t.w + DOCK_ALIGN_GAP * 0.5}, {t.x - DOCK_ALIGN_GAP - box.w, t.x - DOCK_ALIGN_GAP * 0.5}}
+		for x in xs {
+			d := abs(x[0] - box.x)
+			if d < DOCK_ALIGN && (!bx.found || d < bx.d) do bx = {x[0], x[1], d, t, true}
+		}
+		ys := [4][2]f32{{t.y, t.y}, {t.y + t.h - box.h, t.y + t.h}, {t.y + t.h + DOCK_ALIGN_GAP, t.y + t.h + DOCK_ALIGN_GAP * 0.5}, {t.y - DOCK_ALIGN_GAP - box.h, t.y - DOCK_ALIGN_GAP * 0.5}}
+		for y in ys {
+			d := abs(y[0] - box.y)
+			if d < DOCK_ALIGN && (!by.found || d < by.d) do by = {y[0], y[1], d, t, true}
+		}
+	}
+	if bx.found do out.x = bx.v
+	if by.found do out.y = by.v
+	if bx.found {
+		lo, hi := min(out.y, bx.t.y) - 6, max(out.y + out.h, bx.t.y + bx.t.h) + 6
+		lines[0] = {{bx.line, lo}, {bx.line, hi}, true}
+	}
+	if by.found {
+		lo, hi := min(out.x, by.t.x) - 6, max(out.x + out.w, by.t.x + by.t.w) + 6
+		lines[1] = {{lo, by.line}, {hi, by.line}, true}
+	}
+	return
+}
+
 // Puts dock `b` at `to`: a dock already on that edge takes `b`'s place before, so the two
 // swap rather than stand on each other.
 dock_place_set :: proc(app: ^App, b: Dock_Id, to: Dock_Place) {
@@ -499,10 +552,6 @@ user_dock_id :: proc(i: int) -> Dock_Id {
 	return Dock_Id(int(Dock_Id.Dock_1) + i)
 }
 
-user_dock_zone :: proc(i: int) -> Arrange_Zone {
-	return Arrange_Zone(int(Arrange_Zone.Dock_1) + i)
-}
-
 // Whether the person's dock `i` is drawn: in use, and holding a button or being arranged
 // (where its + is); Focus mode and Inspect put it away with the rest of the view's chrome.
 user_dock_shown :: proc(k: ^Kit_State, i: int) -> bool {
@@ -543,7 +592,7 @@ user_docks_used :: proc(k: ^Kit_State) -> int {
 }
 
 // Makes the first free dock: floating in the middle (beside the Library), empty but for
-// its +, picked for Reset zone. Opens Arrange first, as only Arrange fills it. False when
+// its +. Opens Arrange first, as only Arrange fills it. False when
 // all four are in use.
 user_dock_new :: proc(app: ^App) -> bool {
 	k := &app.kit
@@ -554,9 +603,8 @@ user_dock_new :: proc(app: ^App) -> bool {
 		k.dock_lists[i] = bar_fresh(user_dock_which(i))
 		k.dock_scroll[user_dock_id(i)] = 0
 		if !k.bars_edit do command_run(app, .Customise_Bars)
-		k.arrange.picked = user_dock_zone(i)
 		k.arrange.docks_made += 1
-		report(app, nil, {}, "Made %s: its + adds a button, and its tag carries it to an edge", DOCK_TITLES[user_dock_id(i)])
+		report(app, nil, {}, "Made %s: its + adds a button, and its head carries it to an edge", DOCK_TITLES[user_dock_id(i)])
 		return true
 	}
 	report(app, nil, {.Warning}, "There are %d docks at most: delete one first", USER_DOCKS)
@@ -570,7 +618,6 @@ user_dock_delete :: proc(app: ^App, i: int) {
 	if !k.docks[id].used do return
 	count := k.dock_lists[i].count
 	k.docks[id], k.dock_lists[i] = {}, {}
-	if z, ok := k.arrange.picked.?; ok && z == user_dock_zone(i) do k.arrange.picked = nil
 	if b, ok := k.arrange.carry.?; ok && b == id do k.arrange.carry, k.arrange.carrying = nil, false
 	if k.bar_slot.open && k.bar_slot.which == user_dock_which(i) do k.bar_slot.open = false
 	k.arrange.docks_deleted += 1
@@ -750,6 +797,15 @@ dock_more_button :: proc(app: ^App, id: Dock_Id, width: f32) {
 	ui.fill_rect(ctx, {r.x + 8, r.y, max(r.w - 16, 8), 1}, 0, t.border)
 	open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == id
 	if ui.icon_button(ctx, fmt.tprintf("More##%s", DOCK_ROOTS[id]), ui.ICON_MORE, open, keys = "", width = width) do dock_menu_toggle(app, id, ctx.last_rect)
+	dock_more_hold(app)
+}
+
+// A long press (or a right click) on a dock's ⋯, the widget just drawn, starts editing
+// docks, as a home screen's icons start moving under a held finger.
+dock_more_hold :: proc(app: ^App) {
+	if app.kit.bars_edit || !ui.secondary(&app.kit.ctx) do return
+	app.kit.bar_pop.open = false
+	command_run(app, .Customise_Bars)
 }
 
 // Opens dock `id`'s menu beside `at`, or closes it when it shows already.
@@ -805,27 +861,30 @@ kit_dock_menu :: proc(app: ^App) {
 	if !k.bars_edit && ui.menu_item(ctx, "Hide this button", glyph = ui.ICON_EYE_OFF) {
 		d.more_off = true
 		p.open = false
-		report(app, nil, {}, "Customise bars shows the ⋯ again")
+		report(app, nil, {}, "Edit docks shows the ⋯ again")
 	} else if k.bars_edit && d.more_off && ui.menu_item(ctx, "Show this button", glyph = ui.ICON_EYE) {
 		d.more_off = false
 	}
+	if !k.bars_edit {
+		if command_menu_item(app, .Customise_Bars, label = "Edit docks") do p.open = false
+		return
+	}
+	ui.divider(ctx, W, across = true)
+	if ui.menu_item(ctx, "Put back as it comes", glyph = ui.ICON_UNDO, enabled = dock_resettable(k, id)) {
+		p.open = false
+		dock_reset(app, id)
+	}
+	if DOCK_HOME[id] == .Float && ui.menu_item(ctx, "Delete dock", glyph = ui.ICON_TRASH, tone = .Danger) {
+		p.open = false
+		user_dock_delete(app, int(id) - int(Dock_Id.Dock_1))
+	}
 }
 
-// Library > Docks: each of the person's docks in use with Delete, then New dock.
+// Library > Docks: how many of the person's docks are in use, and New dock.
 library_docks :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
-	t := ctx.theme
 	ui.caption(ctx, fmt.tprintf("YOUR DOCKS  %d OF %d", user_docks_used(k), USER_DOCKS))
-	for i in 0 ..< USER_DOCKS {
-		id := user_dock_id(i)
-		if !k.docks[id].used do continue
-		ui.begin(ctx, fmt.tprintf("library dock %d", i), {direction = .Row, gap = 8, center = true, width = width})
-		r := ui.place(ctx, {width - t.target - 8, t.target})
-		ui.text(ctx, fmt.tprintf("%s · %d", DOCK_TITLES[id], k.dock_lists[i].count), r.x, r.y + r.h * 0.5, t.text_size, t.text)
-		if ui.icon_button(ctx, fmt.tprintf("Delete %s##library dock", DOCK_TITLES[id]), ui.ICON_TRASH) do user_dock_delete(app, i)
-		ui.end(ctx)
-	}
 	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = width)
-	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from Search, a tap on a button moves or removes it, its ⋯ sets its lines and names, and its tag in the view carries it to the left or right edge or anywhere. Each workspace keeps its own docks.")
+	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from Search, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each workspace keeps its own docks.")
 }

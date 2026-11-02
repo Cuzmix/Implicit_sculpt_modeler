@@ -2447,8 +2447,8 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {palette_open(app)},
 	},
 	.Customise_Bars = {
-		label = "Arrange the interface",
-		help = "Turns on Arrange: tap a ringed button on the view rail, the shelf or its tools to put another command there, move it or remove it, or + to add one; choose which bars show and where each panel goes; Done ends it.",
+		label = "Edit docks",
+		help = "Edits the docks in place (or hold any dock's ⋯): a tap on a ringed button moves, removes or changes it and + adds one; a dock's head carries it to an edge or anywhere and opens its menu; its curved corner gives it more or fewer lines; the Library chooses which bars show and where each panel goes; Done ends it.",
 		icon = ICON_CUSTOMISE,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
