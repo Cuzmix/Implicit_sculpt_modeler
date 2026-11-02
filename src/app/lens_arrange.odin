@@ -160,7 +160,6 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 		// one its own name; an added page keeps the name it was given.
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
 		if k.shelf.page < SHELF_EXTRA_FIRST do k.shelf.names[k.shelf.page] = {}
-		k.tools = bar_fresh(.Tools)
 		k.docks[.Shelf].place = {}
 	case .Panels:
 		stack_default(k)
