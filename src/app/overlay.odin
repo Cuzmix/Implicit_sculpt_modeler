@@ -249,6 +249,11 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 				overlay_line(o, center, tip, color, 2)
 				overlay_disc(o, tip, 3, color)
 			}
+			// A stroke here would go into the detail skin, not move vertices: said under the
+			// ring, as the brush's ring alone cannot show it.
+			if app.stroke.active ? app.stroke.skin : stroke_to_skin(app, selected_object(app), stroke_brush(app, input)) {
+				overlay_label(o, "skin", center + {0, app.brush.radius_px + 14})
+			}
 		}
 	case .Move:
 		draw_gizmo(app, o, input)

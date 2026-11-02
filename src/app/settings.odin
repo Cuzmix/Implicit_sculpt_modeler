@@ -811,6 +811,13 @@ settings_load :: proc(app: ^App, path: string) {
 			if len(f) == 3 {
 				if kind, ok := brush_by_name(f[1]); ok && (f[2] == "sphere" || f[2] == "projected") do b.falloffs[kind].projected = f[2] == "projected"
 			}
+		case "detail_to":
+			// detail_to <brush> Auto|Mesh|Skin, only for a brush off Auto.
+			if len(f) == 3 {
+				kind, ok := brush_by_name(f[1])
+				to, known := reflect.enum_from_name(Detail_To, f[2])
+				if ok && known do b.detail_to[kind] = to
+			}
 		case "accumulate":
 			// accumulate <brush> <0|1>, for every brush.
 			if len(f) == 3 {
@@ -1221,6 +1228,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if f.hardness != 0 do fmt.sbprintfln(&out, "hardness %v %g", kind, f.hardness)
 		fmt.sbprintfln(&out, "falloff_shape %v %s", kind, "projected" if f.projected else "sphere")
 		fmt.sbprintfln(&out, "accumulate %v %d", kind, bit(!b.no_accumulate[kind]))
+		if b.detail_to[kind] != .Auto do fmt.sbprintfln(&out, "detail_to %v %v", kind, b.detail_to[kind])
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)

@@ -44,6 +44,7 @@ Undo_Step :: struct {
 	shown:  [dynamic]u32, // nodes whose triangles were hidden or shown (hide.odin)
 	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
 	skinned: bool, // a detail skin's heights changed (skin_dab), saved among `saved`
+	skin_op: Skin_Op, // the detail skin added, replaced or taken off (sculptor_skin_change)
 	layer_op:  Layer_Op,  // a sculpt layer added or removed (sculpt_layers.odin)
 	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
 	layer_move: Layer_Move, // two sculpt layers swapped places
@@ -151,7 +152,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.skinned && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.skinned && !h.current.skin_op.active && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -338,6 +339,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	// back to its layer first, as layer commands do.
 	if s.layers.picked != 0 && (step.layer_op.active || step.layer_move.active || step.layer_stack.active) do _ = sculptor_layer_mask_pick(s, -1)
 	layer_step_swap(s, &step)
+	skin_step_swap(s, &step)
 	positions := 0
 	for &sv in step.saved {
 		n := s.nodes[sv.node]
@@ -523,6 +525,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
+	bytes += skin_bytes(step.skin_op.skin)
 	for l in step.layer_stack.list do bytes += layer_bytes(l)
 	return bytes + len(step.layer_set.mask) + adjust_bytes(step)
 }
@@ -545,6 +548,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	skin_free(step.skin_op.skin, h.allocator)
 	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
 	adjust_free(h, step)
@@ -553,7 +557,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	clear(&step.painted)
 	clear(&step.shown)
 	clear(&step.grouped)
-	step.layer_op, step.layer_set, step.layer_move, step.layer_stack = {}, {}, {}, {}
+	step.layer_op, step.layer_set, step.layer_move, step.layer_stack, step.skin_op = {}, {}, {}, {}, {}
 	step.mask_layer, step.mask_moved, step.skinned = 0, false, false
 }
 
@@ -575,6 +579,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	skin_free(step.skin_op.skin, h.allocator)
 	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
 	adjust_free(h, step)

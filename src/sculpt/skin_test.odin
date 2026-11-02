@@ -375,3 +375,44 @@ skin_tris_turn_back_to_the_mesh_corners :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, turned > 0)
 }
+
+// Adding, replacing and taking off the skin are undo steps, and the heights strokes left
+// on a skin come back with it, normals and all, even after the mesh moved in between.
+@(test)
+skin_change_is_undone_with_its_heights :: proc(t: ^testing.T) {
+	sp := skin_sphere_make(2)
+	defer skin_sphere_free(sp)
+	s := &sp.sculptor
+	testing.expect(t, sculptor_skin_change(s, 4))
+	testing.expect(t, !sculptor_skin_change(s, 4), "the same segments made a step")
+	testing.expect(t, !sculptor_skin_change(s, 3), "odd segments made a step")
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Draw, radius = 0.4, strength = 1, skin = true}, Vec3{0, 0, 1})
+	_ = sculptor_stroke_end(s)
+	_ = sculptor_flush(s)
+	heights := slice.clone(s.skin.heights, context.temp_allocator)
+	normals := slice.clone(s.skin.normals, context.temp_allocator)
+	stamp := sculptor_skin_stamp(s)
+	testing.expect(t, sculptor_skin_change(s, 8))
+	testing.expect_value(t, s.skin.segments, u32(8))
+	testing.expect(t, sculptor_skin_stamp(s) != stamp)
+	// A mesh stroke on the 8-segment skin's watch, undone before the skin goes back.
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Inflate, radius = 0.4, strength = 1}, Vec3{0, 0, 1})
+	_ = sculptor_stroke_end(s)
+	testing.expect(t, sculptor_undo(s))
+	testing.expect(t, sculptor_undo(s))
+	_ = sculptor_flush(s)
+	testing.expect_value(t, s.skin.segments, u32(4))
+	testing.expect(t, slice.equal(s.skin.heights, heights), "the heights did not come back")
+	testing.expect(t, slice.equal(s.skin.normals, normals), "the normals did not come back")
+	testing.expect(t, sculptor_undo(s))
+	testing.expect(t, sculptor_undo(s))
+	testing.expect(t, s.skin == nil, "undoing the first change left a skin")
+	testing.expect(t, sculptor_redo(s))
+	testing.expect(t, s.skin != nil && s.skin.segments == 4)
+	testing.expect(t, sculptor_skin_change(s, 0))
+	testing.expect(t, s.skin == nil)
+	testing.expect(t, sculptor_undo(s))
+	testing.expect(t, s.skin != nil && s.skin.segments == 4)
+}

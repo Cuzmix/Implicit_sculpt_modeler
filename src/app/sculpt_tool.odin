@@ -73,6 +73,8 @@ Brush_Settings :: struct {
 	stabilize:         f32,
 	sample_radius:     f32,
 	no_accumulate:     [sculpt.Brush_Kind]bool,
+	// Per brush, where its detail goes on an object with a detail skin (skin.odin).
+	detail_to:         [sculpt.Brush_Kind]Detail_To,
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	// Spray: how far each dab's paint colour strays from the brush's, 0 to 1 (Colour spray).
@@ -232,6 +234,7 @@ Sample_Kind :: enum u8 {
 
 Stroke :: struct {
 	active:   bool,
+	skin:     bool, // the stroke writes into the object's detail skin (stroke_to_skin)
 	object:   int, // id of the object being sculpted
 	pos:      [2]f32, // viewport position the stroke has reached; trails the cursor with lazy mouse
 	pressure: f32, // pen pressure at pos
@@ -715,7 +718,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	say := s.kind == .Press && !offer_standing(app)
 	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), say) do return
 	if !object_editable(app, obj, say) do return
+	if !skin_stroke_allowed(app, obj, stroke_brush(app, input), say) do return
 	st := &app.stroke
+	st.skin = stroke_to_skin(app, obj, stroke_brush(app, input))
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
 	st.blur = input.smooth && !input.mask && painting(app)
@@ -1515,9 +1520,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		trim_angle = math.to_radians(app.brush.trim_angle),
 		trim_fixed = !app.brush.trim_dynamic,
 		plane_short = {1 - app.brush.plane_height, 1 - app.brush.plane_depth},
-		// The brushes that can write into a detail skin do wherever the level has one; the
-		// sculptor checks both.
-		skin       = true,
+		skin       = app.stroke.skin,
 	}
 }
 

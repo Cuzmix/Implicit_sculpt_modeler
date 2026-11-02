@@ -124,6 +124,13 @@ kit_brush_options :: proc(app: ^App) {
 	// Topological, which reaches only what is joined anyway.
 	// Elastic moves the solid round the press, joined or not.
 	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
+	// Where the detail goes, for the brushes that can write into a detail skin, shown once
+	// the object has a skin or the brush was set off Auto, so it never hides a choice made.
+	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
+		ui.label(ctx, "Detail goes to", ctx.theme.text_size, ctx.theme.text)
+		if picked := ui.tabs(ctx, "detail goes to", {"Auto", "Mesh", "Skin"}, int(b.detail_to[b.kind])); picked >= 0 do b.detail_to[b.kind] = Detail_To(picked)
+		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", command_keys(app, .Detail_To_Next)))
+	}
 	if b.kind == .Grab {
 		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
 		// Which way the drag moves it: Shift mid-grab takes Along normal and Alt Along

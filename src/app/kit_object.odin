@@ -116,6 +116,38 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	}
 }
 
+// The detail skin (skin.odin): Off or so many segments along each triangle edge, what it
+// looks like in triangles, and why it cannot be had when it cannot.
+@(private = "file")
+kit_skin :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	ui.label(ctx, "Detail skin", t.text_size, t.text, .Semibold)
+	top := object_top_skin(obj)
+	have := top.segments if top != nil else 0
+	names: [len(SKIN_SEGMENTS)]string
+	chosen := 0
+	for n, i in SKIN_SEGMENTS {
+		names[i] = "Off" if n == 0 else fmt.tprint(n)
+		if n == have do chosen = i
+	}
+	hints: [len(SKIN_SEGMENTS)]string
+	for &h, i in hints do h = command_hint(app, .Detail_Skin, i)
+	why := skin_refusal(obj)
+	if why == "" || top != nil {
+		if picked := ui.tabs(ctx, "detail skin", names[:], chosen, keys = hints[:]); picked >= 0 && picked != chosen do command_run(app, .Detail_Skin, picked)
+	}
+	if top != nil {
+		tris := int(top.tri_count)
+		looks := tris * int(top.segments) * int(top.segments)
+		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth put their detail in the skin (Brush palette, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
+	} else if why != "" {
+		ui.paragraph(ctx, why)
+	} else {
+		ui.paragraph(ctx, "Sculpt detail finer than the mesh without adding vertices: each triangle carries a grid of heights the brushes raise and lower.")
+	}
+}
+
 // HD detail above the top level, sculpted a window at a time, as in ZBrush.
 @(private = "file")
 kit_hd :: proc(app: ^App, obj: ^Object) {
@@ -126,6 +158,9 @@ kit_hd :: proc(app: ^App, obj: ^Object) {
 	kit_command_pair(app, .Hd_Divide, .Hd_Delete, tone_b = .Danger)
 	if steps == 0 {
 		ui.paragraph(ctx, "Sculpt finer than the top level, a window of it at a time.")
+		// The detail skin is the other way to sculpt finer than the mesh, and either
+		// refuses the other, so it lives here too.
+		kit_skin(app, obj)
 		return
 	}
 	ui.paragraph(ctx, fmt.tprintf("%d step%s up: %s vertices.", steps, "" if steps == 1 else "s", count_label(sculpt.levels_hd_vertices(levels))))
