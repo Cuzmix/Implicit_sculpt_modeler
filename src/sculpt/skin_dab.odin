@@ -257,33 +257,44 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	sign: f32 = -1 if brush.invert else 1
 	once := brush.no_accumulate && (brush.kind == .Draw || brush.kind == .Inflate)
 	if brush.kind == .Layer || once do skin_layer_fit(sk, s.history.allocator)
-	// A dab works through the hit leaves' samples, more of them than vertices.
+	// A dab works through the hit leaves' samples, more of them than vertices, in runs of
+	// triangles so that a few hit leaves still spread over every thread.
 	count := 0
-	for leaf in s.hit do count += skin_node_count(s, sk, s.node_of[leaf])
+	clear(&sk.items)
+	for leaf, i in s.hit {
+		n := s.nodes[s.node_of[leaf]]
+		count += skin_node_count(s, sk, s.node_of[leaf])
+		end := n.tri_first + n.tri_count
+		for lo := n.tri_first; lo < end; lo += SKIN_ITEM_TRIS {
+			append(&sk.items, Skin_Item{hit = u32(i), tri_lo = lo, tri_hi = min(lo + SKIN_ITEM_TRIS, end), verts = lo == n.tri_first})
+		}
+		if n.tri_count == 0 do append(&sk.items, Skin_Item{hit = u32(i), tri_lo = end, tri_hi = end, verts = true})
+	}
 	pool := pool if count >= PARALLEL_MIN_VERTS else nil
+	items := len(sk.items)
 	switch brush.kind {
 	case .Draw, .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		if brush.kind == .Draw {
-			if once do jobs.parallel_for(pool, len(s.hit), d, job_skin_draw_once)
-			else do jobs.parallel_for(pool, len(s.hit), d, job_skin_draw)
+			if once do jobs.parallel_for(pool, items, d, job_skin_draw_once)
+			else do jobs.parallel_for(pool, items, d, job_skin_draw)
 		} else {
-			if once do jobs.parallel_for(pool, len(s.hit), d, job_skin_inflate_once)
-			else do jobs.parallel_for(pool, len(s.hit), d, job_skin_inflate)
+			if once do jobs.parallel_for(pool, items, d, job_skin_inflate_once)
+			else do jobs.parallel_for(pool, items, d, job_skin_inflate)
 		}
 	case .Clay:
 		d.amount = sign
 		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
-		jobs.parallel_for(pool, len(s.hit), d, job_skin_clay)
+		jobs.parallel_for(pool, items, d, job_skin_clay)
 	case .Flatten:
 		d.amount = sign
-		jobs.parallel_for(pool, len(s.hit), d, job_skin_flatten)
+		jobs.parallel_for(pool, items, d, job_skin_flatten)
 	case .Crease:
 		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), d, job_skin_crease)
+		jobs.parallel_for(pool, items, d, job_skin_crease)
 	case .Layer:
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), d, job_skin_layer)
+		jobs.parallel_for(pool, items, d, job_skin_layer)
 	case .Smooth:
 		resize(&sk.offsets, len(s.hit))
 		total: u32
@@ -294,11 +305,19 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		resize(&sk.smooth_to, int(total))
 		for rate in smooth_passes(brush.strength) {
 			d.rate = rate
-			jobs.parallel_for(pool, len(s.hit), d, job_skin_smooth_targets)
+			jobs.parallel_for(pool, items, d, job_skin_smooth_targets)
 			jobs.parallel_for(pool, len(s.hit), d, job_skin_smooth_apply)
 		}
 	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Snake_Hook, .Morph, .History, .Clay_Strips, .Trim_Dynamic:
 		unreachable()
+	}
+	if brush.kind != .Smooth {
+		for &p in s.partials do p.moved, p.weight_sum = 0, 0
+		for it in sk.items {
+			p := &s.partials[it.hit]
+			p.moved += it.moved
+			p.weight_sum = max(p.weight_sum, it.top)
+		}
 	}
 	changed := 0
 	for p, i in s.partials {
@@ -330,38 +349,49 @@ skin_layer_fit :: proc(sk: ^Skin, allocator: runtime.Allocator) {
 @(private) job_skin_layer :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Layer, false)}
 @(private) job_skin_smooth_targets :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Smooth, false)}
 
-// Moves the heights of hit leaf i's samples inside the brush as brush kind K does, or for
-// Smooth, works out their targets. The partial's `moved` counts the changed samples and
-// its `weight_sum` holds the largest height it left.
+// Moves the heights of run k's samples (Skin.items) inside the brush as brush kind K does,
+// or for Smooth, works out their targets. The run's `moved` counts the changed samples and
+// its `top` holds the largest height it left.
 @(private)
-skin_displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
+skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool) {
 	s := d.s
 	sk := s.skin
+	item := &sk.items[k]
+	i := int(item.hit)
 	id := s.node_of[s.hit[i]]
 	n := s.nodes[id]
 	I := s.mesh.indices[:]
 	P := s.mesh.positions[:]
 	S := sk.segments
 	reach := math.sqrt(d.r2) + sk.height_max
+	reach2 := reach * reach
+	inv_s := 1 / f32(S)
+	N := s.mesh.normals[:]
 	moved: u32
 	top: f32
-	at := 0
+	// Where this run's samples sit among its node's (vertices, edges, then triangles'
+	// insides), for Smooth's targets.
+	F := skin_face_samples(sk)
+	node_edges := sk.edge_first[n.tri_first + n.tri_count] - sk.edge_first[n.tri_first]
+	e0 := sk.edge_first[item.tri_lo]
+	e1 := sk.edge_first[item.tri_hi]
+	edges_at := int(n.vert_count + (e0 - sk.edge_first[n.tri_first]) * (S - 1))
+	faces_at := int(n.vert_count + node_edges * (S - 1) + (item.tri_lo - n.tri_first) * F)
 	targets: []f32
 	when K == .Smooth {
-		// Every sample keeps its height unless the dab reaches it.
+		// Every sample keeps its height unless the dab reaches it: this run's own.
 		targets = sk.smooth_to[sk.offsets[i]:][:skin_node_count(s, sk, id)]
-		k := 0
-		for r in skin_node_ranges(s, sk, id) {
-			for x in r.first ..< r.first + r.count {
-				targets[k] = f32(sk.heights[x])
-				k += 1
-			}
-		}
+		if item.verts do for v in n.vert_first ..< n.vert_first + n.vert_count do targets[v - n.vert_first] = f32(sk.heights[v])
+		edge_samples := sk.heights[sk.vert_count + e0 * (S - 1):][:(e1 - e0) * (S - 1)]
+		for h, x in edge_samples do targets[edges_at + x] = f32(h)
+		face_samples := sk.heights[sk.vert_count + sk.edge_count * (S - 1) + item.tri_lo * F:][:(item.tri_hi - item.tri_lo) * F]
+		for h, x in face_samples do targets[faces_at + x] = f32(h)
 	}
 
 	// Vertex samples, skipped when the vertex is far: a sample lies at most the tallest
 	// height from its flat point.
-	for v in n.vert_first ..< n.vert_first + n.vert_count {
+	at := 0
+	if item.verts do for v in n.vert_first ..< n.vert_first + n.vert_count {
 		if linalg.length2(P[v] - d.center) > reach * reach {
 			at += 1
 			continue
@@ -374,8 +404,7 @@ skin_displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool
 		at += 1
 	}
 	// Edge samples, each edge from its owner triangle, skipped when the edge is far.
-	e0 := sk.edge_first[n.tri_first]
-	e1 := sk.edge_first[n.tri_first + n.tri_count]
+	at = edges_at
 	for e in e0 ..< e1 {
 		edge := sk.edges[e]
 		t := edge.tris[0]
@@ -391,34 +420,48 @@ skin_displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool
 		}
 	}
 	// Inside samples, triangle by triangle, skipped when the triangle is far.
-	F := skin_face_samples(sk)
+	at = faces_at
 	base := sk.vert_count + sk.edge_count * (S - 1)
-	for t in n.tri_first ..< n.tri_first + n.tri_count {
+	for t in item.tri_lo ..< item.tri_hi {
 		if F == 0 do continue
 		if !skin_sphere_near(sk, t, d.center, reach) {
 			at += int(F)
 			continue
 		}
+		// The inside places' flat points and normals as skin_base works them out (the same
+		// bits: S is a power of two, so times 1/S is over S), from the corners loaded once,
+		// and a place whose flat point is beyond the reach is skipped before its height or
+		// its normal's length.
+		a, b, c := P[I[3 * t]], P[I[3 * t + 1]], P[I[3 * t + 2]]
+		na, nb, nc := N[I[3 * t]], N[I[3 * t + 1]], N[I[3 * t + 2]]
 		x := base + t * F
 		for j in u32(1) ..= S - 2 do for ii in u32(1) ..= S - 1 - j {
-			skin_touch(d, x, t, ii, j, K, ONCE, &moved, &top, targets, at)
+			b1, b2 := f32(ii) * inv_s, f32(j) * inv_s
+			b0 := 1 - b1 - b2
+			p := a * b0 + b * b1 + c * b2
+			if linalg.length2(p - d.center) < reach2 {
+				skin_touch_at(d, x, t, ii, j, p, na * b0 + nb * b1 + nc * b2, K, ONCE, &moved, &top, targets, at)
+			}
 			x += 1
 			at += 1
 		}
 	}
-	when K != .Smooth {
-		s.partials[i].moved = moved
-		s.partials[i].weight_sum = top
-	}
+	item.moved, item.top = moved, top
 }
 
 // One sample: index x, at grid place (i, j) of triangle t, at position `at` among its
 // node's samples (for Smooth's targets).
 @(private)
 skin_touch :: #force_inline proc(d: ^Dab, x, t, i, j: u32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
+	p, nn := skin_base(d.s, d.s.skin, t, i, j)
+	skin_touch_at(d, x, t, i, j, p, nn, K, ONCE, moved, top, targets, at)
+}
+
+// skin_touch with the sample's flat point and interpolated normal already worked out.
+@(private)
+skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
 	s := d.s
 	sk := s.skin
-	p, nn := skin_base(s, sk, t, i, j)
 	nu := linalg.normalize0(nn)
 	h := f32(sk.heights[x])
 	q := p + nu * h
@@ -660,6 +703,105 @@ skin_flush :: proc(s: ^Sculptor) {
 	clear(&sk.boxes)
 }
 
+// The parts of the node's own triangles at their borders (skin_grid_pass), worked out
+// once for every vertex and edge sample of the node that needs them, where each would
+// otherwise take its look-ups again for every sample along an edge.
+@(private)
+Skin_Borders :: struct {
+	s:     ^Sculptor,
+	sk:    ^Skin,
+	first: u32, // the node's first triangle
+	slot:  []u32, // by the node's triangles: 1 + where its parts start in parts, 0 for none yet
+	parts: [dynamic]Skin_Partial, // 3 * segments for each triangle passed
+}
+
+@(private)
+skin_borders_make :: proc(s: ^Sculptor, sk: ^Skin, n: Node) -> Skin_Borders {
+	return {s = s, sk = sk, first = n.tri_first, slot = make([]u32, n.tri_count, runtime.heap_allocator()), parts = make([dynamic]Skin_Partial, runtime.heap_allocator())}
+}
+
+@(private)
+skin_borders_delete :: proc(b: ^Skin_Borders) {
+	delete(b.slot, runtime.heap_allocator())
+	delete(b.parts)
+}
+
+// Room for triangle t's parts, when it is one of the node's; nil for another node's.
+@(private)
+skin_borders_room :: proc(b: ^Skin_Borders, t: u32) -> []Skin_Partial {
+	if t < b.first || int(t - b.first) >= len(b.slot) do return nil
+	S := int(b.sk.segments)
+	at := len(b.parts)
+	// Every part is written by the pass before it is read, so the room need not be cleared.
+	non_zero_resize(&b.parts, at + 3 * S)
+	b.slot[t - b.first] = u32(at) + 1
+	return b.parts[at:][:3 * S]
+}
+
+// Runs triangle t's grid pass, writing its inside normals with `inside`, and keeps its
+// border parts when it is one of the node's.
+@(private)
+skin_borders_pass :: proc(b: ^Skin_Borders, t: u32, inside: bool) {
+	skin_grid_pass(b.s, b.sk, t, inside, skin_borders_room(b, t))
+}
+
+// Triangle f's part at corner c's edge, k steps along it: from the node's kept parts,
+// with a pass for a triangle of the node not passed yet when `pass`, or else looked up
+// on its own.
+@(private)
+skin_borders_part :: proc(b: ^Skin_Borders, f, c, k: u32, pass: bool) -> Skin_Partial {
+	S := b.sk.segments
+	inside := f >= b.first && int(f - b.first) < len(b.slot)
+	if inside && b.slot[f - b.first] == 0 && pass do skin_borders_pass(b, f, false)
+	if !inside || b.slot[f - b.first] == 0 {
+		i, j := skin_edge_place(S, c, k)
+		return skin_partial(b.s, b.sk, f, i, j)
+	}
+	return b.parts[b.slot[f - b.first] - 1 + skin_border_index(S, c, k)]
+}
+
+// Vertex v's sample normal, as skin_normal gives it from v's first triangle.
+@(private)
+skin_borders_vertex :: proc(b: ^Skin_Borders, v: u32) -> Vec3 {
+	I := b.s.mesh.indices[:]
+	S := b.sk.segments
+	faces := faces_of(b.s, v)
+	c := skin_corner_of(I, faces[0], v)
+	fi: u32 = S if c == 1 else 0
+	fj: u32 = S if c == 2 else 0
+	_, base := skin_base(b.s, b.sk, faces[0], fi, fj)
+	sum: Skin_Partial
+	for f in faces {
+		p := skin_borders_part(b, f, skin_corner_of(I, f, v), 0, pass = false)
+		sum.turn += p.turn
+		sum.area += p.area
+	}
+	return skin_normal_from(base, sum)
+}
+
+// Writes edge e's inside sample normals, as skin_normal gives them from its first
+// triangle.
+@(private)
+skin_borders_edge :: proc(b: ^Skin_Borders, e: u32) {
+	I := b.s.mesh.indices[:]
+	S := b.sk.segments
+	edge := b.sk.edges[e]
+	ref := b.sk.tri_edges[edge.tris[0]][edge.corner]
+	other := skin_corner_of(I, edge.tris[1], I[3 * edge.tris[0] + (edge.corner + 1) % 3])
+	for k in u32(1) ..< S {
+		fi, fj := skin_edge_place(S, edge.corner, k)
+		_, base := skin_base(b.s, b.sk, edge.tris[0], fi, fj)
+		along := k if ref & 1 == 0 else S - k
+		sum: Skin_Partial
+		for f in edge.tris {
+			p := skin_borders_part(b, f, edge.corner, along, true) if f == edge.tris[0] else skin_borders_part(b, f, other, S - along, true)
+			sum.turn += p.turn
+			sum.area += p.area
+		}
+		b.sk.normals[b.sk.vert_count + e * (S - 1) + (k - 1)] = geom.oct_encode(skin_normal_from(base, sum))
+	}
+}
+
 // Recomputes the normals of the samples node `id` writes that lie in a triangle near the
 // dab boxes (skin_tri_near): a vertex's when any triangle at it is, an edge's when either
 // of its triangles is, a triangle's inside samples when it is. Marks what it redid in the
@@ -667,8 +809,6 @@ skin_flush :: proc(s: ^Sculptor) {
 @(private)
 skin_node_normals_near :: proc(s: ^Sculptor, sk: ^Skin, id: u32, widen: f32) {
 	n := s.nodes[id]
-	I := s.mesh.indices[:]
-	S := sk.segments
 	// Only the boxes that reach the node's own box (its leaf's, around its triangles),
 	// widened by the tallest height and by the widest triangle, since a triangle of
 	// another node at one of its vertices or edges lies within that of the box; usually
@@ -682,32 +822,28 @@ skin_node_normals_near :: proc(s: ^Sculptor, sk: ^Skin, id: u32, widen: f32) {
 	}
 	if len(kept) == 0 do return
 	boxes := kept[:]
-	for v in n.vert_first ..< n.vert_first + n.vert_count {
-		faces := faces_of(s, v)
-		near := false
-		for f in faces do if skin_tri_near(sk, f, boxes, widen) {near = true; break}
-		if !near do continue
-		f := faces[0]
-		c := skin_corner_of(I, f, v)
-		fi: u32 = S if c == 1 else 0
-		fj: u32 = S if c == 2 else 0
-		sk.normals[v] = geom.oct_encode(skin_normal(s, sk, f, fi, fj))
-		sk.redo_vert[v] = true
+	b := skin_borders_make(s, sk, n)
+	defer skin_borders_delete(&b)
+	// The near triangles first, whose passes also give their inside normals.
+	for t in n.tri_first ..< n.tri_first + n.tri_count {
+		if !skin_tri_near(sk, t, boxes, widen) do continue
+		skin_borders_pass(&b, t, true)
+		sk.redo_tri[t] = true
 	}
+	// Then the edges, which pass a far triangle of the node beside a near one, and the
+	// vertices last, which only look up the parts of triangles not passed by then.
 	for e in sk.edge_first[n.tri_first] ..< sk.edge_first[n.tri_first + n.tri_count] {
 		edge := sk.edges[e]
 		if !skin_tri_near(sk, edge.tris[0], boxes, widen) && !skin_tri_near(sk, edge.tris[1], boxes, widen) do continue
-		for k in u32(1) ..< S {
-			fi, fj := skin_edge_place(S, edge.corner, k)
-			sk.normals[sk.vert_count + e * (S - 1) + (k - 1)] = geom.oct_encode(skin_normal(s, sk, edge.tris[0], fi, fj))
-		}
+		skin_borders_edge(&b, e)
 		sk.redo_edge[e] = true
 	}
-	if skin_face_samples(sk) == 0 do return
-	for t in n.tri_first ..< n.tri_first + n.tri_count {
-		if !skin_tri_near(sk, t, boxes, widen) do continue
-		skin_inside_normals(s, sk, t)
-		sk.redo_tri[t] = true
+	for v in n.vert_first ..< n.vert_first + n.vert_count {
+		near := false
+		for f in faces_of(s, v) do if skin_tri_near(sk, f, boxes, widen) {near = true; break}
+		if !near do continue
+		sk.normals[v] = geom.oct_encode(skin_borders_vertex(&b, v))
+		sk.redo_vert[v] = true
 	}
 }
 
@@ -715,23 +851,11 @@ skin_node_normals_near :: proc(s: ^Sculptor, sk: ^Skin, id: u32, widen: f32) {
 @(private)
 skin_node_normals :: proc(s: ^Sculptor, sk: ^Skin, id: u32) {
 	n := s.nodes[id]
-	I := s.mesh.indices[:]
-	S := sk.segments
-	for v in n.vert_first ..< n.vert_first + n.vert_count {
-		f := faces_of(s, v)[0]
-		c := skin_corner_of(I, f, v)
-		fi: u32 = S if c == 1 else 0
-		fj: u32 = S if c == 2 else 0
-		sk.normals[v] = geom.oct_encode(skin_normal(s, sk, f, fi, fj))
-	}
-	for e in sk.edge_first[n.tri_first] ..< sk.edge_first[n.tri_first + n.tri_count] {
-		edge := sk.edges[e]
-		for k in u32(1) ..< S {
-			fi, fj := skin_edge_place(S, edge.corner, k)
-			sk.normals[sk.vert_count + e * (S - 1) + (k - 1)] = geom.oct_encode(skin_normal(s, sk, edge.tris[0], fi, fj))
-		}
-	}
-	for t in n.tri_first ..< n.tri_first + n.tri_count do skin_inside_normals(s, sk, t)
+	b := skin_borders_make(s, sk, n)
+	defer skin_borders_delete(&b)
+	for t in n.tri_first ..< n.tri_first + n.tri_count do skin_borders_pass(&b, t, true)
+	for e in sk.edge_first[n.tri_first] ..< sk.edge_first[n.tri_first + n.tri_count] do skin_borders_edge(&b, e)
+	for v in n.vert_first ..< n.vert_first + n.vert_count do sk.normals[v] = geom.oct_encode(skin_borders_vertex(&b, v))
 }
 
 // Called by skin_dab before the dab changes anything: saves the heights of every hit node

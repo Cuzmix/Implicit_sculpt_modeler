@@ -59,6 +59,9 @@ Skin :: struct {
 	spheres:     [][4]f32,
 	// No triangle sphere's radius is larger (it only grows).
 	sphere_max:  f32,
+	// A dab's work, in runs of a hit node's triangles (skin_dab), so a dab that hits only
+	// a few nodes still keeps every thread busy.
+	items:       [dynamic]Skin_Item,
 	// The sample ranges whose normals the last sculptor_flush recomputed, coalesced and
 	// sorted, for uploading.
 	ranges:      [dynamic]Skin_Range,
@@ -72,6 +75,21 @@ Skin :: struct {
 	smooth_to:   [dynamic]f32,
 	offsets:     [dynamic]u32,
 }
+
+// One run of a dab's work: hit leaf `hit`'s triangles [tri_lo, tri_hi) with the edges
+// they number, and with `verts` its node's vertex samples too; `moved` and `top` are what
+// it changed (Partial's moved and weight_sum), summed per hit leaf afterwards.
+Skin_Item :: struct {
+	hit:            u32,
+	tri_lo, tri_hi: u32,
+	verts:          bool,
+	moved:          u32,
+	top:            f32,
+}
+
+// Triangles a run of a dab's work takes (Skin_Item): at 16 segments about 17k samples.
+@(private)
+SKIN_ITEM_TRIS :: 16
 
 // How much of a node's skin went stale (Skin.stale).
 Skin_Stale :: enum u8 {
@@ -179,6 +197,7 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	sk.stale = make([]Skin_Stale, len(s.nodes), allocator)
 	sk.stale_nodes = make([dynamic]u32, 0, 64, allocator)
 	sk.boxes = make([dynamic][2]Vec3, 0, SKIN_BOXES_MAX, allocator)
+	sk.items = make([dynamic]Skin_Item, 0, 64, allocator)
 	sk.redo_vert = make([]bool, sk.vert_count, allocator)
 	sk.redo_edge = make([]bool, sk.edge_count, allocator)
 	sk.redo_tri = make([]bool, sk.tri_count, allocator)
@@ -203,6 +222,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.stale, allocator)
 	delete(sk.stale_nodes)
 	delete(sk.boxes)
+	delete(sk.items)
 	delete(sk.redo_vert, allocator)
 	delete(sk.redo_edge, allocator)
 	delete(sk.redo_tri, allocator)
@@ -423,7 +443,7 @@ skin_triangle_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32, flat := false) {
 		}
 		sk.normals[skin_sample(sk, I, t, i, j)] = geom.oct_encode(n)
 	}
-	if !flat do skin_inside_normals(s, sk, t)
+	if !flat do skin_grid_pass(s, sk, t, true, nil)
 }
 
 // The most grid places of a triangle (at SKIN_SEGMENTS_MAX), and of its small triangles.
@@ -432,31 +452,84 @@ SKIN_PLACES_MAX :: (SKIN_SEGMENTS_MAX + 1) * (SKIN_SEGMENTS_MAX + 2) / 2
 @(private)
 SKIN_SMALL_MAX :: SKIN_SEGMENTS_MAX * SKIN_SEGMENTS_MAX
 
-// Writes the normals of triangle t's inside samples, as skin_normal gives them, from one
-// pass over the triangle: each grid place's points and each small triangle's turn are
-// worked out once instead of once for every sample they touch (about six times).
+// One mesh triangle's part of a sample's normal: the turn and the area its small
+// triangles at the sample add (skin_turn_at), summed from zero, so the same part comes
+// from one look-up or from a grid pass.
 @(private)
-skin_inside_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32) {
+Skin_Partial :: struct {
+	turn: Vec3,
+	area: f32,
+}
+
+// Triangle t's part of the normal of the sample at its grid place (i, j).
+@(private)
+skin_partial :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Skin_Partial {
+	turn, area: Vec3
+	skin_turn_at(s, sk, t, i, j, &turn, &area)
+	return {turn, area.x}
+}
+
+// A sample's normal from its interpolated normal and the parts of every triangle it lies
+// on, added in skin_normal's order.
+@(private)
+skin_normal_from :: #force_inline proc(base: Vec3, sum: Skin_Partial) -> Vec3 {
+	n := linalg.normalize0(base)
+	if sum.area > 0 do n += sum.turn / sum.area
+	return linalg.normalize0(n)
+}
+
+// Where a place on a triangle's border lies in the parts skin_grid_pass writes: corner c's
+// edge, k steps along it (skin_edge_place), so each corner is k = 0 of its own edge.
+@(private)
+skin_border_index :: #force_inline proc(S, c, k: u32) -> u32 {return c * S + k}
+
+// One pass over triangle t's grid: each grid place's points and each small triangle's
+// turn are worked out once instead of once for every sample they touch (about six times).
+// With `inside`, writes the normals of its inside samples, as skin_normal gives them; with
+// `border` (3 * segments long), writes its part of the normal at every place on its
+// border (skin_border_index), as skin_partial gives it, for the vertex and edge samples
+// it shares with its neighbours.
+@(private)
+skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []Skin_Partial) {
 	S := int(sk.segments)
-	if S < 3 do return
 	I := s.mesh.indices[:]
 	// Grid place (i, j) at row j: j * (S + 1) - j * (j - 1) / 2 + i.
 	place :: #force_inline proc(S, i, j: int) -> int {return j * (S + 1) - j * (j - 1) / 2 + i}
-	flat, raised, base: [SKIN_PLACES_MAX]Vec3
+	flat, raised, base: [SKIN_PLACES_MAX]Vec3 = ---, ---, ---
+	// The border's places through skin_base and skin_sample; the inside ones with their
+	// sums written out here (the same sums, so the same bits), from the corners read once
+	// and the triangle's own heights in order.
+	P := s.mesh.positions[:]
+	N := s.mesh.normals[:]
+	ca, cb, cc := I[3 * t], I[3 * t + 1], I[3 * t + 2]
+	pa, pb, pc := P[ca], P[cb], P[cc]
+	na, nb, nc := N[ca], N[cb], N[cc]
+	x := sk.vert_count + sk.edge_count * u32(S - 1) + t * skin_face_samples(sk)
 	for j in 0 ..= S do for i in 0 ..= S - j {
-		p, n := skin_base(s, sk, t, u32(i), u32(j))
-		h := f32(sk.heights[skin_sample(sk, I, t, u32(i), u32(j))])
+		p, n: Vec3
+		h: f32
+		if i == 0 || j == 0 || i + j == S {
+			p, n = skin_base(s, sk, t, u32(i), u32(j))
+			h = f32(sk.heights[skin_sample(sk, I, t, u32(i), u32(j))])
+		} else {
+			b1, b2 := f32(i) / f32(S), f32(j) / f32(S)
+			b0 := 1 - b1 - b2
+			p, n = pa * b0 + pb * b1 + pc * b2, na * b0 + nb * b1 + nc * b2
+			h = f32(sk.heights[x])
+			x += 1
+		}
 		k := place(S, i, j)
 		flat[k], raised[k], base[k] = p, p + linalg.normalize0(n) * h, n
 	}
 	// The small triangle "up" at (i, j) has corners (i, j), (i+1, j), (i, j+1) and "down"
 	// at (i, j) has (i+1, j), (i+1, j+1), (i, j+1), in the order skin_turn_at takes them.
+	// Only the ones that exist are written, and only those are read.
 	Small :: struct {
 		turn: Vec3,
 		half: f32,
 		ok:   bool,
 	}
-	up, down: [SKIN_SMALL_MAX]Small
+	up, down: [SKIN_SMALL_MAX]Small = ---, ---
 	small :: #force_inline proc(flat, raised: []Vec3, a, b, c: int) -> (out: Small) {
 		out.turn, out.half, out.ok = skin_small_turn(flat[a], raised[a], flat[b], raised[b], flat[c], raised[c])
 		return
@@ -465,27 +538,34 @@ skin_inside_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32) {
 		up[j * S + i] = small(flat[:], raised[:], place(S, i, j), place(S, i + 1, j), place(S, i, j + 1))
 		if i + j < S - 1 do down[j * S + i] = small(flat[:], raised[:], place(S, i + 1, j), place(S, i + 1, j + 1), place(S, i, j + 1))
 	}
-	x := sk.vert_count + sk.edge_count * u32(S - 1) + t * skin_face_samples(sk)
-	for j in 1 ..= S - 2 do for i in 1 ..= S - 1 - j {
-		turn: Vec3
-		area: f32
-		add :: #force_inline proc(turn: ^Vec3, area: ^f32, sm: Small) {
+	// skin_turn_at's order and conditions: up at (i, j), (i-1, j), (i, j-1), then down at
+	// (i-1, j), (i-1, j-1), (i, j-1), each where it exists.
+	part :: #force_inline proc(up, down: []Small, S, i, j: int) -> (p: Skin_Partial) {
+		add :: #force_inline proc(p: ^Skin_Partial, sm: Small) {
 			if !sm.ok do return
-			turn^ += sm.turn
-			area^ += sm.half
+			p.turn += sm.turn
+			p.area += sm.half
 		}
-		// skin_turn_at's order: up at (i, j), (i-1, j), (i, j-1), then down at (i-1, j),
-		// (i-1, j-1), (i, j-1); inside the grid all six exist.
-		add(&turn, &area, up[j * S + i])
-		add(&turn, &area, up[j * S + i - 1])
-		add(&turn, &area, up[(j - 1) * S + i])
-		add(&turn, &area, down[j * S + i - 1])
-		add(&turn, &area, down[(j - 1) * S + i - 1])
-		add(&turn, &area, down[(j - 1) * S + i])
-		n := linalg.normalize0(base[place(S, i, j)])
-		if area > 0 do n += turn / area
-		sk.normals[x] = geom.oct_encode(linalg.normalize0(n))
-		x += 1
+		if i + j < S do add(&p, up[j * S + i])
+		if i >= 1 do add(&p, up[j * S + i - 1])
+		if j >= 1 do add(&p, up[(j - 1) * S + i])
+		if i >= 1 && i - 1 + j < S - 1 do add(&p, down[j * S + i - 1])
+		if i >= 1 && j >= 1 do add(&p, down[(j - 1) * S + i - 1])
+		if j >= 1 && i + j - 1 < S - 1 do add(&p, down[(j - 1) * S + i])
+		return
+	}
+	if inside && S >= 3 {
+		x = sk.vert_count + sk.edge_count * u32(S - 1) + t * skin_face_samples(sk)
+		for j in 1 ..= S - 2 do for i in 1 ..= S - 1 - j {
+			sk.normals[x] = geom.oct_encode(skin_normal_from(base[place(S, i, j)], part(up[:], down[:], S, i, j)))
+			x += 1
+		}
+	}
+	if border != nil {
+		for c in u32(0) ..< 3 do for k in u32(0) ..< u32(S) {
+			i, j := skin_edge_place(u32(S), c, k)
+			border[skin_border_index(u32(S), c, k)] = part(up[:], down[:], S, int(i), int(j))
+		}
 	}
 }
 
@@ -511,10 +591,15 @@ skin_small_turn :: #force_inline proc(pa, qa, pb, qb, pc, qc: Vec3) -> (turn: Ve
 // serves a skin that moves samples sideways.
 skin_normal :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
 	_, n := skin_base(s, sk, t, i, j)
-	n = linalg.normalize0(n)
-	turn, area: Vec3 = {}, {}
+	sum: Skin_Partial
 	S := sk.segments
 	I := s.mesh.indices[:]
+	// Each triangle's part is summed from zero and the parts added in this order, so a grid
+	// pass's parts (skin_grid_pass) give the same bits.
+	add :: #force_inline proc(sum: ^Skin_Partial, p: Skin_Partial) {
+		sum.turn += p.turn
+		sum.area += p.area
+	}
 	switch {
 	case (i == 0 && j == 0) || i == S || j == S:
 		v := I[3 * t] if i == 0 && j == 0 else (I[3 * t + 1] if i == S else I[3 * t + 2])
@@ -523,7 +608,7 @@ skin_normal :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
 			fi, fj: u32 = 0, 0
 			if c == 1 do fi = S
 			if c == 2 do fj = S
-			skin_turn_at(s, sk, f, fi, fj, &turn, &area)
+			add(&sum, skin_partial(s, sk, f, fi, fj))
 		}
 	case j == 0 || i + j == S || i == 0:
 		c: u32 = 0 if j == 0 else (1 if i + j == S else 2)
@@ -536,13 +621,12 @@ skin_normal :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
 			fc := e.corner if f == e.tris[0] else skin_corner_of(I, f, I[3 * e.tris[0] + (e.corner + 1) % 3])
 			fk := along if f == e.tris[0] else S - along
 			fi, fj := skin_edge_place(S, fc, fk)
-			skin_turn_at(s, sk, f, fi, fj, &turn, &area)
+			add(&sum, skin_partial(s, sk, f, fi, fj))
 		}
 	case:
-		skin_turn_at(s, sk, t, i, j, &turn, &area)
+		sum = skin_partial(s, sk, t, i, j)
 	}
-	if area.x > 0 do n += turn / area.x
-	return linalg.normalize0(n)
+	return skin_normal_from(n, sum)
 }
 
 // The grid place k steps along the edge that starts at corner c of a triangle.
