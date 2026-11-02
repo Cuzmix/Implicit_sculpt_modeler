@@ -1,0 +1,921 @@
+// SDL_shadercross 1ff05bec5739 from skin.frag.spv sha256 74f1ef64df0a6524b0221522e655e8912fe5227ae967233e8fa8351c1dffc31c
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Mesh_Varyings
+{
+    float3 view_normal;
+    float3 view_pos;
+    float mask;
+    float4 paint;
+    float3 group;
+    float3 mesh_pos;
+    uint slot;
+    float3 bary;
+    uint4 skin_tri;
+    float3 turn_x;
+    float3 turn_y;
+    float3 turn_z;
+    uint4 skin_meta;
+};
+
+struct _Array_std140_vector_float_4_8
+{
+    float4 data[8];
+};
+
+struct _Array_std140_vector_float_4_9
+{
+    float4 data[9];
+};
+
+struct SLANG_ParameterGroup_Material_Uniforms_std140
+{
+    float4 base_color;
+    float4 params;
+    float4 surface;
+    float4 checker;
+    float4 look;
+    float4 light_x;
+    float4 light_y;
+    float4 light_z;
+    _Array_std140_vector_float_4_8 light_pos;
+    _Array_std140_vector_float_4_8 light_color;
+    _Array_std140_vector_float_4_8 light_spot;
+    _Array_std140_vector_float_4_8 light_shape;
+    _Array_std140_vector_float_4_8 light_axis;
+    _Array_std140_vector_float_4_8 light_extra;
+    float4 maps;
+    float4 env;
+    float4 env_x;
+    float4 env_y;
+    float4 env_z;
+    _Array_std140_vector_float_4_9 env_sh;
+    float4 style;
+    float4 pass;
+};
+
+struct _Array_std140_vector_float_4_16
+{
+    float4 data[16];
+};
+
+struct SLANG_ParameterGroup_Slot_Uniforms_std140
+{
+    _Array_std140_vector_float_4_16 slot_color;
+    _Array_std140_vector_float_4_16 slot_params;
+    _Array_std140_vector_float_4_16 slot_surface;
+};
+
+struct StructuredBuffer
+{
+    uint4 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint _member0[1];
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+struct main0_in
+{
+    float3 v_in_view_normal [[user(locn0)]];
+    float3 v_in_view_pos [[user(locn1)]];
+    float v_in_mask [[user(locn2)]];
+    float4 v_in_paint [[user(locn3)]];
+    float3 v_in_group [[user(locn4), flat]];
+    float3 v_in_mesh_pos [[user(locn5)]];
+    uint v_in_slot [[user(locn6)]];
+    float3 v_in_bary [[user(locn7)]];
+    uint4 v_in_skin_tri [[user(locn8)]];
+    float3 v_in_turn_x [[user(locn9), flat]];
+    float3 v_in_turn_y [[user(locn10), flat]];
+    float3 v_in_turn_z [[user(locn11), flat]];
+    uint4 v_in_skin_meta [[user(locn12)]];
+};
+
+static inline __attribute__((always_inline))
+float3 srgb_encode(float3 c)
+{
+    float3 _225 = fast::clamp(c, float3(0.0), float3(1.0));
+    return mix(_225 * 12.9200000762939453125, (powr(_225, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _225));
+}
+
+static inline __attribute__((always_inline))
+float3 ddx(float3 p)
+{
+    return dfdx(p);
+}
+
+static inline __attribute__((always_inline))
+float3 ddy(float3 p)
+{
+    return dfdy(p);
+}
+
+static inline __attribute__((always_inline))
+uint skin_index(uint i, uint j, uint S, uint V, uint E, uint tri, uint3 v, uint3 e)
+{
+    bool _507 = i == 0u;
+    bool _482;
+    if (_507)
+    {
+        _482 = j == 0u;
+    }
+    else
+    {
+        _482 = false;
+    }
+    if (_482)
+    {
+        return v.x;
+    }
+    if (i == S)
+    {
+        return v.y;
+    }
+    if (j == S)
+    {
+        return v.z;
+    }
+    uint ref;
+    uint k;
+    if (j == 0u)
+    {
+        ref = e.x;
+        k = i;
+    }
+    else
+    {
+        if ((i + j) == S)
+        {
+            ref = e.y;
+            k = j;
+        }
+        else
+        {
+            uint _541;
+            uint _542;
+            if (_507)
+            {
+                _541 = e.z;
+                _542 = S - j;
+            }
+            else
+            {
+                uint _568 = j - 1u;
+                uint _569 = S - 2u;
+                uint _575 = S - 1u;
+                return (((V + (E * _575)) + (tri * ((_575 * _569) / 2u))) + ((_568 * _569) - ((_568 * (j - 2u)) / 2u))) + (i - 1u);
+            }
+            ref = _541;
+            k = _542;
+        }
+    }
+    uint along;
+    if ((ref & 1u) == 0u)
+    {
+        along = k;
+    }
+    else
+    {
+        along = S - k;
+    }
+    return (V + ((ref >> 1u) * (S - 1u))) + (along - 1u);
+}
+
+static inline __attribute__((always_inline))
+float3 oct_decode(float2 e)
+{
+    float3 _634 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
+    float3 v = _634;
+    if (_634.z < 0.0)
+    {
+        float _618;
+        if (e.x >= 0.0)
+        {
+            _618 = 1.0;
+        }
+        else
+        {
+            _618 = -1.0;
+        }
+        float _619;
+        if (e.y >= 0.0)
+        {
+            _619 = 1.0;
+        }
+        else
+        {
+            _619 = -1.0;
+        }
+        float2 _658 = (float2(1.0) - abs(e.yx)) * float2(_618, _619);
+        v.x = _658.x;
+        v.y = _658.y;
+    }
+    return fast::normalize(v);
+}
+
+static inline __attribute__((always_inline))
+float3 skin_normal_at(uint x, const device StructuredBuffer_1& skin_normals)
+{
+    return oct_decode(fast::max(float2(int2(int(skin_normals._member0[x] << uint(16)) >> 16, int(skin_normals._member0[x]) >> 16)) / float2(32767.0), float2(-1.0)));
+}
+
+static inline __attribute__((always_inline))
+float3 skin_view_normal(thread Mesh_Varyings& frag_in, const device StructuredBuffer& skin_tris, const device StructuredBuffer_1& skin_normals)
+{
+    float3 b;
+    uint3 v;
+    if (skin_tris._member0[frag_in.skin_tri.x].w == 1u)
+    {
+        b = frag_in.bary.zxy;
+        v = frag_in.skin_tri.yzw.zxy;
+    }
+    else
+    {
+        if (skin_tris._member0[frag_in.skin_tri.x].w == 2u)
+        {
+            b = frag_in.bary.yzx;
+            v = frag_in.skin_tri.yzw.yzx;
+        }
+        else
+        {
+            b = frag_in.bary;
+            v = frag_in.skin_tri.yzw;
+        }
+    }
+    float fs = float(frag_in.skin_meta.x);
+    float u = fast::clamp(b.y, 0.0, 1.0) * fs;
+    float w = fast::clamp(b.z, 0.0, 1.0) * fs;
+    uint _424 = frag_in.skin_meta.x - 1u;
+    uint _425 = min(uint(u), _424);
+    uint _427 = min(uint(w), _424);
+    uint i0;
+    uint j0;
+    if ((_425 + _427) > _424)
+    {
+        if (u > w)
+        {
+            i0 = _424 - _427;
+            j0 = _427;
+        }
+        else
+        {
+            i0 = _425;
+            j0 = _424 - _425;
+        }
+    }
+    else
+    {
+        i0 = _425;
+        j0 = _427;
+    }
+    float fu = u - float(i0);
+    float fw = w - float(j0);
+    float _451 = fu + fw;
+    bool _349;
+    if (_451 <= 1.0)
+    {
+        _349 = true;
+    }
+    else
+    {
+        _349 = ((i0 + j0) + 1u) > _424;
+    }
+    float3 n;
+    if (_349)
+    {
+        n = ((skin_normal_at(skin_index(i0, j0, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * ((1.0 - fu) - fw)) + (skin_normal_at(skin_index(i0 + 1u, j0, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * fu)) + (skin_normal_at(skin_index(i0, j0 + 1u, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * fw);
+    }
+    else
+    {
+        uint _691 = i0 + 1u;
+        uint _693 = j0 + 1u;
+        n = ((skin_normal_at(skin_index(_691, _693, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * (_451 - 1.0)) + (skin_normal_at(skin_index(i0, _693, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * (1.0 - fu))) + (skin_normal_at(skin_index(_691, j0, frag_in.skin_meta.x, frag_in.skin_meta.y, frag_in.skin_meta.z, frag_in.skin_tri.x, v, skin_tris._member0[frag_in.skin_tri.x].xyz), skin_normals) * (1.0 - fw));
+    }
+    return ((frag_in.turn_x * n.x) + (frag_in.turn_y * n.y)) + (frag_in.turn_z * n.z);
+}
+
+static inline __attribute__((always_inline))
+float curvature(float3 n, float3 p)
+{
+    float3 dpx = ddx(p);
+    float3 dpy = ddy(p);
+    float3 dnx = ddx(n);
+    float3 dny = ddy(n);
+    float _768 = length(dpx);
+    float _769 = length(dpy);
+    float c;
+    if (_768 > 0.0)
+    {
+        c = dot(dnx, dpx) / _768;
+    }
+    else
+    {
+        c = 0.0;
+    }
+    if (_769 > 0.0)
+    {
+        c += (dot(dny, dpy) / _769);
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float opacity(constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
+{
+    float _965;
+    if (Material_Uniforms.look.w > 0.0)
+    {
+        _965 = Material_Uniforms.look.w;
+    }
+    else
+    {
+        _965 = 1.0;
+    }
+    return _965;
+}
+
+static inline __attribute__((always_inline))
+float3 _fwidth(float3 x)
+{
+    return fwidth(x);
+}
+
+static inline __attribute__((always_inline))
+float glsl_mod(float x, float y)
+{
+    return x - (y * floor(x / y));
+}
+
+static inline __attribute__((always_inline))
+float light_at(int i, thread float3& l, thread float& spread, thread Mesh_Varyings& frag_in, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
+{
+    if (Material_Uniforms.light_pos.data[i].w < 0.5)
+    {
+        l = Material_Uniforms.light_pos.data[i].xyz;
+        spread = Material_Uniforms.light_shape.data[i].w;
+        return 1.0;
+    }
+    float3 d = Material_Uniforms.light_pos.data[i].xyz - frag_in.view_pos;
+    float _1309 = fast::max(dot(d, d), 9.9999999392252902907785028219223e-09);
+    float _1311 = rsqrt(_1309);
+    l = d * _1311;
+    spread = fast::min(Material_Uniforms.light_shape.data[i].w * _1311, 1.0);
+    float k_1 = (Material_Uniforms.light_shape.data[i].x * Material_Uniforms.light_shape.data[i].x) / _1309;
+    float k;
+    if (Material_Uniforms.light_shape.data[i].y > 0.0)
+    {
+        float x = _1309 / (Material_Uniforms.light_shape.data[i].y * Material_Uniforms.light_shape.data[i].y);
+        float _1328 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = k_1 * (_1328 * _1328);
+    }
+    else
+    {
+        k = k_1;
+    }
+    if (Material_Uniforms.light_pos.data[i].w > 1.5)
+    {
+        k *= smoothstep(Material_Uniforms.light_spot.data[i].w, Material_Uniforms.light_shape.data[i].z, dot(-l, Material_Uniforms.light_spot.data[i].xyz));
+    }
+    return k;
+}
+
+static inline __attribute__((always_inline))
+float3 nearest_in_light(float3 l, float3 r, float spread)
+{
+    float _1386 = sqrt(fast::max(1.0 - (spread * spread), 0.0));
+    float _1387 = dot(l, r);
+    if (_1387 >= _1386)
+    {
+        return r;
+    }
+    float3 s = r - (l * _1387);
+    float _1393 = dot(s, s);
+    if (_1393 < 9.9999999600419720025001879548654e-13)
+    {
+        return l;
+    }
+    return fast::normalize((l * _1386) + (s * (rsqrt(_1393) * spread)));
+}
+
+static inline __attribute__((always_inline))
+float widened(float a, float spread)
+{
+    float _1454 = fast::min(a + (0.5 * spread), 1.0);
+    return (a * a) / (_1454 * _1454);
+}
+
+static inline __attribute__((always_inline))
+float3 direct_sized(float3 n, float3 v, float3 l, float3 ls, float spread, float3 diffuse, float3 f0, float a, float shine)
+{
+    float3 color = (diffuse / float3(3.1415927410125732421875)) * fast::max(dot(n, l), 0.0);
+    float _1429 = fast::max(dot(n, ls), 0.0);
+    if (_1429 <= 0.0)
+    {
+        return color;
+    }
+    float3 _1434 = fast::normalize(ls + v);
+    float _1436 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
+    float _1438 = fast::max(dot(n, _1434), 0.0);
+    float a2 = a * a;
+    float d = ((_1438 * _1438) * (a2 - 1.0)) + 1.0;
+    return color + ((((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1434), 0.0), 5.0))) * (((a2 / ((3.1415927410125732421875 * d) * d)) * widened(a, spread)) * (0.5 / fast::max(mix((2.0 * _1429) * _1436, _1429 + _1436, a), 9.9999997473787516355514526367188e-05)))) * _1429) * shine);
+}
+
+static inline __attribute__((always_inline))
+float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a, float shine)
+{
+    float _1499 = fast::max(dot(n, l), 0.0);
+    if (_1499 <= 0.0)
+    {
+        return float3(0.0);
+    }
+    float3 _1505 = fast::normalize(l + v);
+    float _1507 = fast::max(dot(n, v), 9.9999997473787516355514526367188e-05);
+    float _1509 = fast::max(dot(n, _1505), 0.0);
+    float a2 = a * a;
+    float d = ((_1509 * _1509) * (a2 - 1.0)) + 1.0;
+    return ((diffuse / float3(3.1415927410125732421875)) + (((f0 + ((float3(1.0) - f0) * powr(1.0 - fast::max(dot(v, _1505), 0.0), 5.0))) * ((a2 / ((3.1415927410125732421875 * d) * d)) * (0.5 / fast::max(mix((2.0 * _1499) * _1507, _1499 + _1507, a), 9.9999997473787516355514526367188e-05)))) * shine)) * _1499;
+}
+
+static inline __attribute__((always_inline))
+float2 env_brdf(float n_dot_v, float rough)
+{
+    float4 r = (float4(-1.0, -0.0274999998509883880615234375, -0.572000026702880859375, 0.02199999988079071044921875) * rough) + float4(1.0, 0.0425000004470348358154296875, 1.03999996185302734375, -0.039999999105930328369140625);
+    float _1576 = r.x;
+    return (float2(-1.03999996185302734375, 1.03999996185302734375) * ((fast::min(_1576 * _1576, exp2((-9.27999973297119140625) * n_dot_v)) * _1576) + r.y)) + r.zw;
+}
+
+static inline __attribute__((always_inline))
+float3 irradiance(float3 n, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
+{
+    float3 _1616 = transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * n;
+    float _1630 = _1616.y;
+    float _1638 = _1616.z;
+    float _1645 = _1616.x;
+    float _1652 = 1.09254801273345947265625 * _1645;
+    float3 _1690 = fast::max(((((((((Material_Uniforms.env_sh.data[0].xyz * 0.2820949852466583251953125) + (Material_Uniforms.env_sh.data[1].xyz * (0.48860299587249755859375 * _1630))) + (Material_Uniforms.env_sh.data[2].xyz * (0.48860299587249755859375 * _1638))) + (Material_Uniforms.env_sh.data[3].xyz * (0.48860299587249755859375 * _1645))) + (Material_Uniforms.env_sh.data[4].xyz * (_1652 * _1630))) + (Material_Uniforms.env_sh.data[5].xyz * ((1.09254801273345947265625 * _1630) * _1638))) + (Material_Uniforms.env_sh.data[6].xyz * (0.3153919875621795654296875 * (((3.0 * _1638) * _1638) - 1.0)))) + (Material_Uniforms.env_sh.data[7].xyz * (_1652 * _1638))) + (Material_Uniforms.env_sh.data[8].xyz * (0.546274006366729736328125 * ((_1645 * _1645) - (_1630 * _1630)))), float3(0.0));
+    return _1690 * Material_Uniforms.env.y;
+}
+
+static inline __attribute__((always_inline))
+float3 lobe(float3 dir, float3 toward, float3 color, float sharp, float rough)
+{
+    float _1750 = mix(sharp, 3.0, sqrt(rough));
+    return ((color * powr(fast::max(dot(dir, toward), 0.0), _1750)) * (_1750 + 2.0)) / float3(sharp + 2.0);
+}
+
+static inline __attribute__((always_inline))
+float3 studio(float3 dir, float rough)
+{
+    float w = 0.07999999821186065673828125 + (0.89999997615814208984375 * rough);
+    return (((mix(float3(0.070000000298023223876953125, 0.064999997615814208984375, 0.0599999986588954925537109375), float3(0.4000000059604644775390625, 0.430000007152557373046875, 0.4799999892711639404296875), float3(smoothstep(-w, w, dir.y))) + (float3(0.12999999523162841796875, 0.119999997317790985107421875, 0.10999999940395355224609375) * exp((-abs(dir.y)) / (0.0599999986588954925537109375 + (0.5 * rough))))) + lobe(dir, float3(-0.655904233455657958984375, 0.743358075618743896484375, 0.13118083775043487548828125), float3(4.0, 3.7999999523162841796875, 3.5), 300.0, rough)) + lobe(dir, float3(0.8447818756103515625, 0.3285262882709503173828125, -0.42239093780517578125), float3(1.60000002384185791015625, 1.7999999523162841796875, 2.099999904632568359375), 600.0, rough)) + lobe(dir, float3(0.09396819770336151123046875, -0.3288886845111846923828125, 0.939681947231292724609375), float3(0.5), 4.0, rough);
+}
+
+static inline __attribute__((always_inline))
+float sky_facing(float3 n, float3x3 rig)
+{
+    return 0.5 + (0.5 * dot(n, rig[1]));
+}
+
+static inline __attribute__((always_inline))
+float underside(float3 n, float3x3 rig, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
+{
+    return mix(Material_Uniforms.style.y, 1.0, sky_facing(n, rig));
+}
+
+static inline __attribute__((always_inline))
+float2 panorama_uv(float3 d)
+{
+    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
+}
+
+static inline __attribute__((always_inline))
+float3 reflected(float3 dir, float rough, float3x3 to_rig, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms, texture2d<float> environment_map, sampler environment_mapSmplr)
+{
+    if (Material_Uniforms.env.x > 0.5)
+    {
+        float4 _1884 = environment_map.sample(environment_mapSmplr, panorama_uv(transpose(float3x3(Material_Uniforms.env_x.xyz, Material_Uniforms.env_y.xyz, Material_Uniforms.env_z.xyz)) * dir), level(rough * Material_Uniforms.env.z));
+        return _1884.xyz * Material_Uniforms.env.y;
+    }
+    return studio(to_rig * dir, rough);
+}
+
+static inline __attribute__((always_inline))
+float3 tone_map(float3 c)
+{
+    float _1932 = fast::min(c.x, fast::min(c.y, c.z));
+    float offset;
+    if (_1932 < 0.07999999821186065673828125)
+    {
+        offset = _1932 - ((6.25 * _1932) * _1932);
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    float3 _1945 = c - float3(offset);
+    float _1950 = fast::max(_1945.x, fast::max(_1945.y, _1945.z));
+    if (_1950 < 0.7599999904632568359375)
+    {
+        return _1945;
+    }
+    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_1950 + 0.2400000095367431640625) - 0.7599999904632568359375));
+    return mix(_1945 * (new_peak / _1950), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_1950 - new_peak)) + 1.0))));
+}
+
+static inline __attribute__((always_inline))
+float3 display_color(float3 c, float stops)
+{
+    return srgb_encode(tone_map(c * exp2(stops)));
+}
+
+static inline __attribute__((always_inline))
+float4 display(float3 c, constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms)
+{
+    return float4(display_color(c, Material_Uniforms.look.x), opacity(Material_Uniforms));
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Material_Uniforms_std140& Material_Uniforms [[buffer(0)]], constant SLANG_ParameterGroup_Slot_Uniforms_std140& Slot_Uniforms [[buffer(1)]], const device StructuredBuffer_1& skin_normals [[buffer(2)]], const device StructuredBuffer& skin_tris [[buffer(3)]], texture2d<float> matcap [[texture(0)]], texture2d<float> environment_map [[texture(1)]], sampler matcapSmplr [[sampler(0)]], sampler environment_mapSmplr [[sampler(1)]], float4 gl_FragCoord [[position]], bool gl_FrontFacing [[front_facing]])
+{
+    main0_out out = {};
+    Mesh_Varyings frag_in = Mesh_Varyings{ in.v_in_view_normal, in.v_in_view_pos, in.v_in_mask, in.v_in_paint, in.v_in_group, in.v_in_mesh_pos, in.v_in_slot, in.v_in_bary, in.v_in_skin_tri, in.v_in_turn_x, in.v_in_turn_y, in.v_in_turn_z, in.v_in_skin_meta };
+    float4 frag_coord = gl_FragCoord;
+    bool front_facing = gl_FrontFacing;
+    if (Material_Uniforms.params.y < 0.0)
+    {
+        out.entryPointParam_main = float4(srgb_encode(Material_Uniforms.base_color.xyz), 1.0);
+        return out;
+    }
+    float4 surf = Material_Uniforms.surface;
+    float4 base;
+    float4 shading;
+    if (frag_in.slot > 0u)
+    {
+        surf.x = Slot_Uniforms.slot_surface.data[frag_in.slot].xy.x;
+        surf.y = Slot_Uniforms.slot_surface.data[frag_in.slot].xy.y;
+        surf.w = 0.0;
+        base = Slot_Uniforms.slot_color.data[frag_in.slot];
+        shading = Slot_Uniforms.slot_params.data[frag_in.slot];
+    }
+    else
+    {
+        base = Material_Uniforms.base_color;
+        shading = Material_Uniforms.params;
+    }
+    float3 _307 = fast::normalize(-frag_in.view_pos);
+    float3 n;
+    if (Material_Uniforms.surface.z > 0.5)
+    {
+        float3 _314 = ddx(frag_in.view_pos);
+        float3 _321 = ddy(frag_in.view_pos);
+        float3 _328 = fast::normalize(cross(_314, _321));
+        if (dot(_328, _307) < 0.0)
+        {
+            n = -_328;
+        }
+        else
+        {
+            n = _328;
+        }
+    }
+    else
+    {
+        float3 _736 = fast::normalize(skin_view_normal(frag_in, skin_tris, skin_normals));
+        if (!front_facing)
+        {
+            n = -_736;
+        }
+        else
+        {
+            n = _736;
+        }
+    }
+    float3 _747 = ddx(n);
+    float3 _749 = ddy(n);
+    float _752 = curvature(n, frag_in.view_pos);
+    float3 dndx;
+    float3 dndy;
+    float bend;
+    if (Material_Uniforms.surface.z > 0.5)
+    {
+        bend = 0.0;
+        dndx = float3(0.0);
+        dndy = float3(0.0);
+    }
+    else
+    {
+        bend = _752;
+        dndx = _747;
+        dndy = _749;
+    }
+    int _806 = int(Material_Uniforms.pass.x + 0.5);
+    int view_pass;
+    if (Material_Uniforms.pass.w > 0.5)
+    {
+        float wipe = Material_Uniforms.pass.w - 1.0;
+        float _816 = floor(wipe / 8.0);
+        if (frag_coord.x >= _816)
+        {
+            view_pass = int((wipe - (_816 * 8.0)) + 0.5);
+        }
+        else
+        {
+            view_pass = _806;
+        }
+    }
+    else
+    {
+        view_pass = _806;
+    }
+    bool _23;
+    if (view_pass != 0)
+    {
+        _23 = view_pass != 7;
+    }
+    else
+    {
+        _23 = false;
+    }
+    float3 albedo;
+    float rim;
+    if (_23)
+    {
+        if (view_pass == 1)
+        {
+            albedo = (n * 0.5) + float3(0.5);
+        }
+        else
+        {
+            if (view_pass == 2)
+            {
+                albedo = float3(1.0 - fast::clamp(((-frag_in.view_pos.z) - Material_Uniforms.pass.y) / fast::max(Material_Uniforms.pass.z - Material_Uniforms.pass.y, 9.9999999747524270787835121154785e-07), 0.0, 1.0));
+            }
+            else
+            {
+                if (view_pass == 3)
+                {
+                    if (Material_Uniforms.surface.z > 0.5)
+                    {
+                        float3 _883 = fast::normalize(frag_in.view_normal);
+                        if (!front_facing)
+                        {
+                            albedo = -_883;
+                        }
+                        else
+                        {
+                            albedo = _883;
+                        }
+                        rim = curvature(albedo, frag_in.view_pos);
+                    }
+                    else
+                    {
+                        rim = bend;
+                    }
+                    float _903 = fast::clamp(rim / 0.119999997317790985107421875, -1.0, 1.0);
+                    float k;
+                    if (_903 > 0.0)
+                    {
+                        k = _903 * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(dot(n, _307), 0.0));
+                    }
+                    else
+                    {
+                        k = _903;
+                    }
+                    if (k < 0.0)
+                    {
+                        n = float3(0.1500000059604644775390625, 0.3499999940395355224609375, 0.85000002384185791015625);
+                    }
+                    else
+                    {
+                        n = float3(0.949999988079071044921875, 0.550000011920928955078125, 0.1500000059604644775390625);
+                    }
+                    albedo = mix(float3(0.5), n, float3(abs(k)));
+                }
+                else
+                {
+                    if (view_pass == 4)
+                    {
+                        albedo = float3(0.85000002384185791015625);
+                    }
+                    else
+                    {
+                        if (view_pass == 6)
+                        {
+                            albedo = float3(0.7799999713897705078125);
+                        }
+                        else
+                        {
+                            albedo = float3(0.0599999986588954925537109375);
+                        }
+                    }
+                }
+            }
+        }
+        out.entryPointParam_main = float4(albedo, opacity(Material_Uniforms));
+        return out;
+    }
+    float _987 = dot(n, _307);
+    float relief = (1.0 - (0.75 * (Material_Uniforms.look.y * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, -bend)))) * (1.0 + (0.60000002384185791015625 * ((Material_Uniforms.look.z * smoothstep(0.00999999977648258209228515625, 0.119999997317790985107421875, bend)) * smoothstep(0.100000001490116119384765625, 0.4000000059604644775390625, fast::max(_987, 0.0)))));
+    if (frag_in.group.x >= 0.0)
+    {
+        albedo = frag_in.group;
+    }
+    else
+    {
+        albedo = mix(base.xyz, frag_in.paint.xyz, float3(frag_in.paint.w));
+    }
+    if (Material_Uniforms.checker.w > 0.0)
+    {
+        float3 c = (frag_in.mesh_pos - Material_Uniforms.checker.xyz) / float3(Material_Uniforms.checker.w);
+        float3 _1051 = fast::max(_fwidth(c), float3(9.9999999747524270787835121154785e-07));
+        float _1057 = fast::max(fast::max(_1051.x, _1051.y), _1051.z);
+        float3 _1058 = fract(c);
+        float3 edge = fast::min(_1058, float3(1.0) - _1058) / _1051;
+        float3 _1076 = floor(c);
+        albedo *= mix(mix(1.0, 0.7200000286102294921875, glsl_mod((_1076.x + _1076.y) + _1076.z, 2.0)) * (1.0 - (0.3499999940395355224609375 * ((1.0 - smoothstep(0.5, 1.5, fast::min(fast::min(edge.x, edge.y), edge.z))) * (1.0 - smoothstep(0.0625, 0.125, _1057))))), 0.86000001430511474609375, smoothstep(0.20000000298023223876953125, 0.4000000059604644775390625, _1057));
+    }
+    float3x3 rig = float3x3(Material_Uniforms.light_x.xyz, Material_Uniforms.light_y.xyz, Material_Uniforms.light_z.xyz);
+    float shown_mask = frag_in.mask * (1.0 - Material_Uniforms.style.z);
+    float3 albedo_1 = albedo * (1.0 - (0.699999988079071044921875 * shown_mask));
+    float highlight = 1.0 - (0.5 * shown_mask);
+    if (view_pass == 7)
+    {
+        out.entryPointParam_main = float4(srgb_encode((albedo_1 * relief) * exp2(Material_Uniforms.look.x)), opacity(Material_Uniforms));
+        return out;
+    }
+    if (surf.w > 0.5)
+    {
+        float k_1 = 1.0 / (1.0 + _307.z);
+        float _1156 = _307.x;
+        float _1157 = -_1156;
+        float _1158 = _307.y;
+        float b = (_1157 * _1158) * k_1;
+        float4 _1186 = matcap.sample(matcapSmplr, float2(0.5 + (0.495999991893768310546875 * dot(float3(1.0 - ((_1156 * _1156) * k_1), b, _1157), n)), 0.5 - (0.495999991893768310546875 * dot(float3(b, 1.0 - ((_1158 * _1158) * k_1), -_1158), n))));
+        out.entryPointParam_main = float4(srgb_encode(((_1186.xyz * albedo_1) * relief) * exp2(Material_Uniforms.look.x)), opacity(Material_Uniforms));
+        return out;
+    }
+    float3 lit;
+    float3 spec;
+    int i;
+    if (surf.y > 0.0)
+    {
+        float _1205 = fast::clamp(surf.x, 0.0, 1.0);
+        float a = surf.y * surf.y;
+        float _1228 = fast::clamp(sqrt(sqrt(fast::clamp((a * a) + fast::min(2.0 * (0.25 * (dot(dndx, dndx) + dot(dndy, dndy))), 0.180000007152557373046875), 0.0, 1.0))), 0.039999999105930328369140625, 1.0);
+        float _1230 = _1228 * _1228;
+        float3 diffuse = albedo_1 * (1.0 - _1205);
+        float3 _1234 = mix(float3(0.039999999105930328369140625), albedo_1, float3(_1205));
+        float3 _1240 = reflect(-_307, n);
+        i = 0;
+        lit = float3(0.0);
+        float3 l;
+        float spread;
+        for (;;)
+        {
+            bool _102_ladder_break = false;
+            do
+            {
+                if (!(i < 8))
+                {
+                    _102_ladder_break = true;
+                    break;
+                }
+                if (Material_Uniforms.light_color.data[i].w <= 0.0)
+                {
+                    _23 = true;
+                }
+                else
+                {
+                    _23 = Material_Uniforms.light_pos.data[i].w > 2.5;
+                }
+                if (_23)
+                {
+                    break;
+                }
+                float k_1_1 = light_at(i, l, spread, frag_in, Material_Uniforms);
+                if (k_1_1 <= 0.0)
+                {
+                    break;
+                }
+                float shine = 1.0 + Material_Uniforms.light_extra.data[i].x;
+                if (spread > 0.0)
+                {
+                    spec = direct_sized(n, _307, l, nearest_in_light(l, _1240, spread), spread, diffuse, _1234, _1230, shine);
+                }
+                else
+                {
+                    spec = direct(n, _307, l, diffuse, _1234, _1230, shine);
+                }
+                lit += ((spec * Material_Uniforms.light_color.data[i].xyz) * (3.0 * (Material_Uniforms.light_color.data[i].w * k_1_1)));
+                break;
+            } while(false);
+            if (_102_ladder_break)
+            {
+                break;
+            }
+            i++;
+            continue;
+        }
+        float2 ab = env_brdf(fast::max(_987, 9.9999997473787516355514526367188e-05), _1228);
+        float3x3 _1591 = transpose(rig);
+        if (Material_Uniforms.env.x > 0.5)
+        {
+            lit += (diffuse * irradiance(n, Material_Uniforms));
+        }
+        else
+        {
+            if (Material_Uniforms.style.w > 0.5)
+            {
+                lit += ((diffuse * studio(_1591 * n, 1.0)) * ((0.699999988079071044921875 * Material_Uniforms.light_x.w) * underside(n, rig, Material_Uniforms)));
+            }
+            else
+            {
+                lit += ((diffuse * studio(_1591 * n, 1.0)) * (0.699999988079071044921875 * Material_Uniforms.light_x.w));
+            }
+        }
+        out.entryPointParam_main = display((lit + ((reflected(_1240, _1228, _1591, Material_Uniforms, environment_map, environment_mapSmplr) * ((_1234 * ab.x) + float3(ab.y))) * highlight)) * relief, Material_Uniforms);
+        return out;
+    }
+    float _1983 = shading.x * Material_Uniforms.light_x.w;
+    float3 _1987 = reflect(-_307, n);
+    i = 0;
+    lit = float3(_1983);
+    spec = float3(0.0);
+    float3 l_1;
+    float spread_1;
+    float3 h;
+    for (;;)
+    {
+        bool _129_ladder_break = false;
+        do
+        {
+            if (!(i < 8))
+            {
+                _129_ladder_break = true;
+                break;
+            }
+            if (Material_Uniforms.light_color.data[i].w <= 0.0)
+            {
+                _23 = true;
+            }
+            else
+            {
+                _23 = Material_Uniforms.light_pos.data[i].w > 2.5;
+            }
+            if (_23)
+            {
+                break;
+            }
+            float _2018 = light_at(i, l_1, spread_1, frag_in, Material_Uniforms);
+            float s = Material_Uniforms.light_color.data[i].w * _2018;
+            if (s <= 0.0)
+            {
+                break;
+            }
+            float shrink = 1.0 + Material_Uniforms.light_extra.data[i].x;
+            if (spread_1 > 0.0)
+            {
+                h = fast::normalize(nearest_in_light(l_1, _1987, spread_1) + _307);
+                rim = shrink * widened(sqrt(2.0 / (shading.z + 2.0)), spread_1);
+            }
+            else
+            {
+                h = fast::normalize(l_1 + _307);
+                rim = shrink;
+            }
+            lit += (Material_Uniforms.light_color.data[i].xyz * (fast::max((dot(n, l_1) + shading.w) / (1.0 + shading.w), 0.0) * s));
+            spec += (Material_Uniforms.light_color.data[i].xyz * (((powr(fast::max(dot(n, h), 0.0), shading.z) * shading.y) * s) * rim));
+            break;
+        } while(false);
+        if (_129_ladder_break)
+        {
+            break;
+        }
+        i++;
+        continue;
+    }
+    if (Material_Uniforms.style.w > 0.5)
+    {
+        rim = (powr(1.0 - fast::max(_987, 0.0), 4.0) * Material_Uniforms.style.x) * mix(0.300000011920928955078125, 1.0, sky_facing(n, rig));
+        lit -= float3(_1983 * (1.0 - underside(n, rig, Material_Uniforms)));
+    }
+    else
+    {
+        rim = powr(1.0 - fast::max(_987, 0.0), 3.0) * 0.25;
+    }
+    out.entryPointParam_main = display(((albedo_1 * lit) + ((spec + float3(rim)) * highlight)) * relief, Material_Uniforms);
+    return out;
+}
+

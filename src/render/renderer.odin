@@ -152,6 +152,9 @@ Mesh_Pipelines :: struct {
 	// them, and those items then draw through their sculpt buffers as clay.
 	textured:     ^sdl.GPUGraphicsPipeline,
 	textured_see: ^sdl.GPUGraphicsPipeline,
+	// Meshes with a detail skin (skin.odin), opaque; nil where the device refused it, and
+	// those items then draw with the mesh's own normals.
+	skinned:      ^sdl.GPUGraphicsPipeline,
 	// mesh, see, textured and textured_see with the area lights' code (mesh_area and
 	// textured_area.frag), drawn for an item lit by an area light so the others carry
 	// none of it; made the first time one is drawn (area_pipelines), each nil until then
@@ -284,6 +287,16 @@ Mesh_Buffers :: struct {
 	lod_capacity:   u32, // indices
 	lod_draw_count: u32, // commands recorded this frame
 	lod_visible:    [dynamic]geom.Index_Range, // scratch
+
+	// The detail skin over the mesh (skin.odin): each sample's normal, packed as the mesh's
+	// are, and per triangle its edges and lead corner; nil without one.
+	skin_normals: ^sdl.GPUBuffer,
+	skin_tris:    ^sdl.GPUBuffer,
+	skin_meta:    [3]u32, // segments, vertex count, edge count (Frame_Uniforms.skin)
+	skin_samples: u32,
+	// The caller's stamp for the lead corners `skin_tris` holds (the sculptor's paint
+	// stamp, which moves with the polygroups); 0 for none.
+	skin_lead_stamp: u32,
 }
 
 Normal_Packed :: [2]i16
@@ -305,6 +318,7 @@ Frame_Uniforms :: struct {
 	model:     Mat4,
 	options:   [4]f32, // x: show the paint, y: show the polygroups, z: look up material slots
 	slot_group: [GROUP_SLOTS]u32, // Material_Slots.groups, as mesh_io.slang's uint4 slot_group[4]
+	skin:       [4]u32, // the detail skin's segments, vertex and edge counts (Mesh_Buffers.skin_meta)
 }
 
 // How many material slots an item has: slot 0 is its own material, the rest polygroups'.
@@ -463,6 +477,8 @@ MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT)
 MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT)
 MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT)
 TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT)
+SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT)
+SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT)
 TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT)
 TEXTURED_AREA_FRAG_CODE :: #load("shaders/textured_area.frag" + SHADER_EXT)
 CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT)
@@ -684,13 +700,14 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 		floor = create_floor_pipeline(r, samples),
 		textured = create_mesh_pipeline(r, .Solid, samples, textured = true),
 		textured_see = create_mesh_pipeline(r, .See_Through, samples, textured = true),
+		skinned = create_mesh_pipeline(r, .Solid, samples, skinned = true),
 		samples = samples,
 	}
 }
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([8]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
+	for pipeline in ([9]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	for pipeline in p.area do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	p^ = {}
 }
@@ -716,11 +733,15 @@ lights_have_area :: proc(l: Lights) -> bool {
 
 // With `textured`, the pipeline of textured meshes (textured.odin): their 32-byte
 // interleaved vertex, no paint buffer, the MatCap, the environment and three maps, and no
-// polygroup slots. Every mesh pipeline samples the MatCap and the environment.
+// polygroup slots. Every mesh pipeline samples the MatCap and the environment. With
+// `skinned`, the pipeline of meshes with a detail skin (skin.odin): no vertex buffers, the
+// vertex pulled from the paint, index, position and normal buffers, and the skin's two
+// buffers in the fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, area := false) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false) -> ^sdl.GPUGraphicsPipeline {
 	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
 	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
+	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
 	vert := gpu_create_shader(r.device, {
 		code_size           = len(vert_spv),
 		code                = raw_data(vert_spv),
@@ -728,7 +749,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		format              = SHADER_FORMAT,
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
-		num_storage_buffers = 0 if textured else 1,
+		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else 1),
 	})
 	frag := gpu_create_shader(r.device, {
 		code_size           = len(frag_code),
@@ -738,6 +759,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		stage               = .FRAGMENT,
 		num_samplers        = 5 if textured else 2,
 		num_uniform_buffers = 1 if textured else 2,
+		num_storage_buffers = SKIN_FRAGMENT_STORAGE if skinned else 0,
 	})
 	// Shaders are only needed until the pipeline is built.
 	defer if vert != nil do gpu_release_shader(r.device, vert)
@@ -767,6 +789,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		}
 		num_buffers, num_attributes = 1, 4
 	}
+	if skinned do num_buffers, num_attributes = 0, 0
 	wire := mode == .Wire
 	lines := mode == .Lines
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER if mode == .See_Through else {}}}
@@ -775,9 +798,9 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		vertex_shader = vert,
 		fragment_shader = frag,
 		vertex_input_state = {
-			vertex_buffer_descriptions = &buffers[0],
+			vertex_buffer_descriptions = &buffers[0] if num_buffers > 0 else nil,
 			num_vertex_buffers = u32(num_buffers),
-			vertex_attributes = &attributes[0],
+			vertex_attributes = &attributes[0] if num_attributes > 0 else nil,
 			num_vertex_attributes = u32(num_attributes),
 		},
 		primitive_type = .LINELIST if lines else .TRIANGLELIST,
@@ -803,6 +826,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		log.warnf("area lights left out: the %v area pipeline could not be made: %s", mode, sdl.GetError())
 	case textured:
 		log.warnf("textured %v pipeline: %s", mode, sdl.GetError())
+	case skinned:
+		log.warnf("detail skins show the mesh's own normals: the skinned pipeline could not be made: %s", sdl.GetError())
 	case mode == .Solid:
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
 	case mode == .See_Through:
@@ -1012,9 +1037,11 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	mb.index_version = mb.version
 	// Readable by compute as well, so the traced studio casts rays at the triangles the
 	// viewport draws without copying them; a device that refuses gets plain buffers.
-	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ}, size = vbytes}
-	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ}, size = ibytes}
-	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX}, size = nbytes}
+	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = vbytes}
+	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = ibytes}
+	// Normals, positions and indices are read as storage too by the skinned pipeline, which
+	// pulls its vertices itself (skin.odin).
+	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .GRAPHICS_STORAGE_READ}, size = nbytes}
 	positions_map, indices_map, normals_map: rawptr
 	// Where ray queries are offered the driver also builds acceleration structures from
 	// them (trace.odin).
@@ -1176,6 +1203,8 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
+	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
+	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
 	if mb.trace != nil {
 		trace_mesh_destroy(r, mb.trace)
 		free(mb.trace)
@@ -1691,7 +1720,8 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		mb := item.mesh
 		mb.lod_draw_count = 0
 		mb.cull.culled = false
-		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil
+		// A skinned mesh's simplified copies would lose its triangles' numbers.
+		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil && mb.skin_normals == nil
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
 		// The GPU writes the commands itself, between this frame's copy passes, so one of
@@ -1931,6 +1961,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		if want, filtered := live.?; filtered && item.live != want do continue
 		if blended(pipes, item) != see do continue
 		textured := draws_textured(pipes, item)
+		skinned := !textured && !see && draws_skinned(pipes, item)
 		main := pipes.see if see else pipes.mesh
 		if textured do main = pipes.textured_see if see else pipes.textured
 		if lights_have_area(item.lights) {
@@ -1939,6 +1970,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			if textured do which = .Textured_See if see else .Textured
 			if pipes.area[which] != nil do main = pipes.area[which]
 		}
+		// The skin's own shader has no area lights' code: a skinned item leaves them out.
+		if skinned do main = pipes.skinned
 		if main != bound {
 			gpu_bind_graphics_pipeline(pass, main)
 			bound = main
@@ -1977,6 +2010,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			if lines_pass(r, cmd, pass, pipes, item, frame, view, proj) do bound = pipes.lines
 			continue
 		}
+		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
 		gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
 		gpu_push_fragment_uniform_data(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
@@ -1984,8 +2018,14 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		samplers := [2]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
 		gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
-		gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
-		draw_item_triangles(r, pass, item, stats)
+		if skinned {
+			draw_skinned_item(r, pass, item, stats)
+		} else {
+			gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
+			draw_item_triangles(r, pass, item, stats)
+		}
+		// The wireframe and the cage lines draw from the vertex buffers.
+		if skinned && (item.wireframe || item.cage_lines) do gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
 		if item.wireframe && pipes.wire != nil {
 			wire_pass(r, cmd, pass, pipes, item)
 			bound = pipes.wire

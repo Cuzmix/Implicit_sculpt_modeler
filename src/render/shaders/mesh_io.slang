@@ -12,6 +12,9 @@
 	// Slot k's polygroup in component k & 3 of element k >> 2 (render.Material_Slots), from
 	// slot 1; 0xffffffff for an unused slot.
 	uint4 slot_group[4];
+	// The detail skin's segments, vertex count and edge count (render.Mesh_Buffers.skin_meta),
+	// read only by the skinned stages (skin.vert.slang).
+	uint4 skin;
 };
 
 struct Mesh_Varyings {
@@ -29,6 +32,18 @@ struct Mesh_Varyings {
 #ifdef TEXTURED
 	[[vk::location(7)]] float2 uv : TEXCOORD0;
 	[[vk::location(8)]] float4 view_tangent : TANGENT;
+#endif
+#ifdef SKINNED
+	// Where the pixel lies between the triangle's corners as drawn, and the triangle's number
+	// with its corners' vertices as drawn (skin.vert.slang).
+	[[vk::location(7)]] float3 bary : BARY;
+	[[vk::location(8)]] nointerpolation uint4 skin_tri : SKIN_TRI;
+	// The turn from the mesh's space into view space, by rows, for the skin's normals.
+	[[vk::location(9)]] nointerpolation float3 turn_x : TURN0;
+	[[vk::location(10)]] nointerpolation float3 turn_y : TURN1;
+	[[vk::location(11)]] nointerpolation float3 turn_z : TURN2;
+	// Frame_Uniforms.skin, which the fragment stage cannot read from the vertex's uniforms.
+	[[vk::location(12)]] nointerpolation uint4 skin_meta : SKIN_META;
 #endif
 };
 

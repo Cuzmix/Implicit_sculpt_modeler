@@ -107,6 +107,77 @@ static Mesh_Varyings frag_in;
 static float4 frag_coord;
 static bool front_facing;
 
+#ifdef SKINNED
+// The detail skin (sculpt/skin.odin): each sample's normal in the mesh's space, octahedral
+// in two signed 16-bit halves (x low), and per triangle its three edges (number << 1, the
+// low bit set where the triangle runs the edge against its owner) and in w which corner of
+// the triangle as drawn is its first in the mesh (polygroups start a triangle at its lead
+// corner). The layout is sculpt.skin_sample's.
+[[vk::binding(2, 2)]] StructuredBuffer<uint> skin_normals;
+[[vk::binding(3, 2)]] StructuredBuffer<uint4> skin_tris;
+
+float3 skin_normal_at(uint x) {
+	uint p = skin_normals[x];
+	float2 e = max(float2(int2(int(p << 16) >> 16, int(p) >> 16)) / 32767.0, float2(-1.0));
+	return oct_decode(e);
+}
+
+// The sample at grid place (i, j) of a triangle, i toward its second corner and j toward its
+// third in the mesh's order, whose corners' vertices are `v` and edges `e`.
+uint skin_index(uint i, uint j, uint S, uint V, uint E, uint tri, uint3 v, uint3 e) {
+	if (i == 0u && j == 0u) return v.x;
+	if (i == S) return v.y;
+	if (j == S) return v.z;
+	uint ref, k;
+	if (j == 0u) { ref = e.x; k = i; }
+	else if (i + j == S) { ref = e.y; k = j; }
+	else if (i == 0u) { ref = e.z; k = S - j; }
+	else {
+		uint row = (j - 1u) * (S - 2u) - (j - 1u) * (j - 2u) / 2u;
+		return V + E * (S - 1u) + tri * ((S - 1u) * (S - 2u) / 2u) + row + (i - 1u);
+	}
+	uint along = (ref & 1u) == 0u ? k : S - k;
+	return V + (ref >> 1u) * (S - 1u) + (along - 1u);
+}
+
+// The skin's normal at the pixel, in view space (not unit length): the three samples of the
+// small triangle it lies in, mixed by where it lies in it.
+float3 skin_view_normal() {
+	uint S = frag_in.skin_meta.x, V = frag_in.skin_meta.y, E = frag_in.skin_meta.z;
+	uint tri = frag_in.skin_tri.x;
+	uint4 rec = skin_tris[tri];
+	// From the corners as drawn back to the mesh's order: drawn corner k is the mesh's
+	// corner (k + lead) mod 3.
+	uint lead = rec.w;
+	float3 gb = frag_in.bary;
+	uint3 gv = frag_in.skin_tri.yzw;
+	float3 b;
+	uint3 v;
+	if (lead == 1u) { b = gb.zxy; v = gv.zxy; }
+	else if (lead == 2u) { b = gb.yzx; v = gv.yzx; }
+	else { b = gb; v = gv; }
+	float fs = float(S);
+	float u = clamp(b.y, 0.0, 1.0) * fs, w = clamp(b.z, 0.0, 1.0) * fs;
+	uint i0 = min(uint(u), S - 1u), j0 = min(uint(w), S - 1u);
+	if (i0 + j0 > S - 1u) {
+		// Rounding past the triangle's far edge: back onto the last row of small triangles.
+		if (u > w) i0 = S - 1u - j0; else j0 = S - 1u - i0;
+	}
+	float fu = u - float(i0), fw = w - float(j0);
+	float3 n;
+	if (fu + fw <= 1.0 || i0 + j0 + 1u > S - 1u) {
+		n = skin_normal_at(skin_index(i0, j0, S, V, E, tri, v, rec.xyz)) * (1.0 - fu - fw)
+			+ skin_normal_at(skin_index(i0 + 1u, j0, S, V, E, tri, v, rec.xyz)) * fu
+			+ skin_normal_at(skin_index(i0, j0 + 1u, S, V, E, tri, v, rec.xyz)) * fw;
+	} else {
+		n = skin_normal_at(skin_index(i0 + 1u, j0 + 1u, S, V, E, tri, v, rec.xyz)) * (fu + fw - 1.0)
+			+ skin_normal_at(skin_index(i0, j0 + 1u, S, V, E, tri, v, rec.xyz)) * (1.0 - fu)
+			+ skin_normal_at(skin_index(i0 + 1u, j0, S, V, E, tri, v, rec.xyz)) * (1.0 - fw);
+	}
+	return n.x * frag_in.turn_x + n.y * frag_in.turn_y + n.z * frag_in.turn_z;
+}
+#endif
+
 #include "display.slang"
 #include "panorama.slang"
 
@@ -397,7 +468,11 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		n = normalize(cross(ddx(frag_in.view_pos), ddy(frag_in.view_pos)));
 		if (dot(n, v) < 0.0) n = -n;
 	} else {
+#ifdef SKINNED
+		n = normalize(skin_view_normal());
+#else
 		n = normalize(frag_in.view_normal);
+#endif
 		if (!front_facing) n = -n;
 	}
 #endif

@@ -1515,6 +1515,9 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		trim_angle = math.to_radians(app.brush.trim_angle),
 		trim_fixed = !app.brush.trim_dynamic,
 		plane_short = {1 - app.brush.plane_height, 1 - app.brush.plane_depth},
+		// The brushes that can write into a detail skin do wherever the level has one; the
+		// sculptor checks both.
+		skin       = true,
 	}
 }
 

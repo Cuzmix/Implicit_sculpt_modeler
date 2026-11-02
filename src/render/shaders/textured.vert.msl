@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from textured.vert.spv sha256 ee35cbefb66172caa229fd75da6c330db9d826f9e0a34c206f419462224e71e5
+// SDL_shadercross 1ff05bec5739 from textured.vert.spv sha256 033fbac66fe4bb7b2434f90c061c869f285ab7326720bcd84fcaaa9a89c0603f
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -37,6 +37,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_std140
     float4x4 model;
     float4 options;
     _Array_std140_vector_uint_4_4 slot_group;
+    uint4 skin;
 };
 
 struct main0_out
