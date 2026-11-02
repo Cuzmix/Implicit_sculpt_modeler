@@ -8,8 +8,7 @@ import "../poly"
 import "../sculpt"
 import "../ui"
 
-// The bars the user arranges: the view rail down the pen side, the shelf's pages and its
-// tool strip after All, the brush pie, and the off-hand island. Each is a list of registry commands (Bar_Slot,
+// The bars the user arranges: the view rail down the pen side, the shelf's pages, the brush pie, and the off-hand island. Each is a list of registry commands (Bar_Slot,
 // a pie's slot), as Nomad lets any tool be a shortcut; a button whose command does more
 // than run (a long press that opens a menu, a lit state of its own) keeps that through
 // bar_slot_button wherever it sits. Customise bars is an edit mode, as iPadOS's home
@@ -20,7 +19,6 @@ import "../ui"
 Bar_Slot :: Pie_Slot
 
 Bar_Which :: enum u8 {
-	Tools, // the shelf's tool strip, after All (lens_shelf.odin)
 	View_Rail, // the view rail, down the pen side (lens_chrome.odin)
 	// The shelf's pages (lens_shelf.odin), in Shelf_Page's order: the six built in, then
 	// the pages the person adds.
@@ -55,15 +53,12 @@ Bar_Which :: enum u8 {
 // person's brushes, and the island the person's values, which are no layout's; the
 // person's own docks are the screen's, as the rail is.
 @(rodata)
-BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4, .View_Island}
+BAR_LAYOUT := [?]Bar_Which{.View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4, .View_Island}
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
-// moves bars about keeps each one's buttons by where they are. The tool strip keeps the
-// name it had when it stood on the bottom bar; the earlier right bar's `right_rail` lines
-// and the dock's `dock` lines name no bar now and are passed over.
+// moves bars about keeps each one's buttons by where they are.
 @(rodata)
 BAR_ZONES := [Bar_Which]string {
-	.Tools        = "bottom_tools",
 	.View_Rail    = "view_rail",
 	.Shelf_Sculpt = "shelf_sculpt",
 	.Shelf_Paint  = "shelf_paint",
@@ -92,7 +87,6 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 	return {}, false
 }
 
-TOOLS_MAX :: 8
 VIEW_RAIL_MAX :: 24
 VIEW_ISLAND_MAX :: 8
 OFFHAND_MAX :: 8
@@ -109,7 +103,6 @@ Bar_List :: struct {
 }
 
 // What a fresh install has: the gizmo and the mesh tools after All.
-TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
 // The view rail holds the panels, so it reads as "my panels": under its Panels button the
 // Scene, Layers and Material cards, four buttons in all, each the same card the stack
 // shows (the layers' pictures, the material's look pad). The view's own tools are the
@@ -157,14 +150,14 @@ bars_reset :: proc(k: ^Kit_State) {
 	docks_clear(k)
 }
 
-// Puts the strip and the view rail (the bars a layout holds) back as a fresh install has
+// Puts the view rail and the person's docks (the bars a layout holds) back as a fresh install has
 // them.
 bar_lists_reset :: proc(k: ^Kit_State) {
 	for which in BAR_LAYOUT do bar_list_k(k, which)^ = bar_fresh(which)
 	k.rail_groups = {}
 }
 
-// A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
+// A fresh install's list for the view rail, a shelf page or the brush pie.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	switch which {
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
@@ -183,19 +176,16 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 		d := OFFHAND_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		// A new dock is empty but for its +.
-		return bar_list_of({}, bar_default_look(which))
-	case .Tools:
 	}
-	d := TOOLS_DEFAULT
-	return bar_list_of(d[:], bar_default_look(which))
+	// A new dock is empty but for its +.
+	return bar_list_of({}, bar_default_look(which))
 }
 
 bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 	return bar_list_k(&app.kit, which)
 }
 
-// The list behind the strip, the view rail, a shelf page or the brush pie.
+// The list behind the view rail, a shelf page or the brush pie.
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	switch which {
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
@@ -206,11 +196,9 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		i, _ := user_dock_of(which)
-		return &k.dock_lists[i]
-	case .Tools:
 	}
-	return &k.tools
+	i, _ := user_dock_of(which)
+	return &k.dock_lists[i]
 }
 
 // The commands bar `which` shows.
@@ -222,7 +210,6 @@ bar_used :: proc(app: ^App, which: Bar_Which) -> []Bar_Slot {
 // How many slots bar `which` may have, and how many it has.
 bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
-	case .Tools:     return TOOLS_MAX
 	case .View_Rail: return VIEW_RAIL_MAX
 	case .View_Island: return VIEW_ISLAND_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6: return SHELF_MAX
@@ -359,7 +346,6 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 // "The view rail", for notes.
 bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
-	case .Tools:     return "The shelf's tools"
 	case .View_Rail: return "The view rail"
 	case .View_Island: return "The View island"
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:

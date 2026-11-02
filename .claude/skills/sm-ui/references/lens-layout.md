@@ -47,7 +47,7 @@ summary.
   `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float
   (a Default one floats in the middle, `dock_anchor`). Ask `user_dock_shown`, and from inside a container find a root with
   `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
-  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
+  Bars (`bars.odin`): `Bar_Which` is View_Rail, the `Shelf_*` pages (each space's from `shelf_pages_of`),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
   View_Rail) go in workspace layouts, the pages, the pie and the island only in settings. Brush values
@@ -62,7 +62,7 @@ summary.
   Camera or View layout. `corner = true` on `icon_button` draws the triangle that says a long press does more.
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
   press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the docked stack above it. The shelf's pages are
-  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
+  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_lines_layout`/`shelf_fit` decide how many tiles (in the dock's lines as rows)
   show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows and floated
   `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does

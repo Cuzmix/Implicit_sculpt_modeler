@@ -133,15 +133,15 @@ Dock_Place :: struct {
 	at:    [2]f32,
 }
 
-// The bar list behind dock `d`; the shelf's are its pages', which it draws itself.
-dock_which :: proc(d: Dock_Id) -> Bar_Which {
+// The bar list behind dock `d`: the shelf's is the page it shows.
+dock_which :: proc(k: ^Kit_State, d: Dock_Id) -> Bar_Which {
 	switch d {
 	case .Offhand: return .Offhand
 	case .Rail:    return .View_Rail
-	case .Shelf:   return .Tools
+	case .Shelf:   return shelf_which(k.shelf.page)
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return user_dock_which(int(d) - int(Dock_Id.Dock_1))
 	}
-	return .Tools
+	return .Offhand
 }
 
 // The dock bar `which` is, if it is one kit_dock draws.
@@ -156,8 +156,16 @@ dock_of_bar :: proc(which: Bar_Which) -> (Dock_Id, bool) {
 
 // How many lines dock `d`'s buttons stand in.
 dock_lines :: proc(k: ^Kit_State, d: Dock_Id) -> int {
-	return clamp(1 + int(k.docks[d].more_lines), 1, DOCK_LINES_MAX)
+	return clamp(1 + int(k.docks[d].more_lines), 1, dock_lines_most(d))
 }
+
+// The most lines dock `d` takes: the shelf's rows of tiles stand over the view's foot,
+// so it keeps to SHELF_LINES_MAX.
+dock_lines_most :: proc(d: Dock_Id) -> int {
+	return SHELF_LINES_MAX if d == .Shelf else DOCK_LINES_MAX
+}
+
+SHELF_LINES_MAX :: 3
 
 // Whether dock `d` names its buttons now.
 dock_named :: proc(app: ^App, d: Dock_Id) -> bool {
@@ -432,7 +440,7 @@ dock_read :: proc(k: ^Kit_State, f: []string) {
 	if !a_ok || !x_ok || !y_ok || !l_ok || !n_ok || !m_ok || !finite(along) || !finite(x) || !finite(y) do return
 	k.docks[b] = {
 		place      = {edge = edge, along = clamp(along, 0, 1), at = {clamp(x, 0, 1e5), clamp(y, 0, 1e5)}},
-		more_lines = u8(clamp(lines, 1, DOCK_LINES_MAX) - 1),
+		more_lines = u8(clamp(lines, 1, dock_lines_most(b)) - 1),
 		names      = names,
 		more_off   = more == 0,
 		used       = true,
@@ -462,7 +470,7 @@ dock_places_text :: proc(k: ^Kit_State) -> string {
 dock_looks_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
 	for d, b in k.docks {
-		if b == .Shelf || !dock_kept(k, b) do continue
+		if !dock_kept(k, b) do continue
 		if strings.builder_len(out) > 0 do strings.write_byte(&out, ',')
 		fmt.sbprintf(&out, "%s:%d:%s%s", DOCK_NAMES[b], dock_lines(k, b), strings.to_lower(DOCK_NAMES_SHOWN[d.names], context.temp_allocator), ":nomore" if d.more_off else "")
 	}
@@ -604,7 +612,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 	ctx := &k.ctx
 	t := ctx.theme
 	d := &k.docks[id]
-	which := dock_which(id)
+	which := dock_which(k, id)
 	used := bar_used(app, which)
 	root := DOCK_ROOTS[id]
 	more := k.bars_edit || !d.more_off
@@ -671,7 +679,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 dock_rows_tall :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, lines, sliders: int) -> f32 {
 	k := &app.kit
 	t := k.ctx.theme
-	which := dock_which(id)
+	which := dock_which(k, id)
 	tall: f32 = 0
 	seen := 0
 	for i := 0; i < len(used); i += lines {
@@ -704,7 +712,7 @@ DOCK_SLIDER_TALL :: OFFHAND_TRACK + 80
 @(private = "file")
 dock_slider :: proc(app: ^App, id: Dock_Id, slot: int, v: Brush_Value, width: f32) {
 	ctx := &app.kit.ctx
-	which := dock_which(id)
+	which := dock_which(&app.kit, id)
 	tag := "island" if id == .Offhand else fmt.tprintf("%s %d", DOCK_ROOTS[id], slot)
 	ui.begin(ctx, fmt.tprintf("%s slider %d", DOCK_ROOTS[id], slot), {direction = .Column, width = width, center = true})
 	#partial switch v {
@@ -741,13 +749,18 @@ dock_more_button :: proc(app: ^App, id: Dock_Id, width: f32) {
 	r := ui.place(ctx, {width, 1})
 	ui.fill_rect(ctx, {r.x + 8, r.y, max(r.w - 16, 8), 1}, 0, t.border)
 	open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == id
-	if ui.icon_button(ctx, fmt.tprintf("More##%s", DOCK_ROOTS[id]), ui.ICON_MORE, open, keys = "", width = width) {
-		if open do k.bar_pop.open = false
-		else {
-			kit_floats_close(k)
-			k.bar_pop = {open = true, kind = .Dock_Menu, dock = id, at = ctx.last_rect, side = dock_side(app, id)}
-		}
+	if ui.icon_button(ctx, fmt.tprintf("More##%s", DOCK_ROOTS[id]), ui.ICON_MORE, open, keys = "", width = width) do dock_menu_toggle(app, id, ctx.last_rect)
+}
+
+// Opens dock `id`'s menu beside `at`, or closes it when it shows already.
+dock_menu_toggle :: proc(app: ^App, id: Dock_Id, at: ui.Rect) {
+	k := &app.kit
+	if bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == id {
+		k.bar_pop.open = false
+		return
 	}
+	kit_floats_close(k)
+	k.bar_pop = {open = true, kind = .Dock_Menu, dock = id, at = at, side = dock_side(app, id)}
 }
 
 // A dock's menu, from its ⋯: add a button (the rail's cards and groups from the Panels
@@ -760,7 +773,7 @@ kit_dock_menu :: proc(app: ^App) {
 	p := &k.bar_pop
 	id := p.dock
 	d := &k.docks[id]
-	which := dock_which(id)
+	which := dock_which(k, id)
 	W :: 248
 	if !ui.popover_begin(ctx, "dock menu", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = W + 20}) do return
 	defer ui.popover_end(ctx)
@@ -781,11 +794,14 @@ kit_dock_menu :: proc(app: ^App) {
 	if ui.icon_button(ctx, "Fewer lines", ui.ICON_MINIMISE, enabled = lines > 1) do d.more_lines -= 1
 	r := ui.place(ctx, {W - 2 * t.target - 8, t.target})
 	ui.text(ctx, fmt.tprintf("%d line%s", lines, "" if lines == 1 else "s"), r.x + r.w * 0.5 - ui.text_width(ctx, fmt.tprintf("%d line%s", lines, "" if lines == 1 else "s"), t.text_size) * 0.5, r.y + r.h * 0.5, t.text_size, t.text)
-	if ui.icon_button(ctx, "More lines", ui.ICON_PLUS, enabled = lines < DOCK_LINES_MAX) do d.more_lines += 1
+	if ui.icon_button(ctx, "More lines", ui.ICON_PLUS, enabled = lines < dock_lines_most(id)) do d.more_lines += 1
 	ui.end(ctx)
-	ui.caption(ctx, "NAMES")
-	names := [len(Dock_Names)]string{DOCK_NAMES_SHOWN[.Wide], DOCK_NAMES_SHOWN[.Always], DOCK_NAMES_SHOWN[.Off]}
-	if picked := ui.tabs(ctx, "Names##dock menu", names[:], int(d.names), W / 3); picked >= 0 do d.names = Dock_Names(picked)
+	// The shelf's tiles always show their names under their icons.
+	if id != .Shelf {
+		ui.caption(ctx, "NAMES")
+		names := [len(Dock_Names)]string{DOCK_NAMES_SHOWN[.Wide], DOCK_NAMES_SHOWN[.Always], DOCK_NAMES_SHOWN[.Off]}
+		if picked := ui.tabs(ctx, "Names##dock menu", names[:], int(d.names), W / 3); picked >= 0 do d.names = Dock_Names(picked)
+	}
 	if !k.bars_edit && ui.menu_item(ctx, "Hide this button", glyph = ui.ICON_EYE_OFF) {
 		d.more_off = true
 		p.open = false
