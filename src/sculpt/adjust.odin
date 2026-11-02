@@ -27,7 +27,7 @@ sculptor_can_adjust :: proc(s: ^Sculptor) -> bool {
 	if step.mask_layer != 0 do return false
 	if len(step.shown) > 0 || len(step.grouped) > 0 || step.layer_op.active || step.layer_set.active || step.layer_move.active || step.layer_stack.active do return false
 	for sv in step.saved {
-		if sv.full || sv.hidden != nil || sv.groups != nil || sv.indices != nil do return false
+		if sv.full || sv.hidden != nil || sv.groups != nil || sv.indices != nil || sv.heights != nil do return false
 		if sv.is_delta && (int(sv.delta_layer) >= len(s.layers.list) || s.layers.list[sv.delta_layer].delta[sv.node] == nil) do return false
 	}
 	return len(step.saved) > 0

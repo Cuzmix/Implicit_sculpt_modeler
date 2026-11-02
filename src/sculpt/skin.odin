@@ -36,6 +36,31 @@ Skin :: struct {
 	heights:    []f16,
 	// Each sample's normal, octahedral in two signed 16-bit halves, as the GPU reads it.
 	normals:    [][2]i16,
+	// Per node id, the nodes whose triangles share a vertex with its own (itself first):
+	// a sample's normal reads the heights of every triangle at it, so a change in a node
+	// reaches the normals of these. near[near_first[id]:near_first[id + 1]].
+	near_first: []u32,
+	near:       []u32,
+	// Per node id: its samples' heights changed since the last sculptor_flush (skin_mark).
+	stale:       []bool,
+	stale_nodes: [dynamic]u32,
+	// The sample ranges whose normals the last sculptor_flush recomputed, coalesced and
+	// sorted, for uploading.
+	ranges:      [dynamic]Skin_Range,
+	// Per sample: Layer's height this stroke (and Draw's and Inflate's with Accumulate off),
+	// as Sculptor.layer keeps them per vertex; nil until first used.
+	layer:       []Layer_Height,
+	// No height is further than this from zero: it only grows, and widens the reach a dab
+	// tests a triangle against, since a raised sample can lie outside its triangle's box.
+	height_max:  f32,
+	// Smooth's targets, per sample of the hit nodes, each node's from offsets[hit index].
+	smooth_to:   [dynamic]f32,
+	offsets:     [dynamic]u32,
+}
+
+// A run of samples: [first, first + count).
+Skin_Range :: struct {
+	first, count: u32,
 }
 
 // An edge's two triangles, its owner (the lower numbered) first, and the owner's corner
@@ -126,6 +151,12 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	n := skin_sample_count(&sk)
 	sk.heights = make([]f16, n, allocator)
 	sk.normals = make([][2]i16, n, allocator)
+	sk.stale = make([]bool, len(s.nodes), allocator)
+	sk.stale_nodes = make([dynamic]u32, 0, 64, allocator)
+	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
+	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
+	sk.offsets = make([dynamic]u32, 0, 0, allocator)
+	skin_near_build(s, &sk, allocator)
 	skin_normals_all(s, &sk)
 	return sk, true
 }
@@ -136,6 +167,14 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.edges, allocator)
 	delete(sk.heights, allocator)
 	delete(sk.normals, allocator)
+	delete(sk.near_first, allocator)
+	delete(sk.near, allocator)
+	delete(sk.stale, allocator)
+	delete(sk.stale_nodes)
+	delete(sk.ranges)
+	delete(sk.layer, allocator)
+	delete(sk.smooth_to)
+	delete(sk.offsets)
 	sk^ = {}
 }
 
