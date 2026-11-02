@@ -1,5 +1,9 @@
 package main
 
+import "core:fmt"
+import "core:time"
+
+import "../geom"
 import "../sculpt"
 
 // The detail skin (sculpt/skin.odin) in the app: where a brush's detail goes, and adding,
@@ -112,4 +116,47 @@ skin_set :: proc(app: ^App, segments: u32) {
 	} else {
 		report(app, nil, {.Undo}, "%s has a detail skin of %d segments", object_label(obj), segments)
 	}
+}
+
+// Why the object's skin cannot be applied now, or "" when it can.
+skin_apply_refusal :: proc(obj: ^Object) -> string {
+	top := object_top_skin(obj)
+	if top == nil do return "Add a detail skin first."
+	levels := &obj.levels
+	steps := sculpt.levels_skin_apply_steps(levels)
+	switch {
+	case levels.current != len(levels.levels) - 1: return "Go up to the top level first: the skin lies on it."
+	case len(levels.levels) + steps > sculpt.MAX_LEVELS: return fmt.tprintf("Apply adds %d levels and the object has room for %d.", steps, sculpt.MAX_LEVELS - len(levels.levels))
+	case levels.rule != .Loop: return "Apply builds Loop levels, and this object subdivides as Catmull-Clark."
+	}
+	if _, _, bytes := sculpt.levels_skin_apply_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
+		return fmt.tprintf("Apply would need about %s; the limit is %s.", bytes_label(bytes), bytes_label(MAX_SUBDIVIDE_BYTES))
+	}
+	return ""
+}
+
+// Bakes the selected object's detail skin into subdivision levels (sculpt.levels_skin_apply)
+// as one undo step, a swap that puts the skin back. Returns false on a GPU failure.
+skin_apply :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil do return true
+	if why := skin_apply_refusal(obj); why != "" {
+		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		return true
+	}
+	stroke_finish(app)
+	start := time.tick_now()
+	levels := &obj.levels
+	layers := len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
+	before := history_snapshot(app, obj, "apply detail skin")
+	if !sculpt.levels_skin_apply(levels, carry_layers = layers > 0) {
+		history_snapshot_drop(before)
+		report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh to apply its skin: Rebuild or Close holes first", object_label(obj))
+		return true
+	}
+	history_record_swap(app, obj.id, before)
+	object_forget_history(app, obj)
+	app.layers_kept += layers
+	report(app, nil, {.Undo}, "Applied the detail skin of %s: level %d has %s vertices", object_label(obj), levels.current + 1, count_label(geom.mesh_vertex_count(object_mesh(obj)^)))
+	return object_show_level(app, obj, start)
 }

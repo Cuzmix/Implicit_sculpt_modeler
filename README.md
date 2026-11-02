@@ -332,6 +332,8 @@ With a skin, Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth write height
 
 **Detail goes to** (Brush palette, Options, for those seven brushes) overrides where a brush's detail goes: **Auto** puts it in the skin when the object has one, **Mesh** always moves vertices, and **Skin** never moves a vertex and refuses, with a note, on an object without a skin. Each brush keeps its own setting, which the settings file remembers. Alt+D steps the held brush through the three. Sculpt layers record vertex moves only: while one records, Auto moves the mesh and Skin refuses.
 
+**Apply skin** (under Detail skin, also `skin_apply` in a script) turns the skin into subdivision levels: one level for each halving of its segments (a skin of 8 adds three), whose top level has a vertex at every height. Each vertex rises by its height from where Subdivide would put it, along the surface's normal, so the result is as smooth as the skin looked, and the levels below do not move. The skin goes, the new top level is current, and Undo puts the skin back. It needs the top level current, room for the levels (at most 8 in all) and Loop subdivision, and says how many vertices and how much memory the new levels take before you press it.
+
 `--skin=N` gives the starting spheres a skin of N segments.
 
 ## HD detail

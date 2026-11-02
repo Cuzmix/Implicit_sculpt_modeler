@@ -179,12 +179,12 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair, .Skin_Apply}
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
@@ -968,6 +968,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve, cmd.look_drag)
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
+	case .Skin_Apply:
+		return skin_apply(app)
 	case .Curve_Cage:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_make_cage(app, obj, Curve_Cage_Kind(cmd.axis))
 	case .New:

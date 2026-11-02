@@ -39,10 +39,13 @@ detail_skin_routes_strokes_and_refuses_subdividing :: proc(t: ^testing.T) {
 	testing.expect(t, !stroke_to_skin(app, obj, .Draw), "a stroke went to a skin before there was one")
 	testing.expect(t, command_enabled(app, .Subdivide))
 	testing.expect(t, !command_enabled(app, .Detail_Skin, 0), "Off is offered with no skin")
+	testing.expect(t, !command_enabled(app, .Skin_Apply), "Apply is offered with no skin")
 	testing.expect(t, command_run(app, .Detail_Skin, 3))
 	sk := object_skin(obj)
 	testing.expect(t, sk != nil && sk.segments == SKIN_SEGMENTS[3])
 	testing.expect(t, command_checked(app, .Detail_Skin, 3))
+	// Apply is offered once there is a skin on the top level.
+	testing.expect(t, command_enabled(app, .Skin_Apply))
 	testing.expect_value(t, len(app.history.done), 1)
 	testing.expect(t, !command_enabled(app, .Subdivide), "Subdivide is offered under a skin")
 	testing.expect(t, !command_enabled(app, .Dyntopo_Toggle), "dynamic topology is offered under a skin")
