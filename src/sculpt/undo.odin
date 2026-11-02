@@ -27,6 +27,7 @@ Undo_History :: struct {
 	mask_saved:   []u32, // the same for masks
 	mask_changed: []u32,
 	color_saved:  []u32, // ...and for colours, which list their nodes in mask_changed too
+	skin_saved:   []u32, // ...and for detail skin heights
 	stamp:     u32,
 	last_id:   u64, // the id the newest step was given
 	// Steps up to this id are older than a move of the positions no step holds (another
@@ -42,6 +43,7 @@ Undo_Step :: struct {
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
 	shown:  [dynamic]u32, // nodes whose triangles were hidden or shown (hide.odin)
 	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
+	skinned: bool, // a detail skin's heights changed (skin_dab), saved among `saved`
 	layer_op:  Layer_Op,  // a sculpt layer added or removed (sculpt_layers.odin)
 	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
 	layer_move: Layer_Move, // two sculpt layers swapped places
@@ -74,6 +76,7 @@ Saved_Node :: struct {
 	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
 	colors:     []Color, // the node's owned vertices' colours, for a painting step
 	groups:     []u16,   // the node's triangles' groups, for a grouping step
+	heights:    []f16,   // the node's detail skin heights (skin_node_ranges), for a skin stroke
 	// With `is_delta`: the node's displacement in layer `delta_layer` before a recording
 	// stroke added to it (nil when it had none).
 	delta:       []Vec3,
@@ -97,6 +100,7 @@ history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocato
 	h.mask_saved = make([]u32, nodes, allocator)
 	h.mask_changed = make([]u32, nodes, allocator)
 	h.color_saved = make([]u32, nodes, allocator)
+	h.skin_saved = make([]u32, nodes, allocator)
 }
 
 @(private)
@@ -111,6 +115,7 @@ history_destroy :: proc(h: ^Undo_History) {
 	delete(h.mask_saved)
 	delete(h.mask_changed)
 	delete(h.color_saved)
+	delete(h.skin_saved)
 	h^ = {}
 }
 
@@ -135,6 +140,7 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 		slice.zero(h.mask_saved)
 		slice.zero(h.mask_changed)
 		slice.zero(h.color_saved)
+		slice.zero(h.skin_saved)
 		h.stamp = 1
 	}
 }
@@ -145,7 +151,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.skinned && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -210,7 +216,7 @@ sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
 		n := s.nodes[sv.node]
 		first, count := int(n.vert_first), int(n.vert_count)
 		switch {
-		case sv.full || sv.is_delta || sv.hidden != nil || sv.groups != nil:
+		case sv.full || sv.is_delta || sv.hidden != nil || sv.groups != nil || sv.heights != nil:
 			leaf(s, &b, sv.node)
 		case sv.positions != nil:
 			for j in 0 ..< min(count, len(sv.positions)) do if positions[first + j] != sv.positions[j] do geom.aabb_grow(&b, positions[first + j])
@@ -244,6 +250,8 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
 		} else if sv.colors != nil {
 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
+		} else if sv.heights != nil {
+			skin_saved_restore(s, sv)
 		} else {
 			copy(m.positions[n.vert_first:][:n.vert_count], sv.positions)
 		}
@@ -285,6 +293,8 @@ sculptor_stroke_discard :: proc(s: ^Sculptor) -> bool {
 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
 		} else if sv.colors != nil {
 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
+		} else if sv.heights != nil {
+			skin_saved_restore(s, sv)
 		} else {
 			copy(m.positions[n.vert_first:][:n.vert_count], sv.positions)
 		}
@@ -359,6 +369,10 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			for &g, i in live do g, sv.groups[i] = sv.groups[i], g
 			continue
 		}
+		if sv.heights != nil {
+			skin_saved_swap(s, &sv)
+			continue
+		}
 		positions += int(n.vert_count)
 	}
 	// Positions trade places in parallel: a large stroke's are millions.
@@ -402,7 +416,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 // after it.
 @(private)
 saved_positions :: #force_inline proc(sv: Saved_Node) -> bool {
-	return !sv.full && !sv.is_delta && sv.hidden == nil && sv.masks == nil && sv.colors == nil && sv.groups == nil
+	return !sv.full && !sv.is_delta && sv.hidden == nil && sv.masks == nil && sv.colors == nil && sv.groups == nil && sv.heights == nil
 }
 
 // Called by apply_dab before the dab changes anything: saves the owned positions of
@@ -506,7 +520,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
 	for sv in step.saved {
 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3)
+		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	for l in step.layer_stack.list do bytes += layer_bytes(l)
@@ -527,6 +541,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
+		delete(sv.heights, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
@@ -539,7 +554,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	clear(&step.shown)
 	clear(&step.grouped)
 	step.layer_op, step.layer_set, step.layer_move, step.layer_stack = {}, {}, {}, {}
-	step.mask_layer, step.mask_moved = 0, false
+	step.mask_layer, step.mask_moved, step.skinned = 0, false, false
 }
 
 @(private)
@@ -556,6 +571,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
+		delete(sv.heights, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)

@@ -211,6 +211,9 @@ Brush :: struct {
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.
 	feather: bool,
+	// Write into the sculptor's detail skin instead of moving vertices, for the kinds in
+	// SKIN_KINDS, when it has one (skin_dab).
+	skin: bool,
 }
 
 // Which vertices the Smooth brush moves: a vertex lies in a valley when the average of
@@ -269,6 +272,7 @@ Vertex_Range :: geom.Vertex_Range
 @(private)
 Stale :: enum u8 {
 	None,
+	Skin,  // only its detail skin's heights changed: its vertices need nothing (skin_flush)
 	Paint, // only its mask changed: nothing to recompute, just its GPU data
 	Edge,  // a neighbour's triangles moved: the normals of its vertices on that border
 	Shape, // its own triangles moved: all its normals, its bounds and its normal cone
@@ -391,6 +395,8 @@ Sculptor :: struct {
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
+	// The detail skin over the mesh (skin.odin); nil for none.
+	skin:        ^Skin,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -440,6 +446,7 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	sculptor_skin_remove(s)
 	dyn_destroy(s)
 	hide_destroy(s)
 	groups_destroy(s)
@@ -743,6 +750,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		for id in s.dirty_nodes do verts += s.nodes[id].vert_count
 		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
 	}
+	if s.skin != nil do skin_flush(s)
 	if cones_held(s) {
 		s.cones_later = false
 	} else if len(s.waiting_cones) > 0 {
@@ -770,7 +778,10 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	}
 	for id in s.dirty_nodes {
 		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
+		// Only the skin changed: its samples upload, its vertices stay.
+		only_skin := s.stale[id] == .Skin
 		s.stale[id] = .None
+		if only_skin do continue
 		n := s.nodes[id]
 		if len(s.ranges) > 0 {
 			last := &s.ranges[len(s.ranges) - 1]
@@ -1158,6 +1169,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		painted = paint_channel_dab(s, &d, pool)
 		if brush.channel == .Color do return painted
 	}
+	if brush.skin && s.skin != nil && brush.kind in SKIN_KINDS do return painted + skin_dab(s, &d, pool)
 	if s.history.recording do record_hit(s, masks = false)
 
 	sign: f32 = -1 if brush.invert else 1
@@ -1876,7 +1888,7 @@ job_node_normals :: proc(data: rawptr, i: int) {
 	id := s.dirty_nodes[i]
 	n := s.nodes[id]
 	switch s.stale[id] {
-	case .None, .Paint:
+	case .None, .Skin, .Paint:
 		return
 	case .Edge:
 		edge_normals(s, n)
