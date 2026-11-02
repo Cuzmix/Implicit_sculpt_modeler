@@ -8,8 +8,8 @@ import "../ui"
 
 // Rail groups: panels gathered under one button of the view rail, as Photoshop's docked
 // panels fold to one icon. A carried panel button let go on the middle of another makes a
-// group of the two (bar_drag.odin); more join it the same way. A tap shows the group beside
-// the rail as tabs or stacked one under another; a long press or a right-click on its
+// group of the two (bar_drag.odin); more join it the same way. A tap docks the group in the
+// panel stack's column as tabs or stacked one under another (rail_dock.odin); a long press or a right-click on its
 // button or a tab opens its menu: its name, colour, Tabs or Stacked, Pin open, Take out,
 // Ungroup and Remove. Pinned, the group's panels stand in the panel stack's column too,
 // joined as tabs or one after another. The rail's slot names the group by its index; the
@@ -322,7 +322,8 @@ rail_group_read :: proc(k: ^Kit_State, f: []string) {
 
 // Group `g`'s button on the rail: its shown panel's icon, with a dot of its colour and a
 // line for each further panel at its foot, so a group reads as more than one panel. A tap
-// shows the group beside it; a long press or right-click opens its menu.
+// docks the group in the panel stack's column (rail_dock.odin); a long press or right-click
+// opens its menu.
 rail_group_button :: proc(app: ^App, slot: int, s: Bar_Slot, named: string, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -331,11 +332,11 @@ rail_group_button :: proc(app: ^App, slot: int, s: Bar_Slot, named: string, widt
 	gr := slot_group(k, s)
 	if gr == nil do return
 	side := bar_side(app, .View_Rail)
-	lit := bar_pop_showing(app, .Group) && k.bar_pop.group == g || gr.pinned && tray_shown(app)
+	lit := rail_dock_is(app, s)
 	name := fmt.tprintf("%s##%v %d", rail_group_name(app, g), Bar_Which.View_Rail, slot)
 	if ui.icon_button(ctx, name, rail_group_icon(app, g), lit, true, "", 0, true, named, width) {
 		if k.bars_edit do bar_slot_open(app, .View_Rail, slot, ctx.last_rect)
-		else do rail_group_open(app, g, ctx.last_rect, side)
+		else do rail_dock_toggle(app, s)
 	}
 	r := ctx.last_rect
 	if k.bars_edit {
@@ -354,18 +355,6 @@ rail_group_button :: proc(app: ^App, slot: int, s: Bar_Slot, named: string, widt
 	bar_slot_lift(app, .View_Rail, slot, s)
 }
 
-// Opens group `g` beside `at`, or closes it on a second tap.
-rail_group_open :: proc(app: ^App, g: int, at: ui.Rect, side: ui.Side) {
-	k := &app.kit
-	p := &k.bar_pop
-	if p.open && p.kind == .Group && p.group == g {
-		p.open = false
-		return
-	}
-	kit_floats_close(k)
-	k.bar_pop = {open = true, kind = .Group, group = g, at = at, side = side}
-}
-
 // Opens group `g`'s menu beside `at`.
 rail_group_menu_open :: proc(app: ^App, g: int, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
@@ -373,71 +362,52 @@ rail_group_menu_open :: proc(app: ^App, g: int, at: ui.Rect, side: ui.Side) {
 	k.bar_pop = {open = true, kind = .Group_Menu, group = g, at = at, side = side}
 }
 
-// Group `g` beside its button: its name and colour, Pin and Close, then as Tabs a row of
-// its panels' names over the shown one, or Stacked each panel under a header that folds
-// it. A long press or right-click on a tab opens the group's menu too.
-kit_group_pop :: proc(app: ^App) {
+// Group `g`'s tabs, `inner` wide, each a button of its own so a long press on one opens the
+// group's menu; a tap shows its panel and puts `scroll` back at the top. True when the menu
+// opened, the row ended, so the caller draws nothing more this frame.
+rail_group_tabs :: proc(app: ^App, g: int, inner: f32, scroll: ^f32) -> bool {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	p := &k.bar_pop
-	g := p.group
-	if g < 0 || g >= RAIL_GROUPS || !k.rail_groups[g].used {
-		p.open = false
-		return
-	}
 	gr := &k.rail_groups[g]
-	owner := ui.id_of(ctx, "bar group")
-	if !ui.popover_begin(ctx, "bar group", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = PANEL_POP_PAD, width = PANEL_POP_W}) do return
-	defer ui.popover_end(ctx)
-	panel_pop_head(app, "bar group head", rail_group_name(app, g), 2)
-	if ui.icon_button(ctx, "Pin open in the panel stack", ICON_PIN, selected = gr.pinned) do rail_group_pin(app, g, !gr.pinned)
-	if ui.icon_button(ctx, "Group menu", ui.ICON_MORE) {
-		rail_group_menu_open(app, g, p.at, p.side)
+	ui.begin(ctx, "group tabs", {direction = .Row, gap = 2})
+	w := (inner - 2 * f32(gr.count - 1)) / f32(gr.count)
+	for i in 0 ..< gr.count {
+		title := group_panel_title(app, gr.panels[i])
+		if ui.toggle_button(ctx, fmt.tprintf("%s##group tab %d", ui.text_fit(ctx, title, t.text_size, w - 8, .Semibold), i), i == gr.shown, w, tooltip = title) {
+			gr.shown = i
+			scroll^ = 0
+			if gr.pinned do stack_show_tab(&k.stack, gr.panels[i])
+		}
+		if ui.secondary(ctx) {
+			rail_group_menu_open(app, g, ctx.last_rect, .Below)
+			ui.end(ctx)
+			return true
+		}
+	}
+	ui.end(ctx)
+	return false
+}
+
+// Group `g`'s panels, `inner` wide: as Tabs the shown one, Stacked each under a header that
+// folds it (a long press or right-click on a header opens the group's menu).
+rail_group_panels :: proc(app: ^App, g: int, inner: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	gr := &k.rail_groups[g]
+	if !gr.stacked {
+		panel_body(app, gr.panels[clamp(gr.shown, 0, gr.count - 1)], inner)
 		return
 	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
-	ui.end(ctx)
-	if gr.colour > 0 {
-		r := ctx.last_rect
-		ui.fill_rect(ctx, {r.x, r.y + r.h + 1, PANEL_POP_W - 2 * PANEL_POP_PAD, 2}, 1, GROUP_COLOURS[gr.colour - 1])
-	}
-	inner: f32 = PANEL_POP_W - 2 * PANEL_POP_PAD
-	if !gr.stacked {
-		// The tabs, each a button of its own so a long press on one opens the menu.
-		ui.begin(ctx, "group tabs", {direction = .Row, gap = 2})
-		w := (inner - 2 * f32(gr.count - 1)) / f32(gr.count)
-		for i in 0 ..< gr.count {
-			title := group_panel_title(app, gr.panels[i])
-			if ui.toggle_button(ctx, fmt.tprintf("%s##group tab %d", ui.text_fit(ctx, title, t.text_size, w - 8, .Semibold), i), i == gr.shown, w, tooltip = title) {
-				gr.shown = i
-				p.scroll = 0
-				if gr.pinned do stack_show_tab(&k.stack, gr.panels[i])
-			}
-			if ui.secondary(ctx) {
-				rail_group_menu_open(app, g, ctx.last_rect, .Below)
-				ui.end(ctx)
-				return
-			}
+	for i in 0 ..< gr.count {
+		c := gr.panels[i]
+		folded := i in gr.folded
+		if ui.menu_item(ctx, fmt.tprintf("%s##group head %d", group_panel_title(app, c), i), glyph = panel_kind_icon(app, c), hint = panel_kind_summary(app, c) if folded else "") {
+			gr.folded ~= {i}
 		}
-		ui.end(ctx)
+		if ui.secondary(ctx) do rail_group_menu_open(app, g, ctx.last_rect, .Below)
+		if !folded do panel_body(app, c, inner)
 	}
-	room := panel_pop_room(app, "bar group", "bar group body")
-	scroll := kit_scroll_begin(ctx, "bar group body", &p.scroll, owner, inner, room, 6)
-	if gr.stacked {
-		for i in 0 ..< gr.count {
-			c := gr.panels[i]
-			folded := i in gr.folded
-			if ui.menu_item(ctx, fmt.tprintf("%s##group head %d", group_panel_title(app, c), i), glyph = panel_kind_icon(app, c), hint = panel_kind_summary(app, c) if folded else "") {
-				gr.folded ~= {i}
-			}
-			if ui.secondary(ctx) do rail_group_menu_open(app, g, ctx.last_rect, .Below)
-			if !folded do panel_body(app, c, inner)
-		}
-	} else {
-		panel_body(app, gr.panels[clamp(gr.shown, 0, gr.count - 1)], inner)
-	}
-	kit_scroll_end(ctx, scroll)
 }
 
 // Group `g`'s menu: its name, its colour, Tabs or Stacked, Pin open, each panel with Take

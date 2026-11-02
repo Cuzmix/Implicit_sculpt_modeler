@@ -58,6 +58,8 @@ tray_offers :: proc(app: ^App, sec: Kit_Section) -> bool {
 tray_open :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	side_panel_close(app)
 	app.kit.inspector = true
+	// The section is opened where it stands in Main, the stack itself.
+	app.kit.rail_dock = nil
 	stack_reveal(app, sec, exact)
 }
 

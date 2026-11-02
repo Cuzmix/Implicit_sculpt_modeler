@@ -114,7 +114,7 @@ TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}
 // Scene, Layers and Material cards, four buttons in all, each the same card the stack
 // shows (the layers' pictures, the material's look pad). The view's own tools are the
 // View island's.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)}}
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)}}
 
 // The View island's buttons after its head, camera and shading chips: the view layout,
 // symmetry, the wireframe, the lights and framing, so the view is one place to learn.
@@ -274,8 +274,11 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		// The rail's groups go before its slots, so a reader has them when a slot names one.
+		// The rail's groups go before its slots, so a reader has them when a slot names one;
+		// `rail_main` says the rail was saved with Main a button of its own, so a reader puts
+		// none in.
 		if which == .View_Rail {
+			strings.write_string(out, "rail_main\n")
 			rail_groups_settle(k)
 			rail_groups_save(k, out)
 		}
@@ -297,6 +300,10 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		which, zone_ok := bar_zone(f[1])
 		l := bar_list_k(k, which)
 		if n, ok := strconv.parse_int(f[2]); ok && zone_ok do l.count = clamp(n, 0, bar_capacity(which))
+		// A rail from before Main stood on it has no rail_main line after its count.
+		if zone_ok && which == .View_Rail do k.rail_main_check = true
+	case "rail_main":
+		k.rail_main_check = false
 	case "bar":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])
@@ -452,7 +459,7 @@ bar_slot_moved :: proc(app: ^App, slot: int) {
 bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Tool_Move:    return "Gizmo"
-	case .Inspector:    return "Palettes"
+	case .Inspector:    return "Main palette"
 	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
 	case .Show_Panel:   return stack_title(app, Panel_Kind(s.arg))
 	case .Rail_Group:   if s.arg >= 0 && s.arg < RAIL_GROUPS && app.kit.rail_groups[s.arg].used do return rail_group_name(app, s.arg)
@@ -542,10 +549,10 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg)
-	case .Show_Panel:      return p.open && p.kind == .Panel && p.panel == Panel_Kind(s.arg)
+	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg) || rail_dock_is(app, s)
+	case .Show_Panel:      return p.open && p.kind == .Panel && p.panel == Panel_Kind(s.arg) || rail_dock_is(app, s)
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
-	case .Inspector:       return tray_shown(app)
+	case .Inspector:       return rail_dock_is(app, s)
 	case .Command_Palette: return k.palette
 	}
 	return command_checked(app, s.id, s.arg)
@@ -622,6 +629,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
 	if pressed {
 		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
+		else if which == .View_Rail && rail_docks(k, s) do rail_dock_toggle(app, s)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
 	}
 	if k.bars_edit {

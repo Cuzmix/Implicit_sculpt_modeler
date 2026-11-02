@@ -53,7 +53,6 @@ Bar_Pop_Kind :: enum u8 {
 	Value_Menu, // a value item's menu: its look, its section, its moves
 	Panel, // one card of the stack (rail_panels.odin)
 	Panels, // the rail's Panels picker (rail_panels.odin)
-	Group, // a rail group's panels (rail_groups.odin)
 	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 }
 
@@ -251,8 +250,6 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_panel_pop(app)
 	case .Panels:
 		kit_panels_picker(app)
-	case .Group:
-		kit_group_pop(app)
 	case .Group_Menu:
 		kit_group_menu(app)
 	case .Section:

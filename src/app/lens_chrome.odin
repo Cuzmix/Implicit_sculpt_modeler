@@ -273,7 +273,7 @@ rail_labelled :: proc(app: ^App) -> bool {
 // A rail button's name beside its icon: one short word where the command's name is long.
 rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
-	case .Inspector:        return "Panels"
+	case .Inspector:        return "Main"
 	case .View_Layout_Menu: return "Layout"
 	case .Focus_Selected:   return "Frame"
 	case .Symmetry_X:       return "Symmetry"
@@ -282,9 +282,9 @@ rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	return bar_label(app, s)
 }
 
-// The view rail down the pen side, under the top bar: the tray's button, then the rail's
-// slots the user arranges (bars.odin, at first four view tools), each opening what it
-// opens beside the rail. A rail taller than the room down to the window's edge scrolls.
+// The view rail down the pen side, under the top bar: the rail's slots the user arranges
+// (bars.odin; at first Main and three cards), each palette docking in the panel stack's
+// column (rail_dock.odin) and any other command opening what it opens beside the rail. A rail taller than the room down to the window's edge scrolls.
 // Labelled, every button is as wide as the longest name needs.
 kit_view_rail :: proc(app: ^App) {
 	k := &app.kit
@@ -305,16 +305,11 @@ kit_view_rail :: proc(app: ^App) {
 	used := bar_used(app, .View_Rail)
 	width := t.target
 	if rail_labelled(app) {
-		longest := ui.text_width(ctx, rail_label(app, {.Inspector, 0}), t.small_size)
+		longest: f32 = 0
 		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(app, s), t.small_size))
 		width = t.target + longest + 10
 	}
-	panels := tray_shown(app)
 	ui.begin_anchored(ctx, "view bar", x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
-	// The panels collapse rather than close once the stack has its headers; until then the
-	// tray needs a way back.
-	if ui.icon_button(ctx, bar_label(app, {.Inspector, 0}), ui.ICON_PANEL, panels, command_enabled(app, .Inspector), command_hint(app, .Inspector), named = rail_label(app, {.Inspector, 0}), width = width) do command_run(app, .Inspector)
-	ui.divider(ctx, width - 12 if width > t.target else 32, across = true)
 	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, width, max(room, t.target * 3), 0)
 	for s, i in used {
 		if s.id == .Rail_Group do rail_group_button(app, i, s, rail_label(app, s), width)
