@@ -223,7 +223,7 @@ pass_menu_toggle :: proc(app: ^App) {
 		return
 	}
 	kit_floats_close(k)
-	if ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = ui.prev_rect(&k.ctx, "view bar"), bar_place_side(app, .Rail)
+	if ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = ui.prev_rect(&k.ctx, "view bar"), dock_side(app, .Rail)
 	ps.menu = true
 }
 

@@ -48,16 +48,6 @@ rail_panel_toggle :: proc(app: ^App, p: Panel_Kind) -> bool {
 	return on
 }
 
-// The rail's + (outside Arrange, which keeps its own Add a button): opens the Panels
-// picker beside it.
-rail_panels_button :: proc(app: ^App, width: f32) {
-	k := &app.kit
-	ctx := &k.ctx
-	if ui.icon_button(ctx, "Add panels##add panels", ui.ICON_PLUS, bar_pop_showing(app, .Panels), named = "Panels" if rail_labelled(app) else "", width = width) {
-		bar_pop_toggle(app, .Panels, ctx.last_rect, bar_side(app, .View_Rail))
-	}
-}
-
 // The popover's width and padding, as a section's popover has them.
 PANEL_POP_W :: KIT_INSPECTOR_W
 PANEL_POP_PAD :: 12

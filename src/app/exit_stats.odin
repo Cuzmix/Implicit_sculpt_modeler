@@ -404,15 +404,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		changed := 0
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
-		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
+		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries)
 		// The chip bar's sections standing on their own, and how many Arrange let go.
 		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
 		// The top bar's islands from the start corner, and how many Arrange let go.
 		fmt.printfln("top_order=%s island_carries=%d", top_order_text(k), k.arrange.island_carries)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
-		for i in 0 ..< USER_DOCKS do if k.docks[i].used {
-			r := ui.prev_rect(&k.ctx, PLACE_BAR_ROOTS[user_dock_place(i)])
+		for i in 0 ..< USER_DOCKS do if k.docks[user_dock_id(i)].used {
+			r := ui.prev_rect(&k.ctx, DOCK_ROOTS[user_dock_id(i)])
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
@@ -518,7 +518,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// the mini view stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(app, Kit_Window.Thumbnail)
-			fmt.printfln("view_rail=%s view_island=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), bar_names(app, .View_Island), int(rail_labelled(app)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
+			fmt.printfln("view_rail=%s view_island=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), bar_names(app, .View_Island), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)

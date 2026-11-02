@@ -438,16 +438,16 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if ctx.mirror do shift = -shift
 	centre := area.x + area.w * 0.5 + shift
 	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0) - SHELF_DIVIDER_W
-	// Moved in Arrange (bar_place.odin), it stands where its place says, with that room;
+	// Moved in Arrange (docks.odin), it stands where its place says, with that room;
 	// its page names stay under it.
 	place_x, place_y := ui.Anchor.Center, ui.Anchor.End
 	place_at := [2]f32{shift, t.edge + dock_lift(app)}
 	pages_x, pages_y := ui.Anchor.Center, ui.Anchor.End
 	pages_at := [2]f32{shift, max(t.edge - 10, 2)}
-	if k.places[.Shelf].edge != .Default {
+	if k.docks[.Shelf].edge != .Default {
 		size, _ := ui.prev_layout(ctx, "dock")
 		pages, _ := ui.prev_layout(ctx, "dock pages")
-		place_x, place_y, place_at, room = bar_place_anchor(app, .Shelf, size)
+		place_x, place_y, place_at, room = dock_anchor(app, .Shelf, size)
 		room -= 2 * SHELF_PAD
 		pages_x = .Start
 		pages_at.x = place_at.x + size.x * 0.5 - pages.x * 0.5
@@ -468,7 +468,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if active_on {
 		room = max(room - ui.BRUSH_TILE.x, 0)
 		n, _, tile = shelf_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), 0, room, adding, row)
-		if k.places[.Shelf].edge == .Default {
+		if k.docks[.Shelf].edge == .Default {
 			// Left-handed, begin_anchored turns the offset round, so it grows right then.
 			off := ui.BRUSH_TILE.x * 0.5
 			place_at.x -= off

@@ -163,8 +163,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	stack_density_save(k, &out)
 	stack_groups_save(k, &out)
 	stack_beside_save(k, &out)
-	user_docks_save(k, &out)
-	bar_places_save(k, &out)
+	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
@@ -180,9 +179,9 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	panels_default(k)
 	stack_default(k)
 	k.hidden = {}
-	k.places = {}
-	// No docks of the person's but those the layout names, with only the buttons it names.
-	k.docks = {}
+	// Every dock as it comes, and none of the person's but those the layout names, with
+	// only the buttons it names.
+	docks_clear(k)
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
 	k.passes.shading = {}
@@ -204,10 +203,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			pass_layout_read(k, f)
 		case "shading":
 			shading_layout_read(k, f)
-		case "bar_place":
-			bar_place_read(k, f)
-		case "user_dock":
-			user_dock_read(k, f)
+		case "dock":
+			dock_read(k, f)
 		case "thumbnail":
 			if len(f) < 3 do continue
 			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c
@@ -246,7 +243,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	panels_old_settle(k, &old_pins)
 	for f in groups do stack_group_read(k, f)
 	rail_main_settle(k)
-	user_docks_settle(k)
 	// The tray and the Objects card share a place: the card wins, as opening it does.
 	if k.objects_card do k.inspector = false
 	kit_floats_close(k)
