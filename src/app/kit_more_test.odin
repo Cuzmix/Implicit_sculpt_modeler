@@ -115,6 +115,7 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 		testing.expectf(t, n <= 5, "Object palette, %s: %d controls", sec.title, n)
 	}
 	for sec in SCENE_SECTIONS {
+		if p, _ := panel_of_section(sec.section); !panel_is_section(p) do continue
 		tab_draw = sec.draw
 		n := section_controls(&app, sec.section, by_tab, obj, false)
 		testing.expectf(t, n <= 5, "Scene palette, %s: %d controls", sec.title, n)
@@ -142,9 +143,10 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply) and Mask
 	// adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
-	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material has 10 since
-	// the colour field's well became a control of its own, which opens the colour popover.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 10}, {.Camera, 6}}
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card
+	// since the section and the card became one: its tabs, the spheres, the colour and
+	// Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 25}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {
@@ -161,8 +163,8 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	}
 }
 
-// With polygroups the Material section gains its Object and Group tabs, and still shows
-// at most five controls folded on either.
+// With polygroups the Material card gains its Object and Group tabs: Group shows the
+// picked group's material (Pick a group, its preset, its colour) in place of the spheres.
 @(test)
 material_tabs_keep_five_controls :: proc(t: ^testing.T) {
 	app: App
@@ -174,11 +176,11 @@ material_tabs_keep_five_controls :: proc(t: ^testing.T) {
 	for sec in SCENE_SECTIONS {
 		if sec.section != .Material do continue
 		tab_draw = sec.draw
-		for groups in ([?]bool{false, true}) {
-			app.ui.material_groups = groups
-			n := section_controls(&app, sec.section, by_tab, obj, false)
-			testing.expectf(t, n <= 5, "Material, %s tab: %d controls", "Group" if groups else "Object", n)
-			testing.expectf(t, n >= 4, "Material, %v: only %d controls", groups, n)
-		}
+		app.ui.material_groups = true
+		group := section_controls(&app, sec.section, by_tab, obj, false)
+		testing.expectf(t, group >= 4 && group <= 6, "Material, Group tab: %d controls", group)
+		app.ui.material_groups = false
+		object := section_controls(&app, sec.section, by_tab, obj, false)
+		testing.expectf(t, object > group, "Material, Object tab: %d controls", object)
 	}
 }

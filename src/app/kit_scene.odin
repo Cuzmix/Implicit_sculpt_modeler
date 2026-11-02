@@ -428,7 +428,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},
 	{.Look, "Look", kit_look, nil},
-	{.Material, "Material", kit_material, nil},
+	{.Material, "Material", kit_lens_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
 	{.Environment, "Environment", kit_environment, nil},
 	{.Render, "Render", kit_render, nil},
@@ -563,84 +563,9 @@ kit_add :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices%s, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), on, bytes_label(memory * BYTES_PER_VERTEX)))
 }
 
-// The selected object's material: the classic presets, the physically based ones, the
-// MatCaps, Custom, then every content pack's by pack, and sliders that edit whichever is
-// in use into a Custom one. A change goes to
-// every selected object as a Scene_Command and becomes the material new objects take;
-// with nothing selected it only sets that.
-@(private = "file")
-kit_material :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	sel := selected_object(app)
-	// With polygroups the section edits the object's material or one group's.
-	if sel != nil && command_enabled(app, .Pick_Group, 0) {
-		targets := [2]string{"Object", "Group"}
-		if picked := ui.tabs(ctx, "material target", targets[:], int(app.ui.material_groups)); picked >= 0 do app.ui.material_groups = picked == 1
-		if app.ui.material_groups {
-			kit_group_material(app, sel)
-			return
-		}
-	}
-	m := object_material(app, sel) if sel != nil else current_material(app)
-	index := material_index(m)
-	// Custom in the list is the object's own Custom, or the last one made.
-	custom := m if index == CUSTOM_MATERIAL else app.custom
-	// The list's names and, for each, what app.material calls it.
-	names := make([dynamic]string, context.temp_allocator)
-	numbers := make([dynamic]int, context.temp_allocator)
-	for p, i in MATERIALS {
-		append(&names, string(p.label) if i < FIRST_PBR || p.matcap != 0 else fmt.tprintf("%s (physically based)", p.label))
-		append(&numbers, i)
-	}
-	append(&names, "Custom" if custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, custom.matcap)))
-	append(&numbers, CUSTOM_MATERIAL)
-	for pack in app.library.packs {
-		for pm, j in app.library.materials {
-			if pm.gone || pm.pack != pack.id do continue
-			append(&names, fmt.tprintf("%s (%s)", pm.name, pack.name))
-			append(&numbers, PACK_MATERIAL + j)
-		}
-	}
-	shown := 0
-	for n, i in numbers do if n == index do shown = i
-	if picked := ui.select(ctx, "material", names[:], shown); picked >= 0 {
-		n := numbers[picked]
-		switch {
-		case n == CUSTOM_MATERIAL: app.ui.scene_command = {kind = .Material, material = custom}
-		case n >= PACK_MATERIAL:   app.ui.scene_command = {kind = .Material, material = app.library.materials[n - PACK_MATERIAL].material}
-		case:                      app.ui.scene_command = {kind = .Material, material = MATERIALS[n]}
-		}
-	}
-	// The sliders show the material in use; moving one makes it Custom, so a preset is
-	// never changed. A classic preset has no roughness yet, so it starts rough.
-	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
-	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
-	// How every material is shown, kept apart from the materials themselves: Cavity
-	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
-	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
-	if kit_more(app, .Material) {
-		if ui.button(ctx, "Load MatCap...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Matcap)
-		// A matcap's picture holds its sheen, so it has no metallic or roughness.
-		if m.matcap == 0 {
-			changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
-			changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
-		}
-		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
-		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
-		_ = ui.switch_row(ctx, "Dim the others", &app.dim_others)
-		kit_more_end(app)
-	}
-	if changed {
-		m.label = "Custom"
-		app.ui.scene_command = {kind = .Material, material = m}
-	}
-	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the selected objects' and the one new objects take. Content packs' materials come after Custom. Moving the colour, Metallic or Roughness makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material. Dim the others shows the objects not selected in a muted colour.")
-}
-
 // One polygroup's material: Pick a group, then a lit preset or Custom values for it, as the
 // object's own are picked; under More its Metallic and Roughness, and Use the object's
 // material to give its own back.
-@(private = "file")
 kit_group_material :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	u := &app.ui
