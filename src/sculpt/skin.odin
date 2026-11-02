@@ -1,5 +1,6 @@
 package sculpt
 
+import "core:math"
 import "core:math/linalg"
 
 import "../geom"
@@ -41,9 +42,23 @@ Skin :: struct {
 	// reaches the normals of these. near[near_first[id]:near_first[id + 1]].
 	near_first: []u32,
 	near:       []u32,
-	// Per node id: its samples' heights changed since the last sculptor_flush (skin_mark).
-	stale:       []bool,
+	// Per node id, how much of it changed since the last sculptor_flush: nothing, heights
+	// inside the dab boxes only (skin_mark_dab), or anything (skin_mark).
+	stale:       []Skin_Stale,
 	stale_nodes: [dynamic]u32,
+	// The reach of every dab since the last flush, as boxes (lo, hi) around their spheres:
+	// a sample changed only inside one, so only the normals near them go stale.
+	boxes:       [dynamic][2]Vec3,
+	// Per vertex, edge and triangle: the flush recomputed its samples' normals, so their
+	// ranges go up to the GPU; cleared as the ranges are listed.
+	redo_vert:   []bool,
+	redo_edge:   []bool,
+	redo_tri:    []bool,
+	// Per triangle, a sphere holding its flat corners: centre and radius, kept with the
+	// mesh (skin_spheres_update), so dabs and the flush skip far triangles with one test.
+	spheres:     [][4]f32,
+	// No triangle sphere's radius is larger (it only grows).
+	sphere_max:  f32,
 	// The sample ranges whose normals the last sculptor_flush recomputed, coalesced and
 	// sorted, for uploading.
 	ranges:      [dynamic]Skin_Range,
@@ -57,6 +72,17 @@ Skin :: struct {
 	smooth_to:   [dynamic]f32,
 	offsets:     [dynamic]u32,
 }
+
+// How much of a node's skin went stale (Skin.stale).
+Skin_Stale :: enum u8 {
+	Fresh,
+	Near_Dabs, // only heights inside Skin.boxes changed
+	Whole,
+}
+
+// Above this many dab boxes before a flush, each new one joins the last.
+@(private)
+SKIN_BOXES_MAX :: 32
 
 // A run of samples: [first, first + count), as a vertex range is, so the renderer takes
 // both alike.
@@ -150,13 +176,19 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	n := skin_sample_count(&sk)
 	sk.heights = make([]f16, n, allocator)
 	sk.normals = make([][2]i16, n, allocator)
-	sk.stale = make([]bool, len(s.nodes), allocator)
+	sk.stale = make([]Skin_Stale, len(s.nodes), allocator)
 	sk.stale_nodes = make([dynamic]u32, 0, 64, allocator)
+	sk.boxes = make([dynamic][2]Vec3, 0, SKIN_BOXES_MAX, allocator)
+	sk.redo_vert = make([]bool, sk.vert_count, allocator)
+	sk.redo_edge = make([]bool, sk.edge_count, allocator)
+	sk.redo_tri = make([]bool, sk.tri_count, allocator)
+	sk.spheres = make([][4]f32, sk.tri_count, allocator)
+	skin_spheres_all(s, &sk)
 	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
 	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
 	sk.offsets = make([dynamic]u32, 0, 0, allocator)
 	skin_near_build(s, &sk, allocator)
-	skin_normals_all(s, &sk)
+	skin_normals_all(s, &sk, flat = true)
 	return sk, true
 }
 
@@ -170,11 +202,52 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.near, allocator)
 	delete(sk.stale, allocator)
 	delete(sk.stale_nodes)
+	delete(sk.boxes)
+	delete(sk.redo_vert, allocator)
+	delete(sk.redo_edge, allocator)
+	delete(sk.redo_tri, allocator)
+	delete(sk.spheres, allocator)
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
 	delete(sk.smooth_to)
 	delete(sk.offsets)
 	sk^ = {}
+}
+
+// Works out triangle t's sphere (Skin.spheres): the middle of its corners and the
+// farthest corner's distance from it.
+@(private)
+skin_sphere :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t: u32) {
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	a, b, c := P[I[3 * t]], P[I[3 * t + 1]], P[I[3 * t + 2]]
+	mid := (a + b + c) * (1.0 / 3)
+	r := math.sqrt(max(linalg.length2(a - mid), linalg.length2(b - mid), linalg.length2(c - mid)))
+	sk.spheres[t] = {mid.x, mid.y, mid.z, r}
+}
+
+// Works out every triangle's sphere, for a new skin or one undo brings back over a mesh
+// that may have moved since.
+@(private)
+skin_spheres_all :: proc(s: ^Sculptor, sk: ^Skin) {
+	Job :: struct {
+		s:  ^Sculptor,
+		sk: ^Skin,
+	}
+	job := Job{s, sk}
+	jobs.parallel_ranges(s.pool, int(sk.tri_count), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		for t in u32(lo) ..< u32(hi) do skin_sphere(job.s, job.sk, t)
+	}, geom.RANGE_GRAIN)
+	for sp in sk.spheres do sk.sphere_max = max(sk.sphere_max, sp.w)
+}
+
+// Whether triangle t's sphere, widened by `widen`, comes within `reach` of `center`.
+@(private)
+skin_sphere_near :: #force_inline proc(sk: ^Skin, t: u32, center: Vec3, reach: f32) -> bool {
+	sp := sk.spheres[t]
+	r := reach + sp.w
+	return linalg.length2(sp.xyz - center) <= r * r
 }
 
 // Marks an edge with no triangle across it.
@@ -302,22 +375,26 @@ skin_base_and_point :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32)
 
 // Recomputes every sample's normal, in parallel by triangle ranges: each sample is written
 // by the one triangle that owns it (vertex samples by the vertex's first triangle).
-skin_normals_all :: proc(s: ^Sculptor, sk: ^Skin) {
+// With `flat`, every height is zero, and each normal is the interpolated one: the same
+// bits skin_normal gives then (each raised small triangle is its flat one, so the turn is
+// zero), without the small triangles.
+skin_normals_all :: proc(s: ^Sculptor, sk: ^Skin, flat := false) {
 	Job :: struct {
-		s:  ^Sculptor,
-		sk: ^Skin,
+		s:    ^Sculptor,
+		sk:   ^Skin,
+		flat: bool,
 	}
-	job := Job{s, sk}
+	job := Job{s, sk, flat}
 	jobs.parallel_ranges(s.pool, int(sk.tri_count), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
-		for t in u32(lo) ..< u32(hi) do skin_triangle_normals(job.s, job.sk, t)
+		for t in u32(lo) ..< u32(hi) do skin_triangle_normals(job.s, job.sk, t, job.flat)
 	}, 1 << 12)
 }
 
 // Writes the normals of the samples triangle t owns: its inside samples, the inside
 // samples of the edges it owns, and its corners whose first triangle it is.
 @(private)
-skin_triangle_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32) {
+skin_triangle_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32, flat := false) {
 	I := s.mesh.indices[:]
 	S := sk.segments
 	for j in u32(0) ..= S do for i in u32(0) ..= S - j {
@@ -333,11 +410,95 @@ skin_triangle_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32) {
 		case i == 0:
 			owned = sk.tri_edges[t][2] & 1 == 0 && sk.edges[sk.tri_edges[t][2] >> 1].tris[0] == t
 		case:
-			owned = true
+			// Inside samples go together below, unless flat.
+			owned = flat
 		}
 		if !owned do continue
-		sk.normals[skin_sample(sk, I, t, i, j)] = geom.oct_encode(skin_normal(s, sk, t, i, j))
+		n: Vec3
+		if flat {
+			_, n = skin_base(s, sk, t, i, j)
+			n = linalg.normalize0(linalg.normalize0(n))
+		} else {
+			n = skin_normal(s, sk, t, i, j)
+		}
+		sk.normals[skin_sample(sk, I, t, i, j)] = geom.oct_encode(n)
 	}
+	if !flat do skin_inside_normals(s, sk, t)
+}
+
+// The most grid places of a triangle (at SKIN_SEGMENTS_MAX), and of its small triangles.
+@(private)
+SKIN_PLACES_MAX :: (SKIN_SEGMENTS_MAX + 1) * (SKIN_SEGMENTS_MAX + 2) / 2
+@(private)
+SKIN_SMALL_MAX :: SKIN_SEGMENTS_MAX * SKIN_SEGMENTS_MAX
+
+// Writes the normals of triangle t's inside samples, as skin_normal gives them, from one
+// pass over the triangle: each grid place's points and each small triangle's turn are
+// worked out once instead of once for every sample they touch (about six times).
+@(private)
+skin_inside_normals :: proc(s: ^Sculptor, sk: ^Skin, t: u32) {
+	S := int(sk.segments)
+	if S < 3 do return
+	I := s.mesh.indices[:]
+	// Grid place (i, j) at row j: j * (S + 1) - j * (j - 1) / 2 + i.
+	place :: #force_inline proc(S, i, j: int) -> int {return j * (S + 1) - j * (j - 1) / 2 + i}
+	flat, raised, base: [SKIN_PLACES_MAX]Vec3
+	for j in 0 ..= S do for i in 0 ..= S - j {
+		p, n := skin_base(s, sk, t, u32(i), u32(j))
+		h := f32(sk.heights[skin_sample(sk, I, t, u32(i), u32(j))])
+		k := place(S, i, j)
+		flat[k], raised[k], base[k] = p, p + linalg.normalize0(n) * h, n
+	}
+	// The small triangle "up" at (i, j) has corners (i, j), (i+1, j), (i, j+1) and "down"
+	// at (i, j) has (i+1, j), (i+1, j+1), (i, j+1), in the order skin_turn_at takes them.
+	Small :: struct {
+		turn: Vec3,
+		half: f32,
+		ok:   bool,
+	}
+	up, down: [SKIN_SMALL_MAX]Small
+	small :: #force_inline proc(flat, raised: []Vec3, a, b, c: int) -> (out: Small) {
+		out.turn, out.half, out.ok = skin_small_turn(flat[a], raised[a], flat[b], raised[b], flat[c], raised[c])
+		return
+	}
+	for j in 0 ..< S do for i in 0 ..< S - j {
+		up[j * S + i] = small(flat[:], raised[:], place(S, i, j), place(S, i + 1, j), place(S, i, j + 1))
+		if i + j < S - 1 do down[j * S + i] = small(flat[:], raised[:], place(S, i + 1, j), place(S, i + 1, j + 1), place(S, i, j + 1))
+	}
+	x := sk.vert_count + sk.edge_count * u32(S - 1) + t * skin_face_samples(sk)
+	for j in 1 ..= S - 2 do for i in 1 ..= S - 1 - j {
+		turn: Vec3
+		area: f32
+		add :: #force_inline proc(turn: ^Vec3, area: ^f32, sm: Small) {
+			if !sm.ok do return
+			turn^ += sm.turn
+			area^ += sm.half
+		}
+		// skin_turn_at's order: up at (i, j), (i-1, j), (i, j-1), then down at (i-1, j),
+		// (i-1, j-1), (i, j-1); inside the grid all six exist.
+		add(&turn, &area, up[j * S + i])
+		add(&turn, &area, up[j * S + i - 1])
+		add(&turn, &area, up[(j - 1) * S + i])
+		add(&turn, &area, down[j * S + i - 1])
+		add(&turn, &area, down[(j - 1) * S + i - 1])
+		add(&turn, &area, down[(j - 1) * S + i])
+		n := linalg.normalize0(base[place(S, i, j)])
+		if area > 0 do n += turn / area
+		sk.normals[x] = geom.oct_encode(linalg.normalize0(n))
+		x += 1
+	}
+}
+
+// One small triangle's part of a normal (skin_turn_at): the raised triangle's unit normal
+// minus the flat one's, times the flat one's area, and that area; not ok for a flat
+// triangle of no area.
+@(private)
+skin_small_turn :: #force_inline proc(pa, qa, pb, qb, pc, qc: Vec3) -> (turn: Vec3, half: f32, ok: bool) {
+	flat := linalg.cross(pb - pa, pc - pa)
+	twice := linalg.length(flat)
+	if twice <= 0 do return
+	raised := linalg.normalize0(linalg.cross(qb - qa, qc - qa))
+	return (raised - flat / twice) * (twice * 0.5), twice * 0.5, true
 }
 
 // A sample's normal: the mesh's interpolated normal turned as much as the skin turns the
@@ -407,12 +568,10 @@ skin_turn_at :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, turn, area: ^Vec3) {
 		pa, qa := skin_base_and_point(s, sk, t, u32(a.x), u32(a.y))
 		pb, qb := skin_base_and_point(s, sk, t, u32(b.x), u32(b.y))
 		pc, qc := skin_base_and_point(s, sk, t, u32(c.x), u32(c.y))
-		flat := linalg.cross(pb - pa, pc - pa)
-		twice := linalg.length(flat)
-		if twice <= 0 do return
-		raised := linalg.normalize0(linalg.cross(qb - qa, qc - qa))
-		turn^ += (raised - flat / twice) * (twice * 0.5)
-		area.x += twice * 0.5
+		dt, half, ok := skin_small_turn(pa, qa, pb, qb, pc, qc)
+		if !ok do return
+		turn^ += dt
+		area.x += half
 	}
 	up :: proc(S, i, j: int) -> bool {return i >= 0 && j >= 0 && i + j < S}
 	down :: proc(S, i, j: int) -> bool {return i >= 0 && j >= 0 && i + j < S - 1}

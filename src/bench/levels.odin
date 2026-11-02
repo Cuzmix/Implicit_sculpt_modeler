@@ -69,10 +69,13 @@ run_levels :: proc(target: int, pool: ^jobs.Pool) {
 
 // The bench's wavy stroke on the active level (an HD window while one is open), across
 // `width` either side of the front of the sphere, DABS_PER_FRAME dabs and a flush per
-// frame. Returns the median frame time.
-levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6) -> f64 {
+// frame. With `skin`, the dabs go into the level's detail skin, and `skin_upload` (when
+// given) gets the median bytes of skin normals a frame sends the GPU. Returns the median
+// frame time.
+levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6, skin := false, skin_upload: ^int = nil) -> f64 {
 	s := &sculpt.levels_active(l).sculptor
 	frames := make([dynamic]f64, 0, DABS / DABS_PER_FRAME + 1, context.temp_allocator)
+	uploads := make([dynamic]int, 0, DABS / DABS_PER_FRAME + 1, context.temp_allocator)
 	eye := Vec3{0, 0, 3.5}
 	sculpt.sculptor_stroke_begin(s)
 	frame_start := time.tick_now()
@@ -81,15 +84,20 @@ levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6) -> f64 {
 		target := linalg.normalize(Vec3{width * (2 * k - 1), 0.5 * width * math.sin(k * 4 * math.PI), 1})
 		hit, ok := sculpt.sculptor_raycast(s, eye, linalg.normalize(target - eye))
 		if !ok do hit = target
-		_ = sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3}, hit)
+		_ = sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3, skin = skin}, hit)
 		if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
 			_ = sculpt.sculptor_flush(s)
 			append(&frames, time.duration_milliseconds(time.tick_since(frame_start)))
+			bytes := 0
+			for r in sculpt.sculptor_skin_ranges(s) do bytes += int(r.count) * SKIN_NORMAL_BYTES
+			append(&uploads, bytes)
 			frame_start = time.tick_now()
 		}
 	}
 	_ = sculpt.sculptor_stroke_end(s)
 	for len(s.waiting_cones) > 0 do _ = sculpt.sculptor_flush(s)
 	slice.sort(frames[:])
+	slice.sort(uploads[:])
+	if skin_upload != nil do skin_upload^ = uploads[len(uploads) / 2]
 	return frames[len(frames) / 2]
 }

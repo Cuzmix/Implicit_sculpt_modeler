@@ -16,6 +16,7 @@
 //   --levels     instead, the subdivision levels table (see run_levels)
 //   --lod        instead, the simplified drawing table (see run_lod)
 //   --hd         instead, the HD detail table (see run_hd)
+//   --skin       instead, the detail skin table, 50k to 1M by default (see run_skin)
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
@@ -61,6 +62,7 @@ meshes := 0 // 0: the default cases
 levels := false
 lod := false
 hd := false
+skin := false
 brushes := false
 remesh := false
 quadremesh := false
@@ -86,6 +88,8 @@ main :: proc() {
 			lod = true
 		} else if arg == "--hd" {
 			hd = true
+		} else if arg == "--skin" {
+			skin = true
 		} else if arg == "--brushes" {
 			brushes = true
 		} else if arg == "--remesh" {
@@ -117,6 +121,8 @@ main :: proc() {
 	defer delete(cases)
 	if profile && len(targets) == 0 {
 		for v in ([]int{12_500_000, 25_000_000}) do append(&cases, Case{v, 1})
+	} else if skin && len(targets) == 0 {
+		for v in ([]int{50_000, 250_000, 1_000_000}) do append(&cases, Case{v, 1})
 	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
@@ -191,6 +197,12 @@ main :: proc() {
 	if brushes {
 		brushes_header()
 		for c in cases do if c.meshes == 1 do run_brushes(c.vertices, pool)
+		return
+	}
+	if skin {
+		skin_header()
+		for c in cases do if c.meshes == 1 do run_skin(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}
 	if hd {

@@ -242,6 +242,33 @@ skin_draw_raises_heights_and_leaves_vertices :: proc(t: ^testing.T) {
 
 // A flush recomputes exactly the normals that went stale: after dabs of every skin kind,
 // they equal a skin whose normals were all worked out afresh.
+// After small dabs, a flush recomputes only the normals near them, and the ranges it lists
+// for the GPU hold every normal that changed, while staying a small part of the skin.
+@(test)
+skin_flush_uploads_only_near_the_dabs :: proc(t: ^testing.T) {
+	sp := skin_sphere_with(3, 8)
+	defer skin_sphere_free(sp)
+	sk := sp.sculptor.skin
+	for kind in SKIN_KINDS {
+		before := slice.clone(sk.normals, context.temp_allocator)
+		_ = apply_dab(&sp.sculptor, {kind = kind, radius = 0.08, strength = 0.8, skin = true}, linalg.normalize(Vec3{0.2, 0.1, 1}))
+		_ = sculptor_flush(&sp.sculptor)
+		listed := make([]bool, len(sk.normals), context.temp_allocator)
+		total := 0
+		for r in sculptor_skin_ranges(&sp.sculptor) {
+			for x in r.first ..< r.first + r.count do listed[x] = true
+			total += int(r.count)
+		}
+		missed := 0
+		for n, x in sk.normals do if n != before[x] && !listed[x] do missed += 1
+		testing.expectf(t, missed == 0, "%v: %d changed normals not uploaded", kind, missed)
+		testing.expectf(t, total > 0 && total < len(sk.normals) / 4, "%v: uploaded %d of %d", kind, total, len(sk.normals))
+	}
+	live := slice.clone(sk.normals, context.temp_allocator)
+	skin_normals_all(&sp.sculptor, sk)
+	testing.expect(t, slice.equal(live, sk.normals), "a flush left a stale normal")
+}
+
 @(test)
 skin_flush_keeps_every_normal_current :: proc(t: ^testing.T) {
 	sp := skin_sphere_with(2, 4)
