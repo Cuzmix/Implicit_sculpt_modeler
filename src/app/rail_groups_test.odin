@@ -20,15 +20,15 @@ rail_join_makes_and_grows_a_group :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	rail_with_cards(&app)
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
 	used := bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[2], 2, 1))
 	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Rail_Group:0,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
-	testing.expect_value(t, rail_groups_text(&app.kit), "0:tabs:0:Layer_Settings+Material_Settings")
+	testing.expect_value(t, rail_groups_text(&app.kit), "0:tabs:0:Layers+Material")
 	testing.expect_value(t, app.kit.rail_groups[0].shown, 1)
 	used = bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[2], 2, 1))
-	testing.expect_value(t, rail_groups_text(&app.kit), "0:tabs:0:Layer_Settings+Material_Settings+Symmetry")
+	testing.expect_value(t, rail_groups_text(&app.kit), "0:tabs:0:Layers+Material+Symmetry")
 	// Lights' button carried from Search onto the group joins it too; a second Lights is refused.
 	testing.expect(t, rail_join(&app, {.Show_Panel, int(Panel_Kind.Lights)}, -1, 1))
 	testing.expect(t, !rail_join(&app, {.Show_Panel, int(Panel_Kind.Lights)}, -1, 1))
@@ -47,21 +47,21 @@ rail_group_take_out_ungroup_and_remove :: proc(t: ^testing.T) {
 	used := bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[2], 2, 1))
 	testing.expect(t, rail_group_take_out(&app, 0, 0))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Material,Show_Section:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Material,Show_Panel:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
 	testing.expect(t, !app.kit.rail_groups[0].used)
 
 	used = bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[3], 3, 2))
 	used = bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[3], 3, 2))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Material,Rail_Group:0,Show_Panel:Tools")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Material,Rail_Group:0,Show_Panel:Tools")
 	testing.expect(t, rail_ungroup(&app, 0))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Material,Show_Section:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Material,Show_Panel:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools")
 
 	used = bar_used(&app, .View_Rail)
 	testing.expect(t, rail_join(&app, used[3], 3, 2))
 	rail_group_remove(&app, 0)
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Material,Show_Panel:Lights,Show_Panel:Tools")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Material,Show_Panel:Lights,Show_Panel:Tools")
 	testing.expect_value(t, rail_groups_text(&app.kit), "none")
 }
 
@@ -121,7 +121,7 @@ rail_groups_save_and_read :: proc(t: ^testing.T) {
 	bars_reset(&b.kit)
 	settings_load(&b, path)
 	testing.expect_value(t, bar_names(&b, .View_Rail), bar_names(&a, .View_Rail))
-	testing.expect_value(t, rail_groups_text(&b.kit), "0:stacked:0:Layer_Settings+Material_Settings")
+	testing.expect_value(t, rail_groups_text(&b.kit), "0:stacked:0:Layers+Material")
 	testing.expect_value(t, rail_group_name(&b, 0), "My look")
 	testing.expect_value(t, b.kit.rail_groups[0].colour, 3)
 

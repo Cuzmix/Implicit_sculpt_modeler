@@ -77,7 +77,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material")
 	testing.expect_value(t, bar_names(&a, .View_Island), "View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")
 	testing.expect(t, !bar_changed(&a, .View_Rail) && !bar_changed(&a, .View_Island))
 	bar_remove(&a, .View_Rail, 2)

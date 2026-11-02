@@ -630,12 +630,13 @@ import_replaces_starter :: proc(app: ^App) -> bool {
 // (import_folder_paths); the selection ends on the first. With `record` it is one undo step: each add chained to the
 // first, then the folder as an Arrange step chained after them, so undo takes the folder
 // away and then the objects. Returns false on a GPU failure (what was added stays, and
-// is recorded).
-import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, record: bool) -> bool {
+// is recorded). With `keep_starter` (Add object's pack mesh, which adds beside the others as
+// Add object's shapes do) the untouched starting sphere stays.
+import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, record: bool, keep_starter := false) -> bool {
 	if m.levels == nil do mesh_import_prepare(m, &app.pool)
 	place := at
 	// The untouched starting sphere goes first, in the same undo step: undo brings it back.
-	replaced := len(m.parts) > 0 && import_replaces_starter(app)
+	replaced := len(m.parts) > 0 && !keep_starter && import_replaces_starter(app)
 	if replaced {
 		app.scene.selected = 0
 		scene_delete_selected(app, undoable = record)

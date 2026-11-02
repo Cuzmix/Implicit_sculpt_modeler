@@ -95,7 +95,7 @@ UI = {
     # View island over the view's top-left corner: the camera and shading chips, then its
     # buttons; and the chip bar's object chip.
     "nav_head": At("navigation head/navigation head", 1186, 86),
-    "camera_chip": At("view chips/Camera", 129, 81), "pass_chip": At("view chips/Shading", 231, 81),
+    "camera_chip": At("view chips/Camera", 129, 81), "pass_chip": At("view chips/Shading", 181, 81),
     "island_layout": At("view chips/View layout", 305, 81), "island_sym": At("view chips/Symmetry across X", 357, 81),
     "island_wire": At("view chips/Wireframe", 409, 81), "island_lights": At("view chips/Lights", 461, 81),
     "island_frame": At("view chips/Focus selected", 513, 81),
@@ -3541,11 +3541,11 @@ def rail_panel_carried_onto_another_makes_a_group():
             s.ftap(DRAG_LAYERS)
         s.wait(6)
         return s
-    group = {"view_rail": is_text("Show_Panel:Scene,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layer_Settings+Material_Settings"),
+    group = {"view_rail": is_text("Show_Panel:Scene,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layers+Material"),
              "rail_joins": near(1), "dabs": near(0)}
     return Steps([(made("menu"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group_menu")))),
                   (made("tap"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group")))),
-                  (made("stacked"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group"), rail_groups=is_text("0:stacked:0:Layer_Settings+Material_Settings"))))])
+                  (made("stacked"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group"), rail_groups=is_text("0:stacked:0:Layers+Material"))))])
 
 
 @scenario
@@ -3812,7 +3812,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's panels (the View island holds the view's tools); nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material"
+    rail = "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -5053,7 +5053,7 @@ def lens_scene_card_finds_by_name():
 # The outliner (the Lens Scene card) at 1440x900 with the Brush card folded: Add, its menu's
 # Cube, Voxel sphere and Sun light, and the rows: the first object row's centre, each row
 # 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
-OUTLINER = {"add": At("scene add", 1322, 330), "cube": (1240, 426), "voxel": (1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
+OUTLINER = {"add": At("scene add", 1322, 330), "cube": (1240, 426), "voxel": At("Voxel sphere", 1240, 691), "sun": (1240, 780), "row0": 383, "row_h": 54,
             "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": (1110, 600),
             "row1_dots": (1170, 446), "show_in_model": (1200, 552)}
 # The kind chips under Find once a voxel sphere joins the sphere: All, Meshes, Voxels, Lights.
@@ -5306,7 +5306,7 @@ def lens_context_bar_extracts_the_mask():
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
 # options, while nothing is recent.
-LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("view chips/Shading", 231, 81), "curvature": (305, 540)}
+LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("view chips/Shading", 181, 81), "curvature": (305, 540)}
 
 
 @scenario
@@ -8624,7 +8624,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_SYMMETRY)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("panel_symmetry"),
-                                "view_rail": is_text("Show_Panel:Scene,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+                                "view_rail": is_text("Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
 
 
 @scenario
@@ -10228,7 +10228,7 @@ def start_displays(count):
 
 # Autosave and crash recovery (autosave.odin): an interval of a second and a short rest,
 # in a folder of the scenario's own, so the runs are quick and touch nothing else.
-CARD = {"recover": (653, 244), "not_now": (800, 244), "discard": (946, 244)}
+CARD = {"recover": At("Recover", 653, 244), "not_now": At("Not now", 800, 244), "discard": At("Discard", 946, 244)}
 
 
 def autosave_args(*more):

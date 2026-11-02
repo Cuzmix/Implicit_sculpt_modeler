@@ -111,9 +111,10 @@ Bar_List :: struct {
 // What a fresh install has: the gizmo and the mesh tools after All.
 TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
 // The view rail holds the panels, so it reads as "my panels": under its Panels button the
-// Objects card, the Layers and the Material, four buttons in all. The view's own tools are
-// the View island's.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Section, int(Kit_Section.Layers)}, {.Show_Section, int(Kit_Section.Material)}}
+// Scene, Layers and Material cards, four buttons in all, each the same card the stack
+// shows (the layers' pictures, the material's look pad). The view's own tools are the
+// View island's.
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)}}
 
 // The View island's buttons after its head, camera and shading chips: the view layout,
 // symmetry, the wireframe, the lights and framing, so the view is one place to learn.
@@ -303,7 +304,7 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		l := bar_list_k(k, which)
 		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) {
-			l.slots[slot] = {id, arg}
+			l.slots[slot] = rail_card_slot(which, {id, arg})
 			l.looks[slot] = bar_default_look(which)
 		}
 	case "rail_group":
@@ -315,6 +316,18 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		for look in Value_Look do if fmt.tprint(look) == f[3] do bar_list_k(k, which).looks[slot] = look
 	}
+}
+
+// A rail slot as it is read: the Layers and Material sections' palettes, which the rail
+// held from the View island's first version until the rail opened the cards, become the
+// cards, so a saved rail shows the same cards the stack does.
+rail_card_slot :: proc(which: Bar_Which, s: Bar_Slot) -> Bar_Slot {
+	if which != .View_Rail || s.id != .Show_Section do return s
+	#partial switch Kit_Section(s.arg) {
+	case .Layers:   return {.Show_Panel, int(Panel_Kind.Layers)}
+	case .Material: return {.Show_Panel, int(Panel_Kind.Material)}
+	}
+	return s
 }
 
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one
