@@ -423,13 +423,18 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	lights: [dynamic]u8
 	defer delete(lights)
 	lights_put(&lights, app.scene.lights)
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
+	// ...and the lights' further fields (lights_more_put) at the very end.
+	more: [dynamic]u8
+	defer delete(more)
+	lights_more_put(&more, app.scene.lights)
+	end := len(head) - len(more)
+	r.at = end - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == len(head) - 2 - 8 - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES)
+	testing.expect(t, ok && r.ok && r.at == end - 2 - 8 - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)

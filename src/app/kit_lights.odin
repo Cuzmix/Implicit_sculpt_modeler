@@ -119,13 +119,6 @@ kit_lights :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
 		_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
 	}
-	// How much shine it gives, as a lamp's specular in Blender: none makes a fill that
-	// lights the forms without a highlight; and whether it casts the studio's and render
-	// mode's shadows.
-	highlight := light.shine + 1
-	if ui.slider(ctx, "Highlight", &highlight, 0, 2, .Linear, fmt.tprintf("%.0f%%", highlight * 100)) do light.shine = highlight - 1
-	shadows := !light.no_shadows
-	if ui.switch_row(ctx, "Shadows", &shadows) do light.no_shadows = !shadows
 	if light.kind != .Sun && light.pos != {} {
 		// How far it stands from the orbit's centre, the depth a marker's drag keeps.
 		far := light_center_distance(app, app.light_pick)
@@ -157,6 +150,14 @@ kit_lights :: proc(app: ^App) {
 		ui.end(ctx)
 	}
 	if kit_more(app, .Lights) {
+		// Under More options, as the section shows five controls before them: how much shine
+		// the light gives, as a lamp's specular in Blender (none makes a fill that lights the
+		// forms without a highlight), and whether it casts the studio's and render mode's
+		// shadows.
+		highlight := light.shine + 1
+		if ui.slider(ctx, "Highlight", &highlight, 0, 2, .Linear, fmt.tprintf("%.0f%%", highlight * 100)) do light.shine = highlight - 1
+		shadows := !light.no_shadows
+		if ui.switch_row(ctx, "Shadows", &shadows) do light.no_shadows = !shadows
 		// Its name, typed: the typing is one undo step until the field lets the keys go.
 		name_field := fmt.tprintf("name##light %d", app.light_pick + 1)
 		if ui.text_field(ctx, name_field, light.name[:LIGHT_NAME - 1], hint = fmt.tprintf("Light %d", app.light_pick + 1)) {
