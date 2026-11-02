@@ -3277,7 +3277,7 @@ def window_drag_by_title_is_remembered():
 
 # The Brush card's More at 1600 x 900, its Where the stack goes... row, and that menu's Dock on
 # the left (the first row: the stack is docked on the right).
-STACK_WHERE = {"more": (1508, 94), "where": (1470, 460), "left": (1440, 174)}
+STACK_WHERE = {"more": (1508, 94), "where": At("stack menu/Where the stack goes...", 1470, 416), "left": (1440, 174)}
 
 
 @scenario
@@ -11567,35 +11567,33 @@ ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
 ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
 @scenario
 def stack_as_icons_opens_a_palette():
-    """Search's "palettes as icons" shows the docked palettes as the strip without any panes: the pen taps the Brush icon and its card opens over the view; Escape puts it away."""
+    """With panes beside the main view the docked palettes are the strip: the pen taps the Brush icon and its card opens over the view; Escape puts it away."""
     def run(close):
         s = Script()
         s.wait(4)
-        palette_run(s, "palettes as icons")
         s.add("pnear")
         s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
         s.wait(2)
         s.add("pup")
         s.wait(8)
         if not close:
-            return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
         s.press("Escape")
         s.wait(6)
-        return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("none"), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_tab": is_text("none"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
 @scenario
 def stack_icons_show_where_opens_the_card():
-    """With the palettes as icons, Search's Shift+Enter on Blur mask opens the Mask section's card from its icon and marks the Blur button."""
+    """With panes beside the main view, Search's Shift+Enter on Blur mask opens the Mask section's card from its icon and marks the Blur button."""
     s = Script()
     s.wait(4)
-    palette_run(s, "palettes as icons")
     s.press("k", ("ctrl",))
     s.type("blur mask")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, LENS_1440, camera_still({"stack_tab": is_text("Mask"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_tab": is_text("Mask"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(0), "dabs": near(0)})
 
 
 # Palette groups at 1440x900 (stack_groups.odin), with Brush folded: Symmetry's and
@@ -11651,16 +11649,17 @@ def stack_take_out_of_a_group():
 
 @scenario
 def stack_group_as_icons_opens_on_its_tab():
-    """With Symmetry joined to Brush and the palettes as icons, the pen taps the group's icon: the group opens over the view on its Symmetry tab."""
+    """With Symmetry joined to Brush, panes beside the main view make the stack the strip: the pen taps the group's icon and the group opens over the view on its Symmetry tab."""
     s = Script()
     stack_group_join(s)
-    palette_run(s, "palettes as icons")
+    palette_run(s, "one plus two")
+    s.wait(6)
     s.add("pnear")
     s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
     s.wait(2)
     s.add("pup")
     s.wait(8)
-    return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
 
 
 @scenario
@@ -11789,7 +11788,7 @@ def stack_tab_carried_left_handed_by_pen():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "dabs": near(0)})
 
 
-# The strip of icons at 1440x900 (the palettes as icons, or panes beside the main view):
+# The strip of icons at 1440x900 (panes beside the main view):
 # each docked card's icon, 50 points apart from Brush's.
 STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools"])}
 
@@ -11807,12 +11806,11 @@ def stack_icon_carry(s, frm, to, rest, mouse=False):
 
 @scenario
 def stack_icon_rested_on_another_joins_it():
-    """With the palettes as icons, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
+    """With panes beside the main view, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
     def run(mouse):
         s = Script()
-        palette_run(s, "palettes as icons")
         stack_icon_carry(s, "Layers", "Brush", 40, mouse)
-        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_density": is_text("icons"), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -11820,25 +11818,23 @@ def stack_icon_rested_on_another_joins_it():
 def stack_icon_resting_fills_the_ring():
     """Layers' icon resting on Brush's, still held, shows the ring filling and the hint to hold; nothing has changed yet."""
     s = Script()
-    palette_run(s, "palettes as icons")
     a, b = STACK_ICONS["Layers"], STACK_ICONS["Brush"]
     s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * 16, lift=False)
     s.wait(2)
-    return s, LENS_1440, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
 
 
 @scenario
 def stack_icon_let_go_early_reorders():
     """Layers' icon let go over Brush's before the ring fills moves Layers to the top of the strip instead; passing over an icon never joins it."""
     s = Script()
-    palette_run(s, "palettes as icons")
     stack_icon_carry(s, "Layers", "Brush", 3)
-    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
 
 
 @scenario
 def stack_icon_carried_with_panes():
-    """With panes beside the main view (the palettes as panels), the strip reorders the same way: Scene's icon let go over Symmetry's goes there."""
+    """With panes beside the main view the strip reorders: Scene's icon let go over Symmetry's goes there."""
     s = Script()
     stack_icon_carry(s, "Scene", "Symmetry", 3)
     return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,Scene,Symmetry,Layers"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
@@ -11846,81 +11842,29 @@ def stack_icon_carried_with_panes():
 
 @scenario
 def stack_icon_carried_clear_floats():
-    """Shown as icons, as panels, then as icons again (the cards' places left behind), Layers' icon carried well clear of the strip floats its card there."""
+    """With panes beside the main view, Layers' icon carried well clear of the strip floats its card there."""
     s = Script()
-    palette_run(s, "palettes as icons")
-    palette_run(s, "palettes as icons")
-    palette_run(s, "palettes as icons")
     stack_icon_carry(s, "Layers", (400, 400), 3)
-    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_density": is_text("icons"), "stack_drops": near(1), "dabs": near(0)})
-
-
-# Columns at 1440x900 (5b-2), Brush folded: just left of Brush's card (beside it, over the
-# view), and once Symmetry stands as its second column the divider between the columns.
-STACK_BESIDE = {"brush_left": (1000, 94), "divider": (1057, 400)}
-
-
-def stack_beside_drop(s, grip=None, to=None):
-    """Folds Brush and carries Symmetry's grip (or `grip`) to just left of Brush's card."""
-    s.ftap(LENS_STACK["brush"])
-    s.wait(6)
-    grip, to = grip or STACK_CARRY["symmetry_grip"], to or STACK_BESIDE["brush_left"]
-    s.fdrag(line(grip, to, 8) + [to] * 3)
-    s.wait(10)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_strip": near(1), "stack_drops": near(1), "dabs": near(0)})
 
 
 @scenario
-def stack_grip_dropped_beside_makes_two_columns():
-    """Symmetry's grip let go just beyond Brush's view side makes it Brush's second column: the stack widens by its width toward the view."""
-    s = Script()
-    stack_beside_drop(s)
-    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,Layers"), "stack_columns": is_text("Brush=Symmetry:312"),
-                                       "tray_width": near(312 + 312 + 12), "stack_drops": near(1), "dabs": near(0)})
-
-
-@scenario
-def stack_column_divider_sets_the_width():
-    """The divider between a group's columns dragged 40 points toward the view makes column two 352 wide; a double tap puts 312 back."""
-    def run(reset):
+def stack_group_shows_as_sections():
+    """With Symmetry joined to Brush, the group's More > Show as sections stands both cards one under another; More > Collapse all folds every section to its header."""
+    def run(collapse):
         s = Script()
-        stack_beside_drop(s)
-        d = STACK_BESIDE["divider"]
-        s.fdrag(line(d, (d[0] - 40, d[1]), 4) + [(d[0] - 40, d[1])] * 2)
-        s.wait(6)
-        if not reset:
-            return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:352"), "stack_resizes": near(1), "dabs": near(0)})
-        # Column two grows toward the view, so the divider stays where it was.
-        s.ftap(d, gap=2)
-        s.ftap(d)
-        s.wait(6)
-        return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:312"), "stack_resizes": near(2), "dabs": near(0)})
+        stack_group_join(s)
+        def tap(at):
+            s.ftap(at)
+            s.wait(8)
+        tap(At("stack Brush/Panel options", 1348, 94))
+        tap(At("stack menu/Show as sections", 1300, 500))
+        if not collapse:
+            return s, LENS_1440, camera_still({"stack_sections": is_text("Brush"), "stack": lambda v: v.startswith("Brush+,&Symmetry"), "dabs": near(0)})
+        tap(At("stack Brush/Panel options", 1348, 94))
+        tap(At("stack menu/Collapse all", 1300, 560))
+        return s, LENS_1440, camera_still({"stack_sections": is_text("Brush:Brush-:Symmetry-"), "stack_section_folds": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
-
-
-@scenario
-def stack_beside_without_room_goes_below():
-    """In a window 1100 wide a second column would leave too little view: Layers let go beside Brush goes below Brush instead, as the hint says."""
-    s = Script()
-    s.wait(4)
-    s.ftap(1010, 92)
-    s.wait(10)
-    s.ftap(840, 94)
-    s.wait(6)
-    s.fdrag(line((735, 214), (682, 94), 8) + [(682, 94)] * 3)
-    s.wait(10)
-    return s, ["--width=1100", "--height=900"], camera_still({"stack": lambda v: v.startswith("Brush,Layers,Symmetry"), "stack_columns": is_text("none"), "stack_drops": near(1), "dabs": near(0)})
-
-
-@scenario
-def stack_beside_left_handed_grows_right():
-    """Left-handed, the stack stands on the left: Symmetry let go just right of Brush's card is its second column, on the view's side."""
-    s = Script()
-    s.ftap(LENS_STACK["brush"][0] - 994, LENS_STACK["brush"][1])
-    s.wait(6)
-    grip, to = (STACK_CARRY["symmetry_grip"][0] - 994, STACK_CARRY["symmetry_grip"][1]), (420, 94)
-    s.fdrag(line(grip, to, 8) + [to] * 3)
-    s.wait(10)
-    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,"), "stack_columns": is_text("Brush=Symmetry:312"), "dabs": near(0)})
 
 
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
