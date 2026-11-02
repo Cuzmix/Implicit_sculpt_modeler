@@ -275,10 +275,10 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
 		// The rail's groups go before its slots, so a reader has them when a slot names one;
-		// `rail_main` says the rail was saved with Main a button of its own, so a reader puts
+		// `rail_main 1` says the rail was saved with Main a button of its own, so a reader puts
 		// none in.
 		if which == .View_Rail {
-			strings.write_string(out, "rail_main\n")
+			strings.write_string(out, "rail_main 1\n")
 			rail_groups_settle(k)
 			rail_groups_save(k, out)
 		}

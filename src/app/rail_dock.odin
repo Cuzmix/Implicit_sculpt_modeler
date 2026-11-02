@@ -72,15 +72,19 @@ rail_dock_toggle :: proc(app: ^App, s: Bar_Slot) {
 
 // The column's content while it shows a rail palette rather than Main: its name, a group's
 // tabs (as tabs), and its panels in a scrolling body `room` tall.
-kit_rail_dock :: proc(app: ^App, width, room: f32) {
+kit_rail_dock :: proc(app: ^App, outer, height: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	d, ok := rail_dock_valid(k).?
 	if !ok do return
 	owner := ui.id_of(ctx, "rail dock")
-	ui.begin(ctx, "rail dock", {direction = .Column, gap = 6, width = width})
+	// One card, as the stack's cards stand in the column, its content the panels' padding in.
+	PAD :: 10
+	ui.begin(ctx, "rail dock", {direction = .Column, gap = 6, padding = PAD, width = outer, radius = t.radius_large, background = .Panel})
 	defer ui.end(ctx)
+	room := height - 2 * PAD
+	width := outer - 2 * PAD
 	one: [1]Panel_Kind
 	panels := slot_panels(k, &d, &one)
 	gr := slot_group(k, d)

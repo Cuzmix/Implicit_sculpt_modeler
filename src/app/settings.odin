@@ -1145,6 +1145,8 @@ settings_load :: proc(app: ^App, path: string) {
 	if version < 8 {
 		for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_Empty}) do if slot not_in pen_button_seen do app.nav.gestures[slot] = {.Brush_Pie, 0}
 	}
+	// A rail saved before Main stood on it gets Main where the Palettes button stood.
+	rail_main_settle(&app.kit)
 	// Every file saved before version 9 holds Remesh's Quads off, the default then, whether
 	// or not anyone picked it: the quads that replaced it as the default take its place once.
 	if version < 9 do app.ui.remesh_quads = true
