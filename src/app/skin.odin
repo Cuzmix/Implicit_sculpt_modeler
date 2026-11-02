@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:time"
 
 import "../geom"
@@ -94,28 +95,33 @@ skin_refusal :: proc(obj: ^Object) -> string {
 }
 
 // Gives the selected object a detail skin of `segments` along each triangle edge, or
-// with 0 takes it off, as an undo step. Says why when it cannot.
-skin_set :: proc(app: ^App, segments: u32) {
+// with 0 takes it off, as an undo step. Says why when it cannot. With `why` (a skin added
+// by itself, skin_auto_add) the note says that instead of the plain one.
+skin_set :: proc(app: ^App, segments: u32, why := "") -> bool {
 	stroke_finish(app)
 	obj := selected_object(app)
-	if why := skin_refusal(obj); why != "" {
-		if segments != 0 || object_skin(obj) != nil do report(app, Kit_Section.Hd, {.Warning}, "%s", why)
-		return
+	if refused := skin_refusal(obj); refused != "" {
+		if segments != 0 || object_skin(obj) != nil do report(app, Kit_Section.Hd, {.Warning}, "%s", refused)
+		return false
 	}
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_skin_change(s, segments) {
 		if sk := sculpt.sculptor_skin(s); segments != 0 && (sk == nil || sk.segments != segments) {
 			report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh for a skin: Rebuild or Close holes first", object_label(obj))
 		}
-		return
+		return false
 	}
+	obj.skin_declined = segments == 0 && why == ""
 	what := "Remove detail skin" if segments == 0 else "Detail skin"
 	history_record(app, obj, .Deform, what)
 	if segments == 0 {
 		report(app, nil, {.Undo}, "Took the detail skin off %s", object_label(obj))
+	} else if why != "" {
+		report(app, Kit_Section.Hd, {.Undo}, "%s", why)
 	} else {
 		report(app, nil, {.Undo}, "%s has a detail skin of %d segments", object_label(obj), segments)
 	}
+	return true
 }
 
 // Why the object's skin cannot be applied now, or "" when it can.
@@ -159,4 +165,56 @@ skin_apply :: proc(app: ^App) -> bool {
 	app.layers_kept += layers
 	report(app, nil, {.Undo}, "Applied the detail skin of %s: level %d has %s vertices", object_label(obj), levels.current + 1, count_label(geom.mesh_vertex_count(object_mesh(obj)^)))
 	return object_show_level(app, obj, start)
+}
+
+// The most a detail skin added by itself may take: its heights and normals, six bytes a
+// sample. A finer skin than this halves its segments until it fits.
+SKIN_AUTO_BYTES :: 256 << 20
+
+// The segments of a skin added by itself for a dab of `radius` on a mesh of `tris`
+// triangles whose mean edge is `edge` (both in the object's space): the fewest that put
+// a grid step under half the radius, so the dab spans four steps or more, then fewer while
+// the skin would pass SKIN_AUTO_BYTES. 0 when the dab is not finer than the mesh.
+skin_auto_segments :: proc(tris: int, edge, radius: f32) -> u32 {
+	if tris == 0 || edge <= 0 || radius <= 0 || radius >= edge do return 0
+	segments := SKIN_SEGMENTS[len(SKIN_SEGMENTS) - 1]
+	for n in SKIN_SEGMENTS[1:] {
+		if edge / f32(n) <= 0.5 * radius {
+			segments = n
+			break
+		}
+	}
+	for segments > SKIN_SEGMENTS[1] && skin_auto_bytes(tris, segments) > SKIN_AUTO_BYTES do segments /= 2
+	return segments if skin_auto_bytes(tris, segments) <= SKIN_AUTO_BYTES else 0
+}
+
+// What a skin of `segments` takes on a closed mesh of `tris` triangles, near enough: half
+// as many vertices and one and a half times as many edges as triangles.
+@(private = "file")
+skin_auto_bytes :: proc(tris: int, segments: u32) -> int {
+	S := int(segments)
+	samples := tris / 2 + (3 * tris / 2) * (S - 1) + tris * (S - 1) * (S - 2) / 2
+	return 6 * samples
+}
+
+// At the press of a stroke of `kind` on `obj`, gives it a detail skin when the dab is
+// finer than its mesh and none is there: Detail goes to Auto, Add a skin by itself on, a
+// brush that writes into a skin, an object that may have one and whose skin was not taken
+// off by hand. `radius` is the dab's, in the object's space. The skin is an undo step of
+// its own, before the stroke's. Returns whether it added one.
+skin_auto_add :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, radius: f32) -> bool {
+	if !app.skin_auto || kind not_in sculpt.SKIN_KINDS || app.brush.detail_to[kind] != .Auto do return false
+	if obj == nil || obj.skin_declined || object_skin(obj) != nil || skin_refusal(obj) != "" do return false
+	if obj.voxel != nil || sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 do return false
+	m := object_mesh(obj)
+	tris := len(m.indices) / 3
+	if tris == 0 do return false
+	// The mean edge from the area, as if the triangles were equilateral: one pass, and close
+	// enough to judge a dab by.
+	area, _ := geom.mesh_area_bounds(m^, &app.pool)
+	edge := f32(math.sqrt(4 * area / (math.sqrt(f64(3)) * f64(tris))))
+	segments := skin_auto_segments(tris, edge, radius)
+	if segments == 0 do return false
+	why := fmt.tprintf("Added a detail skin of %d segments to %s: %s's dab is finer than its mesh, so the detail goes into the skin (Detail skin section; Add a skin by itself turns this off)", segments, object_label(obj), BRUSHES[kind].name)
+	return skin_set(app, segments, why)
 }

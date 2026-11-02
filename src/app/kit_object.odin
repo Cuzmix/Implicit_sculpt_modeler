@@ -162,6 +162,9 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 	} else {
 		ui.paragraph(ctx, "Sculpt detail finer than the mesh without adding vertices: each triangle carries a grid of heights the brushes raise and lower.")
 	}
+	// The skin a fine stroke adds by itself (skin_auto_add), whichever object is picked.
+	_ = ui.switch_row(ctx, "Add a skin by itself", &app.skin_auto)
+	if app.skin_auto do ui.paragraph(ctx, "A Draw, Clay, Crease, Flatten, Inflate, Layer or Smooth stroke finer than the mesh adds a skin first, under Detail goes to Auto. Taking a skin off by hand keeps that object without one.")
 }
 
 // HD detail above the top level, sculpted a window at a time, as in ZBrush.
