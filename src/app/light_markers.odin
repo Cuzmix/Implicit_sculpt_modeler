@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:math/linalg"
 
 import "../camera"
@@ -112,6 +113,32 @@ light_set_center_distance :: proc(app: ^App, i: int, far: f32) {
 spot_aim :: proc(app: ^App, i: int) -> Vec3 {
 	at := light_world_pos(app, app.scene.lights.lights[i])
 	return at - light_world_dir(app, i) * linalg.length(at - app.camera.target)
+}
+
+// Area light `i`'s outline in the world: a rectangle's four corners, or a disc as a ring of
+// AREA_RING points.
+AREA_RING :: 24
+light_area_outline :: proc(app: ^App, i: int) -> []Vec3 {
+	l := app.scene.lights.lights[i]
+	at := light_world_pos(app, l)
+	facing := -light_world_dir(app, i)
+	u := linalg.transpose(view_rotation(app)) * light_area_edge(app, l, light_view_axis(app, i))
+	v := linalg.cross(facing, u)
+	w, h := light_area_size(l)
+	if l.disc {
+		ring := make([]Vec3, AREA_RING, context.temp_allocator)
+		for &p, k in ring {
+			a := f32(k) * 2 * math.PI / AREA_RING
+			p = at + (u * math.cos(a) + v * math.sin(a)) * (w * 0.5)
+		}
+		return ring
+	}
+	corners := make([]Vec3, 4, context.temp_allocator)
+	corners[0] = at + u * (w * 0.5) + v * (h * 0.5)
+	corners[1] = at - u * (w * 0.5) + v * (h * 0.5)
+	corners[2] = at - u * (w * 0.5) - v * (h * 0.5)
+	corners[3] = at + u * (w * 0.5) - v * (h * 0.5)
+	return corners
 }
 
 // Where a sun's marker stands on the circle round the orbit's centre, as the light
@@ -409,8 +436,18 @@ draw_light_markers :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		l := set.lights[i]
 		s, front, edge := light_marker_at(app, i, size)
 		alpha: f32 = 1 if l.on else 0.45
-		if l.kind == .Spot && l.pos != {} && !edge {
+		if (l.kind == .Spot || l.kind == .Area) && l.pos != {} && !edge {
 			if e, seen := gizmo.project(vp, spot_aim(app, i), size); seen do overlay_line(o, s, e, overlay_color({1, 0.9, 0.6, 0.6 * alpha}), 1.5 * px)
+		}
+		// An area light's face as its outline, so its size and turn read where it stands.
+		if l.kind == .Area && l.pos != {} && !edge {
+			outline := light_area_outline(app, i)
+			for a, k in outline {
+				b := outline[(k + 1) % len(outline)]
+				pa, seen_a := gizmo.project(vp, a, size)
+				pb, seen_b := gizmo.project(vp, b, size)
+				if seen_a && seen_b do overlay_line(o, pa, pb, overlay_color({1, 0.9, 0.6, 0.8 * alpha}), 1.5 * px)
+			}
 		}
 		r := (12 if edge else LIGHT_MARKER_PX) * px
 		shown := light_rgb(l)

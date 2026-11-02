@@ -149,6 +149,9 @@ static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UV
 	float4 rig_x;
 	float4 rig_y;
 	float4 rig_z;
+	// Each light's x: highlight less or more than usual (-1 to 1, 0 as usual), y: 1 for a
+	// light that casts no shadow (render.Lights.extra).
+	float4 light_extra[LIGHT_COUNT];
 	// The image environment's axes in the world.
 	float4 env_x;
 	float4 env_y;
@@ -515,8 +518,9 @@ float specular_chance(Surface s, float n_dot_v) {
 }
 
 // The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
-// mixture of both lobes).
-float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf) {
+// mixture of both lobes); `shine` scales the specular lobe, as a light's Highlight does
+// (1 as usual).
+float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float shine = 1.0) {
 	pdf = 0.0;
 	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
 	if (n_dot_l <= 0.0 || n_dot_v <= 0.0) return float3(0.0);
@@ -531,7 +535,15 @@ float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf) {
 	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
 	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
 	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
-	return (diff + spec) * n_dot_l;
+	return (diff + spec * shine) * n_dot_l;
+}
+
+// Whether light `i` is lit by next-event estimation alone, never by a ray the BSDF picked
+// meeting it: one that casts no shadow (its light arrives through whatever is between)
+// or gives more or less highlight than usual (which scales only the specular lobe of its
+// own samples).
+bool light_nee_only(int i) {
+	return light_extra[i].y > 0.5 || light_extra[i].x != 0.0;
 }
 
 // A half vector from GGX's visible normals (Heitz 2018), in the frame where n is +z.
@@ -698,9 +710,14 @@ float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
 	}
 	if (dot(ng, l) <= 0.0 || luminance(radiance) <= 0.0) return float3(0.0);
 	float pdf_bsdf;
-	float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+	float3 f = bsdf_eval(s, n, v, l, pdf_bsdf, 1.0 + light_extra[i].x);
 	if (luminance(f) <= 0.0) return float3(0.0);
 	float pdf_light = light_size[i].w * pdf_dir;
+	if (light_nee_only(i)) {
+		Hit blocked;
+		if (light_extra[i].y < 0.5 && trace(offset_ray(p, ng), l, dist, true, blocked)) return float3(0.0);
+		return f * (radiance / pdf_light);
+	}
 	Hit shadow;
 	if (trace(offset_ray(p, ng), l, dist, true, shadow)) return float3(0.0);
 	return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
@@ -711,7 +728,7 @@ float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
 float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf) {
 	float3 sum = float3(0.0);
 	for (int i = 0; i < LIGHT_COUNT; i++) {
-		if (light_size[i].w <= 0.0) continue;
+		if (light_size[i].w <= 0.0 || light_nee_only(i)) continue;
 		float3 radiance = light_color[i].rgb * light_size[i].y;
 		float pdf_dir;
 		if (light_pos[i].w < 0.5) {

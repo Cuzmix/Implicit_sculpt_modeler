@@ -274,7 +274,7 @@ Lens :: struct {
 LENS_RADIUS_MAX :: 0.25
 
 // The lights in world space with each one's size and pick chance: render_trace.comp.slang's
-// light_pos through light_size, then rig_x, y and z.
+// light_pos through light_size, then rig_x, y and z, then light_extra.
 Lights_World :: struct {
 	pos:   [LIGHT_COUNT][4]f32,
 	color: [LIGHT_COUNT][4]f32,
@@ -282,6 +282,8 @@ Lights_World :: struct {
 	shape: [LIGHT_COUNT][4]f32,
 	size:  [LIGHT_COUNT][4]f32,
 	rig:   [3][4]f32,
+	// Each light's highlight and shadows (Lights.extra), as the viewport's.
+	extra: [LIGHT_COUNT][4]f32,
 }
 #assert(size_of(Render_Uniforms) == 64 + size_of(Lights_World) + 48 + 64 + 64)
 
@@ -530,7 +532,10 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 // point or spot light's radius) keeps it; one without spans a cone of half-angle
 // `softness`, as a sun, or is a sphere whose radius is that angle seen from the scene's
 // `center`. Their radiance gives the viewport's light, three times the strength where it
-// arrives (mesh_shading.slang), as the irradiance of the cone or sphere.
+// arrives (mesh_shading.slang), as the irradiance of the cone or sphere. An area light is
+// traced as the sphere of its disc's radius, shining only toward its face by the cosine
+// there (light_window), which gives a surface facing it the light a disc of its area
+// would: soft shadows of the right width at a fraction of a rectangle's sampling.
 lights_to_world :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32) -> (out: Lights_World) {
 	l := lights if lights != {} else lights_default()
 	to_world := linalg.inverse(view)
@@ -547,6 +552,7 @@ lights_to_world :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f3
 		strength := l.color[i].w
 		out.color[i] = l.color[i]
 		out.shape[i] = l.shape[i]
+		out.extra[i] = l.extra[i]
 		s := rot * l.spot[i].xyz
 		out.spot[i] = {s.x, s.y, s.z, l.spot[i].w}
 		if p.w < 0.5 {

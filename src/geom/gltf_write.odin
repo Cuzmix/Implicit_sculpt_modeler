@@ -72,14 +72,22 @@ Export_Light_Kind :: enum u8 {
 	Directional, // from a direction, as the sun
 	Point,       // every way from a place
 	Spot,        // from a place into a cone
+	Area,        // from one face of a rectangle or a disc
 }
 
+// glTF has no area light: one goes out as a spot over the half of the sky its face sees
+// (GLTF_AREA_CONE), the nearest a punctual light comes to a face's cosine.
 @(rodata)
 GLTF_LIGHT_TYPES := [Export_Light_Kind]string {
 	.Directional = `,"type":"directional"`,
 	.Point       = `,"type":"point"`,
 	.Spot        = `,"type":"spot"`,
+	.Area        = `,"type":"spot"`,
 }
+
+// An area light's spot in glTF: its outer half angle the most the format allows, a right
+// angle, fading from straight ahead, as a face's light falls off toward its edge.
+GLTF_AREA_CONE :: math.PI / 2
 
 // A light a glTF or USD file carries beside its mesh.
 Export_Light :: struct {
@@ -98,6 +106,13 @@ Export_Light :: struct {
 	// in the mesh's units; 0 for none. glTF's lights have no size, so only USD and the
 	// Blender link carry it, a directional light's in USD.
 	size:       f32,
+	// An area light's width and height in the mesh's units (a disc's diameter is its
+	// width), whether it is a disc, and the way its width runs, unit length, across
+	// `direction`; its intensity is candela straight out of its face.
+	width:      f32,
+	height:     f32,
+	disc:       bool,
+	edge:       Vec3,
 }
 
 // Where light `l` stands in the file and how it is turned (its local -Z, which both
@@ -107,7 +122,15 @@ export_light_place :: proc(m: Mesh_Export, l: Export_Light) -> (at: Vec3, turn: 
 	scale := m.scale if m.scale != 0 else 1
 	at = l.position * scale + m.offset
 	d := linalg.normalize(l.direction) if linalg.length(l.direction) > 1e-12 else Vec3{0, 0, -1}
-	if linalg.dot(d, Vec3{0, 0, -1}) < -0.999999 {
+	across := l.edge - d * linalg.dot(l.edge, d)
+	if l.kind == .Area && linalg.length(across) > 1e-6 {
+		// An area light is turned whole: its local x (its width, as USD's RectLight has it)
+		// onto its edge, so the rectangle stands as it does in the scene.
+		x := linalg.normalize(across)
+		z := -d
+		y := linalg.cross(z, x)
+		turn = linalg.quaternion_from_matrix3(linalg.Matrix3f32{x.x, y.x, z.x, x.y, y.y, z.y, x.z, y.z, z.z})
+	} else if linalg.dot(d, Vec3{0, 0, -1}) < -0.999999 {
 		// Straight back along +Z: half a turn about y, as any axis across would do.
 		turn = quaternion(w = 0, x = 0, y = 1, z = 0)
 	} else {
@@ -578,8 +601,8 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 				strings.write_string(j, `,"range":`)
 				json_number(j, range)
 			}
-			if l.kind == .Spot {
-				outer := clamp(l.outer_cone, 1e-4, math.PI / 2)
+			if l.kind == .Spot || l.kind == .Area {
+				outer := clamp(l.outer_cone if l.kind == .Spot else GLTF_AREA_CONE, 1e-4, math.PI / 2)
 				strings.write_string(j, `,"spot":{"innerConeAngle":`)
 				json_number(j, clamp(l.inner_cone, 0, outer * 0.9999))
 				strings.write_string(j, `,"outerConeAngle":`)

@@ -129,8 +129,10 @@ Gather_Uniforms :: struct {
 
 // Matches the shadow_ uniforms studio_weight.slang reads: the lights in the world (as
 // lights_to_world gives them), each one's distance, reach and spot edge with the chance
-// it is picked in shape.w, and in pick x the light this sample took and z the ambient
-// light (STUDIO_AMBIENT_SHARE of it over the lights' total brightness).
+// it is picked in shape.w (negated for a light that casts no shadow, never picked), and in
+// pick x the light this sample took, y the chance the lights that cast shadows have
+// together and z the ambient light (STUDIO_AMBIENT_SHARE of it over the lights' total
+// brightness).
 Shadow_Lights :: struct {
 	pos:   [LIGHT_COUNT][4]f32,
 	shape: [LIGHT_COUNT][4]f32,
@@ -427,27 +429,50 @@ Studio_Light :: struct {
 studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, k: int) -> (sl: Studio_Light) {
 	l := lights if lights != {} else lights_default()
 	world := lights_to_world(l, view, center, softness)
-	brightness: f32
+	// A light with shadows off is never picked: it goes to the shader with its chance
+	// negated, so its light counts with the ambient light's, which nothing shadows, and
+	// the lights that cast shadows share the picks by their chances among themselves.
+	brightness, shadowed: f32
+	free := false
 	for i in 0 ..< LIGHT_COUNT {
 		if world.size[i].w <= 0 do continue
 		c := l.color[i]
 		brightness += c.w * max(c.r, c.g, c.b)
+		chance := world.size[i].w
+		if l.extra[i].y > 0.5 {
+			chance = -chance
+			free = true
+		} else {
+			shadowed += chance
+		}
 		sl.shadow.pos[i] = world.pos[i]
-		sl.shadow.shape[i] = {world.shape[i].x, world.shape[i].y, world.shape[i].z, world.size[i].w}
+		sl.shadow.shape[i] = {world.shape[i].x, world.shape[i].y, world.shape[i].z, chance}
 		sl.shadow.spot[i] = world.spot[i]
 	}
-	if brightness <= 0 do return
+	if brightness <= 0 || shadowed <= 0 do return
 	sl.lit = true
 	m := f32(k / STUDIO_KEY_EVERY)
 	pick := math.mod(0.5 + m * 0.8191725, 1)
 	j := -1
-	for i in 0 ..< LIGHT_COUNT {
-		if world.size[i].w <= 0 do continue
-		j = i
-		if pick < world.size[i].z do break
+	if !free {
+		for i in 0 ..< LIGHT_COUNT {
+			if world.size[i].w <= 0 do continue
+			j = i
+			if pick < world.size[i].z do break
+		}
+	} else {
+		running: f32
+		for i in 0 ..< LIGHT_COUNT {
+			if world.size[i].w <= 0 || l.extra[i].y > 0.5 do continue
+			j = i
+			running += world.size[i].w / shadowed
+			if pick < running do break
+		}
 	}
 	sl.r2 = {math.mod(0.5 + m * 0.6710436, 1), math.mod(0.5 + m * 0.5497005, 1)}
-	sl.shadow.pick = {f32(j), 0, STUDIO_AMBIENT_SHARE * max(l.rig[0].w, 0) / brightness, 0}
+	// y: the share of the picks' light the lights that cast shadows have, by which each
+	// sample's weight grows as its light's chance among them grew; exactly 1 with none off.
+	sl.shadow.pick = {f32(j), 1 if !free else shadowed, STUDIO_AMBIENT_SHARE * max(l.rig[0].w, 0) / brightness, 0}
 	size := l.shape[j].w
 	if l.pos[j].w == LIGHT_SUN {
 		sl.dir = world.pos[j].xyz

@@ -43,10 +43,15 @@ Light_Kind :: enum u8 {
 	Sun,   // from a direction, as from far away
 	Point, // from a place, every way
 	Spot,  // from a place, into a cone
+	Area,  // from one face of a rectangle or a disc, as a softbox
 }
 
 @(rodata)
-LIGHT_KIND_LABELS := [len(Light_Kind)]string{"Sun", "Point", "Spot"}
+LIGHT_KIND_LABELS := [len(Light_Kind)]string{"Sun", "Point", "Spot", "Area"}
+
+// An area light's width and height in scene units, LIGHT_AREA_MIN to LIGHT_RADIUS_MAX:
+// never nothing, since the light is its area.
+LIGHT_AREA_MIN :: 0.001
 
 // What a light keeps its place in: the camera's view, turned by Turn all and Height all
 // (lights_frame), or the scene.
@@ -93,6 +98,19 @@ Light :: struct {
 	// highlights, smooth surfaces most (viewport_lights, light_shape.w).
 	angle:    f32,
 	radius:   f32,
+	// An area light's width and height in scene units (a disc's diameter is its width),
+	// 0 until placed (lights_settle); its width runs level in the light's own frame,
+	// across its aim. Kept while the light is another kind.
+	width:    f32,
+	height:   f32,
+	disc:     bool, // an area light that is a disc rather than a rectangle
+	// How much more or less highlight the light gives than usual, -1 none (a fill that
+	// lights without shine) to 1 twice as much; 0 as usual, so a light made without it
+	// shines as lights always did.
+	shine:    f32,
+	// The light casts no shadow in the studio and render mode: its light reaches through
+	// whatever is between, as a fill's should. Off (shadows) by default.
+	no_shadows: bool,
 }
 
 // The scene's lights: the first `count` of `lights` are the scene's, and the ambient
@@ -213,6 +231,9 @@ lights_settle :: proc(app: ^App) {
 		// A script's colour temperature below the range is the warmest there is.
 		if l.kelvin > 0 do l.kelvin = clamp(l.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX)
 		l.angle, l.radius = clamp(l.angle, 0, LIGHT_ANGLE_MAX), clamp(l.radius, 0, LIGHT_RADIUS_MAX)
+		l.shine = clamp(l.shine, -1, 1)
+		if l.width > 0 do l.width = clamp(l.width, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
+		if l.height > 0 do l.height = clamp(l.height, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
 		if l.kind == .Sun do continue
 		if l.pos == {} {
 			dir := l.dir
@@ -221,6 +242,10 @@ lights_settle :: proc(app: ^App) {
 			l.pos = dir if l.space == .Camera else app.camera.target + dir
 		}
 		if l.ref <= 0 do l.ref = max(light_distance(app, l), 1e-4)
+		// An area light first made, or set to nothing by a script, is a quarter of its
+		// distance across, a softbox's size beside a bust; a height of nothing is its width.
+		if l.kind == .Area && l.width <= 0 do l.width = clamp(light_distance(app, l) * 0.25, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
+		if l.kind == .Area && l.height <= 0 do l.height = l.width
 	}
 }
 
@@ -238,6 +263,7 @@ viewport_lights :: proc(app: ^App) -> render.Lights {
 		axis := light_view_axis(app, i)
 		rgb := light_rgb(l)
 		out.color[i] = {rgb.r, rgb.g, rgb.b, l.strength}
+		out.extra[i] = {clamp(l.shine, -1, 1), 1 if l.no_shadows else 0, 0, 0}
 		if l.kind == .Sun {
 			out.pos[i] = {axis.x, axis.y, axis.z, render.LIGHT_SUN}
 			out.shape[i].w = math.sin(math.to_radians(clamp(l.angle, 0, LIGHT_ANGLE_MAX)) * 0.5)
@@ -248,6 +274,18 @@ viewport_lights :: proc(app: ^App) -> render.Lights {
 		ref := l.ref if l.ref > 0 else app.camera.distance
 		// The view is the scene turned and moved, never scaled, so the radius carries over.
 		out.shape[i] = {ref, max(l.reach, 0), 0, clamp(l.radius, 0, LIGHT_RADIUS_MAX)}
+		if l.kind == .Area {
+			w, h := light_area_size(l)
+			edge := light_area_edge(app, l, axis)
+			out.pos[i].w = render.LIGHT_AREA
+			out.spot[i] = {-axis.x, -axis.y, -axis.z, 0}
+			out.axis[i] = {edge.x, edge.y, edge.z, w * 0.5}
+			out.extra[i].z = h * 0.5
+			out.extra[i].w = 1 if l.disc else 0
+			// Render mode and the studio's shadows take it as the disc of its area.
+			out.shape[i].w = w * 0.5 if l.disc else math.sqrt(w * h / math.PI)
+			continue
+		}
 		if l.kind == .Spot {
 			half := math.to_radians(clamp(l.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX)) * 0.5
 			outer := math.cos(half)
@@ -259,6 +297,24 @@ viewport_lights :: proc(app: ^App) -> render.Lights {
 		}
 	}
 	return out
+}
+
+// Area light `l`'s width and height, as drawn and shaded: a disc's height is its width.
+light_area_size :: proc(l: Light) -> (w, h: f32) {
+	w = clamp(l.width, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
+	h = w if l.disc else clamp(l.height if l.height > 0 else w, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
+	return
+}
+
+// The way area light `l`'s width runs in view space, unit length, for its aim `axis`
+// (toward the light, view space): level in the light's own frame (the scene's, or the
+// camera lights' turned frame), across the aim, as a softbox stands; for a light aimed
+// straight up or down, along its frame's x.
+light_area_edge :: proc(app: ^App, l: Light, axis: [3]f32) -> [3]f32 {
+	frame := light_frame(app, l)
+	edge := linalg.cross(frame * [3]f32{0, 1, 0}, axis)
+	if linalg.length(edge) < 1e-4 do return linalg.normalize(frame * [3]f32{1, 0, 0})
+	return linalg.normalize(edge)
 }
 
 // Whether the lights stay with the scene, as the Lights section's All fixed to the scene
@@ -335,9 +391,9 @@ light_flip :: proc(app: ^App, i: int) {
 
 // Adds a light of `kind` after the others, picked, and returns its place; -1 when there
 // are LIGHT_COUNT already. A sun moves with the camera, shining from the upper right in
-// front, as a fill is placed; a point light or a spot stands in the scene, as a lamp does
-// in Blender or KeyShot, up and to the right of the orbit's centre, as far away as the
-// camera, a spot aimed at the centre.
+// front, as a fill is placed; a point, spot or area light stands in the scene, as a lamp
+// does in Blender or KeyShot, up and to the right of the orbit's centre, as far away as
+// the camera, a spot or area light aimed at the centre.
 light_add :: proc(app: ^App, kind: Light_Kind) -> int {
 	set := &app.scene.lights
 	if set.count >= LIGHT_COUNT do return -1
@@ -392,7 +448,7 @@ export_lights :: proc(app: ^App, t := Transform{scale = 1}) -> []geom.Export_Lig
 			size      = math.to_radians(clamp(l.angle, 0, LIGHT_ANGLE_MAX)),
 		}
 		if l.kind != .Sun && l.pos != {} {
-			e.kind = .Point if l.kind == .Point else .Spot
+			e.kind = .Point if l.kind == .Point else .Spot if l.kind == .Spot else .Area
 			e.position = to_local(t, light_world_pos(app, l))
 			ref := l.ref / t.scale
 			e.intensity *= ref * ref
@@ -400,6 +456,14 @@ export_lights :: proc(app: ^App, t := Transform{scale = 1}) -> []geom.Export_Lig
 			e.size = clamp(l.radius, 0, LIGHT_RADIUS_MAX) / t.scale
 			half := math.to_radians(clamp(l.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX)) * 0.5
 			e.outer_cone, e.inner_cone = half, half * (1 - clamp(l.blend, 0, 1))
+			if l.kind == .Area {
+				w, h := light_area_size(l)
+				e.width, e.height, e.disc = w / t.scale, h / t.scale, l.disc
+				e.outer_cone, e.inner_cone = 0, 0
+				// The edge in the scene, then into the object's space as its aim is.
+				view_edge := light_area_edge(app, l, light_view_axis(app, i))
+				e.edge = linalg.normalize(to_local_dir(t, linalg.transpose(view_rotation(app)) * view_edge))
+			}
 		}
 		append(&out, e)
 	}

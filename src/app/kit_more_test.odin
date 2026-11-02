@@ -74,6 +74,8 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 	case .Layers: n -= 4 * len(sculpt.sculptor_layers(object_sculptor(obj)))
 	// A colour (kit_color) is one choice, made by its hex field or by its three sliders.
 	case .Material, .Paint, .Paint_Color, .Background: n -= 3
+	// Add's row is one choice, the kind of light to add, a button a kind.
+	case .Lights: n -= len(Light_Kind) - 1
 	}
 	return n
 }
