@@ -2311,7 +2311,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.View_Pass = {
 		label = "Pass",
-		help = "Shows the viewport in this pass: its shading mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form.",
+		help = "Shows the viewport in this pass: its shading mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form, or what the detail skin holds as normal-map colours.",
 		icon = ui.ICON_EYE,
 		// The shading modes' own passes are the modes', not picked here.
 		args = PASS_PICKED,
@@ -2664,6 +2664,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_4, {.Alt}, false}, .View_Pass, 3},
 	{{KEY_5, {.Alt}, false}, .View_Pass, 4},
 	{{KEY_6, {.Alt}, false}, .View_Pass, 5},
+	{{KEY_7, {.Alt}, false}, .View_Pass, 6},
 	{{KEY_0, {.Alt}, false}, .View_Pass_Last, 0},
 	{{KEY_1, {.Ctrl}, false}, .Space_Switch, 0},
 	{{KEY_2, {.Ctrl}, false}, .Space_Switch, 1},
