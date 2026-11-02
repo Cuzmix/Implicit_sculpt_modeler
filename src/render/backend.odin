@@ -6,7 +6,8 @@ import "core:log"
 import sdl "vendor:sdl3"
 
 // Render draws with one GPU API a platform: its own Metal backend (mtl_*.odin) on Apple's
-// platforms, its own Vulkan backend (vk_*.odin) everywhere else. Windows are made for it
+// platforms, its own WebGPU backend (wgpu_*.odin) in a browser, its own Vulkan backend
+// (vk_*.odin) everywhere else. Windows are made for it
 // (SDL_WINDOW_METAL or SDL_WINDOW_VULKAN), and a device that cannot run it cannot run the
 // app: there is no other backend to hand the run to.
 
@@ -33,7 +34,7 @@ backend_fail :: proc(name: string, format: string, args: ..any) {
 // as SDL makes Vulkan windows with it. False, with backend_error saying why, where it is not.
 backend_select :: proc() -> bool {
 	error_len = 0
-	when !METAL {
+	when VULKAN {
 		if !sdl.Vulkan_LoadLibrary(nil) {
 			backend_fail("Vulkan", "no Vulkan loader (%s)", sdl.GetError())
 			return false
@@ -45,15 +46,16 @@ backend_select :: proc() -> bool {
 // The flags windows need for the backend.
 window_flags :: proc() -> sdl.WindowFlags {
 	when METAL do return {.METAL}
+	else when WEBGPU do return {}
 	else do return {.VULKAN}
 }
 
 // The backend's name for logs and the exit stats.
 backend_name :: proc() -> string {
-	return "metal" when METAL else "vulkan"
+	return "metal" when METAL else "webgpu" when WEBGPU else "vulkan"
 }
 
 // The backend's name for people, in the settings and the message a failed start shows.
 backend_title :: proc() -> string {
-	return "Metal" when METAL else "Vulkan"
+	return "Metal" when METAL else "WebGPU" when WEBGPU else "Vulkan"
 }

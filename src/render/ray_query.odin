@@ -64,8 +64,8 @@ ray_query_check :: proc(r: ^Renderer) -> Ray_Query_Check {
 	if ok {
 		log.info("ray query check: passed")
 	} else {
-		when METAL do log.error("ray query check: failed; the studio and render mode walk the app's own trees")
-		else do vk_validation_error("the ray query check failed")
+		when VULKAN do vk_validation_error("the ray query check failed")
+		else do log.error("ray query check: failed; the studio and render mode walk the app's own trees")
 	}
 	return .Passed if ok else .Failed
 }

@@ -85,37 +85,74 @@ def link_dir(source, link):
 
 
 def odin_root():
-    """build/web/odin_root: deps/odin's folders, with base/ copied and web/odin_overlay laid
-    over it."""
+    """build/web/odin_root: deps/odin with web/odin_overlay laid over it. Each folder that
+    holds an overlay file is a copy, every folder on the way to one is made of links to the
+    real folders beside it, and everything else is a link, so deps/odin is never written."""
     real = os.path.join(DEPS, "odin")
     root = os.path.join(OUT, "odin_root")
     if os.path.isdir(root):
-        for name in os.listdir(root):
-            path = os.path.join(root, name)
-            if os.path.islink(path) or (os.name == "nt" and os.path.isjunction(path)):
-                os.unlink(path)
-            elif os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
+        clear_links(root)
     os.makedirs(root, exist_ok=True)
-    for name in os.listdir(real):
-        source = os.path.join(real, name)
-        if not os.path.isdir(source):
-            continue
-        if name == "base":
-            shutil.copytree(source, os.path.join(root, name))
-        else:
-            link_dir(source, os.path.join(root, name))
     overlay = os.path.join(ROOT, "web", "odin_overlay")
-    for directory, _, files in os.walk(overlay):
-        for name in files:
-            rel = os.path.relpath(os.path.join(directory, name), overlay)
-            target = os.path.join(root, rel)
-            if not os.path.exists(target):
-                raise SystemExit(f"web: {rel} replaces nothing in deps/odin; the overlay is out of date")
-            shutil.copy2(os.path.join(directory, name), target)
+    files = []
+    for directory, _, names in os.walk(overlay):
+        for name in names:
+            files.append(os.path.relpath(os.path.join(directory, name), overlay))
+    copied = {os.path.dirname(f) for f in files} | {os.path.dirname(p[0]) for p in PATCHES}
+    on_the_way = {os.path.join(*parts[:i]) for d in copied for parts in [d.split(os.sep)] for i in range(1, len(parts))}
+
+    def lay(rel):
+        source = os.path.join(real, rel) if rel else real
+        for name in sorted(os.listdir(source)):
+            child = os.path.join(rel, name) if rel else name
+            here, there = os.path.join(source, name), os.path.join(root, child)
+            if not os.path.isdir(here):
+                if rel:
+                    shutil.copy2(here, there)
+                continue
+            if child in copied:
+                shutil.copytree(here, there)
+            elif child in on_the_way:
+                os.makedirs(there, exist_ok=True)
+                lay(child)
+            else:
+                link_dir(here, there)
+    lay("")
+    for rel in files:
+        target = os.path.join(root, rel)
+        # A new file is fine where a folder was copied; a file that replaces nothing in a
+        # folder Odin's own never had is a sign the overlay is out of date.
+        shutil.copy2(os.path.join(overlay, rel), target)
+    for rel, old, new in PATCHES:
+        target = os.path.join(root, rel)
+        with open(target, encoding="utf-8") as f:
+            text = f.read()
+        if old not in text:
+            raise SystemExit(f"web: {rel} no longer has the line the web build changes; the patch is out of date")
+        with open(target, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text.replace(old, new, 1))
     return root
+
+
+# Lines of Odin's own files the web build changes, in the copies odin_root makes: core:flags
+# names core:net only where it parses a host, which js leaves out, and -vet then refuses
+# the unused import.
+PATCHES = [
+    ("core/flags/internal_rtti.odin", 'import            "core:net"', '@(require) import "core:net"'),
+]
+
+
+def clear_links(root):
+    """Removes build/web/odin_root without following its links into deps/odin."""
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        if os.path.islink(path) or (os.name == "nt" and os.path.isjunction(path)):
+            os.unlink(path)
+        elif os.path.isdir(path):
+            clear_links(path)
+            os.rmdir(path)
+        else:
+            os.remove(path)
 
 
 def odin(args):

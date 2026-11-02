@@ -518,6 +518,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	when METAL {
 		r.device, ok = mtl_create_device(debug)
 		r.anisotropy = true
+	} else when WEBGPU {
+		r.device, ok = wgpu_create_device(debug)
+		r.anisotropy = true
 	} else {
 		r.device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
 		r.anisotropy = vk_state.anisotropy
@@ -1608,8 +1611,10 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 @(private)
 frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
-		mesh:     ^Mesh_Buffers,
-		matcap:   ^sdl.GPUTexture,
+		// Pointers by address widened to 64 bits, so the struct has one layout and no
+		// padding where pointers are 32-bit (the web build).
+		mesh:     u64,
+		matcap:   u64,
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
@@ -1645,7 +1650,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		h = hash.fnv64a(slice.bytes_from_ptr(&wire, size_of(wire)), h)
 	}
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1661,12 +1666,12 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 textured_key :: proc(item: Draw_Item, h: u64) -> u64 {
 	if item.textured == nil || item.texture_view == .Off do return h
 	Keyed :: struct { // no padding: every byte is hashed
-		mesh:       ^Textured_Mesh,
+		mesh:       u64, // the address, widened as frame_key's
 		maps_stamp: u64,
 		stamp:      u64,
 		view:       u64,
 	}
-	k := Keyed{item.textured, item.textured.maps_stamp, item.textured.stamp, u64(item.texture_view)}
+	k := Keyed{u64(uintptr(item.textured)), item.textured.maps_stamp, item.textured.stamp, u64(item.texture_view)}
 	return hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 }
 
@@ -1865,8 +1870,10 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 @(private)
 static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
-		mesh:     ^Mesh_Buffers,
-		matcap:   ^sdl.GPUTexture,
+		// Pointers by address widened to 64 bits, so the struct has one layout and no
+		// padding where pointers are 32-bit (the web build).
+		mesh:     u64,
+		matcap:   u64,
 		version:  u64,
 		model:    Mat4,
 		color:    [4]f32,
@@ -1903,7 +1910,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	}
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)

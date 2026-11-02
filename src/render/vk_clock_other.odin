@@ -1,4 +1,5 @@
 #+build !linux
+#+build !js
 package render
 
 // VK_GOOGLE_display_timing reports times on CLOCK_MONOTONIC, which only Linux and Android

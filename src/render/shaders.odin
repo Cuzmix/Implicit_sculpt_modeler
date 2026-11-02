@@ -6,14 +6,16 @@ import sdl "vendor:sdl3"
 // with Metal on Apple's platforms, which takes Metal source, and with Vulkan elsewhere,
 // which takes SPIR-V: build.sh and build.bat compile each shaders/name.stage.slang to
 // name.stage.spv, scripts/shaders_msl.py turns that into name.stage.msl with SDL_shadercross,
-// and both are committed. Each build embeds only its own kind, so neither grows the other's
-// binary; a shader's constant is `#load("shaders/name.stage" + SHADER_EXT)`.
+// and both are committed, as is the WGSL scripts/shaders_wgsl.py makes for the web
+// version's WebGPU. Each build embeds only its own kind, so none grows another's binary; a shader's constant is `#load("shaders/name.stage" + SHADER_EXT)`.
 
 @(private)
-SHADER_EXT :: ".msl" when ODIN_OS == .Darwin else ".spv"
+SHADER_EXT :: ".msl" when ODIN_OS == .Darwin else ".wgsl" when ODIN_OS == .JS else ".spv"
 
+// SDL_GPU names no WGSL, so the web build's shaders say PRIVATE: only the WebGPU backend
+// (wgpu_resources.odin) reads them.
 @(private)
-SHADER_FORMAT :: sdl.GPUShaderFormat{.MSL} when ODIN_OS == .Darwin else sdl.GPUShaderFormat{.SPIRV}
+SHADER_FORMAT :: sdl.GPUShaderFormat{.MSL} when ODIN_OS == .Darwin else sdl.GPUShaderFormat{.PRIVATE} when ODIN_OS == .JS else sdl.GPUShaderFormat{.SPIRV}
 
 // The entry point every shader's create info names: SDL_shadercross renames `main`, which
 // Metal refuses as a function name, to `main0`.
@@ -25,7 +27,7 @@ SHADER_ENTRY :: cstring("main0") when ODIN_OS == .Darwin else cstring("main")
 // (scripts/shaders_msl.py), since SDL_shadercross's Metal cannot name a ray tracing
 // structure; slangc renames `main` to `main_0`.
 @(private)
-RQ_EXT :: ".metal" when ODIN_OS == .Darwin else ".spv"
+RQ_EXT :: ".metal" when ODIN_OS == .Darwin else ".wgsl" when ODIN_OS == .JS else ".spv"
 
 @(private)
 RQ_ENTRY :: cstring("main_0") when ODIN_OS == .Darwin else cstring("main")

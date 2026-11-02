@@ -29,7 +29,7 @@ RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
 // only the own Vulkan backend binds, so it has no Metal source.
 // Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
 // named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
-when ODIN_OS != .Darwin {
+when VULKAN {
 	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
 	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv")
 }
@@ -617,7 +617,7 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 // where the device refuses it (the log says why), and render mode keeps the named kernel.
 @(private = "file")
 path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
-	when ODIN_OS != .Darwin {
+	when VULKAN {
 		offered := r.caps.texture_arrays / 3
 		if offered <= RENDER_TEXTURED_MAX do return
 		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
@@ -655,7 +655,7 @@ path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 		}
 		capacity: u32
 		// The array kind exists only under Vulkan (path_maps_pipeline).
-		when ODIN_OS != .Darwin {
+		when VULKAN {
 			if pr.maps_array {
 				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
 				capacity = 3 * pr.textured_max

@@ -30,6 +30,10 @@ Scene :: struct {}
 when ODIN_OS == .Windows {
 	// Built with /MT, as the app is.
 	foreign import lib "../../deps/ufbx/ufbx.lib"
+} else when ODIN_OS == .JS {
+	// The web version has no ufbx yet: these are the page's imports, which answer that
+	// nothing loaded (web/sdl_shim.js), so an FBX file says it cannot be read there.
+	foreign import lib "sculpt_fbx"
 } else when ODIN_PLATFORM_SUBTARGET == .Android || ODIN_OS == .Darwin {
 	// Android's CMakeLists and `build.sh ios` and `mac` compile fbx_shim.c and link it with
 	// the app's object themselves.

@@ -104,7 +104,7 @@ swapchain_turns :: proc(window: ^sdl.Window) -> int {
 // Lets the own Vulkan backend pre-rotate (on Android it does by default); set before the
 // window is claimed. --no-pre-rotate turns it off to compare.
 set_pre_rotate :: proc(on: bool) {
-	vk_pre_rotate = on
+	when VULKAN do vk_pre_rotate = on
 }
 
 // Whether the device exists: false before renderer_init and in runs without a window.

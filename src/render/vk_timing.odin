@@ -1,3 +1,4 @@
+#+build !js
 package render
 
 import vk "vendor:vulkan"
