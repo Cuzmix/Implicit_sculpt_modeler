@@ -145,17 +145,24 @@ link_manifest_text :: proc(head: string, m: Link_Manifest, lights: []geom.Export
 	}
 	for l in lights {
 		p, d, c := l.position, l.direction, l.color
-		fmt.sbprintf(&b, "light %s %s %v %v %v %v %v %v %v %v %v %v %v %v %v %v\n", link_name_word(l.name), LINK_LIGHT_KINDS[l.kind], p.x, p.y, p.z, d.x, d.y, d.z, c.r, c.g, c.b, l.intensity, l.range, l.inner_cone, l.outer_cone, l.size)
+		// After the words every add-on reads: an area light's width, height, disc (1 or 0)
+		// and edge, zeros for the other kinds, which an add-on from before area lights
+		// leaves unread, taking the light as the spot over half the sky its kind word says.
+		outer := l.outer_cone if l.kind != .Area else geom.GLTF_AREA_CONE
+		e := l.edge
+		fmt.sbprintf(&b, "light %s %s %v %v %v %v %v %v %v %v %v %v %v %v %v %v %v %v %d %v %v %v\n", link_name_word(l.name), LINK_LIGHT_KINDS[l.kind], p.x, p.y, p.z, d.x, d.y, d.z, c.r, c.g, c.b, l.intensity, l.range, l.inner_cone, outer, l.size, l.width, l.height, int(l.disc), e.x, e.y, e.z)
 	}
 	return strings.to_string(b)
 }
 
-// Each kind of light as a manifest names it, as glTF does.
+// Each kind of light as a manifest names it, as glTF does: an area light as a spot, its
+// size in the words after the ones every add-on reads.
 @(rodata)
 LINK_LIGHT_KINDS := [geom.Export_Light_Kind]string {
 	.Directional = "directional",
 	.Point       = "point",
 	.Spot        = "spot",
+	.Area        = "spot",
 }
 
 // A name as one word of a manifest: %, every control byte and space, and every byte of a

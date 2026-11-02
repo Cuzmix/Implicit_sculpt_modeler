@@ -107,8 +107,10 @@ def read_manifest(path, head):
     untouched one goes back exactly); each light one of name, type (Blender's), position,
     direction, colour, intensity (lux or candela), range, inner and outer half angles and
     size (a sun's angle in radians, a lamp's radius; 0 when a Sculpt from before sizes
-    sent none), in Sculpt's axes. Words past those a light line is known to have are
-    left for a later Sculpt to add."""
+    sent none), then an area light's width, height, disc and edge (the way its width
+    runs), in Sculpt's axes; a light with a width is an area light, which a Sculpt sends
+    as a spot so that add-ons from before area lights still read it. Words past those a
+    light line is known to have are left for a later Sculpt to add."""
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().split("\n")
@@ -139,12 +141,15 @@ def read_manifest(path, head):
             elif f[0] == "light":
                 if len(f) < 16 or f[2] not in LIGHT_TYPES:
                     return None
-                values = [float(w) for w in f[3:17]] + [0.0] * (17 - min(len(f), 17))
-                if not all(math.isfinite(v) for v in values) or min(values[6:11]) < 0 or values[13] < 0:
+                values = [float(w) for w in f[3:23]] + [0.0] * (23 - min(len(f), 23))
+                if not all(math.isfinite(v) for v in values) or min(values[6:11]) < 0 or min(values[13:16]) < 0:
                     return None
-                lights.append({"name": name_from_word(f[1]), "type": LIGHT_TYPES[f[2]], "position": values[0:3],
-                               "direction": values[3:6], "color": values[6:9], "intensity": values[9],
-                               "range": values[10], "inner": values[11], "outer": values[12], "size": values[13]})
+                area = values[14] > 0
+                lights.append({"name": name_from_word(f[1]), "type": "AREA" if area else LIGHT_TYPES[f[2]],
+                               "position": values[0:3], "direction": values[3:6], "color": values[6:9],
+                               "intensity": values[9], "range": values[10], "inner": values[11], "outer": values[12],
+                               "size": values[13], "width": values[14], "height": values[15],
+                               "disc": values[16] > 0.5, "edge": values[17:20]})
         except ValueError:
             return None
     if token is None or seq is None:
@@ -294,11 +299,21 @@ def _same_triangles(mesh, triangles):
     return np.array_equal(starts, np.arange(0, len(mesh.loops), 3)) and np.array_equal(corners, triangles.ravel())
 
 
-def light_matrix(position, direction):
+def light_matrix(position, direction, edge=None):
     """Blender's matrix_world for a light at Sculpt's `position` shining Sculpt's
-    `direction`: its -Z, which a Blender light shines along, turned onto it, Z up."""
+    `direction`: its -Z, which a Blender light shines along, turned onto it, Z up; with an
+    area light's `edge`, its X (the width of Blender's area light) onto that too."""
     shines = Y_UP_TO_Z_UP.to_3x3() @ Vector(direction)
     shines = shines.normalized() if shines.length > 1e-12 else Vector((0, 0, -1))
+    if edge is not None:
+        x = Y_UP_TO_Z_UP.to_3x3() @ Vector(edge)
+        x = x - shines * x.dot(shines)
+        if x.length > 1e-6:
+            x = x.normalized()
+            z = -shines
+            y = z.cross(x)
+            turn = Matrix((x, y, z)).transposed().to_4x4()
+            return Matrix.Translation(Y_UP_TO_Z_UP @ Vector(position)) @ turn
     turn = Vector((0, 0, -1)).rotation_difference(shines).to_matrix().to_4x4()
     return Matrix.Translation(Y_UP_TO_Z_UP @ Vector(position)) @ turn
 
@@ -308,7 +323,8 @@ def set_lights(lights, token):
     made from it before (by name), else a new one is made, and one an earlier send made
     that this one does not list goes. A sun's strength is its lux over 683 lumens a watt
     and a lamp's power its candela times 4 pi over 683, as Blender's glTF importer gives
-    them; a sun's angle and a lamp's radius are its size in Sculpt. Returns the light
+    them, an area light's its candela times pi over 683; a sun's angle and a lamp's radius
+    are its size in Sculpt, an area light's width and height its own. Returns the light
     objects."""
     collection = bpy.data.collections.get(LIGHT_COLLECTION)
     if collection is None:
@@ -333,6 +349,12 @@ def set_lights(lights, token):
         if l["type"] == "SUN":
             light.energy = l["intensity"] / LUMENS_PER_WATT
             light.angle = min(l["size"], math.pi)
+        elif l["type"] == "AREA":
+            # A face's candela straight out of it are its power over pi.
+            light.energy = l["intensity"] * math.pi / LUMENS_PER_WATT
+            light.shape = "DISK" if l["disc"] else "RECTANGLE"
+            light.size = l["width"]
+            light.size_y = l["height"]
         else:
             light.energy = l["intensity"] * 4 * math.pi / LUMENS_PER_WATT
             light.shadow_soft_size = l["size"]
@@ -340,7 +362,7 @@ def set_lights(lights, token):
             outer = max(l["outer"], 1e-4)
             light.spot_size = 2 * outer
             light.spot_blend = min(max(1 - l["inner"] / outer, 0), 1)
-        obj.matrix_world = light_matrix(l["position"], l["direction"])
+        obj.matrix_world = light_matrix(l["position"], l["direction"], l["edge"] if l["type"] == "AREA" else None)
         obj["sculpt_light"], obj["sculpt_scene"] = key, token
         made.append(obj)
     for gone in old.values():

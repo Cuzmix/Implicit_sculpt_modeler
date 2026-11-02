@@ -32,12 +32,14 @@ Light_Sphere_State :: struct {
 	flips:      int, // lights sent behind or brought to the front by a tap, for the exit stats
 }
 
-// The icon of each kind of light: a sun, a bulb and a lamp hanging from the ceiling.
+// The icon of each kind of light: a sun, a bulb, a lamp hanging from the ceiling and a
+// frame for a softbox's face.
 @(rodata)
 LIGHT_KIND_ICONS := [Light_Kind]rune {
 	.Sun   = ui.ICON_SUN,
 	.Point = ICON_LIGHTBULB,
 	.Spot  = ICON_LAMP_CEILING,
+	.Area  = ui.ICON_FRAME,
 }
 ICON_LIGHTBULB :: rune(0xe1c2)
 ICON_LAMP_CEILING :: rune(0xe2d9)
@@ -68,7 +70,8 @@ kit_lights :: proc(app: ^App) {
 	// Add, then one button a kind sharing the rest of the width, each showing the kind's
 	// icon and name.
 	add_w := ui.text_width(ctx, "Add", ctx.theme.text_size)
-	each := (ui.fill_width(ctx) - add_w - 3 * 8) / 3
+	kinds :: f32(len(Light_Kind))
+	each := (ui.fill_width(ctx) - add_w - kinds * 8) / kinds
 	ui.begin(ctx, "light add", {direction = .Row, gap = 8, center = true})
 	ui.label(ctx, "Add")
 	for kind in Light_Kind {
@@ -101,6 +104,13 @@ kit_lights :: proc(app: ^App) {
 	// lamp's radius, its slider reaching half the camera's distance or the radius set.
 	if light.kind == .Sun {
 		_ = ui.slider(ctx, "Angle", &light.angle, 0, LIGHT_ANGLE_MAX, .Linear, fmt.tprintf("%.1f°", light.angle))
+	} else if light.kind == .Area {
+		// A softbox's face: a rectangle's width and height or a disc's diameter, the
+		// sliders reaching the camera's distance or the size set.
+		if v := ui.tabs(ctx, "area shape", {"Rectangle", "Disc"}, 1 if light.disc else 0); v >= 0 do light.disc = v == 1
+		widest := clamp(max(light.width, light.height, app.camera.distance), 1e-3, LIGHT_RADIUS_MAX)
+		_ = ui.slider(ctx, "Diameter" if light.disc else "Width", &light.width, LIGHT_AREA_MIN, widest, .Logarithmic, fmt.tprintf("%.2f", light.width))
+		if !light.disc do _ = ui.slider(ctx, "Height", &light.height, LIGHT_AREA_MIN, widest, .Logarithmic, fmt.tprintf("%.2f", light.height))
 	} else {
 		widest := clamp(max(light.radius, app.camera.distance * 0.5), 1e-3, LIGHT_RADIUS_MAX)
 		_ = ui.slider(ctx, "Radius", &light.radius, 0, widest, .Linear, fmt.tprintf("%.2f", light.radius))
@@ -109,6 +119,13 @@ kit_lights :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
 		_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
 	}
+	// How much shine it gives, as a lamp's specular in Blender: none makes a fill that
+	// lights the forms without a highlight; and whether it casts the studio's and render
+	// mode's shadows.
+	highlight := light.shine + 1
+	if ui.slider(ctx, "Highlight", &highlight, 0, 2, .Linear, fmt.tprintf("%.0f%%", highlight * 100)) do light.shine = highlight - 1
+	shadows := !light.no_shadows
+	if ui.switch_row(ctx, "Shadows", &shadows) do light.no_shadows = !shadows
 	if light.kind != .Sun && light.pos != {} {
 		// How far it stands from the orbit's centre, the depth a marker's drag keeps.
 		far := light_center_distance(app, app.light_pick)
@@ -119,8 +136,8 @@ kit_lights :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place, keys = command_hint(app, .Place_Light))
 	// A spot turned to shine at the selected object's middle, where it stands, as
 	// Marmoset's aim and a theatre's follow spot.
-	if light.kind == .Spot && light.pos != {} {
-		if ui.button(ctx, "Aim at the selected object", .Bordered, glyph = ICON_LAMP_CEILING, enabled = selected_object(app) != nil) {
+	if (light.kind == .Spot || light.kind == .Area) && light.pos != {} {
+		if ui.button(ctx, "Aim at the selected object", .Bordered, glyph = LIGHT_KIND_ICONS[light.kind], enabled = selected_object(app) != nil) {
 			if light_aim_at_selected(app, app.light_pick) do what = "Aim light"
 		}
 	}

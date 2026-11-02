@@ -55,6 +55,16 @@ kit_lens_lights :: proc(app: ^App) {
 			_ = ui.slider(ctx, fmt.tprintf("Intensity##lens light %d", i), &l.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", l.strength))
 			if l.kind == .Sun {
 				_ = ui.slider(ctx, fmt.tprintf("Size##lens light %d", i), &l.angle, 0, LIGHT_ANGLE_MAX, .Linear, fmt.tprintf("%.1f°", l.angle))
+			} else if l.kind == .Area {
+				// An area light's size is its width, its height kept in proportion, so the
+				// softbox grows or shrinks as it is; the Lights section sets each apart.
+				w, h := light_area_size(l)
+				was := w
+				widest := clamp(max(w, app.camera.distance), 1e-3, LIGHT_RADIUS_MAX)
+				if ui.slider(ctx, fmt.tprintf("Size##lens light %d", i), &w, LIGHT_AREA_MIN, widest, .Logarithmic, fmt.tprintf("%.2f", w)) {
+					l.height = clamp(h * w / was, LIGHT_AREA_MIN, LIGHT_RADIUS_MAX)
+					l.width = w
+				}
 			} else {
 				widest := clamp(max(l.radius, app.camera.distance * 0.5), 1e-3, LIGHT_RADIUS_MAX)
 				_ = ui.slider(ctx, fmt.tprintf("Size##lens light %d", i), &l.radius, 0, widest, .Linear, fmt.tprintf("%.2f", l.radius))
