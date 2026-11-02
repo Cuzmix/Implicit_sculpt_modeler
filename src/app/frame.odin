@@ -11,7 +11,6 @@ import "../camera"
 import "../geom"
 import "../render"
 import "../sculpt"
-import "../ui"
 
 // One frame of the run's loop, in the order it happens: what the last frame asked for
 // is applied (scene commands, files, scripts, jobs), the display is waited for and the
@@ -34,7 +33,12 @@ Frame_Loop :: struct {
 }
 
 frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
-	idle_rest(app, loop.driven)
+	// In the background the loop holds: no image, nothing drawn, nothing submitted.
+	if app.idle.background {
+		background_step(app, loop.window)
+		return true
+	}
+	rested := idle_rest(app, loop.driven)
 	frame_start := time.tick_now()
 	// Before this frame records anything: the GPU times of a frame a few back.
 	if times, ok := render.timestamps_frame(&app.renderer); ok {
@@ -51,10 +55,19 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	render.fence_finish(&app.renderer, &loop.present_fence)
 	present_cmd := render.cmd_begin(&app.renderer)
 	if present_cmd == nil do return false
-	swapchain, swapchain_size, acquired := render.swapchain_acquire(present_cmd, loop.window, wait = true)
-	if !acquired {
-		_ = render.cmd_cancel(present_cmd)
-		return false
+	// A rested frame (idle_rest: the wait ran out with no event) takes no image: the
+	// interface is still laid out, so a change in it is seen, but drawn nowhere, as a
+	// minimized window's frames are, and the screen keeps the last frame. Its command
+	// buffers are begun as every frame's are and dropped at the end, holding nothing.
+	swapchain: render.Texture
+	swapchain_size: [2]u32
+	if !rested {
+		acquired: bool
+		swapchain, swapchain_size, acquired = render.swapchain_acquire(present_cmd, loop.window, wait = true)
+		if !acquired {
+			_ = render.cmd_cancel(present_cmd)
+			return false
+		}
 	}
 	waited := time.tick_since(wait_start)
 	// The acquire learned which earlier frames reached the screen.
@@ -87,7 +100,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	if !grid_work_gpu(app) do return false
 	cross_fade_gpu(app)
 	view_windows_layout(app)
-	ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
+	if !rested do ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 	bench_waits := loop.opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(app)
 	if bench_waits && !setting_up do loop.bench_skipped += 1
 	bench_frame := loop.frame_index - loop.bench_skipped
@@ -420,8 +433,11 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	step_pictures_frame(app, cmd, view, proj, draws[:])
 	layer_pictures_frame(app, cmd, draws[:])
 
+	// Read before the submit or the drop recycles the recording: work the viewport still
+	// records at rest (a picture drawn late) is a change the next frame must show.
+	gpu_work := render.cmd_recorded(cmd)
 	gpu_wait: time.Duration
-	if app.time_gpu {
+	if app.time_gpu && gpu_work {
 		// Nothing else is queued (the previous frame was waited for above), so the
 		// time from submit to the fence is the GPU time of this work.
 		submit_start := time.tick_now()
@@ -433,18 +449,15 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		render.fence_finish(&app.renderer, &fence)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
-	} else if !render.cmd_submit(cmd) {
+	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false
 	}
 
 	// The interface, the viewport image in it, into the swapchain.
 	kit_ready := false
-	if swapchain != nil {
-		kit_ready = kit_upload(app, present_cmd)
-	} else {
-		_ = ui.frame_end(&app.kit.ctx)
-	}
+	dl := kit_frame_end(app)
+	if swapchain != nil do kit_ready = kit_upload(app, present_cmd, dl)
 	app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
 	// Once ui.frame_end settled the held control and the field with the keys.
 	diag_frame(app)
@@ -454,15 +467,22 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		draws := kit_draws(app, &app.kit.ctx.draw) if kit_ready else nil
 		render.ui_present(&app.renderer, &app.kit.pass, present_cmd, loop.window, swapchain, swapchain_size, kit_frame_color(&app.kit), draws, kit_ready)
 	}
-	app.kit_drew = kit_ready
-	app.kit_size = swapchain_size
+	// A rested frame drew nothing, but what the last drawn frame put on the screen is still
+	// there, which --dump-screen writes.
+	if !rested {
+		app.kit_drew = kit_ready
+		if kit_ready do app.kit_size = swapchain_size
+	}
 	// Some drivers wait for the display here rather than when the swapchain texture
 	// is acquired, so this counts as waiting too.
 	// The frames that changed the mesh are timed to the screen, as latency_ms is to the submit.
 	render.present_input(&app.renderer, loop.window, app.device.input_at if sculpted.dabs > 0 else 0)
 	present_start := time.tick_now()
 	submitted := false
-	if app.time_gpu {
+	if swapchain == nil {
+		// No image was drawn into: the recording holds nothing and is dropped.
+		submitted = frame_submit(app, present_cmd)
+	} else if app.time_gpu {
 		loop.present_fence = render.cmd_submit_fenced(present_cmd)
 		submitted = loop.present_fence != nil
 	} else {
@@ -476,19 +496,25 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 
 	frame_time := time.tick_since(frame_start)
 	cpu_time := frame_time - waited - gpu_wait
-	ring_push(&app.stats.frame_ms, time.duration_milliseconds(frame_time))
-	ring_push(&app.stats.wait_ms, time.duration_milliseconds(waited))
-	ring_push(&app.stats.cpu_ms, time.duration_milliseconds(cpu_time))
+	// A rested frame's times are no frame's: its rings stay as they were, so the Stats
+	// panel's folded label keeps still and the rest goes on (idle_note).
+	if !rested {
+		ring_push(&app.stats.frame_ms, time.duration_milliseconds(frame_time))
+		ring_push(&app.stats.wait_ms, time.duration_milliseconds(waited))
+		ring_push(&app.stats.cpu_ms, time.duration_milliseconds(cpu_time))
+	}
 	app.stats.viewport = drawn
 	app.stats.cache_redraws += int(drawn.cache_redrawn)
 	app.stats.partial_frames += int(drawn.partial)
-	idle_note(app, drawn, sculpted.dabs)
+	idle_note(app, drawn, sculpted.dabs, gpu_work, rested)
 	if sculpted.dabs > 0 {
-		ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
-		ring_push(&app.stats.brush_ms, sculpted.brush_ms)
-		ring_push(&app.stats.normals_ms, normals_ms)
-		ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
-		ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
+		if !rested {
+			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
+			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
+			ring_push(&app.stats.normals_ms, normals_ms)
+			ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
+			ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
+		}
 		app.stats.dabs_total += sculpted.dabs
 	}
 	// A scripted stroke or replay changes the scene with no input to show for it.
@@ -516,6 +542,17 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		app.running = false
 		if !gpubench_write(app, loop.bench) do return false
 	}
+	return true
+}
+
+// Submits a frame's recording, or drops it when it holds nothing for the GPU (a frame
+// that redrew nothing, a rested frame), since a submit of nothing still wakes the GPU
+// and its driver; the drops are counted for the exit stats. False when a submit failed.
+frame_submit :: proc(app: ^App, cmd: render.Cmd) -> bool {
+	if render.cmd_recorded(cmd) do return render.cmd_submit(cmd)
+	app.stats.cmds_dropped += 1
+	// A drop fails only for a recording that presents, which counts as recorded.
+	assert(render.cmd_cancel(cmd), "a recording holding nothing refused to be dropped")
 	return true
 }
 
@@ -660,9 +697,8 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 		device_event(&app.device, &e)
 		dab_wait_event(app, &e, loop.window)
 		touch_event(app, &e, loop.window)
+		if lifecycle_event(app, &e) do continue
 		#partial switch e.type {
-		case .QUIT, .WINDOW_CLOSE_REQUESTED:
-			app.running = false
 		case .WINDOW_FOCUS_GAINED:
 			link_focus(app)
 		case .DROP_FILE:
@@ -671,16 +707,6 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 			app.kit.keyboard_down = true
 		case .SCREEN_KEYBOARD_SHOWN:
 			app.kit.keyboard_down = false
-		case .DID_ENTER_FOREGROUND:
-			// The window comes back with a new surface, which has to ask for its frame rate again.
-			app.pacer.voted_window = nil
-			app.preview.background = false
-			pencil_only_read(app)
-		case .DID_ENTER_BACKGROUND:
-			// The system may end the app from the background without another word.
-			if app.settings_file != "" do _ = settings_save(app, app.settings_file)
-			app.autosave.background = true
-			app.preview.background = true
 		case .MOUSE_MOTION:
 			// The pen's samples between frames (pen_samples.odin) go in ahead of its own.
 			if e.motion.which == sdl.PEN_MOUSEID do pen_samples_motion(app, {e.motion.x, e.motion.y})

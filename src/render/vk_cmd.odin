@@ -82,6 +82,10 @@ Vk_Cmd :: struct {
 	samplers:        [dynamic]^Vk_Sampler,
 	pipelines:       [dynamic]^Vk_Pipeline,
 	presents:        [dynamic]Vk_Present,
+	// Whether anything was recorded that the GPU would run: a pass, a build, a mipmap
+	// chain (not a timestamp). A recording without it is dropped rather than submitted
+	// (gpu_command_buffer_recorded), so a frame that changes nothing wakes no GPU.
+	recorded:        bool,
 	pass:            Vk_Pass,
 	targets:         [dynamic]Vk_Target,
 	pipeline:        ^Vk_Pipeline,
@@ -285,6 +289,7 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 	cmd.queue, cmd.compute_wait = .Graphics, 0
 	cmd.timed_slot = 0
 	cmd.pass = .None
+	cmd.recorded = false
 	cmd.pipeline = nil
 	cmd.uniforms = {}
 	begin := vk.CommandBufferBeginInfo{sType = .COMMAND_BUFFER_BEGIN_INFO, flags = {.ONE_TIME_SUBMIT}}
@@ -471,11 +476,23 @@ vk_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUComma
 	return (^sdl.GPUFence)(fence)
 }
 
+// Whether the recording holds anything for the GPU to run (Vk_Cmd.recorded), or a
+// swapchain image to present.
+vk_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+	cmd := (^Vk_Cmd)(command_buffer)
+	return cmd.recorded || len(cmd.presents) > 0
+}
+
 vk_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
 	if len(cmd.presents) > 0 {
 		sdl.SetError("a command buffer holding a swapchain texture cannot be cancelled")
 		return false
+	}
+	when ODIN_DEBUG {
+		// A recording that tracked images without counting as recorded is a recording site
+		// that forgot the flag: its work would be dropped as nothing (frame_submit).
+		if !cmd.recorded && len(cmd.images) > 0 do log.errorf("Vulkan: a recording that touched %d images is dropped as empty; a recording site misses `recorded`", len(cmd.images))
 	}
 	_ = vk.EndCommandBuffer(cmd.cb)
 	vk_cmd_recycle(cmd)
@@ -752,6 +769,7 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 
 vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: u32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
 	cmd := (^Vk_Cmd)(command_buffer)
+	cmd.recorded = true
 	width, height := max(u32), max(u32)
 	colors: [8]vk.RenderingAttachmentInfo
 	vk_memory_barrier(cmd)
@@ -979,6 +997,7 @@ vk_draw_indexed_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPas
 
 vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
 	cmd := (^Vk_Cmd)(command_buffer)
+	cmd.recorded = true
 	vk_memory_barrier(cmd)
 	cmd.write_textures = {}
 	cmd.write_buffers = {}
@@ -1067,6 +1086,7 @@ vk_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
 vk_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCopyPass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.pass = .Copy
+	cmd.recorded = true
 	return (^sdl.GPUCopyPass)(cmd)
 }
 
@@ -1178,6 +1198,7 @@ vk_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl
 // Fills each level from the one above with a linear blit, as SDL_GPU does.
 vk_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
 	cmd := (^Vk_Cmd)(command_buffer)
+	cmd.recorded = true
 	t := (^Vk_Texture)(texture)
 	img := t.active
 	vk_cmd_track_image(cmd, img)

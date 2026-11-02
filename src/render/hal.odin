@@ -140,6 +140,16 @@ gpu_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first
 	else do vk_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 }
 
+// Whether the recording holds anything for the GPU to run (a pass, a build, a mipmap
+// chain) or a swapchain image to present. One that holds neither is as well cancelled
+// as submitted: a submit of nothing still wakes the GPU and its driver. A timestamp
+// alone is not work: a query never written reads as unavailable and is left out.
+@(require_results)
+gpu_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+	when METAL do return mtl_command_buffer_recorded(command_buffer)
+	else do return vk_command_buffer_recorded(command_buffer)
+}
+
 @(require_results)
 gpu_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
 	when METAL do return mtl_cancel_command_buffer(command_buffer)

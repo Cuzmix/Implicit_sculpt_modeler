@@ -97,4 +97,47 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 	foreign {
 		sculpt_ios_exclude_from_backup :: proc(path: cstring) -> bool ---
 	}
+
+	// The main run loop, for waiting: SDL has no event wait of its own on iOS (its
+	// WaitEventTimeout polls every millisecond), so a frame waiting for an event (idle.odin)
+	// runs the run loop instead, which sleeps until a touch, a notification or the time.
+	// The frame loop runs inside a callout of that run loop (SDL calls main from the
+	// launch), and SDL's own event pump nests it the same way.
+	foreign import core_foundation "system:CoreFoundation.framework"
+
+	@(private = "file", default_calling_convention = "c")
+	foreign core_foundation {
+		CFRunLoopRunInMode :: proc(mode: rawptr, seconds: f64, return_after_source_handled: bool) -> i32 ---
+		kCFRunLoopDefaultMode: rawptr
+	}
+
+	// CFRunLoopRunInMode's answer when the mode has no sources at all: the rest of the
+	// time is then slept, since the run loop would return at once again.
+	CF_RUN_LOOP_FINISHED :: 1
+
+	// Runs the main run loop once, for up to `ms` milliseconds or until it handled a source
+	// (a touch, a notification, a timer), for the background hold.
+	ios_run_loop_wait :: proc(ms: i32) {
+		if CFRunLoopRunInMode(kCFRunLoopDefaultMode, f64(ms) / 1000, true) == CF_RUN_LOOP_FINISHED do sdl.DelayNS(u64(ms) * 1_000_000)
+	}
+
+	// Waits up to `ms` milliseconds for an SDL event, running the run loop meanwhile, where a
+	// touch or a notification becomes one; whether one then waits, left queued for the frame.
+	// The queue is looked at before and after each turn of the run loop, since an event pushed
+	// from elsewhere (the pen's leave after the frame's events, another thread) never wakes
+	// it, and a turn ends at any source handled, not only at one that made an event.
+	ios_wait_events :: proc(ms: i32) -> bool {
+		deadline := sdl.GetTicksNS() + u64(ms) * 1_000_000
+		for !sdl.HasEvents(.FIRST, .LAST) {
+			now := sdl.GetTicksNS()
+			if now >= deadline do break
+			left := deadline - now
+			if CFRunLoopRunInMode(kCFRunLoopDefaultMode, f64(left) / 1e9, true) == CF_RUN_LOOP_FINISHED {
+				sdl.DelayNS(left)
+				break
+			}
+		}
+		// Pumps, as the desktop's wait does, so the frame's own poll finds what the run loop made.
+		return sdl.PollEvent(nil)
+	}
 }

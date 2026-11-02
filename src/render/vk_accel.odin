@@ -176,6 +176,7 @@ vk_scratch_address :: proc(cmd: ^Vk_Cmd, size: vk.DeviceSize) -> vk.DeviceAddres
 // Records one build and the barriers round it.
 @(private = "file")
 vk_accel_record :: proc(cmd: ^Vk_Cmd, info: ^vk.AccelerationStructureBuildGeometryInfoKHR, ranges: []vk.AccelerationStructureBuildRangeInfoKHR) {
+	cmd.recorded = true
 	vk_memory_barrier(cmd)
 	first := raw_data(ranges)
 	vk.CmdBuildAccelerationStructuresKHR(cmd.cb, 1, info, &first)

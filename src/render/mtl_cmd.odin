@@ -44,6 +44,10 @@ Mtl_Cmd :: struct {
 	buffers:           [dynamic]^Mtl_Buffer_Backing,
 	textures:          [dynamic]^Mtl_Texture_Backing,
 	presents:          [dynamic]Mtl_Present,
+	// Whether anything was encoded that the GPU would run: a pass, a build, a mipmap
+	// chain. A recording without it is dropped rather than committed
+	// (gpu_command_buffer_recorded), so a frame that changes nothing wakes no GPU.
+	recorded:          bool,
 	pipeline:          ^Mtl_Pipeline,
 	index_buffer:      ^MTL.Buffer,
 	index_offset:      u32,
@@ -148,6 +152,7 @@ mtl_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuf
 	mtl_stamps += 1
 	cmd.stamp = mtl_stamps
 	cmd.serial = 0
+	cmd.recorded = false
 	cmd.pipeline = nil
 	for &stage in cmd.uniforms do for &u in stage {
 		u.length = 0
@@ -197,6 +202,13 @@ mtl_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUComm
 	fence := new(Mtl_Fence)
 	fence.serial = serial
 	return (^sdl.GPUFence)(fence)
+}
+
+// Whether the recording holds anything for the GPU to run (Mtl_Cmd.recorded), or a
+// drawable to present.
+mtl_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+	cmd := (^Mtl_Cmd)(command_buffer)
+	return cmd.recorded || len(cmd.presents) > 0
 }
 
 // A recording never committed is simply dropped; one holding a drawable is refused, as
@@ -331,6 +343,7 @@ mtl_store_action :: proc(op: sdl.GPUStoreOp) -> MTL.StoreAction {
 mtl_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: u32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
+	cmd.recorded = true
 	desc := MTL.RenderPassDescriptor_renderPassDescriptor()
 	width, height := max(u32), max(u32)
 	colors := MTL.RenderPassDescriptor_colorAttachments(desc)
@@ -537,6 +550,7 @@ mtl_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^s
 mtl_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
+	cmd.recorded = true
 	if num_storage_texture_bindings > MTL_COMPUTE_WRITES || num_storage_buffer_bindings > MTL_COMPUTE_WRITES {
 		sdl.SetError("Metal: a compute pass writes more than SDL_GPU allows")
 		return nil
@@ -662,6 +676,7 @@ mtl_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, gr
 mtl_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCopyPass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
+	cmd.recorded = true
 	enc := MTL.CommandBuffer_blitCommandEncoder(cmd.cb)
 	if enc == nil {
 		sdl.SetError("Metal: the copy pass could not begin")
@@ -752,6 +767,7 @@ mtl_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sd
 mtl_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
+	cmd.recorded = true
 	t := (^Mtl_Texture)(texture).active
 	mtl_cmd_track_texture(cmd, t)
 	enc := MTL.CommandBuffer_blitCommandEncoder(cmd.cb)

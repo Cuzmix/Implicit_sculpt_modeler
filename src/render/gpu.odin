@@ -48,6 +48,11 @@ cmd_cancel :: proc(cmd: Cmd) -> bool {
 	return gpu_cancel_command_buffer(cmd)
 }
 
+// Whether the recording holds anything for the GPU to run, or an image to present.
+cmd_recorded :: proc(cmd: Cmd) -> bool {
+	return gpu_command_buffer_recorded(cmd)
+}
+
 // Waits for the fence, releases it and clears the handle; nothing for nil.
 fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
 	if fence^ == nil do return

@@ -663,6 +663,10 @@ Kit_Event :: struct {
 	// it, so it follows the control wherever the layout moved it; `at` is then an offset
 	// from the control's middle (@NAME~DX,DY).
 	name:   string,
+	// A dropped file's path as the event carries it: SDL never frees a string the app
+	// pushed, and the event may wait in the queue through a background hold, so the path
+	// lives as long as the events do.
+	path:   cstring,
 }
 
 Kit_Event_Kind :: enum u8 {
@@ -709,6 +713,10 @@ Kit_Event_Kind :: enum u8 {
 	Keyboard_Hidden,
 	// A file dropped on the window from the desktop, its path in `key`.
 	Drop_File,
+	// The app sent to the background and brought back, as a tablet's system does
+	// (lifecycle_event): SDL_EVENT_DID_ENTER_BACKGROUND and SDL_EVENT_DID_ENTER_FOREGROUND.
+	Background,
+	Foreground,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -787,6 +795,8 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
 			case "kbhide": ev.kind = .Keyboard_Hidden
+			case "bg":     ev.kind = .Background
+			case "fg":     ev.kind = .Foreground
 			case "wheel", "ppress", "proll", "pbutton", "ponly", "pdist":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
@@ -803,7 +813,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				raw := strings.trim_space(item)
 				rest := raw[min(len(parts[0]) + len(":drop:"), len(raw)):]
 				ok = len(parts) >= 3 && rest != ""
-				if ok do ev.key = strings.clone(rest)
+				if ok do ev.key, ev.path = strings.clone(rest), strings.clone_to_cstring(rest)
 				ev.kind = .Drop_File
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
@@ -980,8 +990,10 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			e.common = {type = .SCREEN_KEYBOARD_HIDDEN, timestamp = now}
 			push(e)
 		case .Drop_File:
-			// Read in this frame, before temp memory is freed.
-			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = strings.clone_to_cstring(ev.key, context.temp_allocator)}
+			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = ev.path}
+			push(e)
+		case .Background, .Foreground:
+			e.common = {type = .DID_ENTER_BACKGROUND if ev.kind == .Background else .DID_ENTER_FOREGROUND, timestamp = now}
 			push(e)
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.
@@ -1112,6 +1124,7 @@ kit_destroy :: proc(app: ^App) {
 	for ev in app.kit.events {
 		delete(ev.key)
 		delete(ev.name)
+		delete(ev.path)
 	}
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
@@ -2078,11 +2091,19 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	return draws
 }
 
-// Uploads this frame's interface on `cmd`, ahead of the render pass that draws it.
-kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
-	k := &app.kit
-	dl := ui.frame_end(&k.ctx)
+// Ends the frame's interface: its triangles, with the fading picture's alpha set. The
+// same whether they are uploaded or not, so a rested frame's list hashes as a drawn
+// one's (idle_note) and the rest goes on.
+kit_frame_end :: proc(app: ^App) -> ^ui.Draw_List {
+	dl := ui.frame_end(&app.kit.ctx)
 	cross_fade_tint(app, dl)
+	return dl
+}
+
+// Uploads this frame's interface `dl` (kit_frame_end) on `cmd`, ahead of the render
+// pass that draws it.
+kit_upload :: proc(app: ^App, cmd: render.Cmd, dl: ^ui.Draw_List) -> bool {
+	k := &app.kit
 	pixels, w, h, dirty, changed := ui.atlas_take(&k.ctx)
 	vertices := transmute([]render.Ui_Vertex)dl.vertices[:]
 	return render.ui_pass_upload(&app.renderer, &k.pass, cmd, vertices, dl.indices[:], pixels, {u32(w), u32(h)}, dirty, changed)
