@@ -149,7 +149,7 @@ scene_add_pack_mesh :: proc(app: ^App, j: int) -> bool {
 	m, read := mesh_import_read(app, pm.file, fmt.tprintf("Added %s from %s", pm.stem, pack_mesh_pack_name(app, j)))
 	if !read do return true
 	defer mesh_import_free(&m)
-	if !import_add_parts(app, &m, pm.stem, next_free_position(app), record = false) do return false
+	if !import_add_parts(app, &m, pm.stem, next_free_position(app), record = false, keep_starter = true) do return false
 	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
 	return true
 }

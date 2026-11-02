@@ -19,17 +19,21 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	bars_reset(&app.kit)
 	testing.expect(t, rail_panel_toggle(&app, .Symmetry))
 	testing.expect(t, rail_panel_toggle(&app, .Camera))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Material,Show_Panel:Symmetry,Show_Section:Camera")
-	// The rail's Material is the section's palette, which counts as the Material card; a tap
-	// on the card's tile takes it off.
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Section:Camera")
+	// A tap on the Material card's tile takes it off and a second puts it back at the foot.
 	_, on := rail_panel_at(&app, .Material)
 	testing.expect(t, on)
 	testing.expect(t, !rail_panel_toggle(&app, .Material))
 	testing.expect(t, rail_panel_toggle(&app, .Material))
 	testing.expect(t, !rail_panel_toggle(&app, .Symmetry))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Section:Layers,Show_Section:Camera,Show_Panel:Material")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Show_Panel:Scene,Show_Panel:Layers,Show_Section:Camera,Show_Panel:Material")
 	id, arg, ok := command_from_name("Show_Panel:Lights")
 	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Lights)
+	// A saved rail's Layers and Material sections come back as their cards; elsewhere a
+	// bar keeps the section.
+	testing.expect_value(t, rail_card_slot(.View_Rail, {.Show_Section, int(Kit_Section.Layers)}), Bar_Slot{.Show_Panel, int(Panel_Kind.Layers)})
+	testing.expect_value(t, rail_card_slot(.View_Rail, {.Show_Section, int(Kit_Section.Camera)}), Bar_Slot{.Show_Section, int(Kit_Section.Camera)})
+	testing.expect_value(t, rail_card_slot(.Shelf_Render, {.Show_Section, int(Kit_Section.Material)}), Bar_Slot{.Show_Section, int(Kit_Section.Material)})
 	// The retired Objects card's name, in an older bar, key or gesture, opens the Scene card.
 	id, arg, ok = command_from_name("Objects_Card")
 	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Scene)
