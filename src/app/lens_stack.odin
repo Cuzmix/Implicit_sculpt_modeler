@@ -544,7 +544,7 @@ stack_card_body :: proc(app: ^App, c: Panel_Kind, inner: f32) {
 	case .Tools:
 		kit_lens_tools(app, inner)
 	case .Lights:
-		kit_lens_lights(app)
+		kit_lights(app)
 	case .Material:
 		kit_lens_material(app)
 	case .Environment:
@@ -899,13 +899,6 @@ kit_stack_menu :: proc(app: ^App) {
 	if len(group) > 1 && ui.menu_item(ctx, "Ungroup", glyph = ICON_SPLIT) {
 		stack_ungroup(k, c)
 		s.menu = false
-	}
-	// The Lights card holds the settings used most; the rest are its tray section's.
-	if tab == .Lights {
-		if ui.menu_item(ctx, "All light settings", glyph = ui.ICON_SETTINGS) {
-			tray_open(app, .Lights, exact = true)
-			s.menu = false
-		}
 	}
 	icons := s.density == .Icons
 	if ui.menu_item(ctx, "Show as panels" if icons else "Show as icons", glyph = ui.ICON_PANEL if icons else ui.ICON_GRID) {
