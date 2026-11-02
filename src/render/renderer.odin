@@ -81,6 +81,10 @@ Renderer :: struct {
 	// The wireframe's colour, linear; zero for WIRE_COLOR. Set by the app each frame from
 	// the theme, and folded into the redraw keys only when set, so their values stay.
 	wire_color:     [4]f32,
+	// Draw the wireframe as the triangles again in lines even where the device could draw
+	// it in the shading pass (Gpu_Caps.barycentric): --gpubench's comparison of the two.
+	// Whoever changes it calls viewport_invalidate.
+	wire_as_lines:  bool,
 	// The image environment the physically based materials light with (environment.odin),
 	// nil for the built-in studio, and how it shows; set by the app each frame. The app
 	// owns the environment. Bound in its place while there is none: a black texture; and
@@ -162,6 +166,12 @@ Mesh_Pipelines :: struct {
 	// out.
 	area:         [Area_Pipeline]^sdl.GPUGraphicsPipeline,
 	area_made:    bool,
+	// mesh with the wireframe drawn over the triangles' edges in the same pass
+	// (mesh_wire.frag.slang), made the first time a wireframe is drawn where the device
+	// offers barycentrics (wire_pipeline); nil until then, elsewhere, or where the device
+	// refused it, when the wireframe is drawn as lines through `wire`.
+	mesh_wire:      ^sdl.GPUGraphicsPipeline,
+	mesh_wire_made: bool,
 	samples:      sdl.GPUSampleCount, // the targets' sample count they were made for
 }
 
@@ -447,6 +457,10 @@ Viewport_Stats :: struct {
 	culled_view:   u64,  // ...outside the view
 	culled_back:   u64,  // ...facing away
 	simplified:    u64,  // groups of chunks drawn from their simplified copies
+	// Items drawn with their wireframe: in the shading pass (wire_pipeline), or as their
+	// triangles again in lines.
+	wire_shaded:   u64,
+	wire_lines:    u64,
 	cull_ms:       f64,  // CPU time spent culling and writing draw commands
 	partial:       bool, // kept the previous frame and redrew only `redrawn_px` pixels
 	redrawn_px:    u64,
@@ -470,14 +484,18 @@ Material_Uniforms :: struct {
 	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
 	style:      [4]f32, // Draw_Item.style
 	pass:       [4]f32, // Draw_Item.pass
+	// The wireframe's colour, linear, read only by mesh_wire.frag.slang, whose block alone
+	// declares it: the other mesh shaders read the 1152 bytes before it.
+	wire:       [4]f32,
 }
-#assert(size_of(Material_Uniforms) == 1152)
+#assert(size_of(Material_Uniforms) == 1168)
 #assert(offset_of(Material_Uniforms, pass) == 1136)
 #assert(offset_of(Material_Uniforms, maps) == 896)
 
 MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT)
 MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT)
 MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT)
+MESH_WIRE_FRAG_CODE :: #load("shaders/mesh_wire.frag" + SHADER_EXT)
 TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT)
 SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT)
 SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT)
@@ -711,6 +729,7 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	for pipeline in ([9]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	for pipeline in p.area do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
+	if p.mesh_wire != nil do gpu_release_graphics_pipeline(r.device, p.mesh_wire)
 	p^ = {}
 }
 
@@ -727,6 +746,20 @@ area_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	p.area[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, area = true)
 }
 
+// The pipeline drawing `p`'s sample count's meshes with their wireframe in the shading
+// pass, made the first time it is asked for where the device offers barycentrics; nil
+// where it does not, when Renderer.wire_as_lines asks for lines, or where the device
+// refused it (logged once), and the wireframe is then drawn as lines.
+@(private)
+wire_pipeline :: proc(r: ^Renderer, p: ^Mesh_Pipelines) -> ^sdl.GPUGraphicsPipeline {
+	if !r.caps.barycentric || r.wire_as_lines do return nil
+	if !p.mesh_wire_made {
+		p.mesh_wire_made = true
+		p.mesh_wire = create_mesh_pipeline(r, .Solid, p.samples, wire_bary = true)
+	}
+	return p.mesh_wire
+}
+
 // Whether any light that is on in `l` is an area light.
 lights_have_area :: proc(l: Lights) -> bool {
 	for p, i in l.pos do if p.w == LIGHT_AREA && l.color[i].w > 0 do return true
@@ -740,8 +773,9 @@ lights_have_area :: proc(l: Lights) -> bool {
 // vertex pulled from the paint, index, position and normal buffers, and the skin's two
 // buffers in the fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false, wire_bary := false) -> ^sdl.GPUGraphicsPipeline {
 	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
+	if wire_bary do frag_code = MESH_WIRE_FRAG_CODE
 	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
 	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
 	vert := gpu_create_shader(r.device, {
@@ -828,6 +862,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		log.warnf("area lights left out: the %v area pipeline could not be made: %s", mode, sdl.GetError())
 	case textured:
 		log.warnf("textured %v pipeline: %s", mode, sdl.GetError())
+	case wire_bary:
+		log.warnf("the wireframe is drawn as lines: the pipeline drawing it in the shading could not be made: %s", sdl.GetError())
 	case skinned:
 		log.warnf("detail skins show the mesh's own normals: the skinned pipeline could not be made: %s", sdl.GetError())
 	case mode == .Solid:
@@ -1974,6 +2010,19 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		}
 		// The skin's own shader has no area lights' code: a skinned item leaves them out.
 		if skinned do main = pipes.skinned
+		// A plain opaque item's wireframe is drawn in its own shading where the device
+		// can (wire_pipeline): no second pass of its triangles. The rest draw it as lines.
+		wire_lines := item.wireframe
+		if item.wireframe && main == pipes.mesh {
+			if wired := wire_pipeline(r, pipes); wired != nil {
+				main = wired
+				wire_lines = false
+			}
+		}
+		if stats != nil && item.wireframe {
+			if wire_lines do stats.wire_lines += 1
+			else do stats.wire_shaded += 1
+		}
 		if main != bound {
 			gpu_bind_graphics_pipeline(pass, main)
 			bound = main
@@ -1990,7 +2039,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else lights_default()
-		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass}
+		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
 		material_environment(r, &material)
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
@@ -2027,8 +2076,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			draw_item_triangles(r, pass, item, stats)
 		}
 		// The wireframe and the cage lines draw from the vertex buffers.
-		if skinned && (item.wireframe || item.cage_lines) do gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
-		if item.wireframe && pipes.wire != nil {
+		if skinned && (wire_lines || item.cage_lines) do gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
+		if wire_lines && pipes.wire != nil {
 			wire_pass(r, cmd, pass, pipes, item)
 			bound = pipes.wire
 		}
@@ -2097,7 +2146,7 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32) ->
 // tells the shader so), with the sculpt buffers bound by the caller.
 @(private)
 wire_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item) {
-	wire := Material_Uniforms{base_color = r.wire_color if r.wire_color != {} else WIRE_COLOR, params = {0, -1, 0, 0}}
+	wire := Material_Uniforms{base_color = wire_color(r), params = {0, -1, 0, 0}}
 	gpu_push_fragment_uniform_data(cmd, 0, &wire, size_of(wire))
 	gpu_bind_graphics_pipeline(pass, pipes.wire)
 	draw_item_triangles(r, pass, item, nil)
@@ -2247,6 +2296,12 @@ lights_key :: proc(lights: Lights, centre: [3]f32) -> (dir: [3]f32, ok: bool) {
 	return linalg.normalize(toward), true
 }
 WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
+
+// The wireframe's colour, linear: the theme's, else WIRE_COLOR.
+@(private)
+wire_color :: proc(r: ^Renderer) -> [4]f32 {
+	return r.wire_color if r.wire_color != {} else WIRE_COLOR
+}
 
 // The item's triangles: the visible runs prepare_draws found, or the whole mesh. Counts
 // them in `stats` when given.

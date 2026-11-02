@@ -241,6 +241,6 @@ exit /b 0
 :shader
 set FLAGS=
 findstr /b /c:"// slangc: -fp-mode precise" %1 >nul && set FLAGS=-fp-mode precise
-findstr /b /c:"// vulkan only" /c:"// ray query" %1 >nul && set FLAGS=%FLAGS% -warnings-disable 41012
+findstr /b /c:"// vulkan only" /c:"// ray query" /c:"// barycentric" %1 >nul && set FLAGS=%FLAGS% -warnings-disable 41012
 "%SLANGC%" %1 -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage %2 -entry main %FLAGS% -o "%~dpn1.spv"
 exit /b

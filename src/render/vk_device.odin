@@ -45,6 +45,7 @@ Vk_State :: struct {
 	multi_draw:        bool, // multiDrawIndirect; without it indirect draws are issued one by one
 	indirect_count:    bool, // drawIndirectCount: an indirect draw reads its count from a buffer
 	wireframe:         bool, // fillModeNonSolid
+	barycentric:       bool, // VK_KHR_fragment_shader_barycentric, enabled (Gpu_Caps.barycentric)
 	depth_clamp:       bool,
 	anisotropy:        bool,
 	subgroup_size:     u32, // 0 where compute shaders have no arithmetic subgroup operations
@@ -335,6 +336,21 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 			vk_state.ray_query = true
 		}
 	}
+	// Where each pixel lies between its triangle's corners, read by the wireframe drawn in
+	// the shading (mesh_wire.frag.slang, Gpu_Caps.barycentric): one pass instead of the
+	// triangles again as lines.
+	want_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR, fragmentShaderBarycentric = true}
+	if vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
+		have_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR}
+		bary_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_bary}
+		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &bary_chain)
+		if have_bary.fragmentShaderBarycentric {
+			append(&device_extensions, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)
+			want_bary.pNext = f12.pNext
+			f12.pNext = &want_bary
+			vk_state.barycentric = true
+		}
+	}
 	// The optional features SDL_GPU asks for, each where offered.
 	features.features.independentBlend = true
 	features.features.imageCubeArray = have.features.imageCubeArray
@@ -424,7 +440,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	if have12.hostQueryReset do _ = vk_timing_init(families[vk_state.family].timestampValidBits)
-	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v; ray query: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute, vk_state.ray_query)
+	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v; ray query: %v; barycentrics: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute, vk_state.ray_query, vk_state.barycentric)
 	return vk_device_handle(), true
 }
 

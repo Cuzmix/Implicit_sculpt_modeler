@@ -41,9 +41,14 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   wireframe's early return and sets `surf.w = 0` (no MatCap in a slot). Needs the paint buffer (the group word); both frame
   keys hash the slots' contents, never the pointer, since the app makes them in temp memory each frame.
 - `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is
-  ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` draws
-  the same chunks again through `wire_pipeline` (`.LINE` fill, depth bias, no depth write, `WIRE_COLOR`), which is optional:
-  if a backend refuses line fill it logs a warning and stays off; `model` is a similarity (rotation, translation,
+  ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` (the app sets it on
+  the active object only, or every object in Wireframe shading) is drawn in the shading pass by `Mesh_Pipelines.mesh_wire`
+  (`mesh_wire.frag.slang`, first line `// barycentric`: `SV_Barycentrics`, `Material_Uniforms.wire`, MSL 2.3; made lazily by
+  `wire_pipeline` where `Gpu_Caps.barycentric`, i.e. VK_KHR_fragment_shader_barycentric or Metal's barycentric coords) for a
+  plain opaque item; otherwise (textured, see-through, skinned, area-lit, no barycentrics, `Renderer.wire_as_lines`) it
+  draws the same chunks again through `pipes.wire` (`.LINE` fill, depth bias, no depth write), optional: if a backend refuses
+  line fill it logs a warning and stays off; exit stats `wire_shaded=`/`wire_lines=`; lavapipe and SwiftShader have no
+  barycentrics, so only the line path runs in the container; `model` is a similarity (rotation, translation,
   uniform scale) only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
   changed, before and after; a version bump without a damage box forces a full redraw; `hidden` is per chunk then per group.
 - Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`renderer.odin:284`), colour `R8G8B8A8_UNORM`, depth
