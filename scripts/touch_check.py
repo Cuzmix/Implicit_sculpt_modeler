@@ -1037,8 +1037,10 @@ LIGHT_SPHERE = on_card((1377, 299), "scene")
 LIGHT_SPHERE_R = 80
 
 
-# The Lights section's Add Point button, and the first light's eye in its list, in points.
-LIGHT_ADD_POINT = on_card((1394, 633), "scene")
+# The Lights section's Add Point button (by its key, since the four kinds share the row),
+# and the first light's eye in its list, in points.
+_ADD_POINT = on_card((1394, 633), "scene")
+LIGHT_ADD_POINT = At("add point light", _ADD_POINT[0], _ADD_POINT[1])
 LIGHT1_EYE = on_card((1499, 417), "scene")
 
 
