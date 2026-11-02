@@ -461,6 +461,11 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		surf.x = orm.b;
 		surf.y = max(orm.g, 0.04);
 	}
+#elif defined(SKINNED)
+	// A detail skin's normal carries its detail, which flat shading would throw away with
+	// the smoothed normal it replaces, so the skin shades the same with it on or off.
+	n = normalize(skin_view_normal());
+	if (!front_facing) n = -n;
 #else
 	if (surface.z > 0.5) {
 		// Flat shading: the triangle's own normal from how the position changes across
@@ -468,11 +473,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		n = normalize(cross(ddx(frag_in.view_pos), ddy(frag_in.view_pos)));
 		if (dot(n, v) < 0.0) n = -n;
 	} else {
-#ifdef SKINNED
-		n = normalize(skin_view_normal());
-#else
 		n = normalize(frag_in.view_normal);
-#endif
 		if (!front_facing) n = -n;
 	}
 #endif
@@ -481,7 +482,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	// between triangles, so neither applies.
 	float3 dndx = ddx(n), dndy = ddy(n);
 	float bend = curvature(n, frag_in.view_pos);
-#ifndef TEXTURED
+#if !defined(TEXTURED) && !defined(SKINNED)
 	if (surface.z > 0.5) {
 		dndx = float3(0.0);
 		dndy = float3(0.0);
@@ -512,7 +513,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			// Curvature: flat mid grey, creases toward blue and crests toward orange, full
 			// by CURVE_FULL. Under flat shading the smoothed normal still says how it bends.
 			float c = bend;
-#ifndef TEXTURED
+#if !defined(TEXTURED) && !defined(SKINNED)
 			if (surface.z > 0.5) {
 				float3 smooth_n = normalize(frag_in.view_normal);
 				if (!front_facing) smooth_n = -smooth_n;

@@ -323,7 +323,7 @@ level_bytes :: proc(lv: ^Level) -> int {
 	total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
 	total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
 	total += (len(s.morph) + len(s.recall)) * size_of(Vec3)
-	return total + sculptor_dyn_bytes(s)
+	return total + sculptor_dyn_bytes(s) + skin_bytes(s.skin)
 }
 
 // Brings every level up to date with the edits made on the current level since the
