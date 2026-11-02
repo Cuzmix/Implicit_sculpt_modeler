@@ -238,13 +238,14 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			append(&groups, f)
 		case "bars":
 			bar_lists_reset(k)
-		case "bar_count", "bar", "bar_look", "rail_group":
+		case "bar_count", "bar", "bar_look", "rail_group", "rail_main":
 			bars_load_line(k, f)
 		}
 	}
 	if k.ctx.mirror do for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
 	panels_old_settle(k, &old_pins)
 	for f in groups do stack_group_read(k, f)
+	rail_main_settle(k)
 	user_docks_settle(k)
 	// The tray and the Objects card share a place: the card wins, as opening it does.
 	if k.objects_card do k.inspector = false

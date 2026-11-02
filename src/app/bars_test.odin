@@ -63,7 +63,7 @@ bars_are_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&c)
 	bars_reset(&c.kit)
 	settings_load(&c, path)
-	testing.expect_value(t, bar_names(&c, .View_Rail), "Show_Panel:Scene,Floor_Grid")
+	testing.expect_value(t, bar_names(&c, .View_Rail), "Inspector,Floor_Grid")
 	for which in Bar_Which do if which != .View_Rail do testing.expectf(t, !bar_changed(&c, which), "%v changed", which)
 }
 
@@ -77,7 +77,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material")
 	testing.expect_value(t, bar_names(&a, .View_Island), "View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")
 	testing.expect(t, !bar_changed(&a, .View_Rail) && !bar_changed(&a, .View_Island))
 	bar_remove(&a, .View_Rail, 2)
@@ -170,4 +170,28 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_count(&app, .View_Rail)^, n - 2)
 	bar_removed_undo(&app)
 	testing.expect_value(t, bar_names(&app, .View_Rail), before)
+}
+
+// A rail saved before Main stood on it gets Main as its first button once, where the
+// Palettes button stood; a rail saved since (with its rail_main line) keeps Main off when
+// its owner took it off.
+@(test)
+old_rail_gets_main :: proc(t: ^testing.T) {
+	path := "build/rail_main_test.txt"
+	defer os.remove(path)
+	old := "version 12\nbar_count view_rail 2\nbar view_rail 0 Show_Panel:Scene\nbar view_rail 1 Floor_Grid\n"
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)old) == nil)
+	a: App
+	defer results_destroy(&a)
+	bars_reset(&a.kit)
+	settings_load(&a, path)
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Floor_Grid")
+
+	bar_remove(&a, .View_Rail, 0)
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	bars_reset(&b.kit)
+	settings_load(&b, path)
+	testing.expect_value(t, bar_names(&b, .View_Rail), "Show_Panel:Scene,Floor_Grid")
 }

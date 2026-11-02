@@ -2124,8 +2124,8 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
 	},
 	.Inspector = {
-		label = "Palettes",
-		help = "Shows or hides the palette tray: the tool's, the object's and the scene's settings, a section at a time.",
+		label = "Main palette",
+		help = "Shows or hides the main palette in the panel stack's column: the cards the stack keeps, in its order. On the view rail it is Main, a palette like the others there.",
 		icon = ui.ICON_PANEL,
 		// While Settings or Help has its place, it comes back in their place rather than
 		// changing unseen.
@@ -2142,6 +2142,7 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, _: int) -> bool {
 			k := &app.kit
+			if _, other := rail_dock_valid(k).?; other do return false
 			if _, docked := stack_docked(k); docked && stack_narrow(app) do return k.inspector && k.panels.popped
 			return k.inspector
 		},
@@ -2167,23 +2168,20 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, arg: int) {
 			side_panel_close(app)
 			app.kit.inspector = true
+			// The card is opened where it stands in Main, the stack itself.
+			app.kit.rail_dock = nil
 			stack_reveal_card(app, Panel_Kind(arg))
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return palette_on_screen(app, Panel_Kind(arg))},
 	},
 	.Rail_Group = {
 		label = "Panel group",
-		help = "Shows this group of panels beside the view rail, as tabs or one under another.",
+		help = "Docks this group of panels in the panel stack's column, as tabs or one under another; again puts the column away.",
 		icon = ui.ICON_PANEL,
 		args = RAIL_GROUPS,
-		run = proc(app: ^App, arg: int) {
-			k := &app.kit
-			at := ui.prev_rect(&k.ctx, "view bar")
-			if slot, ok := rail_group_at(app, arg); ok && k.rail_group_at[slot].w > 0 do at = k.rail_group_at[slot]
-			rail_group_open(app, arg, at, bar_side(app, .View_Rail))
-		},
+		run = proc(app: ^App, arg: int) {rail_dock_toggle(app, {.Rail_Group, arg})},
 		enabled = proc(app: ^App, arg: int) -> bool {return arg >= 0 && arg < RAIL_GROUPS && app.kit.rail_groups[arg].used},
-		checked = proc(app: ^App, arg: int) -> bool {return bar_pop_showing(app, .Group) && app.kit.bar_pop.group == arg},
+		checked = proc(app: ^App, arg: int) -> bool {return rail_dock_is(app, {.Rail_Group, arg})},
 	},
 	.Pin_Section = {
 		label = "Pin to the stack",
