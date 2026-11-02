@@ -16,8 +16,9 @@ import "../ui"
 // as ZBrush's subtools, Nomad's scene list and Blender's outliner; then the lights, folded
 // under one row; then Group, Duplicate and Delete for the selection, and the selected
 // object's selection sets. A tap selects (Ctrl, Shift or Select several adds), a drag
-// reorders or puts a row in a folder, a long press opens the object's menu. The Scene
-// palette keeps its tree too (kit_scene_objects).
+// reorders or puts a row in a folder, a long press opens the object's menu. It is the one
+// Scene interface: the Scene palette's Objects and Add object sections open this card (Add
+// object with its Add menu open, the size at its head).
 
 // Lucide's lock and lock-open: the row's lock, shut while the object is locked.
 ICON_LOCK :: rune(0xe10f)
@@ -95,6 +96,7 @@ kit_lens_scene :: proc(app: ^App) {
 	drags := query == "" && kind == .All
 	k.scene_rows = 0
 	k.card.rows = 0
+	k.tree_rows = 0
 	if kind != .Lights {
 		// A filtered list shows every folder open, and only those holding an object that
 		// matches, however deep.
@@ -108,11 +110,15 @@ kit_lens_scene :: proc(app: ^App) {
 					card_object_row(app, &spots, line.object, line.depth, drags)
 					k.scene_rows += 1
 				} else do lens_object_row(app, &spots, line.object, line.depth, drags)
+				k.tree_rows += 1
 				continue
 			}
 			shown := !filtered
 			for o in objects[line.first:line.end] do if scene_matches(o, query, kind) do shown = true
-			if shown do card_folder_row(app, &spots, line, &k.scene_rows, drags)
+			if shown {
+				card_folder_row(app, &spots, line, &k.scene_rows, drags)
+				k.tree_rows += 1
+			}
 		}
 		kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit}, ui.THUMB_INDENT)
 	}
@@ -124,6 +130,7 @@ kit_lens_scene :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("Nothing's name has \"%s\" in it.", query))
 	}
 	scene_foot(app)
+	scene_notes(app)
 	lens_scene_sets(app)
 	// The Objects card's Actions, folded at first as its card had them.
 	if len(objects) > 0 && ui.section(ctx, "Actions##scene", &k.card.actions) {
@@ -198,9 +205,10 @@ object_row_detail :: proc(obj: ^Object) -> string {
 // The tags after object `obj`'s name: the level shown when it has levels, and HD while a
 // window is open.
 object_row_badges :: proc(obj: ^Object) -> []string {
-	tags := make([dynamic]string, 0, 2, context.temp_allocator)
+	tags := make([dynamic]string, 0, 3, context.temp_allocator)
 	if obj.voxel == nil && obj.cage == nil && len(obj.levels.levels) > 1 do append(&tags, fmt.tprintf("L%d", obj.levels.current + 1))
 	if object_in_hd(obj) do append(&tags, "HD")
+	if obj.ghost do append(&tags, "Ghost")
 	return tags[:]
 }
 
@@ -212,8 +220,8 @@ row_toggle_rect :: proc(ctx: ^ui.Context, row: ui.Rect, i, n: int) -> ui.Rect {
 	return {first + f32(i) * t.target, row.y + row.h * 0.5 - t.target * 0.5, t.target, t.target}
 }
 
-// Object `i`'s row, `depth` folders in: its picture, name, tags and what it is, its eye,
-// its lock and its ⋯.
+// Object `i`'s row, `depth` folders in: its picture, name, tags (a ghost says so) and what
+// it is, its eye, its lock and its ⋯; its menu makes it a ghost or solid again.
 // Ctrl and a tap on the lock locks every other object instead, as ZBrush's Freeze others;
 // a tap on a locked, hidden or ghosted object's row brings it back and selects it.
 @(private = "file")
@@ -344,6 +352,33 @@ scene_foot :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
+// What the scene's state asks to be said under the rows, as the Scene palette's tree said
+// it: how many objects a selection of several holds, Show all while some are hidden or
+// solo is on, what solo and ghosts do, and how long the last file took.
+@(private = "file")
+scene_notes :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	if n := len(selection_ids(app)); n > 1 {
+		ui.paragraph(ctx, fmt.tprintf("%d objects selected. The gizmo, the Transform values, Reset, Duplicate and Delete take all of them; everything else works on %s, which has the gizmo.", n, object_label(selected_object(app))))
+	}
+	off, ghosts := scene_view_counts(app)
+	if off > 0 || app.scene.solo do _ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE, variant = .Light)
+	if app.scene.solo {
+		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", command_keys(app, .Solo_Object)))
+	} else if ghosts > 0 {
+		ui.paragraph(ctx, "Ghosts are dimmed and let presses through; their ghost icon makes them solid.")
+	}
+	// Opening a scene counts building it as reading; importing parses apart.
+	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
+		parts := make([dynamic]string, context.temp_allocator)
+		if s.file_read_ms > 0 do append(&parts, fmt.tprintf("read in %.0f ms", s.file_read_ms))
+		if s.file_parse_ms > 0 do append(&parts, fmt.tprintf("parsed in %.0f ms", s.file_parse_ms))
+		if s.file_write_ms > 0 do append(&parts, fmt.tprintf("written in %.0f ms", s.file_write_ms))
+		ui.label(ctx, fmt.tprintf("Last file %s", strings.join(parts[:], ", ", context.temp_allocator)), t.small_size, t.text_tertiary)
+	}
+}
+
 // The Add menu, over every panel: the mesh shapes at the Add object section's size, the
 // starters folded under one row, a voxel sphere, the cages folded under one row, and a
 // light of each kind; each added at once as one undo step, selected.
@@ -353,11 +388,15 @@ kit_scene_add_menu :: proc(app: ^App) {
 	t := ctx.theme
 	ol := &k.outliner
 	if !ol.add do return
+	// Opened by Show section (Add object) before the card was laid out: under its Add.
+	if ol.add_at.w <= 0 do ol.add_at = ui.prev_rect(ctx, "Add##scene add")
 	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
 	ui.label(ctx, fmt.tprintf("MESH · %s VERTICES", count_label(vertices)), t.caption_size, t.text_tertiary, .Semibold)
+	// The size the shapes and the voxel sphere are built at, remembered for the next add.
+	if picked := ui.select(ctx, "Size##scene add", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 	for shape in geom.Primitive {
 		if geom.is_starter(shape) do continue
 		if ui.menu_item(ctx, fmt.tprintf("%v##scene add", shape), glyph = ui.ICON_SHAPES) {

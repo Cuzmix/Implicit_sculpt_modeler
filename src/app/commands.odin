@@ -1738,14 +1738,14 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Hide_Object = {
 		label = "Hide object",
-		help = "Takes the selected object out of view and out of reach, and selects the next one; its eye in the Scene palette brings it back.",
+		help = "Takes the selected object out of view and out of reach, and selects the next one; its eye in the Scene card brings it back.",
 		icon = ui.ICON_EYE_OFF,
 		run = proc(app: ^App, _: int) {view_command(app, .Hide)},
 		enabled = has_object,
 	},
 	.Ghost_Object = {
 		label = "Make a ghost",
-		help = "Dims the selected object and lets presses go through it, to sculpt against it as a reference; its ghost in the Scene palette makes it solid again.",
+		help = "Dims the selected object and lets presses go through it, to sculpt against it as a reference; a tap on its row in the Scene card makes it solid again.",
 		icon = ui.ICON_GHOST,
 		run = proc(app: ^App, _: int) {view_command(app, .Ghost)},
 		enabled = has_object,

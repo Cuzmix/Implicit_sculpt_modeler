@@ -320,7 +320,7 @@ stack_card_of :: proc(app: ^App, sec: Kit_Section, exact := false) -> Panel_Kind
 	if !exact {
 		#partial switch sec {
 		case .Layers:      return .Layers
-		case .Objects:     return .Scene
+		case .Objects, .Add: return .Scene
 		case .Lights:      return .Lights
 		case .Material:    return .Material
 		case .Environment: return .Environment
@@ -339,6 +339,8 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section, exact := false) {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	c := stack_card_of(app, sec, exact)
+	// Add object is the Scene card's Add menu, opened under its Add once the card is laid out.
+	if sec == .Add do k.outliner.add, k.outliner.add_at = true, {}
 	// A tab of a group left out comes in with its group instead, below.
 	if panel_is_section(c) && c in s.hidden && c not_in s.joined && len(stack_group(s, c)) == 1 do stack_visit(k, c)
 	s.revealed = sec

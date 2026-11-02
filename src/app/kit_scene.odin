@@ -1,136 +1,9 @@
 package main
 
 import "core:fmt"
-import "core:strings"
 
 import "../camera"
-import "../geom"
 import "../ui"
-
-// The Scene palette's Objects section: the tree of objects and folders, what acts on the
-// selection, and how long the last file took (Lens's stack draws it as its Scene card).
-kit_scene_objects :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	total := 0
-	for obj in app.scene.objects do total += object_vertex_count(obj)
-	ui.caption(ctx, fmt.tprintf("OBJECTS  %d  ·  %s VERTICES", len(app.scene.objects), count_label(total)))
-	k.tree_rows = 0
-	base := boolean_base(app)
-	// The list's order is the tree's: a folder's objects are next to each other, so one
-	// walk draws each folder's row before what it holds.
-	lines := tree_lines(app)
-	spots := make([dynamic]Tree_Spot, 0, len(lines), context.temp_allocator)
-	for line in lines {
-		if line.object >= 0 do kit_object_row(app, &spots, line.object, base, line.depth)
-		else do kit_folder_row(app, &spots, line)
-	}
-	kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit})
-	// The switch above the note, so it stays put under a finger as the note comes and goes.
-	_ = ui.switch_row(ctx, "Select several", &k.select_several, keys = "Shift + click")
-	if n := len(selection_ids(app)); n > 1 {
-		ui.paragraph(ctx, fmt.tprintf("%d objects selected. The gizmo, the Transform values, Reset, Duplicate and Delete take all of them; everything else works on %s, which has the gizmo.", n, object_label(selected_object(app))))
-	}
-	off, ghosts := scene_view_counts(app)
-	if off > 0 || app.scene.solo {
-		_ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE)
-	}
-	if app.scene.solo {
-		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", command_keys(app, .Solo_Object)))
-	} else if ghosts > 0 {
-		ui.paragraph(ctx, "Ghosts are dimmed and let presses through; their ghost icon makes them solid.")
-	}
-	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "The scene is empty. Add a shape below or open a scene from the menu.")
-	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, "object actions", {direction = .Row, gap = 8})
-	_ = command_button(app, .Duplicate_Object, width = half, glyph = ui.ICON_COPY)
-	_ = command_button(app, .Delete_Object, tone = .Danger, width = half, glyph = ui.ICON_TRASH)
-	ui.end(ctx)
-	// Opening a scene counts building it as reading; importing parses apart.
-	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
-		parts := make([dynamic]string, context.temp_allocator)
-		if s.file_read_ms > 0 do append(&parts, fmt.tprintf("read in %.0f ms", s.file_read_ms))
-		if s.file_parse_ms > 0 do append(&parts, fmt.tprintf("parsed in %.0f ms", s.file_parse_ms))
-		if s.file_write_ms > 0 do append(&parts, fmt.tprintf("written in %.0f ms", s.file_write_ms))
-		ui.paragraph(ctx, fmt.tprintf("Last file %s.", strings.join(parts[:], ", ", context.temp_allocator)))
-	}
-}
-
-// An object's row in the Scene palette, the list's `i`th, `depth` folders in.
-@(private = "file")
-kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Object, depth: int) {
-	k := &app.kit
-	ctx := &k.ctx
-	objects := app.scene.objects[:]
-	obj := objects[i]
-	detail := count_label(object_vertex_count(obj))
-	if n := len(obj.levels.levels); n > 1 do detail = fmt.tprintf("%s, level %d/%d", detail, obj.levels.current + 1, n)
-	if object_dynamic(obj) do detail = fmt.tprintf("%s, dynamic", detail)
-	// The boolean's base is the first object not marked, so the list's order decides it.
-	if obj == base do detail = fmt.tprintf("base, %s", detail)
-	toggles := row_toggles(object_label(obj), obj.off, obj.ghost)
-	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
-	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, object_in_selection(app, obj), min(depth, TREE_DEPTH_SHOWN), all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
-	append(spots, object_spot(app, row.rect, i, depth))
-	kit_row_drags(app, row.grip, row.held_toggle, row.rect, obj.id, obj.ghost, obj.off)
-	// A press running down the column sets the rows it crosses instead (kit_tree_drags).
-	if !k.tree_column.active {
-		switch row.toggled {
-		case 0: app.ui.scene_command = {kind = .View, view = .Unghost if obj.ghost else .Ghost, id = obj.id}
-		case 1: app.ui.scene_command = {kind = .View, view = .Show if obj.off else .Hide, id = obj.id}
-		}
-	}
-	// Picking an object out of view or reach brings it back, as ZBrush's SubTool list does.
-	// Ctrl or Shift, or Select several, adds it to the selection or takes it out; the
-	// menu keeps the selection it is opened on, for Delete and Duplicate to take all of it.
-	several := k.select_several || ctx.input.ctrl || ctx.input.shift
-	if !object_pickable(app, obj) {
-		if row.clicked || row.menu do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
-	} else if row.clicked && several {
-		selection_toggle(app, i)
-	} else if row.clicked {
-		select_only(app, i)
-	} else if row.menu {
-		selection_make_primary(app, i)
-	}
-	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer, .List)
-	k.tree_rows += 1
-}
-
-// A folder's row, from tree_lines: its chevron folds it, its eye and ghost apply to
-// everything in it, its grip drags it with all it holds, a tap selects its first object
-// and a long press or right-click opens its menu.
-@(private = "file")
-kit_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, line: Tree_Line) {
-	k := &app.kit
-	ctx := &k.ctx
-	f := line.folder
-	members := app.scene.objects[line.first:line.end]
-	vertices := 0
-	for obj in members do vertices += object_vertex_count(obj)
-	detail := "empty" if len(members) == 0 else fmt.tprintf("%d · %s", len(members), count_label(vertices))
-	selected := false
-	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder != 0 && folder_within(app, sel.folder, f.id)
-	toggles := row_toggles(folder_label(f), f.off, f.ghost)
-	// The panel only reads the folder: folding it is a view command like its eye.
-	open := f.open
-	dragged := k.tree_drag.active && k.tree_drag.key == -f.id
-	row := ui.tree_row(ctx, fmt.tprintf("%s##folder %d", folder_label(f), f.id), detail, selected, min(line.depth, TREE_DEPTH_SHOWN), open = &open, all_toggles = toggles[:], glyph = ui.ICON_FOLDER, dim = dragged || folder_hidden(app, f.id), grip = true)
-	append(spots, folder_spot(app, row.rect, line))
-	kit_row_drags(app, row.grip, row.held_toggle, row.rect, -f.id, f.ghost, f.off)
-	if row.folded do app.ui.scene_command = {kind = .View, view = .Folder_Fold, id = f.id}
-	if !k.tree_column.active {
-		switch row.toggled {
-		case 0: app.ui.scene_command = {kind = .View, view = .Folder_Unghost if f.ghost else .Folder_Ghost, id = f.id}
-		case 1: app.ui.scene_command = {kind = .View, view = .Folder_Show if f.off else .Folder_Hide, id = f.id}
-		}
-	}
-	if row.clicked && len(members) > 0 {
-		app.ui.scene_command = {kind = .View, view = .Select, id = members[0].id}
-	}
-	if row.menu do folder_menu_open(app, f.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0})
-	k.tree_rows += 1
-}
 
 // A row of the Scene palette as laid out this frame, which the drags over the tree read.
 Tree_Spot :: struct {
@@ -426,7 +299,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 // The Scene palette's sections in the order listed, after Objects.
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
-	{.Add, "Add object", kit_add, nil},
+	{.Add, "Add object", kit_lens_scene, nil},
 	{.Look, "Look", kit_look, nil},
 	{.Material, "Material", kit_lens_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
@@ -513,54 +386,6 @@ kit_floor :: proc(app: ^App) {
 		kit_more_end(app)
 	}
 	ui.paragraph(ctx, "The floor lies under everything shown and the walls behind it as you look, with a brighter line every fifth cell. Red is X, green Y, blue Z.")
-}
-
-@(private = "file")
-kit_add :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	// The shapes, then every content pack's meshes, by pack: picking a mesh adds it as
-	// Import would, so it has no size to pick.
-	shapes := make([dynamic]string, context.temp_allocator)
-	meshes := make([dynamic]int, context.temp_allocator)
-	for s in geom.Primitive do append(&shapes, fmt.tprint(s))
-	for pack in app.library.packs {
-		for m, j in app.library.meshes {
-			if m.gone || m.pack != pack.id do continue
-			append(&shapes, fmt.tprintf("%s (%s)", m.stem, pack.name))
-			append(&meshes, j)
-		}
-	}
-	shown := int(k.add_shape)
-	for j, i in meshes do if k.add_mesh == j + 1 do shown = len(geom.Primitive) + i
-	if picked := ui.select(ctx, "add shape", shapes[:], shown); picked >= 0 {
-		if picked < len(geom.Primitive) do k.add_shape, k.add_mesh = geom.Primitive(picked), 0
-		else do k.add_mesh = meshes[picked - len(geom.Primitive)] + 1
-	}
-	if pm, on := pack_mesh_at(app, k.add_mesh - 1); on {
-		_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %s", pm.stem), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
-		ui.paragraph(ctx, fmt.tprintf("From the content pack %s: %s vertices and %s triangles, added beside the others and sized as Import sizes a file.", pack_mesh_pack_name(app, k.add_mesh - 1), count_label(pm.vertices), count_label(pm.triangles)))
-		return
-	}
-	if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
-	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-	_ = ui.switch_row(ctx, "As voxels", &k.add_voxel)
-	if k.add_voxel {
-		// A voxel sphere of the resolution whose surface has about the size's vertices.
-		resolution := voxel_resolution_for(vertices)
-		_ = command_button(app, .Add_Object, label = "Add voxels", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
-		ui.paragraph(ctx, fmt.tprintf("Builds a sphere of clay %d voxels across, about %s surface vertices, sculpted as a volume: Draw, Clay and Layer add clay, Ctrl takes it away. Convert to mesh (Object palette, Voxels) for the other tools.", resolution, count_label(voxel_vertices_for(resolution))))
-		return
-	}
-	_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
-	// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
-	f := geom.geodesic_frequency_for(vertices)
-	built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
-	// A starter comes with subdivision levels, the ones below holding about a third more.
-	levels := starter_levels(vertices) if geom.is_starter(k.add_shape) else 0
-	memory := built + built / 3 if levels > 0 else built
-	on := fmt.tprintf(" on %d subdivision levels", levels + 1) if levels > 0 else ""
-	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices%s, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), on, bytes_label(memory * BYTES_PER_VERTEX)))
 }
 
 // One polygroup's material: Pick a group, then a lit preset or Custom values for it, as the
