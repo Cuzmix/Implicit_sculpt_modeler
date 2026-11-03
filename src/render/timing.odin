@@ -16,6 +16,7 @@ Gpu_Span :: enum u8 {
 	Render_Mode, // the path traced render mode
 	Pictures,    // thumbnails and History step pictures
 	Interface,   // the interface's upload and drawing into each window
+	Sculpt,      // sculpting on the GPU: the normals kernel and its readback (sculpt_gpu.odin)
 }
 
 GPU_SPAN_NAMES := [Gpu_Span]string {
@@ -27,6 +28,7 @@ GPU_SPAN_NAMES := [Gpu_Span]string {
 	.Render_Mode = "render_mode",
 	.Pictures    = "pictures",
 	.Interface   = "interface",
+	.Sculpt      = "sculpt",
 }
 
 // Milliseconds of GPU time by span, and which spans ran.

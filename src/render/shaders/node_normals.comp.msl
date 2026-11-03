@@ -1,0 +1,195 @@
+// SDL_shadercross 1ff05bec5739 from node_normals.comp.spv sha256 c617e93944fd05bae148d89216805aa881341b4c821a6a9a713c78b875e7268b
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T>
+[[clang::optnone]] T spvFMul(T l, T r)
+{
+    return fma(l, r, T(0));
+}
+
+template<typename T, int Cols, int Rows>
+[[clang::optnone]] vec<T, Cols> spvFMulVectorMatrix(vec<T, Rows> v, matrix<T, Cols, Rows> m)
+{
+    vec<T, Cols> res = vec<T, Cols>(0);
+    for (uint i = Rows; i > 0; --i)
+    {
+        vec<T, Cols> tmp(0);
+        for (uint j = 0; j < Cols; ++j)
+        {
+            tmp[j] = m[j][i - 1];
+        }
+        res = fma(tmp, vec<T, Cols>(v[i - 1]), res);
+    }
+    return res;
+}
+
+template<typename T, int Cols, int Rows>
+[[clang::optnone]] vec<T, Rows> spvFMulMatrixVector(matrix<T, Cols, Rows> m, vec<T, Cols> v)
+{
+    vec<T, Rows> res = vec<T, Rows>(0);
+    for (uint i = Cols; i > 0; --i)
+    {
+        res = fma(m[i - 1], vec<T, Rows>(v[i - 1]), res);
+    }
+    return res;
+}
+
+template<typename T, int LCols, int LRows, int RCols, int RRows>
+[[clang::optnone]] matrix<T, RCols, LRows> spvFMulMatrixMatrix(matrix<T, LCols, LRows> l, matrix<T, RCols, RRows> r)
+{
+    matrix<T, RCols, LRows> res;
+    for (uint i = 0; i < RCols; i++)
+    {
+        vec<T, RCols> tmp(0);
+        for (uint j = 0; j < LCols; j++)
+        {
+            tmp = fma(vec<T, RCols>(r[i][j]), l[j], tmp);
+        }
+        res[i] = tmp;
+    }
+    return res;
+}
+
+template<typename T>
+[[clang::optnone]] T spvFAdd(T l, T r)
+{
+    return fma(T(1), l, r);
+}
+
+template<typename T>
+[[clang::optnone]] T spvFSub(T l, T r)
+{
+    return fma(T(-1), r, l);
+}
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint slab_count;
+    uint groups_x;
+};
+
+struct StructuredBuffer
+{
+    uint2 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    float _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    uint _member0[1];
+};
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device StructuredBuffer_2& positions)
+{
+    uint _104 = 3u * v;
+    return float3(positions._member0[_104], positions._member0[_104 + 1u], positions._member0[_104 + 2u]);
+}
+
+static inline __attribute__((always_inline))
+int2 encode(float3 n)
+{
+    float l1 = spvFAdd(spvFAdd(abs(n.x), abs(n.y)), abs(n.z));
+    if (l1 == 0.0)
+    {
+        return int2(0);
+    }
+    float _192 = n.x / l1;
+    float _193 = n.y / l1;
+    float2 p;
+    if (n.z < 0.0)
+    {
+        float sx;
+        if (_192 >= 0.0)
+        {
+            sx = 1.0;
+        }
+        else
+        {
+            sx = -1.0;
+        }
+        float sy;
+        if (_193 >= 0.0)
+        {
+            sy = 1.0;
+        }
+        else
+        {
+            sy = -1.0;
+        }
+        p = float2(spvFMul(spvFSub(1.0, abs(_193)), sx), spvFMul(spvFSub(1.0, abs(_192)), sy));
+    }
+    else
+    {
+        p = float2(_192, _193);
+    }
+    return int2(clamp((int(round(spvFMul(fast::clamp(p.x, -1.0, 1.0), 32767.0))) + 8) & (-16), -32752, 32752), clamp((int(round(spvFMul(fast::clamp(p.y, -1.0, 1.0), 32767.0))) + 8) & (-16), -32752, 32752));
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& indices [[buffer(1)]], device StructuredBuffer_1& offsets [[buffer(2)]], device StructuredBuffer_1& tris [[buffer(3)]], device StructuredBuffer_2& positions [[buffer(4)]], device StructuredBuffer& slabs [[buffer(5)]], device RWStructuredBuffer& normals [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    uint g = (gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x;
+    if (g >= Params.slab_count)
+    {
+        return;
+    }
+    if (gl_LocalInvocationID.x >= slabs._member0[g].y)
+    {
+        return;
+    }
+    uint v = slabs._member0[g].x + gl_LocalInvocationID.x;
+    uint _79 = v + 1u;
+    uint k = offsets._member0[v];
+    float3 sum = float3(0.0);
+    for (;;)
+    {
+        float3 sum_1;
+        bool _19_ladder_break = false;
+        do
+        {
+            if (!(k < offsets._member0[_79]))
+            {
+                _19_ladder_break = true;
+                break;
+            }
+            uint _94 = 3u * tris._member0[k];
+            float3 p0 = at(indices._member0[_94], positions);
+            sum_1 = spvFAdd(sum, cross(spvFSub(at(indices._member0[_94 + 1u], positions), p0), spvFSub(at(indices._member0[_94 + 2u], positions), p0)));
+            break;
+        } while(false);
+        if (_19_ladder_break)
+        {
+            break;
+        }
+        k++;
+        sum = sum_1;
+        continue;
+    }
+    float _146 = sqrt(dot(sum, sum));
+    float3 n;
+    if (_146 > 0.0)
+    {
+        n = sum / float3(_146);
+    }
+    else
+    {
+        n = float3(0.0);
+    }
+    int2 e = encode(n);
+    normals._member0[v] = ((uint(e.x) & 65535u) | (normals._member0[v] & 15u)) | (((uint(e.y) & 65535u) | ((normals._member0[v] >> uint(16)) & 15u)) << uint(16));
+}
+
