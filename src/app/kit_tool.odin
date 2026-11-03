@@ -556,6 +556,10 @@ kit_move_tab :: proc(app: ^App) {
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
+		// The Brush card's own switch, here too as posing is where it changes what a drag does.
+		b := &app.brush
+		_ = ui.switch_row(ctx, "Physics", &b.physics, keys = command_hint(app, .Physics))
+		if b.physics do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	}
 	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
 	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")

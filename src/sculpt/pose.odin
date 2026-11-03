@@ -43,6 +43,7 @@ Pose_State :: struct {
 	nodes:  []u32, // the nodes with a free vertex, in the order their positions were saved
 	first:  int,   // where their saved positions start in the stroke's saved nodes
 	moved:  int,   // free vertices, for the stats
+	physics: bool, // the cloth follows the pose (sculptor_pose_physics)
 	// The pose nodes' vertex normals where they started, node after node from
 	// normal_at[i], for a reshape along the normals; kept from its first frame, before
 	// anything moved.
@@ -189,9 +190,38 @@ turn_by :: #force_inline proc(v, axis: Vec3, angle: f32) -> Vec3 {
 	return v * c + linalg.cross(axis, v) * sn + axis * linalg.dot(axis, v) * (1 - c)
 }
 
+// Physics on the pose under way, as ZBrush's TransposeCloth: every frame the pose sets
+// becomes the targets of the free vertices, and the model's free part, as cloth (the
+// whole region: the mask and hiding hold the rest), steps toward them each frame
+// (sculptor_pose_physics_step), pulled `follow` of the way each round, so it lags, swings
+// past and settles, and collides with what `settings` say once sculptor_cloth_collide
+// gives it the objects. Ended with the pose. Returns how many vertices it simulates.
+sculptor_pose_physics :: proc(s: ^Sculptor, follow: f32, settings := CLOTH_DEFAULTS) -> int {
+	if !s.pose.active || len(s.bvh.nodes) == 0 do return 0
+	box := s.bvh.nodes[0].bounds
+	set := settings
+	set.region = .Whole
+	b := Brush{radius = max(linalg.length(box.hi - box.lo) * 0.5, 1e-6), strength = 1}
+	n := sculptor_physics_begin(s, b, (box.lo + box.hi) * 0.5, follow, CLOTH_REACH, set)
+	s.cloth.hold = n > 0
+	s.pose.physics = n > 0
+	return n
+}
+
+// Whether physics follows the pose under way.
+sculptor_pose_physics_on :: proc(s: ^Sculptor) -> bool {return s.pose.active && s.pose.physics}
+
+// One step of the pose's cloth toward the pose as it is, `down` the way gravity pulls;
+// call it every frame of the drag, the pointer moving or not.
+sculptor_pose_physics_step :: proc(s: ^Sculptor, down: Vec3) -> int {
+	if !sculptor_pose_physics_on(s) do return 0
+	return sculptor_physics_step(s, s.cloth.center, down)
+}
+
 // Ends the pose. Returns true when it moved something and became an undo step.
 sculptor_pose_end :: proc(s: ^Sculptor) -> bool {
 	if !s.pose.active do return false
+	if s.pose.physics do sculptor_cloth_end(s)
 	moved := s.pose.moved
 	pose_free(s)
 	s.pose.moved = moved
@@ -201,6 +231,7 @@ sculptor_pose_end :: proc(s: ^Sculptor) -> bool {
 // Puts every vertex back where the pose began and ends it without an undo step.
 sculptor_pose_cancel :: proc(s: ^Sculptor) {
 	if !s.pose.active do return
+	if s.pose.physics do sculptor_cloth_end(s)
 	pose_free(s)
 	// A pose saves positions only, of a mesh without dynamic topology, so it always
 	// discards.

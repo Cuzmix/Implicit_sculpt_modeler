@@ -200,3 +200,44 @@ mask_look_sees_what_is_free :: proc(t: ^testing.T) {
 	testing.expect(t, !sculptor_mask_look(s).free)
 	testing.expect(t, !sculptor_pose_begin(s))
 }
+
+// Physics on a pose: the free part lags behind a move, swings on, settles onto the pose
+// while it holds still, never moves a masked vertex, gives the same result on any number
+// of threads, and is one undo step with the pose.
+@(test)
+pose_physics_follows_and_settles :: proc(t: ^testing.T) {
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> []Vec3 {
+		sp := pose_sphere(pool)
+		defer pose_sphere_free(sp)
+		s, m := &sp.sculptor, &sp.mesh
+		before := slice.clone(m.positions[:], context.temp_allocator)
+		testing.expect(t, sculptor_pose_begin(s))
+		free := sculptor_pose_physics(s, 0.35)
+		testing.expect(t, free > 0 && free < len(m.positions), "the cloth should hold the free part alone")
+		testing.expect(t, sculptor_pose_physics_on(s))
+		delta := Vec3{0.3, 0, 0}
+		// One frame's move: the free top lags behind where the pose puts it.
+		top := 0
+		for p, v in before do if p.y > before[top].y do top = v
+		sculptor_pose_apply(s, {kind = .Move, delta = delta})
+		_ = sculptor_pose_physics_step(s, {0, -1, 0})
+		lag := m.positions[top].x - before[top].x
+		testing.expectf(t, lag > 0.01 && lag < 0.29, "the top moved %v of 0.3 in one frame", lag)
+		// Held still, it settles onto the pose.
+		for _ in 0 ..< 200 do _ = sculptor_pose_physics_step(s, {0, -1, 0})
+		testing.expectf(t, abs(m.positions[top].x - before[top].x - 0.3) < 0.01, "the top settled at %v", m.positions[top].x - before[top].x)
+		for p, v in before do if p.y < 0 do testing.expect_value(t, m.positions[v], p)
+		result := slice.clone(m.positions[:], context.temp_allocator)
+		testing.expect(t, sculptor_pose_end(s), "the pose should be an undo step")
+		testing.expect(t, !sculptor_pose_physics_on(s))
+		testing.expect(t, sculptor_undo(s), "undo failed")
+		testing.expect(t, slice.equal(m.positions[:], before), "undo should put every vertex back")
+		return result
+	}
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, slice.equal(a, b), "serial and parallel differ")
+}

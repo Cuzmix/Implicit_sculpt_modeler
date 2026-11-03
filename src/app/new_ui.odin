@@ -1328,6 +1328,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	curve_look_drag_end(app)
 	reshape_drag_end(app)
 	lattice_frame(app)
+	pose_physics_frame(app)
 	transform_drag_end(app)
 	light_drag_end(app)
 	tree_column_send(app)

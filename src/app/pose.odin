@@ -82,9 +82,9 @@ pose_pivot_place :: proc(app: ^App) {
 	}
 }
 
-// Starts posing `obj`. False, saying why, in an HD window, under dynamic topology, or
-// with nothing shown left free.
-pose_begin :: proc(app: ^App, obj: ^Object) -> bool {
+// Starts posing `obj`, with the Physics switch's cloth following a drag (`drag`). False,
+// saying why, in an HD window, under dynamic topology, or with nothing shown left free.
+pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 	if object_in_hd(obj) {
 		report(app, Kit_Section.Transform, {.Warning}, "Posing needs the HD window left first (A)")
 		return false
@@ -97,7 +97,51 @@ pose_begin :: proc(app: ^App, obj: ^Object) -> bool {
 		report(app, Kit_Section.Transform, {.Warning}, "Nothing is free to pose: the mask covers all that is shown")
 		return false
 	}
+	if drag do pose_physics_begin(app, obj, Kit_Section.Transform)
 	return true
+}
+
+// The most free vertices Physics simulates on a pose: past it a drag of the gizmo, a
+// lattice point or a deformer moves the surface as it would without Physics, as a step a
+// frame over more would no longer keep up with the pointer.
+PHYSICS_POSE_MAX :: 300_000
+
+// With the Physics switch on, the cloth follows the pose just begun on `obj`
+// (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
+// colliding with what the Cloth brush's switches say. A pose over PHYSICS_POSE_MAX free
+// vertices says so in `section` and runs without it.
+pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Kit_Section) {
+	if !app.brush.physics do return
+	s := object_sculptor(obj)
+	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_POSE_MAX {
+		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", PHYSICS_POSE_MAX, free)
+		return
+	}
+	set := sculpt.CLOTH_DEFAULTS
+	c := app.brush.cloth
+	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
+	if sculpt.sculptor_pose_physics(s, app.brush.physics_strength, set) == 0 do return
+	sculpt.sculptor_cloth_collide(s, cloth_collisions(app, obj, set))
+	app.physics_poses += 1
+}
+
+// One step a frame of the cloth following the pose under way, if Physics is on for it,
+// whether the pointer moved or not, so it settles while the handle is held still.
+pose_physics_frame :: proc(app: ^App) {
+	id: int
+	switch {
+	case app.move.drag.posed:        id = app.move.drag.id
+	case app.ui.deform.drag.active:  id = app.ui.deform.drag.id
+	case app.ui.reshape.drag.posed:  id = app.ui.reshape.drag.id
+	case:                            return
+	}
+	obj := object_by_id(app, id)
+	if obj == nil do return
+	s := object_sculptor(obj)
+	if !sculpt.sculptor_pose_physics_on(s) do return
+	view := camera.orbit_view(app.camera)
+	down := linalg.normalize0(-to_local_dir(obj.transform, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
+	_ = sculpt.sculptor_pose_physics_step(s, down)
 }
 
 // The pose in `obj`'s own space that the gizmo's change from `from` to `to` makes of
