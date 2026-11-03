@@ -114,9 +114,9 @@ summary.
   the current space is exactly an eye turned off there; anything that asks whether an object shows goes through
   `object_shown`/`object_pickable`, never `obj.off` alone. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
   skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
-  Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; the sheet's sections
-  (`lens_settings.odin`) and the narrow window's tabs (`kit_settings.odin`, under 840 points) are lists of
-  `Settings_Entry`. A new setting goes in a block, its default in `settings_block_reset`, and its search words in
+  Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; each `Settings_Section`
+  (`settings_sections.odin`) is a list of `Settings_Entry`, shown by the sheet and by the narrow window's
+  drill-down panel (`kit_settings.odin`, under 840 points) alike. A new setting goes in a block, its default in `settings_block_reset`, and its search words in
   `SETTINGS_BLOCK_WORDS`. Home is one page, `home_body` (`home_page.odin`), Start new beside the Continue card from `HOME_WIDE` and under it below.
   The Export sheet (`lens_export.odin`) only gathers: a new way out is an `Export_Format` whose `export_command` is an
   existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own; it is offered by

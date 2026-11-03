@@ -44,7 +44,7 @@ LENS_PUT_W :: 116
 
 // The group a result shows under.
 palette_group :: proc(e: Palette_Entry) -> Palette_Group {
-	if e.kind == .Settings_Tab do return .Panels
+	if e.kind == .Settings_Section do return .Panels
 	#partial switch e.id {
 	// A preset is a brush, as the shelf and the picker show it, so it never pushes a command down.
 	case .Brush, .Brush_Preset:                 return .Brushes
@@ -75,7 +75,7 @@ TOP_BAR_COMMANDS := [?]Command_Id{.Undo, .Redo, .Command_Palette, .Settings, .Wo
 // page or the picker for a brush, the tray's section a command's control is in, a bar it
 // is on, the menu (and its submenu) or the top bar; "" where only keys or gestures run it.
 palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return "Settings"
+	if e.kind == .Settings_Section do return "Settings"
 	if e.id == .Show_Section {
 		sec := Kit_Section(e.arg)
 		if c := stack_card_of(app, sec); c != .Brush {

@@ -19,7 +19,7 @@ import "../ui"
 
 Palette_Kind :: enum u8 {
 	Command,
-	Settings_Tab,
+	Settings_Section,
 }
 
 // One thing the palette can run: a command with its argument, or a Settings tab (`arg`).
@@ -264,14 +264,19 @@ HELP_SEARCH_WORDS := [Help_Tab]string {
 	.Glossary = "terms words names meaning",
 }
 
-// The words each Settings tab is found by, besides its name.
+// The words each Settings section is found by, besides its name.
 @(rodata)
-SETTINGS_SEARCH_WORDS := [Settings_Tab]string {
-	.Interface   = "preferences scale size theme ui",
+SETTINGS_SEARCH_WORDS := [Settings_Section]string {
+	.Interface   = "preferences scale size theme ui look",
 	.Camera      = "preferences orbit turn pivot",
-	.Touch       = "preferences pen finger gesture tablet stylus pressure",
-	.Keys        = "keymap shortcuts hotkeys bindings mouse buttons navigation blender maya zbrush",
-	.Performance = "preferences performance speed fps frame rate refresh hz vsync battery idle rest threads statistics autosave recovery backup crash",
+	.Touch       = "preferences finger gesture tablet",
+	.Pen         = "preferences stylus pencil pressure",
+	.Dial        = "preferences wheel modifier",
+	.Performance = "preferences system speed statistics graphics display gpu",
+	.Frame_Rate  = "preferences fps refresh hz vsync battery idle rest latency",
+	.Bars        = "preferences docks buttons pies action bar",
+	.Files       = "preferences system autosave recovery backup crash earlier saves undo history blender link send",
+	.Shortcuts   = "keys keymap hotkeys bindings mouse buttons navigation blender maya zbrush",
 }
 
 // Every entry the palette searches, in the registry's order then the Settings tabs': a
@@ -287,7 +292,7 @@ palette_entries :: proc() -> []Palette_Entry {
 			append(&out, Palette_Entry{.Command, id, arg})
 		}
 	}
-	for tab in Settings_Tab do append(&out, Palette_Entry{kind = .Settings_Tab, arg = int(tab)})
+	for s in Settings_Section do append(&out, Palette_Entry{kind = .Settings_Section, arg = int(s)})
 	return out[:]
 }
 
@@ -347,13 +352,13 @@ PALETTE_LABELS := #partial [Command_Id]string {
 
 // What the palette shows for the entry.
 palette_label :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return fmt.tprintf("Settings: %s", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)])
+	if e.kind == .Settings_Section do return fmt.tprintf("Settings: %s", SETTINGS_SECTION_NAMES[Settings_Section(e.arg)])
 	if COMMANDS[e.id].args == 0 && PALETTE_LABELS[e.id] != "" do return PALETTE_LABELS[e.id]
 	return command_label(e.id, e.arg)
 }
 
 palette_words_of :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return SETTINGS_SEARCH_WORDS[Settings_Tab(e.arg)]
+	if e.kind == .Settings_Section do return SETTINGS_SEARCH_WORDS[Settings_Section(e.arg)]
 	if e.id == .Help do return HELP_SEARCH_WORDS[Help_Tab(e.arg)]
 	return SEARCH_WORDS[e.id]
 }
@@ -503,23 +508,23 @@ palette_remember :: proc(recent: ^[PALETTE_RECENT]Palette_Entry, count: ^int, e:
 
 // Whether the entry can run now.
 palette_enabled :: proc(app: ^App, e: Palette_Entry) -> bool {
-	return e.kind == .Settings_Tab || command_enabled(app, e.id, e.arg)
+	return e.kind == .Settings_Section || command_enabled(app, e.id, e.arg)
 }
 
 // The row's icon: the command's own, or a wand for one that has none, so every label in
 // the list starts at the same place.
 palette_icon :: proc(e: Palette_Entry) -> rune {
-	if e.kind == .Settings_Tab do return ui.ICON_SETTINGS
+	if e.kind == .Settings_Section do return ui.ICON_SETTINGS
 	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
 	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
 }
 
 // The entry's name as settings.txt and the exit stats write it: the command's name, and
 // its argument by name too ("Brush:Clay", "View_Axis:Front", "Remesh_To:1000000",
-// "Settings_Tab:Touch"), so a reordered enum never turns one remembered command into
+// "Settings_Section:Touch"), so a reordered enum never turns one remembered command into
 // another. In the temp allocator.
 palette_entry_name :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return fmt.tprintf("Settings_Tab:%v", Settings_Tab(e.arg))
+	if e.kind == .Settings_Section do return fmt.tprintf("Settings_Section:%v", Settings_Section(e.arg))
 	return command_name(e.id, e.arg)
 }
 
@@ -527,9 +532,9 @@ palette_entry_name :: proc(e: Palette_Entry) -> string {
 // A size reads back as the nearest preset, as `new_vertices` does.
 palette_entry_from_name :: proc(name: string) -> (e: Palette_Entry, ok: bool) {
 	head, _, tail := strings.partition(name, ":")
-	if head == "Settings_Tab" {
-		tab := reflect.enum_from_name(Settings_Tab, tail) or_return
-		return {kind = .Settings_Tab, arg = int(tab)}, true
+	if head == "Settings_Section" {
+		s := reflect.enum_from_name(Settings_Section, tail) or_return
+		return {kind = .Settings_Section, arg = int(s)}, true
 	}
 
 	id, arg := command_from_name(name) or_return
@@ -596,8 +601,8 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 	switch e.kind {
 	case .Command:
 		ran = command_run(app, e.id, e.arg)
-	case .Settings_Tab:
-		ran = settings_open(app, Settings_Tab(e.arg))
+	case .Settings_Section:
+		ran = settings_open(app, Settings_Section(e.arg))
 	}
 	if !ran do return
 	k.palette_runs += 1
@@ -711,7 +716,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	ui.begin(ctx, "palette help", {direction = .Column, height = 56, width = width - 16})
 	if n > 0 {
 		e := entries[hits[k.palette_pick].entry]
-		help := fmt.tprintf("Opens Settings on the %s tab.", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)]) if e.kind == .Settings_Tab else COMMANDS[e.id].help
+		help := fmt.tprintf("Opens Settings on its %s section.", SETTINGS_SECTION_NAMES[Settings_Section(e.arg)]) if e.kind == .Settings_Section else COMMANDS[e.id].help
 		if e.kind == .Command {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}

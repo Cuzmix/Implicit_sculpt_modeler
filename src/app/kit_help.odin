@@ -384,7 +384,7 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 			help_rows(app, help_key_rows(app), inner)
 			ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
 			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
-			if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Keys)
+			if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Shortcuts)
 		case .Gestures:
 			ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
 			ui.spacer(ctx, 4)

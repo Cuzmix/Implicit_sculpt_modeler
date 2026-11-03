@@ -2,29 +2,16 @@ package main
 
 import "core:testing"
 
-// Every block shows in exactly one of the sheet's sections, and the narrow panel's tabs
-// are those sections run together, so the two list the same settings and a search never
-// finds a block in two places.
+// Every block shows in exactly one section, so a search never finds a block in two
+// places, and every section has blocks.
 @(test)
 settings_blocks_each_have_one_place :: proc(t: ^testing.T) {
-	tabs, lens: [Settings_Block]int
-	for tab in Settings_Tab {
-		entries := settings_tab_entries(tab)
-		testing.expectf(t, len(entries) > 0, "the %v tab is empty", tab)
-		for e in entries do tabs[e.block] += 1
+	places: [Settings_Block]int
+	for s in Settings_Section {
+		testing.expectf(t, len(settings_section_entries(s)) > 0, "the %v section is empty", s)
+		for e in settings_section_entries(s) do places[e.block] += 1
 	}
-	for s in Settings_Section do for e in settings_section_entries(s) do lens[e.block] += 1
-	for b in Settings_Block {
-		testing.expectf(t, lens[b] == 1, "%v is in %d sections", b, lens[b])
-		testing.expectf(t, tabs[b] == 1, "%v is in %d tabs", b, tabs[b])
-	}
-	// A later section's untitled first block takes the section's name: Frame rate's in Performance.
-	found := false
-	for e in settings_tab_entries(.Performance) do if e.block == .Frame_Rate do found = e.caption == "FRAME RATE"
-	testing.expect(t, found)
-	// Every tab opens on a section in it.
-	for tab in Settings_Tab do testing.expect_value(t, SETTINGS_SECTION_TAB[SETTINGS_TAB_SECTION[tab]], tab)
-	free_all(context.temp_allocator)
+	for b in Settings_Block do testing.expectf(t, places[b] == 1, "%v is in %d sections", b, places[b])
 }
 
 // Search settings finds a block by its words: "hold" is Touch's, "autosave" is Files'.
@@ -40,8 +27,7 @@ settings_search_finds_the_section :: proc(t: ^testing.T) {
 	testing.expect(t, settings_section_matches(.Frame_Rate, "frame"))
 }
 
-// Reset on a section puts its settings back and leaves the others'; a tab's reset
-// is its blocks', as it always was.
+// Reset on a section puts its settings back and leaves the others'.
 @(test)
 settings_section_reset_keeps_the_others :: proc(t: ^testing.T) {
 	a: App
@@ -56,11 +42,12 @@ settings_section_reset_keeps_the_others :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.nav.orbit_speed, f32(2))
 
 	a.nav.pen_tips, a.nav.shape_apply, a.nav.three_finger = .Never, .Confirm, !d.three_finger
-	settings_reset(&a, .Touch)
+	settings_section_reset(&a, .Pen)
+	settings_section_reset(&a, .Touch)
 	testing.expect_value(t, a.nav.pen_tips, d.pen_tips)
 	testing.expect_value(t, a.nav.shape_apply, d.shape_apply)
 	testing.expect_value(t, a.nav.three_finger, d.three_finger)
 	testing.expect_value(t, a.nav.orbit_speed, f32(2))
-	settings_reset(&a, .Camera)
+	settings_section_reset(&a, .Camera)
 	testing.expect_value(t, a.nav.orbit_speed, d.orbit_speed)
 }

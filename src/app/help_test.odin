@@ -145,11 +145,11 @@ help_tabs_are_found_by_search :: proc(t: ^testing.T) {
 		hits := palette_rank(query, entries, nil, enabled)
 		return palette_label(entries[hits[0].entry]) if len(hits) > 0 else ""
 	}
-	testing.expect_value(t, best("shortcuts"), "Help: Keys")
+	testing.expect_value(t, best("cheat sheet"), "Help: Keys")
 	testing.expect_value(t, best("gestures"), "Help: Gestures")
 	testing.expect_value(t, best("glossary"), "Help: Glossary")
 	testing.expect_value(t, best("touch"), "Settings: Touch")
-	testing.expect_value(t, best("keymap"), "Settings: Keys")
+	testing.expect_value(t, best("keymap"), "Settings: Shortcuts")
 	for tab in Help_Tab {
 		name := palette_entry_name({.Command, .Help, int(tab)})
 		testing.expect_value(t, name, fmt.tprintf("Help:%v", tab))

@@ -5,13 +5,13 @@ import "core:strings"
 
 import "../ui"
 
-// Lens's Settings (round 2 of the mockups, screen settings2): one sheet with the sections
-// down its side under Search settings, as a desktop app's preferences window and a tablet
-// app's settings both lay them out, and the section's blocks (settings_blocks.odin) beside
-// them, with Reset (the section's) at the end of its blocks and Reset all settings at the
-// side's foot. Touch lists every
-// gesture as a row with what it does, so the touch model is never hidden. A window too
-// narrow for the sheet gets the tabbed panel (kit_settings).
+// Settings' sections, each a list of blocks (settings_blocks.odin), and the sheet (round 2
+// of the mockups, screen settings2): the sections down its side under Search settings, as
+// a desktop app's preferences window and a tablet app's settings both lay them out, and
+// the section's blocks beside them, with Reset (the section's) at the end of its blocks
+// and Reset all settings at the side's foot. Touch lists every gesture as a row with what
+// it does, so the touch model is never hidden. A window too narrow for the sheet gets the
+// panel that drills down into the same sections (kit_settings).
 
 Settings_Section :: enum u8 {
 	Interface,
@@ -40,33 +40,8 @@ SETTINGS_SECTION_NAMES := [Settings_Section]string {
 	.Shortcuts   = "Shortcuts",
 }
 
-// The section a tab of the narrow panel opens on, for settings_open.
 @(rodata)
-SETTINGS_TAB_SECTION := [Settings_Tab]Settings_Section {
-	.Interface   = .Interface,
-	.Camera      = .Camera,
-	.Touch       = .Touch,
-	.Keys        = .Shortcuts,
-	.Performance = .Performance,
-}
-
-// The narrow panel's tab each section goes in; a tab lists its sections in this enum's order.
-@(rodata)
-SETTINGS_SECTION_TAB := [Settings_Section]Settings_Tab {
-	.Interface   = .Interface,
-	.Dial        = .Interface,
-	.Bars        = .Interface,
-	.Camera      = .Camera,
-	.Touch       = .Touch,
-	.Pen         = .Touch,
-	.Shortcuts   = .Keys,
-	.Performance = .Performance,
-	.Frame_Rate  = .Performance,
-	.Files       = .Performance,
-}
-
-@(rodata)
-LENS_INTERFACE := [?]Settings_Entry {
+SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
 	{.Size, "SIZE"},
 	{.Hands, "SCREEN LAYOUT"},
@@ -81,7 +56,7 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Panel_Places, "PANEL PLACES"},
 }
 @(rodata)
-LENS_TOUCH := [?]Settings_Entry {
+SETTINGS_TOUCH := [?]Settings_Entry {
 	{.Hold, ""},
 	{.Gesture_List, "GESTURES"},
 	{.Gesture_More, ""},
@@ -90,30 +65,30 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Objects, "OTHER OBJECTS"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}, {.Pen_Areas, "WHERE THE PEN POINTS"}}
+SETTINGS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Objects, "OTHER OBJECTS"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}, {.Pen_Areas, "WHERE THE PEN POINTS"}}
 @(rodata)
-LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
+SETTINGS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
-LENS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}, {.Graphics, ""}}
+SETTINGS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}, {.Graphics, ""}}
 @(rodata)
-LENS_FRAME_RATE := [?]Settings_Entry{{.Frame_Rate, ""}}
+SETTINGS_FRAME_RATE := [?]Settings_Entry{{.Frame_Rate, ""}}
 @(rodata)
-LENS_BARS := [?]Settings_Entry{{.Bars, "BARS"}, {.Action_Bar, "ACTION BAR"}, {.Pies, "PIES"}}
+SETTINGS_BARS := [?]Settings_Entry{{.Bars, "BARS"}, {.Action_Bar, "ACTION BAR"}, {.Pies, "PIES"}}
 @(rodata)
-LENS_FILES := [?]Settings_Entry{{.Autosave, "AUTOSAVE"}, {.Crash_Log, "CRASH LOG"}, {.Earlier_Saves, "EARLIER SAVES"}, {.Undo_History, "UNDO HISTORY"}, {.History_Steps, "WHAT BECOMES A STEP"}, {.History_Back, "GOING BACK"}, {.Blender_Link, "BLENDER LINK"}, {.Send_Scenes, "SEND SCENES"}, {.Printer, "3D PRINTER"}}
+SETTINGS_FILES := [?]Settings_Entry{{.Autosave, "AUTOSAVE"}, {.Crash_Log, "CRASH LOG"}, {.Earlier_Saves, "EARLIER SAVES"}, {.Undo_History, "UNDO HISTORY"}, {.History_Steps, "WHAT BECOMES A STEP"}, {.History_Back, "GOING BACK"}, {.Blender_Link, "BLENDER LINK"}, {.Send_Scenes, "SEND SCENES"}, {.Printer, "3D PRINTER"}}
 
-// Section `s`'s blocks in Lens.
+// Section `s`'s blocks.
 settings_section_entries :: proc(s: Settings_Section) -> []Settings_Entry {
 	switch s {
-	case .Interface:   return LENS_INTERFACE[:]
+	case .Interface:   return SETTINGS_INTERFACE[:]
 	case .Camera:      return SETTINGS_CAMERA[:]
-	case .Touch:       return LENS_TOUCH[:]
-	case .Pen:         return LENS_PEN[:]
-	case .Dial:        return LENS_DIAL[:]
-	case .Performance: return LENS_PERFORMANCE[:]
-	case .Frame_Rate:  return LENS_FRAME_RATE[:]
-	case .Bars:        return LENS_BARS[:]
-	case .Files:       return LENS_FILES[:]
+	case .Touch:       return SETTINGS_TOUCH[:]
+	case .Pen:         return SETTINGS_PEN[:]
+	case .Dial:        return SETTINGS_DIAL[:]
+	case .Performance: return SETTINGS_PERFORMANCE[:]
+	case .Frame_Rate:  return SETTINGS_FRAME_RATE[:]
+	case .Bars:        return SETTINGS_BARS[:]
+	case .Files:       return SETTINGS_FILES[:]
 	case .Shortcuts:   return SETTINGS_KEYS[:]
 	}
 	return nil
@@ -151,17 +126,17 @@ settings_section_reset :: proc(app: ^App, s: Settings_Section) {
 }
 
 // The sheet's size, its side column's width and the narrowest window it shows on.
-LENS_SETTINGS_W :: 780
-LENS_SETTINGS_H :: 600
-LENS_SETTINGS_SIDE :: 190
-LENS_SETTINGS_MIN_WINDOW :: 840
+SETTINGS_SHEET_W :: 780
+SETTINGS_SHEET_H :: 600
+SETTINGS_SHEET_SIDE :: 190
+SETTINGS_SHEET_MIN_WINDOW :: 840
 
-// Whether the window has room for the sheet; a narrower one keeps the panel.
-lens_settings_fits :: proc(app: ^App) -> bool {
-	return ui.safe_area(&app.kit.ctx).w >= LENS_SETTINGS_MIN_WINDOW
+// Whether the window has room for the sheet; a narrower one has the panel that drills down.
+settings_sheet_fits :: proc(app: ^App) -> bool {
+	return ui.safe_area(&app.kit.ctx).w >= SETTINGS_SHEET_MIN_WINDOW
 }
 
-kit_settings_lens :: proc(app: ^App, shown: f32) -> (raised: bool) {
+kit_settings_sheet :: proc(app: ^App, shown: f32) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -170,11 +145,11 @@ kit_settings_lens :: proc(app: ^App, shown: f32) -> (raised: bool) {
 	top := kit_top()
 	PAD :: 16
 	GAP :: 16
-	height := clamp(window_room(app, win^, top) - 2 * PAD - t.target, 320, LENS_SETTINGS_H)
-	body_w := f32(LENS_SETTINGS_W - 2 * PAD - LENS_SETTINGS_SIDE - GAP)
+	height := clamp(window_room(app, win^, top) - 2 * PAD - t.target, 320, SETTINGS_SHEET_H)
+	body_w := f32(SETTINGS_SHEET_W - 2 * PAD - SETTINGS_SHEET_SIDE - GAP)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .Center, .Start, {0, top + 8}, {direction = .Column, gap = 8, padding = PAD, width = LENS_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
+	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .Center, .Start, {0, top + 8}, {direction = .Column, gap = 8, padding = PAD, width = SETTINGS_SHEET_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
 	raised = raised_now
 	if closed do settings_close(app)
 	if !body {
@@ -193,12 +168,12 @@ kit_settings_lens :: proc(app: ^App, shown: f32) -> (raised: bool) {
 
 	ui.begin(ctx, "settings columns", {direction = .Row, gap = GAP})
 	// The side: the search, the sections, and the resets at its foot.
-	ui.begin(ctx, "settings side", {direction = .Column, gap = 0, width = LENS_SETTINGS_SIDE, height = height})
-	_ = ui.text_field(ctx, "Search settings##lens", k.settings_find[:], LENS_SETTINGS_SIDE, hint = "Search settings")
+	ui.begin(ctx, "settings side", {direction = .Column, gap = 0, width = SETTINGS_SHEET_SIDE, height = height})
+	_ = ui.text_field(ctx, "Search settings##sheet", k.settings_find[:], SETTINGS_SHEET_SIDE, hint = "Search settings")
 	ui.spacer(ctx, 8)
 	// The sections scroll when the window is too short for them all, Reset all settings
 	// staying at the foot.
-	rows := kit_scroll_begin(ctx, "settings sections", &k.settings_side_scroll, id, LENS_SETTINGS_SIDE, height - 2 * t.target - 16, 0)
+	rows := kit_scroll_begin(ctx, "settings sections", &k.settings_side_scroll, id, SETTINGS_SHEET_SIDE, height - 2 * t.target - 16, 0)
 	found := 0
 	for s in Settings_Section {
 		if q != "" && !settings_section_matches(s, q) do continue
@@ -210,14 +185,7 @@ kit_settings_lens :: proc(app: ^App, shown: f32) -> (raised: bool) {
 	if found == 0 do ui.paragraph(ctx, "No setting has that name.")
 	kit_scroll_end(ctx, rows)
 	ui.spacer(ctx, 8)
-	// Everything goes back only on a second tap, so a stray finger never wipes it all.
-	armed := k.settings_wipe > 0 && ctx.time - k.settings_wipe < SETTINGS_WIPE_TIME
-	if ui.button(ctx, "Tap again to reset all" if armed else "Reset all settings", .Light, .Danger, width = LENS_SETTINGS_SIDE) {
-		if armed {
-			settings_reset_all(app)
-			k.settings_wipe = 0
-		} else do k.settings_wipe = max(ctx.time, 1e-6)
-	}
+	if settings_wipe_button(app, SETTINGS_SHEET_SIDE) do settings_reset_all(app)
 	ui.end(ctx)
 
 	// The section: its name, then its blocks in a scroll.
