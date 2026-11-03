@@ -287,6 +287,38 @@ def lan_certificate(address):
     return cert, key
 
 
+class Tls_Server(http.server.ThreadingHTTPServer):
+    """HTTPS with each connection's handshake on that connection's own thread. A listening
+    socket wrapped whole shakes hands inside accept, on the one thread that accepts, so a
+    browser showing its certificate warning, which keeps its connection open and silent,
+    stopped the server answering anyone."""
+
+    HANDSHAKE_SECONDS = 10
+
+    def __init__(self, address, handler, context):
+        self.context = context
+        super().__init__(address, handler)
+
+    def get_request(self):
+        sock, address = self.socket.accept()
+        return self.context.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), address
+
+    def finish_request(self, request, address):
+        request.settimeout(self.HANDSHAKE_SECONDS)
+        try:
+            request.do_handshake()
+        except (ssl.SSLError, OSError):
+            # A browser that has not accepted the certificate yet hangs up here.
+            return
+        request.settimeout(None)
+        super().finish_request(request, address)
+
+    def handle_error(self, request, address):
+        # A tablet that drops a connection mid-file is not worth a traceback.
+        if not isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):
+            super().handle_error(request, address)
+
+
 def serve(port, lan):
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE)
     if not lan:
@@ -308,8 +340,7 @@ def serve(port, lan):
     cert, key = lan_certificate(address)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
-    with http.server.ThreadingHTTPServer(("0.0.0.0", port), handler) as httpd:
-        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    with Tls_Server(("0.0.0.0", port), handler, context) as httpd:
         print(f"web: serving build/web/site at https://{address}:{port} to this network, and https://localhost:{port} here (Ctrl+C stops)")
         print("web: each browser warns once about the self-signed certificate; continue past it to open the app")
         try:
