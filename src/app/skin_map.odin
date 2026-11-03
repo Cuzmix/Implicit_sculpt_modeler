@@ -25,7 +25,7 @@ skin_map_refusal :: proc(obj: ^Object) -> string {
 	switch {
 	case obj == nil: return "Select an object first."
 	case object_top_skin(obj) == nil: return "Give it a detail skin first."
-	case !sculpt.levels_has_uvs(&obj.levels): return "It needs UVs: Quad Remesh makes an object with them."
+	case !sculpt.levels_has_quad_uvs(&obj.levels): return "It needs quads with UVs: Quad Remesh makes an object with them."
 	case len(obj.levels.levels) != 1: return "Its UVs are its base level's: delete the levels above first."
 	}
 	return ""

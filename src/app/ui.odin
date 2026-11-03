@@ -176,18 +176,26 @@ Viewport_Input :: struct {
 	touch_pivot: Vec3, // ...about this point (touch_lift_orbit)
 }
 
-CLOTH_MODE_NAMES := [sculpt.Cloth_Mode]cstring {
-	.Drag    = "Drag",
-	.Gravity = "Gravity",
-	.Pinch   = "Pinch",
-	.Expand  = "Expand",
+CLOTH_MODE_NAMES := [sculpt.Cloth_Mode]string {
+	.Drag       = "Drag",
+	.Push       = "Push",
+	.Pinch      = "Pinch",
+	.Pinch_Line = "Pinch line",
+	.Inflate    = "Inflate",
+	.Expand     = "Expand",
+	.Twist      = "Twist",
+	.Wind       = "Wind",
 }
 
 CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
-	.Drag    = "What is under the brush follows the pointer;\nthe cloth around it folds as it is pulled.",
-	.Gravity = "The cloth sags toward the bottom of the screen\nwhile the button is held (Ctrl: rises).",
-	.Pinch   = "Gathers the cloth toward the brush into folds\n(Ctrl: Expand).",
-	.Expand  = "Pushes the cloth out from the brush so it\nbuckles into ridges (Ctrl: Pinch).",
+	.Drag       = "What is under the brush follows the pointer;\nthe cloth around it folds as it is pulled\n(Ctrl: gravity lifts instead).",
+	.Push       = "Presses the cloth in under the brush, so it\nbuckles round the dent (Ctrl: lifts it out).",
+	.Pinch      = "Gathers the cloth toward the brush into folds\n(Ctrl: spreads it).",
+	.Pinch_Line = "Gathers the cloth toward a line along the\nstroke, for one fold that runs with it\n(Ctrl: spreads it).",
+	.Inflate    = "Swells the cloth under the brush out along its\nnormals, so it puckers round the edge\n(Ctrl: shrinks it).",
+	.Expand     = "Pushes the cloth out from the brush so it\nbuckles into ridges (Ctrl: gathers it).",
+	.Twist      = "Turns the cloth under the brush about the\nsurface, wringing it into a spiral\n(Ctrl: the other way).",
+	.Wind       = "Gusts blow the cloth the way the stroke goes\nand let it flutter back (Ctrl: against it).",
 }
 
 ui_state_default :: proc() -> Ui_State {

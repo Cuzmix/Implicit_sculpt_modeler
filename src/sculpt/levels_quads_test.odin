@@ -1,8 +1,11 @@
 package sculpt
 
+import "core:math"
+import "core:slice"
 import "core:testing"
 
 import "../geom"
+import "../uv"
 
 // A retopologized object's quads and UVs read back from the scene file on the same
 // corners, though reading renumbers the vertices.
@@ -14,7 +17,7 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 	defer geom.bvh_destroy(&bvh)
 	q, _, ok := geom.mesh_retopo(source, &bvh, 600, nil)
 	if !testing.expect(t, ok) do return
-	uv := geom.quad_uv_unwrap(q, 0.01)
+	layout := geom.quad_uv_unwrap(q, 0.01)
 	old_to_new := make([]u32, len(q.positions), context.temp_allocator)
 	l: Levels
 	levels_init(&l, geom.quad_mesh_triangulate(q), nil, 64, old_to_new)
@@ -22,7 +25,11 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 	delete(q.positions)
 	for &f in q.quads do for &v in f do v = old_to_new[v]
 	levels_set_quads(&l, q.quads)
-	levels_set_uvs(&l, uv)
+	testing.expect(t, levels_set_uvs(&l, layout))
+	// A seam and pins of its own, which a layout does not have, come back too.
+	l.uvs.pins = make([]u32, 2, l.allocator)
+	l.uvs.pins[0], l.uvs.pins[1] = 3, 40
+	before, _ := levels_quad_uvs(&l)
 	testing.expect(t, levels_subdivide(&l))
 	out := make([dynamic]u8)
 	defer delete(out)
@@ -36,17 +43,26 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 	if !levels_has_uvs(&back) do return
 	a, b := levels_quad_mesh(&l), levels_quad_mesh(&back)
 	testing.expect_value(t, len(b.quads), len(a.quads))
-	testing.expect_value(t, back.faces.uv.charts, l.faces.uv.charts)
+	after, _ := levels_quad_uvs(&back)
+	testing.expect_value(t, after.charts, before.charts)
+	testing.expect_value(t, back.uvs.islands, l.uvs.islands)
 	for f, i in a.quads {
 		for k in 0 ..< 4 do testing.expect(t, a.positions[f[k]] == b.positions[b.quads[i][k]], "a corner moved")
-		testing.expect(t, back.faces.uv.uvs[i] == l.faces.uv.uvs[i] && back.faces.uv.chart[i] == l.faces.uv.chart[i])
+		testing.expect(t, after.uvs[i] == before.uvs[i] && after.chart[i] == before.chart[i])
 	}
+	// The pins name the same points, though reading renumbers the vertices.
+	if testing.expect_value(t, len(back.uvs.pins), 2) {
+		pins := [2]Vec3{a.positions[3], a.positions[40]}
+		for p in back.uvs.pins do testing.expect(t, b.positions[p] == pins[0] || b.positions[p] == pins[1], "a pin moved")
+	}
+	testing.expect_value(t, uv.check(back.uvs, back.levels[0].mesh.indices[:], back.levels[0].sculptor.faces, len(b.positions)), "")
 	// Deleting the levels above keeps them; dynamic topology drops them.
 	levels_set_current(&back, 0)
 	levels_delete_higher(&back)
-	testing.expect(t, levels_has_quads(&back))
+	testing.expect(t, levels_has_quads(&back) && levels_has_uvs(&back))
 	testing.expect(t, levels_dyn_enable(&back))
 	testing.expect(t, !levels_has_quads(&back), "dynamic topology kept the quads")
+	testing.expect(t, !levels_has_uvs(&back), "dynamic topology kept the UVs")
 }
 
 // A unit cube as six quads facing out, with `allocator`.
@@ -118,4 +134,52 @@ polygon_edges_are_each_edge_once :: proc(t: ^testing.T) {
 	testing.expect_value(t, levels_polygon_source(&l, 1).polygons, 24)
 	// 24 quads, 26 vertices: 48 edges, closed.
 	testing.expect_value(t, len(levels_polygon_edges(&l, 1)), 96)
+}
+
+// A damaged UV section is refused, never asserted on: cut short anywhere in it, a seam
+// byte out of range, a seam on one side of its edge only, a coordinate that is not
+// finite, an island out of range.
+@(test)
+uvs_refuse_damage :: proc(t: ^testing.T) {
+	q := cube_quads(context.allocator)
+	defer delete(q.positions)
+	old_to_new := make([]u32, len(q.positions), context.temp_allocator)
+	l: Levels
+	levels_init(&l, geom.quad_mesh_triangulate(q), nil, 64, old_to_new)
+	defer levels_destroy(&l)
+	for &f in q.quads do for &v in f do v = old_to_new[v]
+	levels_set_quads(&l, q.quads)
+	if !testing.expect(t, levels_set_uvs(&l, geom.quad_uv_unwrap(levels_quad_mesh(&l), 0.01))) do return
+	out := make([dynamic]u8)
+	defer delete(out)
+	levels_write(&l, &out)
+	// The section starts at the triangle count before the first triangle's coordinates.
+	first := slice.to_bytes(l.uvs.corner[:1])
+	at := -1
+	for i in 0 ..= len(out) - len(first) do if slice.equal(out[i:][:len(first)], first) {at = i; break}
+	if !testing.expect(t, at > 4, "the UV section was not found") do return
+	count := len(l.uvs.corner)
+	seams := at + count * size_of([3][2]f32)
+	islands := seams + count * size_of(uv.Seams)
+	refused :: proc(t: ^testing.T, data: []u8, what: string, loc := #caller_location) {
+		back: Levels
+		r := geom.byte_reader(data)
+		testing.expectf(t, !levels_read(&back, &r, nil, 64), "%s was read", what, loc = loc)
+		testing.expect(t, len(back.levels) == 0, loc = loc)
+	}
+	for cut := at - 5; cut < len(out) - 4; cut += 7 do refused(t, out[:cut], "a file cut in its UVs")
+	bad := slice.clone(out[:], context.temp_allocator)
+	bad[seams] = 9
+	refused(t, bad, "a seam byte past three edges")
+	copy(bad, out[:])
+	bad[seams] ~= 1
+	refused(t, bad, "a seam on one side")
+	copy(bad, out[:])
+	nan := transmute([4]u8)math.nan_f32()
+	copy(bad[at:], nan[:])
+	refused(t, bad, "a coordinate that is not a number")
+	copy(bad, out[:])
+	past := transmute([4]u8)u32(l.uvs.islands)
+	copy(bad[islands:], past[:])
+	refused(t, bad, "an island out of range")
 }

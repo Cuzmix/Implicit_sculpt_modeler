@@ -76,6 +76,8 @@ sculpt_gpu_wanted :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level, gpu: ^rend
 	if !gpu.storage || gpu.vertex_capacity != u32(len(lv.mesh.positions)) || gpu.index_count != u32(len(lv.mesh.indices)) do return .None
 	if !render.sculpt_gpu_begin(&app.renderer, gpu, s.faces, sculpt.sculptor_gpu_shared(s)) do return .None
 	st := &app.stroke
+	// Physics writes the positions on the CPU after the dabs, so the GPU takes only normals.
+	if st.physics do return .Normals
 	if lv != sculpt.levels_current(&obj.levels) || st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
 	return .Dabs
 }

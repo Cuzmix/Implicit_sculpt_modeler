@@ -46,6 +46,9 @@ Preset_Values :: struct {
 	pressure_smoothing: f32,
 	color:       [3]f32,
 	cloth_mode:  sculpt.Cloth_Mode,
+	cloth:       sculpt.Cloth_Settings, // the Cloth brush's only; zero for any other
+	physics:          bool, // the Physics switch and its strength (Brush_Settings)
+	physics_strength: f32,
 	lock_plane:  bool,
 	connected:   bool,
 	grab_depth:  bool,
@@ -107,6 +110,8 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		one_way = b.one_way, directional = b.directional,
 		tip_roundness = b.tip_roundness, tip_scale = b.tip_scale, trim_angle = b.trim_angle, trim_dynamic = b.trim_dynamic,
 		plane_height = b.plane_height, plane_depth = b.plane_depth,
+		cloth = b.cloth if .Cloth in BRUSHES[kind].flags else {},
+		physics = b.physics, physics_strength = b.physics_strength,
 	}
 }
 
@@ -122,6 +127,8 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.grab_mode, b.grab_normal, b.grab_same_side, b.grab_silhouette = v.grab_mode, v.grab_normal, v.grab_same_side, v.grab_silhouette
 	b.grab_topological = v.grab_topological
 	if v.kind == .Elastic do b.elastic_volume = v.elastic_volume
+	if .Cloth in BRUSHES[v.kind].flags do b.cloth = v.cloth
+	b.physics, b.physics_strength = v.physics, v.physics_strength
 	if v.kind == .Snake_Hook do b.hook_pinch, b.hook_rake, b.hook_elastic = v.hook_pinch, v.hook_rake, v.hook_elastic
 	if v.kind == .Smooth do b.smooth_stable, b.smooth_mode = v.smooth_stable, v.smooth_mode
 	b.stabilize, b.sample_radius = v.stabilize, v.sample_radius if v.sample_radius > 0 else 1
@@ -234,7 +241,8 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.kind == .Flatten && (a.plane_height != b.plane_height || a.plane_depth != b.plane_depth) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
-	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
+	if .Cloth in flags && (a.cloth_mode != b.cloth_mode || a.cloth != b.cloth) do return false
+	if a.physics != b.physics || a.physics && a.physics_strength != b.physics_strength do return false
 	return true
 }
 
@@ -365,7 +373,10 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // stabilize=, sample_radius= and accumulate=0|1 (the Samples section), hardness= and
 // shape=sphere|projected (the Falloff section's), one_way=1 and directional=1 (the
 // stroke's), tip_roundness= and tip_scale= (Clay strips), trim_angle= and trim_dynamic=0
-// (Trim dynamic) and plane_height= and plane_depth= (Flatten), each written only where it
+// (Trim dynamic), plane_height= and plane_depth= (Flatten) and cloth_region=, cloth_stiffness=,
+// cloth_firmness=, cloth_damping=, cloth_gravity=, keep_area=1, allow_shrink=1 and
+// allow_expand=1 (the Cloth brush's Cloth_Settings) and physics=1 and physics_strength= (the
+// Physics switch), each written only where it
 // is not as a fresh brush has it. A line without accumulate= accumulates,
 // and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
@@ -417,6 +428,8 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 	v.tip_roundness, v.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
 	v.trim_angle, v.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
 	v.plane_height, v.plane_depth = 1, 1
+	if .Cloth in BRUSHES[kind].flags do v.cloth = sculpt.CLOTH_DEFAULTS
+	v.physics_strength = PHYSICS_STRENGTH_DEFAULT
 	for word in f[min(len(f), 35):] {
 		key, _, value := strings.partition(word, "=")
 		switch key {
@@ -434,6 +447,16 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		case "plane_height": v.plane_height = clamp(number(value, 1), 0, 1)
 		case "plane_depth": v.plane_depth = clamp(number(value, 1), 0, 1)
 		case "directional": v.directional = value == "1"
+		case "cloth_region": if region, known := reflect.enum_from_name(sculpt.Cloth_Region, value); known do v.cloth.region = region
+		case "cloth_stiffness": v.cloth.stiffness = clamp(number(value, 1), 0, 1)
+		case "cloth_firmness": v.cloth.firmness = clamp(number(value, 0.5), 0, 1)
+		case "cloth_damping": v.cloth.damping = clamp(number(value, 0.08), 0, 1)
+		case "cloth_gravity": v.cloth.gravity = clamp(number(value, 0), 0, 1)
+		case "keep_area": v.cloth.keep_area = value == "1"
+		case "allow_shrink": v.cloth.allow_shrink = value == "1"
+		case "allow_expand": v.cloth.allow_expand = value == "1"
+		case "physics": v.physics = value == "1"
+		case "physics_strength": v.physics_strength = clamp(number(value, PHYSICS_STRENGTH_DEFAULT), 0.05, 1)
 		case "smooth_mode":
 			// A mode this build does not know smooths plainly.
 			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
@@ -460,7 +483,10 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	tip := v.kind == .Clay_Strips && (v.tip_roundness != sculpt.CLAY_TIP_ROUNDNESS || v.tip_scale != 1)
 	trim := v.kind == .Trim_Dynamic && (!v.trim_dynamic || v.trim_angle != TRIM_ANGLE_DEFAULT_DEGREES)
 	plane := v.kind == .Flatten && (v.plane_height != 1 || v.plane_depth != 1)
-	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional || tip || trim || plane
+	clothed := .Cloth in BRUSHES[v.kind].flags && v.cloth != sculpt.CLOTH_DEFAULTS
+	// Physics strength means something only with the switch on.
+	physical := v.physics
+	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional || tip || trim || plane || clothed || physical
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -486,6 +512,19 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if tip do fmt.sbprintf(out, " tip_roundness=%g tip_scale=%g", v.tip_roundness, v.tip_scale)
 	if trim do fmt.sbprintf(out, " trim_angle=%g trim_dynamic=%d", v.trim_angle, bit(v.trim_dynamic))
 	if plane do fmt.sbprintf(out, " plane_height=%g plane_depth=%g", v.plane_height, v.plane_depth)
+	if v.physics do fmt.sbprintf(out, " physics=1")
+	if v.physics && v.physics_strength != PHYSICS_STRENGTH_DEFAULT do fmt.sbprintf(out, " physics_strength=%g", v.physics_strength)
+	if clothed {
+		c, d := v.cloth, sculpt.CLOTH_DEFAULTS
+		if c.region != d.region do fmt.sbprintf(out, " cloth_region=%v", c.region)
+		if c.stiffness != d.stiffness do fmt.sbprintf(out, " cloth_stiffness=%g", c.stiffness)
+		if c.firmness != d.firmness do fmt.sbprintf(out, " cloth_firmness=%g", c.firmness)
+		if c.damping != d.damping do fmt.sbprintf(out, " cloth_damping=%g", c.damping)
+		if c.gravity != d.gravity do fmt.sbprintf(out, " cloth_gravity=%g", c.gravity)
+		if c.keep_area do fmt.sbprintf(out, " keep_area=1")
+		if c.allow_shrink do fmt.sbprintf(out, " allow_shrink=1")
+		if c.allow_expand do fmt.sbprintf(out, " allow_expand=1")
+	}
 	strings.write_byte(out, '\n')
 }
 

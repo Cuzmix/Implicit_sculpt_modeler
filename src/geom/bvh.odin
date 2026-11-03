@@ -1,6 +1,7 @@
 package geom
 
 import "base:intrinsics"
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 
@@ -598,6 +599,39 @@ bvh_build_over :: proc(boxes: []Aabb, first, count: []u32, leaf_of: []u32, alloc
 	build(&o, 0, 0, len(items))
 	b.dirty = make([]u64, (len(b.nodes) + 63) / 64, allocator)
 	return b
+}
+
+// The points' numbers along a Morton curve through their bounds, for asking a tree about
+// each of them in turn: consecutive questions then walk the same nodes and triangles,
+// which stay in the cache. Asked about the 10M vertices of a remesh in the remesh's own
+// order (a slab of the lattice after another) the lookups take twice as long. Ties keep
+// the points' order, so the order is the same on any pool.
+@(private)
+points_morton_order :: proc(points: []Vec3, pool: ^jobs.Pool, allocator: runtime.Allocator) -> []u32 {
+	Order :: struct {
+		points: []Vec3,
+		lo:     Vec3,
+		scale:  f32,
+		codes:  []u32,
+		order:  []u32,
+	}
+	box := AABB_EMPTY
+	for p in points do aabb_grow(&box, p)
+	extent := box.hi - box.lo
+	x := Order{points = points, lo = box.lo, scale = 1023 / max(extent.x, extent.y, extent.z, 1e-12)}
+	x.codes = make([]u32, len(points), runtime.heap_allocator())
+	defer delete(x.codes, runtime.heap_allocator())
+	x.order = make([]u32, len(points), allocator)
+	jobs.parallel_ranges(pool, len(points), &x, proc(data: rawptr, lo, hi: int) {
+		x := cast(^Order)data
+		for v in lo ..< hi {
+			q := linalg.clamp((x.points[v] - x.lo) * x.scale, 0, 1023)
+			x.codes[v] = morton3(u32(q.x), u32(q.y), u32(q.z))
+			x.order[v] = u32(v)
+		}
+	}, RANGE_GRAIN)
+	radix_sort_pairs(x.codes, x.order, 30, pool)
+	return x.order
 }
 
 // Chunk size for flat parallel loops over vertices or triangles.

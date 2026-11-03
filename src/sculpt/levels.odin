@@ -8,6 +8,7 @@ import "core:sync"
 
 import "../geom"
 import "../jobs"
+import "../uv"
 
 // Subdivision levels, as in ZBrush: a base mesh and finer copies of it, each made from
 // the one below by one step of Loop subdivision (four triangles for each). Every level
@@ -57,7 +58,8 @@ Levels :: struct {
 	// on its first use, which made the first sync of a large edit several times slower.
 	residual:       [dynamic]Vec3,
 	hd:             Hd, // detail above the top level (hd.odin)
-	faces:          Quad_Faces, // the base level's quads and UVs, for a retopologized object (levels_quads.odin)
+	faces:          Quad_Faces, // the base level's quads, for a retopologized object (levels_quads.odin)
+	uvs:            uv.Uvs,     // the base level's UVs, per triangle corner, on any mesh (levels_quads.odin)
 	rule:           Subdivision_Rule, // how the levels above the base are made (levels_cc.odin)
 	sets:           [dynamic]Selection_Set, // saved masks (selection_sets.odin)
 	set_serial:     u32, // the last set id given
