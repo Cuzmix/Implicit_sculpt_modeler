@@ -319,10 +319,15 @@ sculptor_paint_stamp :: proc(s: ^Sculptor) -> u32 {return s.paint_stamp}
 // Gives the base level of levels just made (levels_init) the polypaint and polygroups of
 // the mesh it was made from, for a rebuild that keeps the surface's parts, as Split and
 // Merge do: `color` per vertex and `groups` per triangle of that mesh (either nil when it
-// had none), `old_to_new` and `tri_from` as levels_init filled them. Not an undo step, as
-// nothing came before it.
-levels_take_surface :: proc(l: ^Levels, color: []Color, groups: []u16, old_to_new, tri_from: []u32) {
+// had none), and the `mask` per vertex a remesh carries, `old_to_new` and `tri_from` as
+// levels_init filled them. Not an undo step, as nothing came before it: the level starts
+// with them, as a scene file's level starts with its mask.
+levels_take_surface :: proc(l: ^Levels, color: []Color, groups: []u16, old_to_new, tri_from: []u32, mask: []u8 = nil) {
 	s := &l.levels[0].sculptor
+	if mask != nil {
+		mask_ensure(s)
+		for m, old in mask do s.mask[old_to_new[old]] = m
+	}
 	if color != nil {
 		color_ensure(s)
 		for c, old in color do s.color[old_to_new[old]] = c

@@ -386,7 +386,16 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 	sync.lock(&sh.lock)
 	sh.done, sh.total = 0, max(total, 1)
 	sync.unlock(&sh.lock)
-	for i in need {
+	scratch: send.Chunk_Scratch
+	defer send.chunk_scratch_destroy(&scratch)
+	// What crossed the network: the chunks as packed.
+	wire := 0
+	for i, k in need {
+		if sh.cut_after > 0 && k == sh.cut_after {
+			// As if the network went: the connection closes with no word to the receiver.
+			send_event(sh, .Warning, "", 0, "The connection to %s dropped after %d of %d chunks: Send again to carry on", theirs.name, k, len(need))
+			return
+		}
 		if conn_stopped(&c) {
 			conn_refuse(&c, .Cancelled)
 			send_fail(sh, theirs.name, .Cancelled)
@@ -394,9 +403,11 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		}
 		ch := chunks[i]
 		clear(&body)
-		send.chunk_put(&body, i, job.data[ch.offset:][:ch.size])
+		send.chunk_put(&body, i, job.data[ch.offset:][:ch.size], &scratch)
+		wire += len(body)
 		if !conn_send(&c, .Chunk, body[:]) {
-			send_fail(sh, theirs.name, .Damaged)
+			// The receiver keeps what came, so the next send asks only for the rest.
+			send_event(sh, .Warning, "", 0, "The connection to %s dropped after %d of %d chunks: Send again to carry on", theirs.name, k, len(need))
 			return
 		}
 		sync.lock(&sh.lock)
@@ -409,7 +420,8 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		return
 	}
 	hd := fmt.tprintf("; the HD detail of %d objects stays here, as with Save", job.hd_dropped) if job.hd_dropped > 0 else ""
-	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %s, %d of %d chunks went over%s", theirs.name, export_size_label(len(job.data)), len(need), len(chunks), hd)
+	sync.atomic_add(&sh.wire_bytes, wire)
+	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %s, %d of %d chunks went over as %s%s", theirs.name, export_size_label(len(job.data)), len(need), len(chunks), export_size_label(wire), hd)
 }
 
 @(private = "file")
@@ -454,13 +466,13 @@ send_listen_start :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> ^
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
 		for send_receiving(sh, gen) {
-			client, _, aerr := net.accept_tcp(sock)
+			client, source, aerr := net.accept_tcp(sock)
 			if !send_receiving(sh, gen) {
 				if aerr == nil do net.close(client)
 				break
 			}
 			if aerr != nil do continue
-			receive_run(sh, client)
+			receive_run(sh, client, source)
 			runtime.arena_free_all(&arena)
 		}
 		net.close(sock)
@@ -487,7 +499,7 @@ received_path :: proc(sh: ^Send_Shared, token: u64, device: [16]u8) -> string {
 }
 
 @(private = "file")
-receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
+receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket, source: net.Endpoint) {
 	c: Conn
 	conn_init(&c, sock, sh)
 	defer conn_destroy(&c)
@@ -512,6 +524,11 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if kind == .Pair_Commit && !c.sealed {
+		// A tablet takes scenes only from the computers it paired with by sending.
+		if MOBILE {
+			conn_refuse(&c, .Not_Paired)
+			return
+		}
 		if _, pok := pair_listening(&c, body, me, theirs); !pok do return
 		kind, body, r, gok = conn_next(&c)
 		if !gok do return
@@ -533,63 +550,137 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if !conn_send(&c, .Received, nil) do log.warn("send: the sender left before hearing the scene arrived")
-	send_event(sh, .Received, file, send_hash(offer.hash), "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
+	back := send_back_keep(sh, theirs, source)
+	send_event_received(sh, file, send_hash(offer.hash), offer.token, theirs.name, back, "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
 }
 
 // How many chunks the last receive asked for, for its note. Only the listener writes it.
 @(private = "file")
 receive_sent_chunks: int
 
-// Builds the offered file from the last copy of the same scene from that device (the
-// base) and the chunks asked for, into path.partial, then puts it in place.
+// Beside each received copy: path.list, the copy's chunk list, so the next send of the
+// scene finds what it holds without reading the whole file to cut it; and, after a
+// receive cut short, path.partial with path.partial.list, the chunks it wrote, which the
+// next receive reads back instead of asking again. Both lists are only hints: every chunk
+// read back is checked against its hash, and a list that does not read is not used.
+@(private = "file")
+SEND_LIST :: ".list"
+@(private = "file")
+SEND_PARTIAL :: ".partial"
+@(private = "file")
+SEND_RESUME :: ".resume"
+
+// A file the receiver already holds, opened with the chunks it lists.
+@(private = "file")
+Held :: struct {
+	file:   ^os.File,
+	chunks: []send.Chunk,
+}
+
+@(private = "file")
+held_read :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
+	h := cast(^Held)user
+	n, e := os.read_at(h.file, data, i64(offset))
+	return e == nil && n == len(data)
+}
+
+// Opens file with its chunks, from list when that reads, else (cut is set) by cutting
+// the file itself, which a copy with no list needs.
+@(private = "file")
+held_open :: proc(file, list: string, cut: bool) -> (h: Held, ok: bool) {
+	if data, err := os.read_entire_file(list, context.allocator); err == nil {
+		h.chunks, ok = send.resume_get(data)
+		delete(data)
+	}
+	if !ok && cut {
+		data, err := os.read_entire_file(file, context.allocator)
+		if err != nil do return {}, false
+		h.chunks = send.chunks_of(data)
+		delete(data)
+		ok = true
+	}
+	if !ok do return {}, false
+	f, err := os.open(file)
+	if err != nil {
+		delete(h.chunks)
+		return {}, false
+	}
+	h.file = f
+	return h, true
+}
+
+@(private = "file")
+held_close :: proc(h: ^Held) {
+	if h.file != nil do os.close(h.file)
+	delete(h.chunks)
+	h^ = {}
+}
+
+// Builds the offered file from the last copy of the same scene from that device and what
+// a receive cut short wrote (the bases) and the chunks asked for, into path.partial, then
+// puts it in place. Cut short again, it keeps the partial file and its list for the next.
 @(private = "file")
 receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string, err: string) {
-	base_chunks: []send.Chunk
-	defer delete(base_chunks)
-	base: ^os.File
-	if data, rerr := os.read_entire_file(path, context.allocator); rerr == nil {
-		base_chunks = send.chunks_of(data)
-		delete(data)
-		base, _ = os.open(path)
+	list := strings.concatenate({path, SEND_LIST}, context.temp_allocator)
+	partial := strings.concatenate({path, SEND_PARTIAL}, context.temp_allocator)
+	partial_list := strings.concatenate({partial, SEND_LIST}, context.temp_allocator)
+	resume := strings.concatenate({path, SEND_RESUME}, context.temp_allocator)
+	resume_list := strings.concatenate({resume, SEND_LIST}, context.temp_allocator)
+	// What the last receive cut short left becomes a base under another name, since the
+	// new partial file is written where it was.
+	_ = os.remove(resume)
+	_ = os.remove(resume_list)
+	if os.exists(partial_list) && os.rename(partial, resume) == nil do _ = os.rename(partial_list, resume_list)
+	_ = os.remove(partial_list)
+	defer {
+		_ = os.remove(resume)
+		_ = os.remove(resume_list)
 	}
-	defer if base != nil do os.close(base)
-	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
+	copy_held, has_copy := held_open(path, list, true)
+	defer if has_copy do held_close(&copy_held)
+	resumed, has_resume := held_open(resume, resume_list, false)
+	defer if has_resume do held_close(&resumed)
+	bases := make([dynamic]send.Base, context.temp_allocator)
+	if has_copy do append(&bases, send.Base{copy_held.chunks, held_read, &copy_held})
+	if has_resume do append(&bases, send.Base{resumed.chunks, held_read, &resumed})
+
 	f, oerr := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
 	if oerr != nil do return "", fmt.tprintf("cannot write %s: %v", filepath.base(partial), oerr)
+	r: send.Rebuild
 	kept := false
-	defer if !kept {
-		os.close(f)
-		_ = os.remove(partial)
-	}
-	Files :: struct {
-		base, new: ^os.File,
-	}
-	files := Files{base, f}
-	read :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
-		fs := cast(^Files)user
-		if fs.base == nil do return false
-		n, e := os.read_at(fs.base, data, i64(offset))
-		return e == nil && n == len(data)
+	defer {
+		if !kept {
+			// Cut short: what was written stays for the next send to carry on from, when
+			// any was; a file the disk could not hold goes.
+			saved := false
+			if r.have != nil && !send.rebuild_done(&r) && os.sync(f) == nil {
+				out := make([dynamic]u8, context.temp_allocator)
+				send.resume_put(&out, &r)
+				saved = os.write_entire_file(partial_list, out[:]) == nil
+			}
+			os.close(f)
+			if !saved do _ = os.remove(partial)
+		}
+		send.rebuild_destroy(&r)
 	}
 	write :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
-		fs := cast(^Files)user
-		n, e := os.write_at(fs.new, data, i64(offset))
+		n, e := os.write_at(cast(^os.File)user, data, i64(offset))
 		return e == nil && n == len(data)
 	}
-	r: send.Rebuild
-	if !send.rebuild_init(&r, offer, base_chunks, read, write, &files) do return "", "cannot write the file"
-	defer send.rebuild_destroy(&r)
+	if !send.rebuild_init(&r, offer, bases[:], write, f) do return "", "cannot write the file"
 	need := send.rebuild_need(&r)
 	defer delete(need)
 	receive_sent_chunks = len(need)
 	out := make([dynamic]u8, context.temp_allocator)
 	send.need_put(&out, need)
 	if !conn_send(c, .Need, out[:]) do return "", "the sender left"
+	scratch: send.Chunk_Scratch
+	defer send.chunk_scratch_destroy(&scratch)
 	for !send.rebuild_done(&r) {
 		kind, body, why, ok := conn_next(c)
 		if !ok do return "", send.REFUSAL_TEXT[why] if why != .None else "the sender left"
 		if kind != .Chunk do return "", send.REFUSAL_TEXT[.Damaged]
-		index, bytes, cok := send.chunk_get(body)
+		index, bytes, _, cok := send.chunk_get(body, offer, &scratch)
 		if !cok do return "", send.REFUSAL_TEXT[.Damaged]
 		switch send.rebuild_take(&r, index, bytes) {
 		case .Ok:
@@ -601,12 +692,51 @@ receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string
 		}
 	}
 	if os.truncate(f, i64(offer.size)) != nil || os.sync(f) != nil do return "", "cannot write the file"
-	if base != nil {
-		os.close(base)
-		base = nil
-	}
+	// The bases are read no more, and the copy is about to be replaced.
+	if has_copy do held_close(&copy_held)
+	has_copy = false
 	os.close(f)
 	kept = true
+	_ = os.remove(list)
 	if e := replace_partial(partial, path); e != "" do return "", e
+	// The new copy's chunk list, for the next send; without it that send cuts the file.
+	listed := make([dynamic]u8, context.temp_allocator)
+	send.resume_put(&listed, &r)
+	if e := os.write_entire_file(list, listed[:]); e != nil do log.warnf("send: cannot write %s: %v", filepath.base(list), e)
 	return strings.clone(path, context.temp_allocator), ""
+}
+
+// How many devices that sent here Send lists to send back to.
+SEND_BACKS :: 3
+
+// Keeps a device that sent here and receives too (its hello names its port, its address
+// is the one it came from) at the head of the backs; returns where a scene goes back as
+// `address:port`, or "".
+@(private = "file")
+send_back_keep :: proc(sh: ^Send_Shared, theirs: send.Hello, source: net.Endpoint) -> string {
+	ip, is4 := source.address.(net.IP4_Address)
+	if theirs.port == 0 || !is4 do return ""
+	f := send.Found {
+		device   = theirs.device,
+		name     = strings.clone(theirs.name),
+		protocol = theirs.protocol,
+		scene    = theirs.scene_version,
+		port     = theirs.port,
+		count    = 1,
+	}
+	f.addresses[0] = cast([4]u8)ip
+	sync.lock(&sh.lock)
+	for i := len(sh.backs) - 1; i >= 0; i -= 1 {
+		if sh.backs[i].device != f.device do continue
+		send.found_destroy(&sh.backs[i])
+		ordered_remove(&sh.backs, i)
+	}
+	inject_at(&sh.backs, 0, f)
+	for len(sh.backs) > SEND_BACKS {
+		send.found_destroy(&sh.backs[len(sh.backs) - 1])
+		pop(&sh.backs)
+	}
+	sync.unlock(&sh.lock)
+	a := f.addresses[0]
+	return fmt.tprintf("%d.%d.%d.%d:%d", a[0], a[1], a[2], a[3], theirs.port)
 }

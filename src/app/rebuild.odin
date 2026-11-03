@@ -138,7 +138,7 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 	ok: bool
 	switch goal {
 	case .Even:
-		p.cell, p.origin, ok = geom.remesh_lattice(p.area, p.bounds, int(app.ui.rebuild_even), remesh_mirror(app, obj))
+		p.cell, p.origin, ok = geom.remesh_lattice(p.area, p.bounds, int(app.ui.rebuild_even), remesh_mirror(app, obj), remesh_setup(app).cell)
 	case .Quads:
 		// The side of a quad of the mean size the retopology aims for.
 		p.cell = f32(math.sqrt(p.area / f64(max(app.ui.retopo_quads, 1))))
@@ -180,7 +180,10 @@ object_face_count :: proc(obj: ^Object) -> int {
 // Runs the goal the panel is set to on the selected object, at its density.
 rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
-	case .Even:  app.ui.scene_command = {kind = .Remesh, vertices = int(app.ui.rebuild_even), remesh = remesh_setup(app)}
+	case .Even:
+		setup := remesh_setup(app)
+		vertices := int(app.ui.rebuild_even) if setup.cell == 0 else remesh_cell_vertices(app, selected_object(app), setup.cell)
+		app.ui.scene_command = {kind = .Remesh, vertices = vertices, remesh = setup}
 	case .Fewer: app.ui.scene_command = {kind = .Decimate, vertices = int(app.ui.rebuild_fewer), decimate = decimate_setup(app)}
 	case .Quads: app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}
 	}
@@ -206,8 +209,8 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	label := "Density"
 	switch goal^ {
 	case .Even:
-		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
-		// Smooth, Keep detail, Groups and Quads under More options, which keeps the section
+		kit_remesh_density(app, obj, label)
+		// Smooth, Keep detail, Keep thin parts, Keep paint and mask, Groups and Quads under More options, which keeps the section
 		// to its five controls and the button where the finger left it whichever goal is up.
 		if kit_more(app, .Remesh) {
 			kit_remesh_options(app, obj)
@@ -292,12 +295,15 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	case .Even:
 		// Two lines: what the options do is in their rows and README, and a longer text
 		// here moved the button down past where the other goals keep it.
-		ui.paragraph(ctx, "An even mesh of about this many vertices that keeps the shape; overlaps merge, holes close.")
+		by_cell := app.ui.remesh_by == .Cell
+		ui.paragraph(ctx, "An even mesh at this cell size that keeps the shape; overlaps merge, holes close." if by_cell else "An even mesh of about this many vertices that keeps the shape; overlaps merge, holes close.")
 		if measured && p.shown {
 			// A surface of area A crosses about 1.5 A / h² lattice edges, one vertex each;
 			// fewer than asked when the lattice limit made the cells bigger.
 			about := int(1.5 * p.area / f64(p.cell * p.cell))
-			if about < int(app.ui.rebuild_even) * 9 / 10 {
+			if by_cell {
+				ui.paragraph(ctx, fmt.tprintf("Cells %s wide: about %s vertices.", length_label(p.cell * scale), count_label(about)))
+			} else if about < int(app.ui.rebuild_even) * 9 / 10 {
 				ui.paragraph(ctx, fmt.tprintf("Cells %s wide: %s vertices at most.", length_label(p.cell * scale), count_label(about)))
 			} else {
 				ui.paragraph(ctx, fmt.tprintf("Cells %s wide: about one vertex each.", length_label(p.cell * scale)))
@@ -324,7 +330,30 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	}
 	_ = command_button(app, .Rebuild, label = REBUILD_VERBS[goal^], tone = .Accent)
 	kit_last_result(app, .Retopo if goal^ == .Quads else .Remesh)
-	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes at the object's own count.", command_keys(app, .Remesh)))
+	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes again at the object's own cell.", command_keys(app, .Remesh)))
+}
+
+// Rebuild's Even density, the same row in the Rebuild section and the Remesh quick menu: a
+// vertex count, or with Density set by Cell size (under More options) the cells' width in
+// millimetres at the scene's print scale, as Blender's voxel size.
+kit_remesh_density :: proc(app: ^App, obj: ^Object, label: string) {
+	ctx := &app.kit.ctx
+	if app.ui.remesh_by == .Vertices {
+		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+		return
+	}
+	mm := &app.ui.remesh_cell_mm
+	_ = ui.slider(ctx, label, mm, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX, .Logarithmic, fmt.tprintf("%s mm", length_label(mm^)))
+}
+
+// About how many vertices a remesh of `obj` at `cell` makes, from the area the density
+// preview measured when it is the object's mesh now, else the object's own count: what
+// decides whether it runs as a long job.
+remesh_cell_vertices :: proc(app: ^App, obj: ^Object, cell: f32) -> int {
+	if obj == nil do return 0
+	p := &app.rebuild
+	if p.measured && p.version == obj.gpu[obj.levels.current].version && cell > 0 do return int(1.5 * p.area / f64(cell * cell))
+	return object_vertex_count(obj)
 }
 
 // The Remesh button's quick menu, its long press on the bottom bar, after Nomad's voxel
@@ -361,16 +390,29 @@ kit_remesh_quick :: proc(app: ^App) {
 	}
 	even := &app.ui.rebuild_even
 	label := "Density"
-	_ = kit_count(ctx, label, even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+	kit_remesh_density(app, obj, label)
 	id := ui.id_of(ctx, label)
 	if ctx.active == id || (ctx.hot == id && app.device.pointer == .Mouse) do rebuild_preview_hold(app)
-	// The object's own count, and half and twice it: the steps taken most.
+	// The object's own count (or cell), and half and twice its vertices: the steps taken
+	// most. Half the vertices is a cell √2 wider.
 	now := object_vertex_count(obj)
 	third := (inner - 16) / 3
+	own_mm := remesh_cell_mm(app, obj, obj.remesh_cell) if obj.remesh_cell > 0 else app.ui.remesh_cell_mm
+	cell_mm := &app.ui.remesh_cell_mm
+	by_cell := app.ui.remesh_by == .Cell
 	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = 8})
-	if ui.button(ctx, "Half", .Bordered, width = third) do even^ = rebuild_count(now / 2)
-	if ui.button(ctx, "Same", .Bordered, width = third) do even^ = rebuild_count(now)
-	if ui.button(ctx, "Double", .Bordered, width = third) do even^ = rebuild_count(now * 2)
+	if ui.button(ctx, "Half", .Bordered, width = third) {
+		if by_cell do cell_mm^ = clamp(own_mm * math.SQRT_TWO, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
+		else do even^ = rebuild_count(now / 2)
+	}
+	if ui.button(ctx, "Same", .Bordered, width = third) {
+		if by_cell do cell_mm^ = clamp(own_mm, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
+		else do even^ = rebuild_count(now)
+	}
+	if ui.button(ctx, "Double", .Bordered, width = third) {
+		if by_cell do cell_mm^ = clamp(own_mm / math.SQRT_TWO, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
+		else do even^ = rebuild_count(now * 2)
+	}
 	ui.end(ctx)
 	p := &app.rebuild
 	measured := p.measured && p.version == obj.gpu[obj.levels.current].version

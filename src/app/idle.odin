@@ -111,8 +111,8 @@ lifecycle_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 // word, so the settings are saved and the scene handed to the autosave thread now, and
 // the loop holds from the next frame. A stroke under way ends as its undo step first, as
 // a save ends it: the finger that drew it has gone, and the autosave holds whole strokes.
-// On the iPad the system is asked for time to write it (ios.odin), until the thread is
-// done (background_step) or the app comes back.
+// On the iPad the system is asked for time to write it and to finish a send under way
+// (ios.odin), until both are done (background_step) or the app comes back.
 app_background :: proc(app: ^App) {
 	if app.idle.background do return
 	app.idle.background = true
@@ -122,7 +122,7 @@ app_background :: proc(app: ^App) {
 	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_background_begin()
 	autosave_background(app)
 	// Nothing to write (the scene is as the last autosave left it): the time goes back at once.
-	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) do sculpt_ios_background_end()
+	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) && !send_busy(app) do sculpt_ios_background_end()
 	log.info("lifecycle: background")
 }
 
@@ -238,7 +238,7 @@ background_step :: proc(app: ^App, window: ^sdl.Window) {
 	}
 	autosave_frame(app)
 	if app.autosave.background do autosave_background(app)
-	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) do sculpt_ios_background_end()
+	when ODIN_PLATFORM_SUBTARGET_IOS do if !autosave_busy(app) && !send_busy(app) do sculpt_ios_background_end()
 	free_all(context.temp_allocator)
 }
 

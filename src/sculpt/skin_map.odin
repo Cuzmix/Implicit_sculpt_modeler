@@ -133,16 +133,18 @@ skin_map_sample :: proc(m: Skin_Map, uv: [2]f32) -> Vec3 {
 	return (math.lerp(top, bottom, ay) - m.mid) * m.scale
 }
 
-// The UVs and tangents of the object's triangles, from its quads' (Quad_Faces), for
-// sculptor_skin_from_map; ok is false unless the object has UVs and one level (its quads
-// are the base level's, and the skin lies on the top one). In `allocator`.
+// The UVs of the object's triangles (Levels.uvs) and their tangents, from its quads'
+// tangent frame (the one the bake used), for sculptor_skin_from_map; ok is false unless
+// the object is made of quads, has UVs and one level (its quads are the base level's,
+// and the skin lies on the top one). In `allocator`.
 levels_tri_uvs :: proc(l: ^Levels, allocator := context.allocator) -> (out: Skin_Uvs, ok: bool) {
-	if !levels_has_uvs(l) || len(l.levels) != 1 do return
+	if len(l.levels) != 1 do return
+	layout := levels_quad_uvs(l) or_return
 	base := l.levels[0]
 	s := &base.sculptor
 	q := levels_quad_mesh(l, context.temp_allocator)
 	normals := geom.quad_mesh_normals(q, context.temp_allocator)
-	frame := geom.quad_mesh_tangents(q, l.faces.uv, normals, context.temp_allocator)
+	frame := geom.quad_mesh_tangents(q, layout, normals, context.temp_allocator)
 	tris := len(s.mesh.indices) / 3
 	out.uv = make([][3][2]f32, tris, allocator)
 	out.tangent = make([][3][4]f32, tris, allocator)
@@ -155,10 +157,8 @@ levels_tri_uvs :: proc(l: ^Levels, allocator := context.allocator) -> (out: Skin
 				tri := I[3 * t:][:3]
 				has :: proc(tri: []u32, v: u32) -> bool {return tri[0] == v || tri[1] == v || tri[2] == v}
 				if !has(tri, b) || !has(tri, c) do continue
-				for k in 0 ..< 3 do for h in 0 ..< 3 do if f[half[h]] == tri[k] {
-					out.uv[t][k] = l.faces.uv.uvs[qi][half[h]]
-					out.tangent[t][k] = frame.tangents[frame.corner_slot[qi][half[h]]]
-				}
+				out.uv[t] = l.uvs.corner[t]
+				for k in 0 ..< 3 do for h in 0 ..< 3 do if f[half[h]] == tri[k] do out.tangent[t][k] = frame.tangents[frame.corner_slot[qi][half[h]]]
 				found[t] = true
 				break
 			}

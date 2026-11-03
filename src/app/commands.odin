@@ -63,6 +63,7 @@ Command_Id :: enum u16 {
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
+	Physics,
 	Local_Symmetry,
 	Radial_Symmetry,
 	Brush_Add,
@@ -889,6 +890,12 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.brush.symmetry ~= {.X}},
 		checked = proc(app: ^App, _: int) -> bool {return .X in app.brush.symmetry},
 	},
+	.Physics = {
+		label = "Physics",
+		help = "Makes what a moving brush moves (Grab, Elastic, Snake hook and the dab brushes) drive the surface round it as cloth, which follows in folds, swings past and settles.",
+		run = proc(app: ^App, _: int) {app.brush.physics = !app.brush.physics},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.physics},
+	},
 	.Local_Symmetry = {
 		label = "Local symmetry",
 		help = "Mirrors strokes about the object's own middle instead of its origin, so an object built or moved off centre keeps its symmetry.",
@@ -1043,9 +1050,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Remesh = {
 		label = "Remesh",
-		help = "Rebuilds the selected object as an even closed mesh of about as many vertices.",
+		help = "Rebuilds the selected object as an even closed mesh at its own cell size, the one its last remesh used (or about as many vertices, when none did).",
 		run = proc(app: ^App, _: int) {
-			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(selected_object(app)), remesh = remesh_setup(app)}
+			obj := selected_object(app)
+			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(obj), remesh = remesh_again_setup(app, obj)}
 		},
 		enabled = has_object,
 	},
@@ -1467,7 +1475,12 @@ COMMANDS := [Command_Id]Command {
 		label = "Remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
 		args = len(SPHERE_PRESETS),
-		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices), remesh = remesh_setup(app)}},
+		run = proc(app: ^App, arg: int) {
+			// A count, whatever Rebuild's Density is set by.
+			setup := remesh_setup(app)
+			setup.cell = 0
+			app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices), remesh = setup}
+		},
 		enabled = has_object,
 	},
 	.Decimate_To = {

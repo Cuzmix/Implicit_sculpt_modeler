@@ -1,39 +1,83 @@
 package sculpt
 
+import "core:log"
 import "core:slice"
 
 import "../geom"
+import "../uv"
 
-// The quads a retopologized object was made of, and their UVs (geom.mesh_retopo,
-// geom.quad_uv_unwrap): the base level is drawn and sculpted as their triangles, two a
-// quad, and these let it be exported as quads and baked onto. They follow the base
-// level's vertex numbers and stay while its triangles do: deleting the levels below,
-// or dynamic topology, which change the base's triangles, drops them.
+// The quads a retopologized object was made of (geom.mesh_retopo): the base level is
+// drawn and sculpted as their triangles, two a quad, and these let it be exported as
+// quads and baked onto. They follow the base level's vertex numbers and stay while its
+// triangles do: deleting the levels below, or dynamic topology, which change the base's
+// triangles, drops them, and its UVs (Levels.uvs) with them.
 Quad_Faces :: struct {
-	quads: [][4]u32,       // nil when the object is not made of quads
-	uv:    geom.Uv_Layout, // empty until UVs are laid out
+	quads: [][4]u32, // nil when the object is not made of quads
 }
 
-// Takes `quads` (in the base level's vertex numbers) as the object's quads, without UVs.
+// Takes `quads` (in the base level's vertex numbers) as the object's quads. The object's
+// UVs stay: whoever sets quads on levels that have UVs sets UVs that fit them.
 levels_set_quads :: proc(l: ^Levels, quads: [][4]u32) {
-	levels_drop_quads(l)
+	delete(l.faces.quads, l.allocator)
 	l.faces.quads = quads
 }
 
-// Takes `uv` (one entry per quad) as the quads' UVs.
-levels_set_uvs :: proc(l: ^Levels, uv: geom.Uv_Layout) {
-	assert(len(uv.uvs) == len(l.faces.quads))
-	geom.uv_layout_destroy(&l.faces.uv, l.allocator)
-	l.faces.uv = uv
+// Takes `layout` (one entry per quad, taken) as the object's UVs, folded onto the base
+// level's triangles (uv.from_quads). False, keeping no UVs, when a base triangle is no
+// half of a quad, which a quad object's base never has.
+levels_set_uvs :: proc(l: ^Levels, layout: geom.Uv_Layout) -> bool {
+	layout := layout
+	defer geom.uv_layout_destroy(&layout, l.allocator)
+	assert(len(layout.uvs) == len(l.faces.quads))
+	base := l.levels[0]
+	u, ok := uv.from_quads(layout, levels_quad_mesh(l), base.mesh.indices[:], base.sculptor.faces, l.allocator)
+	if !ok {
+		log.error("UVs: a base triangle is no half of a quad, so the object keeps no UVs")
+		levels_drop_uvs(l)
+		return false
+	}
+	levels_take_uvs(l, u)
+	return true
+}
+
+// `layout` (one entry per quad, not taken) folded onto the base level's triangles, made
+// with `allocator`, for a caller that swaps it in itself (New UVs' undo step). False when
+// a base triangle is no half of a quad.
+levels_uvs_from_layout :: proc(l: ^Levels, layout: geom.Uv_Layout, allocator := context.allocator) -> (uv.Uvs, bool) {
+	assert(len(layout.uvs) == len(l.faces.quads))
+	base := l.levels[0]
+	return uv.from_quads(layout, levels_quad_mesh(l), base.mesh.indices[:], base.sculptor.faces, allocator)
+}
+
+// Takes `u` (made for the base level's triangles, taken) as the object's UVs.
+levels_take_uvs :: proc(l: ^Levels, u: uv.Uvs) {
+	assert(len(u.corner) == len(l.levels[0].mesh.indices) / 3)
+	uv.destroy(&l.uvs, l.allocator)
+	l.uvs = u
 }
 
 levels_has_quads :: proc(l: ^Levels) -> bool {return l.faces.quads != nil}
-levels_has_uvs :: proc(l: ^Levels) -> bool {return l.faces.uv.uvs != nil}
+// Whether the object has UVs, on whatever triangles its base level has.
+levels_has_uvs :: proc(l: ^Levels) -> bool {return uv.has(l.uvs)}
+// Whether the object is made of quads and has UVs, which baking, the texture views and
+// quad exports need.
+levels_has_quad_uvs :: proc(l: ^Levels) -> bool {return levels_has_quads(l) && levels_has_uvs(l)}
 
+// The object's UVs seen as its quads' layout (uv.to_quads), made with `allocator`; false
+// without quads and UVs.
+levels_quad_uvs :: proc(l: ^Levels, allocator := context.temp_allocator) -> (layout: geom.Uv_Layout, ok: bool) {
+	if !levels_has_quad_uvs(l) do return
+	base := l.levels[0]
+	return uv.to_quads(l.uvs, levels_quad_mesh(l), base.mesh.indices[:], base.sculptor.faces, allocator)
+}
+
+levels_drop_uvs :: proc(l: ^Levels) {uv.destroy(&l.uvs, l.allocator)}
+
+// Drops the quads and the UVs, for whatever changes the base level's triangles.
 levels_drop_quads :: proc(l: ^Levels) {
 	delete(l.faces.quads, l.allocator)
-	geom.uv_layout_destroy(&l.faces.uv, l.allocator)
 	l.faces = {}
+	levels_drop_uvs(l)
 }
 
 // The base level as a quad mesh: its positions and the quads, not copied, and which way

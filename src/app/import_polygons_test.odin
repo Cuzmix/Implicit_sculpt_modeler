@@ -70,8 +70,7 @@ import_keeps_the_files_uvs :: proc(t: ^testing.T) {
 	testing.expect_value(t, clean_err, geom.Mesh_File_Error.None)
 	polys: sculpt.Polys
 	polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(p.mesh.indices[:], p.polys[:])
-	uv, mapped := geom.quad_uvs_from_corners(p.mesh.indices[:], p.uvs[:], polys.first, polys.corners, polys.tri_poly)
-	testing.expect(t, mapped, "six quads with coordinates")
+	corners := len(p.mesh.indices)
 	old_to_new := make([]u32, len(p.mesh.positions))
 	defer delete(old_to_new)
 	tri_from := make([]u32, len(p.mesh.indices) / 3)
@@ -81,10 +80,13 @@ import_keeps_the_files_uvs :: proc(t: ^testing.T) {
 	mesh := p.mesh
 	p.mesh = {}
 	sculpt.levels_init(&l, mesh, nil, 4, old_to_new = old_to_new, tri_from = tri_from)
-	import_take_polygons(&l, &polys, old_to_new, tri_from, uv)
-	testing.expect(t, sculpt.levels_has_quads(&l) && sculpt.levels_has_uvs(&l), "quads and UVs kept")
-	testing.expect_value(t, l.faces.uv.charts, 6)
-	testing.expect_value(t, l.faces.uv.uvs[0], [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}})
+	import_take_uvs(&l, p.uvs[:], corners, tri_from)
+	import_take_polygons(&l, &polys, old_to_new, tri_from)
+	testing.expect(t, sculpt.levels_has_quad_uvs(&l), "quads and UVs kept")
+	testing.expect_value(t, l.uvs.islands, 6)
+	layout, _ := sculpt.levels_quad_uvs(&l)
+	testing.expect_value(t, layout.charts, 6)
+	testing.expect_value(t, layout.uvs[0], [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}})
 }
 
 // An STL or glTF file of quads cut into triangles comes in as quads, the glTF one with its
@@ -103,6 +105,6 @@ import_finds_the_quads_of_triangle_files :: proc(t: ^testing.T) {
 		l := &m.levels[0]
 		testing.expectf(t, sculpt.levels_has_quads(l) == (file != "tet.stl"), "%s: quads %v", file, sculpt.levels_has_quads(l))
 		testing.expectf(t, sculpt.levels_has_uvs(l) == (file == "quad_cube.gltf"), "%s: UVs %v", file, sculpt.levels_has_uvs(l))
-		if file == "quad_cube.gltf" do testing.expect_value(t, l.faces.uv.charts, 6)
+		if file == "quad_cube.gltf" do testing.expect_value(t, l.uvs.islands, 6)
 	}
 }

@@ -108,7 +108,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The brushes' pictures the brushes made, and how long the last batch took.
 	fmt.printfln("brush_previews=%d preview_batches=%d preview_ms=%.0f", app.brush_previews.drawn, app.brush_previews.batches, app.brush_previews.took_ms)
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
-	fmt.printfln("send_sent=%d send_received=%d send_refused=%d send_found=%d send_sent_hash=%016x send_received_hash=%016x", app.send.sent, app.send.received, app.send.refused, app.send.found, app.send.sent_hash, app.send.received_hash)
+	fmt.printfln("send_sent=%d send_received=%d send_refused=%d send_found=%d send_sent_hash=%016x send_received_hash=%016x send_wire_bytes=%d", app.send.sent, app.send.received, app.send.refused, app.send.found, app.send.sent_hash, app.send.received_hash, app.send.wire_bytes)
 	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	plugin_commands := 0
@@ -467,7 +467,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		fmt.printfln("shape_pending=%s shape_points=%d shape_flip=%d shape_box=%.0f,%.0f,%.0f,%.0f", shape, len(app.shape_pending.points), int(app.shape_pending.flip), box_lo.x, box_lo.y, box_hi.x, box_hi.y)
 		goal := strings.to_lower(fmt.tprint(app.ui.rebuild_goal), context.temp_allocator)
-		fmt.printfln("rebuild_goal=%s rebuild_preview=%d rebuild_cell=%.5f rebuild_area_ms=%.2f rebuild_step_ms=%.2f", goal, int(app.rebuild.shown), app.rebuild.cell if app.rebuild.shown else 0, app.rebuild.area_ms, app.rebuild.step_ms)
+		fmt.printfln("rebuild_goal=%s rebuild_preview=%d rebuild_cell=%.5f rebuild_area_ms=%.2f rebuild_step_ms=%.2f remesh_by=%s remesh_cell=%.6f", goal, int(app.rebuild.shown), app.rebuild.cell if app.rebuild.shown else 0, app.rebuild.area_ms, app.rebuild.step_ms, strings.to_lower(fmt.tprint(app.ui.remesh_by), context.temp_allocator), app.stats.remesh_cell)
 		fmt.printfln("camera_views=%d camera_view=%d camera_steps=%d", app.views.count, app.views.at + 1 if app.views.count > 0 else 0, app.views.steps)
 		fmt.printfln("adjust_op=%s adjusts=%d adjust_pop=%d", adjust_name if adjust_name != "" else "none", app.adjustable.adjusts, int(k.adjust_pop))
 		// The selected object's History brush target: how many steps back, chosen or not.

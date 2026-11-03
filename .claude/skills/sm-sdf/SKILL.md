@@ -32,7 +32,7 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   object's `group_materials` too, since `object_get` refuses a voxel object with any).
 - Mesh → voxels (`voxelize.odin`): `clay_from_mesh(c, m, voxel, pool)` lays the voxel grid over the mesh's box (centred in
   the domain, `VOXELIZE_MARGIN` voxels around; `voxel_size_for(bounds, across)` picks the voxel), casts `geom.lattice_rays_cast`
-  along x, y and z (the remesh's exact fixed-point crossings, now public in `src/geom/lattice_rays.odin`), takes inside
+  along x, y and z at once (the remesh's exact fixed-point crossings, now public in `src/geom/lattice_rays.odin`), takes inside
   = x-ray winding > 0 (an open mesh fills as Remesh fills it), marks the bricks within `VOXELIZE_REACH` of an x crossing
   per z slab, fills the rest as `TILE_INSIDE` or empty, seeds each marked brick in parallel (the sign window, then for a
   voxel beside a sign change the planar distance from its axes' crossings, `CROSSING_MARGIN` away from the lattice

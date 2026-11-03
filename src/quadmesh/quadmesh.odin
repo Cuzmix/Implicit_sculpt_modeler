@@ -37,11 +37,21 @@ Params :: struct {
 	// relative to its mean over the area, so the count stays what was asked, as
 	// ZRemesher's Use PolyPaint moves its quads.
 	density:       []f32,
+	// Refinement per vertex (one per position, or nil): the isotropic mesh's edge there as
+	// a share of what the quad size alone gives, 1 as usual, 0.5 twice as fine, clamped to
+	// 0.25..1. The quads keep their size: a part only a few quads round (a thin tube) needs
+	// the finer triangles under them for its quads to be extracted at all.
+	refine:        []f32,
 	// Guide curves, two points a segment, lying on or near the surface: the quads' edges
 	// are pulled to run along them, by `guide_strength` (0 not at all, 1 as closely as
 	// the field can follow), as ZRemesher's Curves and Curves Strength. Nil for none.
 	guides:         []geom.Vec3,
 	guide_strength: f32,
+	// Keep symmetry's caps: the planes of `cap` the caller drops the polygons on after the
+	// remesh. A triangle lying on one (every corner within `cap_snap`) counts for none of
+	// the quads asked, which go to the rest. None by default.
+	cap:      geom.Remesh_Mirror,
+	cap_snap: f32,
 }
 
 // AutoRemesher's own values.
@@ -62,6 +72,8 @@ Report :: struct {
 	faces, quads, triangles, ngons:                        int, // ngons are polygons of five or more corners
 	ms:                                                    f64,
 	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64, // the stages, summed over the islands (so over the threads)
+	isotropic_triangles:                                    int, // the isotropic meshes' triangles, over the islands
+	covers:                                                 int, // the quad covers solved, over the islands (up to three each)
 }
 
 Error :: enum u8 {
@@ -119,9 +131,14 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 			feature_count = u32(len(params.features) / 2),
 			density       = raw_data(params.density) if len(params.density) == len(positions) else nil,
 			density_count = u32(len(params.density)) if len(params.density) == len(positions) else 0,
+			refine        = raw_data(params.refine) if len(params.refine) == len(positions) else nil,
+			refine_count  = u32(len(params.refine)) if len(params.refine) == len(positions) else 0,
 			guides         = ([^]f32)(raw_data(params.guides)),
 			guide_count    = u32(len(params.guides) / 2),
 			guide_strength = params.guide_strength,
+			cap_axes       = u32(params.cap.axes[0]) | u32(params.cap.axes[1]) << 1 | u32(params.cap.axes[2]) << 2,
+			cap_center     = params.cap.center,
+			cap_snap       = params.cap_snap,
 		}
 		message := make([]u8, REASON_MAX, context.temp_allocator)
 		result: ^Qm_Result
@@ -148,6 +165,8 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 		report.isotropic_ms = f64(times.isotropic_ms)
 		report.parameterize_ms = f64(times.parameterize_ms)
 		report.extract_ms = f64(times.extract_ms)
+		report.isotropic_triangles = int(times.isotropic_triangles)
+		report.covers = int(times.covers)
 		report.ms = time.duration_milliseconds(time.tick_since(start))
 		return out, report, .None, ""
 	} else {
@@ -185,9 +204,14 @@ Qm_Params :: struct {
 	feature_count: u32,
 	density:       [^]f32,
 	density_count: u32,
+	refine:        [^]f32,
+	refine_count:  u32,
 	guides:         [^]f32,
 	guide_count:    u32,
 	guide_strength: f32,
+	cap_axes:       u32,
+	cap_center:     [3]f32,
+	cap_snap:       f32,
 }
 
 @(private = "file")
@@ -196,6 +220,7 @@ Qm_Result :: struct {}
 @(private = "file")
 Qm_Times :: struct {
 	decimate_ms, isotropic_ms, parameterize_ms, extract_ms, total_ms: f32,
+	isotropic_triangles, covers:                                      u32,
 }
 
 @(private = "file")

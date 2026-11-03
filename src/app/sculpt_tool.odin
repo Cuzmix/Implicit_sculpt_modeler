@@ -163,6 +163,11 @@ Brush_Settings :: struct {
 	// have them.
 	paint_dial:        bool,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
+	cloth:             sculpt.Cloth_Settings, // how its cloth behaves: region, stiffness, gravity...
+	// Physics: what a moving brush moves drives the surface round it as cloth
+	// (sculpt.sculptor_physics_begin), each round pulling it physics_strength of the way.
+	physics:           bool,
+	physics_strength:  f32,
 	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
 	// one, `plain` keeps the plain brush's values that leaving it puts back.
 	preset:            int,
@@ -266,6 +271,7 @@ Stroke :: struct {
 	raw:          Input_Sample, // the pointer's newest sample as it came, where catching up goes
 	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
 	cloth:    bool, // a Cloth stroke: simulates the region it began on every frame (sculpt.Cloth)
+	physics:  bool, // with the Physics switch: the cloth follows what the stroke moves (physics_follow)
 	hook:     bool, // a Snake hook stroke: drags the surface along after the pointer
 	rect:     bool, // a Drag rectangle or Drag dot stroke: redoes its one dab as the pointer moves
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
@@ -527,6 +533,8 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		queue = q
 	}
 	inv := linalg.inverse(camera.orbit_proj(app.camera, input.size.x / input.size.y) * camera.orbit_view(app.camera))
+	// Whatever the stroke moved this frame drives the cloth round it.
+	defer if st.active && st.physics do physics_follow(app, res)
 	if st.active && st.grab {
 		if len(queue) > 0 do grab_follow(app, input, inv, queue[len(queue) - 1].pos, res)
 		return
@@ -769,6 +777,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		}
 	}
 	st.cloth = .Cloth in flags
+	st.physics = false
+	if app.brush.physics && physics_allowed(app, obj, st, s.kind == .Press) do physics_begin(app, obj, brush, local)
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	// A drag dot lays its dab at the press, then slides it.
@@ -809,10 +819,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
 	} else if st.cloth {
-		mode := app.brush.cloth_mode
-		if brush.invert && mode == .Pinch do mode = .Expand
-		else if brush.invert && mode == .Expand do mode = .Pinch
-		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, mode)
+		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
+		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, app.brush.cloth)
 		return
 	} else {
 		object_dab(app, obj, brush, local, object_normal_local(obj, local))
@@ -949,9 +957,10 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 	}
 	view := camera.orbit_view(app.camera)
 	down := -to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]})
-	if input.invert do down = -down
 	st.pos = pos
 	t1 := time.tick_now()
+	// The sliders may move mid-stroke; the cloth takes them at its next step.
+	sculpt.sculptor_cloth_settings(object_sculptor(obj), app.brush.cloth)
 	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, linalg.normalize0(down))
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
@@ -1564,7 +1573,7 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
-	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS, physics_strength = PHYSICS_STRENGTH_DEFAULT}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
@@ -1889,4 +1898,65 @@ stamp_edit_lay :: proc(app: ^App, obj: ^Object, input: Viewport_Input, res: ^Scu
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 	return true
+}
+
+// How hard Physics pulls the cloth toward where the brush puts it, by default: Blender's
+// cloth deformation takes 0.1 to 0.35 a round, and 35 % keeps the brush's own shape
+// while the surface round it swings along.
+PHYSICS_STRENGTH_DEFAULT :: 0.35
+// How far round the brush the cloth reaches, in brush radii: Grab's pull carries further
+// than a dab's, and Elastic already moves the surface out to its own reach.
+PHYSICS_GRAB_REACH :: 2.5
+PHYSICS_ELASTIC_REACH :: sculpt.ELASTIC_REACH + 0.5
+
+// Whether the Physics switch can drive this stroke: a brush that moves the surface (not
+// Cloth, which is cloth already, nor painting or masking), laying dabs along its path or
+// grabbing (Drag rectangle and Drag dot put their dab back every frame), on a mesh the
+// cloth can hold for the stroke: not voxel clay, an HD window, dynamic topology (whose
+// triangles change under it) or a detail skin. With `say`, a refusal says why once.
+physics_allowed :: proc(app: ^App, obj: ^Object, st: ^Stroke, say: bool) -> bool {
+	flags := BRUSHES[st.kind].flags
+	if flags & {.Cloth, .Paint, .Mask} != {} || painting(app) || st.rect do return false
+	why := ""
+	if obj.voxel != nil do why = "voxel clay"
+	else if object_in_hd(obj) do why = "an HD window"
+	else if object_dynamic(obj) do why = "dynamic topology"
+	else if st.skin do why = "a detail skin stroke"
+	if why == "" do return true
+	if say do report(app, Kit_Section.Options, {.Warning}, "Physics does not run on %s: the stroke sculpts without it", why)
+	return false
+}
+
+// Starts the stroke's cloth round where it pressed: Grab and Elastic over a fixed region
+// past what they move, Snake hook and the dabs over one that follows them.
+@(private = "file")
+physics_begin :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, local: Vec3) {
+	st := &app.stroke
+	flags := BRUSHES[st.kind].flags
+	set := sculpt.CLOTH_DEFAULTS
+	reach: f32 = sculpt.CLOTH_REACH
+	switch {
+	case st.kind == .Elastic: reach = PHYSICS_ELASTIC_REACH
+	case .Grab in flags:      reach = PHYSICS_GRAB_REACH
+	case:                     set.region = .Follows
+	}
+	st.physics = sculpt.sculptor_physics_begin(object_sculptor(obj), brush, local, app.brush.physics_strength, reach, set) > 0
+}
+
+// One step of the stroke's cloth after its moves this frame, round where it is now: the
+// press for a grab, the hook's end, or the last dab.
+@(private = "file")
+physics_follow :: proc(app: ^App, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil do return
+	t := obj.transform
+	at := st.at
+	if st.hook do at = to_local(t, st.anchor)
+	else if st.last_set do at = st.last_at
+	view := camera.orbit_view(app.camera)
+	down := linalg.normalize0(-to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
+	t1 := time.tick_now()
+	sculpt.sculptor_physics_step(object_sculptor(obj), at, down)
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 }

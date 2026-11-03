@@ -52,6 +52,18 @@ Remesh_Options :: struct {
 	groups:      []u16,
 	quads:       bool, // the dual of the marching cubes: a closed mesh of quads only (Remesh_Report.quads)
 	mirror:      Remesh_Mirror,
+	// The lattice spacing to use, in the mesh's units, instead of the one `target` gives
+	// (0): Blender's voxel size, and what remeshing again at the object's own cell keeps,
+	// so the density stays as the sculpt grows, as DynaMesh keeps its resolution.
+	cell:        f32,
+	// Parts thinner than a cell (a fin, an ear's rim, a sheet) kept about a cell thick
+	// rather than lost between the lattice's points (keep_thin_parts).
+	keep_thin:   bool,
+	// Each output vertex's nearest old triangle reported (source_tris) without Keep
+	// detail too, for the polypaint, polygroups and mask to follow, as Blender's voxel
+	// remesh carries them; a caller with nothing on the surface leaves it off and pays
+	// nothing (remesh_sources).
+	sources:     bool,
 }
 
 // Planes a remesh keeps its lattice the same on both sides of, as the brush's symmetry
@@ -65,13 +77,14 @@ Remesh_Mirror :: struct {
 	center: Vec3,
 }
 
-REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT}
+REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT, keep_thin = true}
 
 // What a remesh did that its caller reports: the triangles mended and the holes capped
 // before the rays, the group
 // pieces made and those that gave nothing (thinner than a cell), each output triangle's
 // group (with `groups` asked, else nil) and each output vertex's old triangle (with Keep
-// detail, else nil; max(u32) where the projection found nothing within a cell). The two
+// detail or `sources`, else nil; max(u32) where nothing was found within a cell, or two
+// without Keep detail). The two
 // slices are the caller's to free (remesh_report_destroy).
 Remesh_Report :: struct {
 	mended:       int, // triangles dropped (doubled or degenerate) or turned back before the rays (mesh_fix)
@@ -90,6 +103,8 @@ Remesh_Report :: struct {
 	// always was; a higher density gives quads.
 	quads:        [][4]u32,
 	quads_thin:   bool,
+	cell:         f32, // the lattice spacing used, in the mesh's units
+	thickened:    int, // lattice points Keep thin parts put inside
 }
 
 remesh_report_destroy :: proc(r: ^Remesh_Report, allocator := context.allocator) {
@@ -130,10 +145,15 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, options := REMESH_OPTIONS_DEFAULT, report: ^Remesh_Report = nil) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
 	// The lattice's box: the mesh's own, or grown even about the mirror's planes.
-	h, box := remesh_lattice_box(area, bounds, target, options.mirror) or_return
+	h := remesh_cell(area, bounds, target, options.cell) or_return
+	box := bounds
 	own: Remesh_Report
 	r := report if report != nil else &own
 	r^ = {}
+	// With no report asked for, what a report would hold (the source triangles of Keep
+	// detail, the groups) is the remesh's own to free.
+	defer if report == nil do remesh_report_destroy(&own, allocator)
+	r.cell = h
 	smooth := clamp(options.smooth, 0, REMESH_SMOOTH_MAX)
 	// The projection back onto the old surface takes the last tenth of the share.
 	rays_share := share
@@ -151,18 +171,26 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 	}
 	defer if r.turned do delete(input.indices)
 	quads: ^[][4]u32 = &r.quads if options.quads else nil
+	thin := make([dynamic]Vec3, 0, 0, runtime.heap_allocator())
+	defer delete(thin)
+	kept: ^[dynamic]Vec3 = &thin if options.keep_thin else nil
 	if options.groups != nil {
-		out = remesh_groups(input, options.groups, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror) or_return
+		out = remesh_groups(input, options.groups, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror, kept) or_return
 	} else {
-		out = remesh_closed_first(input, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror) or_return
+		out = remesh_closed_first(input, h, box, smooth, pool, allocator, progress, rays_share, r, quads, options.mirror, kept) or_return
 	}
+	r.thickened = len(thin)
+	// Keep detail puts every vertex back; without it, the kept thin parts' own go back,
+	// which a lattice steps across in terraces a cell high.
+	if len(thin) > 0 && !options.keep_detail do project_thin(&out, m, thin[:], h, lattice_origin(box.lo, h, options.mirror), pool)
+	if options.sources && !options.keep_detail do r.source_tris = remesh_sources(out, m, h, pool, allocator)
 	if options.keep_detail {
 		if progress != nil && jobs.progress_cancelled(progress) {
 			mesh_destroy(&out)
 			remesh_report_destroy(r, allocator)
 			return {}, false
 		}
-		bvh := bvh_build_morton(m, pool = pool)
+		bvh := bvh_build_morton(m, LOOKUP_LEAF, pool = pool)
 		defer bvh_destroy(&bvh)
 		next := make([]Vec3, len(out.positions), runtime.heap_allocator())
 		defer delete(next, runtime.heap_allocator())
@@ -173,6 +201,99 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 		jobs.progress_set(progress, share[0], share[1], 1)
 	}
 	return out, true
+}
+
+// Triangles per leaf of the trees the remesh builds over the old mesh to look its
+// vertices up on it. The tree is built once and asked once a vertex, so its build
+// counts: at 20M old triangles, leaves of 16 build in 0.9 s where leaves of 4 (the
+// sculpting default, asked thousands of times a stroke) take 2.2 s, and a lookup costs
+// about the same in either.
+LOOKUP_LEAF :: 16
+
+// Each vertex of `out`'s nearest triangle of `m` within two cells (a vertex lies within
+// about half a cell of the surface it came from, a relaxed one or one on a cap further),
+// max(u32) where there is none. The vertices are asked along a Morton curve
+// (points_morton_order). Each range of that order starts its search afresh and then
+// starts each from the last one's answer, which only speeds it: the answer is the
+// nearest whatever the start, so the result does not depend on the pool.
+@(private = "file")
+remesh_sources :: proc(out: Mesh, m: Mesh, h: f32, pool: ^jobs.Pool, allocator: runtime.Allocator) -> []u32 {
+	Job :: struct {
+		out, m: Mesh,
+		bvh:    Bvh,
+		reach:  f32,
+		order:  []u32,
+		tris:   []u32,
+	}
+	heap := runtime.heap_allocator()
+	job := Job{out = out, m = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool = pool), reach = 2 * h, tris = make([]u32, len(out.positions), allocator)}
+	defer bvh_destroy(&job.bvh)
+	job.order = points_morton_order(out.positions[:], pool, heap)
+	defer delete(job.order, heap)
+	jobs.parallel_ranges(pool, len(job.order), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		hint := BVH_NONE
+		for v in job.order[lo:hi] {
+			tri, _, _, ok := bvh_closest(job.bvh, job.m, job.out.positions[v], job.reach, hint)
+			job.tris[v] = tri if ok else max(u32)
+			if ok do hint = tri
+		}
+	}, RANGE_GRAIN)
+	return job.tris
+}
+
+// Puts the vertices of `out` near a kept thin part (a corner of the cell they are in is one
+// of the points `thin`, as the pieces' lattices, all one lattice from `origin`, put
+// inside) back onto `m` along their normals within a cell, as Keep detail does for all of
+// them: a thin part the lattice holds a cell thick then lies on the part's two sides.
+// The rest stay where they are, so the cost follows the thin parts, not the mesh.
+@(private = "file")
+project_thin :: proc(out: ^Mesh, m: Mesh, thin: []Vec3, h: f32, origin: Vec3, pool: ^jobs.Pool) {
+	heap := runtime.heap_allocator()
+	key :: proc(g: [3]int) -> u64 {return u64(g[0]) | u64(g[1]) << 21 | u64(g[2]) << 42}
+	keys := make([]u64, len(thin), heap)
+	defer delete(keys, heap)
+	for p, i in thin {
+		g := linalg.round((p - origin) / h)
+		keys[i] = key({int(g.x), int(g.y), int(g.z)})
+	}
+	slice.sort(keys)
+	Near :: struct {
+		out:    ^Mesh,
+		keys:   []u64,
+		h:      f32,
+		origin: Vec3,
+		near:   []bool,
+	}
+	job := Near{out, keys, h, origin, make([]bool, len(out.positions), heap)}
+	defer delete(job.near, heap)
+	jobs.parallel_ranges(pool, len(out.positions), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Near)data
+		for v in lo ..< hi {
+			c := linalg.floor((job.out.positions[v] - job.origin) / job.h)
+			if c.x < 0 || c.y < 0 || c.z < 0 do continue
+			for corner in 0 ..< 8 {
+				g := [3]int{int(c.x) + corner & 1, int(c.y) + corner >> 1 & 1, int(c.z) + corner >> 2 & 1}
+				if _, found := slice.binary_search(job.keys, key(g)); found {
+					job.near[v] = true
+					break
+				}
+			}
+		}
+	}, RANGE_GRAIN)
+	which := make([dynamic]u32, 0, len(thin) * 4, heap)
+	defer delete(which)
+	for near, v in job.near do if near do append(&which, u32(v))
+	if len(which) == 0 do return
+	at := make([]Vec3, 3 * len(which), heap)
+	defer delete(at, heap)
+	positions, normals, next := at[:len(which)], at[len(which):][:len(which)], at[2 * len(which):]
+	for v, i in which do positions[i], normals[i] = out.positions[v], out.normals[v]
+	bvh := bvh_build_morton(m, pool = pool)
+	defer bvh_destroy(&bvh)
+	_ = project_along_normals(positions, normals, m, &bvh, h, pool, next, nil)
+	for v, i in which do out.positions[v] = next[i]
+	mesh_recompute_normals(out)
 }
 
 // The volume `m` encloses by its winding, negative for a mesh inside out: each
@@ -247,10 +368,10 @@ mesh_edges_paired :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> bool {
 // triangles turned back, nothing moved) and capped, a bowl becomes a solid whichever way
 // it opens, as DynaMesh makes it.
 @(private = "file")
-remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
+remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}, kept: ^[dynamic]Vec3 = nil) -> (out: Mesh, ok: bool) {
 	// A run asked for quads that leaves none refused them (remesh_run).
 	defer if ok && quads != nil && quads^ == nil do r.quads_thin = true
-	if mesh_edges_paired(source, pool) do return remesh_run(source, h, bounds, len(source.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
+	if mesh_edges_paired(source, pool) do return remesh_run(source, h, bounds, len(source.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror, kept)
 	heap := runtime.heap_allocator()
 	m := source
 	fixed, fixed_from, fix, mended := mesh_fix(source, pool, heap)
@@ -261,10 +382,10 @@ remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, poo
 	if mended {
 		r.mended += fix.dropped_triangles + fix.duplicate_triangles + fix.flipped_triangles
 		m = fixed
-		if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
+		if mesh_edges_paired(m, pool) do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror, kept)
 	}
 	capped, from, closed, did := mesh_close_holes(m, false, pool, heap)
-	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
+	if !did do return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror, kept)
 	defer mesh_destroy(&capped)
 	defer repair_map_destroy(&from, heap)
 	// A cap's vertices are raised to a membrane over the border's heights, which can
@@ -272,14 +393,14 @@ remesh_closed_first :: proc(source: Mesh, h: f32, bounds: Aabb, smooth: int, poo
 	// it (a step and a half from its outer points), so they are held within the box.
 	for &p in capped.positions do for a in 0 ..< 3 do p[a] = clamp(p[a], bounds.lo[a], bounds.hi[a])
 	r.holes_closed += closed.closed
-	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror)
+	return remesh_run(capped, h, bounds, len(capped.indices) / 3, .Merge, pool, allocator, progress, share, smooth, quads, mirror, kept)
 }
 
 // Each group of `m` remeshed on the same lattice as a closed piece of its own, then all
 // in one mesh with r.groups saying each triangle's group. Groups are taken in ascending
 // order of their number, so the pieces' order, and the result, follow from the mesh alone.
 @(private = "file")
-remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
+remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress, share: [2]f32, r: ^Remesh_Report, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}, kept: ^[dynamic]Vec3 = nil) -> (out: Mesh, ok: bool) {
 	heap := runtime.heap_allocator()
 	tcount := len(m.indices) / 3
 	assert(len(groups) == tcount)
@@ -316,15 +437,14 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 	for &piece, i in pieces {
 		r.pieces += 1
 		piece_share := [2]f32{share[0] + f32(i) * span, share[0] + f32(i + 1) * span}
-		// The piece's own box, its low corner snapped down onto the whole mesh's lattice,
-		// so its lattice points are the whole's (neighbouring pieces meet on them) while
-		// its rays cover only the piece, not the whole box over again. The seams it is
-		// capped along are not holes the mesh had, so they go uncounted.
+		// The piece's own box: the lattice is anchored (lattice_origin), so its points are
+		// the whole's (neighbouring pieces meet on them) while its rays cover only the
+		// piece, not the whole box over again. The seams it is capped along are not holes
+		// the mesh had, so they go uncounted.
 		_, box := mesh_area_bounds(piece.mesh, pool)
-		for a in 0 ..< 3 do box.lo[a] = bounds.lo[a] + math.floor((box.lo[a] - bounds.lo[a]) / h) * h
 		seams: Remesh_Report
 		piece_quads: [][4]u32
-		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil, mirror)
+		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil, mirror, kept)
 		if progress != nil && jobs.progress_cancelled(progress) do return {}, false
 		if !built {
 			r.dropped += 1
@@ -367,36 +487,39 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 }
 
 // The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
-// uses: its spacing, and where its first point is (as remesh_run places it). The density
-// preview draws these very cells, so what it shows is what the remesh will build.
-remesh_lattice :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, origin: Vec3, ok: bool) {
-	box: Aabb
-	h, box = remesh_lattice_box(area, bounds, target, mirror) or_return
-	return h, box.lo - 1.5 * h, true
+// (or at spacing `cell`, when it is not 0) uses: its spacing, and where its first point is
+// (as remesh_run places it). The density preview draws these very cells, so what it shows
+// is what the remesh will build.
+remesh_lattice :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}, cell := f32(0)) -> (h: f32, origin: Vec3, ok: bool) {
+	h = remesh_cell(area, bounds, target, cell) or_return
+	return h, lattice_origin(bounds.lo, h, mirror), true
 }
 
-// The spacing remesh_lattice gives and the box remesh_run places the lattice from: the
-// mesh's own box, or with `mirror` that box grown to reach as far on both sides of each
-// plane and then out to a whole number of cells either side of it. The plane then lies
-// half way between two lattice points and every point's mirror image is a point, since
-// remesh_run starts the lattice a step and a half outside the box.
-remesh_lattice_box :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, box: Aabb, ok: bool) {
+// The spacing of a remesh of a surface of `area` to about `target` vertices, or `cell`
+// when it is not 0, made no finer than REMESH_MAX_LATTICE points along the box's longest
+// side allow.
+remesh_cell :: proc(area: f64, bounds: Aabb, target: int, cell := f32(0)) -> (h: f32, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return
-	box = bounds
-	for a in 0 ..< 3 do if mirror.axes[a] {
-		c := mirror.center[a]
-		e := max(c - bounds.lo[a], bounds.hi[a] - c, 0)
-		box.lo[a], box.hi[a] = c - e, c + e
+	extent := bounds.hi - bounds.lo
+	h = cell if cell > 0 else remesh_spacing_of(area, target)
+	h = max(h, max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
+	return h, h > 0
+}
+
+// The lattice's first point for a box starting at `lo`: between one and a half and two
+// and a half steps below it, and on the one lattice of spacing `h` whose points lie at a
+// whole number of steps and a half from the origin of the mesh's space, or from the
+// mirror's centre along a mirrored axis. A lattice placed from the box alone moved with
+// every change of the box, so a remesh of a remesh sampled every part of it anew and
+// softened what nobody touched, a little more each time; on the anchored lattice the
+// untouched surface lands on the very points it came from (as Blender's voxel grid sits
+// on the world's), and a mirrored point is a lattice point, half way across the plane.
+lattice_origin :: proc(lo: Vec3, h: f32, mirror := Remesh_Mirror{}) -> (origin: Vec3) {
+	for a in 0 ..< 3 {
+		c := mirror.center[a] if mirror.axes[a] else 0
+		origin[a] = c + (math.floor((lo[a] - c) / h) - 1.5) * h
 	}
-	extent := box.hi - box.lo
-	h = max(remesh_spacing_of(area, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
-	if !(h > 0) do return 0, {}, false
-	for a in 0 ..< 3 do if mirror.axes[a] {
-		c := mirror.center[a]
-		cells := math.ceil((box.hi[a] - c) / h)
-		box.lo[a], box.hi[a] = c - cells * h, c + cells * h
-	}
-	return h, box, true
+	return
 }
 
 // The area of `m` and the box around its triangles' corners, skipping the zeroed slots
@@ -495,19 +618,18 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
 // `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
 // as remesh_lattice says.
-remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}, thin: ^[dynamic]Vec3 = nil) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
-	extent := bounds.hi - bounds.lo
-	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
+	r := Remesher{m = m, pool = pool, h = h, origin = lattice_origin(bounds.lo, h, mirror), split = split, op = op}
 	for a in 0 ..< 3 {
-		// The mesh starts 1.5 steps in and ends at least half a step before the last
+		// The mesh starts at least 1.5 steps in and ends more than a step before the last
 		// point, so the lattice's outer points are all outside.
-		r.n[a] = int(extent[a] / h) + 4
+		r.n[a] = int((bounds.hi[a] - r.origin[a]) / h) + 3
 		if r.n[a] > REMESH_MAX_LATTICE + 4 do return {}, false
 	}
 	// Each stage's share of the whole, as a remesh of a 2M-vertex sculpt to 1M spends it,
 	// so a job's ring moves about evenly; a stage boundary is also where a cancel stops it.
-	STAGES :: [?]f32{0, 0.02, 0.08, 0.16, 0.24, 0.26, 0.28, 0.33, 0.65, 1}
+	STAGES :: [?]f32{0, 0.02, 0.24, 0.26, 0.28, 0.33, 0.65, 1}
 	stage := 0
 	next :: proc(progress: ^jobs.Progress, stage: ^int, share: [2]f32) -> bool {
 		stages := STAGES
@@ -518,15 +640,15 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	r.q = lattice_quantize(m, r.origin, h, pool, context.temp_allocator)
 	defer for &rays in r.rays do lattice_rays_destroy(&rays)
 	if !next(progress, &stage, share) do return {}, false
-	for axis in 0 ..< 3 {
-		r.rays[axis] = lattice_rays_cast(m, r.q, r.origin, h, r.n, axis, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
-		if !next(progress, &stage, share) do return {}, false
-	}
+	r.rays = lattice_rays_cast(m, r.q, r.origin, h, r.n, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
+	if !next(progress, &stage, share) do return {}, false
 	find_flips(&r)
+	if thin != nil do keep_thin_parts(&r, thin)
 	defer {
 		delete(r.flip_e, runtime.heap_allocator())
 		delete(r.flip_w, runtime.heap_allocator())
 		delete(r.flip_count, runtime.heap_allocator())
+		if r.flip_owned do delete(r.flip_first, runtime.heap_allocator())
 		delete(r.x_base, runtime.heap_allocator())
 		delete(r.y_base, runtime.heap_allocator())
 		delete(r.z_base, runtime.heap_allocator())
@@ -606,6 +728,10 @@ Remesher :: struct {
 	flip_e:       []i32,
 	flip_w:       []f32,
 	flip_count:   []u32,
+	// Where each x ray's flips start in flip_e and flip_w: the ray's hits' first (borrowed)
+	// until thin parts are kept, which lays the flips out anew (flip_owned).
+	flip_first:   []u32,
+	flip_owned:   bool,
 	// First vertex number of each x ray's flips, each y strip's and each z strip's
 	// changes. A y strip is the pair of x rays (j, k) and (j + 1, k), numbered
 	// j + (n.y - 1) * k; its vertices are where the two disagree, on the y edges
@@ -640,6 +766,7 @@ find_flips :: proc(r: ^Remesher) {
 	r.flip_e = make([]i32, len(rays.hits), heap)
 	r.flip_w = make([]f32, len(rays.hits), heap)
 	r.flip_count = make([]u32, rays.nu * rays.nv, heap)
+	r.flip_first = rays.first
 	jobs.parallel_ranges(r.pool, rays.nu * rays.nv, r, proc(data: rawptr, lo, hi: int) {
 		r := cast(^Remesher)data
 		rays := &r.rays[0]
@@ -666,9 +793,313 @@ find_flips :: proc(r: ^Remesher) {
 	}, 1 << 12)
 }
 
+// Keeps parts thinner than a cell: a ray along any axis that goes in and out again
+// between two lattice points, both outside, crosses something the lattice would lose (a
+// fin, a sheet, the rim of an ear), since a point is inside only by the rays through it.
+// The lattice point nearer the middle of what it crossed is put inside, joined to its
+// neighbours face to face (bridge_kept) and kept unless it is a speck (drop_specks), so
+// the part comes out whole and closed instead of in shreds, a cell thick on the lattice;
+// its vertices then go back onto its two sides (project_thin). A ray grazing a thick part near its
+// silhouette, or the edge of a box, finds such a span too; those points are left out
+// (the graze test below). Blender's narrow band keeps thin parts; DynaMesh loses them.
+// Appends the points it put inside to kept_at, where they are in the mesh's space (for
+// project_thin); the x rays' flips are laid out anew with them
+// (the new x crossings in the middles of their edges, the y and z ones beside the point:
+// crossing_beside). The points are found per ray range in any order and then sorted, so
+// the result does not depend on the pool.
+@(private = "file")
+keep_thin_parts :: proc(r: ^Remesher, kept_at: ^[dynamic]Vec3) {
+	heap := runtime.heap_allocator()
+	Thin :: struct {
+		r:     ^Remesher,
+		axis:  int,
+		lock:  sync.Mutex,
+		found: [dynamic]u64, // axis << 62 | x ray << 32 | x
+	}
+	t := Thin{r = r, found = make([dynamic]u64, 0, 256, heap)}
+	defer delete(t.found)
+	for axis in 0 ..< 3 {
+		t.axis = axis
+		rays := &r.rays[axis]
+		jobs.parallel_ranges(r.pool, rays.nu * rays.nv, &t, proc(data: rawptr, lo, hi: int) {
+			t := cast(^Thin)data
+			r := t.r
+			rays := &r.rays[t.axis]
+			local := make([dynamic]u64, 0, 16, runtime.heap_allocator())
+			defer delete(local)
+			for ray in lo ..< hi {
+				hs := rays.hits[rays.first[ray]:rays.first[ray + 1]]
+				for i := 0; i < len(hs); {
+					e := i32(hs[i].w)
+					before: i32 = hs[i - 1].wind if i > 0 else 0
+					was_in := false
+					enter, leave := f32(-1), f32(-1)
+					for i < len(hs) && i32(hs[i].w) == e {
+						prev: i32 = hs[i - 1].wind if i > 0 else 0
+						now := inside(r.op, hs[i].wind)
+						if now && !inside(r.op, prev) && enter < 0 do enter = hs[i].w
+						if !now && inside(r.op, prev) do leave = hs[i].w
+						was_in |= now
+						i += 1
+					}
+					if !was_in || inside(r.op, before) || inside(r.op, hs[i - 1].wind) || enter < 0 || leave < 0 do continue
+					w := int(e) if 0.5 * (enter + leave) - f32(e) < 0.5 else int(e) + 1
+					// The point in lattice coordinates: the ray's u and v are the next two
+					// axes after its own (lattice_rays.odin).
+					p: [3]int
+					p[t.axis], p[(t.axis + 1) % 3], p[(t.axis + 2) % 3] = w, ray % rays.nu, ray / rays.nu
+					append(&local, u64(t.axis) << 62 | u64(p[1] + r.n[1] * p[2]) << 32 | u64(p[0]))
+				}
+			}
+			if len(local) == 0 do return
+			sync.mutex_lock(&t.lock)
+			append(&t.found, ..local[:])
+			sync.mutex_unlock(&t.lock)
+		}, 1 << 12)
+	}
+	if len(t.found) == 0 do return
+	slice.sort(t.found[:])
+	// Every point some ray found, whichever ray, to look up.
+	found := make([]u64, len(t.found), heap)
+	defer delete(found, heap)
+	for key, i in t.found do found[i] = key & (1 << 62 - 1)
+	slice.sort(found)
+	found = slice.unique(found)
+	// Judged on the lattice as the rays left it; a point found by several rays counts once.
+	keep := make([dynamic]u64, 0, len(t.found), heap)
+	defer delete(keep)
+	ny := r.n[1]
+	for key in t.found {
+		axis := int(key >> 62)
+		ray := int(key >> 32 & (1 << 30 - 1))
+		p := [3]int{int(key & (1 << 32 - 1)), ray % ny, ray / ny}
+		if point_inside(r, p[0], p[1], p[2]) do continue
+		// A graze: a point near it across the ray (two steps either way, diagonals too,
+		// for the edge of a box) is deep in something, inside with both its neighbours
+		// along the ray, and the other way across is open: nothing inside and nothing
+		// another ray found as thin. A fin where it meets a body has the deep body on
+		// one side and more fin on the other, so it is kept.
+		GRAZE_REACH :: 2
+		graze := false
+		b, c := (axis + 1) % 3, (axis + 2) % 3
+		for db in -GRAZE_REACH ..= GRAZE_REACH {
+			for dc in -GRAZE_REACH ..= GRAZE_REACH {
+				if db == 0 && dc == 0 do continue
+				q := p
+				q[b] += db
+				q[c] += dc
+				front, back := q, q
+				front[axis] += 1
+				back[axis] -= 1
+				if !point_inside(r, q[0], q[1], q[2]) || !point_inside(r, front[0], front[1], front[2]) || !point_inside(r, back[0], back[1], back[2]) do continue
+				open := true
+				for da in -2 ..= 2 {
+					o := p
+					o[b] -= db
+					o[c] -= dc
+					o[axis] += da
+					if o[0] < 0 || o[1] < 0 || o[2] < 0 || o[0] >= r.n[0] || o[1] >= r.n[1] || o[2] >= r.n[2] do continue
+					_, thin := slice.binary_search(found, u64(o[1] + ny * o[2]) << 32 | u64(o[0]))
+					if thin || point_inside(r, o[0], o[1], o[2]) do open = false
+				}
+				if open do graze = true
+			}
+		}
+		if !graze do append(&keep, key & (1 << 62 - 1))
+	}
+	if len(keep) == 0 do return
+	kept := drop_specks(r, bridge_kept(r, &keep))
+	if len(kept) == 0 do return
+	// Each kept point x on a ray toggles insideness at x and x + 1; a flip on edge e is a
+	// toggle at e + 1. Toggles that meet cancel (two kept points side by side, or a point
+	// beside the part the ray already had).
+	rays := &r.rays[0]
+	count := rays.nu * rays.nv
+	first := make([]u32, count + 1, heap)
+	Toggle :: struct {
+		at: i32,
+		w:  f32, // where the crossing is, along the ray
+	}
+	toggles :: proc(r: ^Remesher, ray: int, kept: []u64, out: ^[dynamic]Toggle) {
+		clear(out)
+		for e, f in flips_of(r, ray) do append(out, Toggle{e + 1, r.flip_w[int(r.flip_first[ray]) + f]})
+		lo, _ := slice.binary_search(kept, u64(ray) << 32)
+		for k := lo; k < len(kept) && int(kept[k] >> 32) == ray; k += 1 {
+			x := i32(kept[k] & (1 << 32 - 1))
+			append(out, Toggle{x, f32(x) - 0.5}, Toggle{x + 1, f32(x) + 0.5})
+		}
+		slice.sort_by(out[:], proc(a, b: Toggle) -> bool {return a.at < b.at})
+		n := 0
+		for i := 0; i < len(out); {
+			j := i
+			for j < len(out) && out[j].at == out[i].at do j += 1
+			if (j - i) & 1 == 1 {
+				out[n] = out[i]
+				n += 1
+			}
+			i = j
+		}
+		resize(out, n)
+	}
+	// Only the rays with kept points change; the rest keep their flips.
+	scratch := make([dynamic]Toggle, 0, 64, heap)
+	defer delete(scratch)
+	changed := make([]bool, count, heap)
+	defer delete(changed, heap)
+	for key in kept do changed[int(key >> 32)] = true
+	new_count := make([]u32, count, heap)
+	for ray in 0 ..< count {
+		c := r.flip_count[ray]
+		if changed[ray] {
+			toggles(r, ray, kept, &scratch)
+			c = u32(len(scratch))
+		}
+		new_count[ray] = c
+		first[ray + 1] = first[ray] + c
+	}
+	flip_e := make([]i32, first[count], heap)
+	flip_w := make([]f32, first[count], heap)
+	for ray in 0 ..< count {
+		at := int(first[ray])
+		if changed[ray] {
+			toggles(r, ray, kept, &scratch)
+			for g, f in scratch {
+				flip_e[at + f] = g.at - 1
+				flip_w[at + f] = g.w
+			}
+		} else {
+			old := int(r.flip_first[ray])
+			copy(flip_e[at:][:r.flip_count[ray]], r.flip_e[old:][:r.flip_count[ray]])
+			copy(flip_w[at:][:r.flip_count[ray]], r.flip_w[old:][:r.flip_count[ray]])
+		}
+	}
+	delete(r.flip_e, heap)
+	delete(r.flip_w, heap)
+	delete(r.flip_count, heap)
+	if r.flip_owned do delete(r.flip_first, heap)
+	r.flip_e, r.flip_w, r.flip_count, r.flip_first, r.flip_owned = flip_e, flip_w, new_count, first, true
+	for key in kept {
+		ray := int(key >> 32)
+		append(kept_at, r.origin + r.h * Vec3{f32(key & (1 << 32 - 1)), f32(ray % ny), f32(ray / ny)})
+	}
+}
+
+// A thin part kept one point thick steps from point to point diagonally where it is
+// turned off the axes, and points that touch only along an edge or at a corner come out
+// as separate pieces. Where a kept point and an inside or kept one are diagonal with
+// neither of the points between them inside, the first of those (by axis) is put inside
+// too, so the part is joined face to face. Sorts and dedupes keep; returns the points.
+@(private = "file")
+bridge_kept :: proc(r: ^Remesher, keep: ^[dynamic]u64) -> []u64 {
+	ny := r.n[1]
+	at :: proc(r: ^Remesher, p: [3]int) -> u64 {return u64(p[1] + r.n[1] * p[2]) << 32 | u64(p[0])}
+	occupied :: proc(r: ^Remesher, kept: []u64, p: [3]int) -> bool {
+		if p[0] < 0 || p[1] < 0 || p[2] < 0 || p[0] >= r.n[0] || p[1] >= r.n[1] || p[2] >= r.n[2] do return false
+		if point_inside(r, p[0], p[1], p[2]) do return true
+		_, found := slice.binary_search(kept, at(r, p))
+		return found
+	}
+	for _ in 0 ..< 2 {
+		slice.sort(keep[:])
+		kept := slice.unique(keep[:])
+		resize(keep, len(kept))
+		added := 0
+		for key in kept {
+			ray := int(key >> 32)
+			p := [3]int{int(key & (1 << 32 - 1)), ray % ny, ray / ny}
+			for u in 0 ..< 3 {
+				for su in ([2]int{1, -1}) {
+					pu := p
+					pu[u] += su
+					if occupied(r, kept, pu) do continue
+					for v in 0 ..< 3 {
+						if v == u do continue
+						for sv in ([2]int{1, -1}) {
+							pv, puv := p, pu
+							pv[v] += sv
+							puv[v] += sv
+							if !occupied(r, kept, puv) || occupied(r, kept, pv) do continue
+							// Both ways round find this pair; the lower axis puts the point in.
+							if u > v do continue
+							if pu[0] < 0 || pu[1] < 0 || pu[2] < 0 || pu[0] >= r.n[0] || pu[1] >= r.n[1] || pu[2] >= r.n[2] do continue
+							append(keep, at(r, pu))
+							added += 1
+						}
+					}
+				}
+			}
+		}
+		if added == 0 do break
+	}
+	slice.sort(keep[:])
+	return slice.unique(keep[:])
+}
+
+// Kept points that only touch each other in a handful, not the lattice's inside, are the
+// tip of a cone or a spike sliced thinner than a cell: kept, they would float beside it as
+// specks. A group of kept points joined face to face survives when it touches the
+// lattice's inside or is big enough to be a part of its own (a leaf, a sheet).
+@(private = "file")
+drop_specks :: proc(r: ^Remesher, kept: []u64) -> []u64 {
+	SPECK :: 8 // a group this many points or more is a part of its own
+	heap := runtime.heap_allocator()
+	parent := make([]int, len(kept), heap)
+	defer delete(parent, heap)
+	size := make([]int, len(kept), heap)
+	defer delete(size, heap)
+	touches := make([]bool, len(kept), heap)
+	defer delete(touches, heap)
+	for i in 0 ..< len(kept) do parent[i], size[i] = i, 1
+	root :: proc(parent: []int, i: int) -> int {
+		i := i
+		for parent[i] != i {
+			parent[i] = parent[parent[i]]
+			i = parent[i]
+		}
+		return i
+	}
+	ny := r.n[1]
+	for key, i in kept {
+		ray := int(key >> 32)
+		p := [3]int{int(key & (1 << 32 - 1)), ray % ny, ray / ny}
+		for axis in 0 ..< 3 {
+			for d in ([2]int{1, -1}) {
+				q := p
+				q[axis] += d
+				if q[axis] < 0 || q[axis] >= r.n[axis] do continue
+				if point_inside(r, q[0], q[1], q[2]) {
+					touches[i] = true
+					continue
+				}
+				j, found := slice.binary_search(kept, u64(q[1] + ny * q[2]) << 32 | u64(q[0]))
+				if !found do continue
+				a, b := root(parent, i), root(parent, j)
+				if a == b do continue
+				// The lower index becomes the root, so the groups do not depend on order.
+				if b < a do a, b = b, a
+				parent[b] = a
+				size[a] += size[b]
+			}
+		}
+	}
+	for i in 0 ..< len(kept) {
+		a := root(parent, i)
+		if touches[i] do touches[a] = true
+	}
+	n := 0
+	for key, i in kept {
+		a := root(parent, i)
+		if touches[a] || size[a] >= SPECK {
+			kept[n] = key
+			n += 1
+		}
+	}
+	return kept[:n]
+}
+
 @(private = "file")
 flips_of :: #force_inline proc(r: ^Remesher, ray: int) -> []i32 {
-	first := r.rays[0].first[ray]
+	first := r.flip_first[ray]
 	return r.flip_e[first:][:r.flip_count[ray]]
 }
 
@@ -727,16 +1158,32 @@ count_vertices :: proc(r: ^Remesher) {
 // (k..k + 1): from the crossings of the ray along that edge, the one that changes its
 // insideness; the middle of the edge when that ray disagrees with the x rays.
 @(private = "file")
-crossing_on :: proc(rays: ^Lattice_Rays, op: Remesh_Op, ray: int, lo: int) -> f32 {
+crossing_on :: proc(rays: ^Lattice_Rays, op: Remesh_Op, ray: int, lo: int) -> (w: f32, found: bool) {
 	hs := rays.hits[rays.first[ray]:rays.first[ray + 1]]
 	at := f32(lo) + 0.5
 	i, _ := slice.binary_search_by(hs, f32(lo), proc(h: Lattice_Hit, w: f32) -> slice.Ordering {return .Less if h.w < w else .Greater})
 	for ; i < len(hs) && hs[i].w < f32(lo + 1); i += 1 {
 		prev: i32 = hs[i - 1].wind if i > 0 else 0
-		if inside(op, prev) != inside(op, hs[i].wind) do at = hs[i].w
+		if inside(op, prev) != inside(op, hs[i].wind) {
+			at = hs[i].w
+			found = true
+		}
 	}
-	return clamp(at, f32(lo) + EDGE_MARGIN, f32(lo) + 1 - EDGE_MARGIN)
+	return clamp(at, f32(lo) + EDGE_MARGIN, f32(lo) + 1 - EDGE_MARGIN), found
 }
+
+// Where a strip's crossing goes when its own ray saw none on that edge (the x rays and
+// it disagree, or a thin part was kept there): beside the inside end, which lies near the
+// surface the x rays saw, rather than in the middle of the edge where nothing is.
+@(private = "file")
+crossing_beside :: #force_inline proc(lo_inside: bool, lo: int) -> f32 {
+	return f32(lo) + (THIN_HUG if lo_inside else 1 - THIN_HUG)
+}
+
+// How near its inside end such a crossing goes, in lattice steps: near, since the
+// surface the x rays saw passes near that point, so a kept thin part starts within a
+// cell of its two sides, where project_thin reaches, and not on it, so relaxing has room.
+THIN_HUG :: 0.1
 
 // Calls fn(i, rank) for each lattice point i where two x rays disagree, in order.
 @(private = "file")
@@ -868,7 +1315,7 @@ place_vertices :: proc(r: ^Remesher) {
 		for k in lo ..< hi {
 			for j in 0 ..< ny {
 				ray := j + ny * k
-				first := r.rays[0].first[ray]
+				first := r.flip_first[ray]
 				for f in 0 ..< int(r.flip_count[ray]) {
 					r.out.positions[int(r.x_base[ray]) + f] = r.origin + r.h * Vec3{r.flip_w[int(first) + f], f32(j), f32(k)}
 				}
@@ -878,7 +1325,8 @@ place_vertices :: proc(r: ^Remesher) {
 						s := cast(^Strip)data
 						r := s.r
 						// The y ray through x = i, z = k.
-						w := crossing_on(&r.rays[1], r.op, s.k + r.n[2] * i, s.j)
+						w, found := crossing_on(&r.rays[1], r.op, s.k + r.n[2] * i, s.j)
+						if !found do w = crossing_beside(point_inside(r, i, s.j, s.k), s.j)
 						r.out.positions[int(s.base) + rank] = r.origin + r.h * Vec3{f32(i), w, f32(s.k)}
 					})
 				}
@@ -888,7 +1336,8 @@ place_vertices :: proc(r: ^Remesher) {
 						s := cast(^Strip)data
 						r := s.r
 						// The z ray through x = i, y = j.
-						w := crossing_on(&r.rays[2], r.op, i + r.n[0] * s.j, s.k)
+						w, found := crossing_on(&r.rays[2], r.op, i + r.n[0] * s.j, s.k)
+						if !found do w = crossing_beside(point_inside(r, i, s.j, s.k), s.k)
 						r.out.positions[int(s.base) + rank] = r.origin + r.h * Vec3{f32(i), f32(s.j), w}
 					})
 				}
@@ -904,7 +1353,7 @@ march_cells :: proc(r: ^Remesher, allocator: runtime.Allocator) {
 	r.slabs = make([][dynamic]u32, r.n[2] - 1, context.temp_allocator)
 	jobs.parallel_for(r.pool, r.n[2] - 1, r, proc(data: rawptr, k: int) {
 		r := cast(^Remesher)data
-		r.slabs[k] = make([dynamic]u32, 0, 1024, runtime.heap_allocator())
+		r.slabs[k] = make([dynamic]u32, 0, 6 * slab_crossings(r, k), runtime.heap_allocator())
 		for j in 0 ..< r.n[1] - 1 do march_column(r, j, k, &r.slabs[k])
 	})
 	// Then all into one array, the slabs copied in parallel: the copy is mostly first
@@ -917,6 +1366,20 @@ march_cells :: proc(r: ^Remesher, allocator: runtime.Allocator) {
 		copy(r.out.indices[r.slab_at[k]:], r.slabs[k][:])
 		delete(r.slabs[k])
 	})
+}
+
+// A generous estimate of the surface cells of slab k (between lattice
+// planes k and k + 1): the crossings on the edges of its cells. A slab grown from a small
+// capacity is copied again and again at 10M, and the page faults of those copies cost
+// about a tenth of the remesh; the room reserved beyond what is used is never touched,
+// so it costs address space, not memory.
+@(private = "file")
+slab_crossings :: proc(r: ^Remesher, k: int) -> int {
+	ny := r.n[1]
+	x := int(r.x_base[(k + 2) * ny] - r.x_base[k * ny])
+	y := int(r.y_base[(k + 2) * (ny - 1)] - r.y_base[k * (ny - 1)])
+	z := int(r.z_base[(k + 1) * ny] - r.z_base[k * ny])
+	return x + y + z + 64
 }
 
 @(private = "file")
@@ -1309,7 +1772,7 @@ dual_cells :: proc(r: ^Remesher, quads: ^[][4]u32, allocator: runtime.Allocator)
 	w := Walk{r = r, slabs = slabs}
 	jobs.parallel_for(r.pool, len(slabs), &w, proc(data: rawptr, k: int) {
 		w := cast(^Walk)data
-		w.slabs[k].verts = make([dynamic]Vec3, 0, 1024, runtime.heap_allocator())
+		w.slabs[k].verts = make([dynamic]Vec3, 0, slab_crossings(w.r, k), runtime.heap_allocator())
 		for j in 0 ..< w.r.n[1] - 1 do march_column(w.r, j, k, nil, &w.slabs[k])
 	})
 	w.base = make([]u32, len(slabs) + 1, context.temp_allocator)
@@ -1481,3 +1944,6 @@ relax :: proc(m: ^Mesh, pool: ^jobs.Pool, rounds: int) {
 		x.from, x.to = x.to, x.from
 	}
 }
+
+@(private = "file")
+GRAZE_REACH := 3

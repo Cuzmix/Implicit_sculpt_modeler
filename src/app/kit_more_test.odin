@@ -15,7 +15,7 @@ tab_draw: proc(app: ^App)
 by_tab :: proc(app: ^App, _: ^Object) {tab_draw(app)}
 
 // A scene for counting controls in each section's widest state: the selected object
-// with one layer and UVs (so Layers and Retopology show every row), a second object (a
+// with one layer, quads and UVs (so Layers and Retopology show every row), a second object (a
 // source for Project and baking), the built-in alphas with the first in use (its mode
 // and angle show). section_scene_free undoes it.
 section_scene :: proc(app: ^App) -> ^Object {
@@ -29,8 +29,10 @@ section_scene :: proc(app: ^App) -> ^Object {
 	obj := app.scene.objects[0]
 	testing_layer := sculpt.sculptor_layer_add(object_sculptor(obj))
 	assert(testing_layer == 0)
-	// Only whether there are UVs decides what the section shows.
-	obj.levels.faces.uv.uvs = make([][4][2]f32, 1)
+	// Only whether there are quads and UVs decides what the section shows; levels_destroy
+	// frees these stand-ins.
+	obj.levels.faces.quads = make([][4]u32, 1)
+	obj.levels.uvs.corner = make([][3][2]f32, 1)
 	alphas_init(app)
 	app.brush.alpha = 0
 	// The occlusion map on, so the bake's options show its sliders.
@@ -39,8 +41,6 @@ section_scene :: proc(app: ^App) -> ^Object {
 }
 
 section_scene_free :: proc(app: ^App) {
-	delete(app.scene.objects[0].levels.faces.uv.uvs)
-	app.scene.objects[0].levels.faces.uv.uvs = nil
 	for obj in app.scene.objects {
 		sculpt.levels_destroy(&obj.levels)
 		free(obj)
@@ -111,7 +111,12 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	for sec in OBJECT_SECTIONS {
 		// A section that is its card (Layers) keeps the card's own layout.
 		if p, _ := panel_of_section(sec.section); !panel_is_section(p) do continue
+		// The object counts as made of quads for UVs and baking only, which needs them;
+		// the other sections are counted on the sculpted mesh they were laid out for.
+		quads := obj.levels.faces.quads
+		if sec.section != .Retopo do obj.levels.faces.quads = nil
 		n := section_controls(&app, sec.section, sec.draw, obj, false)
+		obj.levels.faces.quads = quads
 		testing.expectf(t, n <= 5, "Object palette, %s: %d controls", sec.title, n)
 	}
 	for sec in SCENE_SECTIONS {
