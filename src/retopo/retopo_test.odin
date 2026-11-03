@@ -364,3 +364,102 @@ quad_remesh_keeps_group_borders :: proc(t: ^testing.T) {
 	// The half carries its share of the border and its cap's rim, which goes in as a group border too.
 	testing.expectf(t, half.features > border / 3, "%d feature edges on the half for %d on the whole", half.features, border)
 }
+
+// A circle of `n` points round the axis `axis` at `degrees` from it on the unit sphere,
+// closed (its last point is its first), each point then put out to `radius_at` of it.
+@(private = "file")
+guide_circle :: proc(axis: geom.Vec3, degrees: f32, n: int, radius_at: proc(p: geom.Vec3) -> f32, allocator := context.allocator) -> []geom.Vec3 {
+	w := linalg.normalize(axis)
+	u := linalg.normalize(linalg.cross(w, geom.Vec3{0, 1, 0} if abs(w.y) < 0.9 else geom.Vec3{1, 0, 0}))
+	v := linalg.cross(w, u)
+	a := degrees * math.PI / 180
+	line := make([]geom.Vec3, n + 1, allocator)
+	for k in 0 ..= n {
+		t := 2 * math.PI * f32(k % n) / f32(n)
+		p := w * math.cos(a) + (u * math.cos(t) + v * math.sin(t)) * math.sin(a)
+		line[k] = p * radius_at(p)
+	}
+	return line
+}
+
+// The mean angle in degrees between the quads' edges lying near `line` (their middles
+// within `near` of it) and its direction there, folded to 0..45 (an edge along or
+// square to it counts as 0), and how many edges were measured.
+@(private = "file")
+guide_alignment :: proc(r: Result, line: []geom.Vec3, near: f32) -> (mean: f32, edges: int) {
+	sum: f32
+	for quad in r.q.quads do for k in 0 ..< 4 {
+		a, b := r.mesh.positions[quad[k]], r.mesh.positions[quad[(k + 1) % 4]]
+		mid := (a + b) / 2
+		best := near
+		tangent: geom.Vec3
+		for s in 1 ..< len(line) {
+			p, q := line[s - 1], line[s]
+			along := clamp(linalg.dot(mid - p, q - p) / max(linalg.dot(q - p, q - p), 1e-12), 0, 1)
+			if d := linalg.length(p + (q - p) * along - mid); d < best {
+				best = d
+				tangent = linalg.normalize(q - p)
+			}
+		}
+		if tangent == {} do continue
+		theta := math.acos(clamp(abs(linalg.dot(linalg.normalize(b - a), tangent)), 0, 1)) * 180 / math.PI
+		sum += min(theta, 90 - theta)
+		edges += 1
+	}
+	return sum / f32(max(edges, 1)), edges
+}
+
+// Guides: a circle drawn round a sphere 30 degrees off its pole pulls the quads' edges
+// along it (under 10 degrees on average at full strength, where with no guide they lie at
+// random to it, about 27); a circle across the bumpy sphere likewise; with the mirror on,
+// the same circle guides the half; the count stays what was asked.
+@(test)
+quad_remesh_follows_guides :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	one :: proc(p: geom.Vec3) -> f32 {return 1}
+	bump :: proc(p: geom.Vec3) -> f32 {return 1 + 0.12 * math.sin(6 * p.x) * math.sin(6 * p.y) * math.sin(6 * p.z)}
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	circle := guide_circle({0.5, 0, 0.866}, 50, 200, one)
+	defer delete(circle)
+	lines := [][]geom.Vec3{circle}
+	near := f32(math.sqrt(4 * math.PI / 2000)) / 2
+	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil)
+	defer result_destroy(&plain)
+	half := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 0.5}, nil, source = {guides = lines})
+	defer result_destroy(&half)
+	full := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = lines})
+	defer result_destroy(&full)
+	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, mirror = {axes = {false, true, false}}}, nil, source = {guides = lines})
+	defer result_destroy(&mirrored)
+	bumpy := geom.icosphere(5)
+	defer geom.mesh_destroy(&bumpy)
+	for &p in bumpy.positions do p *= bump(p)
+	across := guide_circle({0.3, 0.9, 0.3}, 70, 300, bump)
+	defer delete(across)
+	bumpy_plain := compute(shape_view(&bumpy), 3000, {engine = .Auto}, nil)
+	defer result_destroy(&bumpy_plain)
+	bumpy_guided := compute(shape_view(&bumpy), 3000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = {across}})
+	defer result_destroy(&bumpy_guided)
+	results := [?]^Result{&plain, &half, &full, &mirrored, &bumpy_plain, &bumpy_guided}
+	for r in results do if !testing.expect(t, r.built && r.q.quads != nil, "nothing built, or not all quads") do return
+	a0, n0 := guide_alignment(plain, circle, near)
+	a1, n1 := guide_alignment(half, circle, near)
+	a2, n2 := guide_alignment(full, circle, near)
+	a3, n3 := guide_alignment(mirrored, circle, near)
+	near_bumpy := f32(math.sqrt(4 * math.PI / 3000)) / 2
+	b0, m0 := guide_alignment(bumpy_plain, across, near_bumpy)
+	b1, m1 := guide_alignment(bumpy_guided, across, near_bumpy)
+	log.infof("guides: none %.1f° (%d edges), half %.1f° (%d), full %.1f° (%d), mirrored %.1f° (%d); bumpy none %.1f° (%d), full %.1f° (%d); faces %d %d %d %d %d %d; guides %d %d %d",
+		a0, n0, a1, n1, a2, n2, a3, n3, b0, m0, b1, m1, plain.faces, half.faces, full.faces, mirrored.faces, bumpy_plain.faces, bumpy_guided.faces, half.guides, full.guides, mirrored.guides)
+	testing.expectf(t, full.guides == 1 && mirrored.guides == 1 && plain.guides == 0, "guides kept: %d, %d mirrored, %d with none", full.guides, mirrored.guides, plain.guides)
+	testing.expectf(t, a2 < 10 && a3 < 10 && b1 < 10, "at full strength the edges lie %.1f°, %.1f° mirrored and %.1f° on the bumpy sphere from the guide", a2, a3, b1)
+	testing.expectf(t, a1 < a0 && a2 <= a1 + 1 && a0 > 12 && b0 > 12, "the edges lie %.1f° from the guide with none, %.1f° at half and %.1f° at full (bumpy: %.1f° with none)", a0, a1, a2, b0)
+	// The mirrored count runs short of the count asked with or without guides (the flat
+	// cap takes more than its share), so only the whole remeshes are held to it.
+	for r in results[1:3] do testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
+	testing.expectf(t, bumpy_guided.faces >= 2850 && bumpy_guided.faces <= 3150, "%d faces for 3000 asked on the bumpy sphere", bumpy_guided.faces)
+}

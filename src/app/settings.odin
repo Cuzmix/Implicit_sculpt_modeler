@@ -247,6 +247,7 @@ SETTINGS := [?]Setting {
 	{"retopo_edge_degrees", U + offset_of(Ui_State, retopo_edge_degrees), f32, RETOPO_EDGE_DEGREES_MIN, 90},
 	{"retopo_use_paint", U + offset_of(Ui_State, retopo_use_paint), bool, 0, 0},
 	{"retopo_use_mask", U + offset_of(Ui_State, retopo_use_mask), bool, 0, 0},
+	{"retopo_guide_strength", U + offset_of(Ui_State, retopo_guide_strength), f32, 0, 1},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},
 	{"bake_orm", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, orm), bool, 0, 0},

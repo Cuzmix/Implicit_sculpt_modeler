@@ -417,6 +417,10 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		_ = command_button(app, .Curve_Brush_Run, width = ui.fill_width(ctx))
 		kit_curve_cage(app)
 		return
+	case .Guide:
+		ui.paragraph(ctx, "Quad Remesh runs its loops along the curve where it lies on the object, as firmly as Guide strength asks (Rebuild > Quads > More options).")
+		kit_curve_cage(app)
+		return
 	case:
 		kit_curve_cage(app)
 		return

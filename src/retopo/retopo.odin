@@ -58,16 +58,25 @@ Options :: struct {
 	// (vertex_density).
 	use_paint: bool,
 	use_mask:  bool,
+	// AutoRemesher's guides, as ZRemesher's Curves Strength: how hard `Source.guides` pull
+	// the quads' edges to run along them, 0 not at all to 1 as closely as the field can
+	// follow (GUIDE_STRENGTH_DEFAULT, half, as ZRemesher's).
+	guide_strength: f32,
 }
 
+GUIDE_STRENGTH_DEFAULT :: f32(0.5)
+
 // What the input carries that the options may keep: per triangle its polygroup, the
-// creased edges as sculpt.sharp_key keys of the input's vertices, and per vertex its
-// paint and its mask. Any nil for none. The caller owns them; compute reads them only.
+// creased edges as sculpt.sharp_key keys of the input's vertices, per vertex its paint
+// and its mask, and the guide curves drawn on it as polylines in its own space (a closed
+// curve ending where it starts). Any nil for none. The caller owns them; compute reads
+// them only.
 Source :: struct {
 	groups:  []u16,
 	creases: []u64,
 	paint:   []sculpt.Color,
 	mask:    []u8,
+	guides:  [][]geom.Vec3,
 }
 
 // The density per vertex of `n` that Use paint and Use mask ask for (quads per area
@@ -182,6 +191,7 @@ Result :: struct {
 	capped:    int, // AutoRemesher: triangles the input was decimated to first, 0 for none
 	closed:    int, // Close first: vertices of the voxel remesh that stood in for the input, 0 for none
 	features:  int, // AutoRemesher: polygroup borders and creased edges handed to it as feature edges
+	guides:    int, // AutoRemesher: guide curves that came within a quad's width of the surface
 	mirrored:  bool, // one part remeshed and mirrored, as the symmetry asked...
 	mirror:    geom.Remesh_Mirror, // ...across these planes
 	unmirrored: string, // symmetry asked but not kept: why (a literal, not owned)
@@ -365,6 +375,60 @@ half_densities :: proc(half: geom.Mesh, origins: geom.Slice_From, density: []f32
 	if lowest == max(f32) do lowest = 1
 	for o, v in origins.vertex do if o == geom.SLICE_NONE do out[v] = lowest
 	return out
+}
+
+// The guide curves as AutoRemesher takes them (quadmesh.Params.guides): the segments of
+// each polyline whose two ends lie within `reach` of `m`, both ends moved onto its
+// surface, two points a segment; and how many of the curves gave one. Under `mirror` each
+// segment is first cut at every plane and its parts on the - side reflected to the +
+// side, so a guide drawn on either side of a symmetric sculpt guides the part remeshed.
+@(private = "file")
+guide_segments :: proc(m: geom.Mesh, guides: [][]geom.Vec3, mirror: geom.Remesh_Mirror, reach: f32, pool: ^jobs.Pool) -> (segments: []geom.Vec3, curves: int) {
+	if len(guides) == 0 || !(reach > 0) || len(m.indices) == 0 do return
+	bvh := geom.bvh_build_morton(m, geom.BVH_LEAF_SIZE, pool)
+	defer geom.bvh_destroy(&bvh)
+	onto :: proc(bvh: ^geom.Bvh, m: geom.Mesh, p: geom.Vec3, reach: f32) -> (geom.Vec3, bool) {
+		tri, bary, _, ok := geom.bvh_closest(bvh^, m, p, reach)
+		if !ok do return {}, false
+		i := m.indices[3 * tri:][:3]
+		return bary[0] * m.positions[i[0]] + bary[1] * m.positions[i[1]] + bary[2] * m.positions[i[2]], true
+	}
+	out := make([dynamic]geom.Vec3)
+	pieces := make([dynamic][2]geom.Vec3)
+	defer delete(pieces)
+	cut := make([dynamic][2]geom.Vec3)
+	defer delete(cut)
+	for line in guides {
+		kept := false
+		for k in 1 ..< len(line) {
+			clear(&pieces)
+			append(&pieces, [2]geom.Vec3{line[k - 1], line[k]})
+			for a in 0 ..< 3 {
+				if !mirror.axes[a] do continue
+				c := mirror.center[a]
+				clear(&cut)
+				for piece in pieces {
+					da, db := piece[0][a] - c, piece[1][a] - c
+					if da * db < 0 {
+						mid := piece[0] + (piece[1] - piece[0]) * (da / (da - db))
+						mid[a] = c
+						append(&cut, [2]geom.Vec3{piece[0], mid}, [2]geom.Vec3{mid, piece[1]})
+					} else do append(&cut, piece)
+				}
+				for &piece in cut do for &p in piece do if p[a] < c do p[a] = 2 * c - p[a]
+				pieces, cut = cut, pieces
+			}
+			for piece in pieces {
+				a, a_ok := onto(&bvh, m, piece[0], reach)
+				b, b_ok := onto(&bvh, m, piece[1], reach)
+				if !a_ok || !b_ok || a == b do continue
+				append(&out, a, b)
+				kept = true
+			}
+		}
+		if kept do curves += 1
+	}
+	return out[:], curves
 }
 
 // The feature edges of `m` for AutoRemesher, two vertex indices each, each edge once:
@@ -553,6 +617,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	edge_degrees := options.edge_degrees if options.edge_degrees > 0 else EDGE_DEGREES_DEFAULT
 	features: []u32
 	defer delete(features)
+	guides: []geom.Vec3
+	defer delete(guides)
 	out: quadmesh.Polygon_Mesh
 	defer quadmesh.polygon_mesh_destroy(&out)
 	seam: [dynamic]bool
@@ -573,6 +639,16 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		params.features = features
 		r.features = len(features) / 2
 		params.density = input_density
+		// The guides within a quad's width of what goes in, onto its surface; again after
+		// a fallback to the whole mesh.
+		delete(guides)
+		guides, r.guides = nil, 0
+		if len(source.guides) > 0 && options.guide_strength > 0 {
+			area, _ := geom.mesh_area_bounds(input, pool)
+			guides, r.guides = guide_segments(input, source.guides, mirror if r.mirrored else {}, f32(math.sqrt(area / f64(max(asked, 1)))), pool)
+		}
+		params.guides = guides
+		params.guide_strength = clamp(options.guide_strength, 0, 1)
 		err: quadmesh.Error
 		reason: string
 		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
@@ -641,8 +717,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 	}
-	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges in %.0f ms; %s, %d boundary and %d non-manifold edges",
-		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, report.ms,
+	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges and %d guide segments in %.0f ms; %s, %d boundary and %d non-manifold edges",
+		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, len(guides) / 2, report.ms,
 		"closed" if check.closed else "open", check.boundary_edges, check.non_manifold_edges)
 	if jobs.progress_cancelled(progress) {
 		geom.mesh_destroy(&mesh)

@@ -1,8 +1,8 @@
 diff --git a/src/AutoRemesher/framefield.cpp b/src/AutoRemesher/framefield.cpp
-index 54c52e3..a4f098b 100644
+index 54c52e3..1742081 100644
 --- a/src/AutoRemesher/framefield.cpp
 +++ b/src/AutoRemesher/framefield.cpp
-@@ -83,12 +83,55 @@ namespace {
+@@ -83,12 +83,56 @@ namespace {
      }
  }
  
@@ -31,7 +31,8 @@ index 54c52e3..a4f098b 100644
 +
  bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
 -    std::vector<Vector3>* field)
-+    std::vector<Vector3>* field, const std::vector<char>* cornerFeature, const std::vector<double>* vertexLogScale)
++    std::vector<Vector3>* field, const std::vector<char>* cornerFeature, const std::vector<double>* vertexLogScale,
++    const std::vector<Vector3>* faceGuide)
  {
 +    const bool scaled = nullptr != vertexLogScale && vertexLogScale->size() == mesh.vertexCount();
 +    const bool hasCornerFeature = nullptr != cornerFeature && cornerFeature->size() == mesh.cornerCount();
@@ -59,7 +60,7 @@ index 54c52e3..a4f098b 100644
      std::vector<FacetTangentBasis> facetBases(faces);
      tbb::parallel_for(tbb::blocked_range<size_t>(0, faces), [&](const tbb::blocked_range<size_t>& range) {
          for (size_t faceIndex = range.begin(); faceIndex != range.end(); ++faceIndex)
-@@ -101,7 +144,8 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+@@ -101,7 +145,8 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
      for (size_t faceIndex = 0; faceIndex < faces; ++faceIndex)
          for (size_t cornerIndex = 3 * faceIndex; cornerIndex < 3 * faceIndex + 3; ++cornerIndex) {
              const size_t oppositeCornerIndex = mesh.oppositeCorner(cornerIndex);
@@ -69,7 +70,7 @@ index 54c52e3..a4f098b 100644
                  continue;
              const double fieldAngle = kSymmetry * tangentAngle(mesh.edgeVector(cornerIndex), facetBases[faceIndex]);
              periodic[2 * faceIndex] = std::cos(fieldAngle);
-@@ -183,7 +227,10 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+@@ -183,7 +228,10 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
          const size_t f = mesh.cornerFace(c), g = mesh.cornerFace(other);
          if (f < g)
              continue;
@@ -81,11 +82,30 @@ index 54c52e3..a4f098b 100644
          const double co = std::cos(transport), si = std::sin(transport);
          system.addEnergy({ { 2 * f, co }, { 2 * f + 1, si }, { 2 * g, -1.0 } }, 0.0);
          system.addEnergy({ { 2 * f, -si }, { 2 * f + 1, co }, { 2 * g + 1, -1.0 } }, 0.0);
+@@ -197,6 +245,18 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+             const size_t rowV = system.addEnergy({ { 2 * f + 1, 1.0 } }, periodic[2 * f + 1], weight);
+             certaintyRows.push_back({ rowU, rowV });
+         }
++    // The guides' rows aim at the guide itself every iteration, where the curvature's rows
++    // are aimed again at the last solution (they only steady its length).
++    if (nullptr != faceGuide && faceGuide->size() == faces)
++        for (size_t f = 0; f < faces; ++f) {
++            const Vector3& guide = (*faceGuide)[f];
++            const double weight = guide.length();
++            if (locked[f] || !(weight > 1e-12))
++                continue;
++            const double fieldAngle = kSymmetry * tangentAngle(guide, facetBases[f]);
++            system.addEnergy({ { 2 * f, 1.0 } }, std::cos(fieldAngle), weight);
++            system.addEnergy({ { 2 * f + 1, 1.0 } }, std::sin(fieldAngle), weight);
++        }
+ 
+     std::vector<double> solved;
+     for (size_t iteration = 0; iteration < 5; ++iteration) {
 diff --git a/src/AutoRemesher/framefield.h b/src/AutoRemesher/framefield.h
-index 3e586d0..17ecaf7 100644
+index 3e586d0..66e5dcc 100644
 --- a/src/AutoRemesher/framefield.h
 +++ b/src/AutoRemesher/framefield.h
-@@ -32,8 +32,24 @@ class SurfaceMesh;
+@@ -32,8 +32,30 @@ class SurfaceMesh;
  
  class FrameField {
  public:
@@ -98,10 +118,16 @@ index 3e586d0..17ecaf7 100644
 +    // loops than its border brings in: without it the cover can only stretch quads along
 +    // a fixed field, and a part asked four times denser comes out barely half as dense
 +    // again.
++    //
++    // `faceGuide` (per face, a direction in the face's plane whose length is its weight,
++    // zero for none; null for none at all) pulls each guided face's frame toward that
++    // direction with that weight, against the smoothness between neighbouring faces whose
++    // rows weigh 1 (the curvature's pull weighs at most 1): drawn guide curves, so the
++    // loops run along them. A face locked to a sharp or feature edge stays locked.
      static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
 -        std::vector<Vector3>* field);
 +        std::vector<Vector3>* field, const std::vector<char>* cornerFeature = nullptr,
-+        const std::vector<double>* vertexLogScale = nullptr);
++        const std::vector<double>* vertexLogScale = nullptr, const std::vector<Vector3>* faceGuide = nullptr);
 +
 +    // The turn the scaled metric adds to parallel transport across `corner`'s edge, from
 +    // its face to the face beyond, in radians: the change of the log scale along the edge
@@ -112,7 +138,7 @@ index 3e586d0..17ecaf7 100644
  }
  #endif
 diff --git a/src/AutoRemesher/parameterizer.cpp b/src/AutoRemesher/parameterizer.cpp
-index 03cc94a..02fc931 100644
+index 03cc94a..56090ba 100644
 --- a/src/AutoRemesher/parameterizer.cpp
 +++ b/src/AutoRemesher/parameterizer.cpp
 @@ -352,6 +352,16 @@ bool Parameterizer::parameterize()
@@ -137,7 +163,7 @@ index 03cc94a..02fc931 100644
          field = *m_triangleFieldVectors;
      } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
 -                   &field)) {
-+                   &field, m_cornerFeature, vertexLogScale.empty() ? nullptr : &vertexLogScale)) {
++                   &field, m_cornerFeature, vertexLogScale.empty() ? nullptr : &vertexLogScale, m_faceGuide)) {
          std::cerr << "Frame field solve failed" << std::endl;
          return false;
      }
@@ -158,20 +184,33 @@ index 03cc94a..02fc931 100644
          simplifier.simplify();
      }
  
-@@ -407,7 +422,7 @@ bool Parameterizer::parameterize()
+@@ -403,11 +418,20 @@ bool Parameterizer::parameterize()
+             m_progressHandler(0.28f + (0.99f - 0.28f) * fraction, name);
+         };
+     }
++    // A guided face keeps its direction through the cover's curl correction, as firmly as
++    // the guide pulled the field there: the curl it would have turned away is taken up by
++    // the quads' sizes instead (measured: a guide circle round a sphere at full strength
++    // left the edges 13 degrees off it on average with the turn free).
++    std::vector<double> faceTurnWeight;
++    if (nullptr != m_faceGuide && m_faceGuide->size() == m_triangles->size()) {
++        faceTurnWeight.resize(m_faceGuide->size());
++        for (size_t f = 0; f < faceTurnWeight.size(); ++f) faceTurnWeight[f] = (*m_faceGuide)[f].length();
++    }
+     QuadParameterizer::Result cover;
      if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
              &field, m_scaling, m_sharpEdgeDegrees, &cover,
              &faceScalingField, &faceScalingU, &faceScalingV,
 -            coverProgress ? &coverProgress : nullptr)) {
-+            coverProgress ? &coverProgress : nullptr, m_cornerFeature)) {
++            coverProgress ? &coverProgress : nullptr, m_cornerFeature, faceTurnWeight.empty() ? nullptr : &faceTurnWeight)) {
          std::cerr << "Quad cover solve failed" << std::endl;
          return false;
      }
 diff --git a/src/AutoRemesher/parameterizer.h b/src/AutoRemesher/parameterizer.h
-index 9a6b98b..2fc3117 100644
+index 9a6b98b..035fe4a 100644
 --- a/src/AutoRemesher/parameterizer.h
 +++ b/src/AutoRemesher/parameterizer.h
-@@ -90,6 +90,24 @@ public:
+@@ -90,6 +90,31 @@ public:
          m_maximumSingularityPairDistance = faceHops;
      }
  
@@ -193,15 +232,23 @@ index 9a6b98b..2fc3117 100644
 +        m_vertexScaling = vertexScaling;
 +    }
 +
++    // Per face: the direction a drawn guide asks the quads' edges to take there, its
++    // length the guide's weight (zero for none), handed to FrameField::create.
++    void setFaceGuides(const std::vector<Vector3>* faceGuide)
++    {
++        m_faceGuide = faceGuide;
++    }
++
      void setProgressHandler(ProgressHandler progressHandler)
      {
          m_progressHandler = std::move(progressHandler);
-@@ -112,6 +130,8 @@ private:
+@@ -112,6 +137,9 @@ private:
      double m_maxAspectRatio = 2.3;
      bool m_singularitySimplification = true;
      size_t m_maximumSingularityPairDistance = 6;
 +    const std::vector<char>* m_cornerFeature = nullptr;
 +    const std::vector<double>* m_vertexScaling = nullptr;
++    const std::vector<Vector3>* m_faceGuide = nullptr;
      ProgressHandler m_progressHandler;
  
      std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
@@ -373,7 +420,7 @@ index 1420098..f06602d 100644
      std::map<std::pair<size_t, size_t>, ConnectionInfo> m_connectionInfos;
      std::set<std::pair<size_t, size_t>> m_addedConnections;
 diff --git a/src/AutoRemesher/quadparameterizer.cpp b/src/AutoRemesher/quadparameterizer.cpp
-index cabf5c7..2316a05 100644
+index cabf5c7..bddf9fc 100644
 --- a/src/AutoRemesher/quadparameterizer.cpp
 +++ b/src/AutoRemesher/quadparameterizer.cpp
 @@ -78,9 +78,9 @@ namespace {
@@ -407,17 +454,37 @@ index cabf5c7..2316a05 100644
          });
          return cornerConstraints;
      }
-@@ -647,7 +650,8 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+@@ -268,7 +271,7 @@ namespace {
+         const std::vector<int>& rotation, const std::vector<signed char>& cornerConstraints,
+         const std::vector<double>* faceScaling, double scale, double regularization,
+         std::vector<double>* scalingU, std::vector<double>* scalingV,
+-        std::vector<Vector3>* field)
++        std::vector<Vector3>* field, const std::vector<double>* faceTurnWeight)
+     {
+         const size_t faceCount = mesh.faceCount();
+         const bool hasFaceScaling = faceScaling && faceScaling->size() == faceCount;
+@@ -335,7 +338,8 @@ namespace {
+             if (anchored[f])
+                 system.addConstraint({ { 3 * f, 1.0 } }, 0.0);
+             else
+-                system.addEnergy({ { 3 * f, 1.0 } }, 0.0, regularization);
++                system.addEnergy({ { 3 * f, 1.0 } }, 0.0,
++                    regularization + (faceTurnWeight && faceTurnWeight->size() == faceCount ? (*faceTurnWeight)[f] : 0.0));
+             system.addEnergy({ { 3 * f + 1, 1.0 } }, 0.0, regularization);
+             system.addEnergy({ { 3 * f + 2, 1.0 } }, 0.0, regularization);
+         }
+@@ -647,7 +651,9 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
      const std::vector<double>* faceScaling,
      const std::vector<double>* faceScalingU,
      const std::vector<double>* faceScalingV,
 -    const ProgressHandler* progressHandler)
 +    const ProgressHandler* progressHandler,
-+    const std::vector<char>* cornerFeature)
++    const std::vector<char>* cornerFeature,
++    const std::vector<double>* faceTurnWeight)
  {
      const auto report = [progressHandler](float fraction, const char* name) {
          if (nullptr != progressHandler && *progressHandler)
-@@ -685,7 +689,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+@@ -685,13 +691,13 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
      const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
      result->cornerRotations = rotation;
      const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
@@ -426,18 +493,29 @@ index cabf5c7..2316a05 100644
      if (trackDirectionalScale)
          applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
              &activeScalingU, &activeScalingV);
+     report(0.20f, "Correcting field curl");
+     applyCurlCorrection(mesh, normals, rotation, cornerConstraints,
+-        faceScaling, scale, 1e-4, &activeScalingU, &activeScalingV, &result->field);
++        faceScaling, scale, 1e-4, &activeScalingU, &activeScalingV, &result->field, faceTurnWeight);
+     const std::vector<char> seam = computeSeam(mesh, rotation);
+ 
+     const CoverContext ctx { mesh, result->field, normals, rotation, seam, cornerConstraints,
 diff --git a/src/AutoRemesher/quadparameterizer.h b/src/AutoRemesher/quadparameterizer.h
-index ffb2ed2..3360699 100644
+index ffb2ed2..0a4a1d7 100644
 --- a/src/AutoRemesher/quadparameterizer.h
 +++ b/src/AutoRemesher/quadparameterizer.h
-@@ -47,7 +47,9 @@ public:
+@@ -47,7 +47,13 @@ public:
          const std::vector<double>* faceScalingV = nullptr,
          // Reports 0..1 across the quad cover solve, which is the single longest
          // step of the whole pipeline and would otherwise be one silent block.
 -        const ProgressHandler* progressHandler = nullptr);
 +        const ProgressHandler* progressHandler = nullptr,
 +        // Corners (3 a face) whose edge is kept as a quad edge whatever its angle.
-+        const std::vector<char>* cornerFeature = nullptr);
++        const std::vector<char>* cornerFeature = nullptr,
++        // Per face, how firmly the curl correction keeps its direction (a drawn guide's
++        // weight there), so the curl is taken up by the quads' sizes instead; null or 0
++        // for the core's own, which turns a face as readily as it sizes it.
++        const std::vector<double>* faceTurnWeight = nullptr);
  };
  
  }

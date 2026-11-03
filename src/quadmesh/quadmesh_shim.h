@@ -26,6 +26,12 @@ typedef struct Qm_Params {
      * for none. */
     const float* density;
     uint32_t density_count;
+    /* Guide curves: `guide_count` segments, each two points of x, y and z (six floats),
+     * near the surface; the quads' edges are pulled to run along them, by
+     * `guide_strength` (0 not at all, 1 as closely as the field can follow). NULL for none. */
+    const float* guides;
+    uint32_t guide_count;
+    float guide_strength;
 } Qm_Params;
 
 /* Called as the remesh advances, from the calling thread or a worker; returns whether to

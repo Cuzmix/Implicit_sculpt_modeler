@@ -15,7 +15,9 @@
 // singularity simplification, quad cover) and the quads extracted, then the islands
 // joined. A density per vertex (Use paint, Use mask) shortens the isotropic target edge
 // where it asks for more quads, rides the isotropic remesh to its vertices, and scales the
-// cover per face, normalised so the count stays. The quad edge wanted is sqrt(area / quads) over the whole input, and each
+// cover per face, normalised so the count stays. Guide curves give the faces near them a
+// direction and a weight (faceGuides) that the frame field pulls toward and the cover's
+// curl correction keeps. The quad edge wanted is sqrt(area / quads) over the whole input, and each
 // island's parameterizer gets it as a multiple of that island's measured mean edge, which
 // is the number the cover multiplies by; the cover still lands short where the field has
 // curl it cannot flatten, so its area in cells is measured and a second cover corrects
@@ -560,11 +562,110 @@ struct Stages {
     std::atomic<long long> decimateUs { 0 }, isotropicUs { 0 }, parameterizeUs { 0 }, extractUs { 0 };
 };
 
+// The guide curves (Qm_Params.guides) as segments, shared by every island: no segment is
+// longer than `cell`, so each lies in the cells its ends do and their neighbours, and a
+// face looks in the 27 cells round its middle for the segments within `cell` of it.
+struct Guides {
+    std::vector<std::pair<Vector3, Vector3>> segments;
+    std::unordered_map<uint64_t, std::vector<size_t>> cells;
+    double cell = 0.0;
+    double weight = 0.0;
+
+    static uint64_t key(int64_t x, int64_t y, int64_t z)
+    {
+        const auto part = [](int64_t a) { return (uint64_t)(a + (1 << 20)) & 0x1fffff; };
+        return (part(x) << 42) | (part(y) << 21) | part(z);
+    }
+    void cellOf(const Vector3& p, int64_t* c) const
+    {
+        for (int k = 0; k < 3; ++k) c[k] = (int64_t)std::floor(p[k] / cell);
+    }
+};
+
+// The guides cut to pieces no longer than `cell` and filed by cell; `strength` 0..1 becomes
+// the frame field's weight s / (1 - s + 0.01): about 1 at a half, as strong as the
+// curvature's strongest pull, and 100 at full, where the field follows the guide nearly
+// exactly. Empty for no guides or no strength.
+Guides makeGuides(const Qm_Params& params, double cell)
+{
+    Guides g;
+    const double s = std::isfinite(params.guide_strength) ? std::max(0.0, std::min(1.0, (double)params.guide_strength)) : 0.0;
+    if (nullptr == params.guides || 0 == params.guide_count || s <= 0.0 || !(cell > 0.0)) return g;
+    g.cell = cell;
+    g.weight = s / (1.0 - s + 0.01);
+    for (uint32_t i = 0; i < params.guide_count; ++i) {
+        const float* q = params.guides + 6 * (size_t)i;
+        const Vector3 a(q[0], q[1], q[2]), b(q[3], q[4], q[5]);
+        if (!std::isfinite(a.x() + a.y() + a.z() + b.x() + b.y() + b.z())) continue;
+        const double length = (b - a).length();
+        if (!(length > 1e-12)) continue;
+        const size_t pieces = std::min<size_t>(1 << 16, (size_t)std::ceil(length / cell));
+        for (size_t k = 0; k < pieces; ++k)
+            g.segments.push_back({ a + (b - a) * ((double)k / pieces), a + (b - a) * ((double)(k + 1) / pieces) });
+    }
+    for (size_t i = 0; i < g.segments.size(); ++i) {
+        int64_t c[3];
+        g.cellOf((g.segments[i].first + g.segments[i].second) * 0.5, c);
+        g.cells[Guides::key(c[0], c[1], c[2])].push_back(i);
+    }
+    return g;
+}
+
+// Per face of the isotropic mesh, the direction the guides ask its quads' edges to take
+// (the nearest segment's, in the face's plane) times the weight, falling off to nothing
+// at `reach` quad edges from the segment (each face's quad edge is `quadEdge` times its
+// corners' mean vertexScale); zero for a face no guide comes near. Empty when no face is.
+std::vector<Vector3> faceGuides(const Guides& guides, const std::vector<Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& triangles, const std::vector<double>& vertexScale, double quadEdge)
+{
+    constexpr double reach = 0.75;
+    std::vector<Vector3> out;
+    if (guides.segments.empty()) return out;
+    out.assign(triangles.size(), Vector3());
+    bool any = false;
+    for (size_t f = 0; f < triangles.size(); ++f) {
+        const auto& t = triangles[f];
+        const Vector3 &p0 = vertices[t[0]], &p1 = vertices[t[1]], &p2 = vertices[t[2]];
+        const Vector3 middle = (p0 + p1 + p2) / 3.0;
+        const double s = vertexScale.size() == vertices.size() ? (vertexScale[t[0]] + vertexScale[t[1]] + vertexScale[t[2]]) / 3.0 : 1.0;
+        const double within = std::min(reach * quadEdge * s, guides.cell);
+        int64_t c[3];
+        guides.cellOf(middle, c);
+        double best = within;
+        size_t nearest = std::numeric_limits<size_t>::max();
+        for (int64_t dx = -1; dx <= 1; ++dx)
+            for (int64_t dy = -1; dy <= 1; ++dy)
+                for (int64_t dz = -1; dz <= 1; ++dz) {
+                    const auto found = guides.cells.find(Guides::key(c[0] + dx, c[1] + dy, c[2] + dz));
+                    if (found == guides.cells.end()) continue;
+                    for (const size_t i : found->second) {
+                        const Vector3 &a = guides.segments[i].first, &b = guides.segments[i].second;
+                        const Vector3 ab = b - a;
+                        const double along = std::max(0.0, std::min(1.0, Vector3::dotProduct(middle - a, ab) / ab.lengthSquared()));
+                        const double d = (a + ab * along - middle).length();
+                        if (d < best || (d == best && i < nearest)) {
+                            best = d;
+                            nearest = i;
+                        }
+                    }
+                }
+        if (nearest == std::numeric_limits<size_t>::max()) continue;
+        const Vector3 normal = Vector3::crossProduct(p1 - p0, p2 - p0).normalized();
+        Vector3 direction = guides.segments[nearest].second - guides.segments[nearest].first;
+        direction = direction - normal * Vector3::dotProduct(direction, normal);
+        if (!(direction.length() > 1e-12)) continue;
+        out[f] = direction.normalized() * (guides.weight * (1.0 - best / within));
+        any = true;
+    }
+    if (!any) out.clear();
+    return out;
+}
+
 // Runs the stages on one island; progress reported as the island's share. An island whose
 // parameterization fails is left without quads, with the reason kept for the report, as
 // the core does; a cancel passes through.
 void remeshIsland(size_t index, Island& island, const Qm_Params& params, double voxelSize, double quadEdge,
-    Handler& handler, Stages& stages)
+    const Guides& guides, Handler& handler, Stages& stages)
 {
     auto& vertices = island.vertices;
     auto& triangles = island.triangles;
@@ -660,6 +761,7 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         scaledArea += a / (s * s);
     }
     const double cellsWanted = scaledArea / (quadEdge * quadEdge);
+    const std::vector<Vector3> guided = faceGuides(guides, vertices, triangles, vertexScale, quadEdge);
     std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> uvs;
     std::vector<std::vector<AutoRemesher::Vector2>> originalUvs;
     std::vector<size_t> singular;
@@ -676,6 +778,7 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         parameterizer.setSharpEdgeDegrees(params.sharp_degrees);
         if (!cornerFeature.empty()) parameterizer.setCornerFeatures(&cornerFeature);
         if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
+        if (!guided.empty()) parameterizer.setFaceGuides(&guided);
         bool parameterized = true;
         try {
             parameterized = parameterizer.parameterize();
@@ -872,10 +975,13 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
         islandFaces.clear();
         islandFaces.shrink_to_fit();
 
+        // The guides reach a face within three quarters of its quad edge, at most four
+        // times the plain one where the density makes the quads larger.
+        const Guides guides = makeGuides(*params, 4.0 * 0.75 * quadEdge);
         Stages stages;
         handler.whole(parallelPhaseBegin, "Remeshing uniformly");
         overIslands(islands.size(), threads, [&](size_t i) {
-            remeshIsland(i, islands[i], *params, voxelSize, quadEdge, handler, stages);
+            remeshIsland(i, islands[i], *params, voxelSize, quadEdge, guides, handler, stages);
         });
 
         handler.whole(parallelPhaseEnd, "Merging mesh islands");

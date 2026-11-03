@@ -63,7 +63,7 @@ object_shape :: proc(obj: ^Object, top: bool, mask: ^[]u8 = nil) -> (view: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength}
 }
 
 // The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
@@ -76,9 +76,10 @@ RETOPO_EDGE_DEGREES_MIN :: f32(15)
 // the caller frees (quad_source_destroy): the job's thread reads them while the object
 // goes on being edited. A dynamic object's packing renumbers its vertices and keeps no
 // paint, so its mask comes from the packing (object_shape, long_job_copy) and its paint
-// is not used.
-quad_source :: proc(obj: ^Object, options: retopo.Options) -> (src: retopo.Source) {
+// is not used. The Guide curves come too, when Guide strength asks for them (quad_guides).
+quad_source :: proc(app: ^App, obj: ^Object, options: retopo.Options) -> (src: retopo.Source) {
 	if obj == nil || obj.voxel != nil do return
+	if options.guide_strength > 0 do src.guides = quad_guides(app, obj)
 	s := object_sculptor(obj)
 	if sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
 	if !object_dynamic(obj) {
@@ -93,11 +94,46 @@ quad_source :: proc(obj: ^Object, options: retopo.Options) -> (src: retopo.Sourc
 }
 
 quad_source_destroy :: proc(src: ^retopo.Source) {
+	for line in src.guides do delete(line)
+	delete(src.guides)
 	delete(src.groups)
 	delete(src.creases)
 	delete(src.paint)
 	delete(src.mask)
 	src^ = {}
+}
+
+// Points a Guide curve is sampled at for Quad Remesh, along its whole length: finer than
+// any quad count the Quads slider reaches spreads along one curve.
+GUIDE_SAMPLES :: 512
+
+// The scene's shown Guide curves as polylines in `obj`'s own space, a closed one ending
+// where it starts, for Quad Remesh (retopo.Source.guides; retopo keeps the ones that lie
+// on the object); nil with none. Each polyline is its own allocation, as is the list.
+quad_guides :: proc(app: ^App, obj: ^Object) -> [][]geom.Vec3 {
+	lines := make([dynamic][]geom.Vec3)
+	for o in app.scene.objects {
+		cp := o.curve
+		if cp == nil || cp.use != .Guide || !object_shown(app, o) do continue
+		length := geom.bezier_length(cp.points[:], cp.closed)
+		samples := geom.bezier_sample(cp.points[:], cp.closed, length / GUIDE_SAMPLES, context.temp_allocator)
+		if len(samples) < 2 do continue
+		line := make([]geom.Vec3, len(samples) + (1 if cp.closed else 0))
+		for sample, i in samples do line[i] = to_local(obj.transform, to_world(o.transform, sample.p))
+		if cp.closed do line[len(samples)] = line[0]
+		append(&lines, line)
+	}
+	if len(lines) == 0 {
+		delete(lines)
+		return nil
+	}
+	return lines[:]
+}
+
+// How many shown Guide curves the scene has, for the Guide strength row.
+quad_guide_count :: proc(app: ^App) -> (n: int) {
+	for o in app.scene.objects do if o.curve != nil && o.curve.use == .Guide && object_shown(app, o) do n += 1
+	return
 }
 
 // The panel set to a command's options (Adjust last); Keep symmetry turns on when the
@@ -107,6 +143,7 @@ quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases = o.keep_groups, o.keep_creases
 	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
 	app.ui.retopo_use_paint, app.ui.retopo_use_mask = o.use_paint, o.use_mask
+	app.ui.retopo_guide_strength = o.guide_strength
 	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
@@ -117,7 +154,7 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int, options: retopo.Optio
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	source := quad_source(obj, options)
+	source := quad_source(app, obj, options)
 	defer quad_source_destroy(&source)
 	view, packed := object_shape(obj, top = false, mask = &source.mask if options.use_mask && object_dynamic(obj) else nil)
 	r := retopo.compute(view, quads, options, &app.pool, source = source)
@@ -177,6 +214,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
 	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
+	if res.guides > 0 do engine = fmt.tprintf("%s, guided by %d curve%s", engine, res.guides, "" if res.guides == 1 else "s")
 	if res.unkept != "" do engine = fmt.tprintf("%s, %s", engine, res.unkept)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
