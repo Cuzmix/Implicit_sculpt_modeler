@@ -903,6 +903,11 @@ vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: s
 @(private = "file")
 vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32, accel: bool) -> ^sdl.GPUComputePipeline {
 	if .SPIRV not_in info.format do return nil
+	// The command buffer holds that many read-only buffers' bindings (Vk_Cmd.compute_storage).
+	if info.num_readonly_storage_buffers > VK_COMPUTE_STORAGE_BUFFERS {
+		sdl.SetError("Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
+		return nil
+	}
 	layout := vk_compute_layout(info, array, accel)
 	if layout == nil do return nil
 	module := vk_module(info.code[:info.code_size])

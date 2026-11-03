@@ -30,6 +30,7 @@ static const uint FLAG_TILT = 8;    // the area normal is turned by the tilt row
 static const uint FLAG_ONCE = 16;   // Draw, Inflate: Accumulate off, the stroke's heights cap the move
 static const uint FLAG_MASK = 32;   // the mask's bytes shield the vertices (sculpt.shield)
 static const uint FLAG_DRAWN = 64;  // a drawn falloff's table (sculpt.falloff_drawn) in place of the round one
+static const uint FLAG_FADE = 128;  // an HD window's fade bytes shield the vertices (sculpt.shield)
 
 // sculpt.FALLOFF_STEPS: a drawn falloff's table holds one more value.
 static const float FALLOFF_STEPS = 256.0;
@@ -56,11 +57,13 @@ struct Dab {
 [[vk::binding(3, 0)]] StructuredBuffer<uint2> slabs;  // first vertex, count
 [[vk::binding(4, 0)]] StructuredBuffer<Dab> dabs;
 [[vk::binding(5, 0)]] StructuredBuffer<uint> normals; // packed, mask nibbles low (node_normals.comp.slang)
-// The level's mask, a byte a vertex four to a uint (render.sculpt_gpu_mask_upload): read
+// The level's mask, a byte a vertex four to a uint (render.sculpt_gpu_bytes_upload): read
 // only with FLAG_MASK. The nibbles in `normals` are for drawing, too coarse for the brush.
 [[vk::binding(6, 0)]] StructuredBuffer<uint> mask;
 // The frame's drawn falloff tables (sculpt.Falloff.table): read only with FLAG_DRAWN.
 [[vk::binding(7, 0)]] StructuredBuffer<float> tables;
+// An HD window's fade toward its border, packed as the mask is: read only with FLAG_FADE.
+[[vk::binding(8, 0)]] StructuredBuffer<uint> fade;
 [[vk::binding(0, 1)]] RWStructuredBuffer<float> positions; // 3 floats a vertex
 [[vk::binding(1, 1)]] RWStructuredBuffer<float4> partials; // a slab's area sums: normal.xyz and weight, then the centre
 [[vk::binding(2, 1)]] RWStructuredBuffer<float4> areas;    // a dab's area: the normal, then a point on the plane
@@ -140,11 +143,14 @@ float dab_weight(Dab d, float3 delta, float d2) {
 	return falloff(x2);
 }
 
-// sculpt.shield without an HD fade: what the mask leaves of the vertex, 1 unmasked.
+// sculpt.shield, in its order: what an HD window's fade and the mask leave of the vertex,
+// 1 with neither.
 float shield(Dab d, uint v) {
-	if ((d.slabs.w & FLAG_MASK) == 0) return 1.0;
-	uint m = (mask[v >> 2] >> ((v & 3) * 8)) & 255;
-	return float(255 - m) * (1.0 / 255.0);
+	float w = 1.0;
+	uint shift = (v & 3) * 8;
+	if ((d.slabs.w & FLAG_FADE) != 0) w = float((fade[v >> 2] >> shift) & 255) * (1.0 / 255.0);
+	if ((d.slabs.w & FLAG_MASK) != 0) w *= float(255 - ((mask[v >> 2] >> shift) & 255)) * (1.0 / 255.0);
+	return w;
 }
 
 // sculpt.facing_weight: 1 with front faces only off or the vertex facing the viewer, 0

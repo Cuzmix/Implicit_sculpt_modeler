@@ -103,11 +103,23 @@ Mesh_Sculpt :: struct {
 	// finds and reads back with their positions.
 	shared:       ^sdl.GPUBuffer,
 	queued_nodes: [dynamic]Sculpt_Node,
-	// The level's mask, a byte a vertex packed four to a uint (dab.slang `mask`), for the
-	// vertices it was made for; nil while the level has no mask or the GPU sculpts no
-	// stroke on it (sculpt_gpu_mask_upload).
-	mask:          ^sdl.GPUBuffer,
-	mask_vertices: u32,
+	// The level's mask and an HD window's fade, a byte a vertex packed four to a uint
+	// (dab.slang `mask` and `fade`), each for the vertices it was made for; nil while the
+	// level has none or the GPU sculpts no stroke on it (sculpt_gpu_bytes_upload).
+	bytes: [Sculpt_Bytes]Sculpt_Byte_Buffer,
+}
+
+// The per-vertex bytes that shield vertices from a dab (sculpt.shield): the mask, and the
+// fade toward an HD window's border.
+Sculpt_Bytes :: enum u8 {
+	Mask,
+	Fade,
+}
+
+// One kind of those bytes on the GPU, for `vertices` vertices (0 while none are up).
+Sculpt_Byte_Buffer :: struct {
+	buffer:   ^sdl.GPUBuffer,
+	vertices: u32,
 }
 
 // A node for the bounds kernel (node_bounds.comp.slang; sculpt.Gpu_Node, the same bytes).
@@ -146,7 +158,8 @@ Sculpt_Dab :: struct {
 	peaks:        bool, // Smooth: only vertices above it
 	once:         bool, // Draw, Inflate: Accumulate off, the stroke's heights cap the move
 	stroke:       u32,  // the stroke's number for the heights
-	masked:       bool, // the mesh's mask bytes shield the vertices (sculpt_gpu_mask_upload)
+	masked:       bool, // the mesh's mask bytes shield the vertices (sculpt_gpu_bytes_upload)
+	faded:        bool, // the HD window's fade bytes do too
 	falloff:      []f32, // a drawn falloff's table (sculpt.FALLOFF_STEPS + 1 values), nil for the round one
 	// The hit nodes' owned vertex ranges, coalesced and sorted: what the kernels work on.
 	ranges:       []geom.Vertex_Range,
@@ -191,6 +204,8 @@ DAB_FLAG_ONCE :: 16
 DAB_FLAG_MASK :: 32
 @(private = "file")
 DAB_FLAG_DRAWN :: 64
+@(private = "file")
+DAB_FLAG_FADE :: 128
 
 // The dab kernels, in the order a dab runs them.
 Sculpt_Dab_Stage :: enum {
@@ -288,9 +303,9 @@ Sculpt_Gpu :: struct {
 	tables_capacity:      u32,
 	tables_transfer:      ^sdl.GPUTransferBuffer,
 	tables_transfer_size: u32,
-	// The mask bytes on their way up (sculpt_gpu_mask_upload).
-	mask_transfer:        ^sdl.GPUTransferBuffer,
-	mask_transfer_size:   u32,
+	// The mask and fade bytes on their way up (sculpt_gpu_bytes_upload).
+	bytes_transfer:       [Sculpt_Bytes]^sdl.GPUTransferBuffer,
+	bytes_transfer_size:  [Sculpt_Bytes]u32,
 	// A slice of a lookup on its way up (sculpt_gpu_prepare), released once it is all up.
 	lookup_transfer:      ^sdl.GPUTransferBuffer,
 	lookup_transfer_size: u32,
@@ -310,9 +325,9 @@ sculpt_gpu_offered :: proc(r: ^Renderer) -> bool {
 	else do return false
 }
 
-// The most storage buffers a sculpt kernel binds: the dab kernels' eight read-only
+// The most storage buffers a sculpt kernel binds: the dab kernels' nine read-only
 // (dab.slang set 0) and five read-write (set 1).
-SCULPT_STORAGE_BUFFERS :: 13
+SCULPT_STORAGE_BUFFERS :: 14
 
 // The slots from the oldest submitted to the one this frame records into: the readbacks
 // land in the order they were submitted, so a newer never lands before an older.
@@ -459,25 +474,29 @@ sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_B
 	return .Ready
 }
 
-// The largest mask upload whose buffer is kept for the next.
-SCULPT_MASK_KEEP :: 4 << 20
+// The largest byte upload whose upload buffer is kept for the next.
+SCULPT_BYTES_KEEP :: 4 << 20
 
-// Keeps the level's mask (`mask`, a byte a vertex, nil for none) on the GPU for the dab
-// kernels while the mesh has a lookup (sculpt_gpu_prepare): all of it when the level first
-// has a mask or the buffers grew, else the bytes of the vertex `ranges` the frame uploads,
-// which hold every vertex whose mask changed (a mask change marks its nodes for the
-// flush). Recorded on the frame's `cmd` before its dispatch. Bytes, for the stats.
-sculpt_gpu_mask_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mask: []u8, ranges: []geom.Vertex_Range) -> int {
+// Keeps the level's bytes of one `kind` (`values`, a byte a vertex, nil for none) on the
+// GPU for the dab kernels while the mesh has a lookup (sculpt_gpu_prepare): all of them
+// when the level first has them or the buffers grew, else the bytes of the vertex
+// `ranges` the frame uploads, which hold every vertex whose bytes changed (a mask change
+// marks its nodes for the flush; an HD window's fade is set when the window is made and
+// changes only under dynamic topology, which changes the vertex count). Recorded on the
+// frame's `cmd` before its dispatch. Bytes, for the stats.
+sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, kind: Sculpt_Bytes, values: []u8, ranges: []geom.Vertex_Range) -> int {
 	sg, ms := &r.sculpt_gpu, &mb.sculpt
-	if mask == nil || ms.offsets == nil || ms.failed {
-		if ms.mask != nil do gpu_release_buffer(r.device, ms.mask)
-		ms.mask, ms.mask_vertices = nil, 0
+	held := &ms.bytes[kind]
+	what := "mask" if kind == .Mask else "fade"
+	if values == nil || ms.offsets == nil || ms.failed {
+		if held.buffer != nil do gpu_release_buffer(r.device, held.buffer)
+		held^ = {}
 		return 0
 	}
-	count := u32(len(mask))
-	// A stroke whose dabs run on the GPU changes no mask (whatever changes one ends the
-	// stroke first): its frames' ranges are the dabs' and copy nothing.
-	if ms.mask != nil && ms.mask_vertices == count && sculpt_gpu_upload(mb) == .None do return 0
+	count := u32(len(values))
+	// A stroke whose dabs run on the GPU changes no mask or fade (whatever changes one
+	// ends the stroke first): its frames' ranges are the dabs' and copy nothing.
+	if held.buffer != nil && held.vertices == count && sculpt_gpu_upload(mb) == .None do return 0
 	start := time.tick_now()
 	// Four vertices a uint: a range is copied out to whole uints, its neighbours' bytes
 	// as the CPU holds them.
@@ -486,15 +505,15 @@ sculpt_gpu_mask_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Me
 		first, count: u32, // in bytes, multiples of four
 	}
 	spans := make([dynamic]Span, 0, len(ranges) + 1, context.temp_allocator)
-	if ms.mask == nil || ms.mask_vertices != count {
-		if ms.mask != nil do gpu_release_buffer(r.device, ms.mask)
-		ms.mask = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = max(padded, 4)})
-		ms.mask_vertices = 0
-		if ms.mask == nil {
-			log.errorf("sculpt on the GPU: the mask's %d MB were refused (%s); masked strokes stay on the CPU", padded >> 20, sdl.GetError())
+	if held.buffer == nil || held.vertices != count {
+		if held.buffer != nil do gpu_release_buffer(r.device, held.buffer)
+		held^ = {}
+		held.buffer = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = max(padded, 4)})
+		if held.buffer == nil {
+			log.errorf("sculpt on the GPU: the %s's %d MB were refused (%s); its strokes stay on the CPU", what, padded >> 20, sdl.GetError())
 			return 0
 		}
-		gpu_set_buffer_name(r.device, ms.mask, "sculpt mask")
+		gpu_set_buffer_name(r.device, held.buffer, "sculpt mask" if kind == .Mask else "sculpt fade")
 		append(&spans, Span{0, padded})
 	} else {
 		for rg in ranges {
@@ -512,45 +531,46 @@ sculpt_gpu_mask_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Me
 	total: u32
 	for sp in spans do total += sp.count
 	if total == 0 do return 0
-	if !transfer_fit(r, &sg.mask_transfer, &sg.mask_transfer_size, total) {
-		log.errorf("sculpt on the GPU: an upload buffer of %d KB for the mask was refused (%s)", total >> 10, sdl.GetError())
-		gpu_release_buffer(r.device, ms.mask)
-		ms.mask, ms.mask_vertices = nil, 0
+	transfer, transfer_size := &sg.bytes_transfer[kind], &sg.bytes_transfer_size[kind]
+	if !transfer_fit(r, transfer, transfer_size, total) {
+		log.errorf("sculpt on the GPU: an upload buffer of %d KB for the %s was refused (%s)", total >> 10, what, sdl.GetError())
+		gpu_release_buffer(r.device, held.buffer)
+		held^ = {}
 		return 0
 	}
-	dst := cast([^]u8)gpu_map_transfer_buffer(r.device, sg.mask_transfer, true)
+	dst := cast([^]u8)gpu_map_transfer_buffer(r.device, transfer^, true)
 	if dst == nil {
-		gpu_release_buffer(r.device, ms.mask)
-		ms.mask, ms.mask_vertices = nil, 0
+		gpu_release_buffer(r.device, held.buffer)
+		held^ = {}
 		return 0
 	}
 	at: u32
 	for sp in spans {
 		// The last uint's bytes past the mesh's end are zero (never read).
 		have := min(sp.first + sp.count, count) - sp.first
-		copy(dst[at:][:have], mask[sp.first:][:have])
+		copy(dst[at:][:have], values[sp.first:][:have])
 		for k in have ..< sp.count do dst[at + k] = 0
 		at += sp.count
 	}
-	gpu_unmap_transfer_buffer(r.device, sg.mask_transfer)
+	gpu_unmap_transfer_buffer(r.device, transfer^)
 	pass := gpu_begin_copy_pass(cmd)
 	at = 0
 	for sp in spans {
-		gpu_upload_to_buffer(pass, {transfer_buffer = sg.mask_transfer, offset = at}, {buffer = ms.mask, offset = sp.first, size = sp.count}, false)
+		gpu_upload_to_buffer(pass, {transfer_buffer = transfer^, offset = at}, {buffer = held.buffer, offset = sp.first, size = sp.count}, false)
 		at += sp.count
 	}
 	gpu_end_copy_pass(pass)
-	// A large upload buffer (a whole mask, 25 MB at 25M, or a layer mask's pick, which
-	// changes every vertex) goes once the GPU has copied from it: the ranges of a mask
-	// stroke need a sliver of it.
-	if total >= SCULPT_MASK_KEEP {
-		gpu_release_transfer_buffer(r.device, sg.mask_transfer)
-		sg.mask_transfer, sg.mask_transfer_size = nil, 0
+	// A large upload buffer (a whole mask, 25 MB at 25M, a window's fade, or a layer
+	// mask's pick, which changes every vertex) goes once the GPU has copied from it: the
+	// ranges of a mask stroke need a sliver of it.
+	if total >= SCULPT_BYTES_KEEP {
+		gpu_release_transfer_buffer(r.device, transfer^)
+		transfer^, transfer_size^ = nil, 0
 	}
-	if ms.mask_vertices == 0 {
-		log.infof("sculpt on the GPU: the %d MB mask went up in %.1f ms", total >> 20, time.duration_milliseconds(time.tick_since(start)))
+	if held.vertices == 0 {
+		log.infof("sculpt on the GPU: the %d MB %s went up in %.1f ms", total >> 20, what, time.duration_milliseconds(time.tick_since(start)))
 	}
-	ms.mask_vertices = count
+	held.vertices = count
 	return int(total)
 }
 
@@ -669,7 +689,7 @@ sculpt_pipelines_make :: proc(r: ^Renderer) -> bool {
 	names := [Sculpt_Dab_Stage]string{.Area = "dab area", .Reduce = "dab reduce", .Move = "dab move", .Smooth_Targets = "smooth targets", .Smooth_Apply = "smooth apply"}
 	ok := sg.pipeline != nil
 	for stage in Sculpt_Dab_Stage {
-		sg.dab_pipelines[stage] = make_one(r, codes[stage], 8, 5, names[stage])
+		sg.dab_pipelines[stage] = make_one(r, codes[stage], 9, 5, names[stage])
 		ok = ok && sg.dab_pipelines[stage] != nil
 	}
 	if !ok do sg.failed = true
@@ -847,7 +867,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	}
 	records := make([]Sculpt_Dab_Record, len(ms.dabs), context.temp_allocator)
 	widest: u32
-	once, masked: bool
+	once, masked, faded: bool
 	// The drawn falloffs' tables, each once (a stroke has one), one after another.
 	tables := make([dynamic]f32, 0, context.temp_allocator)
 	Table :: struct {
@@ -862,6 +882,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		widest = max(widest, count)
 		once ||= d.once
 		masked ||= d.masked
+		faded ||= d.faded
 		table_first: u32
 		if d.falloff != nil {
 			found := false
@@ -896,10 +917,12 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		if !storage_fit(r, &sg.partials, &sg.partials_capacity, dab_slabs * 32, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a partials buffer of %d KB", (dab_slabs * 32) >> 10))
 		if !storage_fit(r, &sg.areas, &sg.areas_capacity, u32(len(records)) * 32, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, "an areas buffer")
 		if !storage_fit(r, &sg.scratch, &sg.scratch_capacity, max(widest * SCULPT_SLAB * 16, 16), {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a scratch buffer of %d KB", (widest * SCULPT_SLAB * 16) >> 10))
-		// A masked dab reads the mesh's mask bytes, which the app keeps on the GPU
-		// (sculpt_gpu_mask_upload); without them (their buffer was refused, logged there)
-		// the CPU lays this stroke's dabs, and the GPU keeps sculpting everything else.
-		if masked && (ms.mask == nil || ms.mask_vertices < mb.vertex_capacity) do return false
+		// A masked or faded dab reads the mesh's mask or fade bytes, which the app keeps
+		// on the GPU (sculpt_gpu_bytes_upload); without them (their buffer was refused,
+		// logged there) the CPU lays this stroke's dabs, and the GPU keeps sculpting
+		// everything else.
+		if masked && ms.bytes[.Mask].vertices < mb.vertex_capacity do return false
+		if faded && ms.bytes[.Fade].vertices < mb.vertex_capacity do return false
 		if len(tables) > 0 {
 			tbytes := u32(len(tables) * size_of(f32))
 			if !transfer_fit(r, &sg.tables_transfer, &sg.tables_transfer_size, tbytes) do return sculpt_refused(sg, "a falloff upload buffer")
@@ -973,11 +996,12 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		heights := ms.heights_buffer if ms.heights_buffer != nil else sg.areas
 		writes := [5]sdl.GPUStorageBufferReadWriteBinding{{buffer = mb.positions}, {buffer = sg.partials}, {buffer = sg.areas}, {buffer = sg.scratch}, {buffer = heights}}
 		compute := gpu_begin_compute_pass(cmd, nil, 0, &writes[0], len(writes))
-		// A stroke with no mask or no drawn falloff binds the slabs in their place, which
-		// no kernel then reads (the record's flags say).
-		mask := ms.mask if masked else sg.slabs
+		// A stroke with no mask, drawn falloff or fade binds the slabs in their place,
+		// which no kernel then reads (the record's flags say).
+		mask := ms.bytes[.Mask].buffer if masked else sg.slabs
 		falloffs := sg.tables if len(tables) > 0 else sg.slabs
-		reads := [8]^sdl.GPUBuffer{mb.indices, ms.offsets, ms.tris, sg.slabs, sg.dabs, mb.normals, mask, falloffs}
+		fade := ms.bytes[.Fade].buffer if faded else sg.slabs
+		reads := [9]^sdl.GPUBuffer{mb.indices, ms.offsets, ms.tris, sg.slabs, sg.dabs, mb.normals, mask, falloffs, fade}
 		gpu_bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
 		for d, i in ms.dabs {
 			count := int(records[i].slabs[1])
@@ -1143,6 +1167,7 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 	if d.tilt != {} do flags |= DAB_FLAG_TILT
 	if d.masked do flags |= DAB_FLAG_MASK
 	if d.falloff != nil do flags |= DAB_FLAG_DRAWN
+	if d.faded do flags |= DAB_FLAG_FADE
 	t := d.tilt
 	return {
 		center_r2     = {d.center.x, d.center.y, d.center.z, d.r2},
@@ -1275,8 +1300,10 @@ sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if ms.heights_buffer != nil do gpu_release_buffer(r.device, ms.heights_buffer)
 	if ms.shared != nil do gpu_release_buffer(r.device, ms.shared)
 	ms.shared = nil
-	if ms.mask != nil do gpu_release_buffer(r.device, ms.mask)
-	ms.mask, ms.mask_vertices = nil, 0
+	for &held in ms.bytes {
+		if held.buffer != nil do gpu_release_buffer(r.device, held.buffer)
+		held = {}
+	}
 	ms.offsets, ms.tris, ms.lookup_version, ms.lookup_bytes = nil, nil, 0, 0
 	ms.lookup_sizes, ms.lookup_done, ms.lookup_ready, ms.lookup_frames, ms.lookup_served = {}, 0, false, 0, false
 	ms.heights_buffer, ms.heights_capacity = nil, 0
@@ -1313,7 +1340,7 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	if sg.lookup_transfer != nil do gpu_release_transfer_buffer(r.device, sg.lookup_transfer)
 	if sg.tables != nil do gpu_release_buffer(r.device, sg.tables)
 	if sg.tables_transfer != nil do gpu_release_transfer_buffer(r.device, sg.tables_transfer)
-	if sg.mask_transfer != nil do gpu_release_transfer_buffer(r.device, sg.mask_transfer)
+	for t in sg.bytes_transfer do if t != nil do gpu_release_transfer_buffer(r.device, t)
 	if sg.bounds_pipeline != nil do gpu_release_compute_pipeline(r.device, sg.bounds_pipeline)
 	if sg.pipeline != nil do gpu_release_compute_pipeline(r.device, sg.pipeline)
 	for p in sg.dab_pipelines do if p != nil do gpu_release_compute_pipeline(r.device, p)
