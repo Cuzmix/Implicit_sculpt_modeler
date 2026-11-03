@@ -252,24 +252,31 @@ alpha_keep :: proc(app: ^App, path: string) -> bool {
 		for v, i in alpha.vectors do pixels[i] = sculpt.vdm_to_file(v, .Blender)
 		kept = hdri.exr_encode(pixels, alpha.size, alpha.size, context.temp_allocator)
 	}
-	folder := library_alphas_folder(app)
-	stem, ext := library_stem(folder, filepath.stem(path), path, kept)
-	file, _ := filepath.join({folder, fmt.tprintf("%s%s", stem, ext)}, context.temp_allocator)
-	failed := ""
-	if dir_err := os.make_directory_all(folder); dir_err != nil && !os.exists(folder) {
-		failed = fmt.tprint(dir_err)
-	} else {
-		failed = write_durably(file, kept)
-	}
+	i, failed := library_keep(app, filepath.stem(path), path, kept, alpha)
+	app.brush.alpha = i
 	if failed != "" {
-		app.brush.alpha = alpha_add(app, stem, stem, alpha)
 		alpha_loaded_note(app, name, alpha, width, height, fmt.tprintf(", for this run only: the library could not keep a copy (%s)", failed))
 		return true
 	}
-	app.brush.alpha = library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, hash.crc32(kept), len(kept), alpha)
-	app.library.alphas += 1
 	alpha_loaded_note(app, name, alpha, width, height, ", and kept it in your library")
 	return true
+}
+
+// Writes `data` into the library's own alphas under a name made from `wanted` and adds
+// `alpha`, which the app then owns, as the library's; returns its index. When the copy
+// cannot be written the alpha is added for this run only and `failed` says why.
+library_keep :: proc(app: ^App, wanted, path: string, data: []u8, alpha: sculpt.Alpha) -> (i: int, failed: string) {
+	folder := library_alphas_folder(app)
+	stem, ext := library_stem(folder, wanted, path, data)
+	file, _ := filepath.join({folder, fmt.tprintf("%s%s", stem, ext)}, context.temp_allocator)
+	if dir_err := os.make_directory_all(folder); dir_err != nil && !os.exists(folder) {
+		failed = fmt.tprint(dir_err)
+	} else {
+		failed = write_durably(file, data)
+	}
+	if failed != "" do return alpha_add(app, stem, stem, alpha), failed
+	app.library.alphas += 1
+	return library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, hash.crc32(data), len(data), alpha), ""
 }
 
 // A name for an image kept in `folder`, and its extension: the file's own stem made safe

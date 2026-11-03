@@ -70,7 +70,7 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 	k := &app.kit
 	switch s {
 	case .Spaces:
-		return k.chip_at[.Spaces]
+		return k.space_tabs_at
 	case .Dial:
 		r := &app.rail
 		if r.outer <= 0 do return {}

@@ -407,10 +407,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
-		// The chip bar's sections standing on their own, and how many Arrange let go.
-		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
-		// The top bar's islands from the start corner, and how many Arrange let go.
-		fmt.printfln("top_order=%s island_carries=%d", top_order_text(k), k.arrange.island_carries)
+		// The top bar's docks' buttons, and where each dock stood.
+		fa, sa, aa := k.top_at[.File], k.top_at[.Spaces], k.top_at[.App]
+		fmt.printfln("top_file=%s top_spaces=%s top_app=%s top_file_at=%.0f,%.0f,%.0f top_spaces_at=%.0f,%.0f,%.0f top_app_at=%.0f,%.0f,%.0f", bar_names(app, .Top_File), bar_names(app, .Top_Spaces), bar_names(app, .Top_App), fa.x, fa.y, fa.w, sa.x, sa.y, sa.w, aa.x, aa.y, aa.w)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[user_dock_id(i)].used {
@@ -686,12 +685,20 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
+	sg := app.renderer.sculpt_gpu.stats
+	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_cpu, sg.dispatches)
+	if app.stats.gpu_sculpt_kb.count > 0 {
+		print_stat("gpu_sculpt_kb", app.stats.gpu_sculpt_kb)
+		print_stat("gpu_sculpt_apply_ms", app.stats.gpu_sculpt_apply_ms)
+	}
 	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
 	if dropped, known := render.frames_dropped(&app.renderer); known do fmt.printfln("frames_dropped=%d", dropped)
 	if opts.bench_stroke > 0 {
-		// The synthetic stroke never lifts the button: end it, then time undo and redo
+		// The synthetic stroke never lifts the button: end it and settle its last normals
+		// (on the CPU, or handed to a GPU that no frame will run), then time undo and redo
 		// of the whole stroke, each including the normal update that follows.
 		stroke_finish(app)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
 		undo_bytes := 0
 		for obj in app.scene.objects {
 			undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))

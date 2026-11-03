@@ -61,6 +61,7 @@ File_Kind :: enum u8 {
 	Import_Workspace, // a .workspace file becomes a workspace of the user's own
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
+	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
 }
 
 File_Request :: struct {
@@ -128,6 +129,8 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+@(private = "file")
+EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
 // Alphas take OpenEXR vector maps too; Android's picker knows no MIME type for `.exr`, so
 // there every file is offered and the decoder's check of the bytes decides.
 when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -270,6 +273,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Run_Script:                                            dialog_open(app, userdata, SCRIPT_FILTERS[:])
 	case .Install_Pack:                                          dialog_open(app, userdata, PACK_FILTERS[:])
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
+	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
@@ -312,6 +316,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
+		case .Export_Vdm: suffix = ".exr"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
@@ -515,6 +520,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		pack_install_start(app, req.path)
 	case .Make_Pack:
 		_ = pack_make(app, req.path)
+	case .Export_Vdm:
+		_ = vdm_export(app, req.path)
 	case .Export_Workspace:
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:

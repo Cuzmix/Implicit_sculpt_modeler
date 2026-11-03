@@ -269,6 +269,10 @@ Command_Id :: enum u16 {
 	Pass_Menu, // passes.odin
 	Brush_Picker, // lens_shelf.odin
 	Settings,
+	Main_Menu, // kit_top_lens.odin: the top bar's chips and menu
+	File_Chip,
+	Space_Tabs,
+	Object_Chip,
 	Viewport_Readout,
 	Reduce_Motion,
 	Left_Handed,
@@ -2424,6 +2428,37 @@ COMMANDS := [Command_Id]Command {
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
+	},
+	.Main_Menu = {
+		label = "Menu",
+		help = "Opens the menu: new, open, save, import, export, workspaces, and the rest of the app.",
+		icon = ui.ICON_MENU,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.menu},
+	},
+	.File_Chip = {
+		label = "File",
+		help = "The top bar's file chip: the scene's file and whether it is saved; a tap opens the menu.",
+		icon = ICON_FILE,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+	},
+	.Space_Tabs = {
+		label = "Space tabs",
+		help = "The top bar's space tabs: Sculpt, Model, Render and the rest, a tap switching to one; run, it goes to the next space.",
+		icon = ui.ICON_PANEL,
+		run = proc(app: ^App, _: int) {space_switch(app, Space((int(app.kit.spaces.current) + 1) % len(Space)))},
+	},
+	.Object_Chip = {
+		label = "Object chip",
+		help = "The top bar's object chip: the selected object's name and kind; a tap opens its menu.",
+		icon = ICON_SCULPT_MESH,
+		run = proc(app: ^App, _: int) {command_run(app, .Object_Menu)},
 	},
 	.Viewport_Readout = {
 		label = "Viewport readout",

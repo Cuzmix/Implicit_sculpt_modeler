@@ -403,6 +403,10 @@ Sculptor :: struct {
 	skin:        ^Skin,
 	// Moves whenever the sculptor's skin is replaced, added or taken off (sculptor_skin_stamp).
 	skin_stamp:  u32,
+	// The stroke under way asked the GPU for its normals (at its first dab), and the GPU
+	// took it (stroke_gpu.odin); both false between strokes.
+	gpu_asked:   bool,
+	gpu_stroke:  bool,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -452,6 +456,8 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	// A readback under way would write into a mesh that is going.
+	sculptor_gpu_sync(s)
 	sculptor_skin_remove(s)
 	dyn_destroy(s)
 	hide_destroy(s)
@@ -724,6 +730,7 @@ owner_node :: proc(nodes: []Node, v: u32) -> u32 {
 // stroke replay): a dab reads the normals, so each frame's dabs need the ones before
 // them reflected, as a frame-by-frame flush would have done.
 sculptor_refresh_normals :: proc(s: ^Sculptor) {
+	sculptor_gpu_sync(s)
 	if len(s.dirty_nodes) == 0 do return
 	verts: u32
 	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
@@ -742,6 +749,8 @@ sculptor_refresh_normals :: proc(s: ^Sculptor) {
 sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	clear(&s.ranges)
 	s.changed_bounds = geom.AABB_EMPTY
+	// A stroke the GPU took, over with nothing left to flush, is over for the GPU too.
+	if s.gpu_stroke && !s.history.recording && len(s.dirty_nodes) == 0 do s.gpu_stroke = false
 	if len(s.dirty_nodes) > 0 {
 		slice.sort(s.dirty_nodes[:])
 		for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
@@ -752,9 +761,26 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 				append(&s.waiting_cones, id)
 			}
 		}
-		verts: u32
-		for id in s.dirty_nodes do verts += s.nodes[id].vert_count
-		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+		// The ranges to upload, coalesced, which the GPU's normals kernel takes too.
+		for id in s.dirty_nodes {
+			if s.stale[id] == .Skin do continue
+			n := s.nodes[id]
+			if len(s.ranges) > 0 {
+				last := &s.ranges[len(s.ranges) - 1]
+				if last.first + last.count == n.vert_first {
+					last.count += n.vert_count
+					continue
+				}
+			}
+			append(&s.ranges, Vertex_Range{n.vert_first, n.vert_count})
+		}
+		if !stroke_gpu_normals(s) {
+			// A readback still under way would land over what is computed here.
+			sculptor_gpu_sync(s)
+			verts: u32
+			for id in s.dirty_nodes do verts += s.nodes[id].vert_count
+			jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+		}
 	}
 	if s.skin != nil do skin_flush(s)
 	if cones_held(s) {
@@ -784,19 +810,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	}
 	for id in s.dirty_nodes {
 		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
-		// Only the skin changed: its samples upload, its vertices stay.
-		only_skin := s.stale[id] == .Skin
 		s.stale[id] = .None
-		if only_skin do continue
-		n := s.nodes[id]
-		if len(s.ranges) > 0 {
-			last := &s.ranges[len(s.ranges) - 1]
-			if last.first + last.count == n.vert_first {
-				last.count += n.vert_count
-				continue
-			}
-		}
-		append(&s.ranges, Vertex_Range{n.vert_first, n.vert_count})
 	}
 	clear(&s.dirty_nodes)
 	return s.ranges[:]
@@ -993,6 +1007,7 @@ Dab :: struct {
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth do return 0
+	stroke_gpu_decide(s, brush)
 	moved := 0
 	images := symmetry_images(brush)
 	b := brush

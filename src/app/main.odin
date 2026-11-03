@@ -82,6 +82,8 @@ Options :: struct {
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
 	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
+	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered: a kernel recomputes each stroke's vertex normals on the GPU and reads them back, and the CPU uploads only positions (README \"Sculpt on the GPU\")."`,
+	gpu_sculpt_sync: bool `usage:"With --gpu-sculpt, wait for each frame's readback of normals before the next frame's dabs, so the CPU reads the normals the CPU path would have (for comparing the two paths' arithmetic alone)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -132,6 +134,9 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
+	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their normals to a
+	// kernel where render.caps offers it; off until the kernels cover a stroke's whole work.
+	gpu_sculpt: bool,
 	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
 	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
@@ -732,6 +737,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.cull = !opts.no_cull
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
+	app.gpu_sculpt = opts.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt
+	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
+	sculpt_gpu_install(&app)
 	app.renderer.partial = !opts.no_partial
 	app.renderer.tile_msaa = opts.tile_msaa
 	app.renderer.trace = !opts.no_trace
