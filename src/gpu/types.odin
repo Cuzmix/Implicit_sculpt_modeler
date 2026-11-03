@@ -10,6 +10,8 @@ package gpu
 // memory. Render never looks inside one.
 Buffer            :: distinct u32
 Transfer_Buffer   :: distinct u32
+// Memory a recording's downloads land in, read once its submission is done (readback).
+Readback          :: distinct u32
 Texture           :: distinct u32
 Sampler           :: distinct u32
 Shader            :: distinct u32

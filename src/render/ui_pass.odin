@@ -196,8 +196,7 @@ ui_pass_capture :: proc(r: ^Renderer, up: ^Ui_Pass, size: [2]u32, clear: [4]f32,
 	pass := gpu.begin_render_pass(cmd, &info, 1, nil)
 	ui_pass_draw(r, up, cmd, pass, VIEWPORT_COLOR_FORMAT, size, draws)
 	gpu.end_render_pass(pass)
-	if _, ok := gpu.submit(cmd); !ok do return nil
-	return texture_download(r, target, size.x, size.y, allocator)
+	return texture_download_in(r, cmd, target, size.x, size.y, allocator)
 }
 
 @(private = "file")

@@ -84,7 +84,6 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	indices := gpu.create_buffer({usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
 	rays := gpu.create_buffer({usage = {.Storage_Read}, size = RAYS * 32})
 	hits := gpu.create_buffer({usage = {.Storage_Write}, size = RAYS * 32})
-	download := gpu.create_transfer_buffer({usage = .Download, size = RAYS * 32})
 	pipeline := gpu.create_compute_pipeline_traced({
 		code = RAY_QUERY_CHECK_COMP_CODE, entrypoint = RQ_ENTRY,
 		format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
@@ -95,13 +94,12 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		gpu.release_accel(tlas)
 		gpu.release_accel(blas)
 		gpu.release_compute_pipeline(pipeline)
-		gpu.release_transfer_buffer(download)
 		gpu.release_buffer(hits)
 		gpu.release_buffer(rays)
 		gpu.release_buffer(indices)
 		gpu.release_buffer(positions)
 	}
-	if positions == 0 || indices == 0 || rays == 0 || hits == 0 || download == 0 || pipeline == 0 {
+	if positions == 0 || indices == 0 || rays == 0 || hits == 0 || pipeline == 0 {
 		log.errorf("ray query check: its buffers or kernel could not be made (%s)", gpu.last_error())
 		return false
 	}
@@ -157,13 +155,13 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		gpu.push_compute_uniform_data(cmd, 0, &count, size_of(count))
 		gpu.dispatch_compute(pass, 1, 1, 1)
 		gpu.end_compute_pass(pass)
-		copy_pass := gpu.begin_copy_pass(cmd)
-		gpu.download_from_buffer(copy_pass, {buffer = hits, size = RAYS * 32}, {transfer_buffer = download})
-		gpu.end_copy_pass(copy_pass)
+		download := gpu.download_buffer(cmd, hits, 0, RAYS * 32)
+		defer gpu.release_readback(download)
 		ticket, submitted := gpu.submit(cmd)
-		if !submitted || !gpu.wait(ticket) do return false
-		got := ([^][4]f32)(gpu.map_transfer_buffer(download, false))
-		if got == nil do return false
+		if !submitted || download == 0 || !gpu.wait(ticket) do return false
+		bytes, _ := gpu.readback(download)
+		if bytes == nil do return false
+		got := ([^][4]f32)(raw_data(bytes))
 		ok := true
 		for ray, i in RQ_RAYS {
 			hit, bary := got[2 * i], got[2 * i + 1]
@@ -176,7 +174,6 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 				ok = false
 			}
 		}
-		gpu.unmap_transfer_buffer(download)
 		if !ok do return false
 	}
 	return true

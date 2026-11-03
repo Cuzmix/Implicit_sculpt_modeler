@@ -76,7 +76,7 @@ preview_stamp :: proc(app: ^App) -> u64 {
 preview_frame :: proc(app: ^App) {
 	p := &app.preview
 	if !render.renderer_ready(&app.renderer) do return
-	if p.grab.transfer != 0 {
+	if render.readback_pending(&p.grab) {
 		pixels, done := render.readback_poll(&app.renderer, &p.grab, context.temp_allocator)
 		if done && pixels != nil do preview_take(app, pixels, p.grab_w, p.grab_h, p.grab_stamp)
 		return

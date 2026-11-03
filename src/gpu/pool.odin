@@ -35,7 +35,7 @@ Pool :: struct {
 
 @(private)
 Pools :: struct {
-	buffers, transfer_buffers, textures, samplers, shaders, graphics_pipelines, compute_pipelines: Pool,
+	buffers, transfer_buffers, textures, samplers, shaders, graphics_pipelines, compute_pipelines, readbacks: Pool,
 }
 
 @(private)
@@ -116,6 +116,7 @@ pools_reset :: proc() {
 	pool_reset(&pools.shaders)
 	pool_reset(&pools.graphics_pipelines)
 	pool_reset(&pools.compute_pipelines)
+	pool_reset(&pools.readbacks)
 }
 
 // The object a handle names, for the backend that made it; nil for none or a stale handle.

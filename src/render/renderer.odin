@@ -1273,7 +1273,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
 	gpu_cull_release(r, mb)
 	sculpt_gpu_forget(r, mb)
-	if mb.cull.download != 0 do gpu.release_transfer_buffer(mb.cull.download)
+	gpu.release_readback(mb.cull.download)
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != 0 do gpu.release_buffer(mb.paint)
@@ -2329,8 +2329,7 @@ viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := conte
 // work and collected once its ticket is done, so the frame loop never stops for it
 // (the scene file's preview picture).
 Readback :: struct {
-	transfer:      gpu.Transfer_Buffer,
-	ticket:        gpu.Ticket,
+	readback:      gpu.Readback,
 	width, height: u32,
 }
 
@@ -2339,19 +2338,16 @@ Readback :: struct {
 readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width, height: u32) -> bool {
 	readback_cancel(r, rb)
 	if texture == 0 || width == 0 || height == 0 do return false
-	rb.transfer = gpu.create_transfer_buffer({usage = .Download, size = width * height * 4})
-	if rb.transfer == 0 do return false
 	cmd := gpu.acquire_command_buffer()
-	if cmd == nil {
-		readback_cancel(r, rb)
+	if cmd == nil do return false
+	size := width * height * 4
+	rb.readback = gpu.reserve_readback(cmd, size)
+	if rb.readback == 0 {
+		_ = gpu.cancel_command_buffer(cmd)
 		return false
 	}
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.download_from_texture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = rb.transfer})
-	gpu.end_copy_pass(pass)
-	ok: bool
-	rb.ticket, ok = gpu.submit(cmd)
-	if !ok {
+	gpu.download_texture(cmd, rb.readback, 0, {texture = texture, w = width, h = height, d = 1}, size)
+	if _, ok := gpu.submit(cmd); !ok {
 		readback_cancel(r, rb)
 		return false
 	}
@@ -2362,43 +2358,48 @@ readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width,
 // The pixels once the GPU has copied them (RGBA8, rows top to bottom), with done false
 // while it has not; done with nil pixels when there was nothing to collect or mapping failed.
 readback_poll :: proc(r: ^Renderer, rb: ^Readback, allocator := context.allocator) -> (pixels: []u8, done: bool) {
-	if rb.transfer == 0 do return nil, true
-	if !gpu.done(rb.ticket) do return nil, false
-	size := rb.width * rb.height * 4
-	if src := gpu.map_transfer_buffer(rb.transfer, false); src != nil {
-		pixels = make([]u8, size, allocator)
-		copy(pixels, ([^]u8)(src)[:size])
-		gpu.unmap_transfer_buffer(rb.transfer)
+	if rb.readback == 0 do return nil, true
+	data, ready := gpu.readback(rb.readback)
+	if !ready do return nil, false
+	if data != nil {
+		pixels = make([]u8, len(data), allocator)
+		copy(pixels, data)
 	}
 	readback_cancel(r, rb)
 	return pixels, true
 }
 
-// Drops a readback, waiting for its copy first so its buffer is not released under the GPU.
+// Whether a readback was started and not yet collected or dropped.
+readback_pending :: proc(rb: ^Readback) -> bool {
+	return rb.readback != 0
+}
+
+// Drops a readback, collected or not.
 readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
-	_ = gpu.wait(rb.ticket)
-	if rb.transfer != 0 do gpu.release_transfer_buffer(rb.transfer)
+	gpu.release_readback(rb.readback)
 	rb^ = {}
+}
+
+// Reads a `width` by `height` RGBA8 texture back as rows top to bottom, recorded into
+// `cmd` after its work, which is submitted, and waits for the GPU; nil on failure.
+texture_download_in :: proc(r: ^Renderer, cmd: gpu.Cmd, texture: gpu.Texture, width, height: u32, allocator := context.allocator) -> []u8 {
+	size := width * height * 4
+	rb := gpu.reserve_readback(cmd, size)
+	defer gpu.release_readback(rb)
+	if rb != 0 do gpu.download_texture(cmd, rb, 0, {texture = texture, w = width, h = height, d = 1}, size)
+	ticket, ok := gpu.submit(cmd)
+	if !ok || rb == 0 || !gpu.wait(ticket) do return nil
+	data, _ := gpu.readback(rb)
+	if data == nil do return nil
+	pixels := make([]u8, size, allocator)
+	copy(pixels, data)
+	return pixels
 }
 
 // Reads a `width` by `height` RGBA8 texture back as rows top to bottom, after waiting
 // for the GPU; nil on failure.
 texture_download :: proc(r: ^Renderer, texture: gpu.Texture, width, height: u32, allocator := context.allocator) -> []u8 {
-	size := width * height * 4
-	transfer := gpu.create_transfer_buffer({usage = .Download, size = size})
-	if transfer == 0 do return nil
-	defer gpu.release_transfer_buffer(transfer)
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil do return nil
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.download_from_texture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = transfer})
-	gpu.end_copy_pass(pass)
-	ticket, ok := gpu.submit(cmd)
-	if !ok || !gpu.wait(ticket) do return nil
-	src := gpu.map_transfer_buffer(transfer, false)
-	if src == nil do return nil
-	pixels := make([]u8, size, allocator)
-	copy(pixels, ([^]u8)(src)[:size])
-	gpu.unmap_transfer_buffer(transfer)
-	return pixels
+	return texture_download_in(r, cmd, texture, width, height, allocator)
 }
