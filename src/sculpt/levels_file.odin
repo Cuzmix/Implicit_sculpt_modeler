@@ -288,8 +288,9 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 }
 
 // A sculptor's paint layers (paint_layers.odin): how many, the picked one (index + 1, 0 for
-// none), the next id and how many were named; then per layer its name, id, eye and
-// opacity, a byte saying whether it has colours and those per vertex in file order.
+// none), the next id and how many were named; then per layer its name, id, eye, opacity
+// and channel dots, a byte saying whether it has colours and those per vertex in file
+// order, and likewise its roughness and metal.
 @(private = "file")
 write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
 	out := w.out
@@ -303,20 +304,22 @@ write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
 		geom.byte_put(out, l.id)
 		geom.byte_put(out, u8(l.visible))
 		geom.byte_put(out, l.opacity)
-		colors := sculptor_paint_layer_colors(s, i)
-		geom.byte_put(out, u8(colors != nil))
-		if colors == nil do continue
-		Colors :: struct {
-			from:  []Color,
-			to:    []Color,
-			canon: []u32,
+		geom.byte_put(out, transmute(u8)l.channels)
+		for values in ([2][]Color{sculptor_paint_layer_colors(s, i), sculptor_paint_layer_materials(s, i)}) {
+			geom.byte_put(out, u8(values != nil))
+			if values == nil do continue
+			Values :: struct {
+				from:  []Color,
+				to:    []Color,
+				canon: []u32,
+			}
+			c := Values{values, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(values) * size_of(Color))), canon}
+			ranged := ranges(w.pool, w.abort, len(values), &c, proc(data: rawptr, lo, hi: int) {
+				c := cast(^Values)data
+				for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
+			}, geom.RANGE_GRAIN)
+			if !ranged do return false
 		}
-		c := Colors{colors, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(colors) * size_of(Color))), canon}
-		ranged := ranges(w.pool, w.abort, len(colors), &c, proc(data: rawptr, lo, hi: int) {
-			c := cast(^Colors)data
-			for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
-		}, geom.RANGE_GRAIN)
-		if !ranged do return false
 	}
 	return true
 }
@@ -337,17 +340,25 @@ read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
 		l.id = geom.byte_get(r, u32)
 		visible := geom.byte_get(r, u8)
 		l.opacity = geom.byte_get(r, f32)
-		has := geom.byte_get(r, u8)
-		if !r.ok || visible > 1 || has > 1 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
+		channels := geom.byte_get(r, u8)
+		if !r.ok || visible > 1 || channels & ~transmute(u8)PAINT_CHANNELS_ALL != 0 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
 		l.visible = visible == 1
+		l.channels = transmute(Paint_Channels)channels
 		l.name[len(l.name) - 1] = 0
-		if has == 1 {
+		// In the stack before its arrays, so a damaged file frees what was read with it.
+		append(&s.paint.list, l)
+		layer := &s.paint.list[len(s.paint.list) - 1]
+		for k in 0 ..< 2 {
+			has := geom.byte_get(r, u8)
+			if !r.ok || has > 1 do return false
+			if has == 0 do continue
 			saved := geom.byte_get_bytes(r, n * size_of(Color))
 			if !r.ok do return false
-			l.color = make([]Color, n, a)
-			for u in 0 ..< n do l.color[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[u])])
+			values := make([]Color, n, a)
+			for u in 0 ..< n do values[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[u])])
+			if k == 0 do layer.color = values
+			else do layer.material = values
 		}
-		append(&s.paint.list, l)
 	}
 	s.paint.next_id, s.paint.named = next_id, int(named)
 	if picked > 0 do paint_pick_id(s, s.paint.list[picked - 1].id)

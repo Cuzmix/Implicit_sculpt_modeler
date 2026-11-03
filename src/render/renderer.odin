@@ -297,6 +297,11 @@ Mesh_Buffers :: struct {
 	// The caller's stamp for what `paint` holds (the sculptor's paint stamp); 0 when it
 	// holds nothing.
 	paint_stamp: u32,
+	// Per vertex, its painted roughness and metal (Material_Packed), read beside `paint`
+	// (4 bytes a vertex). Nil until a mesh's paint first has either; kept, with `material`
+	// false, once it has none again, so dropping it needs no wait for the GPU.
+	paint_material: ^sdl.GPUBuffer,
+	material:       bool,
 
 	// Simplified copies of groups of chunks (see Draw_Item.lod), drawn with indirect
 	// commands that follow the draw_count full-detail ones. Created on first upload.
@@ -334,6 +339,20 @@ Mesh_Buffers :: struct {
 Normal_Packed :: [2]i16
 // Matches `paint` in mesh.vert.slang: the colour's bytes red first, then the group.
 Paint_Packed :: [2]u32
+// Matches `paint_material` in mesh.vert.slang: roughness, its coverage, metal, its coverage,
+// a byte each, roughness lowest (sculpt.Material_Paint).
+Material_Packed :: u32
+
+// The sculpt mesh's vertex shader's storage buffers (mesh.vert.slang): paint, and the
+// painted roughness and metal.
+MESH_VERTEX_STORAGE :: 2
+
+// What a draw binds as a mesh's painted roughness and metal: its buffer, or the empty one
+// while it has none (the shader then reads nothing, by Frame_Uniforms.options.w).
+@(private)
+mesh_material_buffer :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> ^sdl.GPUBuffer {
+	return mb.paint_material if mb.paint_material != nil else r.no_paint
+}
 VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
 
 // Normals go up with the vertex's mask folded in: see geom.oct_encode_masked.
@@ -818,7 +837,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		format              = SHADER_FORMAT,
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
-		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else 1)),
+		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else MESH_VERTEX_STORAGE)),
 	})
 	frag := gpu_create_shader(r.device, {
 		code_size           = len(frag_code),
@@ -1281,6 +1300,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
+	if mb.paint_material != nil do gpu_release_buffer(r.device, mb.paint_material)
 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
 	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
 	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
@@ -1363,12 +1383,13 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 	}
 }
 
-// Records copies of the paint data (colours, nil for none, and the groups vertices
-// carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
-// every vertex when `all` or when the buffer has to be made first. Packs ranges into the
-// transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
-// the mesh is drawn without paint until a later upload succeeds.
-mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
+// Records copies of the paint data (colours, nil for none, the groups vertices carry, nil
+// for none, and the roughness and metal, nil for none) of every vertex in `ranges` into the
+// mesh's paint buffers, or of every vertex when `all` or when a buffer has to be made
+// first. Packs ranges into the transfer buffer like mesh_buffers_upload_ranges, a batch's
+// materials after its paint. On failure the buffer is dropped, so the mesh is drawn
+// without paint until a later upload succeeds; the materials' failing leaves them unshown.
+mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, materials: [][4]u8, ranges: []geom.Vertex_Range, all: bool) {
 	debug_group(cmd, "Paint upload", .Uploads)
 	ranges, all := ranges, all
 	if mb.paint == nil {
@@ -1379,11 +1400,20 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: 
 		}
 		all = true
 	}
+	if materials != nil && mb.paint_material == nil {
+		mb.paint_material = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = max(mb.vertex_capacity, 1) * size_of(Material_Packed)})
+		if mb.paint_material == nil do log.errorf("paint material buffer creation failed: %s", sdl.GetError())
+		all = true
+	}
+	if (materials != nil) != mb.material do all = true
+	with := materials != nil && mb.paint_material != nil
+	mb.material = with
 	whole := [1]geom.Vertex_Range{{0, mb.vertex_capacity}}
 	if all do ranges = whole[:]
 	r.last_version += 1
 	mb.version = r.last_version
-	capacity := mb.transfer_size / size_of(Paint_Packed) // vertices per batch
+	per := u32(size_of(Paint_Packed) + (size_of(Material_Packed) if with else 0))
+	capacity := mb.transfer_size / per // vertices per batch
 	pending := ranges
 	split: geom.Vertex_Range
 	for len(pending) > 0 || split.count > 0 {
@@ -1416,6 +1446,9 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: 
 			mb.paint = nil
 			return
 		}
+		// The batch's materials after its paint, so one map serves both.
+		materials_at := used * size_of(Paint_Packed)
+		dst_m := cast([^]Material_Packed)(uintptr(dst) + uintptr(materials_at))
 		for p in batch {
 			for k in 0 ..< p.r.count {
 				v := p.r.first + k
@@ -1423,12 +1456,14 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: 
 				if colors != nil && int(v) < len(colors) do x[0] = transmute(u32)colors[v]
 				if groups != nil && int(v) < len(groups) do x[1] = u32(groups[v])
 				dst[p.dst + k] = x
+				if with do dst_m[p.dst + k] = transmute(u32)materials[v] if int(v) < len(materials) else 0
 			}
 		}
 		gpu_unmap_transfer_buffer(r.device, mb.transfer)
 		pass := gpu_begin_copy_pass(cmd)
 		for p in batch {
 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(Paint_Packed)}, {buffer = mb.paint, offset = p.r.first * size_of(Paint_Packed), size = p.r.count * size_of(Paint_Packed)}, false)
+			if with do gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = materials_at + p.dst * size_of(Material_Packed)}, {buffer = mb.paint_material, offset = p.r.first * size_of(Material_Packed), size = p.r.count * size_of(Material_Packed)}, false)
 		}
 		gpu_end_copy_pass(pass)
 	}
@@ -2092,7 +2127,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
 		slotted := item.slots != nil && mb.paint != nil && !textured
-		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
+		show_material := show_paint && mb.material
+		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), f32(int(show_material))}}
 		frame.slot_group = SLOT_NONE
 		if slotted {
 			frame.slot_group = item.slots.groups
@@ -2111,8 +2147,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			if item.wireframe && pipes.wire != nil {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
 				gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
-				paint := [1]^sdl.GPUBuffer{r.no_paint}
-				gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
+				paint := [MESH_VERTEX_STORAGE]^sdl.GPUBuffer{r.no_paint, r.no_paint}
+				gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], len(paint))
 				samplers := [2]sdl.GPUTextureSamplerBinding{{texture = r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
 				gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 				vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
@@ -2126,8 +2162,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
 		gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
 		gpu_push_fragment_uniform_data(cmd, 0, &material, size_of(material))
-		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
-		gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
+		paint := [MESH_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mesh_material_buffer(r, mb)}
+		gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], len(paint))
 		samplers := [2]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
 		gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}

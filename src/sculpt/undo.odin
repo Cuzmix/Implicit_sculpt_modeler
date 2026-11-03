@@ -63,6 +63,7 @@ Undo_Step :: struct {
 	after_vecs:   []Vec3, // positions, or a recording layer's displacement
 	after_masks:  []u8,
 	after_colors: []Color,
+	after_materials: []Material_Paint, // beside after_colors, nil while no node saved any
 	after_at:     []int,
 }
 
@@ -80,6 +81,7 @@ Saved_Node :: struct {
 	masks:      []u8,
 	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
 	colors:     []Color, // the node's owned vertices' colours, for a painting step
+	materials:  []Material_Paint, // and their roughness and metal, nil while the layer had none
 	groups:     []u16,   // the node's triangles' groups, for a grouping step
 	heights:    []f16,   // the node's detail skin heights (skin_node_ranges), for a skin stroke
 	side:       [][2]f16, // and its sideways offsets (Skin.side), nil while the skin has none
@@ -239,6 +241,9 @@ sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
 		case sv.colors != nil:
 			colors := paint_colors_by_id(s, st.paint_layer)
 			for j in 0 ..< min(count, len(sv.colors), len(colors) - first) do if colors[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
+			if m := paint_materials_by_id(s, st.paint_layer); m != nil && sv.materials != nil {
+				for j in 0 ..< min(count, len(sv.materials), len(m) - first) do if m[first + j] != sv.materials[j] do geom.aabb_grow(&b, positions[first + j])
+			}
 		}
 	}
 	if b.lo.x <= b.hi.x do return b
@@ -267,6 +272,7 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
 		} else if sv.colors != nil {
 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
+			if sv.materials != nil && s.material != nil do copy(s.material[n.vert_first:][:n.vert_count], sv.materials)
 		} else if sv.heights != nil {
 			skin_saved_restore(s, sv)
 		} else {
@@ -311,6 +317,7 @@ sculptor_stroke_discard :: proc(s: ^Sculptor) -> bool {
 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
 		} else if sv.colors != nil {
 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
+			if sv.materials != nil && s.material != nil do copy(s.material[n.vert_first:][:n.vert_count], sv.materials)
 		} else if sv.heights != nil {
 			skin_saved_restore(s, sv)
 		} else {
@@ -385,6 +392,10 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			if colors := paint_colors_by_id(s, step.paint_layer); colors != nil {
 				live := colors[n.vert_first:][:n.vert_count]
 				for &c, i in live do c, sv.colors[i] = sv.colors[i], c
+			}
+			if materials := paint_materials_by_id(s, step.paint_layer); materials != nil && sv.materials != nil {
+				live := materials[n.vert_first:][:n.vert_count]
+				for &c, i in live do c, sv.materials[i] = sv.materials[i], c
 			}
 			s.color_edited = true
 			continue
@@ -545,7 +556,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
 	for sv in step.saved {
 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
+		bytes += (len(sv.colors) + len(sv.materials)) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	bytes += paint_op_bytes(step.paint_op)
@@ -565,6 +576,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.masks, h.allocator)
 		delete(sv.hidden, h.allocator)
 		delete(sv.colors, h.allocator)
+		delete(sv.materials, h.allocator)
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
@@ -598,6 +610,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.masks, h.allocator)
 		delete(sv.hidden, h.allocator)
 		delete(sv.colors, h.allocator)
+		delete(sv.materials, h.allocator)
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)

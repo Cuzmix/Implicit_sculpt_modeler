@@ -12,13 +12,15 @@ import sdl "vendor:sdl3"
 // shader pulls its vertex from the mesh's own buffers, since a pixel needs its triangle's
 // number, which an indexed draw cannot give it.
 
-// The skinned vertex shader's storage buffers: paint, indices, positions, normals.
-SKIN_VERTEX_STORAGE :: 4
+// The skinned vertex shader's storage buffers: paint, indices, positions, normals, and the
+// painted roughness and metal.
+SKIN_VERTEX_STORAGE :: 5
 // The skinned fragment shader's: the samples' normals and the triangles' records.
 SKIN_FRAGMENT_STORAGE :: 2
 // The grid's vertex shader's (skin_tess.vert.slang): paint, indices, positions, normals,
-// and the samples' normals, the triangles' records and the samples' heights.
-SKIN_TESS_STORAGE :: 7
+// the samples' normals, the triangles' records, the samples' heights, and the painted
+// roughness and metal.
+SKIN_TESS_STORAGE :: 8
 
 // Whether `item` draws with the skinned pipeline: its mesh has a skin uploaded and its
 // buffers can be read as storage.
@@ -139,7 +141,7 @@ skin_tess_split :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32, 
 @(private)
 draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
 	mb := item.mesh
-	vertex := [SKIN_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mb.indices, mb.positions, mb.normals}
+	vertex := [SKIN_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mb.indices, mb.positions, mb.normals, mesh_material_buffer(r, mb)}
 	gpu_bind_vertex_storage_buffers(pass, 0, &vertex[0], len(vertex))
 	fragment := [SKIN_FRAGMENT_STORAGE]^sdl.GPUBuffer{mb.skin_normals, mb.skin_tris}
 	gpu_bind_fragment_storage_buffers(pass, 0, &fragment[0], len(fragment))
@@ -154,7 +156,7 @@ draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_P
 		}
 		if mb.tess_draw_count == 0 || pipes.skin_tess == nil do return
 		gpu_bind_graphics_pipeline(pass, pipes.skin_tess)
-		grid := [SKIN_TESS_STORAGE]^sdl.GPUBuffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights}
+		grid := [SKIN_TESS_STORAGE]^sdl.GPUBuffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights, vertex[4]}
 		gpu_bind_vertex_storage_buffers(pass, 0, &grid[0], len(grid))
 		gpu_draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)
 		if stats != nil {

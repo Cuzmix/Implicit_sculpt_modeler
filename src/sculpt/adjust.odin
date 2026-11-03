@@ -79,6 +79,13 @@ adjust_keep_after :: proc(s: ^Sculptor, step: ^Undo_Step) {
 	step.after_vecs = make([]Vec3, vecs, h.allocator)
 	step.after_masks = make([]u8, bytes, h.allocator)
 	step.after_colors = make([]Color, colors, h.allocator)
+	// Roughness and metal beside the colours at the same places, when any node saved them.
+	for sv in step.saved {
+		if sv.materials != nil {
+			step.after_materials = make([]Material_Paint, colors, h.allocator)
+			break
+		}
+	}
 	step.after_at = make([]int, len(step.saved), h.allocator)
 	vecs, bytes, colors = 0, 0, 0
 	for sv, i in step.saved {
@@ -107,7 +114,9 @@ adjust_keep_after :: proc(s: ^Sculptor, step: ^Undo_Step) {
 		at := step.after_at[i]
 		switch {
 		case sv.masks != nil:  copy(step.after_masks[at:][:n.vert_count], s.mask[n.vert_first:][:n.vert_count])
-		case sv.colors != nil: copy(step.after_colors[at:][:n.vert_count], paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:n.vert_count])
+		case sv.colors != nil:
+			copy(step.after_colors[at:][:n.vert_count], paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:n.vert_count])
+			if m := paint_materials_by_id(s, step.paint_layer); sv.materials != nil && m != nil do copy(step.after_materials[at:][:n.vert_count], m[n.vert_first:][:n.vert_count])
 		case sv.is_delta:      copy(step.after_vecs[at:][:n.vert_count], s.layers.list[sv.delta_layer].delta[sv.node])
 		case:                  copy(step.after_vecs[at:][:n.vert_count], s.mesh.positions[n.vert_first:][:n.vert_count])
 		}
@@ -133,6 +142,11 @@ job_adjust :: proc(data: rawptr, i: int) {
 		live := paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:count]
 		after := step.after_colors[at:][:count]
 		for &c, j in live do for ch in 0 ..< 4 do c[ch] = adjust_byte(sv.colors[j][ch], after[j][ch], k)
+		if m := paint_materials_by_id(s, step.paint_layer); sv.materials != nil && m != nil {
+			now := m[n.vert_first:][:count]
+			left := step.after_materials[at:][:count]
+			for &c, j in now do for ch in 0 ..< 4 do c[ch] = adjust_byte(sv.materials[j][ch], left[j][ch], k)
+		}
 	case sv.is_delta:
 		// A node with no displacement before the stroke saved none: it started at zero.
 		live := s.layers.list[sv.delta_layer].delta[sv.node]
@@ -164,7 +178,7 @@ adjust_byte :: #force_inline proc(before, after: u8, k: f32) -> u8 {
 // What the copies an adjust keeps beside a step take.
 @(private)
 adjust_bytes :: proc(step: Undo_Step) -> int {
-	return len(step.after_vecs) * size_of(Vec3) + len(step.after_masks) + len(step.after_colors) * size_of(Color) + len(step.after_at) * size_of(int)
+	return len(step.after_vecs) * size_of(Vec3) + len(step.after_masks) + (len(step.after_colors) + len(step.after_materials)) * size_of(Color) + len(step.after_at) * size_of(int)
 }
 
 // Drops the copies an adjust kept, ending it: the step moved to the other list, or went.
@@ -174,7 +188,8 @@ adjust_free :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	delete(step.after_vecs, h.allocator)
 	delete(step.after_masks, h.allocator)
 	delete(step.after_colors, h.allocator)
+	delete(step.after_materials, h.allocator)
 	delete(step.after_at, h.allocator)
-	step.after_vecs, step.after_masks, step.after_colors, step.after_at = nil, nil, nil, nil
+	step.after_vecs, step.after_masks, step.after_colors, step.after_materials, step.after_at = nil, nil, nil, nil, nil
 	step.adjusting = false
 }

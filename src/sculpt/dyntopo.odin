@@ -190,7 +190,8 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	groups_destroy(s)
 	paint_layers_destroy(s)
 	delete(s.color, s.history.allocator)
-	s.color = nil
+	delete(s.material, s.history.allocator)
+	s.color, s.material = nil, nil
 	s.paint_stamp += 1
 	sculptor_morph_clear(s) // the vertices are about to be renumbered
 	sculptor_recall_clear(s)

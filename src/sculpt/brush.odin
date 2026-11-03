@@ -144,6 +144,9 @@ Brush :: struct {
 	facing:   Vec3,
 	// Paint: the colour it paints, sRGB; any other brush paints it too when `channel` says.
 	color:    [3]u8,
+	// Paint: the roughness and metal it paints where the picked layer's dots say (0 to 255).
+	roughness: u8,
+	metal:     u8,
 	// Paint: even the colours out instead of laying `color`, as Smooth evens the surface:
 	// each vertex mixes toward the average of its neighbours' paint (the inverted brush
 	// still takes paint off). Paint's Smooth in the dial, as ZBrush's and Nomad's do.
@@ -378,6 +381,11 @@ Sculptor :: struct {
 	hide:        Hide,
 	// Per vertex: its polypaint (paint.odin); nil until something is first painted.
 	color:        []Color,
+	// Per vertex: the picked paint layer's roughness and metal; nil until either is first
+	// painted on that layer.
+	material:     []Material_Paint,
+	// What the dab being laid writes, the picked layer's channel dots (paint_dab).
+	paint_writes: Paint_Channels,
 	color_edited: bool, // painted since the level became current, so a level change carries the colours
 	paint_stamp:  u32,  // see sculptor_paint_stamp
 	// The paint layers, of which `color` is the picked one's (paint_layers.odin).
@@ -500,6 +508,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	layers_destroy(s)
 	paint_layers_destroy(s)
 	delete(s.color, s.history.allocator)
+	delete(s.material, s.history.allocator)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
