@@ -7,75 +7,112 @@ import "core:strings"
 import "../render"
 import "../ui"
 
-// Lens's Home page (round 2 of the mockups, screen home2), under the heading kit_home
-// draws: a large Continue card for the scene most likely wanted next, the six commonest
-// starts as big tiles beside it with the rest behind More starters, then Recent and
-// Autosaves as pictures with Open and Import at their right, as a tablet sculpting app's
-// home leads with going back to work. Narrow windows stack the same parts (kit_home).
+// Home's page below its heading (kit_home draws the heading and the scroll), from round 2
+// of the mockups (screen home2). On a window HOME_WIDE wide or more the Continue card and
+// Start new share the top row; narrower (a phone, a tablet's split view) Start new goes
+// under the card. Then Recent and Autosaves as pictures, with Open and Import beside their
+// tabs, or under them when narrow.
 
-// The width under which Home falls back to the narrow stacked page, in points.
-LENS_HOME_WIDE :: 760
+// The width from which Start new sits beside the Continue card, in points.
+HOME_WIDE :: 760
 
 // The Start new tiles, by NEW_SCENES index, in the mock's order: Sphere, Head, Cube,
 // Voxel block, Plane and Empty scene; the others are More starters.
 @(rodata)
-LENS_HOME_STARTS := [6]int{0, 1, 6, 8, 7, 9}
+HOME_STARTS := [6]int{0, 1, 6, 8, 7, 9}
 @(rodata)
-LENS_HOME_MORE := [4]int{2, 3, 4, 5}
+HOME_MORE := [4]int{2, 3, 4, 5}
+
+// Lucide's user-round, pressed into the Head tile's ball.
+@(private = "file")
+ICON_HEAD :: rune(0xe46d)
 
 // A warm clay, as the mock's starters are.
 @(private = "file")
 CLAY :: ui.Color{206, 170, 148, 255}
 @(private = "file")
 GAP :: 16
-// The Continue card's and the Start new block's height.
+// The Continue card's and the Start new block's height side by side, and the card's
+// height over Start new.
 @(private = "file")
 TOP_H :: 360
+@(private = "file")
+CARD_H_NARROW :: 260
 
 // The page below the heading, `width` wide.
-lens_home_body :: proc(app: ^App, width: f32) {
+home_body :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
+	if width >= HOME_WIDE {
+		card_w := f32(int((width - GAP) * 0.47))
+		ui.begin(ctx, "home top", {direction = .Row, gap = GAP, width = width})
+		home_continue_card(app, {card_w, TOP_H})
+		home_starts(app, width - card_w - GAP, TOP_H)
+		ui.end(ctx)
+	} else {
+		home_continue_card(app, {width, CARD_H_NARROW})
+		ui.spacer(ctx, 4)
+		home_starts(app, width, 0)
+	}
+
+	// Recent and Autosaves, with the ways to bring a file in at their right, or under
+	// their tabs when there is no room beside them.
+	ui.spacer(ctx, 8)
+	open_w, import_w: f32 = 120, 210
+	wide := width >= HOME_WIDE
+	if wide {
+		ui.begin(ctx, "home recent head", {direction = .Row, gap = 8, center = true, width = width})
+		ui.begin(ctx, "home tabs", {direction = .Row, width = width - open_w - import_w - 16})
+		home_tabs(app, 320)
+		ui.end(ctx)
+	} else {
+		home_tabs(app, width)
+		ui.begin(ctx, "home recent head", {direction = .Row, gap = 8, center = true, width = width})
+		open_w = (width - 8) * 0.4
+		import_w = width - 8 - open_w
+	}
+	if command_button(app, .Open_Scene, label = "Open...", variant = .Bordered, glyph = ui.ICON_OPEN, width = open_w) do home_close(app)
+	if command_button(app, .Import_Mesh, label = "Import OBJ, PLY, STL..." if wide || import_w >= 210 else "Import...", variant = .Bordered, glyph = ui.ICON_IMPORT, width = import_w) do home_close(app)
+	ui.end(ctx)
+	home_grid(app, width)
+}
+
+// Start new, `w` wide: the six tiles in two rows of three, then More starters by name.
+// Given a height `h` (beside the Continue card) the tiles fill it; with 0 they are about
+// as tall as they are wide, at most 150 points.
+@(private = "file")
+home_starts :: proc(app: ^App, w, h: f32) {
+	ctx := &app.kit.ctx
 	t := ctx.theme
-	card_w := f32(int((width - GAP) * 0.47))
-	side_w := width - card_w - GAP
-	ui.begin(ctx, "lens home top", {direction = .Row, gap = GAP, width = width})
-	home_continue_card(app, {card_w, TOP_H})
-	ui.begin(ctx, "lens home starts", {direction = .Column, gap = 10, width = side_w, height = TOP_H})
+	ui.begin(ctx, "home starts", {direction = .Column, gap = 10, width = w, height = h})
 	ui.caption(ctx, "START NEW")
 	more_h := t.target
-	tile_w := (side_w - 2 * 12) / 3
-	tile_h := f32(int((TOP_H - ctx.last_rect.h - more_h - 3 * 10) / 2))
+	tile_w := (w - 2 * 12) / 3
+	// The More starters' row, under its label when the row cannot hold both.
+	MORE_LABEL_W :: 104
+	stacked := (w - MORE_LABEL_W - 4 * 6) / 4 < 72
+	tile_h := f32(int((h - ctx.last_rect.h - more_h - 3 * 10) / 2)) if h > 0 else min(tile_w, 150)
 	for row in 0 ..< 2 {
-		ui.begin(ctx, fmt.tprintf("lens home starts row %d", row), {direction = .Row, gap = 12})
-		for i in row * 3 ..< row * 3 + 3 do home_start_tile(app, LENS_HOME_STARTS[i], {tile_w, tile_h})
+		ui.begin(ctx, fmt.tprintf("home starts row %d", row), {direction = .Row, gap = 12})
+		for i in row * 3 ..< row * 3 + 3 do home_start_tile(app, HOME_STARTS[i], {tile_w, tile_h})
 		ui.end(ctx)
 	}
 	// The other starters, by name: they are blockouts for a figure, used less often.
-	ui.begin(ctx, "lens home more", {direction = .Row, gap = 6, center = true})
-	more := ui.place(ctx, {104, more_h})
-	ui.text(ctx, "More starters", more.x, more.y + more.h * 0.5, t.small_size, t.text_secondary)
-	button_w := (side_w - 104 - 4 * 6) / 4
-	for i in LENS_HOME_MORE {
+	if stacked do ui.label(ctx, "More starters", t.small_size, t.text_secondary)
+	ui.begin(ctx, "home more", {direction = .Row, gap = 6, center = true})
+	button_w := (w - 3 * 6) / 4
+	if !stacked {
+		more := ui.place(ctx, {MORE_LABEL_W, more_h})
+		ui.text(ctx, "More starters", more.x, more.y + more.h * 0.5, t.small_size, t.text_secondary)
+		button_w = (w - MORE_LABEL_W - 4 * 6) / 4
+	}
+	for i in HOME_MORE {
 		armed := new_scene_armed(app, i)
-		label := fmt.tprintf("%s##lens home more %d", "Discard?" if armed else NEW_SCENES[i].name, i)
+		label := fmt.tprintf("%s##home more %d", "Discard?" if armed else NEW_SCENES[i].name, i)
 		if ui.button(ctx, label, .Solid if armed else .Bordered, .Danger if armed else .Neutral, width = button_w) do home_start(app, i)
 	}
 	ui.end(ctx)
 	ui.end(ctx)
-	ui.end(ctx)
-
-	// Recent and Autosaves, with the ways to bring a file in at their right.
-	ui.spacer(ctx, 8)
-	ui.begin(ctx, "lens home recent head", {direction = .Row, gap = 8, center = true, width = width})
-	open_w, import_w: f32 = 120, 210
-	ui.begin(ctx, "lens home tabs", {direction = .Row, width = width - open_w - import_w - 16})
-	home_tabs(app, 320)
-	ui.end(ctx)
-	if command_button(app, .Open_Scene, label = "Open...", variant = .Bordered, glyph = ui.ICON_OPEN, width = open_w) do home_close(app)
-	if command_button(app, .Import_Mesh, label = "Import OBJ, PLY, STL...", variant = .Bordered, glyph = ui.ICON_IMPORT, width = import_w) do home_close(app)
-	ui.end(ctx)
-	home_grid(app, width)
 }
 
 // Runs New scene for NEW_SCENES[i], closing Home unless the run only armed it.
@@ -130,9 +167,9 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 
 	FOOT_H :: 96
 	PAD :: 18
-	ui.begin(ctx, "lens home continue", {direction = .Column, width = size.x, height = size.y})
+	ui.begin(ctx, "home continue", {direction = .Column, width = size.x, height = size.y})
 	// The picture fills the whole card; the foot's band shades over its last part.
-	tap := ui.area(ctx, "lens home continue picture", {size.x, size.y - FOOT_H}, drag = false)
+	tap := ui.area(ctx, "home continue picture", {size.x, size.y - FOOT_H}, drag = false)
 	picture, clicked := tap.rect, tap.clicked
 	card := ui.Rect{picture.x, picture.y, size.x, size.y}
 	ui.fill_rect(ctx, card, t.radius_large, t.surface)
@@ -160,13 +197,13 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	case kind == .Start:         label = "Start"
 	}
 	button_w: f32 = 150 if armed else 120
-	ui.begin(ctx, "lens home continue foot", {direction = .Row, center = true, gap = 12, width = size.x, height = FOOT_H})
+	ui.begin(ctx, "home continue foot", {direction = .Row, center = true, gap = 12, width = size.x, height = FOOT_H})
 	ui.spacer(ctx, PAD)
 	words := ui.place(ctx, {size.x - 2 * PAD - button_w - 2 * 12, FOOT_H})
 	ui.text(ctx, "Continue" if kind != .Start else "Start sculpting", words.x, words.y + 22, t.small_size, t.text_secondary)
 	ui.text(ctx, ui.text_fit(ctx, name, t.heading_size * 1.5, words.w, .Semibold), words.x, words.y + 48, t.heading_size * 1.5, t.text, .Semibold)
 	ui.text(ctx, ui.text_fit(ctx, line, t.small_size, words.w), words.x, words.y + 74, t.small_size, t.text_tertiary if tile.state == .Missing else t.text_secondary)
-	pressed := ui.button(ctx, fmt.tprintf("%s##lens home continue", label), .Solid, .Danger if armed else .Accent, width = button_w)
+	pressed := ui.button(ctx, fmt.tprintf("%s##home continue", label), .Solid, .Danger if armed else .Accent, width = button_w)
 	ui.end(ctx)
 	ui.end(ctx)
 	if !(pressed || clicked) do return
@@ -205,7 +242,7 @@ home_start_tile :: proc(app: ^App, i: int, size: [2]f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	tap := ui.area(ctx, fmt.tprintf("%s##lens home start %d", NEW_SCENES[i].name, i), size, drag = false)
+	tap := ui.area(ctx, fmt.tprintf("%s##home start %d", NEW_SCENES[i].name, i), size, drag = false)
 	r := tap.rect
 	armed := new_scene_armed(app, i)
 	ui.fill_rect(ctx, r, t.radius_large, t.surface)
@@ -269,7 +306,7 @@ start_drawing :: proc(ctx: ^ui.Context, start: New_Start, c: [2]f32, s: f32) {
 			ui.fill_ball(ctx, c, r * 0.9, CLAY)
 			if start.shape == .Head {
 				stamp := ui.Color{CLAY.r / 3, CLAY.g / 3, CLAY.b / 3, 210}
-				ui.icon(ctx, HOME_SHAPE_GLYPHS[1], c, t.icon_size + 10, stamp)
+				ui.icon(ctx, ICON_HEAD, c, t.icon_size + 10, stamp)
 			}
 		}
 	}

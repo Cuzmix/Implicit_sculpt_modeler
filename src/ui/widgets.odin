@@ -1622,51 +1622,11 @@ swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := fa
 	return
 }
 
-// A preview tile's cell, in points: a picture well over a name, as ZBrush for iPad's
-// Brushes palette shows its brushes, three to a row.
-PREVIEW_TILE :: [2]f32{104, 112}
-
-// What a preview tile did this frame.
+// What a tile (a picture tile, a theme card) did this frame.
 Tile_Result :: struct {
 	clicked: bool,
-	menu:    bool, // a long press (or a right-click): its settings
-	picture: Rect, // the well the ball is drawn in
-}
-
-// A large tile of a palette's grid: a lit ball of `ball` in a well with `glyph` stamped on
-// it, and `s` under it. `selected` washes and rings the well with the accent; unlike
-// brush_tile's sliding indicator, several tiles of a row can be selected at once (a brush
-// and a mask shape are both chosen). `keys` shows in its tooltip beside the name.
-preview_tile :: proc(ctx: ^Context, s: string, glyph: rune, ball: Color, selected: bool, keys := "") -> (res: Tile_Result) {
-	ctx.controls += 1
-	t := ctx.theme
-	cell := place(ctx, PREVIEW_TILE)
-	vis := centered(cell, PREVIEW_TILE - 6)
-	id := id_of(ctx, s)
-	hovered, held, clicked, _ := interact(ctx, id, cell)
-	res.clicked = clicked
-	res.menu = secondary(ctx)
-	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
-	pic := Rect{vis.x, vis.y, vis.w, math.round(vis.w * 0.8)}
-	res.picture = pic
-	fill_rect(ctx, pic, t.radius_medium, t.fill)
-	if o > 0 do fill_rect(ctx, pic, t.radius_medium, color_fade(t.accent_soft, o))
-	scale := feedback(ctx, id, pic, t.radius_medium, hovered && !selected, held)
-	center := [2]f32{pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}
-	fill_ball(ctx, center, pic.h * 0.5 - 7, ball)
-	// The glyph is pressed into the ball: its own colour, darkened, so it reads on a light
-	// clay and on a dark mask alike.
-	stamp := Color{ball.r / 3, ball.g / 3, ball.b / 3, 210}
-	icon(ctx, glyph, center, t.icon_size + 6, stamp)
-	if o > 0 do stroke_rect(ctx, pic, t.radius_medium, color_fade(t.accent, o), 2)
-	name := label_text(s)
-	shown := text_fit(ctx, name, t.small_size, vis.w)
-	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.accent, o)
-	text(ctx, shown, center.x, pic.y + pic.h + 14, t.small_size, color, .Semibold if selected else .Regular, .Center)
-	press_scale(ctx, mark, vis, scale)
-	tip(ctx, id, pic, name, keys)
-	return
+	menu:    bool, // a long press (or a right-click): its menu
+	picture: Rect, // the well its picture is drawn in
 }
 
 // What a picture tile shows in its well: part of a registered image (an atlas cell, from

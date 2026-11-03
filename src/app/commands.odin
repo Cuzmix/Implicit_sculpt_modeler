@@ -3255,9 +3255,6 @@ NEW_SCENES := [?]New_Start {
 	{.Empty, {}, "Empty scene"},
 }
 
-// How many of NEW_SCENES the narrow Home page offers: the six first meshes.
-NARROW_HOME_STARTS :: 6
-
 // New scene's arguments as scripts and the keys name them: a mesh's shape, Voxels or Empty.
 new_start_key :: proc(arg: int) -> string {
 	s := NEW_SCENES[arg]
