@@ -142,7 +142,7 @@ main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	if main_shading_mode(app) == m do return true
 	g := &app.kit.grid
-	for i in 1 ..< grid_panes(g) {
+	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) {
 		if shown, ok := second_shading_mode(grid_view(g, i)); ok && shown == m do return true
 	}
 	if app.kit.thumbnail {
