@@ -49,10 +49,34 @@ for (const level of ["log", "warn", "error"]) {
 		if (text) {
 			recent.push(text);
 			if (recent.length > 12) recent.shift();
+			live(text);
 		}
 		original(...args);
 	};
 }
+
+// Every line also goes to the development server as it is printed, with the wasm memory's
+// size twice a second, so a tab the browser kills (Safari's "A problem repeatedly occurred",
+// which leaves no page to report from) still shows on the computer how far it got and how
+// large it grew. Any other host refuses the posts, and they stop after the first refusal.
+const streamed = [];
+let streaming = true;
+let started = performance.now();
+function live(text) {
+	if (streaming) streamed.push(`${((performance.now() - started) / 1000).toFixed(2)}s ${text}`);
+}
+function flush() {
+	if (!streaming || streamed.length === 0) return;
+	const body = streamed.splice(0).join("\n");
+	fetch("log", { method: "POST", body, keepalive: true }).then((r) => { if (!r.ok) streaming = false; }).catch(() => { streaming = false; });
+}
+setInterval(flush, 250);
+live(`page: ${navigator.userAgent}`);
+function stage(name) { live(`page: ${name}`); flush(); }
+let watched_memory = null;
+setInterval(() => {
+	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB`);
+}, 500);
 
 function fail(message) {
 	note.style.display = "none";
@@ -93,6 +117,8 @@ async function start() {
 	for (const maximum of [65536, 16384]) {
 		try { memory = new WebAssembly.Memory({ initial: 2048, maximum }); break; } catch (_) { }
 	}
+	watched_memory = memory;
+	stage(`memory made, ${memory.buffer.byteLength / 1048576} MB`);
 	// Odin's wgpu.js asks for a device with every limit named, undefined for the ones the app
 	// leaves at their defaults. Chrome passes over those; Safari can refuse the whole request
 	// (with an empty message) for an undefined value or a limit it does not know. So the
@@ -112,7 +138,10 @@ async function start() {
 			}
 			if (asked.requiredFeatures) asked.requiredFeatures = [...asked.requiredFeatures].filter((f) => f && this.features.has(f));
 			try {
-				return await requestDevice.call(this, asked);
+				stage(`device asked with limits ${JSON.stringify(asked.requiredLimits)} and features ${JSON.stringify(asked.requiredFeatures)}`);
+				const device = await requestDevice.call(this, asked);
+				stage(`device made: maxBufferSize ${device.limits.maxBufferSize}, maxStorageBufferBindingSize ${device.limits.maxStorageBufferBindingSize}`);
+				return device;
 			} catch (e) {
 				console.warn(`WebGPU refused the device (${e && e.name}: ${e && e.message}); asking again without limits. Asked for ${JSON.stringify(asked.requiredLimits)}`);
 				return await requestDevice.call(this, Object.assign({}, asked, { requiredLimits: undefined }));
@@ -122,6 +151,7 @@ async function start() {
 	const web = new SculptWeb.Web(canvas, memory, fail);
 	// The files kept from earlier visits (settings, library, scenes), before the app reads them.
 	await web.fs.open();
+	stage("files opened");
 	const mem = new odin.WasmMemoryInterface();
 	mem.setIntSize(8); // js_wasm64p32: Odin's int is 64-bit
 	mem.setMemory(memory);
@@ -134,11 +164,15 @@ async function start() {
 	imports.wgpu.wgpuDeviceGetAdapterInfo = (device, info) => gpu.genericGetAdapterInfo(info, gpu.devices.get(device).adapterInfo);
 	Object.assign(imports, web.imports());
 	const response = await fetch("sculpt.wasm");
-	const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), imports);
+	const bytes = await response.arrayBuffer();
+	stage(`wasm downloaded, ${(bytes.byteLength / 1048576).toFixed(1)} MB`);
+	const { instance } = await WebAssembly.instantiate(bytes, imports);
+	stage("wasm compiled");
 	const ex = instance.exports;
 	mem.setExports(ex);
 	web.exports = ex;
 	ex._start();
+	stage("main ran; waiting for the GPU");
 
 	// The app's run leaves its set-up by an exception at the frame loop (src/app/web.odin),
 	// which is caught here and nowhere else; each later call is one frame.
@@ -157,6 +191,7 @@ async function start() {
 			}
 			note.style.display = "none";
 			canvas.focus();
+			stage("set up; frames running");
 		}
 		if (keep) requestAnimationFrame(frame);
 	}

@@ -344,20 +344,33 @@ class Tls_Server(http.server.ThreadingHTTPServer):
 
 class Site_Handler(http.server.SimpleHTTPRequestHandler):
     """The site's files, and POST /failure, where the page sends the message and last log
-    lines of a failure, a script error or a start still loading after ten seconds
-    (web/index.html), printed here since a tablet has no console."""
+    lines of a failure, a script error or a start still loading after ten seconds, and
+    POST /log, where it streams every line it prints (web/index.html), printed here since
+    a tablet has no console."""
 
     def do_POST(self):
-        if self.path != "/failure":
+        if self.path not in ("/failure", "/log"):
             self.send_error(404)
             return
         length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
         text = self.rfile.read(length).decode("utf-8", "replace")
+        if self.path == "/log":
+            # The page's lines as they are printed (web/index.html), so a tab the browser
+            # kills still shows how far it got.
+            for line in text.splitlines():
+                print(f"{self.client_address[0]} | {line}", flush=True)
+            self.send_response(204)
+            self.end_headers()
+            return
         print(f"web: report from {self.client_address[0]}:", flush=True)
         for line in text.splitlines():
             print(f"    {line}", flush=True)
         self.send_response(204)
         self.end_headers()
+
+    def log_request(self, code="-", size="-"):
+        if self.command != "POST" or self.path != "/log":
+            super().log_request(code, size)
 
 
 def serve(port, lan):
