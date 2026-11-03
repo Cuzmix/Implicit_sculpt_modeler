@@ -93,8 +93,7 @@ Kit_State :: struct {
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
-	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
-	browser_at: Browser_At, // ...which of the two
+	browser:    bool, // the Library (kit_brush_sheet): every brush, tool and button
 	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
@@ -1552,7 +1551,6 @@ kit_layout :: proc(app: ^App) {
 	k.nav.placed = false
 	if !focus do kit_view_chips(app)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
-	if !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	// The head is the View island's first button; with the island aside it stands alone.
 	if !k.nav.placed do kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
@@ -1569,7 +1567,6 @@ kit_layout :: proc(app: ^App) {
 		dock_anchor = kit_shelf(app)
 	} else {
 		k.shelf.carry = nil
-		if k.browser_at == .Dock do k.browser_at = .Bar
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
@@ -1616,8 +1613,8 @@ kit_layout :: proc(app: ^App) {
 	kit_modifier_rail(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	if k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
-	else do kit_brush_browser(app, menu_anchor, .Right)
+	// The Library, over the shelf, or under the menu while the shelf is hidden.
+	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) else .Above_Center)
 	kit_shelf_quick(app)
 	kit_shelf_page_menu(app)
 	kit_arrange_ghosts(app)

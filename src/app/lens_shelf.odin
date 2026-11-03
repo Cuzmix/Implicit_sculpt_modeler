@@ -644,7 +644,7 @@ shelf_visiting_tile :: proc(app: ^App, it: Brush_Item, which: Bar_Which) -> ui.R
 	t := ctx.theme
 	sh := &k.shelf
 	name := fmt.tprintf("%s##shelf visiting", brush_item_name(app, it))
-	tapped := ui.brush_tile(ctx, name, brush_item_icon(it), true, brush_item_hint(app, it))
+	tapped := ui.brush_tile(ctx, name, brush_item_icon(app, it), true, brush_item_hint(app, it))
 	at := ctx.last_rect
 	if tapped || (ctx.last_id != 0 && ui.secondary(ctx)) {
 		if it.what == .Slot {
@@ -929,7 +929,7 @@ brush_picker_toggle :: proc(app: ^App) {
 	k := &app.kit
 	was := k.browser
 	kit_floats_close(k)
-	k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
+	k.browser, k.grid_scroll, k.grid_reveal = !was, 0, true
 }
 
 // A long-pressed tile's quick settings, over it: the brush's name with its favourite star,
@@ -1001,18 +1001,21 @@ kit_shelf_quick :: proc(app: ^App) {
 SHEET_W :: 1000
 SHEET_COLUMNS :: 4
 
-// The brush picker (All on the shelf, or B): a large sheet over the shelf with the
-// categories down its left in the app's order, then a search field, the shelf's page names
-// (which narrow All to what each page is for), Install pack and Close, then every brush as
-// a card showing its stroke on clay. A tap on a card picks it and closes the sheet, a long
-// press shows its settings, a swipe up or down scrolls the cards, and a drag that starts
-// sideways carries a card onto a shelf tile to keep it there.
+// The Library (All on the shelf, or B; a dock's Add a button): a large sheet over the
+// shelf, or under the menu while the shelf is hidden, with the categories down its left
+// in the app's order (the brushes', then the buttons': Cards, Sliders, Commands), then a
+// search field over everything, the shelf's page names (which narrow All to what each page
+// is for), Install pack and Close, then each item as a card: a brush's stroke on clay, any
+// other button's icon. A tap on a card picks it and closes the sheet, a long press shows
+// its settings, a swipe up or down scrolls the cards, and a drag that starts sideways
+// carries a card onto a shelf tile to keep it there. Opened for a dock (library_open_for),
+// a tap puts the card's button on that dock or takes it off, each lit while it is there.
 // A page tab's width on the brush sheet, and the narrowest its search field gets before
 // Import gives up its label, in points.
 SHEET_TAB_W :: 72
 SHEET_FIELD_MIN :: 140
 
-kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
+kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -1021,14 +1024,18 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	brush_recent_track(app)
 	if p.category == .Pack && p.pack >= len(app.library.packs) do p.category = .All
 	shelf_carry_update(app)
-	if !k.browser do return
+	if !k.browser {
+		p.adding = nil
+		return
+	}
 	area := ui.safe_area(ctx)
 	width := min(f32(SHEET_W), area.w - 2 * t.edge - 16)
-	room := max(anchor.y - area.y - kit_top() - 24, 260)
+	room := max(anchor.y - area.y - kit_top() - 24 if side == .Above_Center else area.y + area.h - anchor.y - anchor.h - 24, 260)
 	owner := ui.id_of(ctx, "brush sheet")
-	if !ui.popover_begin(ctx, "brush sheet", &k.browser, anchor, .Above_Center, {direction = .Row, gap = 0, padding = 0, width = width, height = room}) do return
+	if !ui.popover_begin(ctx, "brush sheet", &k.browser, anchor, side, {direction = .Row, gap = 0, padding = 0, width = width, height = room}) do return
 	defer ui.popover_end(ctx)
-	all := brush_items_all(app)
+	pick_for, adding := p.adding.?
+	all := brush_items_all(app, buttons = true)
 	side := brush_palette_categories(app, owner, all[:], room)
 	main_w := width - side
 	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = 8, padding = 12, width = main_w})
@@ -1040,6 +1047,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	head_w := main_w - 24
 	// The space's pages, each narrowing All to what it is for.
 	pages := shelf_pages(k, k.spaces.current)
+	// Adding to another dock than a shelf page, the pages narrow nothing.
+	if _, page := shelf_page_of(pick_for.which); adding && !page do pages = nil
 	tabs_w := f32(len(pages)) * SHEET_TAB_W + 6
 	import_w: f32 = IMPORT_W
 	free := head_w - tabs_w - t.target - 3 * GAP
@@ -1049,7 +1058,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	field_w := clamp(free - import_w, 0, min(300, main_w * 0.36))
 	ui.begin(ctx, "brush sheet head", {direction = .Row, gap = GAP, center = true, width = head_w})
 	p.searching = true
-	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = fmt.tprintf("Search %d brushes", len(all)))
+	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = fmt.tprintf("Search %d", len(all)))
 	p.search_focus = false
 	names := make([]string, len(pages), context.temp_allocator)
 	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHEET_TAB_W - 8)
@@ -1082,7 +1091,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 		// A card does not take the drag on the press, so a finger or a pen swiped up or down
 		// over the cards scrolls the grid (drag = false); one going sideways first carries it.
 		a := ui.area(ctx, fmt.tprintf("%s##sheet %s", l.name, l.key), {card_w, CARD_H}, drag = false)
-		on := brush_item_on(app, l.item)
+		// Adding to a dock, what is on it is lit, with a tick.
+		on := library_on_bar(app, l.item) if adding else brush_item_on(app, l.item)
 		ui.fill_rect(ctx, a.rect, t.radius_large, t.accent_soft if on else t.surface)
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_large, t.fill_hover)
 		ui.stroke_rect(ctx, a.rect, t.radius_large, t.accent if on else t.border, 1)
@@ -1090,25 +1100,34 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 		name := ui.text_fit(ctx, l.name, t.small_size, a.rect.w - 40, .Semibold)
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)
 		if _, fav := brush_favorite(p, l.key); fav do ui.icon(ctx, ICON_HEART, {a.rect.x + a.rect.w - 16, a.rect.y + a.rect.h - 16}, t.icon_small - 2, t.warning)
+		if adding do ui.icon(ctx, ui.ICON_CHECK if on else ui.ICON_PLUS, {a.rect.x + a.rect.w - 18, a.rect.y + 18}, t.icon_small - 2, t.accent if on else t.text_secondary)
 		ui.tip(ctx, a.id, a.rect, l.name, brush_item_hint(app, l.item))
 		// A drag past the slop carries the card toward the shelf; it is no tap then. A finger
 		// or a pen has to start it sideways (claim_drag across), as up and down scrolls the
 		// grid; a mouse, which scrolls with the wheel, carries it whichever way it goes.
-		if a.held && sh.carry == nil && ui.claim_drag(ctx, 0) && math.abs(ctx.input.mouse.y - ctx.press_mouse.y) + math.abs(ctx.input.mouse.x - ctx.press_mouse.x) > t.slop * 2 {
+		if !adding && a.held && sh.carry == nil && ui.claim_drag(ctx, 0) && math.abs(ctx.input.mouse.y - ctx.press_mouse.y) + math.abs(ctx.input.mouse.x - ctx.press_mouse.x) > t.slop * 2 {
 			if s, ok := shelf_slot_of(l.item); ok {
 				sh.carry, sh.carry_at = s, ctx.input.mouse
 				ui.press_used(ctx)
 			}
 		}
 		if a.clicked && sh.carry == nil do pick = l.item
-		if ui.secondary(ctx) do settings = l.item
+		if !adding && ui.secondary(ctx) do settings = l.item
 		if i % SHEET_COLUMNS == SHEET_COLUMNS - 1 || i == len(list) - 1 do ui.end(ctx)
 	}
-	if len(list) == 0 do ui.paragraph(ctx, "No brush has that in its name." if brush_query(p) != "" else "Nothing here yet.", inner)
+	if len(list) == 0 do ui.paragraph(ctx, "Nothing has that in its name." if brush_query(p) != "" else "Nothing here yet.", inner)
+	// Enter takes the first card of what was typed, as a tap on it would.
+	if d := &app.device; brush_query(p) != "" && len(list) > 0 && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do pick = list[0].item
 	kit_scroll_end(ctx, scroll)
-	ui.label(ctx, "Swipe up or down to see more. Drag a brush sideways, then onto the shelf, to keep it there. Long press for its settings.", t.small_size, t.text_secondary)
+	if adding {
+		ui.label(ctx, fmt.tprintf("Tap to put it on %s, again to take it off.", strings.to_lower(bar_title(app, pick_for.which), context.temp_allocator)) if pick_for.add else fmt.tprintf("Tap the button for %s.", strings.to_lower(bar_title(app, pick_for.which), context.temp_allocator)), t.small_size, t.text_secondary)
+	} else {
+		ui.label(ctx, "Swipe up or down to see more. Drag a brush sideways, then onto the shelf, to keep it there. Long press for its settings.", t.small_size, t.text_secondary)
+	}
 	ui.end(ctx)
-	if it, ok := pick.?; ok {
+	if it, ok := pick.?; ok && adding {
+		library_put(app, it)
+	} else if ok {
 		brush_item_pick(app, it)
 		p.picks += 1
 		k.browser = false
@@ -1133,7 +1152,7 @@ brush_sheet_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 	list := brush_palette_list(app, all)
 	// Render's page holds no brushes, so its picker lists them all, as a page of one's own
 	// does, being for whatever its owner puts on it.
-	if p.category != .All || brush_query(p) != "" || app.kit.shelf.page == .Render || app.kit.shelf.page >= SHELF_EXTRA_FIRST do return list
+	if p.category != .All || brush_query(p) != "" || p.adding != nil || app.kit.shelf.page == .Render || app.kit.shelf.page >= SHELF_EXTRA_FIRST do return list
 	out := make([dynamic]Listed_Brush, context.temp_allocator)
 	for l in list {
 		c := brush_item_category(l.item)
@@ -1199,10 +1218,16 @@ shelf_carry_update :: proc(app: ^App) {
 lens_stroke_preview :: proc(ctx: ^ui.Context, r: ui.Rect, it: Brush_Item, app: ^App) {
 	t := ctx.theme
 	CLAY :: ui.Color{184, 148, 130, 255}
+	// A button that is no brush shows its icon on the card's own colour.
+	if brush_item_is_button(it) {
+		ui.fill_rect(ctx, r, t.radius_small, t.fill_hover)
+		ui.icon(ctx, brush_item_icon(app, it), {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.h * 0.5, 26), t.text)
+		return
+	}
 	ui.fill_rect(ctx, r, t.radius_small, CLAY)
 	if it.what == .Slot && brush_preview_draw(app, brush_item_key(app, it), r) do return
 	if it.what != .Slot {
-		ui.icon(ctx, brush_item_icon(it), {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.h * 0.5, 26), {90, 62, 50, 255})
+		ui.icon(ctx, brush_item_icon(app, it), {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.h * 0.5, 26), {90, 62, 50, 255})
 		return
 	}
 	kind := it.slot.kind

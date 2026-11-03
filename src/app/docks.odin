@@ -835,13 +835,10 @@ kit_dock_menu :: proc(app: ^App) {
 	defer ui.popover_end(ctx)
 	ui.label(ctx, DOCK_TITLES[id], t.title_size, t.text, .Semibold)
 	full := bar_count(app, which)^ >= bar_capacity(which)
-	if ui.menu_item(ctx, "Add a button...", glyph = ui.ICON_SEARCH, enabled = !full) {
+	// The Library, on this dock's own kind of button (library_open_for).
+	if ui.menu_item(ctx, "Add a button...", glyph = ui.ICON_PLUS, enabled = !full) {
 		p.open = false
 		bar_choose(app, {which = which, slot = len(bar_used(app, which)), add = true})
-		return
-	}
-	if id == .Rail && ui.menu_item(ctx, "Add cards and groups...", glyph = ui.ICON_PLUS) {
-		bar_pop_toggle(app, .Panels, p.at, p.side)
 		return
 	}
 	ui.caption(ctx, "LINES")

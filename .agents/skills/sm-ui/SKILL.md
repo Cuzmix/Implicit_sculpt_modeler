@@ -333,7 +333,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| the brush browser | `kit_brushes.odin`: ZBrush's Brushes palette over `k.browser`; everything it lists is a `Brush_Item` (brush or preset slot, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there |
+| the Library | `kit_brushes.odin` (items, categories, `library_open_for`/`library_put`) and `kit_brush_sheet` in `lens_shelf.odin` (the sheet over `k.browser`); everything it lists is a `Brush_Item` (brush or preset slot, any other button as `slot.command`, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there; a dock's button is chosen here (`bar_choose`), never in Search |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
