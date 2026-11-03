@@ -31,8 +31,12 @@ backend_fail :: proc(name: string, format: string, args: ..any) {
 }
 
 // Readies the backend before any window is created: Vulkan's loader must be found first,
-// as SDL makes Vulkan windows with it. False, with backend_error saying why, where it is not.
+// as SDL makes Vulkan windows with it, and WebGPU's device must have come. False, with
+// backend_error saying why, where it is not.
 backend_select :: proc() -> bool {
+	// In a browser the device was asked for before the app started (wgpu_start), and a
+	// failure then has already kept its reason.
+	when WEBGPU do return wgpu_state.started
 	error_len = 0
 	when VULKAN {
 		if !sdl.Vulkan_LoadLibrary(nil) {

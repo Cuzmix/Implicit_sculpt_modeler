@@ -100,12 +100,12 @@ STUDIO_CARRY_KEY_SETTLED :: 2.0
 // frame of a turn. Traced samples cost by pixels, not triangles, and always add.
 STUDIO_MOVING_TRIANGLES :: 2_000_000
 
-SHADOW_VERT_CODE :: #load("shaders/shadow.vert" + SHADER_EXT)
-SHADOW_FRAG_CODE :: #load("shaders/shadow.frag" + SHADER_EXT)
-STUDIO_GATHER_FRAG_CODE :: #load("shaders/studio_gather.frag" + SHADER_EXT)
-STUDIO_COMPOSITE_FRAG_CODE :: #load("shaders/studio_composite.frag" + SHADER_EXT)
-STUDIO_REPROJECT_FRAG_CODE :: #load("shaders/studio_reproject.frag" + SHADER_EXT)
-STUDIO_DEPTH_KEEP_FRAG_CODE :: #load("shaders/studio_depth_keep.frag" + SHADER_EXT)
+SHADOW_VERT_CODE :: #load("shaders/shadow.vert" + SHADER_EXT, string)
+SHADOW_FRAG_CODE :: #load("shaders/shadow.frag" + SHADER_EXT, string)
+STUDIO_GATHER_FRAG_CODE :: #load("shaders/studio_gather.frag" + SHADER_EXT, string)
+STUDIO_COMPOSITE_FRAG_CODE :: #load("shaders/studio_composite.frag" + SHADER_EXT, string)
+STUDIO_REPROJECT_FRAG_CODE :: #load("shaders/studio_reproject.frag" + SHADER_EXT, string)
+STUDIO_DEPTH_KEEP_FRAG_CODE :: #load("shaders/studio_depth_keep.frag" + SHADER_EXT, string)
 
 // Matches Reproject_Uniforms in studio_reproject.frag.slang.
 @(private = "file")

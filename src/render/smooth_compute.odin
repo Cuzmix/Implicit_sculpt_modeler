@@ -14,7 +14,7 @@ import "../geom"
 // The mesh the viewport draws is not touched: the caller writes the result back to the
 // CPU mesh, which uploads its changes the usual way.
 
-SMOOTH_ALL_COMP_CODE :: #load("shaders/smooth_all.comp" + SHADER_EXT)
+SMOOTH_ALL_COMP_CODE :: #load("shaders/smooth_all.comp" + SHADER_EXT, string)
 
 // Threads per workgroup; matches local_size_x in smooth_all.comp.slang.
 SMOOTH_THREADS :: 256

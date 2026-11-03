@@ -7,9 +7,9 @@ import stbtt "vendor:stb/truetype"
 
 // The typefaces: Inter for text (SIL Open Font License) and Lucide for icons (ISC), both
 // embedded so the app needs no files beside it. Their licences are beside them.
-INTER_REGULAR := #load("../../assets/fonts/Inter-Regular.ttf")
-INTER_SEMIBOLD := #load("../../assets/fonts/Inter-SemiBold.ttf")
-LUCIDE := #load("../../assets/fonts/Lucide.ttf")
+INTER_REGULAR := #load("../../assets/fonts/Inter-Regular.ttf", string)
+INTER_SEMIBOLD := #load("../../assets/fonts/Inter-SemiBold.ttf", string)
+LUCIDE := #load("../../assets/fonts/Lucide.ttf", string)
 
 Font :: enum u8 {
 	Regular,
@@ -39,9 +39,9 @@ Fonts :: struct {
 fonts_init :: proc(f: ^Fonts) {
 	fs.Init(&f.stash, ATLAS_START, ATLAS_START, .TOPLEFT)
 	data := [Font][]u8 {
-		.Regular  = INTER_REGULAR,
-		.Semibold = INTER_SEMIBOLD,
-		.Icons    = LUCIDE,
+		.Regular  = transmute([]u8)INTER_REGULAR,
+		.Semibold = transmute([]u8)INTER_SEMIBOLD,
+		.Icons    = transmute([]u8)LUCIDE,
 	}
 	for font in Font {
 		f.ids[font] = fs.AddFontMem(&f.stash, "", data[font], false)

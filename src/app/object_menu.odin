@@ -53,32 +53,49 @@ Object_Verb :: struct {
 }
 
 // Each type's verbs in each space, the first its main one there, which the other spaces'
-// menus offer with this space's tag. A space with none for a type offers nothing of its
-// own (the rows every object has stay).
+// menus offer with this space's tag, in order. A space with none for a type offers nothing
+// of its own (the rows every object has stay). One list of rows rather than a table of
+// slices, as the web build's compiler cannot make a global that holds slices of constants.
+// A curve is drawn and edited in Sculpt's Curve tool; in Model it makes cages, and Bake
+// makes what it shows a mesh in any space.
 @(rodata)
-OBJECT_VERBS := [Object_Type][Space][]Object_Verb {
-	.Sculpt_Mesh = {
-		.Sculpt = {{id = .Subdivide}, {id = .Remesh}, {id = .Dyntopo_Toggle}, {id = .New_Layer}, {id = .Extract_Masked}, {id = .Mirror_Weld}},
-		.Model  = {{id = .Edit_Cage, label = "Make editable"}, {id = .Retopologize}},
-		.Render = {},
-	},
-	.Voxel_Clay = {
-		.Sculpt = {{id = .Voxel_Res_Up, label = "More voxels (Res+)"}, {id = .Voxel_Res_Down, label = "Fewer voxels (Res-)"}},
-		.Model  = {{id = .Convert_To_Mesh, label = "Make a mesh to edit"}},
-		.Render = {},
-	},
-	.Cage = {
-		.Sculpt = {{id = .Apply_Cage, label = "Make sculptable"}},
-		.Model  = {{id = .Cage_Smooth, arg = 2, label = "Smooth twice"}, {id = .Cage_Smooth, arg = 0, label = "Draw unsmoothed"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Dissolve_Flat), label = "Dissolve flat faces"}, {id = .Tidy_Cage, arg = int(Cage_Tidy.Merge_Close), label = "Merge close points"}},
-		.Render = {},
-	},
-	// A curve is drawn and edited in Sculpt's Curve tool; in Model it makes cages, and Bake
-	// makes what it shows a mesh in any space.
-	.Curve = {
-		.Sculpt = {{id = .Curve_Bake, label = "Bake to mesh"}, {id = .Curve_Close}},
-		.Model  = {{id = .Curve_Pipe_Cage, label = "Pipe cage"}, {id = .Curve_Lathe_Cage, label = "Lathe cage"}, {id = .Curve_Loft_Cage, label = "Loft cage"}, {id = .Curve_Bake, label = "Bake to mesh"}},
-		.Render = {},
-	},
+OBJECT_VERBS := [?]Object_Verb_Row {
+	{.Sculpt_Mesh, .Sculpt, {id = .Subdivide}},
+	{.Sculpt_Mesh, .Sculpt, {id = .Remesh}},
+	{.Sculpt_Mesh, .Sculpt, {id = .Dyntopo_Toggle}},
+	{.Sculpt_Mesh, .Sculpt, {id = .New_Layer}},
+	{.Sculpt_Mesh, .Sculpt, {id = .Extract_Masked}},
+	{.Sculpt_Mesh, .Sculpt, {id = .Mirror_Weld}},
+	{.Sculpt_Mesh, .Model, {id = .Edit_Cage, label = "Make editable"}},
+	{.Sculpt_Mesh, .Model, {id = .Retopologize}},
+	{.Voxel_Clay, .Sculpt, {id = .Voxel_Res_Up, label = "More voxels (Res+)"}},
+	{.Voxel_Clay, .Sculpt, {id = .Voxel_Res_Down, label = "Fewer voxels (Res-)"}},
+	{.Voxel_Clay, .Model, {id = .Convert_To_Mesh, label = "Make a mesh to edit"}},
+	{.Cage, .Sculpt, {id = .Apply_Cage, label = "Make sculptable"}},
+	{.Cage, .Model, {id = .Cage_Smooth, arg = 2, label = "Smooth twice"}},
+	{.Cage, .Model, {id = .Cage_Smooth, arg = 0, label = "Draw unsmoothed"}},
+	{.Cage, .Model, {id = .Tidy_Cage, arg = int(Cage_Tidy.Dissolve_Flat), label = "Dissolve flat faces"}},
+	{.Cage, .Model, {id = .Tidy_Cage, arg = int(Cage_Tidy.Merge_Close), label = "Merge close points"}},
+	{.Curve, .Sculpt, {id = .Curve_Bake, label = "Bake to mesh"}},
+	{.Curve, .Sculpt, {id = .Curve_Close}},
+	{.Curve, .Model, {id = .Curve_Pipe_Cage, label = "Pipe cage"}},
+	{.Curve, .Model, {id = .Curve_Lathe_Cage, label = "Lathe cage"}},
+	{.Curve, .Model, {id = .Curve_Loft_Cage, label = "Loft cage"}},
+	{.Curve, .Model, {id = .Curve_Bake, label = "Bake to mesh"}},
+}
+
+// A row of OBJECT_VERBS: a verb of objects of `kind` in `space`.
+Object_Verb_Row :: struct {
+	kind:  Object_Type,
+	space: Space,
+	verb:  Object_Verb,
+}
+
+// The verbs of type `kind` in `space` (OBJECT_VERBS), in temp memory.
+object_verbs :: proc(kind: Object_Type, space: Space) -> []Object_Verb {
+	verbs := make([dynamic]Object_Verb, 0, 8, context.temp_allocator)
+	for row in OBJECT_VERBS do if row.kind == kind && row.space == space do append(&verbs, row.verb)
+	return verbs[:]
 }
 
 // The conversion every type offers among the rows always there.
@@ -188,7 +205,7 @@ kit_object_menu :: proc(app: ^App) {
 	picked := object_menu_quick(app, kind)
 	ui.divider(ctx, across = true)
 	shown := make([dynamic]Object_Verb, 0, 16, context.temp_allocator)
-	for v in OBJECT_VERBS[kind][space] {
+	for v in object_verbs(kind, space) {
 		if command_menu_item(app, v.id, v.arg, label = v.label) do picked = true
 		append(&shown, v)
 		k.object_menu_rows += 1
@@ -197,9 +214,10 @@ kit_object_menu :: proc(app: ^App) {
 	// space: enabled as the command is here, so a switch never lands on a refusal; picked, it
 	// switches space, then runs. The tag takes the shortcut's place, so the shortcut is in the tooltip.
 	for s in Space {
-		if s == space || len(OBJECT_VERBS[kind][s]) == 0 do continue
-		v := OBJECT_VERBS[kind][s][0]
-		for w in OBJECT_VERBS[kind][s] do if command_enabled(app, w.id, w.arg) {
+		verbs := object_verbs(kind, s)
+		if s == space || len(verbs) == 0 do continue
+		v := verbs[0]
+		for w in verbs do if command_enabled(app, w.id, w.arg) {
 			v = w
 			break
 		}

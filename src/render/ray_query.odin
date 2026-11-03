@@ -22,7 +22,7 @@ Ray_Query_Check :: enum u8 {
 	Failed,
 }
 
-RAY_QUERY_CHECK_COMP_CODE :: #load("shaders/ray_query_check.comp" + RQ_EXT)
+RAY_QUERY_CHECK_COMP_CODE :: #load("shaders/ray_query_check.comp" + RQ_EXT, string)
 
 @(private = "file")
 Rq_Ray :: struct {

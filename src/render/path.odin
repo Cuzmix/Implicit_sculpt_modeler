@@ -24,19 +24,19 @@ import "../jobs"
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
-RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
+RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT, string)
 // The same kernel reading every map from one array (render_trace_maps.comp.slang), which
 // only the own Vulkan backend binds, so it has no Metal source.
 // Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
 // named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
 when VULKAN {
-	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
-	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv")
+	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv", string)
+	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv", string)
 }
-RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT)
-RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
-RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
-RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
+RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT, string)
+RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT, string)
+RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT, string)
+RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT, string)
 
 RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
 // The exposed light the finishing stack starts from (render_linear_texture).

@@ -217,7 +217,8 @@ wgpu_on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Devic
 // The device wgpu_start made, or false with the reason kept for backend_error.
 wgpu_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 	if !wgpu_state.started {
-		backend_fail("WebGPU", "the device was not started (wgpu_start)")
+		// wgpu_start's own failure keeps its reason.
+		if backend_error() == "" do backend_fail("WebGPU", "the device was not started (wgpu_start)")
 		return nil, false
 	}
 	return wgpu_device_handle(), true

@@ -23,6 +23,7 @@ import argparse
 import functools
 import http.server
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -98,7 +99,7 @@ def odin_root():
     for directory, _, names in os.walk(overlay):
         for name in names:
             files.append(os.path.relpath(os.path.join(directory, name), overlay))
-    copied = {os.path.dirname(f) for f in files} | {os.path.dirname(p[0]) for p in PATCHES}
+    copied = {os.path.dirname(f) for f in files} | {os.path.dirname(p[0]) for p in PATCHES} | {r[0] for r in REWRITES}
     on_the_way = {os.path.join(*parts[:i]) for d in copied for parts in [d.split(os.sep)] for i in range(1, len(parts))}
 
     def lay(rel):
@@ -123,6 +124,15 @@ def odin_root():
         # A new file is fine where a folder was copied; a file that replaces nothing in a
         # folder Odin's own never had is a sign the overlay is out of date.
         shutil.copy2(os.path.join(overlay, rel), target)
+    for folder, pattern, replacement in REWRITES:
+        for name in sorted(os.listdir(os.path.join(root, folder))):
+            if not name.endswith(".odin"):
+                continue
+            target = os.path.join(root, folder, name)
+            with open(target, encoding="utf-8") as f:
+                text = f.read()
+            with open(target, "w", encoding="utf-8", newline="\n") as f:
+                f.write(re.sub(pattern, replacement, text))
     for rel, old, new in PATCHES:
         target = os.path.join(root, rel)
         with open(target, encoding="utf-8") as f:
@@ -136,9 +146,29 @@ def odin_root():
 
 # Lines of Odin's own files the web build changes, in the copies odin_root makes: core:flags
 # names core:net only where it parses a host, which js leaves out, and -vet then refuses
-# the unused import.
+# the unused import; and Odin's wasm64p32 code generation stops on an assertion at a global
+# slice made from constants (zlib's and PNG's tables), which a fixed array of the same
+# values avoids. The app's own code keeps clear of them (and of #load as bytes rather than a
+# string) for the same reason.
 PATCHES = [
     ("core/flags/internal_rtti.odin", 'import            "core:net"', '@(require) import "core:net"'),
+    ("core/compress/zlib/zlib.odin", "Z_LENGTH_DEZIGZAG := []u8{", "Z_LENGTH_DEZIGZAG := [?]u8{"),
+    ("core/image/png/png.odin", "ADAM7_X_ORIG    := []int{", "ADAM7_X_ORIG    := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_Y_ORIG    := []int{", "ADAM7_Y_ORIG    := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_X_SPACING := []int{", "ADAM7_X_SPACING := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_Y_SPACING := []int{", "ADAM7_Y_SPACING := [?]int{"),
+    # Two lengths REWRITES leaves as Odin's int where the shim now takes 32 bits.
+    ("vendor/libc-shim/string.odin", "return len(sdst)", "return u32(len(sdst))"),
+    ("vendor/libc-shim/stdio.odin", "size_of(byte), len(buf), file)", "size_of(byte), u32(len(buf)), file)"),
+]
+
+
+# Words of Odin's own folders the web build replaces in every file of its copies:
+# vendor:stb's C objects for wasm are built for wasm32, whose size_t is 32 bits, while
+# vendor:libc-shim, which answers their malloc, memcpy and the rest, takes Odin's uint, 64
+# bits on wasm64p32, so the linker would turn every call into a trap.
+REWRITES = [
+    (os.path.join("vendor", "libc-shim"), r"\buint\b", "u32"),
 ]
 
 

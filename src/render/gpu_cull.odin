@@ -27,8 +27,8 @@ import "../geom"
 
 // Vulkan only, so no Metal source is made for them.
 when VULKAN {
-	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv")
-	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv")
+	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv", string)
+	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv", string)
 }
 
 // Words of the indirect buffer's header: one command's size, so the commands after it
