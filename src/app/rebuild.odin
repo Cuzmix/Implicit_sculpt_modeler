@@ -150,6 +150,18 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 	return {p.origin.x, p.origin.y, p.origin.z, p.cell}
 }
 
+// The faces the selected object is made of, as Half, Same and Double count them: the
+// base level's polygons where it keeps them, else its quads, else its triangles.
+object_face_count :: proc(obj: ^Object) -> int {
+	if obj == nil do return 0
+	if obj.voxel == nil && len(obj.levels.levels) > 0 {
+		base := obj.levels.levels[0]
+		if len(base.polys.first) > 1 do return len(base.polys.first) - 1
+		if len(obj.levels.faces.quads) > 0 do return len(obj.levels.faces.quads)
+	}
+	return object_triangle_count(obj)
+}
+
 // Runs the goal the panel is set to on the selected object, at its density.
 rebuild_command :: proc(app: ^App) {
 	switch app.ui.rebuild_goal {
@@ -202,6 +214,18 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		}
 	case .Quads:
 		_ = kit_count(ctx, label, &app.ui.retopo_quads, 100, 1_000_000)
+		// Half, Same and Double set the count from the object's faces, as ZRemesher's
+		// buttons do: the base level's polygons where it keeps them, else its quads, else its
+		// triangles (a triangle sculpt has about twice the faces of the quads that cover it).
+		{
+			faces := object_face_count(obj)
+			third := (ui.fill_width(ctx) - 16) / 3
+			ui.begin(ctx, "half same double", {direction = .Row, gap = 8})
+			if ui.button(ctx, "Half", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces / 2, 100, 1_000_000))
+			if ui.button(ctx, "Same", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces, 100, 1_000_000))
+			if ui.button(ctx, "Double", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces * 2, 100, 1_000_000))
+			ui.end(ctx)
+		}
 		// The engine, Adaptivity, Close first and Keep symmetry under the same fold, for the same
 		// reasons.
 		if kit_more(app, .Remesh) {

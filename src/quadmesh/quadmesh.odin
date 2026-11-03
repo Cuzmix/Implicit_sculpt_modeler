@@ -22,11 +22,11 @@ AVAILABLE :: (ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin) &&
 
 // What a remesh is asked for.
 Params :: struct {
-	quads:         int, // wanted; the result lands within about a fifth under it at adaptivity 0
+	quads:         int, // wanted; the quad edge is sqrt(area / quads), so the count lands within a few percent at adaptivity 0
 	adaptivity:    f32, // 0 quads of one size, 1 smaller quads where the surface bends (and far fewer than asked)
 	sharp_degrees: f32, // an edge whose faces meet sharper than this is kept as an edge
 	anisotropy:    f32, // 0 for AutoRemesher's own
-	scaling:       f32, // 0 for AutoRemesher's own cell size from the count
+	scaling:       f32, // 0 for the quad edge from the count; else the quad edge as a multiple of the isotropic mesh's mean edge
 	threads:       int, // threads the remesh may use, 1 to MAX_THREADS; the result is the same for any count
 }
 
@@ -45,8 +45,9 @@ Polygon_Mesh :: struct {
 }
 
 Report :: struct {
-	faces, quads, triangles, ngons: int, // ngons are polygons of five or more corners
-	ms:                             f64,
+	faces, quads, triangles, ngons:                        int, // ngons are polygons of five or more corners
+	ms:                                                    f64,
+	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64, // the stages, summed over the islands (so over the threads)
 }
 
 Error :: enum u8 {
@@ -120,6 +121,12 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 		qm_copy(result, cast([^]f32)raw_data(out.positions), raw_data(out.first), raw_data(out.corners))
 		report.faces = int(faces)
 		report.quads, report.triangles, report.ngons = polygon_share(out)
+		times: Qm_Times
+		qm_times(result, &times)
+		report.decimate_ms = f64(times.decimate_ms)
+		report.isotropic_ms = f64(times.isotropic_ms)
+		report.parameterize_ms = f64(times.parameterize_ms)
+		report.extract_ms = f64(times.extract_ms)
 		report.ms = time.duration_milliseconds(time.tick_since(start))
 		return out, report, .None, ""
 	} else {
@@ -159,6 +166,11 @@ Qm_Params :: struct {
 Qm_Result :: struct {}
 
 @(private = "file")
+Qm_Times :: struct {
+	decimate_ms, isotropic_ms, parameterize_ms, extract_ms, total_ms: f32,
+}
+
+@(private = "file")
 QM_OK :: 0
 @(private = "file")
 QM_CANCELLED :: 2
@@ -178,6 +190,7 @@ when AVAILABLE {
 		qm_remesh :: proc(positions: [^]f32, vertex_count: u32, triangles: [^]u32, triangle_count: u32, params: ^Qm_Params, progress: proc "c" (tag: rawptr, fraction: f32, stage: cstring) -> c.int, tag: rawptr, out: ^^Qm_Result, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_counts :: proc(r: ^Qm_Result, vertices, faces, corners: ^u32) ---
 		qm_copy :: proc(r: ^Qm_Result, positions: [^]f32, first: [^]u32, corners: [^]u32) ---
+		qm_times :: proc(r: ^Qm_Result, times: ^Qm_Times) ---
 		qm_free :: proc(r: ^Qm_Result) ---
 	}
 }
