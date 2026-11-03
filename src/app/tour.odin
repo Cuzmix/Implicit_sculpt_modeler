@@ -30,7 +30,7 @@ TOUR_DONE_HOLD :: 0.9
 Tour :: struct {
 	step:     i32, // the next step to show; TOUR_DONE when over (remembered)
 	run:      bool, // this run shows the tour: interactive, --tour, or Take the tour
-	since:    i32, // the step `since_at` was taken for, -1 for none yet
+	since:    i32, // the step whose switches and paint were taken, -1 for none yet
 	switches: int, // the space switches when the step came, to see one made
 	paint:    bool, // whether painting was on when the step came
 	done:     bool, // the step was done; it moves on TOUR_DONE_HOLD after done_at

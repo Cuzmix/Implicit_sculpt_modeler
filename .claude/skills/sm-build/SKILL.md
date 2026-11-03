@@ -47,7 +47,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   SPIRV-Cross and SDL3 static, then the tool), each new `.spv` also becomes its `.msl` (`python scripts/shaders_msl.py`;
   `--all` remakes every one). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
 - VS Code: `.vscode/tasks.json` (one task per build mode and script, Windows and Linux, grouped Desktop, Test, Android,
-  iPad, Build all and Clean, with an Odin problem matcher; the test picker lists all twelve packages) and `launch.json`
+  iPad, Build all and Clean, with an Odin problem matcher; the test picker lists the nineteen packages `build.sh test` runs) and `launch.json`
   (cppvsdbg on the PDBs, named by device; the build-and-run entries run build.bat or a script through cmd.exe under it;
   "Desktop: Debug, GPU validation" sets `SDL_ASSERT=break`). A new build mode or script gets a task, and a launch entry
   when it builds or runs for a device.

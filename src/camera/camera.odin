@@ -398,7 +398,7 @@ orthographic :: proc(half_height, aspect, near, far: f32) -> Mat4 {
 	}
 }
 
-// Right-handed perspective with clip-space depth in [0, 1], as SDL_GPU expects.
+// Right-handed perspective with clip-space depth in [0, 1], as Vulkan, Metal and WebGPU all take it.
 perspective :: proc(fov_y, aspect, near, far: f32) -> Mat4 {
 	f := 1 / math.tan(fov_y / 2)
 	return Mat4{

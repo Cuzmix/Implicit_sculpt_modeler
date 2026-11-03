@@ -9,8 +9,7 @@
 #   bench   headless sculpt benchmark at 500k, 1M, 5M, 7M and 10M vertices (no display
 #           needed); extra args go to build/bench, e.g. 2000000 --threads=1
 #   smoke   debug build, then run 300 frames with GPU debug mode and a view window (a
-#           second swapchain), once on SDL_GPU and once on the Vulkan backend; fails on
-#           any SDL assert, GPU error, Vulkan validation message or leaked allocation
+#           second swapchain); fails on any SDL assert, GPU error, Vulkan validation message or leaked allocation
 #           (needs a display, e.g. Xvfb)
 #   gpubench release build, then time the GPU and CPU while orbiting and sculpting a
 #           sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices, with each speed setting on and
@@ -203,7 +202,7 @@ apple_icon() {
 
 # Every Metal shader through Apple's own compiler for SDK $1 (iphoneos or macosx), into
 # build/$2/msl, so a translation error stops the build here rather than on the device, where
-# SDL compiles each from source when the app first makes its pipeline (scripts/shaders_msl.py
+# the Metal backend compiles each from source when the app first makes its pipeline (scripts/shaders_msl.py
 # made them). A shader whose source and compiler match those it last passed with (its .sum
 # beside its .air, which the workflows keep in their caches) is not checked again.
 metal_check() {
