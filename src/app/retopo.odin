@@ -236,6 +236,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
 	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
 	if res.guides > 0 do engine = fmt.tprintf("%s, guided by %d curve%s", engine, res.guides, "" if res.guides == 1 else "s")
+	if res.thin > 0 do engine = fmt.tprintf("%s, %s vertices on thin parts", engine, thousands(res.thin))
 	if res.unkept != "" do engine = fmt.tprintf("%s, %s", engine, res.unkept)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}

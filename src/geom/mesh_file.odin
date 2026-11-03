@@ -1780,10 +1780,16 @@ int_text :: proc(n: int) -> string {
 
 // Writes x with nine significant digits, enough for any f32 to read back exactly,
 // without trailing zeros: plain below 1e9 and down to 1e-5, otherwise with an
-// exponent. Returns the length; buf needs 16 bytes.
+// exponent. NaN and infinity are written as C's printf writes them, nan and inf, which
+// no reader here takes, so a file holding one is refused rather than read wrong. Returns
+// the length; buf needs 16 bytes.
 @(private)
 format_f32 :: proc(buf: []u8, x: f32) -> int {
 	n := 0
+	if math.is_nan(x) {
+		copy(buf, "nan")
+		return 3
+	}
 	if math.sign_bit(x) {
 		buf[0] = '-'
 		n = 1
@@ -1792,6 +1798,11 @@ format_f32 :: proc(buf: []u8, x: f32) -> int {
 	if a == 0 {
 		buf[n] = '0'
 		return n + 1
+	}
+	// The power of ten below would be the floor of infinity, which no int holds.
+	if math.is_inf(a) {
+		copy(buf[n:], "inf")
+		return n + 3
 	}
 	// Nine digits of a, as an integer in [1e8, 1e9), and the power of ten of the first.
 	e := int(math.floor(math.log10(a)))
