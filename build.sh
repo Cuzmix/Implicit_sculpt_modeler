@@ -253,7 +253,7 @@ case "$mode" in
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench fbx geom camera gizmo hdri jobs luau png_write poly quadmesh render retopo sculpt send ui usd uv voxel zip; do
+		for pkg in app bench fbx geom camera gizmo gpu hdri jobs luau png_write poly quadmesh render retopo sculpt send ui usd uv voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
@@ -264,7 +264,7 @@ case "$mode" in
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 21 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
+		echo "check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"

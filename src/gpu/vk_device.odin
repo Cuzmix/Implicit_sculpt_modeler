@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import "base:runtime"
 import "core:fmt"
@@ -28,7 +28,7 @@ Vk_State :: struct {
 	device:            vk.Device,
 	queue:             vk.Queue,
 	family:            u32,
-	// The queue compute command buffers go to (gpu_acquire_compute_command_buffer): a
+	// The queue compute command buffers go to (acquire_compute_command_buffer): a
 	// second queue of the graphics family where it has one, so the two share every
 	// resource with no ownership transfer, else the graphics queue itself (.Same_Queue),
 	// where the split still runs but nothing overlaps.
@@ -307,7 +307,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
 	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, drawIndirectCount = have12.drawIndirectCount}
-	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
+	// Arrays of sampled textures a kernel indexes per pixel (bind_compute_texture_array):
 	// sized when the array is bound, every element written, so not partially bound.
 	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
 	f12.runtimeDescriptorArray, f12.descriptorBindingVariableDescriptorCount, f12.shaderSampledImageArrayNonUniformIndexing = arrays, arrays, arrays
@@ -579,7 +579,7 @@ vk_allocate_type :: proc(size: vk.DeviceSize, index: u32, device_address: bool) 
 	info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, pNext = &flags if device_address else nil, allocationSize = size, memoryTypeIndex = index}
 	memory: vk.DeviceMemory
 	if vk.AllocateMemory(vk_state.device, &info, nil, &memory) != .SUCCESS do return 0, false
-	gpu_count_allocation(i64(size))
+	count_allocation(i64(size))
 	return memory, true
 }
 

@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "core:log"
 import sdl "vendor:sdl3"
 
@@ -22,8 +23,8 @@ THUMB_SLOTS :: THUMB_CELLS * THUMB_CELLS
 
 thumbs_destroy :: proc(r: ^Renderer, t: ^Thumbs) {
 	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if t.atlas != nil do gpu_release_texture(r.device, t.atlas)
+	_ = gpu.wait_for_idle(r.device)
+	if t.atlas != nil do gpu.release_texture(r.device, t.atlas)
 	viewport_target_destroy(r, &t.scratch)
 	t^ = {}
 }
@@ -33,7 +34,7 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer) -> ^s
 	if t.failed do return nil
 	if t.atlas != nil do return t.atlas
 	SIZE :: THUMB_PX * THUMB_CELLS
-	t.atlas = gpu_create_texture(r.device, {
+	t.atlas = gpu.create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 	})
@@ -44,8 +45,8 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer) -> ^s
 	}
 	// A new texture holds anything: every cell starts empty.
 	color := sdl.GPUColorTargetInfo{texture = t.atlas, load_op = .CLEAR, store_op = .STORE}
-	pass := gpu_begin_render_pass(cmd, &color, 1, nil)
-	gpu_end_render_pass(pass)
+	pass := gpu.begin_render_pass(cmd, &color, 1, nil)
+	gpu.end_render_pass(pass)
 	return t.atlas
 }
 
@@ -58,11 +59,11 @@ thumbs_draw :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer, slot: 
 	whole.chunks, whole.chunk_groups, whole.hidden = nil, nil, nil
 	pass := begin_mesh_pass(r, cmd, &r.single, t.scratch.color, t.scratch.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
 	draw_items(r, cmd, pass, &r.single, view, proj, {whole}, nil, nil)
-	gpu_end_render_pass(pass)
-	copy_pass := gpu_begin_copy_pass(cmd)
+	gpu.end_render_pass(pass)
+	copy_pass := gpu.begin_copy_pass(cmd)
 	x, y := u32(slot % THUMB_CELLS) * THUMB_PX, u32(slot / THUMB_CELLS) * THUMB_PX
-	gpu_copy_texture_to_texture(copy_pass, {texture = t.scratch.color}, {texture = t.atlas, x = x, y = y}, THUMB_PX, THUMB_PX, 1, cycle = false)
-	gpu_end_copy_pass(copy_pass)
+	gpu.copy_texture_to_texture(copy_pass, {texture = t.scratch.color}, {texture = t.atlas, x = x, y = y}, THUMB_PX, THUMB_PX, 1, cycle = false)
+	gpu.end_copy_pass(copy_pass)
 	return true
 }
 

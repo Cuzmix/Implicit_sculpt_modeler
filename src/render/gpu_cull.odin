@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "core:log"
 import "core:slice"
 
@@ -26,7 +27,7 @@ import "../geom"
 // same number in its frame (cull_call); the numbers are those of a few frames back.
 
 // Vulkan only, so no Metal source is made for them.
-when VULKAN {
+when gpu.VULKAN {
 	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv", string)
 	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv", string)
 }
@@ -96,13 +97,13 @@ gpu_cull_frame :: proc(r: ^Renderer) {
 	s := &g.slots[g.slot]
 	if s.count == 0 || s.download == nil do return
 	defer s.count = 0
-	words := ([^][5]u32)(gpu_map_transfer_buffer(r.device, s.download, false))
+	words := ([^][5]u32)(gpu.map_transfer_buffer(r.device, s.download, false))
 	if words == nil do return
 	for e in 0 ..< s.count {
 		h := words[e]
 		g.late[s.calls[e]] += {u64(h[0]), u64(h[1]), u64(h[2]), u64(h[3])}
 	}
-	gpu_unmap_transfer_buffer(r.device, s.download)
+	gpu.unmap_transfer_buffer(r.device, s.download)
 }
 
 // Whether prepare_draws may cull `item` on the GPU in this pass.
@@ -127,35 +128,35 @@ gpu_cull_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item,
 	u := Cull_Uniforms{planes = geom.frustum_planes(clip), eye = {eye.x, eye.y, eye.z, 0}, counts = {chunks, groups, 1 if r.caps.barycentric else 0, 0}}
 	debug_group(cmd, "GPU culling")
 	write := sdl.GPUStorageBufferReadWriteBinding{buffer = c.totals}
-	pass := gpu_begin_compute_pass(cmd, nil, 0, &write, 1)
-	gpu_bind_compute_pipeline(pass, g.count_pipeline)
+	pass := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+	gpu.bind_compute_pipeline(pass, g.count_pipeline)
 	reads := [3]^sdl.GPUBuffer{c.records, c.groups, c.totals}
-	gpu_bind_compute_storage_buffers(pass, 0, &reads[0], 2)
-	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
-	gpu_dispatch_compute(pass, groups, 1, 1)
-	gpu_end_compute_pass(pass)
+	gpu.bind_compute_storage_buffers(pass, 0, &reads[0], 2)
+	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	gpu.dispatch_compute(pass, groups, 1, 1)
+	gpu.end_compute_pass(pass)
 	write = {buffer = mb.indirect}
-	pass = gpu_begin_compute_pass(cmd, nil, 0, &write, 1)
-	gpu_bind_compute_pipeline(pass, g.write_pipeline)
-	gpu_bind_compute_storage_buffers(pass, 0, &reads[0], 3)
-	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
-	gpu_dispatch_compute(pass, groups, 1, 1)
-	gpu_end_compute_pass(pass)
+	pass = gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+	gpu.bind_compute_pipeline(pass, g.write_pipeline)
+	gpu.bind_compute_storage_buffers(pass, 0, &reads[0], 3)
+	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	gpu.dispatch_compute(pass, groups, 1, 1)
+	gpu.end_compute_pass(pass)
 	c.culled = true
 	g.culls += 1
 
 	// The header, for this pass's stats a few frames on.
 	s := &g.slots[g.slot]
 	copy_pass: ^sdl.GPUCopyPass
-	if s.download == nil do s.download = gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = CULL_ENTRIES * CULL_HEADER})
+	if s.download == nil do s.download = gpu.create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = CULL_ENTRIES * CULL_HEADER})
 	if s.download != nil && s.count < CULL_ENTRIES && g.call < CULL_CALLS {
-		copy_pass = gpu_begin_copy_pass(cmd)
-		gpu_download_from_buffer(copy_pass, {buffer = mb.indirect, size = CULL_HEADER}, {transfer_buffer = s.download, offset = u32(s.count * CULL_HEADER)})
+		copy_pass = gpu.begin_copy_pass(cmd)
+		gpu.download_from_buffer(copy_pass, {buffer = mb.indirect, size = CULL_HEADER}, {transfer_buffer = s.download, offset = u32(s.count * CULL_HEADER)})
 		s.calls[s.count] = u8(g.call)
 		s.count += 1
 	}
 	if g.check do gpu_cull_keep(r, cmd, &copy_pass, item, clip, eye)
-	if copy_pass != nil do gpu_end_copy_pass(copy_pass)
+	if copy_pass != nil do gpu.end_copy_pass(copy_pass)
 	return true
 }
 
@@ -165,15 +166,15 @@ gpu_cull_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item,
 gpu_cull_kernels :: proc(r: ^Renderer) -> bool {
 	g := &r.gpu_culling
 	if g.count_pipeline != nil && g.write_pipeline != nil do return true
-	when VULKAN {
+	when gpu.VULKAN {
 		info := sdl.GPUComputePipelineCreateInfo {
 			code_size = len(CULL_COUNT_COMP_CODE), code = raw_data(CULL_COUNT_COMP_CODE), entrypoint = SHADER_ENTRY, format = SHADER_FORMAT,
 			num_readonly_storage_buffers = 2, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
 			threadcount_x = geom.CHUNK_GROUP, threadcount_y = 1, threadcount_z = 1,
 		}
-		g.count_pipeline = gpu_create_compute_pipeline(r.device, info)
+		g.count_pipeline = gpu.create_compute_pipeline(r.device, info)
 		info.code_size, info.code, info.num_readonly_storage_buffers = len(CULL_WRITE_COMP_CODE), raw_data(CULL_WRITE_COMP_CODE), 3
-		g.write_pipeline = gpu_create_compute_pipeline(r.device, info)
+		g.write_pipeline = gpu.create_compute_pipeline(r.device, info)
 	}
 	if g.count_pipeline == nil || g.write_pipeline == nil {
 		log.warnf("GPU culling: the kernels could not be made (%s); the CPU culls", sdl.GetError())
@@ -189,9 +190,9 @@ gpu_cull_buffers :: proc(r: ^Renderer, mb: ^Mesh_Buffers, chunks, groups: u32) -
 	c := &mb.cull
 	if c.records != nil && c.chunk_capacity >= chunks && c.group_capacity >= groups do return true
 	gpu_cull_release(r, mb)
-	c.records = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = chunks * size_of(geom.Chunk)})
-	c.groups = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = groups * size_of(geom.Chunk)})
-	c.totals = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}, size = groups * size_of([4]u32)})
+	c.records = gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = chunks * size_of(geom.Chunk)})
+	c.groups = gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = groups * size_of(geom.Chunk)})
+	c.totals = gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}, size = groups * size_of([4]u32)})
 	if c.records == nil || c.groups == nil || c.totals == nil {
 		log.errorf("GPU culling: buffers for %d chunks were refused (%s)", chunks, sdl.GetError())
 		gpu_cull_release(r, mb)
@@ -205,9 +206,9 @@ gpu_cull_buffers :: proc(r: ^Renderer, mb: ^Mesh_Buffers, chunks, groups: u32) -
 @(private)
 gpu_cull_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	c := &mb.cull
-	if c.records != nil do gpu_release_buffer(r.device, c.records)
-	if c.groups != nil do gpu_release_buffer(r.device, c.groups)
-	if c.totals != nil do gpu_release_buffer(r.device, c.totals)
+	if c.records != nil do gpu.release_buffer(r.device, c.records)
+	if c.groups != nil do gpu.release_buffer(r.device, c.groups)
+	if c.totals != nil do gpu.release_buffer(r.device, c.totals)
 	c.records, c.groups, c.totals, c.chunk_capacity, c.group_capacity, c.layout, c.stamp = nil, nil, nil, 0, 0, 0, 0
 }
 
@@ -236,16 +237,16 @@ gpu_cull_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Ite
 		bytes += (hi - lo + run[1]) * size_of(geom.Chunk)
 	}
 	if g.transfer == nil || g.transfer_size < u32(bytes) {
-		if g.transfer != nil do gpu_release_transfer_buffer(r.device, g.transfer)
+		if g.transfer != nil do gpu.release_transfer_buffer(r.device, g.transfer)
 		g.transfer_size = u32(bytes + bytes / 4)
-		g.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = g.transfer_size})
+		g.transfer = gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = g.transfer_size})
 		if g.transfer == nil {
 			log.errorf("GPU culling: an upload buffer of %d KB was refused (%s)", g.transfer_size >> 10, sdl.GetError())
 			g.transfer_size = 0
 			return false
 		}
 	}
-	dst := ([^]geom.Chunk)(gpu_map_transfer_buffer(r.device, g.transfer, true))
+	dst := ([^]geom.Chunk)(gpu.map_transfer_buffer(r.device, g.transfer, true))
 	if dst == nil do return false
 	at := 0
 	for run in runs {
@@ -255,18 +256,18 @@ gpu_cull_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Ite
 		copy(dst[at:][:run[1]], item.chunk_groups[run[0]:][:run[1]])
 		at += run[1]
 	}
-	gpu_unmap_transfer_buffer(r.device, g.transfer)
+	gpu.unmap_transfer_buffer(r.device, g.transfer)
 	// In place: the kernels of an earlier pass read the copy before this, in order.
-	pass := gpu_begin_copy_pass(cmd)
+	pass := gpu.begin_copy_pass(cmd)
 	at = 0
 	for run in runs {
 		lo, hi := run[0] * geom.CHUNK_GROUP, min((run[0] + run[1]) * geom.CHUNK_GROUP, len(item.chunks))
-		gpu_upload_to_buffer(pass, {transfer_buffer = g.transfer, offset = u32(at * size_of(geom.Chunk))}, {buffer = c.records, offset = u32(lo * size_of(geom.Chunk)), size = u32((hi - lo) * size_of(geom.Chunk))}, false)
+		gpu.upload_to_buffer(pass, {transfer_buffer = g.transfer, offset = u32(at * size_of(geom.Chunk))}, {buffer = c.records, offset = u32(lo * size_of(geom.Chunk)), size = u32((hi - lo) * size_of(geom.Chunk))}, false)
 		at += hi - lo
-		gpu_upload_to_buffer(pass, {transfer_buffer = g.transfer, offset = u32(at * size_of(geom.Chunk))}, {buffer = c.groups, offset = u32(run[0] * size_of(geom.Chunk)), size = u32(run[1] * size_of(geom.Chunk))}, false)
+		gpu.upload_to_buffer(pass, {transfer_buffer = g.transfer, offset = u32(at * size_of(geom.Chunk))}, {buffer = c.groups, offset = u32(run[0] * size_of(geom.Chunk)), size = u32(run[1] * size_of(geom.Chunk))}, false)
 		at += run[1]
 	}
-	gpu_end_copy_pass(pass)
+	gpu.end_copy_pass(pass)
 	c.layout, c.stamp = item.chunk_layout, newest
 	return true
 }
@@ -278,31 +279,31 @@ gpu_cull_keep :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, copy_pass: ^^sdl
 	mb, c := item.mesh, &item.mesh.cull
 	size := u32(CULL_HEADER * (len(item.chunks) + 1))
 	if c.download == nil || c.download_size < size {
-		if c.download != nil do gpu_release_transfer_buffer(r.device, c.download)
-		c.download = gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = size})
+		if c.download != nil do gpu.release_transfer_buffer(r.device, c.download)
+		c.download = gpu.create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = size})
 		c.download_size = size if c.download != nil else 0
 		if c.download == nil do return
 	}
 	if !slice.contains(r.gpu_culling.checked[:], mb) do append(&r.gpu_culling.checked, mb)
 	clear(&c.expect)
 	_ = geom.cull_chunks_grouped(item.chunks, item.chunk_groups, clip, eye, &c.expect)
-	if copy_pass^ == nil do copy_pass^ = gpu_begin_copy_pass(cmd)
-	gpu_download_from_buffer(copy_pass^, {buffer = mb.indirect, size = size}, {transfer_buffer = c.download})
+	if copy_pass^ == nil do copy_pass^ = gpu.begin_copy_pass(cmd)
+	gpu.download_from_buffer(copy_pass^, {buffer = mb.indirect, size = size}, {transfer_buffer = c.download})
 }
 
 // --dump-cull, at exit: compares each mesh's last commands with the CPU's runs for the
 // same pass. Returns the meshes checked, the commands, and the triangles the two disagree
 // on (drawn by one and not the other).
 gpu_cull_check :: proc(r: ^Renderer) -> (meshes, commands, mismatch: int) {
-	_ = gpu_wait_for_idle(r.device)
+	_ = gpu.wait_for_idle(r.device)
 	for mb in r.gpu_culling.checked {
 		c := &mb.cull
-		words := ([^][5]u32)(gpu_map_transfer_buffer(r.device, c.download, false))
+		words := ([^][5]u32)(gpu.map_transfer_buffer(r.device, c.download, false))
 		if words == nil do continue
 		got := make([dynamic]geom.Index_Range, context.temp_allocator)
 		n := int(words[0][0])
 		for k in 1 ..= n do geom.append_range(&got, words[k][2], words[k][0])
-		gpu_unmap_transfer_buffer(r.device, c.download)
+		gpu.unmap_transfer_buffer(r.device, c.download)
 		meshes += 1
 		commands += n
 		mismatch += ranges_apart(got[:], c.expect[:]) / 3
@@ -334,10 +335,10 @@ ranges_apart :: proc(a, b: []geom.Index_Range) -> int {
 // Releases the kernels, the upload buffer and the ring.
 gpu_cull_destroy :: proc(r: ^Renderer) {
 	g := &r.gpu_culling
-	if g.count_pipeline != nil do gpu_release_compute_pipeline(r.device, g.count_pipeline)
-	if g.write_pipeline != nil do gpu_release_compute_pipeline(r.device, g.write_pipeline)
-	if g.transfer != nil do gpu_release_transfer_buffer(r.device, g.transfer)
-	for s in g.slots do if s.download != nil do gpu_release_transfer_buffer(r.device, s.download)
+	if g.count_pipeline != nil do gpu.release_compute_pipeline(r.device, g.count_pipeline)
+	if g.write_pipeline != nil do gpu.release_compute_pipeline(r.device, g.write_pipeline)
+	if g.transfer != nil do gpu.release_transfer_buffer(r.device, g.transfer)
+	for s in g.slots do if s.download != nil do gpu.release_transfer_buffer(r.device, s.download)
 	delete(g.checked)
 	g^ = {culls = g.culls, check = g.check}
 }

@@ -1,5 +1,5 @@
 #+build js
-package render
+package gpu
 
 import "base:runtime"
 import "core:strconv"
@@ -192,7 +192,7 @@ wgpu_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTexture
 }
 
 // WebGPU has no memoryless targets; a transient texture is an ordinary one, and
-// gpu_transient_targets_offered says so.
+// transient_targets_offered says so.
 wgpu_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
 	return wgpu_create_texture(device, info)
 }

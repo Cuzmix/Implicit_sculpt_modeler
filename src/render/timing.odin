@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import sdl "vendor:sdl3"
 
 // GPU time by pass from timestamps the GPU writes as it runs (Gpu_Caps.timestamps), read a
@@ -37,16 +38,8 @@ Gpu_Times :: struct {
 	ran: bit_set[Gpu_Span],
 }
 
-// Timestamps a frame may write: a begin and an end for each span, run up to four times
-// (view windows, several uploads).
-TIMESTAMPS_MAX :: 64
-
-// A timestamp as the backend hands it back: its tag (span * 2, + 1 at the span's end) and
-// its time in nanoseconds from the GPU's own origin.
-Gpu_Timestamp :: struct {
-	tag: u8,
-	ns:  f64,
-}
+TIMESTAMPS_MAX :: gpu.TIMESTAMPS_MAX
+Gpu_Timestamp :: gpu.Gpu_Timestamp
 
 // The span being recorded, so one inside another is left untimed.
 @(private = "file")
@@ -56,14 +49,14 @@ span_open: Gpu_Span
 span_begin :: proc(cmd: ^sdl.GPUCommandBuffer, span: Gpu_Span) {
 	if span == .None || span_open != .None do return
 	span_open = span
-	gpu_write_timestamp(cmd, u8(span) * 2)
+	gpu.write_timestamp(cmd, u8(span) * 2)
 }
 
 @(private)
 span_end :: proc(cmd: ^sdl.GPUCommandBuffer, span: Gpu_Span) {
 	if span == .None || span_open != span do return
 	span_open = .None
-	gpu_write_timestamp(cmd, u8(span) * 2 + 1)
+	gpu.write_timestamp(cmd, u8(span) * 2 + 1)
 }
 
 // Call once a frame before it records anything: starts the frame's timestamps and gives
@@ -72,7 +65,7 @@ span_end :: proc(cmd: ^sdl.GPUCommandBuffer, span: Gpu_Span) {
 timestamps_frame :: proc(r: ^Renderer) -> (times: Gpu_Times, ok: bool) {
 	if !r.caps.timestamps do return
 	stamps: [TIMESTAMPS_MAX]Gpu_Timestamp
-	n := gpu_timestamps_frame(r.device, stamps[:])
+	n := gpu.timestamps_frame(r.device, stamps[:])
 	begun: [Gpu_Span]f64
 	open: bit_set[Gpu_Span]
 	for s in stamps[:n] {

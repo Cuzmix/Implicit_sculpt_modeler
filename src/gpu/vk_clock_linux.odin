@@ -1,6 +1,6 @@
 #+build linux
 #+build !js
-package render
+package gpu
 
 import "core:sys/linux"
 
