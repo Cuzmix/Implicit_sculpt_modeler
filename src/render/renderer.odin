@@ -57,6 +57,9 @@ Renderer :: struct {
 	// GPU, --cpu-cull off.
 	gpu_cull:       bool,
 	gpu_culling:    Gpu_Cull,
+	// Sculpting on the GPU (sculpt_gpu.odin): the normals kernel, the readback ring and
+	// the run's counts. The app's switch is its own (App.gpu_sculpt).
+	sculpt_gpu:     Sculpt_Gpu,
 	// Makes a multisampled viewport keep its samples in tile memory (Viewport_Target.tile)
 	// on a GPU without transient targets too (--tile-msaa), so a desktop can test that mode.
 	tile_msaa:      bool,
@@ -159,6 +162,10 @@ Mesh_Pipelines :: struct {
 	// Meshes with a detail skin (skin.odin), opaque; nil where the device refused it, and
 	// those items then draw with the mesh's own normals.
 	skinned:      ^sdl.GPUGraphicsPipeline,
+	// The triangles of a skinned mesh near the camera, drawn as the skin's grid of small
+	// ones at its points (skin_tess.vert, skin.odin); nil where the device refused it, and
+	// they then draw as the far ones do.
+	skin_tess:    ^sdl.GPUGraphicsPipeline,
 	// mesh, see, textured and textured_see with the area lights' code (mesh_area and
 	// textured_area.frag), drawn for an item lit by an area light so the others carry
 	// none of it; made the first time one is drawn (area_pipelines), each nil until then
@@ -302,13 +309,26 @@ Mesh_Buffers :: struct {
 	// are, and per triangle its edges and lead corner; nil without one.
 	skin_normals: ^sdl.GPUBuffer,
 	skin_tris:    ^sdl.GPUBuffer,
+	// Each sample's height, two halves a word, for the triangles drawn as the grid.
+	skin_heights: ^sdl.GPUBuffer,
 	skin_meta:    [3]u32, // segments, vertex count, edge count (Frame_Uniforms.skin)
 	skin_samples: u32,
+	// How far the skin strays from its base at most (sculpt.Skin.height_max), in the
+	// mesh's units: what decides which chunks are near enough to draw as the grid.
+	skin_reach:   f32,
+	// The commands, after the draw_count flat ones, that draw chunks as the skin's grid
+	// this frame (skin_tess_split).
+	tess_draw_count: u32,
+	tess_visible:    [dynamic]geom.Index_Range, // scratch
 	// The caller's stamp for the lead corners `skin_tris` holds (the sculptor's paint
 	// stamp, which moves with the polygroups); 0 for none.
 	skin_lead_stamp: u32,
 	// The caller's stamp for which skin the buffers hold (the sculptor's skin stamp).
 	skin_stamp:      u32,
+
+	// Sculpting on the GPU (sculpt_gpu.odin): the mesh's vertex -> triangle lookup and the
+	// frame's queued normals.
+	sculpt: Mesh_Sculpt,
 }
 
 Normal_Packed :: [2]i16
@@ -456,6 +476,7 @@ View_Pass :: enum u8 {
 Viewport_Stats :: struct {
 	triangles:     u64,  // triangles submitted
 	draws:         u64,  // draw commands (indirect ones counted one by one)
+	skin_grid:     u64,  // small triangles of detail skins drawn as their grid (skin_tess_split)
 	chunks:        u64,  // chunks considered for culling
 	culled_view:   u64,  // ...outside the view
 	culled_back:   u64,  // ...facing away
@@ -495,19 +516,20 @@ Material_Uniforms :: struct {
 #assert(offset_of(Material_Uniforms, pass) == 1136)
 #assert(offset_of(Material_Uniforms, maps) == 896)
 
-MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT)
-MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT)
-MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT)
-MESH_WIRE_FRAG_CODE :: #load("shaders/mesh_wire.frag" + SHADER_EXT)
-TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT)
-SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT)
-SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT)
-TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT)
-TEXTURED_AREA_FRAG_CODE :: #load("shaders/textured_area.frag" + SHADER_EXT)
-CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT)
-CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT)
-FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT)
-FLOOR_FRAG_CODE :: #load("shaders/floor.frag" + SHADER_EXT)
+MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT, string)
+MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT, string)
+MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT, string)
+MESH_WIRE_FRAG_CODE :: #load("shaders/mesh_wire.frag" + SHADER_EXT, string)
+TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT, string)
+SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT, string)
+SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT, string)
+SKIN_TESS_VERT_CODE :: #load("shaders/skin_tess.vert" + SHADER_EXT, string)
+TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT, string)
+TEXTURED_AREA_FRAG_CODE :: #load("shaders/textured_area.frag" + SHADER_EXT, string)
+CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT, string)
+CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT, string)
+FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT, string)
+FLOOR_FRAG_CODE :: #load("shaders/floor.frag" + SHADER_EXT, string)
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
@@ -517,6 +539,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	ok: bool
 	when METAL {
 		r.device, ok = mtl_create_device(debug)
+		r.anisotropy = true
+	} else when WEBGPU {
+		r.device, ok = wgpu_create_device(debug)
 		r.anisotropy = true
 	} else {
 		r.device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
@@ -660,6 +685,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = gpu_wait_for_idle(r.device)
 	gpu_cull_destroy(r)
+	sculpt_gpu_destroy(r)
 	mesh_pipelines_destroy(r, &r.single)
 	mesh_pipelines_destroy(r, &r.multi)
 	if r.no_paint != nil do gpu_release_buffer(r.device, r.no_paint)
@@ -724,13 +750,14 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 		textured = create_mesh_pipeline(r, .Solid, samples, textured = true),
 		textured_see = create_mesh_pipeline(r, .See_Through, samples, textured = true),
 		skinned = create_mesh_pipeline(r, .Solid, samples, skinned = true),
+		skin_tess = create_mesh_pipeline(r, .Solid, samples, skin_tess = true),
 		samples = samples,
 	}
 }
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([9]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
+	for pipeline in ([10]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned, p.skin_tess}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	for pipeline in p.area do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	if p.mesh_wire != nil do gpu_release_graphics_pipeline(r.device, p.mesh_wire)
 	p^ = {}
@@ -774,13 +801,16 @@ lights_have_area :: proc(l: Lights) -> bool {
 // polygroup slots. Every mesh pipeline samples the MatCap and the environment. With
 // `skinned`, the pipeline of meshes with a detail skin (skin.odin): no vertex buffers, the
 // vertex pulled from the paint, index, position and normal buffers, and the skin's two
-// buffers in the fragment stage.
+// buffers in the fragment stage. With `skin_tess`, the pipeline drawing a skinned mesh's
+// near triangles as the skin's grid: no vertex buffers, the paint, mesh and three skin
+// buffers in the vertex stage, and the clay's own fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false, wire_bary := false) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false) -> ^sdl.GPUGraphicsPipeline {
 	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
 	if wire_bary do frag_code = MESH_WIRE_FRAG_CODE
 	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
 	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
+	if skin_tess do vert_spv = SKIN_TESS_VERT_CODE
 	vert := gpu_create_shader(r.device, {
 		code_size           = len(vert_spv),
 		code                = raw_data(vert_spv),
@@ -788,7 +818,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		format              = SHADER_FORMAT,
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
-		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else 1),
+		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else 1)),
 	})
 	frag := gpu_create_shader(r.device, {
 		code_size           = len(frag_code),
@@ -828,7 +858,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		}
 		num_buffers, num_attributes = 1, 4
 	}
-	if skinned do num_buffers, num_attributes = 0, 0
+	if skinned || skin_tess do num_buffers, num_attributes = 0, 0
 	wire := mode == .Wire
 	lines := mode == .Lines
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER if mode == .See_Through else {}}}
@@ -869,6 +899,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		log.warnf("the wireframe is drawn as lines: the pipeline drawing it in the shading could not be made: %s", sdl.GetError())
 	case skinned:
 		log.warnf("detail skins show the mesh's own normals: the skinned pipeline could not be made: %s", sdl.GetError())
+	case skin_tess:
+		log.warnf("detail skins keep the mesh's outline: the pipeline drawing them as their grid could not be made: %s", sdl.GetError())
 	case mode == .Solid:
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
 	case mode == .See_Through:
@@ -1078,11 +1110,12 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	mb.index_version = mb.version
 	// Readable by compute as well, so the traced studio casts rays at the triangles the
 	// viewport draws without copying them; a device that refuses gets plain buffers.
-	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = vbytes}
+	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE, .GRAPHICS_STORAGE_READ}, size = vbytes}
 	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = ibytes}
 	// Normals, positions and indices are read as storage too by the skinned pipeline, which
-	// pulls its vertices itself (skin.odin).
-	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .GRAPHICS_STORAGE_READ}, size = nbytes}
+	// pulls its vertices itself (skin.odin), and the normals are written by the normals
+	// kernel of sculpting on the GPU (sculpt_gpu.odin).
+	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_WRITE}, size = nbytes}
 	positions_map, indices_map, normals_map: rawptr
 	// Where ray queries are offered the driver also builds acceleration structures from
 	// them (trace.odin).
@@ -1243,6 +1276,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect_transfer != nil do gpu_release_transfer_buffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do gpu_release_buffer(r.device, mb.lod_indices)
 	gpu_cull_release(r, mb)
+	sculpt_gpu_forget(r, mb)
 	if mb.cull.download != nil do gpu_release_transfer_buffer(r.device, mb.cull.download)
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
@@ -1250,26 +1284,30 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
 	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
 	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
+	if mb.skin_heights != nil do gpu_release_buffer(r.device, mb.skin_heights)
 	if mb.trace != nil {
 		trace_mesh_destroy(r, mb.trace)
 		free(mb.trace)
 	}
 	delete(mb.visible)
 	delete(mb.lod_visible)
+	delete(mb.tess_visible)
 	mb^ = {}
 }
 
 // Records copies of the positions and normals (with `mask`, nil when nothing is
 // masked) of every vertex in `ranges` into `cmd`. Ranges are packed into the transfer
 // buffer, which is cycled so an upload never stalls on the previous frame's copy; if
-// they do not fit, they go in several batches.
-mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil) {
+// they do not fit, they go in several batches. With `positions_only` the normals stay
+// as the GPU has them: the normals kernel of sculpting on the GPU writes them this frame.
+mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil, positions_only := false) {
 	debug_group(cmd, "Brush upload", .Uploads)
 	if len(ranges) > 0 {
 		r.last_version += 1
 		mb.version = r.last_version
 	}
-	capacity := mb.transfer_size / VERTEX_BYTES // vertices per batch
+	vertex_bytes := u32(size_of(geom.Vec3)) if positions_only else VERTEX_BYTES
+	capacity := mb.transfer_size / vertex_bytes // vertices per batch
 	pending := ranges
 	split: geom.Vertex_Range // remainder of a range cut at a batch boundary
 	for len(pending) > 0 || split.count > 0 {
@@ -1304,7 +1342,9 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 		dst_n := cast([^]Normal_Packed)(mapped[used * size_of(geom.Vec3):])
 		for p in batch {
 			copy(dst_p[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
-			if mask != nil {
+			if positions_only {
+				continue
+			} else if mask != nil {
 				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, mask[p.r.first + u32(k)])
 			} else {
 				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, 0)
@@ -1316,6 +1356,7 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 			src_p := p.dst * size_of(geom.Vec3)
 			src_n := used * size_of(geom.Vec3) + p.dst * size_of(Normal_Packed)
 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_p}, {buffer = mb.positions, offset = p.r.first * size_of(geom.Vec3), size = p.r.count * size_of(geom.Vec3)}, false)
+			if positions_only do continue
 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_n}, {buffer = mb.normals, offset = p.r.first * size_of(Normal_Packed), size = p.r.count * size_of(Normal_Packed)}, false)
 		}
 		gpu_end_copy_pass(pass)
@@ -1592,7 +1633,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 		x1, y1 := min(rect.x + rect.w + 1, i32(vt.width)), min(rect.y + rect.h + 1, i32(vt.height))
 		drawn = {x0, y0, x1 - x0, y1 - y0}
 	}
-	prepare_draws(r, cmd, view, proj, items, nil, stats, rect_narrow(drawn, vt.width, vt.height))
+	prepare_draws(r, cmd, view, proj, items, nil, stats, rect_narrow(drawn, vt.width, vt.height), height = vt.height)
 	pipes := mesh_pipelines(r, vt.samples)
 	pass := target_pass(r, cmd, vt, load = true)
 	gpu_set_scissor(pass, {rect.x, rect.y, rect.w, rect.h})
@@ -1608,8 +1649,10 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 @(private)
 frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
-		mesh:     ^Mesh_Buffers,
-		matcap:   ^sdl.GPUTexture,
+		// Pointers by address widened to 64 bits, so the struct has one layout and no
+		// padding where pointers are 32-bit (the web build).
+		mesh:     u64,
+		matcap:   u64,
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
@@ -1645,7 +1688,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		h = hash.fnv64a(slice.bytes_from_ptr(&wire, size_of(wire)), h)
 	}
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1661,12 +1704,12 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 textured_key :: proc(item: Draw_Item, h: u64) -> u64 {
 	if item.textured == nil || item.texture_view == .Off do return h
 	Keyed :: struct { // no padding: every byte is hashed
-		mesh:       ^Textured_Mesh,
+		mesh:       u64, // the address, widened as frame_key's
 		maps_stamp: u64,
 		stamp:      u64,
 		view:       u64,
 	}
-	k := Keyed{item.textured, item.textured.maps_stamp, item.textured.stamp, u64(item.texture_view)}
+	k := Keyed{u64(uintptr(item.textured)), item.textured.maps_stamp, item.textured.stamp, u64(item.texture_view)}
 	return hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 }
 
@@ -1688,7 +1731,7 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	// see-through anyway).
 	if !use_cache || vt.tile || see > 0 || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
-		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
+		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod, height = vt.height)
 		pass := target_pass(r, cmd, vt, load = false)
 		draw_background(r, cmd, pass, pipes, vt^, proj)
 		draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats)
@@ -1699,7 +1742,7 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 
 	key := static_key(vt^, view, proj, items, r.lod_px, r.background, environment_keyed(r), r.wire_color)
 	redraw := key != vt.cache.key
-	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
+	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod, height = vt.height)
 	if redraw {
 		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true, background = r.background.top)
 		draw_background(r, cmd, pass, pipes, vt^, proj)
@@ -1744,8 +1787,10 @@ lod_view :: proc(r: ^Renderer, height: u32, proj: Mat4) -> Lod_View {
 // that may be simplified get one command per run of their copies, after the others.
 // Must run before the render passes, since uploads need a copy pass.
 // `narrow` maps clip space to a smaller frustum to cull against (see render_rect).
+// With the target's `height`, a skinned item's chunks near enough for its skin to change
+// its outline by half a pixel are drawn as the skin's grid (skin_tess_split).
 @(private)
-prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY, lod := Lod_View{}) {
+prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY, lod := Lod_View{}, height: u32 = 0) {
 	if !r.cull {
 		// Only items with hidden parts need runs of chunks then.
 		any_hidden := false
@@ -1764,14 +1809,16 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		if !r.cull && item.hidden == nil do continue
 		mb := item.mesh
 		mb.lod_draw_count = 0
+		mb.tess_draw_count = 0
 		mb.cull.culled = false
 		// A skinned mesh's simplified copies would lose its triangles' numbers.
 		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil && mb.skin_normals == nil
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
+		tess := r.cull && height > 0 && skin_tess_near(r, item, proj, height, eye.xyz)
 		// The GPU writes the commands itself, between this frame's copy passes, so one of
-		// those open must end first.
-		if r.cull && len(item.chunks) > 0 && gpu_cull_wanted(r, item, simplify) {
+		// those open must end first. Chunks drawn as a skin's grid are picked on the CPU.
+		if r.cull && !tess && len(item.chunks) > 0 && gpu_cull_wanted(r, item, simplify) {
 			if copy_pass != nil {
 				gpu_end_copy_pass(copy_pass)
 				copy_pass = nil
@@ -1783,7 +1830,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 				continue
 			}
 		}
-		commands := len(item.chunks) + (len(item.lod.groups) if simplify else 0)
+		commands := len(item.chunks) * (2 if tess else 1) + (len(item.lod.groups) if simplify else 0)
 		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(commands)) do continue
 		clear(&mb.visible)
 		clear(&mb.lod_visible)
@@ -1807,9 +1854,11 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 			stats.culled_view += u64(cs.frustum)
 			stats.culled_back += u64(cs.backface)
 		}
+		if tess do skin_tess_split(r, item, proj, height, eye.xyz)
 		mb.draw_count = u32(len(mb.visible))
 		mb.lod_draw_count = u32(len(mb.lod_visible))
-		if mb.draw_count + mb.lod_draw_count == 0 do continue
+		mb.tess_draw_count = u32(len(mb.tess_visible)) if tess else 0
+		if mb.draw_count + mb.lod_draw_count + mb.tess_draw_count == 0 do continue
 		dst := cast([^]sdl.GPUIndexedIndirectDrawCommand)gpu_map_transfer_buffer(r.device, mb.indirect_transfer, true)
 		for v, i in mb.visible {
 			dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
@@ -1817,9 +1866,13 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		for v, i in mb.lod_visible {
 			dst[int(mb.draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
 		}
+		// The grid's commands, read as non-indexed ones: vertices, not indices.
+		for v, i in mb.tess_visible[:mb.tess_draw_count] {
+			dst[int(mb.draw_count + mb.lod_draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
+		}
 		gpu_unmap_transfer_buffer(r.device, mb.indirect_transfer)
 		if copy_pass == nil do copy_pass = gpu_begin_copy_pass(cmd)
-		size := (mb.draw_count + mb.lod_draw_count) * size_of(sdl.GPUIndexedIndirectDrawCommand)
+		size := (mb.draw_count + mb.lod_draw_count + mb.tess_draw_count) * size_of(sdl.GPUIndexedIndirectDrawCommand)
 		gpu_upload_to_buffer(copy_pass, {transfer_buffer = mb.indirect_transfer}, {buffer = mb.indirect, size = size}, true)
 	}
 	if copy_pass != nil do gpu_end_copy_pass(copy_pass)
@@ -1865,8 +1918,10 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 @(private)
 static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background, environment: Environment_Keyed, wire_color: [4]f32 = {}) -> u64 {
 	Keyed :: struct {
-		mesh:     ^Mesh_Buffers,
-		matcap:   ^sdl.GPUTexture,
+		// Pointers by address widened to 64 bits, so the struct has one layout and no
+		// padding where pointers are 32-bit (the web build).
+		mesh:     u64,
+		matcap:   u64,
 		version:  u64,
 		model:    Mat4,
 		color:    [4]f32,
@@ -1903,7 +1958,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	}
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -2077,7 +2132,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		if skinned {
-			draw_skinned_item(r, pass, item, stats)
+			if draw_skinned_item(r, pass, pipes, item, stats) do bound = pipes.skin_tess
 		} else {
 			gpu_bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
 			draw_item_triangles(r, pass, item, stats)

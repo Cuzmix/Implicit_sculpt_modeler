@@ -66,3 +66,5 @@ void decode_normal_mask(float2 normal_oct, out float3 normal, out float mask) {
 	normal = oct_decode(float2(raw & ~15) / 32767.0);
 	mask = float(((raw.x & 15) << 4) | (raw.y & 15)) / 255.0;
 }
+
+#include "skin_grid.slang"

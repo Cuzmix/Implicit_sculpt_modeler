@@ -116,7 +116,8 @@ sculptor_skin_settle :: proc(s: ^Sculptor) -> int {
 	}
 
 	// Each sample's height again: how far its point lies from the moved surface along the
-	// surface's normal there, written by the one triangle that owns the sample.
+	// surface's normal there (and its sideways offset across it), written by the one
+	// triangle that owns the sample.
 	job.heights = make([]f32, len(tris), context.temp_allocator)
 	jobs.parallel_ranges(s.pool, len(tris), &job, settle_job_heights, SETTLE_GRAIN)
 	for x in job.heights do sk.height_max = max(sk.height_max, x)
@@ -179,8 +180,9 @@ settle_job_points :: proc(data: rawptr, lo, hi: int) {
 		for j in 0 ..= S do for i in 0 ..= S - j {
 			base, normal := skin_base(job.s, job.sk, t, i, j)
 			n := linalg.normalize0(normal)
-			h := f32(job.sk.heights[skin_sample(job.sk, job.s.mesh.indices[:], t, i, j)])
-			job.points[at] = base + n * (settle_rounding(job.s, t, i, j, S, base, n) + h)
+			x := skin_sample(job.sk, job.s.mesh.indices[:], t, i, j)
+			lift := skin_lift(job.s, job.sk, x, t, i, j, n, f32(job.sk.heights[x]))
+			job.points[at] = base + n * settle_rounding(job.s, t, i, j, S, base, n) + lift
 			at += 1
 		}
 	}
@@ -203,9 +205,18 @@ settle_job_heights :: proc(data: rawptr, lo, hi: int) {
 			if !settle_writes(s, sk, I, t, i, j) do continue
 			base, normal := skin_base(s, sk, t, i, j)
 			n := linalg.normalize0(normal)
-			height := linalg.dot(point - base, n) - settle_rounding(s, t, i, j, S, base, n)
-			sk.heights[skin_sample(sk, I, t, i, j)] = f16(height)
+			off := point - base - n * settle_rounding(s, t, i, j, S, base, n)
+			height := linalg.dot(off, n)
+			x := skin_sample(sk, I, t, i, j)
+			sk.heights[x] = f16(height)
 			most = max(most, abs(height))
+			// A sideways offset is measured again in the moved owner's frame too, so a
+			// pinch or an overhang stays where the stroke left it.
+			if sk.side != nil && sk.side[x] != {} {
+				tu, tv := skin_frame(s, sk, t, i, j, n)
+				sk.side[x] = {f16(linalg.dot(off, tu)), f16(linalg.dot(off, tv))}
+				most = max(most, abs(height) + abs(f32(sk.side[x].x)) + abs(f32(sk.side[x].y)))
+			}
 		}
 		job.heights[k] = most
 	}

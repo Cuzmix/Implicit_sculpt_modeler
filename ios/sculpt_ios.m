@@ -717,24 +717,28 @@ bool sculpt_ios_exclude_from_backup(const char *path)
  * time runs out first, the expiration handler gives it back at once, as iOS requires, and the
  * write stops where the suspension finds it: autosaves are written to a partial file and
  * renamed, so the earlier ones stay whole. Main thread only (the handler is called there
- * too); one task at a time, so a second begin or end does nothing.
+ * too); one task at a time, so a second begin or end does nothing. Whether a task is held
+ * is a flag of its own: UIBackgroundTaskInvalid is an extern constant that C cannot put in
+ * a static's initialiser, and the identifier means nothing while the flag is clear.
  */
-static UIBackgroundTaskIdentifier sculpt_background_task = UIBackgroundTaskInvalid;
+static UIBackgroundTaskIdentifier sculpt_background_task;
+static bool sculpt_background_task_held = false;
 
 void sculpt_ios_background_end(void)
 {
-	if (sculpt_background_task == UIBackgroundTaskInvalid) return;
-	UIBackgroundTaskIdentifier task = sculpt_background_task;
-	sculpt_background_task = UIBackgroundTaskInvalid;
-	[UIApplication.sharedApplication endBackgroundTask:task];
+	if (!sculpt_background_task_held) return;
+	sculpt_background_task_held = false;
+	[UIApplication.sharedApplication endBackgroundTask:sculpt_background_task];
 }
 
 void sculpt_ios_background_begin(void)
 {
-	if (sculpt_background_task != UIBackgroundTaskInvalid) return;
+	if (sculpt_background_task_held) return;
 	sculpt_background_task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Autosave"
 	                                                                    expirationHandler:^{
 		SDL_Log("autosave: the background time ran out before the autosave was written");
 		sculpt_ios_background_end();
 	}];
+	/* The system may refuse the task (UIBackgroundTaskInvalid); there is then nothing to end. */
+	sculpt_background_task_held = sculpt_background_task != UIBackgroundTaskInvalid;
 }

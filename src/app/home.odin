@@ -81,8 +81,10 @@ home_destroy :: proc(app: ^App) {
 		l.quit = true
 		sync.unlock(&l.lock)
 		sync.sema_post(&l.wake)
-		thread.join(l.thread)
-		thread.destroy(l.thread)
+		if l.thread != nil {
+			thread.join(l.thread)
+			thread.destroy(l.thread)
+		}
 		heap := runtime.heap_allocator()
 		for p in l.todo do delete(p, heap)
 		for d in l.done do loaded_free(d)
@@ -296,9 +298,16 @@ loader_ask :: proc(app: ^App, path: string) {
 		l := new(Home_Loader, heap)
 		l.todo.allocator, l.done.allocator = heap, heap
 		h.loader = l
-		l.thread = thread.create_and_start_with_data(l, loader_thread, context, .Low, name = "home pictures")
+		// The web version has one thread (web.odin): the pictures are read as they are asked for.
+		when ODIN_OS != .JS do l.thread = thread.create_and_start_with_data(l, loader_thread, context, .Low, name = "home pictures")
 	}
 	l := h.loader
+	when ODIN_OS == .JS {
+		// What it hands back is the heap's, as the thread's is.
+		context.allocator = heap
+		append(&l.done, picture_load(strings.clone(path, heap)))
+		return
+	}
 	sync.lock(&l.lock)
 	append(&l.todo, strings.clone(path, heap))
 	sync.unlock(&l.lock)

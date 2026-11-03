@@ -44,8 +44,8 @@ LIVE_AO_MAX_PX :: 48
 // Half floats: a pixel's value may pass 1 (gtao.frag.slang), which the blur's average needs.
 LIVE_AO_FORMAT :: sdl.GPUTextureFormat.R16_FLOAT
 
-GTAO_FRAG_CODE :: #load("shaders/gtao.frag" + SHADER_EXT)
-AO_BLUR_FRAG_CODE :: #load("shaders/ao_blur.frag" + SHADER_EXT)
+GTAO_FRAG_CODE :: #load("shaders/gtao.frag" + SHADER_EXT, string)
+AO_BLUR_FRAG_CODE :: #load("shaders/ao_blur.frag" + SHADER_EXT, string)
 
 // Matches Gtao_Uniforms in gtao.frag.slang.
 @(private = "file")

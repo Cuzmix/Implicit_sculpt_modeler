@@ -14,17 +14,15 @@ import "../ui"
 // has the mockups' header: a grip that drags it up or down the stack (or out, to float),
 // a chevron that folds it to its header and a line saying what it holds, its icon and
 // title, Float (or Dock) and its options. The Brush card shows the brush's card, Radius and
-// Strength always, then the Brush palette's sections as groups that fold, each saying how
+// Strength always, then the Brush card's sections as groups that fold, each saying how
 // it is set while folded, in place of the tray's list beside one section. The stack is
 // the tray's panel (Kit_Window.Inspector), so it docks, floats and opens wherever the tray
 // does.
 
-// Every panel the stack holds (round 3, PR 9): its cards, then a palette for each tray
-// section, in Kit_Section's order, which draws exactly what the tray drew under that
-// section. Layers, Material and Lights have a card and their full section beside it
-// (Layer_Settings, Material_Settings, Light_Settings); the Environment section is its
-// card. Cases are appended, never reordered: files name them by panel_word, never by
-// number, but the exit stats and tests name them too.
+// Every card the stack holds: the cards of their own, then one card for each section, in
+// Kit_Section's order. A section that is a card's twin (Layers, Material, Lights,
+// Environment, and Objects and Add object, the Scene card's) has no card of its own: it
+// opens its card (panel_of_section). Files name them by panel_word, never by number.
 Panel_Kind :: enum u8 {
 	Brush,
 	Symmetry,
@@ -35,7 +33,7 @@ Panel_Kind :: enum u8 {
 	Lights,
 	Material,
 	Environment,
-	// The Brush palette's sections.
+	// The Brush card's sections.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -57,7 +55,6 @@ Panel_Kind :: enum u8 {
 	Paint,
 	Groups,
 	Morph,
-	Layer_Settings,
 	Deform,
 	Deformers,
 	Remesh,
@@ -68,12 +65,8 @@ Panel_Kind :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The Scene palette's.
-	Objects,
-	Add,
+	// The Scene card's.
 	Look,
-	Material_Settings,
-	Light_Settings,
 	Render,
 	Lens,
 	Finish,

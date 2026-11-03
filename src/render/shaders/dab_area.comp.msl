@@ -1,0 +1,332 @@
+// SDL_shadercross 1ff05bec5739 from dab_area.comp.spv sha256 bb5ec7e3f399c35ec54baadf63df2e43867d08cb436b29baa4912ca2304ef1c9
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+template<typename T>
+[[clang::optnone]] T spvFMul(T l, T r)
+{
+    return fma(l, r, T(0));
+}
+
+template<typename T, int Cols, int Rows>
+[[clang::optnone]] vec<T, Cols> spvFMulVectorMatrix(vec<T, Rows> v, matrix<T, Cols, Rows> m)
+{
+    vec<T, Cols> res = vec<T, Cols>(0);
+    for (uint i = Rows; i > 0; --i)
+    {
+        vec<T, Cols> tmp(0);
+        for (uint j = 0; j < Cols; ++j)
+        {
+            tmp[j] = m[j][i - 1];
+        }
+        res = fma(tmp, vec<T, Cols>(v[i - 1]), res);
+    }
+    return res;
+}
+
+template<typename T, int Cols, int Rows>
+[[clang::optnone]] vec<T, Rows> spvFMulMatrixVector(matrix<T, Cols, Rows> m, vec<T, Cols> v)
+{
+    vec<T, Rows> res = vec<T, Rows>(0);
+    for (uint i = Cols; i > 0; --i)
+    {
+        res = fma(m[i - 1], vec<T, Rows>(v[i - 1]), res);
+    }
+    return res;
+}
+
+template<typename T, int LCols, int LRows, int RCols, int RRows>
+[[clang::optnone]] matrix<T, RCols, LRows> spvFMulMatrixMatrix(matrix<T, LCols, LRows> l, matrix<T, RCols, RRows> r)
+{
+    matrix<T, RCols, LRows> res;
+    for (uint i = 0; i < RCols; i++)
+    {
+        vec<T, RCols> tmp(0);
+        for (uint j = 0; j < LCols; j++)
+        {
+            tmp = fma(vec<T, RCols>(r[i][j]), l[j], tmp);
+        }
+        res[i] = tmp;
+    }
+    return res;
+}
+
+template<typename T>
+[[clang::optnone]] T spvFAdd(T l, T r)
+{
+    return fma(T(1), l, r);
+}
+
+template<typename T>
+[[clang::optnone]] T spvFSub(T l, T r)
+{
+    return fma(T(-1), r, l);
+}
+
+struct Dab_std430_logical
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint dab;
+    uint groups_x;
+    float rate;
+    uint stroke;
+};
+
+struct Dab_std430
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct StructuredBuffer
+{
+    Dab_std430 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint2 _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    float _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    uint _member0[1];
+};
+
+struct RWStructuredBuffer_1
+{
+    float4 _member0[1];
+};
+
+static inline __attribute__((always_inline))
+bool slab_vertex(thread const Dab_std430_logical& d, uint3 group_id, uint3 local_id, thread uint& g, thread uint& v, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs)
+{
+    g = (group_id.y * Params.groups_x) + group_id.x;
+    v = 0u;
+    if (g >= d.slabs.y)
+    {
+        return false;
+    }
+    uint _140 = d.slabs.x + g;
+    if (local_id.x >= slabs._member0[_140].y)
+    {
+        return false;
+    }
+    v = slabs._member0[_140].x + local_id.x;
+    return true;
+}
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device RWStructuredBuffer& positions)
+{
+    uint _167 = 3u * v;
+    return float3(positions._member0[_167], positions._member0[_167 + 1u], positions._member0[_167 + 2u]);
+}
+
+static inline __attribute__((always_inline))
+float falloff(float x2)
+{
+    if (x2 >= 1.0)
+    {
+        return 0.0;
+    }
+    float t = spvFSub(1.0, x2);
+    return spvFMul(t, t);
+}
+
+static inline __attribute__((always_inline))
+float3 normal_at(uint v, device StructuredBuffer_2& normals)
+{
+    float _249 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
+    float _255 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
+    float _257 = spvFSub(1.0, abs(_249));
+    float _258 = abs(_255);
+    float _259 = spvFSub(_257, _258);
+    float3 n = float3(_249, _255, _259);
+    if (_259 < 0.0)
+    {
+        float sx;
+        if (n.x >= 0.0)
+        {
+            sx = 1.0;
+        }
+        else
+        {
+            sx = -1.0;
+        }
+        float sy;
+        if (n.y >= 0.0)
+        {
+            sy = 1.0;
+        }
+        else
+        {
+            sy = -1.0;
+        }
+        n.x = spvFMul(spvFSub(1.0, _258), sx);
+        n.y = spvFMul(_257, sy);
+    }
+    float _291 = length(n);
+    float3 _220;
+    if (_291 > 0.0)
+    {
+        _220 = n / float3(_291);
+    }
+    else
+    {
+        _220 = float3(0.0);
+    }
+    return _220;
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device RWStructuredBuffer& positions [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer_1& partials [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup spvUnsafeArray<float4, 256> lane_normal;
+    threadgroup spvUnsafeArray<float4, 256> lane_center;
+    Dab_std430_logical _11;
+    _11.center_r2 = dabs._member0[Params.dab].center_r2;
+    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
+    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
+    _11.tilt0 = dabs._member0[Params.dab].tilt0;
+    _11.tilt1 = dabs._member0[Params.dab].tilt1;
+    _11.tilt2 = dabs._member0[Params.dab].tilt2;
+    _11.misc = dabs._member0[Params.dab].misc;
+    _11.slabs = dabs._member0[Params.dab].slabs;
+    uint g;
+    uint v;
+    bool _108 = slab_vertex(_11, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs);
+    float4 normal;
+    float4 center;
+    if (_108)
+    {
+        float3 delta = spvFSub(at(v, positions), _11.center_r2.xyz);
+        float _192 = spvFMul(dot(delta, delta), _11.tilt1.w);
+        if (_192 < 1.0)
+        {
+            float w = falloff(_192);
+            normal = float4(normal_at(v, normals) * w, w);
+            center = float4(at(v, positions) * w, 0.0);
+        }
+        else
+        {
+            normal = float4(0.0);
+            center = float4(0.0);
+        }
+    }
+    else
+    {
+        normal = float4(0.0);
+        center = float4(0.0);
+    }
+    lane_normal[gl_LocalInvocationID.x] = normal;
+    lane_center[gl_LocalInvocationID.x] = center;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    bool _20;
+    if (gl_LocalInvocationID.x == 0u)
+    {
+        _20 = g < _11.slabs.y;
+    }
+    else
+    {
+        _20 = false;
+    }
+    if (_20)
+    {
+        uint k = 0u;
+        float4 n = float4(0.0);
+        float4 c = float4(0.0);
+        for (;;)
+        {
+            float4 n_1;
+            float4 c_1;
+            bool _36_ladder_break = false;
+            do
+            {
+                if (!(k < 256u))
+                {
+                    _36_ladder_break = true;
+                    break;
+                }
+                n_1 = spvFAdd(n, lane_normal[k]);
+                c_1 = spvFAdd(c, lane_center[k]);
+                break;
+            } while(false);
+            if (_36_ladder_break)
+            {
+                break;
+            }
+            k++;
+            n = n_1;
+            c = c_1;
+            continue;
+        }
+        partials._member0[2u * (_11.slabs.x + g)] = n;
+        partials._member0[(2u * (_11.slabs.x + g)) + 1u] = c;
+    }
+}
+

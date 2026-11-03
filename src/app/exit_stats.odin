@@ -108,6 +108,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The brushes' pictures the brushes made, and how long the last batch took.
 	fmt.printfln("brush_previews=%d preview_batches=%d preview_ms=%.0f", app.brush_previews.drawn, app.brush_previews.batches, app.brush_previews.took_ms)
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
+	fmt.printfln("send_sent=%d send_received=%d send_refused=%d send_found=%d send_sent_hash=%016x send_received_hash=%016x", app.send.sent, app.send.received, app.send.refused, app.send.found, app.send.sent_hash, app.send.received_hash)
 	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	plugin_commands := 0
@@ -285,6 +286,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			skin_segments: u32
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments
 			fmt.printfln("skin_segments=%d skin_auto=%d", skin_segments, int(app.skin_auto))
+			c := app.skin_carry
+			fmt.printfln("skin_carry_ms=%.1f skin_carry_worst=%.5f skin_carry_mean=%.6f skin_carry_missed=%d skin_carry_lost=%d skin_carry_side=%d skin_squeezes=%d skin_maps_loaded=%d skin_bary_exports=%d", app.stats.skin_carry_ms, c.worst, c.mean, c.missed, c.lost, int(c.side), app.skin_squeezes, app.skin_maps_loaded, app.skin_bary_exports)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
@@ -407,10 +410,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
-		// The chip bar's sections standing on their own, and how many Arrange let go.
-		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
-		// The top bar's islands from the start corner, and how many Arrange let go.
-		fmt.printfln("top_order=%s island_carries=%d", top_order_text(k), k.arrange.island_carries)
+		// The top bar's docks' buttons, and where each dock stood.
+		fa, sa, aa := k.top_at[.File], k.top_at[.Spaces], k.top_at[.App]
+		fmt.printfln("top_file=%s top_spaces=%s top_app=%s top_file_at=%.0f,%.0f,%.0f top_spaces_at=%.0f,%.0f,%.0f top_app_at=%.0f,%.0f,%.0f", bar_names(app, .Top_File), bar_names(app, .Top_Spaces), bar_names(app, .Top_App), fa.x, fa.y, fa.w, sa.x, sa.y, sa.w, aa.x, aa.y, aa.w)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[user_dock_id(i)].used {
@@ -418,7 +420,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
-		fmt.printfln("dial_sectors=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
+		fmt.printfln("dial_sectors=%s arrange_resets=%d", strings.to_string(dial), k.arrange.resets)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0
@@ -512,19 +514,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// whose children lie over each other or spill out of a fixed size.
 			lo := k.ctx.overlap_prev
 			fmt.printfln("layout_overlaps=%d layout_overlap_at=%.0f,%.0f,%.0f,%.0f", k.ctx.overlaps_prev, lo.x, lo.y, lo.w, lo.h)
-			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d view_chips_at=%.0f,%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.view_chips_shown), k.view_chips_at.x, k.view_chips_at.y)
+			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the mini view's swaps, the
-			// main camera's projection, and where the island, the chips, the navigation head and
+			// main camera's projection, and where the island, the readout, the navigation head and
 			// the mini view stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(app, Kit_Window.Thumbnail)
-			fmt.printfln("view_rail=%s view_island=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), bar_names(app, .View_Island), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
+			fmt.printfln("view_rail=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
-			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
+			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
 			fmt.printfln("stack_visit=%s stack_visits=%d", stack_visit_text(k), k.stack.visits)
 			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_sections=%s stack_section_folds=%d stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), stack_sections_text(k), k.stack.section_folds, k.stack.drops, stack_carry_text(k), k.stack.target.kind)
@@ -564,7 +566,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d color_popover=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed), int(k.colors.pop))
 		// The brush browser's category, what Recent and Favorites hold, whether its
 		// categories are hidden or a search is open, and how many tiles it picked from.
-		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_sidebar=%d brush_search=%d brush_browser_picks=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(!k.brushes.sidebar_hidden), int(k.brushes.searching), k.brushes.picks)
+		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_search=%d brush_browser_picks=%d library_for=%s library_puts=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(k.brushes.searching), k.brushes.picks, library_for_text(app), k.brushes.puts)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
@@ -581,6 +583,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// (a clay's band repair and saddle pass run at its end).
 		stroke_finish(app)
 		for obj in app.scene.objects {
+			object_gpu_sync(obj)
 			if vp := obj.voxel; vp != nil {
 				// The surface as Convert to mesh would make it: the nodes' borders welded.
 				welded := voxel.clay_to_mesh(&vp.clay)
@@ -645,7 +648,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The last frame's wireframes: items drawn with one, in the shading pass where the
 	// device reads barycentrics, else as lines; and whether it could.
 	fmt.printfln("wire_shaded=%d wire_lines=%d wire_barycentric=%v", v.wire_shaded, v.wire_lines, render.caps(&app.renderer).barycentric)
-	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls)
+	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d skin_grid=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls, v.skin_grid)
 	if app.renderer.gpu_culling.check {
 		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)
 		fmt.printfln("cull_meshes=%d cull_commands=%d cull_mismatch=%d", meshes, commands, mismatch)
@@ -686,12 +689,21 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
+	sg := app.renderer.sculpt_gpu.stats
+	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d gpu_dab_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dabs=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_dabs, sg.strokes_cpu, sg.dabs, sg.dispatches)
+	if app.stats.gpu_sculpt_kb.count > 0 {
+		print_stat("gpu_sculpt_kb", app.stats.gpu_sculpt_kb)
+		print_stat("gpu_sculpt_apply_ms", app.stats.gpu_sculpt_apply_ms)
+		print_stat("gpu_sculpt_land_ms", app.stats.gpu_sculpt_land_ms)
+	}
 	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
 	if dropped, known := render.frames_dropped(&app.renderer); known do fmt.printfln("frames_dropped=%d", dropped)
 	if opts.bench_stroke > 0 {
-		// The synthetic stroke never lifts the button: end it, then time undo and redo
+		// The synthetic stroke never lifts the button: end it and settle its last normals
+		// (on the CPU, or handed to a GPU that no frame will run), then time undo and redo
 		// of the whole stroke, each including the normal update that follows.
 		stroke_finish(app)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
 		undo_bytes := 0
 		for obj in app.scene.objects {
 			undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))

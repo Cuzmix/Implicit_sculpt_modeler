@@ -1,0 +1,183 @@
+// SDL_shadercross 1ff05bec5739 from node_bounds.comp.spv sha256 d0ef7dd31637b49a1428fa1829a6b5992fe3ff0ce78975971132a4aa6c281a7c
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint node_count;
+    uint groups_x;
+};
+
+struct StructuredBuffer
+{
+    uint4 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    float _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    uint _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    float4 _member0[1];
+};
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device StructuredBuffer_1& positions)
+{
+    uint _104 = 3u * v;
+    return float3(positions._member0[_104], positions._member0[_104 + 1u], positions._member0[_104 + 2u]);
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& positions [[buffer(1)]], device StructuredBuffer& nodes [[buffer(2)]], device StructuredBuffer_2& _shared [[buffer(3)]], device RWStructuredBuffer& bounds [[buffer(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup spvUnsafeArray<float3, 256> lane_lo;
+    threadgroup spvUnsafeArray<float3, 256> lane_hi;
+    uint g = (gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x;
+    if (g >= Params.node_count)
+    {
+        return;
+    }
+    float3 lo = float3(3.4028234663852885981170418348452e+38);
+    float3 hi = float3(-3.4028234663852885981170418348452e+38);
+    uint k = gl_LocalInvocationID.x;
+    for (;;)
+    {
+        float3 _124;
+        float3 _127;
+        bool _18_ladder_break = false;
+        do
+        {
+            if (!(k < nodes._member0[g].y))
+            {
+                _18_ladder_break = true;
+                break;
+            }
+            float3 p = at(nodes._member0[g].x + k, positions);
+            _124 = fast::min(lo, p);
+            _127 = fast::max(hi, p);
+            break;
+        } while(false);
+        if (_18_ladder_break)
+        {
+            break;
+        }
+        lo = _124;
+        hi = _127;
+        k += 256u;
+        continue;
+    }
+    k = gl_LocalInvocationID.x;
+    for (;;)
+    {
+        float3 _156;
+        float3 _158;
+        bool _28_ladder_break = false;
+        do
+        {
+            if (!(k < nodes._member0[g].w))
+            {
+                _28_ladder_break = true;
+                break;
+            }
+            float3 p_1 = at(_shared._member0[nodes._member0[g].z + k], positions);
+            _156 = fast::min(lo, p_1);
+            _158 = fast::max(hi, p_1);
+            break;
+        } while(false);
+        if (_28_ladder_break)
+        {
+            break;
+        }
+        lo = _156;
+        hi = _158;
+        k += 256u;
+        continue;
+    }
+    lane_lo[gl_LocalInvocationID.x] = lo;
+    lane_hi[gl_LocalInvocationID.x] = hi;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint width = 128u;
+    for (;;)
+    {
+        bool _38_ladder_break = false;
+        do
+        {
+            if (!(width > 0u))
+            {
+                _38_ladder_break = true;
+                break;
+            }
+            if (gl_LocalInvocationID.x < width)
+            {
+                lane_lo[gl_LocalInvocationID.x] = fast::min(lane_lo[gl_LocalInvocationID.x], lane_lo[gl_LocalInvocationID.x + width]);
+                lane_hi[gl_LocalInvocationID.x] = fast::max(lane_hi[gl_LocalInvocationID.x], lane_hi[gl_LocalInvocationID.x + width]);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            break;
+        } while(false);
+        if (_38_ladder_break)
+        {
+            break;
+        }
+        width /= 2u;
+        continue;
+    }
+    if (gl_LocalInvocationID.x != 0u)
+    {
+        return;
+    }
+    uint _241 = 2u * g;
+    bounds._member0[_241] = float4(lane_lo[0], 0.0);
+    bounds._member0[_241 + 1u] = float4(lane_hi[0], 0.0);
+}
+

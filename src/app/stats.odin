@@ -49,6 +49,11 @@ Frame_Stats :: struct {
 	upload_kb:  Sample_Ring,
 	latency_ms: Sample_Ring, // newest input event to command buffer submit
 	display_ms: Sample_Ring, // newest input event to the frame on the screen, where the backend can tell (render.Present_Timing)
+	// Sculpt on the GPU, on frames a readback landed: its size, the time to copy it into
+	// the mesh and the time to refit the bounds of what landed (sculptor_positions_landed).
+	gpu_sculpt_kb:       Sample_Ring,
+	gpu_sculpt_apply_ms: Sample_Ring,
+	gpu_sculpt_land_ms:  Sample_Ring,
 	dabs_total: int,
 	viewport:      render.Viewport_Stats, // last frame
 	cache_redraws: int,
@@ -68,6 +73,8 @@ Frame_Stats :: struct {
 	layers_carry_ms: f64,
 	// The last remesh: building the new surface, then preparing it to sculpt and upload.
 	remesh_ms:      f64,
+	// The last skin carried onto a rebuilt mesh (sculpt.skin_carry).
+	skin_carry_ms:  f64,
 	remesh_setup_ms: f64,
 	remesh_cell:    f32, // the last remesh's lattice spacing, in its object's mesh space
 	// The last slice: cutting and capping, then preparing both parts to sculpt and upload.

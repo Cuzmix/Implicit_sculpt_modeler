@@ -96,6 +96,8 @@ compile_shaders() {
 	# SDL_shadercross is built (scripts/build_shadercross.py), and a ray query kernel's .metal
 	# with slangc alone; `check` fails on a stale one.
 	python3 "$ROOT/scripts/shaders_msl.py"
+	# And its WGSL for the web version (scripts/shaders_wgsl.py), likewise checked.
+	python3 "$ROOT/scripts/shaders_wgsl.py"
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
@@ -245,24 +247,25 @@ case "$mode" in
 	test)
 		compile_shaders
 		need_luau
-		for pkg in geom poly camera sculpt jobs gizmo png_write zip hdri voxel ui luau usd fbx quadmesh retopo app; do
+		for pkg in geom poly camera sculpt jobs gizmo png_write zip hdri voxel ui luau usd fbx quadmesh retopo send app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench fbx geom camera gizmo hdri jobs luau png_write poly quadmesh render retopo sculpt ui usd voxel zip; do
+		for pkg in app bench fbx geom camera gizmo hdri jobs luau png_write poly quadmesh render retopo sculpt send ui usd voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
+		python3 "$ROOT/scripts/shaders_wgsl.py" --check
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current, the web version type-checks"
+		echo "check: 20 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"

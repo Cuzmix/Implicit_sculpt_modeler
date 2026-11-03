@@ -45,6 +45,16 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
 	}
 	render.gpu_cull_frame(&app.renderer)
+	// The positions and normals a stroke's earlier frames read back land in the mesh
+	// before the dabs, and the bounds of what landed are refit.
+	render.sculpt_gpu_frame(&app.renderer)
+	land_start := time.tick_now()
+	sculpt_gpu_landed(app)
+	if sg := app.renderer.sculpt_gpu.stats; sg.applied {
+		ring_push(&app.stats.gpu_sculpt_kb, sg.applied_kb)
+		ring_push(&app.stats.gpu_sculpt_apply_ms, sg.apply_ms)
+		ring_push(&app.stats.gpu_sculpt_land_ms, time.duration_milliseconds(time.tick_since(land_start)))
+	}
 	setting_up := frame_settle(app, loop) or_return
 	// Wait for the display, or the frame rate limit, and while timing the GPU for the
 	// previous frame too, before reading input: the frame then shows the newest input
@@ -242,6 +252,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			gpu := gpus[part]
 			t_flush := time.tick_now()
 			ranges := sculpt.sculptor_flush(&lv.sculptor)
+			// After the flush, so a share the GPU refuses is stale for the next one.
+			sculpt.sculptor_gpu_back(&lv.sculptor)
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 			flash_damage(app, obj, lv.sculptor.changed_bounds)
 			bytes, uploaded_ok := level_upload(app, cmd, gpu, lv, ranges)
@@ -251,6 +263,10 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				return false
 			}
 			uploaded += bytes
+			// The dabs and normals of a stroke on the GPU, now that what the CPU moved is up;
+			// where the device refused a buffer, the CPU lays the dabs and computes and
+			// uploads the normals next frame.
+			if render.sculpt_gpu_wanted(gpu) && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)
@@ -453,6 +469,15 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		render.fence_finish(&app.renderer, &fence)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
+		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, nil)
+	} else if render.sculpt_gpu_recorded(&app.renderer) {
+		// The readbacks of normals it holds are collected when its fence says they landed.
+		fence := render.cmd_submit_fenced(cmd)
+		if fence == nil {
+			_ = render.cmd_submit(present_cmd)
+			return false
+		}
+		render.sculpt_gpu_submitted(&app.renderer, fence)
 	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false
@@ -581,6 +606,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	if command := app.ui.scene_command; command.kind != .None {
 		app.ui.scene_command = {}
 		autosave_settle(app)
+		// Whatever it reads or writes of an object is the GPU's, where a stroke ran there.
+		for obj in app.scene.objects do object_gpu_sync(obj)
 		// A command being recorded counts once it changed the scene (macros.odin).
 		before := script_scene_state(app) if app.macro.pending.active else {}
 		if !scene_run(app, command) do return false, false
@@ -589,8 +616,10 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	if !long_job_frame(app) do return false, false
 	library_frame(app)
 	link_frame(app)
+	send_frame(app)
 	if req, ok := file_take(app); ok {
 		autosave_settle(app)
+		for obj in app.scene.objects do object_gpu_sync(obj)
 		inspector_drags_end(app)
 		applied := file_apply(app, req)
 		file_request_free(req)

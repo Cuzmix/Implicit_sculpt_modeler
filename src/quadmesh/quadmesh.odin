@@ -22,15 +22,29 @@ AVAILABLE :: (ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin) &&
 
 // What a remesh is asked for.
 Params :: struct {
-	quads:         int, // wanted; the result lands within about a fifth under it at adaptivity 0
-	adaptivity:    f32, // 0 quads of one size, 1 smaller quads where the surface bends (and far fewer than asked)
+	quads:         int, // wanted; the quad edge is sqrt(area / quads), so the count lands within a few percent at adaptivity 0
+	adaptivity:    f32, // 0 quads of one size, 1 smaller quads where the surface bends and larger where it is flat, at the same count
 	sharp_degrees: f32, // an edge whose faces meet sharper than this is kept as an edge
 	anisotropy:    f32, // 0 for AutoRemesher's own
-	scaling:       f32, // 0 for AutoRemesher's own cell size from the count
+	scaling:       f32, // 0 for the quad edge from the count; else the quad edge as a multiple of the isotropic mesh's mean edge
 	threads:       int, // threads the remesh may use, 1 to MAX_THREADS; the result is the same for any count
+	// Feature edges, two vertex indices each: edges kept as quad edges whatever their
+	// angle (a polygroup border, a crease), so the quads' edges run along them, as
+	// ZRemesher's KeepGroups and KeepCreases do. Nil for none.
+	features:      []u32,
+	// Density per vertex (one per position, or nil): quads per area relative to the rest,
+	// 1 as usual, 4 four times as many, 0.25 a quarter, clamped to 1/16..16 and taken
+	// relative to its mean over the area, so the count stays what was asked, as
+	// ZRemesher's Use PolyPaint moves its quads.
+	density:       []f32,
+	// Guide curves, two points a segment, lying on or near the surface: the quads' edges
+	// are pulled to run along them, by `guide_strength` (0 not at all, 1 as closely as
+	// the field can follow), as ZRemesher's Curves and Curves Strength. Nil for none.
+	guides:         []geom.Vec3,
+	guide_strength: f32,
 }
 
-// AutoRemesher's own values, except adaptivity, whose 1 lands three times under the count.
+// AutoRemesher's own values.
 DEFAULT_PARAMS :: Params{quads = 4000, adaptivity = 0, sharp_degrees = 90, threads = 1}
 
 // The shim's parallel_for cuts a range into at most this many threads.
@@ -45,8 +59,9 @@ Polygon_Mesh :: struct {
 }
 
 Report :: struct {
-	faces, quads, triangles, ngons: int, // ngons are polygons of five or more corners
-	ms:                             f64,
+	faces, quads, triangles, ngons:                        int, // ngons are polygons of five or more corners
+	ms:                                                    f64,
+	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64, // the stages, summed over the islands (so over the threads)
 }
 
 Error :: enum u8 {
@@ -100,6 +115,13 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 			anisotropy    = params.anisotropy,
 			scaling       = params.scaling,
 			threads       = u32(clamp(params.threads, 1, MAX_THREADS)),
+			features      = raw_data(params.features) if len(params.features) >= 2 else nil,
+			feature_count = u32(len(params.features) / 2),
+			density       = raw_data(params.density) if len(params.density) == len(positions) else nil,
+			density_count = u32(len(params.density)) if len(params.density) == len(positions) else 0,
+			guides         = ([^]f32)(raw_data(params.guides)),
+			guide_count    = u32(len(params.guides) / 2),
+			guide_strength = params.guide_strength,
 		}
 		message := make([]u8, REASON_MAX, context.temp_allocator)
 		result: ^Qm_Result
@@ -120,6 +142,12 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 		qm_copy(result, cast([^]f32)raw_data(out.positions), raw_data(out.first), raw_data(out.corners))
 		report.faces = int(faces)
 		report.quads, report.triangles, report.ngons = polygon_share(out)
+		times: Qm_Times
+		qm_times(result, &times)
+		report.decimate_ms = f64(times.decimate_ms)
+		report.isotropic_ms = f64(times.isotropic_ms)
+		report.parameterize_ms = f64(times.parameterize_ms)
+		report.extract_ms = f64(times.extract_ms)
 		report.ms = time.duration_milliseconds(time.tick_since(start))
 		return out, report, .None, ""
 	} else {
@@ -153,10 +181,22 @@ Qm_Params :: struct {
 	anisotropy:    f32,
 	scaling:       f32,
 	threads:       u32,
+	features:      [^]u32,
+	feature_count: u32,
+	density:       [^]f32,
+	density_count: u32,
+	guides:         [^]f32,
+	guide_count:    u32,
+	guide_strength: f32,
 }
 
 @(private = "file")
 Qm_Result :: struct {}
+
+@(private = "file")
+Qm_Times :: struct {
+	decimate_ms, isotropic_ms, parameterize_ms, extract_ms, total_ms: f32,
+}
 
 @(private = "file")
 QM_OK :: 0
@@ -178,6 +218,7 @@ when AVAILABLE {
 		qm_remesh :: proc(positions: [^]f32, vertex_count: u32, triangles: [^]u32, triangle_count: u32, params: ^Qm_Params, progress: proc "c" (tag: rawptr, fraction: f32, stage: cstring) -> c.int, tag: rawptr, out: ^^Qm_Result, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_counts :: proc(r: ^Qm_Result, vertices, faces, corners: ^u32) ---
 		qm_copy :: proc(r: ^Qm_Result, positions: [^]f32, first: [^]u32, corners: [^]u32) ---
+		qm_times :: proc(r: ^Qm_Result, times: ^Qm_Times) ---
 		qm_free :: proc(r: ^Qm_Result) ---
 	}
 }

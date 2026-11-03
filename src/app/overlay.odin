@@ -227,6 +227,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			if app.stroke.active && stroke_trails(app) do overlay_line(o, center, input.mouse_pos, color, 1)
 			if brush_alpha(app) != nil && held_brush(input) {
 				app.alpha_roll = input.pen_roll
+				alpha_lean_take(app, input.pen_tilt)
 				draw_alpha_outline(app, o, center, color)
 			} else {
 				// Off the model a ring fixed in the scene is drawn as it would be at the view's

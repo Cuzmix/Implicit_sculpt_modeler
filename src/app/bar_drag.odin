@@ -93,6 +93,9 @@ bar_takes :: proc(which: Bar_Which, s: Bar_Slot) -> (ok: bool, why: string) {
 	if !bar_lists(s.id) do return false, "it is not a button"
 	// A group's panels live with the rail, so a group stays on it.
 	if s.id == .Rail_Group && which != .View_Rail do return false, "panel groups stay on the view rail"
+	// The chips are the top bar's: the file, the space tabs and the object want its width.
+	_, top := top_dock_of(which)
+	if (s.id == .File_Chip || s.id == .Space_Tabs || s.id == .Object_Chip) && !top do return false, "it stays in the top bar"
 	_, page := shelf_page_of(which)
 	_, dock := user_dock_of(which)
 	if (s.id == .Brush || s.id == .Brush_Preset) && !page && !dock do return false, "brushes go on the shelf or a dock"

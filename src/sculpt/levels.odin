@@ -343,6 +343,8 @@ sync_levels :: proc(l: ^Levels, down: bool) {
 	k := l.current
 	edited := &l.levels[k].sculptor.edited_nodes
 	if len(edited) == 0 do return
+	// The edits it passes on are the GPU's where the stroke ran there.
+	_ = sculptor_gpu_sync(&l.levels[k].sculptor)
 	n := len(l.levels)
 	changed := make([][]u32, n, context.temp_allocator) // per level: nodes whose vertices moved
 	changed[k] = slice.clone(edited[:], context.temp_allocator)

@@ -173,6 +173,9 @@ autosave_init :: proc(app: ^App, interactive: bool, seconds: f64, folder: string
 	a.on = interactive || seconds > 0 || folder != ""
 	a.seconds, a.check, a.crash_after = seconds, check, crash_after
 	a.rest = rest if rest > 0 else AUTOSAVE_REST
+	// The autosave writes from a thread of its own, which the web version does not have
+	// (web.odin), so a run in a browser is not autosaved.
+	when ODIN_OS == .JS do a.on = false
 	if !a.on do return
 	dir := folder
 	if dir == "" {
@@ -427,6 +430,7 @@ autosave_start :: proc(app: ^App, fp: u64) {
 	vertices := 0
 	for obj in app.scene.objects {
 		hd := object_in_hd(obj)
+		object_gpu_sync(obj)
 		if !hd do sculpt.levels_sync(&obj.levels)
 		append(&job.objects, obj)
 		append(&job.hd, hd)

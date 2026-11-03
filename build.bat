@@ -77,13 +77,15 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\hdri" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\retopo" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\send" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
+python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current, the web version type-checks
+echo check: 20 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
 exit /b 0
 
 :web
@@ -149,6 +151,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\quadmesh" -out:"%ROOT%build\test_quadmesh.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\retopo" -out:"%ROOT%build\test_retopo.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\send" -out:"%ROOT%build\test_send.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
@@ -236,6 +239,8 @@ for %%s in ("%ROOT%src\render\shaders\*.comp.slang") do call :shader "%%s" compu
 rem Each new .spv's Metal source for the iPad build: the .msl when SDL_shadercross is built, a ray
 rem query kernel's .metal with slangc alone (build.sh says more).
 python "%ROOT%scripts\shaders_msl.py" || exit /b 1
+rem And its WGSL for the web version, likewise checked.
+python "%ROOT%scripts\shaders_wgsl.py" || exit /b 1
 exit /b 0
 
 :shader

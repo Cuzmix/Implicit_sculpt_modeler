@@ -1,4 +1,5 @@
 #+build linux
+#+build !js
 package render
 
 import "core:sys/linux"

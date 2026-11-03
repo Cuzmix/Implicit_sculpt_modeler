@@ -403,6 +403,41 @@ Sculptor :: struct {
 	skin:        ^Skin,
 	// Moves whenever the sculptor's skin is replaced, added or taken off (sculptor_skin_stamp).
 	skin_stamp:  u32,
+	// The stroke under way asked the GPU for its share (at its first dab), and how much
+	// the GPU took (stroke_gpu.odin); None between strokes.
+	gpu_asked:   bool,
+	gpu_take:    Gpu_Take,
+	// The dabs recorded for the GPU since the last flush, their replay data and hit
+	// leaves, and their ranges; the `_last` ones are the last flush's, kept until the next
+	// in case the GPU refuses them (sculptor_gpu_refused).
+	gpu_dabs:        [dynamic]Gpu_Dab,
+	gpu_replay:      [dynamic]Gpu_Replay,
+	gpu_replay_last: [dynamic]Gpu_Replay,
+	gpu_leaves:      [dynamic]u32,
+	gpu_leaves_last: [dynamic]u32,
+	gpu_ranges:      [dynamic]Vertex_Range,
+	gpu_ranges_last: [dynamic]Vertex_Range,
+	// Per node: readbacks of its positions on their way from the GPU, and whether the
+	// last flush's ranges were counted.
+	gpu_pending:    []u32,
+	gpu_pending_on: bool,
+	gpu_once:       bool, // a dab of the stroke keeps the heights on the GPU (sculptor_gpu_heights)
+	// How far the stroke's dabs not yet landed may have moved a vertex on the GPU beyond
+	// the mirror (gpu_query_margin): the most one dab moves it for the kinds that build up
+	// dab on dab, times the dabs whose flush has not landed, plus the most the kinds that
+	// stop at a plane or a height move it over the whole stroke.
+	gpu_margin_dab:  f32,
+	gpu_margin_once: f32,
+	gpu_unlanded:    int,          // dabs recorded whose flush has not landed
+	gpu_flush_count: int,          // dabs recorded since the last flush
+	gpu_flush_dabs:  [dynamic]int, // the dabs of each flush on its way, oldest first
+	// Nodes whose normals the GPU has and the mesh not: a stroke's dabs on the GPU read
+	// back positions alone, and the normals follow after the stroke, GPU_BACK_VERTS a
+	// frame, or all at once at a sync (sculptor_gpu_back). `gpu_back_last` is the last
+	// frame's share, which a refusal gives to the CPU.
+	gpu_owed:       []bool,
+	gpu_owed_list:  [dynamic]u32,
+	gpu_back_last:  [dynamic]u32,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -442,6 +477,8 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
 	s.edited = make([]bool, len(s.nodes), allocator)
 	s.edited_nodes = make([dynamic]u32, 0, 256, allocator)
+	s.gpu_pending = make([]u32, len(s.nodes), allocator)
+	s.gpu_owed = make([]bool, len(s.nodes), allocator)
 	history_init(&s.history, len(s.nodes), allocator)
 	s.changed_bounds = geom.AABB_EMPTY
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
@@ -452,6 +489,8 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	// A readback under way would write into a mesh that is going.
+	_ = sculptor_gpu_sync(s)
 	sculptor_skin_remove(s)
 	dyn_destroy(s)
 	hide_destroy(s)
@@ -495,6 +534,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.ranges)
 	delete(s.edited)
 	delete(s.edited_nodes)
+	stroke_gpu_destroy(s)
 	lod_destroy(&s.lod)
 	delete(s.fade)
 	s^ = {}
@@ -724,6 +764,7 @@ owner_node :: proc(nodes: []Node, v: u32) -> u32 {
 // stroke replay): a dab reads the normals, so each frame's dabs need the ones before
 // them reflected, as a frame-by-frame flush would have done.
 sculptor_refresh_normals :: proc(s: ^Sculptor) {
+	_ = sculptor_gpu_sync(s)
 	if len(s.dirty_nodes) == 0 do return
 	verts: u32
 	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
@@ -742,6 +783,10 @@ sculptor_refresh_normals :: proc(s: ^Sculptor) {
 sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	clear(&s.ranges)
 	s.changed_bounds = geom.AABB_EMPTY
+	// The dabs recorded for the GPU go first (or the CPU lays them now, dirtying nodes).
+	stroke_gpu_dabs(s)
+	// A stroke the GPU took, over with nothing left to flush, is over for the GPU too.
+	if s.gpu_take != .None && !s.history.recording && len(s.dirty_nodes) == 0 do s.gpu_take = .None
 	if len(s.dirty_nodes) > 0 {
 		slice.sort(s.dirty_nodes[:])
 		for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
@@ -752,9 +797,35 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 				append(&s.waiting_cones, id)
 			}
 		}
-		verts: u32
-		for id in s.dirty_nodes do verts += s.nodes[id].vert_count
-		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+		// A node the CPU changes while its normals are owed by the GPU would upload the
+		// mesh's older ones over the GPU's: they come back first.
+		if s.gpu_take != .Dabs && len(s.gpu_owed_list) > 0 {
+			for id in s.dirty_nodes do if s.gpu_owed[id] {
+				_ = sculptor_gpu_sync(s)
+				slice.sort(s.dirty_nodes[:])
+				break
+			}
+		}
+		// The ranges to upload, coalesced, which the GPU's normals kernel takes too.
+		for id in s.dirty_nodes {
+			if s.stale[id] == .Skin do continue
+			n := s.nodes[id]
+			if len(s.ranges) > 0 {
+				last := &s.ranges[len(s.ranges) - 1]
+				if last.first + last.count == n.vert_first {
+					last.count += n.vert_count
+					continue
+				}
+			}
+			append(&s.ranges, Vertex_Range{n.vert_first, n.vert_count})
+		}
+		if !stroke_gpu_normals(s) {
+			// A readback still under way would land over what is computed here.
+			_ = sculptor_gpu_sync(s)
+			verts: u32
+			for id in s.dirty_nodes do verts += s.nodes[id].vert_count
+			jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+		}
 	}
 	if s.skin != nil do skin_flush(s)
 	if cones_held(s) {
@@ -784,19 +855,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	}
 	for id in s.dirty_nodes {
 		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
-		// Only the skin changed: its samples upload, its vertices stay.
-		only_skin := s.stale[id] == .Skin
 		s.stale[id] = .None
-		if only_skin do continue
-		n := s.nodes[id]
-		if len(s.ranges) > 0 {
-			last := &s.ranges[len(s.ranges) - 1]
-			if last.first + last.count == n.vert_first {
-				last.count += n.vert_count
-				continue
-			}
-		}
-		append(&s.ranges, Vertex_Range{n.vert_first, n.vert_count})
 	}
 	clear(&s.dirty_nodes)
 	return s.ranges[:]
@@ -993,6 +1052,7 @@ Dab :: struct {
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth do return 0
+	stroke_gpu_decide(s, brush)
 	moved := 0
 	images := symmetry_images(brush)
 	b := brush
@@ -1134,7 +1194,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		view   = view,
 	}
 	clear(&s.hit)
-	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
+	// With the dabs on the GPU the tree bounds the mirror, which lags the GPU's positions
+	// by up to the stroke's largest move: the query reaches that much further, and the
+	// kernels test each vertex's true distance (stroke_gpu.odin).
+	geom.bvh_query_leaves(&s.bvh, center, reach + gpu_query_margin(s), &s.hit)
 	if len(s.hit) == 0 do return 0
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
@@ -1150,12 +1213,40 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	resize(&s.partials, len(s.hit))
 	slice.zero(s.partials[:])
 	if brush.connected do connected_flood(s, &d, pool)
+	if s.gpu_take == .Dabs {
+		// The GPU lays it (stroke_gpu.odin): saved for undo and recorded here, moved there.
+		if !dab_gpu_takes(s, brush) {
+			// The brush changed under the stroke to one the kernels do not lay: the CPU
+			// lays what was recorded and the rest.
+			_ = sculptor_gpu_sync(s)
+		} else {
+			if s.history.recording do record_hit(s, masks = false)
+			dab_gpu_record(s, &d, brush)
+			return int(candidates)
+		}
+	}
+	return dab_lay(s, &d, brush, pool, img, own)
+}
+
+// The share of the radius the area is sampled over (Brush.sample_radius; 0 is all of it).
+@(private)
+dab_sample_radius :: #force_inline proc(brush: Brush) -> f32 {
+	return brush.radius * (clamp(brush.sample_radius, SAMPLE_RADIUS_MIN, 1) if brush.sample_radius > 0 else 1)
+}
+
+// Lays a prepared dab (`d` with its hit leaves in s.hit and zeroed partials): the area
+// under the brush, the mask, paint and skin passes, the undo's saves, the kind's move
+// and finish_move. The second half of dab_once, which gpu_replay runs too for a dab
+// the GPU gave back. Returns how many vertices moved (or changed their mask or paint).
+@(private)
+dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_Image, own: bool) -> int {
+	brush := brush
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
 	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph && brush.kind != .History) || brush.alpha != nil {
-		sample := brush.radius * (clamp(brush.sample_radius, SAMPLE_RADIUS_MIN, 1) if brush.sample_radius > 0 else 1)
+		sample := dab_sample_radius(brush)
 		d.inv_sample2 = 1 / (sample * sample)
-		jobs.parallel_for(pool, len(s.hit), &d, job_area)
+		jobs.parallel_for(pool, len(s.hit), d, job_area)
 		weight: f32
 		for p in s.partials {
 			d.normal += p.normal_sum
@@ -1166,28 +1257,28 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		if weight > 0 do d.plane /= weight
 		if brush_locks_plane(brush.kind, brush.alpha != nil) {
 			if brush.lock_plane {
-				lock_plane_apply(s, &d, img, own, weight)
+				lock_plane_apply(s, d, img, own, weight)
 			} else if brush.stabilize > 0 {
-				steady_apply(s, &d, img, own, weight, min(brush.stabilize, STABILIZE_MAX))
+				steady_apply(s, d, img, own, weight, min(brush.stabilize, STABILIZE_MAX))
 			}
 		}
 		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
-		if brush.alpha != nil do alpha_frame(&d)
+		if brush.alpha != nil do alpha_frame(d)
 	}
-	if brush.kind == .Mask do return mask_dab(s, &d, pool)
-	if brush.kind == .Paint do return paint_dab(s, &d, pool)
+	if brush.kind == .Mask do return mask_dab(s, d, pool)
+	if brush.kind == .Paint do return paint_dab(s, d, pool)
 	painted := 0
 	if brush.channel != .Sculpt {
-		painted = paint_channel_dab(s, &d, pool)
+		painted = paint_channel_dab(s, d, pool)
 		if brush.channel == .Color do return painted
 	}
 	if brush.skin && s.skin != nil && brush.kind in SKIN_KINDS {
-		if !brush.skin_split do return painted + skin_dab(s, &d, pool)
+		if !brush.skin_split do return painted + skin_dab(s, d, pool)
 		share := skin_mesh_share(s, brush.radius)
-		if skin_split_needs_skin(s, &d, share) {
+		if skin_split_needs_skin(s, d, share) {
 			// The skin's pass works on a copy: it moves the plane and sets the amount
 			// its own way, and the vertices' pass below starts from the area again.
-			ds := d
+			ds := d^
 			skin_split_brush(&ds, share)
 			painted += skin_dab(s, &ds, pool)
 			slice.zero(s.partials[:])
@@ -1195,6 +1286,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		if share <= 0 do return painted
 		brush.strength *= share
 		d.brush.strength = brush.strength
+		if brush.kind == .Snake_Hook {
+			brush.drag *= share
+			d.brush.drag = brush.drag
+		}
 		d.mesh_share = share
 	}
 	if s.history.recording do record_hit(s, masks = false)
@@ -1203,60 +1298,62 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	switch brush.kind {
 	case .Draw:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		if brush.no_accumulate {
+		if dab_vdm(d) {
+			jobs.parallel_for(pool, len(s.hit), d, job_vdm)
+		} else if brush.no_accumulate {
 			layer_heights_fit(s)
-			jobs.parallel_for(pool, len(s.hit), &d, job_draw_once)
+			jobs.parallel_for(pool, len(s.hit), d, job_draw_once)
 		} else {
-			jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+			jobs.parallel_for(pool, len(s.hit), d, job_draw)
 		}
 	case .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		if brush.no_accumulate {
 			layer_heights_fit(s)
-			jobs.parallel_for(pool, len(s.hit), &d, job_inflate_once)
+			jobs.parallel_for(pool, len(s.hit), d, job_inflate_once)
 		} else {
-			jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+			jobs.parallel_for(pool, len(s.hit), d, job_inflate)
 		}
 	case .Clay:
 		d.amount = sign
 		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
-		jobs.parallel_for(pool, len(s.hit), &d, job_clay)
+		jobs.parallel_for(pool, len(s.hit), d, job_clay)
 	case .Flatten:
 		d.amount = sign
-		jobs.parallel_for(pool, len(s.hit), &d, job_flatten)
+		jobs.parallel_for(pool, len(s.hit), d, job_flatten)
 	case .Clay_Strips:
 		d.amount = sign
 		d.plane += d.normal * (sign * brush.radius * CLAY_STRIPS_HEIGHT)
-		strip_frame(&d)
-		jobs.parallel_for(pool, len(s.hit), &d, job_clay_strips)
+		strip_frame(d)
+		jobs.parallel_for(pool, len(s.hit), d, job_clay_strips)
 	case .Trim_Dynamic:
-		strip_frame(&d)
-		trim_planes(s, &d, pool, own)
-		jobs.parallel_for(pool, len(s.hit), &d, job_trim)
+		strip_frame(d)
+		trim_planes(s, d, pool, own)
+		jobs.parallel_for(pool, len(s.hit), d, job_trim)
 	case .Pinch:
 		d.amount = sign
-		jobs.parallel_for(pool, len(s.hit), &d, job_pinch)
+		jobs.parallel_for(pool, len(s.hit), d, job_pinch)
 	case .Crease:
 		// Cuts in by default, like ZBrush's and Blender's crease brushes.
 		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_crease)
+		jobs.parallel_for(pool, len(s.hit), d, job_crease)
 	case .Layer:
 		layer_heights_fit(s)
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
+		jobs.parallel_for(pool, len(s.hit), d, job_layer)
 	case .Snake_Hook:
 		if brush.drag == {} do return painted
 		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
 		step := linalg.length(brush.drag)
 		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
 		d.drag_dir = brush.drag / step
-		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
+		jobs.parallel_for(pool, len(s.hit), d, job_snake_hook)
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return painted
-		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
+		jobs.parallel_for(pool, len(s.hit), d, job_morph)
 	case .History:
 		if len(s.recall) != len(s.mesh.positions) do return painted
-		jobs.parallel_for(pool, len(s.hit), &d, job_history)
+		jobs.parallel_for(pool, len(s.hit), d, job_history)
 	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
@@ -1271,7 +1368,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		resize(&s.smooth_to, int(total))
 		scale: f32 = 1
 		if brush.smooth_stable {
-			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_edges)
+			jobs.parallel_for(pool, len(s.hit), d, job_smooth_edges)
 			length, edges: f64
 			for p in s.partials {
 				length += f64(p.weight_sum)
@@ -1294,12 +1391,12 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		}
 		for rate in rates {
 			d.rate = rate
-			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
-			if brush.smooth_mode == .Polish do jobs.parallel_for(pool, len(s.hit), &d, job_polish_targets)
-			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
+			jobs.parallel_for(pool, len(s.hit), d, job_smooth_targets)
+			if brush.smooth_mode == .Polish do jobs.parallel_for(pool, len(s.hit), d, job_polish_targets)
+			jobs.parallel_for(pool, len(s.hit), d, job_smooth_apply)
 		}
 	}
-	return painted + finish_move(s, &d, pool)
+	return painted + finish_move(s, d, pool)
 }
 
 // After the vertices of the hit leaves moved: marks what changed, records it for undo
@@ -1837,6 +1934,7 @@ job_leaf_bounds :: proc(data: rawptr, i: int) {
 // built back through it (recall.odin).
 sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
 	if len(nodes) == 0 do return
+	_ = sculptor_gpu_sync(s)
 	moved := make([]bool, len(s.nodes), context.temp_allocator)
 	for id in nodes do moved[id] = true
 	clear(&s.changed)
@@ -1868,6 +1966,7 @@ sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
 sculptor_place_vertices :: proc(s: ^Sculptor, verts: []u32, positions: []Vec3) {
 	assert(len(verts) == len(positions))
 	if len(verts) == 0 do return
+	_ = sculptor_gpu_sync(s)
 	// The nodes in the order of their vertex ranges, to find each vertex's owner by halves.
 	order := make([][2]u32, len(s.nodes), context.temp_allocator)
 	for n, id in s.nodes do order[id] = {n.vert_first, u32(id)}

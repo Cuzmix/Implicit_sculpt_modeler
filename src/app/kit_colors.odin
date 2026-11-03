@@ -276,21 +276,22 @@ hsv_to_rgb :: proc(hsv: [3]f32) -> [3]f32 {
 
 // The hues of a scheme, as turns from the main colour's: the first is always 0. Split
 // Complementary and Analogous sit 30 degrees either side of the complement and of the
-// colour; Triadic splits the wheel in three, Tetradic in four (a square).
+// colour; Triadic splits the wheel in three, Tetradic in four (a square). Fixed arrays, as
+// the web build's compiler cannot make a static slice of constants.
 harmony_offsets :: proc(h: Harmony) -> []f32 {
-	@(static, rodata) COMPLEMENTARY := []f32{0, 0.5}
-	@(static, rodata) SPLIT := []f32{0, 0.5 - 1.0 / 12, 0.5 + 1.0 / 12}
-	@(static, rodata) ANALOGOUS := []f32{0, -1.0 / 12, 1.0 / 12}
-	@(static, rodata) TRIADIC := []f32{0, 1.0 / 3, 2.0 / 3}
-	@(static, rodata) TETRADIC := []f32{0, 0.25, 0.5, 0.75}
+	@(static, rodata) COMPLEMENTARY := [?]f32{0, 0.5}
+	@(static, rodata) SPLIT := [?]f32{0, 0.5 - 1.0 / 12, 0.5 + 1.0 / 12}
+	@(static, rodata) ANALOGOUS := [?]f32{0, -1.0 / 12, 1.0 / 12}
+	@(static, rodata) TRIADIC := [?]f32{0, 1.0 / 3, 2.0 / 3}
+	@(static, rodata) TETRADIC := [?]f32{0, 0.25, 0.5, 0.75}
 	switch h {
-	case .Complementary:       return COMPLEMENTARY
-	case .Split_Complementary: return SPLIT
-	case .Analogous:           return ANALOGOUS
-	case .Triadic:             return TRIADIC
-	case .Tetradic:            return TETRADIC
+	case .Complementary:       return COMPLEMENTARY[:]
+	case .Split_Complementary: return SPLIT[:]
+	case .Analogous:           return ANALOGOUS[:]
+	case .Triadic:             return TRIADIC[:]
+	case .Tetradic:            return TETRADIC[:]
 	}
-	return COMPLEMENTARY
+	return COMPLEMENTARY[:]
 }
 
 // The Disc's inner circle holds every saturation (across, left to right) and brightness

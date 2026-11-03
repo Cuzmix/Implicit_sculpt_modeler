@@ -7,7 +7,7 @@ import "../sculpt"
 import "../ui"
 
 // What the bars round the view share (the top bar is kit_top_lens.odin, the off-hand
-// island, view chips, view rail and mini view lens_chrome.odin, the shelf lens_shelf.odin):
+// island, view rail and mini view lens_chrome.odin, the shelf lens_shelf.odin):
 // the interface's looks, the one popover a bar button opens beside itself, and where the
 // panels start clear of the bars.
 
@@ -51,7 +51,6 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
-	Panels, // the rail's Panels picker (rail_panels.odin)
 	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
 }
@@ -137,7 +136,7 @@ kit_edge_width :: proc(app: ^App, edge: Dock_Edge) -> f32 {
 // Where a card under the top bar (the first-run tip, the recovery offer) goes: under the
 // window's middle where that clears the off-hand island on the left and the view rail and
 // the stack on the right, else in the middle of the room between them; lower down where
-// it would meet the view chips. Returns its shift from the middle, its width (at
+// it would meet the readout. Returns its shift from the middle, its width (at
 // most `most`, at least `least`) and its top; false when even that does not fit.
 kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits: bool) {
 	k := &app.kit
@@ -149,7 +148,7 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	w = min(most, room)
 	if (area.w - w) * 0.5 < left || (area.w + w) * 0.5 > area.w - right do shift = left + room * 0.5 - area.w * 0.5
 	top = kit_top() + 4
-	// How far the view chips reach in from their side, which the layout may have put on the
+	// How far the readout reaches in from its side, which the layout may have put on the
 	// right; the card's shift counts from the island's side as the offsets do.
 	points := ui.prev_rect(&k.ctx, "points")
 	reach := area.x + area.w - points.x if k.ctx.mirror else points.x - area.x + points.w
@@ -168,7 +167,7 @@ side_panel_below :: proc(app: ^App, width: f32) -> f32 {
 	return 0
 }
 
-// How far down from the safe area's top the view chips ("points") reach, with a margin
+// How far down from the safe area's top the readout ("points") reaches, with a margin
 // under them.
 points_bottom :: proc(app: ^App) -> f32 {
 	points, _ := ui.prev_layout(&app.kit.ctx, "points")
@@ -176,7 +175,7 @@ points_bottom :: proc(app: ^App) -> f32 {
 }
 
 // Where the off-hand island's top goes, in points down the safe area, from last frame's
-// size: centred down the left edge, kept between the view chips and the shelf where it
+// size: centred down the left edge, kept between the readout and the shelf where it
 // fits, and raised clear of the modifier wheel in the corner under it where there is room,
 // so the wheel keeps its corner. A window too short for that keeps it clear of the shelf
 // and puts the chips beside it.
@@ -242,8 +241,6 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
-	case .Panels:
-		kit_panels_picker(app)
 	case .Group_Menu:
 		kit_group_menu(app)
 	case .Dock_Menu:

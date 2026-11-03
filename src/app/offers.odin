@@ -74,7 +74,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	if obj.cage != nil && id in CAGE_REFUSED_COMMANDS do return fmt.tprintf("%s is a cage: Make sculptable first, or edit it with the Model tool", object_label(obj))
 	if obj.voxel != nil && id in VOXEL_REFUSED_COMMANDS do return fmt.tprintf("%s is voxel clay: Convert to mesh first", object_label(obj))
 	if obj.curve != nil && id in CURVE_REFUSED_COMMANDS do return fmt.tprintf("%s is a curve: it has no surface", object_label(obj))
-	if id in SKIN_REFUSED_COMMANDS && object_top_skin(obj) != nil do return fmt.tprintf("%s has a detail skin: remove it first (Object palette, HD detail)", object_label(obj))
+	if id in SKIN_REFUSED_COMMANDS && object_top_skin(obj) != nil do return fmt.tprintf("%s has a detail skin: remove it first (HD detail card)", object_label(obj))
 	return ""
 }
 
@@ -82,7 +82,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 // has its own resolution, repair and conversion: each issues one of MESH_ONLY_COMMANDS'
 // scene commands, which scene_apply still refuses for scripts.
 VOXEL_REFUSED_COMMANDS :: Command_Set{
-	.Remesh, .Remesh_To, .Decimate_To, .Dyntopo_Toggle, .Subdivide, .Level_Up, .Level_Down, .Hd_Toggle, .Hd_Divide, .Detail_Skin, .Skin_Apply,
+	.Remesh, .Remesh_To, .Decimate_To, .Dyntopo_Toggle, .Subdivide, .Level_Up, .Level_Down, .Hd_Toggle, .Hd_Divide, .Detail_Skin, .Skin_Apply, .Skin_Squeeze,
 	.Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Delete_Lower_Levels, .Delete_Higher_Levels, .Mirror_Weld, .Close_Holes,
 	.Delete_Hidden, .Weld_Points, .Fix_Mesh, .Delete_Half, .Retopologize, .Extract_Masked, .Split_Object, .Merge_Down,
 	.Merge_Visible, .Remove_Textures,

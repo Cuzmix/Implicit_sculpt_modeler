@@ -11,25 +11,16 @@ import "../ui"
 // comes, Delete for one of the person's), and a curved corner on the side facing the
 // view's middle that a drag turns into more or fewer lines, a whole button at a time. A
 // floating dock carried near another lines up with it (soft alignment), a faint line
-// showing which edge. The top bar's workspace pill gives way to what editing needs
-// (Library, Reset workspace, Save as new, Done), and the Library, a sheet over the view,
-// holds the panels' places, the bars' Show chips, the dial's sectors and the person's
-// docks. The ringed buttons and + of every dock still change what each holds.
+// showing which edge. The top bar's workspace pill gives way to what editing needs (New
+// dock, Mirror, Reset workspace, Save as new, Done). The ringed buttons of every dock
+// change what each holds, and its + opens the Library to add one. Which bars show, the
+// panels' places and the dial's sectors are Settings' (Bars and Wheel).
 
-// The Library's tabs.
-Library_Tab :: enum u8 {
-	Panels,
-	Dial,
-	Docks,
-}
-
-// Arrange's own state in Kit_State: whether the Library is put away, its tab, how many
+// Arrange's own state in Kit_State: how many
 // resets ran (for the exit stats), and the dock being carried by its head: its outline at
 // the press, where the press was, and whether it went past the slop (until then the press
 // is a tap that opens the dock's menu).
 Arrange_State :: struct {
-	library_off: bool,
-	tab:         Library_Tab,
 	resets:      int,
 	carry:       Maybe(Dock_Id),
 	carry_from:  ui.Rect,
@@ -44,14 +35,6 @@ Arrange_State :: struct {
 	resizes:      int,
 	// Floating drops that lined up with a neighbour (for the exit stats).
 	aligns:       int,
-	// The chip bar's section being carried (chip_islands.odin), which shares the dock's
-	// carry_from, carry_press and carrying, and how many were let go.
-	chip_carry:   Maybe(Chip_Section),
-	chip_carries: int,
-	// The top bar's island being carried by its grip (top_islands.odin), which shares the
-	// same carry fields, and how many were let go.
-	island_carry:   Maybe(Top_Island),
-	island_carries: int,
 	// Whether Arrange was on last frame, and how many times it has opened, so its outlines
 	// draw in afresh each time (Arrange outlines motion).
 	was_on:      bool,
@@ -60,9 +43,6 @@ Arrange_State :: struct {
 	docks_made:    int,
 	docks_deleted: int,
 }
-
-// The Library's width, in points.
-LIBRARY_W :: 540
 
 // The dock's head: its title, with the shelf's page and how many buttons it holds.
 @(private = "file")
@@ -129,7 +109,7 @@ dial_reset :: proc(app: ^App) {
 }
 
 // The top bar's controls while editing docks, in place of the workspace pill: what is
-// being edited, the Library, Reset workspace, Save as new and Done. Returns their width;
+// being edited, New dock, Mirror, Reset workspace, Save as new and Done. Returns their width;
 // arrange_top_width says it before they are drawn.
 arrange_top_controls :: proc(app: ^App) -> f32 {
 	k := &app.kit
@@ -143,17 +123,18 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 	ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.accent, .Semibold)
 	if w.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
 	labels := ARRANGE_TOP_LABELS
-	if ui.toggle_button(ctx, "Library##arrange", !k.arrange.library_off, arrange_button_width(ctx, labels[0]), tooltip = "Panels' places, the bars to show, the dial's sectors and your docks") do k.arrange.library_off = !k.arrange.library_off
-	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
-	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
-	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[3])) do k.bars_edit = false
+	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
+	_ = command_button(app, .Left_Handed, label = "Mirror", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
+	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
+	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[3]))
+	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[4])) do k.bars_edit = false
 	end := ctx.last_rect
 	ui.end(ctx)
 	return end.x + end.w - start
 }
 
 @(private = "file")
-ARRANGE_TOP_LABELS := [4]string{"Library", "Reset workspace", "Save as new", "Done"}
+ARRANGE_TOP_LABELS := [5]string{"New dock", "Mirror", "Reset workspace", "Save as new", "Done"}
 
 @(private = "file")
 arrange_title :: proc(app: ^App) -> string {
@@ -181,14 +162,12 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 ARRANGE_DRAW_TIME :: 0.22
 ARRANGE_DRAW_STAGGER :: 0.025
 
-// While editing docks: each shown dock's outline, head and resize corner, then the
-// Library. Leaving forgets any carry and brings the Library back for the next time.
+// While editing docks: each shown dock's outline, head and resize corner. Leaving forgets
+// any carry.
 kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
 	if !k.bars_edit {
-		k.arrange.library_off = false
 		k.arrange.carry, k.arrange.carrying, k.arrange.resize = nil, false, nil
-		k.arrange.chip_carry, k.arrange.island_carry = nil, nil
 		k.arrange.was_on = false
 		return
 	}
@@ -251,11 +230,6 @@ kit_arrange_lens :: proc(app: ^App) {
 		arrange_drop_edges(app, carried)
 		for l in align_lines do if l.shown do ui.line(ctx, l.a, l.b, ui.color_fade(t.accent, 0.55), 1)
 	}
-	chips := arrange_chip_sections(app)
-	islands := arrange_top_islands(app)
-	// The Library steps aside while a dock, a section or an island is carried, so the view
-	// under it takes the drop.
-	if !carrying && !chips && !islands do kit_library(app)
 }
 
 // Where carried dock `b`'s outline (its rect at the press, moved with the pointer `p`)
@@ -278,7 +252,6 @@ arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	ctx := &k.ctx
 	s := &k.arrange
 	if a.pressed {
-		s.chip_carry, s.island_carry = nil, nil
 		s.carry, s.carry_from, s.carry_press, s.carrying = b, r, a.mouse, false
 		return
 	}
@@ -382,48 +355,8 @@ arrange_drop_edges :: proc(app: ^App, b: Dock_Id) {
 	}
 }
 
-// The Library: a sheet over the view, left of the middle, with Panels, Dial and Docks.
-@(private = "file")
-kit_library :: proc(app: ^App) {
-	k := &app.kit
-	if k.arrange.library_off do return
-	ctx := &k.ctx
-	t := ctx.theme
-	area := ui.safe_area(ctx)
-	width := min(f32(LIBRARY_W), area.w - 32)
-	ui.begin_anchored(ctx, "arrange library", .Center, .Start, {-min(area.w * 0.14, 200), kit_top() + 24}, {direction = .Column, gap = 8, padding = 14, width = width, radius = t.radius_large, background = .Raised})
-	inner := width - 28
-	ui.begin(ctx, "library head", {direction = .Row, center = true, width = inner})
-	head := ui.place(ctx, {inner - t.target, t.target})
-	ui.icon(ctx, ui.ICON_GRID, {head.x + 10, head.y + head.h * 0.5}, t.icon_size, t.text_secondary)
-	ui.text(ctx, "Library", head.x + 28, head.y + head.h * 0.5, t.heading_size, t.text, .Semibold)
-	if ui.icon_button(ctx, "Put the Library away", ui.ICON_CLOSE) do k.arrange.library_off = true
-	ui.end(ctx)
-	names := [len(Library_Tab)]string{"Panels", "Dial", "Docks"}
-	if picked := ui.tabs(ctx, "Library tab", names[:], int(k.arrange.tab), item_width = 110); picked >= 0 do k.arrange.tab = Library_Tab(picked)
-	switch k.arrange.tab {
-	case .Panels:
-		arrange_show_chips(app)
-		arrange_panel_rows(app)
-		if ui.button(ctx, "Put the cards back as they come##library", .Bordered, width = inner) {
-			stack_default(k)
-			k.arrange.resets += 1
-			report(app, nil, {}, "The cards are as they come again")
-		}
-	case .Dial:
-		library_dial(app, inner)
-	case .Docks:
-		library_docks(app, inner)
-		library_chip_sections(app, inner)
-	}
-	ui.end(ctx)
-}
-
-// Library > Dial: what each sector of the current space's dial does, then the dial's
-// size, what its sectors show, and whether it stays in clean view (those three are every
-// space's).
-@(private = "file")
-library_dial :: proc(app: ^App, width: f32) {
+// What each sector of the current space's dial does (Settings > Wheel), and its reset.
+dial_sector_rows :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -468,14 +401,5 @@ library_dial :: proc(app: ^App, width: f32) {
 	if len(missing) > 0 {
 		ui.paragraph(ctx, fmt.tprintf("No sector holds %s now: on a tablet without a keyboard nothing else does.", strings.join(missing[:], " or ", context.temp_allocator)))
 	}
-	ui.caption(ctx, "DIAL")
-	ui.label(ctx, "Size")
-	sizes: [len(Wheel_Size)]string
-	for name, s in WHEEL_SIZE_NAMES do sizes[s] = name
-	if picked := ui.tabs(ctx, "Dial size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
-	ui.label(ctx, "Sectors show")
-	labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
-	if picked := ui.tabs(ctx, "Dial sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
-	_ = ui.switch_row(ctx, "Keep the dial in clean view##library", &k.clean_dial)
-	if ui.button(ctx, "Put the dial back as it comes##library", .Bordered, width = width) do dial_reset(app)
+	if ui.button(ctx, "Put the dial back as it comes##sectors", .Bordered, width = width) do dial_reset(app)
 }

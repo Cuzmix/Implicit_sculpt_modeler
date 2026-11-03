@@ -18,7 +18,6 @@ Settings_Block :: enum u8 {
 	Clean_Dial,
 	Hands,
 	Top_Bar,
-	Nav_Head,
 	Motion,
 	Starting,
 	Brush_Ring,
@@ -65,6 +64,7 @@ Settings_Block :: enum u8 {
 	History_Steps,
 	History_Back,
 	Blender_Link,
+	Send_Scenes,
 	Printer,
 }
 
@@ -104,8 +104,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Size             = "size interface scale bigger text touch targets zoom",
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
-	.Top_Bar          = "top bar search field icon chip bar command palette three islands one bar centred style",
-	.Nav_Head         = "navigation head gizmo view cube axes corner top right view island orientation",
+	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
@@ -146,6 +145,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.History_Steps    = "history steps lights scene tree names folders order undo",
 	.History_Back     = "history camera follows restore view group repeated strokes list scrub slide two fingers quick step pictures thumbnails",
 	.Blender_Link     = "blender link add-on folder",
+	.Send_Scenes      = "send scenes receive wi-fi wifi network tablet computer pc ipad paired pair forget goz",
 	.Printer          = "3d printer bed plate size wall thickness thinnest print checks",
 }
 
@@ -210,7 +210,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Hands:
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
-		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view chips go to the right; the navigation, the view rail and the panels to the left.")
+		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the readout go to the right; the navigation, the view rail and the panels to the left.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -234,16 +234,16 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
+		// What the edit mode's own sheet held: which bars this workspace shows, the panels'
+		// places and the person's docks, so the Library is the one picker.
+		arrange_show_chips(app)
+		arrange_panel_rows(app)
+		_ = command_button(app, .Panels_Reset, label = "Put the panels back as they come", variant = .Bordered, width = ui.fill_width(ctx))
+		your_docks_rows(app, ui.fill_width(ctx))
 	case .Top_Bar:
-		styles := [2]string{"Three islands", "One bar"}
-		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
-		ui.paragraph(ctx, "Three islands: the file and Undo at the left, the spaces and the selected object centred on the window, Search, History and Settings at the right; as the window narrows the middle keeps its place while the others give up their least needed parts. One bar: the same in one strip across the top.")
+		ui.paragraph(ctx, "The top bar is three docks: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit docks changes their buttons as any dock's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
-	case .Nav_Head:
-		places := [len(Nav_Place)]string{"Top corner", "View island"}
-		if picked := ui.tabs(ctx, "Navigation head place", places[:], int(k.nav_place)); picked >= 0 do k.nav_place = Nav_Place(picked)
-		ui.paragraph(ctx, "Top corner: the head stands on its own under the top bar on the pen side, beside the view rail, where the pen reaches it. View island: it is the island's first button, beside the Camera and Shading chips, on the off-hand side.")
 	case .Action_Bar:
 		_ = ui.switch_row(ctx, "Show next steps over the shelf", &k.action_bar)
 		ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
@@ -265,7 +265,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
 		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
-		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; Arrange's Library > Dial puts any of them, Hide or a command on each sector. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		dial_sector_rows(app, ui.fill_width(ctx))
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
@@ -476,6 +477,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 			ui.end(ctx)
 			ui.paragraph(ctx, "Install the add-on in tools/blender in Blender, give it this folder, then Send to Blender here and Get from Sculpt there; Send to Sculpt there comes back here when you switch to Sculpt, or with Get from Blender.")
 		}
+	case .Send_Scenes:
+		send_settings_rows(app)
 	case .Printer:
 		bed := print_bed(app)
 		sides := [3]string{"Bed width", "Bed depth", "Bed height"}
@@ -491,6 +494,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 
 // Whether a block has anything to show on this build: the Blender link is desktop only.
 settings_block_shown :: proc(b: Settings_Block) -> bool {
+	if b == .Send_Scenes do return SEND_AVAILABLE
 	return b != .Blender_Link || LINK_AVAILABLE
 }
 
@@ -504,8 +508,9 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
-	case .Top_Bar:         k.search_field, k.top_islands, k.top_order = false, true, TOP_ORDER_DEFAULT
-	case .Nav_Head:        k.nav_place = .Corner
+	case .Top_Bar:
+		k.search_field = false
+		for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
@@ -523,6 +528,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options, k.explain_all = false, false
 	case .Pies, .Mouse, .Blender_Link:
+	case .Send_Scenes:     app.send_receive = false
 	case .Printer:         app.print_bed, app.print_wall = {}, 0
 	case .Panel_Places:    windows_reset(k)
 	case .Orbit:

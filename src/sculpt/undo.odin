@@ -78,6 +78,7 @@ Saved_Node :: struct {
 	colors:     []Color, // the node's owned vertices' colours, for a painting step
 	groups:     []u16,   // the node's triangles' groups, for a grouping step
 	heights:    []f16,   // the node's detail skin heights (skin_node_ranges), for a skin stroke
+	side:       [][2]f16, // and its sideways offsets (Skin.side), nil while the skin has none
 	// With `is_delta`: the node's displacement in layer `delta_layer` before a recording
 	// stroke added to it (nil when it had none).
 	delta:       []Vec3,
@@ -124,6 +125,12 @@ history_destroy :: proc(h: ^Undo_History) {
 sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	// A new stroke locks its own plane (filters.odin).
 	s.locked, s.steady, s.trim, s.stretch = {}, {}, {}, {}
+	// Its dabs read the normals and move the positions, so the last stroke's readback
+	// lands first; it then asks the GPU afresh at its first dab (stroke_gpu.odin).
+	_ = sculptor_gpu_sync(s)
+	s.gpu_asked, s.gpu_take, s.gpu_once = false, .None, false
+	s.gpu_margin_dab, s.gpu_margin_once, s.gpu_unlanded, s.gpu_flush_count = 0, 0, 0, 0
+	clear(&s.gpu_flush_dabs)
 	// A new stroke starts a new Layer: earlier heights stop counting.
 	s.layer_stroke += 1
 	if s.layer_stroke == 0 {
@@ -244,6 +251,9 @@ sculptor_can_redo :: proc(s: ^Sculptor) -> bool {return len(s.history.undone) > 
 sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording || s.dyn != nil do return false
+	// What it puts back must be what the GPU moved, and the GPU must then draw what it
+	// put back: the stroke's dabs on the GPU so far land, and it steps down to Normals.
+	_ = sculptor_gpu_sync(s)
 	m := s.mesh
 	for sv in h.current.saved {
 		n := s.nodes[sv.node]
@@ -287,6 +297,7 @@ sculptor_stroke_discard :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	for sv in h.current.saved do if sv.full || sv.hidden != nil || sv.groups != nil || sv.is_delta do return false
+	_ = sculptor_gpu_sync(s)
 	m := s.mesh
 	for sv in h.current.saved {
 		n := s.nodes[sv.node]
@@ -323,6 +334,8 @@ sculptor_undo_bytes :: proc(s: ^Sculptor) -> int {return s.history.bytes}
 
 @(private)
 step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
+	// A readback landing after the step is swapped would bring the stroke back.
+	_ = sculptor_gpu_sync(s)
 	_ = sculptor_stroke_end(s)
 	if len(from) == 0 do return false
 	step := pop(from)
@@ -522,7 +535,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
 	for sv in step.saved {
 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16)
+		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	bytes += skin_bytes(step.skin_op.skin)
@@ -545,6 +558,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
 		delete(sv.heights, h.allocator)
+		delete(sv.side, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
@@ -576,6 +590,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
 		delete(sv.heights, h.allocator)
+		delete(sv.side, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)

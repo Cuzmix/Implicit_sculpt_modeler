@@ -1,6 +1,7 @@
 package sculpt
 
 import "base:intrinsics"
+import "core:math/linalg"
 import "core:slice"
 import "core:sync"
 
@@ -11,8 +12,10 @@ import "../geom"
 // triangles each time a sculptor is built: the vertices' samples in the level's file
 // order (level_canon), then each edge's by the file places of its ends (lower first),
 // running from the lower end, then each triangle's inside samples by tri_canon's order,
-// counted from its corner placed first, keeping its winding. Heights only: normals are
-// worked out again on reading.
+// counted from its corner placed first, keeping its winding. Then a byte saying whether
+// the vector page follows, and if so each sample's sideways offset in the same order, as
+// a vector in the mesh's space (three f16), since the owner frame it is kept in depends on
+// the numbering the reader builds anew. Normals are worked out again on reading.
 
 @(private = "file")
 SKIN_TAG :: u32(0x4e49_4b53) // "SKIN" in the file
@@ -117,7 +120,42 @@ levels_skin_write :: proc(l: ^Levels, out: ^[dynamic]u8, abort: ^bool = nil) -> 
 	geom.byte_put(out, sk.tri_count)
 	to := geom.byte_put_bytes(out, len(sk.heights) * size_of(f16))
 	for h, x in sk.heights do intrinsics.unaligned_store(cast(^f16)&to[size_of(f16) * int(order[x])], h)
+	geom.byte_put(out, u8(sk.side != nil))
+	if sk.side != nil {
+		s := &l.levels[len(l.levels) - 1].sculptor
+		side := geom.byte_put_bytes(out, len(sk.side) * size_of([3]f16))
+		io := Side_Io{side, order}
+		skin_side_each(s, sk, proc(s: ^Sculptor, sk: ^Skin, x: u32, tu, tv: Vec3, data: rawptr) {
+			io := cast(^Side_Io)data
+			sd := sk.side[x]
+			v := tu * f32(sd.x) + tv * f32(sd.y)
+			intrinsics.unaligned_store(cast(^[3]f16)&io.bytes[size_of([3]f16) * int(io.order[x])], [3]f16{f16(v.x), f16(v.y), f16(v.z)})
+		}, &io)
+	}
 	return !stopped_skin(abort)
+}
+
+// What skin_side_each's callbacks read and write in the file.
+@(private = "file")
+Side_Io :: struct {
+	bytes: []u8,
+	order: []u32,
+}
+
+// Calls `each` once for every sample of the skin with its owner frame (skin_frame), from
+// the triangle that owns it.
+@(private = "file")
+skin_side_each :: proc(s: ^Sculptor, sk: ^Skin, each: proc(s: ^Sculptor, sk: ^Skin, x: u32, tu, tv: Vec3, data: rawptr), data: rawptr) {
+	I := s.mesh.indices[:]
+	S := sk.segments
+	for t in 0 ..< sk.tri_count {
+		for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+			if skin_owner(s, sk, t, i, j) != t do continue
+			_, n := skin_base(s, sk, t, i, j)
+			tu, tv := skin_frame(s, sk, t, i, j, linalg.normalize0(n))
+			each(s, sk, skin_sample(sk, I, t, i, j), tu, tv, data)
+		}
+	}
 }
 
 // Reads what levels_skin_write wrote onto the levels just read (levels_read), giving the
@@ -137,7 +175,16 @@ levels_skin_read :: proc(l: ^Levels, r: ^geom.Byte_Reader) -> bool {
 		return false
 	}
 	heights := geom.byte_get_bytes(r, int(count) * size_of(f16))
-	if len(l.levels) == 0 do return false
+	has_side := geom.byte_get(r, u8)
+	side: []u8
+	if has_side != 0 {
+		if u64(len(r.data) - r.at) / size_of([3]f16) < count {
+			r.ok = false
+			return false
+		}
+		side = geom.byte_get_bytes(r, int(count) * size_of([3]f16))
+	}
+	if !r.ok || has_side > 1 || len(l.levels) == 0 do return false
 	s := &l.levels[len(l.levels) - 1].sculptor
 	if s.dyn != nil || !sculptor_skin_set(s, S) do return false
 	sk := s.skin
@@ -159,6 +206,23 @@ levels_skin_read :: proc(l: ^Levels, r: ^geom.Byte_Reader) -> bool {
 		}
 		h = v
 		sk.height_max = max(sk.height_max, abs(f32(v)))
+	}
+	if side != nil {
+		skin_side_fit(sk, s.history.allocator)
+		bad := false
+		io := Side_Io{side, order}
+		skin_side_each(s, sk, proc(s: ^Sculptor, sk: ^Skin, x: u32, tu, tv: Vec3, data: rawptr) {
+			io := cast(^Side_Io)data
+			w := intrinsics.unaligned_load(cast(^[3]f16)&io.bytes[size_of([3]f16) * int(io.order[x])])
+			v := Vec3{f32(w.x), f32(w.y), f32(w.z)}
+			sk.side[x] = {f16(linalg.dot(v, tu)), f16(linalg.dot(v, tv))}
+			sk.height_max = max(sk.height_max, abs(f32(sk.heights[x])) + linalg.length(v))
+		}, &io)
+		for sd in sk.side do if sd.x != sd.x || sd.y != sd.y do bad = true
+		if bad {
+			sculptor_skin_remove(s)
+			return false
+		}
 	}
 	skin_normals_all(s, sk)
 	return true

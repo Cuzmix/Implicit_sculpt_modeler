@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Builds the web version (README "Web") into build/web/site, or type-checks it.
 
-    python scripts/web_build.py            # release: build/web/site/{index.html,sculpt.wasm,odin.js,wgpu.js}
+    python scripts/web_build.py            # release: build/web/site/{index.html,sculpt.wasm,odin.js,wgpu.js,sdl_web.js}
     python scripts/web_build.py --debug    # with bounds checks and debug info
     python scripts/web_build.py --check    # odin check only, with the strict flags
     python scripts/web_build.py --serve    # build, then serve the site at http://localhost:8000
     python scripts/web_build.py --test     # build, then scripts/web_check.mjs in headless Chromium
 
-The page is src/web (the entry) with render/webgpu (its viewport) compiled by Odin's own
-wasm target, js_wasm64p32: Odin's int stays 64-bit as on the desktop while pointers are
-32-bit, as browsers need. Odin compiles every file of a package, *_test.odin included, and
+The page runs the whole app, src/app (src/app/web.odin is its web entry), drawn by render's
+WebGPU backend, with web/sdl_web.js answering SDL's procs, compiled by Odin's own wasm
+target, js_wasm64p32: Odin's int stays 64-bit as on the desktop while pointers are 32-bit,
+as browsers need. Odin compiles every file of a package, *_test.odin included, and
 core:testing and the tests' core:os do not build for js, so the build compiles a copy of
 src without its test files (build/web/tree/src, updated in place) and maps the compiler's
 paths back to src. Odin's runtime leaves heap_allocator unimplemented on js, which the
-sculpt engine allocates with on its jobs: the build runs Odin with an Odin root under
+sculpt engine allocates with on its jobs, and core:os and core:thread have nothing for js:
+the build runs Odin with an Odin root under
 build/web whose base/ is a copy with web/odin_overlay laid over it (deps/odin is never
 edited), and core/ and vendor/ linked to the real ones. The site needs no server headers
 yet: one thread, no SharedArrayBuffer.
@@ -23,6 +25,7 @@ import argparse
 import functools
 import http.server
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +41,8 @@ STRICT = ["-vet", "-strict-style", "-warnings-as-errors"]
 # The wasm's memory comes from the page (web/index.html), which asks for up to 4 GB; the
 # module must take it rather than make its own, and keep its function table for WebGPU's
 # callbacks.
+# vendor:sdl3 imports SDL's procs from the page (web/sdl_web.js) rather than linking SDL.
+DEFINES = ["-define:SDL3_WASM_LIB=sdl3"]
 LINKER = "--export-table --import-memory --initial-memory=134217728 --max-memory=4294967296"
 
 
@@ -85,37 +90,103 @@ def link_dir(source, link):
 
 
 def odin_root():
-    """build/web/odin_root: deps/odin's folders, with base/ copied and web/odin_overlay laid
-    over it."""
+    """build/web/odin_root: deps/odin with web/odin_overlay laid over it. Each folder that
+    holds an overlay file is a copy, every folder on the way to one is made of links to the
+    real folders beside it, and everything else is a link, so deps/odin is never written."""
     real = os.path.join(DEPS, "odin")
     root = os.path.join(OUT, "odin_root")
     if os.path.isdir(root):
-        for name in os.listdir(root):
-            path = os.path.join(root, name)
-            if os.path.islink(path) or (os.name == "nt" and os.path.isjunction(path)):
-                os.unlink(path)
-            elif os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
+        clear_links(root)
     os.makedirs(root, exist_ok=True)
-    for name in os.listdir(real):
-        source = os.path.join(real, name)
-        if not os.path.isdir(source):
-            continue
-        if name == "base":
-            shutil.copytree(source, os.path.join(root, name))
-        else:
-            link_dir(source, os.path.join(root, name))
     overlay = os.path.join(ROOT, "web", "odin_overlay")
-    for directory, _, files in os.walk(overlay):
-        for name in files:
-            rel = os.path.relpath(os.path.join(directory, name), overlay)
-            target = os.path.join(root, rel)
-            if not os.path.exists(target):
-                raise SystemExit(f"web: {rel} replaces nothing in deps/odin; the overlay is out of date")
-            shutil.copy2(os.path.join(directory, name), target)
+    files = []
+    for directory, _, names in os.walk(overlay):
+        for name in names:
+            files.append(os.path.relpath(os.path.join(directory, name), overlay))
+    copied = {os.path.dirname(f) for f in files} | {os.path.dirname(p[0]) for p in PATCHES} | {r[0] for r in REWRITES}
+    on_the_way = {os.path.join(*parts[:i]) for d in copied for parts in [d.split(os.sep)] for i in range(1, len(parts))}
+
+    def lay(rel):
+        source = os.path.join(real, rel) if rel else real
+        for name in sorted(os.listdir(source)):
+            child = os.path.join(rel, name) if rel else name
+            here, there = os.path.join(source, name), os.path.join(root, child)
+            if not os.path.isdir(here):
+                if rel:
+                    shutil.copy2(here, there)
+                continue
+            if child in copied:
+                shutil.copytree(here, there)
+            elif child in on_the_way:
+                os.makedirs(there, exist_ok=True)
+                lay(child)
+            else:
+                link_dir(here, there)
+    lay("")
+    for rel in files:
+        target = os.path.join(root, rel)
+        # A new file is fine where a folder was copied; a file that replaces nothing in a
+        # folder Odin's own never had is a sign the overlay is out of date.
+        shutil.copy2(os.path.join(overlay, rel), target)
+    for folder, pattern, replacement in REWRITES:
+        for name in sorted(os.listdir(os.path.join(root, folder))):
+            if not name.endswith(".odin"):
+                continue
+            target = os.path.join(root, folder, name)
+            with open(target, encoding="utf-8") as f:
+                text = f.read()
+            with open(target, "w", encoding="utf-8", newline="\n") as f:
+                f.write(re.sub(pattern, replacement, text))
+    for rel, old, new in PATCHES:
+        target = os.path.join(root, rel)
+        with open(target, encoding="utf-8") as f:
+            text = f.read()
+        if old not in text:
+            raise SystemExit(f"web: {rel} no longer has the line the web build changes; the patch is out of date")
+        with open(target, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text.replace(old, new, 1))
     return root
+
+
+# Lines of Odin's own files the web build changes, in the copies odin_root makes: core:flags
+# names core:net only where it parses a host, which js leaves out, and -vet then refuses
+# the unused import; and Odin's wasm64p32 code generation stops on an assertion at a global
+# slice made from constants (zlib's and PNG's tables), which a fixed array of the same
+# values avoids. The app's own code keeps clear of them (and of #load as bytes rather than a
+# string) for the same reason.
+PATCHES = [
+    ("core/flags/internal_rtti.odin", 'import            "core:net"', '@(require) import "core:net"'),
+    ("core/compress/zlib/zlib.odin", "Z_LENGTH_DEZIGZAG := []u8{", "Z_LENGTH_DEZIGZAG := [?]u8{"),
+    ("core/image/png/png.odin", "ADAM7_X_ORIG    := []int{", "ADAM7_X_ORIG    := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_Y_ORIG    := []int{", "ADAM7_Y_ORIG    := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_X_SPACING := []int{", "ADAM7_X_SPACING := [?]int{"),
+    ("core/image/png/png.odin", "ADAM7_Y_SPACING := []int{", "ADAM7_Y_SPACING := [?]int{"),
+    # Two lengths REWRITES leaves as Odin's int where the shim now takes 32 bits.
+    ("vendor/libc-shim/string.odin", "return len(sdst)", "return u32(len(sdst))"),
+    ("vendor/libc-shim/stdio.odin", "size_of(byte), len(buf), file)", "size_of(byte), u32(len(buf)), file)"),
+]
+
+
+# Words of Odin's own folders the web build replaces in every file of its copies:
+# vendor:stb's C objects for wasm are built for wasm32, whose size_t is 32 bits, while
+# vendor:libc-shim, which answers their malloc, memcpy and the rest, takes Odin's uint, 64
+# bits on wasm64p32, so the linker would turn every call into a trap.
+REWRITES = [
+    (os.path.join("vendor", "libc-shim"), r"\buint\b", "u32"),
+]
+
+
+def clear_links(root):
+    """Removes build/web/odin_root without following its links into deps/odin."""
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        if os.path.islink(path) or (os.name == "nt" and os.path.isjunction(path)):
+            os.unlink(path)
+        elif os.path.isdir(path):
+            clear_links(path)
+            os.rmdir(path)
+        else:
+            os.remove(path)
 
 
 def odin(args):
@@ -132,14 +203,17 @@ def odin(args):
 def build(debug):
     mirror()
     os.makedirs(SITE, exist_ok=True)
-    flags = ["-debug"] if debug else ["-o:speed"]
-    code = odin(["build", os.path.join(TREE, "src", "web"), f"-target:{TARGET}", f"-out:{os.path.join(SITE, 'sculpt.wasm')}",
-                 f"-collection:deps={DEPS}", *STRICT, *flags, f"-extra-linker-flags:{LINKER}"])
+    # -o:minimal rather than -o:speed: LLVM's wasm back end stops on the vectors of f16 the
+    # optimiser makes of the app's half-float loops (the detail skin, EXR, environments).
+    flags = ["-debug"] if debug else ["-o:minimal"]
+    code = odin(["build", os.path.join(TREE, "src", "app"), f"-target:{TARGET}", f"-out:{os.path.join(SITE, 'sculpt.wasm')}",
+                 f"-collection:deps={DEPS}", *DEFINES, *STRICT, *flags, f"-extra-linker-flags:{LINKER}"])
     if code != 0:
         return code
     shutil.copy2(os.path.join(DEPS, "odin", "core", "sys", "wasm", "js", "odin.js"), SITE)
     shutil.copy2(os.path.join(DEPS, "odin", "vendor", "wgpu", "wgpu.js"), SITE)
     shutil.copy2(os.path.join(ROOT, "web", "index.html"), SITE)
+    shutil.copy2(os.path.join(ROOT, "web", "sdl_web.js"), SITE)
     size = os.path.getsize(os.path.join(SITE, "sculpt.wasm"))
     print(f"web: build/web/site ({'debug' if debug else 'release'}, sculpt.wasm {size / 1e6:.1f} MB)")
     return 0
@@ -147,9 +221,9 @@ def build(debug):
 
 def check():
     mirror()
-    code = odin(["check", os.path.join(TREE, "src", "web"), f"-target:{TARGET}", f"-collection:deps={DEPS}", *STRICT])
+    code = odin(["check", os.path.join(TREE, "src", "app"), f"-target:{TARGET}", f"-collection:deps={DEPS}", *DEFINES, *STRICT])
     if code == 0:
-        print("webcheck: src/web and render/webgpu type-check for js_wasm64p32")
+        print("webcheck: src/app type-checks for js_wasm64p32")
     return code
 
 

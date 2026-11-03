@@ -8,8 +8,7 @@ import "../geom"
 import "../render"
 import "../ui"
 
-// The navigation head, the View island's first button (lens_chrome.odin), or on its own
-// under the top bar at the pen side where the island is not shown: a small head that
+// The navigation head, on its own under the top bar at the pen side: a small head that
 // turns with the camera, so the view's turn reads at a glance (the face is the front,
 // +Z). Tapping a side of it looks at the scene from that side (View_Axis); dragging it
 // turns the view as dragging empty space does. The renderer draws it into a texture of
@@ -90,19 +89,9 @@ nav_head_side :: proc(rotation: matrix[3, 3]f32, at: [2]f32, aspect: f32) -> (si
 	return side, true
 }
 
-// Where the navigation head stands (Settings > Interface > Navigation head).
-Nav_Place :: enum u8 {
-	// On its own under the top bar on the pen side, left of the view rail, where the pen
-	// reaches it and ZBrush, Blender and Nomad all keep their view gizmo: the top right for
-	// the right-handed.
-	Corner,
-	// The View island's first button, with the Camera and Shading chips on the off-hand side.
-	View_Island,
-}
-
-// Lays the head out under the top bar on the pen side, on its own: where Settings puts it
-// there, and where the View island that otherwise holds it is not shown (Focus, a pane
-// maximised over the main view).
+// Lays the head out under the top bar on the pen side, left of whatever stands at that
+// side's top, where the pen reaches it and ZBrush, Blender and Nomad all keep their view
+// gizmo: the top right for the right-handed.
 kit_nav_head :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	// Left of what stands at the top of the pen side.
@@ -185,7 +174,7 @@ nav_axes_draw :: proc(app: ^App, r: ui.Rect) {
 // it, which becomes a turn once it moves past the slop and is a tap otherwise.
 Nav_State :: struct {
 	size:   [2]u32, // physical pixels; zero while it is not laid out
-	placed: bool, // laid out this frame, in the View island or on its own
+	placed: bool, // laid out this frame
 	from:   [2]f32, // where the press went down, in points
 	last:   [2]f32, // where the pointer was the frame before, in points
 	turned: bool, // the press became a drag that turns the view

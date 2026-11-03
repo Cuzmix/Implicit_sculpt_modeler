@@ -1,5 +1,6 @@
 package sculpt
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 
@@ -35,6 +36,11 @@ Skin :: struct {
 	edges:      []Skin_Edge,
 	// Heights along the normal in the mesh's units, by sample (skin_sample).
 	heights:    []f16,
+	// The vector skin: per sample, a sideways offset in its owner triangle's frame
+	// (skin_frame), in the mesh's units, for what a height can't hold (a pinch, an
+	// overhang, a VDM stamp). nil until a sideways stroke first writes one (skin_side_fit),
+	// so a skin nothing moved sideways costs nothing more.
+	side:       [][2]f16,
 	// Each sample's normal, octahedral in two signed 16-bit halves, as the GPU reads it.
 	normals:    [][2]i16,
 	// Per node id, the nodes whose triangles share a vertex with its own (itself first):
@@ -79,7 +85,14 @@ Skin :: struct {
 	height_max:  f32,
 	// Smooth's targets, per sample of the hit nodes, each node's from offsets[hit index].
 	smooth_to:   [dynamic]f32,
+	// And with a vector page, its offsets' targets alike.
+	smooth_side: [dynamic][2]f32,
 	offsets:     [dynamic]u32,
+	// Per triangle, how far the skin strays from the surface it was carried from
+	// (skin_carry): 0 unmeasured, else 1 + 65534 times the worst gap in its small
+	// triangles over a grid step, capped at one step. nil when nothing was measured; a
+	// stroke drops it, as the gaps no longer stand.
+	heat:        []u16,
 }
 
 // One run of a dab's work: hit leaf `hit`'s triangles [tri_lo, tri_hi) with the edges
@@ -213,6 +226,7 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	skin_spheres_all(s, &sk)
 	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
 	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
+	sk.smooth_side = make([dynamic][2]f32, 0, 0, allocator)
 	sk.offsets = make([dynamic]u32, 0, 0, allocator)
 	skin_near_build(s, &sk, allocator)
 	skin_normals_all(s, &sk, flat = true)
@@ -224,6 +238,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.tri_edges, allocator)
 	delete(sk.edges, allocator)
 	delete(sk.heights, allocator)
+	delete(sk.side, allocator)
 	delete(sk.normals, allocator)
 	delete(sk.near_first, allocator)
 	delete(sk.near, allocator)
@@ -239,7 +254,9 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.dab_moved, allocator)
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
+	delete(sk.heat, allocator)
 	delete(sk.smooth_to)
+	delete(sk.smooth_side)
 	delete(sk.offsets)
 	sk^ = {}
 }
@@ -410,8 +427,60 @@ skin_point :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
 @(private)
 skin_base_and_point :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> (flat, point: Vec3) {
 	p, n := skin_base(s, sk, t, i, j)
-	h := f32(sk.heights[skin_sample(sk, s.mesh.indices[:], t, i, j)])
-	return p, p + linalg.normalize0(n) * h
+	x := skin_sample(sk, s.mesh.indices[:], t, i, j)
+	return p, p + skin_lift(s, sk, x, t, i, j, linalg.normalize0(n), f32(sk.heights[x]))
+}
+
+// How far sample x (at grid place (i, j) of triangle t, unit interpolated normal `nu`)
+// lies from its flat point: its height along the normal, plus its sideways offset in its
+// owner's frame when the skin has a vector page.
+@(private)
+skin_lift :: #force_inline proc(s: ^Sculptor, sk: ^Skin, x, t, i, j: u32, nu: Vec3, h: f32) -> Vec3 {
+	off := nu * h
+	if sk.side == nil do return off
+	sd := sk.side[x]
+	if sd == {} do return off
+	tu, tv := skin_frame(s, sk, t, i, j, nu)
+	return off + tu * f32(sd.x) + tv * f32(sd.y)
+}
+
+// The frame a sample's sideways offset is stored in: its owner triangle's first edge
+// (corner 0 to corner 1) made perpendicular to the sample's unit interpolated normal `nu`,
+// and the normal crossed with it. The owner is the triangle that writes the sample (a
+// vertex's first triangle, an edge's lower one, or the triangle itself), so every
+// triangle the sample lies on works out the same frame, to the bit, and the skin stays
+// watertight; built from the owner's corners, it turns with the mesh, so what Grab or Pose
+// bends carries its overhangs with it, as a tangent-space VDM does.
+skin_frame :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, nu: Vec3) -> (tu, tv: Vec3) {
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	o := skin_owner(s, sk, t, i, j)
+	e := P[I[3 * o + 1]] - P[I[3 * o]]
+	tu = linalg.normalize0(e - nu * linalg.dot(e, nu))
+	return tu, linalg.cross(nu, tu)
+}
+
+// The triangle that owns the sample at grid place (i, j) of triangle t (skin_frame).
+skin_owner :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> u32 {
+	I := s.mesh.indices[:]
+	S := sk.segments
+	switch {
+	case i == 0 && j == 0: return faces_of(s, I[3 * t])[0]
+	case i == S:           return faces_of(s, I[3 * t + 1])[0]
+	case j == S:           return faces_of(s, I[3 * t + 2])[0]
+	case j == 0:           return sk.edges[sk.tri_edges[t][0] >> 1].tris[0]
+	case i + j == S:       return sk.edges[sk.tri_edges[t][1] >> 1].tris[0]
+	case i == 0:           return sk.edges[sk.tri_edges[t][2] >> 1].tris[0]
+	}
+	return t
+}
+
+// Gives the skin its vector page (Skin.side), all zero, the first time a sideways stroke
+// needs it.
+skin_side_fit :: proc(sk: ^Skin, allocator: runtime.Allocator) {
+	if len(sk.side) == len(sk.heights) do return
+	delete(sk.side, allocator)
+	sk.side = make([][2]f16, len(sk.heights), allocator)
 }
 
 // Recomputes every sample's normal, in parallel by triangle ranges: each sample is written
@@ -529,20 +598,23 @@ skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []
 	raised_any := false
 	for j in 0 ..= S do for i in 0 ..= S - j {
 		p, n: Vec3
-		h: f32
+		at: u32
 		if i == 0 || j == 0 || i + j == S {
 			p, n = skin_base(s, sk, t, u32(i), u32(j))
-			h = f32(sk.heights[skin_sample(sk, I, t, u32(i), u32(j))])
+			at = skin_sample(sk, I, t, u32(i), u32(j))
 		} else {
 			b1, b2 := f32(i) / f32(S), f32(j) / f32(S)
 			b0 := 1 - b1 - b2
 			p, n = pa * b0 + pb * b1 + pc * b2, na * b0 + nb * b1 + nc * b2
-			h = f32(sk.heights[x])
+			at = x
 			x += 1
 		}
+		h := f32(sk.heights[at])
 		k := place(S, i, j)
-		flat[k], raised[k], base[k] = p, p + linalg.normalize0(n) * h, n
-		raised_any ||= h != 0
+		lifted := sk.side != nil && sk.side[at] != {}
+		raise := skin_lift(s, sk, at, t, u32(i), u32(j), linalg.normalize0(n), h) if lifted else linalg.normalize0(n) * h
+		flat[k], raised[k], base[k] = p, p + raise, n
+		raised_any ||= h != 0 || lifted
 	}
 	// The small triangle "up" at (i, j) has corners (i, j), (i+1, j), (i, j+1) and "down"
 	// at (i, j) has (i+1, j), (i+1, j+1), (i, j+1), in the order skin_turn_at takes them.
@@ -705,4 +777,73 @@ skin_turn_at :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, turn, area: ^Vec3) {
 	if down(S, ii - 1, jj) do small(s, sk, t, {ii, jj}, {ii, jj + 1}, {ii - 1, jj + 1}, turn, area)
 	if down(S, ii - 1, jj - 1) do small(s, sk, t, {ii, jj - 1}, {ii, jj}, {ii - 1, jj}, turn, area)
 	if down(S, ii, jj - 1) do small(s, sk, t, {ii + 1, jj - 1}, {ii + 1, jj}, {ii, jj}, turn, area)
+}
+
+// The surface's point at barycentric (b1, b2) of triangle t (the weights of its corners 1
+// and 2): on the detail skin where the object has one, between the three samples of the
+// skin's cell around it as the skin shows them, else on the curved surface the mesh's smooth shading shows. That
+// is Phong tessellation (Boubekeur and Alexa): the flat point pulled toward each corner's
+// tangent plane by that corner's weight, three quarters of the way. A skin carried from
+// the mesh (skin_carry) or a stamp captured from it (vdm_capture) then holds the form the
+// mesh showed, not its facets, which its smooth shading never showed.
+skin_surface_at :: proc(s: ^Sculptor, t: u32, b1, b2: f32) -> Vec3 {
+	P := s.mesh.positions[:]
+	I := s.mesh.indices[:]
+	sk := s.skin
+	if sk == nil {
+		N := s.mesh.normals[:]
+		w := [3]f32{1 - b1 - b2, b1, b2}
+		flat, curved: Vec3
+		for k in 0 ..< 3 do flat += P[I[3 * t + u32(k)]] * w[k]
+		for k in 0 ..< 3 {
+			c := P[I[3 * t + u32(k)]]
+			n := linalg.normalize0(N[I[3 * t + u32(k)]])
+			curved += (flat - n * linalg.dot(flat - c, n)) * w[k]
+		}
+		return flat + (curved - flat) * 0.75
+	}
+	S := sk.segments
+	fi, fj := clamp(b1, 0, 1) * f32(S), clamp(b2, 0, 1) * f32(S)
+	i0 := min(u32(fi), S - 1)
+	j0 := min(u32(fj), S - 1 - i0)
+	u, v := fi - f32(i0), fj - f32(j0)
+	// The skin's points as it shows them: over its curved base (skin_curve).
+	shown :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
+		p, n := skin_base(s, sk, t, i, j)
+		nu := linalg.normalize0(n)
+		x := skin_sample(sk, s.mesh.indices[:], t, i, j)
+		return p + skin_lift(s, sk, x, t, i, j, nu, f32(sk.heights[x])) + skin_curve(s, sk, t, i, j, p, nu)
+	}
+	if u + v <= 1 || i0 + j0 == S - 1 {
+		// The cell's lower triangle, the only one on the triangle's far edge.
+		c := shown(s, sk, t, i0, j0)
+		return c + (shown(s, sk, t, i0 + 1, j0) - c) * u + (shown(s, sk, t, i0, j0 + 1) - c) * v
+	}
+	c := shown(s, sk, t, i0 + 1, j0 + 1)
+	return c + (shown(s, sk, t, i0, j0 + 1) - c) * (1 - u) + (shown(s, sk, t, i0 + 1, j0) - c) * (1 - v)
+}
+
+// How far the curved base lies from the flat point `b` of the sample at grid place (i, j)
+// of triangle t, along its unit interpolated normal `nu`. A skin's normals are its mesh's
+// interpolated normals turned by how each small triangle leans off its flat place
+// (skin_normal), so the skin shows its heights over a smooth surface whose normals are
+// the interpolated ones, not over the flat triangles. A skin carried from another surface
+// measures its heights from here (skin_carry): measured from the flat point, they put each
+// triangle's own bulge into the skin a second time, and every triangle showed as a scale. The curved base is Phong tessellation of the
+// new mesh (Boubekeur and Alexa), which depends only on an edge's two corners along it,
+// so every triangle a sample lies on works it out the same.
+@(private)
+skin_curve :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, b, nu: Vec3) -> Vec3 {
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	N := s.mesh.normals[:]
+	S := f32(sk.segments)
+	w := [3]f32{1 - f32(i) / S - f32(j) / S, f32(i) / S, f32(j) / S}
+	curved: Vec3
+	for k in 0 ..< 3 {
+		c := P[I[3 * t + u32(k)]]
+		n := linalg.normalize0(N[I[3 * t + u32(k)]])
+		curved += (b - n * linalg.dot(b - c, n)) * w[k]
+	}
+	return nu * linalg.dot(curved - b, nu)
 }

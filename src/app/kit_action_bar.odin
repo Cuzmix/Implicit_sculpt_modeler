@@ -34,48 +34,77 @@ Action_Group_Info :: struct {
 	actions: []Action,
 }
 
-@(rodata)
+// Each group's actions are a fixed array of their own that the table slices, as the web
+// build's compiler cannot make a global that holds slices of constants (which leaves the
+// table itself writable: @(rodata) takes only constants).
 ACTION_GROUPS := [Action_Group]Action_Group_Info {
-	// What the Move tool's handles do, and the Snap and Pivot latches.
-	.Gizmo = {"Gizmo", {
-		{.Gizmo, int(gizmo.Mode.Move), "Move"},
-		{.Gizmo, int(gizmo.Mode.Turn), "Turn"},
-		{.Gizmo, int(gizmo.Mode.Scale), "Scale"},
-		{.Gizmo, int(gizmo.Mode.All), "All"},
-		{.Gizmo_Snap, 0, "Snap"},
-		{.Gizmo_Pivot, 0, "Pivot"},
-	}},
-	.Hd = {"HD", {{.Hd_Leave, 0, "Leave HD"}}},
-	// Invert and Clear first, the commonest; the step operations use the Mask section's
-	// Steps (Select page).
-	.Mask = {"Mask", {
-		{.Mask, int(sculpt.Mask_Command.Invert), "Invert"},
-		{.Mask, int(sculpt.Mask_Command.Clear), "Clear"},
-		{.Mask, int(sculpt.Mask_Command.Blur), "Blur"},
-		{.Mask, int(sculpt.Mask_Command.Sharpen), "Sharpen"},
-		{.Mask, int(sculpt.Mask_Command.Grow), "Grow"},
-		{.Mask, int(sculpt.Mask_Command.Shrink), "Shrink"},
-		{.Group_Shortcut, 0, "Make group"},
-	}},
-	// Mask hidden turns what is hidden into a mask that outlasts Show all.
-	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}, {.Grow_Visible, 0, "Grow"}, {.Shrink_Visible, 0, "Shrink##hidden"}, {.Mask, int(sculpt.Mask_Command.Hidden), "Mask it"}}},
+	.Gizmo       = {"Gizmo", GIZMO_ACTIONS[:]},
+	.Hd          = {"HD", HD_ACTIONS[:]},
+	.Mask        = {"Mask", MASK_ACTIONS[:]},
+	.Hidden      = {"Hidden", HIDDEN_ACTIONS[:]},
 	// Captioned by the operation (action_caption).
-	.Adjust = {"Adjust", {{.Adjust_Last, 0, "Adjust..."}}},
-	// A stroke held to edit (stroke_edit.odin): keep it, put it back, and whether its points
-	// each have their own radius and intensity.
-	.Stroke_Edit = {"Stroke", {
-		{.Stroke_Validate, 0, "Validate"},
-		{.Stroke_Cancel, 0, "Cancel"},
-		{.Stroke_Radius_Each, 0, "Radius each"},
-		{.Stroke_Intensity_Each, 0, "Intensity each"},
-	}},
-	// A selected curve in the Curve tool (curve_edit.odin): its picked point and its ends.
-	.Curve = {"Curve", {
-		{.Curve_Delete_Point, 0, "Delete point"},
-		{.Curve_Corner, 0, "Corner"},
-		{.Curve_Close, 0, "Close"},
-		{.Curve_Bake, 0, "Bake"},
-	}},
+	.Adjust      = {"Adjust", ADJUST_ACTIONS[:]},
+	.Stroke_Edit = {"Stroke", STROKE_EDIT_ACTIONS[:]},
+	.Curve       = {"Curve", CURVE_ACTIONS[:]},
+}
+
+// What the Move tool's handles do, and the Snap and Pivot latches.
+@(rodata)
+GIZMO_ACTIONS := [?]Action {
+	{.Gizmo, int(gizmo.Mode.Move), "Move"},
+	{.Gizmo, int(gizmo.Mode.Turn), "Turn"},
+	{.Gizmo, int(gizmo.Mode.Scale), "Scale"},
+	{.Gizmo, int(gizmo.Mode.All), "All"},
+	{.Gizmo_Snap, 0, "Snap"},
+	{.Gizmo_Pivot, 0, "Pivot"},
+}
+
+@(rodata)
+HD_ACTIONS := [?]Action{{.Hd_Leave, 0, "Leave HD"}}
+
+// Invert and Clear first, the commonest; the step operations use the Mask section's Steps
+// (Select page).
+@(rodata)
+MASK_ACTIONS := [?]Action {
+	{.Mask, int(sculpt.Mask_Command.Invert), "Invert"},
+	{.Mask, int(sculpt.Mask_Command.Clear), "Clear"},
+	{.Mask, int(sculpt.Mask_Command.Blur), "Blur"},
+	{.Mask, int(sculpt.Mask_Command.Sharpen), "Sharpen"},
+	{.Mask, int(sculpt.Mask_Command.Grow), "Grow"},
+	{.Mask, int(sculpt.Mask_Command.Shrink), "Shrink"},
+	{.Group_Shortcut, 0, "Make group"},
+}
+
+// Mask hidden turns what is hidden into a mask that outlasts Show all.
+@(rodata)
+HIDDEN_ACTIONS := [?]Action {
+	{.Show_All, 0, "Show all"},
+	{.Invert_Hidden, 0, "Invert##hidden"},
+	{.Grow_Visible, 0, "Grow"},
+	{.Shrink_Visible, 0, "Shrink##hidden"},
+	{.Mask, int(sculpt.Mask_Command.Hidden), "Mask it"},
+}
+
+@(rodata)
+ADJUST_ACTIONS := [?]Action{{.Adjust_Last, 0, "Adjust..."}}
+
+// A stroke held to edit (stroke_edit.odin): keep it, put it back, and whether its points
+// each have their own radius and intensity.
+@(rodata)
+STROKE_EDIT_ACTIONS := [?]Action {
+	{.Stroke_Validate, 0, "Validate"},
+	{.Stroke_Cancel, 0, "Cancel"},
+	{.Stroke_Radius_Each, 0, "Radius each"},
+	{.Stroke_Intensity_Each, 0, "Intensity each"},
+}
+
+// A selected curve in the Curve tool (curve_edit.odin): its picked point and its ends.
+@(rodata)
+CURVE_ACTIONS := [?]Action {
+	{.Curve_Delete_Point, 0, "Delete point"},
+	{.Curve_Corner, 0, "Corner"},
+	{.Curve_Close, 0, "Close"},
+	{.Curve_Bake, 0, "Bake"},
 }
 
 // Lens's context bar (round 2's tools2 screen) keeps the mask's commonest steps and the

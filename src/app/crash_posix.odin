@@ -1,4 +1,5 @@
 #+build !windows
+#+build !js
 package main
 
 import "core:c"

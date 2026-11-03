@@ -26,6 +26,7 @@ Curve_Use :: enum u8 {
 	Lathe,
 	Along,
 	Brush_Path,
+	Guide, // a line on the surface that Quad Remesh's loops follow (quad_guides), making nothing
 }
 
 @(rodata)
@@ -35,10 +36,11 @@ CURVE_USE_NAMES := [Curve_Use]string {
 	.Lathe      = "Lathe",
 	.Along      = "Along",
 	.Brush_Path = "Brush path",
+	.Guide      = "Guide",
 }
 
 // The uses the settings offer, in their order.
-CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe, .Along, .Brush_Path}
+CURVE_USES_BUILT :: [?]Curve_Use{.None, .Tube, .Lathe, .Along, .Brush_Path, .Guide}
 
 // What Along sets along a curve: a stitch, a zipper's tooth or a ball. Copies of another
 // object wait for a way to keep a curve in step with the object it copies (rebuilt when

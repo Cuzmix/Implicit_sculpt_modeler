@@ -22,7 +22,7 @@ import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
-	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene palette choices, the Settings panel); runs with --frames or a benchmark never do."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene card choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
@@ -30,7 +30,7 @@ Options :: struct {
 	no_pre_rotate: bool `usage:"Leave turning the picture to the system on a turned Android tablet instead of drawing it turned (for comparing frame and GPU times)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
-	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene palette's Add object does."`,
+	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene card's Add object does."`,
 	voxels:    int `usage:"Start with a voxel sphere this many voxels across (32 to 1024) instead of a mesh sphere, as Add object with As voxels does; 256 meshes to about 350k vertices, 512 to 1.4M."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
@@ -81,7 +81,9 @@ Options :: struct {
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
-	cpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
+	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
+	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered: a kernel recomputes each stroke's vertex normals on the GPU and reads them back, and the CPU uploads only positions (README \"Sculpt on the GPU\")."`,
+	gpu_sculpt_sync: bool `usage:"With --gpu-sculpt, wait for each frame's readback of normals before the next frame's dabs, so the CPU reads the normals the CPU path would have (for comparing the two paths' arithmetic alone)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -111,6 +113,12 @@ Options :: struct {
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 	input_diagnostics: bool `usage:"Open the Input diagnostics screen at the start, in any build (debug builds and the developer iPad build also reach it from Search and Settings > Statistics)."`,
 	diag_test: string `usage:"Open Input diagnostics at the start and run this test (finger_tap, roll_right, ...: README \"Input diagnostics\")."`,
+	receive: bool `usage:"Receive scenes other devices send on the local network (a desktop): listen on --send-port, open what arrives when the scene holds nothing unsaved (README \"Send\")."`,
+	send_to: string `usage:"Once the run is set up, send the scene to the copy of Sculpt receiving at this address (a name or address, with :PORT when not the default), as Send does."`,
+	send_allow: bool `usage:"Pair with any device that asks, without asking anyone (for scripted tests of Send)."`,
+	send_folder: string `usage:"Keep this device's id, its paired devices and the received scenes in this folder instead of the one beside the settings."`,
+	send_port: int `usage:"The port --receive listens on and --send-to sends to when the address names none (default 47820)."`,
+	exit_after_receive: bool `usage:"With --receive, open the first scene that arrives and end the run (for scripted tests of Send)."`,
 	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
 }
 
@@ -132,6 +140,9 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
+	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their normals to a
+	// kernel where render.caps offers it; off until the kernels cover a stroke's whole work.
+	gpu_sculpt: bool,
 	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
 	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
@@ -145,9 +156,10 @@ App :: struct {
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	plugins:  Plugins, // the script plugins and their commands' slots (plugins.odin)
-	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
+	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush card offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	link:     Link, // the live link with Blender (link.odin)
+	send:     Send, // Send to computer and Send to tablet (send.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	built_in:     [len(BUILT_IN_PRESETS)]Brush_Preset, // the built-in presets (builtin_presets.odin), each made on first use
@@ -195,6 +207,9 @@ App :: struct {
 	// The pen's roll that a Pen roll alpha turns by, from the frame's Viewport_Input, so a
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
+	// The way a Pen lean alpha faces, radians counter-clockwise from the screen's up, from
+	// the frame's lean (alpha_lean_take).
+	alpha_lean: f32,
 	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
 	diag:     Diag, // the Input diagnostics screen and its log (diagnostics.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
@@ -273,6 +288,7 @@ App :: struct {
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
+	send_receive: bool, // Receive scenes (Settings > Files > Send scenes): a desktop listens for sends
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// Scene > Render at Fast quality (render_mode.odin; Shift+R): ambient occlusion and
@@ -388,6 +404,15 @@ App :: struct {
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
+	// How an OpenEXR alpha's channels are read: the app the vector map came from.
+	vdm_axes:                 sculpt.Vdm_Axes,
+	skin_map_kind:            sculpt.Skin_Map_Kind, // what Load map into skin reads an image as
+	skin_map_range:           f32, // the distance a grey map's black and white stand for
+	skin_maps_loaded:         int,
+	skin_bary_exports:        int,
+	// What the last rebuild's skin carry reported, for the exit stats.
+	skin_carry:               sculpt.Skin_Carry_Report,
+	skin_squeezes:            int, // Squeezes run this session, for the exit stats
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -446,6 +471,9 @@ main :: proc() {
 	// starts here.
 	when ODIN_PLATFORM_SUBTARGET_IOS {
 		ios_start()
+	} else when ODIN_OS == .JS {
+		// A browser runs the app a frame at a time (web.odin).
+		web_main()
 	} else {
 		app_main()
 	}
@@ -461,7 +489,10 @@ app_main :: proc() {
 	}
 
 	opts := Options{subdiv = 6, width = 1600, height = 900, spheres = 1}
-	flags.parse_or_exit(&opts, os.args, .Unix)
+	// A browser has no command line: the page's address gives the flags (web.odin).
+	args := os.args
+	when ODIN_OS == .JS do args = web_args()
+	flags.parse_or_exit(&opts, args, .Unix)
 	// An interactive run keeps its log in the app's folder, and a crash's with it; a scripted
 	// one only where --log-file asks, so tests never touch the person's log.
 	log_path := opts.log_file if opts.log_file != "" else (platform_log_path() if run_interactive(opts) else "")
@@ -721,6 +752,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.cull = !opts.no_cull
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
+	app.gpu_sculpt = opts.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt
+	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
+	sculpt_gpu_install(&app)
 	app.renderer.partial = !opts.no_partial
 	app.renderer.tile_msaa = opts.tile_msaa
 	app.renderer.trace = !opts.no_trace
@@ -748,6 +782,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.skin_auto = true
+	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -788,6 +823,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// comes and goes with the test machine's windows, which no check may depend on.
 	link_init(&app, link_folder(settings), opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == "" && opts.run == "" && opts.script == "")
 	defer link_destroy(&app)
+	send_init(&app, opts.send_folder if opts.send_folder != "" else send_folder(settings), opts.receive, opts.send_allow, opts.exit_after_receive, opts.send_port)
+	defer send_destroy(&app, false)
+	if opts.send_to != "" {
+		target := opts.send_to
+		if opts.send_port > 0 && !strings.has_prefix(target, "@") && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
+		app.send.pending = strings.clone(target)
+	}
+	defer delete(app.send.pending)
+	defer delete(app.send.last)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
@@ -859,6 +903,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// are set up, and it must be gone before anything the frame loop used is.
 	lifecycle_watch_add(&app)
 	defer lifecycle_watch_remove()
+	// A browser calls each frame itself, so the web version leaves here (web.odin).
+	when ODIN_OS == .JS do web_hold(&app, &loop)
 	for app.running {
 		if !frame_step(&app, &loop) do return false
 	}
@@ -905,6 +951,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
+	// A send the run started finishes before the stats say what it did.
+	send_destroy(&app, true)
 	return exit_stats_print(&app, opts, &loop, exit_code)
 }
 

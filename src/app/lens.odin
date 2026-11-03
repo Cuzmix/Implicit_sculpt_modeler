@@ -85,7 +85,7 @@ draw_focus_marker :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	overlay_disc(o, s, 2 * px, white)
 }
 
-// The Scene palette's Lens section.
+// The Lens card.
 kit_lens :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	_ = ui.switch_row(ctx, "Depth of field", &app.render_dof)

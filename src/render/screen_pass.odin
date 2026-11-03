@@ -179,7 +179,7 @@ create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 // A full-screen triangle (clear.vert.slang) through `frag_code`, which reads `samplers` samplers
 // and one uniform buffer, into one colour target; `additive` blends by adding.
 @(private)
-create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: []u8, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
+create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: string, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
 		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .VERTEX,

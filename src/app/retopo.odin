@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
+import "../hdri"
 import "../render"
 import "../png_write"
 import "../sculpt"
@@ -33,18 +34,41 @@ Bake_Settings :: struct {
 	id:              bool,
 	occlusion_rays:  i32, // per texel, 0 for none
 	occlusion_reach: f32, // as a share of the source's size (its bounds' diagonal)
+	vector:          bool, // a vector displacement map, NAME_vdm.exr
+	object_space:    bool, // normal and vector maps in the object's axes, not the tangent frame
+	target:          Bake_Target, // the program the maps are for
+}
+
+// The programs the maps are laid out for: Unreal reads a normal map with DirectX's green
+// (down), the rest with OpenGL's (up); all four read MikkTSpace tangents, and Blender's
+// layout (x, y and z in red, green and blue) for a vector map.
+Bake_Target :: enum u8 {
+	Blender,
+	Unity,
+	Unreal,
+	Godot,
+}
+
+BAKE_TARGET_NAMES := [Bake_Target]string {
+	.Blender = "Blender",
+	.Unity   = "Unity",
+	.Unreal  = "Unreal",
+	.Godot   = "Godot",
 }
 
 BAKE_OCCLUSION_RAYS_MAX :: 64
 
 // The mesh to read the object's shape from: its top level (with the edits on any level
 // carried up), or a packed copy when dynamic. Normals are computed fresh into `normals`
-// (its own allocation, which the caller frees, along with `packed`).
-object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.Mesh) {
+// (its own allocation, which the caller frees, along with `packed`). With `mask`, a
+// dynamic object's mask in the packed copy's order goes there for the caller to free
+// (nil when it has none; a level's own mask is the sculptor's, in the level's order).
+object_shape :: proc(obj: ^Object, top: bool, mask: ^[]u8 = nil) -> (view: geom.Mesh, packed: geom.Mesh) {
 	if object_dynamic(obj) {
-		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
+		packed_mask: []u8
+		packed, packed_mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		if mask != nil && sculpt.sculptor_has_mask(object_sculptor(obj)) do mask^ = packed_mask
+		else do delete(packed_mask)
 		view = packed
 	} else {
 		sculpt.levels_sync(&obj.levels)
@@ -60,13 +84,87 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength}
+}
+
+// The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
+RETOPO_EDGE_DEGREES_MIN :: f32(15)
+
+// What the selected object carries for the options that ask for it: its polygroups per
+// triangle of the shown level, the base level's creases when the base level is the one
+// shown (the creases are the base level's, and a level above has other vertices), and
+// the shown level's paint and mask per vertex for Use paint and Use mask. All are copies
+// the caller frees (quad_source_destroy): the job's thread reads them while the object
+// goes on being edited. A dynamic object's packing renumbers its vertices and keeps no
+// paint, so its mask comes from the packing (object_shape, long_job_copy) and its paint
+// is not used. The Guide curves come too, when Guide strength asks for them (quad_guides).
+quad_source :: proc(app: ^App, obj: ^Object, options: retopo.Options) -> (src: retopo.Source) {
+	if obj == nil || obj.voxel != nil do return
+	if options.guide_strength > 0 do src.guides = quad_guides(app, obj)
+	s := object_sculptor(obj)
+	if sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
+	if !object_dynamic(obj) {
+		if obj.levels.current == 0 {
+			sharp := obj.levels.levels[0].sharp
+			if len(sharp.edges) > 0 do src.creases = slice.clone(sharp.edges)
+		}
+		if options.use_paint && sculpt.sculptor_has_color(s) do src.paint = slice.clone(s.color)
+		if options.use_mask && sculpt.sculptor_has_mask(s) do src.mask = slice.clone(s.mask)
+	}
+	return
+}
+
+quad_source_destroy :: proc(src: ^retopo.Source) {
+	for line in src.guides do delete(line)
+	delete(src.guides)
+	delete(src.groups)
+	delete(src.creases)
+	delete(src.paint)
+	delete(src.mask)
+	src^ = {}
+}
+
+// Points a Guide curve is sampled at for Quad Remesh, along its whole length: finer than
+// any quad count the Quads slider reaches spreads along one curve.
+GUIDE_SAMPLES :: 512
+
+// The scene's shown Guide curves as polylines in `obj`'s own space, a closed one ending
+// where it starts, for Quad Remesh (retopo.Source.guides; retopo keeps the ones that lie
+// on the object); nil with none. Each polyline is its own allocation, as is the list.
+quad_guides :: proc(app: ^App, obj: ^Object) -> [][]geom.Vec3 {
+	lines := make([dynamic][]geom.Vec3)
+	for o in app.scene.objects {
+		cp := o.curve
+		if cp == nil || cp.use != .Guide || !object_shown(app, o) do continue
+		length := geom.bezier_length(cp.points[:], cp.closed)
+		samples := geom.bezier_sample(cp.points[:], cp.closed, length / GUIDE_SAMPLES, context.temp_allocator)
+		if len(samples) < 2 do continue
+		line := make([]geom.Vec3, len(samples) + (1 if cp.closed else 0))
+		for sample, i in samples do line[i] = to_local(obj.transform, to_world(o.transform, sample.p))
+		if cp.closed do line[len(samples)] = line[0]
+		append(&lines, line)
+	}
+	if len(lines) == 0 {
+		delete(lines)
+		return nil
+	}
+	return lines[:]
+}
+
+// How many shown Guide curves the scene has, for the Guide strength row.
+quad_guide_count :: proc(app: ^App) -> (n: int) {
+	for o in app.scene.objects do if o.curve != nil && o.curve.use == .Guide && object_shown(app, o) do n += 1
+	return
 }
 
 // The panel set to a command's options (Adjust last); Keep symmetry turns on when the
 // command kept some, and is left as it is when there was none to keep.
 quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_close_first = o.engine, o.adaptivity, o.close_first
+	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases = o.keep_groups, o.keep_creases
+	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
+	app.ui.retopo_use_paint, app.ui.retopo_use_mask = o.use_paint, o.use_mask
+	app.ui.retopo_guide_strength = o.guide_strength
 	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
@@ -77,8 +175,10 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int, options: retopo.Optio
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	view, packed := object_shape(obj, top = false)
-	r := retopo.compute(view, quads, options, &app.pool)
+	source := quad_source(app, obj, options)
+	defer quad_source_destroy(&source)
+	view, packed := object_shape(obj, top = false, mask = &source.mask if options.use_mask && object_dynamic(obj) else nil)
+	r := retopo.compute(view, quads, options, &app.pool, source = source)
 	delete(view.normals)
 	geom.mesh_destroy(&packed)
 	if !r.built {
@@ -134,6 +234,9 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
+	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
+	if res.guides > 0 do engine = fmt.tprintf("%s, guided by %d curve%s", engine, res.guides, "" if res.guides == 1 else "s")
+	if res.unkept != "" do engine = fmt.tprintf("%s, %s", engine, res.unkept)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
 	faces := fmt.tprintf("%s quads", thousands(res.quads))
@@ -151,7 +254,9 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 // quads came from, else none.
 bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
 	src := object_by_id(app, app.ui.bake.source)
-	return src if src != low else nil
+	// An object bakes from itself only from its own detail skin.
+	if src == low && object_top_skin(low) == nil do return nil
+	return src
 }
 
 // Bakes the bake source's detail onto the selected quad object and writes, into
@@ -173,13 +278,28 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	object_hd_leave(app, low)
 	object_hd_leave(app, src)
 	start := time.tick_now()
-	view, packed := object_shape(src, top = true)
+	// A source with a detail skin bakes the surface the skin shows; from the low object's
+	// own skin, each texel takes its own point's offset (geom.Bake_Source.rest).
+	view, packed, rest: geom.Mesh
+	skinned := object_top_skin(src) != nil
+	if skinned {
+		top := &src.levels.levels[len(src.levels.levels) - 1].sculptor
+		packed, rest, _ = sculpt.sculptor_skin_mesh(top)
+		view = packed
+		view.normals = make([dynamic]geom.Vec3, len(view.positions))
+		geom.mesh_recompute_normals(&view)
+	} else {
+		view, packed = object_shape(src, top = true)
+	}
 	defer {
 		delete(view.normals)
 		geom.mesh_destroy(&packed)
+		delete(rest.positions)
 	}
 	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, &app.pool)
 	defer geom.bvh_destroy(&bvh)
+	rest_bvh: geom.Bvh
+	defer if src == low do geom.bvh_destroy(&rest_bvh)
 	sculpt.levels_sync(&low.levels)
 	quads := sculpt.levels_quad_mesh(&low.levels)
 	edge: f32
@@ -191,8 +311,14 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	if set.base_color do kinds += {.Base_Color}
 	if set.orm do kinds += {.Orm}
 	if set.id do kinds += {.Id}
+	if set.vector do kinds += {.Vector}
 	source := bake_source_of(app, src, view, &bvh)
-	maps := geom.bake_maps(quads, low.levels.faces.uv, source, size, set.reach_edges * edge, kinds, &app.pool)
+	if src == low {
+		rest_bvh = geom.bvh_build_morton(rest, geom.BVH_LEAF_SIZE, &app.pool)
+		source.rest, source.rest_bvh = rest, &rest_bvh
+	}
+	options := geom.Bake_Options{object_space = set.object_space, directx = set.target == .Unreal}
+	maps := geom.bake_maps(quads, low.levels.faces.uv, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
 	defer geom.bake_maps_destroy(&maps)
 	baked_ms := time.duration_milliseconds(time.tick_since(start))
 
@@ -231,16 +357,29 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		if !write_file_safely(app, path(folder, base, e.suffix), pngs[k], "bake") do return
 		append(&written, e.suffix)
 	}
+	if maps.vector != nil {
+		// In the OBJ's units, as the displacement's note gives them.
+		for &v in maps.vector do v *= low.file.scale
+		exr := hdri.exr_encode(maps.vector, size, size)
+		defer delete(exr)
+		if !write_file_safely(app, path(folder, base, "_vdm.exr"), exr, "bake") do return
+		append(&written, "_vdm.exr")
+	}
 	glb := make([dynamic]u8)
 	defer delete(glb)
-	bake_glb(&glb, low, quads, source, object_label(low), normal_png, pngs[0], pngs[1], set.occlusion_rays > 0)
+	// glTF reads a tangent-space normal map with green up only.
+	glb_normal := normal_png if !set.object_space && set.target != .Unreal else nil
+	bake_glb(&glb, low, quads, source, object_label(low), glb_normal, pngs[0], pngs[1], set.occlusion_rays > 0)
 	if !write_file_safely(app, path(folder, base, ".glb"), glb[:], "bake") do return
 	append(&written, ".glb")
 	// The maps stay on the object, shown through its UVs (textures.odin): the first bake of
 	// a run turns the view on so the result shows at once. The ID map is a mask source, not
 	// a look, so it stays a file.
+	// The viewport reads a normal map in the tangent frame with green up, and an object's
+	// own skin already shows its detail, so only such a map from another object is shown.
+	shown_normal := normal_png if !set.object_space && set.target != .Unreal && src != low else nil
 	kept: Object_Textures
-	for img, m in ([render.Texture_Map][]u8{.Base_Color = pngs[0], .Orm = pngs[1], .Normal = normal_png}) {
+	for img, m in ([render.Texture_Map][]u8{.Base_Color = pngs[0], .Orm = pngs[1], .Normal = shown_normal}) {
 		if img == nil do continue
 		kept.image[m] = make([]u8, len(img))
 		copy(kept.image[m], img)
@@ -388,9 +527,9 @@ kit_retopo_section :: proc(app: ^App) {
 	append(&ids, 0)
 	chosen := 0
 	for other in app.scene.objects {
-		if other == obj do continue
+		if other == obj && object_top_skin(obj) == nil do continue
 		if other == src do chosen = len(names)
-		append(&names, fmt.tprintf("Bake from %s##%d", object_label(other), other.id))
+		append(&names, fmt.tprintf("Bake from its own skin##%d", other.id) if other == obj else fmt.tprintf("Bake from %s##%d", object_label(other), other.id))
 		append(&ids, other.id)
 	}
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
@@ -411,12 +550,18 @@ kit_retopo_section :: proc(app: ^App) {
 		_ = ui.switch_row(ctx, "Base colour", &set.base_color)
 		_ = ui.switch_row(ctx, "Occlusion, roughness, metal", &set.orm)
 		_ = ui.switch_row(ctx, "Polygroup colours", &set.id)
+		_ = ui.switch_row(ctx, "Vector displacement (VDM)", &set.vector)
+		_ = ui.switch_row(ctx, "Object space", &set.object_space)
+		ui.label(ctx, "MAPS FOR")
+		targets: [len(Bake_Target)]string
+		for name, k in BAKE_TARGET_NAMES do targets[int(k)] = name
+		if picked := ui.tabs(ctx, "bake target", targets[:], int(set.target)); picked >= 0 do set.target = Bake_Target(picked)
 		if set.orm {
 			rays := f32(set.occlusion_rays)
 			if ui.slider(ctx, "Occlusion rays", &rays, 0, BAKE_OCCLUSION_RAYS_MAX, .Linear, fmt.tprintf("%d", set.occlusion_rays) if set.occlusion_rays > 0 else "Off") do set.occlusion_rays = i32(rays + 0.5)
 			if set.occlusion_rays > 0 do _ = ui.slider(ctx, "Occlusion reach", &set.occlusion_reach, 0.01, 1, .Logarithmic, fmt.tprintf("%.0f%% of its size", 100 * set.occlusion_reach))
 		}
-		ui.paragraph(ctx, "The maps' size in texels, and Reach: how far each texel looks either way. Base colour is the polypaint over the materials; occlusion, roughness and metal go in one map's red, green and blue, as glTF reads them; polygroup colours make an ID map. More occlusion rays are smoother and slower.")
+		ui.paragraph(ctx, "The maps' size in texels, and Reach: how far each texel looks either way. Base colour is the polypaint over the materials; occlusion, roughness and metal go in one map's red, green and blue, as glTF reads them; polygroup colours make an ID map. More occlusion rays are smoother and slower. Vector displacement writes the whole offset to the sculpt as a 32-bit OpenEXR map (x, y and z in red, green and blue, as Blender reads it). Object space gives the normal and vector maps in the object's own axes instead of the surface's tangent frame. Maps for Unreal turn the normal map's green over, as DirectX reads it.")
 		kit_more_end(app)
 	}
 }

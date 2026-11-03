@@ -65,6 +65,7 @@ Long_Job :: struct {
 	prepared:   bool,
 	error:      f32,
 	unmirrored: string, // Decimate: why the symmetry asked was not kept (a literal)
+	retopo_source: retopo.Source, // Retopo: the polygroups and creases copied with the input (quad_source)
 	retopo:     retopo.Result,
 	// Remesh and Decimate: the old polypaint and polygroups copied with the input when
 	// their options carry them (Decimate: and the mask that steers it), what the remesh
@@ -113,7 +114,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Transparency,
 	.Stats, .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
-	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Reduce_Motion, .Left_Handed,
+	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,
 	.Input_Diagnostics, .History_Panel, .Pencil_Preferred, .Pen_As_Empty,
 }
@@ -231,6 +232,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
+		j.retopo_source = quad_source(app, obj, cmd.quad)
 	case .Subdivide:
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels
@@ -242,7 +244,8 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		if f := voxel.clay_flush(clay); len(f.ranges) > 0 || len(f.indices) > 0 || f.regrow do clay.surface.regrow = true
 		j.masked = voxel.clay_has_mask(clay)
 	}
-	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj)
+	// A dynamic object's mask for Use mask comes from the same packing as the copy.
+	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, &j.retopo_source.mask if cmd.kind == .Retopo && cmd.quad.use_mask && object_dynamic(obj) else nil)
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -281,12 +284,14 @@ import_job_start :: proc(app: ^App, path: string) {
 }
 
 // A copy of the triangles of the level `obj` is on, its own: compacted from a dynamic
-// layout (as the commands read it), else the level's positions and indices.
+// layout (as the commands read it), else the level's positions and indices. With `mask`,
+// a dynamic layout's mask in the copy's order goes there (left as it is without one).
 @(private = "file")
-long_job_copy :: proc(obj: ^Object) -> geom.Mesh {
+long_job_copy :: proc(obj: ^Object, mask: ^[]u8 = nil) -> geom.Mesh {
 	if object_dynamic(obj) {
-		packed, mask := sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
+		packed, packed_mask := sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		if mask != nil && sculpt.sculptor_has_mask(object_sculptor(obj)) do mask^ = packed_mask
+		else do delete(packed_mask)
 		return packed
 	}
 	m := object_mesh(obj)
@@ -326,7 +331,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
-		j.retopo = retopo.compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress)
+		j.retopo = retopo.compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress, j.retopo_source)
 		j.built = j.retopo.built
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
@@ -391,6 +396,7 @@ long_job_drop :: proc(j: ^Long_Job) {
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
 	retopo.result_destroy(&j.retopo)
+	quad_source_destroy(&j.retopo_source)
 	delete(j.color)
 	delete(j.groups)
 	delete(j.mask)

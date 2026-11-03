@@ -36,6 +36,138 @@ Mesh_Vertex_Out main(uint corner : SV_VulkanVertexID) {
 	uint packed = normals[vertex];
 	// The two signed 16-bit halves as SHORT2_NORM reads them.
 	float2 in_normal_oct = max(float2(int2(int(packed << 16) >> 16, int(packed) >> 16)) / 32767.0, float2(-1.0));
+#elif defined(SKIN_TESS)
+// The mesh's index, position and packed normal buffers as SKINNED reads them, and the
+// detail skin's samples: their normals (octahedral, two signed 16-bit halves), each
+// triangle's record (sculpt.sculptor_skin_tris) and their heights, two halves a word
+// (sample 2k in the low half).
+[[vk::binding(1, 0)]] StructuredBuffer<uint> indices;
+[[vk::binding(2, 0)]] StructuredBuffer<float> positions;
+[[vk::binding(3, 0)]] StructuredBuffer<uint> normals;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> skin_normals;
+[[vk::binding(5, 0)]] StructuredBuffer<uint4> skin_tris;
+[[vk::binding(6, 0)]] StructuredBuffer<uint> skin_heights;
+
+float3 mesh_point(uint v) {
+	return float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
+}
+
+void mesh_normal_mask(uint v, out float3 n, out float mask) {
+	uint packed = normals[v];
+	decode_normal_mask(max(float2(int2(int(packed << 16) >> 16, int(packed) >> 16)) / 32767.0, float2(-1.0)), n, mask);
+}
+
+// A half-precision float from its 16 bits, worked out by hand: the half type needs a
+// capability not every device has.
+float half_bits(uint h) {
+	uint e = (h >> 10u) & 31u;
+	float m = float(h & 1023u);
+	float v = e == 0u ? m * exp2(-24.0) : (1.0 + m / 1024.0) * exp2(float(e) - 15.0);
+	return (h & 0x8000u) != 0u ? -v : v;
+}
+
+float3 octahedral(uint p) {
+	return oct_decode(max(float2(int2(int(p << 16) >> 16, int(p) >> 16)) / 32767.0, float2(-1.0)));
+}
+
+// A triangle drawn as the skin's grid of small ones (skin_tess.vert.slang), each vertex at
+// the point the skin shows (sculpt.sculptor_skin_mesh): its flat point, worked out along an
+// edge from the edge's owner as sculpt.skin_base does so neighbours meet exactly, plus the
+// curved base (sculpt.skin_curve), plus its height along the interpolated normal. The draw
+// is not indexed: 3 S^2 vertices a triangle, the small triangles row by row from the first
+// edge, each row's upward one after each downward one but the last.
+Mesh_Vertex_Out main(uint id : SV_VulkanVertexID) {
+	uint S = skin.x, V = skin.y, E = skin.z;
+	uint per = 3u * S * S;
+	uint tri = id / per;
+	uint small = (id - tri * per) / 3u;
+	uint c = id - tri * per - 3u * small;
+	uint j = 0u, first = 0u;
+	while (first + 2u * (S - j) - 1u <= small) {
+		first += 2u * (S - j) - 1u;
+		j++;
+	}
+	uint q = small - first;
+	uint i = q >> 1u;
+	uint gi, gj;
+	if ((q & 1u) == 0u) {
+		gi = i + (c == 1u ? 1u : 0u);
+		gj = j + (c == 2u ? 1u : 0u);
+	} else {
+		gi = c == 2u ? i : i + 1u;
+		gj = c == 0u ? j : j + 1u;
+	}
+	uint3 v = uint3(indices[3u * tri], indices[3u * tri + 1u], indices[3u * tri + 2u]);
+	uint4 rec = skin_tris[tri];
+	float3 P[3] = { mesh_point(v.x), mesh_point(v.y), mesh_point(v.z) };
+	float3 N[3];
+	float M[3];
+	mesh_normal_mask(v.x, N[0], M[0]);
+	mesh_normal_mask(v.y, N[1], M[1]);
+	mesh_normal_mask(v.z, N[2], M[2]);
+	float fS = float(S);
+	float3 w = float3(1.0 - float(gi) / fS - float(gj) / fS, float(gi) / fS, float(gj) / fS);
+	float3 b = float3(0.0), nb = float3(0.0);
+	uint a = 3u, e = 0u, k = 0u;
+	if (gi == 0u && gj == 0u) { b = P[0]; nb = N[0]; }
+	else if (gi == S) { b = P[1]; nb = N[1]; }
+	else if (gj == S) { b = P[2]; nb = N[2]; }
+	else if (gj == 0u) { a = 0u; e = rec.x; k = gi; }
+	else if (gi + gj == S) { a = 1u; e = rec.y; k = gj; }
+	else if (gi == 0u) { a = 2u; e = rec.z; k = S - gj; }
+	else {
+		b = P[0] * w.x + P[1] * w.y + P[2] * w.z;
+		nb = N[0] * w.x + N[1] * w.y + N[2] * w.z;
+	}
+	if (a < 3u) {
+		// The edge runs from corner a to the next; its owner may run it the other way.
+		uint from = a, to = (a + 1u) % 3u, along = k;
+		if ((e & 1u) == 1u) {
+			from = to;
+			to = a;
+			along = S - k;
+		}
+		float f = float(along) / fS;
+		b = P[from] + (P[to] - P[from]) * f;
+		nb = N[from] + (N[to] - N[from]) * f;
+	}
+	float3 nu = normalize(nb);
+	float3 curved = float3(0.0);
+	for (uint m = 0u; m < 3u; m++) curved += (b - N[m] * dot(b - P[m], N[m])) * w[m];
+	uint x = skin_index(gi, gj, S, V, E, tri, v, rec.xyz);
+	float h = half_bits((skin_heights[x >> 1u] >> (16u * (x & 1u))) & 0xffffu);
+	float3 in_position = b + nu * (dot(curved - b, nu) + h);
+	Mesh_Vertex_Out o;
+	float3 in_normal = octahedral(skin_normals[x]);
+	o.v.mask = M[0] * w.x + M[1] * w.y + M[2] * w.z;
+	// Paint mixes between the corners; the group and its slot are the lead corner's, as
+	// the triangle drawn whole takes them.
+	uint lead = v[rec.w & 3u];
+	o.v.paint = float4(0.0);
+	o.v.group = float3(-1.0);
+	o.v.slot = 0u;
+	if (options.x > 0.5) {
+		for (uint m = 0u; m < 3u; m++) {
+			float4 p = unpackUnorm4x8ToFloat(paint[v[m]].x);
+			o.v.paint += float4(srgb_decode(p.rgb), p.a) * w[m];
+		}
+	}
+	if (options.y > 0.5 || options.z > 0.5) {
+		uint group = paint[lead].y & 0xffffu;
+		if (options.y > 0.5) o.v.group = group_color(group);
+		if (options.z > 0.5) {
+			for (uint k = 1u; k < 16u; k++) {
+				if (slot_group[k >> 2][k & 3u] == group) o.v.slot = k;
+			}
+		}
+	}
+	float4 world = mul(float4(in_position, 1.0), model);
+	o.position = mul(world, view_proj);
+	o.v.view_normal = mul(in_normal, mul((float3x3)model, (float3x3)view));
+	o.v.view_pos = mul(world, view).xyz;
+	o.v.mesh_pos = in_position;
+	return o;
+}
 #else
 Mesh_Vertex_Out main(
 	[[vk::location(0)]] float3 in_position : POSITION,
@@ -43,6 +175,7 @@ Mesh_Vertex_Out main(
 	[[vk::location(1)]] float2 in_normal_oct : NORMAL,
 	uint vertex : SV_VulkanVertexID) {
 #endif
+#ifndef SKIN_TESS
 	Mesh_Vertex_Out o;
 	float3 in_normal;
 	decode_normal_mask(in_normal_oct, in_normal, o.v.mask);
@@ -77,3 +210,4 @@ Mesh_Vertex_Out main(
 #endif
 	return o;
 }
+#endif

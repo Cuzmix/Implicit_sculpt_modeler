@@ -5,11 +5,11 @@ import "core:strings"
 
 import "../ui"
 
-// The object chip in the chip bar (the overhaul's round 3): what is selected, as ZBrush's
+// The object chip in the top bar (the overhaul's round 3): what is selected, as ZBrush's
 // SubTool name and Forger's object button show it, with what kind of thing it is and the
 // facts a sculptor checks before a stroke. A tap opens the object's menu under it; a long
-// press (or a right-click) opens the Scene palette, where the objects are. With nothing
-// selected it names the scene's object count, and a tap opens the Scene palette.
+// press (or a right-click) opens the Scene card, where the objects are. With nothing
+// selected it names the scene's object count, and a tap opens the Scene card.
 
 // How much of the chip shows, from all of it down to its icon, as the bar's room allows.
 Object_Chip_Fit :: enum u8 {

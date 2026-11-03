@@ -415,7 +415,7 @@ TEXTURE_LOAD_NAMES := [render.Texture_Map]string {
 	.Normal     = "Load normal map...",
 }
 
-// The Object palette's Textures section: how objects with maps show, and the selected
+// The Textures card: how objects with maps show, and the selected
 // object's maps, each with what the viewport holds of it and its Load button; under More,
 // Remove maps.
 kit_textures_section :: proc(app: ^App) {

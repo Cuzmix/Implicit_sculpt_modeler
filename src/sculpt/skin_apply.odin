@@ -145,8 +145,15 @@ levels_skin_apply :: proc(l: ^Levels, carry_layers := false) -> bool {
 				b.bad = true
 				continue
 			}
-			h := f32(b.sk.heights[skin_sample(b.sk, b.s.mesh.indices[:], t, ci, cj)])
-			b.out[i] += linalg.normalize0(b.normals[i]) * h
+			x := skin_sample(b.sk, b.s.mesh.indices[:], t, ci, cj)
+			b.out[i] += linalg.normalize0(b.normals[i]) * f32(b.sk.heights[x])
+			// A sideways offset lands in the owner's frame about the sample's own
+			// interpolated normal, as the skin draws it.
+			if b.sk.side != nil && b.sk.side[x] != {} {
+				_, base := skin_base(b.s, b.sk, t, ci, cj)
+				tu, tv := skin_frame(b.s, b.sk, t, ci, cj, linalg.normalize0(base))
+				b.out[i] += tu * f32(b.sk.side[x].x) + tv * f32(b.sk.side[x].y)
+			}
 		}
 	}, geom.RANGE_GRAIN)
 	if b.bad {

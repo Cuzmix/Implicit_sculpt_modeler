@@ -27,22 +27,24 @@ panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
 	return PANEL_OF_SECTION[sec], true
 }
 
-// The section palette `p` draws; false for the cards (Environment's and Layers' too, which
-// are cards first) and the retired palettes.
+// Whether section `sec` is a card's twin (Layers, Material, Lights, Environment, and
+// Objects and Add object the Scene card's): it has no card of its own, and is offered and
+// named only as that card (Show panel).
+section_is_card :: proc(sec: Kit_Section) -> bool {
+	p, ok := panel_of_section(sec)
+	return ok && !panel_is_section(p)
+}
+
+// The section card `p` draws; false for the cards of their own.
 panel_section :: proc(p: Panel_Kind) -> (Kit_Section, bool) {
-	if p not_in STACK_SECTION_PANELS || p in RETIRED_PANELS do return .Preset, false
+	if p not_in STACK_SECTION_PANELS do return .Preset, false
 	return SECTION_OF_PANEL[p], true
 }
 
-// Whether `p` is a tray section's palette rather than a card.
+// Whether `p` is a section's card rather than a card of its own.
 panel_is_section :: proc(p: Panel_Kind) -> bool {
-	return p in STACK_SECTION_PANELS && p not_in RETIRED_PANELS
+	return p in STACK_SECTION_PANELS
 }
-
-// The section palettes that became their cards, one interface for one thing: Panel_Kind
-// keeps their cases (never reordered), but nothing opens them, and a saved line naming one
-// (`section:Layers`) reads as the card (panel_kind_from_name).
-RETIRED_PANELS :: bit_set[Panel_Kind]{.Layer_Settings, .Material_Settings, .Light_Settings, .Objects, .Add}
 // The cards that are a tray section too, drawn wherever that section opens.
 CARDS_AS_SECTIONS :: bit_set[Panel_Kind]{.Layers, .Scene, .Material, .Lights, .Environment}
 
@@ -53,11 +55,10 @@ PANEL_OF_SECTION := #partial [Kit_Section]Panel_Kind {
 	.Preset = .Preset, .Stroke = .Stroke, .Paint_Color = .Paint_Color, .Recall = .Recall, .Falloff = .Falloff,
 	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
 	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
-	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph, .Layers = .Layer_Settings,
+	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
 	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
 	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
-	.Objects = .Objects, .Add = .Add, .Look = .Look, .Material = .Material_Settings, .Lights = .Light_Settings,
-	.Environment = .Environment, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera,
+	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera,
 	.Turntable = .Turntable, .Print = .Print, .Floor = .Floor, .Background = .Background,
 }
 
@@ -66,21 +67,15 @@ SECTION_OF_PANEL := #partial [Panel_Kind]Kit_Section {
 	.Preset = .Preset, .Stroke = .Stroke, .Paint_Color = .Paint_Color, .Recall = .Recall, .Falloff = .Falloff,
 	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
 	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
-	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph, .Layer_Settings = .Layers,
+	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
 	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
 	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
-	.Objects = .Objects, .Add = .Add, .Look = .Look, .Material_Settings = .Material, .Light_Settings = .Lights,
-	.Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera, .Turntable = .Turntable,
+	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera, .Turntable = .Turntable,
 	.Print = .Print, .Floor = .Floor, .Background = .Background,
 }
 
-// Its title, as its header shows it: the full sections beside a card say so.
+// Its title, as its header shows it.
 panel_kind_title :: proc(app: ^App, kind: Panel_Kind) -> string {
-	#partial switch kind {
-	case .Layer_Settings:    return "Layer settings"
-	case .Material_Settings: return "Material settings"
-	case .Light_Settings:    return "Light settings"
-	}
 	if sec, ok := panel_section(kind); ok do return tray_section_title(sec)
 	return stack_title(app, kind)
 }
@@ -144,7 +139,11 @@ panel_kind_from_name :: proc(name: string) -> (Panel_Kind, bool) {
 	case "card":
 		for c in STACK_CARDS do if which == fmt.tprint(c) do return c, true
 	case "section":
-		for sec in Kit_Section do if which == fmt.tprint(sec) do return panel_of_section(sec)
+		// Only a section with a card of its own: a card's twin is named as the card.
+		for sec in Kit_Section do if which == fmt.tprint(sec) {
+			p, ok := panel_of_section(sec)
+			if ok && panel_is_section(p) do return p, true
+		}
 	}
 	return .Brush, false
 }

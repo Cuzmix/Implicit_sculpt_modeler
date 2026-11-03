@@ -90,6 +90,11 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 			ui.paragraph(ctx, "Kernels cull still views and strokes and write the draws; the counts above are then a few frames late. Simplified drawing while the view moves culls on the CPU.")
 			if !render.caps(&app.renderer).gpu_cull_default do ui.paragraph(ctx, "Starts off on this tile GPU: compare the frame times with it on and off.")
 		}
+		if render.caps(&app.renderer).gpu_sculpt {
+			_ = ui.switch_row(ctx, "Sculpt on the GPU", &app.gpu_sculpt)
+			sg := app.renderer.sculpt_gpu.stats
+			ui.paragraph(ctx, fmt.tprintf("Kernels lay a stroke's dabs and recompute its normals on the GPU and read them back a frame or two later; a stroke the kernels do not lay keeps the CPU's dabs and sends only positions. %d strokes on the GPU (%d with their dabs, %d dabs), %d on the CPU.", sg.strokes_gpu, sg.strokes_dabs, sg.dabs, sg.strokes_cpu))
+		}
 		_ = ui.switch_row(ctx, "Cache idle objects", &app.cache_idle)
 		ui.paragraph(ctx, fmt.tprintf("%s, redrawn %d times.", "In use" if v.cache_used else "Not in use", s.cache_redraws))
 		_ = ui.switch_row(ctx, "Simplify while moving", &app.simplify)
@@ -274,6 +279,7 @@ gpu_span_label :: proc(span: render.Gpu_Span) -> string {
 	case .Render_Mode: return "Render mode"
 	case .Pictures:    return "Pictures"
 	case .Interface:   return "Interface"
+	case .Sculpt:      return "Sculpt"
 	}
 	return ""
 }

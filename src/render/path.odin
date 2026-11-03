@@ -24,19 +24,19 @@ import "../jobs"
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
-RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
+RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT, string)
 // The same kernel reading every map from one array (render_trace_maps.comp.slang), which
 // only the own Vulkan backend binds, so it has no Metal source.
 // Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
 // named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
-when ODIN_OS != .Darwin {
-	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
-	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv")
+when VULKAN {
+	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv", string)
+	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv", string)
 }
-RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT)
-RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
-RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
-RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
+RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT, string)
+RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT, string)
+RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT, string)
+RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT, string)
 
 RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
 // The exposed light the finishing stack starts from (render_linear_texture).
@@ -97,6 +97,11 @@ ITEM_GROUPS :: 2
 ITEM_SLOTS :: 4
 @(private = "file")
 ITEM_TEXTURED :: 8
+// Shades by its detail skin's normals, the skin's segments from ITEM_SKIN_SHIFT.
+@(private = "file")
+ITEM_SKINNED :: 16
+@(private = "file")
+ITEM_SKIN_SHIFT :: 8
 
 Path_Render :: struct {
 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
@@ -240,12 +245,16 @@ Item_Record :: struct {
 	slot_group:   [GROUP_SLOTS]u32,
 	slot_color:   [GROUP_SLOTS][4]f32,
 	slot_surface: [GROUP_SLOTS][4]f32,
-	// A textured item's (ITEM_TEXTURED): its first triangle in the merged indices, where
+	// A textured item's (ITEM_TEXTURED): its first triangle in the merged indices (a skinned
+	// item's too), where
 	// its corners and its preview vertices start in the Textured buffer (words), and its
 	// map slot, view and maps (TEX_ shifts).
 	tex:          [4]u32,
+	// A skinned item's (ITEM_SKINNED): where its skin's sample normals and triangle records
+	// start in the attributes (words), and the skin's vertex and edge counts.
+	skin:         [4]u32,
 }
-#assert(size_of(Item_Record) == 768)
+#assert(size_of(Item_Record) == 784)
 
 // Matches Render_Uniforms in render_trace.comp.slang (std140).
 Render_Uniforms :: struct {
@@ -617,7 +626,7 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 // where the device refuses it (the log says why), and render mode keeps the named kernel.
 @(private = "file")
 path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
-	when ODIN_OS != .Darwin {
+	when VULKAN {
 		offered := r.caps.texture_arrays / 3
 		if offered <= RENDER_TEXTURED_MAX do return
 		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
@@ -655,7 +664,7 @@ path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 		}
 		capacity: u32
 		// The array kind exists only under Vulkan (path_maps_pipeline).
-		when ODIN_OS != .Darwin {
+		when VULKAN {
 			if pr.maps_array {
 				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
 				capacity = 3 * pr.textured_max
@@ -854,6 +863,9 @@ Path_Item :: struct {
 	textured:                    ^Textured_Mesh,
 	tex_vertex_off, tex_corner_off: u32,
 	tex_slot:                    u32,
+	// A skinned item's samples and triangle records, and where they go in the attributes
+	// (words, from the start of the skins).
+	skin_samples, skin_off:      u32,
 }
 
 // Brings the traced items' trees up to date and copies everything the kernel reads into
@@ -874,6 +886,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	pr.rq = rq && pr.tracer.tlas != nil
 	placed := make([dynamic]Path_Item, context.temp_allocator)
 	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
+	skin_words: u32
 	pr.tex_meshes, pr.tex_stamps, pr.tex_count, pr.tex_left_out = {}, {}, 0, 0
 	for item, i in items {
 		if blended(&r.single, item) do continue
@@ -911,6 +924,13 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 				textured_words = p.tex_corner_off + t.corner_count
 			}
 		}
+		// A skinned item shades by its skin, as in the viewport, unless it shows its maps.
+		if mb := item.mesh; p.textured == nil && mb.skin_normals != nil && mb.skin_tris != nil && mb.skin_meta[0] >= 2 {
+			S, V, E := mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2]
+			p.skin_samples = V + E * (S - 1) + p.triangles * ((S - 1) * (S - 2) / 2)
+			p.skin_off = skin_words
+			skin_words += p.skin_samples + 4 * p.triangles
+		}
 		vertex_count += p.vertices
 		tri_count += p.triangles
 		node_count += p.nodes
@@ -930,11 +950,12 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	world_bounds := make([dynamic]geom.Aabb, context.temp_allocator)
 	world_ids := make([dynamic]u32, context.temp_allocator)
 	records := make([]Item_Record, max(len(placed), 1), context.temp_allocator)
+	skin_base := vertex_count * (size_of(Normal_Packed) + size_of(Paint_Packed)) / size_of(u32)
 	starts := make([]u32, word_count if rq else 0, context.temp_allocator)
 	for p, k in placed {
 		item := items[p.item]
 		tm := item.mesh.trace
-		records[k] = path_item_record(item, p)
+		records[k] = path_item_record(item, p, skin_base)
 		if rq {
 			records[k].offs.z = p.word_off
 			for g, j in tm.geometries do starts[p.word_off + u32(j)] = p.tri_off + g.first_triangle
@@ -963,7 +984,8 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	sizes: [Scene_Buffer]int
 	sizes[.Positions] = int(vertex_count) * size_of(geom.Vec3)
 	sizes[.Indices] = int(tri_count) * 3 * size_of(u32)
-	sizes[.Attributes] = int(vertex_count) * (size_of(Normal_Packed) + size_of(Paint_Packed))
+	// Each vertex's normal, then its paint, then the skins' sample normals and records.
+	sizes[.Attributes] = int(vertex_count) * (size_of(Normal_Packed) + size_of(Paint_Packed)) + int(skin_words) * size_of(u32)
 	sizes[.Nodes] = (int(node_count) + len(tlas)) * size_of(geom.Gpu_Bvh_Node)
 	sizes[.Order] = int(word_count) * size_of(u32)
 	sizes[.Chunks] = len(chunks) * size_of([4]u32)
@@ -998,6 +1020,11 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		gpu_copy(copy_pass, mb.indices, pr.buffers[.Indices], p.tri_off * 3 * size_of(u32), p.triangles * 3 * size_of(u32))
 		gpu_copy(copy_pass, mb.normals, pr.buffers[.Attributes], p.vertex_off * size_of(Normal_Packed), p.vertices * size_of(Normal_Packed))
 		if p.paint do gpu_copy(copy_pass, mb.paint, pr.buffers[.Attributes], paint_base + p.vertex_off * size_of(Paint_Packed), p.vertices * size_of(Paint_Packed))
+		if p.skin_samples > 0 {
+			at := (skin_base + p.skin_off) * size_of(u32)
+			gpu_copy(copy_pass, mb.skin_normals, pr.buffers[.Attributes], at, p.skin_samples * size_of(u32))
+			gpu_copy(copy_pass, mb.skin_tris, pr.buffers[.Attributes], at + p.skin_samples * size_of(u32), 4 * p.triangles * size_of(u32))
+		}
 		if !rq {
 			gpu_copy(copy_pass, tm.buffers[.Nodes], pr.buffers[.Nodes], p.node_off * size_of(geom.Gpu_Bvh_Node), p.nodes * size_of(geom.Gpu_Bvh_Node))
 			gpu_copy(copy_pass, tm.buffers[.Order], pr.buffers[.Order], p.word_off * size_of(u32), p.words * size_of(u32))
@@ -1100,7 +1127,7 @@ env_share :: proc(world: ^Lights_World, lights: Lights, env_light: f32, smooth :
 // An item's record: where it sits, its material as render mode takes it, and its groups'
 // materials.
 @(private = "file")
-path_item_record :: proc(item: Draw_Item, p: Path_Item) -> (rec: Item_Record) {
+path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec: Item_Record) {
 	rec.model = item.model
 	rec.inv_model = linalg.inverse(item.model)
 	rec.color = item.color
@@ -1117,6 +1144,12 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item) -> (rec: Item_Record) {
 		maps: u32
 		for m in Texture_Map do if t.maps[m] != nil do maps |= 1 << u32(m)
 		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
+	}
+	if p.skin_samples > 0 {
+		mb := item.mesh
+		rec.offs.y |= ITEM_SKINNED | mb.skin_meta[0] << ITEM_SKIN_SHIFT
+		rec.tex.x = p.tri_off
+		rec.skin = {skin_base + p.skin_off, skin_base + p.skin_off + p.skin_samples, mb.skin_meta[1], mb.skin_meta[2]}
 	}
 	if p.paint {
 		if item.paint do rec.offs.y |= ITEM_PAINT

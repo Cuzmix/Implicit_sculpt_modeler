@@ -94,7 +94,7 @@ zone_toggle :: proc(k: ^Kit_State, z: Zone) {
 	if z in k.hidden do kit_floats_close(k)
 }
 
-// Every panel with where it is, to be changed with a tap: the Library's Panels tab.
+// Every panel with where it is, to be changed with a tap: Settings > Bars.
 arrange_panel_rows :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme

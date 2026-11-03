@@ -41,6 +41,7 @@ Command_Id :: enum u16 {
 	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
+	Send_Scene, // send.odin, send_ui.odin
 	// Edit
 	Undo,
 	Redo,
@@ -120,6 +121,7 @@ Command_Id :: enum u16 {
 	Hd_Leave,
 	Detail_Skin, // the argument is the place in SKIN_SEGMENTS (0: off)
 	Skin_Apply,
+	Skin_Squeeze, // the argument is the place in SQUEEZE_SHARES
 	Detail_To, // the argument is the Detail_To, for the brush held
 	Detail_To_Next,
 	Morph_Store,
@@ -269,6 +271,11 @@ Command_Id :: enum u16 {
 	Pass_Menu, // passes.odin
 	Brush_Picker, // lens_shelf.odin
 	Settings,
+	Main_Menu, // kit_top_lens.odin: the top bar's chips and menu
+	File_Chip,
+	Space_Tabs,
+	Object_Chip,
+	Viewport_Readout,
 	Reduce_Motion,
 	Left_Handed,
 	Command_Palette,
@@ -396,7 +403,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.New_Scene = {
 		label = "New scene",
-		help = "Replaces the scene with this one shape at the Scene palette's Add size; with work to lose, it goes ahead on a second run.",
+		help = "Replaces the scene with this one shape at the Scene card's Add size; with work to lose, it goes ahead on a second run.",
 		icon = ui.ICON_SHAPES,
 		args = len(NEW_SCENES),
 		run = new_scene_run,
@@ -483,6 +490,15 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
+	},
+	.Send_Scene = {
+		label = "Send scene",
+		help = "Sends the whole scene over Wi-Fi to the computer it went to last, which opens it; the first time, Menu > Export... > Send picks the computer (Settings > Files > Send scenes).",
+		icon = ICON_SEND,
+		run = proc(app: ^App, _: int) {
+			if !send_scene_last(app) do export_sheet_open_on(app, .Send)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return send_can_send(app)},
 	},
 	.Export_Sheet = {
 		label = "Export...",
@@ -1188,7 +1204,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Store_Selection_Set = {
 		label = "Store mask as set",
-		help = "Keeps the selected object's mask as a selection set, to bring back later (Object palette > Selection sets).",
+		help = "Keeps the selected object's mask as a selection set, to bring back later (Selection card sets).",
 		run = proc(app: ^App, _: int) {set_store(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1305,6 +1321,13 @@ COMMANDS := [Command_Id]Command {
 			return (sk.segments if sk != nil else 0) == SKIN_SEGMENTS[arg]
 		},
 	},
+	.Skin_Squeeze = {
+		label = "Squeeze",
+		help = "Turns the selected dense sculpt into a mesh with a quarter, an eighth or a sixteenth of its vertices and a detail skin holding the rest of its surface, so it sculpts and draws as the lighter mesh does; the note says how far it strays, and Show skin detail shows where.",
+		args = len(SQUEEZE_SHARES),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Squeeze, vertices = SQUEEZE_SHARES[arg]}},
+		enabled = proc(app: ^App, _: int) -> bool {return skin_squeeze_refusal(selected_object(app)) == ""},
+	},
 	.Skin_Apply = {
 		label = "Apply skin",
 		help = "Turns the selected object's detail skin into subdivision levels, one for each halving of its segments, whose top level has a vertex at every height, and takes the skin off.",
@@ -1416,7 +1439,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformer = {
 		label = "Deformer",
-		help = "Opens the Object palette's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
+		help = "Opens the Deformers card on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
 		args = DEFORMERS,
 		run = proc(app: ^App, arg: int) {
 			tray_open(app, .Deformers)
@@ -1427,7 +1450,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformation = {
 		label = "Deformation",
-		help = "Opens the Object palette's Deformation section on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
+		help = "Opens the Deformation card on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
 		args = len(Reshape_Choice),
 		run = proc(app: ^App, arg: int) {
 			tray_open(app, .Deform)
@@ -1620,7 +1643,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) or Brush path (a path to run the brush along). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad Remesh's loops follow). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {
@@ -1718,7 +1741,7 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene palette's Add object section (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
+		help = "Adds the shape and size picked in the Scene card's Add object (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
@@ -1767,7 +1790,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Lock_Object = {
 		label = "Lock object",
-		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene palette unlocks it.",
+		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene card unlocks it.",
 		icon = ICON_LOCK,
 		run = proc(app: ^App, _: int) {view_command(app, .Lock)},
 		enabled = has_object,
@@ -1789,7 +1812,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.New_Folder = {
 		label = "New folder",
-		help = "Puts the selected object in a new folder in the Scene palette, whose eye and ghost then apply to everything in it; one undo step.",
+		help = "Puts the selected object in a new folder in the Scene card, whose eye and ghost then apply to everything in it; one undo step.",
 		icon = ui.ICON_FOLDER_PLUS,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Arrange, arrange = .New_Folder, id = obj.id}
@@ -1914,7 +1937,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Rename_Object = {
 		label = "Rename...",
-		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
+		help = "Gives the selected object a name of your own, shown in the Scene card and kept in the scene file; one undo step.",
 		icon = ui.ICON_PENCIL,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil {
@@ -2153,8 +2176,8 @@ COMMANDS := [Command_Id]Command {
 		},
 	},
 	.Show_Section = {
-		label = "Show section",
-		help = "Opens the palette tray on this section, switching to the brush for the brush's sections.",
+		label = "Open card",
+		help = "Opens this section's card (the Brush card for the brush's sections, switching to the brush); on a bar, beside its button.",
 		icon = ui.ICON_PANEL,
 		args = TRAY_SECTIONS,
 		run = proc(app: ^App, arg: int) {
@@ -2166,8 +2189,8 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
 	.Show_Panel = {
-		label = "Show panel",
-		help = "Opens this card of the panel stack; on a bar, beside its button.",
+		label = "Open card",
+		help = "Opens this card; on a bar, beside its button.",
 		icon = ui.ICON_PANEL,
 		args = STACK_CARD_COUNT,
 		run = proc(app: ^App, arg: int) {
@@ -2429,6 +2452,43 @@ COMMANDS := [Command_Id]Command {
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
+	},
+	.Main_Menu = {
+		label = "Menu",
+		help = "Opens the menu: new, open, save, import, export, workspaces, and the rest of the app.",
+		icon = ui.ICON_MENU,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.menu},
+	},
+	.File_Chip = {
+		label = "File",
+		help = "The top bar's file chip: the scene's file and whether it is saved; a tap opens the menu.",
+		icon = ICON_FILE,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+	},
+	.Space_Tabs = {
+		label = "Space tabs",
+		help = "The top bar's space tabs: Sculpt, Model, Render and the rest, a tap switching to one; run, it goes to the next space.",
+		icon = ui.ICON_PANEL,
+		run = proc(app: ^App, _: int) {space_switch(app, Space((int(app.kit.spaces.current) + 1) % len(Space)))},
+	},
+	.Object_Chip = {
+		label = "Object chip",
+		help = "The top bar's object chip: the selected object's name and kind; a tap opens its menu.",
+		icon = ICON_SCULPT_MESH,
+		run = proc(app: ^App, _: int) {command_run(app, .Object_Menu)},
+	},
+	.Viewport_Readout = {
+		label = "Viewport readout",
+		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices, the app's memory and the GPU's time a frame.",
+		run = proc(app: ^App, _: int) {app.kit.readout_hidden = !app.kit.readout_hidden},
+		checked = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
 	},
 	.Reduce_Motion = {
 		label = "Reduce motion",
@@ -2780,6 +2840,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Skin_Squeeze:
+		return fmt.tprintf("Squeeze to 1/%d", SQUEEZE_SHARES[arg])
 	case .Detail_Skin:
 		return "Detail skin off" if SKIN_SEGMENTS[arg] == 0 else fmt.tprintf("Detail skin %d", SKIN_SEGMENTS[arg])
 	case .Detail_To:
@@ -2853,12 +2915,13 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
 	case .Show_Section:
 		sec := Kit_Section(arg)
-		return fmt.tprintf("%s: %s", palette_name(section_palette(sec)), tray_section_title(sec))
+		if section_palette(sec) == .Tool do return fmt.tprintf("Brush card: %s", tray_section_title(sec))
+		return fmt.tprintf("%s card", tray_section_title(sec))
 	case .Pin_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
 	case .Show_Panel:
-		return fmt.tprintf("Panel: %s", STACK_CARD_NAMES[Panel_Kind(arg)])
+		return fmt.tprintf("%s card", STACK_CARD_NAMES[Panel_Kind(arg)])
 	case .Rail_Group:
 		return fmt.tprintf("Panel group %d", arg + 1)
 	case .View_Pass:

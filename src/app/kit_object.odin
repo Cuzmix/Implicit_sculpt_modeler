@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 
+import "../geom"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -141,7 +142,7 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 	if top != nil {
 		tris := int(top.tri_count)
 		looks := tris * int(top.segments) * int(top.segments)
-		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth put their detail in the skin (Brush palette, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
+		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer, Smooth, Pinch and Snake hook put their detail in the skin (Brush card, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
 		// The Skin detail pass shows what the skin holds, as a normal map's colours, so
 		// what the brushes put in it reads apart from the mesh's own form.
 		if app.kit.passes.pass == .Skin_Detail {
@@ -157,10 +158,35 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 			vertices, _, bytes := sculpt.levels_skin_apply_estimate(&obj.levels)
 			ui.paragraph(ctx, fmt.tprintf("Apply adds %d level%s, the top one of %s vertices, about %s.", steps, "" if steps == 1 else "s", count_label(vertices), bytes_label(bytes)))
 		}
+		// Maps in: a displacement or vector displacement image read through the UVs.
+		ui.caption(ctx, "MAP IS")
+		kinds: [len(sculpt.Skin_Map_Kind)]string
+		for n, k in SKIN_MAP_KIND_NAMES do kinds[int(k)] = n
+		if picked := ui.tabs(ctx, "skin map kind", kinds[:], int(app.skin_map_kind)); picked >= 0 do app.skin_map_kind = sculpt.Skin_Map_Kind(picked)
+		if app.skin_map_kind == .Height {
+			_ = ui.slider(ctx, "Range##skin map", &app.skin_map_range, 0.001, 1, .Logarithmic, fmt.tprintf("%.3f", app.skin_map_range))
+		}
+		if refused := skin_map_refusal(obj); refused != "" {
+			ui.paragraph(ctx, refused)
+		} else if ui.button(ctx, "Load map into skin...", .Bordered, glyph = ui.ICON_IMAGE) {
+			file_dialog(app, .Skin_Map)
+		}
+		// The skin as a micro-map for renderers that displace triangles in hardware.
+		if ui.button(ctx, "Export micro-map (.bary)...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Export_Bary)
 	} else if why != "" {
 		ui.paragraph(ctx, why)
 	} else {
 		ui.paragraph(ctx, "Sculpt detail finer than the mesh without adding vertices: each triangle carries a grid of heights the brushes raise and lower.")
+	}
+	// Squeeze: a dense sculpt to a lighter mesh and a skin, offered where it can run.
+	if skin_squeeze_refusal(obj) == "" {
+		ui.caption(ctx, "SQUEEZE TO")
+		shares: [len(SQUEEZE_SHARES)]string
+		for n, i in SQUEEZE_SHARES do shares[i] = fmt.tprintf("1/%d", n)
+		squeeze_hints: [len(SQUEEZE_SHARES)]string
+		for &h, i in squeeze_hints do h = command_hint(app, .Skin_Squeeze, i)
+		if picked := ui.tabs(ctx, "squeeze", shares[:], -1, keys = squeeze_hints[:]); picked >= 0 do command_run(app, .Skin_Squeeze, picked)
+		ui.paragraph(ctx, fmt.tprintf("A mesh of that share of the %s vertices holds the forms and a skin the rest; the note says how far it strays, and Show skin detail colours each triangle green to red by it.", count_label(geom.mesh_vertex_count(object_mesh(obj)^))))
 	}
 	// The skin a fine stroke adds by itself (skin_auto_add), whichever object is picked.
 	_ = ui.switch_row(ctx, "Add a skin by itself", &app.skin_auto)

@@ -188,6 +188,8 @@ history_snapshot :: proc(app: ^App, obj: ^Object, what: string) -> ^Object_Snaps
 	if obj == nil do return snap
 	snap.exists = true
 	for o, i in app.scene.objects do if o == obj do snap.index = i
+	// The copy takes the normals as the GPU last left them.
+	object_gpu_sync(obj)
 	object_put(app, &snap.bytes, obj)
 	return snap
 }
@@ -492,7 +494,7 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 		case .Invert: op = .Invert
 		case .Fill:   op = .Fill
 		case:
-			report(app, Kit_Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Object palette, Voxels)", MASK_COMMAND_NAMES[command], object_label(obj))
+			report(app, Kit_Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Voxels card)", MASK_COMMAND_NAMES[command], object_label(obj))
 			return
 		}
 		changed = voxel.clay_mask_command(&vp.clay, op)

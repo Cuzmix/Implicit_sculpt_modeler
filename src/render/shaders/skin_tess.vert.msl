@@ -1,0 +1,606 @@
+// SDL_shadercross 1ff05bec5739 from skin_tess.vert.spv sha256 86761715b497e85df499a52459ed5e39951cb585729f148d90989a31e9d27921
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Mesh_Varyings
+{
+    float3 view_normal;
+    float3 view_pos;
+    float mask;
+    float4 paint;
+    float3 group;
+    float3 mesh_pos;
+    uint slot;
+};
+
+struct Mesh_Vertex_Out
+{
+    float4 position;
+    Mesh_Varyings v;
+};
+
+struct _Array_std140_vector_uint_4_4
+{
+    uint4 data[4];
+};
+
+struct SLANG_ParameterGroup_Frame_Uniforms_std140
+{
+    float4x4 view_proj;
+    float4x4 view;
+    float4x4 model;
+    float4 options;
+    _Array_std140_vector_uint_4_4 slot_group;
+    uint4 skin;
+};
+
+struct StructuredBuffer
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint4 _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    float _member0[1];
+};
+
+struct StructuredBuffer_3
+{
+    uint2 _member0[1];
+};
+
+struct main0_out
+{
+    float3 entryPointParam_main_v_view_normal [[user(locn0)]];
+    float3 entryPointParam_main_v_view_pos [[user(locn1)]];
+    float entryPointParam_main_v_mask [[user(locn2)]];
+    float4 entryPointParam_main_v_paint [[user(locn3)]];
+    float3 entryPointParam_main_v_group [[user(locn4)]];
+    float3 entryPointParam_main_v_mesh_pos [[user(locn5)]];
+    uint entryPointParam_main_v_slot [[user(locn6)]];
+    float4 gl_Position [[position]];
+};
+
+static inline __attribute__((always_inline))
+float3 mesh_point(uint v, const device StructuredBuffer_2& positions)
+{
+    uint _269 = 3u * v;
+    return float3(positions._member0[_269], positions._member0[_269 + 1u], positions._member0[_269 + 2u]);
+}
+
+static inline __attribute__((always_inline))
+float3 oct_decode(float2 e)
+{
+    float3 _363 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
+    float3 v = _363;
+    if (_363.z < 0.0)
+    {
+        float _346;
+        if (e.x >= 0.0)
+        {
+            _346 = 1.0;
+        }
+        else
+        {
+            _346 = -1.0;
+        }
+        float _347;
+        if (e.y >= 0.0)
+        {
+            _347 = 1.0;
+        }
+        else
+        {
+            _347 = -1.0;
+        }
+        float2 _388 = (float2(1.0) - abs(e.yx)) * float2(_346, _347);
+        v.x = _388.x;
+        v.y = _388.y;
+    }
+    return fast::normalize(v);
+}
+
+static inline __attribute__((always_inline))
+void decode_normal_mask(float2 normal_oct, thread float3& normal, thread float& mask)
+{
+    int2 _333 = int2(round(fast::max(normal_oct, float2(-1.0)) * 32767.0));
+    normal = oct_decode(float2(_333 & int2(-16)) / float2(32767.0));
+    mask = float(((_333.x & 15) << 4) | (_333.y & 15)) / 255.0;
+}
+
+static inline __attribute__((always_inline))
+void mesh_normal_mask(uint v, thread float3& n, thread float& mask, const device StructuredBuffer& normals)
+{
+    decode_normal_mask(fast::max(float2(int2(int(normals._member0[v] << uint(16)) >> 16, int(normals._member0[v]) >> 16)) / float2(32767.0), float2(-1.0)), n, mask);
+}
+
+static inline __attribute__((always_inline))
+uint skin_index(uint i, uint j, uint S, uint V, uint E, uint tri, uint3 v, uint3 e)
+{
+    bool _673 = i == 0u;
+    bool _648;
+    if (_673)
+    {
+        _648 = j == 0u;
+    }
+    else
+    {
+        _648 = false;
+    }
+    if (_648)
+    {
+        return v.x;
+    }
+    if (i == S)
+    {
+        return v.y;
+    }
+    if (j == S)
+    {
+        return v.z;
+    }
+    uint ref;
+    uint k;
+    if (j == 0u)
+    {
+        ref = e.x;
+        k = i;
+    }
+    else
+    {
+        if ((i + j) == S)
+        {
+            ref = e.y;
+            k = j;
+        }
+        else
+        {
+            uint _706;
+            uint _707;
+            if (_673)
+            {
+                _706 = e.z;
+                _707 = S - j;
+            }
+            else
+            {
+                uint _733 = j - 1u;
+                uint _734 = S - 2u;
+                uint _740 = S - 1u;
+                return (((V + (E * _740)) + (tri * ((_740 * _734) / 2u))) + ((_733 * _734) - ((_733 * (j - 2u)) / 2u))) + (i - 1u);
+            }
+            ref = _706;
+            k = _707;
+        }
+    }
+    uint along;
+    if ((ref & 1u) == 0u)
+    {
+        along = k;
+    }
+    else
+    {
+        along = S - k;
+    }
+    return (V + ((ref >> 1u) * (S - 1u))) + (along - 1u);
+}
+
+static inline __attribute__((always_inline))
+float half_bits(uint h)
+{
+    uint e = (h >> 10u) & 31u;
+    float m = float(h & 1023u);
+    float v;
+    if (e == 0u)
+    {
+        v = m * exp2(-24.0);
+    }
+    else
+    {
+        v = (1.0 + (m / 1024.0)) * exp2(float(e) - 15.0);
+    }
+    if ((h & 32768u) != 0u)
+    {
+        v = -v;
+    }
+    return v;
+}
+
+static inline __attribute__((always_inline))
+float3 octahedral(uint p)
+{
+    return oct_decode(fast::max(float2(int2(int(p << uint(16)) >> 16, int(p) >> 16)) / float2(32767.0), float2(-1.0)));
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 group_color(uint g)
+{
+    float light;
+    if ((g & 1u) == 0u)
+    {
+        light = 0.75;
+    }
+    else
+    {
+        light = 0.550000011920928955078125;
+    }
+    return mix(float3(1.0), fast::clamp(abs((fract(float3(fract((float(g) * 0.61803400516510009765625) + 0.119999997317790985107421875)) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.550000011920928955078125)) * light;
+}
+
+vertex main0_out main0(constant SLANG_ParameterGroup_Frame_Uniforms_std140& Frame_Uniforms [[buffer(0)]], const device StructuredBuffer_3& paint [[buffer(1)]], const device StructuredBuffer& indices [[buffer(2)]], const device StructuredBuffer_2& positions [[buffer(3)]], const device StructuredBuffer& normals [[buffer(4)]], const device StructuredBuffer& skin_normals [[buffer(5)]], const device StructuredBuffer_1& skin_tris [[buffer(6)]], const device StructuredBuffer& skin_heights [[buffer(7)]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    uint per = (3u * Frame_Uniforms.skin.x) * Frame_Uniforms.skin.x;
+    uint tri = uint(int(gl_VertexIndex)) / per;
+    uint _165 = tri * per;
+    uint small = (uint(int(gl_VertexIndex)) - _165) / 3u;
+    uint c = (uint(int(gl_VertexIndex)) - _165) - (3u * small);
+    uint first = 0u;
+    uint j = 0u;
+    for (;;)
+    {
+        uint _180 = 2u * (Frame_Uniforms.skin.x - j);
+        if (!(((first + _180) - 1u) <= small))
+        {
+            break;
+        }
+        first += (_180 - 1u);
+        j++;
+        continue;
+    }
+    uint _197 = first;
+    uint q = small - _197;
+    uint i = q >> 1u;
+    uint gi;
+    uint gj;
+    if ((q & 1u) == 0u)
+    {
+        if (c == 1u)
+        {
+            first = 1u;
+        }
+        else
+        {
+            first = 0u;
+        }
+        uint _209 = first;
+        if (c == 2u)
+        {
+            first = 1u;
+        }
+        else
+        {
+            first = 0u;
+        }
+        gi = i + _209;
+        gj = j + first;
+    }
+    else
+    {
+        if (c == 2u)
+        {
+            first = i;
+        }
+        else
+        {
+            first = i + 1u;
+        }
+        if (!(c == 0u))
+        {
+            j++;
+        }
+        gi = first;
+        gj = j;
+    }
+    uint _241 = 3u * tri;
+    uint _250 = _241 + 1u;
+    uint _253 = _241 + 2u;
+    uint3 v = uint3(indices._member0[_241], indices._member0[_250], indices._member0[_253]);
+    uint3 _13 = v;
+    float3 _264 = mesh_point(indices._member0[_241], positions);
+    float3 _285 = mesh_point(indices._member0[_250], positions);
+    float3 _286 = mesh_point(indices._member0[_253], positions);
+    spvUnsafeArray<float3, 3> P = spvUnsafeArray<float3, 3>({ _264, _285, _286 });
+    spvUnsafeArray<float3, 3> _20 = P;
+    spvUnsafeArray<float3, 3> N;
+    spvUnsafeArray<float, 3> M;
+    float3 _26 = N[0];
+    float _28 = M[0];
+    mesh_normal_mask(indices._member0[_241], _26, _28, normals);
+    N[0] = _26;
+    M[0] = _28;
+    float3 _29 = N[1];
+    float _30 = M[1];
+    mesh_normal_mask(indices._member0[_250], _29, _30, normals);
+    N[1] = _29;
+    M[1] = _30;
+    float3 _31 = N[2];
+    float _32 = M[2];
+    mesh_normal_mask(indices._member0[_253], _31, _32, normals);
+    N[2] = _31;
+    M[2] = _32;
+    float fS = float(Frame_Uniforms.skin.x);
+    float _442 = float(gi);
+    float _446 = float(gj);
+    float _448 = (1.0 - (_442 / fS)) - (_446 / fS);
+    float _449 = _442 / fS;
+    float _450 = _446 / fS;
+    float3 _33 = float3(_448, _449, _450);
+    bool _454 = gi == 0u;
+    bool _36;
+    if (_454)
+    {
+        _36 = gj == 0u;
+    }
+    else
+    {
+        _36 = false;
+    }
+    uint a;
+    uint k;
+    uint e;
+    float3 nb;
+    float3 b;
+    if (_36)
+    {
+        a = 3u;
+        k = 0u;
+        e = 0u;
+        nb = N[0];
+        b = _264;
+    }
+    else
+    {
+        if (gi == Frame_Uniforms.skin.x)
+        {
+            a = 3u;
+            k = 0u;
+            e = 0u;
+            nb = N[1];
+            b = _285;
+        }
+        else
+        {
+            if (gj == Frame_Uniforms.skin.x)
+            {
+                a = 3u;
+                k = 0u;
+                e = 0u;
+                nb = N[2];
+                b = _286;
+            }
+            else
+            {
+                if (gj == 0u)
+                {
+                    a = 0u;
+                    k = gi;
+                    e = skin_tris._member0[tri].x;
+                    nb = float3(0.0);
+                    b = float3(0.0);
+                }
+                else
+                {
+                    if ((gi + gj) == Frame_Uniforms.skin.x)
+                    {
+                        a = 1u;
+                        k = gj;
+                        e = skin_tris._member0[tri].y;
+                        nb = float3(0.0);
+                        b = float3(0.0);
+                    }
+                    else
+                    {
+                        if (_454)
+                        {
+                            a = 2u;
+                            k = Frame_Uniforms.skin.x - gj;
+                            e = skin_tris._member0[tri].z;
+                            nb = float3(0.0);
+                            b = float3(0.0);
+                        }
+                        else
+                        {
+                            a = 3u;
+                            k = 0u;
+                            e = 0u;
+                            nb = ((N[0] * _448) + (N[1] * _449)) + (N[2] * _450);
+                            b = ((_264 * _448) + (_285 * _449)) + (_286 * _450);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    uint along;
+    if (a < 3u)
+    {
+        uint to_1 = (a + 1u) % 3u;
+        uint from;
+        uint to;
+        if ((e & 1u) == 1u)
+        {
+            along = Frame_Uniforms.skin.x - k;
+            from = to_1;
+            to = a;
+        }
+        else
+        {
+            along = k;
+            from = a;
+            to = to_1;
+        }
+        float f = float(along) / fS;
+        nb = N[from] + ((N[to] - N[from]) * f);
+        b = _20[from] + ((_20[to] - _20[from]) * f);
+    }
+    float3 _600 = fast::normalize(nb);
+    along = 0u;
+    float3 curved = float3(0.0);
+    for (;;)
+    {
+        float3 curved_1;
+        bool _99_ladder_break = false;
+        do
+        {
+            if (!(along < 3u))
+            {
+                _99_ladder_break = true;
+                break;
+            }
+            curved_1 = curved + ((b - (N[along] * dot(b - _20[along], N[along]))) * _33[along]);
+            break;
+        } while(false);
+        if (_99_ladder_break)
+        {
+            break;
+        }
+        along++;
+        curved = curved_1;
+        continue;
+    }
+    uint x = skin_index(gi, gj, Frame_Uniforms.skin.x, Frame_Uniforms.skin.y, Frame_Uniforms.skin.z, tri, v, skin_tris._member0[tri].xyz);
+    float3 in_position = b + (_600 * (dot(curved - b, _600) + half_bits((skin_heights._member0[x >> 1u] >> (16u * (x & 1u))) & 65535u)));
+    Mesh_Vertex_Out o;
+    o.v.mask = ((M[0] * _448) + (M[1] * _449)) + (M[2] * _450);
+    o.v.paint = float4(0.0);
+    o.v.group = float3(-1.0);
+    o.v.slot = 0u;
+    if (Frame_Uniforms.options.x > 0.5)
+    {
+        along = 0u;
+        for (;;)
+        {
+            bool _110_ladder_break = false;
+            do
+            {
+                if (!(along < 3u))
+                {
+                    _110_ladder_break = true;
+                    break;
+                }
+                float4 _883 = unpack_unorm4x8_to_float(paint._member0[_13[along]].x);
+                o.v.paint += (float4(srgb_decode(_883.xyz), _883.w) * _33[along]);
+                break;
+            } while(false);
+            if (_110_ladder_break)
+            {
+                break;
+            }
+            along++;
+            continue;
+        }
+    }
+    if (Frame_Uniforms.options.y > 0.5)
+    {
+        _36 = true;
+    }
+    else
+    {
+        _36 = Frame_Uniforms.options.z > 0.5;
+    }
+    if (_36)
+    {
+        uint group = paint._member0[_13[skin_tris._member0[tri].w & 3u]].y & 65535u;
+        if (Frame_Uniforms.options.y > 0.5)
+        {
+            o.v.group = group_color(group);
+        }
+        if (Frame_Uniforms.options.z > 0.5)
+        {
+            k = 1u;
+            for (;;)
+            {
+                bool _128_ladder_break = false;
+                do
+                {
+                    if (!(k < 16u))
+                    {
+                        _128_ladder_break = true;
+                        break;
+                    }
+                    if (Frame_Uniforms.slot_group.data[k >> uint(2)][k & 3u] == group)
+                    {
+                        o.v.slot = k;
+                    }
+                    break;
+                } while(false);
+                if (_128_ladder_break)
+                {
+                    break;
+                }
+                k++;
+                continue;
+            }
+        }
+    }
+    float4 _1031 = Frame_Uniforms.model * float4(in_position, 1.0);
+    o.position = Frame_Uniforms.view_proj * _1031;
+    o.v.view_normal = (float3x3(Frame_Uniforms.view[0].xyz, Frame_Uniforms.view[1].xyz, Frame_Uniforms.view[2].xyz) * float3x3(Frame_Uniforms.model[0].xyz, Frame_Uniforms.model[1].xyz, Frame_Uniforms.model[2].xyz)) * octahedral(skin_normals._member0[x]);
+    o.v.view_pos = (Frame_Uniforms.view * _1031).xyz;
+    o.v.mesh_pos = in_position;
+    out.gl_Position = o.position;
+    out.entryPointParam_main_v_view_normal = o.v.view_normal;
+    out.entryPointParam_main_v_view_pos = o.v.view_pos;
+    out.entryPointParam_main_v_mask = o.v.mask;
+    out.entryPointParam_main_v_paint = o.v.paint;
+    out.entryPointParam_main_v_group = o.v.group;
+    out.entryPointParam_main_v_mesh_pos = o.v.mesh_pos;
+    out.entryPointParam_main_v_slot = o.v.slot;
+    return out;
+}
+
