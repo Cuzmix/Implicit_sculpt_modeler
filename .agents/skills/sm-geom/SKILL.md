@@ -63,10 +63,14 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   lattice gets two thirds of the target, so `primitive(.Plane)` asks for half as many again.
 - Lattice rays (`src/geom/lattice_rays.odin`): the remesh's ray casting, public so `voxel.clay_from_mesh` shares it.
   `lattice_quantize(m, origin, h, pool, allocator)` snaps vertices to `LATTICE_FIX` (2¹⁶) units of the spacing;
-  `lattice_rays_cast(m, q, origin, h, n, axis, split, weight, pool, allocator) -> Lattice_Rays` casts every ray of the
-  lattice along `axis` (two passes: count, then fill; each ray's hits sorted and summed into a running winding, one per
+  `lattice_rays_cast(m, q, origin, h, n, split, weight, pool, allocator) -> [3]Lattice_Rays` casts every ray of the
+  lattice along all three axes in one visit of each triangle (two passes: count, then fill; each ray's hits sorted and summed into a running winding, one per
   crossing, triangles from `split` on counting `weight` times, as the remesh's booleans keep two meshes apart in one sum);
   `lattice_ray_hits(r, u, v)` reads a ray. Changing them changes remesh output: the remesh and boolean tests plus `bench --remesh` are the evidence.
+  At 10M the casts are memory-bound on the per-ray counters (a plain increment instead of the atomic saves under 5 %).
+- Many tree lookups in a row (Keep paint's `bvh_closest`, `project_along_normals`) go in `points_morton_order` order (`bvh.odin`):
+  twice as fast as the remesh's slab order at 10M. A tree built for one lookup a vertex uses `LOOKUP_LEAF` (16) triangles a
+  leaf: the Morton build's serial topology is most of its time, and leaves of 16 halve it at the same lookup cost.
 - Quad Remesh's engine is `src/quadmesh` (AutoRemesher behind a C boundary, `quadmesh.remesh` → `Polygon_Mesh{positions, first, corners}` of nearly all quads, 95 %+ regular vertices on our fixtures); the own retopology below stays as the fallback and the comparison.
 - Retopology (`src/geom/retopo.odin`, README "Retopology, UVs and baking"): `Quad_Mesh{positions, quads: [][4]u32}`;
   `mesh_retopo(source, bvh, wanted, pool)` = `mesh_decimate` to 0.45·wanted triangles → `pair_triangles` (greedy by corner

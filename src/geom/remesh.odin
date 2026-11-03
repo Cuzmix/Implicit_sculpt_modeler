@@ -190,7 +190,7 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 			remesh_report_destroy(r, allocator)
 			return {}, false
 		}
-		bvh := bvh_build_morton(m, pool = pool)
+		bvh := bvh_build_morton(m, LOOKUP_LEAF, pool = pool)
 		defer bvh_destroy(&bvh)
 		next := make([]Vec3, len(out.positions), runtime.heap_allocator())
 		defer delete(next, runtime.heap_allocator())
@@ -203,9 +203,17 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 	return out, true
 }
 
+// Triangles per leaf of the trees the remesh builds over the old mesh to look its
+// vertices up on it. The tree is built once and asked once a vertex, so its build
+// counts: at 20M old triangles, leaves of 16 build in 0.9 s where leaves of 4 (the
+// sculpting default, asked thousands of times a stroke) take 2.2 s, and a lookup costs
+// about the same in either.
+LOOKUP_LEAF :: 16
+
 // Each vertex of `out`'s nearest triangle of `m` within two cells (a vertex lies within
 // about half a cell of the surface it came from, a relaxed one or one on a cap further),
-// max(u32) where there is none. Each range of vertices starts its search afresh and then
+// max(u32) where there is none. The vertices are asked along a Morton curve
+// (points_morton_order). Each range of that order starts its search afresh and then
 // starts each from the last one's answer, which only speeds it: the answer is the
 // nearest whatever the start, so the result does not depend on the pool.
 @(private = "file")
@@ -214,14 +222,18 @@ remesh_sources :: proc(out: Mesh, m: Mesh, h: f32, pool: ^jobs.Pool, allocator: 
 		out, m: Mesh,
 		bvh:    Bvh,
 		reach:  f32,
+		order:  []u32,
 		tris:   []u32,
 	}
-	job := Job{out = out, m = m, bvh = bvh_build_morton(m, pool = pool), reach = 2 * h, tris = make([]u32, len(out.positions), allocator)}
+	heap := runtime.heap_allocator()
+	job := Job{out = out, m = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool = pool), reach = 2 * h, tris = make([]u32, len(out.positions), allocator)}
 	defer bvh_destroy(&job.bvh)
-	jobs.parallel_ranges(pool, len(out.positions), &job, proc(data: rawptr, lo, hi: int) {
+	job.order = points_morton_order(out.positions[:], pool, heap)
+	defer delete(job.order, heap)
+	jobs.parallel_ranges(pool, len(job.order), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		hint := BVH_NONE
-		for v in lo ..< hi {
+		for v in job.order[lo:hi] {
 			tri, _, _, ok := bvh_closest(job.bvh, job.m, job.out.positions[v], job.reach, hint)
 			job.tris[v] = tri if ok else max(u32)
 			if ok do hint = tri
@@ -617,7 +629,7 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	}
 	// Each stage's share of the whole, as a remesh of a 2M-vertex sculpt to 1M spends it,
 	// so a job's ring moves about evenly; a stage boundary is also where a cancel stops it.
-	STAGES :: [?]f32{0, 0.02, 0.08, 0.16, 0.24, 0.26, 0.28, 0.33, 0.65, 1}
+	STAGES :: [?]f32{0, 0.02, 0.24, 0.26, 0.28, 0.33, 0.65, 1}
 	stage := 0
 	next :: proc(progress: ^jobs.Progress, stage: ^int, share: [2]f32) -> bool {
 		stages := STAGES
@@ -628,10 +640,8 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 	r.q = lattice_quantize(m, r.origin, h, pool, context.temp_allocator)
 	defer for &rays in r.rays do lattice_rays_destroy(&rays)
 	if !next(progress, &stage, share) do return {}, false
-	for axis in 0 ..< 3 {
-		r.rays[axis] = lattice_rays_cast(m, r.q, r.origin, h, r.n, axis, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
-		if !next(progress, &stage, share) do return {}, false
-	}
+	r.rays = lattice_rays_cast(m, r.q, r.origin, h, r.n, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
+	if !next(progress, &stage, share) do return {}, false
 	find_flips(&r)
 	if thin != nil do keep_thin_parts(&r, thin)
 	defer {
@@ -1343,7 +1353,7 @@ march_cells :: proc(r: ^Remesher, allocator: runtime.Allocator) {
 	r.slabs = make([][dynamic]u32, r.n[2] - 1, context.temp_allocator)
 	jobs.parallel_for(r.pool, r.n[2] - 1, r, proc(data: rawptr, k: int) {
 		r := cast(^Remesher)data
-		r.slabs[k] = make([dynamic]u32, 0, 1024, runtime.heap_allocator())
+		r.slabs[k] = make([dynamic]u32, 0, 6 * slab_crossings(r, k), runtime.heap_allocator())
 		for j in 0 ..< r.n[1] - 1 do march_column(r, j, k, &r.slabs[k])
 	})
 	// Then all into one array, the slabs copied in parallel: the copy is mostly first
@@ -1356,6 +1366,20 @@ march_cells :: proc(r: ^Remesher, allocator: runtime.Allocator) {
 		copy(r.out.indices[r.slab_at[k]:], r.slabs[k][:])
 		delete(r.slabs[k])
 	})
+}
+
+// A generous estimate of the surface cells of slab k (between lattice
+// planes k and k + 1): the crossings on the edges of its cells. A slab grown from a small
+// capacity is copied again and again at 10M, and the page faults of those copies cost
+// about a tenth of the remesh; the room reserved beyond what is used is never touched,
+// so it costs address space, not memory.
+@(private = "file")
+slab_crossings :: proc(r: ^Remesher, k: int) -> int {
+	ny := r.n[1]
+	x := int(r.x_base[(k + 2) * ny] - r.x_base[k * ny])
+	y := int(r.y_base[(k + 2) * (ny - 1)] - r.y_base[k * (ny - 1)])
+	z := int(r.z_base[(k + 1) * ny] - r.z_base[k * ny])
+	return x + y + z + 64
 }
 
 @(private = "file")
@@ -1748,7 +1772,7 @@ dual_cells :: proc(r: ^Remesher, quads: ^[][4]u32, allocator: runtime.Allocator)
 	w := Walk{r = r, slabs = slabs}
 	jobs.parallel_for(r.pool, len(slabs), &w, proc(data: rawptr, k: int) {
 		w := cast(^Walk)data
-		w.slabs[k].verts = make([dynamic]Vec3, 0, 1024, runtime.heap_allocator())
+		w.slabs[k].verts = make([dynamic]Vec3, 0, slab_crossings(w.r, k), runtime.heap_allocator())
 		for j in 0 ..< w.r.n[1] - 1 do march_column(w.r, j, k, nil, &w.slabs[k])
 	})
 	w.base = make([]u32, len(slabs) + 1, context.temp_allocator)

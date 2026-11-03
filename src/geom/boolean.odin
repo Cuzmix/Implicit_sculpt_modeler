@@ -64,7 +64,8 @@ mesh_project_onto :: proc(m: ^Mesh, onto: Mesh, bvh: ^Bvh, reach: f32, pool: ^jo
 // Where each point of `positions` lands on `onto` (with `bvh` over its triangles) along
 // its normal: the nearer hit either way within `reach`, into `next`, and the triangle hit
 // into `tris` when given (max(u32) for none). A point with a zero normal or no hit stays
-// where it is. Returns how many found the surface.
+// where it is. Returns how many found the surface. The points are cast along a Morton
+// curve through them (points_morton_order), so neighbouring casts share the cache.
 project_along_normals :: proc(positions, normals: []Vec3, onto: Mesh, bvh: ^Bvh, reach: f32, pool: ^jobs.Pool, next: []Vec3, tris: []u32) -> int {
 	Job :: struct {
 		positions, normals: []Vec3,
@@ -73,16 +74,19 @@ project_along_normals :: proc(positions, normals: []Vec3, onto: Mesh, bvh: ^Bvh,
 		reach:              f32,
 		next:               []Vec3,
 		tris:               []u32,
+		order:              []u32,
 		hits:               []int, // per range
 	}
 	ranges := (len(positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
-	job := Job{positions, normals, onto, bvh^, reach, next, tris, make([]int, max(ranges, 1), context.temp_allocator)}
+	job := Job{positions, normals, onto, bvh^, reach, next, tris, nil, make([]int, max(ranges, 1), context.temp_allocator)}
+	job.order = points_morton_order(positions, pool, runtime.heap_allocator())
+	defer delete(job.order, runtime.heap_allocator())
 	jobs.parallel_ranges(pool, len(positions), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		stack := make([dynamic]u32, 0, 64, runtime.heap_allocator())
 		defer delete(stack)
 		hits := 0
-		for v in lo ..< hi {
+		for v in job.order[lo:hi] {
 			p, n := job.positions[v], job.normals[v]
 			job.next[v] = p
 			if job.tris != nil do job.tris[v] = max(u32)
