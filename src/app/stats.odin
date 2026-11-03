@@ -69,6 +69,7 @@ Frame_Stats :: struct {
 	// The last remesh: building the new surface, then preparing it to sculpt and upload.
 	remesh_ms:      f64,
 	remesh_setup_ms: f64,
+	remesh_cell:    f32, // the last remesh's lattice spacing, in its object's mesh space
 	// The last slice: cutting and capping, then preparing both parts to sculpt and upload.
 	slice_ms:       f64,
 	slice_setup_ms: f64,

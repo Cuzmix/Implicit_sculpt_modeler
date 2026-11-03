@@ -70,6 +70,9 @@ Object :: struct {
 	// Per level, the polygons whose edges its buffers hold for the wireframe (poly_edges.odin).
 	poly_edges: [sculpt.MAX_LEVELS]sculpt.Polygon_Source,
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
+	// The lattice spacing of its last remesh, in its mesh space, which Remesh again keeps
+	// (remesh_again_setup); 0 when no remesh made its mesh or another rebuild came after.
+	remesh_cell: f32,
 	// Its eye is off: out of view and out of reach until shown again (scene_tree.odin).
 	// Not hidden triangles, which are the sculptor's.
 	off:       bool,
@@ -449,6 +452,9 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 	defer delete(tri_from)
 	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	if old_to_new != nil do remesh_take_quads(&obj.levels, remeshed.quads, old_to_new, tri_from)
+	// After the rebuild, which forgets the cell of any remesh before.
+	obj.remesh_cell = remeshed.cell
+	app.stats.remesh_cell = remeshed.cell
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
@@ -1508,10 +1514,12 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // a mesh that comes without them. `old_to_new` and `tri_from` (not temporary) receive the
 // renumbering, as object_build_from fills them, for a caller that keeps maps into the
 // level. The caller waits for the GPU first. Returns false only when the new mesh could
-// not be uploaded.
+// not be uploaded. The object forgets its remesh cell (Object.remesh_cell).
 object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil, old_to_new: []u32 = nil, tri_from: []u32 = nil) -> bool {
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
+	// A new mesh is no longer the one a remesh made at that cell (remesh_apply sets its own).
+	obj.remesh_cell = 0
 	object_release_mesh(app, obj)
 	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	object_carry_layers(app, obj, layered, mirror)

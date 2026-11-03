@@ -52,6 +52,10 @@ Remesh_Options :: struct {
 	groups:      []u16,
 	quads:       bool, // the dual of the marching cubes: a closed mesh of quads only (Remesh_Report.quads)
 	mirror:      Remesh_Mirror,
+	// The lattice spacing to use, in the mesh's units, instead of the one `target` gives
+	// (0): Blender's voxel size, and what remeshing again at the object's own cell keeps,
+	// so the density stays as the sculpt grows, as DynaMesh keeps its resolution.
+	cell:        f32,
 }
 
 // Planes a remesh keeps its lattice the same on both sides of, as the brush's symmetry
@@ -90,6 +94,7 @@ Remesh_Report :: struct {
 	// always was; a higher density gives quads.
 	quads:        [][4]u32,
 	quads_thin:   bool,
+	cell:         f32, // the lattice spacing used, in the mesh's units
 }
 
 remesh_report_destroy :: proc(r: ^Remesh_Report, allocator := context.allocator) {
@@ -130,10 +135,12 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, options := REMESH_OPTIONS_DEFAULT, report: ^Remesh_Report = nil) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
 	// The lattice's box: the mesh's own, or grown even about the mirror's planes.
-	h, box := remesh_lattice_box(area, bounds, target, options.mirror) or_return
+	h := remesh_cell(area, bounds, target, options.cell) or_return
+	box := bounds
 	own: Remesh_Report
 	r := report if report != nil else &own
 	r^ = {}
+	r.cell = h
 	smooth := clamp(options.smooth, 0, REMESH_SMOOTH_MAX)
 	// The projection back onto the old surface takes the last tenth of the share.
 	rays_share := share
@@ -316,12 +323,11 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 	for &piece, i in pieces {
 		r.pieces += 1
 		piece_share := [2]f32{share[0] + f32(i) * span, share[0] + f32(i + 1) * span}
-		// The piece's own box, its low corner snapped down onto the whole mesh's lattice,
-		// so its lattice points are the whole's (neighbouring pieces meet on them) while
-		// its rays cover only the piece, not the whole box over again. The seams it is
-		// capped along are not holes the mesh had, so they go uncounted.
+		// The piece's own box: the lattice is anchored (lattice_origin), so its points are
+		// the whole's (neighbouring pieces meet on them) while its rays cover only the
+		// piece, not the whole box over again. The seams it is capped along are not holes
+		// the mesh had, so they go uncounted.
 		_, box := mesh_area_bounds(piece.mesh, pool)
-		for a in 0 ..< 3 do box.lo[a] = bounds.lo[a] + math.floor((box.lo[a] - bounds.lo[a]) / h) * h
 		seams: Remesh_Report
 		piece_quads: [][4]u32
 		one, built := remesh_closed_first(piece.mesh, h, box, smooth, pool, heap, progress, piece_share, &seams, &piece_quads if quads != nil && !r.quads_thin else nil, mirror)
@@ -367,36 +373,39 @@ remesh_groups :: proc(m: Mesh, groups: []u16, h: f32, bounds: Aabb, smooth: int,
 }
 
 // The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
-// uses: its spacing, and where its first point is (as remesh_run places it). The density
-// preview draws these very cells, so what it shows is what the remesh will build.
-remesh_lattice :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, origin: Vec3, ok: bool) {
-	box: Aabb
-	h, box = remesh_lattice_box(area, bounds, target, mirror) or_return
-	return h, box.lo - 1.5 * h, true
+// (or at spacing `cell`, when it is not 0) uses: its spacing, and where its first point is
+// (as remesh_run places it). The density preview draws these very cells, so what it shows
+// is what the remesh will build.
+remesh_lattice :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}, cell := f32(0)) -> (h: f32, origin: Vec3, ok: bool) {
+	h = remesh_cell(area, bounds, target, cell) or_return
+	return h, lattice_origin(bounds.lo, h, mirror), true
 }
 
-// The spacing remesh_lattice gives and the box remesh_run places the lattice from: the
-// mesh's own box, or with `mirror` that box grown to reach as far on both sides of each
-// plane and then out to a whole number of cells either side of it. The plane then lies
-// half way between two lattice points and every point's mirror image is a point, since
-// remesh_run starts the lattice a step and a half outside the box.
-remesh_lattice_box :: proc(area: f64, bounds: Aabb, target: int, mirror := Remesh_Mirror{}) -> (h: f32, box: Aabb, ok: bool) {
+// The spacing of a remesh of a surface of `area` to about `target` vertices, or `cell`
+// when it is not 0, made no finer than REMESH_MAX_LATTICE points along the box's longest
+// side allow.
+remesh_cell :: proc(area: f64, bounds: Aabb, target: int, cell := f32(0)) -> (h: f32, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return
-	box = bounds
-	for a in 0 ..< 3 do if mirror.axes[a] {
-		c := mirror.center[a]
-		e := max(c - bounds.lo[a], bounds.hi[a] - c, 0)
-		box.lo[a], box.hi[a] = c - e, c + e
+	extent := bounds.hi - bounds.lo
+	h = cell if cell > 0 else remesh_spacing_of(area, target)
+	h = max(h, max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
+	return h, h > 0
+}
+
+// The lattice's first point for a box starting at `lo`: between one and a half and two
+// and a half steps below it, and on the one lattice of spacing `h` whose points lie at a
+// whole number of steps and a half from the origin of the mesh's space, or from the
+// mirror's centre along a mirrored axis. A lattice placed from the box alone moved with
+// every change of the box, so a remesh of a remesh sampled every part of it anew and
+// softened what nobody touched, a little more each time; on the anchored lattice the
+// untouched surface lands on the very points it came from (as Blender's voxel grid sits
+// on the world's), and a mirrored point is a lattice point, half way across the plane.
+lattice_origin :: proc(lo: Vec3, h: f32, mirror := Remesh_Mirror{}) -> (origin: Vec3) {
+	for a in 0 ..< 3 {
+		c := mirror.center[a] if mirror.axes[a] else 0
+		origin[a] = c + (math.floor((lo[a] - c) / h) - 1.5) * h
 	}
-	extent := box.hi - box.lo
-	h = max(remesh_spacing_of(area, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
-	if !(h > 0) do return 0, {}, false
-	for a in 0 ..< 3 do if mirror.axes[a] {
-		c := mirror.center[a]
-		cells := math.ceil((box.hi[a] - c) / h)
-		box.lo[a], box.hi[a] = c - cells * h, c + cells * h
-	}
-	return h, box, true
+	return
 }
 
 // The area of `m` and the box around its triangles' corners, skipping the zeroed slots
@@ -497,12 +506,11 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 // as remesh_lattice says.
 remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, smooth := REMESH_SMOOTH_DEFAULT, quads: ^[][4]u32 = nil, mirror := Remesh_Mirror{}) -> (out: Mesh, ok: bool) {
 	if bounds.lo.x > bounds.hi.x do return {}, false
-	extent := bounds.hi - bounds.lo
-	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
+	r := Remesher{m = m, pool = pool, h = h, origin = lattice_origin(bounds.lo, h, mirror), split = split, op = op}
 	for a in 0 ..< 3 {
-		// The mesh starts 1.5 steps in and ends at least half a step before the last
+		// The mesh starts at least 1.5 steps in and ends more than a step before the last
 		// point, so the lattice's outer points are all outside.
-		r.n[a] = int(extent[a] / h) + 4
+		r.n[a] = int((bounds.hi[a] - r.origin[a]) / h) + 3
 		if r.n[a] > REMESH_MAX_LATTICE + 4 do return {}, false
 	}
 	// Each stage's share of the whole, as a remesh of a 2M-vertex sculpt to 1M spends it,
