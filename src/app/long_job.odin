@@ -113,7 +113,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Transparency,
 	.Stats, .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
-	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Viewport_Readout, .Reduce_Motion, .Left_Handed,
+	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,
 	.Input_Diagnostics, .History_Panel, .Pencil_Preferred, .Pen_As_Empty,
 }

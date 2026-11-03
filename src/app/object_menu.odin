@@ -110,7 +110,7 @@ OBJECT_CONVERSIONS := [Object_Type]Object_Verb {
 // What opened the object menu or the scene menu, for the exit stats.
 Menu_Opener :: enum u8 {
 	None,
-	Chip, // a tap on the chip bar's object chip
+	Chip, // a tap on the top bar's object chip
 	List, // a Scene card row's right-click or long press
 	Right, // a right click on the view
 	Pen, // the pen's side button (the Object menu command, run by the gesture map)

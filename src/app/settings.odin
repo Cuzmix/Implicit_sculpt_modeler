@@ -354,7 +354,6 @@ SETTINGS := [?]Setting {
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
-	{"top_islands", K + offset_of(Kit_State, top_islands), bool, 0, 0},
 	{"readout_hidden", K + offset_of(Kit_State, readout_hidden), bool, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
@@ -960,12 +959,6 @@ settings_load :: proc(app: ^App, path: string) {
 			i, i_ok := strconv.parse_int(f[1])
 			if !i_ok || i < 0 || i >= 4 do continue
 			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dials[.Sculpt][i] = s
-		case "chip_island":
-			// chip_island <section> <x> <y>: a chip bar section standing on its own.
-			chip_island_read(&app.kit, f)
-		case "top_order":
-			// top_order <start> <middle> <end>: the top bar's islands moved in Arrange.
-			top_order_read(&app.kit, f)
 		case "dial_space":
 			// dial_space <space> <0-3> modifier <name> | command <name>: Model's or Render's.
 			if len(f) != 5 do continue
@@ -1201,8 +1194,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			else do fmt.sbprintfln(&out, "dial_space %v %d %s", space, i, dial_sector_text(s))
 		}
 	}
-	chip_islands_save(&app.kit, &out)
-	top_order_save(&app.kit, &out)
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	if off := motion_off_text(&app.kit.ctx); off != "" do fmt.sbprintfln(&out, "motion_off %s", off)
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))

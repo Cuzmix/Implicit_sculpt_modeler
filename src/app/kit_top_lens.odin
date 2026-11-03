@@ -6,14 +6,17 @@ import "core:time"
 
 import "../ui"
 
-// The chip bar (the overhaul's round 3, which replaced the full-width top bar): one
-// floating bar across the top in the docks' style, its sections split by hairlines. The
-// menu and the file with whether it is saved; Save, Undo and Redo; the spaces as tabs
-// (spaces.odin); the object chip (object_chip.odin); Search; History and Settings. Home,
-// Save as, Import, Export and Help are in the menu, the passes on the pane. A section Arrange
-// took out stands as an island of its own (chip_islands.odin) and the bar closes up round
-// the rest. Returns the menu button and the Search button, which the menu and the command
-// palette open under.
+// The top bar: three docks along the top (Top_Dock), at its start corner, on the window's
+// centre line and at its end corner, each a dock of buttons the person edits as any other
+// (Edit docks, the Library), so the top bar holds whatever they reach for most. At first the
+// File dock holds the menu, the file chip (the file and whether it is saved), Save, Undo and
+// Redo; the Spaces dock the space tabs and the object chip; the App dock Search, History and
+// Settings. They are a setting, not a layout's: the Spaces dock holds the spaces' tabs, so
+// the bar is the same in every space and workspace. When the corners would reach the middle
+// dock, the chips give way in a fixed order (the object chip's badges, Search's field, the
+// chip's tag, the file chip, the tabs to the layout's chip, the object chip to its icon), and
+// only then does the middle leave the centre. Returns the menu button and the Search button,
+// which the menu and the command palette open under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -21,235 +24,23 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	area := ui.safe_area(ctx)
 	k.passes.chip_held = false
 	k.object_chip_fit = .None
-	k.chip_at = {}
-	arranging := k.bars_edit
-	// With every section out, the bar is drawn only while arranging, to take them back.
-	if !chip_islands_none(k) {
-		empty := true
-		for s in Chip_Section do if chip_in_bar(k, s) do empty = false
-		if empty && !arranging {
-			kit_chip_islands(app, &menu_anchor, &search_anchor)
-			return
-		}
-	}
-	in_bar := [Chip_Section]bool{}
-	for s in Chip_Section do in_bar[s] = chip_in_bar(k, s)
+	k.top_at = {}
+	k.space_tabs_at = {}
 	width := area.w - 2 * TOP_BAR_INSET
-	// Focus is always the three islands, its middle the workspace and X symmetry. Arranging
-	// keeps the bar's style, the work island (or the one bar's middle) holding what
-	// arranging needs.
-	if lens_focus(k) && !arranging do return kit_top_three(app, in_bar, width, focus = true)
-	if k.top_islands {
-		menu_anchor, search_anchor = kit_top_three(app, in_bar, width, arranging = arranging)
-		if !arranging do for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
-		kit_chip_islands(app, &menu_anchor, &search_anchor)
-		return
+	v := Top_Fit {
+		focus   = lens_focus(k) && !k.bars_edit,
+		arrange = k.bars_edit,
+		file    = !lens_focus(k),
+		field   = k.search_field,
+		fit     = .Full,
 	}
-	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = TOP_BAR_H - TOP_BAR_TOP, padding = 2, gap = 2, center = true, radius = t.radius_large, background = .Panel})
-	// What the row holds, for the gaps between: the bar counts fifteen
-	// things with every section in it (the middle's spacer among them).
-	things := 0
-	left: f32 = 0
-	if in_bar[.Menu] {
-		k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor)
-		// The button and the file, less the gap between them, which the row counts.
-		left += k.chip_at[.Menu].w - 2
-		things += 2
-	}
-	if in_bar[.Undo] {
-		if things > 0 {
-			top_divider(ctx)
-			left += TOP_DIVIDER_W
-			things += 1
-		}
-		k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
-		left += 3 * t.target
-		things += 3
-	}
-	// What the ends take, the middle gets. Search is an icon (the palette it opens has its
-	// own field), so the object chip gives up its badges, then its tag, then shrinks to
-	// its icon, and last the space tabs go to the layout's chip. With Settings' Search as
-	// a field, the field stays while the chip keeps at least its name, and shrinks to the
-	// icon before the chip gives up more.
-	before := things > 0
-	tabs: f32 = space_tabs_width(app) if in_bar[.Spaces] else 0
-	tab_div: f32 = TOP_DIVIDER_W if in_bar[.Spaces] && before else 0
-	chip_div: f32 = TOP_DIVIDER_W if in_bar[.Object] && (before || in_bar[.Spaces]) else 0
-	things += 1
-	if in_bar[.Spaces] do things += 1 + (1 if before else 0)
-	if in_bar[.Object] do things += 1 + (1 if before || in_bar[.Spaces] else 0)
-	right: f32 = 0
-	if in_bar[.Search] do things += 1
-	if in_bar[.End] {
-		right += 2 * t.target
-		things += 2
-		if in_bar[.Search] {
-			right += TOP_DIVIDER_W
-			things += 1
-		}
-	}
-	row := 2 * 2 + 2 * f32(things - 1)
-	middle := width - row - left - right
 	chip := object_chip_of(app)
-	fit := Object_Chip_Fit.None
-	field := false
-	if k.search_field && in_bar[.Search] {
-		if !arranging {
-			with_field := middle - TOP_SEARCH_W - tabs - tab_div - chip_div
-			switch {
-			case !in_bar[.Object]:
-				field = with_field >= 0
-			case object_chip_fit(ctx, chip, with_field) >= .Name:
-				field, fit = true, object_chip_fit(ctx, chip, with_field)
-			}
-		} else {
-			field = middle - arrange_top_width(app) >= TOP_SEARCH_W + 24
-		}
-	}
-	if in_bar[.Search] do middle -= TOP_SEARCH_W if field else t.target
-	if !arranging && in_bar[.Object] && !field do fit = object_chip_fit(ctx, chip, middle - tabs - tab_div - chip_div)
-	if arranging {
-		// Arranging, the middle holds what arranging needs in place of the tabs and the chip.
-		pill := arrange_top_width(app)
-		if middle >= pill + 8 {
-			pad := (middle - pill) * 0.5
-			ui.spacer(ctx, pad)
-			ui.spacer(ctx, max(middle - pad - arrange_top_controls(app), 0))
-		} else {
-			// Too narrow for them all: Done at least, the rest being in the Library and Search.
-			done_w: f32 = 84
-			pad := max((middle - done_w) * 0.5, 0)
-			ui.spacer(ctx, pad)
-			if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = done_w) do k.bars_edit = false
-			ui.spacer(ctx, max(middle - pad - done_w, 0))
-		}
-	} else if in_bar[.Spaces] && middle >= tabs + tab_div {
-		if tab_div > 0 do top_divider(ctx)
-		k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
-		used := tab_div + k.chip_at[.Spaces].w
-		if fit != .None {
-			top_divider(ctx)
-			k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = fit)
-			used += chip_div + ctx.last_rect.w
-		}
-		ui.spacer(ctx, max(middle - used, 0))
-	} else if in_bar[.Spaces] && middle >= WORKSPACE_CHIP_ROOM {
-		used: f32 = 0
-		if before {
-			top_divider(ctx)
-			used += TOP_DIVIDER_W
-		}
-		kit_workspace_chip(app)
-		ui.spacer(ctx, max(middle - used - ctx.last_rect.w, 0))
-	} else if !in_bar[.Spaces] && fit != .None {
-		if chip_div > 0 do top_divider(ctx)
-		k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = fit)
-		ui.spacer(ctx, max(middle - chip_div - ctx.last_rect.w, 0))
-	} else {
-		ui.spacer(ctx, max(middle, 0))
-	}
-	if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = field)
-	if in_bar[.End] {
-		if in_bar[.Search] do top_divider(ctx)
-		k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
-	}
-	ui.end(ctx)
-	// Where each section stood in the bar, for an island Arrange's Library takes out.
-	if !arranging do for s in Chip_Section do if in_bar[s] && k.chip_at[s].w > 0 do k.chip_home[s] = k.chip_at[s]
-	kit_chip_islands(app, &menu_anchor, &search_anchor)
-	return
-}
-
-// The room kept between two islands of the top bar, in points.
-TOP_ISLAND_GAP :: 8
-// The padding inside an island and the gap between its items, in points.
-TOP_ISLAND_PAD :: 2
-
-// What the three islands show, from everything down to the least that still works.
-@(private = "file")
-Top_Three :: struct {
-	focus:   bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the right
-	arrange: bool, // arranging: each island leads with its grip, the work island holds Arrange's controls
-	file:    bool, // the file block after the menu button
-	field:   bool, // Search as its field rather than its icon
-	tabs:    int, // the space tabs (0), the layout's chip (1) or neither (2); arranging, all of Arrange's controls (0) or Done alone
-	fit:     Object_Chip_Fit,
-}
-
-// The width Done takes alone in the work island while arranging, when Arrange's other
-// controls have no room (they are in the Library and Search too).
-ARRANGE_DONE_W :: 84
-
-// The top bar as three islands (Settings > Interface > Top bar): the menu, the file and
-// Undo and Redo; the spaces and the object chip; Search, History and Settings. They stand in
-// the bar's start corner, its middle on the window's centre line and its end corner, in
-// the order Arrange left them (top_islands.odin). One full-width row holds them, so a
-// control's name stays "top bar/..." and a section dragged in Arrange goes back by the same
-// rectangle. When the corners would reach the middle island, parts give way in a fixed
-// order (the chip's badges, Search's field, the chip's tag, the file block, the tabs to the
-// layout's chip, the chip to its icon), and only then does the middle leave the centre.
-@(private = "file")
-kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus := false, arranging := false) -> (menu_anchor, search_anchor: ui.Rect) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	chip := object_chip_of(app)
-	file_w := top_file_width(app)
-	order := top_order(k)
-	// An island's width: its items, the gaps between them and its padding, and its grip
-	// first while arranging when it holds anything.
-	island_w :: proc(items: []f32, v: Top_Three) -> f32 {
-		w: f32 = 0
-		n := 0
-		for x in items do if x > 0 {
-			w += x
-			n += 1
-		}
-		if n == 0 do return 0
-		if v.arrange {
-			w += TOP_GRIP_W
-			n += 1
-		}
-		return w + f32(n - 1) * TOP_ISLAND_PAD + 2 * TOP_ISLAND_PAD
-	}
-	widths :: proc(app: ^App, in_bar: [Chip_Section]bool, v: Top_Three, chip: Object_Chip, file_w: f32) -> [Top_Island]f32 {
-		ctx := &app.kit.ctx
-		t := ctx.theme
-		w: [Top_Island]f32
-		w[.File] = island_w({t.target if in_bar[.Menu] else 0, file_w if in_bar[.Menu] && v.file else 0, TOP_DIVIDER_W if in_bar[.Menu] && in_bar[.Undo] else 0, 3 * t.target + 2 * TOP_ISLAND_PAD if in_bar[.Undo] else 0}, v)
-		search: f32 = 0
-		if in_bar[.Search] do search = TOP_SEARCH_W if v.field else t.target
-		// Focus, with no view bar, keeps View layout and Passes here.
-		view: f32 = TOP_DIVIDER_W + 2 * t.target + TOP_ISLAND_PAD if v.focus else 0
-		w[.App] = island_w({search, view, TOP_DIVIDER_W if in_bar[.Search] && in_bar[.End] else 0, 2 * t.target + TOP_ISLAND_PAD if in_bar[.End] else 0}, v)
-		switch {
-		case v.arrange:
-			w[.Work] = island_w({arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W}, v)
-		case v.focus:
-			w[.Work] = island_w({WORKSPACE_CHIP_ROOM, FOCUS_SYMMETRY_W}, v)
-		case:
-			tabs: f32 = 0
-			if in_bar[.Spaces] && v.tabs == 0 do tabs = space_tabs_width(app)
-			if in_bar[.Spaces] && v.tabs == 1 do tabs = WORKSPACE_CHIP_ROOM
-			obj: f32 = object_chip_width(ctx, chip, v.fit) if in_bar[.Object] else 0
-			w[.Work] = island_w({tabs, TOP_DIVIDER_W if tabs > 0 && obj > 0 else 0, obj}, v)
-		}
-		return w
-	}
-	v := Top_Three {
-		focus   = focus,
-		arrange = arranging,
-		file    = !focus,
-		field   = k.search_field && in_bar[.Search],
-		tabs    = 0 if in_bar[.Spaces] || arranging else 2,
-		fit     = .Full if in_bar[.Object] && !arranging else .None,
-	}
-	fits :: proc(w: [Top_Island]f32, order: [3]Top_Island, width: f32) -> bool {
-		side := max(w[order[0]], w[order[2]])
-		return w[order[1]] <= width - 2 * (side + TOP_ISLAND_GAP)
+	fits :: proc(w: [Top_Dock]f32, width: f32) -> bool {
+		side := max(w[.File], w[.App])
+		return w[.Spaces] <= width - 2 * (side + TOP_ISLAND_GAP)
 	}
 	for step in 0 ..< 6 {
-		if fits(widths(app, in_bar, v, chip, file_w), order, width) do break
+		if fits(top_widths(app, v, chip), width) do break
 		switch step {
 		case 0: if v.fit > .Tag do v.fit = .Tag
 		case 1: v.field = false
@@ -259,75 +50,265 @@ kit_top_three :: proc(app: ^App, in_bar: [Chip_Section]bool, width: f32, focus :
 		case 5: if v.fit > .Icon do v.fit = .Icon
 		}
 	}
-	// Off centre at last: the work island takes what the others leave, and gives up the
+	// Off centre at last: the middle takes what the corners leave, and gives up the
 	// layout's chip, then shrinks the object chip, before anything overlaps.
-	w := widths(app, in_bar, v, chip, file_w)
-	if !v.arrange && !v.focus && w[.File] + w[.Work] + w[.App] + 2 * TOP_ISLAND_GAP > width {
+	w := top_widths(app, v, chip)
+	if !v.arrange && !v.focus && w[.File] + w[.Spaces] + w[.App] + 2 * TOP_ISLAND_GAP > width {
 		room := width - w[.File] - w[.App] - 2 * TOP_ISLAND_GAP
 		v.tabs = 2
-		if in_bar[.Object] do v.fit = object_chip_fit(ctx, chip, room - 2 * TOP_ISLAND_PAD)
-		w = widths(app, in_bar, v, chip, file_w)
+		rest := max(top_dock_width(app, .Spaces, v, chip, skip_chip = true), 2 * TOP_ISLAND_PAD)
+		v.fit = object_chip_fit(ctx, chip, room - rest - TOP_ISLAND_PAD)
+		w = top_widths(app, v, chip)
 	}
 	h: f32 = TOP_BAR_H - TOP_BAR_TOP
 	island := ui.Box{direction = .Row, height = h, padding = TOP_ISLAND_PAD, gap = TOP_ISLAND_PAD, center = true, radius = t.radius_large, background = .Panel}
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {TOP_BAR_INSET, TOP_BAR_TOP}, {direction = .Row, width = width, height = h, center = true})
-	// The islands as drawn last frame, so the middle sits on the centre to the point; the
-	// sums above stand in on the first frame and when what shows changes.
-	// Focus's and Arrange's work island holds chips whose widths the sums only guess, so it
-	// takes last frame's width whenever there is one.
+	// The docks as drawn last frame, so the middle sits on the centre to the point; the sums
+	// stand in on the first frame and when what shows changes. Focus's and Arrange's middle
+	// holds chips whose widths the sums only guess, so it takes last frame's width whenever
+	// there is one.
 	drawn :: proc(ctx: ^ui.Context, name: string, sum: f32, trust := false) -> f32 {
 		size, _ := ui.prev_layout(ctx, name)
 		return size.x if size.x > 0 && (trust || abs(size.x - sum) < 24) else sum
 	}
-	k.top_island_at = {}
 	used: f32 = 0
-	for isl, slot in order {
-		if w[isl] <= 0 do continue
-		dw := drawn(ctx, TOP_ISLAND_ROOTS[isl], w[isl], trust = isl == .Work && (v.focus || v.arrange))
+	for d in Top_Dock {
+		if w[d] <= 0 do continue
+		dw := drawn(ctx, TOP_DOCK_ROOTS[d], w[d], trust = d == .Spaces && (v.focus || v.arrange))
 		at: f32
-		switch slot {
-		case 0:
+		switch d {
+		case .File:
 			at = 0
-		case 1:
-			at = clamp((width - dw) * 0.5, used + TOP_ISLAND_GAP, max(width - w[order[2]] - TOP_ISLAND_GAP - dw, used + TOP_ISLAND_GAP))
-		case:
+		case .Spaces:
+			at = clamp((width - dw) * 0.5, used + TOP_ISLAND_GAP, max(width - w[.App] - TOP_ISLAND_GAP - dw, used + TOP_ISLAND_GAP))
+		case .App:
 			at = max(width - dw, used)
 		}
 		ui.spacer(ctx, at - used)
-		ui.begin(ctx, TOP_ISLAND_ROOTS[isl], island)
-		if v.arrange do top_island_grip(app, isl)
-		switch isl {
-		case .File:
-			if in_bar[.Menu] do k.chip_at[.Menu] = chip_section_draw(app, .Menu, &menu_anchor, &search_anchor, file = v.file)
-			if in_bar[.Menu] && in_bar[.Undo] do top_divider(ctx)
-			if in_bar[.Undo] do k.chip_at[.Undo] = chip_section_draw(app, .Undo, &menu_anchor, &search_anchor)
-		case .Work:
-			switch {
-			case v.arrange:
-				// Arranging, the work island holds what arranging needs in place of the tabs
-				// and the chip, or Done alone when the rest has no room.
-				if v.tabs == 0 do _ = arrange_top_controls(app)
-				else if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = ARRANGE_DONE_W) do k.bars_edit = false
-			case v.focus:
-				top_focus_middle(app)
-			case:
-				if v.tabs == 0 do k.chip_at[.Spaces] = chip_section_draw(app, .Spaces, &menu_anchor, &search_anchor)
-				if v.tabs == 1 do kit_workspace_chip(app)
-				if v.tabs < 2 && v.fit != .None do top_divider(ctx)
-				if v.fit != .None do k.chip_at[.Object] = chip_section_draw(app, .Object, &menu_anchor, &search_anchor, fit = v.fit)
-			}
-		case .App:
-			if in_bar[.Search] do k.chip_at[.Search] = chip_section_draw(app, .Search, &menu_anchor, &search_anchor, field = v.field)
-			if v.focus do top_focus_view(app)
-			if in_bar[.Search] && in_bar[.End] do top_divider(ctx)
-			if in_bar[.End] do k.chip_at[.End] = chip_section_draw(app, .End, &menu_anchor, &search_anchor)
+		ui.begin(ctx, TOP_DOCK_ROOTS[d], island)
+		switch {
+		case d == .Spaces && v.arrange:
+			// Editing, the middle holds what editing needs in place of its buttons, or Done
+			// alone when the rest has no room.
+			if v.tabs == 0 do _ = arrange_top_controls(app)
+			else if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = ARRANGE_DONE_W) do k.bars_edit = false
+		case d == .Spaces && v.focus:
+			top_focus_middle(app)
+		case:
+			top_dock_draw(app, d, v, chip, &menu_anchor, &search_anchor)
+			if d == .App && v.focus do top_focus_view(app)
 		}
 		ui.end(ctx)
-		k.top_island_at[isl] = ui.last_ended(ctx)
+		k.top_at[d] = ui.last_ended(ctx)
 		used = at + dw
 	}
 	ui.end(ctx)
 	return
+}
+
+// The top dock bar `which` is, or false for any other bar.
+top_dock_of :: proc(which: Bar_Which) -> (Top_Dock, bool) {
+	#partial switch which {
+	case .Top_File:   return .File, true
+	case .Top_Spaces: return .Spaces, true
+	case .Top_App:    return .App, true
+	}
+	return {}, false
+}
+
+// The three docks of the top bar, from the start corner.
+Top_Dock :: enum u8 {
+	File,
+	Spaces,
+	App,
+}
+
+// Each top dock's bar.
+@(rodata)
+TOP_DOCK_BARS := [Top_Dock]Bar_Which {
+	.File   = .Top_File,
+	.Spaces = .Top_Spaces,
+	.App    = .Top_App,
+}
+
+// Each top dock's root in the bar's row, which its drawn width is read back from; the
+// whole row stays "top bar", so a control's name is "top bar/<dock>/...".
+@(rodata)
+TOP_DOCK_ROOTS := [Top_Dock]string {
+	.File   = "file dock",
+	.Spaces = "spaces dock",
+	.App    = "app dock",
+}
+
+// What the top docks show this frame, from everything down to the least that still works.
+Top_Fit :: struct {
+	focus:   bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the end
+	arrange: bool, // editing the docks: the middle holds the editing controls
+	file:    bool, // the file chip
+	field:   bool, // Search as its field rather than its icon
+	tabs:    int, // the space tabs (0), the layout's chip (1) or neither (2); editing, all of the controls (0) or Done alone
+	fit:     Object_Chip_Fit,
+}
+
+// The room kept between two docks of the top bar, in points.
+TOP_ISLAND_GAP :: 8
+// The padding inside a top dock and the gap between its buttons, in points.
+TOP_ISLAND_PAD :: 2
+
+// The width Done takes alone in the middle while editing, when the other controls have no
+// room (they are in the Library and Search too).
+ARRANGE_DONE_W :: 84
+
+// Whether a hairline stands between two neighbouring buttons of a top dock: after a chip
+// (the file, the space tabs) and after Search, as between the bar's groups.
+top_divides :: proc(prev, next: Command_Id) -> bool {
+	#partial switch prev {
+	case .File_Chip, .Space_Tabs, .Command_Palette: return true
+	case .Main_Menu:                                return next != .File_Chip
+	}
+	return false
+}
+
+// How wide button `s` of a top dock stands with `v`'s give-way, in points; 0 when it gives
+// way altogether.
+top_slot_width :: proc(app: ^App, s: Bar_Slot, v: Top_Fit, chip: Object_Chip) -> f32 {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	// Editing, every button stands as its icon, to be carried, removed or changed.
+	if v.arrange do return t.target
+	#partial switch s.id {
+	case .File_Chip:
+		return top_file_width(app) if v.file else 0
+	case .Space_Tabs:
+		switch v.tabs {
+		case 0: return space_tabs_width(app)
+		case 1: return WORKSPACE_CHIP_ROOM
+		}
+		return 0
+	case .Object_Chip:
+		return object_chip_width(ctx, chip, v.fit) if v.fit != .None else 0
+	case .Command_Palette:
+		return TOP_SEARCH_W if v.field else t.target
+	}
+	if _, ok := value_of(s); ok do return VALUE_CHIP.x
+	return t.target
+}
+
+// Top dock `d`'s width with `v`'s give-way: its buttons, the hairlines and gaps between them
+// and its padding (the + while editing too). With `skip_chip` the object chip is left out,
+// for what the rest of the middle takes.
+top_dock_width :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, skip_chip := false) -> f32 {
+	t := app.kit.ctx.theme
+	w: f32 = 0
+	n := 0
+	prev := Command_Id.None
+	for s in bar_used(app, TOP_DOCK_BARS[d]) {
+		if skip_chip && s.id == .Object_Chip do continue
+		x := top_slot_width(app, s, v, chip)
+		if x <= 0 do continue
+		if n > 0 && top_divides(prev, s.id) {
+			w += TOP_DIVIDER_W
+			n += 1
+		}
+		w += x
+		n += 1
+		prev = s.id
+	}
+	if v.arrange {
+		w += t.target
+		n += 1
+	}
+	if n == 0 do return 0
+	return w + f32(n - 1) * TOP_ISLAND_PAD + 2 * TOP_ISLAND_PAD
+}
+
+// The three docks' widths with `v`'s give-way.
+top_widths :: proc(app: ^App, v: Top_Fit, chip: Object_Chip) -> (w: [Top_Dock]f32) {
+	for d in Top_Dock do w[d] = top_dock_width(app, d, v, chip)
+	switch {
+	case v.arrange:
+		w[.Spaces] = (arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W) + 2 * TOP_ISLAND_PAD
+	case v.focus:
+		w[.Spaces] = WORKSPACE_CHIP_ROOM + FOCUS_SYMMETRY_W + 3 * TOP_ISLAND_PAD
+		w[.App] += TOP_DIVIDER_W + 2 * app.kit.ctx.theme.target + 3 * TOP_ISLAND_PAD
+	}
+	return
+}
+
+// Draws top dock `d`'s buttons with `v`'s give-way: the chips and the bar's own buttons
+// (the menu, Save with Undo and Redo's scrubbing, Search, History) as they behave there,
+// anything else the person put on it as any dock's button; while editing, its + after them.
+top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, menu_anchor, search_anchor: ^ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	which := TOP_DOCK_BARS[d]
+	used := bar_used(app, which)
+	prev := Command_Id.None
+	drawn := 0
+	undo_at: ui.Rect
+	for s, i in used {
+		if top_slot_width(app, s, v, chip) <= 0 do continue
+		if drawn > 0 && top_divides(prev, s.id) do top_divider(ctx)
+		drawn += 1
+		prev = s.id
+		if v.arrange {
+			bar_slot_button(app, which, i, s)
+			continue
+		}
+		#partial switch s.id {
+		case .Main_Menu:
+			if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
+				k.menu = !k.menu
+				k.menu_scroll = 0
+			}
+			menu_anchor^ = ctx.last_rect
+		case .File_Chip:
+			_ = top_file_block(app)
+		case .Save_Scene:
+			// It stands out while the scene has changes to save.
+			if ui.icon_button(ctx, "Save scene##top save", ui.ICON_SAVE, selected = scene_unsaved(app) && app.scene_path != "", keys = command_hint(app, .Save_Scene)) do command_run(app, .Save_Scene)
+		case .Undo, .Redo:
+			// A long press on either, slid sideways, scrubs the History, and let go unslid
+			// (or a right-click) opens the History panel, to go back or forward many steps.
+			undo := s.id == .Undo
+			name := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:])) if undo else fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
+			if ui.icon_button(ctx, name, ui.ICON_UNDO if undo else ui.ICON_REDO, enabled = command_enabled(app, s.id), keys = command_hint(app, s.id)) do command_run(app, s.id)
+			quick_scrub_button(app, .Undo if undo else .Redo)
+			undo_at = ctx.last_rect if undo_at.w <= 0 else ui.rect_union(undo_at, ctx.last_rect)
+		case .Space_Tabs:
+			if v.tabs == 0 {
+				_ = top_space_tabs(app)
+				k.space_tabs_at = ui.last_ended(ctx)
+			} else {
+				kit_workspace_chip(app)
+			}
+		case .Object_Chip:
+			top_object_chip(app, chip, v.fit)
+		case .Command_Palette:
+			if v.field {
+				search_anchor^ = top_search_field(app)
+				continue
+			}
+			if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
+				if k.palette do palette_close(app)
+				else do palette_open(app)
+			}
+			search_anchor^ = ctx.last_rect
+		case .History_Panel:
+			if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
+			k.history_at = ctx.last_rect
+		case .Settings:
+			_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
+		case:
+			bar_slot_button(app, which, i, s)
+		}
+	}
+	// The pen's roll over Undo and Redo steps through the History.
+	if undo_at.w > 0 {
+		history_roll(app, undo_at)
+		pen_zone(app, undo_at, .History)
+	}
+	if v.arrange do bar_add_button(app, which, len(used))
 }
 
 // Whether the layout is focused: its workspace hides the view bar, as the built-in
@@ -371,7 +352,7 @@ top_focus_view :: proc(app: ^App) {
 
 // How opaque the chips over the view are, of 255.
 TOP_GLASS_ALPHA :: 189
-// The chip bar floats this far in from the safe area's sides and down from its top, in
+// The top bar floats this far in from the safe area's sides and down from its top, in
 // points; TOP_BAR_H is the room it takes, those points with it.
 TOP_BAR_INSET :: 8
 TOP_BAR_TOP :: 4

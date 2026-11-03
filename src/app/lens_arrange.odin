@@ -44,14 +44,6 @@ Arrange_State :: struct {
 	resizes:      int,
 	// Floating drops that lined up with a neighbour (for the exit stats).
 	aligns:       int,
-	// The chip bar's section being carried (chip_islands.odin), which shares the dock's
-	// carry_from, carry_press and carrying, and how many were let go.
-	chip_carry:   Maybe(Chip_Section),
-	chip_carries: int,
-	// The top bar's island being carried by its grip (top_islands.odin), which shares the
-	// same carry fields, and how many were let go.
-	island_carry:   Maybe(Top_Island),
-	island_carries: int,
 	// Whether Arrange was on last frame, and how many times it has opened, so its outlines
 	// draw in afresh each time (Arrange outlines motion).
 	was_on:      bool,
@@ -188,7 +180,6 @@ kit_arrange_lens :: proc(app: ^App) {
 	if !k.bars_edit {
 		k.arrange.library_off = false
 		k.arrange.carry, k.arrange.carrying, k.arrange.resize = nil, false, nil
-		k.arrange.chip_carry, k.arrange.island_carry = nil, nil
 		k.arrange.was_on = false
 		return
 	}
@@ -251,11 +242,8 @@ kit_arrange_lens :: proc(app: ^App) {
 		arrange_drop_edges(app, carried)
 		for l in align_lines do if l.shown do ui.line(ctx, l.a, l.b, ui.color_fade(t.accent, 0.55), 1)
 	}
-	chips := arrange_chip_sections(app)
-	islands := arrange_top_islands(app)
-	// The Library steps aside while a dock, a section or an island is carried, so the view
-	// under it takes the drop.
-	if !carrying && !chips && !islands do kit_library(app)
+	// The Library steps aside while a dock is carried, so the view under it takes the drop.
+	if !carrying do kit_library(app)
 }
 
 // Where carried dock `b`'s outline (its rect at the press, moved with the pointer `p`)
@@ -278,7 +266,6 @@ arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	ctx := &k.ctx
 	s := &k.arrange
 	if a.pressed {
-		s.chip_carry, s.island_carry = nil, nil
 		s.carry, s.carry_from, s.carry_press, s.carrying = b, r, a.mouse, false
 		return
 	}
@@ -414,7 +401,6 @@ kit_library :: proc(app: ^App) {
 		library_dial(app, inner)
 	case .Docks:
 		library_docks(app, inner)
-		library_chip_sections(app, inner)
 	}
 	ui.end(ctx)
 }

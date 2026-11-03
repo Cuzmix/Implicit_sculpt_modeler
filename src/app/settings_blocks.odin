@@ -103,7 +103,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Size             = "size interface scale bigger text touch targets zoom",
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
-	.Top_Bar          = "top bar search field icon chip bar command palette three islands one bar centred style",
+	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
@@ -233,9 +233,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
 	case .Top_Bar:
-		styles := [2]string{"Three islands", "One bar"}
-		if picked := ui.tabs(ctx, "Top bar style", styles[:], 0 if k.top_islands else 1); picked >= 0 do k.top_islands = picked == 0
-		ui.paragraph(ctx, "Three islands: the file and Undo at the left, the spaces and the selected object centred on the window, Search, History and Settings at the right; as the window narrows the middle keeps its place while the others give up their least needed parts. One bar: the same in one strip across the top.")
+		ui.paragraph(ctx, "The top bar is three docks: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit docks changes their buttons as any dock's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
 	case .Action_Bar:
@@ -498,7 +496,9 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
-	case .Top_Bar:         k.search_field, k.top_islands, k.top_order = false, true, TOP_ORDER_DEFAULT
+	case .Top_Bar:
+		k.search_field = false
+		for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true

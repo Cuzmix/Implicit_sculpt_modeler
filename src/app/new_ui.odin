@@ -223,12 +223,11 @@ Kit_State :: struct {
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
-	// The chip bar's sections out of it, each standing as an island at its top-left (layout
-	// terms, chip_islands.odin), a setting; where each was drawn this frame, and where each
-	// last stood in the bar, for one the Library takes out.
-	islands:    [Chip_Section]Maybe([2]f32),
-	chip_at:    [Chip_Section]ui.Rect,
-	chip_home:  [Chip_Section]ui.Rect,
+	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
+	// the space tabs were drawn this frame.
+	top_docks:     [Top_Dock]Bar_List,
+	top_at:        [Top_Dock]ui.Rect,
+	space_tabs_at: ui.Rect,
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -315,7 +314,7 @@ Kit_State :: struct {
 	scene_menu:     bool,
 	scene_menu_at:  ui.Rect,
 	scene_menu_side: ui.Side,
-	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
+	object_chip_fit:  Object_Chip_Fit, // how much of the top bar's object chip showed last frame
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
@@ -402,13 +401,6 @@ Kit_State :: struct {
 	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
 	// while it is set.
 	edge_set_at:  f64,
-	// The top bar as three islands, the spaces centred (the default), or as one bar
-	// (Settings > Interface > Top bar).
-	top_islands: bool,
-	// Which island stands in each of the top bar's three places, and where each was drawn
-	// this frame (top_islands.odin).
-	top_order:     [3]Top_Island,
-	top_island_at: [Top_Island]ui.Rect,
 	// On a tablet-shaped window the shelf keeps to SHELF_TABLET tiles' width left of the
 	// middle, clear of the pen hand's palm (Settings > Bars, lens_shelf.odin).
 	shelf_palm: bool,
@@ -1076,7 +1068,6 @@ kit_init :: proc(app: ^App) {
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
-	k.top_islands = true
 	k.shelf_palm = true
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
