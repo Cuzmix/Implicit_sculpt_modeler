@@ -34,6 +34,11 @@ THIN_FACING :: f32(0.7)
 THIN_ACROSS :: 4
 // The most a thin part asks for (AutoRemesher holds density within 1/16 to 16).
 THIN_DENSITY_MAX :: f32(16)
+// The vertices measured per quad asked, about: a sculpt has hundreds of vertices to a
+// quad (500k for 2,500 quads on a creature, where measuring them all took a second), and
+// a part thin enough to matter has dozens of these within a quad of it. The rest take
+// the most their measured neighbours ask.
+THIN_SAMPLES_PER_QUAD :: 32
 // The rounds of averaging the refinement with the neighbours, so it fades out over a few
 // edges rather than stepping (the ray's own noise goes too).
 THIN_BLUR_ROUNDS :: 3
@@ -69,6 +74,15 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 	}
 	bvh := geom.bvh_build_morton(m, geom.BVH_LEAF_SIZE, pool)
 	defer geom.bvh_destroy(&bvh)
+	// One vertex in `every` is measured, picked by a hash of its index so the picks
+	// spread over the surface whatever order the vertices come in.
+	area: f64
+	for k := 0; k + 2 < len(m.indices); k += 3 {
+		a, b, c := m.positions[m.indices[k]], m.positions[m.indices[k + 1]], m.positions[m.indices[k + 2]]
+		area += f64(linalg.length(linalg.cross(b - a, c - a))) / 2
+	}
+	samples := area / f64(quad_edge * quad_edge) * THIN_SAMPLES_PER_QUAD
+	every := u32(max(1, f64(n) / max(samples, 1)))
 	asked := make([]f32, n)
 	Job :: struct {
 		m:           geom.Mesh,
@@ -78,12 +92,18 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 		quad_edge:   f32,
 		round_below: f32,
 		reach:       f32,
+		every:       u32,
 	}
-	job := Job{m, &bvh, normals, asked, quad_edge, round_below, reach}
+	job := Job{m, &bvh, normals, asked, quad_edge, round_below, reach, every}
 	jobs.parallel_ranges(pool, n, &job, proc(data: rawptr, lo, hi: int) {
 		j := (^Job)(data)
 		stack := make([dynamic]u32, 0, 64, context.temp_allocator)
 		for v in lo ..< hi {
+			// 0 for not measured, filled in from the neighbours after.
+			if j.every > 1 && (u32(v) * 2654435761) % j.every != 0 {
+				j.asked[v] = 0
+				continue
+			}
 			j.asked[v] = 1
 			normal := j.normals[v]
 			length := linalg.length(normal)
@@ -132,6 +152,7 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 			j.asked[v] = min((j.quad_edge / edge) * (j.quad_edge / edge), THIN_DENSITY_MAX)
 		}
 	}, 4096)
+	if every > 1 do fill_unmeasured(m, asked)
 	for a in asked do if a > 1 do thin += 1
 	if thin == 0 {
 		delete(asked)
@@ -156,17 +177,17 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 	// 1 + s E / W (E the extra density over the area, W the area) keeps about d where d is
 	// large, for s = W / (W - E), held to THIN_RAISE_MAX where the thin parts are most of
 	// the surface.
-	area := make([]f32, n)
-	defer delete(area)
+	vertex_area := make([]f32, n)
+	defer delete(vertex_area)
 	for k := 0; k + 2 < len(m.indices); k += 3 {
 		a, b, c := m.indices[k], m.indices[k + 1], m.indices[k + 2]
 		third := linalg.length(linalg.cross(m.positions[b] - m.positions[a], m.positions[c] - m.positions[a])) / 6
-		area[a] += third
-		area[b] += third
-		area[c] += third
+		vertex_area[a] += third
+		vertex_area[b] += third
+		vertex_area[c] += third
 	}
 	whole, extra: f64
-	for w, v in area {
+	for w, v in vertex_area {
 		whole += f64(w)
 		extra += f64(w) * f64(asked[v] - 1)
 	}
@@ -174,6 +195,35 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 	if whole - extra > 0 do raise = clamp(f32(whole / (whole - extra)), 1, THIN_RAISE_MAX)
 	for &d in asked do d = min(1 + (d - 1) * raise, THIN_DENSITY_MAX)
 	return asked, finer, thin
+}
+
+// Each vertex not measured (asked 0) takes the most its measured neighbours ask, round by
+// round outward from them, each round from the last's values; one no round reaches (a
+// piece with no measured vertex) asks 1.
+@(private = "file")
+fill_unmeasured :: proc(m: geom.Mesh, asked: []f32) {
+	next := make([]f32, len(asked))
+	defer delete(next)
+	for {
+		copy(next, asked)
+		grew := false
+		for k := 0; k + 2 < len(m.indices); k += 3 {
+			for e in 0 ..< 3 {
+				a, b := m.indices[k + e], m.indices[k + (e + 1) % 3]
+				if asked[a] == 0 && asked[b] > 0 && asked[b] > next[a] {
+					next[a] = asked[b]
+					grew = true
+				}
+				if asked[b] == 0 && asked[a] > 0 && asked[a] > next[b] {
+					next[b] = asked[a]
+					grew = true
+				}
+			}
+		}
+		copy(asked, next)
+		if !grew do break
+	}
+	for &a in asked do if a == 0 do a = 1
 }
 
 // Each vertex's size lowered to the least of its own and any vertex's size plus

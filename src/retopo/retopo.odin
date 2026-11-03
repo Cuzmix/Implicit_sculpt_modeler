@@ -655,7 +655,9 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	// one half leaves through the cap into nothing. The half's vertices take their
 	// measures through the cut's origins (half_thin_values).
 	whole_area, _ := geom.mesh_area_bounds(input, pool)
+	thin_start := time.tick_now()
 	whole_thin, whole_refine, whole_thin_count := thin_density(input, f32(math.sqrt(whole_area / f64(max(quads, 1)))), pool)
+	log.infof("quad remesh: thin parts measured over %d vertices in %.0f ms, %d thin", len(input.positions), time.duration_milliseconds(time.tick_since(thin_start)), whole_thin_count)
 	defer delete(whole_thin)
 	defer delete(whole_refine)
 	half_thin, half_refine: []f32
