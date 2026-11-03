@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(36)
+SCENE_VERSION :: u32(37)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2055,6 +2055,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, object_view_bits(obj))
 	geom.byte_put(out, i32(obj.folder))
 	geom.byte_put(out, obj.vis_off)
+	geom.byte_put(out, obj.remesh_cell)
 	geom.byte_put(out, u8(object_kind(obj)))
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
@@ -2208,7 +2209,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 }
 
 // Reads what object_put writes before the levels: the id, name, placement, boolean mode,
-// view flags, folder and stored eyes; r.ok goes false on damage. The caller owns
+// view flags, folder, stored eyes and last remesh cell; r.ok goes false on damage. The caller owns
 // obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -2227,6 +2228,8 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.folder = int(geom.byte_get(r, i32))
 	if obj.folder < 0 do r.ok = false
 	obj.vis_off = geom.byte_get(r, u8)
+	obj.remesh_cell = geom.byte_get(r, f32)
+	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

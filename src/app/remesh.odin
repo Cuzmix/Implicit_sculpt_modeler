@@ -19,11 +19,59 @@ Remesh_Setup :: struct {
 	groups:      bool, // each polygroup a closed piece of its own
 	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
 	mirror:      geom.Remesh_Mirror, // Keep symmetry: the brush's symmetry planes, which the result keeps (remesh_mirror)
+	// The lattice spacing in the object's mesh space, or 0 for the one the command's
+	// vertex count gives: Rebuild's Cell size, or the object's own cell for Remesh again.
+	cell:        f32,
 }
+
+// How Rebuild's Even goal sets its density: a vertex count, for a budget, or a cell size in
+// millimetres, as Blender's voxel size, so objects of one scene get the same detail
+// whatever their size and a remesh can be asked for at the size a print needs.
+Remesh_By :: enum u8 {
+	Vertices,
+	Cell,
+}
+
+REMESH_BY_NAMES := [Remesh_By]string {
+	.Vertices = "Vertices",
+	.Cell     = "Cell size",
+}
+
+// The cell sizes Rebuild offers, in millimetres at the scene's print scale: from a
+// hundredth of a millimetre, finer than any printer, to 50 mm, the starting sphere's
+// whole width at the default scale. The default is a millimetre: 25 cells across the
+// starting sphere's radius, about 10k vertices.
+REMESH_CELL_MM_MIN :: 0.01
+REMESH_CELL_MM_MAX :: 50
+REMESH_CELL_MM_DEFAULT :: 1
 
 // The panel's options, as a command takes them, with the symmetry on now.
 remesh_setup :: proc(app: ^App) -> Remesh_Setup {
-	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads, remesh_mirror(app, selected_object(app))}
+	obj := selected_object(app)
+	cell := remesh_cell_of_mm(app, obj, app.ui.remesh_cell_mm) if app.ui.remesh_by == .Cell else 0
+	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads, remesh_mirror(app, obj), cell}
+}
+
+// What Remesh again (Ctrl+R) runs: the panel's options at the object's own cell, the one
+// its last remesh used, so the density stays as the sculpt grows, as ZBrush's DynaMesh
+// keeps its resolution (and its count, when no remesh made it).
+remesh_again_setup :: proc(app: ^App, obj: ^Object) -> Remesh_Setup {
+	s := remesh_setup(app)
+	s.cell = obj.remesh_cell if obj != nil else 0
+	return s
+}
+
+// A cell of `mm` millimetres at the scene's print scale in `obj`'s mesh space, which its
+// placing scales by transform.scale; 0 without an object.
+remesh_cell_of_mm :: proc(app: ^App, obj: ^Object, mm: f32) -> f32 {
+	if obj == nil || !(obj.transform.scale > 0) do return 0
+	return mm / (print_scale(app) * obj.transform.scale)
+}
+
+// A cell in `obj`'s mesh space in millimetres at the scene's print scale.
+remesh_cell_mm :: proc(app: ^App, obj: ^Object, cell: f32) -> f32 {
+	if obj == nil do return 0
+	return cell * obj.transform.scale * print_scale(app)
 }
 
 // The planes a remesh of `obj` keeps symmetric across: the brush's (symmetry_planes)
@@ -36,12 +84,14 @@ remesh_mirror :: proc(app: ^App, obj: ^Object) -> geom.Remesh_Mirror {
 remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
 	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.groups, s.quads
 	if s.mirror.axes != {} do app.ui.remesh_keep_symmetry = true
+	// A cell shows as one only where the panel sets cells; a count's panel keeps its count.
+	if s.cell > 0 && app.ui.remesh_by == .Cell do app.ui.remesh_cell_mm = clamp(remesh_cell_mm(app, selected_object(app), s.cell), REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
 }
 
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
 // none, as under dynamic topology): Groups does nothing without them.
 remesh_options :: proc(setup: Remesh_Setup, groups: []u16) -> geom.Remesh_Options {
-	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror}
+	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror, cell = setup.cell}
 }
 
 // The polypaint and polygroups the remeshed mesh `out` takes from the mesh it came from,
@@ -151,11 +201,15 @@ remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_fr
 	sculpt.levels_set_quads(l, faces)
 }
 
-// The option rows under Rebuild's Even density: Smooth, Keep detail, Quads, Groups
-// (which has nothing to do on an object without polygroups, or under dynamic topology)
-// and Keep symmetry.
+// The option rows under Rebuild's Even density: whether Density is a count or a cell size
+// (as Fewer keeps its share or count there), Smooth, Keep detail, Quads, Groups (which has
+// nothing to do on an object without polygroups, or under dynamic topology) and Keep
+// symmetry.
 kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
+	names: [len(Remesh_By)]string
+	for b in Remesh_By do names[int(b)] = REMESH_BY_NAMES[b]
+	if picked := ui.tabs(ctx, "remesh by", names[:], int(app.ui.remesh_by)); picked >= 0 do app.ui.remesh_by = Remesh_By(picked)
 	smooth := f32(app.ui.remesh_smooth)
 	if ui.slider(ctx, "Smooth", &smooth, 0, geom.REMESH_SMOOTH_MAX, .Linear, "None" if app.ui.remesh_smooth == 0 else fmt.tprintf("%d", app.ui.remesh_smooth)) {
 		app.ui.remesh_smooth = i32(smooth + 0.5)

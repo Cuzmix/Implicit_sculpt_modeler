@@ -158,6 +158,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	defer tree_free(&app)
 	objs := tree_scene(&app)
 	objs[0].off, objs[1].ghost, objs[2].locked = true, true, true
+	objs[1].remesh_cell = 0.025
 	for obj in objs {
 		out: [dynamic]u8
 		defer delete(out)
@@ -172,9 +173,11 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.locked, obj.locked)
 		testing.expect_value(t, back.transform, obj.transform)
 
-		// The flags byte sits six bytes before the end of the head: the flags, the folder
-		// and the stored eyes.
-		flags := r.at - 6
+		testing.expect_value(t, back.remesh_cell, obj.remesh_cell)
+
+		// The flags byte sits ten bytes before the end of the head: the flags, the folder,
+		// the stored eyes and the last remesh's cell.
+		flags := r.at - 10
 
 		// Each known bit reads back; one past them is damage.
 		out[flags] = 4

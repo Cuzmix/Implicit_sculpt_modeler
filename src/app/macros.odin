@@ -105,7 +105,7 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) MIRROR := [?]string{"mirror_axis", "mirror_negative"}
 	@(static, rodata) HOLES := [?]string{"holes_leave_largest"}
 	@(static, rodata) WELD := [?]string{"weld_distance"}
-	@(static, rodata) EVEN := [?]string{"rebuild_goal", "rebuild_even", "remesh_smooth", "remesh_keep_detail", "remesh_groups", "remesh_quads", "remesh_keep_symmetry"}
+	@(static, rodata) EVEN := [?]string{"rebuild_goal", "rebuild_even", "remesh_by", "remesh_cell_mm", "remesh_smooth", "remesh_keep_detail", "remesh_groups", "remesh_quads", "remesh_keep_symmetry"}
 	@(static, rodata) FEWER := [?]string{"rebuild_goal", "rebuild_fewer", "decimate_by", "decimate_percent", "decimate_keep_paint", "decimate_keep_groups", "decimate_keep_borders", "decimate_use_mask", "decimate_keep_symmetry"}
 	@(static, rodata) QUADS := [?]string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}
 	@(static, rodata) RETOPO := [?]string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}

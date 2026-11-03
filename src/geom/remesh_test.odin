@@ -131,7 +131,14 @@ remesh_lattice_is_the_one_remesh_uses :: proc(t: ^testing.T) {
 	resize(&sphere.indices, len(sphere.indices) - 3)
 	h, origin, ok := remesh_lattice(area, bounds, 5000)
 	testing.expect(t, ok)
-	testing.expect_value(t, origin, bounds.lo - 1.5 * h)
+	// Anchored: its points lie at a whole number of steps and a half from the origin, the
+	// first between one and a half and two and a half steps below the box.
+	for c in 0 ..< 3 {
+		steps := origin[c] / h - 0.5
+		testing.expectf(t, abs(steps - math.round(steps)) < 1e-3, "axis %d: the first point is %.4f steps off the anchored lattice", c, steps - math.round(steps))
+		below := (bounds.lo[c] - origin[c]) / h
+		testing.expectf(t, below >= 1.5 - 1e-4 && below < 2.5 + 1e-4, "axis %d: the first point is %.3f steps below the box", c, below)
+	}
 	a, ok_a := remesh_voxel(sphere, 5000, &pool)
 	b, ok_b := remesh_voxel_spacing(sphere, h, &pool)
 	defer mesh_destroy(&a)
@@ -755,4 +762,92 @@ remesh_with_a_mirror_stays_symmetric :: proc(t: ^testing.T) {
 		testing.expect(t, plain_ok)
 		testing.expectf(t, asymmetry(plain, h) > 0.05, "quads %v: without the plane the halves already match (%.4f cells)", quads, asymmetry(plain, h))
 	}
+}
+
+// Remeshing a remesh at the same cell all but gives it back: the lattice is anchored to
+// the mesh's space and the spacing kept, so the surface lands on the points it came from;
+// after a pass or two the count and the error to the true shape stay put. At the count
+// instead, each pass takes a spacing from the grown area and resamples everything, and
+// the error builds up pass after pass, as it did for every remesh before the anchor.
+@(test)
+remeshing_again_at_the_same_cell_keeps_the_count_and_the_shape :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	PASSES :: 8
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool, steady: bool) -> (counts: [PASSES]int, errors: [PASSES]f64) {
+		current := bumpy_sphere(20_000, pool)
+		defer mesh_destroy(&current)
+		cell: f32
+		for pass in 0 ..< PASSES {
+			area, bounds := mesh_area_bounds(current, pool)
+			report: Remesh_Report
+			next, ok := remesh_voxel_measured(current, area, bounds, len(current.positions), pool, options = {smooth = REMESH_SMOOTH_DEFAULT, keep_detail = true, cell = cell}, report = &report)
+			if steady && pass == 0 do cell = report.cell
+			remesh_report_destroy(&report)
+			if !testing.expect(t, ok) do return
+			mesh_destroy(&current)
+			current = next
+			counts[pass], errors[pass] = len(current.positions), bumpy_error(current)
+		}
+		expect_closed_manifold(t, current)
+		return
+	}
+	counts, errors := run(t, &pool, true)
+	_, drifting := run(t, &pool, false)
+	log.infof("steady: counts %v errors %v; at the count: errors %v", counts, errors, drifting)
+	testing.expectf(t, abs(counts[PASSES - 1] - counts[0]) * 200 < counts[0], "the count moved from %d to %d", counts[0], counts[PASSES - 1])
+	testing.expectf(t, counts[PASSES - 1] == counts[PASSES - 2], "the count still moves at the end: %v", counts)
+	testing.expectf(t, errors[PASSES - 1] < 1.2 * errors[0], "the error grew from %.6f to %.6f", errors[0], errors[PASSES - 1])
+	testing.expectf(t, errors[PASSES - 1] < 1.02 * errors[PASSES / 2], "the error still grows at the end: %v", errors)
+	testing.expectf(t, drifting[PASSES - 1] > 1.5 * errors[PASSES - 1], "remeshing at the count drifts no more than at the cell: %v against %v", drifting, errors)
+}
+
+BUMP_AMP :: f32(0.03)
+BUMP_FREQ :: f32(14)
+
+// A sphere of radius 1 with bumps BUMP_AMP high, and how far a mesh's vertices are from it
+// on average along their direction from the centre.
+@(private = "file")
+bumpy_sphere :: proc(target: int, pool: ^jobs.Pool) -> Mesh {
+	m := geodesic_sphere(geodesic_frequency_for(target), pool)
+	for &p in m.positions {
+		d := linalg.normalize(p)
+		p = d * bump_radius(d)
+	}
+	mesh_recompute_normals(&m)
+	return m
+}
+
+@(private = "file")
+bump_radius :: proc(d: Vec3) -> f32 {
+	return 1 + BUMP_AMP * math.sin(BUMP_FREQ * d.x) * math.sin(BUMP_FREQ * d.y) * math.sin(BUMP_FREQ * d.z)
+}
+
+@(private = "file")
+bumpy_error :: proc(m: Mesh) -> (mean: f64) {
+	for p in m.positions {
+		l := linalg.length(p)
+		mean += f64(abs(l - bump_radius(p / l)))
+	}
+	return mean / f64(len(m.positions))
+}
+
+// A cell asked for is the cell used, whatever the count says, held only by the lattice's
+// limit along the longest side.
+@(test)
+remesh_at_a_cell_uses_that_spacing :: proc(t: ^testing.T) {
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	area, bounds := mesh_area_bounds(sphere)
+	report: Remesh_Report
+	out, ok := remesh_voxel_measured(sphere, area, bounds, 1000, options = {smooth = REMESH_SMOOTH_DEFAULT, cell = 0.05}, report = &report)
+	defer mesh_destroy(&out)
+	defer remesh_report_destroy(&report)
+	testing.expect(t, ok)
+	testing.expect_value(t, report.cell, f32(0.05))
+	// A unit sphere crosses about 1.5 * 4 pi / 0.05^2 lattice edges, far more than 1000.
+	testing.expectf(t, len(out.positions) > 6000, "%d vertices at a 0.05 cell", len(out.positions))
+	h, _, _ := remesh_lattice(area, bounds, 1000, cell = 1e-6)
+	testing.expect_value(t, h, (bounds.hi.x - bounds.lo.x) / (REMESH_MAX_LATTICE - 4))
 }
