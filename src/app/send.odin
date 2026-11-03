@@ -19,8 +19,9 @@ import "../send"
 // on the frame loop (who this device is, the paired devices, starting a send, opening
 // what arrived) and send_net.odin the threads that move the bytes.
 //
-// A desktop listens for sends (--receive); any device sends to an address (--send-to).
-// The first send between two devices pairs them: both show the
+// A desktop listens for sends (--receive) and answers on the local network for them
+// (send_find_*.odin); any device sends to an address, or to a desktop found by its name
+// or the first that answers (--send-to=@NAME, --send-to=@). The first send between two devices pairs them: both show the
 // same six digits, and the receiver allows it (--send-allow in a scripted run). Each
 // received file lands whole in the Received folder, built from the copy of the same scene
 // the receiver got last from that device and the chunks it lacked, and opens when the
@@ -74,6 +75,7 @@ Send_Shared :: struct {
 	events:   [dynamic]Send_Event,
 	listener: net.TCP_Socket, // the listening socket, for waking the listener at the end
 	port:     int,
+	found:    int, // atomic: desktops the last find heard from
 	// The send under way: how far it is, in bytes of the file.
 	done, total: i64,
 }
@@ -81,13 +83,14 @@ Send_Shared :: struct {
 Send :: struct {
 	shared:   ^Send_Shared, // nil in a run with no send folder
 	listen:   ^thread.Thread,
+	answer:   Send_Answer, // answering on the local network for the listener (send_find_*.odin)
 	sender:   ^thread.Thread,
 	revision: u64, // rises with each send from this run
 	pending:  string, // --send-to: sent once the run is set up; owned
 	frames:   int,
 	exit_after_receive: bool,
 	// What this run did, for the exit stats.
-	sent, received, refused: int,
+	sent, received, refused, found: int,
 	sent_hash, received_hash: u64,
 }
 
@@ -211,7 +214,10 @@ send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive:
 	send_pairs_load(sh)
 	app.send.shared = sh
 	app.send.exit_after_receive = exit_after_receive
-	if receive && !MOBILE do app.send.listen = send_listen_start(sh, context)
+	if receive && !MOBILE {
+		app.send.listen = send_listen_start(sh, context)
+		if app.send.listen != nil do app.send.answer = send_answer_begin(sh, context)
+	}
 }
 
 // Ends every session and thread, then frees what they shared. A send under way at the end
@@ -225,14 +231,16 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 		thread.destroy(app.send.sender)
 		app.send.sender = nil
 	}
+	sync.atomic_store(&sh.quit, true)
+	send_answer_end(sh, &app.send.answer)
 	if app.send.listen != nil {
-		sync.atomic_store(&sh.quit, true)
 		send_listen_wake(sh)
 		thread.join(app.send.listen)
 		thread.destroy(app.send.listen)
 		app.send.listen = nil
 	}
 	send_events_take(app)
+	app.send.found = sync.atomic_load(&sh.found)
 	for p in sh.pairs do delete(p.name)
 	delete(sh.pairs)
 	delete(sh.events)
@@ -283,7 +291,11 @@ send_scene :: proc(app: ^App, host: string) -> bool {
 	sh.done, sh.total = 0, i64(len(job.data))
 	sync.unlock(&sh.lock)
 	app.send.sender = send_start(sh, job, context)
-	file_note(app, false, "Sending the scene to %s...", host)
+	if strings.has_prefix(host, "@") {
+		file_note(app, false, "Looking for %s on this network...", host[1:] if len(host) > 1 else "a computer")
+	} else {
+		file_note(app, false, "Sending the scene to %s...", host)
+	}
 	return true
 }
 
