@@ -41,6 +41,7 @@ Command_Id :: enum u16 {
 	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
+	Send_Scene, // send.odin, send_ui.odin
 	// Edit
 	Undo,
 	Redo,
@@ -489,6 +490,15 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
+	},
+	.Send_Scene = {
+		label = "Send scene",
+		help = "Sends the whole scene over Wi-Fi to the computer it went to last, which opens it; the first time, Menu > Export... > Send picks the computer (Settings > Files > Send scenes).",
+		icon = ICON_SEND,
+		run = proc(app: ^App, _: int) {
+			if !send_scene_last(app) do export_sheet_open_on(app, .Send)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return send_can_send(app)},
 	},
 	.Export_Sheet = {
 		label = "Export...",

@@ -39,6 +39,7 @@ Send_Job :: struct {
 	token:      u64,
 	revision:   u64,
 	host:       string,
+	label:      string, // the name to say it went to, when the host is an address found
 	hd_dropped: int,
 }
 
@@ -234,6 +235,7 @@ pair_connecting :: proc(c: ^Conn, mine, theirs: send.Hello) -> (key: send.Key, w
 	key, code, fok = send.pair_finish(secret, public, nonce, true)
 	if !fok do return {}, .Damaged, false
 	send_event(c.sh, .Note, "", 0, "Pairing with %s: check that it shows %s, and allow it there", theirs.name, code_text(code))
+	send_phase(c.sh, .Pairing, theirs.name, code)
 	// The answer is the first frame sealed with the new key.
 	c.session = send.session_begin(key, mine.nonce, theirs.nonce, true)
 	c.sealed = true
@@ -264,8 +266,8 @@ pair_listening :: proc(c: ^Conn, body: []u8, mine, theirs: send.Hello) -> (why: 
 	if !kok || send.pair_commitment(public, nonce) != commit do return .Damaged, false
 	key, code, fok := send.pair_finish(secret, public, nonce, false)
 	if !fok do return .Damaged, false
-	if !c.sh.allow {
-		send_event(c.sh, .Warning, "", 0, "%s asked to pair (code %s); this build pairs only in a run given --send-allow", theirs.name, code_text(code))
+	if !c.sh.allow && !send_ask(c.sh, theirs.name, code) {
+		send_event(c.sh, .Note, "", 0, "Declined pairing with %s", theirs.name)
 		conn_refuse(c, .Declined)
 		return .Declined, false
 	}
@@ -294,8 +296,10 @@ send_start :: proc(sh: ^Send_Shared, job: ^Send_Job, ctx: runtime.Context) -> ^t
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
 		send_run(sh, job)
+		send_phase(sh, .Idle, "")
 		delete(job.data)
 		delete(job.host)
+		delete(job.label)
 		free(job)
 		sync.lock(&sh.lock)
 		sh.done, sh.total = 0, 0
@@ -309,7 +313,8 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 	if strings.has_prefix(job.host, "@") {
 		// A desktop found on the local network: by its name, or the first to answer.
 		name := job.host[1:]
-		found, ok := send_find_run(sh, name, SEND_FIND_WAIT)
+		send_phase(sh, .Finding, name)
+		found, ok := send_find_run(sh, name, SEND_FIND_WAIT, &sh.cancel)
 		if !ok {
 			if sync.atomic_load(&sh.cancel) do return
 			called := fmt.tprintf(" called %s", name) if name != "" else ""
@@ -322,9 +327,10 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		target = fmt.tprintf("%d.%d.%d.%d:%d", a[0], a[1], a[2], a[3], found.port)
 		log.infof("send: found %s at %s", found.name, target)
 	}
+	send_phase(sh, .Connecting, job.label if job.label != "" else job.host)
 	sock, derr := net.dial_tcp(target)
 	if derr != nil {
-		send_event(sh, .Warning, "", 0, "Cannot reach %s: %v. Is Sculpt open there with Receive scenes on?", job.host, derr)
+		send_event(sh, .Warning, "", 0, "Cannot reach %s: %v. Is Sculpt open there with Receive scenes on?", job.label if job.label != "" else job.host, derr)
 		return
 	}
 	c: Conn
@@ -347,6 +353,7 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		send_fail(sh, theirs.name, why)
 		return
 	}
+	send_phase(sh, .Sending, theirs.name)
 	chunks := send.chunks_of(job.data[:])
 	defer delete(chunks)
 	offer := send.offer_make(job.token, job.revision, len(job.data), chunks)
@@ -402,7 +409,7 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		return
 	}
 	hd := fmt.tprintf("; the HD detail of %d objects stays here, as with Save", job.hd_dropped) if job.hd_dropped > 0 else ""
-	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %d MB, %d of %d chunks went over%s", theirs.name, len(job.data) >> 20, len(need), len(chunks), hd)
+	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %s, %d of %d chunks went over%s", theirs.name, export_size_label(len(job.data)), len(need), len(chunks), hd)
 }
 
 @(private = "file")
@@ -421,8 +428,9 @@ send_hash :: proc(h: send.Hash) -> (v: u64) {
 	return v
 }
 
-// The listener thread: accepts a connection, receives on it, and waits for the next.
-send_listen_start :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> ^thread.Thread {
+// The listener thread of generation gen: accepts a connection, receives on it, and
+// waits for the next, until a newer generation or the end of the run.
+send_listen_start :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> ^thread.Thread {
 	ep := net.Endpoint{address = net.IP4_Any, port = sh.port}
 	sock, err := net.listen_tcp(ep, 4)
 	if err != nil {
@@ -430,16 +438,24 @@ send_listen_start :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> ^thread.Thr
 		send_event(sh, .Warning, "", 0, "Cannot receive scenes: port %d is in use or not allowed (%v)", sh.port, err)
 		return nil
 	}
-	sh.listener = sock
 	log.infof("send: receiving scenes on port %d", sh.port)
-	return thread.create_and_start_with_data(sh, proc(data: rawptr) {
-		sh := cast(^Send_Shared)data
+	Start :: struct {
+		sh:   ^Send_Shared,
+		sock: net.TCP_Socket,
+		gen:  int,
+	}
+	start := new(Start)
+	start^ = {sh, sock, gen}
+	return thread.create_and_start_with_data(start, proc(data: rawptr) {
+		start := cast(^Start)data
+		sh, sock, gen := start.sh, start.sock, start.gen
+		free(start)
 		arena: runtime.Arena
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
-		for !sync.atomic_load(&sh.quit) {
-			client, _, aerr := net.accept_tcp(sh.listener)
-			if sync.atomic_load(&sh.quit) {
+		for send_receiving(sh, gen) {
+			client, _, aerr := net.accept_tcp(sock)
+			if !send_receiving(sh, gen) {
 				if aerr == nil do net.close(client)
 				break
 			}
@@ -447,8 +463,13 @@ send_listen_start :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> ^thread.Thr
 			receive_run(sh, client)
 			runtime.arena_free_all(&arena)
 		}
-		net.close(sh.listener)
+		net.close(sock)
 	}, ctx, .Normal, name = "receive")
+}
+
+// Whether the receiving threads of generation gen go on.
+send_receiving :: proc(sh: ^Send_Shared, gen: int) -> bool {
+	return !sync.atomic_load(&sh.quit) && sync.atomic_load(&sh.receive_gen) == gen
 }
 
 // Wakes a listener waiting in accept by connecting to it, so it sees the quit.
@@ -512,7 +533,7 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if !conn_send(&c, .Received, nil) do log.warn("send: the sender left before hearing the scene arrived")
-	send_event(sh, .Received, file, send_hash(offer.hash), "Got a scene from %s: %d MB, %d of %d chunks went over", theirs.name, offer.size >> 20, receive_sent_chunks, len(offer.chunks))
+	send_event(sh, .Received, file, send_hash(offer.hash), "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
 }
 
 // How many chunks the last receive asked for, for its note. Only the listener writes it.

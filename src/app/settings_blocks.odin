@@ -64,6 +64,7 @@ Settings_Block :: enum u8 {
 	History_Steps,
 	History_Back,
 	Blender_Link,
+	Send_Scenes,
 	Printer,
 }
 
@@ -144,6 +145,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.History_Steps    = "history steps lights scene tree names folders order undo",
 	.History_Back     = "history camera follows restore view group repeated strokes list scrub slide two fingers quick step pictures thumbnails",
 	.Blender_Link     = "blender link add-on folder",
+	.Send_Scenes      = "send scenes receive wi-fi wifi network tablet computer pc ipad paired pair forget goz",
 	.Printer          = "3d printer bed plate size wall thickness thinnest print checks",
 }
 
@@ -475,6 +477,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 			ui.end(ctx)
 			ui.paragraph(ctx, "Install the add-on in tools/blender in Blender, give it this folder, then Send to Blender here and Get from Sculpt there; Send to Sculpt there comes back here when you switch to Sculpt, or with Get from Blender.")
 		}
+	case .Send_Scenes:
+		send_settings_rows(app)
 	case .Printer:
 		bed := print_bed(app)
 		sides := [3]string{"Bed width", "Bed depth", "Bed height"}
@@ -490,6 +494,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 
 // Whether a block has anything to show on this build: the Blender link is desktop only.
 settings_block_shown :: proc(b: Settings_Block) -> bool {
+	if b == .Send_Scenes do return SEND_AVAILABLE
 	return b != .Blender_Link || LINK_AVAILABLE
 }
 
@@ -523,6 +528,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options, k.explain_all = false, false
 	case .Pies, .Mouse, .Blender_Link:
+	case .Send_Scenes:     app.send_receive = false
 	case .Printer:         app.print_bed, app.print_wall = {}, 0
 	case .Panel_Places:    windows_reset(k)
 	case .Orbit:

@@ -288,6 +288,7 @@ App :: struct {
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
+	send_receive: bool, // Receive scenes (Settings > Files > Send scenes): a desktop listens for sends
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// Scene > Render at Fast quality (render_mode.odin; Shift+R): ambient occlusion and
@@ -830,6 +831,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.send.pending = strings.clone(target)
 	}
 	defer delete(app.send.pending)
+	defer delete(app.send.last)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
