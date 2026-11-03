@@ -285,7 +285,6 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 
 tracer_destroy :: proc(r: ^Renderer, tr: ^Tracer) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if tr.trace_pipeline != 0 do gpu.release_compute_pipeline(tr.trace_pipeline)
 	if tr.refit_pipeline != 0 do gpu.release_compute_pipeline(tr.refit_pipeline)
 	if tr.add_pipeline != 0 do gpu.release_graphics_pipeline(tr.add_pipeline)
@@ -773,7 +772,6 @@ trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_
 	}
 	if tm.buffers[which] == 0 || u32(size) > tm.capacity[which] {
 		if tm.buffers[which] != 0 {
-			_ = gpu.wait_for_idle()
 			gpu.release_buffer(tm.buffers[which])
 		}
 		capacity := u32(min(size + size / 4, TRACE_BUFFER_MAX))

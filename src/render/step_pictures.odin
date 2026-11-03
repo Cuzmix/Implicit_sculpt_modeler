@@ -22,7 +22,6 @@ STEP_PICTURE_SLOTS :: STEP_PICTURE_CELLS * STEP_PICTURE_CELLS
 
 step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if s.atlas != 0 do gpu.release_texture(s.atlas)
 	thumbnail_view_destroy(r, &s.scratch)
 	s^ = {}

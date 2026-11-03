@@ -524,7 +524,6 @@ studio_reset :: proc(st: ^Studio) {
 
 studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if st.shadow_pipeline != 0 do gpu.release_graphics_pipeline(st.shadow_pipeline)
 	if st.depth_pipeline != 0 do gpu.release_graphics_pipeline(st.depth_pipeline)
 	if st.gather_pipeline != 0 do gpu.release_graphics_pipeline(st.gather_pipeline)

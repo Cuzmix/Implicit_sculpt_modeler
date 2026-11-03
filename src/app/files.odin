@@ -1854,7 +1854,6 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	defer scene_fields_destroy(&f)
 	objects := make([dynamic]^Object, 0, 16)
 	defer delete(objects)
-	render.wait_idle(&app.renderer)
 	missing := 0
 	damaged := ""
 	// Each object is read and built as it comes; one that is damaged, or a GPU failure,
@@ -1949,7 +1948,6 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	stroke_finish(app)
 	timelapse_stop(app, "the scene was replaced")
 	app.timeline.playing, app.timeline.seeking = false, false
-	render.wait_idle(&app.renderer)
 	history_clear(&app.history)
 	for obj in app.scene.objects do object_free(app, obj)
 	clear(&app.scene.objects)
@@ -2243,7 +2241,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws
-// nothing yet. The caller has waited for the GPU.
+// nothing yet.
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	texture_preview_release(app, obj)

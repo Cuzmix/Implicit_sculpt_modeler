@@ -80,10 +80,9 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 	return true
 }
 
-// Waits for the GPU, then releases every buffer and the pipeline.
+// Releases every buffer and the pipeline (freed once no work in flight uses them).
 smooth_compute_destroy :: proc(r: ^Renderer, sc: ^Smooth_Compute) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	for b in sc.buffers do if b != 0 do gpu.release_buffer(b)
 	if sc.upload != 0 do gpu.release_transfer_buffer(sc.upload)
 	if sc.download != 0 do gpu.release_transfer_buffer(sc.download)
@@ -139,7 +138,6 @@ smooth_compute_run :: proc(
 	for kind in Smooth_Buffer {
 		if u32(sizes[kind]) <= sc.capacity[kind] do continue
 		if sc.buffers[kind] != 0 {
-			_ = gpu.wait_for_idle()
 			gpu.release_buffer(sc.buffers[kind])
 		}
 		usage := gpu.Buffer_Usages{.Storage_Read}
@@ -249,7 +247,6 @@ smooth_compute_run :: proc(
 transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32, size: int, usage: gpu.Transfer_Usage) -> bool {
 	if size <= int(capacity^) && tb^ != 0 do return true
 	if tb^ != 0 {
-		_ = gpu.wait_for_idle()
 		gpu.release_transfer_buffer(tb^)
 	}
 	tb^ = gpu.create_transfer_buffer({usage = usage, size = u32(size)})

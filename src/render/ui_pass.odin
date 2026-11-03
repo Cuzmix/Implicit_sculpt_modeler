@@ -57,7 +57,6 @@ Ui_Fragment_Uniforms :: struct {
 
 ui_pass_destroy :: proc(r: ^Renderer, up: ^Ui_Pass) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	for p in up.pipelines do if p != 0 do gpu.release_graphics_pipeline(p)
 	if up.sampler != 0 do gpu.release_sampler(up.sampler)
 	if up.smooth != 0 do gpu.release_sampler(up.smooth)
@@ -101,7 +100,6 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 	upload_atlas := atlas_changed
 	if up.atlas == 0 || up.atlas_size != atlas_size {
 		if up.atlas != 0 {
-			_ = gpu.wait_for_idle()
 			gpu.release_texture(up.atlas)
 		}
 		up.atlas = gpu.create_texture({
@@ -126,7 +124,6 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 	if need == 0 do return true
 	if need > up.transfer_bytes {
 		if up.transfer != 0 {
-			_ = gpu.wait_for_idle()
 			gpu.release_transfer_buffer(up.transfer)
 		}
 		size := max(need, 1024 * 1024)
@@ -295,12 +292,10 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 grow_buffer :: proc(r: ^Renderer, buffer: ^gpu.Buffer, capacity: ^u32, need: u32, usage: gpu.Buffer_Usages) -> bool {
 	if need <= capacity^ && buffer^ != 0 do return true
 	if buffer^ != 0 {
-		_ = gpu.wait_for_idle()
 		gpu.release_buffer(buffer^)
 	}
-	// Growing waits for the GPU to go idle, which on the first frames is waiting for a
-	// whole viewport of a big mesh; starting at 512 KB (about 25k vertices, several
-	// times what the interface draws) means it never grows in practice.
+	// Starting at 512 KB (about 25k vertices, several times what the interface draws)
+	// means it never grows in practice.
 	size := max(need, 512 * 1024)
 	size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
 	buffer^ = gpu.create_buffer({usage = usage, size = size})

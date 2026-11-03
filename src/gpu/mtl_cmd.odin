@@ -150,6 +150,7 @@ mtl_acquire_command_buffer :: proc() -> Cmd {
 	cmd.cb = cb
 	mtl_stamps += 1
 	cmd.stamp = mtl_stamps
+	mtl_state.recording += 1
 	cmd.serial = 0
 	cmd.recorded = false
 	cmd.pipeline = nil
@@ -174,6 +175,7 @@ mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 		MTL.CommandBuffer_presentDrawable(cmd.cb, p.drawable)
 	}
 	MTL.CommandBuffer_commit(cmd.cb)
+	mtl_state.recording -= 1
 	mtl_state.submitted += 1
 	serial := mtl_state.submitted
 	cmd.serial = serial
@@ -221,7 +223,9 @@ mtl_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	if cmd.render != nil do MTL.CommandEncoder_endEncoding(cmd.render)
 	if cmd.blit != nil do MTL.CommandEncoder_endEncoding(cmd.blit)
 	if cmd.compute != nil do MTL.CommandEncoder_endEncoding(cmd.compute)
+	mtl_state.recording -= 1
 	mtl_cmd_recycle(cmd)
+	mtl_collect()
 	return true
 }
 

@@ -1264,7 +1264,6 @@ transfer_fit :: proc(r: ^Renderer, buffer: ^gpu.Transfer_Buffer, size: ^u32, byt
 storage_fit :: proc(r: ^Renderer, buffer: ^gpu.Buffer, capacity: ^u32, bytes: u32, usage: gpu.Buffer_Usages) -> bool {
 	if buffer^ != 0 && capacity^ >= bytes do return true
 	if buffer^ != 0 {
-		_ = gpu.wait_for_idle()
 		gpu.release_buffer(buffer^)
 	}
 	capacity^ = bytes + bytes / 4
@@ -1328,8 +1327,8 @@ sculpt_gpu_sync :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 }
 
 // Drops everything a mesh's buffers hold for sculpting on the GPU, readbacks under way
-// included (their CPU mesh may be going with them). The caller has waited for the GPU, as
-// mesh_buffers_destroy has.
+// included (their CPU mesh may be going with them); the buffers they read into stay with
+// the GPU layer until it is done with them.
 @(private)
 sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	sg := &r.sculpt_gpu
@@ -1379,11 +1378,11 @@ sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	ms.heights_buffer, ms.heights_capacity = 0, 0
 }
 
-// Waits for the GPU, then releases the ring, the buffers and the kernels.
+// Releases the ring, the buffers and the kernels; the GPU layer frees each once the work
+// in flight that uses it is done.
 sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	sg := &r.sculpt_gpu
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	for &s in sg.slots {
 		if s.fence != nil do gpu.release_fence(s.fence)
 		if s.download != 0 do gpu.release_transfer_buffer(s.download)

@@ -15,12 +15,6 @@ Texture :: gpu.Texture
 Fence :: gpu.Fence
 Sample_Count :: gpu.Sample_Count
 
-// Waits until the GPU has finished everything submitted: before freeing a buffer or
-// texture a frame in flight may still read.
-wait_idle :: proc(r: ^Renderer) {
-	if !gpu.wait_for_idle() do log.warnf("WaitForGPUIdle failed: %s", gpu.last_error())
-}
-
 // A command buffer to record into, or nil (logged) when the device has none to give.
 cmd_begin :: proc(r: ^Renderer) -> Cmd {
 	cmd := gpu.acquire_command_buffer()

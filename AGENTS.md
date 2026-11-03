@@ -88,7 +88,7 @@ skill whose description fits the request BEFORE you form a plan.
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
 - Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `gpu` names the GPU API, imported by `render` alone: `app` holds `render.Cmd`, `render.Texture`,
-  `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
+  `render.Fence` and `render.Sample_Count` and calls render's procs (`cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `src/gpu/hal.odin`
   (`gpu.*`: Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`.
@@ -107,7 +107,7 @@ skill whose description fits the request BEFORE you form a plan.
   this build writes: a format change edits the writer and the reader together and deletes the old reading, with no
   version branches, optional trailing fields, renamed-line aliases or one-time default conversions. A file an earlier
   build wrote is refused (or a settings line passed over), never converted. A damaged file is refused, never asserted on.
-- GPU: consume every `gpu.*` result (`hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
+- GPU: consume every `gpu.*` result (`hal.odin` marks them `require_results`); release any time (the GPU layer frees an object once no work in flight uses it, so nothing waits for the GPU before freeing); set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
   control or panel change. No handoff, status or notes files.

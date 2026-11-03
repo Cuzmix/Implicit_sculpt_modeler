@@ -129,10 +129,9 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	return env, true
 }
 
-// Waits for the GPU (a frame in flight may still sample it) and releases the textures.
+// Releases the textures; a frame in flight that samples them keeps them until it is done.
 environment_destroy :: proc(r: ^Renderer, env: ^Environment) {
 	if env.source == 0 && env.prefiltered == 0 && env.table == 0 do return
-	_ = gpu.wait_for_idle()
 	if env.source != 0 do gpu.release_texture(env.source)
 	if env.prefiltered != 0 do gpu.release_texture(env.prefiltered)
 	if env.table != 0 do gpu.release_texture(env.table)

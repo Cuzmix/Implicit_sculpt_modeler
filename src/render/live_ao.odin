@@ -183,7 +183,6 @@ live_ao_supported :: proc(r: ^Renderer, lao: ^Live_AO) -> bool {
 
 live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != 0 do gpu.release_graphics_pipeline(p)
 	if lao.sampler != 0 do gpu.release_sampler(lao.sampler)
 	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != 0 do gpu.release_texture(t)
