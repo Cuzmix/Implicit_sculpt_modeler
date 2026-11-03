@@ -5,6 +5,7 @@
     python scripts/web_build.py --debug    # with bounds checks and debug info
     python scripts/web_build.py --check    # odin check only, with the strict flags
     python scripts/web_build.py --serve    # build, then serve the site at http://localhost:8000
+    python scripts/web_build.py --serve --lan  # the same over HTTPS on this computer's network address, for a tablet
     python scripts/web_build.py --test     # build, then scripts/web_check.mjs in headless Chromium
 
 The page runs the whole app, src/app (src/app/web.odin is its web entry), drawn by render's
@@ -27,6 +28,8 @@ import http.server
 import os
 import re
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 
@@ -89,6 +92,16 @@ def link_dir(source, link):
         os.symlink(source, link)
 
 
+def own_file(root, rel):
+    """The path of rel under odin_root, refusing one that a link leads back into deps/odin:
+    the web build changes only its own copies."""
+    target = os.path.join(root, os.path.normpath(rel))
+    inside, home = os.path.realpath(target), os.path.realpath(root)
+    if os.path.commonpath([inside, home]) != home:
+        raise SystemExit(f"web: {rel} is reached through a link into {os.path.dirname(inside)}; the web build would change deps/odin")
+    return target
+
+
 def odin_root():
     """build/web/odin_root: deps/odin with web/odin_overlay laid over it. Each folder that
     holds an overlay file is a copy, every folder on the way to one is made of links to the
@@ -103,7 +116,10 @@ def odin_root():
     for directory, _, names in os.walk(overlay):
         for name in names:
             files.append(os.path.relpath(os.path.join(directory, name), overlay))
-    copied = {os.path.dirname(f) for f in files} | {os.path.dirname(p[0]) for p in PATCHES} | {r[0] for r in REWRITES}
+    # PATCHES names its files with forward slashes while the walk below joins with the
+    # system's separator, so every name is normalised: on Windows "core/flags" never matched
+    # the walk's own name, the folder became a junction and the patches went into deps/odin.
+    copied = {os.path.normpath(os.path.dirname(f)) for f in files} | {os.path.normpath(os.path.dirname(p[0])) for p in PATCHES} | {os.path.normpath(r[0]) for r in REWRITES}
     on_the_way = {os.path.join(*parts[:i]) for d in copied for parts in [d.split(os.sep)] for i in range(1, len(parts))}
 
     def lay(rel):
@@ -124,7 +140,7 @@ def odin_root():
                 link_dir(here, there)
     lay("")
     for rel in files:
-        target = os.path.join(root, rel)
+        target = own_file(root, rel)
         # A new file is fine where a folder was copied; a file that replaces nothing in a
         # folder Odin's own never had is a sign the overlay is out of date.
         shutil.copy2(os.path.join(overlay, rel), target)
@@ -132,13 +148,13 @@ def odin_root():
         for name in sorted(os.listdir(os.path.join(root, folder))):
             if not name.endswith(".odin"):
                 continue
-            target = os.path.join(root, folder, name)
+            target = own_file(root, os.path.join(folder, name))
             with open(target, encoding="utf-8") as f:
                 text = f.read()
             with open(target, "w", encoding="utf-8", newline="\n") as f:
                 f.write(re.sub(pattern, replacement, text))
     for rel, old, new in PATCHES:
-        target = os.path.join(root, rel)
+        target = own_file(root, rel)
         with open(target, encoding="utf-8") as f:
             text = f.read()
         if old not in text:
@@ -227,11 +243,75 @@ def check():
     return code
 
 
-def serve(port):
+def lan_address():
+    """This computer's address on the local network: the one a route out would leave from
+    (a UDP connect sends nothing)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+        except OSError:
+            return None
+
+
+def find_openssl():
+    """openssl on PATH, or the one Git for Windows ships beside git.exe."""
+    found = shutil.which("openssl")
+    if found:
+        return found
+    git = shutil.which("git")
+    if git:
+        base = os.path.dirname(os.path.dirname(os.path.realpath(git)))
+        for rel in (("mingw64", "bin", "openssl.exe"), ("usr", "bin", "openssl.exe")):
+            path = os.path.join(base, *rel)
+            if os.path.exists(path):
+                return path
+    return None
+
+
+def lan_certificate(address):
+    """A self-signed certificate for address, made once per address in build/web/cert, so a
+    tablet that accepted it once is not asked again until the computer's address changes."""
+    folder = os.path.join(OUT, "cert")
+    cert, key = os.path.join(folder, f"{address}.crt"), os.path.join(folder, f"{address}.key")
+    if os.path.exists(cert) and os.path.exists(key):
+        return cert, key
+    openssl = find_openssl()
+    if openssl is None:
+        raise SystemExit("web: --lan needs openssl to make its certificate (Git for Windows ships one)")
+    os.makedirs(folder, exist_ok=True)
+    subprocess.run([openssl, "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                    "-nodes", "-days", "365", "-subj", "/CN=Sculpt web (this computer)",
+                    "-addext", f"subjectAltName=IP:{address},DNS:localhost,IP:127.0.0.1",
+                    "-keyout", key, "-out", cert], check=True, capture_output=True)
+    return cert, key
+
+
+def serve(port, lan):
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE)
-    # WebGPU needs a secure context, which localhost is.
-    with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
-        print(f"web: serving build/web/site at http://localhost:{port} (Ctrl+C stops)")
+    if not lan:
+        # WebGPU needs a secure context, which localhost is.
+        with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
+            print(f"web: serving build/web/site at http://localhost:{port} (Ctrl+C stops)")
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                pass
+        return 0
+    # Another device reaches this computer by its address, which a browser counts as a
+    # secure context only over HTTPS, and WebGPU exists only in a secure context: plain
+    # HTTP there gives the page no navigator.gpu. So the network gets HTTPS with a
+    # self-signed certificate, which each browser asks to accept once.
+    address = lan_address()
+    if address is None:
+        raise SystemExit("web: --lan found no local network address")
+    cert, key = lan_certificate(address)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    with http.server.ThreadingHTTPServer(("0.0.0.0", port), handler) as httpd:
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        print(f"web: serving build/web/site at https://{address}:{port} to this network, and https://localhost:{port} here (Ctrl+C stops)")
+        print("web: each browser warns once about the self-signed certificate; continue past it to open the app")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
@@ -260,6 +340,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="type-check only")
     parser.add_argument("--serve", action="store_true", help="serve the site after building it")
     parser.add_argument("--test", action="store_true", help="run scripts/web_check.mjs after building")
+    parser.add_argument("--lan", action="store_true", help="with --serve: HTTPS on this computer's network address, for a tablet")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     if not os.path.exists(ODIN):
@@ -271,7 +352,7 @@ def main():
     if code == 0 and args.test:
         code = test()
     if code == 0 and args.serve:
-        return serve(args.port)
+        return serve(args.port, args.lan)
     return code
 
 
