@@ -1022,7 +1022,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	p := &k.brushes
 	sh := &k.shelf
 	brush_recent_track(app)
-	if p.category == .Pack && p.pack >= len(app.library.packs) do p.category = .All
+	// A pack removed leaves its page for All; Manage packs (PACKS_MANAGE) stays.
+	if p.category == .Pack && (p.pack >= len(app.library.packs) || p.pack < PACKS_MANAGE) do p.category = .All
 	shelf_carry_update(app)
 	if !k.browser {
 		p.adding = nil
@@ -1084,6 +1085,19 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	grid_h := room - 24 - t.target - 8 - 36
 	// The tabs' own row, when they went under the head.
 	if wrap do grid_h -= t.control + 8
+	// The packs' pages: Manage packs in place of the cards, and a pack's own row (who made
+	// it, its licence, Remove) above its presets.
+	on_packs := p.category == .Pack && brush_query(p) == "" && !adding
+	if on_packs && p.pack == PACKS_MANAGE {
+		kit_library_manage(app, owner, inner, grid_h + 36)
+		ui.end(ctx)
+		return
+	}
+	if on_packs {
+		_, row := ui.prev_layout(ctx, fmt.tprintf("library row %d", p.pack + 1))
+		kit_library_row(app, p.pack, inner)
+		grid_h -= row.y + 8
+	}
 	scroll := kit_scroll_begin(ctx, "brush sheet grid", &k.grid_scroll, owner, inner, grid_h, 10)
 	pick, settings: Maybe(Brush_Item)
 	for l, i in list {

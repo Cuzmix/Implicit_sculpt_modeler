@@ -332,9 +332,8 @@ Kit_State :: struct {
 	macros_scroll:  f32,
 	macro_armed:    int,
 	macro_armed_at: f64,
-	// The Library panel (kit_library.odin): open, how far its list is scrolled, and the
-	// pack whose Remove a first tap armed (from 1), and when.
-	library:        bool,
+	// The Library's Manage packs page (kit_library.odin): how far its list is scrolled, and
+	// the pack whose Remove a first tap armed (from 1), and when.
 	library_scroll: f32,
 	pack_armed:     int,
 	pack_armed_at:  f64,
@@ -440,27 +439,26 @@ Kit_Window :: enum u8 {
 	Settings,
 	Help,
 	Macros,
-	Library,
 	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
 	Colors, // the Colors card (kit_colors.odin), beside the brush bar
 	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
-// The order the windows start in, back to front: Settings, Help, Macros and Library over
-// the rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros, .Library}
+// The order the windows start in, back to front: Settings, Help and Macros over the rest,
+// as they opened.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros}
 
-// Settings, Help, Macros and Library share the inspector's place on the right: one at a
-// time, with the inspector hidden while one is open.
+// Settings, Help and Macros share the inspector's place on the right: one at a time, with
+// the inspector hidden while one is open.
 side_panel_open :: proc(k: ^Kit_State) -> bool {
-	return k.settings || k.help || k.macros || k.library
+	return k.settings || k.help || k.macros
 }
 
-// Closes Settings, Help, Macros or Library, whichever is open, giving the place back to
-// the inspector.
+// Closes Settings, Help or Macros, whichever is open, giving the place back to the
+// inspector.
 side_panel_close :: proc(app: ^App) {
 	if app.kit.settings do settings_close(app)
-	app.kit.help, app.kit.macros, app.kit.library = false, false, false
+	app.kit.help, app.kit.macros = false, false
 }
 
 // Something that floats over the view and comes to the front when touched: a window or
@@ -1670,7 +1668,6 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 		case .Settings:  return kit_settings(app)
 		case .Help:      return kit_help(app)
 		case .Macros:    return kit_macros(app)
-		case .Library:   return kit_library(app)
 		case .Objects:   return kit_objects_card(app)
 		case .Colors:    return kit_colors_card(app)
 		case .Thumbnail: return kit_mini_view(app)

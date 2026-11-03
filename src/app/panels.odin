@@ -123,7 +123,7 @@ panels_default :: proc(k: ^Kit_State) {
 panel_name :: proc(ref: Panel_Ref) -> string {
 	switch r in ref {
 	case Kit_Window:
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		return names[r]
 	}
 	return ""

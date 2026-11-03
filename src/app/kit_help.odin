@@ -340,7 +340,7 @@ help_name :: proc(id: Command_Id, arg: int) -> string {
 help_open :: proc(app: ^App, tab: Help_Tab) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.macros, k.library = false, false
+	k.macros = false
 	k.help, k.help_tab, k.help_scroll = true, tab, 0
 	k.windows[.Help].minimized = false
 	window_raise(k, .Help)

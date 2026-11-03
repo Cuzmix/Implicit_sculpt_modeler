@@ -97,7 +97,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 // The Library's own state, in Kit_State.
 Brush_Palette :: struct {
 	category:       Brush_Category,
-	pack:           int, // into App.library.packs, while category is .Pack
+	pack:           int, // into App.library.packs, or PACKS_MANAGE, while category is .Pack
 	// The dock's slot it is choosing a button for (library_open_for): a tap puts the item
 	// there instead of picking it.
 	adding:         Maybe(Bar_Pick),
@@ -356,7 +356,8 @@ brush_palette_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 	case p.category == .All:
 		for l in all do if !brush_item_is_button(l.item) do append(&out, l)
 	case p.category == .Pack:
-		for l in all do if brush_item_of_pack(app, l.item, p.pack) do append(&out, l)
+		// Manage packs (PACKS_MANAGE) lists no items: the sheet shows the packs there.
+		if p.pack >= 0 do for l in all do if brush_item_of_pack(app, l.item, p.pack) do append(&out, l)
 	case:
 		for l in all do if brush_item_category(l.item) == p.category do append(&out, l)
 	}
@@ -433,8 +434,8 @@ brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, h
 	return W
 }
 
-// The categories in the app's order, then each installed pack, each row with how many it
-// holds, in a body that scrolls; a tap shows that category's brushes.
+// The categories in the app's order, then Manage packs and each installed pack, each row
+// with how many it holds, in a body that scrolls; a tap shows that category's brushes.
 @(private = "file")
 brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width, height: f32) {
 	k := &app.kit
@@ -464,12 +465,24 @@ brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width,
 			p.side_reveal = false
 		}
 	}
+	// The content packs: Manage packs (install, make, remove), then
+	// each pack installed, with how many presets it brings.
+	ui.caption(ctx, "  PACKS")
+	manage := brush_query(p) == "" && p.category == .Pack && p.pack == PACKS_MANAGE
+	if ui.list_row(ctx, "Manage packs##brush packs manage", fmt.tprint(len(app.library.packs)), manage).clicked {
+		library_packs_open(app)
+	}
+	// Opened on the packs (Menu > More > Library, a pack waiting on Replace), the list
+	// scrolls down to them.
+	if p.category == .Pack && p.side_reveal && rows.limit > 0 {
+		p.side_scroll = rows.limit
+		p.side_reveal = false
+	}
 	for pack, i in app.library.packs {
-		if packs[i] == 0 do continue
 		on := brush_query(p) == "" && p.category == .Pack && p.pack == i
 		name := ui.text_fit(ctx, pack.name, t.text_size, width - 56)
 		if ui.list_row(ctx, fmt.tprintf("%s##brush pack %d", name, i), fmt.tprint(packs[i]), on).clicked {
-			p.category, p.pack, p.searching, p.search, k.grid_scroll = .Pack, i, false, {}, 0
+			p.category, p.pack, p.searching, p.search, k.grid_scroll, k.pack_armed = .Pack, i, false, {}, 0, 0
 		}
 	}
 	kit_scroll_end(ctx, rows)
