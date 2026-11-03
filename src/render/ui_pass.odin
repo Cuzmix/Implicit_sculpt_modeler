@@ -41,8 +41,6 @@ Ui_Pass :: struct {
 	indices:      gpu.Buffer,
 	vertex_bytes: u32, // capacities
 	index_bytes:  u32,
-	transfer:     gpu.Transfer_Buffer,
-	transfer_bytes: u32,
 }
 
 @(private = "file")
@@ -63,7 +61,6 @@ ui_pass_destroy :: proc(r: ^Renderer, up: ^Ui_Pass) {
 	if up.atlas != 0 do gpu.release_texture(up.atlas)
 	if up.vertices != 0 do gpu.release_buffer(up.vertices)
 	if up.indices != 0 do gpu.release_buffer(up.indices)
-	if up.transfer != 0 do gpu.release_transfer_buffer(up.transfer)
 	up^ = {}
 }
 
@@ -120,45 +117,16 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 
 	aw, ah := u32(dirty[2] - dirty[0]), u32(dirty[3] - dirty[1])
 	if !upload_atlas || aw == 0 || ah == 0 do aw, ah = 0, 0
-	need := vb + ib + aw * ah
-	if need == 0 do return true
-	if need > up.transfer_bytes {
-		if up.transfer != 0 {
-			gpu.release_transfer_buffer(up.transfer)
+	ok := gpu.upload(cmd, up.vertices, 0, ([^]u8)(raw_data(vertices))[:vb]) && gpu.upload(cmd, up.indices, 0, ([^]u8)(raw_data(indices))[:ib])
+	if ok && aw > 0 {
+		dst := gpu.stage_texture(cmd, {texture = up.atlas, x = u32(dirty[0]), y = u32(dirty[1]), w = aw, h = ah, d = 1}, aw * ah, aw, ah)
+		for row in 0 ..< int(ah) do if dst != nil {
+			copy(dst[u32(row) * aw:][:aw], atlas[(dirty[1] + row) * int(atlas_size.x) + dirty[0]:][:aw])
 		}
-		size := max(need, 1024 * 1024)
-		size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
-		up.transfer = gpu.create_transfer_buffer({usage = .Upload, size = size})
-		if up.transfer == 0 {
-			up.transfer_bytes = 0
-			log.errorf("ui transfer buffer: %s", gpu.last_error())
-			return false
-		}
-		up.transfer_bytes = size
+		ok = dst != nil
 	}
-	dst := ([^]u8)(gpu.map_transfer_buffer(up.transfer, true))
-	if dst == nil {
-		log.errorf("ui map: %s", gpu.last_error())
-		return false
-	}
-	if vb > 0 do copy(dst[:vb], ([^]u8)(raw_data(vertices))[:vb])
-	if ib > 0 do copy(dst[vb:][:ib], ([^]u8)(raw_data(indices))[:ib])
-	for row in 0 ..< int(ah) {
-		src := atlas[(dirty[1] + row) * int(atlas_size.x) + dirty[0]:][:aw]
-		copy(dst[vb + ib + u32(row) * aw:][:aw], src)
-	}
-	gpu.unmap_transfer_buffer(up.transfer)
-
-	pass := gpu.begin_copy_pass(cmd)
-	if vb > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = up.transfer, offset = 0}, {buffer = up.vertices, offset = 0, size = vb}, false)
-	if ib > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = up.transfer, offset = vb}, {buffer = up.indices, offset = 0, size = ib}, false)
-	if aw > 0 {
-		gpu.upload_to_texture(pass,
-			{transfer_buffer = up.transfer, offset = vb + ib, pixels_per_row = aw, rows_per_layer = ah},
-			{texture = up.atlas, x = u32(dirty[0]), y = u32(dirty[1]), w = aw, h = ah, d = 1}, false)
-	}
-	gpu.end_copy_pass(pass)
-	return true
+	if !ok do log.errorf("ui upload: %s", gpu.last_error())
+	return ok
 }
 
 // Draws the uploaded triangles into an open render pass whose target has `format` and
