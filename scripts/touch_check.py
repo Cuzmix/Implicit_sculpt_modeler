@@ -129,7 +129,7 @@ UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y)
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({
     "new_sphere": (317, 159), "new_head": (403, 159), "new_bust": (489, 159), "new_figure": (317, 207), "new_hand": (403, 207),
-    "more_stats": (400, 692), "more_macros": (400, 736), "more_library": (400, 780), "more_reduce_motion": (400, 824),
+    "more_stats": At("menu sub More/Stats", 406, 648), "more_macros": At("menu sub More/Macros...", 406, 692), "more_library": At("menu sub More/Library...", 406, 736), "more_reduce_motion": (400, 824),
     "more_left_handed": (400, 868),
 })
 # Search's first row, while something is typed (left of its Put on a bar button).
@@ -12129,15 +12129,15 @@ def make_pack(path, name, alphas, extra=()):
     shutil.rmtree(folder)
 
 
-# The Library panel's Remove for the first pack, below Your own, at 1600x900.
-LIBRARY_PACK1_REMOVE = (1494, 291)
+# Manage packs' Remove for the first pack, below Your own, in the Library sheet at 1600x900.
+LIBRARY_PACK1_REMOVE = At("pack remove 1", 1150, 330)
 
 
 @scenario
 def content_pack_installs_and_removes():
     """A script installs a pack (its macros/ folder left out as code) and picks one of its
     alphas, which the Alpha section shows under the pack's name; the next start has the
-    pack back, and the Library panel (Menu > More > Library) removes it with two taps on its
+    pack back, and the Library's Manage packs (Menu > More > Library) removes it with two taps on its
     bin, taking its folder away and the brush back to round."""
     pack = autosave_folder() + "-rocks.sculptpack"
     make_pack(pack, "Rock Set", ["Pebble", "crack"], [("macros/evil.cmd", "remesh\n")])

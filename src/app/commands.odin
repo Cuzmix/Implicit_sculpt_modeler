@@ -2514,7 +2514,7 @@ COMMANDS := [Command_Id]Command {
 		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings, k.help, k.macros, k.library = true, false, false, false
+			k.settings, k.help, k.macros = true, false, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -2695,9 +2695,9 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Library = {
 		label = "Library...",
-		help = "Lists the content packs installed and your own alphas, to install a pack or remove one.",
+		help = "Opens the Library on its packs: the content packs installed and your own alphas, to install a pack, make one or remove one.",
 		icon = ui.ICON_FOLDER,
-		run = proc(app: ^App, _: int) {library_open(app)},
+		run = proc(app: ^App, _: int) {library_packs_open(app)},
 	},
 	.Pick_Pack = {
 		label = "Install pack...",
