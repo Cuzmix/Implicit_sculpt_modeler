@@ -1,6 +1,6 @@
 ---
 name: sm-render
-description: Rendering in src/render (its own Vulkan and Metal backends) — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, Slang shaders with committed .spv and .msl, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
+description: Rendering in src/render (its own Vulkan and Metal backends) — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices in two buffers, the GPU layer's upload memory and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, Slang shaders with committed .spv and .msl, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
 ---
 
 # Rendering
@@ -18,7 +18,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`view_depth_draw` into `Studio.view_depth`) at `samples == 0`.
   MSAA depth cannot be resolved or sampled. `set msaa off` gives the old images bit for bit.
 - `Mesh_Buffers` (`:67-96`): `positions` (FLOAT3) and `normals` (octahedral SHORT2_NORM) in two vertex buffers, 32-bit
-  `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:104-106`), `version`/`drawn_version`, the `indirect`
+  `indices`, `version`/`drawn_version`, the `indirect`
   command buffer sized for every chunk, `lod_indices` for the copies. `VERTEX_BYTES = 16`.
 - The mask rides in the normals: `pack_normal :: geom.oct_encode_masked` (`:102`) keeps 12 bits of each octahedral half
   for the normal and 4 for a nibble of the mask, so `VERTEX_BYTES` stays 16. `mesh_buffers_create(r, mesh, mask)` and
@@ -89,17 +89,18 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   (rebuilt when its key changes) and draws the live ones. `viewport_invalidate` zeroes both keys for changes the keys
   cannot see, such as which chunks are hidden (`:652-657`).
 - `prepare_draws` writes one `GPUIndexedIndirectDrawCommand` per visible run of chunks, LOD runs after the fine ones,
-  inside a copy pass before the render pass; `mesh_buffers_create` uploads a whole mesh in chunks, waiting for the GPU
-  after each, for loading only (`:395`); `mesh_buffers_upload_ranges` packs up to 256 ranges a batch into the
-  cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
+  inside a copy pass before the render pass; `mesh_buffers_create` uploads a whole mesh through `upload_now`: `UPLOAD_CHUNK` (16 MB) command buffers
+  submitted at once, each waiting only for the one two before it, for loading only; `mesh_buffers_upload_ranges` stages
+  each range's positions and packed normals with `gpu.stage_buffer`, records them inside its timing group
+  (`gpu.flush_uploads`) and bumps `version`; `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps);
   `Readback` (`readback_start`/`readback_poll`/`readback_cancel`) reads a texture back without waiting, on its own
   command buffer submitted after the frame's and collected once its fence signals (the scene preview, at rest).
 - Textured preview (`src/render/textured.odin`, app `src/app/textures.odin`; design notes/rendering/textured-preview-design.md):
   `Textured_Mesh` (one interleaved 32-byte `Textured_Vertex`: FLOAT3 position, SHORT2_NORM masked octahedral normal,
-  SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded in a copy pass on the
-  frame's `cmd` with a cycled transfer buffer; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
+  SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded with `gpu.upload` on the
+  frame's `cmd`; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
   `texture_create` with GPU mips, also behind `matcap_create`; `stamp` for vertices, `maps_stamp` for maps). A
   `Draw_Item` with `textured` and `texture_view != .Off` draws it whole with `Mesh_Pipelines.textured`/`textured_see`
   (`create_mesh_pipeline(…, textured = true)`: no storage buffer, 5 fragment samplers: MatCap, environment, then the maps, defaults
@@ -284,7 +285,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   start and its pixels arrive in `capture_finish` the same frame. `png_write.apng_*` streams the animated PNG.
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
-  through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The
+  through `gpu.upload_texture`; a picture sits at its cell's top left (`picture_uv`). The
   kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy`).
 - Kept pictures: `viewport_copy` copies a viewport-format texture into a `Viewport_Target` on its own command buffer,
   submitted before the frame draws over the source. The still a worked view pane leaves (`grid_work_gpu`) and the
@@ -333,7 +334,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - New uploads go through the GPU layer's upload memory (`src/gpu/staging.odin`): `gpu.upload(cmd, buffer, offset, bytes)`,
   `gpu.upload_texture(cmd, region, bytes)`, or `gpu.stage_buffer`/`gpu.stage_texture` to write in place; the copies are
   recorded in one copy pass just before the command buffer's next pass, mipmap build, acceleration build or submit, so
-  make no transfer buffer and open no copy pass for an upload (the interface, pictures, textures and textured meshes do so).
+  make no transfer buffer and open no copy pass for an upload (the interface, pictures, textures, textured meshes and
+  mesh buffers do so; `gpu.flush_uploads` records them early, inside a timing group).
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); release any time, even what this frame drew (the
   backends free it once no work uses it); only `renderer_destroy` waits for the GPU, then releases in reverse order.
 - Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
@@ -376,6 +378,6 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   A `Viewport_Target.tile` target (MSAA, transient targets, partial off; `--tile-msaa` forces it) keeps neither samples
   nor depth: `target_pass` must never load it, so a new viewport pass that loads goes after the resolve or skips tile.
 - Mapped device buffers (`gpu.create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
-  and closed with `gpu.buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
+  and closed with `gpu.buffer_filled`; never keep the pointer or write them later (strokes go through `gpu.stage_buffer`).
 - A compute kernel never sums floats with atomics (order breaks determinism); one that wants subgroup operations or
   64-bit atomics adds the capability to `Gpu_Caps` with a plain path where it is missing.

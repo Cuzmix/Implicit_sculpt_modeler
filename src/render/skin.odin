@@ -186,9 +186,9 @@ mesh_buffers_set_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, tris: [][4]u32, n
 	mb.skin_tris = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(tris) * size_of([4]u32))})
 	mb.skin_heights = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(words) * size_of(u32))})
 	ok := mb.skin_normals != 0 && mb.skin_tris != 0 && mb.skin_heights != 0
-	ok = ok && upload_blocking(r, mb, mb.skin_normals, slice.to_bytes(normals))
-	ok = ok && upload_blocking(r, mb, mb.skin_tris, slice.to_bytes(tris))
-	ok = ok && upload_blocking(r, mb, mb.skin_heights, slice.to_bytes(words))
+	ok = ok && upload_now(r, mb.skin_normals, slice.to_bytes(normals))
+	ok = ok && upload_now(r, mb.skin_tris, slice.to_bytes(tris))
+	ok = ok && upload_now(r, mb.skin_heights, slice.to_bytes(words))
 	if !ok {
 		log.errorf("detail skin upload failed: %s", gpu.last_error())
 		mesh_buffers_drop_skin(r, mb)

@@ -33,9 +33,6 @@ nav_head_init :: proc(r: ^Renderer, nh: ^Nav_Head, mesh: geom.Mesh) -> bool {
 		nh.failed = true
 		return false
 	}
-	// The head never changes after this, so the large transfer buffer goes now.
-	gpu.release_transfer_buffer(mb.transfer)
-	mb.transfer, mb.transfer_size = 0, 0
 	nh.mesh = mb
 	return true
 }
