@@ -1,8 +1,8 @@
 diff --git a/src/AutoRemesher/isotropicremesher.cpp b/src/AutoRemesher/isotropicremesher.cpp
-index 8f8772a..169f0a1 100644
+index 8f8772a..5ccbe11 100644
 --- a/src/AutoRemesher/isotropicremesher.cpp
 +++ b/src/AutoRemesher/isotropicremesher.cpp
-@@ -35,7 +35,13 @@ bool IsotropicRemesher::remesh()
+@@ -35,11 +35,19 @@ bool IsotropicRemesher::remesh()
      for (const auto& position : m_vertices)
          inputVertices.push_back(::Vector3(position.x(), position.y(), position.z()));
  
@@ -17,7 +17,22 @@ index 8f8772a..169f0a1 100644
      if (m_targetEdgeLength > 0)
          remesher.setTargetEdgeLength(m_targetEdgeLength);
      if (m_vertexTargetEdgeLengths != nullptr)
-@@ -68,6 +74,21 @@ bool IsotropicRemesher::remesh()
+         remesher.setVertexTargetEdgeLengths(m_vertexTargetEdgeLengths);
++    if (m_vertexPayloads != nullptr && m_vertexPayloads->size() == m_vertices.size())
++        remesher.setVertexPayloads(m_vertexPayloads);
+     remesher.setSharpEdgeIncludedAngle(180.0 - m_sharpEdgeDegrees);
+     remesher.setSmoothNormalDegrees(m_smoothNormalDegrees);
+     if (m_progressHandler)
+@@ -55,6 +63,8 @@ bool IsotropicRemesher::remesh()
+         nullptr != vertex;
+         vertex = halfedgeMesh->moveToNextVertex(vertex)) {
+         vertex->outputIndex = outputIndex++;
++        if (m_vertexPayloads != nullptr && m_vertexPayloads->size() == m_vertices.size())
++            m_remeshedVertexPayloads.push_back(vertex->payload);
+         m_remeshedVertices.push_back(Vector3 {
+             vertex->position.x(),
+             vertex->position.y(),
+@@ -68,6 +78,21 @@ bool IsotropicRemesher::remesh()
              face->halfedge->startVertex->outputIndex,
              face->halfedge->nextHalfedge->startVertex->outputIndex });
      }
@@ -40,10 +55,10 @@ index 8f8772a..169f0a1 100644
      return true;
  }
 diff --git a/src/AutoRemesher/isotropicremesher.h b/src/AutoRemesher/isotropicremesher.h
-index d68b6bc..368d645 100644
+index d68b6bc..92a0b9d 100644
 --- a/src/AutoRemesher/isotropicremesher.h
 +++ b/src/AutoRemesher/isotropicremesher.h
-@@ -42,6 +42,28 @@ public:
+@@ -42,11 +42,46 @@ public:
          m_constraintVertices = constraintVertices;
      }
  
@@ -72,7 +87,25 @@ index d68b6bc..368d645 100644
      void setVertexTargetEdgeLengths(const std::vector<double>* targetLengths)
      {
          m_vertexTargetEdgeLengths = targetLengths;
-@@ -85,6 +107,9 @@ private:
+     }
+ 
++    // A value per input vertex carried to the remeshed vertices (a split averages it, a
++    // collapse keeps the kept vertex's): the caller's density, say.
++    void setVertexPayloads(const std::vector<double>* payloads)
++    {
++        m_vertexPayloads = payloads;
++    }
++
++    // The carried values per remeshed vertex; empty when none were set.
++    const std::vector<double>& remeshedVertexPayloads()
++    {
++        return m_remeshedVertexPayloads;
++    }
++
+     void setTargetEdgeLength(double edgeLength)
+     {
+         m_targetEdgeLength = edgeLength;
+@@ -85,7 +120,12 @@ private:
      std::vector<Vector3> m_vertices;
      std::vector<std::vector<size_t>> m_triangles;
      const std::unordered_set<size_t>* m_constraintVertices = nullptr;
@@ -80,5 +113,8 @@ index d68b6bc..368d645 100644
 +    const std::vector<Vector3>* m_featurePositions = nullptr;
 +    std::vector<std::pair<size_t, size_t>> m_remeshedFeatureEdges;
      const std::vector<double>* m_vertexTargetEdgeLengths = nullptr;
++    const std::vector<double>* m_vertexPayloads = nullptr;
++    std::vector<double> m_remeshedVertexPayloads;
      double m_targetEdgeLength = 0;
      double m_sharpEdgeDegrees = 60;
+     double m_smoothNormalDegrees = 0.0;
