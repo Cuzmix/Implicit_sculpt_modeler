@@ -257,8 +257,6 @@ Mesh_Buffers :: struct {
 	positions:       gpu.Buffer,
 	normals:         gpu.Buffer,
 	indices:         gpu.Buffer,
-	transfer:        gpu.Transfer_Buffer,
-	transfer_size:   u32,
 	vertex_capacity: u32,
 	index_count:     u32,
 	version:         u64, // changes whenever the buffers' contents do
@@ -344,10 +342,6 @@ VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
 
 // Normals go up with the vertex's mask folded in: see geom.oct_encode_masked.
 pack_normal :: geom.oct_encode_masked
-
-// 16 MB holds positions and normals for 1M vertices: far more than a frame of
-// sculpting changes, even with a large brush on a 10M vertex mesh.
-TRANSFER_BUFFER_SIZE :: 16 << 20
 
 // Matches Frame_Uniforms in mesh_io.slang (std140: column-major mat4s). Pushed per draw.
 Frame_Uniforms :: struct {
@@ -1095,7 +1089,6 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	mb.index_count = icount
 	r.last_version += 1
 	mb.version = r.last_version
-	mb.transfer_size = TRANSFER_BUFFER_SIZE
 	mb.index_version = mb.version
 	// Readable by compute as well, so the traced studio casts rays at the triangles the
 	// viewport draws without copying them; a device that refuses gets plain buffers.
@@ -1125,9 +1118,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 		mb.indices = gpu.create_buffer({usage = {.Index}, size = ibytes})
 	}
 	if mb.normals == 0 do mb.normals = gpu.create_buffer(normals_info)
-	// Strokes upload through it whichever way the mesh came in.
-	mb.transfer = gpu.create_transfer_buffer({usage = .Upload, size = mb.transfer_size})
-	if mb.positions == 0 || mb.normals == 0 || mb.indices == 0 || mb.transfer == 0 {
+	if mb.positions == 0 || mb.normals == 0 || mb.indices == 0 {
 		log.errorf("mesh buffer creation failed: %s", gpu.last_error())
 		mesh_buffers_destroy(r, &mb)
 		return {}, false
@@ -1140,19 +1131,19 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 		fill_copy(r.pool, indices_map, slice.to_bytes(mesh.indices[:]))
 		gpu.buffer_filled(mb.indices)
 	} else {
-		ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:]))
+		ok = upload_now(r, mb.indices, slice.to_bytes(mesh.indices[:]))
 	}
 	if positions_map != nil {
 		fill_copy(r.pool, positions_map, slice.to_bytes(mesh.positions[:]))
 		gpu.buffer_filled(mb.positions)
 	} else {
-		ok = ok && upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:]))
+		ok = ok && upload_now(r, mb.positions, slice.to_bytes(mesh.positions[:]))
 	}
 	if normals_map != nil {
 		fill_normals(r.pool, normals_map, mesh.normals[:], mask)
 		gpu.buffer_filled(mb.normals)
 	} else {
-		ok = ok && upload_normals_blocking(r, &mb, mesh.normals[:], mask)
+		ok = ok && upload_normals_now(r, &mb, mesh.normals[:], mask)
 	}
 	if !ok {
 		log.errorf("mesh upload failed: %s", gpu.last_error())
@@ -1187,7 +1178,7 @@ fill_copy :: proc(pool: ^jobs.Pool, dst: rawptr, src: []u8) {
 }
 
 // Packs every normal (with its mask value) into `dst`, a buffer's mapping, as
-// upload_normals_blocking packs them into the transfer buffer.
+// upload_normals_now packs them into upload memory.
 @(private = "file")
 fill_normals :: proc(pool: ^jobs.Pool, dst: rawptr, normals: []geom.Vec3, mask: []u8) {
 	Job :: struct {
@@ -1208,50 +1199,71 @@ fill_normals :: proc(pool: ^jobs.Pool, dst: rawptr, normals: []geom.Vec3, mask: 
 	})
 }
 
-// Copies `data` to the start of `buffer` one transfer buffer at a time. The transfer
-// buffer is cycled like the per-frame uploads cycle it: this frame's command buffer, not
-// yet submitted, may hold copies out of it (a level's vertex ranges before its skin is set),
-// and writing over their data would send those vertices someone else's bytes.
+// Copies `data` to the start of `buffer` on command buffers of their own, submitted at
+// once, UPLOAD_CHUNK bytes each, so a large mesh never needs all its bytes in upload
+// memory: a chunk waits only for the one two before it. Work submitted later sees the
+// buffer filled. For loading and rebuilding, not per frame.
 @(private)
-upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: gpu.Buffer, data: []u8) -> bool {
-	for offset := 0; offset < len(data); offset += int(mb.transfer_size) {
-		chunk := data[offset:min(offset + int(mb.transfer_size), len(data))]
-		dst := gpu.map_transfer_buffer(mb.transfer, true)
-		if dst == nil do return false
-		copy(([^]u8)(dst)[:len(chunk)], chunk)
-		gpu.unmap_transfer_buffer(mb.transfer)
-		cmd := gpu.acquire_command_buffer()
-		if cmd == nil do return false
-		pass := gpu.begin_copy_pass(cmd)
-		gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer}, {buffer = buffer, offset = u32(offset), size = u32(len(chunk))}, false)
-		gpu.end_copy_pass(pass)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return false
+upload_now :: proc(r: ^Renderer, buffer: gpu.Buffer, data: []u8) -> bool {
+	Fill :: struct {
+		data: []u8,
 	}
-	return true
+	fill := Fill{data}
+	return upload_now_by(r, buffer, len(data), &fill, proc(dst: []u8, offset: int, user: rawptr) {
+		copy(dst, (^Fill)(user).data[offset:][:len(dst)])
+	})
 }
 
-// Packs and copies every normal, one transfer buffer at a time, cycling the transfer
-// buffer for the reason upload_blocking does.
+// Packs every normal (with its mask value) into the normals buffer as upload_now copies.
 @(private)
-upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3, mask: []u8) -> bool {
-	per_batch := int(mb.transfer_size / size_of(Normal_Packed))
-	for first := 0; first < len(normals); first += per_batch {
-		batch := normals[first:min(first + per_batch, len(normals))]
-		dst := cast([^]Normal_Packed)gpu.map_transfer_buffer(mb.transfer, true)
-		if dst == nil do return false
-		if mask != nil {
-			for n, i in batch do dst[i] = pack_normal(n, mask[first + i])
+upload_normals_now :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3, mask: []u8) -> bool {
+	Fill :: struct {
+		normals: []geom.Vec3,
+		mask:    []u8,
+	}
+	fill := Fill{normals, mask}
+	return upload_now_by(r, mb.normals, len(normals) * size_of(Normal_Packed), &fill, proc(dst: []u8, offset: int, user: rawptr) {
+		f := (^Fill)(user)
+		first := offset / size_of(Normal_Packed)
+		out := slice.reinterpret([]Normal_Packed, dst)
+		if f.mask != nil {
+			for &n, i in out do n = pack_normal(f.normals[first + i], f.mask[first + i])
 		} else {
-			for n, i in batch do dst[i] = pack_normal(n, 0)
+			for &n, i in out do n = pack_normal(f.normals[first + i], 0)
 		}
-		gpu.unmap_transfer_buffer(mb.transfer)
+	})
+}
+
+// Bytes a command buffer of upload_now carries: 16 MB holds positions and normals for 1M
+// vertices.
+UPLOAD_CHUNK :: 16 << 20
+
+// Uploads `size` bytes into `buffer`, `fill` writing each chunk's bytes from `offset`.
+@(private = "file")
+upload_now_by :: proc(r: ^Renderer, buffer: gpu.Buffer, size: int, user: rawptr, fill: proc(dst: []u8, offset: int, user: rawptr)) -> bool {
+	fences: [2]gpu.Fence
+	defer for f in fences do if f != nil do gpu.release_fence(f)
+	chunk_index := 0
+	for offset := 0; offset < size; offset += UPLOAD_CHUNK {
+		n := min(UPLOAD_CHUNK, size - offset)
+		slot := &fences[chunk_index % len(fences)]
+		chunk_index += 1
+		if slot^ != nil {
+			waited := gpu.wait_for_fences(true, slot, 1)
+			gpu.release_fence(slot^)
+			slot^ = nil
+			if !waited do return false
+		}
 		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
-		pass := gpu.begin_copy_pass(cmd)
-		size := u32(len(batch) * size_of(Normal_Packed))
-		gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer}, {buffer = mb.normals, offset = u32(first * size_of(Normal_Packed)), size = size}, false)
-		gpu.end_copy_pass(pass)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return false
+		dst := gpu.stage_buffer(cmd, buffer, u32(offset), u32(n))
+		if dst == nil {
+			_ = gpu.cancel_command_buffer(cmd)
+			return false
+		}
+		fill(dst, offset, user)
+		slot^ = gpu.submit_command_buffer_and_acquire_fence(cmd)
+		if slot^ == nil do return false
 	}
 	return true
 }
@@ -1260,7 +1272,6 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.positions != 0 do gpu.release_buffer(mb.positions)
 	if mb.normals != 0 do gpu.release_buffer(mb.normals)
 	if mb.indices != 0 do gpu.release_buffer(mb.indices)
-	if mb.transfer != 0 do gpu.release_transfer_buffer(mb.transfer)
 	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
 	if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
 	if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
@@ -1286,80 +1297,51 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 }
 
 // Records copies of the positions and normals (with `mask`, nil when nothing is
-// masked) of every vertex in `ranges` into `cmd`. Ranges are packed into the transfer
-// buffer, which is cycled so an upload never stalls on the previous frame's copy; if
-// they do not fit, they go in several batches. With `positions_only` the normals stay
-// as the GPU has them: the normals kernel of sculpting on the GPU writes them this frame.
+// masked) of every vertex in `ranges` into `cmd`, through the GPU layer's upload memory
+// (which takes a backing no earlier frame still reads, so an upload never stalls on the
+// previous frame's copy). With `positions_only` the normals stay as the GPU has them: the
+// normals kernel of sculpting on the GPU writes them this frame.
 mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil, positions_only := false) {
 	debug_group(cmd, "Brush upload", .Uploads)
+	// Recorded inside the group, so the Stats panel times them as uploads.
+	defer gpu.flush_uploads(cmd)
 	if len(ranges) > 0 {
 		r.last_version += 1
 		mb.version = r.last_version
 	}
-	vertex_bytes := u32(size_of(geom.Vec3)) if positions_only else VERTEX_BYTES
-	capacity := mb.transfer_size / vertex_bytes // vertices per batch
-	pending := ranges
-	split: geom.Vertex_Range // remainder of a range cut at a batch boundary
-	for len(pending) > 0 || split.count > 0 {
-		// Plan a batch: whole ranges, then part of the next if it does not fit.
-		Planned :: struct {
-			r:   geom.Vertex_Range,
-			dst: u32,
+	for x in ranges {
+		if x.count == 0 do continue
+		assert(x.first + x.count <= mb.vertex_capacity)
+		dst_p := gpu.stage_buffer(cmd, mb.positions, x.first * size_of(geom.Vec3), x.count * size_of(geom.Vec3))
+		if dst_p == nil {
+			log.errorf("brush upload failed: %s", gpu.last_error())
+			return
 		}
-		batch: [dynamic; 256]Planned
-		used: u32
-		for used < capacity && len(batch) < cap(batch) {
-			next: geom.Vertex_Range
-			if split.count > 0 {
-				next, split = split, {}
-			} else if len(pending) > 0 {
-				next, pending = pending[0], pending[1:]
-			} else {
-				break
-			}
-			assert(next.first + next.count <= mb.vertex_capacity)
-			if next.count > capacity - used {
-				split = {next.first + (capacity - used), next.count - (capacity - used)}
-				next.count = capacity - used
-			}
-			append(&batch, Planned{next, used})
-			used += next.count
+		copy(slice.reinterpret([]geom.Vec3, dst_p), mesh.positions[x.first:][:x.count])
+		if positions_only do continue
+		dst_n := gpu.stage_buffer(cmd, mb.normals, x.first * size_of(Normal_Packed), x.count * size_of(Normal_Packed))
+		if dst_n == nil {
+			log.errorf("brush upload failed: %s", gpu.last_error())
+			return
 		}
-
-		// Positions for the batch first, then packed normals, each laid out by range.
-		mapped := cast([^]u8)gpu.map_transfer_buffer(mb.transfer, true)
-		dst_p := cast([^]geom.Vec3)mapped
-		dst_n := cast([^]Normal_Packed)(mapped[used * size_of(geom.Vec3):])
-		for p in batch {
-			copy(dst_p[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
-			if positions_only {
-				continue
-			} else if mask != nil {
-				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, mask[p.r.first + u32(k)])
-			} else {
-				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, 0)
-			}
+		out := slice.reinterpret([]Normal_Packed, dst_n)
+		if mask != nil {
+			for n, k in mesh.normals[x.first:][:x.count] do out[k] = pack_normal(n, mask[x.first + u32(k)])
+		} else {
+			for n, k in mesh.normals[x.first:][:x.count] do out[k] = pack_normal(n, 0)
 		}
-		gpu.unmap_transfer_buffer(mb.transfer)
-		pass := gpu.begin_copy_pass(cmd)
-		for p in batch {
-			src_p := p.dst * size_of(geom.Vec3)
-			src_n := used * size_of(geom.Vec3) + p.dst * size_of(Normal_Packed)
-			gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_p}, {buffer = mb.positions, offset = p.r.first * size_of(geom.Vec3), size = p.r.count * size_of(geom.Vec3)}, false)
-			if positions_only do continue
-			gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_n}, {buffer = mb.normals, offset = p.r.first * size_of(Normal_Packed), size = p.r.count * size_of(Normal_Packed)}, false)
-		}
-		gpu.end_copy_pass(pass)
 	}
 }
 
 // Records copies of the paint data (colours, nil for none, and the groups vertices
 // carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
-// every vertex when `all` or when the buffer has to be made first. Packs ranges into the
-// transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
+// every vertex when `all` or when the buffer has to be made first, through upload memory
+// like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
 // the mesh is drawn without paint until a later upload succeeds.
 mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
 	debug_group(cmd, "Paint upload", .Uploads)
+	// Recorded inside the group, so the Stats panel times them as uploads.
+	defer gpu.flush_uploads(cmd)
 	ranges, all := ranges, all
 	if mb.paint == 0 {
 		mb.paint = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = max(mb.vertex_capacity, 1) * size_of(Paint_Packed)})
@@ -1373,61 +1355,30 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers,
 	if all do ranges = whole[:]
 	r.last_version += 1
 	mb.version = r.last_version
-	capacity := mb.transfer_size / size_of(Paint_Packed) // vertices per batch
-	pending := ranges
-	split: geom.Vertex_Range
-	for len(pending) > 0 || split.count > 0 {
-		Planned :: struct {
-			r:   geom.Vertex_Range,
-			dst: u32,
-		}
-		batch: [dynamic; 256]Planned
-		used: u32
-		for used < capacity && len(batch) < cap(batch) {
-			next: geom.Vertex_Range
-			if split.count > 0 {
-				next, split = split, {}
-			} else if len(pending) > 0 {
-				next, pending = pending[0], pending[1:]
-			} else {
-				break
-			}
-			if next.count > capacity - used {
-				split = {next.first + (capacity - used), next.count - (capacity - used)}
-				next.count = capacity - used
-			}
-			append(&batch, Planned{next, used})
-			used += next.count
-		}
-		dst := cast([^]Paint_Packed)gpu.map_transfer_buffer(mb.transfer, true)
-		if dst == nil {
+	for x in ranges {
+		if x.count == 0 do continue
+		bytes := gpu.stage_buffer(cmd, mb.paint, x.first * size_of(Paint_Packed), x.count * size_of(Paint_Packed))
+		if bytes == nil {
 			log.errorf("paint upload failed: %s", gpu.last_error())
 			gpu.release_buffer(mb.paint)
 			mb.paint = 0
 			return
 		}
-		for p in batch {
-			for k in 0 ..< p.r.count {
-				v := p.r.first + k
-				x: Paint_Packed
-				if colors != nil && int(v) < len(colors) do x[0] = transmute(u32)colors[v]
-				if groups != nil && int(v) < len(groups) do x[1] = u32(groups[v])
-				dst[p.dst + k] = x
-			}
+		dst := slice.reinterpret([]Paint_Packed, bytes)
+		for k in 0 ..< x.count {
+			v := x.first + k
+			p: Paint_Packed
+			if colors != nil && int(v) < len(colors) do p[0] = transmute(u32)colors[v]
+			if groups != nil && int(v) < len(groups) do p[1] = u32(groups[v])
+			dst[k] = p
 		}
-		gpu.unmap_transfer_buffer(mb.transfer)
-		pass := gpu.begin_copy_pass(cmd)
-		for p in batch {
-			gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(Paint_Packed)}, {buffer = mb.paint, offset = p.r.first * size_of(Paint_Packed), size = p.r.count * size_of(Paint_Packed)}, false)
-		}
-		gpu.end_copy_pass(pass)
 	}
 }
 
 // Records copies of the `ranges` of `indices`, the mesh's simplified copies, into its
 // LOD buffer; all of `indices` when `all`, or when the buffer has to be created or
-// grown to hold them (first to `expected` indices, then by half again). Packs ranges
-// into the transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is
+// grown to hold them (first to `expected` indices, then by half again), through upload
+// memory like mesh_buffers_upload_ranges. On failure the buffer is
 // dropped, so the mesh is drawn at full detail until a later upload succeeds.
 mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, indices: []u32, ranges: []geom.Index_Range, all: bool, expected := 0) {
 	ranges, all := ranges, all
@@ -1473,51 +1424,17 @@ mesh_buffers_upload_packed_indices :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh
 	if !upload_index_ranges(r, cmd, mb, mb.indices, indices, ranges, packed = true) do log.errorf("index upload failed: %s", gpu.last_error())
 }
 
-// Packs index ranges into the transfer buffer, cycled, and records their copies into
-// `buffer`, in as many batches as they need. The data of each range is at the same
-// place in `indices`, or with `packed`, `indices` holds the ranges one after another.
+// Records copies of index ranges into `buffer` through the GPU layer's upload memory. The
+// data of each range is at the same place in `indices`, or with `packed`, `indices` holds
+// the ranges one after another.
 @(private)
 upload_index_ranges :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, buffer: gpu.Buffer, indices: []u32, ranges: []geom.Index_Range, packed := false) -> bool {
-	ranges := ranges
-	capacity := mb.transfer_size / size_of(u32) // indices per batch
-	split: geom.Index_Range // remainder of a range cut at a batch boundary
-	read: u32 // with `packed`: where in `indices` the next piece starts
-	for len(ranges) > 0 || split.index_count > 0 {
-		Planned :: struct {
-			r:   geom.Index_Range,
-			dst: u32,
-			src: u32,
-		}
-		batch: [dynamic; 256]Planned
-		used: u32
-		for used < capacity && len(batch) < cap(batch) {
-			next: geom.Index_Range
-			if split.index_count > 0 {
-				next, split = split, {}
-			} else if len(ranges) > 0 {
-				next, ranges = ranges[0], ranges[1:]
-			} else {
-				break
-			}
-			if next.index_count == 0 do continue
-			if next.index_count > capacity - used {
-				split = {next.first_index + (capacity - used), next.index_count - (capacity - used)}
-				next.index_count = capacity - used
-			}
-			append(&batch, Planned{next, used, read if packed else next.first_index})
-			read += next.index_count
-			used += next.index_count
-		}
-		if len(batch) == 0 do break
-		dst := cast([^]u32)gpu.map_transfer_buffer(mb.transfer, true)
-		if dst == nil do return false
-		for p in batch do copy(dst[p.dst:][:p.r.index_count], indices[p.src:][:p.r.index_count])
-		gpu.unmap_transfer_buffer(mb.transfer)
-		pass := gpu.begin_copy_pass(cmd)
-		for p in batch {
-			gpu.upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(u32)}, {buffer = buffer, offset = p.r.first_index * size_of(u32), size = p.r.index_count * size_of(u32)}, false)
-		}
-		gpu.end_copy_pass(pass)
+	read: u32 // with `packed`: where in `indices` the next range starts
+	for x in ranges {
+		if x.index_count == 0 do continue
+		src := read if packed else x.first_index
+		read += x.index_count
+		if !gpu.upload(cmd, buffer, x.first_index * size_of(u32), slice.to_bytes(indices[src:][:x.index_count])) do return false
 	}
 	return true
 }
@@ -2187,7 +2104,7 @@ CAGE_LINE_COLOR :: [4]f32{0.02, 0.02, 0.025, 1}
 // draw with Draw_Item.cage_lines, replacing any it had; nil or empty removes them; and,
 // for polygon edges, the same edges per triangle as Mesh_Buffers.tri_edges holds them
 // (tri_edge_flags), which let the wireframe be drawn in the shading pass where the device
-// can. Waits for the copies. Returns false, with no edges, on a GPU failure.
+// can. The copies are submitted at once. Returns false, with no edges, on a GPU failure.
 mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tri_edges: []u32 = nil) -> bool {
 	if mb.edges != 0 || mb.tri_edges != 0 {
 		if mb.edges != 0 do gpu.release_buffer(mb.edges)
@@ -2200,7 +2117,7 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tr
 	if len(tri_edges) > 0 {
 		assert(len(tri_edges) == (int(mb.index_count / 3) + 7) / 8, "the triangles' edge bits do not match the buffers' triangles")
 		mb.tri_edges = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(tri_edges) * size_of(u32))})
-		if mb.tri_edges == 0 || !upload_blocking(r, mb, mb.tri_edges, slice.to_bytes(tri_edges)) {
+		if mb.tri_edges == 0 || !upload_now(r, mb.tri_edges, slice.to_bytes(tri_edges)) {
 			// The edges still draw as lines.
 			log.warnf("polygon edge bits upload failed: %s", gpu.last_error())
 			if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
@@ -2209,7 +2126,7 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tr
 	}
 	for v in pairs do assert(v < mb.vertex_capacity, "an edge names a vertex the buffers do not hold")
 	mb.edges = gpu.create_buffer({usage = {.Index}, size = u32(len(pairs) * size_of(u32))})
-	if mb.edges == 0 || !upload_blocking(r, mb, mb.edges, slice.to_bytes(pairs)) {
+	if mb.edges == 0 || !upload_now(r, mb.edges, slice.to_bytes(pairs)) {
 		log.errorf("cage edge upload failed: %s", gpu.last_error())
 		if mb.edges != 0 do gpu.release_buffer(mb.edges)
 		mb.edges = 0

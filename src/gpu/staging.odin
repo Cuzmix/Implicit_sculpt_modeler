@@ -108,6 +108,12 @@ upload_texture :: proc(cmd: Cmd, region: Texture_Region, data: []u8) -> bool {
 	return true
 }
 
+// Records the copies staged on `cmd` so far, now rather than as its next pass begins: for
+// a caller timing its uploads under a debug group of their own. No pass may be open.
+flush_uploads :: proc(cmd: Cmd) {
+	staging_flush(cmd)
+}
+
 // The staging of an open recording, made on its first upload.
 @(private = "file")
 staging_cmd :: proc(cmd: Cmd) -> ^Staging_Cmd {
