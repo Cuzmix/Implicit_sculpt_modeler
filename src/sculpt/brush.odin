@@ -1195,6 +1195,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		if share <= 0 do return painted
 		brush.strength *= share
 		d.brush.strength = brush.strength
+		if brush.kind == .Snake_Hook {
+			brush.drag *= share
+			d.brush.drag = brush.drag
+		}
 		d.mesh_share = share
 	}
 	if s.history.recording do record_hit(s, masks = false)

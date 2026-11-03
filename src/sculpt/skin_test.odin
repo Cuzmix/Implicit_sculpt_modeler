@@ -251,7 +251,7 @@ skin_flush_uploads_only_near_the_dabs :: proc(t: ^testing.T) {
 	sk := sp.sculptor.skin
 	for kind in SKIN_KINDS {
 		before := slice.clone(sk.normals, context.temp_allocator)
-		_ = apply_dab(&sp.sculptor, {kind = kind, radius = 0.08, strength = 0.8, skin = true}, linalg.normalize(Vec3{0.2, 0.1, 1}))
+		_ = apply_dab(&sp.sculptor, {kind = kind, radius = 0.08, strength = 0.8, skin = true, drag = {0.004, 0.002, 0}}, linalg.normalize(Vec3{0.2, 0.1, 1}))
 		_ = sculptor_flush(&sp.sculptor)
 		listed := make([]bool, len(sk.normals), context.temp_allocator)
 		total := 0
@@ -321,12 +321,12 @@ skin_dabs_match_serial_and_parallel :: proc(t: ^testing.T) {
 			for k in 0 ..< 6 {
 				at := linalg.normalize(Vec3{0.1 * f32(k), 0.05, 1})
 				_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = 0.3, strength = 1, skin = true}, at)
-				_ = apply_dab(&sp.sculptor, {kind = kind, radius = 0.4, strength = 0.7, skin = true, symmetry = {.X}}, at)
+				_ = apply_dab(&sp.sculptor, {kind = kind, radius = 0.4, strength = 0.7, skin = true, symmetry = {.X}, drag = {0.01, 0.02, 0}}, at)
 				_ = sculptor_flush(&sp.sculptor)
 			}
 			_ = sculptor_stroke_end(&sp.sculptor)
 		}
-		same := slice.equal(a.sculptor.skin.heights, b.sculptor.skin.heights) && slice.equal(a.sculptor.skin.normals, b.sculptor.skin.normals)
+		same := slice.equal(a.sculptor.skin.heights, b.sculptor.skin.heights) && slice.equal(a.sculptor.skin.normals, b.sculptor.skin.normals) && slice.equal(a.sculptor.skin.side, b.sculptor.skin.side)
 		testing.expectf(t, same, "%v: the parallel skin differs from the serial one", kind)
 	}
 }

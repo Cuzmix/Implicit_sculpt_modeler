@@ -85,6 +85,8 @@ Skin :: struct {
 	height_max:  f32,
 	// Smooth's targets, per sample of the hit nodes, each node's from offsets[hit index].
 	smooth_to:   [dynamic]f32,
+	// And with a vector page, its offsets' targets alike.
+	smooth_side: [dynamic][2]f32,
 	offsets:     [dynamic]u32,
 }
 
@@ -219,6 +221,7 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	skin_spheres_all(s, &sk)
 	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
 	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
+	sk.smooth_side = make([dynamic][2]f32, 0, 0, allocator)
 	sk.offsets = make([dynamic]u32, 0, 0, allocator)
 	skin_near_build(s, &sk, allocator)
 	skin_normals_all(s, &sk, flat = true)
@@ -247,6 +250,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
 	delete(sk.smooth_to)
+	delete(sk.smooth_side)
 	delete(sk.offsets)
 	sk^ = {}
 }
