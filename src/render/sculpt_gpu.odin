@@ -347,12 +347,30 @@ Sculpt_Gpu :: struct {
 
 // Whether the backend sculpts on the GPU at all: the own Vulkan and Metal backends, on a
 // device whose kernels may bind as many storage buffers as the dab kernels do (every
-// Apple GPU's 31). The web's WebGPU offers 8, too few. Metal runs the same kernels from
-// their .msl, compiled without fast math (gpu_create_compute_pipeline_exact), and a
-// serial compute encoder orders the dispatches as the Vulkan backend's barriers do.
+// Apple GPU's 31) and run a slab's SCULPT_SLAB threads in one workgroup (some tablet
+// GPUs stop at 128). The web's WebGPU offers 8 buffers, too few. Metal runs the same
+// kernels from their .msl, compiled without fast math (gpu_create_compute_pipeline_exact),
+// and a serial compute encoder orders the dispatches as the Vulkan backend's barriers do.
 sculpt_gpu_offered :: proc(r: ^Renderer) -> bool {
-	when VULKAN || METAL do return gpu_storage_buffers_per_stage(r.device) >= SCULPT_STORAGE_BUFFERS
+	when VULKAN || METAL do return gpu_storage_buffers_per_stage(r.device) >= SCULPT_STORAGE_BUFFERS && gpu_compute_group_threads(r.device) >= SCULPT_SLAB
 	else do return false
+}
+
+// Whether Sculpt on the GPU starts on: on a video card under Vulkan, where it was measured
+// (an RTX 3060 Ti at 25M: a stroke's brush p99 1.2 ms against 122 on the CPU), and off on
+// unified-memory GPUs (tablets, Apple's, integrated ones), whose GPU has little time to
+// spare at that size, until a run there says otherwise.
+sculpt_gpu_by_default :: proc(r: ^Renderer) -> bool {
+	when VULKAN {
+		_, unified := gpu_memory_budget(r.device)
+		return !unified
+	} else do return false
+}
+
+// Makes the kernels now, if they are not made yet, so the first stroke after the switch
+// is on does not wait for them (they took 289 ms on an RTX 3060 Ti): at start-up.
+sculpt_gpu_kernels :: proc(r: ^Renderer) {
+	if r.caps.gpu_sculpt && !r.sculpt_gpu.failed && r.sculpt_gpu.pipeline == nil do _ = sculpt_pipelines_make(r)
 }
 
 // The most storage buffers a sculpt kernel binds: the dab kernels' nine read-only
@@ -617,6 +635,17 @@ sculpt_gpu_unselected :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 sculpt_lookup_make :: proc(r: ^Renderer, mb: ^Mesh_Buffers, sizes: [3]int) -> bool {
 	sculpt_lookup_release(r, mb)
 	ms := &mb.sculpt
+	// The lookup is the one large thing sculpting on the GPU adds (700 MB at 25M), so it
+	// takes at most a share of what the device has: a quarter of a video card's memory, an
+	// eighth of a unified-memory device's, which the mesh, its GPU copy, the app and the
+	// system share (an 8 GB tablet then carries about 20M; a larger mesh sculpts on the CPU
+	// as before, rather than the system closing the app).
+	total := sizes[0] + sizes[1] + sizes[2]
+	if budget, unified := gpu_memory_budget(r.device); budget > 0 && u64(total) > budget / (8 if unified else 4) {
+		log.warnf("sculpt on the GPU: the lookup's %d MB are more than %s %d MB allow; this mesh's strokes stay on the CPU", total >> 20, "an eighth of the device's" if unified else "a quarter of the GPU's", budget >> 20)
+		ms.failed = true
+		return false
+	}
 	names := [3]cstring{"sculpt lookup offsets", "sculpt lookup triangles", "sculpt shared vertices"}
 	buffers: [3]^sdl.GPUBuffer
 	for size, i in sizes {

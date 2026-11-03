@@ -252,6 +252,34 @@ gpu_storage_buffers_per_stage :: proc(device: ^sdl.GPUDevice) -> u32 {
 	else do return vk_state.properties.limits.maxPerStageDescriptorStorageBuffers
 }
 
+// The memory the GPU's buffers can use, in bytes, and whether it is the system's own
+// memory (a unified-memory GPU: Apple's, Android's, an integrated one), where it is shared
+// with everything the CPU holds: Metal's recommended working set; under Vulkan the largest
+// device-local heap; 0 under WebGPU, which does not say.
+@(require_results)
+gpu_memory_budget :: proc(device: ^sdl.GPUDevice) -> (bytes: u64, unified: bool) {
+	when METAL do return mtl_memory_budget()
+	else when WEBGPU do return 0, false
+	else {
+		for i in 0 ..< vk_state.memory.memoryHeapCount {
+			h := vk_state.memory.memoryHeaps[i]
+			if .DEVICE_LOCAL in h.flags do bytes = max(bytes, u64(h.size))
+		}
+		type := vk_state.properties.deviceType
+		return bytes, type == .INTEGRATED_GPU || type == .CPU
+	}
+}
+
+// The most threads one compute workgroup may run (Vulkan's maxComputeWorkGroupInvocations,
+// and its first dimension's size): Metal's pipelines say for themselves when they are
+// made (mtl_compute_pipeline_make refuses one that cannot), and WebGPU's default is 256.
+@(require_results)
+gpu_compute_group_threads :: proc(device: ^sdl.GPUDevice) -> u32 {
+	when METAL do return 1024
+	else when WEBGPU do return 256
+	else do return min(vk_state.properties.limits.maxComputeWorkGroupInvocations, vk_state.properties.limits.maxComputeWorkGroupSize[0])
+}
+
 // ---- Ray queries (Gpu_Caps.ray_query) -------------------------------------------------
 // Acceleration structures the driver builds and kernels trace with ray queries: the own
 // Vulkan backend on a device with VK_KHR_ray_query (vk_accel.odin), and the own Metal

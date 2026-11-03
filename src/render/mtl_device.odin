@@ -246,3 +246,7 @@ mtl_error_text :: proc(err: ^NS.Error) -> string {
 mtl_shared_buffers_offered :: proc() -> bool {
 	return bool(MTL.Device_hasUnifiedMemory(mtl_state.device))
 }
+
+mtl_memory_budget :: proc() -> (bytes: u64, unified: bool) {
+	return MTL.Device_recommendedMaxWorkingSetSize(mtl_state.device), bool(MTL.Device_hasUnifiedMemory(mtl_state.device))
+}
