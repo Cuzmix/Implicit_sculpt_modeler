@@ -20,6 +20,18 @@ import "../jobs"
 // vertex, by what passes it: half a step, below which the skin alone holds it well.
 SKIN_SETTLE_STEP :: 0.5
 
+// How far one vertex's lift may stand from the mean of its neighbours' lifts, over their
+// mean edge: under two degrees of bend. Settle measures the samples again from the curved
+// surface over the moved mesh, which kinks at the mesh's edges where the lift bends, so the
+// heights take up each kink; the skin's normals, worked out from those heights, then show
+// it as a flat patch the shape of a triangle on a coarse mesh. What bends faster stays in
+// the skin, which holds it as well; a rise several edges wide still settles.
+SKIN_SETTLE_BEND :: 0.03
+
+// The most passes that pull lifts down to that bend; each reaches one ring further from
+// the vertices that do not move.
+SKIN_SETTLE_BEND_PASSES :: 8
+
 // Settles the skin after a stroke, before sculptor_stroke_end: see above. Only the nodes
 // whose heights this stroke saved are looked at. Returns how many vertices moved.
 sculptor_skin_settle :: proc(s: ^Sculptor) -> int {
@@ -50,6 +62,16 @@ sculptor_skin_settle :: proc(s: ^Sculptor) -> int {
 		}
 	}
 	if len(moved) == 0 do return 0
+	settle_bend(s, moved[:], lift[:])
+	// The vertices whose lift the bend took away do not move.
+	kept := 0
+	for v, k in moved do if lift[k] != 0 {
+		moved[kept], lift[kept] = v, lift[k]
+		kept += 1
+	}
+	resize(&moved, kept)
+	resize(&lift, kept)
+	if kept == 0 do return 0
 
 	// Whose normals change: the moved vertices and every vertex of a triangle on one.
 	// Whose samples are measured again: every triangle on one of those.
@@ -127,6 +149,42 @@ sculptor_skin_settle :: proc(s: ^Sculptor) -> int {
 	for yes, id in holders do if yes do skin_mark(s, u32(id))
 	h.current.skinned = true
 	return len(moved)
+}
+
+// Pulls each lift down so it stands from the mean of its neighbours' lifts (a vertex that
+// does not move, or moves the other way, lifts by zero) by at most SKIN_SETTLE_BEND of
+// their mean edge, in passes over the vertices in their order, so the result never depends
+// on threads. Lifts only shrink, and a lift may be pulled to nothing.
+@(private)
+settle_bend :: proc(s: ^Sculptor, moved: []u32, lift: []f32) {
+	m := s.mesh
+	I := m.indices[:]
+	at := make(map[u32]int, len(moved), context.temp_allocator)
+	for v, k in moved do at[v] = k
+	for _ in 0 ..< SKIN_SETTLE_BEND_PASSES {
+		changed := false
+		for v, k in moved {
+			// Each neighbour once per face it shares, which weighs them as the faces do.
+			sum, edges: f32
+			count := 0
+			for f in faces_of(s, v) {
+				for c in 0 ..< u32(3) {
+					w := I[3 * f + c]
+					if w == v do continue
+					if kw, ok := at[w]; ok && (lift[kw] > 0) == (lift[k] > 0) do sum += abs(lift[kw])
+					edges += linalg.length(m.positions[w] - m.positions[v])
+					count += 1
+				}
+			}
+			if count == 0 do continue
+			cap := (sum + SKIN_SETTLE_BEND * edges) / f32(count)
+			if cap < abs(lift[k]) {
+				lift[k] = cap if lift[k] > 0 else -cap
+				changed = true
+			}
+		}
+		if !changed do break
+	}
 }
 
 // The smooth height round vertex v: the skin's heights along every edge at v, weighted

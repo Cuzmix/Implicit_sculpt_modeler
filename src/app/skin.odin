@@ -279,7 +279,7 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	groups := sculpt.sculptor_groups(s)
 	report_: geom.Remesh_Report
 	defer geom.remesh_report_destroy(&report_)
-	setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT}
+	setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT, keep_thin = true}
 	mesh, built := geom.remesh_voxel_measured(source, area, bounds, max(samples / max(share, 1), 1000), &app.pool, options = remesh_options(setup, groups), report = &report_)
 	if !built {
 		report(app, Kit_Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))

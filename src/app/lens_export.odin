@@ -33,6 +33,7 @@ Export_Format :: enum u8 {
 	Print_OBJ,
 	Link,
 	Print_3MF,
+	Send, // the scene to another device over Wi-Fi (send_ui.odin)
 }
 
 @(rodata)
@@ -49,6 +50,7 @@ EXPORT_FORMAT_NAMES := [Export_Format]string {
 	.Print_OBJ  = "3D print OBJ",
 	.Link       = "Blender link",
 	.Print_3MF  = "3D print 3MF",
+	.Send       = "Send over Wi-Fi",
 }
 
 // What each format makes.
@@ -66,6 +68,7 @@ EXPORT_FORMAT_DETAIL := [Export_Format]string {
 	.Print_OBJ  = ".obj, sized",
 	.Link       = "the link's folder",
 	.Print_3MF  = ".3mf, sized",
+	.Send       = ".sculpt, sent",
 }
 
 // Each format's name on its preset's format tabs, where the preset says the rest.
@@ -83,6 +86,7 @@ EXPORT_FORMAT_TABS := [Export_Format]string {
 	.Print_OBJ  = "OBJ",
 	.Link       = "Live link",
 	.Print_3MF  = "3MF",
+	.Send       = "Wi-Fi",
 }
 
 // What a file is for, the sheet's first choice.
@@ -92,6 +96,7 @@ Export_Preset :: enum u8 {
 	Blender,
 	Turntable,
 	Picture,
+	Send, // to a computer or tablet on the same Wi-Fi
 	Formats, // every plain format, as the sheet listed them before the presets
 }
 
@@ -102,6 +107,7 @@ EXPORT_PRESET_NAMES := [Export_Preset]string {
 	.Blender   = "Blender",
 	.Turntable = "Turntable",
 	.Picture   = "Picture",
+	.Send      = "Send",
 	.Formats   = "Any format",
 }
 
@@ -113,6 +119,7 @@ EXPORT_PRESET_DETAIL := [Export_Preset]string {
 	.Blender   = "The live link, or USD with layers and lights" when LINK_AVAILABLE else "USD with layers and lights",
 	.Turntable = "Once round, as frames and a loop",
 	.Picture   = "A screenshot of the view or of its render",
+	.Send      = "The scene, over Wi-Fi",
 	.Formats   = "Scene, OBJ, PLY, STL, glTF, USD",
 }
 
@@ -139,6 +146,7 @@ EXPORT_PRESET_ICONS := [Export_Preset]rune {
 	.Blender   = ICON_ROTATE_3D,
 	.Turntable = ICON_VIDEO,
 	.Picture   = ICON_CAMERA_SHOT,
+	.Send      = ICON_SEND,
 	.Formats   = ICON_FILE_BOX,
 }
 
@@ -155,6 +163,8 @@ EXPORT_TURNTABLE_FORMATS := [?]Export_Format{.Turntable}
 @(private = "file", rodata)
 EXPORT_PICTURE_FORMATS := [?]Export_Format{.Screenshot}
 @(private = "file", rodata)
+EXPORT_SEND_FORMATS := [?]Export_Format{.Send}
+@(private = "file", rodata)
 EXPORT_ANY_FORMATS := [?]Export_Format{.Scene, .OBJ, .PLY, .STL, .GLTF, .USD}
 
 export_preset_formats :: proc(p: Export_Preset) -> []Export_Format {
@@ -164,6 +174,7 @@ export_preset_formats :: proc(p: Export_Preset) -> []Export_Format {
 	case .Blender:   return EXPORT_BLENDER_FORMATS[:] when LINK_AVAILABLE else EXPORT_BLENDER_FORMATS[1:]
 	case .Turntable: return EXPORT_TURNTABLE_FORMATS[:]
 	case .Picture:   return EXPORT_PICTURE_FORMATS[:]
+	case .Send:      return EXPORT_SEND_FORMATS[:]
 	case .Formats:   return EXPORT_ANY_FORMATS[:]
 	}
 	return nil
@@ -241,6 +252,7 @@ export_last_label :: proc(p: Export_Preset, f: Export_Format) -> string {
 	case .Blender:   return "Last time: the live link to Blender" if f == .Link else fmt.tprintf("Last time: %s for Blender", EXPORT_FORMAT_TABS[f])
 	case .Turntable: return "Last time: a turntable"
 	case .Picture:   return "Last time: a picture"
+	case .Send:      return "Last time: sent over Wi-Fi"
 	case .Formats:   return fmt.tprintf("Last time: %s", EXPORT_FORMAT_NAMES[f])
 	}
 	return ""
@@ -255,6 +267,7 @@ export_command :: proc(f: Export_Format, copy := false) -> Command_Id {
 	case .Turntable:                       return .Record_Turntable
 	case .Print, .Print_OBJ, .Print_3MF:   return .Export_Print
 	case .Link:                            return .Send_To_Blender
+	case .Send:                            return .Send_Scene
 	}
 	return .None
 }
@@ -392,6 +405,7 @@ export_file_name :: proc(app: ^App, f: Export_Format) -> string {
 	case .Print_3MF:  suffix = ".3mf"
 	case .Turntable:  return "a folder of frames"
 	case .Link:       return "Blender link folder"
+	case .Send:       suffix = ".sculpt"
 	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .Screenshot:
 	}
 	stem := "Untitled"
@@ -409,6 +423,12 @@ export_sheet_open :: proc(app: ^App) {
 	s.open = true
 }
 
+// Opens the sheet on preset p.
+export_sheet_open_on :: proc(app: ^App, p: Export_Preset) {
+	export_sheet_open(app)
+	export_preset_pick(&app.kit.export, p)
+}
+
 // Runs Export for the chosen format and closes the sheet; false when the format's command
 // cannot run now.
 export_run :: proc(app: ^App) -> bool {
@@ -421,7 +441,12 @@ export_run :: proc(app: ^App) -> bool {
 	where_ := ""
 	if save_next_allowed(app) do where_, _ = filepath.join({filepath.dir(app.scene_path), export_file_name(app, f)}, context.temp_allocator)
 	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0, hollow = export_hollow_wall(s) if export_hollows(s) else 0}
-	if filter, ok := export_filter(f); ok {
+	if f == .Send {
+		target := export_send_target(app)
+		if target == "" do return false
+		send_last_set(app, target)
+		if !send_scene_last(app) do return false
+	} else if filter, ok := export_filter(f); ok {
 		file_dialog_export(app, filter, where_, sheet = true)
 	} else if file, is_print := export_print_file(f); is_print {
 		file_dialog_print(app, file, where_, sheet = true)
@@ -502,7 +527,8 @@ kit_export_sheet :: proc(app: ^App) {
 	ui.text(ctx, note, r.x, r.y + r.h * 0.5, t.small_size, t.text_tertiary, .Regular)
 	if ui.button(ctx, "Cancel##export", .Bordered, width = 100) do s.open = false
 	id := export_command(s.format, s.copy)
-	if ui.button(ctx, "Export##export", .Solid, .Accent, width = 100, enabled = command_enabled(app, id, 0), keys = command_hint(app, id)) do _ = export_run(app)
+	ready := command_enabled(app, id, 0) && (s.format != .Send || export_send_target(app) != "")
+	if ui.button(ctx, "Send##export" if s.format == .Send else "Export##export", .Solid, .Accent, width = 100, enabled = ready, keys = command_hint(app, id)) do _ = export_run(app)
 	ui.end(ctx)
 }
 
@@ -511,6 +537,7 @@ export_foot_note :: proc(f: Export_Format, copy: bool) -> string {
 	#partial switch f {
 	case .Scene: return "Saves a copy; the scene still saves to its own file." if copy else "Saves the scene; the new file becomes the scene's own."
 	case .Link:  return "Sends a copy to Blender; the scene is not changed."
+	case .Send:  return "Sends a copy; the scene still saves to its own file."
 	}
 	return "Exports a copy; the scene is not changed."
 }
@@ -569,7 +596,7 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	pic := ui.place(ctx, {EXPORT_PICTURE, EXPORT_PICTURE})
 	ui.fill_rect(ctx, pic, t.radius_medium, t.fill)
 	drawn := false
-	if f == .Scene || f == .Screenshot || f == .Turntable {
+	if f == .Scene || f == .Screenshot || f == .Turntable || f == .Send {
 		// The view's middle square, as the view stands.
 		v := k.grid.main
 		if v.w > 0 && v.h > 0 {
@@ -607,6 +634,8 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 	case .Screenshot:
 		append(&lines, "The view as it stands" if !app.screenshot_transparent else "The view without its background")
 		if render_switch_on(app) do append(&lines, "With the render" if app.render_quality == .Fast else "With the path-traced render")
+	case .Send:
+		export_send_lines(app, &lines)
 	case .Turntable:
 		append(&lines, fmt.tprintf("%d frames, %.1f s at %d a second", app.turntable_frames, f32(app.turntable_frames) / TURNTABLE_FPS, TURNTABLE_FPS))
 		append(&lines, "Numbered PNG pictures and one looping PNG")
@@ -716,6 +745,8 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		ui.paragraph(ctx, "The camera goes once round the scene, saving every frame into a folder you pick as numbered PNG pictures and one animated PNG that loops.")
 	case .Print, .Print_OBJ, .Print_3MF:
 		export_print_options(app)
+	case .Send:
+		export_send_options(app)
 	}
 }
 

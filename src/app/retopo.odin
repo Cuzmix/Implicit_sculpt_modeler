@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
+import "../hdri"
 import "../render"
 import "../png_write"
 import "../sculpt"
@@ -33,6 +34,26 @@ Bake_Settings :: struct {
 	id:              bool,
 	occlusion_rays:  i32, // per texel, 0 for none
 	occlusion_reach: f32, // as a share of the source's size (its bounds' diagonal)
+	vector:          bool, // a vector displacement map, NAME_vdm.exr
+	object_space:    bool, // normal and vector maps in the object's axes, not the tangent frame
+	target:          Bake_Target, // the program the maps are for
+}
+
+// The programs the maps are laid out for: Unreal reads a normal map with DirectX's green
+// (down), the rest with OpenGL's (up); all four read MikkTSpace tangents, and Blender's
+// layout (x, y and z in red, green and blue) for a vector map.
+Bake_Target :: enum u8 {
+	Blender,
+	Unity,
+	Unreal,
+	Godot,
+}
+
+BAKE_TARGET_NAMES := [Bake_Target]string {
+	.Blender = "Blender",
+	.Unity   = "Unity",
+	.Unreal  = "Unreal",
+	.Godot   = "Godot",
 }
 
 BAKE_OCCLUSION_RAYS_MAX :: 64
@@ -234,7 +255,9 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 // quads came from, else none.
 bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
 	src := object_by_id(app, app.ui.bake.source)
-	return src if src != low else nil
+	// An object bakes from itself only from its own detail skin.
+	if src == low && object_top_skin(low) == nil do return nil
+	return src
 }
 
 // Bakes the bake source's detail onto the selected quad object and writes, into
@@ -256,13 +279,28 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	object_hd_leave(app, low)
 	object_hd_leave(app, src)
 	start := time.tick_now()
-	view, packed := object_shape(src, top = true)
+	// A source with a detail skin bakes the surface the skin shows; from the low object's
+	// own skin, each texel takes its own point's offset (geom.Bake_Source.rest).
+	view, packed, rest: geom.Mesh
+	skinned := object_top_skin(src) != nil
+	if skinned {
+		top := &src.levels.levels[len(src.levels.levels) - 1].sculptor
+		packed, rest, _ = sculpt.sculptor_skin_mesh(top)
+		view = packed
+		view.normals = make([dynamic]geom.Vec3, len(view.positions))
+		geom.mesh_recompute_normals(&view)
+	} else {
+		view, packed = object_shape(src, top = true)
+	}
 	defer {
 		delete(view.normals)
 		geom.mesh_destroy(&packed)
+		delete(rest.positions)
 	}
 	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, &app.pool)
 	defer geom.bvh_destroy(&bvh)
+	rest_bvh: geom.Bvh
+	defer if src == low do geom.bvh_destroy(&rest_bvh)
 	sculpt.levels_sync(&low.levels)
 	quads := sculpt.levels_quad_mesh(&low.levels)
 	edge: f32
@@ -274,8 +312,14 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	if set.base_color do kinds += {.Base_Color}
 	if set.orm do kinds += {.Orm}
 	if set.id do kinds += {.Id}
+	if set.vector do kinds += {.Vector}
 	source := bake_source_of(app, src, view, &bvh)
-	maps := geom.bake_maps(quads, low.levels.faces.uv, source, size, set.reach_edges * edge, kinds, &app.pool)
+	if src == low {
+		rest_bvh = geom.bvh_build_morton(rest, geom.BVH_LEAF_SIZE, &app.pool)
+		source.rest, source.rest_bvh = rest, &rest_bvh
+	}
+	options := geom.Bake_Options{object_space = set.object_space, directx = set.target == .Unreal}
+	maps := geom.bake_maps(quads, low.levels.faces.uv, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
 	defer geom.bake_maps_destroy(&maps)
 	baked_ms := time.duration_milliseconds(time.tick_since(start))
 
@@ -314,16 +358,29 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		if !write_file_safely(app, path(folder, base, e.suffix), pngs[k], "bake") do return
 		append(&written, e.suffix)
 	}
+	if maps.vector != nil {
+		// In the OBJ's units, as the displacement's note gives them.
+		for &v in maps.vector do v *= low.file.scale
+		exr := hdri.exr_encode(maps.vector, size, size)
+		defer delete(exr)
+		if !write_file_safely(app, path(folder, base, "_vdm.exr"), exr, "bake") do return
+		append(&written, "_vdm.exr")
+	}
 	glb := make([dynamic]u8)
 	defer delete(glb)
-	bake_glb(&glb, low, quads, source, object_label(low), normal_png, pngs[0], pngs[1], set.occlusion_rays > 0)
+	// glTF reads a tangent-space normal map with green up only.
+	glb_normal := normal_png if !set.object_space && set.target != .Unreal else nil
+	bake_glb(&glb, low, quads, source, object_label(low), glb_normal, pngs[0], pngs[1], set.occlusion_rays > 0)
 	if !write_file_safely(app, path(folder, base, ".glb"), glb[:], "bake") do return
 	append(&written, ".glb")
 	// The maps stay on the object, shown through its UVs (textures.odin): the first bake of
 	// a run turns the view on so the result shows at once. The ID map is a mask source, not
 	// a look, so it stays a file.
+	// The viewport reads a normal map in the tangent frame with green up, and an object's
+	// own skin already shows its detail, so only such a map from another object is shown.
+	shown_normal := normal_png if !set.object_space && set.target != .Unreal && src != low else nil
 	kept: Object_Textures
-	for img, m in ([render.Texture_Map][]u8{.Base_Color = pngs[0], .Orm = pngs[1], .Normal = normal_png}) {
+	for img, m in ([render.Texture_Map][]u8{.Base_Color = pngs[0], .Orm = pngs[1], .Normal = shown_normal}) {
 		if img == nil do continue
 		kept.image[m] = make([]u8, len(img))
 		copy(kept.image[m], img)
@@ -471,9 +528,9 @@ kit_retopo_section :: proc(app: ^App) {
 	append(&ids, 0)
 	chosen := 0
 	for other in app.scene.objects {
-		if other == obj do continue
+		if other == obj && object_top_skin(obj) == nil do continue
 		if other == src do chosen = len(names)
-		append(&names, fmt.tprintf("Bake from %s##%d", object_label(other), other.id))
+		append(&names, fmt.tprintf("Bake from its own skin##%d", other.id) if other == obj else fmt.tprintf("Bake from %s##%d", object_label(other), other.id))
 		append(&ids, other.id)
 	}
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
@@ -494,12 +551,18 @@ kit_retopo_section :: proc(app: ^App) {
 		_ = ui.switch_row(ctx, "Base colour", &set.base_color)
 		_ = ui.switch_row(ctx, "Occlusion, roughness, metal", &set.orm)
 		_ = ui.switch_row(ctx, "Polygroup colours", &set.id)
+		_ = ui.switch_row(ctx, "Vector displacement (VDM)", &set.vector)
+		_ = ui.switch_row(ctx, "Object space", &set.object_space)
+		ui.label(ctx, "MAPS FOR")
+		targets: [len(Bake_Target)]string
+		for name, k in BAKE_TARGET_NAMES do targets[int(k)] = name
+		if picked := ui.tabs(ctx, "bake target", targets[:], int(set.target)); picked >= 0 do set.target = Bake_Target(picked)
 		if set.orm {
 			rays := f32(set.occlusion_rays)
 			if ui.slider(ctx, "Occlusion rays", &rays, 0, BAKE_OCCLUSION_RAYS_MAX, .Linear, fmt.tprintf("%d", set.occlusion_rays) if set.occlusion_rays > 0 else "Off") do set.occlusion_rays = i32(rays + 0.5)
 			if set.occlusion_rays > 0 do _ = ui.slider(ctx, "Occlusion reach", &set.occlusion_reach, 0.01, 1, .Logarithmic, fmt.tprintf("%.0f%% of its size", 100 * set.occlusion_reach))
 		}
-		ui.paragraph(ctx, "The maps' size in texels, and Reach: how far each texel looks either way. Base colour is the polypaint over the materials; occlusion, roughness and metal go in one map's red, green and blue, as glTF reads them; polygroup colours make an ID map. More occlusion rays are smoother and slower.")
+		ui.paragraph(ctx, "The maps' size in texels, and Reach: how far each texel looks either way. Base colour is the polypaint over the materials; occlusion, roughness and metal go in one map's red, green and blue, as glTF reads them; polygroup colours make an ID map. More occlusion rays are smoother and slower. Vector displacement writes the whole offset to the sculpt as a 32-bit OpenEXR map (x, y and z in red, green and blue, as Blender reads it). Object space gives the normal and vector maps in the object's own axes instead of the surface's tangent frame. Maps for Unreal turn the normal map's green over, as DirectX reads it.")
 		kit_more_end(app)
 	}
 }

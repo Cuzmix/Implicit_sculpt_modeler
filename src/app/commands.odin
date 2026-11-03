@@ -41,6 +41,7 @@ Command_Id :: enum u16 {
 	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
+	Send_Scene, // send.odin, send_ui.odin
 	// Edit
 	Undo,
 	Redo,
@@ -489,6 +490,15 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
+	},
+	.Send_Scene = {
+		label = "Send scene",
+		help = "Sends the whole scene over Wi-Fi to the computer it went to last, which opens it; the first time, Menu > Export... > Send picks the computer (Settings > Files > Send scenes).",
+		icon = ICON_SEND,
+		run = proc(app: ^App, _: int) {
+			if !send_scene_last(app) do export_sheet_open_on(app, .Send)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return send_can_send(app)},
 	},
 	.Export_Sheet = {
 		label = "Export...",
@@ -1033,9 +1043,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Remesh = {
 		label = "Remesh",
-		help = "Rebuilds the selected object as an even closed mesh of about as many vertices.",
+		help = "Rebuilds the selected object as an even closed mesh at its own cell size, the one its last remesh used (or about as many vertices, when none did).",
 		run = proc(app: ^App, _: int) {
-			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(selected_object(app)), remesh = remesh_setup(app)}
+			obj := selected_object(app)
+			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(obj), remesh = remesh_again_setup(app, obj)}
 		},
 		enabled = has_object,
 	},
@@ -1457,7 +1468,12 @@ COMMANDS := [Command_Id]Command {
 		label = "Remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
 		args = len(SPHERE_PRESETS),
-		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices), remesh = remesh_setup(app)}},
+		run = proc(app: ^App, arg: int) {
+			// A count, whatever Rebuild's Density is set by.
+			setup := remesh_setup(app)
+			setup.cell = 0
+			app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices), remesh = setup}
+		},
 		enabled = has_object,
 	},
 	.Decimate_To = {

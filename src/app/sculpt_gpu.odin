@@ -17,7 +17,7 @@ import "../sculpt"
 
 // Sets the sculptor's callbacks once, at start-up.
 sculpt_gpu_install :: proc(app: ^App) {
-	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync}
+	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync, normals_back = sculpt_gpu_normals_back, normals_now = sculpt_gpu_normals_now}
 }
 
 // The object and level sculpted by `s`, and the GPU buffers that draw it: the current
@@ -74,7 +74,7 @@ sculpt_gpu_wanted :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level, gpu: ^rend
 	if brush.kind == .Mask || brush.channel != .Sculpt do return .None
 	if object_dynamic(obj) || sculpt.sculptor_skin(s) != nil || sculpt.sculptor_hidden_count(s) > 0 do return .None
 	if !gpu.storage || gpu.vertex_capacity != u32(len(lv.mesh.positions)) || gpu.index_count != u32(len(lv.mesh.indices)) do return .None
-	if !render.sculpt_gpu_begin(&app.renderer, gpu, s.faces) do return .None
+	if !render.sculpt_gpu_begin(&app.renderer, gpu, s.faces, sculpt.sculptor_gpu_shared(s)) do return .None
 	st := &app.stroke
 	if lv != sculpt.levels_current(&obj.levels) || st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
 	return .Dabs
@@ -145,8 +145,30 @@ sculpt_gpu_normals :: proc(data: rawptr, s: ^sculpt.Sculptor, ranges: []sculpt.V
 		// The same bytes: the stroke's number, then the height.
 		heights = slice.reinterpret([]render.Sculpt_Height, sculpt.sculptor_gpu_heights(s))
 	}
-	render.sculpt_gpu_queue(gpu, ranges, lv.mesh.normals[:], positions, heights, last)
+	// The same bytes: a node's own vertices and its shared ones.
+	nodes: []render.Sculpt_Node
+	if positions != nil do nodes = slice.reinterpret([]render.Sculpt_Node, sculpt.sculptor_range_gpu_nodes(s, ranges))
+	render.sculpt_gpu_queue(gpu, ranges, nodes, lv.mesh.normals[:], positions, heights, last)
 	return true
+}
+
+// Reads the GPU's normals of `ranges` back with this frame's readbacks.
+@(private = "file")
+sculpt_gpu_normals_back :: proc(data: rawptr, s: ^sculpt.Sculptor, ranges: []sculpt.Vertex_Range) -> bool {
+	app := cast(^App)data
+	_, lv, gpu := sculpt_gpu_level(app, s)
+	if gpu == nil || app.renderer.sculpt_gpu.failed do return false
+	render.sculpt_gpu_queue_back(gpu, ranges, lv.mesh.normals[:])
+	return true
+}
+
+// Reads them back now, waiting for the GPU.
+@(private = "file")
+sculpt_gpu_normals_now :: proc(data: rawptr, s: ^sculpt.Sculptor, ranges: []sculpt.Vertex_Range) -> bool {
+	app := cast(^App)data
+	_, lv, gpu := sculpt_gpu_level(app, s)
+	if gpu == nil || app.renderer.sculpt_gpu.failed do return false
+	return render.sculpt_gpu_read_normals(&app.renderer, gpu, ranges, lv.mesh.normals[:])
 }
 
 // Waits for the mesh's submitted readbacks and lands them, and refits the bounds of
@@ -165,7 +187,7 @@ sculpt_gpu_sync :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
 // last call (sculpt.sculptor_positions_landed): after the frame's start and after a sync.
 sculpt_gpu_landed :: proc(app: ^App) {
 	for l in render.sculpt_gpu_landed(&app.renderer) {
-		if s := sculpt_gpu_sculptor(app, l.mesh); s != nil do sculpt.sculptor_positions_landed(s, l.ranges)
+		if s := sculpt_gpu_sculptor(app, l.mesh); s != nil do sculpt.sculptor_positions_landed(s, l.ranges, slice.reinterpret([]sculpt.Gpu_Node, l.nodes), l.bounds)
 	}
 	render.sculpt_gpu_landed_clear(&app.renderer)
 }

@@ -42,6 +42,7 @@ DAB_REDUCE_COMP_CODE :: #load("shaders/dab_reduce.comp" + SHADER_EXT, string)
 DAB_MOVE_COMP_CODE :: #load("shaders/dab_move.comp" + SHADER_EXT, string)
 DAB_SMOOTH_TARGETS_COMP_CODE :: #load("shaders/dab_smooth_targets.comp" + SHADER_EXT, string)
 DAB_SMOOTH_APPLY_COMP_CODE :: #load("shaders/dab_smooth_apply.comp" + SHADER_EXT, string)
+NODE_BOUNDS_COMP_CODE :: #load("shaders/node_bounds.comp" + SHADER_EXT, string)
 
 // Vertices a workgroup takes; matches numthreads in the kernels.
 SCULPT_SLAB :: 256
@@ -70,6 +71,10 @@ Mesh_Sculpt :: struct {
 	// positions go, nil when the dabs ran on the CPU (nothing to read back of them), and
 	// the stroke heights too, nil when no dab of the stroke keeps them.
 	queued:    [dynamic]geom.Vertex_Range,
+	// The ranges whose normals the frame reads back as the kernels left them, with
+	// nothing recomputed (sculpt_gpu_queue_back), and where they go.
+	back:         [dynamic]geom.Vertex_Range,
+	back_normals: []geom.Vec3,
 	normals:   []geom.Vec3,
 	positions: []geom.Vec3,
 	heights:   []Sculpt_Height,
@@ -79,6 +84,16 @@ Mesh_Sculpt :: struct {
 	// stroke as the sculptor's do, told apart by the stroke number.
 	heights_buffer:   ^sdl.GPUBuffer,
 	heights_capacity: u32,
+	// Every node's shared vertices (sculpt.sculptor_gpu_shared), uploaded with the lookup,
+	// for the bounds kernel; and the nodes of the queued ranges whose bounds the frame
+	// finds and reads back with their positions.
+	shared:       ^sdl.GPUBuffer,
+	queued_nodes: [dynamic]Sculpt_Node,
+}
+
+// A node for the bounds kernel (node_bounds.comp.slang; sculpt.Gpu_Node, the same bytes).
+Sculpt_Node :: struct {
+	vert_first, vert_count, shared_first, shared_count: u32,
 }
 
 // A vertex's stroke height as the kernels keep it and the sculptor reads it back
@@ -174,8 +189,9 @@ Sculpt_Entry :: struct {
 	download:  ^sdl.GPUTransferBuffer,
 	offset:    u32,
 	pbytes:    u32, // of positions; 0 when none were read
-	nbytes:    u32, // of packed normals
+	nbytes:    u32, // of packed normals; 0 when none were read
 	hbytes:    u32, // of heights; 0 when none were read
+	nodes:     []Sculpt_Node, // whose bounds follow, 32 bytes each, when the positions were read
 }
 
 @(private = "file")
@@ -195,6 +211,10 @@ Sculpt_Slot :: struct {
 Sculpt_Landed :: struct {
 	mesh:   ^Mesh_Buffers,
 	ranges: []geom.Vertex_Range,
+	// The nodes of `ranges` and their bounds as the GPU found them over the positions
+	// that landed; empty where it found none.
+	nodes:  []Sculpt_Node,
+	bounds: []geom.Aabb,
 }
 
 // What a run of sculpting on the GPU counts, for the exit stats and the Stats panel.
@@ -231,6 +251,13 @@ Sculpt_Gpu :: struct {
 	areas_capacity:   u32,
 	scratch:          ^sdl.GPUBuffer, // Smooth's targets, 16 bytes a slot of the largest dab
 	scratch_capacity: u32,
+	bounds_pipeline:  ^sdl.GPUComputePipeline,
+	nodes:            ^sdl.GPUBuffer, // the frame's Sculpt_Nodes
+	nodes_capacity:   u32,
+	nodes_transfer:   ^sdl.GPUTransferBuffer,
+	nodes_transfer_size: u32,
+	bounds:           ^sdl.GPUBuffer, // two float4 a node: lowest, highest
+	bounds_capacity:  u32,
 	slots:    [SCULPT_SLOTS]Sculpt_Slot,
 	slot:     int,  // the slot this frame records into
 	recorded: bool, // this frame's command buffer holds readbacks: submit it fenced (sculpt_gpu_submitted)
@@ -275,19 +302,26 @@ sculpt_gpu_frame :: proc(r: ^Renderer) {
 
 // The readbacks of positions that landed since the last clear (a frame's start, or a
 // sync), for the app to refit their sculptors' bounds with.
+@(private = "file")
+sculpt_landed_free :: proc(l: Sculpt_Landed) {
+	delete(l.ranges)
+	delete(l.nodes)
+	delete(l.bounds)
+}
+
 sculpt_gpu_landed :: proc(r: ^Renderer) -> []Sculpt_Landed {
 	return r.sculpt_gpu.landed[:]
 }
 
 sculpt_gpu_landed_clear :: proc(r: ^Renderer) {
-	for l in r.sculpt_gpu.landed do delete(l.ranges)
+	for l in r.sculpt_gpu.landed do sculpt_landed_free(l)
 	clear(&r.sculpt_gpu.landed)
 }
 
 // Whether the GPU takes a stroke on `mb` (triangles as `mb` holds them, lookup `faces`):
 // makes the kernels and the mesh's lookup buffers on first use, and false (logged, and
 // not asked again for that mesh) where the device refuses them.
-sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Faces) -> bool {
+sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Faces, shared: []u32) -> bool {
 	sg, ms := &r.sculpt_gpu, &mb.sculpt
 	if !r.caps.gpu_sculpt || sg.failed || ms.failed || !mb.storage do return false
 	if sg.pipeline == nil && !sculpt_pipelines_make(r) do return false
@@ -329,13 +363,24 @@ sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Fac
 	} else {
 		ok = ok && upload_blocking(r, mb, ms.tris, slice.to_bytes(faces.tris))
 	}
+	// The nodes' shared vertices, never empty for the binding's sake.
+	sbytes := max(u32(len(shared)) * size_of(u32), 4)
+	ms.shared = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = sbytes})
+	if ms.shared == nil {
+		log.errorf("sculpt on the GPU: the shared vertices' %d MB were refused (%s); this mesh's strokes stay on the CPU", sbytes >> 20, sdl.GetError())
+		sculpt_lookup_release(r, mb)
+		ms.failed = true
+		return false
+	}
+	gpu_set_buffer_name(r.device, ms.shared, "sculpt shared vertices")
+	if ok && len(shared) > 0 do ok = upload_blocking(r, mb, ms.shared, slice.to_bytes(shared))
 	if !ok {
 		log.errorf("sculpt on the GPU: the lookup's upload failed (%s); this mesh's strokes stay on the CPU", sdl.GetError())
 		sculpt_lookup_release(r, mb)
 		ms.failed = true
 		return false
 	}
-	ms.lookup_version, ms.lookup_bytes = mb.index_version, int(obytes + tbytes)
+	ms.lookup_version, ms.lookup_bytes = mb.index_version, int(obytes + tbytes + sbytes)
 	log.infof("sculpt on the GPU: %d MB lookup uploaded in %.0f ms", (obytes + tbytes) >> 20, time.duration_milliseconds(time.tick_since(start)))
 	return true
 }
@@ -362,6 +407,11 @@ sculpt_pipelines_make :: proc(r: ^Renderer) -> bool {
 		return p
 	}
 	sg.pipeline = make_one(r, NODE_NORMALS_COMP_CODE, 5, 1, "normals")
+	sg.bounds_pipeline = make_one(r, NODE_BOUNDS_COMP_CODE, 3, 1, "bounds")
+	if sg.bounds_pipeline == nil {
+		sg.failed = true
+		return false
+	}
 	codes := [Sculpt_Dab_Stage]string{.Area = DAB_AREA_COMP_CODE, .Reduce = DAB_REDUCE_COMP_CODE, .Move = DAB_MOVE_COMP_CODE, .Smooth_Targets = DAB_SMOOTH_TARGETS_COMP_CODE, .Smooth_Apply = DAB_SMOOTH_APPLY_COMP_CODE}
 	names := [Sculpt_Dab_Stage]string{.Area = "dab area", .Reduce = "dab reduce", .Move = "dab move", .Smooth_Targets = "smooth targets", .Smooth_Apply = "smooth apply"}
 	ok := sg.pipeline != nil
@@ -396,13 +446,96 @@ sculpt_gpu_queue_dabs :: proc(mb: ^Mesh_Buffers, dabs: []Sculpt_Dab) {
 // the readback are recorded by sculpt_gpu_dispatch once the frame has uploaded what the
 // CPU moved. With `positions` nil only the normals are read back (the CPU laid the dabs);
 // else the positions too, into it, and the stroke heights into `heights` when not nil.
-sculpt_gpu_queue :: proc(mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, normals: []geom.Vec3, positions: []geom.Vec3, heights: []Sculpt_Height, last: bool) {
+sculpt_gpu_queue :: proc(mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, nodes: []Sculpt_Node, normals: []geom.Vec3, positions: []geom.Vec3, heights: []Sculpt_Height, last: bool) {
 	ms := &mb.sculpt
 	append(&ms.queued, ..ranges)
+	if positions != nil do append(&ms.queued_nodes, ..nodes)
 	ms.normals = normals
 	ms.positions = positions
 	ms.heights = heights if positions != nil else nil
 	ms.last = ms.last || last
+}
+
+// Queues `ranges` to have their normals read back with the frame's readbacks into
+// `normals`, as the GPU holds them (after a stroke whose dabs ran there, whose readbacks
+// carried the positions alone).
+sculpt_gpu_queue_back :: proc(mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, normals: []geom.Vec3) {
+	append(&mb.sculpt.back, ..ranges)
+	mb.sculpt.back_normals = normals
+}
+
+// The vertices a worker takes at a time copying or unpacking a readback.
+@(private = "file")
+SCULPT_PIECE :: 4096
+
+// Whether the frame calls sculpt_gpu_dispatch for the mesh: kernels or readbacks queued.
+sculpt_gpu_wanted :: proc(mb: ^Mesh_Buffers) -> bool {
+	return sculpt_gpu_upload(mb) != .Full || len(mb.sculpt.back) > 0
+}
+
+// Reads the normals of `ranges` back into `normals` now, as the GPU holds them after the
+// work submitted so far, waiting for it: for a sync that needs every normal a stroke on
+// the GPU left there. False where the device refuses something.
+sculpt_gpu_read_normals :: proc(r: ^Renderer, mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, normals: []geom.Vec3) -> bool {
+	verts: u32
+	for rg in ranges do verts += rg.count
+	if verts == 0 do return true
+	if mb.normals == nil do return false
+	size := verts * size_of(Normal_Packed)
+	download := gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = size})
+	if download == nil {
+		log.errorf("sculpt on the GPU: a readback buffer of %d KB was refused (%s)", size >> 10, sdl.GetError())
+		return false
+	}
+	defer gpu_release_transfer_buffer(r.device, download)
+	cmd := gpu_acquire_command_buffer(r.device)
+	if cmd == nil do return false
+	pass := gpu_begin_copy_pass(cmd)
+	at: u32
+	for rg in ranges {
+		bytes := rg.count * size_of(Normal_Packed)
+		gpu_download_from_buffer(pass, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed), size = bytes}, {transfer_buffer = download, offset = at})
+		at += bytes
+	}
+	gpu_end_copy_pass(pass)
+	fence := gpu_submit_command_buffer_and_acquire_fence(cmd)
+	if fence == nil do return false
+	defer gpu_release_fence(r.device, fence)
+	if !gpu_wait_for_fences(r.device, true, &fence, 1) do return false
+	src := ([^]Normal_Packed)(gpu_map_transfer_buffer(r.device, download, false))
+	if src == nil do return false
+	sculpt_unpack_normals(r, src, ranges, normals)
+	gpu_unmap_transfer_buffer(r.device, download)
+	return true
+}
+
+// Unpacks packed normals, `ranges` one after another in `src`, into `normals`, on the
+// workers in pieces (the ranges come coalesced, often one long run).
+@(private = "file")
+sculpt_unpack_normals :: proc(r: ^Renderer, src: [^]Normal_Packed, ranges: []geom.Vertex_Range, normals: []geom.Vec3) {
+	Unpack :: struct {
+		src:     [^]Normal_Packed,
+		normals: []geom.Vec3,
+		pieces:  []geom.Vertex_Range,
+		starts:  []u32,
+	}
+	pieces := make([dynamic]geom.Vertex_Range, 0, 64, context.temp_allocator)
+	starts := make([dynamic]u32, 0, 64, context.temp_allocator)
+	at: u32
+	for rg in ranges {
+		for first := rg.first; first < rg.first + rg.count; first += SCULPT_PIECE {
+			count := min(SCULPT_PIECE, rg.first + rg.count - first)
+			append(&pieces, geom.Vertex_Range{first, count})
+			append(&starts, at)
+			at += count
+		}
+	}
+	job := Unpack{src = src, normals = normals, pieces = pieces[:], starts = starts[:]}
+	jobs.parallel_for(r.pool, len(pieces), &job, proc(data: rawptr, i: int) {
+		job := cast(^Unpack)data
+		rg := job.pieces[i]
+		for p, k in job.src[job.starts[i]:][:rg.count] do job.normals[rg.first + u32(k)] = unpack_normal(p)
+	})
 }
 
 // What the frame uploads of the mesh's flushed ranges: everything, as when the CPU
@@ -426,13 +559,24 @@ sculpt_gpu_upload :: proc(mb: ^Mesh_Buffers) -> Sculpt_Upload {
 // lay the dabs and recompute the normals (sculpt.sculptor_gpu_refused).
 sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers) -> bool {
 	sg, ms := &r.sculpt_gpu, &mb.sculpt
-	if len(ms.queued) == 0 && len(ms.dabs) == 0 do return true
+	if len(ms.queued) == 0 && len(ms.dabs) == 0 && len(ms.back) == 0 do return true
 	defer {
+		clear(&ms.back)
+		ms.back_normals = nil
 		clear(&ms.queued)
+		clear(&ms.queued_nodes)
 		clear(&ms.dabs)
 		clear(&ms.dab_ranges)
 		ms.last = false
 		ms.positions, ms.heights = nil, nil
+	}
+	back_bytes: u32
+	for rg in ms.back do back_bytes += rg.count * size_of(Normal_Packed)
+	if len(ms.queued) == 0 && len(ms.dabs) == 0 {
+		s := &sg.slots[sg.slot]
+		if !sculpt_slot_fit(r, s, back_bytes) do return sculpt_refused(sg, fmt.tprintf("a readback buffer of %d KB", (s.bytes + back_bytes) >> 10))
+		sculpt_back_record(r, cmd, mb, s)
+		return true
 	}
 	if sg.pipeline == nil || ms.offsets == nil || ms.failed do return false
 
@@ -483,21 +627,21 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	// The readback's place in this frame's slot.
 	s := &sg.slots[sg.slot]
 	pbytes := verts * size_of(geom.Vec3) if ms.positions != nil else 0
-	nbytes := verts * size_of(Normal_Packed)
+	// With the dabs on the GPU the positions come back alone: nothing on the CPU reads a
+	// stroke's normals before it ends, and unpacking them was nearly all the readback's
+	// time (2.0 of 2.1 ms a frame at 5M); they follow after the stroke (Mesh_Sculpt.back).
+	nbytes := verts * size_of(Normal_Packed) if ms.positions == nil else 0
 	hbytes := verts * size_of(Sculpt_Height) if ms.heights != nil else 0
-	if s.download == nil || s.download_size < s.bytes + pbytes + nbytes + hbytes {
-		// An earlier mesh's readback this frame lives in the old buffer, whose copies are
-		// recorded: it stays until the slot is applied.
-		if s.download != nil && s.bytes > 0 do append(&s.retired, s.download)
-		else if s.download != nil do gpu_release_transfer_buffer(r.device, s.download)
-		want := s.bytes + pbytes + nbytes + hbytes
-		s.download_size = want + want / 4
-		s.download = gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = s.download_size})
-		if s.download == nil {
-			s.download_size = 0
-			return sculpt_refused(sg, fmt.tprintf("a readback buffer of %d KB", want >> 10))
-		}
+	// With the positions, the nodes' bounds: the landing then reads none of them again.
+	node_count := u32(len(ms.queued_nodes)) if pbytes > 0 && ms.shared != nil else 0
+	bbytes := node_count * 2 * size_of([4]f32)
+	if node_count > 0 {
+		nbytes_up := node_count * size_of(Sculpt_Node)
+		if !transfer_fit(r, &sg.nodes_transfer, &sg.nodes_transfer_size, nbytes_up) do return sculpt_refused(sg, fmt.tprintf("a node upload buffer of %d KB", nbytes_up >> 10))
+		if !storage_fit(r, &sg.nodes, &sg.nodes_capacity, nbytes_up, {.COMPUTE_STORAGE_READ}) do return sculpt_refused(sg, fmt.tprintf("a node buffer of %d KB", nbytes_up >> 10))
+		if !storage_fit(r, &sg.bounds, &sg.bounds_capacity, bbytes, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a bounds buffer of %d KB", bbytes >> 10))
 	}
+	if !sculpt_slot_fit(r, s, pbytes + nbytes + hbytes + bbytes + back_bytes) do return sculpt_refused(sg, fmt.tprintf("a readback buffer of %d KB", (s.bytes + pbytes + nbytes + hbytes + bbytes + back_bytes) >> 10))
 	dst := gpu_map_transfer_buffer(r.device, sg.transfer, true)
 	if dst == nil do return sculpt_refused(sg, "mapping the slabs")
 	copy(([^]u8)(dst)[:sbytes], slice.to_bytes(slabs[:]))
@@ -508,12 +652,19 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		copy(([^]u8)(dst)[:dbytes], slice.to_bytes(records))
 		gpu_unmap_transfer_buffer(r.device, sg.dabs_transfer)
 	}
+	if node_count > 0 {
+		dst = gpu_map_transfer_buffer(r.device, sg.nodes_transfer, true)
+		if dst == nil do return sculpt_refused(sg, "mapping the nodes")
+		copy(([^]u8)(dst)[:node_count * size_of(Sculpt_Node)], slice.to_bytes(ms.queued_nodes[:]))
+		gpu_unmap_transfer_buffer(r.device, sg.nodes_transfer)
+	}
 
 	debug_group(cmd, "GPU sculpt", .Sculpt)
 	// The slabs and dabs go up cycled: the last frame's dispatch may still read the buffers.
 	pass := gpu_begin_copy_pass(cmd)
 	gpu_upload_to_buffer(pass, {transfer_buffer = sg.transfer}, {buffer = sg.slabs, size = sbytes}, true)
 	if len(records) > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = sg.dabs_transfer}, {buffer = sg.dabs, size = dbytes}, true)
+	if node_count > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = sg.nodes_transfer}, {buffer = sg.nodes, size = node_count * size_of(Sculpt_Node)}, true)
 	gpu_end_copy_pass(pass)
 
 	Params :: struct {
@@ -583,12 +734,31 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		gpu_dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 		gpu_end_compute_pass(compute)
 	}
+	if node_count > 0 {
+		// The nodes' bounds over the positions the dabs left, one workgroup a node.
+		Bounds_Params :: struct {
+			node_count: u32,
+			groups_x:   u32,
+			_:          [2]u32,
+		}
+		groups_x := min(int(node_count), MAX_SLAB_GROUPS_X)
+		groups_y := (int(node_count) + groups_x - 1) / groups_x
+		params := Bounds_Params{node_count = node_count, groups_x = u32(groups_x)}
+		write := sdl.GPUStorageBufferReadWriteBinding{buffer = sg.bounds}
+		compute := gpu_begin_compute_pass(cmd, nil, 0, &write, 1)
+		gpu_bind_compute_pipeline(compute, sg.bounds_pipeline)
+		reads := [3]^sdl.GPUBuffer{mb.positions, sg.nodes, ms.shared}
+		gpu_bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
+		gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
+		gpu_dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
+		gpu_end_compute_pass(compute)
+	}
 	// The vertex shader reads what the kernels wrote, so the mesh is drawn afresh.
 	r.last_version += 1
 	mb.version = r.last_version
 
 	if verts > 0 {
-		entry := Sculpt_Entry{mesh = mb, positions = ms.positions, normals = ms.normals, heights = ms.heights, ranges = slice.clone(ms.queued[:]), download = s.download, offset = s.bytes, pbytes = pbytes, nbytes = nbytes, hbytes = hbytes}
+		entry := Sculpt_Entry{nodes = slice.clone(ms.queued_nodes[:node_count]), mesh = mb, positions = ms.positions, normals = ms.normals, heights = ms.heights, ranges = slice.clone(ms.queued[:]), download = s.download, offset = s.bytes, pbytes = pbytes, nbytes = nbytes, hbytes = hbytes}
 		pass = gpu_begin_copy_pass(cmd)
 		at := s.bytes
 		if pbytes > 0 {
@@ -598,10 +768,12 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 				at += size
 			}
 		}
-		for rg in entry.ranges {
-			size := rg.count * size_of(Normal_Packed)
-			gpu_download_from_buffer(pass, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed), size = size}, {transfer_buffer = s.download, offset = at})
-			at += size
+		if nbytes > 0 {
+			for rg in entry.ranges {
+				size := rg.count * size_of(Normal_Packed)
+				gpu_download_from_buffer(pass, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed), size = size}, {transfer_buffer = s.download, offset = at})
+				at += size
+			}
 		}
 		if hbytes > 0 {
 			for rg in entry.ranges {
@@ -610,13 +782,58 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 				at += size
 			}
 		}
+		if bbytes > 0 {
+			gpu_download_from_buffer(pass, {buffer = sg.bounds, size = bbytes}, {transfer_buffer = s.download, offset = at})
+			at += bbytes
+		}
 		gpu_end_copy_pass(pass)
 		s.bytes = at
 		append(&s.entries, entry)
 		sg.recorded = true
 	}
+	// After the kernels, which may have just written them.
+	if len(ms.back) > 0 do sculpt_back_record(r, cmd, mb, s)
 	sg.stats.dispatches += 1
 	return true
+}
+
+// Makes the slot's readback buffer hold `bytes` more than it holds; false where the device
+// refuses it.
+@(private = "file")
+sculpt_slot_fit :: proc(r: ^Renderer, s: ^Sculpt_Slot, bytes: u32) -> bool {
+	if s.download != nil && s.download_size >= s.bytes + bytes do return true
+	// An earlier mesh's readback this frame lives in the old buffer, whose copies are
+	// recorded: it stays until the slot is applied.
+	if s.download != nil && s.bytes > 0 do append(&s.retired, s.download)
+	else if s.download != nil do gpu_release_transfer_buffer(r.device, s.download)
+	want := s.bytes + bytes
+	s.download_size = want + want / 4
+	s.download = gpu_create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = s.download_size})
+	if s.download == nil {
+		s.download_size = 0
+		return false
+	}
+	return true
+}
+
+// Records the copies of the normals queued to come back (Mesh_Sculpt.back) into the
+// slot, whose buffer sculpt_slot_fit has made room in, as an entry of normals alone.
+@(private = "file")
+sculpt_back_record :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, s: ^Sculpt_Slot) {
+	ms := &mb.sculpt
+	entry := Sculpt_Entry{mesh = mb, normals = ms.back_normals, ranges = slice.clone(ms.back[:]), download = s.download, offset = s.bytes}
+	pass := gpu_begin_copy_pass(cmd)
+	at := s.bytes
+	for rg in entry.ranges {
+		size := rg.count * size_of(Normal_Packed)
+		gpu_download_from_buffer(pass, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed), size = size}, {transfer_buffer = s.download, offset = at})
+		at += size
+	}
+	gpu_end_copy_pass(pass)
+	entry.nbytes = at - s.bytes
+	s.bytes = at
+	append(&s.entries, entry)
+	r.sculpt_gpu.recorded = true
 }
 
 // A dab's record for dab.slang: the tilt's rows, for the kernel's row-major matrix.
@@ -733,16 +950,19 @@ sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 		for i := len(s.entries) - 1; i >= 0; i -= 1 {
 			if s.entries[i].mesh != mb do continue
 			delete(s.entries[i].ranges)
+			delete(s.entries[i].nodes)
 			unordered_remove(&s.entries, i)
 		}
 	}
 	for i := len(sg.landed) - 1; i >= 0; i -= 1 {
 		if sg.landed[i].mesh != mb do continue
-		delete(sg.landed[i].ranges)
+		sculpt_landed_free(sg.landed[i])
 		unordered_remove(&sg.landed, i)
 	}
 	sculpt_lookup_release(r, mb)
 	delete(mb.sculpt.queued)
+	delete(mb.sculpt.queued_nodes)
+	delete(mb.sculpt.back)
 	delete(mb.sculpt.dabs)
 	delete(mb.sculpt.dab_ranges)
 	mb.sculpt = {}
@@ -754,6 +974,8 @@ sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if ms.offsets != nil do gpu_release_buffer(r.device, ms.offsets)
 	if ms.tris != nil do gpu_release_buffer(r.device, ms.tris)
 	if ms.heights_buffer != nil do gpu_release_buffer(r.device, ms.heights_buffer)
+	if ms.shared != nil do gpu_release_buffer(r.device, ms.shared)
+	ms.shared = nil
 	ms.offsets, ms.tris, ms.lookup_version, ms.lookup_bytes = nil, nil, 0, 0
 	ms.heights_buffer, ms.heights_capacity = nil, 0
 }
@@ -768,7 +990,10 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 		if s.download != nil do gpu_release_transfer_buffer(r.device, s.download)
 		for b in s.retired do gpu_release_transfer_buffer(r.device, b)
 		delete(s.retired)
-		for e in s.entries do delete(e.ranges)
+		for e in s.entries {
+			delete(e.ranges)
+			delete(e.nodes)
+		}
 		delete(s.entries)
 	}
 	sculpt_gpu_landed_clear(r)
@@ -780,6 +1005,10 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	if sg.partials != nil do gpu_release_buffer(r.device, sg.partials)
 	if sg.areas != nil do gpu_release_buffer(r.device, sg.areas)
 	if sg.scratch != nil do gpu_release_buffer(r.device, sg.scratch)
+	if sg.nodes != nil do gpu_release_buffer(r.device, sg.nodes)
+	if sg.nodes_transfer != nil do gpu_release_transfer_buffer(r.device, sg.nodes_transfer)
+	if sg.bounds != nil do gpu_release_buffer(r.device, sg.bounds)
+	if sg.bounds_pipeline != nil do gpu_release_compute_pipeline(r.device, sg.bounds_pipeline)
 	if sg.pipeline != nil do gpu_release_compute_pipeline(r.device, sg.pipeline)
 	for p in sg.dab_pipelines do if p != nil do gpu_release_compute_pipeline(r.device, p)
 	stats := sg.stats
@@ -822,25 +1051,41 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 		}
 		job := Decode{positions = e.positions, normals = e.normals, heights = e.heights, ranges = e.ranges}
 		if e.pbytes > 0 do job.positions_src = ([^]geom.Vec3)(src[e.offset:])
-		job.normals_src = ([^]Normal_Packed)(src[e.offset + e.pbytes:])
+		if e.nbytes > 0 do job.normals_src = ([^]Normal_Packed)(src[e.offset + e.pbytes:])
 		if e.hbytes > 0 do job.heights_src = ([^]Sculpt_Height)(src[e.offset + e.pbytes + e.nbytes:])
-		job.starts = make([]u32, len(e.ranges), context.temp_allocator)
+		// The ranges come coalesced, often one long run, so they are cut into pieces for
+		// the workers (a 200k-vertex run on one thread took 6 ms at 25M).
+		pieces := make([dynamic]geom.Vertex_Range, 0, 64, context.temp_allocator)
+		starts := make([dynamic]u32, 0, 64, context.temp_allocator)
 		at: u32
-		for rg, i in e.ranges {
-			job.starts[i] = at
-			at += rg.count
+		for rg in e.ranges {
+			for first := rg.first; first < rg.first + rg.count; first += SCULPT_PIECE {
+				count := min(SCULPT_PIECE, rg.first + rg.count - first)
+				append(&pieces, geom.Vertex_Range{first, count})
+				append(&starts, at)
+				at += count
+			}
 		}
-		jobs.parallel_for(r.pool, len(e.ranges), &job, proc(data: rawptr, i: int) {
+		job.ranges, job.starts = pieces[:], starts[:]
+		jobs.parallel_for(r.pool, len(pieces), &job, proc(data: rawptr, i: int) {
 			job := cast(^Decode)data
 			rg := job.ranges[i]
 			if job.positions_src != nil do copy(job.positions[rg.first:][:rg.count], job.positions_src[job.starts[i]:][:rg.count])
 			if job.heights_src != nil do copy(job.heights[rg.first:][:rg.count], job.heights_src[job.starts[i]:][:rg.count])
+			if job.normals_src == nil do return
 			packed := job.normals_src[job.starts[i]:][:rg.count]
 			for p, k in packed do job.normals[rg.first + u32(k)] = unpack_normal(p)
 		})
+		// The nodes' bounds, after the heights: two float4 a node, lowest then highest.
+		bounds: []geom.Aabb
+		if len(e.nodes) > 0 {
+			corners := ([^][4]f32)(src[e.offset + e.pbytes + e.nbytes + e.hbytes:])[:2 * len(e.nodes)]
+			bounds = make([]geom.Aabb, len(e.nodes))
+			for &b, k in bounds do b = {corners[2 * k].xyz, corners[2 * k + 1].xyz}
+		}
 		gpu_unmap_transfer_buffer(r.device, e.download)
-		if e.pbytes > 0 do append(&sg.landed, Sculpt_Landed{mesh = e.mesh, ranges = slice.clone(e.ranges)})
-		sg.stats.applied_kb += f64(e.pbytes + e.nbytes + e.hbytes) / 1024
+		if e.pbytes > 0 do append(&sg.landed, Sculpt_Landed{mesh = e.mesh, ranges = slice.clone(e.ranges), nodes = slice.clone(e.nodes), bounds = bounds})
+		sg.stats.applied_kb += f64(e.pbytes + e.nbytes + e.hbytes + u32(len(e.nodes)) * 32) / 1024
 	}
 	sg.stats.apply_ms += time.duration_milliseconds(time.tick_since(start))
 	sg.stats.applied = true
@@ -849,7 +1094,10 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 // Frees a slot's entries without reading them, and the download buffers a regrow retired.
 @(private = "file")
 sculpt_slot_drop :: proc(r: ^Renderer, s: ^Sculpt_Slot) {
-	for e in s.entries do delete(e.ranges)
+	for e in s.entries {
+		delete(e.ranges)
+		delete(e.nodes)
+	}
 	clear(&s.entries)
 	for b in s.retired do gpu_release_transfer_buffer(r.device, b)
 	clear(&s.retired)

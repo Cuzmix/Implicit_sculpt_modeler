@@ -159,7 +159,7 @@ sculptor_lod_update :: proc(s: ^Sculptor, finish := false, budget := LOD_FRAME_B
 	l := &s.lod
 	// The copies are built from the mesh as the GPU left it; a readback not yet
 	// submitted this frame lands next frame, when the copies can wait for it.
-	if !sculptor_gpu_sync(s) do return
+	if !sculptor_gpu_sync(s, normals = false) do return
 	start := time.tick_now()
 	last: time.Duration // the previous batch's time
 	threads := jobs.pool_size(s.pool) if s.pool != nil else 1

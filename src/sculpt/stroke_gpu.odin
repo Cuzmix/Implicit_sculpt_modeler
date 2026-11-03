@@ -37,14 +37,26 @@ Stroke_Gpu :: struct {
 	dabs:    proc(data: rawptr, s: ^Sculptor, dabs: []Gpu_Dab) -> bool,
 	// Recomputes the normals of `ranges` (the mesh's owned vertex ranges of the nodes whose
 	// shape or border moved, coalesced and sorted) on the GPU, the stroke's last flush
-	// with `last`, and reads the ranges' positions and normals back; false leaves them to
-	// the CPU, this flush and every later one of the stroke.
+	// with `last`, and reads the ranges back: their normals, or where the dabs run on the
+	// GPU their positions alone (the normals follow after the stroke: normals_back); false
+	// leaves them to the CPU, this flush and every later one of the stroke.
 	normals: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range, last: bool) -> bool,
 	// Waits for every readback of `s`'s mesh already submitted and writes it into the
 	// mesh; false where one is recorded this frame and not yet submitted, which cannot be
 	// waited for (the caller then tries again next frame).
 	sync:    proc(data: rawptr, s: ^Sculptor) -> bool,
+	// Reads the GPU's normals of `ranges` back with the frame's readbacks, nothing
+	// recomputed (the normals the stroke's flushes left there); false leaves them to the
+	// CPU.
+	normals_back: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool,
+	// Reads them back now, waiting for the GPU, after the readbacks `sync` waited for;
+	// false leaves them to the CPU.
+	normals_now:  proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool,
 }
+
+// The most vertices a frame reads the normals of back after a stroke whose dabs ran on
+// the GPU (sculptor_gpu_back): a quarter million cost about 2 ms to unpack on the VM.
+GPU_BACK_VERTS :: 262144
 
 // How much of a stroke the GPU takes.
 Gpu_Take :: enum u8 {
@@ -104,11 +116,76 @@ stroke_gpu: Stroke_Gpu
 // is then the GPU's; false where a readback recorded this frame is not yet submitted, so
 // the mesh still lags by it (the caller waits for the next frame, as sculptor_lod_update
 // does). Nothing, and true, where no stroke ran on the GPU.
-sculptor_gpu_sync :: proc(s: ^Sculptor) -> bool {
+//
+// The normals of a stroke whose dabs ran on the GPU come back after its positions; the
+// sync reads every one still owed, unless `normals` is false, for a caller that reads
+// the positions alone (the simplified copies), which then leaves them to come back a
+// slice a frame.
+sculptor_gpu_sync :: proc(s: ^Sculptor, normals := true) -> bool {
 	exact := true
 	if stroke_gpu.sync != nil do exact = stroke_gpu.sync(stroke_gpu.data, s)
+	// Not where a readback of this frame is still to be submitted: a read now would come
+	// before the frame's kernels; the normals stay owed until a sync that is exact.
+	if normals && exact && len(s.gpu_owed_list) > 0 {
+		ranges := gpu_owed_take(s, max(int))
+		if stroke_gpu.normals_now == nil || !stroke_gpu.normals_now(stroke_gpu.data, s, ranges) {
+			gpu_owed_to_cpu(s, s.gpu_back_last[:])
+		}
+		clear(&s.gpu_back_last)
+	}
 	if len(s.gpu_replay) > 0 do gpu_replay(s)
 	return exact
+}
+
+// Takes up to `budget` vertices' worth of the nodes whose normals are owed, oldest first
+// (always one node at least), into gpu_back_last, and returns their ranges coalesced and
+// sorted, in temp memory.
+@(private = "file")
+gpu_owed_take :: proc(s: ^Sculptor, budget: int) -> []Vertex_Range {
+	clear(&s.gpu_back_last)
+	verts, k := 0, 0
+	for k < len(s.gpu_owed_list) && (k == 0 || verts + int(s.nodes[s.gpu_owed_list[k]].vert_count) <= budget) {
+		id := s.gpu_owed_list[k]
+		s.gpu_owed[id] = false
+		append(&s.gpu_back_last, id)
+		verts += int(s.nodes[id].vert_count)
+		k += 1
+	}
+	remove_range(&s.gpu_owed_list, 0, k)
+	ids := slice.clone(s.gpu_back_last[:], context.temp_allocator)
+	slice.sort(ids)
+	ranges := make([dynamic]Vertex_Range, 0, len(ids), context.temp_allocator)
+	for id in ids {
+		n := s.nodes[id]
+		if n.vert_count == 0 do continue
+		if l := len(ranges); l > 0 && ranges[l - 1].first + ranges[l - 1].count == n.vert_first {
+			ranges[l - 1].count += n.vert_count
+		} else {
+			append(&ranges, Vertex_Range{n.vert_first, n.vert_count})
+		}
+	}
+	return ranges[:]
+}
+
+// The GPU will not hand these nodes' normals back: the CPU works them out from the
+// positions at the next flush, which uploads them too.
+@(private = "file")
+gpu_owed_to_cpu :: proc(s: ^Sculptor, ids: []u32) {
+	for id in ids do mark_stale(s, id, .Shape)
+}
+
+// After a stroke whose dabs ran on the GPU, asks for a frame's share of the normals
+// still owed back. The frame calls it once, after its sculptor_flush and before the
+// dispatch that records the readback (other flushes, outside the frame, have no dispatch
+// after them, so they leave it).
+sculptor_gpu_back :: proc(s: ^Sculptor) {
+	clear(&s.gpu_back_last)
+	if len(s.gpu_owed_list) == 0 || s.gpu_take != .None do return
+	ranges := gpu_owed_take(s, GPU_BACK_VERTS)
+	if stroke_gpu.normals_back == nil || !stroke_gpu.normals_back(stroke_gpu.data, s, ranges) {
+		gpu_owed_to_cpu(s, s.gpu_back_last[:])
+		clear(&s.gpu_back_last)
+	}
 }
 
 // Whether the stroke under way runs on the GPU, and how much of it, decided at its first dab.
@@ -144,10 +221,12 @@ dab_gpu_takes :: proc(s: ^Sculptor, brush: Brush) -> bool {
 
 // Records a dab for the GPU in place of moving its vertices, after dab_once found its
 // hit leaves and saved them for undo: marks every hit leaf as moved (the GPU moves what
-// it moves, which the readback shows), records them for the undo step, and grows their
-// bounds by more than the dab can move a vertex, so the leaf query and the raycast of the
-// next dabs, which read the mirror, still reach everything until the positions land and
-// the bounds are refit (sculptor_positions_landed).
+// it moves, which the readback shows) and records them for the undo step. The tree keeps
+// bounding the mirror exactly, which the raycast of the next dabs and the cursor read (a
+// tree widened by the dab's reach made a raycast at 25M cost 28 ms instead of 0.4); the
+// leaf query reaches gpu_query_margin further instead, and the chunk bounds grow by it
+// (job_node_shape), until the positions land and the bounds are refit
+// (sculptor_positions_landed).
 @(private)
 dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 	clear(&s.changed)
@@ -156,16 +235,29 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 		mark_shape_changed(s, s.node_of[leaf])
 	}
 	if s.history.recording do record_changed(s)
-	// Draw moves a tenth of a radius at full strength, Flatten and Clay up to half, Pinch a
-	// quarter, Crease three tenths; Smooth up to its neighbours' mean, within an edge, which
-	// a brush far smaller than the mesh's triangles may exceed.
-	margin := brush.radius * max(brush.strength, 0.1) * 0.75
-	for leaf in s.hit {
-		b := &s.bvh.nodes[leaf].bounds
-		b.lo -= margin
-		b.hi += margin
+	// Draw and Inflate move a tenth of a radius at full strength, Crease that and its
+	// pinch, Pinch a quarter of the way to the centre, each dab adding to the last (with
+	// Accumulate off a vertex stops at one dab's height); Clay and Flatten stop at their
+	// plane, within half a radius; Smooth moves toward the neighbours' mean, within an
+	// edge, which a brush far smaller than the mesh's triangles may exceed.
+	bound: f32
+	once := false
+	#partial switch brush.kind {
+	case .Draw, .Inflate:
+		bound, once = brush.radius * brush.strength * DRAW_HEIGHT, brush.no_accumulate
+	case .Crease:
+		bound = brush.radius * brush.strength * (DRAW_HEIGHT + CREASE_PINCH)
+	case .Pinch:
+		bound = brush.radius * brush.strength * PINCH_RATE
+	case .Clay, .Flatten:
+		bound, once = brush.radius * 0.5, true
+	case .Smooth:
+		bound = brush.radius * 0.1
 	}
-	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
+	if once do s.gpu_margin_once = max(s.gpu_margin_once, bound)
+	else do s.gpu_margin_dab = max(s.gpu_margin_dab, bound)
+	s.gpu_unlanded += 1
+	s.gpu_flush_count += 1
 
 	// The amounts as dab_once sets them for each kind (the area the kernels find themselves).
 	sign: f32 = -1 if brush.invert else 1
@@ -265,9 +357,13 @@ stroke_gpu_dabs :: proc(s: ^Sculptor) {
 // them from the mirror, which the sync inside brings up to date first, and the stroke
 // steps down to Normals, so the next flush uploads what it laid.
 sculptor_gpu_refused :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
+	// The frame's share of owed normals never comes either.
+	gpu_owed_to_cpu(s, s.gpu_back_last[:])
+	clear(&s.gpu_back_last)
 	if s.gpu_pending_on {
 		for id in nodes_of_ranges(s, ranges) do s.gpu_pending[id] -= 1
 		s.gpu_pending_on = false
+		gpu_flush_done(s)
 	}
 	sculptor_normals_stale(s, ranges)
 	if len(s.gpu_replay_last) == 0 do return
@@ -311,6 +407,23 @@ gpu_replay :: proc(s: ^Sculptor) {
 	if s.gpu_take == .Dabs do s.gpu_take = .Normals
 }
 
+// How far beyond the mirror's bounds a vertex may be on the GPU, for the leaf query and
+// the chunk bounds while the stroke's dabs run there: nothing once it steps down or ends,
+// since the mirror then catches up before anything reads it.
+@(private)
+gpu_query_margin :: proc(s: ^Sculptor) -> f32 {
+	if s.gpu_take != .Dabs do return 0
+	return s.gpu_margin_once + s.gpu_margin_dab * f32(s.gpu_unlanded)
+}
+
+// A flush's readback landed or was refused: its dabs no longer count toward the margin.
+@(private = "file")
+gpu_flush_done :: proc(s: ^Sculptor) {
+	if len(s.gpu_flush_dabs) == 0 do return
+	s.gpu_unlanded = max(s.gpu_unlanded - s.gpu_flush_dabs[0], 0)
+	ordered_remove(&s.gpu_flush_dabs, 0)
+}
+
 // Hands a flush's normals to the GPU when the stroke runs there: true when it took them,
 // and then the nodes' bounds and chunks are brought up to date here as job_node_normals
 // would, with nothing of their normals. The stroke's last flush gives it back.
@@ -322,7 +435,18 @@ stroke_gpu_normals :: proc(s: ^Sculptor) -> bool {
 	// The positions of the ranges come back with the normals while the dabs run there:
 	// each node counts the readbacks on their way, for sculptor_positions_landed.
 	s.gpu_pending_on = taken && s.gpu_take == .Dabs
-	if s.gpu_pending_on do for id in nodes_of_ranges(s, s.ranges[:]) do s.gpu_pending[id] += 1
+	if s.gpu_pending_on {
+		// Their positions come back with this flush, their normals after the stroke.
+		for id in nodes_of_ranges(s, s.ranges[:]) {
+			s.gpu_pending[id] += 1
+			if !s.gpu_owed[id] {
+				s.gpu_owed[id] = true
+				append(&s.gpu_owed_list, id)
+			}
+		}
+		append(&s.gpu_flush_dabs, s.gpu_flush_count)
+	}
+	s.gpu_flush_count = 0
 	if !taken || last do s.gpu_take = .None
 	if !taken do return false
 	jobs.parallel_for(s.pool if len(s.dirty_nodes) >= 64 else nil, len(s.dirty_nodes), s, job_node_shape)
@@ -343,14 +467,21 @@ sculptor_gpu_heights :: proc(s: ^Sculptor) -> []Layer_Height {
 }
 
 // The bounds and chunk of a dirty node whose shape changed, as job_node_normals keeps
-// them during a stroke, its normals left to the GPU.
+// them during a stroke, its normals left to the GPU; with the dabs there too, the chunk
+// reaches gpu_margin beyond the mirror's bounds, so culling keeps what the GPU may have
+// moved out of them.
 @(private = "file")
 job_node_shape :: proc(data: rawptr, i: int) {
 	s := cast(^Sculptor)data
 	id := s.dirty_nodes[i]
 	if s.stale[id] != .Shape do return
 	n := s.nodes[id]
-	s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
+	b := s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
+	if margin := gpu_query_margin(s); margin > 0 && b.lo.x <= b.hi.x {
+		b.lo -= margin
+		b.hi += margin
+	}
+	s.chunks[id].bounds = b
 	s.chunks[id].cone_cutoff = 1
 	s.chunks[id].index_count = 3 * n.tri_count
 	chunk_touched(s, id)
@@ -366,24 +497,63 @@ sculptor_normals_stale :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
 	}
 }
 
+// A node as the GPU's bounds kernel reads it (node_bounds.comp.slang): its own vertices
+// and its run in sculptor_gpu_shared, the vertices of its triangles that other nodes own.
+Gpu_Node :: struct {
+	vert_first, vert_count, shared_first, shared_count: u32,
+}
+
+// The nodes of `ranges` (a flush's, which are whole nodes), in order, for the GPU to
+// find their bounds after the flush's dabs.
+sculptor_range_gpu_nodes :: proc(s: ^Sculptor, ranges: []Vertex_Range, allocator := context.temp_allocator) -> []Gpu_Node {
+	ids := nodes_of_ranges(s, ranges)
+	out := make([]Gpu_Node, len(ids), allocator)
+	for id, k in ids {
+		n := s.nodes[id]
+		out[k] = {n.vert_first, n.vert_count, n.shared_first, n.shared_count}
+	}
+	return out
+}
+
+// Every node's shared vertices, the runs Gpu_Node.shared_first names: what the GPU keeps a
+// copy of with its lookup (static while the triangles are, which dynamic topology, the
+// one thing that moves them, never runs on the GPU).
+sculptor_gpu_shared :: proc(s: ^Sculptor) -> []u32 {return s.shared[:]}
+
 // The positions of `ranges` (a flush's, handed to the GPU) landed in the mesh from the
 // GPU: refits the bounds of their nodes from the positions as they are now, exactly,
 // where no later dab of the stroke is still on its way for the node (its bounds keep the
 // margin dab_gpu_record gave them until that one lands too), and the BVH above them.
-sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
+// `nodes` and `bounds`, when the GPU found them (node_bounds.comp.slang), are each node's
+// bounds as its positions landed, the same minimum and maximum over the same vertices as
+// the refit here would find, so nothing reads the positions again.
+sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range, nodes: []Gpu_Node = nil, bounds: []geom.Aabb = nil) {
+	gpu_flush_done(s)
 	clear(&s.changed)
-	for id in nodes_of_ranges(s, ranges) {
+	ids := nodes_of_ranges(s, ranges)
+	// The GPU's nodes are these, in this order, when they came from the same ranges.
+	known := len(nodes) == len(ids) && len(bounds) == len(ids)
+	if known do for id, k in ids do if nodes[k].vert_first != s.nodes[id].vert_first || nodes[k].vert_count != s.nodes[id].vert_count {
+		known = false
+		break
+	}
+	verts: u32
+	for id, k in ids {
 		if s.gpu_pending[id] > 0 {
 			s.gpu_pending[id] -= 1
 			if s.gpu_pending[id] > 0 do continue
 		}
-		if s.nodes[id].leaf != geom.BVH_NONE do append(&s.changed, s.nodes[id].leaf)
+		leaf := s.nodes[id].leaf
+		if leaf == geom.BVH_NONE do continue
+		append(&s.changed, leaf)
+		if known do s.bvh.nodes[leaf].bounds = bounds[k]
+		else do verts += s.nodes[id].vert_count
 	}
 	if len(s.changed) == 0 do return
-	verts: u32
-	for leaf in s.changed do verts += s.nodes[s.node_of[leaf]].vert_count
-	d := Dab{s = s}
-	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	if !known {
+		d := Dab{s = s}
+		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	}
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	for leaf in s.changed {
 		id := s.node_of[leaf]
@@ -403,4 +573,8 @@ stroke_gpu_destroy :: proc(s: ^Sculptor) {
 	delete(s.gpu_ranges)
 	delete(s.gpu_ranges_last)
 	delete(s.gpu_pending)
+	delete(s.gpu_flush_dabs)
+	delete(s.gpu_owed)
+	delete(s.gpu_owed_list)
+	delete(s.gpu_back_last)
 }

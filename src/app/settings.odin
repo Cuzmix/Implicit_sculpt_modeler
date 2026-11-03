@@ -224,8 +224,12 @@ SETTINGS := [?]Setting {
 	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
 	{"rebuild_goal", U + offset_of(Ui_State, rebuild_goal), Rebuild_Goal, 0, 0},
 	{"rebuild_even", U + offset_of(Ui_State, rebuild_even), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
+	{"remesh_by", U + offset_of(Ui_State, remesh_by), Remesh_By, 0, 0},
+	{"remesh_cell_mm", U + offset_of(Ui_State, remesh_cell_mm), f32, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX},
 	{"remesh_smooth", U + offset_of(Ui_State, remesh_smooth), i32, 0, geom.REMESH_SMOOTH_MAX},
 	{"remesh_keep_detail", U + offset_of(Ui_State, remesh_keep_detail), bool, 0, 0},
+	{"remesh_keep_thin", U + offset_of(Ui_State, remesh_keep_thin), bool, 0, 0},
+	{"remesh_keep_paint", U + offset_of(Ui_State, remesh_keep_paint), bool, 0, 0},
 	{"remesh_groups", U + offset_of(Ui_State, remesh_groups), bool, 0, 0},
 	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"remesh_keep_symmetry", U + offset_of(Ui_State, remesh_keep_symmetry), bool, 0, 0},
@@ -254,6 +258,9 @@ SETTINGS := [?]Setting {
 	{"bake_id", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, id), bool, 0, 0},
 	{"bake_occlusion_rays", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, occlusion_rays), i32, 0, BAKE_OCCLUSION_RAYS_MAX},
 	{"bake_occlusion_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, occlusion_reach), f32, 0.01, 1},
+	{"bake_vector", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, vector), bool, 0, 0},
+	{"bake_object_space", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, object_space), bool, 0, 0},
+	{"bake_target", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, target), Bake_Target, 0, 0},
 	{"wireframe", offset_of(App, wireframe), bool, 0, 0},
 	{"polyframe_lines", offset_of(App, polyframe_lines), bool, 0, 0},
 	{"polyframe_fill", offset_of(App, polyframe_fill), bool, 0, 0},
@@ -318,6 +325,8 @@ SETTINGS := [?]Setting {
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"skin_auto", offset_of(App, skin_auto), bool, 0, 0},
 	{"vdm_axes", offset_of(App, vdm_axes), sculpt.Vdm_Axes, 0, 0},
+	{"skin_map_kind", offset_of(App, skin_map_kind), sculpt.Skin_Map_Kind, 0, 0},
+	{"skin_map_range", offset_of(App, skin_map_range), f32, 0.0001, 10},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
@@ -381,6 +390,7 @@ SETTINGS := [?]Setting {
 	{"display_link", offset_of(App, display_link), bool, 0, 0},
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
+	{"send_receive", offset_of(App, send_receive), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"async_compute", offset_of(App, async_compute), bool, 0, 0},
 	{"ray_query", offset_of(App, ray_query), bool, 0, 0},
@@ -904,6 +914,10 @@ settings_load :: proc(app: ^App, path: string) {
 				}
 			}
 			c.palette_count += 1
+		case "send_last":
+			// send_last <target, escaped>: where Send scene sends, `address|name` for a
+			// computer found on the network or the address typed.
+			if len(f) == 2 do send_last_set(app, preset_unescape(f[1]))
 		case "recent_scenes":
 			// recent_scenes <path, escaped> ..., newest first: Home's Recent. A path given
 			// twice counts once; a file gone since stays, and Home says so.
@@ -1166,6 +1180,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for rgb in p.colors[:p.count] do fmt.sbprintf(&out, " %s", hex_text(rgb))
 		strings.write_byte(&out, '\n')
 	}
+	if app.send.last != "" do fmt.sbprintf(&out, "send_last %s\n", preset_escape(app.send.last))
 	if len(app.recent_scenes) > 0 {
 		strings.write_string(&out, "recent_scenes")
 		for s in app.recent_scenes do fmt.sbprintf(&out, " %s", preset_escape(s))

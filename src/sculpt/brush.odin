@@ -422,6 +422,22 @@ Sculptor :: struct {
 	gpu_pending:    []u32,
 	gpu_pending_on: bool,
 	gpu_once:       bool, // a dab of the stroke keeps the heights on the GPU (sculptor_gpu_heights)
+	// How far the stroke's dabs not yet landed may have moved a vertex on the GPU beyond
+	// the mirror (gpu_query_margin): the most one dab moves it for the kinds that build up
+	// dab on dab, times the dabs whose flush has not landed, plus the most the kinds that
+	// stop at a plane or a height move it over the whole stroke.
+	gpu_margin_dab:  f32,
+	gpu_margin_once: f32,
+	gpu_unlanded:    int,          // dabs recorded whose flush has not landed
+	gpu_flush_count: int,          // dabs recorded since the last flush
+	gpu_flush_dabs:  [dynamic]int, // the dabs of each flush on its way, oldest first
+	// Nodes whose normals the GPU has and the mesh not: a stroke's dabs on the GPU read
+	// back positions alone, and the normals follow after the stroke, GPU_BACK_VERTS a
+	// frame, or all at once at a sync (sculptor_gpu_back). `gpu_back_last` is the last
+	// frame's share, which a refusal gives to the CPU.
+	gpu_owed:       []bool,
+	gpu_owed_list:  [dynamic]u32,
+	gpu_back_last:  [dynamic]u32,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -462,6 +478,7 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.edited = make([]bool, len(s.nodes), allocator)
 	s.edited_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.gpu_pending = make([]u32, len(s.nodes), allocator)
+	s.gpu_owed = make([]bool, len(s.nodes), allocator)
 	history_init(&s.history, len(s.nodes), allocator)
 	s.changed_bounds = geom.AABB_EMPTY
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
@@ -778,6 +795,15 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 				if s.stale[id] != .Shape || s.cone_waiting[id] do continue
 				s.cone_waiting[id] = true
 				append(&s.waiting_cones, id)
+			}
+		}
+		// A node the CPU changes while its normals are owed by the GPU would upload the
+		// mesh's older ones over the GPU's: they come back first.
+		if s.gpu_take != .Dabs && len(s.gpu_owed_list) > 0 {
+			for id in s.dirty_nodes do if s.gpu_owed[id] {
+				_ = sculptor_gpu_sync(s)
+				slice.sort(s.dirty_nodes[:])
+				break
 			}
 		}
 		// The ranges to upload, coalesced, which the GPU's normals kernel takes too.
@@ -1168,7 +1194,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		view   = view,
 	}
 	clear(&s.hit)
-	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
+	// With the dabs on the GPU the tree bounds the mirror, which lags the GPU's positions
+	// by up to the stroke's largest move: the query reaches that much further, and the
+	// kernels test each vertex's true distance (stroke_gpu.odin).
+	geom.bvh_query_leaves(&s.bvh, center, reach + gpu_query_margin(s), &s.hit)
 	if len(s.hit) == 0 do return 0
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count

@@ -62,6 +62,8 @@ File_Kind :: enum u8 {
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
+	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
+	Export_Bary,  // the selected object's skin goes to an NVIDIA displacement micro-map file (skin_map.odin)
 }
 
 File_Request :: struct {
@@ -78,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(36)
+SCENE_VERSION :: u32(37)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -131,6 +133,7 @@ PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
 @(private = "file")
 EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
+BARY_FILTERS := [?]sdl.DialogFileFilter{{"NVIDIA displacement micro-map", "bary"}}
 // Alphas take OpenEXR vector maps too; Android's picker knows no MIME type for `.exr`, so
 // there every file is offered and the decoder's check of the bytes decides.
 when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -264,7 +267,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
-	case .Alpha:                                                 dialog_open(app, userdata, ALPHA_FILTERS[:])
+	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
 	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
@@ -274,6 +277,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Install_Pack:                                          dialog_open(app, userdata, PACK_FILTERS[:])
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
 	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
+	case .Export_Bary:                                           dialog_save(app, userdata, BARY_FILTERS[:])
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
@@ -317,6 +321,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
+		case .Export_Bary: suffix = ".bary"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
@@ -522,6 +527,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = pack_make(app, req.path)
 	case .Export_Vdm:
 		_ = vdm_export(app, req.path)
+	case .Skin_Map:
+		_ = skin_map_load(app, req.path)
+	case .Export_Bary:
+		_ = skin_bary_export(app, req.path)
 	case .Export_Workspace:
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:
@@ -1365,14 +1374,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	start := time.tick_now()
 	out := make([dynamic]u8)
 	defer delete(out)
-	preview_refresh(app)
-	scene_header_put(app, &out)
-	hd_dropped := 0
-	for obj in app.scene.objects {
-		object_hd_leave(app, obj)
-		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
-		object_chunk_put(app, &out, obj)
-	}
+	hd_dropped := scene_bytes(app, &out)
 	partial, err := write_partial(path, out[:])
 	if err != "" {
 		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
@@ -1391,6 +1393,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	if !copy {
 		versions_prune(path, keep)
 		autosave_scene_saved(app, path)
+		send_saved_record(app, path)
 	}
 	flash_saved(app)
 	// The times shown are this action's alone.
@@ -1409,6 +1412,19 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 		file_note(app, hd_dropped > 0, "Saved %s%s", what, hd)
 	}
 	return true
+}
+
+// The scene as its file holds it, appended to out: what Save writes and Send sends. Every
+// HD window is left first; returns how many objects keep HD detail the file leaves out.
+scene_bytes :: proc(app: ^App, out: ^[dynamic]u8) -> (hd_dropped: int) {
+	preview_refresh(app)
+	scene_header_put(app, out)
+	for obj in app.scene.objects {
+		object_hd_leave(app, obj)
+		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
+		object_chunk_put(app, out, obj)
+	}
+	return hd_dropped
 }
 
 // Above this many bytes (about 1M vertices) a save stops the frame for long enough that
@@ -2040,6 +2056,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, object_view_bits(obj))
 	geom.byte_put(out, i32(obj.folder))
 	geom.byte_put(out, obj.vis_off)
+	geom.byte_put(out, obj.remesh_cell)
 	geom.byte_put(out, u8(object_kind(obj)))
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
@@ -2193,7 +2210,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 }
 
 // Reads what object_put writes before the levels: the id, name, placement, boolean mode,
-// view flags, folder and stored eyes; r.ok goes false on damage. The caller owns
+// view flags, folder, stored eyes and last remesh cell; r.ok goes false on damage. The caller owns
 // obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -2212,6 +2229,8 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.folder = int(geom.byte_get(r, i32))
 	if obj.folder < 0 do r.ok = false
 	obj.vis_off = geom.byte_get(r, u8)
+	obj.remesh_cell = geom.byte_get(r, f32)
+	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

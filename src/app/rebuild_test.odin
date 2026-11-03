@@ -223,3 +223,36 @@ decimate_keeps_symmetry :: proc(t: ^testing.T) {
 	testing.expect(t, whole_built, "not decimated whole")
 	testing.expect_value(t, why, "the object does not cross the plane")
 }
+
+// With Density set by Cell size the preview, Rebuild and the command carry that cell in the
+// object's mesh space (millimetres over the print scale and the object's scale); Remesh
+// again keeps the object's own cell from its last remesh, and Remesh to a preset is a
+// count whatever Density is set by.
+@(test)
+rebuild_by_cell_size_carries_the_cell :: proc(t: ^testing.T) {
+	app: App
+	defer rebuild_free(&app)
+	obj := rebuild_app(&app)
+	obj.transform.scale = 2
+	app.ui.remesh_by, app.ui.remesh_cell_mm = .Cell, 1
+	cell := f32(1) / (PRINT_MM_DEFAULT * 2)
+	testing.expect_value(t, remesh_setup(&app).cell, cell)
+	rebuild_preview_hold(&app)
+	testing.expect_value(t, rebuild_preview_frame(&app).w, cell)
+	rebuild_command(&app)
+	testing.expect_value(t, app.ui.scene_command.remesh.cell, cell)
+	// About 1.5 A / h² vertices, from the area the preview measured.
+	testing.expect_value(t, app.ui.scene_command.vertices, int(1.5 * app.rebuild.area / f64(cell * cell)))
+	obj.remesh_cell = 0.125
+	COMMANDS[.Remesh].run(&app, 0)
+	testing.expect_value(t, app.ui.scene_command.remesh.cell, f32(0.125))
+	COMMANDS[.Remesh_To].run(&app, 0)
+	testing.expect_value(t, app.ui.scene_command.remesh.cell, f32(0))
+	// By count, Remesh again still keeps the object's cell; Rebuild asks for the count.
+	app.ui.remesh_by = .Vertices
+	COMMANDS[.Remesh].run(&app, 0)
+	testing.expect_value(t, app.ui.scene_command.remesh.cell, f32(0.125))
+	rebuild_command(&app)
+	testing.expect_value(t, app.ui.scene_command.remesh.cell, f32(0))
+	testing.expect_value(t, app.ui.scene_command.vertices, 2000)
+}

@@ -1532,6 +1532,7 @@ kit_layout :: proc(app: ^App) {
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
 	kit_job_pill(app)
+	kit_send_pill(app)
 	// Round the view: the readout at the top corner on the off-hand side (readout.odin), the
 	// off-hand island down the off-hand side, the navigation head at the pen side's top and
 	// the view rail of cards down the pen side. Focused (kit_top_lens.odin), the readout

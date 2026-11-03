@@ -71,6 +71,9 @@ Object :: struct {
 	// Per level, the polygons whose edges its buffers hold for the wireframe (poly_edges.odin).
 	poly_edges: [sculpt.MAX_LEVELS]sculpt.Polygon_Source,
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
+	// The lattice spacing of its last remesh, in its mesh space, which Remesh again keeps
+	// (remesh_again_setup); 0 when no remesh made its mesh or another rebuild came after.
+	remesh_cell: f32,
 	// Its eye is off: out of view and out of reach until shown again (scene_tree.odin).
 	// Not hidden triangles, which are the sculptor's.
 	off:       bool,
@@ -176,11 +179,13 @@ Scene :: struct {
 // Changes to the object list or the selected object's levels requested by the UI,
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
-// Polypaint per vertex and polygroups per triangle that a mesh brings to the object made
-// from it (Split and Merge keep the surface's parts); nil for none.
+// Polypaint per vertex, polygroups per triangle and the mask per vertex that a mesh brings
+// to the object made from it (Split and Merge keep the surface's parts, a remesh all
+// three); nil for none.
 Surface :: struct {
 	color:  []sculpt.Color,
 	groups: []u16,
+	mask:   []u8,
 }
 
 Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze}
@@ -388,12 +393,12 @@ scene_append :: proc(app: ^App, obj: ^Object) {
 
 // Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
 // of the level it is on, as ZBrush's DynaMesh does (geom.remesh_voxel), keeping its
-// transform, with `setup`'s options (remesh.odin): its polypaint and polygroups follow
-// only with Keep detail, or the groups with Groups. Its levels, HD detail, mask, dynamic
-// topology and strokes go (a swap entry recorded by the caller takes the whole remesh
+// transform, with `setup`'s options (remesh.odin): its polypaint, polygroups and mask
+// follow from the old triangle nearest each vertex (or under it, with Keep detail), the
+// groups with Groups by piece. Its levels, HD detail, dynamic topology and strokes go (a swap entry recorded by the caller takes the whole remesh
 // back). `changed` says whether it was remeshed; ok is false only when the old mesh is
 // gone and the new one could not be uploaded.
-object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT}) -> (changed, ok: bool) {
+object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT, keep_thin = true, keep_paint = true}) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
@@ -407,20 +412,26 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 	s := object_sculptor(obj)
 	// The dynamic layout's compacting renumbers the triangles, and it has no groups.
 	dyn := object_dynamic(obj)
+	// A mask is carried only where something is masked: an all-clear one is no mask.
+	has_mask := sculpt.sculptor_has_mask(s)
+	mask := s.mask if has_mask && !dyn else nil
 	if dyn {
-		// Without the unused slots of the dynamic layout.
-		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(s)
-		delete(mask)
+		// Without the unused slots of the dynamic layout, the mask packed alike.
+		packed_mask: []u8
+		packed, packed_mask = sculpt.sculptor_compact_mesh(s)
 		source = packed
+		if has_mask do mask = packed_mask
+		else do delete(packed_mask)
 	}
+	defer if dyn do delete(mask)
 	groups := sculpt.sculptor_groups(s) if !dyn else nil
+	color := s.color if !dyn else nil
 	report: geom.Remesh_Report
 	defer geom.remesh_report_destroy(&report)
-	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups), report = &report)
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)
 	surface: Surface
 	defer surface_free(&surface)
-	if built do surface = remesh_surface(report, mesh, source, s.color if !dyn else nil, groups)
+	if built do surface = remesh_surface(report, mesh, source, color, groups, mask)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if !built {
@@ -450,6 +461,9 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 	defer delete(tri_from)
 	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	if old_to_new != nil do remesh_take_quads(&obj.levels, remeshed.quads, old_to_new, tri_from)
+	// After the rebuild, which forgets the cell of any remesh before.
+	obj.remesh_cell = remeshed.cell
+	app.stats.remesh_cell = remeshed.cell
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
@@ -852,15 +866,15 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	if gpu.skin_normals == nil || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
 		if gpu.skin_normals != nil do render.wait_idle(&app.renderer)
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
-		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.segments, sk.vert_count, sk.edge_count) do return 0
+		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.heights, sk.height_max, sk.segments, sk.vert_count, sk.edge_count) do return 0
 		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
 		render.viewport_invalidate(&app.target)
-		return len(sk.normals) * size_of([2]i16) + len(tris) * size_of([4]u32)
+		return len(sk.normals) * (size_of([2]i16) + size_of(f16)) + len(tris) * size_of([4]u32)
 	}
 	bytes := 0
 	ranges := sculpt.sculptor_skin_ranges(s)
-	render.mesh_buffers_upload_skin(&app.renderer, cmd, gpu, sk.normals, ranges)
-	for r in ranges do bytes += int(r.count) * size_of([2]i16)
+	render.mesh_buffers_upload_skin(&app.renderer, cmd, gpu, sk.normals, sk.heights, sk.height_max, ranges)
+	for r in ranges do bytes += int(r.count) * (size_of([2]i16) + size_of(f16))
 	if gpu.skin_lead_stamp != stamp {
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		render.mesh_buffers_upload_skin_tris(&app.renderer, cmd, gpu, tris)
@@ -1469,18 +1483,18 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 	if prepared != nil {
 		// A long job's thread made the levels from `mesh`, normals and all
 		// (long_job_prepare); they take the app's workers from here on.
-		assert(surface.color == nil && surface.groups == nil && old_to_new == nil && tri_from == nil)
+		assert(surface.color == nil && surface.groups == nil && surface.mask == nil && old_to_new == nil && tri_from == nil)
 		obj.levels = prepared^
 		prepared^ = {}
 		sculpt.levels_set_pool(&obj.levels, &app.pool)
-	} else if surface.color == nil && surface.groups == nil {
+	} else if surface.color == nil && surface.groups == nil && surface.mask == nil {
 		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new, tri_from = tri_from)
 	} else {
 		// The surface's parts follow the renumbering onto the level.
 		renumbered := old_to_new if old_to_new != nil else make([]u32, len(mesh.positions), context.temp_allocator)
 		from := tri_from if tri_from != nil else make([]u32, len(mesh.indices) / 3, context.temp_allocator)
 		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = renumbered, tri_from = from)
-		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, from)
+		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, from, surface.mask)
 	}
 	if normals && prepared == nil do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
@@ -1514,10 +1528,12 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // a mesh that comes without them. `old_to_new` and `tri_from` (not temporary) receive the
 // renumbering, as object_build_from fills them, for a caller that keeps maps into the
 // level. The caller waits for the GPU first. Returns false only when the new mesh could
-// not be uploaded.
+// not be uploaded. The object forgets its remesh cell (Object.remesh_cell).
 object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil, old_to_new: []u32 = nil, tri_from: []u32 = nil, squeeze: u32 = 0) -> bool {
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
+	// A new mesh is no longer the one a remesh made at that cell (remesh_apply sets its own).
+	obj.remesh_cell = 0
 	// A skin's detail is carried onto the new mesh's skin (and Squeeze makes one of
 	// `squeeze` segments from the old surface): the old levels stay alive until it is.
 	old: sculpt.Levels

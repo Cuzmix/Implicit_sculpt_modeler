@@ -113,6 +113,14 @@ Options :: struct {
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 	input_diagnostics: bool `usage:"Open the Input diagnostics screen at the start, in any build (debug builds and the developer iPad build also reach it from Search and Settings > Statistics)."`,
 	diag_test: string `usage:"Open Input diagnostics at the start and run this test (finger_tap, roll_right, ...: README \"Input diagnostics\")."`,
+	receive: bool `usage:"Receive scenes other devices send on the local network (a desktop): listen on --send-port, open what arrives when the scene holds nothing unsaved (README \"Send\")."`,
+	send_to: string `usage:"Once the run is set up, send the scene to the copy of Sculpt receiving at this address (a name or address, with :PORT when not the default), as Send does."`,
+	send_allow: bool `usage:"Pair with any device that asks, without asking anyone (for scripted tests of Send)."`,
+	send_folder: string `usage:"Keep this device's id, its paired devices and the received scenes in this folder instead of the one beside the settings."`,
+	send_arrived: string `usage:"How a received scene that would replace unsaved work is answered without asking: open (the open scene kept first) or keep (for later), for scripted tests of Send."`,
+	send_cut_after: int `usage:"A send drops its connection after this many chunks, as a lost Wi-Fi would (for scripted tests of a send that carries on)."`,
+	send_port: int `usage:"The port --receive listens on and --send-to sends to when the address names none (default 47820)."`,
+	exit_after_receive: bool `usage:"With --receive, open the first scene that arrives and end the run (for scripted tests of Send)."`,
 	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
 }
 
@@ -153,6 +161,7 @@ App :: struct {
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush card offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	link:     Link, // the live link with Blender (link.odin)
+	send:     Send, // Send to computer and Send to tablet (send.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	built_in:     [len(BUILT_IN_PRESETS)]Brush_Preset, // the built-in presets (builtin_presets.odin), each made on first use
@@ -281,6 +290,7 @@ App :: struct {
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
+	send_receive: bool, // Receive scenes (Settings > Files > Send scenes): a desktop listens for sends
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// Scene > Render at Fast quality (render_mode.odin; Shift+R): ambient occlusion and
@@ -398,6 +408,10 @@ App :: struct {
 	skin_auto:                bool,
 	// How an OpenEXR alpha's channels are read: the app the vector map came from.
 	vdm_axes:                 sculpt.Vdm_Axes,
+	skin_map_kind:            sculpt.Skin_Map_Kind, // what Load map into skin reads an image as
+	skin_map_range:           f32, // the distance a grey map's black and white stand for
+	skin_maps_loaded:         int,
+	skin_bary_exports:        int,
 	// What the last rebuild's skin carry reported, for the exit stats.
 	skin_carry:               sculpt.Skin_Carry_Report,
 	skin_squeezes:            int, // Squeezes run this session, for the exit stats
@@ -770,6 +784,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.skin_auto = true
+	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -810,6 +825,22 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// comes and goes with the test machine's windows, which no check may depend on.
 	link_init(&app, link_folder(settings), opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == "" && opts.run == "" && opts.script == "")
 	defer link_destroy(&app)
+	send_init(&app, opts.send_folder if opts.send_folder != "" else send_folder(settings), opts.receive, opts.send_allow, opts.exit_after_receive, opts.send_port)
+	defer send_destroy(&app, false)
+	if app.send.shared != nil do app.send.shared.cut_after = opts.send_cut_after
+	switch opts.send_arrived {
+	case "":
+	case "open": app.send.arrive_answer = .Open
+	case "keep": app.send.arrive_answer = .Keep
+	case:        log.warnf("--send-arrived takes open or keep, not %q", opts.send_arrived)
+	}
+	if opts.send_to != "" {
+		target := opts.send_to
+		if opts.send_port > 0 && !strings.has_prefix(target, "@") && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
+		app.send.pending = strings.clone(target)
+	}
+	defer delete(app.send.pending)
+	defer delete(app.send.last)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
@@ -929,6 +960,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
+	// A send the run started finishes before the stats say what it did.
+	send_destroy(&app, true)
 	return exit_stats_print(&app, opts, &loop, exit_code)
 }
 

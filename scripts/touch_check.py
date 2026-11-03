@@ -123,8 +123,8 @@ UI = {
 MENU_ROWS = {"home": ("Home", 84), "new": ("New", 129), "open": ("Open scene...", 173), "recent": ("Open recent", 217),
              "save": ("Save scene", 261), "save_as": ("Save scene as...", 305), "save_copy": ("Save a copy...", 349),
              "earlier_saves": ("Earlier saves...", 393), "import": ("Import", 438), "export": ("Export...", 482),
-             "workspaces": ("Workspaces", 527), "customise": ("Edit docks...", 571), "settings": ("Settings...", 615),
-             "help": ("Help and shortcuts", 659), "more": ("More", 703)}
+             "send": ("send", 526), "workspaces": ("Workspaces", 571), "customise": ("Edit docks...", 615),
+             "settings": ("Settings...", 659), "help": ("Help and shortcuts", 703), "more": ("More", 747)}
 UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y) in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({

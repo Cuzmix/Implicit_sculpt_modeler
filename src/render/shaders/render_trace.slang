@@ -25,6 +25,7 @@
 // item's geometries start among the merged triangles in place of the trees' offsets.
 
 #include "common.slang"
+#include "skin_grid.slang"
 struct Node {
 	float3 lo;
 	uint first; // inner: the left child, the right one after it; leaf: see below
@@ -42,17 +43,23 @@ struct Item {
 	uint4 slot_group[4];   // the polygroup of each material slot from 1
 	float4 slot_color[16];   // each slot's colour, as `color`
 	float4 slot_surface[16]; // ...and surface, as `surface`
-	// ITEM_TEXTURED: its first triangle, where its corners and its preview vertices start
+	// ITEM_TEXTURED: its first triangle (a skinned item's too), where its corners and its preview vertices start
 	// in `textured`, and its map slot (bits 0-3, 3 for none; bits 16-23 under MAP_ARRAY), view
 	// (4-7: 1 the maps, 2 the normal map, 3 the UV checker) and maps it has (8-10: base
 	// colour, ORM, normal)
 	uint4 tex;
+	// ITEM_SKINNED: where its detail skin's sample normals and triangle records (four words
+	// each) start in `attributes`, and the skin's vertex and edge counts; its segments are in
+	// the flags from ITEM_SKIN_SHIFT.
+	uint4 skin;
 };
 
 static const uint ITEM_PAINT = 1u;  // the polypaint shows over the colour
 static const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour instead
 static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
+static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
+static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
 // how many did in a.
@@ -216,9 +223,28 @@ float3 normal_decode(uint w) {
 	return oct_decode(float2(raw & ~15) / 32767.0);
 }
 
+// A skin sample's normal (sculpt.Skin's octahedral pair: all sixteen bits each, no mask).
+float3 normal_decode_full(uint w) {
+	return oct_decode(max(float2(int2(int(w << 16) >> 16, int(w) >> 16)) / 32767.0, float2(-1.0)));
+}
+
 // A vertex's normal in mesh space.
 float3 vertex_normal(uint v) {
 	return normal_decode(attributes[v]);
+}
+
+// A skinned item's shading normal in mesh space (not unit length) at barycentric `gb` of
+// its triangle `tri` (its own number), whose corners as drawn are its vertices `gv`: the
+// three samples of the skin's small triangle there, mixed, as the viewport shades it.
+float3 skin_normal(uint item, uint tri, float3 gb, uint3 gv) {
+	uint4 sk = items[item].skin;
+	uint S = (items[item].offs.y >> ITEM_SKIN_SHIFT) & 31u;
+	uint at = sk.y + 4u * tri;
+	uint4 rec = uint4(attributes[at], attributes[at + 1u], attributes[at + 2u], attributes[at + 3u]);
+	uint3 x;
+	float3 w;
+	skin_grid_corners(S, sk.z, sk.w, tri, rec, gb, gv, x, w);
+	return normal_decode_full(attributes[sk.x + x.x]) * w.x + normal_decode_full(attributes[sk.x + x.y]) * w.y + normal_decode_full(attributes[sk.x + x.z]) * w.z;
 }
 
 // A textured item's preview vertex at word `at` of `textured`: its normal and tangent
@@ -826,7 +852,10 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		float3 p = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
 		float3 ng = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
 		if (dot(ng, d) > 0.0) ng = -ng;
-		float3 n = normalize(mul((vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y), (float3x3)model));
+		float3 nm = (flags & ITEM_SKINNED) != 0u
+			? skin_normal(hit.item, hit.tri - items[hit.item].tex.x, float3(w0, hit.uv), uint3(ia, ib, ic))
+			: vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y;
+		float3 n = normalize(mul(nm, (float3x3)model));
 		if (dot(n, ng) < 0.0) n = -n;
 		float3 v = -d;
 		// A shading normal facing away from the eye shades as the triangle does.
