@@ -139,7 +139,7 @@ wgpu_release_transfer_buffer :: proc(transfer_buffer: rawptr) {
 }
 
 // The page's own memory: uploads copy it out as they are recorded, so it is free to write
-// again at once, and a download's bytes are there once its fence has signalled.
+// again at once, and a download's bytes are there once its submission's ticket is done.
 wgpu_map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	t := (^Wgpu_Transfer)(object(transfer_buffer))
 	return raw_data(t.data) if t != nil else nil

@@ -7,14 +7,14 @@ import "core:time"
 // What the GPU seam did over the run, for the exit stats: the baseline the GPU abstraction's
 // steps are measured against (notes/gpu-own-model/design.md, G0). Recording time is the CPU
 // time from acquiring a command buffer to submitting or cancelling it, so it counts what the
-// app records into it as well as the seam's own work. Whole-GPU waits and fence waits are
-// the stalls a ring or a ticket would remove; memory allocations (Vulkan) are what a
+// app records into it as well as the seam's own work. Whole-GPU waits and waits on a ticket
+// not yet done are the CPU's stalls on the GPU; memory allocations (Vulkan) are what a
 // suballocator would fold into a few blocks.
 Counters :: struct {
 	command_buffers: int,
 	encode_ns:       i64,
 	idle_waits:      int,
-	fence_waits:     int,
+	ticket_waits:    int,
 	allocations:     int,
 	allocated_bytes: i64,
 }
@@ -72,10 +72,10 @@ count_idle_wait :: proc() {
 	counters.total.idle_waits += 1
 }
 
-count_fence_wait :: proc() {
+count_wait :: proc() {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
-	counters.total.fence_waits += 1
+	counters.total.ticket_waits += 1
 }
 
 count_allocation :: proc(bytes: i64) {

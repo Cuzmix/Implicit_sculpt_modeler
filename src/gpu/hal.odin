@@ -35,7 +35,8 @@ acquire_command_buffer :: proc() -> (cmd: Cmd) {
 }
 
 // A command buffer whose compute passes run on the compute queue (Gpu_Caps.async_compute),
-// submitted with submit_compute; nil with SDL's error set where there is none. It
+// submitted with submit, whose ticket is then on the compute queue; nil (with last_error)
+// where there is none. It
 // holds compute passes only.
 @(require_results)
 acquire_compute_command_buffer :: proc() -> Cmd {
@@ -52,20 +53,12 @@ acquire_compute_command_buffer :: proc() -> Cmd {
 	}
 }
 
-// Submits a acquire_compute_command_buffer recording. It runs after every graphics
-// submission so far; its fence says when it is done, and wait_on hands it to the
-// graphics work that reads what it wrote.
-@(require_results)
-submit_compute :: proc(command_buffer: Cmd) -> Fence {
-	return submit_command_buffer_and_acquire_fence(command_buffer)
-}
-
-// Makes a graphics command buffer wait, at every stage, for the compute submission `fence`
-// names before it runs, so it sees what that wrote. Waiting on a fence that has already
-// signalled stalls nothing.
-wait_on :: proc(command_buffer: Cmd, fence: Fence) {
+// Makes a graphics command buffer wait, at every stage, for the compute submissions up
+// to `ticket` before it runs, so it sees what they wrote. Waiting on a ticket that is
+// already done stalls nothing.
+wait_on :: proc(command_buffer: Cmd, ticket: Ticket) {
 	when VULKAN {
-		vk_wait_on(command_buffer, fence)
+		vk_wait_on(command_buffer, ticket)
 	}
 }
 
@@ -690,11 +683,13 @@ push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: raw
 	else do vk_push_vertex_uniform_data(command_buffer, slot_index, data, length)
 }
 
+// Whether the GPU has run every submission of the ticket's queue up to it.
 @(require_results)
-query_fence :: proc(fence: Fence) -> bool {
-	when METAL do return mtl_query_fence(fence)
-	else when WEBGPU do return wgpu_query_fence(fence)
-	else do return vk_query_fence(fence)
+done :: proc(ticket: Ticket) -> bool {
+	if ticket.value == 0 do return true
+	when METAL do return mtl_ticket_done(ticket)
+	else when WEBGPU do return wgpu_ticket_done(ticket)
+	else do return vk_ticket_done(ticket)
 }
 
 // Releasing is safe at any time, with frames or compute still in flight, or in the middle
@@ -713,12 +708,6 @@ release_compute_pipeline :: proc(compute_pipeline: Compute_Pipeline) {
 	when METAL do mtl_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
 	else when WEBGPU do wgpu_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
 	else do vk_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
-}
-
-release_fence :: proc(fence: Fence) {
-	when METAL do mtl_release_fence(fence)
-	else when WEBGPU do wgpu_release_fence(fence)
-	else do vk_release_fence(fence)
 }
 
 release_graphics_pipeline :: proc(graphics_pipeline: Graphics_Pipeline) {
@@ -905,24 +894,16 @@ set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swa
 	else do return vk_set_swapchain_parameters(window, swapchain_composition, present_mode)
 }
 
+// Sends the recording to its queue and hands back its ticket; false (with last_error)
+// where the device refused it.
 @(require_results)
-submit_command_buffer :: proc(command_buffer: Cmd) -> (ok: bool) {
+submit :: proc(command_buffer: Cmd) -> (Ticket, bool) {
 	count_finish(command_buffer)
 	staging_flush(command_buffer)
 	defer staging_done(command_buffer)
 	when METAL do return mtl_submit_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_submit_command_buffer(command_buffer)
 	else do return vk_submit_command_buffer(command_buffer)
-}
-
-@(require_results)
-submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
-	count_finish(command_buffer)
-	staging_flush(command_buffer)
-	defer staging_done(command_buffer)
-	when METAL do return mtl_submit_command_buffer_and_acquire_fence(command_buffer)
-	else when WEBGPU do return wgpu_submit_command_buffer_and_acquire_fence(command_buffer)
-	else do return vk_submit_command_buffer_and_acquire_fence(command_buffer)
 }
 
 unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
@@ -951,12 +932,16 @@ wait_and_acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Win
 	else do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 }
 
-@(require_results)
-wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
-	count_fence_wait()
-	when METAL do return mtl_wait_for_fences(wait_all, fences, num_fences)
-	else when WEBGPU do return wgpu_wait_for_fences(wait_all, fences, num_fences)
-	else do return vk_wait_for_fences(wait_all, fences, num_fences)
+// Waits until every ticket is done. Under WebGPU a page cannot block, and this answers
+// true at once (wgpu_wait): a readback polls done there instead.
+wait :: proc(tickets: ..Ticket) -> bool {
+	pending := false
+	for t in tickets do if !done(t) do pending = true
+	if !pending do return true
+	count_wait()
+	when METAL do return mtl_wait(tickets)
+	else when WEBGPU do return wgpu_wait(tickets)
+	else do return vk_wait(tickets)
 }
 
 @(require_results)

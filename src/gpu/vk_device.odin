@@ -574,12 +574,12 @@ vk_collect :: proc() {
 }
 
 // Whether `queue` has finished its submission `serial`, as last collected.
-vk_serial_done :: proc(queue: Vk_Queue, serial: u64) -> bool {
+vk_serial_done :: proc(queue: Queue, serial: u64) -> bool {
 	return serial <= (vk_state.completed if queue == .Graphics else vk_state.compute_completed)
 }
 
 // Waits for submission `serial` of `queue`.
-vk_wait_serial :: proc(serial: u64, queue := Vk_Queue.Graphics) -> bool {
+vk_wait_serial :: proc(serial: u64, queue := Queue.Graphics) -> bool {
 	if vk_serial_done(queue, serial) do return true
 	value := serial
 	timeline := vk_state.timeline if queue == .Graphics else vk_state.compute_timeline

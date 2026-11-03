@@ -22,8 +22,21 @@ Cmd               :: distinct ^Opaque
 Render_Pass       :: distinct ^Opaque
 Compute_Pass      :: distinct ^Opaque
 Copy_Pass         :: distinct ^Opaque
-// A submission's completion, waited on or queried, then released.
-Fence             :: distinct ^Opaque
+
+// The queue a command buffer goes to, whose timeline its submissions count on: graphics
+// (everything) or compute (acquire_compute_command_buffer, where async compute is offered).
+Queue :: enum u8 {
+	Graphics,
+	Compute,
+}
+
+// A point on a queue's timeline, which submit hands back: done once the GPU has run every
+// submission of that queue up to it (and, under WebGPU, every download those made has
+// landed). A plain value: nothing to release, and the zero ticket is already done.
+Ticket :: struct {
+	value: u64,
+	queue: Queue,
+}
 
 // What a handle points at, as far as render knows: nothing.
 Opaque :: struct {}

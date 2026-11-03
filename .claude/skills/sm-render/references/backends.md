@@ -9,7 +9,7 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   SDL_GPU's own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
   that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
-  rendering and a timeline semaphore whose serials are the fences. It needs Vulkan 1.3 with dynamicRendering,
+  rendering and a timeline semaphore whose serials are the tickets' values. It needs Vulkan 1.3 with dynamicRendering,
   synchronization2, timelineSemaphore and independentBlend (the Android manifest asks for 1.3 too); without them
   `renderer_init` returns false with the reason in `render.backend_error`, and the app shows it in the system's
   message box (`graphics_failed_text`, `platform_alert`) and ends: there is no fallback. `backend_select` loads
@@ -22,7 +22,7 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   was written to mirror SDL_GPU's own Metal backend (`deps/sdl3-src/src/gpu/metal/SDL_gpu_metal.m`): vertex buffers at buffer 14+,
   uniforms at buffer(i) sent by `set*Bytes` at draw time (4096 bytes a slot), vertex storage buffers after the
   uniforms, fragment textures and samplers at their slot, no viewport flip, cycling by backings and serials as the
-  fences. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
+  tickets' values. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
   release, an autoreleased one (command buffer, encoder, drawable) is retained while kept, and every proc opens
   `NS.scoped_autoreleasepool()`. The pinned Odin asserts ("missing procedure 'objc_lookUpClass'") on any objc
   message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
@@ -37,13 +37,13 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   Vulkan and a Metal answer (`gpu.set_allowed_frames_in_flight`, set between frames by `frame_pace`).
 - Async compute (`Gpu_Caps.async_compute`, design notes/native-gpu/async-compute-design.md): a second queue of the
   graphics family (`vk_state.compute_queue`, else the same queue as `.Same_Queue`) with its own timeline
-  (`compute_timeline`); `Vk_Cmd.queue` and `Vk_Fence.queue` say which timeline a serial counts on (`vk_serial_done`,
-  `vk_wait_serial(serial, queue)`, `vk_wait_for_fences` waits on both). A compute submission waits for every graphics
+  (`compute_timeline`); `Vk_Cmd.queue` and `Ticket.queue` say which timeline a serial counts on (`vk_serial_done`,
+  `vk_wait_serial(serial, queue)`, `vk_wait` waits on both). A compute submission waits for every graphics
   serial so far and never carries the setup buffer (submitted first on graphics); graphics reads a band's output only
   after `gpu.wait_on` (ALL_COMMANDS). Under --gpu-debug `vk_check_compute_writes` fails a graphics submission using
   what compute wrote without such a wait, which one queue's barriers hide from the layer. Compute-queue command
   buffers are untimed and hold compute passes only. Render mode (`render_frame`'s `async`): one band in flight
-  (`band_fence`), `generation` drops a stale band, no band in a frame that builds the scene, sample counting at
+  (`band_ticket`), `generation` drops a stale band, no band in a frame that builds the scene, sample counting at
   collection; pictures stay synchronous.
 - Ray query (`Gpu_Caps.ray_query`, design notes/native-gpu/ray-query-design.md): the own Vulkan backend enables
   `VK_KHR_acceleration_structure`, `VK_KHR_ray_query` and buffer device addresses where all are offered. Build inputs

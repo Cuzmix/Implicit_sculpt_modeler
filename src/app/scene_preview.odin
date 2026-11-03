@@ -16,7 +16,7 @@ import "../render"
 // The picture is the viewport as it was last drawn, without the brush ring or the gizmo,
 // shrunk to PREVIEW_LONG pixels on its long side. It is taken while the app rests, at
 // most every PREVIEW_EVERY seconds and only when the scene or the view changed: the copy
-// back from the GPU is collected once its fence signals (render.Readback), so no frame
+// back from the GPU is collected once its ticket is done (render.Readback), so no frame
 // waits for it. A save takes a fresh one if it is out of date, since a save stops the
 // frame anyway; an autosave writes the last one taken and never touches the GPU.
 

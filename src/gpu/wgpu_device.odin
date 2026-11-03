@@ -14,8 +14,8 @@ import wgpu "vendor:wgpu"
 // the queue and tracks every hazard itself, so unlike the Vulkan and Metal backends there
 // is no cycling, no reference counts and no waiting: a write recorded after a read lands
 // after it, a released object is destroyed once no open recording can name it, and a CPU
-// readback is the only thing that must wait, which it does by polling its fence
-// (query_fence), as every readback in render already does. The browser hands the
+// readback is the only thing that must wait, which it does by polling its ticket
+// (done), as every readback in render already does. The browser hands the
 // device over asynchronously, so the page starts it (wgpu_start) before the renderer is
 // made, and renderer_init takes the device that came back. Everything runs on the page's
 // one thread; the browser's callbacks arrive between frames.
@@ -70,6 +70,12 @@ Wgpu_State :: struct {
 	mip_sampler:      wgpu.Sampler,
 	mip_pipelines:    map[wgpu.TextureFormat]wgpu.RenderPipeline,
 	errors:           int, // reported by WebGPU (validation_errors)
+	// The submissions' timeline: `submitted` counts them, `completed` is the last whose
+	// answers (and every earlier one's) have all come, and `answers` holds how many each
+	// later submission still waits for: the queue's, then each of its downloads'.
+	submitted:        u64,
+	completed:        u64,
+	answers:          [dynamic]int,
 }
 
 wgpu_state: Wgpu_State
@@ -231,6 +237,8 @@ wgpu_destroy_device :: proc() {
 	wgpu.BindGroupLayoutRelease(s.empty_layout)
 	delete(s.doomed_buffers)
 	delete(s.doomed_textures)
+	delete(s.answers)
+	s.answers = nil
 	_ = pool_remove(&pools.textures, u32(s.swapchain_handle))
 	if s.swapchain != nil do free(s.swapchain)
 	wgpu.QueueRelease(s.queue)
@@ -329,38 +337,31 @@ wgpu_samples :: proc(count: Sample_Count) -> u32 {
 	return 4 if count == ._4 else 1
 }
 
-// ---- Fences and waits ---------------------------------------------------------------
+// ---- Tickets and waits ---------------------------------------------------------------
 
-// A submission's fence: done once the queue has run it and every download it made has
-// reached its transfer buffer. It lives until both the app has released it and the
-// browser has answered for it, as a callback may still name it.
-Wgpu_Fence :: struct {
-	waiting:  int, // answers still to come: the queue's, then each download's
-	released: bool,
+// Submission `serial`'s queue, or one of its downloads, has answered: once every answer
+// of it and of each earlier submission has come, the timeline moves past it. A late
+// answer of a device already destroyed finds nothing.
+wgpu_answered :: proc(serial: u64) {
+	s := &wgpu_state
+	if serial <= s.completed || serial - s.completed > u64(len(s.answers)) do return
+	s.answers[serial - s.completed - 1] -= 1
+	n := 0
+	for n < len(s.answers) && s.answers[n] <= 0 do n += 1
+	if n == 0 do return
+	remove_range(&s.answers, 0, n)
+	s.completed += u64(n)
 }
 
-wgpu_fence_answered :: proc(f: ^Wgpu_Fence) {
-	f.waiting -= 1
-	if f.waiting <= 0 && f.released do free(f)
-}
-
-wgpu_query_fence :: proc(fence: Fence) -> bool {
-	f := (^Wgpu_Fence)(fence)
-	return f == nil || f.waiting <= 0
-}
-
-wgpu_release_fence :: proc(fence: Fence) {
-	f := (^Wgpu_Fence)(fence)
-	if f == nil do return
-	f.released = true
-	if f.waiting <= 0 do free(f)
+wgpu_ticket_done :: proc(ticket: Ticket) -> bool {
+	return ticket.value <= wgpu_state.completed
 }
 
 // A page cannot block on the GPU. What a wait is for everywhere but a CPU readback (an
 // upload finished before the texture is drawn, a buffer idle before it is freed) the
 // queue's order already gives, so the waits answer true at once; a readback polls its
-// fence (query_fence) instead, which is what render's readbacks do.
-wgpu_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
+// ticket (done) instead, which is what render's readbacks do.
+wgpu_wait :: proc(tickets: []Ticket) -> bool {
 	return true
 }
 

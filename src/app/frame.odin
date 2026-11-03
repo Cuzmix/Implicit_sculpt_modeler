@@ -29,7 +29,7 @@ Frame_Loop :: struct {
 	frame_index:   int,
 	bench_skipped: int, // frames --bench-after-autosave held the stroke back
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
-	present_fence: render.Fence,
+	present_ticket: render.Ticket, // the last frame's, while Time GPU work waits for it
 }
 
 frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
@@ -62,7 +62,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// the swapchain, so frame_pace runs before this frame acquires a swapchain texture.
 	wait_start := time.tick_now()
 	frame_pace(app, loop.window)
-	render.fence_finish(&app.renderer, &loop.present_fence)
+	render.ticket_wait(loop.present_ticket)
 	present_cmd := render.cmd_begin(&app.renderer)
 	if present_cmd == nil do return false
 	// A rested frame (idle_rest: the wait ran out with no event) takes no image: the
@@ -468,25 +468,25 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	gpu_wait: time.Duration
 	if app.time_gpu && gpu_work {
 		// Nothing else is queued (the previous frame was waited for above), so the
-		// time from submit to the fence is the GPU time of this work.
+		// time from submit to the wait's end is the GPU time of this work.
 		submit_start := time.tick_now()
-		fence := render.cmd_submit_fenced(cmd)
-		if fence == nil {
+		ticket, ok := render.cmd_submit_ticket(cmd)
+		if !ok {
 			_ = render.cmd_submit(present_cmd)
 			return false
 		}
-		render.fence_finish(&app.renderer, &fence)
+		render.ticket_wait(ticket)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
-		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, nil)
+		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, ticket)
 	} else if render.sculpt_gpu_recorded(&app.renderer) {
-		// The readbacks of normals it holds are collected when its fence says they landed.
-		fence := render.cmd_submit_fenced(cmd)
-		if fence == nil {
+		// The readbacks of normals it holds are collected when its ticket says they landed.
+		ticket, ok := render.cmd_submit_ticket(cmd)
+		if !ok {
 			_ = render.cmd_submit(present_cmd)
 			return false
 		}
-		render.sculpt_gpu_submitted(&app.renderer, fence)
+		render.sculpt_gpu_submitted(&app.renderer, ticket)
 	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false
@@ -521,8 +521,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		// No image was drawn into: the recording holds nothing and is dropped.
 		submitted = frame_submit(app, present_cmd)
 	} else if app.time_gpu {
-		loop.present_fence = render.cmd_submit_fenced(present_cmd)
-		submitted = loop.present_fence != nil
+		loop.present_ticket, submitted = render.cmd_submit_ticket(present_cmd)
 	} else {
 		submitted = render.cmd_submit(present_cmd)
 	}
