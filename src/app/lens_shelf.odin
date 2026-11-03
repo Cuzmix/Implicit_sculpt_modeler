@@ -101,7 +101,7 @@ SHELF_MODEL :: [?]Bar_Slot {
 // app. A brush picked from All goes back to Sculpt, as the space follows the tool.
 SHELF_RENDER :: [?]Bar_Slot {
 	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Shading_Mode, int(Shading_Mode.Material_Preview)}, {.Shading_Mode, int(Shading_Mode.Solid)},
-	{.Show_Section, int(Kit_Section.Material)}, {.Show_Section, int(Kit_Section.Lights)}, {.Show_Section, int(Kit_Section.Environment)},
+	{.Show_Panel, int(Panel_Kind.Material)}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Show_Panel, int(Panel_Kind.Environment)},
 	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
 }
 

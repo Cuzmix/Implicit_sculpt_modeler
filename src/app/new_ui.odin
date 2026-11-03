@@ -38,7 +38,7 @@ Kit_State :: struct {
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
 	inspector:  bool, // the panel stack is open
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
-	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
+	pen_page:    int, // the Brush card's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
 	// Search's Show where (tray_show): the command whose control the tray marks, since
 	// when; and whether the tray's content is being drawn, where the mark is looked for.
 	pointed:    struct {
@@ -304,7 +304,7 @@ Kit_State :: struct {
 	object_menu_rows: int,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
-	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	object_menu_side: ui.Side, // at the pointer from the Scene card, above the status chip
 	// What opened the object menu or the scene menu last (an exit stat), where the object chip
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
@@ -320,7 +320,7 @@ Kit_State :: struct {
 	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
 	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	view_chips_at:    [2]f32, // where, in points (an exit stat)
-	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
+	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
 	folder_menu_id: int,
@@ -344,7 +344,7 @@ Kit_State :: struct {
 	alpha_armed:    int,
 	alpha_armed_at: f64,
 	tree_rows:      int,
-	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
+	// Select several (the Scene card's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
@@ -591,7 +591,7 @@ window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
 // end with Background (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
-	// The Brush palette's.
+	// The Brush card's.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -624,7 +624,7 @@ Kit_Section :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The Scene palette's.
+	// The Scene card's.
 	Objects,
 	Add,
 	Look,
@@ -1864,7 +1864,7 @@ folder_menu_open :: proc(app: ^App, id: int, at: ui.Rect) {
 	k.folder_menu, k.folder_menu_id, k.folder_menu_at = true, id, at
 }
 
-// A folder's menu in the Scene palette: rename it, empty it into the list, or delete it with
+// A folder's menu in the Scene card: rename it, empty it into the list, or delete it with
 // what is in it.
 @(private = "file")
 kit_folder_menu :: proc(app: ^App) {

@@ -123,8 +123,6 @@ panels_picker_group :: proc(app: ^App, caption: string, tab: Kit_Tab, cards: boo
 	n := 0
 	for c in Panel_Kind {
 		if cards != (c in STACK_CARDS) do continue
-		// The full sections beside a card are its tile's, above.
-		if c == .Layer_Settings || c == .Material_Settings || c == .Light_Settings do continue
 		if sec, ok := panel_section(c); ok && section_palette(sec) != tab do continue
 		list[n] = c
 		n += 1

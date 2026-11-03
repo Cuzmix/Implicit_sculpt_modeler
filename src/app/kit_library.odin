@@ -61,7 +61,7 @@ kit_library :: proc(app: ^App) -> (raised: bool) {
 		scroll := kit_scroll_begin(ctx, "library body", &k.library_scroll, id, inner, body_h, 4)
 		kit_library_row(app, -1, inner)
 		for _, i in l.packs do kit_library_row(app, i, inner)
-		if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush palette's Alpha section, its presets in the brush browser and its meshes in New scene and Add object, under its name.")
+		if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush card's Alpha section, its presets in the brush browser and its meshes in New scene and Add object, under its name.")
 		kit_scroll_end(ctx, scroll)
 		ui.begin(ctx, "library foot", {direction = .Column, width = inner})
 		ui.paragraph(ctx, foot)

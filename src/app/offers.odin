@@ -74,7 +74,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	if obj.cage != nil && id in CAGE_REFUSED_COMMANDS do return fmt.tprintf("%s is a cage: Make sculptable first, or edit it with the Model tool", object_label(obj))
 	if obj.voxel != nil && id in VOXEL_REFUSED_COMMANDS do return fmt.tprintf("%s is voxel clay: Convert to mesh first", object_label(obj))
 	if obj.curve != nil && id in CURVE_REFUSED_COMMANDS do return fmt.tprintf("%s is a curve: it has no surface", object_label(obj))
-	if id in SKIN_REFUSED_COMMANDS && object_top_skin(obj) != nil do return fmt.tprintf("%s has a detail skin: remove it first (Object palette, HD detail)", object_label(obj))
+	if id in SKIN_REFUSED_COMMANDS && object_top_skin(obj) != nil do return fmt.tprintf("%s has a detail skin: remove it first (HD detail card)", object_label(obj))
 	return ""
 }
 

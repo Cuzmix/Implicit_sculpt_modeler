@@ -443,7 +443,7 @@ def eight_rail(step=""):
     had them before it started with four: Focus selected, Symmetry, Wireframe and the mini
     view between Camera and Lights, through the scenario's settings file (with `step`, a
     file of that step's own, so what an earlier step saved does not carry over)."""
-    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Section:Lights", "Thumbnail"]
+    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Panel:Lights", "Thumbnail"]
     lines = ["version 13", f"bar_count view_rail {len(rail)}"] + [f"bar view_rail {i} {c}" for i, c in enumerate(rail)]
     path = settings_file()[:-len(".txt")] + step + ".txt"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1020,7 +1020,7 @@ def first_touch_scrolls_inspector():
 
 # How much higher a section's controls stand on its own card than they stood on the
 # Palettes card, which put a field picking the section over them, and for the Object
-# palette the object's name and size and the section's title, for the Scene palette its
+# palette the object's name and size and the section's title, for the Scene card its
 # title (round 3, PR 9b), and for the Brush card the folded Palettes card that stood above
 # it (PR 9c): measured from screen dumps at 1600 x 900.
 SECTION_DY = {"object": -143, "scene": -85, "objects": -59, "brush": -60}
@@ -2624,10 +2624,10 @@ def ring_off_the_model_is_flat():
 CURRENT = threading.local()
 
 
-# The sections whose Show section opens a card of their own (the Layers, Scene, Lights and
-# Material cards), which palettes_only shows as the tray drew them instead, and the brush's,
+# The sections that are a card's twin (the Layers, Scene, Lights and Material cards), by
+# the card's word in a layout line, and the brush's,
 # which are groups of the Brush card.
-CARD_SECTIONS = ("layers", "objects", "lights", "material")
+CARD_SECTIONS = {"layers": "Layers", "objects": "Scene", "lights": "Lights", "material": "Material"}
 BRUSH_SECTIONS = ("preset", "stroke", "paint_color", "recall", "falloff", "samples", "alpha", "pen", "options", "recorder")
 
 
@@ -2639,8 +2639,17 @@ def palettes_only(section, setup=""):
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + "-palettes.workspace")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     word = "_".join(w.capitalize() for w in section.split("_"))
-    cards = "Brush+ -Symmetry" if section in BRUSH_SECTIONS else f"section:{word}+ -Brush -Symmetry"
-    layout = f"open Inspector\nstack {cards} -Layers -Scene -Tools\nbars\n"
+    rest = ["-Layers", "-Scene", "-Tools"]
+    if section in BRUSH_SECTIONS:
+        cards = "Brush+ -Symmetry"
+    elif section in CARD_SECTIONS:
+        # A card's twin section is named as its card (the Objects section is the Scene card).
+        card = CARD_SECTIONS[section]
+        cards = f"{card}+ -Brush -Symmetry"
+        rest = [r for r in rest if r != "-" + card]
+    else:
+        cards = f"section:{word}+ -Brush -Symmetry"
+    layout = f"open Inspector\nstack {cards} {' '.join(rest)}\nbars\n"
     escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
     with open(path, "w") as f:
         f.write(f"SCULPT_WORKSPACE 1\nname Palettes\nlayout {escaped}\n")
@@ -3180,7 +3189,7 @@ def nav_head_drag_turns_the_view():
 
 @scenario
 def show_where_marks_the_control():
-    """Search's Shift+Enter on Blur mask opens the tray on the Object palette's Mask section with its More options open and marks the Blur button; nothing runs or is sculpted."""
+    """Search's Shift+Enter on Blur mask opens the tray on the Mask card with its More options open and marks the Blur button; nothing runs or is sculpted."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("blur mask")
@@ -3196,7 +3205,7 @@ PALETTE_SHOW_ONE_ROW = (885, 268)
 
 @scenario
 def long_press_a_search_row_shows_where():
-    """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Object palette's Layers section."""
+    """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Layers card."""
     s = Script()
     s.ftap(UI["search"])
     s.wait(4)
@@ -3229,9 +3238,9 @@ def search_icon_leaves_the_middle_empty():
 
 @scenario
 def search_opens_a_section_by_name():
-    """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush palette."""
+    """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush card."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "palette_last": is_text("Show_Section:Paint"), "inspector_tab": is_text("object"), "tray_section": is_text("Paint")})
 
@@ -3851,7 +3860,7 @@ def view_island_holds_the_view():
     s.ftap(UI["island_wire"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "symmetry": is_text("x"), "wireframe": near(1),
-                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")})
+                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Panel:Lights,Focus_Selected")})
 
 
 @scenario
@@ -6507,7 +6516,7 @@ def store_set(s):
 
 
 def open_sets(s):
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(12)
 
 
@@ -6954,7 +6963,7 @@ SPHERES3 = [(477, 397), (647, 437), (853, 485)]
 
 
 def scene_tab(s):
-    """With scene_args, shows the tray's Scene palette on Objects at the stack's top."""
+    """With scene_args, shows the tray's Scene card on Objects at the stack's top."""
     palettes_section(s)
 
 
@@ -8101,7 +8110,7 @@ def import_runs_as_a_long_job():
 
 @scenario
 def import_nests_the_files_folders():
-    """A glTF whose meshes sit two nodes deep comes in as one folder named after the file, holding a folder for each node, nested as the file nests them; the Scene palette shows them indented."""
+    """A glTF whose meshes sit two nodes deep comes in as one folder named after the file, holding a folder for each node, nested as the file nests them; the Scene card shows them indented."""
     s = Script()
     s.add(f"drop:{os.path.join(ROOT, 'src', 'app', 'testdata', 'import', 'rig.gltf')}")
     s.wait(40)
@@ -8471,7 +8480,7 @@ def keys_come_back_from_settings():
 
 @scenario
 def status_chip_tap_and_long_press():
-    """A long press on the chip bar's object chip shows the Scene palette's objects; a tap on it opens the object menu."""
+    """A long press on the chip bar's object chip shows the Scene card's objects; a tap on it opens the object menu."""
     s = Script()
     long_press(s, STATUS_CHIP)
     s.wait(6)
@@ -14260,9 +14269,9 @@ def search_opens_a_section_as_its_own_card():
     """Search's Polypaint then Selection sets: each opens as the visiting card at the stack's
     foot, Selection sets taking Polypaint's place."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(6)
     return s, [], camera_still({"palette_last": is_text("Show_Section:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
                                 "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+"), "dabs": near(0)})
@@ -14291,13 +14300,13 @@ def a_pinned_visit_stays_in_the_stack():
     """Polypaint opened by Search, pinned from its More, stays in the stack when Selection
     sets opens after it."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
     s.ftap(VISIT_MORE)
     s.wait(8)
     s.ftap(VISIT_PIN)
     s.wait(8)
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(6)
     return s, [], camera_still({"stack_visit": is_text("Sets"), "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Paint+,Sets+"), "dabs": near(0)})
 

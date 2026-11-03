@@ -112,7 +112,7 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.S
 // The View island's buttons after its head, camera and shading chips: the view layout,
 // symmetry, the wireframe, the lights and framing, so the view is one place to learn.
 VIEW_ISLAND_DEFAULT :: [?]Bar_Slot {
-	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Section, int(Kit_Section.Lights)}, {.Focus_Selected, 0},
+	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Focus_Selected, 0},
 }
 
 // The island a fresh install has: Size and Strength as tall sliders.
@@ -291,7 +291,7 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		l := bar_list_k(k, which)
 		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) {
-			l.slots[slot] = rail_card_slot(which, {id, arg})
+			l.slots[slot] = {id, arg}
 			l.looks[slot] = bar_default_look(which)
 		}
 	case "rail_group":
@@ -303,18 +303,6 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		for look in Value_Look do if fmt.tprint(look) == f[3] do bar_list_k(k, which).looks[slot] = look
 	}
-}
-
-// A rail slot as it is read: the Layers and Material sections' palettes, which the rail
-// held from the View island's first version until the rail opened the cards, become the
-// cards, so a saved rail shows the same cards the stack does.
-rail_card_slot :: proc(which: Bar_Which, s: Bar_Slot) -> Bar_Slot {
-	if which != .View_Rail || s.id != .Show_Section do return s
-	#partial switch Kit_Section(s.arg) {
-	case .Layers:   return {.Show_Panel, int(Panel_Kind.Layers)}
-	case .Material: return {.Show_Panel, int(Panel_Kind.Material)}
-	}
-	return s
 }
 
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one

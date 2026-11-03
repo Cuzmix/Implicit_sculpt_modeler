@@ -5,7 +5,7 @@ import "core:fmt"
 import "../camera"
 import "../ui"
 
-// A row of the Scene palette as laid out this frame, which the drags over the tree read.
+// A row of the Scene card as laid out this frame, which the drags over the tree read.
 Tree_Spot :: struct {
 	rect:      ui.Rect,
 	id:        int, // the object's id, or the folder's
@@ -159,7 +159,7 @@ tree_drop :: proc(spots: []Tree_Spot, dragged: int, at: [2]f32, indent: f32 = ui
 
 // Notes what a row's grip and toggles hold this frame: `grip`, whether whatever drags the
 // row is held, and `held_toggle`, which toggle is (0 the ghost, 1 the eye; -1 none).
-// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene palette's tree and the
+// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene card's tree and the
 // Objects card both drag through this, never both at once (the card and the tray share
 // their place, so only one is open).
 kit_row_drags :: proc(app: ^App, grip: bool, held_toggle: int, rect: ui.Rect, key: int, ghost, off: bool) {
@@ -271,7 +271,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll, inden
 
 // Sends the column drag's next queued change, once everything else this frame had its
 // chance at the frame's one scene command, so neither is lost; it runs every frame, so the
-// queue empties with the Scene palette hidden too.
+// queue empties with the Scene card hidden too.
 tree_column_send :: proc(app: ^App) {
 	c := &app.kit.tree_column
 	if c.count == 0 || app.ui.scene_command.kind != .None do return
@@ -296,7 +296,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 	scroll.value^ = clamp(scroll.value^ + clamp(v, -1, 1) * SPEED * k.ctx.input.dt, 0, scroll.limit)
 }
 
-// The Scene palette's sections in the order listed, after Objects.
+// The Scene card's sections in the order listed, after Objects.
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_lens_scene, nil},

@@ -391,9 +391,9 @@ print_note :: proc(positions: []Vec3, indices: []u32) -> string {
 	}
 }
 
-// The Scene palette's 3D print section, beside the other ways out of the app (Render,
+// The 3D print card, beside the other ways out of the app (Render,
 // Turntable): the unit, the selected object's three sides to drag, and the export. The
-// scale it sets is the scene's, which is why it lives in the Scene palette.
+// scale it sets is the scene's, which is why it lives in the Scene card.
 kit_print :: proc(app: ^App) {
 	print_controls(app, true)
 }

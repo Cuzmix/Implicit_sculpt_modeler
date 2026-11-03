@@ -301,7 +301,7 @@ environment_backdrop :: proc(e: ^Environment_State) -> Environment_Backdrop {
 	return .Blurred if e.blur > 0 else .Shown
 }
 
-// The Scene palette's Environment section: the built-in studio or the loaded image, the
+// The Environment card: the built-in studio or the loaded image, the
 // file and the ones loaded before it, its strength, its own turn and tilt (the pen's roll
 // turns it too), and whether the background shows it plain, sharp or blurred.
 kit_environment :: proc(app: ^App) {

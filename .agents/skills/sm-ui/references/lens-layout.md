@@ -105,7 +105,7 @@ summary.
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
   own. The Scene card is the outliner: its chips (`Outliner.kind`, `object_scene_kind`) and Find narrow the rows and
   stop drags (a narrowed list is not the scene's order); its Add menu (`kit_scene_add_menu`, drawn after the layer
-  menu) sends the same `Scene_Command`s and commands as the Scene palette; a light's row changes the lights through
+  menu) sends the same `Scene_Command`s and commands as the Scene card; a light's row changes the lights through
   `light_drag_changed`, so the change is one undo step like the Lights section's; a row's ⋯ opens the object menu at
   `row_toggle_rect`, the toggle's own rect, which must follow `ui.thumb_row`'s layout of the toggles.
   An object's spaces dots (`Object.spaces_off`, `ui.Thumb_Row.dots`) feed `object_flags`, so leaving an object out of

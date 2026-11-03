@@ -29,14 +29,14 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Section:Camera,Show_Panel:Material")
 	id, arg, ok := command_from_name("Show_Panel:Lights")
 	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Lights)
-	// A saved rail's Layers and Material sections come back as their cards; elsewhere a
-	// bar keeps the section.
-	testing.expect_value(t, rail_card_slot(.View_Rail, {.Show_Section, int(Kit_Section.Layers)}), Bar_Slot{.Show_Panel, int(Panel_Kind.Layers)})
-	testing.expect_value(t, rail_card_slot(.View_Rail, {.Show_Section, int(Kit_Section.Camera)}), Bar_Slot{.Show_Section, int(Kit_Section.Camera)})
-	testing.expect_value(t, rail_card_slot(.Shelf_Render, {.Show_Section, int(Kit_Section.Material)}), Bar_Slot{.Show_Section, int(Kit_Section.Material)})
-	// The retired Objects card's name, in an older bar, key or gesture, opens the Scene card.
-	id, arg, ok = command_from_name("Objects_Card")
-	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Scene)
+	// A card's twin section is named only as its card: a line naming the section is passed
+	// over, and the Objects card's old name is no command.
+	_, _, ok = command_from_name("Show_Section:Layers")
+	testing.expect(t, !ok)
+	id, arg, ok = command_from_name("Show_Section:Camera")
+	testing.expect(t, ok && id == .Show_Section && Kit_Section(arg) == .Camera)
+	_, _, ok = command_from_name("Objects_Card")
+	testing.expect(t, !ok)
 
 	// Full, it refuses another and leaves the rail as it was.
 	for c in Panel_Kind {

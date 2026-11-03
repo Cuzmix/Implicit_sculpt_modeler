@@ -209,9 +209,6 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 		case "Studio":  return .Workspace, int(Built_In.Render), true
 		}
 	}
-	// The Objects card became the Scene card's Pictures, so a bar, key or gesture that named
-	// it opens the Scene card.
-	if head == "Objects_Card" && tail == "" do return .Show_Panel, int(Panel_Kind.Scene), true
 	id = reflect.enum_from_name(Command_Id, head) or_return
 	if id == .None do return
 	n := COMMANDS[id].args
@@ -224,7 +221,11 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 		}
 		return id, arg, best >= 0
 	}
-	for a in 0 ..< n do if command_arg_name(id, a) == tail do return id, a, true
+	for a in 0 ..< n do if command_arg_name(id, a) == tail {
+		// A section that is a card's twin is named only as the card (Show_Panel).
+		if id == .Show_Section && section_is_card(Kit_Section(a)) do return
+		return id, a, true
+	}
 	return
 }
 
