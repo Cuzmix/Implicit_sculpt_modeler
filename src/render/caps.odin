@@ -58,6 +58,9 @@ Gpu_Caps :: struct {
 	gpu_cull:          bool,
 	// GPU culling starts on (gpu_cull_by_default); off where it is offered for trying.
 	gpu_cull_default:  bool,
+	// A stroke's vertex normals are recomputed by a kernel and read back (sculpt_gpu.odin,
+	// Stats > Drawing's Sculpt on the GPU, --gpu-sculpt): see sculpt_gpu_offered.
+	gpu_sculpt:        bool,
 }
 
 Async_Compute :: enum u8 {
@@ -116,6 +119,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.barycentric = gpu_barycentric_offered(r.device)
 	r.caps.gpu_cull = gpu_cull_offered(r.device)
 	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu_cull_by_default(r.device)
+	r.caps.gpu_sculpt = sculpt_gpu_offered()
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

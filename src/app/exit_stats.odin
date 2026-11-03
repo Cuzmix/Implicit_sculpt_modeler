@@ -686,12 +686,20 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
+	sg := app.renderer.sculpt_gpu.stats
+	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_cpu, sg.dispatches)
+	if app.stats.gpu_sculpt_kb.count > 0 {
+		print_stat("gpu_sculpt_kb", app.stats.gpu_sculpt_kb)
+		print_stat("gpu_sculpt_apply_ms", app.stats.gpu_sculpt_apply_ms)
+	}
 	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
 	if dropped, known := render.frames_dropped(&app.renderer); known do fmt.printfln("frames_dropped=%d", dropped)
 	if opts.bench_stroke > 0 {
-		// The synthetic stroke never lifts the button: end it, then time undo and redo
+		// The synthetic stroke never lifts the button: end it and settle its last normals
+		// (on the CPU, or handed to a GPU that no frame will run), then time undo and redo
 		// of the whole stroke, each including the normal update that follows.
 		stroke_finish(app)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
 		undo_bytes := 0
 		for obj in app.scene.objects {
 			undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))

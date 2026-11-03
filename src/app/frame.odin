@@ -45,6 +45,12 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
 	}
 	render.gpu_cull_frame(&app.renderer)
+	// The normals a stroke's earlier frames read back land in the mesh before the dabs.
+	render.sculpt_gpu_frame(&app.renderer)
+	if sg := app.renderer.sculpt_gpu.stats; sg.applied {
+		ring_push(&app.stats.gpu_sculpt_kb, sg.applied_kb)
+		ring_push(&app.stats.gpu_sculpt_apply_ms, sg.apply_ms)
+	}
 	setting_up := frame_settle(app, loop) or_return
 	// Wait for the display, or the frame rate limit, and while timing the GPU for the
 	// previous frame too, before reading input: the frame then shows the newest input
@@ -251,6 +257,9 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				return false
 			}
 			uploaded += bytes
+			// The normals of a stroke on the GPU, now that its positions are up; where the
+			// device refused the kernel's buffers, the CPU computes and uploads them next frame.
+			if render.sculpt_gpu_queued(gpu) && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_normals_stale(&lv.sculptor, ranges)
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)
@@ -453,6 +462,15 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		render.fence_finish(&app.renderer, &fence)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
+		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, nil)
+	} else if render.sculpt_gpu_recorded(&app.renderer) {
+		// The readbacks of normals it holds are collected when its fence says they landed.
+		fence := render.cmd_submit_fenced(cmd)
+		if fence == nil {
+			_ = render.cmd_submit(present_cmd)
+			return false
+		}
+		render.sculpt_gpu_submitted(&app.renderer, fence)
 	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false

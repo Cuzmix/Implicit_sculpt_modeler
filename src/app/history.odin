@@ -188,6 +188,8 @@ history_snapshot :: proc(app: ^App, obj: ^Object, what: string) -> ^Object_Snaps
 	if obj == nil do return snap
 	snap.exists = true
 	for o, i in app.scene.objects do if o == obj do snap.index = i
+	// The copy takes the normals as the GPU last left them.
+	object_gpu_sync(obj)
 	object_put(app, &snap.bytes, obj)
 	return snap
 }

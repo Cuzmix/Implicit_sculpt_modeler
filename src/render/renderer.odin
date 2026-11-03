@@ -57,6 +57,9 @@ Renderer :: struct {
 	// GPU, --cpu-cull off.
 	gpu_cull:       bool,
 	gpu_culling:    Gpu_Cull,
+	// Sculpting on the GPU (sculpt_gpu.odin): the normals kernel, the readback ring and
+	// the run's counts. The app's switch is its own (App.gpu_sculpt).
+	sculpt_gpu:     Sculpt_Gpu,
 	// Makes a multisampled viewport keep its samples in tile memory (Viewport_Target.tile)
 	// on a GPU without transient targets too (--tile-msaa), so a desktop can test that mode.
 	tile_msaa:      bool,
@@ -309,6 +312,10 @@ Mesh_Buffers :: struct {
 	skin_lead_stamp: u32,
 	// The caller's stamp for which skin the buffers hold (the sculptor's skin stamp).
 	skin_stamp:      u32,
+
+	// Sculpting on the GPU (sculpt_gpu.odin): the mesh's vertex -> triangle lookup and the
+	// frame's queued normals.
+	sculpt: Mesh_Sculpt,
 }
 
 Normal_Packed :: [2]i16
@@ -663,6 +670,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = gpu_wait_for_idle(r.device)
 	gpu_cull_destroy(r)
+	sculpt_gpu_destroy(r)
 	mesh_pipelines_destroy(r, &r.single)
 	mesh_pipelines_destroy(r, &r.multi)
 	if r.no_paint != nil do gpu_release_buffer(r.device, r.no_paint)
@@ -1084,8 +1092,9 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = vbytes}
 	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = ibytes}
 	// Normals, positions and indices are read as storage too by the skinned pipeline, which
-	// pulls its vertices itself (skin.odin).
-	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .GRAPHICS_STORAGE_READ}, size = nbytes}
+	// pulls its vertices itself (skin.odin), and the normals are written by the normals
+	// kernel of sculpting on the GPU (sculpt_gpu.odin).
+	normals_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_WRITE}, size = nbytes}
 	positions_map, indices_map, normals_map: rawptr
 	// Where ray queries are offered the driver also builds acceleration structures from
 	// them (trace.odin).
@@ -1246,6 +1255,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect_transfer != nil do gpu_release_transfer_buffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do gpu_release_buffer(r.device, mb.lod_indices)
 	gpu_cull_release(r, mb)
+	sculpt_gpu_forget(r, mb)
 	if mb.cull.download != nil do gpu_release_transfer_buffer(r.device, mb.cull.download)
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
@@ -1265,14 +1275,16 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 // Records copies of the positions and normals (with `mask`, nil when nothing is
 // masked) of every vertex in `ranges` into `cmd`. Ranges are packed into the transfer
 // buffer, which is cycled so an upload never stalls on the previous frame's copy; if
-// they do not fit, they go in several batches.
-mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil) {
+// they do not fit, they go in several batches. With `positions_only` the normals stay
+// as the GPU has them: the normals kernel of sculpting on the GPU writes them this frame.
+mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil, positions_only := false) {
 	debug_group(cmd, "Brush upload", .Uploads)
 	if len(ranges) > 0 {
 		r.last_version += 1
 		mb.version = r.last_version
 	}
-	capacity := mb.transfer_size / VERTEX_BYTES // vertices per batch
+	vertex_bytes := u32(size_of(geom.Vec3)) if positions_only else VERTEX_BYTES
+	capacity := mb.transfer_size / vertex_bytes // vertices per batch
 	pending := ranges
 	split: geom.Vertex_Range // remainder of a range cut at a batch boundary
 	for len(pending) > 0 || split.count > 0 {
@@ -1307,7 +1319,9 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 		dst_n := cast([^]Normal_Packed)(mapped[used * size_of(geom.Vec3):])
 		for p in batch {
 			copy(dst_p[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
-			if mask != nil {
+			if positions_only {
+				continue
+			} else if mask != nil {
 				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, mask[p.r.first + u32(k)])
 			} else {
 				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, 0)
@@ -1319,6 +1333,7 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 			src_p := p.dst * size_of(geom.Vec3)
 			src_n := used * size_of(geom.Vec3) + p.dst * size_of(Normal_Packed)
 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_p}, {buffer = mb.positions, offset = p.r.first * size_of(geom.Vec3), size = p.r.count * size_of(geom.Vec3)}, false)
+			if positions_only do continue
 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = src_n}, {buffer = mb.normals, offset = p.r.first * size_of(Normal_Packed), size = p.r.count * size_of(Normal_Packed)}, false)
 		}
 		gpu_end_copy_pass(pass)

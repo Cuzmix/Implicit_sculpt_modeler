@@ -125,6 +125,10 @@ history_destroy :: proc(h: ^Undo_History) {
 sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	// A new stroke locks its own plane (filters.odin).
 	s.locked, s.steady, s.trim, s.stretch = {}, {}, {}, {}
+	// Its dabs read the normals, so the last stroke's readback lands first; it then asks
+	// the GPU afresh at its first dab (stroke_gpu.odin).
+	sculptor_gpu_sync(s)
+	s.gpu_asked, s.gpu_stroke = false, false
 	// A new stroke starts a new Layer: earlier heights stop counting.
 	s.layer_stroke += 1
 	if s.layer_stroke == 0 {
