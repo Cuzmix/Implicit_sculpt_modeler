@@ -125,6 +125,10 @@ kit_brush_options :: proc(app: ^App) {
 	// Topological, which reaches only what is joined anyway.
 	// Elastic moves the solid round the press, joined or not.
 	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
+	// Physics: what the brush moves drives the surface round it as cloth.
+	physical := flags & {.Cloth, .Paint, .Mask} == {}
+	_ = ui.switch_row(ctx, "Physics", &b.physics, physical, keys = command_hint(app, .Physics))
+	if b.physics && physical do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	// Where the detail goes, for the brushes that can write into a detail skin, shown once
 	// the object has a skin or the brush was set off Auto, so it never hides a choice made.
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {

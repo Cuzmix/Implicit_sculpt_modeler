@@ -73,7 +73,11 @@ Cloth :: struct {
 	last:       Vec3, // the offset the last step reached, for substeps and the stroke's way
 	radius:     f32,
 	strength:   f32,
-	link_mean:  f32, // the mean link length: substeps keep each move under half of it
+	link_mean:  f32, // the mean link length: substeps keep each move under a link
+	reach:      f32, // how far the region reaches round the brush, in radii
+	// Physics (sculptor_physics_begin): how hard each round pulls a vertex toward where
+	// the tool driving it put it (its target), or 0 for the Cloth brush's own modes.
+	follow:     f32,
 	steps:      int, // steps taken this stroke, which ease the target modes in
 	brush:      Brush, // for the falloff shape and the symmetry, as the stroke began
 	images:     [dynamic; SYM_IMAGES_MAX]Sym_Image,
@@ -90,6 +94,7 @@ Cloth :: struct {
 	drive:      [dynamic]f32, // the brush's falloff weight on each, 0 outside it
 	turn:       [dynamic]matrix[3, 3]f32, // the images it lies in, their turns blended by falloff
 	focus:      [dynamic]Vec3, // ...their centres, blended the same way
+	target:     [dynamic]Vec3, // Physics: where the driving tool put each vertex this frame
 	first:      [dynamic]u32, // per vertex: where its edge links start; one more at the end
 	links:      [dynamic]u32, // a neighbour's index in verts, or CLOTH_FIXED for one outside the region
 	length:     [dynamic]f32, // each link's rest length
@@ -169,6 +174,8 @@ Cloth_Job :: struct {
 	keep:    f32, // velocity kept a step
 	ease:    f32, // how far the target modes have eased in
 	restore: f32, // the spring back toward rest while a force pulls
+	pull:    f32, // Physics: how far each round pulls a driven vertex toward its target
+	moves:   []f32, // Physics: each chunk's largest move by the tool this frame
 	// Gathering, for the region's arrays to come from the last region's.
 	old_verts: []u32,
 	old_pos, old_prev, old_rest, old_normal, old_base: []Vec3,
@@ -195,10 +202,16 @@ Cloth_Found :: struct {
 // strength, invert, falloff and symmetry and the cloth's settings. Call inside a stroke
 // (sculptor_stroke_begin) for it to be undoable. Returns how many vertices it simulates.
 sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings := CLOTH_DEFAULTS) -> int {
+	return cloth_start(s, brush, center, mode, settings, CLOTH_REACH, 0)
+}
+
+@(private = "file")
+cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings: Cloth_Settings, reach, follow: f32) -> int {
 	c := &s.cloth
 	if c.leaves == nil do cloth_init(c, s.history.allocator)
 	sculptor_cloth_end(s)
 	c.mode, c.settings, c.invert = mode, settings, brush.invert
+	c.reach, c.follow = reach, clamp(follow, 0, 1)
 	c.center, c.radius, c.strength, c.brush = center, brush.radius, brush.strength, brush
 	c.images = symmetry_images(brush)
 	normal, ok := sculptor_area_normal(s, center, brush.radius, brush.facing)
@@ -219,7 +232,7 @@ sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Clo
 cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 	c := &s.cloth
 	set := c.settings
-	reach := c.radius * CLOTH_REACH if set.region != .Whole else CLOTH_WHOLE_REACH
+	reach := c.radius * c.reach if set.region != .Whole else CLOTH_WHOLE_REACH
 	c.gathered = at
 	clear(&c.leaves)
 	for img in c.images {
@@ -249,7 +262,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 		j.old_normal = slice.clone(c.normal[:], context.temp_allocator)
 		j.old_base = slice.clone(c.base[:], context.temp_allocator)
 	}
-	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.rest, &c.normal, &c.base, &c.focus}) do clear(a)
+	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.rest, &c.normal, &c.base, &c.focus, &c.target}) do clear(a)
 	clear(&c.verts)
 	clear(&c.pin)
 	clear(&c.drive)
@@ -279,6 +292,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 			append(&c.drive, 0)
 			append(&c.turn, 1)
 			append(&c.focus, at)
+			append(&c.target, {})
 			if old < len(j.old_verts) && j.old_verts[old] == v {
 				append(&c.pos, j.old_pos[old])
 				append(&c.prev, j.old_prev[old])
@@ -481,8 +495,72 @@ sculptor_cloth_step :: proc(s: ^Sculptor, offset, down: Vec3) -> int {
 	} else if set.region == .Follows {
 		cloth_drives(s, at)
 	}
+	return cloth_advance(s, at, offset, linalg.length(moved), down)
+}
+
+// Starts physics on what a tool moves (the Physics switch): the surface round `center`
+// becomes cloth the tool drives. Each frame the tool moves vertices as it always does,
+// then sculptor_physics_step takes where it put them as targets, puts the cloth back
+// where it was and lets each round pull the cloth toward them by `follow` (0..1), so
+// the moved part carries the surface round it along in folds, swings past and settles,
+// as Blender's cloth deformation and ZBrush's Dynamics brushes do. `reach` is in brush
+// radii; Follows gathers again round where each step says the tool is. Gravity and the
+// rest come from `settings`. Call inside a stroke, before the tool first moves anything.
+sculptor_physics_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, follow: f32, reach: f32 = CLOTH_REACH, settings := CLOTH_DEFAULTS) -> int {
+	b := brush
+	b.invert = false
+	return cloth_start(s, b, center, .Drag, settings, reach, max(follow, 1e-3))
+}
+
+// One step of physics after the tool has moved this frame: every vertex of the region the
+// tool moved (its position no longer the cloth's) takes where it went as its target, and
+// the cloth steps toward the targets and writes itself back. `at` is where the tool is now
+// (mesh space), which a Follows region keeps up with; `down` is the way gravity pulls.
+// Returns how many vertices it simulates.
+sculptor_physics_step :: proc(s: ^Sculptor, at, down: Vec3) -> int {
+	c := &s.cloth
+	if c.follow <= 0 || len(c.verts) == 0 || len(c.first) != len(c.verts) + 1 do return 0
+	offset := at - c.center
+	if c.settings.region == .Follows && linalg.length(at - c.gathered) > c.radius * 0.5 {
+		if cloth_gather(s, at, offset) == 0 do return 0
+	}
+	n := len(c.verts)
+	j := Cloth_Job{s = s}
+	pool := s.pool if n >= PARALLEL_MIN_VERTS else nil
+	chunks := (n + CLOTH_CHUNK - 1) / CLOTH_CHUNK
+	j.moves = make([]f32, chunks, context.temp_allocator)
+	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
+		j := cast(^Cloth_Job)data
+		c := &j.s.cloth
+		m := j.s.mesh
+		lo, hi := cloth_range(c, k)
+		most: f32
+		for i in lo ..< hi {
+			p := m.positions[c.verts[i]]
+			if p == c.pos[i] {
+				c.drive[i] = 0
+				continue
+			}
+			c.target[i], c.drive[i] = p, 1
+			most = max(most, linalg.length(p - c.pos[i]))
+		}
+		j.moves[k] = most
+	})
+	most: f32
+	for x in j.moves do most = max(most, x)
+	return cloth_advance(s, at, offset, most, down)
+}
+
+// Steps the cloth with the brush at `at` (the stroke `offset` from where it began) after
+// it moved `moved` this frame, in substeps when that is over a link, and writes the
+// positions back.
+@(private = "file")
+cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) -> int {
+	c := &s.cloth
+	set := c.settings
+	n := len(c.verts)
 	sub := 1
-	if c.link_mean > 0 do sub = clamp(int(math.ceil(linalg.length(moved) / c.link_mean)), 1, CLOTH_SUBSTEPS)
+	if c.link_mean > 0 do sub = clamp(int(math.ceil(moved / c.link_mean)), 1, CLOTH_SUBSTEPS)
 	// Small steps (Macklin et al. 2019): substeps converge better than rounds, so each
 	// takes fewer, and a fast drag costs at most CLOTH_SUBSTEPS * CLOTH_SUBSTEP_ROUNDS.
 	rounds := CLOTH_ITERATIONS if sub == 1 else max(CLOTH_ITERATIONS / sub, CLOTH_SUBSTEP_ROUNDS)
@@ -500,10 +578,12 @@ sculptor_cloth_step :: proc(s: ^Sculptor, offset, down: Vec3) -> int {
 		j.force = down * g
 		j.restore = CLOTH_RESTORE * dt
 	}
-	if c.mode == .Wind {
+	if c.mode == .Wind && c.follow == 0 {
 		j.wind = c.dir * (c.radius * c.strength * CLOTH_WIND * sign * dt * dt)
 		j.restore = CLOTH_RESTORE * dt
 	}
+	// Physics pulls toward the targets each round, by Follow shared over the substeps.
+	j.pull = 1 - math.pow(1 - c.follow, dt)
 	c.steps += 1
 	pool := s.pool if n >= PARALLEL_MIN_VERTS else nil
 	chunks := (n + CLOTH_CHUNK - 1) / CLOTH_CHUNK
@@ -540,7 +620,7 @@ sculptor_cloth_settings :: proc(s: ^Sculptor, settings: Cloth_Settings) {
 // Forgets the simulation; the next cloth stroke starts afresh.
 sculptor_cloth_end :: proc(s: ^Sculptor) {
 	c := &s.cloth
-	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.anchor, &c.bend_at}) do clear(a)
+	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.target, &c.anchor, &c.bend_at}) do clear(a)
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do clear(a)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do clear(a)
 	clear(&c.turn)
@@ -607,7 +687,10 @@ job_cloth_integrate :: proc(data: rawptr, k: int) {
 		p, rest, w, pin := c.pos[i], c.rest[i], c.drive[i], c.pin[i]
 		q := p + (p - c.prev[i]) * j.keep
 		pull := j.force
-		if c.mode == .Wind {
+		if c.follow > 0 {
+			// Physics: the targets pull in the rounds, and the tool's moves are not
+			// velocity: the cloth carries on from where it was.
+		} else if c.mode == .Wind {
 			// Gusts: a wave that runs across the region, the same on every thread.
 			phase := f32(c.steps) * CLOTH_GUST_STEPS + linalg.dot(rest - c.center, c.dir) / c.radius * CLOTH_GUST_WAVES
 			wind := c.turn[i] * j.wind
@@ -633,7 +716,8 @@ job_cloth_constrain :: proc(data: rawptr, k: int) {
 	j := cast(^Cloth_Job)data
 	c := &j.s.cloth
 	set := c.settings
-	held: f32 = 0 if c.mode == .Wind else 1
+	// The brush holds what it drives in its own modes; Wind and Physics only pull it.
+	held: f32 = 0 if c.mode == .Wind || c.follow > 0 else 1
 	stiff := clamp(set.stiffness, 0, 1)
 	// Firmness to a half evens displacements with the neighbours'; above it the bend links
 	// take over as well, so the default costs nothing more than the edges.
@@ -683,6 +767,7 @@ job_cloth_constrain :: proc(data: rawptr, k: int) {
 		}
 		step += c.normal[i] * (squeeze / count * (span / count) * CLOTH_BUCKLE)
 		step += (moved / count - (p - c.rest[i])) * even
+		if j.pull > 0 && c.drive[i] > 0 do step += (c.target[i] - p) * j.pull
 		c.next[i] = p + step * free
 	}
 }
@@ -695,7 +780,7 @@ smoothstep :: #force_inline proc(lo, hi, x: f32) -> f32 {
 
 @(private)
 cloth_init :: proc(c: ^Cloth, allocator := context.allocator) {
-	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.anchor, &c.bend_at}) do a^ = make([dynamic]Vec3, 0, 1024, allocator)
+	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.target, &c.anchor, &c.bend_at}) do a^ = make([dynamic]Vec3, 0, 1024, allocator)
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do a^ = make([dynamic]u32, 0, 1024, allocator)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do a^ = make([dynamic]f32, 0, 1024, allocator)
 	c.turn = make([dynamic]matrix[3, 3]f32, 0, 1024, allocator)
@@ -703,7 +788,7 @@ cloth_init :: proc(c: ^Cloth, allocator := context.allocator) {
 
 @(private)
 cloth_destroy :: proc(c: ^Cloth) {
-	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.anchor, &c.bend_at}) do delete(a^)
+	for a in ([?]^[dynamic]Vec3{&c.pos, &c.prev, &c.next, &c.rest, &c.normal, &c.base, &c.focus, &c.target, &c.anchor, &c.bend_at}) do delete(a^)
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do delete(a^)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do delete(a^)
 	delete(c.turn)
