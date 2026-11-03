@@ -18,7 +18,7 @@ import "../ui"
 
 // A folder of objects, inside folder `parent` or at the top. Its eye and ghost apply to
 // every object in it and in the folders inside it, over their own; `open` shows what it
-// holds in the Scene palette.
+// holds in the Scene card.
 Folder :: struct {
 	id:    int, // never reused within a scene
 	name:  string, // owned
@@ -48,7 +48,7 @@ View_Change :: enum u8 {
 	Folder_Show,
 	Folder_Ghost, // makes every object in a folder a ghost
 	Folder_Unghost,
-	Folder_Fold, // folds an open folder in the Scene palette, or opens a folded one
+	Folder_Fold, // folds an open folder in the Scene card, or opens a folded one
 	Paint_Hide, // leaves the object's polypaint out of the drawing
 	Paint_Show,
 	Folder_Paint_Hide, // leaves the polypaint of every object in a folder out
@@ -376,7 +376,7 @@ scene_view_counts :: proc(app: ^App) -> (off, ghosts: int) {
 	return
 }
 
-// The eye and ghost toggles of a row in the Scene palette (an object's, or a folder's), ghost
+// The eye and ghost toggles of a row in the Scene card (an object's, or a folder's), ghost
 // first so the eye sits at the row's end, where a finger running down the column finds it.
 row_toggles :: proc(label: string, off, ghost: bool) -> [2]ui.Row_Toggle {
 	return {

@@ -166,6 +166,29 @@ pen_roll_alpha_turns_with_the_pen :: proc(t: ^testing.T) {
 	testing.expect(t, abs(alpha_screen_angle(&app) - math.to_radians(f32(10))) < 1e-5)
 }
 
+// A Pen lean alpha faces the way the pen's top leans across the screen, from its own
+// angle, and a pen held about upright keeps the way it last faced.
+@(test)
+pen_lean_alpha_faces_the_lean :: proc(t: ^testing.T) {
+	near :: proc(a, b: f32) -> bool {return abs(a - b) < 1e-5}
+	app: App
+	app.brush.alpha_mode, app.brush.alpha_angle = .Pen_Lean, 10
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10))))
+	// Leaning toward the screen's top: the image faces up, as without a lean.
+	alpha_lean_take(&app, {0, -30})
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10))))
+	// Toward the left: a quarter turn counter-clockwise; toward the right, clockwise.
+	alpha_lean_take(&app, {-30, 0})
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10 + 90))))
+	alpha_lean_take(&app, {30, 0})
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10 - 90))))
+	// About upright: the last way stays.
+	alpha_lean_take(&app, {1, 2})
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10 - 90))))
+	app.brush.alpha_mode = .Fixed
+	testing.expect(t, near(alpha_screen_angle(&app), math.to_radians(f32(10))))
+}
+
 // A pen laid toward the paper grows and softens the brush as far as the brush asks, full
 // from LEAN_FULL degrees off upright; upright, or with both off, it changes nothing.
 @(test)

@@ -201,7 +201,6 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Reset_Camera     = "home view",
 	.Customise_Bars   = "customise customize toolbar toolbars edit docks buttons arrange layout panels bars hide show dock add remove",
 	.New_Dock         = "new dock bar toolbar column island make add own custom",
-	.Stack_Density    = "palettes icons strip compact panels cards stack column density collapse",
 	.Camera_Menu      = "view lens projection fov field perspective orthographic",
 	.Shading_Menu     = "draw display render look matcap lighting textures view menu",
 	.Wireframe        = "edges polyframe",
@@ -225,7 +224,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
 	.Inspector        = "panel properties tray subpalette",
-	.Show_Section     = "palette section subpalette panel go",
+	.Show_Section     = "card section panel open go",
 	.Show_Panel       = "panel card stack open show subtools subtool list outliner objects",
 	.Rail_Group       = "panel group tabs stack",
 	.Pin_Section      = "pin keep card stack panel unpin",
@@ -283,7 +282,11 @@ palette_entries :: proc() -> []Palette_Entry {
 	for id in Command_Id {
 		if !palette_lists(id) do continue
 		n := COMMANDS[id].args
-		for arg in 0 ..< max(n, 1) do append(&out, Palette_Entry{.Command, id, arg})
+		for arg in 0 ..< max(n, 1) {
+			// A card's twin section is offered as its card, Show panel's.
+			if id == .Show_Section && section_is_card(Kit_Section(arg)) do continue
+			append(&out, Palette_Entry{.Command, id, arg})
+		}
 	}
 	for tab in Settings_Tab do append(&out, Palette_Entry{kind = .Settings_Tab, arg = int(tab)})
 	return out[:]
@@ -552,11 +555,10 @@ palette_open_for :: proc(app: ^App, slot: Gesture_Slot) {
 	app.kit.palette_for = slot
 }
 
-// What the palette chooses for while it is not running anything: a gesture, a bar's
-// slot (Bar_Pick), or a sector of the dial.
+// What the palette chooses for while it is not running anything: a gesture or a sector
+// of the dial. A dock's button is chosen in the Library (library_open_for).
 Palette_For :: union {
 	Gesture_Slot,
-	Bar_Pick,
 	Dial_Pick,
 }
 
@@ -581,11 +583,6 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 		if e.kind != .Command || !gesture_lists(e.id) do return
 		app.nav.gestures[slot] = {e.id, e.arg}
 		report(app, nil, {}, "%s now runs %s", GESTURE_SLOT_NAMES[slot], pie_slot_label({e.id, e.arg}))
-		return
-	case Bar_Pick:
-		palette_close(app)
-		if e.kind != .Command || !bar_lists(e.id) do return
-		bar_put(app, slot, {e.id, e.arg})
 		return
 	case Dial_Pick:
 		palette_close(app)
@@ -650,12 +647,6 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 		append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
 		entries = kept[:]
 		ui.caption(ctx, fmt.tprintf("  CHOOSE WHAT %s RUNS", strings.to_upper(GESTURE_SLOT_NAMES[choosing_for], context.temp_allocator)))
-	case Bar_Pick:
-		kept := make([dynamic]Palette_Entry, 0, len(entries) + 1, context.temp_allocator)
-		for e in entries do if e.kind == .Command && bar_lists(e.id) do append(&kept, e)
-		if bar_lists(.Command_Palette) do append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
-		entries = kept[:]
-		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", strings.to_upper(bar_title(app, choosing_for.which), context.temp_allocator)))
 	case Dial_Pick:
 		// What a bar may hold, as a sector is tapped as a bar's button is.
 		kept := make([dynamic]Palette_Entry, 0, len(entries), context.temp_allocator)
@@ -767,11 +758,13 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if e, ok := ran.?; ok do palette_run(app, e)
 }
 
-// Where the entry's control is in the tray, as "the Object palette's Mask section", or
+// Where the entry's control is in the tray, as "the Mask card", or
 // "" for one with no home there (a Settings tab, or a command only the bars or keys run).
 palette_home :: proc(e: Palette_Entry) -> string {
 	if e.kind != .Command do return ""
 	sec, ok := COMMAND_HOMES[e.id].?
 	if !ok do return ""
-	return fmt.tprintf("the %s palette's %s section", palette_name(section_palette(sec)), tray_section_title(sec))
+	if section_palette(sec) == .Tool do return fmt.tprintf("the Brush card's %s", tray_section_title(sec))
+	if p, _ := panel_of_section(sec); !panel_is_section(p) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[p])
+	return fmt.tprintf("the %s card", tray_section_title(sec))
 }

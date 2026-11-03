@@ -18,7 +18,7 @@ import "../ui"
 import "../retopo"
 
 // What the app remembers between interactive runs: the brush settings, how the
-// viewport looks, the Scene palette's choices and the Settings panel's, in a text file of `key values...`
+// viewport looks, the Scene card's choices and the Settings panel's, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
 // command line win over what it holds. Unknown or malformed lines are skipped, so a
@@ -350,7 +350,6 @@ SETTINGS := [?]Setting {
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
 	{"color_default", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, default_palette), int, 0, f32(len(BUILT_IN_PALETTES) + USER_PALETTES - 1)},
 	{"brush_category", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, category), Brush_Category, 0, 0},
-	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},

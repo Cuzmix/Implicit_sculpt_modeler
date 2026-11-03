@@ -1,5 +1,6 @@
 package sculpt
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 
@@ -35,6 +36,11 @@ Skin :: struct {
 	edges:      []Skin_Edge,
 	// Heights along the normal in the mesh's units, by sample (skin_sample).
 	heights:    []f16,
+	// The vector skin: per sample, a sideways offset in its owner triangle's frame
+	// (skin_frame), in the mesh's units, for what a height can't hold (a pinch, an
+	// overhang, a VDM stamp). nil until a sideways stroke first writes one (skin_side_fit),
+	// so a skin nothing moved sideways costs nothing more.
+	side:       [][2]f16,
 	// Each sample's normal, octahedral in two signed 16-bit halves, as the GPU reads it.
 	normals:    [][2]i16,
 	// Per node id, the nodes whose triangles share a vertex with its own (itself first):
@@ -79,6 +85,8 @@ Skin :: struct {
 	height_max:  f32,
 	// Smooth's targets, per sample of the hit nodes, each node's from offsets[hit index].
 	smooth_to:   [dynamic]f32,
+	// And with a vector page, its offsets' targets alike.
+	smooth_side: [dynamic][2]f32,
 	offsets:     [dynamic]u32,
 }
 
@@ -213,6 +221,7 @@ skin_make :: proc(s: ^Sculptor, segments: u32, allocator := context.allocator) -
 	skin_spheres_all(s, &sk)
 	sk.ranges = make([dynamic]Skin_Range, 0, 64, allocator)
 	sk.smooth_to = make([dynamic]f32, 0, 0, allocator)
+	sk.smooth_side = make([dynamic][2]f32, 0, 0, allocator)
 	sk.offsets = make([dynamic]u32, 0, 0, allocator)
 	skin_near_build(s, &sk, allocator)
 	skin_normals_all(s, &sk, flat = true)
@@ -224,6 +233,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.tri_edges, allocator)
 	delete(sk.edges, allocator)
 	delete(sk.heights, allocator)
+	delete(sk.side, allocator)
 	delete(sk.normals, allocator)
 	delete(sk.near_first, allocator)
 	delete(sk.near, allocator)
@@ -240,6 +250,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
 	delete(sk.smooth_to)
+	delete(sk.smooth_side)
 	delete(sk.offsets)
 	sk^ = {}
 }
@@ -410,8 +421,60 @@ skin_point :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
 @(private)
 skin_base_and_point :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> (flat, point: Vec3) {
 	p, n := skin_base(s, sk, t, i, j)
-	h := f32(sk.heights[skin_sample(sk, s.mesh.indices[:], t, i, j)])
-	return p, p + linalg.normalize0(n) * h
+	x := skin_sample(sk, s.mesh.indices[:], t, i, j)
+	return p, p + skin_lift(s, sk, x, t, i, j, linalg.normalize0(n), f32(sk.heights[x]))
+}
+
+// How far sample x (at grid place (i, j) of triangle t, unit interpolated normal `nu`)
+// lies from its flat point: its height along the normal, plus its sideways offset in its
+// owner's frame when the skin has a vector page.
+@(private)
+skin_lift :: #force_inline proc(s: ^Sculptor, sk: ^Skin, x, t, i, j: u32, nu: Vec3, h: f32) -> Vec3 {
+	off := nu * h
+	if sk.side == nil do return off
+	sd := sk.side[x]
+	if sd == {} do return off
+	tu, tv := skin_frame(s, sk, t, i, j, nu)
+	return off + tu * f32(sd.x) + tv * f32(sd.y)
+}
+
+// The frame a sample's sideways offset is stored in: its owner triangle's first edge
+// (corner 0 to corner 1) made perpendicular to the sample's unit interpolated normal `nu`,
+// and the normal crossed with it. The owner is the triangle that writes the sample (a
+// vertex's first triangle, an edge's lower one, or the triangle itself), so every
+// triangle the sample lies on works out the same frame, to the bit, and the skin stays
+// watertight; built from the owner's corners, it turns with the mesh, so what Grab or Pose
+// bends carries its overhangs with it, as a tangent-space VDM does.
+skin_frame :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, nu: Vec3) -> (tu, tv: Vec3) {
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	o := skin_owner(s, sk, t, i, j)
+	e := P[I[3 * o + 1]] - P[I[3 * o]]
+	tu = linalg.normalize0(e - nu * linalg.dot(e, nu))
+	return tu, linalg.cross(nu, tu)
+}
+
+// The triangle that owns the sample at grid place (i, j) of triangle t (skin_frame).
+skin_owner :: #force_inline proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> u32 {
+	I := s.mesh.indices[:]
+	S := sk.segments
+	switch {
+	case i == 0 && j == 0: return faces_of(s, I[3 * t])[0]
+	case i == S:           return faces_of(s, I[3 * t + 1])[0]
+	case j == S:           return faces_of(s, I[3 * t + 2])[0]
+	case j == 0:           return sk.edges[sk.tri_edges[t][0] >> 1].tris[0]
+	case i + j == S:       return sk.edges[sk.tri_edges[t][1] >> 1].tris[0]
+	case i == 0:           return sk.edges[sk.tri_edges[t][2] >> 1].tris[0]
+	}
+	return t
+}
+
+// Gives the skin its vector page (Skin.side), all zero, the first time a sideways stroke
+// needs it.
+skin_side_fit :: proc(sk: ^Skin, allocator: runtime.Allocator) {
+	if len(sk.side) == len(sk.heights) do return
+	delete(sk.side, allocator)
+	sk.side = make([][2]f16, len(sk.heights), allocator)
 }
 
 // Recomputes every sample's normal, in parallel by triangle ranges: each sample is written
@@ -529,20 +592,23 @@ skin_grid_pass :: proc(s: ^Sculptor, sk: ^Skin, t: u32, inside: bool, border: []
 	raised_any := false
 	for j in 0 ..= S do for i in 0 ..= S - j {
 		p, n: Vec3
-		h: f32
+		at: u32
 		if i == 0 || j == 0 || i + j == S {
 			p, n = skin_base(s, sk, t, u32(i), u32(j))
-			h = f32(sk.heights[skin_sample(sk, I, t, u32(i), u32(j))])
+			at = skin_sample(sk, I, t, u32(i), u32(j))
 		} else {
 			b1, b2 := f32(i) / f32(S), f32(j) / f32(S)
 			b0 := 1 - b1 - b2
 			p, n = pa * b0 + pb * b1 + pc * b2, na * b0 + nb * b1 + nc * b2
-			h = f32(sk.heights[x])
+			at = x
 			x += 1
 		}
+		h := f32(sk.heights[at])
 		k := place(S, i, j)
-		flat[k], raised[k], base[k] = p, p + linalg.normalize0(n) * h, n
-		raised_any ||= h != 0
+		lifted := sk.side != nil && sk.side[at] != {}
+		raise := skin_lift(s, sk, at, t, u32(i), u32(j), linalg.normalize0(n), h) if lifted else linalg.normalize0(n) * h
+		flat[k], raised[k], base[k] = p, p + raise, n
+		raised_any ||= h != 0 || lifted
 	}
 	// The small triangle "up" at (i, j) has corners (i, j), (i+1, j), (i, j+1) and "down"
 	// at (i, j) has (i+1, j), (i+1, j+1), (i, j+1), in the order skin_turn_at takes them.

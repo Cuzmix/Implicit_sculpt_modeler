@@ -7,30 +7,23 @@ import "core:strings"
 import "../sculpt"
 import "../ui"
 
-// The brush browser, laid out as ZBrush for iPad's Brushes palette: a header (the
-// categories' toggle, the title or the search field, Search and Close), then down the left
-// the current brush's card, with its heart, and the categories, each with its count; in
-// the middle the category's brushes as large tiles three to a row, alphabetical; and down
-// the right an A to Z index that a tap or a drag scrolls to a letter. A tap on a tile
-// picks it and closes the browser, a long press (or a right-click) shows its settings.
-// Everything it lists is a Brush_Item: a brush, a preset (built-in, yours or a pack's),
-// the Curve and Insert tools, or a mask, hide or cut tool. The categories, Recent and
-// Favorites are the interface's: settings.txt remembers them (brush_category,
-// brush_sidebar, brush_recent, brush_favorite).
+// The Library's items and categories (the Library itself is the sheet over the shelf,
+// kit_brush_sheet in lens_shelf.odin). Everything it lists is a Brush_Item: a brush, a
+// preset (built-in, yours or a pack's), the Curve and Insert tools, a mask, hide or cut
+// tool, or any other button a dock can hold (a card, a slider, a command). The categories,
+// Recent and Favorites are the interface's: settings.txt remembers them (brush_category,
+// brush_recent, brush_favorite).
 
 BRUSH_RECENT :: 12
 BRUSH_FAVORITES :: 48
 BRUSH_KEY :: 80
-BRUSH_COLUMNS :: 3
-BRUSH_SIDEBAR_W :: 200
-BRUSH_INDEX_W :: 22
 
-// Lucide's heart and panel-left.
+// Lucide's heart.
 ICON_HEART :: rune(0xe0f5)
-ICON_PANEL_LEFT :: rune(0xe12e)
 
-// All comes first so a fresh install opens on it; the sidebar lists them in
-// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favorites above All.
+// All comes first so a fresh install opens on it; the column lists them in
+// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favorites above All, then the buttons
+// that are not brushes: cards, sliders and every other command.
 Brush_Category :: enum u8 {
 	All,
 	Recent,
@@ -47,10 +40,13 @@ Brush_Category :: enum u8 {
 	History,
 	Presets, // yours
 	Pack, // a content pack's presets: Brush_Palette.pack says which
+	Cards, // Open card, of a card or a section's card
+	Sliders, // the brush values a dock shows as sliders
+	Commands, // every other button
 }
 
 @(rodata)
-BRUSH_CATEGORY_ORDER := [?]Brush_Category{.Recent, .Favorites, .All, .Clay, .Crease, .Smooth, .Move, .Cloth, .Mask, .Paint, .Clip_Hide, .Curve_Insert, .History, .Presets}
+BRUSH_CATEGORY_ORDER := [?]Brush_Category{.Recent, .Favorites, .All, .Clay, .Crease, .Smooth, .Move, .Cloth, .Mask, .Paint, .Clip_Hide, .Curve_Insert, .History, .Presets, .Cards, .Sliders, .Commands}
 
 @(rodata)
 BRUSH_CATEGORY_NAMES := [Brush_Category]string {
@@ -69,6 +65,9 @@ BRUSH_CATEGORY_NAMES := [Brush_Category]string {
 	.History      = "History",
 	.Presets      = "My presets",
 	.Pack         = "Pack",
+	.Cards        = "Cards",
+	.Sliders      = "Sliders",
+	.Commands     = "Commands",
 }
 
 // The category a brush, and the library's presets made from it, are listed under: what
@@ -95,11 +94,15 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Trim_Dynamic = .Smooth,
 }
 
-// The browser's own state, in Kit_State.
+// The Library's own state, in Kit_State.
 Brush_Palette :: struct {
 	category:       Brush_Category,
 	pack:           int, // into App.library.packs, while category is .Pack
-	sidebar_hidden: bool,
+	// The dock's slot it is choosing a button for (library_open_for): a tap puts the item
+	// there instead of picking it.
+	adding:         Maybe(Bar_Pick),
+	puts:           int, // buttons put on a dock from it, for the exit stats
+	side_reveal:    bool, // the column scrolls to the category shown, once laid out
 	searching:      bool,
 	search_focus:   bool, // the search field takes the keyboard on its first frame
 	search:         [32]u8,
@@ -118,7 +121,7 @@ Brush_Palette :: struct {
 Brush_Key :: [BRUSH_KEY]u8
 
 Brush_Item_Kind :: enum u8 {
-	Slot, // a brush or a preset
+	Slot, // a brush or a preset, or (slot.command) any other button
 	Tool,
 	Mask_Shape,
 	Gesture,
@@ -167,6 +170,10 @@ brush_item_key :: proc(app: ^App, it: Brush_Item) -> string {
 	case .Slot:
 		s := it.slot
 		switch {
+		case s.command.id != .None:
+			// Slashes for the name's colon, so a control's name (the Library's card) has none.
+			name, _ := strings.replace_all(command_name(s.command.id, s.command.arg), ":", "/", context.temp_allocator)
+			return fmt.tprintf("button/%s", name)
 		case s.preset == 0:
 			return fmt.tprintf("brush/%s", BRUSHES[s.kind].name)
 		case preset_of_pack(s.preset):
@@ -185,9 +192,11 @@ brush_item_key :: proc(app: ^App, it: Brush_Item) -> string {
 	return ""
 }
 
-brush_item_icon :: proc(it: Brush_Item) -> rune {
+brush_item_icon :: proc(app: ^App, it: Brush_Item) -> rune {
 	switch it.what {
-	case .Slot:       return BRUSHES[it.slot.kind].icon
+	case .Slot:
+		if it.slot.command.id != .None do return bar_icon(app, it.slot.command)
+		return BRUSHES[it.slot.kind].icon
 	case .Tool:       return TOOL_ICONS[it.tool]
 	case .Mask_Shape: return SHAPE_TOOL_ICONS[it.mask]
 	case .Gesture:    return GESTURE_ICONS[it.gesture]
@@ -202,6 +211,7 @@ brush_item_family :: proc(app: ^App, it: Brush_Item) -> string {
 		s := it.slot
 		base := BRUSHES[s.kind].name
 		switch {
+		case s.command.id != .None:        return BRUSH_CATEGORY_NAMES[brush_item_category(it)]
 		case s.preset == 0:                return "Brush"
 		case preset_of_pack(s.preset):     return fmt.tprintf("%s, from a pack", base)
 		case preset_built_in(s.preset):    return fmt.tprintf("%s, from the library", base)
@@ -212,24 +222,6 @@ brush_item_family :: proc(app: ^App, it: Brush_Item) -> string {
 	case .Gesture:    return "Hide and cut"
 	}
 	return ""
-}
-
-// The ball an item's tile shows: clay, the paint colour for the Paint brush, a dark grey
-// for the masks, as the viewport shows a mask.
-brush_item_ball :: proc(app: ^App, it: Brush_Item) -> ui.Color {
-	CLAY :: ui.Color{196, 176, 164, 255}
-	MASK :: ui.Color{96, 100, 112, 255}
-	switch it.what {
-	case .Slot:
-		if it.slot.kind == .Paint {
-			b := color_bytes(app.brush.color)
-			return {b.r, b.g, b.b, 255}
-		}
-		if it.slot.kind == .Mask do return MASK
-	case .Mask_Shape: return MASK
-	case .Tool, .Gesture:
-	}
-	return CLAY
 }
 
 // Whether an item is chosen: the brush or preset held, the tool picked, the mask shape
@@ -247,6 +239,7 @@ brush_item_on :: proc(app: ^App, it: Brush_Item) -> bool {
 brush_item_hint :: proc(app: ^App, it: Brush_Item) -> string {
 	switch it.what {
 	case .Slot:
+		if c := it.slot.command; c.id != .None do return command_hint(app, c.id, c.arg)
 		if it.slot.preset == 0 do return command_hint(app, .Brush, int(it.slot.kind))
 		if arg, ok := preset_slot_of(it.slot.preset); ok do return command_hint(app, .Brush_Preset, arg)
 		return ""
@@ -262,6 +255,12 @@ brush_item_category :: proc(it: Brush_Item) -> Brush_Category {
 	switch it.what {
 	case .Slot:
 		s := it.slot
+		#partial switch s.command.id {
+		case .None:
+		case .Show_Panel, .Show_Section: return .Cards
+		case .Brush_Value:               return .Sliders
+		case:                            return .Commands
+		}
 		if s.preset > 0 && preset_of_pack(s.preset) do return .Pack
 		if s.preset > 0 && !preset_built_in(s.preset) do return .Presets
 		return BRUSH_CATEGORY_OF[s.kind]
@@ -293,9 +292,10 @@ brush_item_settings :: proc(app: ^App, it: Brush_Item) {
 	}
 }
 
-// Every item the browser lists, in the library's order: the brushes, the built-in
-// presets, yours, each pack's, then the tools, the mask shapes and the gestures.
-brush_items_all :: proc(app: ^App) -> [dynamic]Listed_Brush {
+// Every item the Library lists, in its order: the brushes, the built-in presets, yours,
+// each pack's, then the tools, the mask shapes and the gestures, and with `buttons` every
+// other button a dock can hold, in the registry's order.
+brush_items_all :: proc(app: ^App, buttons := false) -> [dynamic]Listed_Brush {
 	items := make([dynamic]Brush_Item, context.temp_allocator)
 	for kind in sculpt.Brush_Kind do append(&items, Brush_Item{what = .Slot, slot = {kind = kind}})
 	for r, j in BUILT_IN_PRESETS do append(&items, Brush_Item{what = .Slot, slot = {kind = r.kind, preset = BUILT_IN_PRESET + j}})
@@ -304,12 +304,31 @@ brush_items_all :: proc(app: ^App) -> [dynamic]Listed_Brush {
 	for tool in ([?]Tool{.Curve, .Insert, .Model}) do append(&items, Brush_Item{what = .Tool, tool = tool})
 	for m in Mask_Shape_Kind do append(&items, Brush_Item{what = .Mask_Shape, mask = m})
 	for g in Gesture_Tool do append(&items, Brush_Item{what = .Gesture, gesture = g})
+	if buttons do for e in palette_entries() {
+		if e.kind != .Command || !bar_lists(e.id) || library_lists_already(e.id) do continue
+		append(&items, Brush_Item{what = .Slot, slot = {command = {e.id, e.arg}}})
+	}
+	if buttons do append(&items, Brush_Item{what = .Slot, slot = {command = {.Command_Palette, 0}}})
 	out := make([dynamic]Listed_Brush, 0, len(items), context.temp_allocator)
 	for it in items {
 		name := brush_item_name(app, it)
 		append(&out, Listed_Brush{item = it, name = name, low = strings.to_lower(name, context.temp_allocator), key = brush_item_key(app, it)})
 	}
 	return out
+}
+
+// Whether command `id`'s buttons are listed already as the Library's own items (the
+// brushes, presets, tools and shapes), or are no button of their own to choose (a rail
+// group, made by joining panels).
+@(private = "file")
+library_lists_already :: proc(id: Command_Id) -> bool {
+	if shelf_holds_brushes(id) || id == .Rail_Group do return true
+	return id == TOOL_COMMANDS[.Curve] || id == TOOL_COMMANDS[.Insert] || id == TOOL_COMMANDS[.Model]
+}
+
+// Whether an item is one of the buttons that are not brushes, tools or shapes.
+brush_item_is_button :: proc(it: Brush_Item) -> bool {
+	return it.what == .Slot && it.slot.command.id != .None
 }
 
 // Whether a listed item belongs to pack `pack` (into App.library.packs).
@@ -335,7 +354,7 @@ brush_palette_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 		for &k in p.favorites[:p.favorite_count] do if l, ok := brush_find(all, brush_key_text(&k)); ok do append(&out, l)
 		return out[:]
 	case p.category == .All:
-		append(&out, ..all)
+		for l in all do if !brush_item_is_button(l.item) do append(&out, l)
 	case p.category == .Pack:
 		for l in all do if brush_item_of_pack(app, l.item, p.pack) do append(&out, l)
 	case:
@@ -401,115 +420,6 @@ brush_item_current :: proc(app: ^App) -> Brush_Item {
 	return {what = .Slot, slot = {kind = app.brush.kind, preset = app.brush.preset}}
 }
 
-// The brush browser, under the menu while a workspace hides the shelf (the brush picker
-// takes its place over the shelf otherwise).
-kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
-	k := &app.kit
-	ctx := &k.ctx
-	p := &k.brushes
-	brush_recent_track(app)
-	if p.category == .Pack && p.pack >= len(app.library.packs) do p.category = .All
-	size, _ := ui.prev_layout(ctx, "brush browser")
-	owner := ui.id_of(ctx, "brush browser")
-	if !ui.popover_begin(ctx, "brush browser", &k.browser, anchor, side, {direction = .Column, gap = 8, padding = 12}) do return
-	defer ui.popover_end(ctx)
-	room := brush_palette_room(ctx, size.y, anchor, side)
-	grid_w := ui.PREVIEW_TILE.x * BRUSH_COLUMNS
-	width := grid_w + 8 + BRUSH_INDEX_W + (0 if p.sidebar_hidden else BRUSH_SIDEBAR_W + 16)
-	all := brush_items_all(app)
-	brush_palette_head(app, width)
-	list := brush_palette_list(app, all[:])
-	pick, settings: Maybe(Brush_Item)
-	ui.begin(ctx, "brush palette body", {direction = .Row, gap = 8})
-	if !p.sidebar_hidden {
-		if it, ok := brush_palette_side(app, owner, all[:], room).?; ok do settings = it
-		ui.spacer(ctx, 8)
-	}
-	tap, press := brush_palette_grid(app, owner, list, room)
-	if it, ok := tap.?; ok do pick = it
-	if it, ok := press.?; ok do settings = it
-	brush_palette_index(app, list, room)
-	ui.end(ctx)
-	if it, ok := pick.?; ok {
-		brush_item_pick(app, it)
-		p.picks += 1
-		k.browser = false
-	}
-	if it, ok := settings.?; ok {
-		brush_item_settings(app, it)
-		p.picks += 1
-		k.browser = false
-	}
-}
-
-// The grid's height: the room under the top bar, or above `anchor` when it opens above
-// it, less what the browser holds besides the grid.
-@(private = "file")
-brush_palette_room :: proc(ctx: ^ui.Context, popover_h: f32, anchor: ui.Rect, side: ui.Side) -> f32 {
-	body, _ := ui.prev_layout(ctx, "brush palette grid well")
-	besides := popover_h - body.y if popover_h > 0 && body.y > 0 else 90
-	free := anchor.y - 16 if side == .Above_Center else ui.safe_area(ctx).h - kit_top() - 16
-	return clamp(free - besides, ui.PREVIEW_TILE.y * 2, ui.PREVIEW_TILE.y * 6)
-}
-
-// The header: the categories' toggle, the title (or the search field while searching),
-// Search and Close.
-@(private = "file")
-brush_palette_head :: proc(app: ^App, width: f32) {
-	k := &app.kit
-	ctx := &k.ctx
-	p := &k.brushes
-	t := ctx.theme
-	ui.begin(ctx, "brush palette head", {direction = .Row, center = true, width = width})
-	if ui.icon_button(ctx, "Categories", ICON_PANEL_LEFT, selected = !p.sidebar_hidden) do p.sidebar_hidden = !p.sidebar_hidden
-	middle := width - 3 * t.target
-	if p.searching {
-		_ = ui.text_field(ctx, "Search brushes", p.search[:], middle, hold = p.search_focus, hint = "Search brushes")
-		p.search_focus = false
-	} else {
-		r := ui.place(ctx, {middle, t.target})
-		ui.text(ctx, "Brushes", r.x + r.w * 0.5, r.y + r.h * 0.5, t.title_size, t.text, .Semibold, .Center)
-	}
-	if ui.icon_button(ctx, "Search", ui.ICON_SEARCH, selected = p.searching) {
-		p.searching = !p.searching
-		p.search_focus = p.searching
-		p.search = {}
-		k.grid_scroll = 0
-	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.browser = false
-	ui.end(ctx)
-}
-
-// The column at the left: the current brush's card, then the categories, each with how
-// many it holds. Returns the item whose settings the card's tile asked for.
-@(private = "file")
-brush_palette_side :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height: f32) -> (settings: Maybe(Brush_Item)) {
-	k := &app.kit
-	ctx := &k.ctx
-	p := &k.brushes
-	t := ctx.theme
-	ui.begin(ctx, "brush palette side", {direction = .Column, gap = 6, width = BRUSH_SIDEBAR_W, height = height})
-	// The current brush, as ZBrush's card at the palette's top left: a tap on its tile
-	// shows its settings, the heart keeps it in Favorites.
-	cur := brush_item_current(app)
-	key := brush_item_key(app, cur)
-	ui.begin(ctx, "brush current", {direction = .Row, gap = 4})
-	res := ui.preview_tile(ctx, "##current brush", brush_item_icon(cur), brush_item_ball(app, cur), false, "Its settings")
-	if res.clicked || res.menu do settings = cur
-	ui.begin(ctx, "brush current text", {direction = .Column, gap = 0, width = BRUSH_SIDEBAR_W - ui.PREVIEW_TILE.x - 4})
-	ui.spacer(ctx, 10)
-	ui.label(ctx, ui.text_fit(ctx, brush_item_name(app, cur), t.text_size, BRUSH_SIDEBAR_W - ui.PREVIEW_TILE.x - 8, .Semibold), font = .Semibold)
-	ui.label(ctx, ui.text_fit(ctx, brush_item_family(app, cur), t.small_size, BRUSH_SIDEBAR_W - ui.PREVIEW_TILE.x - 8), size = t.small_size, color = t.text_tertiary)
-	_, favorite := brush_favorite(p, key)
-	if ui.icon_button(ctx, "Favorite" if !favorite else "Favorite (on)", ICON_HEART, selected = favorite) do brush_favorite_toggle(p, key)
-	ui.end(ctx)
-	ui.end(ctx)
-	card, _ := ui.prev_layout(ctx, "brush current")
-	brush_category_rows(app, owner, all, BRUSH_SIDEBAR_W, max(height - (card.y if card.y > 0 else ui.PREVIEW_TILE.y) - 6, t.target * 2))
-	ui.end(ctx)
-	return
-}
-
 // The Lens brush picker's column (lens_shelf.odin): the categories alone, `width` wide,
 // with a rule down its right. Returns its width.
 brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height: f32) -> f32 {
@@ -537,19 +447,26 @@ brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width,
 		counts[brush_item_category(l.item)] += 1
 		for _, i in app.library.packs do if brush_item_of_pack(app, l.item, i) do packs[i] += 1
 	}
-	counts[.All] = len(all)
+	for l in all do if !brush_item_is_button(l.item) do counts[.All] += 1
 	counts[.Recent] = len(brush_palette_count(app, all, p.recent[:p.recent_count]))
 	counts[.Favorites] = len(brush_palette_count(app, all, p.favorites[:p.favorite_count]))
 	rows := kit_scroll_begin(ctx, "brush categories", &p.side_scroll, owner, width, height, 0)
-	for c in BRUSH_CATEGORY_ORDER {
-		on := !p.searching && p.category == c
+	for c, i in BRUSH_CATEGORY_ORDER {
+		if c == .Cards do ui.caption(ctx, "  BUTTONS")
+		// The sheet always shows its search field; a category is lit while nothing is typed.
+		on := brush_query(p) == "" && p.category == c
 		if ui.list_row(ctx, fmt.tprintf("%s##brush category", BRUSH_CATEGORY_NAMES[c]), fmt.tprint(counts[c]), on).clicked {
 			p.category, p.searching, p.search, k.grid_scroll = c, false, {}, 0
+		}
+		// Opened on a category below the fold (the Library for a dock), it scrolls into sight.
+		if on && p.side_reveal && rows.limit > 0 {
+			p.side_scroll = clamp(f32(i + 1) / f32(len(BRUSH_CATEGORY_ORDER) + 1) * rows.natural - height * 0.4, 0, rows.limit)
+			p.side_reveal = false
 		}
 	}
 	for pack, i in app.library.packs {
 		if packs[i] == 0 do continue
-		on := !p.searching && p.category == .Pack && p.pack == i
+		on := brush_query(p) == "" && p.category == .Pack && p.pack == i
 		name := ui.text_fit(ctx, pack.name, t.text_size, width - 56)
 		if ui.list_row(ctx, fmt.tprintf("%s##brush pack %d", name, i), fmt.tprint(packs[i]), on).clicked {
 			p.category, p.pack, p.searching, p.search, k.grid_scroll = .Pack, i, false, {}, 0
@@ -566,82 +483,88 @@ brush_palette_count :: proc(app: ^App, all: []Listed_Brush, keys: []Brush_Key) -
 	return out[:]
 }
 
-// The tiles, BRUSH_COLUMNS to a row, in a body that scrolls. Returns the item tapped and
-// the one long-pressed (or right-clicked).
-@(private = "file")
-brush_palette_grid :: proc(app: ^App, owner: ui.Id, list: []Listed_Brush, height: f32) -> (tap, press: Maybe(Brush_Item)) {
+// Opens the Library to choose the button for `pick`: on the category that dock holds most
+// (the rail's cards, the brush bar's sliders, a shelf page's brushes, the other docks'
+// commands, the brush pie's brushes). While it is open a tap puts the item there instead of picking it.
+library_open_for :: proc(app: ^App, pick: Bar_Pick) {
 	k := &app.kit
-	ctx := &k.ctx
 	p := &k.brushes
-	width := ui.PREVIEW_TILE.x * BRUSH_COLUMNS
-	ui.begin(ctx, "brush palette grid well", {direction = .Column, width = width, height = height})
-	scroll := kit_scroll_begin(ctx, "brush palette grid", &k.grid_scroll, owner, width, height, 0)
-	for l, i in list {
-		if i % BRUSH_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush palette row %d", i / BRUSH_COLUMNS), {direction = .Row, gap = 0})
-		on := brush_item_on(app, l.item)
-		res := ui.preview_tile(ctx, fmt.tprintf("%s##%s", l.name, l.key), brush_item_icon(l.item), brush_item_ball(app, l.item), on, brush_item_hint(app, l.item))
-		if res.clicked do tap = l.item
-		if res.menu do press = l.item
-		// Opening, the grid scrolls to the brush held, once the body's height is known.
-		if on && l.item.what == .Slot && k.grid_reveal && scroll.natural > 0 {
-			k.grid_scroll = clamp(f32(i / BRUSH_COLUMNS) * ui.PREVIEW_TILE.y - (height - ui.PREVIEW_TILE.y) * 0.5, 0, scroll.limit)
-		}
-		if i % BRUSH_COLUMNS == BRUSH_COLUMNS - 1 || i == len(list) - 1 do ui.end(ctx)
-	}
-	if len(list) == 0 {
-		empty: string
-		switch {
-		case p.searching:              empty = "No brush has that in its name."
-		case p.category == .Recent:    empty = "The brushes you pick show here, the last one first."
-		case p.category == .Favorites: empty = "Tap the heart beside the current brush to keep it here."
-		case p.category == .Presets:   empty = "Save a brush as a preset (Brush palette, Preset) to find it here."
-		case:                          empty = "Nothing here yet."
-		}
-		ui.paragraph(ctx, empty, width)
-	}
-	kit_scroll_end(ctx, scroll)
-	ui.end(ctx)
-	if scroll.natural > 0 do k.grid_reveal = false
-	return
+	kit_floats_close(k)
+	p.adding = pick
+	p.category, p.searching, p.search = library_category_for(pick.which), false, {}
+	k.browser, k.grid_scroll, k.grid_reveal = true, 0, false
+	p.side_scroll, p.side_reveal = 0, true
+	// The search field takes the keys at once, so typing a name and Enter chooses.
+	p.search_focus = true
 }
 
-// The A to Z index down the grid's right, as ZBrush's and iOS's: a tap or a drag on a
-// letter scrolls the grid to the first item starting with it, or with the next letter
-// that has one. Letters that start no item are faint.
-@(private = "file")
-brush_palette_index :: proc(app: ^App, list: []Listed_Brush, height: f32) {
+// The category the Library opens on for bar `which`.
+library_category_for :: proc(which: Bar_Which) -> Brush_Category {
+	#partial switch which {
+	case .View_Rail: return .Cards
+	case .Offhand:   return .Sliders
+	case .Brush_Pie: return .All
+	}
+	if _, ok := shelf_page_of(which); ok do return .All
+	return .Commands
+}
+
+// The button `it` is on a dock, as the Library puts it there.
+library_slot_of :: proc(it: Brush_Item) -> (Bar_Slot, bool) {
+	return shelf_slot_of(it)
+}
+
+// Whether item `it` stands on the bar the Library is adding to.
+library_on_bar :: proc(app: ^App, it: Brush_Item) -> bool {
+	pick, ok := app.kit.brushes.adding.?
+	if !ok do return false
+	s, has := library_slot_of(it)
+	if !has do return false
+	for u in bar_used(app, pick.which) do if u == s do return true
+	return false
+}
+
+// A tap on item `it` while the Library adds to a dock: it goes on that dock after the last
+// one put there, or comes off it when it is there already; choosing for one slot, it
+// takes that slot and the Library closes.
+library_put :: proc(app: ^App, it: Brush_Item) {
 	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	first: [26]int
-	for &f in first do f = -1
-	for l, i in list {
-		if len(l.low) == 0 do continue
-		c := int(l.low[0]) - 'a'
-		if c >= 0 && c < 26 && first[c] < 0 do first[c] = i
+	p := &k.brushes
+	pick, ok := p.adding.?
+	if !ok do return
+	s, has := library_slot_of(it)
+	if !has do return
+	// The brush pie's editor chooses its slots here too, whatever bar_takes says of a carry.
+	if takes, why := bar_takes(pick.which, s); !takes && pick.which != .Brush_Pie {
+		report(app, nil, {.Warning}, "%s", why)
+		return
 	}
-	a := ui.area(ctx, "brush index", {BRUSH_INDEX_W, height})
-	step := a.rect.h / 26
-	held := -1
-	if a.held do held = clamp(int((a.mouse.y - a.rect.y) / step), 0, 25)
-	for c in 0 ..< 26 {
-		y := a.rect.y + step * (f32(c) + 0.5)
-		x := a.rect.x + a.rect.w * 0.5
-		if c == held do ui.fill_circle(ctx, {x, y}, 10, t.accent)
-		color := t.on_accent if c == held else (t.text_secondary if first[c] >= 0 else ui.color_fade(t.text_tertiary, 0.5))
-		ui.text(ctx, fmt.tprintf("%c", rune('A' + c)), x, y, t.caption_size, color, .Semibold, .Center)
+	if !pick.add {
+		bar_put(app, pick, s)
+		p.puts += 1
+		k.browser = false
+		return
 	}
-	if held < 0 do return
-	to := -1
-	for c in held ..< 26 do if first[c] >= 0 {
-		to = first[c]
-		break
+	for u, i in bar_used(app, pick.which) do if u == s {
+		bar_remove(app, pick.which, i)
+		if i < pick.slot do p.adding = Bar_Pick{which = pick.which, slot = pick.slot - 1, add = true}
+		report(app, nil, {}, "%s is off %s", bar_label(app, s), strings.to_lower(bar_title(app, pick.which), context.temp_allocator))
+		return
 	}
-	if to < 0 do for c := held; c >= 0; c -= 1 do if first[c] >= 0 {
-		to = first[c]
-		break
+	if len(bar_used(app, pick.which)) >= bar_capacity(pick.which) {
+		report(app, nil, {.Warning}, "%s is full: take a button off first", bar_title(app, pick.which))
+		return
 	}
-	if to < 0 do return
-	rows := (len(list) + BRUSH_COLUMNS - 1) / BRUSH_COLUMNS
-	k.grid_scroll = clamp(f32(to / BRUSH_COLUMNS) * ui.PREVIEW_TILE.y, 0, max(f32(rows) * ui.PREVIEW_TILE.y - height, 0))
+	bar_put(app, pick, s)
+	p.puts += 1
+	p.adding = Bar_Pick{which = pick.which, slot = min(pick.slot + 1, len(bar_used(app, pick.which))), add = true}
+	// The search keeps the keys, to type the next one's name.
+	p.search_focus = true
+}
+
+// The bar the Library is adding to, by its settings name, or none: for the exit stats.
+library_for_text :: proc(app: ^App) -> string {
+	pick, ok := app.kit.brushes.adding.?
+	if !ok || !app.kit.browser do return "none"
+	return BAR_ZONES[pick.which]
 }

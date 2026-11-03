@@ -17,7 +17,7 @@ import "../sculpt"
 import "../ui"
 
 // Brush alphas in the app: the built-in ones and any images loaded, which way a dab's
-// image faces, and the Brush palette's Alpha section. The sculpting side is
+// image faces, and the Brush card's Alpha section. The sculpting side is
 // sculpt/alpha.odin.
 
 // Which way the image's top faces on screen.
@@ -28,6 +28,10 @@ Alpha_Mode :: enum u8 {
 	// Turned with the pen about its own length, as Procreate's barrel roll turns a brush's
 	// shape: the outline shows the image's top before the pen touches down.
 	Pen_Roll,
+	// Turned to face the way the pen leans, as Procreate's azimuth turns a brush's shape
+	// and a pencil laid on its side shades along its lean: the image's top points where
+	// the pen's top leans across the screen.
+	Pen_Lean,
 }
 
 ALPHA_MODE_NAMES := [Alpha_Mode]string {
@@ -35,6 +39,7 @@ ALPHA_MODE_NAMES := [Alpha_Mode]string {
 	.Fixed  = "Fixed",
 	.Random = "Random",
 	.Pen_Roll = "Pen roll",
+	.Pen_Lean = "Pen lean",
 }
 
 Alpha_Entry :: struct {
@@ -56,6 +61,11 @@ alphas_init :: proc(app: ^App) {
 	for shape in sculpt.Alpha_Shape {
 		name := sculpt.ALPHA_SHAPE_NAMES[shape]
 		alpha_add(app, name, name, sculpt.alpha_make(shape))
+	}
+	// Then the starter VDM stamps, which Draw lays as 3D offsets (sculpt/vdm.odin).
+	for shape in sculpt.Vdm_Shape {
+		name := sculpt.VDM_SHAPE_NAMES[shape]
+		alpha_add(app, name, name, sculpt.vdm_make(shape))
 	}
 }
 
@@ -90,6 +100,7 @@ alpha_find :: proc(app: ^App, ref: string) -> int {
 	for e, i in app.alphas do if !e.gone && strings.equal_fold(e.ref, ref) do return i
 	if len(app.alphas) == 0 {
 		for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(ref, name) do return int(shape)
+		for name, shape in sculpt.VDM_SHAPE_NAMES do if strings.equal_fold(ref, name) do return len(sculpt.Alpha_Shape) + int(shape)
 	}
 	return -1
 }
@@ -236,8 +247,22 @@ alpha_screen_angle :: proc(app: ^App, for_display := false) -> f32 {
 		// The roll turns clockwise as seen from the pen's top, which is the screen's
 		// clockwise; the angle counts the other way.
 		angle -= math.to_radians(app.alpha_roll)
+	case .Pen_Lean:
+		angle += app.alpha_lean
 	}
 	return angle
+}
+
+// Below this lean from upright, in degrees, the way a pen leans is a tremor of the hand
+// more than a direction, so a Pen lean alpha keeps the way it last faced.
+ALPHA_LEAN_MIN :: 5
+
+// Takes the frame's lean (degrees toward the right and the bottom of the screen) for a
+// Pen lean alpha: the angle from the screen's up, counter-clockwise, that the pen's top
+// leans toward, as alpha_screen_angle counts. A pen held about upright keeps the last one.
+alpha_lean_take :: proc(app: ^App, tilt: [2]f32) {
+	if tilt.x * tilt.x + tilt.y * tilt.y < ALPHA_LEAN_MIN * ALPHA_LEAN_MIN do return
+	app.alpha_lean = math.atan2(-tilt.x, -tilt.y)
 }
 
 // The world direction the image's top faces for a dab now: the screen direction
@@ -270,24 +295,26 @@ kit_alpha_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	PER_ROW :: 6
 	cell := ui.fill_width(ctx) / PER_ROW
-	// The round brush and the built-ins, then the person's own, then each pack's under
-	// its name; alphas taken out of the library are not shown.
-	groups := make([dynamic][dynamic]int, 2 + len(app.library.packs), context.temp_allocator)
+	// The round brush and the built-ins, then the VDM stamps, then the person's own, then
+	// each pack's under its name; alphas taken out of the library are not shown.
+	groups := make([dynamic][dynamic]int, 3 + len(app.library.packs), context.temp_allocator)
 	for &g in groups do g = make([dynamic]int, context.temp_allocator)
 	append(&groups[0], -1)
 	for e, i in app.alphas {
 		if e.gone do continue
 		group := 0
-		if strings.has_prefix(e.ref, LIBRARY_MINE + "/") && e.file != "" do group = 1
-		else if p := pack_of_ref(app, e.ref); p >= 0 do group = 2 + p
+		if strings.has_prefix(e.ref, LIBRARY_MINE + "/") && e.file != "" do group = 2
+		else if p := pack_of_ref(app, e.ref); p >= 0 do group = 3 + p
+		else if e.alpha.vectors != nil do group = 1
 		append(&groups[group], i)
 	}
 	for shown, group in groups {
 		if len(shown) == 0 do continue
 		switch group {
 		case 0:
-		case 1: ui.caption(ctx, "YOUR LIBRARY")
-		case:   ui.caption(ctx, strings.to_upper(app.library.packs[group - 2].name, context.temp_allocator))
+		case 1: ui.caption(ctx, "VDM STAMPS")
+		case 2: ui.caption(ctx, "YOUR LIBRARY")
+		case:   ui.caption(ctx, strings.to_upper(app.library.packs[group - 3].name, context.temp_allocator))
 		}
 		for first := 0; first < len(shown); first += PER_ROW {
 			ui.begin(ctx, fmt.tprintf("alpha row %d %d", group, first), {direction = .Row})
@@ -315,7 +342,7 @@ kit_alpha_section :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey.")
 }
 
 // One thumbnail of the Alpha section (and the Lens shelf's quick settings): the round

@@ -112,7 +112,7 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.S
 // The View island's buttons after its head, camera and shading chips: the view layout,
 // symmetry, the wireframe, the lights and framing, so the view is one place to learn.
 VIEW_ISLAND_DEFAULT :: [?]Bar_Slot {
-	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Section, int(Kit_Section.Lights)}, {.Focus_Selected, 0},
+	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Focus_Selected, 0},
 }
 
 // The island a fresh install has: Size and Strength as tall sliders.
@@ -291,7 +291,7 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		l := bar_list_k(k, which)
 		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) {
-			l.slots[slot] = rail_card_slot(which, {id, arg})
+			l.slots[slot] = {id, arg}
 			l.looks[slot] = bar_default_look(which)
 		}
 	case "rail_group":
@@ -305,28 +305,15 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 	}
 }
 
-// A rail slot as it is read: the Layers and Material sections' palettes, which the rail
-// held from the View island's first version until the rail opened the cards, become the
-// cards, so a saved rail shows the same cards the stack does.
-rail_card_slot :: proc(which: Bar_Which, s: Bar_Slot) -> Bar_Slot {
-	if which != .View_Rail || s.id != .Show_Section do return s
-	#partial switch Kit_Section(s.arg) {
-	case .Layers:   return {.Show_Panel, int(Panel_Kind.Layers)}
-	case .Material: return {.Show_Panel, int(Panel_Kind.Material)}
-	}
-	return s
-}
-
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one
 // that acts at the pointer over the model, which is on the bar when the button is pressed.
 bar_lists :: proc(id: Command_Id) -> bool {
 	return palette_lists(id) || id == .Command_Palette || id == .Rail_Group
 }
 
-// Opens Search to choose the command for `pick`.
+// Opens the Library to choose the button for `pick` (library_open_for).
 bar_choose :: proc(app: ^App, pick: Bar_Pick) {
-	palette_open(app)
-	app.kit.palette_for = pick
+	library_open_for(app, pick)
 }
 
 // Puts command `s` where `pick` says: in its slot, or in a new slot there.
@@ -519,7 +506,7 @@ bar_has_more :: proc(id: Command_Id) -> bool {
 bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	k := &app.kit
 	p := &k.bar_pop
-	if sec, ok := bar_more_section(s.id); ok && p.open && p.kind == .Section && p.section == sec do return true
+	if sec, ok := bar_more_section(s.id); ok && card_pop_shows(k, stack_card_of(app, sec)) do return true
 	#partial switch s.id {
 	case .Symmetry_X:      return app.brush.symmetry != {} || app.brush.radial_on
 	case .Tool_Move:       return app.tool == .Move
@@ -528,8 +515,8 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg) || rail_dock_is(app, s)
-	case .Show_Panel:      return p.open && p.kind == .Panel && p.panel == Panel_Kind(s.arg) || rail_dock_is(app, s)
+	case .Show_Section:    return card_pop_shows(k, stack_card_of(app, Kit_Section(s.arg))) || rail_dock_is(app, s)
+	case .Show_Panel:      return card_pop_shows(k, Panel_Kind(s.arg)) || rail_dock_is(app, s)
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Inspector:       return rail_dock_is(app, s)
 	case .Command_Palette: return k.palette
@@ -554,12 +541,11 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	case .Pass_Menu:
 		k.passes.menu_at, k.passes.menu_side = at, side
 	case .Show_Section:
-		// A section on a bar opens beside its button rather than in the tray across the
-		// window.
-		bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
+		// A section or card on a dock pops its card out beside the button (card_pop.odin).
+		card_pop_section(app, Kit_Section(s.arg), at, side)
 		return
 	case .Show_Panel:
-		bar_pop_toggle(app, .Panel, at, side, panel = Panel_Kind(s.arg))
+		card_pop_toggle(app, Panel_Kind(s.arg), at, side)
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)
@@ -576,7 +562,7 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 // What a long press (or a right-click) on a slot's button does, for one that has more.
 bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	if sec, ok := bar_more_section(s.id); ok {
-		bar_pop_toggle(app, .Section, at, side, sec)
+		card_pop_section(app, sec, at, side)
 		return
 	}
 	#partial switch s.id {

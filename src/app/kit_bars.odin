@@ -39,10 +39,10 @@ LOOK_NAMES := [Look]string {
 TOP_BAR_H :: 52
 BAR_EDGE :: 4
 
-// What a bar's popover holds: one tray section, the three symmetry axes, what the
-// polyframe shows, Remesh's quick menu, the Shading or Camera menu, or the view layout.
+// What a bar's popover holds: the three symmetry axes, what the polyframe shows, Remesh's
+// quick menu, the Shading or Camera menu, or the view layout. A section or card a button
+// opens pops out as the stack's own floating card instead (card_pop.odin).
 Bar_Pop_Kind :: enum u8 {
-	Section,
 	Symmetry,
 	Polyframe,
 	Remesh_Quick,
@@ -51,8 +51,6 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
-	Panel, // one card of the stack (rail_panels.odin)
-	Panels, // the rail's Panels picker (rail_panels.odin)
 	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
 }
@@ -61,8 +59,6 @@ Bar_Pop_Kind :: enum u8 {
 Bar_Pop :: struct {
 	open:    bool,
 	kind:    Bar_Pop_Kind,
-	section: Kit_Section,
-	panel:   Panel_Kind,
 	group:   int,
 	at:      ui.Rect,
 	side:    ui.Side,
@@ -77,17 +73,17 @@ Bar_Pop :: struct {
 	dock:    Dock_Id,
 }
 
-// Opens the bars' popover with `kind` (and `section`) beside `at`, or closes it when it
-// already shows that, as a second tap on its button does.
-bar_pop_toggle :: proc(app: ^App, kind: Bar_Pop_Kind, at: ui.Rect, side: ui.Side, section := Kit_Section.Stroke, panel := Panel_Kind.Brush) {
+// Opens the bars' popover with `kind` beside `at`, or closes it when it already shows
+// that, as a second tap on its button does.
+bar_pop_toggle :: proc(app: ^App, kind: Bar_Pop_Kind, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	p := &k.bar_pop
-	if p.open && p.kind == kind && (kind != .Section || p.section == section) && (kind != .Panel || p.panel == panel) {
+	if p.open && p.kind == kind {
 		p.open = false
 		return
 	}
 	kit_floats_close(k)
-	k.bar_pop = {open = true, kind = kind, section = section, panel = panel, at = at, side = side}
+	k.bar_pop = {open = true, kind = kind, at = at, side = side}
 }
 
 // Whether the bars' popover shows `kind`.
@@ -211,7 +207,6 @@ dock_lift :: proc(app: ^App) -> f32 {
 kit_bar_popover :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	t := ctx.theme
 	p := &k.bar_pop
 	switch p.kind {
 	case .Symmetry:
@@ -246,53 +241,10 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
-	case .Panel:
-		kit_panel_pop(app)
-	case .Panels:
-		kit_panels_picker(app)
 	case .Group_Menu:
 		kit_group_menu(app)
 	case .Dock_Menu:
 		kit_dock_menu(app)
-	case .Section:
-		WIDTH :: KIT_INSPECTOR_W
-		PADDING :: 12
-		owner := ui.id_of(ctx, "bar section")
-		size, _ := ui.prev_layout(ctx, "bar section")
-		if !ui.popover_begin(ctx, "bar section", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = PADDING, width = WIDTH}) do return
-		defer ui.popover_end(ctx)
-		title, draw, obj_draw, found := bar_section(app, p.section)
-		ui.begin(ctx, "bar section head", {direction = .Row, center = true})
-		pinnable := int(p.section) < TRAY_SECTIONS
-		ui.begin(ctx, "bar section title", {direction = .Column, width = WIDTH - 2 * PADDING - (2 if pinnable else 1) * t.target})
-		ui.label(ctx, title, t.title_size, t.text, .Semibold)
-		ui.end(ctx)
-		// Pin keeps the popover's section as a card of the stack, at its foot.
-		if pinnable && ui.icon_button(ctx, command_label(.Pin_Section, int(p.section)), ui.ICON_PANEL, selected = command_checked(app, .Pin_Section, int(p.section)), keys = command_hint(app, .Pin_Section, int(p.section))) {
-			if !command_checked(app, .Pin_Section, int(p.section)) do command_run(app, .Pin_Section, int(p.section))
-			p.open = false
-		}
-		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
-		ui.end(ctx)
-		// The body scrolls in the room the window leaves under the popover's top, or over
-		// the bottom bar up to the top bar.
-		area := ui.safe_area(ctx)
-		head := size.y - (ui.prev_rect(ctx, "bar section body").h if size.y > 0 else 0)
-		room := max(area.y + area.h - p.at.y - 8 - head, 160)
-		if p.side == .Above_Center do room = max(p.at.y - area.y - kit_top() - 8 - head, 160)
-		scroll := kit_scroll_begin(ctx, "bar section body", &p.scroll, owner, WIDTH - 2 * PADDING, room, 6)
-		obj := selected_object(app)
-		switch {
-		case !found:
-			ui.paragraph(ctx, "Nothing to show here.")
-		case obj_draw != nil && obj == nil:
-			ui.paragraph(ctx, "Add or select an object first.")
-		case obj_draw != nil:
-			obj_draw(app, obj)
-		case:
-			draw(app)
-		}
-		kit_scroll_end(ctx, scroll)
 	}
 }
 

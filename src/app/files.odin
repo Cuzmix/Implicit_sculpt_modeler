@@ -1960,7 +1960,7 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int, voxels := 0, 
 	if empty {
 		scene_replace(app, {}, -1, app.scene.next_id, camera.orbit_default())
 		scene_new_done(app)
-		report(app, nil, {}, "New scene: empty; Add object (Scene palette) or Import brings something in")
+		report(app, nil, {}, "New scene: empty; Add object (Scene card) or Import brings something in")
 		return true
 	}
 	obj: ^Object

@@ -7,7 +7,7 @@ import "core:time"
 import "../sculpt"
 import "../ui"
 
-// The Object palette's Deformation section: one slider for each of ZBrush's Deformation
+// The Deformation card: one slider for each of ZBrush's Deformation
 // operations, with Blender's mesh transforms and filters and Nomad's live filters as the
 // other half. Pick what it does (Offset, Rotate, Size, Skew, S bend, Squeeze, Noise,
 // Inflate, Spherize, Gravity, Polish or Relax), the axes it works along where it has any,
@@ -320,7 +320,7 @@ reshape_repeat :: proc(app: ^App) -> int {
 // as the Deformers.
 reshape_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
 	if obj.voxel != nil {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Deformation needs a mesh: convert the clay first (Object palette, Voxels)")
+		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Deformation needs a mesh: convert the clay first (Voxels card)")
 		return false
 	}
 	if object_in_hd(obj) {

@@ -9,8 +9,13 @@ import "../geom"
 import "../jobs"
 
 // The brush kinds that can write into a detail skin (Brush.skin): those that move the
-// surface along its normal, which is all a height can hold. The rest move vertices.
-SKIN_KINDS :: bit_set[Brush_Kind]{.Draw, .Inflate, .Clay, .Flatten, .Crease, .Layer, .Smooth}
+// surface along its normal, which a height holds, and those that move it sideways a
+// little (Pinch, Crease's pinch, Snake hook), which the vector page holds (Skin.side).
+// The rest move vertices.
+SKIN_KINDS :: bit_set[Brush_Kind]{.Draw, .Inflate, .Clay, .Flatten, .Crease, .Layer, .Smooth, .Pinch, .Snake_Hook}
+
+// The skin brushes that move samples sideways, so need the skin's vector page.
+SKIN_SIDE_KINDS :: bit_set[Brush_Kind]{.Crease, .Pinch, .Snake_Hook}
 
 // How far a skin sample may move toward a plane in one dab, at most, for a surface that
 // meets the plane's normal at a steep angle: the move along the sample's normal that
@@ -93,7 +98,7 @@ skin_step_swap :: proc(s: ^Sculptor, step: ^Undo_Step) {
 @(private)
 skin_bytes :: proc(sk: ^Skin) -> int {
 	if sk == nil do return 0
-	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
+	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.side) * size_of([2]f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
 	bytes += (len(sk.edge_first) + len(sk.near_first) + len(sk.near)) * size_of(u32) + len(sk.tri_edges) * size_of([3]u32)
 	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri) + len(sk.dab_moved) + len(sk.node_edge) * size_of(f32)
 	return bytes + len(sk.edges) * size_of(Skin_Edge) + len(sk.stale) * size_of(Skin_Stale)
@@ -304,7 +309,10 @@ skin_split_brush :: proc(d: ^Dab, share: f32) {
 		}
 		d.brush.strength *= 1 - share
 	case .Smooth:
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Snake_Hook, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer:
+	case .Snake_Hook:
+		// The hook drags by its drag, not its strength.
+		d.brush.drag *= 1 - share
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer:
 		d.brush.strength *= 1 - share
 	}
 }
@@ -334,6 +342,7 @@ skin_split_moved :: proc(s: ^Sculptor, d: ^Dab) {
 @(private)
 skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	sk := s.skin
+	if d.brush.kind in SKIN_SIDE_KINDS || dab_vdm(d) do skin_side_fit(sk, s.history.allocator)
 	if s.history.recording do record_skin_hit(s)
 	brush := d.brush
 	sign: f32 = -1 if brush.invert else 1
@@ -358,7 +367,8 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	case .Draw, .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		if brush.kind == .Draw {
-			if once do jobs.parallel_for(pool, items, d, job_skin_draw_once)
+			if dab_vdm(d) do jobs.parallel_for(pool, items, d, job_skin_draw)
+			else if once do jobs.parallel_for(pool, items, d, job_skin_draw_once)
 			else do jobs.parallel_for(pool, items, d, job_skin_draw)
 		} else {
 			if once do jobs.parallel_for(pool, items, d, job_skin_inflate_once)
@@ -377,6 +387,16 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	case .Layer:
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
 		jobs.parallel_for(pool, items, d, job_skin_layer)
+	case .Pinch:
+		d.amount = sign
+		jobs.parallel_for(pool, items, d, job_skin_pinch)
+	case .Snake_Hook:
+		if brush.drag == {} do return 0
+		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		step := linalg.length(brush.drag)
+		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
+		d.drag_dir = brush.drag / step
+		jobs.parallel_for(pool, items, d, job_skin_snake_hook)
 	case .Smooth:
 		resize(&sk.offsets, len(s.hit))
 		total: u32
@@ -385,12 +405,13 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			total += u32(skin_node_count(s, sk, s.node_of[leaf]))
 		}
 		resize(&sk.smooth_to, int(total))
+		if sk.side != nil do resize(&sk.smooth_side, int(total))
 		for rate in smooth_passes(brush.strength) {
 			d.rate = rate
 			jobs.parallel_for(pool, items, d, job_skin_smooth_targets)
 			jobs.parallel_for(pool, len(s.hit), d, job_skin_smooth_apply)
 		}
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Snake_Hook, .Morph, .History, .Clay_Strips, .Trim_Dynamic:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Morph, .History, .Clay_Strips, .Trim_Dynamic:
 		unreachable()
 	}
 	if brush.kind != .Smooth {
@@ -430,6 +451,8 @@ skin_layer_fit :: proc(sk: ^Skin, allocator: runtime.Allocator) {
 @(private) job_skin_crease :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Crease, false)}
 @(private) job_skin_layer :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Layer, false)}
 @(private) job_skin_smooth_targets :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Smooth, false)}
+@(private) job_skin_pinch :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Pinch, false)}
+@(private) job_skin_snake_hook :: proc(data: rawptr, i: int) {skin_displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook, false)}
 
 // Moves the heights of run k's samples (Skin.items) inside the brush as brush kind K does,
 // or for Smooth, works out their targets. The run's `moved` counts the changed samples and
@@ -465,6 +488,7 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 	edges_at := int(n.vert_count + (e0 - sk.edge_first[n.tri_first]) * (S - 1))
 	faces_at := int(n.vert_count + node_edges * (S - 1) + (item.tri_lo - n.tri_first) * F)
 	targets: []f32
+	side_targets: [][2]f32
 	when K == .Smooth {
 		// Every sample keeps its height unless the dab reaches it: this run's own.
 		targets = sk.smooth_to[sk.offsets[i]:][:skin_node_count(s, sk, id)]
@@ -473,6 +497,14 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 		for h, x in edge_samples do targets[edges_at + x] = f32(h)
 		face_samples := sk.heights[sk.vert_count + sk.edge_count * (S - 1) + item.tri_lo * F:][:(item.tri_hi - item.tri_lo) * F]
 		for h, x in face_samples do targets[faces_at + x] = f32(h)
+		// And with a vector page, its offsets likewise.
+		if sk.side != nil {
+			side_targets = sk.smooth_side[sk.offsets[i]:][:len(targets)]
+			side := side_targets
+			if item.verts do for v in n.vert_first ..< n.vert_first + n.vert_count do side[v - n.vert_first] = skin_side_f32(sk.side[v])
+			for sd, x in sk.side[sk.vert_count + e0 * (S - 1):][:(e1 - e0) * (S - 1)] do side[edges_at + x] = skin_side_f32(sd)
+			for sd, x in sk.side[sk.vert_count + sk.edge_count * (S - 1) + item.tri_lo * F:][:(item.tri_hi - item.tri_lo) * F] do side[faces_at + x] = skin_side_f32(sd)
+		}
 	}
 
 	// Vertex samples, skipped when the vertex is far: a sample lies at most the tallest
@@ -489,7 +521,7 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 		fj: u32 = S if c == 2 else 0
 		corners: [3]f32
 		if split do corners = skin_corner_weights(d, f, K)
-		skin_touch(d, v, f, fi, fj, corners, K, ONCE, &moved, &top, targets, at)
+		skin_touch(d, v, f, fi, fj, corners, K, ONCE, &moved, &top, targets, side_targets, at)
 		at += 1
 	}
 	// Edge samples, each edge from its owner triangle, skipped when the edge is far.
@@ -506,7 +538,7 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 		if split do corners = skin_corner_weights(d, t, K)
 		for k in u32(1) ..< S {
 			fi, fj := skin_edge_place(S, edge.corner, k)
-			skin_touch(d, sk.vert_count + e * (S - 1) + (k - 1), t, fi, fj, corners, K, ONCE, &moved, &top, targets, at)
+			skin_touch(d, sk.vert_count + e * (S - 1) + (k - 1), t, fi, fj, corners, K, ONCE, &moved, &top, targets, side_targets, at)
 			at += 1
 		}
 	}
@@ -536,7 +568,7 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 			b0 := 1 - b1 - b2
 			p := a * b0 + b * b1 + c * b2
 			if linalg.length2(p - d.center) < limit {
-				skin_touch_at(d, x, t, ii, j, p, na * b0 + nb * b1 + nc * b2, corners, K, ONCE, &moved, &top, targets, at)
+				skin_touch_at(d, x, t, ii, j, p, na * b0 + nb * b1 + nc * b2, corners, K, ONCE, &moved, &top, targets, side_targets, at)
 			}
 			x += 1
 			at += 1
@@ -548,9 +580,9 @@ skin_displace :: #force_inline proc(d: ^Dab, k: int, $K: Brush_Kind, $ONCE: bool
 // One sample: index x, at grid place (i, j) of triangle t, at position `at` among its
 // node's samples (for Smooth's targets).
 @(private)
-skin_touch :: #force_inline proc(d: ^Dab, x, t, i, j: u32, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
+skin_touch :: #force_inline proc(d: ^Dab, x, t, i, j: u32, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, side_targets: [][2]f32, at: int) {
 	p, nn := skin_base(d.s, d.s.skin, t, i, j)
-	skin_touch_at(d, x, t, i, j, p, nn, corners, K, ONCE, moved, top, targets, at)
+	skin_touch_at(d, x, t, i, j, p, nn, corners, K, ONCE, moved, top, targets, side_targets, at)
 }
 
 // What a split dab's vertices' pass gives each corner of triangle t, as its weight (the
@@ -574,7 +606,7 @@ skin_corner_weights :: #force_inline proc(d: ^Dab, t: u32, $K: Brush_Kind) -> (w
 
 // skin_touch with the sample's flat point and interpolated normal already worked out.
 @(private)
-skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, at: int) {
+skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corners: [3]f32, $K: Brush_Kind, $ONCE: bool, moved: ^u32, top: ^f32, targets: []f32, side_targets: [][2]f32, at: int) {
 	s := d.s
 	sk := s.skin
 	nu := linalg.normalize0(nn)
@@ -593,11 +625,12 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 		}
 	}
 	w: f32
-	if d2 < d.r2 {
+	mv: Vec3
+	if d2 < d.r2 && K != .Snake_Hook {
 		w = dab_weight(d, delta, d2) * skin_gate(d, t, i, j)
 		if d.brush.facing != {} do w *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
 	}
-	if w <= 0 && given == 0 do return
+	if w <= 0 && given == 0 && K != .Snake_Hook do return
 	next := h
 	when ONCE {
 		l := &sk.layer[x]
@@ -608,7 +641,18 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 		next = h + (to - was) * along
 		l^ = {s.layer_stroke, to}
 	} else when K == .Draw {
-		next = h + d.amount * (w - given) * linalg.dot(d.normal, nu)
+		if dab_vdm(d) {
+			// A VDM stamp moves the sample by its offset at the flat point, as the vertices'
+			// pass moves a corner at its own point, less what the moved corners give it.
+			if w > 0 || given != 0 {
+				gate := skin_gate(d, t, i, j)
+				if d.brush.facing != {} do gate *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
+				mv = vdm_move(d, p - d.center) * gate
+				if d.mesh_share > 0 do mv -= skin_vdm_given(d, t, i, j)
+			}
+		} else {
+			next = h + d.amount * (w - given) * linalg.dot(d.normal, nu)
+		}
 	} else when K == .Inflate {
 		next = h + d.amount * (w - given)
 	} else when K == .Clay {
@@ -627,16 +671,144 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 		next = h + (to - was)
 		l^ = {s.layer_stroke, to}
 	} else when K == .Smooth {
-		targets[at] = h + (skin_height_mean(s, sk, t, i, j) - h) * min(d.rate * w, 1)
+		rate := min(d.rate * w, 1)
+		targets[at] = h + (skin_height_mean(s, sk, t, i, j) - h) * rate
+		// Smooth relaxes a sideways offset toward its neighbours' too.
+		if sk.side != nil && rate > 0 {
+			tu, tv := skin_frame(s, sk, t, i, j, nu)
+			was := skin_side_f32(sk.side[x])
+			side_targets[at] = was + (skin_side_mean(s, sk, t, i, j, tu, tv) - was) * rate
+		}
 		return
+	} else when K == .Pinch {
+		// Along the surface toward the centre, as the vertex brush pinches.
+		if w > 0 {
+			to := d.center - q
+			to -= d.normal * linalg.dot(to, d.normal)
+			mv = to * (d.amount * min(d.brush.strength * w * PINCH_RATE, 1))
+		}
+	} else when K == .Snake_Hook {
+		guard := skin_gate(d, t, i, j)
+		if d.brush.facing != {} do guard *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
+		if d2 < d.r2 do mv, _ = snake_hook_move(d, delta, d2, guard)
 	} else {
 		#panic("not a skin brush")
 	}
+	// Crease pinches as it cuts: the sideways part a split dab leaves the skin.
+	when K == .Crease {
+		if w > 0 && sk.side != nil {
+			to := d.center - q
+			to -= d.normal * linalg.dot(to, d.normal)
+			mv = to * (min(d.brush.strength * w * CREASE_PINCH, 1) * (1 - d.mesh_share))
+		}
+	}
+	// A sideways move goes along the normal into the height and across it into the vector
+	// page, in the sample's owner frame: the two together are the move to the bit of f16.
+	side_moved := false
+	when K == .Pinch || K == .Snake_Hook || K == .Crease || K == .Draw {
+		if mv != {} {
+			tu, tv := skin_frame(s, sk, t, i, j, nu)
+			next += linalg.dot(mv, nu)
+			sd := sk.side[x]
+			to := [2]f16{f16(f32(sd.x) + linalg.dot(mv, tu)), f16(f32(sd.y) + linalg.dot(mv, tv))}
+			if to != sd {
+				sk.side[x] = to
+				side_moved = true
+			}
+		}
+	} else {
+		_ = mv
+	}
 	stored := f16(next)
-	if stored == sk.heights[x] do return
+	if stored == sk.heights[x] && !side_moved do return
 	sk.heights[x] = stored
 	moved^ += 1
-	top^ = max(top^, abs(f32(stored)))
+	top^ = max(top^, abs(f32(stored)) + (abs(f32(sk.side[x].x)) + abs(f32(sk.side[x].y)) if sk.side != nil else 0))
+}
+
+// What a split VDM dab's vertices' pass gives the sample at grid place (i, j) of triangle
+// t: each corner's move, as job_vdm makes it times the vertices' share, mixed by where the
+// sample lies between the corners.
+@(private)
+skin_vdm_given :: proc(d: ^Dab, t, i, j: u32) -> (given: Vec3) {
+	s := d.s
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	S := f32(s.skin.segments)
+	b1, b2 := f32(i) / S, f32(j) / S
+	b := [3]f32{1 - b1 - b2, b1, b2}
+	for c in 0 ..< 3 {
+		if b[c] <= 0 do continue
+		v := I[3 * t + u32(c)]
+		delta := P[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		guard := shield(s.fade, s.mask, v) * facing_weight(d, s.mesh.normals[:], v)
+		given += vdm_move(d, delta) * (guard * d.mesh_share * b[c])
+	}
+	return
+}
+
+// A vector page's offset as two f32.
+@(private)
+skin_side_f32 :: #force_inline proc(sd: [2]f16) -> [2]f32 {return {f32(sd.x), f32(sd.y)}}
+
+// The mean sideways offset of the samples next to grid place (i, j) of triangle t, in
+// every triangle it lies on, each neighbour's offset taken as a vector out of its own
+// owner frame and laid into (tu, tv), in a fixed order.
+@(private)
+skin_side_mean :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, tu, tv: Vec3) -> [2]f32 {
+	sum: [2]f32
+	count: int
+	S := sk.segments
+	I := s.mesh.indices[:]
+	Around :: struct {
+		sum:	^[2]f32,
+		count:  ^int,
+		tu, tv: Vec3,
+	}
+	around :: proc(s: ^Sculptor, sk: ^Skin, f, i, j: u32, a: Around) {
+		I := s.mesh.indices[:]
+		S := int(sk.segments)
+		steps := [6][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}}
+		for st in steps {
+			ai, bj := int(i) + st.x, int(j) + st.y
+			if ai < 0 || bj < 0 || ai + bj > S do continue
+			x := skin_sample(sk, I, f, u32(ai), u32(bj))
+			a.count^ += 1
+			sd := sk.side[x]
+			if sd == {} do continue
+			_, n := skin_base(s, sk, f, u32(ai), u32(bj))
+			fu, fv := skin_frame(s, sk, f, u32(ai), u32(bj), linalg.normalize0(n))
+			v := fu * f32(sd.x) + fv * f32(sd.y)
+			a.sum^ += {linalg.dot(v, a.tu), linalg.dot(v, a.tv)}
+		}
+	}
+	a := Around{&sum, &count, tu, tv}
+	switch {
+	case (i == 0 && j == 0) || i == S || j == S:
+		v := I[3 * t] if i == 0 && j == 0 else (I[3 * t + 1] if i == S else I[3 * t + 2])
+		for f in faces_of(s, v) {
+			c := skin_corner_of(I, f, v)
+			fi: u32 = S if c == 1 else 0
+			fj: u32 = S if c == 2 else 0
+			around(s, sk, f, fi, fj, a)
+		}
+	case j == 0 || i + j == S || i == 0:
+		c: u32 = 0 if j == 0 else (1 if i + j == S else 2)
+		k := i if c == 0 else (j if c == 1 else S - j)
+		ref := sk.tri_edges[t][c]
+		e := sk.edges[ref >> 1]
+		along := k if ref & 1 == 0 else S - k
+		for f in e.tris {
+			fc := e.corner if f == e.tris[0] else skin_corner_of(I, f, I[3 * e.tris[0] + (e.corner + 1) % 3])
+			fk := along if f == e.tris[0] else S - along
+			fi, fj := skin_edge_place(S, fc, fk)
+			around(s, sk, f, fi, fj, a)
+		}
+	case:
+		around(s, sk, t, i, j, a)
+	}
+	return sum / f32(max(count, 1))
 }
 
 // How much a dab may change a sample at grid place (i, j) of triangle t: its corners'
@@ -667,17 +839,26 @@ job_skin_smooth_apply :: proc(data: rawptr, i: int) {
 	sk := s.skin
 	id := s.node_of[s.hit[i]]
 	targets := sk.smooth_to[sk.offsets[i]:]
+	side: [][2]f32 = sk.smooth_side[sk.offsets[i]:] if sk.side != nil else nil
 	moved := s.partials[i].moved
 	top := s.partials[i].weight_sum
 	at := 0
 	for r in skin_node_ranges(s, sk, id) {
 		for x in r.first ..< r.first + r.count {
 			stored := f16(targets[at])
-			at += 1
-			if stored == sk.heights[x] do continue
+			changed := stored != sk.heights[x]
 			sk.heights[x] = stored
+			lean: f32
+			if side != nil {
+				sd := [2]f16{f16(side[at].x), f16(side[at].y)}
+				changed ||= sd != sk.side[x]
+				sk.side[x] = sd
+				lean = abs(f32(sd.x)) + abs(f32(sd.y))
+			}
+			at += 1
+			if !changed do continue
 			moved += 1
-			top = max(top, abs(f32(stored)))
+			top = max(top, abs(f32(stored)) + lean)
 		}
 	}
 	s.partials[i].moved = moved
@@ -1002,7 +1183,12 @@ record_skin_hit :: proc(s: ^Sculptor) {
 		h.skin_saved[id] = h.stamp
 		heights := make([]f16, skin_node_count(s, sk, id), h.allocator)
 		skin_node_copy(s, sk, id, heights, out = true)
-		append(&h.current.saved, Saved_Node{node = id, heights = heights})
+		side: [][2]f16
+		if sk.side != nil {
+			side = make([][2]f16, len(heights), h.allocator)
+			skin_node_copy_side(s, sk, id, side, out = true)
+		}
+		append(&h.current.saved, Saved_Node{node = id, heights = heights, side = side})
 	}
 }
 
@@ -1013,6 +1199,20 @@ skin_node_copy :: proc(s: ^Sculptor, sk: ^Skin, id: u32, buf: []f16, out: bool) 
 	for r in skin_node_ranges(s, sk, id) {
 		live := sk.heights[r.first:][:r.count]
 		if out do copy(buf[at:], live)
+		else do copy(live, buf[at:][:r.count])
+		at += int(r.count)
+	}
+}
+
+// Copies node `id`'s sideways offsets into `buf` (out) or from it (not out); a nil `buf`
+// coming in stands for offsets saved before the skin had any, all zero.
+@(private)
+skin_node_copy_side :: proc(s: ^Sculptor, sk: ^Skin, id: u32, buf: [][2]f16, out: bool) {
+	at := 0
+	for r in skin_node_ranges(s, sk, id) {
+		live := sk.side[r.first:][:r.count]
+		if out do copy(buf[at:], live)
+		else if buf == nil do slice.zero(live)
 		else do copy(live, buf[at:][:r.count])
 		at += int(r.count)
 	}
@@ -1033,6 +1233,24 @@ skin_saved_swap :: proc(s: ^Sculptor, sv: ^Saved_Node) {
 		}
 		at += int(r.count)
 	}
+	// Offsets saved before the skin had a vector page were all zero: the live ones go
+	// into a new save so a redo brings them back.
+	if sk.side != nil {
+		if sv.side == nil {
+			sv.side = make([][2]f16, len(sv.heights), s.history.allocator)
+			skin_node_copy_side(s, sk, sv.node, sv.side, out = true)
+			skin_node_copy_side(s, sk, sv.node, nil, out = false)
+		} else {
+			at = 0
+			for r in skin_node_ranges(s, sk, sv.node) {
+				for &x, k in sk.side[r.first:][:r.count] {
+					x, sv.side[at + k] = sv.side[at + k], x
+					sk.height_max = max(sk.height_max, abs(f32(x.x)) + abs(f32(x.y)))
+				}
+				at += int(r.count)
+			}
+		}
+	}
 	skin_mark(s, sv.node)
 }
 
@@ -1042,5 +1260,6 @@ skin_saved_restore :: proc(s: ^Sculptor, sv: Saved_Node) {
 	sk := s.skin
 	if sk == nil || skin_node_count(s, sk, sv.node) != len(sv.heights) do return
 	skin_node_copy(s, sk, sv.node, sv.heights, out = false)
+	if sk.side != nil do skin_node_copy_side(s, sk, sv.node, sv.side, out = false)
 	skin_mark(s, sv.node)
 }

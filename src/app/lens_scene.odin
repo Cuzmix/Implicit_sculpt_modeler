@@ -17,7 +17,7 @@ import "../ui"
 // under one row; then Group, Duplicate and Delete for the selection, and the selected
 // object's selection sets. A tap selects (Ctrl, Shift or Select several adds), a drag
 // reorders or puts a row in a folder, a long press opens the object's menu. It is the one
-// Scene interface: the Scene palette's Objects and Add object sections open this card (Add
+// Scene interface: the Scene card's Objects and Add object sections open this card (Add
 // object with its Add menu open, the size at its head).
 
 // Lucide's lock and lock-open: the row's lock, shut while the object is locked.
@@ -352,7 +352,7 @@ scene_foot :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
-// What the scene's state asks to be said under the rows, as the Scene palette's tree said
+// What the scene's state asks to be said under the rows, as the Scene card's tree said
 // it: how many objects a selection of several holds, Show all while some are hidden or
 // solo is on, what solo and ghosts do, and how long the last file took.
 @(private = "file")

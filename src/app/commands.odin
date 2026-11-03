@@ -274,7 +274,6 @@ Command_Id :: enum u16 {
 	Command_Palette,
 	Customise_Bars,
 	New_Dock,
-	Stack_Density,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
 	Name_Controls,
@@ -397,7 +396,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.New_Scene = {
 		label = "New scene",
-		help = "Replaces the scene with this one shape at the Scene palette's Add size; with work to lose, it goes ahead on a second run.",
+		help = "Replaces the scene with this one shape at the Scene card's Add size; with work to lose, it goes ahead on a second run.",
 		icon = ui.ICON_SHAPES,
 		args = len(NEW_SCENES),
 		run = new_scene_run,
@@ -1188,7 +1187,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Store_Selection_Set = {
 		label = "Store mask as set",
-		help = "Keeps the selected object's mask as a selection set, to bring back later (Object palette > Selection sets).",
+		help = "Keeps the selected object's mask as a selection set, to bring back later (Selection card sets).",
 		run = proc(app: ^App, _: int) {set_store(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1416,7 +1415,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformer = {
 		label = "Deformer",
-		help = "Opens the Object palette's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
+		help = "Opens the Deformers card on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
 		args = DEFORMERS,
 		run = proc(app: ^App, arg: int) {
 			tray_open(app, .Deformers)
@@ -1427,7 +1426,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformation = {
 		label = "Deformation",
-		help = "Opens the Object palette's Deformation section on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
+		help = "Opens the Deformation card on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
 		args = len(Reshape_Choice),
 		run = proc(app: ^App, arg: int) {
 			tray_open(app, .Deform)
@@ -1713,7 +1712,7 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene palette's Add object section (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
+		help = "Adds the shape and size picked in the Scene card's Add object (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
@@ -1762,7 +1761,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Lock_Object = {
 		label = "Lock object",
-		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene palette unlocks it.",
+		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene card unlocks it.",
 		icon = ICON_LOCK,
 		run = proc(app: ^App, _: int) {view_command(app, .Lock)},
 		enabled = has_object,
@@ -1784,7 +1783,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.New_Folder = {
 		label = "New folder",
-		help = "Puts the selected object in a new folder in the Scene palette, whose eye and ghost then apply to everything in it; one undo step.",
+		help = "Puts the selected object in a new folder in the Scene card, whose eye and ghost then apply to everything in it; one undo step.",
 		icon = ui.ICON_FOLDER_PLUS,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Arrange, arrange = .New_Folder, id = obj.id}
@@ -1909,7 +1908,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Rename_Object = {
 		label = "Rename...",
-		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
+		help = "Gives the selected object a name of your own, shown in the Scene card and kept in the scene file; one undo step.",
 		icon = ui.ICON_PENCIL,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil {
@@ -2148,8 +2147,8 @@ COMMANDS := [Command_Id]Command {
 		},
 	},
 	.Show_Section = {
-		label = "Show section",
-		help = "Opens the palette tray on this section, switching to the brush for the brush's sections.",
+		label = "Open card",
+		help = "Opens this section's card (the Brush card for the brush's sections, switching to the brush); on a bar, beside its button.",
 		icon = ui.ICON_PANEL,
 		args = TRAY_SECTIONS,
 		run = proc(app: ^App, arg: int) {
@@ -2161,8 +2160,8 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
 	.Show_Panel = {
-		label = "Show panel",
-		help = "Opens this card of the panel stack; on a bar, beside its button.",
+		label = "Open card",
+		help = "Opens this card; on a bar, beside its button.",
 		icon = ui.ICON_PANEL,
 		args = STACK_CARD_COUNT,
 		run = proc(app: ^App, arg: int) {
@@ -2465,13 +2464,6 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {_ = user_dock_new(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return user_docks_used(&app.kit) < USER_DOCKS},
-	},
-	.Stack_Density = {
-		label = "Palettes as icons",
-		help = "Shows the docked palettes as a strip of their icons beside the view rail, each opening its palette over the view, or again as the cards down the column. Each workspace keeps its own.",
-		icon = ui.ICON_GRID,
-		run = proc(app: ^App, _: int) {stack_density_set(app, .Panels if app.kit.stack.density == .Icons else .Icons)},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.stack.density == .Icons},
 	},
 	.Help = {
 		label = "Help",
@@ -2855,12 +2847,13 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
 	case .Show_Section:
 		sec := Kit_Section(arg)
-		return fmt.tprintf("%s: %s", palette_name(section_palette(sec)), tray_section_title(sec))
+		if section_palette(sec) == .Tool do return fmt.tprintf("Brush card: %s", tray_section_title(sec))
+		return fmt.tprintf("%s card", tray_section_title(sec))
 	case .Pin_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
 	case .Show_Panel:
-		return fmt.tprintf("Panel: %s", STACK_CARD_NAMES[Panel_Kind(arg)])
+		return fmt.tprintf("%s card", STACK_CARD_NAMES[Panel_Kind(arg)])
 	case .Rail_Group:
 		return fmt.tprintf("Panel group %d", arg + 1)
 	case .View_Pass:

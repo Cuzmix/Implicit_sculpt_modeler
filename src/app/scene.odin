@@ -905,7 +905,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if cmd.kind != .Curve_Look || !cmd.look_drag do curve_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
-		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
+		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.curve != nil && cmd.kind in CURVE_REFUSED_SCENE {
@@ -913,7 +913,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return true
 	}
 	if obj := selected_object(app); obj != nil && cmd.kind in SKIN_REFUSED_SCENE && object_top_skin(obj) != nil {
-		report(app, Kit_Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (Object palette, HD detail)", cmd.kind, object_label(obj))
+		report(app, Kit_Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (HD detail card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {

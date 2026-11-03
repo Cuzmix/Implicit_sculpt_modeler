@@ -312,7 +312,7 @@ group_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	group, on := sculpt.sculptor_group_at(s, to_local(t, origin), to_local_dir(t, dir))
 	if !on do return true
 	if group == 0 {
-		report(app, Kit_Section.Material, {.Warning}, "Group 0 shows the object's own material: make a group of the part first (Object palette, Polygroups)")
+		report(app, Kit_Section.Material, {.Warning}, "Group 0 shows the object's own material: make a group of the part first (Polygroups card)")
 		return true
 	}
 	u.group_target, u.group_target_id = group, obj.id

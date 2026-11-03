@@ -434,7 +434,8 @@ kit_value_menu :: proc(app: ^App) {
 	if ui.menu_item(ctx, "Material settings" if v == .Exposure else "Brush settings", glyph = ui.ICON_PANEL) {
 		at, side := p.at, p.side
 		if v == .Exposure do k.more[.Material] = true
-		bar_pop_toggle(app, .Section, at, side, BRUSH_VALUE_SECTIONS[v])
+		p.open = false
+		card_pop_section(app, BRUSH_VALUE_SECTIONS[v], at, side)
 		return
 	}
 	column := bar_column(which)

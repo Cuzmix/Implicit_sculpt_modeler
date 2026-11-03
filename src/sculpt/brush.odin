@@ -1195,6 +1195,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		if share <= 0 do return painted
 		brush.strength *= share
 		d.brush.strength = brush.strength
+		if brush.kind == .Snake_Hook {
+			brush.drag *= share
+			d.brush.drag = brush.drag
+		}
 		d.mesh_share = share
 	}
 	if s.history.recording do record_hit(s, masks = false)
@@ -1203,7 +1207,9 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	switch brush.kind {
 	case .Draw:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		if brush.no_accumulate {
+		if dab_vdm(&d) {
+			jobs.parallel_for(pool, len(s.hit), &d, job_vdm)
+		} else if brush.no_accumulate {
 			layer_heights_fit(s)
 			jobs.parallel_for(pool, len(s.hit), &d, job_draw_once)
 		} else {

@@ -48,7 +48,7 @@ kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	ui.spacer(ctx, 4)
 }
 
-// One section of a palette that is not per object (the Brush and Scene palettes): which
+// One section of a palette that is not per object (the Brush and Scene cards): which
 // it is, its title, what it draws, and when it is offered (always, when nil).
 Kit_Tab_Section :: struct {
 	section: Kit_Section,
@@ -57,7 +57,7 @@ Kit_Tab_Section :: struct {
 	shown:   proc(app: ^App) -> bool,
 }
 
-// The Brush palette's sections in the order shown.
+// The Brush card's sections in the order shown.
 @(rodata)
 BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Preset, "Preset", kit_preset, nil},
@@ -537,7 +537,7 @@ kit_move_tab :: proc(app: ^App) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
 	}
 	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
-	ui.paragraph(ctx, "The Object palette places the selected object exactly: position, turn and scale.")
+	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")
 }
 
 @(private = "file")
@@ -550,7 +550,7 @@ kit_curve_tab :: proc(app: ^App) {
 @(private = "file")
 kit_insert_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Object palette) to cut it out.")
+	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Booleans card) to cut it out.")
 	kit_insert_settings(app)
 }
 

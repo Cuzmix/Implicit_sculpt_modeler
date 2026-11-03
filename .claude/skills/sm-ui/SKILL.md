@@ -144,7 +144,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   camera goes at the end so touch scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
-  card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /
+  card (`kit_objects_card.odin`, `Kit_Window.Objects`) is one: Add / Duplicate / New folder /
   More, then `ui.thumb_row` rows (a picture cell of `KIT_THUMBS_IMAGE` from `thumb_for`, the name, a switch under it,
   toggles at the right, an accent outline when selected; `drags = true` makes a mouse drag or a long press then drag
   report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. It
@@ -333,7 +333,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| the brush browser | `kit_brushes.odin`: ZBrush's Brushes palette over `k.browser`; everything it lists is a `Brush_Item` (brush or preset slot, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there |
+| the Library | `kit_brushes.odin` (items, categories, `library_open_for`/`library_put`) and `kit_brush_sheet` in `lens_shelf.odin` (the sheet over `k.browser`); everything it lists is a `Brush_Item` (brush or preset slot, any other button as `slot.command`, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there; a dock's button is chosen here (`bar_choose`), never in Search |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,

@@ -44,7 +44,7 @@ pack_make :: proc(app: ^App, path: string) -> (error: string) {
 		switch {
 		case alpha_is_mine(app, v.alpha):
 			word = filepath.stem(app.alphas[v.alpha].file)
-		case v.alpha >= 0 && v.alpha < len(sculpt.Alpha_Shape):
+		case v.alpha >= 0 && v.alpha < len(sculpt.Alpha_Shape) + len(sculpt.Vdm_Shape):
 			word = app.alphas[v.alpha].ref
 		case v.alpha >= 0 && v.alpha < len(app.alphas) && !app.alphas[v.alpha].gone:
 			went_round += 1
@@ -52,7 +52,7 @@ pack_make :: proc(app: ^App, path: string) -> (error: string) {
 		preset_line(&brushes, preset_name(p), v, word)
 	}
 	if app.preset_count > 0 do append(&files, zip.File{PACK_BRUSHES, transmute([]u8)strings.to_string(brushes)})
-	if alphas == 0 && app.preset_count == 0 do return fail(app, filepath.base(path), "there is nothing of yours to put in it yet: load an alpha (Brush palette, Alpha) or save a preset first")
+	if alphas == 0 && app.preset_count == 0 do return fail(app, filepath.base(path), "there is nothing of yours to put in it yet: load an alpha (Brush card, Alpha) or save a preset first")
 	archive, ok := zip.write(files[:], context.temp_allocator)
 	if !ok do return fail(app, filepath.base(path), "two of your alphas have names that differ only in case")
 	if werr := write_durably(path, archive); werr != "" do return fail(app, filepath.base(path), werr)

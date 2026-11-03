@@ -142,7 +142,7 @@ finish_reset_command :: proc(app: ^App) {
 	app.finish = FINISH_DEFAULTS
 }
 
-// The Scene palette's Finish section.
+// The Finish card.
 kit_finish :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	f := &app.finish

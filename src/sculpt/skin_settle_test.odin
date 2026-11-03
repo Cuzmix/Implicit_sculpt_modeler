@@ -21,7 +21,7 @@ settle_points :: proc(s: ^Sculptor) -> []Vec3 {
 		x := skin_sample(sk, I, t, i, j)
 		base, normal := skin_base(s, sk, t, i, j)
 		n := linalg.normalize0(normal)
-		points[x] = base + n * (settle_rounding(s, t, i, j, S, base, n) + f32(sk.heights[x]))
+		points[x] = base + n * settle_rounding(s, t, i, j, S, base, n) + skin_lift(s, sk, x, t, i, j, n, f32(sk.heights[x]))
 	}
 	return points
 }

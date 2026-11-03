@@ -65,7 +65,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			strings.write_string(&shows, name)
 		}
 		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", g.views[0].shading.lighting)
-		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d stack_density=%s", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs, "icons" if app.kit.stack.density == .Icons else "panels")
+		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
 	}
 	{
 		vws := &app.view_windows
@@ -524,11 +524,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
-			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
+			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
 			fmt.printfln("stack_visit=%s stack_visits=%d", stack_visit_text(k), k.stack.visits)
-			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), k.stack.drops, stack_carry_text(k), k.stack.target.kind)
-			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d stack_columns=%s tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, stack_columns_text(k), int(tray_width(app)))
+			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_sections=%s stack_section_folds=%d stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), stack_sections_text(k), k.stack.section_folds, k.stack.drops, stack_carry_text(k), k.stack.target.kind)
+			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, int(tray_width(app)))
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
@@ -538,10 +538,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
-		// The side bars' popover: what it shows (a section by its name), or none; the look.
+		// The side bars' popover: what it shows, or none; the card popped out of a button
+		// and how many times one popped; the look.
 		pop := "none"
-		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprintf("panel_%v", p.panel) if p.kind == .Panel else fmt.tprint(p.kind), context.temp_allocator)
-		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
+		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.kind), context.temp_allocator)
+		fmt.printfln("bar_pop=%s card_pop=%s card_pops=%d look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(card_pop_text(k), context.temp_allocator), k.card_pop.pops, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
 		// The theme shown: its name, whether a control moved it from what was saved, its mode
 		// and accent, and how many themes of their own the settings hold.
@@ -563,7 +564,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d color_popover=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed), int(k.colors.pop))
 		// The brush browser's category, what Recent and Favorites hold, whether its
 		// categories are hidden or a search is open, and how many tiles it picked from.
-		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_sidebar=%d brush_search=%d brush_browser_picks=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(!k.brushes.sidebar_hidden), int(k.brushes.searching), k.brushes.picks)
+		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_search=%d brush_browser_picks=%d library_for=%s library_puts=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(k.brushes.searching), k.brushes.picks, library_for_text(app), k.brushes.puts)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {

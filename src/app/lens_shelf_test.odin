@@ -166,7 +166,7 @@ b_opens_the_brush_picker :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, owner(app, b), Command_Id.Brush_Picker)
 	command_run(app, .Brush_Picker)
-	testing.expect(t, app.kit.browser && app.kit.browser_at == .Dock)
+	testing.expect(t, app.kit.browser)
 	command_run(app, .Brush_Picker)
 	testing.expect(t, !app.kit.browser)
 }

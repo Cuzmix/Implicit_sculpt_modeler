@@ -38,7 +38,7 @@ Kit_State :: struct {
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
 	inspector:  bool, // the panel stack is open
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
-	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
+	pen_page:    int, // the Brush card's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
 	// Search's Show where (tray_show): the command whose control the tray marks, since
 	// when; and whether the tray's content is being drawn, where the mark is looked for.
 	pointed:    struct {
@@ -88,11 +88,12 @@ Kit_State :: struct {
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
+	// The card popped out of a dock's button (card_pop.odin).
+	card_pop:   Card_Pop,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
-	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
-	browser_at: Browser_At, // ...which of the two
+	browser:    bool, // the Library (kit_brush_sheet): every brush, tool and button
 	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
@@ -302,7 +303,7 @@ Kit_State :: struct {
 	object_menu_rows: int,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
-	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	object_menu_side: ui.Side, // at the pointer from the Scene card, above the status chip
 	// What opened the object menu or the scene menu last (an exit stat), where the object chip
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
@@ -318,7 +319,7 @@ Kit_State :: struct {
 	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
 	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	view_chips_at:    [2]f32, // where, in points (an exit stat)
-	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
+	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
 	folder_menu_id: int,
@@ -342,7 +343,7 @@ Kit_State :: struct {
 	alpha_armed:    int,
 	alpha_armed_at: f64,
 	tree_rows:      int,
-	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
+	// Select several (the Scene card's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
@@ -589,7 +590,7 @@ window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
 // end with Background (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
-	// The Brush palette's.
+	// The Brush card's.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -622,7 +623,7 @@ Kit_Section :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The Scene palette's.
+	// The Scene card's.
 	Objects,
 	Add,
 	Look,
@@ -1550,7 +1551,6 @@ kit_layout :: proc(app: ^App) {
 	k.nav.placed = false
 	if !focus do kit_view_chips(app)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
-	if !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	// The head is the View island's first button; with the island aside it stands alone.
 	if !k.nav.placed do kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
@@ -1567,7 +1567,6 @@ kit_layout :: proc(app: ^App) {
 		dock_anchor = kit_shelf(app)
 	} else {
 		k.shelf.carry = nil
-		if k.browser_at == .Dock do k.browser_at = .Bar
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
@@ -1614,8 +1613,8 @@ kit_layout :: proc(app: ^App) {
 	kit_modifier_rail(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	if k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
-	else do kit_brush_browser(app, menu_anchor, .Right)
+	// The Library, over the shelf, or under the menu while the shelf is hidden.
+	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) else .Above_Center)
 	kit_shelf_quick(app)
 	kit_shelf_page_menu(app)
 	kit_arrange_ghosts(app)
@@ -1710,7 +1709,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
 	// own surface; floating, one window round them all.
 	strip := stack_strip_shown(app)
-	stack_w := STACK_STRIP_W if strip else stack_width(k) + stack_docked_extra(k)
+	stack_w := STACK_STRIP_W if strip else stack_width(k)
 	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
 	if _, docked := stack_docked(k); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
 	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector))
@@ -1733,7 +1732,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 // The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
 // clear of it.
 tray_width :: proc(app: ^App) -> f32 {
-	return stack_width(&app.kit) + stack_docked_extra(&app.kit)
+	return stack_width(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1800,7 +1799,9 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
-		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Look)
+		at := app.kit.bar_pop.at
+		app.kit.bar_pop.open = false
+		card_pop_section(app, .Look, at, .Left)
 	}
 }
 
@@ -1860,7 +1861,7 @@ folder_menu_open :: proc(app: ^App, id: int, at: ui.Rect) {
 	k.folder_menu, k.folder_menu_id, k.folder_menu_at = true, id, at
 }
 
-// A folder's menu in the Scene palette: rename it, empty it into the list, or delete it with
+// A folder's menu in the Scene card: rename it, empty it into the list, or delete it with
 // what is in it.
 @(private = "file")
 kit_folder_menu :: proc(app: ^App) {
