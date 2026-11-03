@@ -42,7 +42,7 @@ texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, heig
 		return false
 	}
 	if mips do gpu.generate_mipmaps_for_texture(cmd, tex)
-	if !gpu.submit_command_buffer(cmd) {
+	if _, ok := gpu.submit(cmd); !ok {
 		log.errorf("texture upload submit: %s", gpu.last_error())
 		return false
 	}

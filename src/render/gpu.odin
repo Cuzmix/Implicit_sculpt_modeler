@@ -6,13 +6,13 @@ import "core:log"
 import sdl "vendor:sdl3"
 
 // The GPU objects the app holds and passes back without looking inside: a frame's
-// command buffers, the textures it shows, fences, and a sample count. Only this package
+// command buffers, the textures it shows, tickets, and a sample count. Only this package
 // names the GPU API (AGENTS.md's package boundaries; `scripts/boundary_check.py` fails
 // the check otherwise), so another backend changes these and the procs below, and the
 // app stays as it is.
 Cmd :: gpu.Cmd
 Texture :: gpu.Texture
-Fence :: gpu.Fence
+Ticket :: gpu.Ticket
 Sample_Count :: gpu.Sample_Count
 
 // A command buffer to record into, or nil (logged) when the device has none to give.
@@ -24,17 +24,16 @@ cmd_begin :: proc(r: ^Renderer) -> Cmd {
 
 // Sends the recorded work to the GPU; false (logged) when the device refused it.
 cmd_submit :: proc(cmd: Cmd) -> bool {
-	if gpu.submit_command_buffer(cmd) do return true
-	log.errorf("submit failed: %s", gpu.last_error())
-	return false
+	_, ok := cmd_submit_ticket(cmd)
+	return ok
 }
 
-// Sends the recorded work with a fence that signals when the GPU has done it; nil
+// Sends the recorded work with the ticket that is done once the GPU has run it; false
 // (logged) when the device refused it.
-cmd_submit_fenced :: proc(cmd: Cmd) -> Fence {
-	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil do log.errorf("submit failed: %s", gpu.last_error())
-	return fence
+cmd_submit_ticket :: proc(cmd: Cmd) -> (Ticket, bool) {
+	ticket, ok := gpu.submit(cmd)
+	if !ok do log.errorf("submit failed: %s", gpu.last_error())
+	return ticket, ok
 }
 
 // Drops a command buffer unsubmitted. One that holds a swapchain texture cannot be
@@ -48,12 +47,9 @@ cmd_recorded :: proc(cmd: Cmd) -> bool {
 	return gpu.command_buffer_recorded(cmd)
 }
 
-// Waits for the fence, releases it and clears the handle; nothing for nil.
-fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
-	if fence^ == nil do return
-	_ = gpu.wait_for_fences(true, fence, 1)
-	gpu.release_fence(fence^)
-	fence^ = nil
+// Waits until the GPU has run the work up to `ticket`; at once for one already done.
+ticket_wait :: proc(ticket: Ticket) {
+	_ = gpu.wait(ticket)
 }
 
 // The window's next swapchain texture for `cmd` and its size in pixels. With `wait`, waits

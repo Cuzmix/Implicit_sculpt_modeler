@@ -1045,7 +1045,8 @@ viewport_copy :: proc(r: ^Renderer, dst: ^Viewport_Target, src: gpu.Texture, wid
 	pass := gpu.begin_copy_pass(cmd)
 	gpu.copy_texture_to_texture(pass, {texture = src}, {texture = dst.color}, width, height, 1, cycle = false)
 	gpu.end_copy_pass(pass)
-	return gpu.submit_command_buffer(cmd)
+	_, ok := gpu.submit(cmd)
+	return ok
 }
 
 // Creates the cache textures on first use, at the target's size. They are released
@@ -1241,19 +1242,13 @@ UPLOAD_CHUNK :: 16 << 20
 // Uploads `size` bytes into `buffer`, `fill` writing each chunk's bytes from `offset`.
 @(private = "file")
 upload_now_by :: proc(r: ^Renderer, buffer: gpu.Buffer, size: int, user: rawptr, fill: proc(dst: []u8, offset: int, user: rawptr)) -> bool {
-	fences: [2]gpu.Fence
-	defer for f in fences do if f != nil do gpu.release_fence(f)
+	tickets: [2]gpu.Ticket
 	chunk_index := 0
 	for offset := 0; offset < size; offset += UPLOAD_CHUNK {
 		n := min(UPLOAD_CHUNK, size - offset)
-		slot := &fences[chunk_index % len(fences)]
+		slot := &tickets[chunk_index % len(tickets)]
 		chunk_index += 1
-		if slot^ != nil {
-			waited := gpu.wait_for_fences(true, slot, 1)
-			gpu.release_fence(slot^)
-			slot^ = nil
-			if !waited do return false
-		}
+		if !gpu.wait(slot^) do return false
 		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
 		dst := gpu.stage_buffer(cmd, buffer, u32(offset), u32(n))
@@ -1262,8 +1257,9 @@ upload_now_by :: proc(r: ^Renderer, buffer: gpu.Buffer, size: int, user: rawptr,
 			return false
 		}
 		fill(dst, offset, user)
-		slot^ = gpu.submit_command_buffer_and_acquire_fence(cmd)
-		if slot^ == nil do return false
+		ok: bool
+		slot^, ok = gpu.submit(cmd)
+		if !ok do return false
 	}
 	return true
 }
@@ -2330,11 +2326,11 @@ viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := conte
 }
 
 // A texture read back without waiting for it: the copy is submitted after the frame's
-// work and collected once its fence has signalled, so the frame loop never stops for it
+// work and collected once its ticket is done, so the frame loop never stops for it
 // (the scene file's preview picture).
 Readback :: struct {
 	transfer:      gpu.Transfer_Buffer,
-	fence:         gpu.Fence,
+	ticket:        gpu.Ticket,
 	width, height: u32,
 }
 
@@ -2353,8 +2349,9 @@ readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width,
 	pass := gpu.begin_copy_pass(cmd)
 	gpu.download_from_texture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = rb.transfer})
 	gpu.end_copy_pass(pass)
-	rb.fence = gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if rb.fence == nil {
+	ok: bool
+	rb.ticket, ok = gpu.submit(cmd)
+	if !ok {
 		readback_cancel(r, rb)
 		return false
 	}
@@ -2366,7 +2363,7 @@ readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width,
 // while it has not; done with nil pixels when there was nothing to collect or mapping failed.
 readback_poll :: proc(r: ^Renderer, rb: ^Readback, allocator := context.allocator) -> (pixels: []u8, done: bool) {
 	if rb.transfer == 0 do return nil, true
-	if !gpu.query_fence(rb.fence) do return nil, false
+	if !gpu.done(rb.ticket) do return nil, false
 	size := rb.width * rb.height * 4
 	if src := gpu.map_transfer_buffer(rb.transfer, false); src != nil {
 		pixels = make([]u8, size, allocator)
@@ -2379,11 +2376,7 @@ readback_poll :: proc(r: ^Renderer, rb: ^Readback, allocator := context.allocato
 
 // Drops a readback, waiting for its copy first so its buffer is not released under the GPU.
 readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
-	if rb.fence != nil {
-		fence := rb.fence
-		_ = gpu.wait_for_fences(true, ([^]gpu.Fence)(&fence), 1)
-		gpu.release_fence(fence)
-	}
+	_ = gpu.wait(rb.ticket)
 	if rb.transfer != 0 do gpu.release_transfer_buffer(rb.transfer)
 	rb^ = {}
 }
@@ -2400,7 +2393,8 @@ texture_download :: proc(r: ^Renderer, texture: gpu.Texture, width, height: u32,
 	pass := gpu.begin_copy_pass(cmd)
 	gpu.download_from_texture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = transfer})
 	gpu.end_copy_pass(pass)
-	if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return nil
+	ticket, ok := gpu.submit(cmd)
+	if !ok || !gpu.wait(ticket) do return nil
 	src := gpu.map_transfer_buffer(transfer, false)
 	if src == nil do return nil
 	pixels := make([]u8, size, allocator)

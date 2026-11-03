@@ -88,7 +88,7 @@ skill whose description fits the request BEFORE you form a plan.
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
 - Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `gpu` names the GPU API, imported by `render` alone: `app` holds `render.Cmd`, `render.Texture`,
-  `render.Fence` and `render.Sample_Count` and calls render's procs (`cmd_begin`, `cmd_submit`,
+  `render.Ticket` and `render.Sample_Count` and calls render's procs (`cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `src/gpu/hal.odin`
   (`gpu.*`: Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`.

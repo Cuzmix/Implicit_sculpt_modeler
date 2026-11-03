@@ -189,14 +189,14 @@ ui_pass_capture :: proc(r: ^Renderer, up: ^Ui_Pass, size: [2]u32, clear: [4]f32,
 	// The whole atlas again: the copy on the GPU is current, but this keeps the capture
 	// independent of what the last frame uploaded.
 	if !ui_pass_upload(r, up, cmd, vertices, indices, atlas, atlas_size, {0, 0, int(atlas_size.x), int(atlas_size.y)}, true) {
-		_ = gpu.submit_command_buffer(cmd)
+		_, _ = gpu.submit(cmd)
 		return nil
 	}
 	info := gpu.Color_Target{texture = target, clear_color = clear, load_op = .Clear, store_op = .Store}
 	pass := gpu.begin_render_pass(cmd, &info, 1, nil)
 	ui_pass_draw(r, up, cmd, pass, VIEWPORT_COLOR_FORMAT, size, draws)
 	gpu.end_render_pass(pass)
-	if !gpu.submit_command_buffer(cmd) do return nil
+	if _, ok := gpu.submit(cmd); !ok do return nil
 	return texture_download(r, target, size.x, size.y, allocator)
 }
 

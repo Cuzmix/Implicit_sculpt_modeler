@@ -7,7 +7,7 @@ import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import CA "vendor:darwin/QuartzCore"
 
-// Command buffers, passes and fences of the Metal backend. A render pass is a render
+// Command buffers, passes and tickets of the Metal backend. A render pass is a render
 // command encoder, a compute pass a compute encoder and a copy pass a blit encoder, each
 // retained while open. Bindings are
 // kept on the command buffer and sent to the encoder at the next draw, at SDL_GPU's Metal
@@ -73,10 +73,6 @@ Mtl_Cmd :: struct {
 	// Buffers a traced kernel reads through their GPU address (mtl_buffer_address), which
 	// each traced dispatch declares used, since Metal cannot see them through the address.
 	addressed:         [dynamic]^MTL.Buffer,
-}
-
-Mtl_Fence :: struct {
-	serial: u64,
 }
 
 @(private = "file")
@@ -192,17 +188,9 @@ mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 	return serial, true
 }
 
-mtl_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
-	_, ok := mtl_submit((^Mtl_Cmd)(command_buffer))
-	return ok
-}
-
-mtl_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
+mtl_submit_command_buffer :: proc(command_buffer: Cmd) -> (Ticket, bool) {
 	serial, ok := mtl_submit((^Mtl_Cmd)(command_buffer))
-	if !ok do return nil
-	fence := new(Mtl_Fence)
-	fence.serial = serial
-	return (Fence)(fence)
+	return {value = serial}, ok
 }
 
 // Whether the recording holds anything for the GPU to run (Mtl_Cmd.recorded), or a
@@ -229,25 +217,17 @@ mtl_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	return true
 }
 
-mtl_query_fence :: proc(fence: Fence) -> bool {
+mtl_ticket_done :: proc(ticket: Ticket) -> bool {
+	if ticket.value <= mtl_state.completed do return true
 	mtl_collect()
-	return (^Mtl_Fence)(fence).serial <= mtl_state.completed
+	return ticket.value <= mtl_state.completed
 }
 
-mtl_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
-	if num_fences == 0 do return true
-	// Submissions finish in order, so all of them are done when the latest is, and any one
-	// when the earliest is.
-	serial := (^Mtl_Fence)(fences[0]).serial
-	for i in 1 ..< num_fences {
-		s := (^Mtl_Fence)(fences[i]).serial
-		serial = max(serial, s) if wait_all else min(serial, s)
-	}
+// Submissions finish in order, so all of them are done when the latest is.
+mtl_wait :: proc(tickets: []Ticket) -> bool {
+	serial: u64
+	for t in tickets do serial = max(serial, t.value)
 	return mtl_wait_serial(serial)
-}
-
-mtl_release_fence :: proc(fence: Fence) {
-	free((^Mtl_Fence)(fence))
 }
 
 // ---- Uniforms -----------------------------------------------------------------------

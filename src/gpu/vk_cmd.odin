@@ -6,7 +6,7 @@ import "core:mem"
 
 import vk "vendor:vulkan"
 
-// Command buffers, passes and fences of the Vulkan backend. A texture rests in its default
+// Command buffers, passes and tickets of the Vulkan backend. A texture rests in its default
 // layout (vk_default_layout) between passes: a pass moves what it writes into the layout it
 // needs and back when it ends, as SDL_GPU does, so command buffers recorded out of order
 // still agree on every layout. Barriers are conservative (all commands, all memory); the
@@ -54,11 +54,6 @@ Vk_Sampled :: struct {
 	sampler: vk.Sampler,
 }
 
-// The queue a command buffer goes to, whose timeline its serial counts on.
-Vk_Queue :: enum u8 {
-	Graphics,
-	Compute,
-}
 
 // The read-only storage buffers a compute pipeline may bind: twice SDL_GPU's eight, for the
 // sculpt dab kernels (sculpt_gpu.odin SCULPT_STORAGE_BUFFERS), whose device check is
@@ -67,7 +62,7 @@ VK_COMPUTE_STORAGE_BUFFERS :: 16
 
 Vk_Cmd :: struct {
 	cb:              vk.CommandBuffer,
-	queue:           Vk_Queue,
+	queue:           Queue,
 	serial:          u64, // the submission's timeline value on its queue, once submitted
 	// A graphics command buffer waits for the compute timeline to reach this before it
 	// runs (wait_on); 0 for no wait.
@@ -116,11 +111,6 @@ Vk_Cmd :: struct {
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
 	timed_slot:      int, // 1 + the timestamp slot this recording wrote into, 0 for none (vk_timing.odin)
-}
-
-Vk_Fence :: struct {
-	serial: u64,
-	queue:  Vk_Queue,
 }
 
 @(private = "file")
@@ -316,10 +306,10 @@ vk_acquire_compute_command_buffer :: proc() -> Cmd {
 }
 
 // Makes the graphics command buffer wait, before any of its work, for the compute
-// submission `fence` names, so it sees what that wrote.
-vk_wait_on :: proc(command_buffer: Cmd, fence: Fence) {
-	cmd, f := (^Vk_Cmd)(command_buffer), (^Vk_Fence)(fence)
-	if cmd.queue == .Graphics && f.queue == .Compute do cmd.compute_wait = max(cmd.compute_wait, f.serial)
+// submissions up to `ticket`, so it sees what they wrote.
+vk_wait_on :: proc(command_buffer: Cmd, ticket: Ticket) {
+	cmd := (^Vk_Cmd)(command_buffer)
+	if cmd.queue == .Graphics && ticket.queue == .Compute do cmd.compute_wait = max(cmd.compute_wait, ticket.value)
 }
 
 // The command buffer that moves new textures into their default layouts, opened when the
@@ -468,17 +458,11 @@ vk_check_compute_writes :: proc(cmd: ^Vk_Cmd) {
 	}
 }
 
-vk_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
-	_, ok := vk_submit((^Vk_Cmd)(command_buffer))
-	return ok
-}
-
-vk_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
-	serial, ok := vk_submit((^Vk_Cmd)(command_buffer))
-	if !ok do return nil
-	fence := new(Vk_Fence)
-	fence.serial, fence.queue = serial, (^Vk_Cmd)(command_buffer).queue
-	return (Fence)(fence)
+vk_submit_command_buffer :: proc(command_buffer: Cmd) -> (Ticket, bool) {
+	cmd := (^Vk_Cmd)(command_buffer)
+	queue := cmd.queue
+	serial, ok := vk_submit(cmd)
+	return {value = serial, queue = queue}, ok
 }
 
 // Whether the recording holds anything for the GPU to run (Vk_Cmd.recorded), or a
@@ -504,38 +488,29 @@ vk_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	return true
 }
 
-vk_query_fence :: proc(fence: Fence) -> bool {
+vk_ticket_done :: proc(ticket: Ticket) -> bool {
+	if vk_serial_done(ticket.queue, ticket.value) do return true
 	vk_collect()
-	f := (^Vk_Fence)(fence)
-	return vk_serial_done(f.queue, f.serial)
+	return vk_serial_done(ticket.queue, ticket.value)
 }
 
-vk_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
-	if num_fences == 0 do return true
-	// Each queue's submissions finish in order, so all of a queue's fences are done when its
-	// latest is, and any one when its earliest is; one wait then covers both timelines.
-	values: [Vk_Queue]u64
-	used: [Vk_Queue]bool
-	for i in 0 ..< num_fences {
-		f := (^Vk_Fence)(fences[i])
-		values[f.queue] = (max(values[f.queue], f.serial) if wait_all else min(values[f.queue], f.serial)) if used[f.queue] else f.serial
-		used[f.queue] = true
-	}
+vk_wait :: proc(tickets: []Ticket) -> bool {
+	// Each queue's submissions finish in order, so all of a queue's tickets are done when
+	// its latest is; one wait then covers both timelines.
+	values: [Queue]u64
+	for t in tickets do values[t.queue] = max(values[t.queue], t.value)
 	semaphores: [2]vk.Semaphore
 	wanted: [2]u64
 	n: u32
-	for q in Vk_Queue do if used[q] {
+	for q in Queue do if !vk_serial_done(q, values[q]) {
 		semaphores[n], wanted[n] = vk_state.timeline if q == .Graphics else vk_state.compute_timeline, values[q]
 		n += 1
 	}
-	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, flags = {} if wait_all else {.ANY}, semaphoreCount = n, pSemaphores = &semaphores[0], pValues = &wanted[0]}
+	if n == 0 do return true
+	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, semaphoreCount = n, pSemaphores = &semaphores[0], pValues = &wanted[0]}
 	ok := vk.WaitSemaphores(vk_state.device, &info, max(u64)) == .SUCCESS
 	vk_collect()
 	return ok
-}
-
-vk_release_fence :: proc(fence: Fence) {
-	free((^Vk_Fence)(fence))
 }
 
 // ---- Descriptors and uniforms -------------------------------------------------------

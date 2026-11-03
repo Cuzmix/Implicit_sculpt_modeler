@@ -114,13 +114,12 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 		gpu.draw_primitives(pass, 3, 1, 0, 0)
 		gpu.end_render_pass(pass)
 	}
-	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil {
+	ticket, submitted := gpu.submit(cmd)
+	if !submitted {
 		log.errorf("environment prefilter submit: %s", gpu.last_error())
 		return
 	}
-	defer gpu.release_fence(fence)
-	if !gpu.wait_for_fences(true, &fence, 1) {
+	if !gpu.wait(ticket) {
 		log.errorf("environment prefilter wait: %s", gpu.last_error())
 		return
 	}

@@ -249,14 +249,13 @@ transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32,
 // Submits `cmd` and waits until the GPU has finished it.
 @(private = "file")
 submit_and_wait :: proc(r: ^Renderer, cmd: gpu.Cmd) -> bool {
-	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil {
+	ticket, ok := gpu.submit(cmd)
+	if !ok {
 		log.errorf("smooth compute: submit failed: %s", gpu.last_error())
 		return false
 	}
-	defer gpu.release_fence(fence)
-	if !gpu.wait_for_fences(true, &fence, 1) {
-		log.errorf("smooth compute: WaitForGPUFences failed: %s", gpu.last_error())
+	if !gpu.wait(ticket) {
+		log.errorf("smooth compute: the wait failed: %s", gpu.last_error())
 		return false
 	}
 	return true

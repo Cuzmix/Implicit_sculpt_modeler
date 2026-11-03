@@ -920,7 +920,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		bench       = &bench,
 		driven      = interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit,
 	}
-	defer render.fence_finish(&app.renderer, &loop.present_fence)
+	defer render.ticket_wait(loop.present_ticket)
 	for _ in 0 ..< min(opts.view_windows, VIEW_WINDOWS_MAX) do view_window_request(&app, view_window_default(&app))
 	crash_log_report(&app)
 	crash_test(opts.crash_test)

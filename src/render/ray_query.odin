@@ -126,7 +126,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		if round == 1 && new_blas != blas {
 			log.error("ray query check: the refit made a new bottom level")
 			if new_blas != nil do gpu.release_accel(new_blas)
-			_ = gpu.submit_command_buffer(cmd)
+			_, _ = gpu.submit(cmd)
 			return false
 		}
 		blas = new_blas
@@ -139,13 +139,13 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		if round == 1 && new_tlas != tlas {
 			log.error("ray query check: the top level was not rebuilt in place")
 			if new_tlas != nil do gpu.release_accel(new_tlas)
-			_ = gpu.submit_command_buffer(cmd)
+			_, _ = gpu.submit(cmd)
 			return false
 		}
 		tlas = new_tlas
 		if tlas == nil {
 			log.error("ray query check: the acceleration structures could not be built")
-			_ = gpu.submit_command_buffer(cmd)
+			_, _ = gpu.submit(cmd)
 			return false
 		}
 		write := gpu.Storage_Buffer_Binding{buffer = hits}
@@ -160,7 +160,8 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		copy_pass := gpu.begin_copy_pass(cmd)
 		gpu.download_from_buffer(copy_pass, {buffer = hits, size = RAYS * 32}, {transfer_buffer = download})
 		gpu.end_copy_pass(copy_pass)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return false
+		ticket, submitted := gpu.submit(cmd)
+		if !submitted || !gpu.wait(ticket) do return false
 		got := ([^][4]f32)(gpu.map_transfer_buffer(download, false))
 		if got == nil do return false
 		ok := true

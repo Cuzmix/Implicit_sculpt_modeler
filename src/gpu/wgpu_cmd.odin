@@ -45,7 +45,7 @@ Wgpu_Download :: struct {
 	row_bytes:  u32,
 	gpu_pitch:  u32,
 	cpu_pitch:  u32,
-	fence:      ^Wgpu_Fence,
+	serial:     u64, // the submission that copied it
 }
 
 Wgpu_Uniform_Slot :: struct {
@@ -205,7 +205,7 @@ wgpu_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 wgpu_on_done :: proc "c" (status: wgpu.QueueWorkDoneStatus, message: string, userdata1, userdata2: rawptr) {
 	context = wgpu_state.ctx
 	if status != .Success do log.errorf("WebGPU: a submission failed (%v): %s", status, message)
-	wgpu_fence_answered((^Wgpu_Fence)(userdata1))
+	wgpu_answered(u64(uintptr(userdata1)))
 }
 
 @(private = "file")
@@ -236,51 +236,38 @@ wgpu_on_mapped :: proc "c" (status: wgpu.MapAsyncStatus, message: string, userda
 	}
 	wgpu.BufferDestroy(readback)
 	wgpu.BufferRelease(readback)
-	fence := d.fence
+	serial := d.serial
 	free(d)
-	wgpu_fence_answered(fence)
+	wgpu_answered(serial)
 }
 
-@(private = "file")
-wgpu_submit :: proc(cmd: ^Wgpu_Cmd, want_fence: bool) -> (^Wgpu_Fence, bool) {
+wgpu_submit_command_buffer :: proc(command_buffer: Cmd) -> (Ticket, bool) {
+	cmd := (^Wgpu_Cmd)(command_buffer)
 	if cmd.render != nil || cmd.compute != nil {
 		wgpu_fail("WebGPU: submitted inside a pass")
-		return nil, false
+		return {}, false
 	}
 	buffer := wgpu.CommandEncoderFinish(cmd.encoder)
 	wgpu.CommandEncoderRelease(cmd.encoder)
 	if buffer == nil {
 		wgpu_fail("WebGPU: the command buffer could not be finished")
 		wgpu_cmd_recycle(cmd)
-		return nil, false
+		return {}, false
 	}
 	for c in cmd.uniforms do wgpu.QueueWriteBuffer(wgpu_state.queue, c.buffer, 0, raw_data(c.data), uint((c.used + 3) &~ 3))
 	wgpu.QueueSubmit(wgpu_state.queue, {buffer})
 	wgpu.CommandBufferRelease(buffer)
-	fence: ^Wgpu_Fence
-	if want_fence || len(cmd.downloads) > 0 {
-		fence = new(Wgpu_Fence)
-		fence.waiting = 1 + len(cmd.downloads)
-		// A fence nobody asked for exists for the downloads alone and goes once they land.
-		fence.released = !want_fence
-		for d in cmd.downloads {
-			d.fence = fence
-			wgpu.BufferMapAsync(d.readback, {.Read}, 0, uint(d.size), {callback = wgpu_on_mapped, userdata1 = d})
-		}
-		wgpu.QueueOnSubmittedWorkDone(wgpu_state.queue, {callback = wgpu_on_done, userdata1 = fence})
+	s := &wgpu_state
+	s.submitted += 1
+	serial := s.submitted
+	append(&s.answers, 1 + len(cmd.downloads))
+	for d in cmd.downloads {
+		d.serial = serial
+		wgpu.BufferMapAsync(d.readback, {.Read}, 0, uint(d.size), {callback = wgpu_on_mapped, userdata1 = d})
 	}
+	wgpu.QueueOnSubmittedWorkDone(wgpu_state.queue, {callback = wgpu_on_done, userdata1 = rawptr(uintptr(serial))})
 	wgpu_cmd_recycle(cmd)
-	return fence if want_fence else nil, true
-}
-
-wgpu_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
-	_, ok := wgpu_submit((^Wgpu_Cmd)(command_buffer), false)
-	return ok
-}
-
-wgpu_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
-	fence, ok := wgpu_submit((^Wgpu_Cmd)(command_buffer), true)
-	return (Fence)(fence) if ok else nil
+	return {value = serial}, true
 }
 
 // ---- Uniforms -----------------------------------------------------------------------

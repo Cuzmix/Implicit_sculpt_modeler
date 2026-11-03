@@ -24,8 +24,8 @@ import "../jobs"
 //
 // The CPU's copy of the mesh is brought up to date by a readback: the frame copies the
 // ranges' positions and packed normals into a slot of a ring of download buffers, the
-// frame's command buffer is submitted with a fence, and a later frame (two on, as a rule)
-// finds the fence signalled, copies and decodes them into the mesh, so the CPU's mesh is a
+// frame's command buffer is submitted, and a later frame (two on, as a rule) finds its
+// ticket done, copies and decodes them into the mesh, so the CPU's mesh is a
 // mirror a frame or two behind the GPU's while a stroke runs. The slots are applied in the
 // order they were submitted, so an older readback never lands over a newer one. A sync
 // waits for the readbacks of one mesh and applies them: the sculptor asks for it before
@@ -264,7 +264,10 @@ Sculpt_Slot :: struct {
 	// Download buffers a regrow mid-frame replaced, whose entries still read from them;
 	// released once the slot is applied.
 	retired:       [dynamic]gpu.Transfer_Buffer,
-	fence:         gpu.Fence, // the frame that recorded the entries; nil once applied
+	// The frame that recorded the entries was submitted, with this ticket; false once
+	// applied, and for entries of a frame never submitted.
+	submitted:     bool,
+	ticket:        gpu.Ticket,
 	entries:       [dynamic]Sculpt_Entry,
 	bytes:         u32, // of the download buffer used this frame
 }
@@ -340,7 +343,7 @@ Sculpt_Gpu :: struct {
 	lookup_rate:          f64, // how fast the CPU copied the slices so far, in bytes a millisecond
 	slots:    [SCULPT_SLOTS]Sculpt_Slot,
 	slot:     int,  // the slot this frame records into
-	recorded: bool, // this frame's command buffer holds readbacks: submit it fenced (sculpt_gpu_submitted)
+	recorded: bool, // this frame's command buffer holds readbacks: hand its ticket to sculpt_gpu_submitted
 	landed:   [dynamic]Sculpt_Landed,
 	stats:    Sculpt_Gpu_Stats,
 }
@@ -375,7 +378,7 @@ slot_order :: proc(sg: ^Sculpt_Gpu) -> [SCULPT_SLOTS]int {
 	return order
 }
 
-// Starts a frame: applies every readback whose fence has signalled, oldest first and no
+// Starts a frame: applies every readback whose ticket is done, oldest first and no
 // further than the first still running (all of them, waiting, in sync mode), and frees
 // the slot this frame will record into. Call once a frame before anything is recorded.
 sculpt_gpu_frame :: proc(r: ^Renderer) {
@@ -384,13 +387,13 @@ sculpt_gpu_frame :: proc(r: ^Renderer) {
 	blocked := false
 	for i in slot_order(sg) {
 		s := &sg.slots[i]
-		if s.fence != nil {
-			if !blocked && (sg.sync || i == sg.slot || gpu.query_fence(s.fence)) do sculpt_slot_apply(r, s)
+		if s.submitted {
+			if !blocked && (sg.sync || i == sg.slot || gpu.done(s.ticket)) do sculpt_slot_apply(r, s)
 			else do blocked = true
 		}
-		// Entries with no fence were recorded by a frame that was never submitted: they
+		// Entries not submitted were recorded by a frame that never was: they
 		// hold nothing to read.
-		if s.fence == nil && i == sg.slot do sculpt_slot_drop(r, s)
+		if !s.submitted && i == sg.slot do sculpt_slot_drop(r, s)
 	}
 }
 
@@ -697,7 +700,8 @@ sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Fac
 		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
 		state := sculpt_gpu_prepare(r, cmd, mb, faces, shared)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() {
+		ticket, submitted := gpu.submit(cmd)
+		if !submitted || !gpu.wait(ticket) {
 			_ = sculpt_lookup_refused(r, mb, "the lookup's upload")
 			return false
 		}
@@ -818,10 +822,8 @@ sculpt_gpu_read_normals :: proc(r: ^Renderer, mb: ^Mesh_Buffers, ranges: []geom.
 		at += bytes
 	}
 	gpu.end_copy_pass(pass)
-	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil do return false
-	defer gpu.release_fence(fence)
-	if !gpu.wait_for_fences(true, &fence, 1) do return false
+	ticket, submitted := gpu.submit(cmd)
+	if !submitted || !gpu.wait(ticket) do return false
 	src := ([^]Normal_Packed)(gpu.map_transfer_buffer(download, false))
 	if src == nil do return false
 	sculpt_unpack_normals(r, src, ranges, normals)
@@ -1280,24 +1282,21 @@ sculpt_refused :: proc(sg: ^Sculpt_Gpu, what: string) -> bool {
 	return false
 }
 
-// Takes the fence of the frame's command buffer, once submitted, for the readbacks it
-// recorded; nil says the GPU has already finished it (a frame that waited for it), and the
-// readbacks apply now. Call once a frame after the submit, when sculpt_gpu_recorded.
-sculpt_gpu_submitted :: proc(r: ^Renderer, fence: gpu.Fence) {
+// Takes the ticket of the frame's command buffer, once submitted, for the readbacks it
+// recorded; where the GPU has already run it (a frame that waited for it) the readbacks
+// apply now. Call once a frame after the submit, when sculpt_gpu_recorded.
+sculpt_gpu_submitted :: proc(r: ^Renderer, ticket: gpu.Ticket) {
 	sg := &r.sculpt_gpu
 	s := &sg.slots[sg.slot]
 	sg.recorded = false
-	if len(s.entries) == 0 {
-		if fence != nil do gpu.release_fence(fence)
-		return
-	}
-	s.fence = fence
-	if fence == nil do sculpt_slot_apply(r, s, waited = true)
+	if len(s.entries) == 0 do return
+	s.submitted, s.ticket = true, ticket
+	if gpu.done(ticket) do sculpt_slot_apply(r, s)
 	sg.slot = (sg.slot + 1) % SCULPT_SLOTS
 }
 
-// Whether this frame's command buffer holds readbacks, which the frame then submits with a
-// fence for sculpt_gpu_submitted.
+// Whether this frame's command buffer holds readbacks, whose ticket the frame then hands
+// to sculpt_gpu_submitted.
 sculpt_gpu_recorded :: proc(r: ^Renderer) -> bool {
 	return r.sculpt_gpu.recorded
 }
@@ -1311,7 +1310,7 @@ sculpt_gpu_sync :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 	newest := -1
 	for i, k in order {
 		s := &sg.slots[i]
-		if s.fence == nil do continue
+		if !s.submitted do continue
 		for e in s.entries do if e.mesh == mb {
 			newest = k
 			break
@@ -1319,10 +1318,10 @@ sculpt_gpu_sync :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 	}
 	for i, k in order {
 		if k > newest do break
-		if s := &sg.slots[i]; s.fence != nil do sculpt_slot_apply(r, s)
+		if s := &sg.slots[i]; s.submitted do sculpt_slot_apply(r, s)
 	}
 	current := &sg.slots[sg.slot]
-	if current.fence == nil do for e in current.entries do if e.mesh == mb do return false
+	if !current.submitted do for e in current.entries do if e.mesh == mb do return false
 	return true
 }
 
@@ -1384,7 +1383,6 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	sg := &r.sculpt_gpu
 	if !r.has_device do return
 	for &s in sg.slots {
-		if s.fence != nil do gpu.release_fence(s.fence)
 		if s.download != 0 do gpu.release_transfer_buffer(s.download)
 		for b in s.retired do gpu.release_transfer_buffer(b)
 		delete(s.retired)
@@ -1419,20 +1417,18 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	sg.stats = stats
 }
 
-// Waits for a slot's frame (or takes the caller's word, `waited`, that it is done), copies
+// Waits for a slot's frame, copies
 // every entry's positions and decodes its packed normals into its mesh, lists the
 // positions that landed for the app, and frees the slot.
 @(private = "file")
-sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
+sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot) {
 	sg := &r.sculpt_gpu
-	if s.fence != nil {
-		_ = gpu.wait_for_fences(true, &s.fence, 1)
-		gpu.release_fence(s.fence)
-		s.fence = nil
-	} else if !waited {
+	if !s.submitted {
 		sculpt_slot_drop(r, s)
 		return
 	}
+	_ = gpu.wait(s.ticket)
+	s.submitted, s.ticket = false, {}
 	defer sculpt_slot_drop(r, s)
 	if len(s.entries) == 0 do return
 	start := time.tick_now()

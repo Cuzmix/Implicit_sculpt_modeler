@@ -70,14 +70,14 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   the idle cache (the live items would cover it), any see-through item skips the cache, and with MSAA it skips partial
   redraw too. `view_depth_draw` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
 - The frame (`frame_step` in `src/app/frame.odin`; `run` in `main.odin` only sets up, loops and tears down): apply the scene command (`frame_settle`) → change vsync before acquiring (`frame_pace`;
-  `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
+  `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous frame's ticket when timing
   → acquire `present_cmd` and the swapchain texture → events (`frame_events`) → `viewport_target_resize`
   before the interface references the texture → the interface (`kit_frame`), the tools and the viewport overlay → a second command buffer `cmd` for the 3D
   work → per object and part (current level, plus the HD window): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
   → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; its groups' in `Object.group_materials`, `.Group_Material`, version 15, drawn through `object_material_slots`; selected colour, idle when `dim_others`) and `wireframe` on the selected one →
-  `render_viewport` → submit, with a fence when `time_gpu` → `kit_upload` and the interface's
+  `render_viewport` → submit, waited for when `time_gpu` → `kit_upload` and the interface's
   pass (`ui_pass_draw`) into the swapchain on `present_cmd`. View windows (`src/app/view_window.odin`) are other
   swapchains on the same device (`render.window_claim`/`window_release`, mailbox where offered): each has its own
   `Ui_Pass` and its own command buffer submitted after `present_cmd`, acquired with the non-waiting
@@ -96,7 +96,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps);
   `Readback` (`readback_start`/`readback_poll`/`readback_cancel`) reads a texture back without waiting, on its own
-  command buffer submitted after the frame's and collected once its fence signals (the scene preview, at rest).
+  command buffer submitted after the frame's and collected once its ticket is done (the scene preview, at rest).
 - Textured preview (`src/render/textured.odin`, app `src/app/textures.odin`; design notes/rendering/textured-preview-design.md):
   `Textured_Mesh` (one interleaved 32-byte `Textured_Vertex`: FLOAT3 position, SHORT2_NORM masked octahedral normal,
   SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded with `gpu.upload` on the
@@ -124,7 +124,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   pi, in the panorama's axes); all zero keeps the studio branch, bit-identical. The source is RGBA16F with full mips;
   `prefiltered` is half size with up to `ENV_LEVELS` = 6 levels (fewer when the height runs out), level k roughness
   k/(levels-1), made once by `env_prefilter.frag.slang` into `mip_level` targets (64 Hammersley GGX samples, Colbert-Krivanek
-  lod) on its own command buffer behind a fence. Equirect mapping lives in `panorama.slang` (`u = atan(x, -z)/2pi + 0.5`,
+  lod) on its own command buffer, waited for. Equirect mapping lives in `panorama.slang` (`u = atan(x, -z)/2pi + 0.5`,
   `v = acos(y)/pi`, row 0 up), the display curve in `display.slang` (`display_color(c, stops)`), both included by
   `mesh_shading.slang` and `clear.frag.slang`. `clear.frag.slang` shows the background from `Clear_Uniforms.env` and `clip_to_env`
   (rotation transpose times inverse projection, unprojected like `floor.frag.slang`); `draw_background` skips its flat early
@@ -245,7 +245,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
   buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
   dispatches one compute pass a step (the own backends put a full barrier after every dispatch, so dependent dispatches may chain inside one pass, as the sculpt kernels do) in rows of at most 65535
-  groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
+  groups, downloads, and waits for each part's ticket to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp.slang` with the other shaders.
 
 - The interface's pass (`src/render/ui_pass.odin`, `ui.vert.slang`/`ui.frag.slang`): `ui_pass_upload` copies the kit's 20-byte
@@ -314,8 +314,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 
 ## Rules
 - Only `src/gpu` talks to the GPU, and only `render` imports it; `app` imports `vendor:sdl3` for windows, events
-  and the pen only, and reaches the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`,
-  `Sample_Count`, and `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`,
+  and the pen only, and reaches the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Ticket`,
+  `Sample_Count`, and `cmd_begin`/`cmd_submit`/`cmd_submit_ticket`/`cmd_cancel`, `ticket_wait`,
   `swapchain_acquire`, `ui_present` (each window's present pass), `renderer_ready`; the backend's own procs the app
   needs (`backend_select`, `backend_error`, `window_flags`, `validation_errors`, `gpu_counters`) are named again
   in `src/render/backend.odin`. `scripts/boundary_check.py` (run by `check`) fails on any native GPU import outside
@@ -328,8 +328,10 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   speaks `src/gpu/types.odin` (`gpu.Format`, `gpu.Texture_Desc`, `gpu.Color_Target`, ...; Ada_Case members such
   as `.RGBA8_Unorm`, `.Clear`, `.Triangle_List`). Resources (`gpu.Buffer`, `gpu.Texture`, `gpu.Sampler`,
   `gpu.Shader`, the pipelines, `gpu.Transfer_Buffer`) are generational `u32` handles into `src/gpu/pool.odin`
-  (0 is none; a released handle stops resolving), compared with 0, never nil; `gpu.Cmd`, the passes and `gpu.Fence`
-  stay opaque pointers for one frame's use. A failed call returns 0, nil or false and `gpu.last_error()` says why.
+  (0 is none; a released handle stops resolving), compared with 0, never nil; `gpu.Cmd` and the passes
+  stay opaque pointers for one frame's use. `gpu.submit` hands back a `gpu.Ticket` (`{value, queue}`, a plain
+  value, nothing to release; zero is done): `gpu.done(t)` polls it, `gpu.wait(..t)` blocks (at once under WebGPU,
+  whose readbacks poll), `gpu.wait_on(cmd, t)` makes graphics wait for compute. A failed call returns 0, nil or false and `gpu.last_error()` says why.
   `render` never reads UI state.
 - New uploads go through the GPU layer's upload memory (`src/gpu/staging.odin`): `gpu.upload(cmd, buffer, offset, bytes)`,
   `gpu.upload_texture(cmd, region, bytes)`, or `gpu.stage_buffer`/`gpu.stage_texture` to write in place; the copies are

@@ -116,12 +116,12 @@ Path_Render :: struct {
 	rq_on:          bool,
 	rq:             bool,
 	// With async compute each band runs on the compute queue (render_frame's `async`):
-	// at most one in flight, its fence, the run it belongs to (a band of an older run is
+	// at most one in flight, its ticket (zero for none), the run it belongs to (a band of an older run is
 	// dropped), when it went, and whether it finishes its sample. `generation` counts runs:
 	// a reset or new images start another.
 	async:          bool,
 	async_failed:   bool, // the device refused a compute-queue command buffer; bands stay in the frame
-	band_fence:     gpu.Fence,
+	band_ticket:    gpu.Ticket,
 	band_generation: u64,
 	band_started:   time.Tick,
 	band_last:      bool,
@@ -333,7 +333,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 	}
 	// While a band runs nothing it reads may change: the next waits, and so does a new
 	// view's scene, whose build rewrites the buffers a band of the old one may still read.
-	if pr.band_fence != nil do return true
+	if pr.band_ticket.value != 0 do return true
 	if !pr.built {
 		if !path_scene_build(r, pr, cmd, vt, view, proj, items, lights, softness, pool) do return true
 		pr.built = true
@@ -365,13 +365,13 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 				debug_group(band, "Render mode band")
 				path_band_record(r, pr, band, rows, bounces)
 			}
-			fence := gpu.submit_compute(band)
-			if fence == nil {
+			ticket, ok := gpu.submit(band)
+			if !ok {
 				log.errorf("render mode: a band could not be submitted (%s); it stays off", gpu.last_error())
 				pr.failed = true
 				return false
 			}
-			pr.band_fence, pr.band_generation, pr.band_started = fence, pr.generation, now
+			pr.band_ticket, pr.band_generation, pr.band_started = ticket, pr.generation, now
 			pr.row += rows
 			pr.band_last = pr.row >= pr.height
 			if pr.band_last do pr.row = 0
@@ -438,20 +438,19 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 // A band on the compute queue that has finished: sizes the next by how long it took (three
 // frame intervals or more halve the rows, under one and a half doubles them), and when it
 // ended its sample, has this frame wait for it and lays the sample out. A band of an
-// older run only lets go of its fence.
+// older run only lets go of its ticket.
 @(private = "file")
 path_band_collect :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, exposure: f32, denoise: bool, interval: time.Duration) {
-	if pr.band_fence == nil || !gpu.query_fence(pr.band_fence) do return
-	fence := pr.band_fence
-	pr.band_fence = nil
-	defer gpu.release_fence(fence)
+	if pr.band_ticket.value == 0 || !gpu.done(pr.band_ticket) do return
+	ticket := pr.band_ticket
+	pr.band_ticket = {}
 	if pr.band_generation != pr.generation do return
 	if took := time.tick_since(pr.band_started); interval > 0 {
 		if took >= 3 * interval do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 		else if 2 * took < 3 * interval do pr.rows = min(pr.rows * 2, pr.height)
 	}
 	if !pr.band_last do return
-	gpu.wait_on(cmd, fence)
+	gpu.wait_on(cmd, ticket)
 	path_sample_done(pr, cmd, vt, exposure, denoise)
 }
 
@@ -513,8 +512,7 @@ path_render_reset :: proc(pr: ^Path_Render) {
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if !r.has_device do return
-	if pr.band_fence != nil do gpu.release_fence(pr.band_fence)
-	pr.band_fence = nil
+	pr.band_ticket = {}
 	if pr.pipeline != 0 do gpu.release_compute_pipeline(pr.pipeline)
 	if pr.rq_pipeline != 0 do gpu.release_compute_pipeline(pr.rq_pipeline)
 	if pr.display != 0 do gpu.release_graphics_pipeline(pr.display)
