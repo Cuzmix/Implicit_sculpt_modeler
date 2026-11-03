@@ -1108,6 +1108,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// a recording stroke's movement in the base rather than its layer.
 	stroke_finish(app)
 	inspector_drags_end(app)
+	object_gpu_sync(obj)
 	lv := sculpt.levels_current(&obj.levels)
 	positions, normals, indices := lv.mesh.positions[:], lv.mesh.normals[:], lv.mesh.indices[:]
 	packed: geom.Mesh

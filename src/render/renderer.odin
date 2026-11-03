@@ -1089,7 +1089,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	mb.index_version = mb.version
 	// Readable by compute as well, so the traced studio casts rays at the triangles the
 	// viewport draws without copying them; a device that refuses gets plain buffers.
-	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = vbytes}
+	positions_info := sdl.GPUBufferCreateInfo{usage = {.VERTEX, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE, .GRAPHICS_STORAGE_READ}, size = vbytes}
 	indices_info := sdl.GPUBufferCreateInfo{usage = {.INDEX, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ}, size = ibytes}
 	// Normals, positions and indices are read as storage too by the skinned pipeline, which
 	// pulls its vertices itself (skin.odin), and the normals are written by the normals

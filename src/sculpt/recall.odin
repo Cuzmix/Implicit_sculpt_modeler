@@ -34,6 +34,7 @@ sculptor_recall_reach :: proc(s: ^Sculptor) -> int {
 // when `back` is out of reach (sculptor_recall_reach).
 sculptor_recall_build :: proc(s: ^Sculptor, back: int, pinned := false) -> bool {
 	if back < 1 || back > sculptor_recall_reach(s) do return false
+	_ = sculptor_gpu_sync(s)
 	h := &s.history
 	if len(s.recall) != len(s.mesh.positions) {
 		delete(s.recall, h.allocator)

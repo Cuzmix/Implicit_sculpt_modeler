@@ -581,6 +581,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// (a clay's band repair and saddle pass run at its end).
 		stroke_finish(app)
 		for obj in app.scene.objects {
+			object_gpu_sync(obj)
 			if vp := obj.voxel; vp != nil {
 				// The surface as Convert to mesh would make it: the nodes' borders welded.
 				welded := voxel.clay_to_mesh(&vp.clay)
@@ -687,7 +688,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
 	sg := app.renderer.sculpt_gpu.stats
-	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_cpu, sg.dispatches)
+	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d gpu_dab_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dabs=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_dabs, sg.strokes_cpu, sg.dabs, sg.dispatches)
 	if app.stats.gpu_sculpt_kb.count > 0 {
 		print_stat("gpu_sculpt_kb", app.stats.gpu_sculpt_kb)
 		print_stat("gpu_sculpt_apply_ms", app.stats.gpu_sculpt_apply_ms)

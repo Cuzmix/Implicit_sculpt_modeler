@@ -15,6 +15,7 @@ sculptor_project :: proc(s: ^Sculptor, next: []Vec3, colors: []Color, strength: 
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || strength <= 0 || len(next) != len(s.mesh.positions) do return false
 	if colors != nil && len(colors) != len(next) do return false
+	_ = sculptor_gpu_sync(s)
 	Job :: struct {
 		s:        ^Sculptor,
 		next:     []Vec3,

@@ -1,9 +1,10 @@
-// slangc wgsl from node_normals.comp.spv sha256 c617e93944fd05bae148d89216805aa881341b4c821a6a9a713c78b875e7268b
+// slangc wgsl from node_normals.comp.spv sha256 95b2b2b708f549f07d3f978b968e3eb1969871aa4710aa37137132f008adbefa
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
     @align(16) slab_count_0 : u32,
     @align(4) groups_x_0 : u32,
+    @align(8) slab_first_0 : u32,
 };
 
 @binding(0) @group(2) var<uniform> Params_0 : SLANG_ParameterGroup_Params_std140_0;
@@ -77,7 +78,7 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     {
         return;
     }
-    var slab_0 : vec2<u32> = slabs_0[g_0];
+    var slab_0 : vec2<u32> = slabs_0[Params_0.slab_first_0 + g_0];
     var _S7 : u32 = local_id_0.x;
     if(_S7 >= (slab_0.y))
     {
