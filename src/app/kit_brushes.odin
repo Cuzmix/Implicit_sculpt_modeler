@@ -496,9 +496,6 @@ library_open_for :: proc(app: ^App, pick: Bar_Pick) {
 	p.side_scroll, p.side_reveal = 0, true
 	// The search field takes the keys at once, so typing a name and Enter chooses.
 	p.search_focus = true
-	// Editing the docks, the edit mode's own sheet steps aside so the Library's tiles take
-	// the taps; its button in the top bar brings it back.
-	if k.bars_edit do k.arrange.library_off = true
 }
 
 // The category the Library opens on for bar `which`.
