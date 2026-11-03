@@ -53,6 +53,11 @@ Cloth_Settings :: struct {
 	keep_area:    bool,
 	allow_shrink: bool, // edges may grow shorter freely: the cloth crumples without pushing back
 	allow_expand: bool, // edges may grow longer freely: the cloth stretches like rubber
+	// What it collides with (cloth_collide.odin): the floor and the other objects, which
+	// the app gives it (sculptor_cloth_collide), and its own far parts.
+	floor:        bool,
+	objects:      bool,
+	self_collide: bool,
 }
 
 CLOTH_DEFAULTS :: Cloth_Settings {
@@ -103,6 +108,13 @@ Cloth :: struct {
 	bend:       [dynamic]u32,
 	bend_len:   [dynamic]f32,
 	bend_at:    [dynamic]Vec3,
+	collide:    Cloth_Collisions, // what it collides with this stroke
+	// Self collision's grid (cloth_self_grid): the cell size, each vertex's slot, and the
+	// vertices by slot.
+	self_cell:  f32,
+	self_slot:  [dynamic]u32,
+	self_first: [dynamic]u32,
+	self_order: [dynamic]u32,
 }
 
 // How far around the brush the cloth reaches, in brush radii: far enough for folds to
@@ -595,6 +607,10 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
 			jobs.parallel_for(pool, chunks, &j, job_cloth_constrain)
 			c.pos, c.next = c.next, c.pos
 		}
+		if cloth_collides(c) {
+			cloth_collide_pass(s, pool)
+			c.pos, c.next = c.next, c.pos
+		}
 	}
 	c.last = offset
 	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
@@ -626,6 +642,8 @@ sculptor_cloth_end :: proc(s: ^Sculptor) {
 	clear(&c.turn)
 	clear(&c.images)
 	c.steps, c.last, c.link_mean = 0, {}, 0
+	clear(&c.collide.colliders)
+	c.collide = {colliders = c.collide.colliders}
 }
 
 // Nodes not in ascending vertex order cannot be looked up; that never happens for a
@@ -784,6 +802,8 @@ cloth_init :: proc(c: ^Cloth, allocator := context.allocator) {
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do a^ = make([dynamic]u32, 0, 1024, allocator)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do a^ = make([dynamic]f32, 0, 1024, allocator)
 	c.turn = make([dynamic]matrix[3, 3]f32, 0, 1024, allocator)
+	c.collide.colliders = make([dynamic]Cloth_Collider, allocator)
+	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do a^ = make([dynamic]u32, allocator)
 }
 
 @(private)
@@ -792,5 +812,7 @@ cloth_destroy :: proc(c: ^Cloth) {
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do delete(a^)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do delete(a^)
 	delete(c.turn)
+	delete(c.collide.colliders)
+	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do delete(a^)
 	c^ = {}
 }

@@ -238,7 +238,7 @@ replay_shortcut :: proc(app: ^App) {
 // loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
 // The only version read: a change replaces the reader (AGENTS.md).
-STROKES_VERSION :: u32(32)
+STROKES_VERSION :: u32(33)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -307,6 +307,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, u8(b.grab_outline))
 		geom.byte_put(&out, [4]u8{u8(b.cloth.region), u8(b.cloth.keep_area), u8(b.cloth.allow_shrink), u8(b.cloth.allow_expand)})
 		geom.byte_put(&out, [4]f32{b.cloth.stiffness, b.cloth.firmness, b.cloth.damping, b.cloth.gravity})
+		geom.byte_put(&out, [3]u8{u8(b.cloth.floor), u8(b.cloth.objects), u8(b.cloth.self_collide)})
 		geom.byte_put(&out, u8(b.physics))
 		geom.byte_put(&out, b.physics_strength)
 	}
@@ -430,6 +431,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		outline := geom.byte_get(&r, u8)
 		cloth_ways := geom.byte_get(&r, [4]u8)
 		cloth_amounts := geom.byte_get(&r, [4]f32)
+		collides := geom.byte_get(&r, [3]u8)
 		physics := geom.byte_get(&r, u8)
 		physics_strength := geom.byte_get(&r, f32)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
@@ -444,7 +446,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		if int(cloth_ways[0]) >= len(sculpt.Cloth_Region) || cloth_ways[1] > 1 || cloth_ways[2] > 1 || cloth_ways[3] > 1 do return false
 		for x in cloth_amounts do if !finite(x) || x < 0 || x > 1 do return false
-		if physics > 1 || !finite(physics_strength) || physics_strength < 0 || physics_strength > 1 do return false
+		if collides[0] > 1 || collides[1] > 1 || collides[2] > 1 || physics > 1 || !finite(physics_strength) || physics_strength < 0 || physics_strength > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
@@ -467,6 +469,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.cloth = {
 			region = sculpt.Cloth_Region(cloth_ways[0]), keep_area = cloth_ways[1] == 1, allow_shrink = cloth_ways[2] == 1, allow_expand = cloth_ways[3] == 1,
 			stiffness = cloth_amounts[0], firmness = cloth_amounts[1], damping = cloth_amounts[2], gravity = cloth_amounts[3],
+			floor = collides[0] == 1, objects = collides[1] == 1, self_collide = collides[2] == 1,
 		}
 		b.spray_spread = clamp(spread, 0, SPRAY_MAX_SPREAD)
 		b.line, b.join = line == 1, join == 1
