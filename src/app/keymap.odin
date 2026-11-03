@@ -259,6 +259,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))
 	case .Mask_By:   return fmt.tprint(sculpt.Mask_By(arg))
 	case .Layer_Edit: return fmt.tprint(Layer_Action(arg))
+	case .Paint_Layer_Edit: return fmt.tprint(Paint_Layer_Action(arg))
 	case .Paint:     return fmt.tprint(sculpt.Paint_Command(arg))
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)

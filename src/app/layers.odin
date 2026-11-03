@@ -112,7 +112,10 @@ layer_drag_finish :: proc(app: ^App) {
 	if !app.ui.layer_dragging do return
 	app.ui.layer_dragging = false
 	// The drag's own object: a pen can select another while a finger holds the slider.
+	paint := app.ui.layer_drag_paint
+	app.ui.layer_drag_paint = false
 	if obj := object_by_id(app, app.ui.layer_drag_id); obj != nil && sculpt.sculptor_stroke_end(object_sculptor(obj)) {
-		history_record(app, obj, .Layer, "Layer strength")
+		if paint do history_record(app, obj, .Paint, "Paint layer opacity")
+		else do history_record(app, obj, .Layer, "Layer strength")
 	}
 }

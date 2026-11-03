@@ -1,4 +1,4 @@
-// slangc wgsl from cull_write.comp.spv sha256 3d94c3806ae8ba9cb39b6e39a66e5751e9334ee2bedd92e21a4884a912057101
+// slangc wgsl from cull_write.comp.spv sha256 b3832713eb98801e216f08fd991678d29e16703639e827c59b474555a4f457b6
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Cull_Uniforms_std140_0
 {
@@ -295,7 +295,15 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     commands_0[at_0 + u32(1)] = u32(1);
     commands_0[at_0 + u32(2)] = r_6.first_index_0;
     commands_0[at_0 + u32(3)] = u32(0);
-    commands_0[at_0 + u32(4)] = u32(0);
+    if((Cull_Uniforms_0.counts_0.z) != u32(0))
+    {
+        k_0 = r_6.first_index_0 / u32(3);
+    }
+    else
+    {
+        k_0 = u32(0);
+    }
+    commands_0[at_0 + u32(4)] = k_0;
     return;
 }
 

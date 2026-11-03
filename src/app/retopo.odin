@@ -108,7 +108,7 @@ quad_source :: proc(app: ^App, obj: ^Object, options: retopo.Options) -> (src: r
 			sharp := obj.levels.levels[0].sharp
 			if len(sharp.edges) > 0 do src.creases = slice.clone(sharp.edges)
 		}
-		if options.use_paint && sculpt.sculptor_has_color(s) do src.paint = slice.clone(s.color)
+		if c := sculpt.sculptor_paint_shown(s); options.use_paint && c != nil do src.paint = slice.clone(c)
 		if options.use_mask && sculpt.sculptor_has_mask(s) do src.mask = slice.clone(s.mask)
 	}
 	return

@@ -451,7 +451,7 @@ object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		held = out[:]
 	}
 	s := &sculpt.levels_current(l).sculptor
-	if len(s.layers.list) > 0 || s.color != nil || s.mask != nil {
+	if len(s.layers.list) > 0 || sculpt.sculptor_paint_shows(s) || s.mask != nil {
 		report(app, nil, {}, "Edit cage on %s keeps its sculpted detail, but not its polypaint, mask or layers", object_label(obj))
 	}
 	render.wait_idle(&app.renderer)
@@ -882,7 +882,7 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 	.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked, .Grow_Visible, .Shrink_Visible, .Grow_All_Visible,
 	.Outer_Ring, .Grow_To_Groups, .Show_Masked, .Store_Selection_Set, .Restore_Selection_Set, .Paint, .Group,
 	.Delete_Lower_Levels, .Delete_Higher_Levels, .Hd_Divide, .Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Detail_Skin, .Skin_Apply, .Skin_Squeeze, .Morph_Store,
-	.Morph_Delete, .New_Layer, .Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
+	.Morph_Delete, .New_Layer, .Layer_Edit, .New_Paint_Layer, .Paint_Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
 	.Deformation, .Reshape_Repeat, .Delete_Hidden, .Extract_Masked, .Replay_Stroke,
 }
 

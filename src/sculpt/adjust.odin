@@ -107,7 +107,7 @@ adjust_keep_after :: proc(s: ^Sculptor, step: ^Undo_Step) {
 		at := step.after_at[i]
 		switch {
 		case sv.masks != nil:  copy(step.after_masks[at:][:n.vert_count], s.mask[n.vert_first:][:n.vert_count])
-		case sv.colors != nil: copy(step.after_colors[at:][:n.vert_count], s.color[n.vert_first:][:n.vert_count])
+		case sv.colors != nil: copy(step.after_colors[at:][:n.vert_count], paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:n.vert_count])
 		case sv.is_delta:      copy(step.after_vecs[at:][:n.vert_count], s.layers.list[sv.delta_layer].delta[sv.node])
 		case:                  copy(step.after_vecs[at:][:n.vert_count], s.mesh.positions[n.vert_first:][:n.vert_count])
 		}
@@ -129,7 +129,8 @@ job_adjust :: proc(data: rawptr, i: int) {
 		after := step.after_masks[at:][:count]
 		for &m, j in live do m = adjust_byte(sv.masks[j], after[j], k)
 	case sv.colors != nil:
-		live := s.color[n.vert_first:][:count]
+		// The layer the step painted, which need not be the one picked now.
+		live := paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:count]
 		after := step.after_colors[at:][:count]
 		for &c, j in live do for ch in 0 ..< 4 do c[ch] = adjust_byte(sv.colors[j][ch], after[j][ch], k)
 	case sv.is_delta:

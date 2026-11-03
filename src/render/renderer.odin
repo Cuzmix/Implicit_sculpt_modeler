@@ -280,6 +280,11 @@ Mesh_Buffers :: struct {
 	// (mesh_buffers_set_edges).
 	edges:           ^sdl.GPUBuffer,
 	edge_indices:    u32,
+	// The polygon edges again per triangle, for the wireframe drawn in the shading pass
+	// (mesh_wire.frag.slang): four bits a triangle, eight a word, bit k set where the edge
+	// across from corner k is a polygon's and clear where it only cuts a polygon into
+	// triangles; nil for none (mesh_buffers_set_edges).
+	tri_edges:       ^sdl.GPUBuffer,
 
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
@@ -520,6 +525,7 @@ MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT, string)
 MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT, string)
 MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT, string)
 MESH_WIRE_FRAG_CODE :: #load("shaders/mesh_wire.frag" + SHADER_EXT, string)
+MESH_WIRE_VERT_CODE :: #load("shaders/mesh_wire.vert" + SHADER_EXT, string)
 TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT, string)
 SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT, string)
 SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT, string)
@@ -807,7 +813,7 @@ lights_have_area :: proc(l: Lights) -> bool {
 @(private)
 create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false) -> ^sdl.GPUGraphicsPipeline {
 	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
-	if wire_bary do frag_code = MESH_WIRE_FRAG_CODE
+	if wire_bary do vert_spv, frag_code = MESH_WIRE_VERT_CODE, MESH_WIRE_FRAG_CODE
 	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
 	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
 	if skin_tess do vert_spv = SKIN_TESS_VERT_CODE
@@ -828,7 +834,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		stage               = .FRAGMENT,
 		num_samplers        = 5 if textured else 2,
 		num_uniform_buffers = 1 if textured else 2,
-		num_storage_buffers = SKIN_FRAGMENT_STORAGE if skinned else 0,
+		num_storage_buffers = SKIN_FRAGMENT_STORAGE if skinned else (1 if wire_bary else 0),
 	})
 	// Shaders are only needed until the pipeline is built.
 	defer if vert != nil do gpu_release_shader(r.device, vert)
@@ -1282,6 +1288,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
+	if mb.tri_edges != nil do gpu_release_buffer(r.device, mb.tri_edges)
 	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
 	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
 	if mb.skin_heights != nil do gpu_release_buffer(r.device, mb.skin_heights)
@@ -1860,11 +1867,15 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		mb.tess_draw_count = u32(len(mb.tess_visible)) if tess else 0
 		if mb.draw_count + mb.lod_draw_count + mb.tess_draw_count == 0 do continue
 		dst := cast([^]sdl.GPUIndexedIndirectDrawCommand)gpu_map_transfer_buffer(r.device, mb.indirect_transfer, true)
+		// Where the wireframe can be drawn in the shading pass, each command's first instance
+		// is its first triangle's number, which the shader adds the primitive id to; a
+		// simplified copy's triangles have no polygons behind them (WIRE_ALL_EDGES).
+		numbered := r.caps.barycentric
 		for v, i in mb.visible {
-			dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
+			dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index, first_instance = v.first_index / 3 if numbered else 0}
 		}
 		for v, i in mb.lod_visible {
-			dst[int(mb.draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
+			dst[int(mb.draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index, first_instance = WIRE_ALL_EDGES if numbered else 0}
 		}
 		// The grid's commands, read as non-indexed ones: vertices, not indices.
 		for v, i in mb.tess_visible[:mb.tess_draw_count] {
@@ -2073,15 +2084,19 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		// The skin's own shader has no area lights' code: a skinned item leaves them out.
 		if skinned do main = pipes.skinned
 		// A plain opaque item's wireframe is drawn in its own shading where the device
-		// can (wire_pipeline): no second pass of its triangles. The rest draw it as lines.
+		// can (wire_pipeline): no second pass of its triangles. So are the polygon edges a
+		// polygon level's wireframe draws (Mesh_Buffers.tri_edges), leaving out the
+		// diagonals. The rest draw them as lines.
 		wire_lines := item.wireframe
-		if item.wireframe && main == pipes.mesh {
+		poly_shaded := false
+		if (item.wireframe || item.cage_lines && item.mesh.tri_edges != nil) && main == pipes.mesh {
 			if wired := wire_pipeline(r, pipes); wired != nil {
 				main = wired
 				wire_lines = false
+				poly_shaded = !item.wireframe
 			}
 		}
-		if stats != nil && item.wireframe {
+		if stats != nil && (item.wireframe || poly_shaded) {
 			if wire_lines do stats.wire_lines += 1
 			else do stats.wire_shaded += 1
 		}
@@ -2102,6 +2117,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else lights_default()
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
+		if poly_shaded do material.wire.w = 1
 		material_environment(r, &material)
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
@@ -2130,6 +2146,10 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
 		samplers := [2]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
 		gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+		if main == pipes.mesh_wire {
+			edges := [1]^sdl.GPUBuffer{mb.tri_edges if poly_shaded else r.no_paint}
+			gpu_bind_fragment_storage_buffers(pass, 0, &edges[0], 1)
+		}
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		if skinned {
 			if draw_skinned_item(r, pass, pipes, item, stats) do bound = pipes.skin_tess
@@ -2143,7 +2163,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			wire_pass(r, cmd, pass, pipes, item)
 			bound = pipes.wire
 		}
-		if lines_pass(r, cmd, pass, pipes, item, frame, view, proj) do bound = pipes.lines
+		if !poly_shaded && lines_pass(r, cmd, pass, pipes, item, frame, view, proj) do bound = pipes.lines
 	}
 }
 
@@ -2181,17 +2201,30 @@ CAGE_LINE_PULL :: 0.002
 CAGE_LINE_COLOR :: [4]f32{0.02, 0.02, 0.025, 1}
 
 // Gives `mb` the edge pairs `pairs` (vertex indices into its positions, two a line) to
-// draw with Draw_Item.cage_lines, replacing any it had; nil or empty removes them. Waits
-// for the copy. Returns false, with no edges, on a GPU failure.
-mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32) -> bool {
-	if mb.edges != nil {
+// draw with Draw_Item.cage_lines, replacing any it had; nil or empty removes them; and,
+// for polygon edges, the same edges per triangle as Mesh_Buffers.tri_edges holds them
+// (tri_edge_flags), which let the wireframe be drawn in the shading pass where the device
+// can. Waits for the copies. Returns false, with no edges, on a GPU failure.
+mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tri_edges: []u32 = nil) -> bool {
+	if mb.edges != nil || mb.tri_edges != nil {
 		_ = gpu_wait_for_idle(r.device)
-		gpu_release_buffer(r.device, mb.edges)
-		mb.edges, mb.edge_indices = nil, 0
+		if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
+		if mb.tri_edges != nil do gpu_release_buffer(r.device, mb.tri_edges)
+		mb.edges, mb.edge_indices, mb.tri_edges = nil, 0, nil
 	}
 	r.last_version += 1
 	mb.version = r.last_version
 	if len(pairs) == 0 do return true
+	if len(tri_edges) > 0 {
+		assert(len(tri_edges) == (int(mb.index_count / 3) + 7) / 8, "the triangles' edge bits do not match the buffers' triangles")
+		mb.tri_edges = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(tri_edges) * size_of(u32))})
+		if mb.tri_edges == nil || !upload_blocking(r, mb, mb.tri_edges, slice.to_bytes(tri_edges)) {
+			// The edges still draw as lines.
+			log.warnf("polygon edge bits upload failed: %s", sdl.GetError())
+			if mb.tri_edges != nil do gpu_release_buffer(r.device, mb.tri_edges)
+			mb.tri_edges = nil
+		}
+	}
 	for v in pairs do assert(v < mb.vertex_capacity, "an edge names a vertex the buffers do not hold")
 	mb.edges = gpu_create_buffer(r.device, {usage = {.INDEX}, size = u32(len(pairs) * size_of(u32))})
 	if mb.edges == nil || !upload_blocking(r, mb, mb.edges, slice.to_bytes(pairs)) {
@@ -2358,6 +2391,11 @@ lights_key :: proc(lights: Lights, centre: [3]f32) -> (dir: [3]f32, ok: bool) {
 	return linalg.normalize(toward), true
 }
 WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
+
+// The first instance of a simplified copy's draws where commands carry their first
+// triangle's number: none of its edges is a polygon's diagonal, so the wireframe draws
+// them all (mesh_shading.slang's WIRE_ALL_EDGES).
+WIRE_ALL_EDGES :: 0xffff_ffff
 
 // The wireframe's colour, linear: the theme's, else WIRE_COLOR.
 @(private)

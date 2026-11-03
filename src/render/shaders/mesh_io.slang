@@ -45,6 +45,12 @@ struct Mesh_Varyings {
 	// Frame_Uniforms.skin, which the fragment stage cannot read from the vertex's uniforms.
 	[[vk::location(12)]] nointerpolation uint4 skin_meta : SKIN_META;
 #endif
+#ifdef WIRE_BARY
+	// The number of the draw's first triangle, from its first instance (the indirect
+	// commands carry first index over three; render.WIRE_ALL_EDGES for a simplified copy's),
+	// which the triangle's number in the draw adds to (wire_over in mesh_shading.slang).
+	[[vk::location(13)]] nointerpolation uint tri_base : TRI_BASE;
+#endif
 };
 
 struct Mesh_Vertex_Out {

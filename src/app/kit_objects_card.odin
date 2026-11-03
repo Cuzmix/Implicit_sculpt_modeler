@@ -231,7 +231,7 @@ card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, line: Tree_Line, 
 // Whether the object's shown level carries polypaint.
 @(private = "file")
 object_has_paint :: proc(obj: ^Object) -> bool {
-	return sculpt.sculptor_has_color(&sculpt.levels_current(&obj.levels).sculptor)
+	return sculpt.sculptor_paint_shows(&sculpt.levels_current(&obj.levels).sculptor)
 }
 
 // The pictures' menus, drawn over everything with the other popovers: More and a row's.

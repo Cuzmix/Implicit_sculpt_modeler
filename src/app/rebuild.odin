@@ -267,7 +267,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 					// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
 					// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
 					s := object_sculptor(obj)
-					painted := obj.voxel == nil && sculpt.sculptor_has_color(s)
+					painted := obj.voxel == nil && sculpt.sculptor_paint_shows(s)
 					masked := obj.voxel == nil && s.mask != nil
 					_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
 					_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)

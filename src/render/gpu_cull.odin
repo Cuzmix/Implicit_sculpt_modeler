@@ -124,7 +124,7 @@ gpu_cull_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item,
 	if !gpu_cull_kernels(r) || !indirect_ensure(r, mb, chunks + 1) || !gpu_cull_buffers(r, mb, chunks, groups) || !gpu_cull_upload(r, cmd, item) {
 		return false
 	}
-	u := Cull_Uniforms{planes = geom.frustum_planes(clip), eye = {eye.x, eye.y, eye.z, 0}, counts = {chunks, groups, 0, 0}}
+	u := Cull_Uniforms{planes = geom.frustum_planes(clip), eye = {eye.x, eye.y, eye.z, 0}, counts = {chunks, groups, 1 if r.caps.barycentric else 0, 0}}
 	debug_group(cmd, "GPU culling")
 	write := sdl.GPUStorageBufferReadWriteBinding{buffer = c.totals}
 	pass := gpu_begin_compute_pass(cmd, nil, 0, &write, 1)

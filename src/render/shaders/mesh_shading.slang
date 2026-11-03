@@ -58,7 +58,8 @@
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	float4 pass;
 #ifdef WIRE_BARY
-	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below).
+	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below), and
+	// in w 1 when tri_edges says which of them are polygon edges, 0 to draw them all.
 	float4 wire;
 #endif
 };
@@ -409,9 +410,26 @@ float underside(float3 n, float3x3 rig) {
 // pixel or two the lines would cover all of it in a moire of rings, so they even out to
 // WIRE_DENSE of the colour there: the surface reads as dense and its form still shows.
 #define WIRE_DENSE 0.5
-float4 wire_over(float4 c, float3 bary) {
+// Per triangle, four bits (eight triangles a word, the first lowest): bit k set where the
+// edge across from corner k is a polygon's edge, clear where it cuts a polygon into
+// triangles (a quad's diagonal), which the wireframe leaves out (render.Mesh_Buffers.tri_edges).
+[[vk::binding(2, 2)]] StructuredBuffer<uint> tri_edges;
+
+// render.WIRE_ALL_EDGES: a draw of triangles with no polygons behind them (a simplified copy).
+#define WIRE_ALL_EDGES 0xffffffffu
+
+float4 wire_over(float4 c, float3 bary, uint primitive) {
 	float3 per_px = max(fwidth(bary), float3(1e-8));
 	float3 px = bary / per_px;
+	if (wire.w > 0.5 && frag_in.tri_base != WIRE_ALL_EDGES) {
+		uint tri = frag_in.tri_base + primitive;
+		uint drawn = (tri_edges[tri >> 3u] >> ((tri & 7u) * 4u)) & 7u;
+		// An edge left out (a polygon's diagonal) is never the near one.
+		float far = 1e8;
+		if ((drawn & 1u) == 0u) px.x = far;
+		if ((drawn & 2u) == 0u) px.y = far;
+		if ((drawn & 4u) == 0u) px.z = far;
+	}
 	float near = min(px.x, min(px.y, px.z));
 	// The triangle's narrowest height in pixels, roughly.
 	float size = 1.0 / max(per_px.x, max(per_px.y, per_px.z));
@@ -421,8 +439,9 @@ float4 wire_over(float4 c, float3 bary) {
 
 float4 shade(Mesh_Varyings v_in, float4 position, bool is_front);
 
-float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace, float3 bary : SV_Barycentrics) : SV_Target0 {
-	return wire_over(shade(v_in, position, is_front), bary);
+float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace, float3 bary : SV_Barycentrics, uint primitive : SV_PrimitiveID) : SV_Target0 {
+	float4 c = shade(v_in, position, is_front);
+	return wire_over(c, bary, primitive);
 }
 
 float4 shade(Mesh_Varyings v_in, float4 position, bool is_front) {

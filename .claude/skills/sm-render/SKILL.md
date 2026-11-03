@@ -43,7 +43,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is
   ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` (the app sets it on
   the active object only, or every object in Wireframe shading) is drawn in the shading pass by `Mesh_Pipelines.mesh_wire`
-  (`mesh_wire.frag.slang`, first line `// barycentric`: `SV_Barycentrics`, `Material_Uniforms.wire`, MSL 2.3; made lazily by
+  (`mesh_wire.vert/frag.slang`, first line `// barycentric`: `SV_Barycentrics`, `SV_PrimitiveID` + `tri_base` from the command's first instance (= first_index/3, `WIRE_ALL_EDGES` for LOD runs; cull_write sets it when `counts.z`), `Mesh_Buffers.tri_edges` (4 bits a triangle: polygon edges, so quad diagonals are left out; `wire.w` 1) for a polygon level's `cage_lines`, `Material_Uniforms.wire`, MSL 2.3; made lazily by
   `wire_pipeline` where `Gpu_Caps.barycentric`, i.e. VK_KHR_fragment_shader_barycentric or Metal's barycentric coords) for a
   plain opaque item; otherwise (textured, see-through, skinned, area-lit, no barycentrics, `Renderer.wire_as_lines`) it
   draws the same chunks again through `pipes.wire` (`.LINE` fill, depth bias, no depth write), optional: if a backend refuses

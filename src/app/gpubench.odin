@@ -206,7 +206,7 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 	fmt.sbprintf(&sb, "Orbit turns the camera once around the sphere. Stroke drags the Draw brush (%.0f px) back and forth across it, ", app.brush.radius_px)
 	fmt.sbprintf(&sb, "%.0f px a frame, and counts only frames that sculpted.\n", GPUBENCH_STROKE_STEP * app.brush.radius_px)
 	fmt.sbprintf(&sb, "- Times in ms, p50 / p99. GPU is the 3D viewport's uploads and drawing; CPU is the whole frame minus waits.\n")
-	fmt.sbprintf(&sb, "- The wireframe cases draw the Wireframe overlay at full detail: in the shading pass (%s), then as the triangles again in lines.\n", "this GPU reads barycentrics" if render.caps(&app.renderer).barycentric else "not on this GPU, which draws lines in both")
+	fmt.sbprintf(&sb, "- The wireframe cases draw the Wireframe overlay at full detail: in the shading pass (%s), then as lines in a second pass. From 1M the sphere is remeshed to quads, whose wireframe is the quads' edges (their diagonals left out).\n", "this GPU reads barycentrics" if render.caps(&app.renderer).barycentric else "not on this GPU, which draws lines in both")
 	fmt.sbprintf(&sb, "- Simplify draws far chunks from simplified copies (at most %.2f px off) while the view moves; every copy is built before the cases run.\n", app.simplify_px)
 
 	Table :: enum {

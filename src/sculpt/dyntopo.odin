@@ -188,6 +188,7 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	hide_drop(s) // triangles are about to be split and collapsed
 	// Edits would have to carry colours and groups along; they go, as the hiding does.
 	groups_destroy(s)
+	paint_layers_destroy(s)
 	delete(s.color, s.history.allocator)
 	s.color = nil
 	s.paint_stamp += 1
