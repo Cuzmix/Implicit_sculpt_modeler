@@ -210,7 +210,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	switch goal^ {
 	case .Even:
 		kit_remesh_density(app, obj, label)
-		// Smooth, Keep detail, Keep thin parts, Groups and Quads under More options, which keeps the section
+		// Smooth, Keep detail, Keep thin parts, Keep paint and mask, Groups and Quads under More options, which keeps the section
 		// to its five controls and the button where the finger left it whichever goal is up.
 		if kit_more(app, .Remesh) {
 			kit_remesh_options(app, obj)

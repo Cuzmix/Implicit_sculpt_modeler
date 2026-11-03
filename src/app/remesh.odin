@@ -17,6 +17,9 @@ Remesh_Setup :: struct {
 	smooth:      int,  // relax rounds, 0 to geom.REMESH_SMOOTH_MAX
 	keep_detail: bool, // the result put back on the old surface, its polypaint and polygroups along
 	keep_thin:   bool, // parts thinner than a cell kept whole, about a cell thick (geom's keep_thin)
+	// The polypaint, polygroups and mask carried from the old triangle nearest each vertex
+	// without Keep detail too (Keep detail carries them from the one under it anyway).
+	keep_paint:  bool,
 	groups:      bool, // each polygroup a closed piece of its own
 	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
 	mirror:      geom.Remesh_Mirror, // Keep symmetry: the brush's symmetry planes, which the result keeps (remesh_mirror)
@@ -50,7 +53,7 @@ REMESH_CELL_MM_DEFAULT :: 1
 remesh_setup :: proc(app: ^App) -> Remesh_Setup {
 	obj := selected_object(app)
 	cell := remesh_cell_of_mm(app, obj, app.ui.remesh_cell_mm) if app.ui.remesh_by == .Cell else 0
-	return {smooth = int(app.ui.remesh_smooth), keep_detail = app.ui.remesh_keep_detail, keep_thin = app.ui.remesh_keep_thin, groups = app.ui.remesh_groups, quads = app.ui.remesh_quads, mirror = remesh_mirror(app, obj), cell = cell}
+	return {smooth = int(app.ui.remesh_smooth), keep_detail = app.ui.remesh_keep_detail, keep_thin = app.ui.remesh_keep_thin, keep_paint = app.ui.remesh_keep_paint, groups = app.ui.remesh_groups, quads = app.ui.remesh_quads, mirror = remesh_mirror(app, obj), cell = cell}
 }
 
 // What Remesh again (Ctrl+R) runs: the panel's options at the object's own cell, the one
@@ -83,26 +86,28 @@ remesh_mirror :: proc(app: ^App, obj: ^Object) -> geom.Remesh_Mirror {
 
 // The panel set to a command's options (Adjust last).
 remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
-	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_keep_thin, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.keep_thin, s.groups, s.quads
+	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_keep_thin, app.ui.remesh_keep_paint, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.keep_thin, s.keep_paint, s.groups, s.quads
 	if s.mirror.axes != {} do app.ui.remesh_keep_symmetry = true
 	// A cell shows as one only where the panel sets cells; a count's panel keeps its count.
 	if s.cell > 0 && app.ui.remesh_by == .Cell do app.ui.remesh_cell_mm = clamp(remesh_cell_mm(app, selected_object(app), s.cell), REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
 }
 
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
-// none, as under dynamic topology): Groups does nothing without them.
-remesh_options :: proc(setup: Remesh_Setup, groups: []u16) -> geom.Remesh_Options {
-	return {smooth = setup.smooth, keep_detail = setup.keep_detail, keep_thin = setup.keep_thin, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror, cell = setup.cell}
+// none, as under dynamic topology): Groups does nothing without them. `surface` says the
+// mesh has polypaint, polygroups or a mask, which Keep paint and mask then has looked up.
+remesh_options :: proc(setup: Remesh_Setup, groups: []u16, surface := false) -> geom.Remesh_Options {
+	return {smooth = setup.smooth, keep_detail = setup.keep_detail, keep_thin = setup.keep_thin, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror, cell = setup.cell, sources = surface && setup.keep_paint}
 }
 
-// The polypaint and polygroups the remeshed mesh `out` takes from the mesh it came from,
-// through what the remesh reported: with Groups each triangle's piece names its group;
-// with Keep detail each vertex's colour is the old triangle's under where it landed,
-// blended by where on it (the corners' weights), and a triangle's group is that of the
-// old triangle under its first corner that found one. A vertex that found nothing within
-// a cell (a cap's, say) takes the colour its neighbours agree on, else none. Nil for what
-// the old mesh had none of; heap memory for surface_free.
-remesh_surface :: proc(report: geom.Remesh_Report, out, source: geom.Mesh, color: []sculpt.Color, groups: []u16) -> (surface: Surface) {
+// The polypaint, polygroups and mask the remeshed mesh `out` takes from the mesh it came
+// from, through what the remesh reported: with Groups each triangle's piece names its
+// group; each vertex's colour and mask are the old triangle's it landed on (with Keep
+// detail) or nearest it, blended by where on it (the corners' weights), and a triangle's
+// group is that of the old triangle of its first corner that found one, as Blender's
+// voxel remesh carries them. A vertex that found nothing (a cap's, say) takes the colour
+// and mask its neighbours agree on, else none. Nil for what the old mesh had none of;
+// heap memory for surface_free.
+remesh_surface :: proc(report: geom.Remesh_Report, out, source: geom.Mesh, color: []sculpt.Color, groups: []u16, mask: []u8 = nil) -> (surface: Surface) {
 	if report.groups != nil do surface.groups = slice.clone(report.groups)
 	tris := report.source_tris
 	if tris == nil do return
@@ -117,22 +122,30 @@ remesh_surface :: proc(report: geom.Remesh_Report, out, source: geom.Mesh, color
 			}
 		}
 	}
-	if color == nil do return
-	surface.color = make([]sculpt.Color, len(out.positions))
+	if color != nil do surface.color = carry_per_vertex(sculpt.Color, color, tris, out, source)
+	if mask != nil do surface.mask = transmute([]u8)carry_per_vertex([1]u8, transmute([][1]u8)mask, tris, out, source)
+	return
+}
+
+// A per-vertex value of `source` (colour channels, or the mask as one) carried onto each
+// vertex of `out` from the old triangle `tris` names, blended by where on it the vertex
+// lies; the vertices that found none take the mean of their neighbours that did, one pass
+// in triangle order. Heap memory.
+@(private = "file")
+carry_per_vertex :: proc($T: typeid/[$N]u8, values: []T, tris: []u32, out, source: geom.Mesh) -> []T {
+	result := make([]T, len(out.positions))
 	found := make([]bool, len(out.positions), context.temp_allocator)
 	for old, v in tris {
 		if old == max(u32) do continue
 		a, b, c := source.indices[3 * old], source.indices[3 * old + 1], source.indices[3 * old + 2]
 		_, bary := geom.closest_on_triangle(out.positions[v], source.positions[a], source.positions[b], source.positions[c])
-		for ch in 0 ..< 4 {
-			mixed := bary[0] * f32(color[a][ch]) + bary[1] * f32(color[b][ch]) + bary[2] * f32(color[c][ch])
-			surface.color[v][ch] = u8(clamp(mixed + 0.5, 0, 255))
+		for ch in 0 ..< N {
+			mixed := bary[0] * f32(values[a][ch]) + bary[1] * f32(values[b][ch]) + bary[2] * f32(values[c][ch])
+			result[v][ch] = u8(clamp(mixed + 0.5, 0, 255))
 		}
 		found[v] = true
 	}
-	// The vertices that found nothing: the mean of their neighbours that did, one pass,
-	// in triangle order.
-	sum := make([][4]f32, len(out.positions), context.temp_allocator)
+	sum := make([][N]f32, len(out.positions), context.temp_allocator)
 	count := make([]f32, len(out.positions), context.temp_allocator)
 	for i := 0; i < len(out.indices); i += 3 {
 		for c in 0 ..< 3 {
@@ -141,27 +154,28 @@ remesh_surface :: proc(report: geom.Remesh_Report, out, source: geom.Mesh, color
 			for d in 1 ..< 3 {
 				w := out.indices[i + (c + d) % 3]
 				if !found[w] do continue
-				for ch in 0 ..< 4 do sum[v][ch] += f32(surface.color[w][ch])
+				for ch in 0 ..< N do sum[v][ch] += f32(result[w][ch])
 				count[v] += 1
 			}
 		}
 	}
 	for v in 0 ..< len(out.positions) {
 		if found[v] || count[v] == 0 do continue
-		for ch in 0 ..< 4 do surface.color[v][ch] = u8(clamp(sum[v][ch] / count[v] + 0.5, 0, 255))
+		for ch in 0 ..< N do result[v][ch] = u8(clamp(sum[v][ch] / count[v] + 0.5, 0, 255))
 	}
-	return
+	return result
 }
 
 surface_free :: proc(s: ^Surface) {
 	delete(s.color)
 	delete(s.groups)
+	delete(s.mask)
 	s^ = {}
 }
 
 // What the result line adds after the count for `setup`, from what the remesh reported:
 // "; turned outward first; 2 triangles mended first; 2 holes closed first; 3 pieces, 1 too
-// thin; thin parts kept; detail kept; quads", or
+// thin; thin parts kept; paint and mask kept; detail kept; quads", or
 // nothing. Temporary, so made after anything that frees the temp memory.
 remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 	b := strings.builder_make(context.temp_allocator)
@@ -173,6 +187,7 @@ remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 		if report.dropped > 0 do fmt.sbprintf(&b, ", %d too thin", report.dropped)
 	}
 	if report.thickened > 0 do strings.write_string(&b, "; thin parts kept")
+	if report.source_tris != nil && !setup.keep_detail do strings.write_string(&b, "; paint and mask kept")
 	if setup.keep_detail do strings.write_string(&b, "; detail kept")
 	if report.quads != nil do strings.write_string(&b, "; quads")
 	return strings.to_string(b)
@@ -204,7 +219,7 @@ remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_fr
 }
 
 // The option rows under Rebuild's Even density: whether Density is a count or a cell size
-// (as Fewer keeps its share or count there), Smooth, Keep detail, Keep thin parts, Quads, Groups (which has
+// (as Fewer keeps its share or count there), Smooth, Keep detail, Keep thin parts, Keep paint and mask, Quads, Groups (which has
 // nothing to do on an object without polygroups, or under dynamic topology) and Keep
 // symmetry.
 kit_remesh_options :: proc(app: ^App, obj: ^Object) {
@@ -218,6 +233,7 @@ kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 	}
 	_ = ui.switch_row(ctx, "Keep detail", &app.ui.remesh_keep_detail)
 	_ = ui.switch_row(ctx, "Keep thin parts", &app.ui.remesh_keep_thin)
+	_ = ui.switch_row(ctx, "Keep paint and mask", &app.ui.remesh_keep_paint)
 	_ = ui.switch_row(ctx, "Quads", &app.ui.remesh_quads)
 	grouped := obj != nil && !object_dynamic(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
 	_ = ui.switch_row(ctx, "Groups", &app.ui.remesh_groups, enabled = grouped)

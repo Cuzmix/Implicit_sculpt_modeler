@@ -59,6 +59,11 @@ Remesh_Options :: struct {
 	// Parts thinner than a cell (a fin, an ear's rim, a sheet) kept about a cell thick
 	// rather than lost between the lattice's points (keep_thin_parts).
 	keep_thin:   bool,
+	// Each output vertex's nearest old triangle reported (source_tris) without Keep
+	// detail too, for the polypaint, polygroups and mask to follow, as Blender's voxel
+	// remesh carries them; a caller with nothing on the surface leaves it off and pays
+	// nothing (remesh_sources).
+	sources:     bool,
 }
 
 // Planes a remesh keeps its lattice the same on both sides of, as the brush's symmetry
@@ -78,7 +83,8 @@ REMESH_OPTIONS_DEFAULT :: Remesh_Options{smooth = REMESH_SMOOTH_DEFAULT, keep_th
 // before the rays, the group
 // pieces made and those that gave nothing (thinner than a cell), each output triangle's
 // group (with `groups` asked, else nil) and each output vertex's old triangle (with Keep
-// detail, else nil; max(u32) where the projection found nothing within a cell). The two
+// detail or `sources`, else nil; max(u32) where nothing was found within a cell, or two
+// without Keep detail). The two
 // slices are the caller's to free (remesh_report_destroy).
 Remesh_Report :: struct {
 	mended:       int, // triangles dropped (doubled or degenerate) or turned back before the rays (mesh_fix)
@@ -177,6 +183,7 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 	// Keep detail puts every vertex back; without it, the kept thin parts' own go back,
 	// which a lattice steps across in terraces a cell high.
 	if len(thin) > 0 && !options.keep_detail do project_thin(&out, m, thin[:], h, lattice_origin(box.lo, h, options.mirror), pool)
+	if options.sources && !options.keep_detail do r.source_tris = remesh_sources(out, m, h, pool, allocator)
 	if options.keep_detail {
 		if progress != nil && jobs.progress_cancelled(progress) {
 			mesh_destroy(&out)
@@ -194,6 +201,33 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
 		jobs.progress_set(progress, share[0], share[1], 1)
 	}
 	return out, true
+}
+
+// Each vertex of `out`'s nearest triangle of `m` within two cells (a vertex lies within
+// about half a cell of the surface it came from, a relaxed one or one on a cap further),
+// max(u32) where there is none. Each range of vertices starts its search afresh and then
+// starts each from the last one's answer, which only speeds it: the answer is the
+// nearest whatever the start, so the result does not depend on the pool.
+@(private = "file")
+remesh_sources :: proc(out: Mesh, m: Mesh, h: f32, pool: ^jobs.Pool, allocator: runtime.Allocator) -> []u32 {
+	Job :: struct {
+		out, m: Mesh,
+		bvh:    Bvh,
+		reach:  f32,
+		tris:   []u32,
+	}
+	job := Job{out = out, m = m, bvh = bvh_build_morton(m, pool = pool), reach = 2 * h, tris = make([]u32, len(out.positions), allocator)}
+	defer bvh_destroy(&job.bvh)
+	jobs.parallel_ranges(pool, len(out.positions), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		hint := BVH_NONE
+		for v in lo ..< hi {
+			tri, _, _, ok := bvh_closest(job.bvh, job.m, job.out.positions[v], job.reach, hint)
+			job.tris[v] = tri if ok else max(u32)
+			if ok do hint = tri
+		}
+	}, RANGE_GRAIN)
+	return job.tris
 }
 
 // Puts the vertices of `out` near a kept thin part (a corner of the cell they are in is one
