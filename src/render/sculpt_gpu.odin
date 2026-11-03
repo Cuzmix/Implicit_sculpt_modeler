@@ -824,13 +824,22 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 		if e.pbytes > 0 do job.positions_src = ([^]geom.Vec3)(src[e.offset:])
 		job.normals_src = ([^]Normal_Packed)(src[e.offset + e.pbytes:])
 		if e.hbytes > 0 do job.heights_src = ([^]Sculpt_Height)(src[e.offset + e.pbytes + e.nbytes:])
-		job.starts = make([]u32, len(e.ranges), context.temp_allocator)
+		// The ranges come coalesced, often one long run, so they are cut into pieces for
+		// the workers (a 200k-vertex run on one thread took 6 ms at 25M).
+		PIECE :: 4096
+		pieces := make([dynamic]geom.Vertex_Range, 0, 64, context.temp_allocator)
+		starts := make([dynamic]u32, 0, 64, context.temp_allocator)
 		at: u32
-		for rg, i in e.ranges {
-			job.starts[i] = at
-			at += rg.count
+		for rg in e.ranges {
+			for first := rg.first; first < rg.first + rg.count; first += PIECE {
+				count := min(PIECE, rg.first + rg.count - first)
+				append(&pieces, geom.Vertex_Range{first, count})
+				append(&starts, at)
+				at += count
+			}
 		}
-		jobs.parallel_for(r.pool, len(e.ranges), &job, proc(data: rawptr, i: int) {
+		job.ranges, job.starts = pieces[:], starts[:]
+		jobs.parallel_for(r.pool, len(pieces), &job, proc(data: rawptr, i: int) {
 			job := cast(^Decode)data
 			rg := job.ranges[i]
 			if job.positions_src != nil do copy(job.positions[rg.first:][:rg.count], job.positions_src[job.starts[i]:][:rg.count])

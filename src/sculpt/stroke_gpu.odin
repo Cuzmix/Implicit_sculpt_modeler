@@ -144,10 +144,12 @@ dab_gpu_takes :: proc(s: ^Sculptor, brush: Brush) -> bool {
 
 // Records a dab for the GPU in place of moving its vertices, after dab_once found its
 // hit leaves and saved them for undo: marks every hit leaf as moved (the GPU moves what
-// it moves, which the readback shows), records them for the undo step, and grows their
-// bounds by more than the dab can move a vertex, so the leaf query and the raycast of the
-// next dabs, which read the mirror, still reach everything until the positions land and
-// the bounds are refit (sculptor_positions_landed).
+// it moves, which the readback shows) and records them for the undo step. The tree keeps
+// bounding the mirror exactly, which the raycast of the next dabs and the cursor read (a
+// tree widened by the dab's reach made a raycast at 25M cost 28 ms instead of 0.4); the
+// leaf query reaches gpu_margin further instead, and the chunk bounds grow by it
+// (job_node_shape), until the positions land and the bounds are refit
+// (sculptor_positions_landed).
 @(private)
 dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 	clear(&s.changed)
@@ -159,13 +161,7 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 	// Draw moves a tenth of a radius at full strength, Flatten and Clay up to half, Pinch a
 	// quarter, Crease three tenths; Smooth up to its neighbours' mean, within an edge, which
 	// a brush far smaller than the mesh's triangles may exceed.
-	margin := brush.radius * max(brush.strength, 0.1) * 0.75
-	for leaf in s.hit {
-		b := &s.bvh.nodes[leaf].bounds
-		b.lo -= margin
-		b.hi += margin
-	}
-	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
+	s.gpu_margin = max(s.gpu_margin, brush.radius * max(brush.strength, 0.1) * 0.75)
 
 	// The amounts as dab_once sets them for each kind (the area the kernels find themselves).
 	sign: f32 = -1 if brush.invert else 1
@@ -343,14 +339,21 @@ sculptor_gpu_heights :: proc(s: ^Sculptor) -> []Layer_Height {
 }
 
 // The bounds and chunk of a dirty node whose shape changed, as job_node_normals keeps
-// them during a stroke, its normals left to the GPU.
+// them during a stroke, its normals left to the GPU; with the dabs there too, the chunk
+// reaches gpu_margin beyond the mirror's bounds, so culling keeps what the GPU may have
+// moved out of them.
 @(private = "file")
 job_node_shape :: proc(data: rawptr, i: int) {
 	s := cast(^Sculptor)data
 	id := s.dirty_nodes[i]
 	if s.stale[id] != .Shape do return
 	n := s.nodes[id]
-	s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
+	b := s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
+	if s.gpu_pending_on && b.lo.x <= b.hi.x {
+		b.lo -= s.gpu_margin
+		b.hi += s.gpu_margin
+	}
+	s.chunks[id].bounds = b
 	s.chunks[id].cone_cutoff = 1
 	s.chunks[id].index_count = 3 * n.tri_count
 	chunk_touched(s, id)
