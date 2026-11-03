@@ -13,10 +13,12 @@ import "../sculpt"
 // it (the stretched triangles DynaMesh is for), then a voxel remesh back to the same
 // vertex count: its time, the time to prepare the result for sculpting, and how even
 // the triangles are before and after (longest edge over the median edge); then the same
-// remesh with Quads (the marching cubes' dual): its time and vertex count.
+// remesh with Quads (the marching cubes' dual): its time and vertex count; then the
+// triangle remesh again with Keep paint and mask (each new vertex's nearest old triangle
+// looked up) and with Keep detail (each put back on the old surface along its normal).
 remesh_header :: proc() {
-	fmt.println("| Vertices | Remeshed vertices | Remesh ms | Sculpt-ready ms | Edge p99 / median before | after | Max / median before | after | Quads ms | Quads vertices |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Vertices | Remeshed vertices | Remesh ms | Sculpt-ready ms | Edge p99 / median before | after | Max / median before | after | Quads ms | Quads vertices | Keep paint ms | Keep detail ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_remesh :: proc(target: int, pool: ^jobs.Pool) {
@@ -36,6 +38,7 @@ run_remesh :: proc(target: int, pool: ^jobs.Pool) {
 	remesh_ms := time.duration_milliseconds(time.tick_since(t0))
 	free_all(context.temp_allocator)
 	quads_ms, quads_vertices := f64(0), 0
+	paint_ms, detail_ms := f64(0), f64(0)
 	if ok {
 		area, bounds := geom.mesh_area_bounds(sp.mesh, pool)
 		report: geom.Remesh_Report
@@ -47,11 +50,20 @@ run_remesh :: proc(target: int, pool: ^jobs.Pool) {
 		geom.remesh_report_destroy(&report)
 		geom.mesh_destroy(&quads)
 		free_all(context.temp_allocator)
+		for detail in ([]bool{false, true}) {
+			kept: geom.Remesh_Report
+			t3 := time.tick_now()
+			again, _ := geom.remesh_voxel_measured(sp.mesh, area, bounds, len(sp.mesh.positions), pool, options = {smooth = geom.REMESH_SMOOTH_DEFAULT, sources = !detail, keep_detail = detail}, report = &kept)
+			(&detail_ms if detail else &paint_ms)^ = time.duration_milliseconds(time.tick_since(t3))
+			geom.remesh_report_destroy(&kept)
+			geom.mesh_destroy(&again)
+			free_all(context.temp_allocator)
+		}
 	}
 	sculpt.sculptor_destroy(&sp.sculptor)
 	geom.mesh_destroy(&sp.mesh)
 	if !ok {
-		fmt.printfln("| %s | remesh failed | | | | | | | | |", thousands(target))
+		fmt.printfln("| %s | remesh failed | | | | | | | | | | |", thousands(target))
 		return
 	}
 	after_p99, after_max := edge_spread(out)
@@ -64,7 +76,7 @@ run_remesh :: proc(target: int, pool: ^jobs.Pool) {
 	sculpt.sculptor_destroy(&sp.sculptor)
 	geom.mesh_destroy(&sp.mesh)
 	// A negative quad count marks a run that refused its quads (triangles were made).
-	fmt.printfln("| %s | %s | %.0f | %.0f | %.2f | %.2f | %.1f | %.1f | %.0f | %s%s |", thousands(target), thousands(vcount), remesh_ms, setup_ms, before_p99, after_p99, before_max, after_max, quads_ms, thousands(abs(quads_vertices)), " (refused)" if quads_vertices < 0 else "")
+	fmt.printfln("| %s | %s | %.0f | %.0f | %.2f | %.2f | %.1f | %.1f | %.0f | %s%s | %.0f | %.0f |", thousands(target), thousands(vcount), remesh_ms, setup_ms, before_p99, after_p99, before_max, after_max, quads_ms, thousands(abs(quads_vertices)), " (refused)" if quads_vertices < 0 else "", paint_ms, detail_ms)
 }
 
 // The 99th percentile and the longest edge length, over the median, sampling edges.

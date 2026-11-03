@@ -89,7 +89,7 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 	defer delete(q, heap)
 	defer for &r in x.rays do geom.lattice_rays_destroy(&r)
 	if !next(c, progress, &stage, share) do return false
-	for a in 0 ..< 3 do x.rays[a] = geom.lattice_rays_cast(m, q, origin, voxel, x.n, a, len(m.indices) / 3, 1, pool, heap)
+	x.rays = geom.lattice_rays_cast(m, q, origin, voxel, x.n, len(m.indices) / 3, 1, pool, heap)
 	if !next(c, progress, &stage, share) do return false
 
 	// The box of bricks the lattice touches, and which of them lie within reach of a

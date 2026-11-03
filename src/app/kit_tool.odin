@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 
 import "../gizmo"
@@ -318,11 +319,24 @@ kit_stroke :: proc(app: ^App) {
 		}
 	}
 	if .Cloth in BRUSHES[kind].flags {
-		modes: [len(sculpt.Cloth_Mode)]string
-		for m, i in sculpt.Cloth_Mode do modes[i] = string(CLOTH_MODE_NAMES[m])
-		if picked := ui.tabs(ctx, "cloth mode", modes[:], int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
+		// Eight modes are too many for tabs at a panel's width: a list, its help below.
+		modes := CLOTH_MODE_NAMES
+		if picked := ui.select(ctx, "cloth mode", slice.enumerated_array(&modes), int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
 		cloth, _ := strings.replace_all(string(CLOTH_MODE_HELP[app.brush.cloth_mode]), "\n", " ", context.temp_allocator)
 		ui.paragraph(ctx, cloth)
+		c := &app.brush.cloth
+		if picked := ui.tabs(ctx, "cloth region", {"Local", "Follows", "Whole"}, int(c.region)); picked >= 0 do c.region = sculpt.Cloth_Region(picked)
+		_ = ui.slider(ctx, "Gravity", &c.gravity, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.gravity * 100))
+		if kit_more(app, .Options) {
+			_ = ui.slider(ctx, "Stiffness", &c.stiffness, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.stiffness * 100))
+			_ = ui.slider(ctx, "Firmness", &c.firmness, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.firmness * 100))
+			_ = ui.slider(ctx, "Damping", &c.damping, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.damping * 100))
+			_ = ui.switch_row(ctx, "Keep area", &c.keep_area)
+			_ = ui.switch_row(ctx, "Allow shrink", &c.allow_shrink)
+			_ = ui.switch_row(ctx, "Allow expand", &c.allow_expand)
+			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber.")
+			kit_more_end(app)
+		}
 	}
 	if !stack do ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 }
