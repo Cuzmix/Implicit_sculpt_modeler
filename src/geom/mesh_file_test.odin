@@ -77,9 +77,15 @@ format_f32_reads_back_exactly :: proc(t: ^testing.T) {
 	for c in ([?]struct {
 		x:    f32,
 		text: string,
-	}{{0, "0"}, {1, "1"}, {-2.5, "-2.5"}, {100, "100"}, {0.1, "0.100000001"}, {1e9, "1e9"}, {1e-6, "9.99999997e-7"}, {0.0001, "0.0000999999975"}}) {
+	}{{0, "0"}, {1, "1"}, {-2.5, "-2.5"}, {100, "100"}, {0.1, "0.100000001"}, {1e9, "1e9"}, {1e-6, "9.99999997e-7"}, {0.0001, "0.0000999999975"}, {math.nan_f32(), "nan"}, {math.inf_f32(1), "inf"}, {math.inf_f32(-1), "-inf"}}) {
 		n := format_f32(buf[:], c.x)
 		testing.expect_value(t, string(buf[:n]), c.text)
+	}
+	// Neither is read back: a file holding one is refused.
+	for text in ([]string{"nan", "inf"}) {
+		at := 0
+		_, ok := parse_float(transmute([]u8)text, &at)
+		testing.expectf(t, !ok, "%s was read", text)
 	}
 }
 

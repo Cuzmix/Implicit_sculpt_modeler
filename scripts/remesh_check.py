@@ -114,7 +114,7 @@ def tube(radius, half_height, n, axis, center=(0.0, 0.0, 0.0), caps=False):
             verts.append(tuple(center[k] + p[k] for k in range(3)))
     for i in range(n):
         j = (i + 1) % n
-        tris += [(i, n + i, n + j), (i, n + j, j)]
+        tris += [(i, n + j, n + i), (i, j, n + j)]
     if caps:
         lo, hi = len(verts), len(verts) + 1
         for s in (-1, 1):

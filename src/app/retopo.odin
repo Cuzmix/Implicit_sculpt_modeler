@@ -222,8 +222,8 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.q.quads != nil {
 		for &f in res.q.quads do for &v in f do v = old_to_new[v]
 		sculpt.levels_set_quads(&twin.levels, res.q.quads)
-		sculpt.levels_set_uvs(&twin.levels, res.uv)
 		charts = res.uv.charts
+		if !sculpt.levels_set_uvs(&twin.levels, res.uv) do charts = 0
 	}
 	app.ui.bake.source = obj.id
 	// "Quad remeshed X: 1,180 quads (AutoRemesher), UVs in 12 charts, 226 ms", with the
@@ -236,6 +236,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
 	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
 	if res.guides > 0 do engine = fmt.tprintf("%s, guided by %d curve%s", engine, res.guides, "" if res.guides == 1 else "s")
+	if res.thin > 0 do engine = fmt.tprintf("%s, %s vertices on thin parts", engine, thousands(res.thin))
 	if res.unkept != "" do engine = fmt.tprintf("%s, %s", engine, res.unkept)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
@@ -265,7 +266,7 @@ bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
 // stands for) and NAME.obj (the quads with their UVs), NAME being the object's.
 bake_to_folder :: proc(app: ^App, folder: string) {
 	low := selected_object(app)
-	if low == nil || !sculpt.levels_has_uvs(&low.levels) {
+	if low == nil || !sculpt.levels_has_quad_uvs(&low.levels) {
 		file_note(app, true, "Bake: select an object made by Quad Remesh first")
 		return
 	}
@@ -318,7 +319,8 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		source.rest, source.rest_bvh = rest, &rest_bvh
 	}
 	options := geom.Bake_Options{object_space = set.object_space, directx = set.target == .Unreal}
-	maps := geom.bake_maps(quads, low.levels.faces.uv, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
+	layout, _ := sculpt.levels_quad_uvs(&low.levels)
+	maps := geom.bake_maps(quads, layout, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
 	defer geom.bake_maps_destroy(&maps)
 	baked_ms := time.duration_milliseconds(time.tick_since(start))
 
@@ -342,7 +344,7 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	defer delete(disp_png)
 	obj_text := make([dynamic]u8)
 	defer delete(obj_text)
-	geom.quad_mesh_write_obj(&obj_text, quads.positions, quads.quads, low.levels.faces.uv.uvs, low.file.scale, low.file.position)
+	geom.quad_mesh_write_obj(&obj_text, quads.positions, quads.quads, layout.uvs, low.file.scale, low.file.position)
 	full := maps.max_displacement * low.file.scale
 	note := fmt.tprintf("Displacement %s_displacement.png: 16-bit grey, 32768 is the surface of %s.obj, 0 and 65535 are %v units in and out along its normal (in the OBJ's units).\n", base, base, full)
 	if !write_file_safely(app, path(folder, base, "_normal.png"), normal_png, "bake") do return
@@ -425,7 +427,7 @@ quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, 
 		pixels, w, h, failed := matcap_pixels(img, context.temp_allocator)
 		img = png_write.encode(pixels, w, h, false, context.temp_allocator) if failed == "" else nil
 	}
-	uvs := obj.levels.faces.uv
+	uvs, _ := sculpt.levels_quad_uvs(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
 	positions, split_normals, texcoords, indices := geom.quad_mesh_split_uvs(quads, uvs, normals, frame, context.temp_allocator)
@@ -516,7 +518,7 @@ kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	kit_last_result(app, .Retopo)
-	if obj == nil || !sculpt.levels_has_uvs(&obj.levels) {
+	if obj == nil || !sculpt.levels_has_quad_uvs(&obj.levels) {
 		ui.paragraph(ctx, "Bakes onto an object with UVs: make one with Shape > Rebuild > Quads, then select it here.")
 		return
 	}

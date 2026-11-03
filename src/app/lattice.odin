@@ -170,7 +170,7 @@ lattice_begin :: proc(app: ^App, obj: ^Object) -> bool {
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_lattice_ready(s) do sculpt.sculptor_lattice_rest(s, l.lo, l.hi)
 	l.frame_ms, l.frames = 0, 0
-	return pose_begin(app, obj)
+	return pose_begin(app, obj, drag = true)
 }
 
 // The pose a drag of point `point` (from 1) makes when it has moved by the world

@@ -74,10 +74,11 @@ groups_by_uv_charts :: proc(t: ^testing.T) {
 	testing.expect(t, !levels_group_uv_charts(&l), "grouped by UVs with none")
 	for &f in q.quads do for &v in f do v = old_to_new[v]
 	levels_set_quads(&l, q.quads)
-	levels_set_uvs(&l, uv)
+	charts := uv.charts
+	quads := make([]int, charts + 1, context.temp_allocator)
+	for c in uv.chart do quads[c + 1] += 1
+	testing.expect(t, levels_set_uvs(&l, uv))
 	// Each chart's group holds two triangles a quad, and four times that a level up.
-	quads := make([]int, l.faces.uv.charts + 1, context.temp_allocator)
-	for c in l.faces.uv.chart do quads[c + 1] += 1
 	per_group :: proc(s: ^Sculptor) -> []int {
 		n := make([]int, int(max(u16)) + 1, context.temp_allocator)
 		for g in s.groups.tris do n[g] += 1
@@ -85,7 +86,7 @@ groups_by_uv_charts :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, levels_group_uv_charts(&l))
 	s := &levels_current(&l).sculptor
-	testing.expect_value(t, group_count(s), l.faces.uv.charts)
+	testing.expect_value(t, group_count(s), charts)
 	n := per_group(s)
 	for q, g in quads do testing.expectf(t, n[g] == 2 * q, "group %d: %d triangles for %d quads", g, n[g], q)
 	testing.expect(t, levels_subdivide(&l))

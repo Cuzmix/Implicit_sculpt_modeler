@@ -15,7 +15,9 @@
 // singularity simplification, quad cover) and the quads extracted, then the islands
 // joined. A density per vertex (Use paint, Use mask) shortens the isotropic target edge
 // where it asks for more quads, rides the isotropic remesh to its vertices, and scales the
-// cover per face, normalised so the count stays. Guide curves give the faces near them a
+// cover per face, normalised so the count stays. A refinement per vertex shortens the
+// isotropic target edge alone, so a thin part a few quads round has triangles enough
+// under them for its quads to be extracted. Guide curves give the faces near them a
 // direction and a weight (faceGuides) that the frame field pulls toward and the cover's
 // curl correction keeps. The quad edge wanted is sqrt(area / quads) over the whole input, and each
 // island's parameterizer gets it as a multiple of that island's measured mean edge, which
@@ -216,16 +218,53 @@ double meshArea(const std::vector<Vector3>& vertices, const std::vector<std::vec
     return area;
 }
 
+// Whether the triangle a b c lies on one of the caller's cap planes (Qm_Params.cap_axes):
+// every corner within `within` of it and the triangle square to its axis. The isotropic
+// remesh leaves a cap's vertices a hair off the plane where it projects them near the rim,
+// so its triangles are judged within a share of the target edge; the surface beside a cap
+// meets it at an angle, so the facing keeps those triangles out.
+bool onCap(const Qm_Params& params, const Vector3& a, const Vector3& b, const Vector3& c, double within)
+{
+    if (0 == params.cap_axes) return false;
+    const Vector3 normal = Vector3::crossProduct(b - a, c - a).normalized();
+    for (size_t k = 0; k < 3; ++k) {
+        if (!(params.cap_axes & (1u << k))) continue;
+        const double o = params.cap_center[k];
+        if (std::fabs(a[k] - o) <= within && std::fabs(b[k] - o) <= within && std::fabs(c[k] - o) <= within
+            && std::fabs(normal[k]) >= 0.995) return true;
+    }
+    return false;
+}
+
+// The triangles that count for the quads asked: all but those on a cap plane.
+std::vector<std::vector<size_t>> countedTriangles(const Qm_Params& params, const std::vector<Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& triangles)
+{
+    if (0 == params.cap_axes) return triangles;
+    std::vector<std::vector<size_t>> counted;
+    counted.reserve(triangles.size());
+    for (const auto& t : triangles)
+        if (!onCap(params, vertices[t[0]], vertices[t[1]], vertices[t[2]], params.cap_snap)) counted.push_back(t);
+    return counted;
+}
+
 // The area weighted by the density (Qm_Params.density, one per vertex, the mean of a
 // triangle's corners on it): the area the quads are spread over as if it were even. The
-// plain area when there is no density.
+// plain area when there is no density. With a refinement (Qm_Params.refine) too, each
+// corner's density is divided by its refinement squared: the area the isotropic
+// triangles are spread over, which the decimation keeps enough triangles for.
 double densityArea(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
-    const std::vector<double>& density)
+    const std::vector<double>& density, const std::vector<double>& refine = {})
 {
-    if (density.size() != vertices.size()) return meshArea(vertices, triangles);
+    const bool dense = density.size() == vertices.size(), refined = refine.size() == vertices.size();
+    if (!dense && !refined) return meshArea(vertices, triangles);
+    const auto weight = [&](size_t v) {
+        const double d = dense ? density[v] : 1.0, r = refined ? refine[v] : 1.0;
+        return d / (r * r);
+    };
     double area = 0.0;
     for (const auto& t : triangles)
-        area += Vector3::area(vertices[t[0]], vertices[t[1]], vertices[t[2]]) * (density[t[0]] + density[t[1]] + density[t[2]]) / 3.0;
+        area += Vector3::area(vertices[t[0]], vertices[t[1]], vertices[t[2]]) * (weight(t[0]) + weight(t[1]) + weight(t[2])) / 3.0;
     return area;
 }
 
@@ -260,14 +299,16 @@ void markSharpVertices(const std::vector<Vector3>& vertices, const std::vector<u
 // edges renumbered (one whose edge the simplification took out is dropped). False when
 // nothing was done.
 bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<size_t>>& triangles,
-    std::vector<std::pair<size_t, size_t>>& features, std::vector<double>& density, double voxelSize, double sharpDegrees)
+    std::vector<std::pair<size_t, size_t>>& features, std::vector<double>& density, std::vector<double>& refine,
+    double voxelSize, double sharpDegrees)
 {
     if (vertices.empty() || triangles.empty() || voxelSize <= 0.0) return false;
     if (vertices.size() > (size_t)std::numeric_limits<unsigned int>::max()) return false;
     const double targetArea = voxelSize * voxelSize * 0.86602540378 * 0.5;
-    // Where the density asks for smaller quads the isotropic remesh wants smaller
-    // triangles, so the triangles kept follow the density-weighted area.
-    const double wanted = densityArea(vertices, triangles, density) / targetArea;
+    // Where the density asks for smaller quads, or the refinement for finer triangles, the
+    // isotropic remesh wants smaller triangles, so the triangles kept follow the weighted
+    // area.
+    const double wanted = densityArea(vertices, triangles, density, refine) / targetArea;
     if (wanted < 1.0 || (double)triangles.size() < wanted * decimateTrigger) return false;
     const size_t goal = (size_t)(wanted * decimateTarget);
 
@@ -297,12 +338,16 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
     meshopt_remapVertexBuffer(weldedPositions.data(), positions.data(), vertices.size(), sizeof(float) * 3, remap.data());
     for (size_t v = 0; v < vertices.size(); ++v)
         if (~0u != remap[v]) weldedVertices[remap[v]] = vertices[v];
-    std::vector<double> weldedDensity;
-    if (density.size() == vertices.size()) {
-        weldedDensity.assign(welded, 1.0);
+    // The values per vertex ride the weld and the simplification with their vertices.
+    const auto weld = [&](const std::vector<double>& values) {
+        std::vector<double> out;
+        if (values.size() != vertices.size()) return out;
+        out.assign(welded, 1.0);
         for (size_t v = 0; v < vertices.size(); ++v)
-            if (~0u != remap[v]) weldedDensity[remap[v]] = density[v];
-    }
+            if (~0u != remap[v]) out[remap[v]] = values[v];
+        return out;
+    };
+    const std::vector<double> weldedDensity = weld(density), weldedRefine = weld(refine);
 
     std::vector<unsigned char> lock;
     if (sharpDegrees > 0.0) {
@@ -324,7 +369,7 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
 
     std::vector<size_t> outputOf(welded, std::numeric_limits<size_t>::max());
     std::vector<Vector3> outVertices;
-    std::vector<double> outDensity;
+    std::vector<double> outDensity, outRefine;
     std::vector<std::vector<size_t>> outTriangles;
     outTriangles.reserve(decimated.size() / 3);
     for (size_t i = 0; i + 2 < decimated.size(); i += 3) {
@@ -335,6 +380,7 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
                 outputOf[w] = outVertices.size();
                 outVertices.push_back(weldedVertices[w]);
                 if (!weldedDensity.empty()) outDensity.push_back(weldedDensity[w]);
+                if (!weldedRefine.empty()) outRefine.push_back(weldedRefine[w]);
             }
             t[k] = outputOf[w];
         }
@@ -364,7 +410,78 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
     vertices = std::move(outVertices);
     triangles = std::move(outTriangles);
     if (!weldedDensity.empty()) density = std::move(outDensity);
+    if (!weldedRefine.empty()) refine = std::move(outRefine);
     return true;
+}
+
+// A vertex two fans of faces meet at and share no edge round (a pinch: a thin spike whose
+// sides the decimation brought together, two parts touching at a point) gets a vertex of
+// its own for each fan past its first, with its values (`density`, `refine`) copied. The
+// isotropic remesher's half-edge mesh walks round a vertex from one halfedge and assumes
+// a single fan: on a pinch it collapsed edges into folds and then walked round a broken
+// ring forever (a creature's horn tips under Keep symmetry). The fans are the corners at
+// a vertex joined across the edges they share; the faces stay as they are, in order, so
+// the result is the same every run. Returns how many vertices were added.
+size_t unpinch(std::vector<Vector3>& vertices, std::vector<std::vector<size_t>>& triangles,
+    std::vector<double>& density, std::vector<double>& refine)
+{
+    const size_t corners = 3 * triangles.size();
+    // Each directed edge (a to b) at the corner it starts from; an edge two faces run the
+    // same way (a flipped face, or more than two faces on it) joins nothing.
+    std::unordered_map<uint64_t, size_t> edgeCorner;
+    edgeCorner.reserve(corners);
+    std::unordered_set<uint64_t> doubled;
+    const auto key = [](size_t a, size_t b) { return ((uint64_t)a << 32) | (uint64_t)b; };
+    for (size_t f = 0; f < triangles.size(); ++f)
+        for (size_t k = 0; k < 3; ++k) {
+            const uint64_t e = key(triangles[f][k], triangles[f][(k + 1) % 3]);
+            if (!edgeCorner.emplace(e, 3 * f + k).second) doubled.insert(e);
+        }
+    std::vector<size_t> parent(corners);
+    for (size_t c = 0; c < corners; ++c) parent[c] = c;
+    const auto find = [&parent](size_t c) {
+        while (parent[c] != c) c = parent[c] = parent[parent[c]];
+        return c;
+    };
+    // Corner c (face f, at vertex v) leaves v along f's edge v to next; the face across
+    // runs next to v, and its corner at v is the one after the corner it starts from.
+    for (size_t c = 0; c < corners; ++c) {
+        const size_t f = c / 3, k = c % 3;
+        const size_t v = triangles[f][k], next = triangles[f][(k + 1) % 3];
+        if (doubled.count(key(v, next)) || doubled.count(key(next, v))) continue;
+        const auto across = edgeCorner.find(key(next, v));
+        if (across == edgeCorner.end()) continue;
+        const size_t other = 3 * (across->second / 3) + (across->second % 3 + 1) % 3;
+        const size_t a = find(c), b = find(other);
+        if (a != b) parent[std::max(a, b)] = std::min(a, b);
+    }
+    // The first fan met at a vertex keeps it; each other fan's corners move to a new one.
+    const size_t none = std::numeric_limits<size_t>::max();
+    std::vector<size_t> fanOf(vertices.size(), none);
+    std::unordered_map<size_t, size_t> fanVertex;
+    const size_t before = vertices.size();
+    for (size_t c = 0; c < corners; ++c) {
+        size_t& corner = triangles[c / 3][c % 3];
+        const size_t fan = find(c);
+        if (fanOf[corner] == none || fanOf[corner] == fan) {
+            fanOf[corner] = fan;
+            continue;
+        }
+        const auto made = fanVertex.find(fan);
+        if (made != fanVertex.end()) {
+            corner = made->second;
+            continue;
+        }
+        const size_t v = corner, copy = vertices.size();
+        const Vector3 position = vertices[v];
+        vertices.push_back(position);
+        if (density.size() == copy) density.push_back(density[v]);
+        if (refine.size() == copy) refine.push_back(refine[v]);
+        fanOf.push_back(fan);
+        fanVertex.emplace(fan, copy);
+        corner = copy;
+    }
+    return vertices.size() - before;
 }
 
 // Adaptivity's target edge length per vertex (the core's resample): shorter where the
@@ -554,12 +671,14 @@ struct Island {
     std::vector<std::vector<size_t>> triangles;
     std::vector<std::pair<size_t, size_t>> features; // feature edges, in the island's vertex numbers
     std::vector<double> density; // per vertex, quads per area relative to the mean (Qm_Params.density); empty for none
+    std::vector<double> refine; // per vertex, the isotropic edge's share (Qm_Params.refine); empty for none
     std::vector<Vector3> outVertices;
     std::vector<std::vector<size_t>> outFaces;
 };
 
 struct Stages {
     std::atomic<long long> decimateUs { 0 }, isotropicUs { 0 }, parameterizeUs { 0 }, extractUs { 0 };
+    std::atomic<long long> isotropicTriangles { 0 }, covers { 0 };
 };
 
 // The guide curves (Qm_Params.guides) as segments, shared by every island: no segment is
@@ -678,7 +797,8 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     handler.report(index, 0.0f, "Remeshing uniformly");
     const auto t0 = Clock::now();
     dropShortFeatureChains(vertices, island.features, quadEdge);
-    decimateIfDense(vertices, triangles, island.features, island.density, voxelSize, params.sharp_degrees);
+    decimateIfDense(vertices, triangles, island.features, island.density, island.refine, voxelSize, params.sharp_degrees);
+    unpinch(vertices, triangles, island.density, island.refine);
     const auto t1 = Clock::now();
     stages.decimateUs += (long long)(1000.0 * milliseconds(t0, t1));
     std::vector<double> targetLengths = adaptiveTargetLengths(vertices, triangles, voxelSize, params.adaptivity);
@@ -692,6 +812,12 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         for (size_t v = 0; v < vertices.size(); ++v) edgeFactor[v] = 1.0 / std::sqrt(island.density[v]);
         if (targetLengths.empty()) targetLengths.assign(vertices.size(), voxelSize);
         for (size_t v = 0; v < vertices.size(); ++v) targetLengths[v] *= edgeFactor[v];
+    }
+    // The refinement shortens the isotropic edges alone: the payload (the quads' size)
+    // does not see it.
+    if (island.refine.size() == vertices.size()) {
+        if (targetLengths.empty()) targetLengths.assign(vertices.size(), voxelSize);
+        for (size_t v = 0; v < vertices.size(); ++v) targetLengths[v] *= island.refine[v];
     }
     std::vector<double> vertexScale;
     std::vector<char> cornerFeature;
@@ -730,6 +856,7 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     }
     const auto t2 = Clock::now();
     stages.isotropicUs += (long long)(1000.0 * milliseconds(t1, t2));
+    stages.isotropicTriangles += (long long)triangles.size();
     handler.report(index, islandResampleEnd, nullptr);
     if (vertices.empty() || triangles.empty()) {
         handler.report(index, 1.0f, nullptr);
@@ -743,7 +870,10 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     // the quad extraction keeps the cover's cells, so the cover's own area in cells says
     // how far off the count will be before any quad exists: a second cover with the
     // scaling corrected by that measure lands within a few percent, and the few islands
-    // that land at once skip it. A count that `Params.scaling` fixed is left alone.
+    // that land at once skip it. Where the second still misses (a cap's rim or a feature
+    // edge holds whole rows of cells, so the count moves in steps), a third cover corrects
+    // it again, and the cover nearest the ask is kept. A count that `Params.scaling` fixed
+    // is left alone.
     const bool landing = params.scaling <= 0.0;
     double scaling = params.scaling;
     if (landing) {
@@ -752,9 +882,14 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         scaling = mean > 0.0 ? quadEdge / mean : 1.0;
     }
     // A face whose quads are s times the size (the mean of its corners' vertexScale) covers
-    // 1 / s² as many cells.
+    // 1 / s² as many cells; a face on a cap plane (Qm_Params.cap_axes) counts for none, here
+    // and in the cells measured below.
+    std::vector<char> capFace(triangles.size(), 0);
+    for (size_t f = 0; f < triangles.size(); ++f)
+        capFace[f] = onCap(params, vertices[triangles[f][0]], vertices[triangles[f][1]], vertices[triangles[f][2]], std::max((double)params.cap_snap, 0.05 * voxelSize));
     double scaledArea = 0.0;
     for (size_t f = 0; f < triangles.size(); ++f) {
+        if (capFace[f]) continue;
         const double a = Vector3::area(vertices[triangles[f][0]], vertices[triangles[f][1]], vertices[triangles[f][2]]);
         const auto& t = triangles[f];
         const double s = vertexScale.size() == vertices.size() ? (vertexScale[t[0]] + vertexScale[t[1]] + vertexScale[t[2]]) / 3.0 : 1.0;
@@ -766,8 +901,14 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     std::vector<std::vector<AutoRemesher::Vector2>> originalUvs;
     std::vector<size_t> singular;
     const float coverSpan = islandParameterizeEnd - islandResampleEnd;
-    for (int pass = 0; pass < 2; ++pass) {
-        // The first cover takes the whole parameterize share of the bar; a second takes
+    // The cover nearest the ask so far, and the nearest scalings measured under and over it
+    // (their cells off the caps; 0 for none yet).
+    std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> bestUvs;
+    std::vector<std::vector<AutoRemesher::Vector2>> bestOriginalUvs;
+    std::vector<size_t> bestSingular;
+    double bestMiss = 0.0, underScaling = 0.0, underCells = 0.0, overScaling = 0.0, overCells = 0.0;
+    for (int pass = 0; pass < 3; ++pass) {
+        // The first cover takes the whole parameterize share of the bar; a later one takes
         // the last third of it again, so the bar steps back a little rather than stalling.
         const float begin = pass == 0 ? islandResampleEnd : islandResampleEnd + coverSpan * 0.67f;
         AutoRemesher::Parameterizer parameterizer(&vertices, &triangles, nullptr);
@@ -780,6 +921,7 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
         if (!guided.empty()) parameterizer.setFaceGuides(&guided);
         bool parameterized = true;
+        ++stages.covers;
         try {
             parameterized = parameterizer.parameterize();
         } catch (const Qm_Cancel&) {
@@ -800,14 +942,41 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         uvs = parameterizer.takeTriangleUvs();
         originalUvs = parameterizer.originalTriangleUvs();
         singular = parameterizer.singularVertexIndices();
-        if (!landing || pass == 1 || !uvs) break;
+        if (!landing || !uvs) break;
         double cells = 0.0;
-        for (const auto& t : *uvs) {
-            if (t.size() != 3) continue;
+        for (size_t f = 0; f < uvs->size(); ++f) {
+            const auto& t = (*uvs)[f];
+            if (t.size() != 3 || (f < capFace.size() && capFace[f])) continue;
             cells += 0.5 * std::fabs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1]));
         }
-        if (cells <= 0.0 || cellsWanted <= 0.0 || std::fabs(cells / cellsWanted - 1.0) <= 0.03) break;
-        scaling *= std::sqrt(cells / cellsWanted);
+        if (cells <= 0.0 || cellsWanted <= 0.0) break;
+        const double miss = std::fabs(cells / cellsWanted - 1.0);
+        if (pass == 0 || miss < bestMiss) {
+            bestUvs = std::move(uvs);
+            bestOriginalUvs = std::move(originalUvs);
+            bestSingular = std::move(singular);
+            bestMiss = miss;
+        }
+        if (bestMiss <= 0.03 || pass == 2) break;
+        // A cover a quarter of the ask or less, or four times it, came out folded up (a
+        // creature's half gave a tenth of its cells at one scaling and about the ask at two
+        // thirds of it), and says nothing of how the cells go with the scaling, so it bounds
+        // no bracket: interpolating towards it put the next cover where the last had been.
+        const bool folded = cells * 4.0 <= cellsWanted || cells >= 4.0 * cellsWanted;
+        if (!folded && cells < cellsWanted && cells > underCells) underScaling = scaling, underCells = cells;
+        if (!folded && cells > cellsWanted && (overCells == 0.0 || cells < overCells)) overScaling = scaling, overCells = cells;
+        // Between a cover under the ask and one over it, the scaling is found between theirs
+        // as the cells go; otherwise the cells go as the scaling squared, inversely, a step
+        // held within a factor of 1.5 either way, so a folded cover moves it by no more.
+        if (underCells > 0.0 && overCells > 0.0)
+            scaling = underScaling * std::pow(overScaling / underScaling, std::log(cellsWanted / underCells) / std::log(overCells / underCells));
+        else
+            scaling *= std::max(1.0 / 1.5, std::min(1.5, std::sqrt(cells / cellsWanted)));
+    }
+    if (bestUvs) {
+        uvs = std::move(bestUvs);
+        originalUvs = std::move(bestOriginalUvs);
+        singular = std::move(bestSingular);
     }
     const auto t3 = Clock::now();
     stages.parameterizeUs += (long long)(1000.0 * milliseconds(t2, t3));
@@ -903,7 +1072,8 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
         handler.whole(0.0f, "Computing voxel size");
         // The core's isotropic target: a triangle of the area that twice the quads
         // asked would give, as an equilateral; the quad edge wanted is the plain one.
-        const double area = meshArea(vertices, faces);
+        // Under Keep symmetry the caps' area takes no quads: the count asked is the rest's.
+        const double area = meshArea(vertices, countedTriangles(*params, vertices, faces));
         const double voxelSize = std::sqrt((area / (2.0 * params->quads)) / (0.86602540378 * 0.5));
         const double quadEdge = std::sqrt(area / params->quads);
         if (!(voxelSize > 0.0) || !(quadEdge > 0.0)) {
@@ -951,7 +1121,7 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
                 const double d = params->density[v];
                 density[v] = std::isfinite(d) ? std::max(1.0 / 16.0, std::min(16.0, d)) : 1.0;
             }
-            const double mean = densityArea(vertices, faces, density) / area;
+            const double mean = densityArea(vertices, countedTriangles(*params, vertices, faces), density) / area;
             if (mean > 0.0)
                 for (double& d : density) d /= mean;
             // An even density is none: the remesh then runs exactly as without it (the
@@ -964,6 +1134,24 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
                     if (local.size() != islands[islandOf[v]].vertices.size()) local.assign(islands[islandOf[v]].vertices.size(), 1.0);
                     local[localOf[v]] = density[v];
                 }
+        }
+        // The refinement as given (clamped), each island its vertices' share; none when
+        // nothing is refined.
+        if (nullptr != params->refine && params->refine_count == vertex_count) {
+            std::vector<double> refine(vertex_count);
+            bool any = false;
+            for (uint32_t v = 0; v < vertex_count; ++v) {
+                const double r = params->refine[v];
+                refine[v] = std::isfinite(r) ? std::max(0.25, std::min(1.0, r)) : 1.0;
+                any = any || refine[v] < 1.0;
+            }
+            if (any)
+                for (size_t v = 0; v < refine.size(); ++v)
+                    if (islandOf[v] != none) {
+                        auto& local = islands[islandOf[v]].refine;
+                        if (local.size() != islands[islandOf[v]].vertices.size()) local.assign(islands[islandOf[v]].vertices.size(), 1.0);
+                        local[localOf[v]] = refine[v];
+                    }
         }
         if (nullptr != params->features)
             for (uint32_t e = 0; e < params->feature_count; ++e) {
@@ -1012,6 +1200,8 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
         r->times.parameterize_ms = (float)(stages.parameterizeUs.load() / 1000.0);
         r->times.extract_ms = (float)(stages.extractUs.load() / 1000.0);
         r->times.total_ms = (float)milliseconds(start, Clock::now());
+        r->times.isotropic_triangles = (uint32_t)std::min<long long>(stages.isotropicTriangles.load(), 0xffffffffll);
+        r->times.covers = (uint32_t)stages.covers.load();
         handler.whole(1.0f, "Done");
         *out = r.release();
         return QM_OK;

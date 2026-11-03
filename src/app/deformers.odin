@@ -197,6 +197,7 @@ deform_drag_begin :: proc(app: ^App, obj: ^Object) -> bool {
 		report(app, Kit_Section.Deformers, {.Warning}, "Nothing is free to deform: the mask covers all that is shown")
 		return false
 	}
+	pose_physics_begin(app, obj, Kit_Section.Deformers)
 	app.ui.deform.drag = {active = true, id = obj.id, deform = d}
 	return true
 }

@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 
 import "../gizmo"
@@ -124,6 +125,10 @@ kit_brush_options :: proc(app: ^App) {
 	// Topological, which reaches only what is joined anyway.
 	// Elastic moves the solid round the press, joined or not.
 	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
+	// Physics: what the brush moves drives the surface round it as cloth.
+	physical := flags & {.Cloth, .Paint, .Mask} == {}
+	_ = ui.switch_row(ctx, "Physics", &b.physics, physical, keys = command_hint(app, .Physics))
+	if b.physics && physical do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	// Where the detail goes, for the brushes that can write into a detail skin, shown once
 	// the object has a skin or the brush was set off Auto, so it never hides a choice made.
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
@@ -318,11 +323,27 @@ kit_stroke :: proc(app: ^App) {
 		}
 	}
 	if .Cloth in BRUSHES[kind].flags {
-		modes: [len(sculpt.Cloth_Mode)]string
-		for m, i in sculpt.Cloth_Mode do modes[i] = string(CLOTH_MODE_NAMES[m])
-		if picked := ui.tabs(ctx, "cloth mode", modes[:], int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
+		// Eight modes are too many for tabs at a panel's width: a list, its help below.
+		modes := CLOTH_MODE_NAMES
+		if picked := ui.select(ctx, "cloth mode", slice.enumerated_array(&modes), int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
 		cloth, _ := strings.replace_all(string(CLOTH_MODE_HELP[app.brush.cloth_mode]), "\n", " ", context.temp_allocator)
 		ui.paragraph(ctx, cloth)
+		c := &app.brush.cloth
+		if picked := ui.tabs(ctx, "cloth region", {"Local", "Follows", "Whole"}, int(c.region)); picked >= 0 do c.region = sculpt.Cloth_Region(picked)
+		_ = ui.slider(ctx, "Gravity", &c.gravity, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.gravity * 100))
+		if kit_more(app, .Options) {
+			_ = ui.slider(ctx, "Stiffness", &c.stiffness, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.stiffness * 100))
+			_ = ui.slider(ctx, "Firmness", &c.firmness, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.firmness * 100))
+			_ = ui.slider(ctx, "Damping", &c.damping, 0, 1, .Linear, fmt.tprintf("%.0f%%", c.damping * 100))
+			_ = ui.switch_row(ctx, "Keep area", &c.keep_area)
+			_ = ui.switch_row(ctx, "Allow shrink", &c.allow_shrink)
+			_ = ui.switch_row(ctx, "Allow expand", &c.allow_expand)
+			_ = ui.switch_row(ctx, "Collide with floor", &c.floor)
+			_ = ui.switch_row(ctx, "Collide with objects", &c.objects)
+			_ = ui.switch_row(ctx, "Self collision", &c.self_collide)
+			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. The collisions keep it on the floor (where the floor grid stands, at the bottom of the scene), out of the other objects and its folds out of each other; Physics strokes take them too.")
+			kit_more_end(app)
+		}
 	}
 	if !stack do ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 }
@@ -535,6 +556,10 @@ kit_move_tab :: proc(app: ^App) {
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
+		// The Brush card's own switch, here too as posing is where it changes what a drag does.
+		b := &app.brush
+		_ = ui.switch_row(ctx, "Physics", &b.physics, keys = command_hint(app, .Physics))
+		if b.physics do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	}
 	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
 	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")

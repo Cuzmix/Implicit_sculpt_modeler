@@ -164,6 +164,13 @@ QUAD_SEAM_SNAP :: f32(1e-4)
 // a sharp edge from this angle, so the quads line up with the seam.
 @(private = "file")
 QUAD_SEAM_SHARP_DEGREES :: f32(60)
+// How near, in quads, a cap's rim may pass its own other side and still be kept as a
+// feature there (cap_rim_edges), and how squarely it must face it to count (the cosine of
+// the angle between their inward directions, past about 120 degrees).
+@(private = "file")
+CAP_RIM_GAP :: f32(1)
+@(private = "file")
+CAP_RIM_FACING :: f32(-0.5)
 
 // Where the progress ring stands after each of AutoRemesher's stages: the decimation past
 // the cap, the check with Close first's voxel remesh, the remesh itself; the mirror and
@@ -192,6 +199,7 @@ Result :: struct {
 	closed:    int, // Close first: vertices of the voxel remesh that stood in for the input, 0 for none
 	features:  int, // AutoRemesher: polygroup borders and creased edges handed to it as feature edges
 	guides:    int, // AutoRemesher: guide curves that came within a quad's width of the surface
+	thin:      int, // AutoRemesher: vertices on parts too thin for THIN_AROUND quads round, given smaller quads (thin_density)
 	mirrored:  bool, // one part remeshed and mirrored, as the symmetry asked...
 	mirror:    geom.Remesh_Mirror, // ...across these planes
 	unmirrored: string, // symmetry asked but not kept: why (a literal, not owned)
@@ -374,6 +382,68 @@ half_densities :: proc(half: geom.Mesh, origins: geom.Slice_From, density: []f32
 	}
 	if lowest == max(f32) do lowest = 1
 	for o, v in origins.vertex do if o == geom.SLICE_NONE do out[v] = lowest
+	return out
+}
+
+// A value per vertex of the whole (thin_density's density or refinement) carried to the
+// mirror cut's half: a vertex from the whole takes its own; a cut point on the rim, which
+// comes from none, the mean of the whole's corners of the triangles it was cut from; and
+// a cap's inner vertex, which lies on no triangle of the whole, the mean of its
+// neighbours that have one, a round at a time, so the cap carries on what its rim has
+// (a spike halved along the midline keeps its smaller quads up to the seam). Nil for nil.
+@(private = "file")
+half_thin_values :: proc(half: geom.Mesh, whole: geom.Mesh, origins: geom.Slice_From, values: []f32) -> []f32 {
+	if values == nil || len(origins.vertex) != len(half.positions) || len(origins.triangle) != len(half.indices) / 3 do return nil
+	n := len(half.positions)
+	out := make([]f32, n)
+	sum := make([]f32, n, context.temp_allocator)
+	count := make([]u32, n, context.temp_allocator)
+	for o, v in origins.vertex do if o != geom.SLICE_NONE do out[v] = values[o]
+	for t, h in origins.triangle {
+		if t == geom.SLICE_NONE do continue
+		w := whole.indices[3 * t:][:3]
+		mean := (values[w[0]] + values[w[1]] + values[w[2]]) / 3
+		for v in half.indices[3 * h:][:3] do if origins.vertex[v] == geom.SLICE_NONE {
+			sum[v] += mean
+			count[v] += 1
+		}
+	}
+	known := make([]bool, n, context.temp_allocator)
+	for o, v in origins.vertex {
+		if o != geom.SLICE_NONE {
+			known[v] = true
+		} else if count[v] > 0 {
+			out[v] = sum[v] / f32(count[v])
+			known[v] = true
+		}
+	}
+	// The cap's inner vertices, from the rim inward; one still unknown after as many
+	// rounds as there are vertices (none in practice) keeps 1.
+	for &x, v in out do if !known[v] do x = 1
+	for _ in 0 ..< n {
+		for &x in sum do x = 0
+		for &x in count do x = 0
+		for k := 0; k + 2 < len(half.indices); k += 3 {
+			for e in 0 ..< 3 {
+				a, b := half.indices[k + e], half.indices[k + (e + 1) % 3]
+				if known[b] && !known[a] {
+					sum[a] += out[b]
+					count[a] += 1
+				}
+				if known[a] && !known[b] {
+					sum[b] += out[a]
+					count[b] += 1
+				}
+			}
+		}
+		grew := false
+		for c, v in count do if c > 0 {
+			out[v] = sum[v] / f32(c)
+			known[v] = true
+			grew = true
+		}
+		if !grew do break
+	}
 	return out
 }
 
@@ -574,9 +644,27 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	// Symmetry: the part on the + side of every plane alone goes in and comes back
 	// mirrored. It goes in closed, its cut capped flat on each plane, since AutoRemesher
 	// fills a small hole of its own accord and smooths a larger one's rim off the plane;
-	// the caps' polygons lie on the planes and are dropped after. The count asked for
-	// covers the caps too, and the rim is kept as a sharp edge so the quads line up with
-	// the seam. A plane the mesh does not cross leaves it whole.
+	// the caps' polygons lie on the planes and are dropped after. AutoRemesher is told
+	// where the caps are (Params.cap), so the count asked goes to the rest whatever share
+	// the flat caps take (more than their area's: a third of a sphere's capped half by
+	// area took 43 % of the quads); the rim goes in as feature edges (cap_rim_edges) so
+	// the quads line up with the seam. A plane the mesh does not cross leaves it whole.
+	//
+	// Thin parts (thin_density) are measured on the whole before the cut: a part the plane
+	// halves, a spike along the midline, is thin only across both halves, and a ray from
+	// one half leaves through the cap into nothing. The half's vertices take their
+	// measures through the cut's origins (half_thin_values).
+	whole_area, _ := geom.mesh_area_bounds(input, pool)
+	thin_start := time.tick_now()
+	whole_thin, whole_refine, whole_thin_count := thin_density(input, f32(math.sqrt(whole_area / f64(max(quads, 1)))), pool)
+	log.infof("quad remesh: thin parts measured over %d vertices in %.0f ms, %d thin", len(input.positions), time.duration_milliseconds(time.tick_since(thin_start)), whole_thin_count)
+	defer delete(whole_thin)
+	defer delete(whole_refine)
+	half_thin, half_refine: []f32
+	defer delete(half_thin)
+	defer delete(half_refine)
+	half_cap: []bool
+	defer delete(half_cap)
 	half: geom.Mesh
 	defer geom.mesh_destroy(&half)
 	half_groups: []u16
@@ -592,16 +680,20 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		ok: bool
 		origins: geom.Slice_From
 		defer geom.slice_from_destroy(&origins)
-		half, ok = geom.mirror_cut(input, mirror, true, pool, from = &origins if groups != nil || creases != nil || density != nil else nil)
+		half, ok = geom.mirror_cut(input, mirror, true, pool, from = &origins)
 		if ok {
+			// The caps are the half's triangles that come from none of the whole's.
+			half_cap = make([]bool, len(half.indices) / 3)
+			if len(origins.triangle) == len(half_cap) do for o, t in origins.triangle do half_cap[t] = o == geom.SLICE_NONE
 			half_groups, half_creases = half_features(half, origins, groups, creases)
 			half_density = half_densities(half, origins, density)
+			half_thin = half_thin_values(half, input, origins, whole_thin)
+			half_refine = half_thin_values(half, input, origins, whole_refine)
 			extent := c.bounds.hi - c.bounds.lo
 			snap = max(extent.x, extent.y, extent.z) * QUAD_SEAM_SNAP
-			total, cap := quad_cap_share(half, mirror, snap, half_density)
 			parts := 0
 			for a in mirror.axes do if a do parts += 1
-			asked = int(f64(quads >> uint(parts)) * total / max(total - cap, total * 0.01))
+			asked = quads >> uint(parts)
 			r.mirrored = true
 		} else {
 			r.unmirrored = "the mesh does not cross the plane"
@@ -619,6 +711,9 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	defer delete(features)
 	guides: []geom.Vec3
 	defer delete(guides)
+	density_used, refine: []f32
+	defer delete(density_used)
+	defer delete(refine)
 	out: quadmesh.Polygon_Mesh
 	defer quadmesh.polygon_mesh_destroy(&out)
 	seam: [dynamic]bool
@@ -636,19 +731,42 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		params.sharp_degrees = min(QUAD_SEAM_SHARP_DEGREES, edge_degrees) if r.mirrored else edge_degrees
 		delete(features)
 		features = feature_edges(input, groups, creases)
-		params.features = features
 		r.features = len(features) / 2
-		params.density = input_density
+		// The quad edge the count asks for over what goes in (its caps too, a little more
+		// than the shim's, which leaves them out).
+		area, _ := geom.mesh_area_bounds(input, pool)
+		quad_edge := f32(math.sqrt(area / f64(max(asked, 1))))
+		if r.mirrored do cap_rim_edges(input, half_cap, quad_edge, &features)
+		params.features = features
+		// Thin parts ask for smaller quads over finer triangles, on top of paint and mask.
+		delete(density_used)
+		delete(refine)
+		thin := slice.clone(half_thin if r.mirrored else whole_thin)
+		refine = slice.clone(half_refine if r.mirrored else whole_refine)
+		density_used = nil
+		r.thin = whole_thin_count
+		switch {
+		case thin != nil && input_density != nil:
+			for &d, v in thin do d *= input_density[v]
+			density_used = thin
+		case thin != nil:
+			density_used = thin
+		case input_density != nil:
+			density_used = slice.clone(input_density)
+		}
+		params.density = density_used
+		params.refine = refine
 		// The guides within a quad's width of what goes in, onto its surface; again after
 		// a fallback to the whole mesh.
 		delete(guides)
 		guides, r.guides = nil, 0
 		if len(source.guides) > 0 && options.guide_strength > 0 {
-			area, _ := geom.mesh_area_bounds(input, pool)
-			guides, r.guides = guide_segments(input, source.guides, mirror if r.mirrored else {}, f32(math.sqrt(area / f64(max(asked, 1)))), pool)
+			guides, r.guides = guide_segments(input, source.guides, mirror if r.mirrored else {}, quad_edge, pool)
 		}
 		params.guides = guides
 		params.guide_strength = clamp(options.guide_strength, 0, 1)
+		// The caps' polygons are dropped after, so they take none of the count.
+		params.cap, params.cap_snap = mirror if r.mirrored else {}, snap
 		err: quadmesh.Error
 		reason: string
 		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
@@ -661,19 +779,31 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			return
 		case .None:
 		}
+		// The faces with an odd number of sides the extractor left are joined up in pairs,
+		// or to the seam, so the result is all quads (quad_fill_odd); on a mirrored half
+		// before the mirror, with the caps out of the way, so both sides mend alike.
+		mended, left, doublets: int
 		if r.mirrored {
 			bvh := geom.bvh_build_morton(half, geom.BVH_LEAF_SIZE, pool)
 			cap: []bool
 			cap, planes = quad_seam_classify(out, half, &bvh, mirror, snap)
+			mended, left = quad_fill_odd(&out, &cap, &planes, half, &bvh, pool)
 			geom.bvh_destroy(&bvh)
 			dropped := polygon_mesh_mirror(&out, mirror, cap, &planes)
 			delete(cap)
+			// After the mirror, so a quad with two edges on the seam merges with its image.
+			doublets = dissolve_doublets(&out, &planes)
 			resize(&seam, len(planes))
 			for p, v in planes do seam[v] = p != 0
 			if dropped > 0 do log.infof("quad remesh: %d polygons lay on the symmetry plane and went", dropped)
-			report.faces = len(out.first) - 1
-			report.quads, report.triangles, report.ngons = quadmesh.polygon_share(out)
+		} else {
+			doublets = dissolve_doublets(&out, nil)
+			mended, left = quad_fill_odd(&out, nil, nil, input, nil, pool)
 		}
+		if doublets > 0 do log.infof("quad remesh: %d vertices of two faces dissolved", doublets)
+		if mended > 0 || left > 0 do log.infof("quad remesh: %d faces with an odd number of sides mended, %d left", mended, left)
+		report.faces = len(out.first) - 1
+		report.quads, report.triangles, report.ngons = quadmesh.polygon_share(out)
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 		// Feature edges the field could not follow (many small groups, borders crossing at
@@ -693,8 +823,10 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			if jobs.progress_cancelled(progress) do return {}, .Cancelled
 			continue
 		}
-		if !r.mirrored || check.non_manifold_edges == 0 do break
-		log.warnf("quad remesh: the mirrored halves left %d non-manifold edges along the seam, so the whole mesh is remeshed instead", check.non_manifold_edges)
+		// Open where the sculpt is closed counts as not closing too: the extraction can
+		// leave a hole in a half where the whole comes back whole (at a creature's horns).
+		if !r.mirrored || (check.non_manifold_edges == 0 && (!c.closed || check.closed)) do break
+		log.warnf("quad remesh: the mirrored halves left %d non-manifold and %d open edges, so the whole mesh is remeshed instead", check.non_manifold_edges, check.boundary_edges)
 		geom.mesh_destroy(&mesh)
 		sculpt.polys_destroy(&polys)
 		quadmesh.polygon_mesh_destroy(&out)
@@ -717,8 +849,9 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 	}
-	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges and %d guide segments in %.0f ms; %s, %d boundary and %d non-manifold edges",
-		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, len(guides) / 2, report.ms,
+	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges, %d guide segments and %d thin vertices in %.0f ms (decimate %.0f, isotropic %.0f to %d triangles, parameterize %.0f in %d covers, extract %.0f, summed over the islands); %s, %d boundary and %d non-manifold edges",
+		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, len(guides) / 2, r.thin, report.ms,
+		report.decimate_ms, report.isotropic_ms, report.isotropic_triangles, report.parameterize_ms, report.covers, report.extract_ms,
 		"closed" if check.closed else "open", check.boundary_edges, check.non_manifold_edges)
 	if jobs.progress_cancelled(progress) {
 		geom.mesh_destroy(&mesh)
@@ -804,19 +937,81 @@ polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, seam: []bool = nil, a
 	return
 }
 
-// The area of `m` and of its triangles lying on one of the planes of `mirror` (within
-// `snap`): a capped half's caps. With a density per vertex (nil for none) each triangle's
-// area counts times its corners' mean, as the quads are shared out by it.
+// Appends to `features` the rims of a capped half's caps: each edge between a cap's
+// triangle (`cap`, one per triangle: those the cut made, which come from none of the
+// whole's) and another. AutoRemesher then keeps the rim where it is, as it keeps a
+// group's border, where the sharp angle alone let a coarse remesh bevel it (a fifth of a
+// sphere's cap rounded off at 500 quads). The cut's own record, not flatness: the
+// surface's slivers along the cut lie as flat on the plane as the cap, and taking them
+// for cap zigzagged the rim. Where the rim passes within CAP_RIM_GAP quads of edge
+// `quad_edge` of its own other side, facing it (across a spike the plane cuts lengthwise,
+// a slit of a mouth), it is left out there: no row of quads fits between the two, and
+// holding both folded a creature's whole cover (a tenth of the cells at one scaling,
+// three times them at the next), where the quads cross such a place freely without them.
 @(private = "file")
-quad_cap_share :: proc(m: geom.Mesh, mirror: geom.Remesh_Mirror, snap: f32, density: []f32) -> (total, cap: f64) {
-	for k := 0; k < len(m.indices); k += 3 {
-		a, b, c := m.positions[m.indices[k]], m.positions[m.indices[k + 1]], m.positions[m.indices[k + 2]]
-		area := f64(linalg.length(linalg.cross(b - a, c - a))) / 2
-		if density != nil do area *= f64(density[m.indices[k]] + density[m.indices[k + 1]] + density[m.indices[k + 2]]) / 3
-		total += area
-		if flat_on(mirror, snap, a, b, c) != 0 do cap += area
+cap_rim_edges :: proc(m: geom.Mesh, cap: []bool, quad_edge: f32, features: ^[]u32) {
+	triangles := len(m.indices) / 3
+	if len(cap) != triangles do return
+	Rim :: struct {
+		a, b:   u32,
+		middle: geom.Vec3,
+		// Square to the edge in the cap's plane, into the cap.
+		inward: geom.Vec3,
 	}
-	return
+	first := make(map[u64]u32, 3 * triangles, context.temp_allocator)
+	rims := make([dynamic]Rim, 0, 256, context.temp_allocator)
+	for t in 0 ..< triangles {
+		for k in 0 ..< 3 {
+			a, b := m.indices[3 * t + k], m.indices[3 * t + (k + 1) % 3]
+			key := sculpt.sharp_key(a, b)
+			other, seen := first[key]
+			if !seen {
+				first[key] = u32(t)
+				continue
+			}
+			if cap[other] == cap[t] do continue
+			c := u32(t) if cap[t] else other
+			i := m.indices[3 * c:][:3]
+			pa, pb := m.positions[a], m.positions[b]
+			normal := linalg.cross(m.positions[i[1]] - m.positions[i[0]], m.positions[i[2]] - m.positions[i[0]])
+			inward := linalg.normalize0(linalg.cross(normal, pb - pa))
+			// The cap's corner off the edge says which way is in.
+			far := i[0] + i[1] + i[2] - a - b
+			if linalg.dot(inward, m.positions[far] - pa) < 0 do inward = -inward
+			append(&rims, Rim{a, b, (pa + pb) / 2, inward})
+		}
+	}
+	// Each rim edge against those within the gap, found through a grid of cells the gap's
+	// size (the 27 round its own); whether one faces another does not hang on the order.
+	gap := CAP_RIM_GAP * quad_edge
+	if !(gap > 0) do return
+	cell :: proc(p: geom.Vec3, size: f32) -> [3]i32 {return {i32(math.floor(p.x / size)), i32(math.floor(p.y / size)), i32(math.floor(p.z / size))}}
+	grid := make(map[[3]i32][dynamic]u32, len(rims), context.temp_allocator)
+	for r, i in rims {
+		key := cell(r.middle, gap)
+		if key not_in grid do grid[key] = make([dynamic]u32, context.temp_allocator)
+		append(&grid[key], u32(i))
+	}
+	out := make([dynamic]u32, 0, len(features^) + 2 * len(rims))
+	append(&out, ..features^)
+	for r in rims {
+		key := cell(r.middle, gap)
+		narrow := false
+		search: for dx in i32(-1) ..= 1 do for dy in i32(-1) ..= 1 do for dz in i32(-1) ..= 1 {
+			near, ok := grid[key + {dx, dy, dz}]
+			if !ok do continue
+			for j in near {
+				o := rims[j]
+				if linalg.dot(r.inward, o.inward) < CAP_RIM_FACING && linalg.length(o.middle - r.middle) < gap {
+					narrow = true
+					break search
+				}
+			}
+		}
+		if !narrow do append(&out, r.a, r.b)
+	}
+	delete(features^)
+	features^ = out[:]
 }
 
 // The planes of `mirror` (a bit each, by axis) that the triangle a b c lies on, within `snap`.
@@ -906,19 +1101,33 @@ quad_seam_classify :: proc(m: quadmesh.Polygon_Mesh, half: geom.Mesh, bvh: ^geom
 		}
 		went := 0
 		for e, at in edges {
-			if at[0] < 0 || at[1] < 0 || planes[e[0]] & planes[e[1]] == 0 do continue
+			if at[0] < 0 || at[1] < 0 do continue
 			more :: proc(m: quadmesh.Polygon_Mesh, planes: []u8, f: i32) -> int {
 				n := 0
 				for c in m.corners[m.first[f]:m.first[f + 1]] do if planes[c] != 0 do n += 1
 				return n
 			}
+			// A fold the extractor left beside the seam: two polygons over each other
+			// (three corners shared), one of them touching the seam, which the mirror would
+			// turn into edges of three and four faces; the one nearer the seam goes as a
+			// chord's does (a creature's half at 2,500 quads had one by its chin).
+			shared :: proc(m: quadmesh.Polygon_Mesh, f, g: i32) -> int {
+				n := 0
+				for c in m.corners[m.first[f]:m.first[f + 1]] do for d in m.corners[m.first[g]:m.first[g + 1]] do if c == d do n += 1
+				return n
+			}
+			chord := planes[e[0]] & planes[e[1]] != 0
+			fold := !chord && shared(m, at[0], at[1]) >= 3 && more(m, planes[:], at[0]) + more(m, planes[:], at[1]) > 0
+			if !chord && !fold do continue
 			a, b := more(m, planes[:], at[0]), more(m, planes[:], at[1])
 			f := at[0] if a > b || (a == b && at[0] < at[1]) else at[1]
 			if !dropped[f] {
 				dropped[f] = true
-				cap_of[f] = planes[e[0]] & planes[e[1]]
 				went += 1
 			}
+			// Or'd in, so the edges' order (the map's) decides nothing.
+			cap_of[f] |= planes[e[0]] & planes[e[1]]
+			if fold do for c in m.corners[m.first[f]:m.first[f + 1]] do cap_of[f] |= planes[c]
 		}
 		if went == 0 do break
 		draw_seam(m, dropped, cap_of, in_kept, touches, planes[:])
@@ -975,4 +1184,3 @@ polys_renumber :: proc(p: ^sculpt.Polys, old_to_new, tri_from: []u32) {
 	copy(was, p.tri_poly)
 	for &f, t in p.tri_poly do f = was[tri_from[t]]
 }
-

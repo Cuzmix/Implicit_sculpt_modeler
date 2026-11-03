@@ -165,6 +165,11 @@ SCRIPT_VALUES := [?]Setting {
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
 	{"live_ao_reach", offset_of(App, live_ao_reach), f32, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX},
 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
+	{"cloth_region", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, region), sculpt.Cloth_Region, 0, 0},
+	{"cloth_gravity", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, gravity), f32, 0, 1},
+	{"cloth_floor", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, floor), bool, 0, 0},
+	{"cloth_objects", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, objects), bool, 0, 0},
+	{"cloth_self", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, self_collide), bool, 0, 0},
 }
 
 // Values with more to them that only scripts set, as SETTING_LINES are set: the scene's

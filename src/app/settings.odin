@@ -180,6 +180,8 @@ SETTINGS := [?]Setting {
 	{"hook_pinch", B + offset_of(Brush_Settings, hook_pinch), f32, -1, 1},
 	{"hook_rake", B + offset_of(Brush_Settings, hook_rake), f32, 0, 1},
 	{"hook_elastic", B + offset_of(Brush_Settings, hook_elastic), bool, 0, 0},
+	{"physics", B + offset_of(Brush_Settings, physics), bool, 0, 0},
+	{"physics_strength", B + offset_of(Brush_Settings, physics_strength), f32, 0.05, 1},
 	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
 	{"smooth_stable", B + offset_of(Brush_Settings, smooth_stable), bool, 0, 0},
 	{"smooth_mode", B + offset_of(Brush_Settings, smooth_mode), sculpt.Smooth_Mode, 0, 0},

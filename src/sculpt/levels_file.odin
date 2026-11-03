@@ -7,6 +7,7 @@ import "core:sync"
 
 import "../geom"
 import "../jobs"
+import "../uv"
 
 // Subdivision levels in and out of the native scene file (the app writes the rest of
 // it). Every level is stored as positions, so each reads back exactly as it was shown,
@@ -31,7 +32,7 @@ LEVELS_PAINT :: u32(2)
 // After them, each level's sculpt layers (files from before layers have none).
 @(private = "file")
 LEVELS_LAYERS :: u32(4)
-// After them, the base level's quads and UVs (levels_quads.odin).
+// After them, the base level's quads (levels_quads.odin).
 @(private = "file")
 LEVELS_QUADS :: u32(8)
 // Right after the base mesh, its node layout (sculptor_layout), so that opening it skips
@@ -53,6 +54,11 @@ LEVELS_CC :: u32(64)
 // masks have none).
 @(private = "file")
 LEVELS_LAYER_MASKS :: u32(128)
+// After the quads, the base level's UVs (uv.Uvs) in its own triangle and vertex order:
+// a byte saying whether there are any, then the triangle count, the coordinates, seams
+// and islands, the island count, the share filled, and the pins.
+@(private = "file")
+LEVELS_UVS :: u32(256)
 
 // How levels_write runs. A save from the frame loop takes the defaults. The autosave
 // thread writes serially, since the pool takes jobs from the frame loop alone, and
@@ -120,7 +126,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	geom.byte_put(out, LEVELS_TAG)
 	base := l.levels[0]
 	cc := !paged && l.rule != .Loop && base.polys.first != nil
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_LAYER_MASKS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_LAYER_MASKS | LEVELS_QUADS | LEVELS_UVS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -200,11 +206,18 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	f := l.faces
 	geom.byte_put(out, u32(len(f.quads)))
 	if !put_checked(&w, slice.to_bytes(f.quads)) do return false
-	geom.byte_put(out, u8(f.uv.uvs != nil))
-	if f.uv.uvs != nil {
-		if !put_checked(&w, slice.to_bytes(f.uv.uvs)) || !put_checked(&w, slice.to_bytes(f.uv.chart)) do return false
-		geom.byte_put(out, u32(f.uv.charts))
-		geom.byte_put(out, f.uv.filled)
+	// So are its triangles, which the UVs follow.
+	u := l.uvs
+	geom.byte_put(out, u8(uv.has(u)))
+	if uv.has(u) {
+		geom.byte_put(out, u32(len(u.corner)))
+		for bytes in ([][]u8{slice.to_bytes(u.corner), slice.to_bytes(u.seam), slice.to_bytes(u.island)}) {
+			if !put_checked(&w, bytes) do return false
+		}
+		geom.byte_put(out, u32(u.islands))
+		geom.byte_put(out, u.filled)
+		geom.byte_put(out, u32(len(u.pins)))
+		if !put_checked(&w, slice.to_bytes(u.pins)) do return false
 	}
 	return write_sets(&w, l, canon[:]) && !stopped(w.abort)
 }
@@ -485,6 +498,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j], flags & LEVELS_LAYER_MASKS != 0) do return false
 	}
 	if flags & LEVELS_QUADS != 0 && !read_quads(r, l, file_order) do return false
+	if flags & LEVELS_UVS != 0 && !read_uvs(r, l, file_order, tri_from) do return false
 	if flags & LEVELS_SETS != 0 && !read_sets(r, l, canon[:count]) do return false
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false
@@ -675,52 +689,88 @@ write_mask :: proc(w: ^Writer, mask: []u8, canon: []u32) -> bool {
 	}, geom.RANGE_GRAIN)
 }
 
-// Reads the quads and UVs levels_write put after the layers, with the base level's
-// vertices renumbered by `file_order` (file place -> vertex). False on a damaged file.
+// Reads the quads levels_write put after the layers, with the base level's vertices
+// renumbered by `file_order` (file place -> vertex). False on a damaged file.
 @(private = "file")
 read_quads :: proc(r: ^geom.Byte_Reader, l: ^Levels, file_order: []u32) -> bool {
 	count := int(geom.byte_get(r, u32))
 	if !r.ok || count > (len(r.data) - r.at) / size_of([4]u32) do return false
-	if count == 0 {
-		has_uv := geom.byte_get(r, u8)
-		return r.ok && has_uv == 0
-	}
+	if count == 0 do return true
 	vertices := u32(len(file_order))
 	quads := make([][4]u32, count, l.allocator)
-	ok := false
-	defer if !ok do delete(quads, l.allocator)
 	saved := geom.byte_get_bytes(r, count * size_of([4]u32))
-	if !r.ok do return false
+	if !r.ok {
+		delete(quads, l.allocator)
+		return false
+	}
 	for &q, i in quads {
 		for k in 0 ..< 4 {
 			v := intrinsics.unaligned_load(cast(^u32)&saved[size_of([4]u32) * i + size_of(u32) * k])
-			if v >= vertices do return false
+			if v >= vertices {
+				delete(quads, l.allocator)
+				return false
+			}
 			q[k] = file_order[v]
 		}
 	}
-	has_uv := geom.byte_get(r, u8)
-	if !r.ok || has_uv > 1 do return false
 	levels_set_quads(l, quads)
-	ok = true
-	if has_uv == 0 do return true
-	uv: geom.Uv_Layout
-	uv_bytes := geom.byte_get_bytes(r, count * size_of([4][2]f32))
-	chart_bytes := geom.byte_get_bytes(r, count * size_of(u32))
-	charts := int(geom.byte_get(r, u32))
+	return true
+}
+
+// Reads the UVs levels_write put after the quads into the base level's numbering:
+// triangle t's from the file's triangle tri_from[t] (corners keep their order through
+// the renumbering), pins through `file_order`. False on a damaged file: a count that
+// differs from the mesh's or runs past the bytes left, a coordinate that is not finite,
+// a seam byte or island out of range, seams on one side of an edge only, or pins out of
+// order or range.
+@(private = "file")
+read_uvs :: proc(r: ^geom.Byte_Reader, l: ^Levels, file_order, tri_from: []u32) -> bool {
+	has := geom.byte_get(r, u8)
+	if !r.ok || has > 1 do return false
+	if has == 0 do return true
+	base := l.levels[0]
+	count := int(geom.byte_get(r, u32))
+	if !r.ok || count != len(base.mesh.indices) / 3 do return false
+	per := size_of([3][2]f32) + size_of(uv.Seams) + size_of(u32)
+	if count > (len(r.data) - r.at) / per do return false
+	corners := geom.byte_get_bytes(r, count * size_of([3][2]f32))
+	seams := geom.byte_get_bytes(r, count * size_of(uv.Seams))
+	islands_bytes := geom.byte_get_bytes(r, count * size_of(u32))
+	islands := int(geom.byte_get(r, u32))
 	filled := geom.byte_get(r, f32)
+	pins := int(geom.byte_get(r, u32))
+	if !r.ok || islands > count || pins > len(file_order) || pins > (len(r.data) - r.at) / size_of(u32) do return false
+	pin_bytes := geom.byte_get_bytes(r, pins * size_of(u32))
 	if !r.ok do return false
-	uv.uvs = make([][4][2]f32, count, l.allocator)
-	uv.chart = make([]u32, count, l.allocator)
-	for i in 0 ..< count {
-		uv.uvs[i] = intrinsics.unaligned_load(cast(^[4][2]f32)&uv_bytes[size_of([4][2]f32) * i])
-		uv.chart[i] = intrinsics.unaligned_load(cast(^u32)&chart_bytes[size_of(u32) * i])
-		if int(uv.chart[i]) >= charts {
-			geom.uv_layout_destroy(&uv, l.allocator)
-			return false
-		}
+	u := uv.Uvs {
+		corner  = make([][3][2]f32, count, l.allocator),
+		seam    = make([]uv.Seams, count, l.allocator),
+		island  = make([]u32, count, l.allocator),
+		pins    = make([]u32, pins, l.allocator),
+		islands = islands,
+		filled  = filled,
 	}
-	uv.charts, uv.filled = charts, filled
-	levels_set_uvs(l, uv)
+	ok := false
+	defer if !ok do uv.destroy(&u, l.allocator)
+	for t in 0 ..< count {
+		from := int(tri_from[t])
+		u.corner[t] = intrinsics.unaligned_load(cast(^[3][2]f32)&corners[size_of([3][2]f32) * from])
+		bits := seams[from]
+		if bits >= 8 do return false
+		u.seam[t] = transmute(uv.Seams)bits
+		u.island[t] = intrinsics.unaligned_load(cast(^u32)&islands_bytes[size_of(u32) * from])
+	}
+	last := -1
+	for &p, i in u.pins {
+		v := int(intrinsics.unaligned_load(cast(^u32)&pin_bytes[size_of(u32) * i]))
+		if v <= last || v >= len(file_order) do return false
+		last = v
+		p = file_order[v]
+	}
+	slice.sort(u.pins)
+	if uv.check(u, base.mesh.indices[:], base.sculptor.faces, len(base.mesh.positions)) != "" do return false
+	levels_take_uvs(l, u)
+	ok = true
 	return true
 }
 

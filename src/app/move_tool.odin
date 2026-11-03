@@ -265,7 +265,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	}
 	if !drag.live {
 		if !app.drag.moving do return
-		if !move_go_live(app, obj, input) || (drag.posed && !(lattice_begin(app, obj) if drag.lattice > 0 else pose_begin(app, obj))) do drag^ = {}
+		if !move_go_live(app, obj, input) || (drag.posed && !(lattice_begin(app, obj) if drag.lattice > 0 else pose_begin(app, obj, drag = true))) do drag^ = {}
 		return
 	}
 	drag.snapped = m.snap || app.device.ctrl
