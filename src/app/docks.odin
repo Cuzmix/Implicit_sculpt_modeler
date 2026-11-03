@@ -635,8 +635,8 @@ kit_user_docks :: proc(app: ^App) {
 // where the room is less than they need, then the ⋯ More (and while arranging the + that
 // adds one). A brush value shown as a slider stands as a tall slider a thumb drags without
 // looking (Size and Strength on the brush bar at first); a window too short for every
-// slider shows the last ones as chips. A rail group's button opens its group; a card's
-// docks it in the panels' column (rail_dock.odin).
+// slider shows the last ones as chips. A card's button on the rail docks it in the panels'
+// column (rail_dock.odin).
 kit_dock :: proc(app: ^App, id: Dock_Id) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -686,12 +686,9 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 				if id == .Offhand do k.island_sliders += {v}
 			case value && id == .Offhand:
 				value_item(app, which, j, v)
-			case s.id == .Rail_Group && id == .Rail:
-				rail_group_button(app, j, s, rail_label(app, s) if named else "", width)
 			case:
 				bar_slot_button(app, which, j, s, named = rail_label(app, s) if named else "", width = width)
 			}
-			if id == .Rail do k.rail_group_at[j] = ctx.last_rect
 		}
 		if lines > 1 do ui.end(ctx)
 	}
@@ -802,7 +799,7 @@ dock_menu_toggle :: proc(app: ^App, id: Dock_Id, at: ui.Rect) {
 	k.bar_pop = {open = true, kind = .Dock_Menu, dock = id, at = at, side = dock_side(app, id)}
 }
 
-// A dock's menu, from its ⋯: add a button (the rail's cards and groups from the Panels
+// A dock's menu, from its ⋯: add a button (the rail's cards from the Panels
 // picker too), how many lines its buttons stand in, when they show their names, and
 // whether the ⋯ stays (Arrange always shows it).
 kit_dock_menu :: proc(app: ^App) {

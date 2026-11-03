@@ -353,11 +353,6 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
-	// The view rail's panel groups (rail_groups.odin), where each rail slot was laid out
-	// this frame (for a group opened from Search) and, for the exit stats, the joins.
-	rail_groups:    [RAIL_GROUPS]Rail_Group,
-	rail_group_at:  [VIEW_RAIL_MAX]ui.Rect,
-	rail_joins:     int,
 	// The rail palette the panel stack's column shows (nil for Main), its body's scroll,
 	// how many times a rail button docked one, and whether the rail just read needs Main
 	// put on it (rail_dock.odin).

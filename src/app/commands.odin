@@ -244,7 +244,6 @@ Command_Id :: enum u16 {
 	Stats,
 	Inspector,
 	Open_Card, // the argument is the card's Panel_Kind
-	Rail_Group, // the argument is the rail group, below RAIL_GROUPS (rail_groups.odin)
 	Pin_Section, // the argument is a section's Panel_Kind (panels.odin)
 	Panels_Reset,
 	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
@@ -2219,15 +2218,6 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Panel_Kind(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return !panel_is_section(Panel_Kind(arg)) && palette_on_screen(app, Panel_Kind(arg))},
 	},
-	.Rail_Group = {
-		label = "Panel group",
-		help = "Docks this group of panels in the panel stack's column, as tabs or one under another; again puts the column away.",
-		icon = ui.ICON_PANEL,
-		args = RAIL_GROUPS,
-		run = proc(app: ^App, arg: int) {rail_dock_toggle(app, {.Rail_Group, arg})},
-		enabled = proc(app: ^App, arg: int) -> bool {return arg >= 0 && arg < RAIL_GROUPS && app.kit.rail_groups[arg].used},
-		checked = proc(app: ^App, arg: int) -> bool {return rail_dock_is(app, {.Rail_Group, arg})},
-	},
 	.Pin_Section = {
 		label = "Pin to the stack",
 		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
@@ -2978,8 +2968,6 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Pin_Section:
 		p := Panel_Kind(arg)
 		return fmt.tprintf("Pin %s to the stack", tray_section_title(p) if panel_is_section(p) else STACK_CARD_NAMES[p])
-	case .Rail_Group:
-		return fmt.tprintf("Panel group %d", arg + 1)
 	case .View_Pass:
 		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
