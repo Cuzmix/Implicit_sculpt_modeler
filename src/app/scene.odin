@@ -109,6 +109,7 @@ Object :: struct {
 	// Its texture maps, while it has quads and UVs (textures.odin), and their GPU copy.
 	textures:  Object_Textures,
 	preview:   Texture_Preview,
+	physics:   Object_Physics, // its Physics card (physics_card.odin)
 }
 
 // The level being sculpted: the HD window while one is open.

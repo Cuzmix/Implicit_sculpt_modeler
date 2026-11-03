@@ -56,6 +56,7 @@ Panel_Kind :: enum u8 {
 	Groups,
 	Morph,
 	Deform,
+	Physics,
 	Deformers,
 	Remesh,
 	Mirror,

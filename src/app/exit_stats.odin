@@ -282,7 +282,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
 			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("stretch_repair_splits=%d stretch_repair_ms=%.2f", app.stretch_repair.splits, app.stretch_repair.ms)
-			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses)
+			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d settles=%d settle_ms=%.1f physics_filters=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses, app.ui.physics.settles, app.ui.physics.settle_ms, app.ui.physics.filters)
 			fmt.printfln("skin_settle_strokes=%d skin_settle_vertices=%d skin_settle_ms=%.2f", app.skin_settle.strokes, app.skin_settle.vertices, app.skin_settle.ms)
 			skin_segments: u32
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments

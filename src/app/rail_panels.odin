@@ -91,6 +91,7 @@ SECTION_ICONS := [Kit_Section]rune {
 	.Morph       = ICON_FLIP_VIEW,
 	.Layers      = ICON_LAYERS,
 	.Deform      = ui.ICON_WAND,
+	.Physics     = rune(0xe1ca), // shirt, as the Cloth brush
 	.Deformers   = ui.ICON_ROTATE_3D,
 	.Remesh      = ICON_REMESH,
 	.Mirror      = ICON_SYMMETRY,

@@ -820,8 +820,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
 	} else if st.cloth {
 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
-		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, app.brush.cloth)
-		sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, app.brush.cloth))
+		set := cloth_brush_settings(app, obj)
+		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, set)
+		sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, set))
 		return
 	} else {
 		object_dab(app, obj, brush, local, object_normal_local(obj, local))
@@ -938,7 +939,7 @@ grab_along_normal :: proc(app: ^App, drag, n, facing: Vec3) -> Vec3 {
 
 // Steps a Cloth stroke's simulation once, with the pointer at `pos`: Drag pulls what
 // was under the brush after the pointer on the plane through where it began facing the
-// camera, as Grab does; Gravity pulls toward the bottom of the screen (the top when
+// camera, as Grab does; Gravity pulls the way the object's Physics card says (up when
 // inverted).
 @(private = "file")
 cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, res: ^Sculpt_Frame_Result) {
@@ -956,13 +957,11 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 		hit := origin + dir * (linalg.dot(st.anchor - origin, facing) / along)
 		offset = to_local_dir(t, hit - st.anchor) / t.scale
 	}
-	view := camera.orbit_view(app.camera)
-	down := -to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]})
 	st.pos = pos
 	t1 := time.tick_now()
 	// The sliders may move mid-stroke; the cloth takes them at its next step.
-	sculpt.sculptor_cloth_settings(object_sculptor(obj), app.brush.cloth)
-	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, linalg.normalize0(down))
+	sculpt.sculptor_cloth_settings(object_sculptor(obj), cloth_brush_settings(app, obj))
+	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, physics_down(app, obj))
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
@@ -1934,16 +1933,14 @@ physics_allowed :: proc(app: ^App, obj: ^Object, st: ^Stroke, say: bool) -> bool
 physics_begin :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, local: Vec3) {
 	st := &app.stroke
 	flags := BRUSHES[st.kind].flags
-	set := sculpt.CLOTH_DEFAULTS
+	// The object's make-up and collisions, from its Physics card, without gravity.
+	set := object_cloth_settings(obj, .Local)
 	reach: f32 = sculpt.CLOTH_REACH
 	switch {
 	case st.kind == .Elastic: reach = PHYSICS_ELASTIC_REACH
 	case .Grab in flags:      reach = PHYSICS_GRAB_REACH
 	case:                     set.region = .Follows
 	}
-	// Until the Physics card, Physics collides with what the Cloth brush does.
-	c := app.brush.cloth
-	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
 	st.physics = sculpt.sculptor_physics_begin(object_sculptor(obj), brush, local, app.brush.physics_strength, reach, set) > 0
 	if st.physics do sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, set))
 }
@@ -1959,9 +1956,7 @@ physics_follow :: proc(app: ^App, res: ^Sculpt_Frame_Result) {
 	at := st.at
 	if st.hook do at = to_local(t, st.anchor)
 	else if st.last_set do at = st.last_at
-	view := camera.orbit_view(app.camera)
-	down := linalg.normalize0(-to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
 	t1 := time.tick_now()
-	sculpt.sculptor_physics_step(object_sculptor(obj), at, down)
+	sculpt.sculptor_physics_step(object_sculptor(obj), at, physics_down(app, obj))
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 }

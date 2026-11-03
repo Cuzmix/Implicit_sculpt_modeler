@@ -42,7 +42,7 @@ Cloth_Collisions :: struct {
 	floor_up:    Vec3, // its normal, unit length, pointing to where the cloth may be
 	colliders:   [dynamic]Cloth_Collider,
 	gap:         f32, // how far from a surface the cloth stays; 0 for half a link
-	thickness:   f32, // how far apart self collision keeps two vertices; 0 for a link
+	thickness:   f32, // how far apart self collision keeps two vertices, in mean links; 0 for one
 }
 
 // Lattice points along the volume's longest side at most, and how many cells either side
@@ -239,7 +239,7 @@ cloth_collide_pass :: proc(s: ^Sculptor, pool: ^jobs.Pool) {
 cloth_self_grid :: proc(s: ^Sculptor) {
 	c := &s.cloth
 	n := len(c.verts)
-	c.self_cell = 2 * (c.collide.thickness if c.collide.thickness > 0 else c.link_mean)
+	c.self_cell = 2 * c.link_mean * (c.collide.thickness if c.collide.thickness > 0 else 1)
 	resize(&c.self_slot, n)
 	resize(&c.self_first, n + 1)
 	resize(&c.self_order, n)

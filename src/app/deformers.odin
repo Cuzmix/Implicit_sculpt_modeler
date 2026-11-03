@@ -268,6 +268,7 @@ inspector_drags_end :: proc(app: ^App) {
 	deform_drag_end(app, force = true)
 	reshape_drag_end(app, force = true)
 	light_drag_end(app, force = true)
+	physics_card_end(app)
 }
 
 // Whether `obj` can be deformed: not in an HD window, nor under dynamic topology, whose

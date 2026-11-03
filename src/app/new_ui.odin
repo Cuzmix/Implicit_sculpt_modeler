@@ -604,6 +604,7 @@ Kit_Section :: enum u8 {
 	Morph,
 	Layers,
 	Deform,
+	Physics,
 	Deformers,
 	Remesh,
 	Mirror,
@@ -1329,6 +1330,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	reshape_drag_end(app)
 	lattice_frame(app)
 	pose_physics_frame(app)
+	physics_card_frame(app)
 	transform_drag_end(app)
 	light_drag_end(app)
 	tree_column_send(app)

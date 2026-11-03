@@ -53,6 +53,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Surface, .Morph, "Morph target", kit_morph},
 	{.Surface, .Deform, "Deformation", kit_deformation},
+	{.Surface, .Physics, "Physics", kit_physics},
 	{.Surface, .Deformers, "Deformers", kit_deformers},
 	{.Build, .Voxels, "Voxels", kit_voxels},
 	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},

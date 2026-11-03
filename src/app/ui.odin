@@ -77,6 +77,7 @@ Ui_State :: struct {
 	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
+	physics:            Physics_Card, // the Physics section's filter and its runs under way (physics_card.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
@@ -199,7 +200,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.
