@@ -497,25 +497,63 @@ sculptor_normals_stale :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
 	}
 }
 
+// A node as the GPU's bounds kernel reads it (node_bounds.comp.slang): its own vertices
+// and its run in sculptor_gpu_shared, the vertices of its triangles that other nodes own.
+Gpu_Node :: struct {
+	vert_first, vert_count, shared_first, shared_count: u32,
+}
+
+// The nodes of `ranges` (a flush's, which are whole nodes), in order, for the GPU to
+// find their bounds after the flush's dabs.
+sculptor_range_gpu_nodes :: proc(s: ^Sculptor, ranges: []Vertex_Range, allocator := context.temp_allocator) -> []Gpu_Node {
+	ids := nodes_of_ranges(s, ranges)
+	out := make([]Gpu_Node, len(ids), allocator)
+	for id, k in ids {
+		n := s.nodes[id]
+		out[k] = {n.vert_first, n.vert_count, n.shared_first, n.shared_count}
+	}
+	return out
+}
+
+// Every node's shared vertices, the runs Gpu_Node.shared_first names: what the GPU keeps a
+// copy of with its lookup (static while the triangles are, which dynamic topology, the
+// one thing that moves them, never runs on the GPU).
+sculptor_gpu_shared :: proc(s: ^Sculptor) -> []u32 {return s.shared[:]}
+
 // The positions of `ranges` (a flush's, handed to the GPU) landed in the mesh from the
 // GPU: refits the bounds of their nodes from the positions as they are now, exactly,
 // where no later dab of the stroke is still on its way for the node (its bounds keep the
 // margin dab_gpu_record gave them until that one lands too), and the BVH above them.
-sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
+// `nodes` and `bounds`, when the GPU found them (node_bounds.comp.slang), are each node's
+// bounds as its positions landed, the same minimum and maximum over the same vertices as
+// the refit here would find, so nothing reads the positions again.
+sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range, nodes: []Gpu_Node = nil, bounds: []geom.Aabb = nil) {
 	gpu_flush_done(s)
 	clear(&s.changed)
-	for id in nodes_of_ranges(s, ranges) {
+	ids := nodes_of_ranges(s, ranges)
+	// The GPU's nodes are these, in this order, when they came from the same ranges.
+	known := len(nodes) == len(ids) && len(bounds) == len(ids)
+	if known do for id, k in ids do if nodes[k].vert_first != s.nodes[id].vert_first || nodes[k].vert_count != s.nodes[id].vert_count {
+		known = false
+		break
+	}
+	verts: u32
+	for id, k in ids {
 		if s.gpu_pending[id] > 0 {
 			s.gpu_pending[id] -= 1
 			if s.gpu_pending[id] > 0 do continue
 		}
-		if s.nodes[id].leaf != geom.BVH_NONE do append(&s.changed, s.nodes[id].leaf)
+		leaf := s.nodes[id].leaf
+		if leaf == geom.BVH_NONE do continue
+		append(&s.changed, leaf)
+		if known do s.bvh.nodes[leaf].bounds = bounds[k]
+		else do verts += s.nodes[id].vert_count
 	}
 	if len(s.changed) == 0 do return
-	verts: u32
-	for leaf in s.changed do verts += s.nodes[s.node_of[leaf]].vert_count
-	d := Dab{s = s}
-	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	if !known {
+		d := Dab{s = s}
+		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	}
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	for leaf in s.changed {
 		id := s.node_of[leaf]
