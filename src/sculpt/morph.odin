@@ -9,6 +9,7 @@ package sculpt
 // (false) while dynamic topology is on: its strokes add and remove vertices.
 sculptor_morph_store :: proc(s: ^Sculptor) -> bool {
 	if s.dyn != nil do return false
+	_ = sculptor_gpu_sync(s)
 	if len(s.morph) != len(s.mesh.positions) {
 		delete(s.morph, s.history.allocator)
 		s.morph = make([]Vec3, len(s.mesh.positions), s.history.allocator)

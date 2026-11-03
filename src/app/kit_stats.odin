@@ -93,7 +93,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		if render.caps(&app.renderer).gpu_sculpt {
 			_ = ui.switch_row(ctx, "Sculpt on the GPU", &app.gpu_sculpt)
 			sg := app.renderer.sculpt_gpu.stats
-			ui.paragraph(ctx, fmt.tprintf("A kernel recomputes a stroke's normals on the GPU and reads them back a frame or two later; the CPU lays the dabs and uploads only positions. %d strokes on the GPU, %d on the CPU.", sg.strokes_gpu, sg.strokes_cpu))
+			ui.paragraph(ctx, fmt.tprintf("Kernels lay a stroke's dabs and recompute its normals on the GPU and read them back a frame or two later; a stroke the kernels do not lay keeps the CPU's dabs and sends only positions. %d strokes on the GPU (%d with their dabs, %d dabs), %d on the CPU.", sg.strokes_gpu, sg.strokes_dabs, sg.dabs, sg.strokes_cpu))
 		}
 		_ = ui.switch_row(ctx, "Cache idle objects", &app.cache_idle)
 		ui.paragraph(ctx, fmt.tprintf("%s, redrawn %d times.", "In use" if v.cache_used else "Not in use", s.cache_redraws))

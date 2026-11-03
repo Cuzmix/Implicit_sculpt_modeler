@@ -13,22 +13,90 @@ import "../geom"
 Fake_Gpu :: struct {
 	s:        ^Sculptor,
 	take:     bool,
+	dabs:     bool, // take the dabs too: lay each record as the kernels do (fake_lay)
+	refuse:   bool, // and then refuse them at the hand-off, as a device out of memory would
 	compute:  bool, // work the normals out at the hand-off; off leaves them stale for good
 	begins:   int,
 	handoffs: int,
 	lasts:    int,
 	syncs:    int,
+	laid:     int, // dab records laid
 	normals:  []Vec3, // the GPU's copy
 	pending:  [dynamic]Vertex_Range,
 	taken:    [dynamic]Vertex_Range, // every range handed over so far
+	landing:  [dynamic]Vertex_Range, // ranges whose positions the GPU moved, to land at the sync
 }
 
 @(private = "file")
-fake_begin :: proc(data: rawptr, s: ^Sculptor, brush: Brush) -> bool {
+fake_begin :: proc(data: rawptr, s: ^Sculptor, brush: Brush) -> Gpu_Take {
 	f := cast(^Fake_Gpu)data
-	if s != f.s do return false
+	if s != f.s do return .None
 	f.begins += 1
-	return f.take
+	if !f.take do return .None
+	return .Dabs if f.dabs else .Normals
+}
+
+// Lays a flush's records as the kernels do (dab.slang): the area from the normals
+// inside the sample radius, then each vertex in reach moved by the kind, straight into
+// the mesh, which stands in for the GPU's copy; the readback of the positions lands at
+// the sync (fake_sync).
+@(private = "file")
+fake_dabs :: proc(data: rawptr, s: ^Sculptor, dabs: []Gpu_Dab) -> bool {
+	f := cast(^Fake_Gpu)data
+	if s != f.s || f.refuse do return false
+	for rec in dabs do fake_lay(s, rec)
+	f.laid += len(dabs)
+	return true
+}
+
+@(private = "file")
+fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab) {
+	m := s.mesh
+	normal_sum, center_sum: Vec3
+	weight: f32
+	if rec.kind != .Inflate {
+		for r in rec.ranges do for v in r.first ..< r.first + r.count {
+			delta := m.positions[v] - rec.center
+			d2 := linalg.dot(delta, delta)
+			if d2 * rec.inv_sample2 < 1 {
+				w := falloff(d2 * rec.inv_sample2)
+				normal_sum += m.normals[v] * w
+				center_sum += m.positions[v] * w
+				weight += w
+			}
+		}
+	}
+	normal := linalg.normalize0(normal_sum)
+	plane := center_sum / weight if weight > 0 else Vec3{}
+	plane += normal * rec.plane_offset
+	for r in rec.ranges do for v in r.first ..< r.first + r.count {
+		p := m.positions[v]
+		delta := p - rec.center
+		d2 := linalg.dot(delta, delta)
+		if d2 >= rec.r2 do continue
+		w := falloff(d2 * rec.inv_r2)
+		if w <= 0 do continue
+		#partial switch rec.kind {
+		case .Draw, .Inflate:
+			way := normal if rec.kind == .Draw else m.normals[v]
+			if rec.once {
+				l := &s.layer[v]
+				h := l.height if l.stroke == rec.stroke else 0
+				want := rec.amount * w
+				next := max(h, want) if rec.amount > 0 else min(h, want)
+				p += way * (next - h)
+				l^ = {rec.stroke, next}
+			} else {
+				p += way * (rec.amount * w)
+			}
+		case .Clay:
+			h := linalg.dot(p - plane, normal)
+			if h * rec.amount < 0 do p -= normal * (h * min(rec.strength * w * PLANE_RATE, 1))
+		case:
+			continue
+		}
+		m.positions[v] = p
+	}
 }
 
 @(private = "file")
@@ -46,6 +114,7 @@ fake_normals :: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range, last: b
 	}
 	append(&f.pending, ..ranges)
 	append(&f.taken, ..ranges)
+	if sculptor_positions_on_gpu(s) do append(&f.landing, ..ranges)
 	return true
 }
 
@@ -75,13 +144,53 @@ expect_gpu_normals :: proc(t: ^testing.T, m: ^geom.Mesh, twin: ^geom.Mesh, taken
 }
 
 @(private = "file")
-fake_sync :: proc(data: rawptr, s: ^Sculptor) {
+fake_sync :: proc(data: rawptr, s: ^Sculptor) -> bool {
 	f := cast(^Fake_Gpu)data
-	if s != f.s do return
+	if s != f.s do return true
 	f.syncs += 1
 	for r in f.pending do copy(s.mesh.normals[r.first:][:r.count], f.normals[r.first:][:r.count])
 	clear(&f.pending)
+	if len(f.landing) > 0 do sculptor_positions_landed(s, f.landing[:])
+	clear(&f.landing)
+	return true
 }
+
+@(private = "file")
+fake_destroy :: proc(f: ^Fake_Gpu) {
+	delete(f.normals)
+	delete(f.pending)
+	delete(f.taken)
+	delete(f.landing)
+}
+
+// A twin's leaf bounds against the GPU sculptor's after its positions landed: the
+// landing refits them exactly, as the CPU's finish_move does.
+@(private = "file")
+expect_bounds_refit :: proc(t: ^testing.T, s, twin: ^Sculptor, what: string) {
+	for n, id in s.nodes {
+		if n.leaf == geom.BVH_NONE do continue
+		b, tb := s.bvh.nodes[n.leaf].bounds, twin.bvh.nodes[twin.nodes[id].leaf].bounds
+		if linalg.length(b.lo - tb.lo) > 1e-5 || linalg.length(b.hi - tb.hi) > 1e-5 {
+			testing.expectf(t, false, "node %d: its bounds are %v..%v %s, the twin's %v..%v", id, b.lo, b.hi, what, tb.lo, tb.hi)
+			return
+		}
+		testing.expectf(t, s.gpu_pending[id] == 0, "node %d still waits for %d readbacks %s", id, s.gpu_pending[id], what)
+	}
+}
+
+// The GPU sculptor's positions against a twin's, within `tolerance` (0 for bit for bit).
+@(private = "file")
+expect_positions :: proc(t: ^testing.T, m, twin: ^geom.Mesh, tolerance: f32, what: string) {
+	worst: f32
+	at: int
+	for p, v in m.positions {
+		if off := linalg.length(p - twin.positions[v]); off > worst {
+			worst, at = off, v
+		}
+	}
+	testing.expectf(t, worst <= tolerance, "vertex %d: the GPU stroke put it at %v %s, the CPU's at %v (%g off)", at, m.positions[at], what, twin.positions[at], worst)
+}
+
 
 // Three dabs along a short path, as the stroke tool lays them.
 @(private = "file")
@@ -103,6 +212,192 @@ stroke_gpu_hand_off :: proc(t: ^testing.T) {
 	stroke_gpu_takes_the_normals_and_gives_them_back_at_a_sync(t)
 	stroke_gpu_matches_the_cpu_path_with_exact_normals(t)
 	stroke_gpu_ranges_given_back_are_recomputed_by_the_cpu(t)
+	stroke_gpu_dabs_match_the_cpu_and_undo(t)
+	stroke_gpu_dabs_refused_are_laid_by_the_cpu(t)
+	stroke_gpu_dabs_pending_at_a_sync_are_laid_by_the_cpu(t)
+	stroke_gpu_dabs_step_down_for_a_brush_the_kernels_lack(t)
+}
+
+// Two sculptors, each stroked the same way: the twin on the CPU, the other with its dabs
+// recorded for the stand-in, which lays them as the kernels do and lands the positions at
+// the sync after each flush, as --gpu-sculpt-sync has the app do.
+@(private = "file")
+dabs_pair :: proc(t: ^testing.T, f: ^Fake_Gpu, a, b: ^Sculptor, brushes: []Brush, sync_each: bool) {
+	for brush in brushes {
+		sculptor_stroke_begin(a)
+		sculptor_stroke_begin(b)
+		for k in 0 ..< 3 {
+			at := linalg.normalize(Vec3{0.1 * f32(k), 0.05 * f32(k), 1})
+			_ = apply_dab(a, brush, at)
+			_ = sculptor_flush(a)
+			_ = apply_dab(b, brush, at)
+			_ = sculptor_flush(b)
+			if sync_each do _ = sculptor_gpu_sync(b)
+		}
+		_ = sculptor_stroke_end(a)
+		_ = sculptor_flush(a)
+		_ = sculptor_stroke_end(b)
+		_ = sculptor_flush(b)
+		_ = sculptor_gpu_sync(b)
+	}
+}
+
+@(private = "file")
+dabs_fixture :: proc(f: ^Fake_Gpu, ma, mb: ^geom.Mesh, a, b: ^Sculptor) {
+	ma^, mb^ = geom.icosphere(5), geom.icosphere(5)
+	sculptor_init(a, ma, nil, 64)
+	sculptor_init(b, mb, nil, 64)
+	_ = sculptor_flush(a)
+	_ = sculptor_flush(b)
+	f^ = Fake_Gpu{s = b, take = true, dabs = true, compute = true, normals = make([]Vec3, len(mb.normals))}
+	copy(f.normals, mb.normals[:])
+	stroke_gpu = {data = f, begin = fake_begin, dabs = fake_dabs, normals = fake_normals, sync = fake_sync}
+}
+
+@(private = "file")
+stroke_gpu_dabs_match_the_cpu_and_undo :: proc(t: ^testing.T) {
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	before := make([]Vec3, len(mb.positions), context.temp_allocator)
+	copy(before, mb.positions[:])
+
+	// Draw with Accumulate off (the default), whose heights the kernels keep, then Clay,
+	// which works along the area's plane, then Draw accumulating.
+	brushes := []Brush{{kind = .Draw, radius = 0.3, strength = 0.5, no_accumulate = true}, {kind = .Clay, radius = 0.3, strength = 0.5}, {kind = .Draw, radius = 0.3, strength = 0.5}}
+	dabs_pair(t, &f, &a, &b, brushes, true)
+	testing.expectf(t, f.begins == 3 && f.laid == 9 && f.handoffs == 9, "every dab of the three strokes was recorded and laid by the stand-in (begins %d, laid %d, hand-offs %d)", f.begins, f.laid, f.handoffs)
+	testing.expect(t, sculptor_stroke_on_gpu(&b) == .None, "the last flush gives the stroke back")
+	// The stand-in sums the area in another order than the CPU's leaves, so the two agree
+	// to rounding, not bit for bit.
+	expect_positions(t, &mb, &ma, 1e-5, "after three GPU strokes")
+	expect_gpu_normals(t, &mb, &ma, f.taken[:], "after three GPU strokes")
+	expect_bounds_refit(t, &b, &a, "after three GPU strokes")
+	moved := 0
+	for p, v in mb.positions do if p != before[v] do moved += 1
+	testing.expect(t, moved > 0, "the strokes moved vertices")
+
+	// Undo brings every vertex back as the CPU's does: the records saved the hit nodes
+	// before the GPU moved them.
+	for _ in 0 ..< 3 {
+		testing.expect(t, sculptor_undo(&a) && sculptor_undo(&b), "undo")
+	}
+	for p, v in mb.positions do if p != before[v] {
+		testing.expectf(t, false, "vertex %d: after undo it is at %v, it was at %v", v, p, before[v])
+		break
+	}
+	expect_positions(t, &mb, &ma, 0, "after undo")
+	testing.expect(t, sculptor_redo(&b), "redo")
+	testing.expect(t, sculptor_redo(&a), "redo")
+	testing.expect(t, sculptor_redo(&b) && sculptor_redo(&a) && sculptor_redo(&b) && sculptor_redo(&a), "redo")
+	expect_positions(t, &mb, &ma, 1e-5, "after redo")
+}
+
+@(private = "file")
+stroke_gpu_dabs_refused_are_laid_by_the_cpu :: proc(t: ^testing.T) {
+	// The GPU takes the dabs and then refuses the first flush's records (its buffers are
+	// out of memory): the CPU lays them from the mirror and the stroke steps down to
+	// Normals, so it ends as the twin's, bit for bit.
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	f.refuse = true
+	dabs_pair(t, &f, &a, &b, {{kind = .Draw, radius = 0.3, strength = 0.5, no_accumulate = true}}, true)
+	testing.expectf(t, f.begins == 1 && f.laid == 0 && f.handoffs == 3, "the refused dabs were laid by the CPU and the normals still handed over (laid %d, hand-offs %d)", f.laid, f.handoffs)
+	expect_positions(t, &mb, &ma, 0, "after the refused stroke")
+	expect_gpu_normals(t, &mb, &ma, f.taken[:], "after the refused stroke")
+	testing.expect(t, sculptor_undo(&b), "undo")
+	testing.expect(t, sculptor_undo(&a), "undo")
+	expect_positions(t, &mb, &ma, 0, "after undo of the refused stroke")
+}
+
+@(private = "file")
+stroke_gpu_dabs_pending_at_a_sync_are_laid_by_the_cpu :: proc(t: ^testing.T) {
+	// Something reads the mesh between a dab and its flush (a sync with records pending):
+	// the CPU lays the records then, and the rest of the stroke stays on the CPU's dabs.
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	brush := Brush{kind = .Draw, radius = 0.3, strength = 0.5, no_accumulate = true}
+	sculptor_stroke_begin(&a)
+	sculptor_stroke_begin(&b)
+	for k in 0 ..< 3 {
+		at := linalg.normalize(Vec3{0.1 * f32(k), 0.05 * f32(k), 1})
+		_ = apply_dab(&a, brush, at)
+		_ = sculptor_flush(&a)
+		_ = apply_dab(&b, brush, at)
+		if k == 0 {
+			testing.expect(t, sculptor_stroke_on_gpu(&b) == .Dabs, "the stroke runs its dabs on the GPU")
+			_ = sculptor_gpu_sync(&b)
+			testing.expect(t, sculptor_stroke_on_gpu(&b) == .Normals, "a sync with records pending steps the stroke down to Normals")
+		}
+		_ = sculptor_flush(&b)
+		_ = sculptor_gpu_sync(&b)
+	}
+	_ = sculptor_stroke_end(&a)
+	_ = sculptor_flush(&a)
+	_ = sculptor_stroke_end(&b)
+	_ = sculptor_flush(&b)
+	_ = sculptor_gpu_sync(&b)
+	testing.expectf(t, f.laid == 0 && f.handoffs == 3, "nothing reached the stand-in's dabs (laid %d, hand-offs %d)", f.laid, f.handoffs)
+	expect_positions(t, &mb, &ma, 0, "after the stroke")
+	expect_gpu_normals(t, &mb, &ma, f.taken[:], "after the stroke")
+}
+
+@(private = "file")
+stroke_gpu_dabs_step_down_for_a_brush_the_kernels_lack :: proc(t: ^testing.T) {
+	// A brush the kernels do not lay (Layer) keeps the normals on the GPU and the dabs on
+	// the CPU; a dab's record carries the brush's terms.
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	sculptor_stroke_begin(&b)
+	_ = apply_dab(&b, {kind = .Layer, radius = 0.3, strength = 0.5}, {0, 0, 1})
+	testing.expect(t, sculptor_stroke_on_gpu(&b) == .Normals, "Layer keeps its dabs on the CPU")
+	_ = sculptor_stroke_end(&b)
+	_ = sculptor_flush(&b)
+	_ = sculptor_gpu_sync(&b)
+	testing.expect_value(t, f.laid, 0)
+
+	sculptor_stroke_begin(&b)
+	_ = apply_dab(&b, {kind = .Clay, radius = 0.3, strength = 0.5, invert = true, no_accumulate = true}, {0, 0, 1})
+	testing.expect(t, sculptor_stroke_on_gpu(&b) == .Dabs && len(b.gpu_dabs) == 1, "Clay's dab is recorded")
+	if len(b.gpu_dabs) == 1 {
+		rec := b.gpu_dabs[0]
+		testing.expectf(t, rec.kind == .Clay && rec.amount == -1 && abs(rec.plane_offset + 0.3 * CLAY_HEIGHT) < 1e-6 && abs(rec.r2 - 0.09) < 1e-6 && !rec.once && rec.stroke == b.layer_stroke && len(rec.ranges) == 0 && rec.range_count > 0, "the record carries Clay's terms: %v", rec)
+	}
+	_ = sculptor_stroke_end(&b)
+	_ = sculptor_flush(&b)
+	_ = sculptor_gpu_sync(&b)
+	testing.expect_value(t, f.laid, 1)
 }
 
 @(private = "file")
@@ -125,7 +420,7 @@ stroke_gpu_takes_the_normals_and_gives_them_back_at_a_sync :: proc(t: ^testing.T
 	copy(before, m.normals[:])
 	sculptor_stroke_begin(&s)
 	_ = apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 0.5}, {0, 0, 1})
-	testing.expect(t, sculptor_stroke_on_gpu(&s), "the GPU was offered the stroke and took it, so the stroke should run there")
+	testing.expect(t, sculptor_stroke_on_gpu(&s) == .Normals, "the GPU was offered the stroke and took it, so the stroke should run there")
 	testing.expect_value(t, f.begins, 1)
 	ranges := sculptor_flush(&s)
 	testing.expect(t, len(ranges) > 0 && f.handoffs == 1 && f.lasts == 0, "the first flush hands its ranges over, not as the last")
@@ -137,7 +432,7 @@ stroke_gpu_takes_the_normals_and_gives_them_back_at_a_sync :: proc(t: ^testing.T
 	_ = sculptor_stroke_end(&s)
 	_ = sculptor_flush(&s)
 	testing.expect(t, f.handoffs == 2 && f.lasts == 1, "the flush after the stroke's end is its last hand-off")
-	testing.expect(t, !sculptor_stroke_on_gpu(&s), "the last flush gives the stroke back")
+	testing.expect(t, sculptor_stroke_on_gpu(&s) == .None, "the last flush gives the stroke back")
 
 	// A sync lands the GPU's normals, the exact ones of the ranges it took (the stroke's
 	// begin synced once already, with nothing to land).
@@ -155,7 +450,7 @@ stroke_gpu_takes_the_normals_and_gives_them_back_at_a_sync :: proc(t: ^testing.T
 	sculptor_stroke_begin(&s)
 	testing.expect_value(t, f.syncs, 3)
 	_ = apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 0.5}, {0, 0, 1})
-	testing.expectf(t, f.begins == 2 && !sculptor_stroke_on_gpu(&s), "a refused stroke stays on the CPU (begins %d, on the GPU %v)", f.begins, sculptor_stroke_on_gpu(&s))
+	testing.expectf(t, f.begins == 2 && sculptor_stroke_on_gpu(&s) == .None, "a refused stroke stays on the CPU (begins %d, on the GPU %v)", f.begins, sculptor_stroke_on_gpu(&s))
 	_ = sculptor_stroke_end(&s)
 	_ = sculptor_flush(&s)
 	testing.expect_value(t, f.handoffs, 2)
@@ -199,7 +494,7 @@ stroke_gpu_matches_the_cpu_path_with_exact_normals :: proc(t: ^testing.T) {
 	// stroke back.
 	_ = sculptor_flush(&b)
 	sculptor_gpu_sync(&b)
-	testing.expectf(t, f.begins == 1 && f.handoffs == 3 && !sculptor_stroke_on_gpu(&b), "the GPU stroke hands over once a flush (begins %d, hand-offs %d)", f.begins, f.handoffs)
+	testing.expectf(t, f.begins == 1 && f.handoffs == 3 && sculptor_stroke_on_gpu(&b) == .None, "the GPU stroke hands over once a flush (begins %d, hand-offs %d)", f.begins, f.handoffs)
 	for p, v in ma.positions do if p != mb.positions[v] {
 		testing.expectf(t, false, "vertex %d: the GPU stroke put it at %v, the CPU's at %v", v, mb.positions[v], p)
 		break

@@ -122,6 +122,7 @@ print_checks_update :: proc(app: ^App, obj: ^Object) -> ^Print_Check_Result {
 		w.input, mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
 		delete(mask)
 	} else {
+		object_gpu_sync(obj)
 		w.input.positions = make([dynamic]geom.Vec3, len(lv.mesh.positions))
 		w.input.indices = make([dynamic]u32, len(lv.mesh.indices))
 		copy(w.input.positions[:], lv.mesh.positions[:])

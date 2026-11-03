@@ -430,6 +430,7 @@ autosave_start :: proc(app: ^App, fp: u64) {
 	vertices := 0
 	for obj in app.scene.objects {
 		hd := object_in_hd(obj)
+		object_gpu_sync(obj)
 		if !hd do sculpt.levels_sync(&obj.levels)
 		append(&job.objects, obj)
 		append(&job.hd, hd)

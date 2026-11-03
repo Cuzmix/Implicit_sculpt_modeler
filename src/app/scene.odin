@@ -819,13 +819,14 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 		app.stats.gpu_regrows += 1
 		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32) + hidden_upload(app, cmd, gpu, lv) + paint_upload(app, cmd, gpu, lv, nil), true
 	}
-	// A stroke on the GPU uploads positions alone: its normals kernel writes the rest.
-	positions_only := render.sculpt_gpu_queued(gpu)
-	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask, positions_only)
+	// A stroke on the GPU uploads positions alone, its normals kernel writing the rest, or
+	// nothing at all where its dabs ran there (the CPU's positions are the older ones).
+	upload := render.sculpt_gpu_upload(gpu)
+	if upload != .None do render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask, upload == .Positions)
 	bytes += paint_upload(app, cmd, gpu, lv, ranges)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
-	for r in ranges do bytes += int(r.count) * (size_of(geom.Vec3) if positions_only else render.VERTEX_BYTES)
+	if upload != .None do for r in ranges do bytes += int(r.count) * (size_of(geom.Vec3) if upload == .Positions else render.VERTEX_BYTES)
 	for r in triangles do bytes += int(r.index_count) * size_of(u32)
 	return bytes + hidden_upload(app, cmd, gpu, lv) + skin_upload(app, cmd, gpu, lv), true
 }
