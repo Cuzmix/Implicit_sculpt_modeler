@@ -108,6 +108,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The brushes' pictures the brushes made, and how long the last batch took.
 	fmt.printfln("brush_previews=%d preview_batches=%d preview_ms=%.0f", app.brush_previews.drawn, app.brush_previews.batches, app.brush_previews.took_ms)
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
+	fmt.printfln("send_sent=%d send_received=%d send_refused=%d send_sent_hash=%016x send_received_hash=%016x", app.send.sent, app.send.received, app.send.refused, app.send.sent_hash, app.send.received_hash)
 	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	plugin_commands := 0

@@ -1365,14 +1365,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	start := time.tick_now()
 	out := make([dynamic]u8)
 	defer delete(out)
-	preview_refresh(app)
-	scene_header_put(app, &out)
-	hd_dropped := 0
-	for obj in app.scene.objects {
-		object_hd_leave(app, obj)
-		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
-		object_chunk_put(app, &out, obj)
-	}
+	hd_dropped := scene_bytes(app, &out)
 	partial, err := write_partial(path, out[:])
 	if err != "" {
 		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
@@ -1409,6 +1402,19 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 		file_note(app, hd_dropped > 0, "Saved %s%s", what, hd)
 	}
 	return true
+}
+
+// The scene as its file holds it, appended to out: what Save writes and Send sends. Every
+// HD window is left first; returns how many objects keep HD detail the file leaves out.
+scene_bytes :: proc(app: ^App, out: ^[dynamic]u8) -> (hd_dropped: int) {
+	preview_refresh(app)
+	scene_header_put(app, out)
+	for obj in app.scene.objects {
+		object_hd_leave(app, obj)
+		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
+		object_chunk_put(app, out, obj)
+	}
+	return hd_dropped
 }
 
 // Above this many bytes (about 1M vertices) a save stops the frame for long enough that
