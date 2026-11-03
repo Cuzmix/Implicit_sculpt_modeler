@@ -1,5 +1,7 @@
 package send
 
+import "core:crypto/chacha20poly1305"
+import "core:encoding/hex"
 import "core:testing"
 
 // A whole pairing as the two devices run it, over the frames' bodies: the key and code
@@ -171,4 +173,29 @@ a_frame_from_another_session_or_direction_is_refused :: proc(t: ^testing.T) {
 	_, desktop := sessions()
 	_, ok = seal_open(&desktop, g, dst[:])
 	testing.expect(t, !ok)
+}
+
+// ChaCha20-Poly1305 as the sealing uses it gives what an independent implementation
+// (Python's cryptography package) gives for the same key, nonce, data and text, over
+// several blocks: the same bytes on every build, debug or release.
+@(test)
+chacha_matches_rfc :: proc(t: ^testing.T) {
+	EXPECTED :: "89fc061535348f718fbc79becc466c0ab907cc62dde737184e389978b10b74e50c67c2061a1dbb892f2d50f551afcd6a2ed3f711915bc21a9a374f9a34e42c6fb9bf721839f7c6183ce94bb10c67fed8eae979772339aa5f663886735cf69026ed79c2464b1aed256984155a566ab589f978481da56e7ab9072262821d54cd3f21e14d28359075ddf1acb9b7f8e789d344867977077cd67f1ace910ce050f2605fdeef9dc1c71e7716e1c0bdd30a2dc90e8378affba88014d010f88c431da629990011da3f9e656e5537a38359ddcfa4d26f7bf9aadc75b6fec6da58ff116ee44c642485b2f34fb182a56e2bdf63160560c8355dc7c8105f764fbd060116f3db83960c9c75679ca5a3e5d90a3eaabc878575da539a5ae608b3c9cbd1d1a96b8fc7c8b7ed0b3efa44186878f87fa67e43939ce0d67ae10e7446906447"
+	key: [32]u8
+	for &v, i in key do v = u8(i)
+	iv: [12]u8
+	for &v, i in iv do v = u8(i)
+	text: [300]u8
+	for &v, i in text do v = u8(i * 7)
+	aad := "sculpt"
+	sealed: [300 + TAG_SIZE]u8
+	ctx: chacha20poly1305.Context
+	chacha20poly1305.init(&ctx, key[:], CHACHA_IMPL)
+	chacha20poly1305.seal(&ctx, sealed[:300], sealed[300:], iv[:], transmute([]u8)aad, text[:])
+	want, ok := hex.decode(transmute([]u8)string(EXPECTED), context.temp_allocator)
+	testing.expect(t, ok)
+	testing.expect_value(t, string(sealed[:]), string(want))
+	opened: [300]u8
+	testing.expect(t, chacha20poly1305.open(&ctx, opened[:], iv[:], transmute([]u8)aad, sealed[:300], sealed[300:]))
+	testing.expect_value(t, string(opened[:]), string(text[:]))
 }

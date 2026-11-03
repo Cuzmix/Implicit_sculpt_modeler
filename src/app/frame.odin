@@ -612,6 +612,7 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	if !long_job_frame(app) do return false, false
 	library_frame(app)
 	link_frame(app)
+	send_frame(app)
 	if req, ok := file_take(app); ok {
 		autosave_settle(app)
 		for obj in app.scene.objects do object_gpu_sync(obj)

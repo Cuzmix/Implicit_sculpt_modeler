@@ -1,6 +1,7 @@
 package send
 
 import "core:crypto"
+import "core:crypto/chacha20"
 import "core:crypto/chacha20poly1305"
 import "core:crypto/hash"
 import "core:crypto/hkdf"
@@ -14,6 +15,13 @@ import "core:encoding/endian"
 // only the next one, so no frame can be dropped, repeated or reordered unnoticed.
 
 TAG_SIZE :: chacha20poly1305.TAG_SIZE
+
+// ChaCha20's 128-bit SIMD code, on every build: the pinned compiler's 256-bit code, the
+// default, gives a wrong keystream after the first block in an unoptimised build where
+// the machine has no AVX2 (the debug app on a plain x86-64 target), so a debug build and
+// a release build would not understand each other. The 128-bit code is SSE2 or NEON,
+// right at every optimisation, and far faster than any network (chacha_matches_rfc).
+CHACHA_IMPL :: chacha20.Implementation.Simd128
 
 Session :: struct {
 	send_key: Key,
@@ -75,7 +83,7 @@ seal_put :: proc(out: ^[dynamic]u8, s: ^Session, kind: Kind, body: []u8) -> bool
 	text := out[at + HEADER_SIZE:][:len(body)]
 	tag := out[at + HEADER_SIZE + len(body):][:TAG_SIZE]
 	ctx: chacha20poly1305.Context
-	chacha20poly1305.init(&ctx, s.send_key[:])
+	chacha20poly1305.init(&ctx, s.send_key[:], CHACHA_IMPL)
 	chacha20poly1305.seal(&ctx, text, tag, iv[:], header[:], body)
 	chacha20poly1305.reset(&ctx)
 	s.send_seq += 1
@@ -93,7 +101,7 @@ seal_open :: proc(s: ^Session, f: Frame, dst: []u8) -> (body: []u8, ok: bool) {
 	header := sealed_header(f.kind, f.seq, len(f.body))
 	iv := seal_iv(f.seq)
 	ctx: chacha20poly1305.Context
-	chacha20poly1305.init(&ctx, s.recv_key[:])
+	chacha20poly1305.init(&ctx, s.recv_key[:], CHACHA_IMPL)
 	opened := chacha20poly1305.open(&ctx, dst[:n], iv[:], header[:], f.body[:n], f.body[n:])
 	chacha20poly1305.reset(&ctx)
 	if !opened do return nil, false
