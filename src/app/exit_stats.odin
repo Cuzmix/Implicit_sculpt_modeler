@@ -417,7 +417,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
-		fmt.printfln("dial_sectors=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
+		fmt.printfln("dial_sectors=%s arrange_resets=%d", strings.to_string(dial), k.arrange.resets)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0

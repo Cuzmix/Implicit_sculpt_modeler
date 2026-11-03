@@ -232,6 +232,12 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
+		// What the edit mode's own sheet held: which bars this workspace shows, the panels'
+		// places and the person's docks, so the Library is the one picker.
+		arrange_show_chips(app)
+		arrange_panel_rows(app)
+		_ = command_button(app, .Panels_Reset, label = "Put the panels back as they come", variant = .Bordered, width = ui.fill_width(ctx))
+		your_docks_rows(app, ui.fill_width(ctx))
 	case .Top_Bar:
 		ui.paragraph(ctx, "The top bar is three docks: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit docks changes their buttons as any dock's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
@@ -257,7 +263,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
 		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
-		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; Arrange's Library > Dial puts any of them, Hide or a command on each sector. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		dial_sector_rows(app, ui.fill_width(ctx))
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
