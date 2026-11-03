@@ -187,7 +187,8 @@ kit_send_pill :: proc(app: ^App) {
 	phase, peer, code := sh.phase, strings.clone(sh.peer, context.temp_allocator), sh.code
 	done, total := sh.done, sh.total
 	sync.unlock(&sh.lock)
-	if !asking && (phase == .Idle || !send_busy(app)) do return
+	arrived := app.send.arrived.path != ""
+	if !asking && !arrived && (phase == .Idle || !send_busy(app)) do return
 	size, _ := ui.prev_layout(ctx, "send pill")
 	if size == {} do size = {360, t.target + 8}
 	area := ui.safe_area(ctx)
@@ -202,6 +203,18 @@ kit_send_pill :: proc(app: ^App) {
 		ui.label(ctx, fmt.tprintf("Code %s", send_code_text(ask_code)), t.small_size, t.text_secondary)
 		if ui.button(ctx, "Decline##send ask", .Light) do sync.atomic_store(&sh.asking.reply, Ask_Reply.Decline)
 		if ui.button(ctx, "Allow##send ask", .Solid, .Accent) do sync.atomic_store(&sh.asking.reply, Ask_Reply.Allow)
+		return
+	}
+	if arrived && !send_busy(app) {
+		a := app.send.arrived
+		ui.icon(ctx, ICON_SEND, {r.x + 14, r.y + 14}, t.icon_size, t.accent)
+		if a.conflict {
+			ui.label(ctx, fmt.tprintf("Changed here too: %s sent its copy", a.from), t.small_size, t.text, .Semibold)
+		} else {
+			ui.label(ctx, fmt.tprintf("A scene from %s", a.from), t.small_size, t.text, .Semibold)
+		}
+		if ui.button(ctx, "Keep both##send arrived" if a.conflict else "Keep for later##send arrived", .Light) do send_arrival_answer(app, false)
+		if ui.button(ctx, fmt.tprintf("Open %s's##send arrived", a.from) if a.conflict else "Open##send arrived", .Solid, .Accent) do send_arrival_answer(app, true)
 		return
 	}
 	share := f32(done) / f32(max(total, 1)) if phase == .Sending else 0

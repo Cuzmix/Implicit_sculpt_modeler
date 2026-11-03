@@ -1393,6 +1393,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	if !copy {
 		versions_prune(path, keep)
 		autosave_scene_saved(app, path)
+		send_saved_record(app, path)
 	}
 	flash_saved(app)
 	// The times shown are this action's alone.
