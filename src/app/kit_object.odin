@@ -141,7 +141,7 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 	if top != nil {
 		tris := int(top.tri_count)
 		looks := tris * int(top.segments) * int(top.segments)
-		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer and Smooth put their detail in the skin (Brush card, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
+		ui.paragraph(ctx, fmt.tprintf("%s triangles look like %s. Draw, Clay, Crease, Flatten, Inflate, Layer, Smooth, Pinch and Snake hook put their detail in the skin (Brush card, Detail goes to); the outline stays the mesh's.", count_label(tris), count_label(looks)))
 		// The Skin detail pass shows what the skin holds, as a normal map's colours, so
 		// what the brushes put in it reads apart from the mesh's own form.
 		if app.kit.passes.pass == .Skin_Detail {

@@ -173,3 +173,78 @@ side_points :: proc(s: ^Sculptor) -> []Vec3 {
 	for p, i in placed do out[i] = p.point
 	return out
 }
+
+// The point every sample stands at, by sample.
+@(private = "file")
+side_all_points :: proc(s: ^Sculptor) -> []Vec3 {
+	sk := s.skin
+	I := s.mesh.indices[:]
+	S := sk.segments
+	out := make([]Vec3, len(sk.heights), context.temp_allocator)
+	for t in u32(0) ..< sk.tri_count do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+		out[skin_sample(sk, I, t, i, j)] = skin_point(s, sk, t, i, j)
+	}
+	return out
+}
+
+@(private = "file")
+SIDE_AT :: Vec3{0, 0, 1}
+
+// Pinch in the skin draws the samples under it toward its centre along the surface and
+// moves no vertex; Smooth then relaxes the offsets back; undo takes it all back.
+@(test)
+skin_pinch_draws_samples_in_and_smooth_relaxes_them :: proc(t: ^testing.T) {
+	sp := skin_sphere_with(3, 8)
+	defer skin_sphere_free(sp)
+	s := &sp.sculptor
+	verts := slice.clone(sp.mesh.positions[:], context.temp_allocator)
+	before := side_all_points(s)
+	sculptor_stroke_begin(s)
+	for _ in 0 ..< 4 do testing.expect(t, apply_dab(s, {kind = .Pinch, radius = 0.2, strength = 1, skin = true}, SIDE_AT) > 0, "the pinch changed no sample")
+	testing.expect(t, sculptor_stroke_end(s))
+	_ = sculptor_flush(s)
+	testing.expect(t, slice.equal(sp.mesh.positions[:], verts), "a skin pinch moved a vertex")
+	testing.expect(t, s.skin.side != nil, "the pinch made no vector page")
+	after := side_all_points(s)
+	nearer, farther := 0, 0
+	for p, i in after {
+		was := linalg.length(before[i] - SIDE_AT)
+		if was > 0.15 || was < 1e-3 do continue
+		now := linalg.length(p - SIDE_AT)
+		if now < was - 1e-4 do nearer += 1
+		if now > was + 1e-4 do farther += 1
+	}
+	testing.expectf(t, nearer > 20 && farther == 0, "pinch drew %d samples in and pushed %d out", nearer, farther)
+	lean :: proc(sk: ^Skin) -> (sum: f32) {
+		for sd in sk.side do sum += abs(f32(sd.x)) + abs(f32(sd.y))
+		return
+	}
+	pinched := lean(s.skin)
+	sculptor_stroke_begin(s)
+	for _ in 0 ..< 4 do _ = apply_dab(s, {kind = .Smooth, radius = 0.3, strength = 1, skin = true}, SIDE_AT)
+	testing.expect(t, sculptor_stroke_end(s))
+	testing.expectf(t, lean(s.skin) < 0.85 * pinched, "smooth left offsets of %v from %v", lean(s.skin), pinched)
+	testing.expect(t, sculptor_undo(s) && sculptor_undo(s))
+	_ = sculptor_flush(s)
+	testing.expect_value(t, lean(s.skin), 0)
+}
+
+// Snake hook in the skin drags the samples under it the way the pointer went.
+@(test)
+skin_snake_hook_drags_samples :: proc(t: ^testing.T) {
+	sp := skin_sphere_with(3, 8)
+	defer skin_sphere_free(sp)
+	s := &sp.sculptor
+	before := side_all_points(s)
+	drag := Vec3{0.01, 0, 0}
+	testing.expect(t, apply_dab(s, {kind = .Snake_Hook, radius = 0.15, strength = 1, skin = true, drag = drag}, SIDE_AT) > 0)
+	after := side_all_points(s)
+	along: f32
+	most: f32
+	for p, i in after {
+		along += linalg.dot(p - before[i], drag)
+		most = max(most, linalg.length(p - before[i]))
+	}
+	testing.expect(t, along > 0, "the hook moved nothing its way")
+	testing.expectf(t, most <= 0.0101, "a sample moved %v, past the drag", most)
+}
