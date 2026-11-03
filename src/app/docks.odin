@@ -19,7 +19,7 @@ import "../ui"
 // A place is the layout's, since it belongs to the screen (the dial's, which belongs to
 // the hand, is a setting): as the layout has it (Default), on the left or right edge at a
 // point down it (the shelf: along the bottom at a point across it), or floating where
-// Arrange let go of it. The top edge is no dock's: the top bar, the view chips, the
+// Arrange let go of it. The top edge is no dock's: the top bar, the readout, the
 // navigation head and the panels' tops hold it. Places are kept in layout terms, from the
 // start side, so the kit's mirror flips them for a left hand as it flips every anchor.
 
@@ -36,7 +36,7 @@ Dock_Id :: enum u8 {
 	Offhand, // the brush bar
 	Rail, // the view rail
 	Shelf,
-	// The person's own docks, made in Arrange's Library > Docks.
+	// The person's own docks, made by New dock (the top bar while editing, Search or Settings > Bars).
 	Dock_1,
 	Dock_2,
 	Dock_3,
@@ -530,7 +530,7 @@ dock_looks_text :: proc(k: ^Kit_State) -> string {
 	return strings.to_string(out)
 }
 
-// The person's own docks: up to four, made in Arrange's Library > Docks, floating where
+// The person's own docks: up to four, made by New dock, floating where
 // they are made until carried to an edge. Each space and workspace keeps its own, as the
 // rail's buttons are the screen's; the built-in workspaces have none.
 
@@ -567,21 +567,10 @@ user_dock_middle :: proc(k: ^Kit_State) -> [2]f32 {
 	return {math.round(max(area.w * 0.5 - size.x * 0.5, 0)), math.round(max(area.h * 0.5 - size.y * 0.5, TOP_BAR_H + 6))}
 }
 
-// Where a new dock floats: the middle, or beside the Library where the Library would
-// cover it, on the side away from the off-hand (layout terms).
+// Where a new dock floats: the middle of the view (layout terms).
 @(private = "file")
 user_dock_spot :: proc(k: ^Kit_State) -> [2]f32 {
-	at := user_dock_middle(k)
-	// Asked from inside the Library, where New dock is.
-	lib := ui.prev_root_rect(&k.ctx, "arrange library")
-	if !k.bars_edit || k.arrange.library_off || lib.w <= 0 do return at
-	area := ui.safe_area(&k.ctx)
-	size := DOCK_NEW_SIZE
-	// The Library's far edge from the start side, in layout terms.
-	far := lib.x + lib.w - area.x
-	if k.ctx.mirror do far = area.x + area.w - lib.x
-	if at.x < far + 24 do at.x = math.round(min(far + 24, max(area.w - size.x - LENS_EDGE, 0)))
-	return at
+	return user_dock_middle(k)
 }
 
 // How many of the person's docks are in use.
@@ -877,11 +866,11 @@ kit_dock_menu :: proc(app: ^App) {
 	}
 }
 
-// Library > Docks: how many of the person's docks are in use, and New dock.
-library_docks :: proc(app: ^App, width: f32) {
+// Settings > Bars: how many of the person's docks are in use, and New dock.
+your_docks_rows :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.caption(ctx, fmt.tprintf("YOUR DOCKS  %d OF %d", user_docks_used(k), USER_DOCKS))
 	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = width)
-	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from Search, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each workspace keeps its own docks.")
+	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each workspace keeps its own docks.")
 }

@@ -83,6 +83,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Hd_Divide             = .Hd,
 	.Detail_Skin           = .Hd,
 	.Skin_Apply            = .Hd,
+	.Skin_Squeeze          = .Hd,
 	.Hd_Delete             = .Hd,
 	.Dyntopo_Toggle        = .Topology,
 	.Rebuild               = .Remesh,

@@ -15,7 +15,10 @@
         android:name="android.hardware.type.pc"
         android:required="false" />
 
-    <!-- No permissions: the app needs none (the sm-store skill). -->
+    <!-- Send (README "Send"): a scene goes to a computer on the local network. INTERNET is a
+         normal permission, granted at install with no prompt; it is the only one (sm-store). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"

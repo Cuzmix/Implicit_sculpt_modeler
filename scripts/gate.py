@@ -50,7 +50,7 @@ WINDOWS = os.name == "nt"
 LOGS = os.path.join(ROOT, "build", "gate")
 # The packages build.sh test runs, in its order, and the base --changed measures from.
 TEST_PACKAGES = ["geom", "poly", "camera", "sculpt", "jobs", "gizmo", "png_write", "zip", "hdri", "voxel", "ui", "luau", "usd",
-                 "fbx", "quadmesh", "retopo", "app"]
+                 "fbx", "quadmesh", "retopo", "send", "app"]
 BASE = "origin/odin-sculpt"
 # Words in file names too common to say which scenarios a change reaches.
 GENERIC = {"kit", "lens", "app", "main", "test", "tests", "new", "odin", "draw", "drawn", "state", "tool", "tools",

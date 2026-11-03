@@ -242,12 +242,21 @@ SETTINGS := [?]Setting {
 	{"retopo_adaptivity", U + offset_of(Ui_State, retopo_adaptivity), f32, 0, 1},
 	{"retopo_keep_symmetry", U + offset_of(Ui_State, retopo_keep_symmetry), bool, 0, 0},
 	{"retopo_close_first", U + offset_of(Ui_State, retopo_close_first), bool, 0, 0},
+	{"retopo_keep_groups", U + offset_of(Ui_State, retopo_keep_groups), bool, 0, 0},
+	{"retopo_keep_creases", U + offset_of(Ui_State, retopo_keep_creases), bool, 0, 0},
+	{"retopo_edge_degrees", U + offset_of(Ui_State, retopo_edge_degrees), f32, RETOPO_EDGE_DEGREES_MIN, 90},
+	{"retopo_use_paint", U + offset_of(Ui_State, retopo_use_paint), bool, 0, 0},
+	{"retopo_use_mask", U + offset_of(Ui_State, retopo_use_mask), bool, 0, 0},
+	{"retopo_guide_strength", U + offset_of(Ui_State, retopo_guide_strength), f32, 0, 1},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},
 	{"bake_orm", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, orm), bool, 0, 0},
 	{"bake_id", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, id), bool, 0, 0},
 	{"bake_occlusion_rays", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, occlusion_rays), i32, 0, BAKE_OCCLUSION_RAYS_MAX},
 	{"bake_occlusion_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, occlusion_reach), f32, 0.01, 1},
+	{"bake_vector", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, vector), bool, 0, 0},
+	{"bake_object_space", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, object_space), bool, 0, 0},
+	{"bake_target", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, target), Bake_Target, 0, 0},
 	{"wireframe", offset_of(App, wireframe), bool, 0, 0},
 	{"polyframe_lines", offset_of(App, polyframe_lines), bool, 0, 0},
 	{"polyframe_fill", offset_of(App, polyframe_fill), bool, 0, 0},
@@ -311,6 +320,7 @@ SETTINGS := [?]Setting {
 	{"environment_tilt", offset_of(App, env) + offset_of(Environment_State, tilt), f32, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"skin_auto", offset_of(App, skin_auto), bool, 0, 0},
+	{"vdm_axes", offset_of(App, vdm_axes), sculpt.Vdm_Axes, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
@@ -353,8 +363,7 @@ SETTINGS := [?]Setting {
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
-	{"top_islands", K + offset_of(Kit_State, top_islands), bool, 0, 0},
-	{"nav_place", K + offset_of(Kit_State, nav_place), Nav_Place, 0, 0},
+	{"readout_hidden", K + offset_of(Kit_State, readout_hidden), bool, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
@@ -959,12 +968,6 @@ settings_load :: proc(app: ^App, path: string) {
 			i, i_ok := strconv.parse_int(f[1])
 			if !i_ok || i < 0 || i >= 4 do continue
 			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dials[.Sculpt][i] = s
-		case "chip_island":
-			// chip_island <section> <x> <y>: a chip bar section standing on its own.
-			chip_island_read(&app.kit, f)
-		case "top_order":
-			// top_order <start> <middle> <end>: the top bar's islands moved in Arrange.
-			top_order_read(&app.kit, f)
 		case "dial_space":
 			// dial_space <space> <0-3> modifier <name> | command <name>: Model's or Render's.
 			if len(f) != 5 do continue
@@ -1200,8 +1203,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			else do fmt.sbprintfln(&out, "dial_space %v %d %s", space, i, dial_sector_text(s))
 		}
 	}
-	chip_islands_save(&app.kit, &out)
-	top_order_save(&app.kit, &out)
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	if off := motion_off_text(&app.kit.ctx); off != "" do fmt.sbprintfln(&out, "motion_off %s", off)
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))

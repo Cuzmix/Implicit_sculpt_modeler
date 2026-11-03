@@ -96,7 +96,6 @@ Kit_State :: struct {
 	browser:    bool, // the Library (kit_brush_sheet): every brush, tool and button
 	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
-	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
 	brush_pie:  Bar_List, // the brush pie's eight slots (pie.odin)
 	offhand:    Bar_List, // the off-hand island's values and commands (lens_chrome.odin)
@@ -224,12 +223,11 @@ Kit_State :: struct {
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
-	// The chip bar's sections out of it, each standing as an island at its top-left (layout
-	// terms, chip_islands.odin), a setting; where each was drawn this frame, and where each
-	// last stood in the bar, for one the Library takes out.
-	islands:    [Chip_Section]Maybe([2]f32),
-	chip_at:    [Chip_Section]ui.Rect,
-	chip_home:  [Chip_Section]ui.Rect,
+	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
+	// the space tabs were drawn this frame.
+	top_docks:     [Top_Dock]Bar_List,
+	top_at:        [Top_Dock]ui.Rect,
+	space_tabs_at: ui.Rect,
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -316,9 +314,10 @@ Kit_State :: struct {
 	scene_menu:     bool,
 	scene_menu_at:  ui.Rect,
 	scene_menu_side: ui.Side,
-	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
-	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
-	view_chips_at:    [2]f32, // where, in points (an exit stat)
+	object_chip_fit:  Object_Chip_Fit, // how much of the top bar's object chip showed last frame
+	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
+	// The readout is hidden (Menu > More > Viewport readout).
+	readout_hidden: bool,
 	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
@@ -402,15 +401,6 @@ Kit_State :: struct {
 	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
 	// while it is set.
 	edge_set_at:  f64,
-	// The top bar as three islands, the spaces centred (the default), or as one bar
-	// (Settings > Interface > Top bar).
-	top_islands: bool,
-	// Which island stands in each of the top bar's three places, and where each was drawn
-	// this frame (top_islands.odin).
-	top_order:     [3]Top_Island,
-	top_island_at: [Top_Island]ui.Rect,
-	// Where the navigation head stands (Settings > Interface > Navigation head, nav_head.odin).
-	nav_place: Nav_Place,
 	// On a tablet-shaped window the shelf keeps to SHELF_TABLET tiles' width left of the
 	// middle, clear of the pen hand's palm (Settings > Bars, lens_shelf.odin).
 	shelf_palm: bool,
@@ -1078,7 +1068,6 @@ kit_init :: proc(app: ^App) {
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
-	k.top_islands = true
 	k.shelf_palm = true
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
@@ -1543,16 +1532,17 @@ kit_layout :: proc(app: ^App) {
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
 	kit_job_pill(app)
-	// Round the view (lens_chrome.odin): the View island at the top corner, the off-hand
-	// island down the off-hand side, and the view rail of panels down the pen side. The brushes open from the shelf's All, and Search from the top bar.
-	// Focused (kit_top_lens.odin), the view's own chips stand aside, but the off-hand island
-	// stays: Size and Strength are what the other hand reaches for while sculpting.
+	// Round the view: the readout at the top corner on the off-hand side (readout.odin), the
+	// off-hand island down the off-hand side, the navigation head at the pen side's top and
+	// the view rail of cards down the pen side. Focused (kit_top_lens.odin), the readout
+	// stands aside, but the off-hand island stays: Size and Strength are what the other hand
+	// reaches for while sculpting.
 	focus := lens_focus(k)
 	k.nav.placed = false
-	if !focus do kit_view_chips(app)
+	if focus do k.readout.shown = false
+	else do kit_readout(app)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
-	// The head is the View island's first button; with the island aside it stands alone.
-	if !k.nav.placed do kit_nav_head(app)
+	kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
 		kit_dock(app, .Rail)
 	} else {
@@ -1819,6 +1809,7 @@ kit_camera_menu :: proc(app: ^App) {
 	if command_menu_item(app, .Focus_Selected) do k.bar_pop.open = false
 	if command_menu_item(app, .Frame_All) do k.bar_pop.open = false
 	if command_menu_item(app, .Reset_Camera) do k.bar_pop.open = false
+	if command_menu_item(app, .Clean_View) do k.bar_pop.open = false
 	// The menu stays open over these, to step back or forward several views.
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)

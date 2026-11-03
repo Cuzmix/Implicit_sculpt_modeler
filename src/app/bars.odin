@@ -44,16 +44,17 @@ Bar_Which :: enum u8 {
 	Dock_2,
 	Dock_3,
 	Dock_4,
-	// The View island's buttons after its head and chips, at the top corner on the
-	// off-hand side (lens_chrome.odin).
-	View_Island,
+	// The top bar's three docks (kit_top_lens.odin): the file, the spaces and the app's.
+	Top_File,
+	Top_Spaces,
+	Top_App,
 }
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
 // person's brushes, and the island the person's values, which are no layout's; the
 // person's own docks are the screen's, as the rail is.
 @(rodata)
-BAR_LAYOUT := [?]Bar_Which{.View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4, .View_Island}
+BAR_LAYOUT := [?]Bar_Which{.View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4}
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
 // moves bars about keeps each one's buttons by where they are.
@@ -78,7 +79,9 @@ BAR_ZONES := [Bar_Which]string {
 	.Dock_2       = "dock_2",
 	.Dock_3       = "dock_3",
 	.Dock_4       = "dock_4",
-	.View_Island  = "view_island",
+	.Top_File     = "top_file",
+	.Top_Spaces   = "top_spaces",
+	.Top_App      = "top_app",
 }
 
 // The bar a zone name names.
@@ -88,9 +91,9 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 }
 
 VIEW_RAIL_MAX :: 24
-VIEW_ISLAND_MAX :: 8
 OFFHAND_MAX :: 8
 USER_DOCK_MAX :: 12
+TOP_DOCK_MAX :: 10
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
 BAR_SLOTS_MAX :: 24
 
@@ -102,18 +105,20 @@ Bar_List :: struct {
 	count: int,
 }
 
-// What a fresh install has: the gizmo and the mesh tools after All.
-// The view rail holds the panels, so it reads as "my panels": under its Panels button the
-// Scene, Layers and Material cards, four buttons in all, each the same card the stack
-// shows (the layers' pictures, the material's look pad). The view's own tools are the
-// View island's.
-VIEW_RAIL_DEFAULT :: [?]Bar_Slot{{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)}}
-
-// The View island's buttons after its head, camera and shading chips: the view layout,
-// symmetry, the wireframe, the lights and framing, so the view is one place to learn.
-VIEW_ISLAND_DEFAULT :: [?]Bar_Slot {
-	{.View_Layout_Menu, 0}, {.Symmetry_X, 0}, {.Wireframe, 0}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Focus_Selected, 0},
+// What a fresh install has. The view rail holds the cards, so it reads as "my panels": Main,
+// then the Scene, Layers, Material, Symmetry and Lights cards, each the same card the stack
+// shows (the layers' pictures, the material's look pad). The view's own settings are the
+// readout's menus (readout.odin).
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
+	{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)},
+	{.Show_Panel, int(Panel_Kind.Symmetry)}, {.Show_Panel, int(Panel_Kind.Lights)},
 }
+
+// The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
+// tabs and the object chip; Search, History and Settings.
+TOP_FILE_DEFAULT :: [?]Bar_Slot{{.Main_Menu, 0}, {.File_Chip, 0}, {.Save_Scene, 0}, {.Undo, 0}, {.Redo, 0}}
+TOP_SPACES_DEFAULT :: [?]Bar_Slot{{.Space_Tabs, 0}, {.Object_Chip, 0}}
+TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.History_Panel, 0}, {.Settings, 0}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
 OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}
@@ -147,6 +152,7 @@ bars_reset :: proc(k: ^Kit_State) {
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
 	k.offhand = bar_fresh(.Offhand)
+	for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])
 	docks_clear(k)
 }
 
@@ -166,14 +172,20 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .View_Rail:
 		d := VIEW_RAIL_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
-	case .View_Island:
-		d := VIEW_ISLAND_DEFAULT
-		return bar_list_of(d[:], bar_default_look(which))
 	case .Brush_Pie:
 		d := BRUSH_PIE_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
 	case .Offhand:
 		d := OFFHAND_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_File:
+		d := TOP_FILE_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_Spaces:
+		d := TOP_SPACES_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_App:
+		d := TOP_APP_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 	}
@@ -192,9 +204,11 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 		page, _ := shelf_page_of(which)
 		return &k.shelf.lists[page]
 	case .View_Rail: return &k.view_rail
-	case .View_Island: return &k.view_island
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
+	case .Top_File, .Top_Spaces, .Top_App:
+		d, _ := top_dock_of(which)
+		return &k.top_docks[d]
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 	}
 	i, _ := user_dock_of(which)
@@ -211,11 +225,11 @@ bar_used :: proc(app: ^App, which: Bar_Which) -> []Bar_Slot {
 bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
 	case .View_Rail: return VIEW_RAIL_MAX
-	case .View_Island: return VIEW_ISLAND_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
+	case .Top_File, .Top_Spaces, .Top_App: return TOP_DOCK_MAX
 	}
 	return 0
 }
@@ -334,12 +348,14 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
 	case .View_Rail: return "The view rail"
-	case .View_Island: return "The View island"
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The brush bar"
+	case .Top_File:     return "The top bar's File dock"
+	case .Top_Spaces:   return "The top bar's Spaces dock"
+	case .Top_App:      return "The top bar's App dock"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)
 		return DOCK_TITLES[d]
@@ -612,7 +628,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 // island stand on (dock_side), and above the rows.
 bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
 	if d, ok := dock_of_bar(which); ok do return dock_side(app, d)
-	if which == .View_Island do return .Below
+	if _, top := top_dock_of(which); top do return .Below
 	return .Above_Center
 }
 

@@ -108,6 +108,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The brushes' pictures the brushes made, and how long the last batch took.
 	fmt.printfln("brush_previews=%d preview_batches=%d preview_ms=%.0f", app.brush_previews.drawn, app.brush_previews.batches, app.brush_previews.took_ms)
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
+	fmt.printfln("send_sent=%d send_received=%d send_refused=%d send_sent_hash=%016x send_received_hash=%016x", app.send.sent, app.send.received, app.send.refused, app.send.sent_hash, app.send.received_hash)
 	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	plugin_commands := 0
@@ -285,6 +286,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			skin_segments: u32
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments
 			fmt.printfln("skin_segments=%d skin_auto=%d", skin_segments, int(app.skin_auto))
+			c := app.skin_carry
+			fmt.printfln("skin_carry_ms=%.1f skin_carry_worst=%.5f skin_carry_mean=%.6f skin_carry_missed=%d skin_carry_lost=%d skin_carry_side=%d skin_squeezes=%d", app.stats.skin_carry_ms, c.worst, c.mean, c.missed, c.lost, int(c.side), app.skin_squeezes)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
@@ -407,10 +410,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
-		// The chip bar's sections standing on their own, and how many Arrange let go.
-		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
-		// The top bar's islands from the start corner, and how many Arrange let go.
-		fmt.printfln("top_order=%s island_carries=%d", top_order_text(k), k.arrange.island_carries)
+		// The top bar's docks' buttons, and where each dock stood.
+		fa, sa, aa := k.top_at[.File], k.top_at[.Spaces], k.top_at[.App]
+		fmt.printfln("top_file=%s top_spaces=%s top_app=%s top_file_at=%.0f,%.0f,%.0f top_spaces_at=%.0f,%.0f,%.0f top_app_at=%.0f,%.0f,%.0f", bar_names(app, .Top_File), bar_names(app, .Top_Spaces), bar_names(app, .Top_App), fa.x, fa.y, fa.w, sa.x, sa.y, sa.w, aa.x, aa.y, aa.w)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[user_dock_id(i)].used {
@@ -418,7 +420,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
-		fmt.printfln("dial_sectors=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
+		fmt.printfln("dial_sectors=%s arrange_resets=%d", strings.to_string(dial), k.arrange.resets)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0
@@ -512,15 +514,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// whose children lie over each other or spill out of a fixed size.
 			lo := k.ctx.overlap_prev
 			fmt.printfln("layout_overlaps=%d layout_overlap_at=%.0f,%.0f,%.0f,%.0f", k.ctx.overlaps_prev, lo.x, lo.y, lo.w, lo.h)
-			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d view_chips_at=%.0f,%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.view_chips_shown), k.view_chips_at.x, k.view_chips_at.y)
+			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the mini view's swaps, the
-			// main camera's projection, and where the island, the chips, the navigation head and
+			// main camera's projection, and where the island, the readout, the navigation head and
 			// the mini view stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(app, Kit_Window.Thumbnail)
-			fmt.printfln("view_rail=%s view_island=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), bar_names(app, .View_Island), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
+			fmt.printfln("view_rail=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)

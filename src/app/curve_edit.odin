@@ -373,6 +373,6 @@ draw_lathe_axis :: proc(app: ^App, o: Overlay, obj: ^Object, view_proj: matrix[4
 // Makes the selected curve's tube or lathe again after an edit, when it makes one. A GPU failure
 // leaves the curve with an empty level, drawn as its line, and says so in the log.
 curve_changed :: proc(app: ^App, obj: ^Object) {
-	if obj.curve == nil || obj.curve.use == .None do return
+	if obj.curve == nil || obj.curve.use == .None || obj.curve.use == .Guide do return
 	if !curve_rebuild(app, obj) do log.errorf("curve: could not make the tube of %s on the GPU", object_label(obj))
 }

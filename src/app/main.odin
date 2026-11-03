@@ -113,6 +113,12 @@ Options :: struct {
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 	input_diagnostics: bool `usage:"Open the Input diagnostics screen at the start, in any build (debug builds and the developer iPad build also reach it from Search and Settings > Statistics)."`,
 	diag_test: string `usage:"Open Input diagnostics at the start and run this test (finger_tap, roll_right, ...: README \"Input diagnostics\")."`,
+	receive: bool `usage:"Receive scenes other devices send on the local network (a desktop): listen on --send-port, open what arrives when the scene holds nothing unsaved (README \"Send\")."`,
+	send_to: string `usage:"Once the run is set up, send the scene to the copy of Sculpt receiving at this address (a name or address, with :PORT when not the default), as Send does."`,
+	send_allow: bool `usage:"Pair with any device that asks, without asking anyone (for scripted tests of Send)."`,
+	send_folder: string `usage:"Keep this device's id, its paired devices and the received scenes in this folder instead of the one beside the settings."`,
+	send_port: int `usage:"The port --receive listens on and --send-to sends to when the address names none (default 47820)."`,
+	exit_after_receive: bool `usage:"With --receive, open the first scene that arrives and end the run (for scripted tests of Send)."`,
 	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
 }
 
@@ -153,6 +159,7 @@ App :: struct {
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush card offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	link:     Link, // the live link with Blender (link.odin)
+	send:     Send, // Send to computer and Send to tablet (send.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	built_in:     [len(BUILT_IN_PRESETS)]Brush_Preset, // the built-in presets (builtin_presets.odin), each made on first use
@@ -396,6 +403,11 @@ App :: struct {
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
+	// How an OpenEXR alpha's channels are read: the app the vector map came from.
+	vdm_axes:                 sculpt.Vdm_Axes,
+	// What the last rebuild's skin carry reported, for the exit stats.
+	skin_carry:               sculpt.Skin_Carry_Report,
+	skin_squeezes:            int, // Squeezes run this session, for the exit stats
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -805,6 +817,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// comes and goes with the test machine's windows, which no check may depend on.
 	link_init(&app, link_folder(settings), opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == "" && opts.run == "" && opts.script == "")
 	defer link_destroy(&app)
+	send_init(&app, opts.send_folder if opts.send_folder != "" else send_folder(settings), opts.receive, opts.send_allow, opts.exit_after_receive, opts.send_port)
+	defer send_destroy(&app, false)
+	if opts.send_to != "" {
+		target := opts.send_to
+		if opts.send_port > 0 && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
+		app.send.pending = strings.clone(target)
+	}
+	defer delete(app.send.pending)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
@@ -924,6 +944,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
+	// A send the run started finishes before the stats say what it did.
+	send_destroy(&app, true)
 	return exit_stats_print(&app, opts, &loop, exit_code)
 }
 

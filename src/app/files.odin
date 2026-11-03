@@ -61,6 +61,7 @@ File_Kind :: enum u8 {
 	Import_Workspace, // a .workspace file becomes a workspace of the user's own
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
+	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
 }
 
 File_Request :: struct {
@@ -128,6 +129,15 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+@(private = "file")
+EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
+// Alphas take OpenEXR vector maps too; Android's picker knows no MIME type for `.exr`, so
+// there every file is offered and the decoder's check of the bytes decides.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	ALPHA_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	ALPHA_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI, OpenEXR)", "png;jpg;jpeg;bmp;tga;qoi;exr"}}
+}
 // Android's picker knows no MIME type for `.hdr` and would hide Radiance files, so there
 // every file is offered and the decoder's own check of the bytes decides, as for packs.
 when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -254,7 +264,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
-	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map: dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Alpha:                                                 dialog_open(app, userdata, ALPHA_FILTERS[:])
+	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
@@ -262,6 +273,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Run_Script:                                            dialog_open(app, userdata, SCRIPT_FILTERS[:])
 	case .Install_Pack:                                          dialog_open(app, userdata, PACK_FILTERS[:])
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
+	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
@@ -304,6 +316,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
+		case .Export_Vdm: suffix = ".exr"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
@@ -507,6 +520,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		pack_install_start(app, req.path)
 	case .Make_Pack:
 		_ = pack_make(app, req.path)
+	case .Export_Vdm:
+		_ = vdm_export(app, req.path)
 	case .Export_Workspace:
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:
@@ -1350,14 +1365,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	start := time.tick_now()
 	out := make([dynamic]u8)
 	defer delete(out)
-	preview_refresh(app)
-	scene_header_put(app, &out)
-	hd_dropped := 0
-	for obj in app.scene.objects {
-		object_hd_leave(app, obj)
-		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
-		object_chunk_put(app, &out, obj)
-	}
+	hd_dropped := scene_bytes(app, &out)
 	partial, err := write_partial(path, out[:])
 	if err != "" {
 		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
@@ -1394,6 +1402,19 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 		file_note(app, hd_dropped > 0, "Saved %s%s", what, hd)
 	}
 	return true
+}
+
+// The scene as its file holds it, appended to out: what Save writes and Send sends. Every
+// HD window is left first; returns how many objects keep HD detail the file leaves out.
+scene_bytes :: proc(app: ^App, out: ^[dynamic]u8) -> (hd_dropped: int) {
+	preview_refresh(app)
+	scene_header_put(app, out)
+	for obj in app.scene.objects {
+		object_hd_leave(app, obj)
+		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
+		object_chunk_put(app, out, obj)
+	}
+	return hd_dropped
 }
 
 // Above this many bytes (about 1M vertices) a save stops the frame for long enough that

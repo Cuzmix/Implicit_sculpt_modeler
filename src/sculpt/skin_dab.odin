@@ -100,7 +100,7 @@ skin_bytes :: proc(sk: ^Skin) -> int {
 	if sk == nil do return 0
 	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.side) * size_of([2]f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
 	bytes += (len(sk.edge_first) + len(sk.near_first) + len(sk.near)) * size_of(u32) + len(sk.tri_edges) * size_of([3]u32)
-	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri) + len(sk.dab_moved) + len(sk.node_edge) * size_of(f32)
+	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri) + len(sk.dab_moved) + len(sk.node_edge) * size_of(f32) + len(sk.heat) * size_of(u16)
 	return bytes + len(sk.edges) * size_of(Skin_Edge) + len(sk.stale) * size_of(Skin_Stale)
 }
 
@@ -127,7 +127,8 @@ sculptor_skin_ranges :: proc(s: ^Sculptor) -> []Skin_Range {
 
 // Per triangle, the record the renderer draws the skin by (render.mesh_buffers_set_skin):
 // its three edge references (Skin.tri_edges) and in the fourth number the corner it is
-// drawn from (its polygroup lead corner, 0 without groups), in `allocator`.
+// drawn from (its polygroup lead corner, 0 without groups) in its low bits and its heat
+// (Skin.heat) in its high 16, in `allocator`.
 sculptor_skin_tris :: proc(s: ^Sculptor, allocator := context.allocator) -> [][4]u32 {
 	sk := s.skin
 	if sk == nil do return nil
@@ -135,7 +136,8 @@ sculptor_skin_tris :: proc(s: ^Sculptor, allocator := context.allocator) -> [][4
 	grouped := s.groups.tris != nil && len(s.groups.lead) == len(out)
 	for e, t in sk.tri_edges {
 		lead := u32(s.groups.lead[t]) if grouped else 0
-		out[t] = {e[0], e[1], e[2], lead}
+		heat := u32(sk.heat[t]) if sk.heat != nil else 0
+		out[t] = {e[0], e[1], e[2], lead | heat << 16}
 	}
 	return out
 }

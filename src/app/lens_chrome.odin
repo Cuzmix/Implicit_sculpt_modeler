@@ -6,7 +6,7 @@ import "core:math"
 import "../ui"
 
 // The Lens layout's floating chrome round the full-window view (round 2 of the mockups):
-// the off-hand island of tall Size and Strength sliders above the dial, the view chips at
+// the off-hand island of tall Size and Strength sliders above the dial, the readout at
 // the top corner on the same side, the view rail of one-tap view tools down the pen side,
 // and the mini view under the panels. Each is laid out under the names the bars before them
 // had ("brush bar", "points", "view bar"), so whatever keeps clear of those keeps clear of
@@ -106,59 +106,6 @@ lens_chip_draw :: proc(ctx: ^ui.Context, pill: ui.Rect, text: string, sub := "",
 lens_focal_mm :: proc(fov_y: f32) -> f32 {
 	return 12 / math.tan(fov_y * 0.5)
 }
-
-// The View island at the top corner on the off-hand side, one place for the view: the
-// navigation head (it turns with the camera, a tap on a side looks from there and a drag
-// turns the view), the camera chip (its dot, Persp or Ortho and its lens; a tap opens the
-// Camera menu), the shading chip (the pass; a tap opens the list, a hold peeks at the last
-// other one), then the island's own buttons, a bar the person arranges (bars.odin: at
-// first the view layout, symmetry, the wireframe, the lights and framing), and Clean view.
-// They are the main view's, so they stand aside while another pane is maximised over it:
-// that pane's head has its own. The selected object is the chip bar's (object_chip.odin).
-kit_view_chips :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	ps := &k.passes
-	k.view_chips_shown = false
-	if k.grid.maximised != 0 && grid_panes(&k.grid) > 1 do return
-	k.view_chips_shown = true
-	at := [2]f32{LENS_EDGE, TOP_BAR_H + 2}
-	// On the main pane's own corner, and naming its own camera and pass, while a view pane
-	// is worked in too (the main view's role lent to it), so they never stand over that
-	// pane's head.
-	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.home.w > 0 {
-		win := ctx.input.window
-		edge := win.x - (g.home.x + g.home.w) if ctx.mirror else g.home.x
-		at = {LENS_EDGE + edge, max(TOP_BAR_H + 2, g.home.y + 8)}
-	}
-	k.view_chips_at = at
-	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
-	ui.begin(ctx, "view chips", {direction = .Row, gap = 4, padding = 3, center = true, radius = t.radius_large, background = .Panel})
-	if k.nav_place == .View_Island do nav_head_place(app, {VIEW_ISLAND_HEAD, VIEW_ISLAND_HEAD})
-	c := main_camera(app)
-	projection := "Ortho" if c.ortho else "Persp"
-	sub := "" if c.ortho else fmt.tprintf("%.0f mm", lens_focal_mm(c.fov_y))
-	if a := lens_chip(ctx, "Camera##chip", projection, sub, dot = t.camera[0], chevron = true, lit = bar_pop_showing(app, .Camera), keys = command_hint(app, .Camera_Menu)); a.clicked {
-		k.bar_at[.Camera], k.bar_side[.Camera] = a.rect, .Below
-		bar_pop_toggle(app, .Camera, a.rect, .Below)
-	}
-	shown := viewport_pass(k) if k.grid.work == 0 else ps.pass
-	// Named Shading, the chip shows the mode, or the pass that checks the form while one shows.
-	pass := lens_chip(ctx, "Shading##chip", pass_label(app, shown), chevron = true, lit = shown != .Shaded || ps.menu, keys = command_hint(app, .Pass_Menu))
-	pass_chip_follow(k, pass.rect, pass.clicked)
-	used := bar_used(app, .View_Island)
-	if len(used) > 0 || k.bars_edit do ui.divider(ctx, 28)
-	for s, i in used do bar_slot_button(app, .View_Island, i, s)
-	if k.bars_edit do bar_add_button(app, .View_Island, len(used))
-	if ui.icon_button(ctx, "Clean view##chip", ICON_CLEAN_VIEW, keys = command_hint(app, .Clean_View)) do clean_view_set(app, true)
-	ui.end(ctx)
-	ui.end(ctx)
-}
-
-// The navigation head's size in the View island, in points: a touch target, as tall as
-// the island's buttons.
-VIEW_ISLAND_HEAD :: 46
 
 // A dock button's name beside its icon: one short word where the command's name is long.
 rail_label :: proc(app: ^App, s: Bar_Slot) -> string {

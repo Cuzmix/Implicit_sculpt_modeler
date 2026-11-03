@@ -88,6 +88,11 @@ Skin :: struct {
 	// And with a vector page, its offsets' targets alike.
 	smooth_side: [dynamic][2]f32,
 	offsets:     [dynamic]u32,
+	// Per triangle, how far the skin strays from the surface it was carried from
+	// (skin_carry): 0 unmeasured, else 1 + 65534 times the worst gap in its small
+	// triangles over a grid step, capped at one step. nil when nothing was measured; a
+	// stroke drops it, as the gaps no longer stand.
+	heat:        []u16,
 }
 
 // One run of a dab's work: hit leaf `hit`'s triangles [tri_lo, tri_hi) with the edges
@@ -249,6 +254,7 @@ skin_destroy :: proc(sk: ^Skin, allocator := context.allocator) {
 	delete(sk.dab_moved, allocator)
 	delete(sk.ranges)
 	delete(sk.layer, allocator)
+	delete(sk.heat, allocator)
 	delete(sk.smooth_to)
 	delete(sk.smooth_side)
 	delete(sk.offsets)
@@ -771,4 +777,73 @@ skin_turn_at :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, turn, area: ^Vec3) {
 	if down(S, ii - 1, jj) do small(s, sk, t, {ii, jj}, {ii, jj + 1}, {ii - 1, jj + 1}, turn, area)
 	if down(S, ii - 1, jj - 1) do small(s, sk, t, {ii, jj - 1}, {ii, jj}, {ii - 1, jj}, turn, area)
 	if down(S, ii, jj - 1) do small(s, sk, t, {ii + 1, jj - 1}, {ii + 1, jj}, {ii, jj}, turn, area)
+}
+
+// The surface's point at barycentric (b1, b2) of triangle t (the weights of its corners 1
+// and 2): on the detail skin where the object has one, between the three samples of the
+// skin's cell around it as the skin shows them, else on the curved surface the mesh's smooth shading shows. That
+// is Phong tessellation (Boubekeur and Alexa): the flat point pulled toward each corner's
+// tangent plane by that corner's weight, three quarters of the way. A skin carried from
+// the mesh (skin_carry) or a stamp captured from it (vdm_capture) then holds the form the
+// mesh showed, not its facets, which its smooth shading never showed.
+skin_surface_at :: proc(s: ^Sculptor, t: u32, b1, b2: f32) -> Vec3 {
+	P := s.mesh.positions[:]
+	I := s.mesh.indices[:]
+	sk := s.skin
+	if sk == nil {
+		N := s.mesh.normals[:]
+		w := [3]f32{1 - b1 - b2, b1, b2}
+		flat, curved: Vec3
+		for k in 0 ..< 3 do flat += P[I[3 * t + u32(k)]] * w[k]
+		for k in 0 ..< 3 {
+			c := P[I[3 * t + u32(k)]]
+			n := linalg.normalize0(N[I[3 * t + u32(k)]])
+			curved += (flat - n * linalg.dot(flat - c, n)) * w[k]
+		}
+		return flat + (curved - flat) * 0.75
+	}
+	S := sk.segments
+	fi, fj := clamp(b1, 0, 1) * f32(S), clamp(b2, 0, 1) * f32(S)
+	i0 := min(u32(fi), S - 1)
+	j0 := min(u32(fj), S - 1 - i0)
+	u, v := fi - f32(i0), fj - f32(j0)
+	// The skin's points as it shows them: over its curved base (skin_curve).
+	shown :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32) -> Vec3 {
+		p, n := skin_base(s, sk, t, i, j)
+		nu := linalg.normalize0(n)
+		x := skin_sample(sk, s.mesh.indices[:], t, i, j)
+		return p + skin_lift(s, sk, x, t, i, j, nu, f32(sk.heights[x])) + skin_curve(s, sk, t, i, j, p, nu)
+	}
+	if u + v <= 1 || i0 + j0 == S - 1 {
+		// The cell's lower triangle, the only one on the triangle's far edge.
+		c := shown(s, sk, t, i0, j0)
+		return c + (shown(s, sk, t, i0 + 1, j0) - c) * u + (shown(s, sk, t, i0, j0 + 1) - c) * v
+	}
+	c := shown(s, sk, t, i0 + 1, j0 + 1)
+	return c + (shown(s, sk, t, i0, j0 + 1) - c) * (1 - u) + (shown(s, sk, t, i0 + 1, j0) - c) * (1 - v)
+}
+
+// How far the curved base lies from the flat point `b` of the sample at grid place (i, j)
+// of triangle t, along its unit interpolated normal `nu`. A skin's normals are its mesh's
+// interpolated normals turned by how each small triangle leans off its flat place
+// (skin_normal), so the skin shows its heights over a smooth surface whose normals are
+// the interpolated ones, not over the flat triangles. A skin carried from another surface
+// measures its heights from here (skin_carry): measured from the flat point, they put each
+// triangle's own bulge into the skin a second time, and every triangle showed as a scale. The curved base is Phong tessellation of the
+// new mesh (Boubekeur and Alexa), which depends only on an edge's two corners along it,
+// so every triangle a sample lies on works it out the same.
+@(private)
+skin_curve :: proc(s: ^Sculptor, sk: ^Skin, t, i, j: u32, b, nu: Vec3) -> Vec3 {
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	N := s.mesh.normals[:]
+	S := f32(sk.segments)
+	w := [3]f32{1 - f32(i) / S - f32(j) / S, f32(i) / S, f32(j) / S}
+	curved: Vec3
+	for k in 0 ..< 3 {
+		c := P[I[3 * t + u32(k)]]
+		n := linalg.normalize0(N[I[3 * t + u32(k)]])
+		curved += (b - n * linalg.dot(b - c, n)) * w[k]
+	}
+	return nu * linalg.dot(curved - b, nu)
 }

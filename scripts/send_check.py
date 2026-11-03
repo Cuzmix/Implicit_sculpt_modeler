@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Send between two app processes on this machine: a receiver as a desktop runs it and a
+sender as a tablet runs it, over loopback.
+
+    python scripts/send_check.py            # needs build/sculpt (build.bat / ./build.sh)
+    python scripts/send_check.py --keep     # leaves build/send_check for a look
+
+1. A receiver starts with --receive --send-allow --exit-after-receive in a send folder of
+   its own; a sender makes a sphere, sends it with --send-to and saves it. The two have
+   never met, so they pair first: both logs must show the same six digits. Every chunk
+   goes over, the receiver opens the scene and exits, and both print the same file hash
+   and the same mesh.
+2. A new receiver in the same folder, and the saved scene sent again by a new sender in
+   its folder: they are paired already, so no code is shown, and the receiver builds the
+   file from the copy it kept, so fewer chunks than the file has go over. The hashes and
+   the mesh must match again.
+
+Each check prints PASS or FAIL and the script exits 1 on any FAIL. Like link_check, it is a
+development aid outside the gate: it opens a port on loopback and runs two apps at once.
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import headless  # noqa: E402
+
+WINDOWS = os.name == "nt"
+APP = os.path.join(ROOT, "build", "sculpt.exe" if WINDOWS else "sculpt")
+WORK = os.path.join(ROOT, "build", "send_check")
+# Far from the app's own port, so a desktop's running app is not disturbed.
+PORT = 47931
+WAIT = 300
+
+failures = []
+
+
+def check(name, ok, detail=""):
+    print(("PASS " if ok else "FAIL ") + name + (f": {detail}" if detail else ""))
+    if not ok:
+        failures.append(name)
+
+
+def stat(log, key):
+    m = re.findall(rf"\b{key}=(\S+)", log)
+    return m[-1] if m else None
+
+
+def mesh(log):
+    return stat(log, "mesh_vertices"), stat(log, "mesh_triangles"), stat(log, "mesh_volume")
+
+
+def receiver(env, tag):
+    log_path = os.path.join(WORK, f"receive{tag}.log")
+    log = open(log_path, "w")
+    p = subprocess.Popen([APP, "--receive", "--send-allow", "--exit-after-receive", "--frames=6000",
+                          "--send-folder=" + os.path.join(WORK, "pc"), f"--send-port={PORT}",
+                          "--check-mesh"], env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
+    # The sender starts once the receiver says it is listening, or the send would find
+    # nobody there; a receiver that dies first ends the wait.
+    start = time.monotonic()
+    while time.monotonic() - start < WAIT:
+        with open(log_path, errors="replace") as f:
+            if "receiving scenes on port" in f.read():
+                break
+        if p.poll() is not None:
+            break
+        time.sleep(0.2)
+    return p, log, log_path
+
+
+def sender(env, tag, args):
+    log_path = os.path.join(WORK, f"send{tag}.log")
+    with open(log_path, "w") as log:
+        p = subprocess.run([APP, "--frames=60", "--send-folder=" + os.path.join(WORK, "tab"),
+                            f"--send-to=127.0.0.1:{PORT}", "--check-mesh"] + args,
+                           env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, timeout=WAIT)
+    with open(log_path, errors="replace") as f:
+        return p.returncode, f.read()
+
+
+def finish(p, log, log_path):
+    try:
+        code = p.wait(timeout=WAIT)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        code = p.wait()
+    log.close()
+    with open(log_path, errors="replace") as f:
+        return code, f.read()
+
+
+def round_trip(env, tag, args):
+    r = receiver(env, tag)
+    s_code, s_log = sender(env, tag, args)
+    r_code, r_log = finish(*r)
+    check(f"{tag}: sender exits 0", s_code == 0, f"exit {s_code}")
+    check(f"{tag}: receiver exits 0", r_code == 0, f"exit {r_code}")
+    check(f"{tag}: no leaks", "allocation tracking: no leaks" in s_log and "allocation tracking: no leaks" in r_log)
+    check(f"{tag}: one sent, one received", stat(s_log, "send_sent") == "1" and stat(r_log, "send_received") == "1",
+          f"sent {stat(s_log, 'send_sent')}, received {stat(r_log, 'send_received')}")
+    sh, rh = stat(s_log, "send_sent_hash"), stat(r_log, "send_received_hash")
+    check(f"{tag}: the same file hash", sh is not None and sh == rh and sh != "0" * 16, f"{sh} {rh}")
+    check(f"{tag}: the same mesh", mesh(s_log) == mesh(r_log) and mesh(s_log)[0] is not None,
+          f"{mesh(s_log)} {mesh(r_log)}")
+    return s_log, r_log
+
+
+def chunks(log):
+    m = re.findall(r"(\d+) of (\d+) chunks went over", log)
+    return (int(m[-1][0]), int(m[-1][1])) if m else (None, None)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--keep", action="store_true", help="keep build/send_check")
+    a = ap.parse_args()
+    if not os.path.exists(APP):
+        print(f"no {APP}: build the app first")
+        return 1
+    shutil.rmtree(WORK, ignore_errors=True)
+    os.makedirs(WORK)
+    env = headless.env()
+    scene = os.path.join(WORK, "tab.sculpt")
+
+    s_log, r_log = round_trip(env, "first", ["--vertices=200000", "--save=" + scene])
+    codes_s = re.findall(r"shows (\d{3} \d{3})", s_log)
+    codes_r = re.findall(r"code (\d{3} \d{3})", r_log)
+    check("first: paired with the same code on both", codes_s and codes_s == codes_r, f"{codes_s} {codes_r}")
+    went, total = chunks(r_log)
+    check("first: every chunk went over", went is not None and went == total, f"{went} of {total}")
+
+    s_log, r_log = round_trip(env, "again", ["--open=" + scene])
+    check("again: no pairing", "Pairing with" not in s_log and "Paired with" not in r_log)
+    went, total = chunks(r_log)
+    check("again: only some chunks went over", went is not None and went < total, f"{went} of {total}")
+
+    if not a.keep:
+        shutil.rmtree(WORK, ignore_errors=True)
+    print("send_check: " + ("all passed" if not failures else f"{len(failures)} failed"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

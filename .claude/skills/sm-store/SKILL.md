@@ -64,7 +64,7 @@ re-check the stores' pages before a first submission, because they move every ye
   Android, `UIDocumentPicker` on iPad; `content://` URIs open through `SDL_IOFromFile`). Never request
   `MANAGE_EXTERNAL_STORAGE` or broad storage permissions.
 - Ask only for permissions a visible feature needs, at the moment it is used; each iOS permission needs its usage
-  string in Info.plist. Today the app needs none.
+  string in Info.plist. Today: Android's `INTERNET` and the local network usage string on Apple, both for Send.
 - No data leaves the device. Adding analytics, crash reporting, accounts or cloud saves first needs: a privacy
   policy URL, Play's Data safety form and Apple's privacy labels updated, consent where the law needs it, and (Apple)
   account deletion inside the app if accounts exist.
@@ -84,7 +84,19 @@ re-check the stores' pages before a first submission, because they move every ye
   (`luau.AVAILABLE` is false for Android and any iPad build, so no Luau is linked there), run sandboxed (no files,
   network or processes; memory and step budgets) and are never fetched by the app: no plugin store or download.
   Bringing them to a tablet needs its own design against 2.5.2 (at most scripts the person writes in the app).
-- Encryption: the app uses none beyond the OS's HTTPS, so iOS builds set `ITSAppUsesNonExemptEncryption` to false.
+- Network: only Send (`src/send`, `src/app/send*.odin`; README "Send"), between the person's own devices on the
+  local network: a desktop listens on TCP 47820 only while Receive scenes is on, a tablet connects to it, and nothing
+  goes to the internet or to a server. Android declares `INTERNET` (a normal permission, no prompt; the only one);
+  the iPad and the Mac carry `NSLocalNetworkUsageDescription`, whose prompt iOS shows at the first send, so the
+  first send must come from a visible Send control, never at startup (`--send-to` is a developer flag). Windows'
+  firewall asks once when the desktop first listens. Discovery (Bonjour) adds `NSBonjourServices` with its exact
+  service type in the same change.
+- Encryption: Send seals its frames with ChaCha20-Poly1305 under X25519 pairing keys (`core:crypto`, standard
+  algorithms, not the OS's), so the iPad and Mac builds set `ITSAppUsesNonExemptEncryption` to true. Each App Store
+  Connect upload then asks the export compliance questions: standard encryption, mass-market, which exempts it from
+  uploading documents; distribution in France needs Apple's French encryption declaration, and the US asks for a
+  yearly self-classification report (BIS, by 1 February). Once App Store Connect gives an export compliance code,
+  `ITSEncryptionExportComplianceCode` in both plists ends the questions. Google Play asks nothing more.
 
 ## Payments
 - Anything unlocked in the app (a pro version, brush packs) goes through Apple In-App Purchase and Google Play
@@ -95,7 +107,7 @@ re-check the stores' pages before a first submission, because they move every ye
   new apps and updates from 2026-08-31, native libraries linked for 16 KB pages
   (`-Wl,-z,max-page-size=16384`, required for apps targeting Android 15+), signed with Play App Signing. The
   Gradle project is `android/` (`android/app/build.gradle` holds the SDK levels and `app/jni/CMakeLists.txt` the
-  link flags); the manifest declares no permissions, and one added there needs a visible feature that uses it.
+  link flags); the manifest declares only `INTERNET` (Send), and one added there needs a visible feature that uses it.
 - App Store: built with Xcode 26 and the iOS 26 SDK (required since 2026-04-28), deployment target iOS 13 or newer
   (minimum from 2026-09-09), arm64 only, a launch screen (`UILaunchScreen` in `ios/Info.plist`), the app icon
   (`sculpt-1024.png`, one opaque 1024-point picture rendered from `sculpt.svg` beside it in the repository's

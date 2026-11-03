@@ -10,6 +10,7 @@ import "core:thread"
 import "core:unicode"
 import "core:unicode/utf8"
 
+import "../hdri"
 import "../sculpt"
 import "../zip"
 
@@ -32,7 +33,7 @@ LIBRARY_ALPHAS_MAX :: 256
 ALPHA_REMOVE_ARM_TIME :: 3
 
 // The image files the library reads as alphas, by extension.
-ALPHA_EXTENSIONS := [?]string{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".qoi"}
+ALPHA_EXTENSIONS := [?]string{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".qoi", ".exr"}
 
 Library :: struct {
 	folder:       string, // owned; "" for a run that keeps no settings, and so no library
@@ -238,29 +239,44 @@ alpha_keep :: proc(app: ^App, path: string) -> bool {
 		file_note(app, false, "Alpha %s is in your library already, as %s", name, e.name)
 		return true
 	}
-	alpha, width, height, bad := alpha_decode(data)
+	alpha, width, height, bad := alpha_decode(data, app.vdm_axes)
 	if bad != "" {
 		file_note(app, true, "Cannot load alpha %s: %s", name, bad)
 		return false
 	}
+	// The library reads its vector maps as Blender lays them, so a map from another app
+	// is kept as the alpha's own offsets in that layout, which read back to the bit.
+	kept := data
+	if hdri.exr_is(data) && app.vdm_axes != .Blender {
+		pixels := make([][3]f32, len(alpha.vectors), context.temp_allocator)
+		for v, i in alpha.vectors do pixels[i] = sculpt.vdm_to_file(v, .Blender)
+		kept = hdri.exr_encode(pixels, alpha.size, alpha.size, context.temp_allocator)
+	}
+	i, failed := library_keep(app, filepath.stem(path), path, kept, alpha)
+	app.brush.alpha = i
+	if failed != "" {
+		alpha_loaded_note(app, name, alpha, width, height, fmt.tprintf(", for this run only: the library could not keep a copy (%s)", failed))
+		return true
+	}
+	alpha_loaded_note(app, name, alpha, width, height, ", and kept it in your library")
+	return true
+}
+
+// Writes `data` into the library's own alphas under a name made from `wanted` and adds
+// `alpha`, which the app then owns, as the library's; returns its index. When the copy
+// cannot be written the alpha is added for this run only and `failed` says why.
+library_keep :: proc(app: ^App, wanted, path: string, data: []u8, alpha: sculpt.Alpha) -> (i: int, failed: string) {
 	folder := library_alphas_folder(app)
-	stem, ext := library_stem(folder, filepath.stem(path), path, data)
+	stem, ext := library_stem(folder, wanted, path, data)
 	file, _ := filepath.join({folder, fmt.tprintf("%s%s", stem, ext)}, context.temp_allocator)
-	failed := ""
 	if dir_err := os.make_directory_all(folder); dir_err != nil && !os.exists(folder) {
 		failed = fmt.tprint(dir_err)
 	} else {
 		failed = write_durably(file, data)
 	}
-	if failed != "" {
-		app.brush.alpha = alpha_add(app, stem, stem, alpha)
-		alpha_loaded_note(app, name, alpha, width, height, fmt.tprintf(", for this run only: the library could not keep a copy (%s)", failed))
-		return true
-	}
-	app.brush.alpha = library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, sum, len(data), alpha)
+	if failed != "" do return alpha_add(app, stem, stem, alpha), failed
 	app.library.alphas += 1
-	alpha_loaded_note(app, name, alpha, width, height, ", and kept it in your library")
-	return true
+	return library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, hash.crc32(data), len(data), alpha), ""
 }
 
 // A name for an image kept in `folder`, and its extension: the file's own stem made safe
@@ -274,6 +290,7 @@ library_stem :: proc(folder, wanted, path: string, data: []u8) -> (stem, ext: st
 	case len(data) >= 2 && data[0] == 0xff && data[1] == 0xd8: ext = ".jpg"
 	case len(data) >= 2 && string(data[:2]) == "BM": ext = ".bmp"
 	case len(data) >= 4 && string(data[:4]) == "qoif": ext = ".qoi"
+	case hdri.exr_is(data): ext = ".exr"
 	case alpha_extension(path): ext = strings.to_lower(filepath.ext(path), context.temp_allocator)
 	case: ext = ".tga"
 	}

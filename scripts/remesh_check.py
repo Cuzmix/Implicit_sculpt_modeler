@@ -29,7 +29,7 @@ Quads), its volume within 1 % of the input's, every vertex within 0.6 of the lat
 spacing of the input (a closed solid's surface; an open input's caps lie off it) and, for
 a single solid, its count within 5 % of the request; Quad
 Remesh must give at least 99 % quads with no boundary or non-manifold edge, faces within
--25 % / +10 % of the request, the volume within 2 %, a deviation under 0.5 % at most and
+5 % of the request, the volume within 2 %, a deviation under 0.5 % at most and
 0.1 % on average, and at least 95 % four-valent vertices on the sphere and the bumpy
 sphere, 100 % on the torus. An engine fallback is judged as a result that is not
 AutoRemesher's (FAIL, with the engine's reason). Open, non-manifold and invalid fixtures
@@ -198,7 +198,7 @@ def with_flipped():
 # manifold, every face a quad with Quads), "near" (every vertex within 0.6 of the lattice
 # spacing of the input: a closed solid's surface, not an open input whose caps lie off it), "volume"
 # (within 1 % of the input's; 2 % for Quad Remesh), "count" (within 5 % of the request),
-# "quads" (99 % quads, no boundary or non-manifold edge, faces within -25 % / +10 %,
+# "quads" (99 % quads, no boundary or non-manifold edge, faces within 5 %,
 # deviation, AutoRemesher itself), "regular" (95 % four-valent), "regular100" (every
 # vertex), "refuse" (a refusal, a fallback or a result all pass), "unreadable" (the import
 # refuses the file).
@@ -492,7 +492,7 @@ def check_run(tool, checks, info, result, requested, input_volume, spacing, stab
             fails.append("%s quads" % pct(t["quads"]))
         if t["boundary"] or t["non_manifold"] or t["inconsistent"]:
             fails.append("%d boundary and %d non-manifold edges" % (t["boundary"], t["non_manifold"] + t["inconsistent"]))
-        if not -0.25 * requested <= result["faces"] - requested <= 0.10 * requested:
+        if abs(result["faces"] - requested) > 0.05 * requested:
             fails.append("%d faces for %d asked" % (result["faces"], requested))
         if result["dev_max"] > 0.005 or result["dev_mean"] > 0.001:
             fails.append("deviation max %.2f%% mean %.3f%%" % (100 * result["dev_max"], 100 * result["dev_mean"]))

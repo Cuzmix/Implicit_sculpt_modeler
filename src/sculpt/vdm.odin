@@ -210,3 +210,42 @@ job_vdm :: proc(data: rawptr, i: int) {
 	s.partials[i].moved = moved
 	s.partials[i].bounds = bounds
 }
+
+// How another app's vector displacement EXR lays its offsets in the red, green and blue
+// channels, and how long its unit is. Blender's VDM brushes keep x, y and z in R, G and B,
+// over a plane one unit wide, so a radius is half a unit; ZBrush and Mudbox keep the
+// surface's up in green and the image's down in blue, and ZBrush's maps come out at half
+// the height Blender's do. The conventions come from the apps' guides and the guides that
+// move brushes between them, not from files the apps wrote here.
+Vdm_Axes :: enum u8 {
+	Blender,
+	ZBrush,
+	Mudbox,
+}
+
+VDM_AXES_NAMES := [Vdm_Axes]string {
+	.Blender = "Blender",
+	.ZBrush  = "ZBrush",
+	.Mudbox  = "Mudbox",
+}
+
+// An offset in the file's channels, read as the app's (x right, y up, z out, in radii).
+vdm_from_file :: proc(rgb: [3]f32, axes: Vdm_Axes) -> Vec3 {
+	switch axes {
+	case .Blender: return Vec3{rgb.r, rgb.g, rgb.b} * 2
+	case .ZBrush:  return Vec3{rgb.r, -rgb.b, rgb.g} * 4
+	case .Mudbox:  return Vec3{rgb.r, -rgb.b, rgb.g} * 2
+	}
+	return {}
+}
+
+// The app's offset written in the file's channels: vdm_from_file undone, to the bit, as
+// both scale by powers of two.
+vdm_to_file :: proc(v: Vec3, axes: Vdm_Axes) -> [3]f32 {
+	switch axes {
+	case .Blender: return v / 2
+	case .ZBrush:  return {v.x, v.z, -v.y} / 4
+	case .Mudbox:  return {v.x, v.z, -v.y} / 2
+	}
+	return {}
+}

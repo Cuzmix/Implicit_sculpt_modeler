@@ -120,6 +120,7 @@ Command_Id :: enum u16 {
 	Hd_Leave,
 	Detail_Skin, // the argument is the place in SKIN_SEGMENTS (0: off)
 	Skin_Apply,
+	Skin_Squeeze, // the argument is the place in SQUEEZE_SHARES
 	Detail_To, // the argument is the Detail_To, for the brush held
 	Detail_To_Next,
 	Morph_Store,
@@ -269,6 +270,11 @@ Command_Id :: enum u16 {
 	Pass_Menu, // passes.odin
 	Brush_Picker, // lens_shelf.odin
 	Settings,
+	Main_Menu, // kit_top_lens.odin: the top bar's chips and menu
+	File_Chip,
+	Space_Tabs,
+	Object_Chip,
+	Viewport_Readout,
 	Reduce_Motion,
 	Left_Handed,
 	Command_Palette,
@@ -1304,6 +1310,13 @@ COMMANDS := [Command_Id]Command {
 			return (sk.segments if sk != nil else 0) == SKIN_SEGMENTS[arg]
 		},
 	},
+	.Skin_Squeeze = {
+		label = "Squeeze",
+		help = "Turns the selected dense sculpt into a mesh with a quarter, an eighth or a sixteenth of its vertices and a detail skin holding the rest of its surface, so it sculpts and draws as the lighter mesh does; the note says how far it strays, and Show skin detail shows where.",
+		args = len(SQUEEZE_SHARES),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Squeeze, vertices = SQUEEZE_SHARES[arg]}},
+		enabled = proc(app: ^App, _: int) -> bool {return skin_squeeze_refusal(selected_object(app)) == ""},
+	},
 	.Skin_Apply = {
 		label = "Apply skin",
 		help = "Turns the selected object's detail skin into subdivision levels, one for each halving of its segments, whose top level has a vertex at every height, and takes the skin off.",
@@ -1614,7 +1627,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) or Brush path (a path to run the brush along). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad Remesh's loops follow). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {
@@ -2424,6 +2437,43 @@ COMMANDS := [Command_Id]Command {
 			window_raise(k, .Settings)
 		},
 	},
+	.Main_Menu = {
+		label = "Menu",
+		help = "Opens the menu: new, open, save, import, export, workspaces, and the rest of the app.",
+		icon = ui.ICON_MENU,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.menu},
+	},
+	.File_Chip = {
+		label = "File",
+		help = "The top bar's file chip: the scene's file and whether it is saved; a tap opens the menu.",
+		icon = ICON_FILE,
+		run = proc(app: ^App, _: int) {
+			app.kit.menu = !app.kit.menu
+			app.kit.menu_scroll = 0
+		},
+	},
+	.Space_Tabs = {
+		label = "Space tabs",
+		help = "The top bar's space tabs: Sculpt, Model, Render and the rest, a tap switching to one; run, it goes to the next space.",
+		icon = ui.ICON_PANEL,
+		run = proc(app: ^App, _: int) {space_switch(app, Space((int(app.kit.spaces.current) + 1) % len(Space)))},
+	},
+	.Object_Chip = {
+		label = "Object chip",
+		help = "The top bar's object chip: the selected object's name and kind; a tap opens its menu.",
+		icon = ICON_SCULPT_MESH,
+		run = proc(app: ^App, _: int) {command_run(app, .Object_Menu)},
+	},
+	.Viewport_Readout = {
+		label = "Viewport readout",
+		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices, the app's memory and the GPU's time a frame.",
+		run = proc(app: ^App, _: int) {app.kit.readout_hidden = !app.kit.readout_hidden},
+		checked = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
+	},
 	.Reduce_Motion = {
 		label = "Reduce motion",
 		help = "Turns the interface's animations off, or back on in full (Settings > Interface > Motion also has Reduced, which fades in place).",
@@ -2774,6 +2824,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Skin_Squeeze:
+		return fmt.tprintf("Squeeze to 1/%d", SQUEEZE_SHARES[arg])
 	case .Detail_Skin:
 		return "Detail skin off" if SKIN_SEGMENTS[arg] == 0 else fmt.tprintf("Detail skin %d", SKIN_SEGMENTS[arg])
 	case .Detail_To:
