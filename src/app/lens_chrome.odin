@@ -73,13 +73,16 @@ lens_chip_width :: proc(ctx: ^ui.Context, text: string, sub := "", glyph: rune =
 LENS_CHIP_PAD :: 10
 
 // Draws a chip's pill at `pill`, pressed or hovered as `held` and `hovered` say.
-lens_chip_draw :: proc(ctx: ^ui.Context, pill: ui.Rect, text: string, sub := "", glyph: rune = 0, dot: Maybe(ui.Color) = nil, chevron := false, lit := false, held := false, hovered := false) {
+lens_chip_draw :: proc(ctx: ^ui.Context, pill: ui.Rect, text: string, sub := "", glyph: rune = 0, dot: Maybe(ui.Color) = nil, chevron := false, lit := false, held := false, hovered := false, glass := true) {
 	t := ctx.theme
-	fill := ui.Color{t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA}
-	ui.fill_rect(ctx, pill, t.radius_medium, fill)
-	if held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
-	else if hovered do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
-	ui.stroke_rect(ctx, pill, t.radius_medium, t.border, 1)
+	// Without its glass, the content alone, on a pill its caller drew (a tab strip's).
+	if glass {
+		fill := ui.Color{t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA}
+		ui.fill_rect(ctx, pill, t.radius_medium, fill)
+		if held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
+		else if hovered do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
+		ui.stroke_rect(ctx, pill, t.radius_medium, t.border, 1)
+	}
 	x := pill.x + LENS_CHIP_PAD
 	cy := pill.y + pill.h * 0.5
 	if c, ok := dot.?; ok {

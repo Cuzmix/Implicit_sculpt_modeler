@@ -266,6 +266,10 @@ Command_Id :: enum u16 {
 	Render_Preview, // grid.odin
 	View_Window, // view_window.odin
 	View_Windows_Close,
+	Pane_Tab_New, // grid_tabs.odin
+	Pane_Tab_Close,
+	Pane_Tab_Next,
+	Pane_Tab_Previous,
 	Clean_View, // lens_view.odin
 	View_Layout_Menu, // lens_chrome.odin
 	Pass_Menu, // passes.odin
@@ -2406,6 +2410,34 @@ COMMANDS := [Command_Id]Command {
 		// With three open it still runs, to say why no fourth opens.
 		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
 	},
+	.Pane_Tab_New = {
+		label = "New tab",
+		help = "Adds a tab to the view pane you used last, from an angle none of its tabs shows, and shows it; the pane keeps every tab's camera and pass.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_New)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_New)},
+	},
+	.Pane_Tab_Close = {
+		label = "Close tab",
+		help = "Closes the tab the view pane you used last shows, when it has another; Undo brings it back.",
+		icon = ui.ICON_CLOSE,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Close)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Close)},
+	},
+	.Pane_Tab_Next = {
+		label = "Next tab",
+		help = "Shows the next tab of the view pane you used last, round to the first.",
+		icon = ui.ICON_CHEVRON_RIGHT,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Next)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Next)},
+	},
+	.Pane_Tab_Previous = {
+		label = "Previous tab",
+		help = "Shows the tab before this one in the view pane you used last, round to the last.",
+		icon = ICON_CHEVRON_LEFT,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Previous)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Previous)},
+	},
 	.Clean_View = {
 		label = "Clean view",
 		help = "Hides every control so you can judge the form, keeping only the dial unless Settings > Interface says otherwise; again, Escape or a four-finger tap brings them back.",
@@ -2782,6 +2814,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_F11, {}, false}, .Stats, 0},
 	{{KEY_F1, {}, false}, .Help, 0},
 	{{KEY_TAB, {}, false}, .Clean_View, 0},
+	{{KEY_TAB, {.Ctrl}, false}, .Pane_Tab_Next, 0},
+	{{KEY_TAB, {.Ctrl, .Shift}, false}, .Pane_Tab_Previous, 0},
 	{{KEY_K, {.Ctrl}, false}, .Command_Palette, 0},
 	{{KEY_SLASH, {}, false}, .Command_Palette, 0},
 	{{KEY_Q, {}, false}, .Pie, 0},
