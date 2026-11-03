@@ -56,7 +56,7 @@ sculptor_mask_by :: proc(s: ^Sculptor, by: Mask_By, o: Mask_By_Options) -> bool 
 	_ = sculptor_stroke_end(s)
 	switch by {
 	case .Color_Intensity, .Color_Hue, .Color_Saturation:
-		if s.color == nil do return false
+		if sculptor_paint_shown(s) == nil do return false
 		if by == .Color_Hue {
 			_, saturation := color_hue_saturation(o.hue)
 			if saturation < GREY_SATURATION do return false
@@ -188,7 +188,7 @@ mask_measure :: proc(job: ^By_Job, v: u32) -> f32 {
 	case .Facing_Away:
 		return (1 - linalg.dot(s.mesh.normals[v], toward_viewer(job, v))) * 0.5
 	case .Color_Intensity, .Color_Hue, .Color_Saturation:
-		c := s.color[v]
+		c := sculptor_paint_shown(s)[v]
 		cover := f32(c.a) / 255
 		hue, saturation := color_hue_saturation(c.rgb)
 		#partial switch job.by {

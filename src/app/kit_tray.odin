@@ -110,6 +110,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Show_Masked           = .Visibility,
 	.New_Layer             = .Layers,
 	.Layer_Edit            = .Layers,
+	.New_Paint_Layer       = .Layers,
+	.Paint_Layer_Edit      = .Layers,
 	.Paint                 = .Paint,
 	.Morph_Store           = .Morph,
 	.Morph_Delete          = .Morph,
@@ -147,6 +149,11 @@ tray_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	if !ok do return false
 	k := &app.kit
 	if section_palette(sec) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
+	// The Layers card's tab that holds the command.
+	#partial switch id {
+	case .New_Layer, .Layer_Edit:            app.ui.layers_paint = false
+	case .New_Paint_Layer, .Paint_Layer_Edit: app.ui.layers_paint = true
+	}
 	tray_open(app, sec, exact = true)
 	k.more[sec] = true
 	k.pointed = {id, arg, k.ctx.time}

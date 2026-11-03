@@ -129,6 +129,8 @@ Command_Id :: enum u16 {
 	Morph_Delete,
 	New_Layer,
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
+	New_Paint_Layer,
+	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
 	Recall_Later,
 	Recall_Oldest,
@@ -1401,6 +1403,23 @@ COMMANDS := [Command_Id]Command {
 		args = len(Layer_Action),
 		run = proc(app: ^App, arg: int) {layer_action(app, Layer_Action(arg))},
 		enabled = proc(app: ^App, arg: int) -> bool {return layer_action_ready(app, Layer_Action(arg))},
+	},
+	.New_Paint_Layer = {
+		label = "New paint layer",
+		help = "Adds a paint layer above the picked one and picks it: the paint tools then paint it, over the layers below.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {paint_layer_add(app, selected_object(app))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return paint_ready(app, 0) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
+		},
+	},
+	.Paint_Layer_Edit = {
+		label = "Paint layer",
+		help = "Moves the picked paint layer up or down, merges it into the one below or deletes it.",
+		args = len(Paint_Layer_Action),
+		run = proc(app: ^App, arg: int) {paint_layer_edit(app, selected_object(app), Paint_Layer_Action(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {return paint_layer_ready(app, Paint_Layer_Action(arg))},
 	},
 	.Recall_Earlier = {
 		label = "History brush: earlier",
@@ -2938,6 +2957,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return TEXTURE_LOAD_NAMES[render.Texture_Map(arg)]
 	case .Layer_Edit:
 		return LAYER_ACTION_NAMES[Layer_Action(arg)]
+	case .Paint_Layer_Edit:
+		return PAINT_LAYER_ACTION_NAMES[Paint_Layer_Action(arg)]
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:

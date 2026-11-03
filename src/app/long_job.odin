@@ -224,7 +224,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 		// The dynamic layout's compacting renumbers the triangles, and it has no groups.
 		if s := object_sculptor(obj); !object_dynamic(obj) {
-			if s.color != nil do j.color = slice.clone(s.color)
+			if c := sculpt.sculptor_paint_shown(s); c != nil do j.color = slice.clone(c)
 			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
 		}
