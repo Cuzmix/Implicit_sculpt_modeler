@@ -163,6 +163,7 @@ Brush_Settings :: struct {
 	// have them.
 	paint_dial:        bool,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
+	cloth:             sculpt.Cloth_Settings, // how its cloth behaves: region, stiffness, gravity...
 	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
 	// one, `plain` keeps the plain brush's values that leaving it puts back.
 	preset:            int,
@@ -809,10 +810,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
 	} else if st.cloth {
-		mode := app.brush.cloth_mode
-		if brush.invert && mode == .Pinch do mode = .Expand
-		else if brush.invert && mode == .Expand do mode = .Pinch
-		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, mode)
+		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
+		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, app.brush.cloth)
 		return
 	} else {
 		object_dab(app, obj, brush, local, object_normal_local(obj, local))
@@ -949,9 +948,10 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 	}
 	view := camera.orbit_view(app.camera)
 	down := -to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]})
-	if input.invert do down = -down
 	st.pos = pos
 	t1 := time.tick_now()
+	// The sliders may move mid-stroke; the cloth takes them at its next step.
+	sculpt.sculptor_cloth_settings(object_sculptor(obj), app.brush.cloth)
 	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, linalg.normalize0(down))
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
@@ -1564,7 +1564,7 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
-	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)

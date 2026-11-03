@@ -288,7 +288,7 @@ sculptor_grab_refine :: proc(s: ^Sculptor) -> int {
 
 // The normal of the shown vertex nearest `center` within `radius`, the lowest index on a
 // tie; zero when none is.
-@(private = "file")
+@(private)
 nearest_normal :: proc(s: ^Sculptor, center: Vec3, radius: f32) -> Vec3 {
 	leaves := make([dynamic]u32, context.temp_allocator)
 	geom.bvh_query_leaves(&s.bvh, center, radius, &leaves)
