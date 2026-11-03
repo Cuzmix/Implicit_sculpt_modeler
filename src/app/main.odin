@@ -195,6 +195,9 @@ App :: struct {
 	// The pen's roll that a Pen roll alpha turns by, from the frame's Viewport_Input, so a
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
+	// The way a Pen lean alpha faces, radians counter-clockwise from the screen's up, from
+	// the frame's lean (alpha_lean_take).
+	alpha_lean: f32,
 	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
 	diag:     Diag, // the Input diagnostics screen and its log (diagnostics.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
