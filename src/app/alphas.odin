@@ -341,6 +341,11 @@ kit_alpha_section :: proc(app: ^App) {
 	axes: [len(sculpt.Vdm_Axes)]string
 	for a, i in sculpt.Vdm_Axes do axes[i] = sculpt.VDM_AXES_NAMES[a]
 	if picked := ui.tabs(ctx, "vdm axes", axes[:], int(app.vdm_axes)); picked >= 0 do app.vdm_axes = sculpt.Vdm_Axes(picked)
+	// A stamp made from the selected slab, and the picked stamp written for that app.
+	if ui.button(ctx, "Capture VDM from object", .Bordered, glyph = ui.ICON_IMAGE) do vdm_capture_selected(app)
+	if a := brush_alpha(app); a != nil && a.vectors != nil {
+		if ui.button(ctx, fmt.tprintf("Export VDM for %s...##vdm export", sculpt.VDM_AXES_NAMES[app.vdm_axes]), .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Export_Vdm)
+	}
 	if i := app.brush.alpha; alpha_is_mine(app, i) {
 		// Taking an image out deletes its file, so it asks for a second tap.
 		k := &app.kit
@@ -360,7 +365,7 @@ kit_alpha_section :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey. An OpenEXR image loads as a VDM, its axes read as the app it came from lays them (VDM files from).")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey. An OpenEXR image loads as a VDM, its axes read as the app it came from lays them (VDM files from). Capture VDM from object turns a sculpted slab (Scene > Add object > Plane) into a stamp: its top face is the square, and what stands off it, overhangs too when sculpted into the detail skin, becomes the offsets. Export VDM writes the picked stamp as an OpenEXR file for that app.")
 }
 
 // One thumbnail of the Alpha section (and the Lens shelf's quick settings): the round
