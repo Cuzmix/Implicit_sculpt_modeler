@@ -79,6 +79,32 @@ async function start() {
 	for (const maximum of [65536, 16384]) {
 		try { memory = new WebAssembly.Memory({ initial: 2048, maximum }); break; } catch (_) { }
 	}
+	// Odin's wgpu.js asks for a device with every limit named, undefined for the ones the app
+	// leaves at their defaults. Chrome passes over those; Safari can refuse the whole request
+	// (with an empty message) for an undefined value or a limit it does not know. So the
+	// request keeps only the limits with values the adapter lists, and the features it has;
+	// one still refused is logged with its name and asked again with no limits, so the page
+	// either starts or says why.
+	if (typeof GPUAdapter !== "undefined") {
+		const requestDevice = GPUAdapter.prototype.requestDevice;
+		GPUAdapter.prototype.requestDevice = async function (descriptor) {
+			const asked = Object.assign({}, descriptor);
+			if (asked.requiredLimits) {
+				const limits = {};
+				for (const [name, value] of Object.entries(asked.requiredLimits)) {
+					if (value !== undefined && name in this.limits) limits[name] = value;
+				}
+				asked.requiredLimits = limits;
+			}
+			if (asked.requiredFeatures) asked.requiredFeatures = [...asked.requiredFeatures].filter((f) => f && this.features.has(f));
+			try {
+				return await requestDevice.call(this, asked);
+			} catch (e) {
+				console.warn(`WebGPU refused the device (${e && e.name}: ${e && e.message}); asking again without limits. Asked for ${JSON.stringify(asked.requiredLimits)}`);
+				return await requestDevice.call(this, Object.assign({}, asked, { requiredLimits: undefined }));
+			}
+		};
+	}
 	const web = new SculptWeb.Web(canvas, memory, fail);
 	// The files kept from earlier visits (settings, library, scenes), before the app reads them.
 	await web.fs.open();
