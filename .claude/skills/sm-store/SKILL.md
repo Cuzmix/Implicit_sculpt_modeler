@@ -85,7 +85,9 @@ re-check the stores' pages before a first submission, because they move every ye
   network or processes; memory and step budgets) and are never fetched by the app: no plugin store or download.
   Bringing them to a tablet needs its own design against 2.5.2 (at most scripts the person writes in the app).
 - Network: only Send (`src/send`, `src/app/send*.odin`; README "Send"), between the person's own devices on the
-  local network: a desktop listens on TCP 47820 only while Receive scenes is on, a tablet connects to it, and nothing
+  local network: a desktop listens on TCP 47820 only while Receive scenes is on, a tablet connects to it, and a
+  tablet listens too only while the app is open and only once it has paired by sending (so the Local Network prompt
+  has come at that first send, never at startup), taking scenes only from paired devices; nothing
   goes to the internet or to a server. Android declares `INTERNET` (a normal permission, no prompt; the only one);
   the iPad and the Mac carry `NSLocalNetworkUsageDescription`, whose prompt iOS shows at the first send, so the
   first send must come from a visible Send control, never at startup (`--send-to` is a developer flag). Windows'

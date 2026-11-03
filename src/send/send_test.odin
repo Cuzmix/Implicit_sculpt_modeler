@@ -6,7 +6,7 @@ import "core:testing"
 import "../jobs"
 
 // Bytes that look like a scene file's floats: no repeats a chunker could lean on.
-@(private = "file")
+@(private)
 noise :: proc(n: int, seed: u64, allocator := context.allocator) -> []u8 {
 	b := make([]u8, n, allocator)
 	state := rand.create(seed)
@@ -17,7 +17,7 @@ noise :: proc(n: int, seed: u64, allocator := context.allocator) -> []u8 {
 
 @(private = "file")
 hello_fixture :: proc() -> Hello {
-	return {protocol = PROTOCOL, scene_version = 36, role = .Tablet, device = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, name = "Bolt's iPad", build = "dev"}
+	return {protocol = PROTOCOL, scene_version = 36, role = .Tablet, device = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, port = 47820, name = "Bolt's iPad", build = "dev"}
 }
 
 @(test)
@@ -284,11 +284,13 @@ send_through :: proc(t: ^testing.T, data, base: []u8, loc := #caller_location) -
 	asked, asked_ok := need_get(wire[:], offer)
 	testing.expect(t, asked_ok, loc = loc)
 	defer delete(asked)
+	scratch: Chunk_Scratch
+	defer chunk_scratch_destroy(&scratch)
 	for i in asked {
 		c := chunks[i]
 		clear(&wire)
-		chunk_put(&wire, i, data[c.offset:][:c.size])
-		index, bytes, got := chunk_get(wire[:])
+		chunk_put(&wire, i, data[c.offset:][:c.size], &scratch)
+		index, bytes, _, got := chunk_get(wire[:], offer, &scratch)
 		testing.expect(t, got, loc = loc)
 		testing.expect_value(t, rebuild_take(&r, index, bytes), Take.Ok, loc = loc)
 	}

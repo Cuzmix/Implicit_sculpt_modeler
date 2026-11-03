@@ -59,6 +59,9 @@ Send_Event :: struct {
 	text: string,
 	path: string,
 	hash: u64, // the file's hash, Sent and Received
+	// Received from a device that receives too: its address and port, where a scene goes
+	// back ("" otherwise).
+	back:  string,
 	// Received: the scene's token and the device it came from.
 	token: u64,
 	from:  string,
@@ -76,6 +79,8 @@ Send_Shared :: struct {
 	// --send-cut-after: a send drops its connection after this many chunks, as a lost
 	// Wi-Fi would, so a script can watch the next send carry on (0: never).
 	cut_after: int,
+	// Bytes of chunks this run sent, as packed (atomic): the exit stats' send_wire_bytes.
+	wire_bytes: int,
 	pairs:    [dynamic]Send_Pair,
 	events:   [dynamic]Send_Event,
 	port:     int,
@@ -92,6 +97,9 @@ Send_Shared :: struct {
 	// The computers on the network, while the Export sheet's Send shows them.
 	browse_stop: bool, // atomic
 	computers:   [dynamic]send.Found, // owned names
+	// The devices that sent here and receive while they are open (a tablet's hello names
+	// its port), newest first, at most SEND_BACKS: where Send sends a scene back.
+	backs:       [dynamic]send.Found, // owned names
 	// The send under way: how far it is, in bytes of the file.
 	done, total: i64,
 }
@@ -128,6 +136,7 @@ Send :: struct {
 	// What this run did, for the exit stats.
 	sent, received, refused, found: int,
 	sent_hash, received_hash: u64,
+	wire_bytes: int,
 }
 
 // The send folder for a settings file, as link_folder's.
@@ -260,15 +269,30 @@ send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive:
 // Starts or stops receiving as --receive and Receive scenes say: a desktop only.
 send_receive_follow :: proc(app: ^App) {
 	sh := app.send.shared
-	if sh == nil || MOBILE do return
+	if sh == nil do return
+	// A tablet receives while it is open once it is paired, so the computer can send a
+	// scene back; it never says so on the network nor pairs as the receiving side.
 	want := app.send.receive || app.send_receive
+	when MOBILE {
+		sync.lock(&sh.lock)
+		want = len(sh.pairs) > 0
+		sync.unlock(&sh.lock)
+	}
 	if want && app.send.listen == nil {
 		// A listener being ended still holds the port for a moment.
 		for t in app.send.ending do if !thread.is_done(t) do return
 		gen := sync.atomic_add(&sh.receive_gen, 1) + 1
 		app.send.listen = send_listen_start(sh, gen, context)
-		if app.send.listen != nil do app.send.answer = send_answer_begin(sh, gen, context)
+		if app.send.listen != nil {
+			sync.lock(&sh.lock)
+			sh.me.port = u16(sh.port)
+			sync.unlock(&sh.lock)
+			when !MOBILE do app.send.answer = send_answer_begin(sh, gen, context)
+		}
 	} else if !want && app.send.listen != nil {
+		sync.lock(&sh.lock)
+		sh.me.port = 0
+		sync.unlock(&sh.lock)
 		sync.atomic_add(&sh.receive_gen, 1)
 		send_listen_wake(sh)
 		append(&app.send.ending, app.send.listen)
@@ -333,10 +357,13 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 	for v in app.send.saved do delete(v.path)
 	delete(app.send.saved)
 	app.send.found = sync.atomic_load(&sh.found)
+	app.send.wire_bytes = sync.atomic_load(&sh.wire_bytes)
 	for p in sh.pairs do delete(p.name)
 	delete(sh.pairs)
 	for &f in sh.computers do send.found_destroy(&f)
 	delete(sh.computers)
+	for &f in sh.backs do send.found_destroy(&f)
+	delete(sh.backs)
 	delete(sh.events)
 	delete(sh.me.name)
 	delete(sh.me.build)
@@ -355,9 +382,9 @@ send_event :: proc(sh: ^Send_Shared, kind: Send_Event_Kind, path: string, hash: 
 }
 
 // Queues a received scene, with its token and the device it came from.
-send_event_received :: proc(sh: ^Send_Shared, path: string, hash, token: u64, from: string, format: string, args: ..any) {
+send_event_received :: proc(sh: ^Send_Shared, path: string, hash, token: u64, from, back: string, format: string, args: ..any) {
 	sync.lock(&sh.lock)
-	append(&sh.events, Send_Event{kind = .Received, text = fmt.aprintf(format, ..args), path = strings.clone(path), hash = hash, token = token, from = strings.clone(from)})
+	append(&sh.events, Send_Event{kind = .Received, text = fmt.aprintf(format, ..args), path = strings.clone(path), hash = hash, token = token, from = strings.clone(from), back = strings.clone(back)})
 	sync.unlock(&sh.lock)
 }
 
@@ -416,6 +443,7 @@ send_events_take :: proc(app: ^App) {
 			delete(e.text)
 			delete(e.path)
 			delete(e.from)
+			delete(e.back)
 		}
 		switch e.kind {
 		case .Note:    file_note(app, false, "%s", e.text)
@@ -430,6 +458,8 @@ send_events_take :: proc(app: ^App) {
 		case .Received:
 			app.send.received += 1
 			app.send.received_hash = e.hash
+			// Send scene now sends it back to where it came from.
+			if e.back != "" do send_last_set(app, fmt.tprintf("%s|%s", e.back, e.from))
 			if !app.running do continue
 			send_arrive(app, e)
 		}

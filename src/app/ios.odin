@@ -98,9 +98,10 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_exclude_from_backup :: proc(path: cstring) -> bool ---
 	}
 
-	// ios/sculpt_ios.m: time asked of the system to finish the background's autosave
-	// (beginBackgroundTask), since iOS suspends an app seconds after it leaves the screen,
-	// and given back once the autosave thread is done or the app comes back (idle.odin).
+	// ios/sculpt_ios.m: time asked of the system to finish the background's autosave and a
+	// send under way (beginBackgroundTask), since iOS suspends an app seconds after it leaves
+	// the screen, and given back once both are done or the app comes back (idle.odin); a
+	// send cut off by the suspension carries on from its chunks with the next one.
 	// Main thread only; one at a time, so either may be called twice.
 	@(default_calling_convention = "c")
 	foreign {

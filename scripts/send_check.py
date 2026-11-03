@@ -9,7 +9,7 @@ sender as a tablet runs it, over loopback.
    its own; a sender makes a sphere, sends it with --send-to and saves it. The two have
    never met, so they pair first: both logs must show the same six digits. Every chunk
    goes over, the receiver opens the scene and exits, and both print the same file hash
-   and the same mesh.
+   and the same mesh; the chunks go over shuffled and LZ4-coded, well under the file's size.
 2. A new receiver in the same folder, and the saved scene sent again by a new sender in
    its folder: they are paired already, so no code is shown, and the receiver builds the
    file from the copy it kept, so fewer chunks than the file has go over. The hashes and
@@ -31,6 +31,9 @@ sender as a tablet runs it, over loopback.
    in the send folder's kept first, and the mesh is the sender's). A setup script's
    changes count as the scene's starting state, so the same scene changed here too is
    left to the app's own test (send_arrive_test.odin).
+6. Back: a sender that receives too (as a tablet does while it is open) sends; the
+   computer keeps where it came from as Send scene's target (send_last), and the scene
+   sent there opens in place on the "tablet", unchanged there since it went out.
 
 Each check prints PASS or FAIL and the script exits 1 on any FAIL. Like link_check, it is a
 development aid outside the gate: it opens a port on loopback and runs two apps at once.
@@ -92,10 +95,10 @@ def receiver(env, tag, args=()):
     return p, log, log_path
 
 
-def sender(env, tag, args, target):
+def sender(env, tag, args, target, folder="tab"):
     log_path = os.path.join(WORK, f"send{tag}.log")
     with open(log_path, "w") as log:
-        p = subprocess.run([APP, "--frames=60", "--send-folder=" + os.path.join(WORK, "tab"),
+        p = subprocess.run([APP, "--frames=60", "--send-folder=" + os.path.join(WORK, folder),
                             "--send-to=" + target, "--check-mesh"] + args,
                            env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, timeout=WAIT)
     with open(log_path, errors="replace") as f:
@@ -153,6 +156,9 @@ def main():
     check("first: paired with the same code on both", codes_s and codes_s == codes_r, f"{codes_s} {codes_r}")
     went, total = chunks(r_log)
     check("first: every chunk went over", went is not None and went == total, f"{went} of {total}")
+    wire = int(stat(s_log, "send_wire_bytes") or 0)
+    size = os.path.getsize(scene) if os.path.exists(scene) else 0
+    check("first: the chunks went over packed, well under the file", 0 < wire < size * 0.7, f"{wire} of {size} bytes")
 
     s_log, r_log = round_trip(env, "again", ["--open=" + scene])
     check("again: no pairing", "Pairing with" not in s_log and "Paired with" not in r_log)
@@ -216,6 +222,34 @@ def main():
                                   receiver_args=["--script=duplicate_object", "--send-arrived=open"])
         kept = os.listdir(os.path.join(WORK, "pc", "kept")) if os.path.isdir(os.path.join(WORK, "pc", "kept")) else []
         check("open: the changed copy is kept first", "the scene open before is kept as" in r_log and len(kept) == 1, str(kept))
+
+    # Back: the "tablet" receives too (on a port of its own) while it sends; the computer
+    # remembers where it came from as Send scene's target, and a send there opens in place,
+    # the scene being unchanged on the tablet since it went out.
+    back_port = PORT + 1
+    settings = os.path.join(WORK, "pc_settings.txt")
+    r = receiver(env, "back", ["--settings-file=" + settings])
+    tab_log_path = os.path.join(WORK, "sendback.log")
+    tab_log = open(tab_log_path, "w")
+    tab = subprocess.Popen([APP, "--open=" + scene, "--frames=6000", "--send-folder=" + os.path.join(WORK, "tab"),
+                            f"--send-to=127.0.0.1:{PORT}", "--receive", f"--send-port={back_port}",
+                            "--exit-after-receive", "--check-mesh"],
+                           env=env, stdout=tab_log, stderr=subprocess.STDOUT, cwd=ROOT)
+    r_code, r_log = finish(*r)
+    check("back: the computer received", stat(r_log, "send_received") == "1", f"exit {r_code}")
+    last = ""
+    if os.path.exists(settings):
+        with open(settings, errors="replace") as f:
+            m = re.findall(r"^send_last (\S+)", f.read(), re.M)
+            last = m[-1] if m else ""
+    check("back: Send scene's target is where the tablet listens", last.startswith(f"127.0.0.1:{back_port}%7C")
+          or last.startswith(f"127.0.0.1:{back_port}|"), last)
+    # The computer's copy of the scene the tablet sent: the smallest it holds.
+    copy = min((os.path.join(received, f) for f in os.listdir(received) if f.endswith(".sculpt")), key=os.path.getsize)
+    _, pc_log = sender(env, "pcback", ["--open=" + copy], f"127.0.0.1:{back_port}", folder="pc")
+    t_code, t_log = finish(tab, tab_log, tab_log_path)
+    check("back: the tablet got it back and opened it in place", "opened it in place" in t_log and t_code == 0, f"exit {t_code}")
+    check("back: the same mesh", mesh(pc_log) == mesh(t_log) and mesh(t_log)[0] is not None, f"{mesh(pc_log)} {mesh(t_log)}")
 
     if not a.keep:
         shutil.rmtree(WORK, ignore_errors=True)

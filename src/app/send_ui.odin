@@ -270,9 +270,9 @@ send_settings_rows :: proc(app: ^App) {
 		}
 	}
 	when MOBILE {
-		ui.paragraph(ctx, "Send the scene from Menu > Export... > Send to a computer running Sculpt with Receive scenes on, on the same Wi-Fi.")
+		ui.paragraph(ctx, "Send the scene from Menu > Export... > Send to a computer running Sculpt with Receive scenes on, on the same Wi-Fi. While Sculpt is open here, a computer you paired with can send the scene back.")
 	} else {
-		ui.paragraph(ctx, "With Receive scenes on, a tablet on the same Wi-Fi finds this computer and sends it the scene, which opens here; the first time, both screens show the same six digits and you allow it here. Nothing goes to the internet.")
+		ui.paragraph(ctx, "With Receive scenes on, a tablet on the same Wi-Fi finds this computer and sends it the scene, which opens here; the first time, both screens show the same six digits and you allow it here. Menu > Send to then sends it back to the tablet while Sculpt is open there. Nothing goes to the internet.")
 	}
 }
 
@@ -286,21 +286,16 @@ export_send_options :: proc(app: ^App) {
 		ui.paragraph(ctx, "This run keeps no settings, so it cannot send." if SEND_AVAILABLE else "The web version cannot send scenes.")
 		return
 	}
-	sync.lock(&sh.lock)
-	computers := make([]send.Found, len(sh.computers), context.temp_allocator)
-	for f, i in sh.computers {
-		computers[i] = f
-		computers[i].name = strings.clone(f.name, context.temp_allocator)
-	}
-	sync.unlock(&sh.lock)
+	targets, backs := send_targets(sh)
 	typed := string(app.send.address[:])
 	if i := strings.index_byte(typed, 0); i >= 0 do typed = typed[:i]
 	ui.caption(ctx, "ON THIS NETWORK")
-	if len(computers) == 0 do ui.paragraph(ctx, "Looking for computers running Sculpt with Receive scenes on...", color = t.text_secondary)
-	for f, i in computers[:min(len(computers), 3)] {
+	if len(targets) == 0 do ui.paragraph(ctx, "Looking for computers running Sculpt with Receive scenes on...", color = t.text_secondary)
+	for f, i in targets {
 		other := f.protocol != send.PROTOCOL
-		detail := "another version" if other else ("paired" if send_paired(sh, f.device) else "")
-		row := ui.list_row(ctx, fmt.tprintf("%s##send computer %d", f.name if f.name != "" else "Sculpt", i), detail, selected = typed == "" && app.send.pick == i, glyph = ICON_MONITOR)
+		detail := "another version" if other else ("sent here" if i < backs else ("paired" if send_paired(sh, f.device) else ""))
+		glyph := ICON_TABLET if i < backs else ICON_MONITOR
+		row := ui.list_row(ctx, fmt.tprintf("%s##send computer %d", f.name if f.name != "" else "Sculpt", i), detail, selected = typed == "" && app.send.pick == i, glyph = glyph)
 		if row.clicked {
 			app.send.pick = i
 			app.send.address = {}
@@ -308,6 +303,25 @@ export_send_options :: proc(app: ^App) {
 	}
 	ui.text_field(ctx, "send address", app.send.address[:], hint = "Or type the computer's address")
 	ui.paragraph(ctx, "Sends the whole scene; the computer opens it. The first send to a computer pairs the two: both show six digits, and you allow it there.", color = t.text_tertiary)
+}
+
+// What the Export sheet's Send lists, copied under the lock with names in the temp
+// memory: the devices that sent here first (backs of them), then the computers found, at
+// most three in all, none twice.
+@(private = "file")
+send_targets :: proc(sh: ^Send_Shared) -> (list: []send.Found, backs: int) {
+	sync.lock(&sh.lock)
+	defer sync.unlock(&sh.lock)
+	out := make([dynamic]send.Found, 0, 3, context.temp_allocator)
+	for f in sh.backs do if len(out) < 3 do append(&out, f)
+	backs = len(out)
+	outer: for f in sh.computers {
+		if len(out) >= 3 do break
+		for g in out do if g.device == f.device do continue outer
+		append(&out, f)
+	}
+	for &f in out do f.name = strings.clone(f.name, context.temp_allocator)
+	return out[:], backs
 }
 
 // Whether device is paired with this one.
@@ -328,10 +342,9 @@ export_send_target :: proc(app: ^App) -> string {
 	if typed != "" do return typed
 	sh := app.send.shared
 	if sh == nil do return ""
-	sync.lock(&sh.lock)
-	defer sync.unlock(&sh.lock)
-	if app.send.pick < 0 || app.send.pick >= len(sh.computers) do return ""
-	f := sh.computers[app.send.pick]
+	targets, _ := send_targets(sh)
+	if app.send.pick < 0 || app.send.pick >= len(targets) do return ""
+	f := targets[app.send.pick]
 	if f.protocol != send.PROTOCOL do return ""
 	a := f.addresses[0]
 	return fmt.tprintf("%d.%d.%d.%d:%d|%s", a[0], a[1], a[2], a[3], f.port, f.name)
