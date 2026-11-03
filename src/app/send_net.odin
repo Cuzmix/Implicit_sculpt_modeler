@@ -386,7 +386,12 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 	sync.lock(&sh.lock)
 	sh.done, sh.total = 0, max(total, 1)
 	sync.unlock(&sh.lock)
-	for i in need {
+	for i, k in need {
+		if sh.cut_after > 0 && k == sh.cut_after {
+			// As if the network went: the connection closes with no word to the receiver.
+			send_event(sh, .Warning, "", 0, "The connection to %s dropped after %d of %d chunks: Send again to carry on", theirs.name, k, len(need))
+			return
+		}
 		if conn_stopped(&c) {
 			conn_refuse(&c, .Cancelled)
 			send_fail(sh, theirs.name, .Cancelled)
@@ -396,7 +401,8 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		clear(&body)
 		send.chunk_put(&body, i, job.data[ch.offset:][:ch.size])
 		if !conn_send(&c, .Chunk, body[:]) {
-			send_fail(sh, theirs.name, .Damaged)
+			// The receiver keeps what came, so the next send asks only for the rest.
+			send_event(sh, .Warning, "", 0, "The connection to %s dropped after %d of %d chunks: Send again to carry on", theirs.name, k, len(need))
 			return
 		}
 		sync.lock(&sh.lock)
@@ -540,45 +546,116 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 @(private = "file")
 receive_sent_chunks: int
 
-// Builds the offered file from the last copy of the same scene from that device (the
-// base) and the chunks asked for, into path.partial, then puts it in place.
+// Beside each received copy: path.list, the copy's chunk list, so the next send of the
+// scene finds what it holds without reading the whole file to cut it; and, after a
+// receive cut short, path.partial with path.partial.list, the chunks it wrote, which the
+// next receive reads back instead of asking again. Both lists are only hints: every chunk
+// read back is checked against its hash, and a list that does not read is not used.
+@(private = "file")
+SEND_LIST :: ".list"
+@(private = "file")
+SEND_PARTIAL :: ".partial"
+@(private = "file")
+SEND_RESUME :: ".resume"
+
+// A file the receiver already holds, opened with the chunks it lists.
+@(private = "file")
+Held :: struct {
+	file:   ^os.File,
+	chunks: []send.Chunk,
+}
+
+@(private = "file")
+held_read :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
+	h := cast(^Held)user
+	n, e := os.read_at(h.file, data, i64(offset))
+	return e == nil && n == len(data)
+}
+
+// Opens file with its chunks, from list when that reads, else (cut is set) by cutting
+// the file itself, which a copy with no list needs.
+@(private = "file")
+held_open :: proc(file, list: string, cut: bool) -> (h: Held, ok: bool) {
+	if data, err := os.read_entire_file(list, context.allocator); err == nil {
+		h.chunks, ok = send.resume_get(data)
+		delete(data)
+	}
+	if !ok && cut {
+		data, err := os.read_entire_file(file, context.allocator)
+		if err != nil do return {}, false
+		h.chunks = send.chunks_of(data)
+		delete(data)
+		ok = true
+	}
+	if !ok do return {}, false
+	f, err := os.open(file)
+	if err != nil {
+		delete(h.chunks)
+		return {}, false
+	}
+	h.file = f
+	return h, true
+}
+
+@(private = "file")
+held_close :: proc(h: ^Held) {
+	if h.file != nil do os.close(h.file)
+	delete(h.chunks)
+	h^ = {}
+}
+
+// Builds the offered file from the last copy of the same scene from that device and what
+// a receive cut short wrote (the bases) and the chunks asked for, into path.partial, then
+// puts it in place. Cut short again, it keeps the partial file and its list for the next.
 @(private = "file")
 receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string, err: string) {
-	base_chunks: []send.Chunk
-	defer delete(base_chunks)
-	base: ^os.File
-	if data, rerr := os.read_entire_file(path, context.allocator); rerr == nil {
-		base_chunks = send.chunks_of(data)
-		delete(data)
-		base, _ = os.open(path)
+	list := strings.concatenate({path, SEND_LIST}, context.temp_allocator)
+	partial := strings.concatenate({path, SEND_PARTIAL}, context.temp_allocator)
+	partial_list := strings.concatenate({partial, SEND_LIST}, context.temp_allocator)
+	resume := strings.concatenate({path, SEND_RESUME}, context.temp_allocator)
+	resume_list := strings.concatenate({resume, SEND_LIST}, context.temp_allocator)
+	// What the last receive cut short left becomes a base under another name, since the
+	// new partial file is written where it was.
+	_ = os.remove(resume)
+	_ = os.remove(resume_list)
+	if os.exists(partial_list) && os.rename(partial, resume) == nil do _ = os.rename(partial_list, resume_list)
+	_ = os.remove(partial_list)
+	defer {
+		_ = os.remove(resume)
+		_ = os.remove(resume_list)
 	}
-	defer if base != nil do os.close(base)
-	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
+	copy_held, has_copy := held_open(path, list, true)
+	defer if has_copy do held_close(&copy_held)
+	resumed, has_resume := held_open(resume, resume_list, false)
+	defer if has_resume do held_close(&resumed)
+	bases := make([dynamic]send.Base, context.temp_allocator)
+	if has_copy do append(&bases, send.Base{copy_held.chunks, held_read, &copy_held})
+	if has_resume do append(&bases, send.Base{resumed.chunks, held_read, &resumed})
+
 	f, oerr := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
 	if oerr != nil do return "", fmt.tprintf("cannot write %s: %v", filepath.base(partial), oerr)
+	r: send.Rebuild
 	kept := false
-	defer if !kept {
-		os.close(f)
-		_ = os.remove(partial)
-	}
-	Files :: struct {
-		base, new: ^os.File,
-	}
-	files := Files{base, f}
-	read :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
-		fs := cast(^Files)user
-		if fs.base == nil do return false
-		n, e := os.read_at(fs.base, data, i64(offset))
-		return e == nil && n == len(data)
+	defer {
+		if !kept {
+			// Cut short: what was written stays for the next send to carry on from, when
+			// any was; a file the disk could not hold goes.
+			saved := false
+			if r.have != nil && !send.rebuild_done(&r) && os.sync(f) == nil {
+				out := make([dynamic]u8, context.temp_allocator)
+				send.resume_put(&out, &r)
+				saved = os.write_entire_file(partial_list, out[:]) == nil
+			}
+			os.close(f)
+			if !saved do _ = os.remove(partial)
+		}
+		send.rebuild_destroy(&r)
 	}
 	write :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
-		fs := cast(^Files)user
-		n, e := os.write_at(fs.new, data, i64(offset))
+		n, e := os.write_at(cast(^os.File)user, data, i64(offset))
 		return e == nil && n == len(data)
 	}
-	r: send.Rebuild
-	if !send.rebuild_init(&r, offer, base_chunks, read, write, &files) do return "", "cannot write the file"
-	defer send.rebuild_destroy(&r)
+	if !send.rebuild_init(&r, offer, bases[:], write, f) do return "", "cannot write the file"
 	need := send.rebuild_need(&r)
 	defer delete(need)
 	receive_sent_chunks = len(need)
@@ -601,12 +678,16 @@ receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string
 		}
 	}
 	if os.truncate(f, i64(offer.size)) != nil || os.sync(f) != nil do return "", "cannot write the file"
-	if base != nil {
-		os.close(base)
-		base = nil
-	}
+	// The bases are read no more, and the copy is about to be replaced.
+	if has_copy do held_close(&copy_held)
+	has_copy = false
 	os.close(f)
 	kept = true
+	_ = os.remove(list)
 	if e := replace_partial(partial, path); e != "" do return "", e
+	// The new copy's chunk list, for the next send; without it that send cuts the file.
+	listed := make([dynamic]u8, context.temp_allocator)
+	send.resume_put(&listed, &r)
+	if e := os.write_entire_file(list, listed[:]); e != nil do log.warnf("send: cannot write %s: %v", filepath.base(list), e)
 	return strings.clone(path, context.temp_allocator), ""
 }

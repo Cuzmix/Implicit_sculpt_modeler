@@ -240,28 +240,45 @@ chunk_get :: proc(body: []u8) -> (index: u32, data: []u8, ok: bool) {
 Write_Proc :: #type proc(user: rawptr, offset: u64, data: []u8) -> bool
 Read_Proc :: #type proc(user: rawptr, offset: u64, data: []u8) -> bool
 
+// A file the receiver already holds and the chunks it is known to hold there: the last
+// copy of the scene, or what a send cut short had written. Each is read back through its
+// own read.
+Base :: struct {
+	chunks: []Chunk,
+	read:   Read_Proc,
+	user:   rawptr,
+}
+
+// No further chunk with the same hash.
+@(private = "file")
+NONE :: max(u32)
+
 Rebuild :: struct {
 	offer:     Offer,
 	write:     Write_Proc,
 	user:      rawptr,
-	// For each chunk of the offer, whether it is written; and the first index of each
-	// distinct hash, so a chunk the file holds twice is sent once.
+	// For each chunk of the offer, whether it is written; the first index of its hash, so
+	// a chunk the file holds twice is sent once; and the next index with the same hash, so
+	// writing one walks only its twins.
 	have:      []bool,
 	first:     []u32,
+	next:      []u32,
 	left:      int,
 	allocator: runtime.Allocator,
 }
 
-// Begins rebuilding offer, writing what the base already holds. A base chunk that no
-// longer matches its hash (the file changed on disk) is left to be sent.
-rebuild_init :: proc(r: ^Rebuild, offer: Offer, base: []Chunk, read: Read_Proc, write: Write_Proc, user: rawptr, allocator := context.allocator) -> bool {
+// Begins rebuilding offer, writing what the bases already hold, the first base first. A
+// base chunk that no longer matches its hash (the file changed on disk) is left to the
+// next base, or to be sent.
+rebuild_init :: proc(r: ^Rebuild, offer: Offer, bases: []Base, write: Write_Proc, user: rawptr, allocator := context.allocator) -> bool {
 	r^ = {offer = offer, write = write, user = user, allocator = allocator}
 	n := len(offer.chunks)
 	r.have = make([]bool, n, allocator)
 	r.first = make([]u32, n, allocator)
+	r.next = make([]u32, n, allocator)
 	r.left = n
 	// Sorted by hash, then offer index: each chunk finds its twin's first index, and the
-	// base's chunks are found, by binary search, with no map order in the result.
+	// bases' chunks are found, by binary search, with no map order in the result.
 	Keyed :: struct {
 		hash:  Hash,
 		index: u32,
@@ -275,23 +292,28 @@ rebuild_init :: proc(r: ^Rebuild, offer: Offer, base: []Chunk, read: Read_Proc, 
 	for k := 0; k < n; {
 		j := k
 		for j < n && by_hash[j].hash == by_hash[k].hash do j += 1
-		for m in k ..< j do r.first[by_hash[m].index] = by_hash[k].index
+		for m in k ..< j {
+			r.first[by_hash[m].index] = by_hash[k].index
+			r.next[by_hash[m].index] = by_hash[m + 1].index if m + 1 < j else NONE
+		}
 		k = j
 	}
-	sorted_base := slice.clone(base, context.temp_allocator)
-	slice.sort_by(sorted_base, proc(a, b: Chunk) -> bool {return hash_less(a.hash, b.hash)})
 	buf: [dynamic]u8
 	buf.allocator = context.temp_allocator
-	for c, i in offer.chunks {
-		if r.first[i] != u32(i) do continue
-		at, found := slice.binary_search_by(sorted_base, c.hash, proc(e: Chunk, h: Hash) -> slice.Ordering {
-			if e.hash == h do return .Equal
-			return .Less if hash_less(e.hash, h) else .Greater
-		})
-		if !found || sorted_base[at].size != c.size do continue
-		resize(&buf, int(c.size))
-		if !read(user, sorted_base[at].offset, buf[:]) || hash_bytes(buf[:]) != c.hash do continue
-		if !rebuild_write(r, u32(i), buf[:]) do return false
+	for b in bases {
+		sorted := slice.clone(b.chunks, context.temp_allocator)
+		slice.sort_by(sorted, proc(a, b: Chunk) -> bool {return hash_less(a.hash, b.hash)})
+		for c, i in offer.chunks {
+			if r.first[i] != u32(i) || r.have[i] do continue
+			at, found := slice.binary_search_by(sorted, c.hash, proc(e: Chunk, h: Hash) -> slice.Ordering {
+				if e.hash == h do return .Equal
+				return .Less if hash_less(e.hash, h) else .Greater
+			})
+			if !found || sorted[at].size != c.size do continue
+			resize(&buf, int(c.size))
+			if !b.read(b.user, sorted[at].offset, buf[:]) || hash_bytes(buf[:]) != c.hash do continue
+			if !rebuild_write(r, u32(i), buf[:]) do return false
+		}
 	}
 	return true
 }
@@ -299,6 +321,7 @@ rebuild_init :: proc(r: ^Rebuild, offer: Offer, base: []Chunk, read: Read_Proc, 
 rebuild_destroy :: proc(r: ^Rebuild) {
 	delete(r.have, r.allocator)
 	delete(r.first, r.allocator)
+	delete(r.next, r.allocator)
 	r^ = {}
 }
 
@@ -308,16 +331,44 @@ hash_less :: proc(a, b: Hash) -> bool {
 	return false
 }
 
-// Writes data, already checked, at chunk i and at every chunk with the same hash.
+// Writes data, already checked, at chunk i (the first of its hash) and at every later
+// chunk with the same hash.
 @(private = "file")
 rebuild_write :: proc(r: ^Rebuild, i: u32, data: []u8) -> bool {
-	for c, k in r.offer.chunks {
-		if r.first[k] != i || r.have[k] do continue
-		if !r.write(r.user, c.offset, data) do return false
+	for k := i; k != NONE; k = r.next[k] {
+		if r.have[k] do continue
+		if !r.write(r.user, r.offer.chunks[k].offset, data) do return false
 		r.have[k] = true
 		r.left -= 1
 	}
 	return true
+}
+
+// What a send cut short leaves for the next one to start from: the offer it was
+// rebuilding and the indices of the chunks it wrote into the partial file, so the next
+// receive reads them back (a Base over the partial file) instead of asking again.
+resume_put :: proc(out: ^[dynamic]u8, r: ^Rebuild) {
+	offer := make([dynamic]u8, context.temp_allocator)
+	offer_put(&offer, r.offer)
+	put_u32(out, u32(len(offer)))
+	append(out, ..offer[:])
+	written := make([dynamic]u32, 0, len(r.have) - r.left, context.temp_allocator)
+	for k in 0 ..< len(r.have) do if r.have[k] do append(&written, u32(k))
+	need_put(out, written[:])
+}
+
+// The chunks a partial file holds, read back from what resume_put wrote and checked as an
+// offer and a need list are; each is still checked against its hash when read.
+@(require_results)
+resume_get :: proc(body: []u8, allocator := context.allocator) -> (chunks: []Chunk, ok: bool) {
+	r := reader(body)
+	n := int(get_u32(&r))
+	if !r.ok || n > len(body) - r.at do return nil, false
+	offer := offer_get(body[r.at:][:n], context.temp_allocator) or_return
+	indices := need_get(body[r.at + n:], offer, context.temp_allocator) or_return
+	chunks = make([]Chunk, len(indices), allocator)
+	for i, k in indices do chunks[k] = offer.chunks[i]
+	return chunks, true
 }
 
 // The chunks still to be sent, in rising order: one per distinct hash.

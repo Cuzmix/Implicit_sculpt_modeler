@@ -275,7 +275,7 @@ send_through :: proc(t: ^testing.T, data, base: []u8, loc := #caller_location) -
 	disk := Disk{base = base, new = make([]u8, len(data))}
 	defer delete(disk.new)
 	r: Rebuild
-	testing.expect(t, rebuild_init(&r, offer, base_chunks, disk_read, disk_write, &disk), loc = loc)
+	testing.expect(t, rebuild_init(&r, offer, {{base_chunks, disk_read, &disk}}, disk_write, &disk), loc = loc)
 	defer rebuild_destroy(&r)
 	need := rebuild_need(&r)
 	defer delete(need)
@@ -344,7 +344,7 @@ a_damaged_chunk_is_refused_and_the_file_is_not_done :: proc(t: ^testing.T) {
 	disk := Disk{new = make([]u8, len(data))}
 	defer delete(disk.new)
 	r: Rebuild
-	testing.expect(t, rebuild_init(&r, offer, nil, disk_read, disk_write, &disk))
+	testing.expect(t, rebuild_init(&r, offer, nil, disk_write, &disk))
 	defer rebuild_destroy(&r)
 	c := chunks[0]
 	bad := make([]u8, c.size)
@@ -371,10 +371,87 @@ a_base_changed_on_disk_is_not_trusted :: proc(t: ^testing.T) {
 	disk := Disk{base = base, new = make([]u8, len(data))}
 	defer delete(disk.new)
 	r: Rebuild
-	testing.expect(t, rebuild_init(&r, offer_make(1, 1, len(data), chunks), chunks, disk_read, disk_write, &disk))
+	testing.expect(t, rebuild_init(&r, offer_make(1, 1, len(data), chunks), {{chunks, disk_read, &disk}}, disk_write, &disk))
 	defer rebuild_destroy(&r)
 	need := rebuild_need(&r)
 	defer delete(need)
 	testing.expect_value(t, len(need), 1)
 	if len(need) == 1 do testing.expect_value(t, need[0], 0)
+}
+
+// The partial file of a send cut short, read back as a base.
+@(private = "file")
+partial_read :: proc(user: rawptr, offset: u64, data: []u8) -> bool {
+	d := cast(^Disk)user
+	if offset + u64(len(data)) > u64(len(d.new)) do return false
+	copy(data, d.new[offset:])
+	return true
+}
+
+@(test)
+a_send_cut_short_carries_on_from_what_it_wrote :: proc(t: ^testing.T) {
+	data := noise(6 << 20, 11)
+	defer delete(data)
+	chunks := chunks_of(data)
+	defer delete(chunks)
+	offer := offer_make(1, 3, len(data), chunks)
+	first := Disk{new = make([]u8, len(data))}
+	defer delete(first.new)
+	r: Rebuild
+	testing.expect(t, rebuild_init(&r, offer, nil, disk_write, &first))
+	// Half the chunks arrive, then the connection drops.
+	half := len(chunks) / 2
+	for c, i in chunks[:half] do testing.expect_value(t, rebuild_take(&r, u32(i), data[c.offset:][:c.size]), Take.Ok)
+	saved := make([dynamic]u8)
+	defer delete(saved)
+	resume_put(&saved, &r)
+	rebuild_destroy(&r)
+	written, ok := resume_get(saved[:])
+	testing.expect(t, ok)
+	defer delete(written)
+	testing.expect_value(t, len(written), half)
+	// The next send of the same file asks only for the rest, reading the first half back
+	// from the partial file.
+	second := Disk{new = make([]u8, len(data))}
+	defer delete(second.new)
+	again: Rebuild
+	testing.expect(t, rebuild_init(&again, offer, {{written, partial_read, &first}}, disk_write, &second))
+	defer rebuild_destroy(&again)
+	need := rebuild_need(&again)
+	defer delete(need)
+	testing.expect_value(t, len(need), len(chunks) - half)
+	for i in need {
+		c := chunks[i]
+		testing.expect_value(t, rebuild_take(&again, i, data[c.offset:][:c.size]), Take.Ok)
+	}
+	testing.expect(t, rebuild_done(&again))
+	testing.expect(t, string(second.new) == string(data))
+	// A damaged record is refused, whatever its length.
+	for n in 0 ..< len(saved) {
+		cut, cut_ok := resume_get(saved[:n])
+		testing.expect(t, !cut_ok)
+		delete(cut)
+	}
+	// A byte of the first chunk's hash: past the length, token, revision, size, file hash,
+	// count and that chunk's size.
+	saved[4 + 8 + 8 + 8 + HASH_SIZE + 4 + 4 + 1] ~= 1
+	bad, bad_ok := resume_get(saved[:])
+	testing.expect(t, !bad_ok)
+	delete(bad)
+}
+
+@(test)
+many_twins_are_written_once_each :: proc(t: ^testing.T) {
+	// A file of one block over and over, as an empty mask or colour layer makes: every
+	// chunk is a twin of the first, sent once and written at each place.
+	block := noise(CHUNK_MIN, 12)
+	defer delete(block)
+	// The same bytes again and again cut at the same place each time.
+	data := make([dynamic]u8)
+	defer delete(data)
+	for _ in 0 ..< 200 do append(&data, ..block)
+	chunks := chunks_of(data[:])
+	defer delete(chunks)
+	sent := send_through(t, data[:], nil)
+	testing.expectf(t, sent <= 3, "%d of %d chunks sent", sent, len(chunks))
 }
