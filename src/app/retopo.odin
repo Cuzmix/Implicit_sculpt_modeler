@@ -60,13 +60,40 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees}
+}
+
+// The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
+RETOPO_EDGE_DEGREES_MIN :: f32(15)
+
+// What the selected object carries for Keep groups and Keep creases: its polygroups per
+// triangle of the shown level, and the base level's creases when the base level is the
+// one shown (the creases are the base level's, and a level above has other vertices).
+// Both are copies the caller frees (quad_source_destroy): the job's thread reads them
+// while the object goes on being edited.
+quad_source :: proc(obj: ^Object) -> (src: retopo.Source) {
+	if obj == nil || obj.voxel != nil do return
+	s := object_sculptor(obj)
+	if sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
+	if !object_dynamic(obj) && obj.levels.current == 0 {
+		sharp := obj.levels.levels[0].sharp
+		if len(sharp.edges) > 0 do src.creases = slice.clone(sharp.edges)
+	}
+	return
+}
+
+quad_source_destroy :: proc(src: ^retopo.Source) {
+	delete(src.groups)
+	delete(src.creases)
+	src^ = {}
 }
 
 // The panel set to a command's options (Adjust last); Keep symmetry turns on when the
 // command kept some, and is left as it is when there was none to keep.
 quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_close_first = o.engine, o.adaptivity, o.close_first
+	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases = o.keep_groups, o.keep_creases
+	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
 	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
@@ -78,7 +105,9 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int, options: retopo.Optio
 	object_hd_leave(app, obj)
 	start := time.tick_now()
 	view, packed := object_shape(obj, top = false)
-	r := retopo.compute(view, quads, options, &app.pool)
+	source := quad_source(obj)
+	defer quad_source_destroy(&source)
+	r := retopo.compute(view, quads, options, &app.pool, source = source)
 	delete(view.normals)
 	geom.mesh_destroy(&packed)
 	if !r.built {
@@ -134,6 +163,8 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
+	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
+	if res.unkept != "" do engine = fmt.tprintf("%s, %s", engine, res.unkept)
 	flags: Report_Flags
 	if res.reason != "" || res.quads != res.faces do flags += {.Warning}
 	faces := fmt.tprintf("%s quads", thousands(res.quads))

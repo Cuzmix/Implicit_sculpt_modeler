@@ -16,6 +16,10 @@ typedef struct Qm_Params {
     float anisotropy;      /* 0 for AutoRemesher's own */
     float scaling;         /* 0 for the quad edge above; else the quad edge as a multiple of the isotropic mesh's mean edge */
     uint32_t threads;      /* threads parallel_for may use, 1 to 16 */
+    /* Feature edges: `feature_count` pairs of vertex indices (a polygroup border, a
+     * crease) kept as quad edges whatever their angle; NULL for none. */
+    const uint32_t* features;
+    uint32_t feature_count;
 } Qm_Params;
 
 /* Called as the remesh advances, from the calling thread or a worker; returns whether to

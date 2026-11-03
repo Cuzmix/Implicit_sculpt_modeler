@@ -1,0 +1,408 @@
+diff --git a/src/AutoRemesher/framefield.cpp b/src/AutoRemesher/framefield.cpp
+index 54c52e3..4cd3713 100644
+--- a/src/AutoRemesher/framefield.cpp
++++ b/src/AutoRemesher/framefield.cpp
+@@ -84,11 +84,30 @@ namespace {
+ }
+ 
+ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+-    std::vector<Vector3>* field)
++    std::vector<Vector3>* field, const std::vector<char>* cornerFeature)
+ {
++    const bool hasCornerFeature = nullptr != cornerFeature && cornerFeature->size() == mesh.cornerCount();
+     if (nullptr == field || mesh.faceCount() == 0)
+         return false;
+     const size_t faces = mesh.faceCount();
++    // A face with two flagged edges that are neither along nor across each other (within
++    // 15 degrees) cannot lock its frame to both; it is left to the field, which bends
++    // round such a corner, and the cover keeps whichever edge the field then follows.
++    std::vector<char> faceLocksToFeatures(faces, 1);
++    if (hasCornerFeature) {
++        const double alongAtLeast = std::cos(15.0 * M_PI / 180.0), acrossAtMost = std::sin(15.0 * M_PI / 180.0);
++        for (size_t faceIndex = 0; faceIndex < faces; ++faceIndex) {
++            for (size_t a = 3 * faceIndex; a < 3 * faceIndex + 3; ++a) {
++                if (!(*cornerFeature)[a]) continue;
++                for (size_t b = a + 1; b < 3 * faceIndex + 3; ++b) {
++                    if (!(*cornerFeature)[b]) continue;
++                    const Vector3 ea = mesh.edgeVector(a).normalized(), eb = mesh.edgeVector(b).normalized();
++                    const double along = std::fabs(Vector3::dotProduct(ea, eb));
++                    if (along < alongAtLeast && along > acrossAtMost) faceLocksToFeatures[faceIndex] = 0;
++                }
++            }
++        }
++    }
+     std::vector<FacetTangentBasis> facetBases(faces);
+     tbb::parallel_for(tbb::blocked_range<size_t>(0, faces), [&](const tbb::blocked_range<size_t>& range) {
+         for (size_t faceIndex = range.begin(); faceIndex != range.end(); ++faceIndex)
+@@ -101,7 +120,8 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+     for (size_t faceIndex = 0; faceIndex < faces; ++faceIndex)
+         for (size_t cornerIndex = 3 * faceIndex; cornerIndex < 3 * faceIndex + 3; ++cornerIndex) {
+             const size_t oppositeCornerIndex = mesh.oppositeCorner(cornerIndex);
+-            if (oppositeCornerIndex != SurfaceMesh::npos && std::fabs(mesh.normalAngle(cornerIndex)) <= sharpRadians)
++            const bool flagged = hasCornerFeature && (*cornerFeature)[cornerIndex] && faceLocksToFeatures[faceIndex];
++            if (!flagged && oppositeCornerIndex != SurfaceMesh::npos && std::fabs(mesh.normalAngle(cornerIndex)) <= sharpRadians)
+                 continue;
+             const double fieldAngle = kSymmetry * tangentAngle(mesh.edgeVector(cornerIndex), facetBases[faceIndex]);
+             periodic[2 * faceIndex] = std::cos(fieldAngle);
+diff --git a/src/AutoRemesher/framefield.h b/src/AutoRemesher/framefield.h
+index 3e586d0..8177d05 100644
+--- a/src/AutoRemesher/framefield.h
++++ b/src/AutoRemesher/framefield.h
+@@ -32,8 +32,10 @@ class SurfaceMesh;
+ 
+ class FrameField {
+ public:
++    // A corner flagged in `cornerFeature` (per corner of `mesh`, 3 a face) locks its face's
++    // frame to that edge as a sharp edge does, whatever the angle.
+     static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+-        std::vector<Vector3>* field);
++        std::vector<Vector3>* field, const std::vector<char>* cornerFeature = nullptr);
+ };
+ }
+ #endif
+diff --git a/src/AutoRemesher/parameterizer.cpp b/src/AutoRemesher/parameterizer.cpp
+index 03cc94a..1311bd7 100644
+--- a/src/AutoRemesher/parameterizer.cpp
++++ b/src/AutoRemesher/parameterizer.cpp
+@@ -352,6 +352,9 @@ bool Parameterizer::parameterize()
+ 
+     std::vector<double> faceScalingField = computeFaceScalingField(*m_vertices,
+         *m_triangles, vertexNormals, faceAroundVertexMap);
++    if (nullptr != m_faceScaling && m_faceScaling->size() == faceScalingField.size())
++        for (size_t i = 0; i < faceScalingField.size(); ++i)
++            faceScalingField[i] *= std::max(1e-6, (*m_faceScaling)[i]);
+ 
+     report(0.02f, "Building surface topology");
+     // The parameterization pipeline uses the triangle/corner mesh;
+@@ -368,7 +371,7 @@ bool Parameterizer::parameterize()
+     if (nullptr != m_triangleFieldVectors) {
+         field = *m_triangleFieldVectors;
+     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
+-                   &field)) {
++                   &field, m_cornerFeature)) {
+         std::cerr << "Frame field solve failed" << std::endl;
+         return false;
+     }
+@@ -382,6 +385,7 @@ bool Parameterizer::parameterize()
+         report(0.17f, "Simplifying singularities");
+         simplifier.setSharpEdgeDegrees(m_sharpEdgeDegrees);
+         simplifier.setMaximumPairDistance(m_maximumSingularityPairDistance);
++        simplifier.setCornerFeatures(m_cornerFeature);
+         simplifier.simplify();
+     }
+ 
+@@ -407,7 +411,7 @@ bool Parameterizer::parameterize()
+     if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
+             &field, m_scaling, m_sharpEdgeDegrees, &cover,
+             &faceScalingField, &faceScalingU, &faceScalingV,
+-            coverProgress ? &coverProgress : nullptr)) {
++            coverProgress ? &coverProgress : nullptr, m_cornerFeature)) {
+         std::cerr << "Quad cover solve failed" << std::endl;
+         return false;
+     }
+diff --git a/src/AutoRemesher/parameterizer.h b/src/AutoRemesher/parameterizer.h
+index 9a6b98b..63dede4 100644
+--- a/src/AutoRemesher/parameterizer.h
++++ b/src/AutoRemesher/parameterizer.h
+@@ -90,6 +90,21 @@ public:
+         m_maximumSingularityPairDistance = faceHops;
+     }
+ 
++    // Corners (3 a triangle) whose edge is a feature whatever its angle (a polygroup
++    // border, a crease): the frame field locks to it, singularities never cross it and
++    // the quad cover makes it an integer isoline, so the quads' edges run along it.
++    void setCornerFeatures(const std::vector<char>* cornerFeature)
++    {
++        m_cornerFeature = cornerFeature;
++    }
++
++    // Per triangle: a multiplier on the quad size there (1 as usual, under 1 smaller
++    // quads), on top of what the gradient adaptivity gives.
++    void setFaceScaling(const std::vector<double>* faceScaling)
++    {
++        m_faceScaling = faceScaling;
++    }
++
+     void setProgressHandler(ProgressHandler progressHandler)
+     {
+         m_progressHandler = std::move(progressHandler);
+@@ -112,6 +127,8 @@ private:
+     double m_maxAspectRatio = 2.3;
+     bool m_singularitySimplification = true;
+     size_t m_maximumSingularityPairDistance = 6;
++    const std::vector<char>* m_cornerFeature = nullptr;
++    const std::vector<double>* m_faceScaling = nullptr;
+     ProgressHandler m_progressHandler;
+ 
+     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
+diff --git a/src/AutoRemesher/quadextractor.cpp b/src/AutoRemesher/quadextractor.cpp
+index fe16c7e..2902fa1 100644
+--- a/src/AutoRemesher/quadextractor.cpp
++++ b/src/AutoRemesher/quadextractor.cpp
+@@ -22,6 +22,7 @@
+ #include <AutoRemesher/PositionKey>
+ #include <AutoRemesher/QuadExtractor>
+ #include <algorithm>
++#include <cmath>
+ #include <axisalignedboundingbox.h>
+ #include <axisalignedboundingboxtree.h>
+ #include <iostream>
+@@ -1324,15 +1325,20 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
+             return;
+         }
+ 
++        // The hole is emptied once its last face is in: fixHoles runs a second pass over
++        // the same loop when the first leaves four or more, and a loop left at four would
++        // add that last quad twice.
+         if (3 == hole.size()) {
+             m_remeshedPolygons.push_back({ (size_t)hole[2], (size_t)hole[1], (size_t)hole[0] });
+             recordHalfEdgesOfLastPolygon();
++            hole.clear();
+             return;
+         }
+ 
+         if (4 == hole.size()) {
+             m_remeshedPolygons.push_back({ (size_t)hole[3], (size_t)hole[2], (size_t)hole[1], (size_t)hole[0] });
+             recordHalfEdgesOfLastPolygon();
++            hole.clear();
+             return;
+         }
+ 
+@@ -1607,6 +1613,65 @@ void QuadExtractor::smoothAndProject(size_t iterations,
+     if (averageEdgeLength <= 0.0)
+         return;
+ 
++    // Which vertices lie on a feature segment (within a thousandth of an edge: they were
++    // put there by the cover, or by this projection on an earlier pass), found through a
++    // grid of the segments, two edges a cell, so the search is local.
++    std::vector<char> onFeature(m_remeshedVertices.size(), 0);
++    std::unordered_map<uint64_t, std::vector<size_t>> segmentCells;
++    const double cellSize = 2.0 * averageEdgeLength;
++    const auto cellKey = [](long long x, long long y, long long z) {
++        return (uint64_t)(x & 0x1fffff) << 42 | (uint64_t)(y & 0x1fffff) << 21 | (uint64_t)(z & 0x1fffff);
++    };
++    const auto nearestOnFeature = [&](const Vector3& position, Vector3* nearest) {
++        double best = std::numeric_limits<double>::max();
++        const long long cx = (long long)std::floor(position.x() / cellSize), cy = (long long)std::floor(position.y() / cellSize), cz = (long long)std::floor(position.z() / cellSize);
++        for (long long x = cx - 1; x <= cx + 1; ++x)
++            for (long long y = cy - 1; y <= cy + 1; ++y)
++                for (long long z = cz - 1; z <= cz + 1; ++z) {
++                    const auto cell = segmentCells.find(cellKey(x, y, z));
++                    if (cell == segmentCells.end())
++                        continue;
++                    for (size_t s : cell->second) {
++                        const auto& segment = (*m_featureSegments)[s];
++                        const Vector3 direction = segment.second - segment.first;
++                        const double lengthSquared = direction.lengthSquared();
++                        double t = lengthSquared > 0.0 ? Vector3::dotProduct(position - segment.first, direction) / lengthSquared : 0.0;
++                        t = std::max(0.0, std::min(1.0, t));
++                        const Vector3 candidate = segment.first + direction * t;
++                        const double distance = (candidate - position).lengthSquared();
++                        if (distance < best) {
++                            best = distance;
++                            *nearest = candidate;
++                        }
++                    }
++                }
++        return best;
++    };
++    const bool hasFeatures = nullptr != m_featureSegments && !m_featureSegments->empty();
++    if (hasFeatures) {
++        for (size_t s = 0; s < m_featureSegments->size(); ++s) {
++            const auto& segment = (*m_featureSegments)[s];
++            long long lo[3], hi[3];
++            for (int k = 0; k < 3; ++k) {
++                lo[k] = (long long)std::floor(std::min(segment.first[k], segment.second[k]) / cellSize);
++                hi[k] = (long long)std::floor(std::max(segment.first[k], segment.second[k]) / cellSize);
++            }
++            for (long long x = lo[0]; x <= hi[0]; ++x)
++                for (long long y = lo[1]; y <= hi[1]; ++y)
++                    for (long long z = lo[2]; z <= hi[2]; ++z)
++                        segmentCells[cellKey(x, y, z)].push_back(s);
++        }
++        const double tolerance = 1e-3 * averageEdgeLength;
++        tbb::parallel_for(tbb::blocked_range<size_t>(0, m_remeshedVertices.size()),
++            [&](const tbb::blocked_range<size_t>& range) {
++                for (size_t i = range.begin(); i != range.end(); ++i) {
++                    Vector3 nearest;
++                    if (nearestOnFeature(m_remeshedVertices[i], &nearest) <= tolerance * tolerance)
++                        onFeature[i] = 1;
++                }
++            });
++    }
++
+     auto projectToTargetMesh = [&](const Vector3& position, Vector3* projected) {
+         for (double radius = averageEdgeLength; radius <= averageEdgeLength * 8.0; radius *= 2.0) {
+             std::vector<AxisAlignedBoudingBox> queryBoxes(1);
+@@ -1647,9 +1712,23 @@ void QuadExtractor::smoothAndProject(size_t iterations,
+                     if (locked[i] || neighbors[i].empty())
+                         continue;
+                     Vector3 center;
+-                    for (const auto& neighbor : neighbors[i])
+-                        center += m_remeshedVertices[neighbor];
+-                    center /= (double)neighbors[i].size();
++                    if (onFeature[i]) {
++                        // Along the feature: between its two neighbours on it; a
++                        // junction or a loose end stays.
++                        size_t count = 0;
++                        for (const auto& neighbor : neighbors[i])
++                            if (onFeature[neighbor]) {
++                                center += m_remeshedVertices[neighbor];
++                                ++count;
++                            }
++                        if (2 != count)
++                            continue;
++                        center /= 2.0;
++                    } else {
++                        for (const auto& neighbor : neighbors[i])
++                            center += m_remeshedVertices[neighbor];
++                        center /= (double)neighbors[i].size();
++                    }
+                     smoothedVertices[i] = m_remeshedVertices[i] + smoothFactor * (center - m_remeshedVertices[i]);
+                 }
+             });
+@@ -1659,8 +1738,12 @@ void QuadExtractor::smoothAndProject(size_t iterations,
+                     if (locked[i] || neighbors[i].empty())
+                         continue;
+                     Vector3 projected;
+-                    if (projectToTargetMesh(smoothedVertices[i], &projected))
++                    if (onFeature[i]) {
++                        if (nearestOnFeature(smoothedVertices[i], &projected) < std::numeric_limits<double>::max())
++                            smoothedVertices[i] = projected;
++                    } else if (projectToTargetMesh(smoothedVertices[i], &projected)) {
+                         smoothedVertices[i] = projected;
++                    }
+                 }
+             });
+         m_remeshedVertices = std::move(smoothedVertices);
+diff --git a/src/AutoRemesher/quadextractor.h b/src/AutoRemesher/quadextractor.h
+index 1420098..f06602d 100644
+--- a/src/AutoRemesher/quadextractor.h
++++ b/src/AutoRemesher/quadextractor.h
+@@ -69,6 +69,14 @@ public:
+         m_singularVertices = singularVertices;
+     }
+ 
++    // Feature segments of the triangle mesh (its feature edges, as positions): a quad
++    // vertex on one of them is smoothed along the segments and put back onto them, never
++    // onto the surface beside them, so a feature loop stays where the cover put it.
++    void setFeatureSegments(const std::vector<std::pair<Vector3, Vector3>>* featureSegments)
++    {
++        m_featureSegments = featureSegments;
++    }
++
+     void setProgressHandler(ProgressHandler progressHandler)
+     {
+         m_progressHandler = std::move(progressHandler);
+@@ -101,6 +109,7 @@ private:
+     std::vector<uint8_t> m_extractedConnectionMoved;
+     const std::vector<std::vector<Vector2>>* m_originalTriangleUvs = nullptr;
+     const std::vector<size_t>* m_singularVertices = nullptr;
++    const std::vector<std::pair<Vector3, Vector3>>* m_featureSegments = nullptr;
+     ProgressHandler m_progressHandler;
+     std::map<std::pair<size_t, size_t>, ConnectionInfo> m_connectionInfos;
+     std::set<std::pair<size_t, size_t>> m_addedConnections;
+diff --git a/src/AutoRemesher/quadparameterizer.cpp b/src/AutoRemesher/quadparameterizer.cpp
+index cabf5c7..2316a05 100644
+--- a/src/AutoRemesher/quadparameterizer.cpp
++++ b/src/AutoRemesher/quadparameterizer.cpp
+@@ -78,9 +78,9 @@ namespace {
+         ConstraintU = 1,
+         ConstraintV = 2 };
+     int edgeConstraint(const SurfaceMesh& mesh, size_t c, const std::vector<Vector3>& field,
+-        const std::vector<Vector3>& normals, double hardEdgeDegrees)
++        const std::vector<Vector3>& normals, double hardEdgeDegrees, bool flagged)
+     {
+-        if (mesh.oppositeCorner(c) != SurfaceMesh::npos && std::fabs(mesh.normalAngle(c)) * 180.0 / M_PI < hardEdgeDegrees)
++        if (!flagged && mesh.oppositeCorner(c) != SurfaceMesh::npos && std::fabs(mesh.normalAngle(c)) * 180.0 / M_PI < hardEdgeDegrees)
+             return ConstraintNone;
+         const size_t f = mesh.cornerFace(c);
+         const Vector3 edge = unit(mesh.edgeVector(c), Vector3(1, 0, 0));
+@@ -232,13 +232,16 @@ namespace {
+     }
+ 
+     std::vector<signed char> computeCornerConstraints(const SurfaceMesh& mesh,
+-        const std::vector<Vector3>& field, const std::vector<Vector3>& normals, double hardEdgeDegrees)
++        const std::vector<Vector3>& field, const std::vector<Vector3>& normals, double hardEdgeDegrees,
++        const std::vector<char>* cornerFeature)
+     {
+         const size_t corners = mesh.cornerCount();
++        const bool hasCornerFeature = nullptr != cornerFeature && cornerFeature->size() == corners;
+         std::vector<signed char> cornerConstraints(corners, ConstraintNone);
+         tbb::parallel_for(tbb::blocked_range<size_t>(0, corners), [&](const tbb::blocked_range<size_t>& range) {
+             for (size_t c = range.begin(); c != range.end(); ++c)
+-                cornerConstraints[c] = static_cast<signed char>(edgeConstraint(mesh, c, field, normals, hardEdgeDegrees));
++                cornerConstraints[c] = static_cast<signed char>(edgeConstraint(mesh, c, field, normals, hardEdgeDegrees,
++                    hasCornerFeature && (*cornerFeature)[c]));
+         });
+         return cornerConstraints;
+     }
+@@ -647,7 +650,8 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+     const std::vector<double>* faceScaling,
+     const std::vector<double>* faceScalingU,
+     const std::vector<double>* faceScalingV,
+-    const ProgressHandler* progressHandler)
++    const ProgressHandler* progressHandler,
++    const std::vector<char>* cornerFeature)
+ {
+     const auto report = [progressHandler](float fraction, const char* name) {
+         if (nullptr != progressHandler && *progressHandler)
+@@ -685,7 +689,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+     const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
+     result->cornerRotations = rotation;
+     const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
+-        normals, hardEdgeDegrees);
++        normals, hardEdgeDegrees, cornerFeature);
+     if (trackDirectionalScale)
+         applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
+             &activeScalingU, &activeScalingV);
+diff --git a/src/AutoRemesher/quadparameterizer.h b/src/AutoRemesher/quadparameterizer.h
+index ffb2ed2..3360699 100644
+--- a/src/AutoRemesher/quadparameterizer.h
++++ b/src/AutoRemesher/quadparameterizer.h
+@@ -47,7 +47,9 @@ public:
+         const std::vector<double>* faceScalingV = nullptr,
+         // Reports 0..1 across the quad cover solve, which is the single longest
+         // step of the whole pipeline and would otherwise be one silent block.
+-        const ProgressHandler* progressHandler = nullptr);
++        const ProgressHandler* progressHandler = nullptr,
++        // Corners (3 a face) whose edge is kept as a quad edge whatever its angle.
++        const std::vector<char>* cornerFeature = nullptr);
+ };
+ 
+ }
+diff --git a/src/AutoRemesher/singularitysimplifier.cpp b/src/AutoRemesher/singularitysimplifier.cpp
+index a07578c..4d4f56c 100644
+--- a/src/AutoRemesher/singularitysimplifier.cpp
++++ b/src/AutoRemesher/singularitysimplifier.cpp
+@@ -161,7 +161,8 @@ void SingularitySimplifier::buildFramesAndConnection()
+         const size_t f = m_mesh.cornerFace(c), g = m_mesh.cornerFace(other);
+         const Vector3 edge = m_mesh.edgeVector(c);
+         m_connection[c] = std::atan2(Vector3::dotProduct(edge, m_frameV[g]), Vector3::dotProduct(edge, m_frameU[g])) - std::atan2(Vector3::dotProduct(edge, m_frameV[f]), Vector3::dotProduct(edge, m_frameU[f]));
+-        m_sharpCorner[c] = m_mesh.normalAngle(c) >= m_sharpEdgeDegrees * M_PI / 180.0;
++        m_sharpCorner[c] = m_mesh.normalAngle(c) >= m_sharpEdgeDegrees * M_PI / 180.0
++            || (nullptr != m_cornerFeature && c < m_cornerFeature->size() && (*m_cornerFeature)[c]);
+     }
+     std::vector<size_t> every(faces);
+     for (size_t f = 0; f < faces; ++f)
+diff --git a/src/AutoRemesher/singularitysimplifier.h b/src/AutoRemesher/singularitysimplifier.h
+index 8d12b6f..d9e0b15 100644
+--- a/src/AutoRemesher/singularitysimplifier.h
++++ b/src/AutoRemesher/singularitysimplifier.h
+@@ -34,6 +34,8 @@ public:
+         std::vector<Vector3>* faceField);
+     void setMaximumPairDistance(size_t hops) { m_maximumPairDistance = hops; }
+     void setSharpEdgeDegrees(double degrees) { m_sharpEdgeDegrees = degrees; }
++    // Corners (3 a face) that are sharp whatever their angle: a singularity never moves across them.
++    void setCornerFeatures(const std::vector<char>* cornerFeature) { m_cornerFeature = cornerFeature; }
+     void simplify();
+     std::vector<int> vertexCharges() const;
+     size_t singularityCount() const;
+@@ -50,6 +52,7 @@ private:
+     std::vector<double> m_angles, m_connection;
+     std::vector<int> m_mismatch;
+     std::vector<bool> m_sharpCorner;
++    const std::vector<char>* m_cornerFeature = nullptr;
+     std::vector<Vector3> m_frameU, m_frameV;
+     void buildFramesAndConnection();
+     void updateMismatches(const std::vector<size_t>& faces);

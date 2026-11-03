@@ -1,6 +1,7 @@
 package quadmesh
 
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:testing"
 import "core:thread"
@@ -117,6 +118,89 @@ islands_do_not_change_the_result :: proc(t: ^testing.T) {
 	if same do for c, i in one.corners do if c != four.corners[i] do same = false
 	if same do for f, i in one.first do if f != four.first[i] do same = false
 	testing.expect(t, same, "one thread and four give different polygons over two islands")
+}
+
+// A sphere of rings and segments whose top is one polygroup and the rest another, with
+// the ring between them given as feature edges, comes back with a closed loop of quad
+// edges along that ring: every output edge whose ends lie on the ring, and each vertex of
+// that loop has two of them. The count still lands.
+@(test)
+feature_edges_become_a_loop :: proc(t: ^testing.T) {
+	when !AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	RINGS :: 32
+	SEGMENTS :: 64
+	source: geom.Mesh
+	defer geom.mesh_destroy(&source)
+	append(&source.positions, geom.Vec3{0, 0, 1})
+	for r in 1 ..< RINGS {
+		phi := math.PI * f32(r) / RINGS
+		for k in 0 ..< SEGMENTS {
+			theta := 2 * math.PI * f32(k) / SEGMENTS
+			append(&source.positions, geom.Vec3{math.sin(phi) * math.cos(theta), math.sin(phi) * math.sin(theta), math.cos(phi)})
+		}
+	}
+	append(&source.positions, geom.Vec3{0, 0, -1})
+	at := proc(r, k: int) -> u32 {return u32(1 + (r - 1) * SEGMENTS + k % SEGMENTS)}
+	for k in 0 ..< SEGMENTS do append(&source.indices, 0, at(1, k), at(1, k + 1))
+	for r in 1 ..< RINGS - 1 do for k in 0 ..< SEGMENTS {
+		append(&source.indices, at(r, k), at(r + 1, k), at(r + 1, k + 1))
+		append(&source.indices, at(r, k), at(r + 1, k + 1), at(r, k + 1))
+	}
+	last := u32(len(source.positions) - 1)
+	for k in 0 ..< SEGMENTS do append(&source.indices, last, at(RINGS - 1, k + 1), at(RINGS - 1, k))
+	// The border: ring 10's edges (at z = cos(10π/32), about 0.56).
+	BORDER :: 10
+	features := make([dynamic]u32, context.temp_allocator)
+	for k in 0 ..< SEGMENTS do append(&features, at(BORDER, k), at(BORDER, k + 1))
+	params := DEFAULT_PARAMS
+	params.quads, params.threads, params.features = 1500, 4, features[:]
+	out, report, err, reason := remesh(source.positions[:], source.indices[:], params)
+	defer polygon_mesh_destroy(&out)
+	if !testing.expectf(t, err == .None, "remesh failed: %v %s", err, reason) do return
+	testing.expectf(t, report.quads >= 1350 && report.quads <= 1650, "%d quads for 1500 asked", report.quads)
+	// A point on the ring: within a hundredth (the chords between remeshed ring vertices
+	// sag that far at most from the ring's own 64 chords) of its polyline.
+	z := math.cos(math.PI * f32(BORDER) / RINGS)
+	on := make([]bool, len(out.positions), context.temp_allocator)
+	for p, v in out.positions {
+		best := f32(1e9)
+		for k in 0 ..< SEGMENTS {
+			a, b := source.positions[at(BORDER, k)], source.positions[at(BORDER, k + 1)]
+			d := b - a
+			s := clamp(linalg.dot(p - a, d) / max(linalg.dot(d, d), 1e-12), 0, 1)
+			best = min(best, linalg.length(p - (a + d * s)))
+		}
+		on[v] = best < 0.01
+	}
+	loop_edges := make(map[u64]bool, 4 * report.faces, context.temp_allocator)
+	degree := make([]int, len(out.positions), context.temp_allocator)
+	for f in 0 ..< report.faces {
+		c := out.corners[out.first[f]:out.first[f + 1]]
+		for v, k in c {
+			w := c[(k + 1) % len(c)]
+			if !on[v] || !on[w] do continue
+			key := u64(min(v, w)) << 32 | u64(max(v, w))
+			if key in loop_edges do continue
+			loop_edges[key] = true
+			degree[v] += 1
+			degree[w] += 1
+		}
+	}
+	ring := 0
+	broken := 0
+	for d, v in degree do if on[v] {
+		ring += 1
+		if d != 2 do broken += 1
+	}
+	// The ring is 2π·sin(10π/32) long, about 5.2, so about 57 quad edges at the edge
+	// 1500 quads give; a loop needs most of them.
+	expected := int(2 * math.PI * math.sqrt(1 - z * z) / math.sqrt(f32(4 * math.PI / 1500)))
+	log.infof("feature loop: %d quad edges on the ring (about %d expected), %d vertices on it, %d not of degree two, %d quads in %.0f ms", len(loop_edges), expected, ring, broken, report.quads, report.ms)
+	testing.expectf(t, len(loop_edges) >= expected * 3 / 4, "only %d quad edges lie on the ring, about %d expected", len(loop_edges), expected)
+	testing.expectf(t, broken == 0, "%d ring vertices do not have two ring edges", broken)
 }
 
 // An empty mesh, a broken index and a zero count are refused with a reason before anything

@@ -7,10 +7,13 @@ It fetches huxingyi/autoremesher at AUTOREMESHER_COMMIT (scripts/versions.env) i
 deps/autoremesher-src and compiles the core (src/AutoRemesher), its bundled isotropicremesher
 and the two meshoptimizer files it calls, and the app's own boundary src/quadmesh/quadmesh_shim.cpp,
 into one static library: deps/autoremesher/libautoremesher.a with clang++ on Linux and macOS,
-deps/autoremesher/autoremesher.lib with cl /MT on Windows. Eigen is the bundled headers under
-EIGEN_MPL2_ONLY; TBB is replaced by src/quadmesh/shim/tbb. Qt, which only the GUI and CLI use,
-is not needed. A library built from the same commit and shim is kept, so a second run does
-nothing. Eigen's templates make the first build take a few minutes.
+deps/autoremesher/autoremesher.lib with cl /MT on Windows. The app's patches to the core,
+src/quadmesh/patches/*.patch (feature edges through the isotropic remesher, the frame field
+and the quad cover), are applied to the fetched source in name order with git apply. Eigen is
+the bundled headers under EIGEN_MPL2_ONLY; TBB is replaced by src/quadmesh/shim/tbb. Qt, which
+only the GUI and CLI use, is not needed. A library built from the same commit, patches and
+shim is kept, so a second run does nothing. Eigen's templates make the first build take a
+few minutes.
 """
 
 import concurrent.futures
@@ -51,17 +54,27 @@ def pin():
     sys.exit("build_autoremesher: no AUTOREMESHER_COMMIT in scripts/versions.env")
 
 
-def shim_hash():
+PATCHES = sorted(glob.glob(os.path.join(SHIM, "patches", "*.patch")))
+
+
+def files_hash(paths):
     h = hashlib.sha256()
-    for path in sorted(glob.glob(os.path.join(SHIM, "quadmesh_shim.*")) + glob.glob(os.path.join(SHIM, "shim", "tbb", "*.h"))):
+    for path in sorted(paths):
         with open(path, "rb") as f:
             h.update(os.path.basename(path).encode() + b"\0" + f.read() + b"\0")
     return h.hexdigest()
 
 
+def shim_hash():
+    return files_hash(glob.glob(os.path.join(SHIM, "quadmesh_shim.*")) + glob.glob(os.path.join(SHIM, "shim", "tbb", "*.h")))
+
+
 def fetch(commit):
+    # The source tree is the pinned commit with the patches applied, fetched again whenever
+    # either changes (a patch cannot be taken back out of a tree it was applied to).
+    source = f"{commit} {files_hash(PATCHES)}"
     have = os.path.join(SRC, "commit.txt")
-    if os.path.exists(have) and open(have).read().strip() == commit:
+    if os.path.exists(have) and open(have).read().strip() == source:
         return
     print(f"== AutoRemesher {commit[:12]}")
     shutil.rmtree(SRC, ignore_errors=True)
@@ -72,8 +85,11 @@ def fetch(commit):
     subprocess.run(git + ["remote", "add", "origin", "https://github.com/huxingyi/autoremesher.git"], check=True)
     subprocess.run(git + ["fetch", "-q", "--depth", "1", "origin", commit], check=True)
     subprocess.run(git + ["checkout", "-q", "FETCH_HEAD"], check=True)
+    for patch in PATCHES:
+        print(f"== patch {os.path.basename(patch)}")
+        subprocess.run(git + ["apply", "--whitespace=nowarn", patch], check=True)
     with open(have, "w") as f:
-        f.write(commit + "\n")
+        f.write(source + "\n")
 
 
 def compile_command(source, obj):
@@ -89,7 +105,7 @@ def compile_command(source, obj):
 
 def main():
     commit = pin()
-    stamp = f"{commit} {shim_hash()}"
+    stamp = f"{commit} {files_hash(PATCHES)} {shim_hash()}"
     if os.path.exists(LIBRARY) and os.path.exists(STAMP) and open(STAMP).read().strip() == stamp:
         print(f"AutoRemesher {commit[:12]}: {LIBRARY} is built")
         return 0
