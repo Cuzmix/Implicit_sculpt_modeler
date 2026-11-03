@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "core:thread"
 import "core:time"
 
 import "../send"
@@ -10,8 +11,8 @@ import "../send"
 
 Send_Answer :: struct {}
 
-send_answer_begin :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> Send_Answer {return {}}
+send_answer_begin :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> Send_Answer {return {}}
 
-send_answer_end :: proc(sh: ^Send_Shared, a: ^Send_Answer) {}
+send_answer_stop :: proc(a: ^Send_Answer) -> ^thread.Thread {return nil}
 
-send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (found: send.Found, ok: bool) {return}
+send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration, stop: ^bool, all: ^[dynamic]send.Found = nil) -> (found: send.Found, ok: bool) {return}

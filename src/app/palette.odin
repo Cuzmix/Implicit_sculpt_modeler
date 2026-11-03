@@ -61,6 +61,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Export_Print     = "stl 3d printer printing millimetres inches size scale units",
 	.Send_To_Blender  = "goz blender link export round trip",
 	.Get_From_Blender = "goz blender link import round trip back",
+	.Send_Scene       = "send goz share tablet computer pc ipad wifi wi-fi network transfer",
 	.Macro_Record     = "macro record recording automate repeat actions steps",
 	.Run_Macro        = "macro play replay run recorded automate repeat",
 	.Macros           = "macros list manage rename delete key recorded automate",
@@ -326,6 +327,7 @@ entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 // Pencil setting, which means something only from a pencil gesture.
 palette_lists :: proc(id: Command_Id) -> bool {
 	if !LINK_AVAILABLE && (id == .Send_To_Blender || id == .Get_From_Blender) do return false
+	if !SEND_AVAILABLE && id == .Send_Scene do return false
 	// A developer's screen: only in builds made for developers (diagnostics.odin).
 	if id == .Input_Diagnostics do return DIAGNOSTICS
 	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred && id != .Pen_As_Empty && id != .Rail_Group

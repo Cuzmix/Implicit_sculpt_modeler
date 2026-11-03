@@ -47,6 +47,7 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Save_Scene_Copy        = .Main,
 	.Scene_Versions         = .Main,
 	.Export_Sheet           = .Main,
+	.Send_Scene             = .Main,
 	.Customise_Bars         = .Main,
 	.Settings               = .Main,
 	.Help                   = .Main,
@@ -105,6 +106,11 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	lens_sub_row(app, .Import, ui.ICON_IMPORT)
 	// One sheet for every way out (lens_export.odin), as round 2's export2 screen.
 	if command_menu_item(app, .Export_Sheet) do pick = true
+	// Send scene names where it goes; before the first send it opens the sheet's Send.
+	if SEND_AVAILABLE {
+		to := send_last_name(app)
+		if command_menu_item(app, .Send_Scene, label = fmt.tprintf("Send to %s##send", to) if to != "" else "Send to...##send") do pick = true
+	}
 	ui.divider(ctx, across = true)
 	lens_sub_row(app, .Workspaces, ui.ICON_PANEL)
 	if command_menu_item(app, .Customise_Bars, label = "Edit docks...") do pick = true
