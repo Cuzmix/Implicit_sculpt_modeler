@@ -1,5 +1,6 @@
 package uv
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
@@ -153,8 +154,8 @@ flatten_does_not_depend_on_the_pool :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
 }
 
-// The direct solver solves a grid's Laplacian plus the identity to rounding, in the
-// order nested dissection gives, which is a permutation.
+// The direct solvers solve a grid's Laplacian plus the identity to rounding, in the
+// order nested dissection gives, which is a permutation, and agree with each other.
 @(test)
 ldl_solves_a_laplacian :: proc(t: ^testing.T) {
 	positions, indices, _, _ := test_grid(20, same)
@@ -175,7 +176,7 @@ ldl_solves_a_laplacian :: proc(t: ^testing.T) {
 		neighbour[i] = e[1]
 	}
 	for i in 0 ..< n do next[i + 1] += next[i]
-	order := dissection_order(positions, next, neighbour, context.temp_allocator)
+	order, tree := dissection_order(positions, next, neighbour, context.temp_allocator)
 	sorted := slice.clone(order, context.temp_allocator)
 	slice.sort(sorted)
 	for v, i in sorted do testing.expect_value(t, v, u32(i))
@@ -216,4 +217,20 @@ ldl_solves_a_laplacian :: proc(t: ^testing.T) {
 		worst = max(worst, abs(ax - b[k]))
 	}
 	testing.expectf(t, worst < 1e-12, "residual %v", worst)
+
+	// The frontal factor gives the same answer, on one thread and on a pool.
+	for workers in ([]int{-1, 3}) {
+		pool: jobs.Pool
+		if workers >= 0 do jobs.pool_init(&pool, workers)
+		defer if workers >= 0 do jobs.pool_destroy(&pool)
+		// Parts factored side by side allocate from their threads, so not from temp.
+		fronts, factored := front_factor(a, tree, &pool if workers >= 0 else nil, runtime.heap_allocator())
+		if !testing.expect(t, factored) do continue
+		defer fronts_destroy(&fronts, runtime.heap_allocator())
+		y := slice.clone(b, context.temp_allocator)
+		front_solve(fronts, y)
+		gap: f64
+		for v, i in y do gap = max(gap, abs(v - x[i]))
+		testing.expectf(t, gap < 1e-10, "frontal and LDL differ by %v", gap)
+	}
 }

@@ -133,7 +133,7 @@ ldl_solve :: proc(f: Ldl, x: []f64) {
 
 // Parts of at most this many unknowns are not cut again.
 @(private)
-DISSECTION_LEAF :: 64
+DISSECTION_LEAF :: 4
 
 // An elimination order for the graph `next` (node v's neighbours are
 // neighbour[next[v]:next[v + 1]]) whose nodes lie at `place`: nested dissection by
@@ -141,8 +141,9 @@ DISSECTION_LEAF :: 64
 // the nodes of the lower half touching the upper half are the separator, and the order
 // is the lower half's, then the upper half's, then the separator. Ties go to the lower
 // node, so the order follows from the graph and places alone. order[i] is the node
-// eliminated i-th.
-dissection_order :: proc(place: [][3]f32, next, neighbour: []u32, allocator := context.allocator) -> (order: []u32) {
+// eliminated i-th; `tree` holds the parts, each after the two it was cut into (the
+// frontal factor's tree).
+dissection_order :: proc(place: [][3]f32, next, neighbour: []u32, allocator := context.allocator) -> (order: []u32, tree: []Dissection_Node) {
 	n := len(place)
 	order = make([]u32, n, allocator)
 	nodes := make([]u32, n, allocator)
@@ -164,16 +165,21 @@ dissection_order :: proc(place: [][3]f32, next, neighbour: []u32, allocator := c
 		part:             []u32,
 		parts:            u32,
 		keys:             []Dissection_Key,
+		tree:             [dynamic]Dissection_Node,
 		allocator:        runtime.Allocator,
 	}
-	s := State{place, next, neighbour, order, 0, side, part, 0, keys, allocator}
-	cut :: proc(s: ^State, nodes: []u32) {
+	s := State{place, next, neighbour, order, 0, side, part, 0, keys, make([dynamic]Dissection_Node, allocator), allocator}
+	// Returns the part's node in the tree, or -1 for an empty part.
+	cut :: proc(s: ^State, nodes: []u32) -> i32 {
+		if len(nodes) == 0 do return -1
+		start := u32(s.at)
 		if len(nodes) <= DISSECTION_LEAF {
 			for v in nodes {
 				s.order[s.at] = v
 				s.at += 1
 			}
-			return
+			append(&s.tree, Dissection_Node{start, start, u32(s.at), -1})
+			return i32(len(s.tree) - 1)
 		}
 		lo, hi := s.place[nodes[0]], s.place[nodes[0]]
 		for v in nodes do lo, hi = {min(lo.x, s.place[v].x), min(lo.y, s.place[v].y), min(lo.z, s.place[v].z)}, {max(hi.x, s.place[v].x), max(hi.y, s.place[v].y), max(hi.z, s.place[v].z)}
@@ -211,16 +217,30 @@ dissection_order :: proc(place: [][3]f32, next, neighbour: []u32, allocator := c
 			}
 		}
 		copy(lower[kept:], separator[:])
-		cut(s, lower[:kept])
-		cut(s, nodes[half:])
+		a := cut(s, lower[:kept])
+		b := cut(s, nodes[half:])
+		middle := u32(s.at)
 		for v in separator {
 			s.order[s.at] = v
 			s.at += 1
 		}
+		append(&s.tree, Dissection_Node{start, middle, u32(s.at), -1})
+		here_node := i32(len(s.tree) - 1)
+		if a >= 0 do s.tree[a].parent = here_node
+		if b >= 0 do s.tree[b].parent = here_node
+		return here_node
 	}
-	cut(&s, nodes)
+	_ = cut(&s, nodes)
 	assert(s.at == n)
-	return
+	return order, s.tree[:]
+}
+
+// A part of a nested dissection: its nodes are ranks [lo, hi) of the order, the last of
+// them, [middle, hi), its separator (a whole leaf part when middle is lo); `parent` is
+// the part it was cut from, -1 for the whole.
+Dissection_Node :: struct {
+	lo, middle, hi: u32,
+	parent:         i32,
 }
 
 @(private)

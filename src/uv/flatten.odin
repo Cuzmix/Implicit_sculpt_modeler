@@ -18,6 +18,11 @@ Method :: enum u8 {
 	Lscm, // least squares conformal maps (Lévy et al. 2002), straight from the surface
 }
 
+// Islands of at least this many triangles are solved one at a time with the pool working
+// inside the solve; smaller ones side by side, one a thread.
+@(private)
+BIG_ISLAND :: 20_000
+
 Flatten_Report :: struct {
 	islands:   int, // islands the UVs have
 	flattened: int, // laid flat
@@ -32,9 +37,9 @@ Flatten_Report :: struct {
 // vertex holds every corner of it in that island) keeps them where they are and is not
 // scaled; with one, that pin and the border vertex farthest from it along the island's
 // longest side are held for the solve; with none, the two border vertices farthest apart
-// along that side. Islands are solved side by side on `pool`, the biggest first, each on
-// one thread with memory of its own, so the result does not depend on the pool. Nothing
-// happens without UVs.
+// along that side. Big islands are solved one at a time with the pool working inside each
+// solve, then the others side by side, each with memory of its own; nothing depends on
+// the pool. Nothing happens without UVs.
 flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Lscm, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
@@ -55,7 +60,8 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		results:   []Island_Result,
 	}
 	job := Job{u, positions, indices, faces, order, first, make([]u32, u.islands, context.temp_allocator), make([]Island_Result, u.islands, context.temp_allocator)}
-	// The biggest islands are claimed first, so a big one does not start last.
+	// Biggest first, so the big islands are a run at the start and the small ones are
+	// claimed largest first.
 	Size :: struct {
 		triangles, island: u32,
 	}
@@ -63,11 +69,10 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 	for &s, i in sizes do s = {first[i + 1] - first[i], u32(i)}
 	slice.sort_by(sizes, proc(a, b: Size) -> bool {return a.triangles > b.triangles || (a.triangles == b.triangles && a.island < b.island)})
 	for s, i in sizes do job.biggest[i] = s.island
-	jobs.parallel_for(pool, u.islands, &job, proc(data: rawptr, n: int) {
-		job := cast(^Job)data
+	// One island, solved on the calling thread with `pool` (nil inside a job).
+	solve :: proc(job: ^Job, i: u32, pool: ^jobs.Pool) {
 		heap := runtime.heap_allocator()
 		context.allocator = heap
-		i := job.biggest[n]
 		res := &job.results[i]
 		tris := job.order[job.first[i]:job.first[i + 1]]
 		island := island_mesh(job.u^, job.indices, job.faces, tris, heap)
@@ -76,7 +81,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			res.state = .Closed
 			return
 		}
-		flat, ok := lscm(job.u^, job.positions, &island, heap)
+		flat, ok := lscm(job.u^, job.positions, &island, pool, heap)
 		defer delete(flat, heap)
 		if !ok {
 			res.state = .Failed
@@ -88,6 +93,16 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			job.u.corner[t][k] = {f32(p.x), f32(p.y)}
 		}
 		for li in 0 ..< len(tris) do if signed_area(flat, island.wedge[3 * li:][:3]) < 0 do res.flips += 1
+	}
+	// The pool runs one job at a time, so the big islands go first, one by one, each with
+	// the pool inside its solve, and then the small ones side by side, one a thread.
+	big := 0
+	for big < len(sizes) && sizes[big].triangles >= BIG_ISLAND do big += 1
+	for i in job.biggest[:big] do solve(&job, i, pool)
+	job.biggest = job.biggest[big:]
+	jobs.parallel_for(pool, len(job.biggest), &job, proc(data: rawptr, n: int) {
+		job := cast(^Job)data
+		solve(job, job.biggest[n], nil)
 	})
 	for res in job.results {
 		switch res.state {
@@ -108,7 +123,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 // when the solve breaks down, as a surface with non-finite positions
 // makes it.
 @(private)
-lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime.Allocator) -> (flat: [][2]f64, ok: bool) {
+lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (flat: [][2]f64, ok: bool) {
 	a := allocator
 	corners := m.wedge
 	n := len(corners) / 3
@@ -259,8 +274,13 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 	graph := make([]u32, dedup[free], a)
 	defer delete(graph, a)
 	for i in 0 ..< free do copy(graph[dedup[i]:dedup[i + 1]], neighbour[next[i]:ends[i]])
-	order := dissection_order(place, dedup, graph, a)
+	order, wedge_tree := dissection_order(place, dedup, graph, a)
 	defer delete(order, a)
+	defer delete(wedge_tree, a)
+	// The same tree over the unknowns, two a wedge.
+	tree := make([]Dissection_Node, len(wedge_tree), a)
+	defer delete(tree, a)
+	for p, i in wedge_tree do tree[i] = {2 * p.lo, 2 * p.middle, 2 * p.hi, p.parent}
 	rank := make([]u32, free, a)
 	defer delete(rank, a)
 	for w, i in order do rank[w] = u32(i)
@@ -301,13 +321,13 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 		}
 	}
 	system.row, system.value = rows[:], values[:]
-	factor, factored := ldl_factor(system, a)
+	factor, factored := front_factor(system, tree, pool, a)
 	if !factored do return
-	defer ldl_destroy(&factor, a)
+	defer fronts_destroy(&factor, a)
 	x := make([]f64, 2 * free, a)
 	defer delete(x, a)
 	for k in 0 ..< free do x[2 * k], x[2 * k + 1] = rhs[2 * order[k]], rhs[2 * order[k] + 1]
-	ldl_solve(factor, x)
+	front_solve(factor, x)
 	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * rank[c]], x[2 * rank[c] + 1]}
 	for p in flat do if !finite(p) do return
 
