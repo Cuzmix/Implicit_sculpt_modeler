@@ -27,41 +27,26 @@ matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 }
 
 // Copies RGBA8 `pixels` into mip level 0 of `tex` and, with `mips`, has the GPU build the
-// rest of the chain; waits for the GPU so the transfer buffer can go at once.
+// rest of the chain, on a command buffer of its own, submitted at once; the frames after
+// it see the texture filled.
 @(private)
 texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, height: int, mips: bool) -> bool {
-	transfer := gpu.create_transfer_buffer({usage = .Upload, size = u32(len(pixels))})
-	if transfer == 0 {
-		log.errorf("texture upload buffer: %s", gpu.last_error())
-		return false
-	}
-	defer gpu.release_transfer_buffer(transfer)
-	dst := ([^]u8)(gpu.map_transfer_buffer(transfer, false))
-	if dst == nil {
-		log.errorf("texture upload map: %s", gpu.last_error())
-		return false
-	}
-	copy(dst[:len(pixels)], pixels)
-	gpu.unmap_transfer_buffer(transfer)
-
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
 		log.errorf("texture upload: %s", gpu.last_error())
 		return false
 	}
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.upload_to_texture(pass,
-		{transfer_buffer = transfer, pixels_per_row = u32(width), rows_per_layer = u32(height)},
-		{texture = tex, w = u32(width), h = u32(height), d = 1}, false)
-	gpu.end_copy_pass(pass)
+	if !gpu.upload_texture(cmd, {texture = tex, w = u32(width), h = u32(height), d = 1}, pixels) {
+		log.errorf("texture upload: %s", gpu.last_error())
+		_ = gpu.cancel_command_buffer(cmd)
+		return false
+	}
 	if mips do gpu.generate_mipmaps_for_texture(cmd, tex)
-	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil {
+	if !gpu.submit_command_buffer(cmd) {
 		log.errorf("texture upload submit: %s", gpu.last_error())
 		return false
 	}
-	defer gpu.release_fence(fence)
-	return gpu.wait_for_fences(true, &fence, 1)
+	return true
 }
 
 // Makes a picture the interface draws from `pixels`: RGBA8 already encoded for the display

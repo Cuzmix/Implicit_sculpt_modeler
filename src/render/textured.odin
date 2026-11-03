@@ -39,10 +39,8 @@ Textured_Vertex :: struct {
 Textured_Mesh :: struct {
 	vertices:        gpu.Buffer,
 	indices:         gpu.Buffer,
-	transfer:        gpu.Transfer_Buffer,
 	vertex_capacity: u32, // vertices
 	index_capacity:  u32, // indices
-	transfer_size:   u32, // bytes
 	index_count:     u32,
 	vertex_count:    u32,
 	// For render mode (path.odin): each corner of each triangle of the object's sculpt mesh
@@ -62,8 +60,8 @@ TEXTURE_FORMATS := [Texture_Map]gpu.Format {
 	.Normal     = .RGBA8_Unorm,
 }
 
-// Copies `vertices` and `indices` into the mesh's buffers in a copy pass on `cmd`, growing
-// them (and waiting for the GPU before the old ones go) when they are too small, with
+// Copies `vertices` and `indices` into the mesh's buffers before the next pass on `cmd`,
+// growing them when they are too small, with
 // `corners` (geom.quad_mesh_triangle_corners; nil or the wrong count for none). False,
 // with the reason logged and the mesh left drawing nothing, when the device refuses.
 textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, vertices: []Textured_Vertex, indices: []u32, corners: []u32 = nil) -> bool {
@@ -72,40 +70,29 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 		tm.index_count, tm.corner_count = 0, 0
 		return true
 	}
-	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity || vbytes + ibytes > tm.transfer_size {
+	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity {
 		textured_buffers_release(r, tm)
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
-		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + 2 * tm.index_capacity * size_of(u32)
 		tm.vertices = gpu.create_buffer({usage = {.Vertex}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
 		tm.indices = gpu.create_buffer({usage = {.Index}, size = tm.index_capacity * size_of(u32)})
 		// Render mode only copies it into its own buffers; storage read is a usage every
 		// device takes.
 		tm.corners = gpu.create_buffer({usage = {.Storage_Read}, size = tm.index_capacity * size_of(u32)})
-		tm.transfer = gpu.create_transfer_buffer({usage = .Upload, size = tm.transfer_size})
-		if tm.vertices == 0 || tm.indices == 0 || tm.corners == 0 || tm.transfer == 0 {
+		if tm.vertices == 0 || tm.indices == 0 || tm.corners == 0 {
 			log.errorf("textured mesh buffers: %s", gpu.last_error())
 			textured_buffers_release(r, tm)
 			return false
 		}
 	}
-	// Cycled, so a frame still reading the last upload keeps its copy.
-	dst := ([^]u8)(gpu.map_transfer_buffer(tm.transfer, true))
-	if dst == nil {
+	cbytes := ibytes if len(corners) == len(indices) else 0
+	ok := gpu.upload(cmd, tm.vertices, 0, ([^]u8)(raw_data(vertices))[:vbytes]) && gpu.upload(cmd, tm.indices, 0, ([^]u8)(raw_data(indices))[:ibytes])
+	if ok && cbytes > 0 do ok = gpu.upload(cmd, tm.corners, 0, ([^]u8)(raw_data(corners))[:cbytes])
+	if !ok {
 		log.errorf("textured mesh upload: %s", gpu.last_error())
 		tm.index_count, tm.corner_count = 0, 0
 		return false
 	}
-	copy(dst[:vbytes], ([^]u8)(raw_data(vertices))[:vbytes])
-	copy(dst[vbytes:][:ibytes], ([^]u8)(raw_data(indices))[:ibytes])
-	cbytes := ibytes if len(corners) == len(indices) else 0
-	if cbytes > 0 do copy(dst[vbytes + ibytes:][:cbytes], ([^]u8)(raw_data(corners))[:cbytes])
-	gpu.unmap_transfer_buffer(tm.transfer)
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.upload_to_buffer(pass, {transfer_buffer = tm.transfer}, {buffer = tm.vertices, size = vbytes}, false)
-	gpu.upload_to_buffer(pass, {transfer_buffer = tm.transfer, offset = vbytes}, {buffer = tm.indices, size = ibytes}, false)
-	if cbytes > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = tm.transfer, offset = vbytes + ibytes}, {buffer = tm.corners, size = cbytes}, false)
-	gpu.end_copy_pass(pass)
 	tm.index_count = u32(len(indices))
 	tm.vertex_count = u32(len(vertices))
 	tm.corner_count = cbytes / size_of(u32)
@@ -116,7 +103,7 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 
 // Sets map `m` from RGBA8 `pixels` (`width` by `height`, rows top to bottom) with a full
 // mip chain, or removes it for nil pixels. The upload has a command buffer of its own and
-// waits for it, like a MatCap's. False, with the map left out and the reason logged,
+// is submitted at once, like a MatCap's. False, with the map left out and the reason logged,
 // when the device refuses.
 textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, pixels: []u8, width, height: int) -> bool {
 	if tm.maps[m] != 0 {
@@ -145,9 +132,8 @@ textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 	if tm.vertices != 0 do gpu.release_buffer(tm.vertices)
 	if tm.indices != 0 do gpu.release_buffer(tm.indices)
 	if tm.corners != 0 do gpu.release_buffer(tm.corners)
-	if tm.transfer != 0 do gpu.release_transfer_buffer(tm.transfer)
-	tm.vertices, tm.indices, tm.corners, tm.transfer = 0, 0, 0, 0
-	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0, 0
+	tm.vertices, tm.indices, tm.corners = 0, 0, 0
+	tm.vertex_capacity, tm.index_capacity, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0
 }
 
 // Whether `item` draws through its textured mesh: it has one with something in it, a

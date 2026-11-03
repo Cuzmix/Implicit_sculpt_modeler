@@ -10,7 +10,6 @@ import "core:log"
 // part alone (picture_uv).
 Pictures :: struct {
 	atlas:    gpu.Texture,
-	transfer: gpu.Transfer_Buffer, // PICTURES_PER_FRAME cells' worth, cycled each frame
 	failed:   bool, // the device refused a texture or buffer; no picture is shown
 }
 
@@ -33,7 +32,6 @@ Picture_Upload :: struct {
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 	if !r.has_device do return
 	if p.atlas != 0 do gpu.release_texture(p.atlas)
-	if p.transfer != 0 do gpu.release_transfer_buffer(p.transfer)
 	p^ = {}
 }
 
@@ -49,8 +47,7 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Pictu
 			type = .D2, format = .RGBA8_Unorm, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		p.transfer = gpu.create_transfer_buffer({usage = .Upload, size = CELL_BYTES * PICTURES_PER_FRAME})
-		if p.atlas == 0 || p.transfer == 0 {
+		if p.atlas == 0 {
 			log.errorf("picture textures: %s", gpu.last_error())
 			p.failed = true
 			return false
@@ -62,35 +59,15 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Pictu
 	}
 	n := 0
 	for it in items {
-		if n < PICTURES_PER_FRAME && picture_fits(it) do n += 1
-	}
-	if n == 0 do return true
-	// Cycled: the copy of an earlier frame may still be reading the buffer.
-	dst := ([^]u8)(gpu.map_transfer_buffer(p.transfer, true))
-	if dst == nil {
-		log.errorf("picture map: %s", gpu.last_error())
-		return false
-	}
-	at := 0
-	for it in items {
-		if at == n do break
-		if !picture_fits(it) do continue
-		copy(dst[at * CELL_BYTES:][:it.width * it.height * 4], it.pixels)
-		at += 1
-	}
-	gpu.unmap_transfer_buffer(p.transfer)
-	pass := gpu.begin_copy_pass(cmd)
-	at = 0
-	for it in items {
-		if at == n do break
+		if n == PICTURES_PER_FRAME do break
 		if !picture_fits(it) do continue
 		x, y := u32(it.cell % PICTURE_CELLS) * PICTURE_PX, u32(it.cell / PICTURE_CELLS) * PICTURE_PX
-		gpu.upload_to_texture(pass,
-			{transfer_buffer = p.transfer, offset = u32(at * CELL_BYTES), pixels_per_row = u32(it.width), rows_per_layer = u32(it.height)},
-			{texture = p.atlas, x = x, y = y, w = u32(it.width), h = u32(it.height), d = 1}, false)
-		at += 1
+		if !gpu.upload_texture(cmd, {texture = p.atlas, x = x, y = y, w = u32(it.width), h = u32(it.height), d = 1}, it.pixels[:it.width * it.height * 4]) {
+			log.errorf("picture upload: %s", gpu.last_error())
+			return false
+		}
+		n += 1
 	}
-	gpu.end_copy_pass(pass)
 	return true
 }
 

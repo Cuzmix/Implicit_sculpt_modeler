@@ -85,6 +85,7 @@ acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swap
 
 @(require_results)
 begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: u32) -> Compute_Pass {
+	staging_flush(command_buffer)
 	when METAL do return mtl_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
 	else when WEBGPU do return wgpu_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
 	else do return vk_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
@@ -92,6 +93,13 @@ begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Sto
 
 @(require_results)
 begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
+	staging_flush(command_buffer)
+	return begin_copy_pass_raw(command_buffer)
+}
+
+// A copy pass with nothing staged recorded first: staging_flush's own.
+@(private, require_results)
+begin_copy_pass_raw :: proc(command_buffer: Cmd) -> Copy_Pass {
 	when METAL do return mtl_begin_copy_pass(command_buffer)
 	else when WEBGPU do return wgpu_begin_copy_pass(command_buffer)
 	else do return vk_begin_copy_pass(command_buffer)
@@ -100,6 +108,7 @@ begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 @(require_results)
 begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	transient_check_pass(color_target_infos, num_color_targets, depth_stencil_target_info)
+	staging_flush(command_buffer)
 	when METAL do return mtl_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
 	else when WEBGPU do return wgpu_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
 	else do return vk_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
@@ -185,6 +194,7 @@ command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 @(require_results)
 cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	count_finish(command_buffer)
+	staging_done(command_buffer)
 	when METAL do return mtl_cancel_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_cancel_command_buffer(command_buffer)
 	else do return vk_cancel_command_buffer(command_buffer)
@@ -343,6 +353,7 @@ ray_query_offered :: proc() -> bool {
 // cannot be made.
 @(require_results)
 build_blas :: proc(command_buffer: Cmd, positions, indices: Buffer, vertex_count: u32, geometries: []Blas_Geometry, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
+	staging_flush(command_buffer)
 	when METAL {
 		if mtl_ray_query_offered() do return mtl_build_blas(command_buffer, positions, indices, vertex_count, geometries, update)
 		return nil
@@ -359,6 +370,7 @@ build_blas :: proc(command_buffer: Cmd, positions, indices: Buffer, vertex_count
 // `update`). The top level keeps each bottom level it names alive until it is released.
 @(require_results)
 build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^Gpu_Accel = nil) -> ^Gpu_Accel {
+	staging_flush(command_buffer)
 	when METAL {
 		if mtl_ray_query_offered() do return mtl_build_tlas(command_buffer, instances, update)
 		return nil
@@ -514,6 +526,7 @@ create_transfer_buffer :: proc(#by_ptr createinfo: Transfer_Buffer_Desc) -> Tran
 }
 
 destroy_device :: proc() {
+	staging_reset()
 	when METAL do mtl_destroy_device()
 	else when WEBGPU do wgpu_destroy_device()
 	else do vk_destroy_device()
@@ -638,6 +651,7 @@ texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count
 }
 
 generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
+	staging_flush(command_buffer)
 	transient_check_use(texture, "mipmapped")
 	when METAL do mtl_generate_mipmaps_for_texture(command_buffer, texture)
 	else when WEBGPU do wgpu_generate_mipmaps_for_texture(command_buffer, texture)
@@ -892,8 +906,10 @@ set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swa
 }
 
 @(require_results)
-submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
+submit_command_buffer :: proc(command_buffer: Cmd) -> (ok: bool) {
 	count_finish(command_buffer)
+	staging_flush(command_buffer)
+	defer staging_done(command_buffer)
 	when METAL do return mtl_submit_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_submit_command_buffer(command_buffer)
 	else do return vk_submit_command_buffer(command_buffer)
@@ -902,6 +918,8 @@ submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
 @(require_results)
 submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
 	count_finish(command_buffer)
+	staging_flush(command_buffer)
+	defer staging_done(command_buffer)
 	when METAL do return mtl_submit_command_buffer_and_acquire_fence(command_buffer)
 	else when WEBGPU do return wgpu_submit_command_buffer_and_acquire_fence(command_buffer)
 	else do return vk_submit_command_buffer_and_acquire_fence(command_buffer)
