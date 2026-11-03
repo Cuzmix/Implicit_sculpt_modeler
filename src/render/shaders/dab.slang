@@ -28,6 +28,11 @@ static const uint FLAG_VALLEYS = 2; // Smooth: only vertices below their neighbo
 static const uint FLAG_PEAKS = 4;   // Smooth: only vertices above it
 static const uint FLAG_TILT = 8;    // the area normal is turned by the tilt rows
 static const uint FLAG_ONCE = 16;   // Draw, Inflate: Accumulate off, the stroke's heights cap the move
+static const uint FLAG_MASK = 32;   // the mask's bytes shield the vertices (sculpt.shield)
+static const uint FLAG_DRAWN = 64;  // a drawn falloff's table (sculpt.falloff_drawn) in place of the round one
+
+// sculpt.FALLOFF_STEPS: a drawn falloff's table holds one more value.
+static const float FALLOFF_STEPS = 256.0;
 
 // sculpt's strengths, with their reasons there (brush.odin).
 static const float PLANE_RATE = 0.5;
@@ -41,7 +46,7 @@ struct Dab {
 	float4 tilt0;         // the tilt's rows (FLAG_TILT), .w the strength
 	float4 tilt1;         // .w 1 / (the sample radius)²
 	float4 tilt2;         // .w Clay's plane offset along the normal (0 for the rest)
-	float4 misc;          // Flatten's plane_short above and below, the radius, 0
+	float4 misc;          // Flatten's plane_short above and below, the radius, the drawn falloff's first value in `tables`
 	uint4 slabs;          // first slab, slab count, kind, flags
 };
 
@@ -51,6 +56,11 @@ struct Dab {
 [[vk::binding(3, 0)]] StructuredBuffer<uint2> slabs;  // first vertex, count
 [[vk::binding(4, 0)]] StructuredBuffer<Dab> dabs;
 [[vk::binding(5, 0)]] StructuredBuffer<uint> normals; // packed, mask nibbles low (node_normals.comp.slang)
+// The level's mask, a byte a vertex four to a uint (render.sculpt_gpu_mask_upload): read
+// only with FLAG_MASK. The nibbles in `normals` are for drawing, too coarse for the brush.
+[[vk::binding(6, 0)]] StructuredBuffer<uint> mask;
+// The frame's drawn falloff tables (sculpt.Falloff.table): read only with FLAG_DRAWN.
+[[vk::binding(7, 0)]] StructuredBuffer<float> tables;
 [[vk::binding(0, 1)]] RWStructuredBuffer<float> positions; // 3 floats a vertex
 [[vk::binding(1, 1)]] RWStructuredBuffer<float4> partials; // a slab's area sums: normal.xyz and weight, then the centre
 [[vk::binding(2, 1)]] RWStructuredBuffer<float4> areas;    // a dab's area: the normal, then a point on the plane
@@ -106,7 +116,18 @@ float falloff(float x2) {
 	return t * t;
 }
 
-// sculpt.dab_weight without an alpha: the round falloff, or Projected's across the view line.
+// sculpt.falloff_drawn: the table read between its steps.
+float falloff_drawn(Dab d, float x2) {
+	if (x2 >= 1.0) return 0.0;
+	uint first = uint(d.misc.w);
+	float x = x2 * FALLOFF_STEPS;
+	int i = int(x);
+	float a = tables[first + uint(i)];
+	return a + (tables[first + uint(i) + 1] - a) * (x - float(i));
+}
+
+// sculpt.dab_weight without an alpha: the round or drawn falloff, or Projected's across
+// the view line.
 float dab_weight(Dab d, float3 delta, float d2) {
 	float x2 = d2 * d.view_inv_r2.w;
 	float3 view = d.view_inv_r2.xyz;
@@ -115,7 +136,15 @@ float dab_weight(Dab d, float3 delta, float d2) {
 		if (h * h >= 1.0) return 0.0;
 		x2 -= h * h;
 	}
+	if ((d.slabs.w & FLAG_DRAWN) != 0) return falloff_drawn(d, x2);
 	return falloff(x2);
+}
+
+// sculpt.shield without an HD fade: what the mask leaves of the vertex, 1 unmasked.
+float shield(Dab d, uint v) {
+	if ((d.slabs.w & FLAG_MASK) == 0) return 1.0;
+	uint m = (mask[v >> 2] >> ((v & 3) * 8)) & 255;
+	return float(255 - m) * (1.0 / 255.0);
 }
 
 // sculpt.facing_weight: 1 with front faces only off or the vertex facing the viewer, 0

@@ -111,7 +111,7 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.barycentric = gpu_barycentric_offered(r.device)
 	r.caps.gpu_cull = gpu_cull_offered(r.device)
 	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu_cull_by_default(r.device)
-	r.caps.gpu_sculpt = sculpt_gpu_offered()
+	r.caps.gpu_sculpt = sculpt_gpu_offered(r)
 }
 
 // Tags the window's next present with when the input it shows came (SDL nanoseconds), so

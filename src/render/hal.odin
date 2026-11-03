@@ -243,6 +243,15 @@ gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
 	else do return vk_state.texture_arrays
 }
 
+// How many storage buffers one compute kernel may bind: the device's own limit under
+// Vulkan (the spec asks only 4), Metal's 31 buffer slots, WebGPU's default 8.
+@(require_results)
+gpu_storage_buffers_per_stage :: proc(device: ^sdl.GPUDevice) -> u32 {
+	when METAL do return 31
+	else when WEBGPU do return 8
+	else do return vk_state.properties.limits.maxPerStageDescriptorStorageBuffers
+}
+
 // ---- Ray queries (Gpu_Caps.ray_query) -------------------------------------------------
 // Acceleration structures the driver builds and kernels trace with ray queries: the own
 // Vulkan backend on a device with VK_KHR_ray_query (vk_accel.odin), and the own Metal

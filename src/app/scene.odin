@@ -839,6 +839,8 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	upload := render.sculpt_gpu_upload(gpu)
 	if upload != .None do render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask, upload == .Positions)
 	bytes += paint_upload(app, cmd, gpu, lv, ranges)
+	// The mask bytes the GPU's dab kernels read, once the mesh's lookup is there.
+	bytes += render.sculpt_gpu_mask_upload(&app.renderer, cmd, gpu, lv.sculptor.mask, ranges)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	if upload != .None do for r in ranges do bytes += int(r.count) * (size_of(geom.Vec3) if upload == .Positions else render.VERTEX_BYTES)

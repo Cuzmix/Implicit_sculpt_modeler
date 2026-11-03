@@ -1,8 +1,8 @@
 // slangc: -fp-mode precise
 // A dab's move (sculpt.displace on the GPU, dab.slang): every vertex of the dab's slabs
-// inside the reach moves as the kind says, by its falloff weight times the facing ramp,
-// along the area dab_reduce.comp.slang worked out (Draw, Clay, Flatten, Pinch, Crease) or
-// its own normal (Inflate). With Accumulate off (FLAG_ONCE) Draw and Inflate raise a
+// inside the reach moves as the kind says, by its falloff weight times what the mask
+// leaves of it and the facing ramp, along the area dab_reduce.comp.slang worked out (Draw,
+// Clay, Flatten, Pinch, Crease) or its own normal (Inflate). With Accumulate off (FLAG_ONCE) Draw and Inflate raise a
 // vertex to this dab's height only where that is above what the stroke has given it so
 // far (sculpt.displace's ONCE), both signs for Ctrl's dig, and keep the height.
 #include "dab.slang"
@@ -18,7 +18,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	float d2 = dot(delta, delta);
 	if (d2 >= d.center_r2.w) return;
 	float3 n = normal_at(v);
-	float w = dab_weight(d, delta, d2) * facing_weight(d, n);
+	float w = dab_weight(d, delta, d2) * shield(d, v) * facing_weight(d, n);
 	if (w <= 0.0) return;
 	float amount = d.facing_amount.w;
 	float strength = d.tilt0.w;

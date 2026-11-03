@@ -90,6 +90,14 @@ Gpu_Dab :: struct {
 	// `stroke`) cap each vertex's move, as displace's ONCE does.
 	once:        bool,
 	stroke:      u32,
+	// The mask shields the vertices (sculpt.shield): the kernels read the level's mask
+	// bytes, which the app keeps on the GPU while the sculptor has a mask.
+	masked:      bool,
+	// A drawn falloff's table (Falloff.table) in place of the round falloff, nil for none:
+	// the brush's own (Brush.falloff_shape, which its owner keeps for the brush's life), read
+	// by the frame's dispatch. Its values lie in 0 to 1 (geom.curve_at clamps), so the
+	// margins' bounds hold.
+	falloff:     []f32,
 	// The hit leaves' owned vertex ranges, coalesced and sorted: what the kernels work
 	// on. Set for the hand-off; valid until the next sculptor_flush.
 	ranges:      []Vertex_Range,
@@ -212,10 +220,10 @@ stroke_gpu_decide :: proc(s: ^Sculptor, brush: Brush) {
 @(private)
 dab_gpu_takes :: proc(s: ^Sculptor, brush: Brush) -> bool {
 	if brush.kind not_in GPU_DAB_KINDS do return false
-	if brush.alpha != nil || brush.falloff_shape != nil || brush.lock_plane || brush.stabilize > 0 || brush.connected do return false
+	if brush.alpha != nil || brush.lock_plane || brush.stabilize > 0 || brush.connected do return false
 	if brush.channel != .Sculpt || brush.skin do return false
 	if brush.kind == .Smooth && (brush.smooth_mode == .Polish || brush.smooth_stable) do return false
-	if s.mask != nil || s.fade != nil || s.dyn != nil || s.skin != nil || s.layers.recording != 0 do return false
+	if s.fade != nil || s.dyn != nil || s.skin != nil || s.layers.recording != 0 do return false
 	return true
 }
 
@@ -276,7 +284,9 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 		smooth_mode  = brush.smooth_mode,
 		smooth_only  = brush.smooth_only,
 		stroke       = s.layer_stroke,
+		masked       = s.mask != nil,
 	}
+	if f := brush.falloff_shape; f != nil do rec.falloff = f.table[:]
 	#partial switch brush.kind {
 	case .Draw, .Inflate:
 		rec.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT

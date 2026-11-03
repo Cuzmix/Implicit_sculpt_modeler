@@ -138,6 +138,8 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 			peaks        = d.smooth_only == .Peaks,
 			once         = d.once,
 			stroke       = d.stroke,
+			masked       = d.masked,
+			falloff      = d.falloff,
 			ranges       = d.ranges,
 		}
 	}
