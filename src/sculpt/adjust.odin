@@ -37,6 +37,7 @@ sculptor_can_adjust :: proc(s: ^Sculptor) -> bool {
 // nothing, when it cannot be adjusted (sculptor_can_adjust).
 sculptor_stroke_adjust :: proc(s: ^Sculptor, k: f32) -> bool {
 	if !sculptor_can_adjust(s) do return false
+	_ = sculptor_gpu_sync(s)
 	h := &s.history
 	if top := &h.done[len(h.done) - 1]; !top.adjusting {
 		adjust_keep_after(s, top)

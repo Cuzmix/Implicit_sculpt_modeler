@@ -45,8 +45,10 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
 	}
 	render.gpu_cull_frame(&app.renderer)
-	// The normals a stroke's earlier frames read back land in the mesh before the dabs.
+	// The positions and normals a stroke's earlier frames read back land in the mesh
+	// before the dabs, and the bounds of what landed are refit.
 	render.sculpt_gpu_frame(&app.renderer)
+	sculpt_gpu_landed(app)
 	if sg := app.renderer.sculpt_gpu.stats; sg.applied {
 		ring_push(&app.stats.gpu_sculpt_kb, sg.applied_kb)
 		ring_push(&app.stats.gpu_sculpt_apply_ms, sg.apply_ms)
@@ -257,9 +259,10 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				return false
 			}
 			uploaded += bytes
-			// The normals of a stroke on the GPU, now that its positions are up; where the
-			// device refused the kernel's buffers, the CPU computes and uploads them next frame.
-			if render.sculpt_gpu_queued(gpu) && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_normals_stale(&lv.sculptor, ranges)
+			// The dabs and normals of a stroke on the GPU, now that what the CPU moved is up;
+			// where the device refused a buffer, the CPU lays the dabs and computes and
+			// uploads the normals next frame.
+			if render.sculpt_gpu_upload(gpu) != .Full && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)
@@ -599,6 +602,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	if command := app.ui.scene_command; command.kind != .None {
 		app.ui.scene_command = {}
 		autosave_settle(app)
+		// Whatever it reads or writes of an object is the GPU's, where a stroke ran there.
+		for obj in app.scene.objects do object_gpu_sync(obj)
 		// A command being recorded counts once it changed the scene (macros.odin).
 		before := script_scene_state(app) if app.macro.pending.active else {}
 		if !scene_run(app, command) do return false, false
@@ -609,6 +614,7 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	link_frame(app)
 	if req, ok := file_take(app); ok {
 		autosave_settle(app)
+		for obj in app.scene.objects do object_gpu_sync(obj)
 		inspector_drags_end(app)
 		applied := file_apply(app, req)
 		file_request_free(req)

@@ -56,6 +56,7 @@ Smooth_Gpu :: struct {
 sculptor_smooth_all :: proc(s: ^Sculptor, steps: int, strength: f32, gpu: Smooth_Gpu = {}, mode := Smooth_Mode.Smooth) -> (changed, on_gpu: bool) {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || steps < 1 || strength <= 0 do return
+	_ = sculptor_gpu_sync(s)
 	m := s.mesh
 	Weights :: struct {
 		s:        ^Sculptor,

@@ -1,0 +1,213 @@
+// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 8ad3a07de6e07fbcba1e2c518001c3b95cb158151062bb52d760ca358db60365
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+template<typename T>
+[[clang::optnone]] T spvFAdd(T l, T r)
+{
+    return fma(T(1), l, r);
+}
+
+struct Dab_std430_logical
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint dab;
+    uint groups_x;
+    float rate;
+    uint stroke;
+};
+
+struct Dab_std430
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct StructuredBuffer
+{
+    Dab_std430 _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    float4 _member0[1];
+};
+
+static inline __attribute__((always_inline))
+float3 normalize0(float3 v)
+{
+    float _213 = length(v);
+    float3 _209;
+    if (_213 > 0.0)
+    {
+        _209 = v / float3(_213);
+    }
+    else
+    {
+        _209 = float3(0.0);
+    }
+    return _209;
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device RWStructuredBuffer& partials [[buffer(3)]], device RWStructuredBuffer& areas [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup spvUnsafeArray<float4, 256> lane_normal;
+    threadgroup spvUnsafeArray<float4, 256> lane_center;
+    Dab_std430_logical _11;
+    _11.center_r2 = dabs._member0[Params.dab].center_r2;
+    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
+    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
+    _11.tilt0 = dabs._member0[Params.dab].tilt0;
+    _11.tilt1 = dabs._member0[Params.dab].tilt1;
+    _11.tilt2 = dabs._member0[Params.dab].tilt2;
+    _11.misc = dabs._member0[Params.dab].misc;
+    _11.slabs = dabs._member0[Params.dab].slabs;
+    uint k = gl_LocalInvocationID.x;
+    float4 n = float4(0.0);
+    float4 c = float4(0.0);
+    uint4 _118;
+    for (;;)
+    {
+        float4 n_1;
+        float4 c_1;
+        bool _25_ladder_break = false;
+        do
+        {
+            _118 = _11.slabs;
+            if (!(k < _118.y))
+            {
+                _25_ladder_break = true;
+                break;
+            }
+            uint _127 = 2u * (_118.x + k);
+            n_1 = spvFAdd(n, partials._member0[_127]);
+            c_1 = spvFAdd(c, partials._member0[_127 + 1u]);
+            break;
+        } while(false);
+        if (_25_ladder_break)
+        {
+            break;
+        }
+        k += 256u;
+        n = n_1;
+        c = c_1;
+        continue;
+    }
+    lane_normal[gl_LocalInvocationID.x] = n;
+    lane_center[gl_LocalInvocationID.x] = c;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (gl_LocalInvocationID.x != 0u)
+    {
+        return;
+    }
+    k = 0u;
+    float4 sum_n = float4(0.0);
+    float4 sum_c = float4(0.0);
+    for (;;)
+    {
+        float4 sum_n_1;
+        float4 sum_c_1;
+        bool _37_ladder_break = false;
+        do
+        {
+            if (!(k < 256u))
+            {
+                _37_ladder_break = true;
+                break;
+            }
+            sum_n_1 = spvFAdd(sum_n, lane_normal[k]);
+            sum_c_1 = spvFAdd(sum_c, lane_center[k]);
+            break;
+        } while(false);
+        if (_37_ladder_break)
+        {
+            break;
+        }
+        k++;
+        sum_n = sum_n_1;
+        sum_c = sum_c_1;
+        continue;
+    }
+    float3 normal_1 = normalize0(sum_n.xyz);
+    float3 plane;
+    if (sum_n.w > 0.0)
+    {
+        plane = sum_c.xyz / float3(sum_n.w);
+    }
+    else
+    {
+        plane = float3(0.0);
+    }
+    float3 normal;
+    if ((_118.w & 8u) != 0u)
+    {
+        normal = normalize0(normal_1 * float3x3(_11.tilt0.xyz, _11.tilt1.xyz, _11.tilt2.xyz));
+    }
+    else
+    {
+        normal = normal_1;
+    }
+    areas._member0[2u * Params.dab] = float4(normal, 0.0);
+    areas._member0[(2u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _11.tilt2.w), 0.0);
+}
+

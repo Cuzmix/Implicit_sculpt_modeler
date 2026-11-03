@@ -31,6 +31,7 @@ beyond :: proc(planes: []Clip_Plane, p: Vec3) -> bool {
 sculptor_clip :: proc(s: ^Sculptor, planes: []Clip_Plane) -> bool {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || len(planes) == 0 do return false
+	_ = sculptor_gpu_sync(s)
 	Clip_Job :: struct {
 		s:      ^Sculptor,
 		planes: []Clip_Plane,
