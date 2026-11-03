@@ -368,6 +368,13 @@ class Site_Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
+    def end_headers(self):
+        # A development server's files change with every build. Without this a browser
+        # guesses from Last-Modified and keeps them: Safari on the iPad went on running a page
+        # several builds old while fetching only the wasm.
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def log_request(self, code="-", size="-"):
         if self.command != "POST" or self.path != "/log":
             super().log_request(code, size)
