@@ -398,6 +398,9 @@ App :: struct {
 	skin_auto:                bool,
 	// How an OpenEXR alpha's channels are read: the app the vector map came from.
 	vdm_axes:                 sculpt.Vdm_Axes,
+	// What the last rebuild's skin carry reported, for the exit stats.
+	skin_carry:               sculpt.Skin_Carry_Report,
+	skin_squeezes:            int, // Squeezes run this session, for the exit stats
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens

@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 
+import "../geom"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -161,6 +162,16 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, why)
 	} else {
 		ui.paragraph(ctx, "Sculpt detail finer than the mesh without adding vertices: each triangle carries a grid of heights the brushes raise and lower.")
+	}
+	// Squeeze: a dense sculpt to a lighter mesh and a skin, offered where it can run.
+	if skin_squeeze_refusal(obj) == "" {
+		ui.caption(ctx, "SQUEEZE TO")
+		shares: [len(SQUEEZE_SHARES)]string
+		for n, i in SQUEEZE_SHARES do shares[i] = fmt.tprintf("1/%d", n)
+		squeeze_hints: [len(SQUEEZE_SHARES)]string
+		for &h, i in squeeze_hints do h = command_hint(app, .Skin_Squeeze, i)
+		if picked := ui.tabs(ctx, "squeeze", shares[:], -1, keys = squeeze_hints[:]); picked >= 0 do command_run(app, .Skin_Squeeze, picked)
+		ui.paragraph(ctx, fmt.tprintf("A mesh of that share of the %s vertices holds the forms and a skin the rest; the note says how far it strays, and Show skin detail colours each triangle green to red by it.", count_label(geom.mesh_vertex_count(object_mesh(obj)^))))
 	}
 	// The skin a fine stroke adds by itself (skin_auto_add), whichever object is picked.
 	_ = ui.switch_row(ctx, "Add a skin by itself", &app.skin_auto)

@@ -152,7 +152,7 @@ float3 skin_view_normal() {
 	uint4 rec = skin_tris[tri];
 	// From the corners as drawn back to the mesh's order: drawn corner k is the mesh's
 	// corner (k + lead) mod 3.
-	uint lead = rec.w;
+	uint lead = rec.w & 3u;
 	float3 gb = frag_in.bary;
 	uint3 gv = frag_in.skin_tri.yzw;
 	float3 b;
@@ -203,6 +203,15 @@ float3 skin_detail_color(float3 n, float3 v) {
 	float3 b = cross(m, t);
 	float3 d = float3(clamp(2.0 * dot(s, t), -1.0, 1.0), clamp(2.0 * dot(s, b), -1.0, 1.0), dot(s, m));
 	rgb = d * 0.5 + 0.5;
+	// A carried skin's heat (sculpt.Skin.heat, in the record's high 16 bits): how far the
+	// triangle's skin strays from the surface it came from, over a grid step, from green
+	// (none) through yellow to red (a step or more), laid over the detail colours.
+	uint heat = skin_tris[frag_in.skin_tri.x].w >> 16u;
+	if (heat > 0u) {
+		float h = float(heat - 1u) / 65534.0;
+		float3 ramp = h < 0.5 ? lerp(float3(0.15, 0.75, 0.25), float3(0.95, 0.85, 0.2), h * 2.0) : lerp(float3(0.95, 0.85, 0.2), float3(0.9, 0.15, 0.1), h * 2.0 - 1.0);
+		rgb = lerp(rgb, ramp, 0.7);
+	}
 #endif
 	return rgb * (0.7 + 0.3 * clamp(dot(flat_n, v), 0.0, 1.0));
 }

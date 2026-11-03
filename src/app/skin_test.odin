@@ -100,3 +100,23 @@ detail_skin_adds_itself_for_fine_dabs :: proc(t: ^testing.T) {
 	app.skin_auto = false
 	testing.expect(t, !skin_auto_add(app, obj, .Draw, 0.01), "the switch off added a skin")
 }
+
+// A rebuilt mesh's skin holds at least the old surface's samples, fewer segments only past
+// the memory limit; Squeeze is offered on dense sculpts only.
+@(test)
+skin_carry_segments_keep_the_samples :: proc(t: ^testing.T) {
+	// 198k vertices onto 48k triangles: 2.9 wanted, so 4 (2 would hold fewer).
+	testing.expect_value(t, skin_carry_segments(48_000, 198_000), 4)
+	testing.expect_value(t, skin_carry_segments(10_000, 10_000), 2)
+	testing.expect_value(t, skin_carry_segments(1_000, 100_000), 16)
+	testing.expect_value(t, skin_carry_segments(0, 100), 0)
+	// Twenty million triangles: even 2 segments' skin passes the limit.
+	testing.expect_value(t, skin_carry_segments(80_000_000, 100_000_000), 0)
+
+	app := new(App)
+	defer free(app)
+	obj := skin_object(app)
+	defer skin_scene_free(app)
+	testing.expect(t, skin_squeeze_refusal(obj) != "", "a 162-vertex sphere could be squeezed")
+	testing.expect(t, !command_enabled(app, .Skin_Squeeze, 1))
+}

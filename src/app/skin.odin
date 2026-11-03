@@ -2,9 +2,11 @@ package main
 
 import "core:fmt"
 import "core:math"
+import "core:math/linalg"
 import "core:time"
 
 import "../geom"
+import "../render"
 import "../sculpt"
 
 // The detail skin (sculpt/skin.odin) in the app: where a brush's detail goes, and adding,
@@ -188,6 +190,23 @@ skin_auto_segments :: proc(tris: int, edge, radius: f32) -> u32 {
 	return segments if skin_auto_bytes(tris, segments) <= SKIN_AUTO_BYTES else 0
 }
 
+// The segments of a skin on a rebuilt mesh of `tris` triangles that holds at least as
+// many samples as `samples` (the old surface's: its skin's, or its vertices'), so no
+// detail is lost to a coarser grid: the smallest power of two, 2 to 16, at or past the
+// square root of twice their ratio (a triangle of S segments adds about S * S / 2
+// samples), fewer while the skin would pass SKIN_AUTO_BYTES. 0 when not even 2 fits.
+skin_carry_segments :: proc(tris, samples: int) -> u32 {
+	if tris <= 0 do return 0
+	want := math.sqrt(2 * f64(samples) / f64(tris))
+	segments := SKIN_SEGMENTS[len(SKIN_SEGMENTS) - 1]
+	for n in SKIN_SEGMENTS[1:] do if f64(n) >= want {
+		segments = n
+		break
+	}
+	for segments > SKIN_SEGMENTS[1] && skin_auto_bytes(tris, segments) > SKIN_AUTO_BYTES do segments /= 2
+	return segments if skin_auto_bytes(tris, segments) <= SKIN_AUTO_BYTES else 0
+}
+
 // What a skin of `segments` takes on a closed mesh of `tris` triangles, near enough: half
 // as many vertices and one and a half times as many edges as triangles.
 @(private = "file")
@@ -217,4 +236,74 @@ skin_auto_add :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, radius: 
 	if segments == 0 do return false
 	why := fmt.tprintf("Added a detail skin of %d segments to %s: %s's dab is finer than its mesh, so the detail goes into the skin (Detail skin section; Add a skin by itself turns this off)", segments, object_label(obj), BRUSHES[kind].name)
 	return skin_set(app, segments, why)
+}
+
+// Squeeze: a dense sculpt becomes a lighter mesh holding its forms and a detail skin
+// holding the rest, so it sculpts and draws as the lighter mesh does. The shares of the
+// vertices the light mesh keeps, as the Detail skin section offers them.
+SQUEEZE_SHARES := [?]int{4, 8, 16}
+
+// Why the selected object cannot be squeezed, "" when it can.
+skin_squeeze_refusal :: proc(obj: ^Object) -> string {
+	switch {
+	case obj == nil: return "Select an object first."
+	case obj.voxel != nil: return "A voxel object has no mesh to squeeze: Convert to mesh first."
+	case obj.cage != nil || obj.curve != nil: return "Squeeze works on a sculpted mesh, not on a cage or a curve."
+	case object_dynamic(obj): return "Turn dynamic topology off first."
+	case geom.mesh_vertex_count(object_mesh(obj)^) < SQUEEZE_MIN_VERTICES: return fmt.tprintf("Squeeze is for dense sculpts, of %s vertices or more.", count_label(SQUEEZE_MIN_VERTICES))
+	}
+	return ""
+}
+
+// Below this a squeezed mesh would be too coarse to hold the forms.
+SQUEEZE_MIN_VERTICES :: 20_000
+
+// Squeezes the selected object to 1 / `share` of its vertices: remeshed evenly to that
+// count, with a skin of as many samples as it had vertices (and its skin samples, if it
+// had one) carrying the rest of its surface, as one undo step. The note gives how far
+// the result strays at worst and on average; the Skin detail view shows where (its heat).
+skin_squeeze :: proc(app: ^App, share: int) -> bool {
+	obj := selected_object(app)
+	if why := skin_squeeze_refusal(obj); why != "" {
+		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		return true
+	}
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	s := object_sculptor(obj)
+	samples := geom.mesh_vertex_count(source)
+	if sk := sculpt.levels_skin(&obj.levels); sk != nil do samples = max(samples, len(sk.heights))
+	area, bounds := geom.mesh_area_bounds(source, &app.pool)
+	groups := sculpt.sculptor_groups(s)
+	report_: geom.Remesh_Report
+	defer geom.remesh_report_destroy(&report_)
+	setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT}
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, max(samples / max(share, 1), 1000), &app.pool, options = remesh_options(setup, groups), report = &report_)
+	if !built {
+		report(app, Kit_Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
+		return true
+	}
+	surface := remesh_surface(report_, mesh, source, s.color, groups)
+	defer surface_free(&surface)
+	segments := skin_carry_segments(len(mesh.indices) / 3, samples)
+	if segments == 0 {
+		geom.mesh_destroy(&mesh)
+		report(app, Kit_Section.Hd, {.Warning}, "The skin %s needs is past %s: squeeze by less", object_label(obj), bytes_label(SKIN_AUTO_BYTES))
+		return true
+	}
+	before := history_snapshot(app, obj, "squeeze")
+	render.wait_idle(&app.renderer)
+	if !object_rebuild(app, obj, mesh, start, normals = true, surface = surface, squeeze = segments) {
+		history_snapshot_drop(before)
+		scene_delete_selected(app, undoable = false)
+		return false
+	}
+	history_record_swap(app, obj.id, before)
+	app.skin_squeezes += 1
+	rep := app.skin_carry
+	size := linalg.length(bounds.hi - bounds.lo)
+	report(app, nil, {.Undo}, "Squeezed %s from %s to %s vertices and a skin of %d segments (%.1f s): off by %.3f%% of its size at worst, %.4f%% on average", object_label(obj), count_label(samples), count_label(geom.mesh_vertex_count(object_mesh(obj)^)), segments, time.duration_seconds(time.tick_since(start)), 100 * rep.worst / size, 100 * rep.mean / size)
+	return true
 }

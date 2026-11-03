@@ -120,6 +120,7 @@ Command_Id :: enum u16 {
 	Hd_Leave,
 	Detail_Skin, // the argument is the place in SKIN_SEGMENTS (0: off)
 	Skin_Apply,
+	Skin_Squeeze, // the argument is the place in SQUEEZE_SHARES
 	Detail_To, // the argument is the Detail_To, for the brush held
 	Detail_To_Next,
 	Morph_Store,
@@ -1308,6 +1309,13 @@ COMMANDS := [Command_Id]Command {
 			sk := object_skin(selected_object(app))
 			return (sk.segments if sk != nil else 0) == SKIN_SEGMENTS[arg]
 		},
+	},
+	.Skin_Squeeze = {
+		label = "Squeeze",
+		help = "Turns the selected dense sculpt into a mesh with a quarter, an eighth or a sixteenth of its vertices and a detail skin holding the rest of its surface, so it sculpts and draws as the lighter mesh does; the note says how far it strays, and Show skin detail shows where.",
+		args = len(SQUEEZE_SHARES),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Squeeze, vertices = SQUEEZE_SHARES[arg]}},
+		enabled = proc(app: ^App, _: int) -> bool {return skin_squeeze_refusal(selected_object(app)) == ""},
 	},
 	.Skin_Apply = {
 		label = "Apply skin",
@@ -2816,6 +2824,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Skin_Squeeze:
+		return fmt.tprintf("Squeeze to 1/%d", SQUEEZE_SHARES[arg])
 	case .Detail_Skin:
 		return "Detail skin off" if SKIN_SEGMENTS[arg] == 0 else fmt.tprintf("Detail skin %d", SKIN_SEGMENTS[arg])
 	case .Detail_To:
