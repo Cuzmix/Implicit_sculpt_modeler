@@ -339,9 +339,11 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	}
 	// Where each pixel lies between its triangle's corners, read by the wireframe drawn in
 	// the shading (mesh_wire.frag.slang, Gpu_Caps.barycentric): one pass instead of the
-	// triangles again as lines.
+	// triangles again as lines. It also reads the triangle's number, to leave out a quad's
+	// diagonal: the primitive id, which the fragment stage has with geometryShader, plus
+	// the draw's first instance, which indirect draws carry with drawIndirectFirstInstance.
 	want_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR, fragmentShaderBarycentric = true}
-	if vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
+	if have.features.geometryShader && have.features.drawIndirectFirstInstance && vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
 		have_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR}
 		bary_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_bary}
 		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &bary_chain)
@@ -349,6 +351,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 			append(&device_extensions, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)
 			want_bary.pNext = f12.pNext
 			f12.pNext = &want_bary
+			features.features.geometryShader = true
 			vk_state.barycentric = true
 		}
 	}

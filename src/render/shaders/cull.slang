@@ -17,7 +17,7 @@
 [[vk::binding(0, 2)]] cbuffer Cull_Uniforms {
 	float4 planes[6]; // geom.frustum_planes of the pass, in the object's space
 	float4 eye;       // xyz: the eye in the object's space
-	uint4 counts;     // x: chunks, y: groups
+	uint4 counts;     // x: chunks, y: groups, z: 1 to give each command its first triangle's number as its first instance (the wireframe drawn in the shading)
 };
 
 static const uint GROUP = 64; // geom.CHUNK_GROUP

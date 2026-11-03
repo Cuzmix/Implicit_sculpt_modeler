@@ -173,6 +173,9 @@ Mesh_Vertex_Out main(
 	[[vk::location(0)]] float3 in_position : POSITION,
 	// Octahedral with the mask in the low bits, see geom.oct_encode_masked.
 	[[vk::location(1)]] float2 in_normal_oct : NORMAL,
+#ifdef WIRE_BARY
+	uint instance : SV_VulkanInstanceID,
+#endif
 	uint vertex : SV_VulkanVertexID) {
 #endif
 #ifndef SKIN_TESS
@@ -207,6 +210,9 @@ Mesh_Vertex_Out main(
 	o.v.turn_y = turn[1];
 	o.v.turn_z = turn[2];
 	o.v.skin_meta = skin;
+#endif
+#ifdef WIRE_BARY
+	o.v.tri_base = instance;
 #endif
 	return o;
 }
