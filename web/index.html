@@ -71,17 +71,17 @@ function flush() {
 	fetch("log", { method: "POST", body, keepalive: true }).then((r) => { if (!r.ok) streaming = false; }).catch(() => { streaming = false; });
 }
 setInterval(flush, 250);
-live(`page: ${navigator.userAgent}`);
+live(`page: ${location.pathname}${location.search} on ${navigator.userAgent}`);
 function stage(name) { live(`page: ${name}`); flush(); }
 let watched_memory = null;
 setInterval(() => {
-	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB, GPU ${(gpu_bytes / 1048576).toFixed(0)} MB in ${gpu_objects} buffers and textures, ${gpu_submits} submits`);
+	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB, GPU ${(gpu_bytes / 1048576).toFixed(0)} MB in ${gpu_objects} buffers and textures, ${gpu_submits} submits, ${gpu_done} of ${gpu_waits} waits answered, ${steps} frames stepped`);
 }, 500);
 
 // What the app holds on the GPU, which a tablet's browser counts against the tab: every
 // buffer and texture made and destroyed through WebGPU, by its size (a texture's by its
 // format, samples, layers and mip chain), with each one of 16 MB or more named as it comes.
-let gpu_bytes = 0, gpu_objects = 0, gpu_submits = 0;
+let gpu_bytes = 0, gpu_objects = 0, gpu_submits = 0, gpu_waits = 0, gpu_done = 0, steps = 0;
 const gpu_sizes = new WeakMap();
 const FORMAT_BYTES = { r8unorm: 1, r8uint: 1, r8snorm: 1, rg8unorm: 2, r16float: 2, r16uint: 2, depth16unorm: 2,
 	rgba16float: 8, rg32float: 8, rg32uint: 8, rgba16uint: 8, "depth32float-stencil8": 8,
@@ -145,6 +145,13 @@ if (typeof GPUDevice !== "undefined") {
 		return mapAsync.call(this, mode, offset, size).then(
 			(v) => { live(`page: mapped ${(bytes / 1048576).toFixed(1)} MB`); return v; },
 			(e) => { live(`page: map failed ${e && e.name}: ${e && e.message}`); throw e; });
+	};
+	// The GPU's answers that submitted work finished, which the app's frame fences wait on:
+	// waits left unanswered while the frames stop mean the GPU hung on that work.
+	const workDone = GPUQueue.prototype.onSubmittedWorkDone;
+	GPUQueue.prototype.onSubmittedWorkDone = function () {
+		gpu_waits += 1;
+		return workDone.call(this).then((v) => { gpu_done += 1; return v; });
 	};
 	const submit = GPUQueue.prototype.submit;
 	GPUQueue.prototype.submit = function (buffers) {
@@ -277,6 +284,7 @@ async function start() {
 		last = now;
 		let keep = true;
 		const began = performance.now();
+		steps += 1;
 		try {
 			keep = ex.step(dt);
 			const took = performance.now() - began;
