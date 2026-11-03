@@ -7,8 +7,10 @@ summary.
 - Layout: one, Lens (the Sculpt Workspace Directions mock; spec `notes/lens/mock-layout-design.md`). The Classic
   layout (ZBrush-iPad bars, the dock, `--chrome`) is gone; never add a second chrome: `settings_load` passes over old
   `chrome`, `panes_under_panels`, `dock*` and `right_rail` lines. `kit_layout` (`new_ui.odin`) lays out in order: the
-  chip bar `kit_top_bar` (`kit_top_lens.odin`, root "top bar", floating `TOP_BAR_INSET` in and `TOP_BAR_TOP` down;
-  `TOP_BAR_H` stays the room it takes): Menu, file block (`file_status`, fixed width so Undo/Redo never move) | Undo,
+  top bar `kit_top_bar` (`kit_top_lens.odin`, root "top bar", floating `TOP_BAR_INSET` in and `TOP_BAR_TOP` down;
+  `TOP_BAR_H` stays the room it takes): three docks (`Top_Dock`, bars `.Top_File/.Top_Spaces/.Top_App`, roots "file dock",
+  "spaces dock", "app dock"; `top_dock_draw` draws the chips and bar buttons by command id, anything else `bar_slot_button`;
+  `top_widths` + the give-way loop): Main_Menu, File_Chip (`file_status`, fixed width so Undo/Redo never move) | Save, Undo,
   Redo | space tabs `top_space_tabs` | the object chip `top_object_chip` (`object_chip.odin`, shrunk by
   `object_chip_fit`; its tap opens `kit_object_menu`, `object_menu.odin`: rows from `OBJECT_VERBS[Object_Type][Space]`,
   each a registry command, another space's first enabled verb tagged with `menu_item(tag =, tag_color = t.tints[space])`
@@ -16,7 +18,7 @@ summary.
   click (`pie_update`), the `Object_Menu` command and the finger's `hold_menu_check` in `pointer_route`; `space_fit` (`offers.odin`)
   rings it amber and `kit_offer_line` takes the action bar's place; a dimmed command passes `command_reason` as `reason`;
   `kit_colour_island` sits under both while painting, lifting them by `colour_island_lift`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
-  loses hits to it); its width budget counts the row's gaps (`things`, 14 with every section in). Each section is `chip_section_draw` (`Chip_Section`); one taken out stands as an island (`chip_islands.odin`, `k.islands`: a setting, not the layout's, since the bar holds the space tabs), and Arrange outlines every drawn section with an overlay `ui.area` in `arrange_chip_sections` whose drag carries it (dropped over `prev_root_rect("top bar")` it goes back; inside another root use `prev_root_rect`, as `prev_rect` hashes under the current id); `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
+  loses hits to it); its width budget counts the row's gaps (`things`, 14 with every section in). While editing, File and App draw every slot as `bar_slot_button` (carry, change, remove) plus `bar_add_button`, and Spaces holds `arrange_top_controls`; `lens_focus(k)` (the View_Bar zone hidden) gives the middle `top_focus_middle` and the end `top_focus_view`, with no readout and
   a compact shelf. Then `kit_readout` (readout.odin: "points" > "readout lines" > "readout", the camera and shading words over faded vertices, memory and GPU lines; skipped while a pane is maximised, in Focus or hidden: `readout=`), `kit_dock(app, .Offhand)` (the island, "brush bar": Size and Strength
   `ui.vslider`s via `dock_slider`, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_dock(app, .Rail)`
   ("view bar", `Bar_Which.View_Rail`), `kit_user_docks`, the shelf `kit_shelf` (`lens_shelf.odin`, "dock", pages row "dock pages"),
@@ -127,7 +129,7 @@ summary.
   a Modifier sector claims a finger. A space switch drops latches the new dial lacks (`dial_latches_keep`); settings
   write Sculpt's as `dial_sector` and the others' as `dial_space` lines.
   The History panel (`kit_history_panel`, `timeline.odin`) shows `Timeline.view`: List (`history_list.odin`, a
-  setting `history_view`, anchored at the pen side under the chip bar, `KIT_HISTORY_LIST_W` wide) or Strip (the
+  setting `history_view`, anchored at the pen side under the top bar, `KIT_HISTORY_LIST_W` wide) or Strip (the
   bar over the shelf, as before). The list's rows come from `history_rows`, newest first, a step being a non-chain
   entry with the chained ones after it; a group is consecutive same-brush strokes on one object on one side of
   `done`, none adjusted, opened by `Timeline.open_at` (its oldest stroke's `at`, so undoing its newest keeps it

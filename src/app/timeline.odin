@@ -312,7 +312,7 @@ timeline_seek_done :: proc(app: ^App) {
 }
 
 // The interface's History panel. Its List view (history_list.odin, the default) stands at
-// the pen side under the chip bar: a row a step, a tap on one going there. Its Strip view
+// the pen side under the top bar: a row a step, a tap on one going there. Its Strip view
 // starts over the dock: step through the History, scrub it on the bar, play it back, and
 // record it as a time-lapse. Returns true when a press landed on it, to bring it to the
 // front.
@@ -334,7 +334,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	p: Panel_Frame
 	width: f32
 	if list {
-		// The list stands at the pen side under the chip bar, near History's button, as tall
+		// The list stands at the pen side under the top bar, near History's button, as tall
 		// as the window has room for.
 		width = KIT_HISTORY_LIST_W
 		p = panel_begin(app, Kit_Window.History, "History", .End, .Start, {kit_right(app), TOP_BAR_H + 6}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})

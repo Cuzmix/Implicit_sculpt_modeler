@@ -3336,7 +3336,7 @@ SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top b
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
-TOP_UNDO, TOP_SEARCH = (150, 33), At("app island/Search commands", 1336, 30)
+TOP_UNDO, TOP_SEARCH = (150, 33), At("app dock/Search commands", 1336, 30)
 
 
 @scenario
@@ -4936,8 +4936,8 @@ def lens_shift_moves_lined_up_dividers():
 
 # Focus in Lens at 1600 x 900, the three-island top bar: the middle island's workspace chip
 # and X symmetry chip, and the right island's View layout and Passes.
-LENS_FOCUS = {"workspace": At("work island/Workspace", 770, 30), "symmetry": At("work island/Symmetry X", 838, 30),
-              "layout": At("app island/View layout", 1342, 30), "passes": At("app island/Passes", 1392, 30)}
+LENS_FOCUS = {"workspace": At("spaces dock/Workspace", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
+              "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Passes", 1392, 30)}
 
 
 @scenario
@@ -6085,14 +6085,11 @@ def dock_stays_with_its_space():
     return Steps([run(False), run(True)])
 
 
-# The chip bar's sections in Arrange at 1440x900 (PR 14): Undo and Redo's middle, where an
-# island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
-# toggles for Spaces, with the Model tab of the Spaces island it makes.
-# Undo stands after the file island's grip while arranging.
-CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (268, 30), (700, 420), (730, 424)
-# The file island's grip while arranging, and the bar's end corner it is carried to.
-GRIP_FILE, BAR_END = At("top bar/file island/grip file", 22, 30), (1380, 30)
-CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), At("chip island spaces/Model", 789, 80)
+# The top bar's docks while editing at 1440x900: the File dock's Save, a spot on the App
+# dock's History (its end half), the App dock's +, and the Library's Wireframe.
+TOP_SAVE, TOP_HISTORY_END = At("top bar/file dock/Save scene", 149, 30), (1318, 30)
+TOP_APP_ADD = At("top bar/app dock/Add a button", 1406, 30)
+PICKER_WIREFRAME = At("sheet button/Wireframe", 1300, 160)
 # The Library's close button.
 LIBRARY_AWAY = (753, 129)
 
@@ -6105,62 +6102,32 @@ def settings_hold(text):
 
 
 @scenario
-def chip_section_dragged_out_of_the_bar():
-    """In Arrange a finger drags Undo and Redo out of the chip bar into the view: after Done they stand there as an island, the bar closes up without them, and the settings file keeps the island."""
+def top_dock_button_carried_to_another_dock():
+    """Editing the docks, a finger carries Save from the top bar's File dock onto the App dock after History: it stands there, off the File dock, and the settings file keeps it."""
     s = Script()
     s.wait(6)
-    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
+    s.fdrag(line(TOP_SAVE, TOP_HISTORY_END, 30))
     s.wait(6)
     s.press("Escape")
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "chip_islands": lambda v: v.startswith("undo:6") and ":39" in v, "chip_carries": near(1), "bars_edit": near(0),
-        "layout_top_bar": is_text("8,4,1424,48"), "dabs": near(0), "@saved": settings_hold("chip_island undo ")})
+        "top_file": is_text("Main_Menu,File_Chip,Undo,Redo"), "top_app": is_text("Command_Palette,History_Panel,Save_Scene,Settings"),
+        "dabs": near(0), "@saved": settings_hold("bar top_app")})
 
 
 @scenario
-def top_island_carried_to_the_end_corner():
-    """In Arrange a finger drags the file island by its grip to the bar's end corner: it snaps there, Search's island takes its old corner, and the settings file keeps the order."""
+def top_dock_add_opens_the_library():
+    """Editing the docks, the App dock's + opens the Library on its Commands; Wireframe found by typing goes at the dock's end."""
     s = Script()
     s.wait(6)
-    s.fdrag(line(GRIP_FILE, BAR_END, 30))
+    s.ftap(TOP_APP_ADD)
     s.wait(6)
-    s.press("Escape")
-    s.wait(8)
-    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "top_order": is_text("app,work,file"), "island_carries": near(1), "chip_islands": is_text("none"), "bars_edit": near(0),
-        "dabs": near(0), "@saved": settings_hold("top_order app work file")})
-
-
-@scenario
-def chip_island_dragged_back_onto_the_bar():
-    """The mouse drags the Undo island it made back onto the chip bar: the section is in the bar again and nothing stands on its own."""
-    s = Script()
+    s.type("wiref")
+    s.wait(4)
+    s.ftap(PICKER_WIREFRAME)
     s.wait(6)
-    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
-    s.wait(8)
-    # The Library is put away first, as it covers the island.
-    s.ftap(LIBRARY_AWAY)
-    s.wait(6)
-    s.mouse_drag(line(CHIP_ISLAND_REDO, (600, 30), 30))
-    s.wait(6)
-    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"chip_islands": is_text("none"), "chip_carries": near(2), "dabs": near(0)})
-
-
-@scenario
-def chip_section_library_toggle_makes_a_working_island():
-    """Library > Docks' Spaces toggle stands the space tabs on their own under the bar; after Done a tap on the island's Model tab switches to Model, and the island stays (the chip bar is every space's)."""
-    s = Script()
-    s.wait(6)
-    s.ftap(ARRANGE_DOCKS_TAB)
-    s.wait(6)
-    s.ftap(CHIP_SPACES_TOGGLE)
-    s.wait(6)
-    s.press("Escape")
-    s.wait(8)
-    s.ftap(CHIP_SPACES_MODEL)
-    s.wait(8)
-    return s, LENS_1440 + ["--script=customise_bars"], {"chip_islands": lambda v: v.startswith("spaces:") and v.endswith(":58"), "space": is_text("model"), "dabs": near(0)}
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({
+        "library_for": is_text("top_app"), "library_puts": near(1), "top_app": is_text("Command_Palette,History_Panel,Settings,Wireframe"), "dabs": near(0)})
 
 
 @scenario
@@ -8723,15 +8690,15 @@ def stroke_on_another_object_keeps_to_the_selected():
 # of the Library's cards, and the rail's button the Symmetry card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 254)
 RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
-PICKER_SYMMETRY = At("sheet button/Show_Panel/Symmetry", 1300, 160)
-PICKER_LIGHTS = At("sheet button/Show_Panel/Lights", 1300, 160)
-RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
+PICKER_TOOLS = At("sheet button/Show_Panel/Tools", 1300, 160)
+PICKER_ENVIRONMENT = At("sheet button/Show_Panel/Environment", 1300, 160)
+RAIL_TOOLS = At("view bar/Tools", 1563, 373)
 
 
 @scenario
 def rail_panels_picker_adds_a_card():
     """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
-    Symmetry and Lights cards: both go on the rail. The Symmetry button the rail gets docks the Symmetry card in the panels' column; nothing
+    Tools and Environment cards: both go on the rail. The Tools button the rail gets docks the Tools card in the panels' column; nothing
     turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
@@ -8739,22 +8706,22 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_ADD_CARDS)
     s.wait(6)
     # Its search field has the keys: a few letters bring each card into sight.
-    s.type("symm")
+    s.type("tool")
     s.wait(4)
-    s.ftap(PICKER_SYMMETRY)
+    s.ftap(PICKER_TOOLS)
     s.wait(4)
     for _ in range(4):
         s.press("Backspace")
-    s.type("light")
+    s.type("envir")
     s.wait(4)
-    s.ftap(PICKER_LIGHTS)
+    s.ftap(PICKER_ENVIRONMENT)
     s.wait(4)
     s.press("escape")
     s.wait(6)
-    s.ftap(RAIL_SYMMETRY)
+    s.ftap(RAIL_TOOLS)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Symmetry"), "library_puts": near(2),
-                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Tools"), "library_puts": near(2),
+                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools,Show_Panel:Environment")})
 
 
 @scenario
