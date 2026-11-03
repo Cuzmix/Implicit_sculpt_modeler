@@ -59,6 +59,9 @@ Send_Event :: struct {
 	text: string,
 	path: string,
 	hash: u64, // the file's hash, Sent and Received
+	// Received: the scene's token and the device it came from.
+	token: u64,
+	from:  string,
 }
 
 // What the frame loop and the threads share, under lock unless said otherwise.
@@ -110,6 +113,18 @@ Send :: struct {
 	pending:  string, // --send-to: sent once the run is set up; owned
 	frames:   int,
 	exit_after_receive: bool,
+	// --send-arrived: how a scene that needs the card is answered in a scripted run.
+	arrive_answer: Arrive_Answer,
+	// A received scene waiting on the card (send_arrive.odin); its strings owned.
+	arrived:  Send_Arrival,
+	// The scene as it was when it last went out or came in: its token and fingerprint,
+	// so an arrival of the same scene knows whether it changed here since.
+	exchanged_token, exchanged_fp: u64,
+	// The same for the send under way, which becomes the exchanged one once it lands.
+	sending_token, sending_fp: u64,
+	// Where each scene was last saved on this device, by token (saved.txt), so a scene
+	// coming back saves where it was before.
+	saved:    [dynamic]Send_Saved,
 	// What this run did, for the exit stats.
 	sent, received, refused, found: int,
 	sent_hash, received_hash: u64,
@@ -236,6 +251,7 @@ send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive:
 	app.send.shared = sh
 	app.send.exit_after_receive = exit_after_receive
 	app.send.receive = receive
+	send_saved_load(app)
 	// A run told to receive listens before its first frame, so a sender started beside it
 	// finds it at once.
 	send_receive_follow(app)
@@ -313,6 +329,9 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 	delete(app.send.ending)
 	app.send.ending = nil
 	send_events_take(app)
+	send_arrival_drop(app)
+	for v in app.send.saved do delete(v.path)
+	delete(app.send.saved)
 	app.send.found = sync.atomic_load(&sh.found)
 	for p in sh.pairs do delete(p.name)
 	delete(sh.pairs)
@@ -332,6 +351,13 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 send_event :: proc(sh: ^Send_Shared, kind: Send_Event_Kind, path: string, hash: u64, format: string, args: ..any) {
 	sync.lock(&sh.lock)
 	append(&sh.events, Send_Event{kind = kind, text = fmt.aprintf(format, ..args), path = strings.clone(path), hash = hash})
+	sync.unlock(&sh.lock)
+}
+
+// Queues a received scene, with its token and the device it came from.
+send_event_received :: proc(sh: ^Send_Shared, path: string, hash, token: u64, from: string, format: string, args: ..any) {
+	sync.lock(&sh.lock)
+	append(&sh.events, Send_Event{kind = .Received, text = fmt.aprintf(format, ..args), path = strings.clone(path), hash = hash, token = token, from = strings.clone(from)})
 	sync.unlock(&sh.lock)
 }
 
@@ -360,6 +386,7 @@ send_scene :: proc(app: ^App, host: string, label := "") -> bool {
 	job := new(Send_Job)
 	hd := scene_bytes(app, &job.data)
 	job.token = link_scene_token(app)
+	app.send.sending_token, app.send.sending_fp = job.token, scene_fingerprint(app)
 	app.send.revision += 1
 	job.revision = app.send.revision
 	job.host = strings.clone(host)
@@ -388,6 +415,7 @@ send_events_take :: proc(app: ^App) {
 		defer {
 			delete(e.text)
 			delete(e.path)
+			delete(e.from)
 		}
 		switch e.kind {
 		case .Note:    file_note(app, false, "%s", e.text)
@@ -397,23 +425,13 @@ send_events_take :: proc(app: ^App) {
 		case .Sent:
 			app.send.sent += 1
 			app.send.sent_hash = e.hash
+			app.send.exchanged_token, app.send.exchanged_fp = app.send.sending_token, app.send.sending_fp
 			file_note(app, false, "%s", e.text)
 		case .Received:
 			app.send.received += 1
 			app.send.received_hash = e.hash
 			if !app.running do continue
-			if !app.send.exit_after_receive && scene_unsaved(app) {
-				file_note(app, false, "%s. It is kept in the Received folder, since this scene has unsaved changes", e.text)
-				continue
-			}
-			opened, _ := scene_open(app, e.path)
-			if opened {
-				scene_remember_path(app, e.path)
-				recent_scene_add(app, e.path)
-				if app.kit.home do home_close(app)
-				file_note(app, false, "%s, and opened it", e.text)
-			}
-			if app.send.exit_after_receive do app.running = false
+			send_arrive(app, e)
 		}
 	}
 }

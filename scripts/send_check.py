@@ -23,6 +23,14 @@ sender as a tablet runs it, over loopback.
    only for what the first did not write (but the first chunk, which holds the time the
    scene was written), read back from the partial file it kept, and the hashes and the
    mesh match.
+5. Round trips, the scene the receiver already has coming back: the receiver saves its
+   copy as pc_dragon.sculpt, then opens it and receives the scene again, which opens in
+   place and says Save goes to pc_dragon.sculpt; then, with a new scene of two objects open
+   (a duplicate), another scene's arrival is kept for later (--send-arrived=keep: the
+   receiver's mesh stays its own) or opened (--send-arrived=open: the open scene is kept
+   in the send folder's kept first, and the mesh is the sender's). A setup script's
+   changes count as the scene's starting state, so the same scene changed here too is
+   left to the app's own test (send_arrive_test.odin).
 
 Each check prints PASS or FAIL and the script exits 1 on any FAIL. Like link_check, it is a
 development aid outside the gate: it opens a port on loopback and runs two apps at once.
@@ -65,12 +73,12 @@ def mesh(log):
     return stat(log, "mesh_vertices"), stat(log, "mesh_triangles"), stat(log, "mesh_volume")
 
 
-def receiver(env, tag):
+def receiver(env, tag, args=()):
     log_path = os.path.join(WORK, f"receive{tag}.log")
     log = open(log_path, "w")
     p = subprocess.Popen([APP, "--receive", "--send-allow", "--exit-after-receive", "--frames=6000",
                           "--send-folder=" + os.path.join(WORK, "pc"), f"--send-port={PORT}",
-                          "--check-mesh"], env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
+                          "--check-mesh"] + list(args), env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
     # The sender starts once the receiver says it is listening, or the send would find
     # nobody there; a receiver that dies first ends the wait.
     start = time.monotonic()
@@ -105,8 +113,8 @@ def finish(p, log, log_path):
         return code, f.read()
 
 
-def round_trip(env, tag, args, target=f"127.0.0.1:{PORT}"):
-    r = receiver(env, tag)
+def round_trip(env, tag, args, target=f"127.0.0.1:{PORT}", receiver_args=(), same_mesh=True):
+    r = receiver(env, tag, receiver_args)
     s_code, s_log = sender(env, tag, args, target)
     r_code, r_log = finish(*r)
     check(f"{tag}: sender exits 0", s_code == 0, f"exit {s_code}")
@@ -116,8 +124,9 @@ def round_trip(env, tag, args, target=f"127.0.0.1:{PORT}"):
           f"sent {stat(s_log, 'send_sent')}, received {stat(r_log, 'send_received')}")
     sh, rh = stat(s_log, "send_sent_hash"), stat(r_log, "send_received_hash")
     check(f"{tag}: the same file hash", sh is not None and sh == rh and sh != "0" * 16, f"{sh} {rh}")
-    check(f"{tag}: the same mesh", mesh(s_log) == mesh(r_log) and mesh(s_log)[0] is not None,
-          f"{mesh(s_log)} {mesh(r_log)}")
+    if same_mesh:
+        check(f"{tag}: the same mesh", mesh(s_log) == mesh(r_log) and mesh(s_log)[0] is not None,
+              f"{mesh(s_log)} {mesh(r_log)}")
     return s_log, r_log
 
 
@@ -182,6 +191,31 @@ def main():
     # the scene was written, which differs between the two sends: the other two are not
     # sent again.
     check("resume: the chunks the cut send wrote are not sent again", went is not None and went <= total - 2, f"{went} of {total}")
+
+    # Round trips: the receiver's copy of the scene, saved where a person would keep it.
+    received = os.path.join(WORK, "pc", "received")
+    copies = [f for f in os.listdir(received) if f.endswith(".sculpt")] if os.path.isdir(received) else []
+    dragon = os.path.join(WORK, "pc_dragon.sculpt")
+    first_copy = None
+    # The copy the first sends made: the 200k scene's, the smaller of the two.
+    if copies:
+        first_copy = min((os.path.join(received, f) for f in copies), key=os.path.getsize)
+    check("trip: the receiver kept the scene's copy", first_copy is not None, str(copies))
+    if first_copy:
+        with open(os.path.join(WORK, "savecopy.log"), "w") as log:
+            subprocess.run([APP, "--open=" + first_copy, "--frames=5", "--save=" + dragon,
+                            "--send-folder=" + os.path.join(WORK, "pc")],
+                           env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, timeout=WAIT)
+        _, r_log = round_trip(env, "inplace", ["--open=" + scene], receiver_args=["--open=" + dragon])
+        check("inplace: opened in place, saving where it was saved", "opened it in place; Save goes to pc_dragon.sculpt" in r_log)
+        s_log, r_log = round_trip(env, "keep", ["--open=" + scene], same_mesh=False,
+                                  receiver_args=["--script=duplicate_object", "--send-arrived=keep"])
+        check("keep: kept for later, the receiver's own mesh stays", "Kept for later in Received" in r_log
+              and mesh(r_log)[1] is not None and mesh(r_log) != mesh(s_log), f"{mesh(s_log)} {mesh(r_log)}")
+        s_log, r_log = round_trip(env, "open", ["--open=" + scene],
+                                  receiver_args=["--script=duplicate_object", "--send-arrived=open"])
+        kept = os.listdir(os.path.join(WORK, "pc", "kept")) if os.path.isdir(os.path.join(WORK, "pc", "kept")) else []
+        check("open: the changed copy is kept first", "the scene open before is kept as" in r_log and len(kept) == 1, str(kept))
 
     if not a.keep:
         shutil.rmtree(WORK, ignore_errors=True)

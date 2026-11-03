@@ -539,7 +539,7 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if !conn_send(&c, .Received, nil) do log.warn("send: the sender left before hearing the scene arrived")
-	send_event(sh, .Received, file, send_hash(offer.hash), "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
+	send_event_received(sh, file, send_hash(offer.hash), offer.token, theirs.name, "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
 }
 
 // How many chunks the last receive asked for, for its note. Only the listener writes it.
