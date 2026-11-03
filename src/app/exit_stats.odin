@@ -648,7 +648,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The last frame's wireframes: items drawn with one, in the shading pass where the
 	// device reads barycentrics, else as lines; and whether it could.
 	fmt.printfln("wire_shaded=%d wire_lines=%d wire_barycentric=%v", v.wire_shaded, v.wire_lines, render.caps(&app.renderer).barycentric)
-	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls)
+	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d skin_grid=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls, v.skin_grid)
 	if app.renderer.gpu_culling.check {
 		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)
 		fmt.printfln("cull_meshes=%d cull_commands=%d cull_mismatch=%d", meshes, commands, mismatch)
