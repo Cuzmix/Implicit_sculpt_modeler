@@ -29,7 +29,7 @@ Export_Format :: enum u8 {
 	Screenshot,
 	Turntable,
 	Print,
-	// The presets' own, after the others so that a settings file naming those still reads.
+	// The presets' own.
 	Print_OBJ,
 	Link,
 	Print_3MF,

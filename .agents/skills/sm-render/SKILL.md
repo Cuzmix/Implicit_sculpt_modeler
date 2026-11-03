@@ -15,7 +15,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   MSAA the viewport draws into `multi_color` + MSAA `depth` (kept with STORE so partial redraw can LOAD them) and every
   pass resolves into the 1x `color` (`target_pass`: RESOLVE_AND_STORE, `cycle_resolve_texture`); the cache is MSAA and
   copied MSAA->MSAA (fine on Vulkan, equal sample counts); `render_rect` draws meshes 1 px past the cleared rect
-  (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`studio_view_depth`) at `samples == 0`.
+  (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`view_depth_draw` into `Studio.view_depth`) at `samples == 0`.
   MSAA depth cannot be resolved or sampled. `set msaa off` gives the old images bit for bit.
 - `Mesh_Buffers` (`:67-96`): `positions` (FLOAT3) and `normals` (octahedral SHORT2_NORM) in two vertex buffers, 32-bit
   `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:104-106`), `version`/`drawn_version`, the `indirect`
@@ -23,7 +23,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - The mask rides in the normals: `pack_normal :: geom.oct_encode_masked` (`:102`) keeps 12 bits of each octahedral half
   for the normal and 4 for a nibble of the mask, so `VERTEX_BYTES` stays 16. `mesh_buffers_create(r, mesh, mask)` and
   `mesh_buffers_upload_ranges(…, ranges, mask)` take the sculptor's `mask` (nil = unmasked). `mesh.vert.slang` rebuilds both
-  (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag.slang` darkens masked clay
+  (`raw & ~15` is the normal; the nibbles give the `mask` at location 2, `decode_normal_mask` in `mesh_io.slang`) and `mesh.frag.slang` darkens masked clay
   (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
 - Paint (`Mesh_Buffers.paint`, nil until an object has polypaint or polygroups): a `GRAPHICS_STORAGE_READ` buffer of
   `Paint_Packed` (`[2]u32`: RGBA8 colour, group) per vertex that `mesh.vert.slang` reads by `gl_VertexIndex` (set 0 binding 0) when
@@ -68,7 +68,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `gl_FragDepth`, takes `fwidth` before any `discard`), then see-through items; in `render_rect` those blended layers stay
   inside the cleared rect, not the 1 px MSAA ring. `Renderer.floor` is in `frame_key` only; the grid is never drawn into
   the idle cache (the live items would cover it), any see-through item skips the cache, and with MSAA it skips partial
-  redraw too. `studio_view_depth` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
+  redraw too. `view_depth_draw` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
 - The frame (`frame_step` in `src/app/frame.odin`; `run` in `main.odin` only sets up, loops and tears down): apply the scene command (`frame_settle`) → change vsync before acquiring (`frame_pace`;
   `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
   → acquire `present_cmd` and the swapchain texture → events (`frame_events`) → `viewport_target_resize`

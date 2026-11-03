@@ -5,13 +5,14 @@
     python scripts/shaders_msl.py --all     # remake every .msl
     python scripts/shaders_msl.py --check   # fail on a missing or stale .msl, without the tool (build check runs it)
 
-SDL_GPU draws through Metal on Apple's platforms, which takes Metal source, so each
+The Metal backend (src/render/mtl_*.odin) on Apple's platforms takes Metal source, so each
 src/render/shaders/name.stage.spv (made from its Slang source by build.sh or build.bat) has a
 name.stage.msl beside it, and the iPad build embeds those instead (src/render/shaders.odin).
 They are made by SDL_shadercross (scripts/build_shadercross.py builds it into deps/shadercross),
-which maps SDL's SPIR-V sets and bindings to the Metal slots SDL_GPU binds and renames `main`,
-which Metal refuses, to `main0`. Metal language 1.2, the tool's default, and no culling of
-unused bindings: every binding the renderer declares stays where it says.
+which maps SDL's SPIR-V sets and bindings to the Metal slots SDL_GPU bound, which the Metal
+backend binds the same way, and renames `main`, which Metal refuses, to `main0`. Metal
+language 1.2, the tool's default, and no culling of unused bindings: every binding the
+renderer declares stays where it says.
 
 Each .msl starts with a line naming the tool's commit and the SHA-256 of the .spv it was made
 from, so --check finds a missing or stale one with no tool installed, and a shader changed
