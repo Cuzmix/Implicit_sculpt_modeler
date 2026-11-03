@@ -80,7 +80,9 @@ def fetch(commit):
     shutil.rmtree(SRC, ignore_errors=True)
     os.makedirs(SRC)
     # A commit cannot be cloned shallowly by name, so fetch just it into a fresh repository.
-    git = ["git", "-C", SRC, "-c", "advice.detachedHead=false"]
+    # core.autocrlf off: the patches are made against the commit's bytes (its third-party
+    # files are CRLF, the rest LF), and Git for Windows would otherwise convert on checkout.
+    git = ["git", "-C", SRC, "-c", "advice.detachedHead=false", "-c", "core.autocrlf=false"]
     subprocess.run(git + ["init", "-q"], check=True)
     subprocess.run(git + ["remote", "add", "origin", "https://github.com/huxingyi/autoremesher.git"], check=True)
     subprocess.run(git + ["fetch", "-q", "--depth", "1", "origin", commit], check=True)
