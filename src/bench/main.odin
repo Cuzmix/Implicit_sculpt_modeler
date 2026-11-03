@@ -185,6 +185,7 @@ main :: proc() {
 	if sends {
 		send_header()
 		for c in cases do if c.meshes == 1 do run_send(c.vertices, pool)
+		send_footer()
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

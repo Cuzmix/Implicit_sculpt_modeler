@@ -79,6 +79,8 @@ Send_Shared :: struct {
 	// --send-cut-after: a send drops its connection after this many chunks, as a lost
 	// Wi-Fi would, so a script can watch the next send carry on (0: never).
 	cut_after: int,
+	// Bytes of chunks this run sent, as packed (atomic): the exit stats' send_wire_bytes.
+	wire_bytes: int,
 	pairs:    [dynamic]Send_Pair,
 	events:   [dynamic]Send_Event,
 	port:     int,
@@ -134,6 +136,7 @@ Send :: struct {
 	// What this run did, for the exit stats.
 	sent, received, refused, found: int,
 	sent_hash, received_hash: u64,
+	wire_bytes: int,
 }
 
 // The send folder for a settings file, as link_folder's.
@@ -354,6 +357,7 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 	for v in app.send.saved do delete(v.path)
 	delete(app.send.saved)
 	app.send.found = sync.atomic_load(&sh.found)
+	app.send.wire_bytes = sync.atomic_load(&sh.wire_bytes)
 	for p in sh.pairs do delete(p.name)
 	delete(sh.pairs)
 	for &f in sh.computers do send.found_destroy(&f)
