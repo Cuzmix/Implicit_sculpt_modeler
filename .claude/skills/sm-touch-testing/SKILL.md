@@ -36,7 +36,7 @@ as a user would, with each kind of pointer, then say exactly how it was tested.
 | `src/app/navigate.odin` | `pointer_route` / `drag_decide` (one owner per drag: Tool, Orbit, Pan, Zoom, Muted), the slop, `FINGER_HOLD`, `camera_apply_input`, `Nav_Prefs` |
 | `src/ui/ui.odin` | `interact` (tentative presses in `drag_scroll` areas), `claim_drag`, `scroll_update`, `scroll_take`, `hit_extend`; `src/ui/fingers.odin` |
 | `src/camera/camera.odin` | `orbit_rotate` (Turntable, the default; Free, the trackball; Axis_X and Axis_Z, whose sideways sign `orbit_latch` fixes as a drag begins), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
-| `src/app/kit_settings.odin`, `settings.odin` | every touch and camera preference, its default, reset and saved key |
+| `src/app/settings_blocks.odin`, `settings.odin` | every touch and camera preference, its default, reset and saved key |
 
 Red flags while reading: a camera or tool path reachable from a press the interface took; a delta taken from SDL's
 motion sums instead of last frame's position; gesture state that is not reset when a touch starts; anything that waits
@@ -150,7 +150,7 @@ are on the device checklist.
   `card_rows`, `thumbs_drawn`, `card_menu`, `card_menu_full`, `clipboard_bytes`, `paint_off`, `booleans`, `window_objects` (the Objects card: `objects_card(s)` opens it from search, `OBJECTS_CARD`, `CARD_ROWS_Y` and `CARD_*_X` are its dots, buttons and row parts; `scene_args()` starts three spheres on the Objects section's own card, which `scene_tab(s)` waits for; `palettes_only(sec)` starts on a section's own card, and `on_card()` moves a point measured on the old Palettes card by `SECTION_DY`),
   `folders`, `tree_rows` (rows the Scene card drew), `scene_order` (object ids in list order), `scene_folders` (each one's folder id), `scene_names` (labels with spaces as `_`, then `;Folder_1:open,...`; `folder_first(s)` makes a folder of the first sphere, `FOLDER_*` are its rows and menu; a row drags by its name, a finger after the long press), `selected_count` (the primary and the rest of a multi-select; `select_several(s)` turns it on from the Scene card's More menu), `scene_positions` (each object's `x:y:z` in list order),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab` (the tray's palette), `tray_section`, `tray_marked` (Show where's ring is on a control), `brush_kind`, `tool`, `palette` (open),
-  `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
+  `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_section`, `settings_drill`, `layout_<name>` (x,y,w,h of the
   modifier rail, brush bar (the off-hand island), navigation head, view bar (the view rail), top bar, dock and dock pages (the shelf), points (the readout) and inspector; Lens keeps the older names), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print

@@ -103,7 +103,7 @@ palette_lists_everything_once :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	seen := make(map[string]int, context.temp_allocator)
 	for e in entries {
-		testing.expect(t, e.kind == .Settings_Tab || palette_lists(e.id))
+		testing.expect(t, e.kind == .Settings_Section || palette_lists(e.id))
 		label := palette_label(e)
 		testing.expect(t, label != "")
 		seen[label] += 1
@@ -139,10 +139,10 @@ palette_names_round_trip :: proc(t: ^testing.T) {
 		testing.expectf(t, ok && back == e, "%s read back as %v", palette_entry_name(e), back)
 	}
 	testing.expect_value(t, palette_entry_name(cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Brush:Clay")
-	testing.expect_value(t, palette_entry_name({kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings_Tab:Touch")
+	testing.expect_value(t, palette_entry_name({kind = .Settings_Section, arg = int(Settings_Section.Touch)}), "Settings_Section:Touch")
 	near, ok := palette_entry_from_name("Remesh_To:990000")
 	testing.expect(t, ok && near == cmd(.Remesh_To, 2))
-	for bad in ([?]string{"Teleport", "Brush:Nonsense", "Wireframe:1", "Hd_Toggle", "None", "Command_Palette", "Settings_Tab:Sound", ""}) {
+	for bad in ([?]string{"Teleport", "Brush:Nonsense", "Wireframe:1", "Hd_Toggle", "None", "Command_Palette", "Settings_Section:Sound", ""}) {
 		_, ok = palette_entry_from_name(bad)
 		testing.expectf(t, !ok, "%q was read", bad)
 	}

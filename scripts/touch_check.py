@@ -5582,21 +5582,37 @@ def tour_finishes_with_paint():
 
 # Lens's Settings sheet at 1440x900: the top bar's Settings, the side's Touch row and
 # its search field.
-LENS_SETTINGS = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}
+SETTINGS_SHEET = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}
 
 
 @scenario
-def lens_settings_sections_and_search():
-    """Settings in Lens is one sheet with sections down the side: a tap on Touch opens it, and Search settings narrows the sections to those whose settings match."""
+def settings_drill_down_on_a_narrow_window():
+    """On a window too narrow for the sheet, Settings lists its sections: a tap on Touch shows
+    Touch's settings under Back, and Back goes back to the list."""
+    def run(back):
+        s = Script()
+        s.wait(6)
+        s.ftap(At("settings/settings body/Touch", 434, 324))
+        s.wait(8)
+        if back:
+            s.ftap(At("settings back", 277, 164))
+            s.wait(8)
+        return s, ["--width=700", "--height=720", "--script=settings"], camera_still({"settings_open": near(1), "settings_section": is_text("Touch"), "settings_drill": near(0 if back else 1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def settings_sections_and_search():
+    """Settings on a wide window is one sheet with sections down the side: a tap on Touch opens it, and Search settings narrows the sections to those whose settings match."""
     def run(find):
         s = Script()
-        s.ftap(LENS_SETTINGS["open"])
+        s.ftap(SETTINGS_SHEET["open"])
         s.wait(12)
         if not find:
-            s.ftap(LENS_SETTINGS["touch"])
+            s.ftap(SETTINGS_SHEET["touch"])
             s.wait(8)
             return s, LENS_1440, camera_still({"settings_open": near(1), "settings_section": is_text("Touch"), "settings_found": is_text("all"), "dabs": near(0)})
-        s.ftap(LENS_SETTINGS["search"])
+        s.ftap(SETTINGS_SHEET["search"])
         s.wait(4)
         s.add("text:autosave")
         s.wait(8)
@@ -5744,7 +5760,7 @@ def dial_sectors_shown(s):
     s.wait(6)
     s.ftap(UI["settings"])
     s.wait(12)
-    s.ftap(LENS_SETTINGS["search"])
+    s.ftap(SETTINGS_SHEET["search"])
     s.wait(4)
     s.add("text:sector")
     s.wait(12)
@@ -10039,8 +10055,8 @@ def palette_down_picks_the_second():
 
 
 @scenario
-def palette_settings_tab_then_escape_closes_only_the_palette():
-    """"touch" and Enter open Settings on its Touch tab; opened again, Escape closes the palette and leaves Settings open."""
+def palette_settings_section_then_escape_closes_only_the_palette():
+    """"touch" and Enter open Settings on its Touch section; opened again, Escape closes the palette and leaves Settings open."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("touch")
@@ -10048,7 +10064,7 @@ def palette_settings_tab_then_escape_closes_only_the_palette():
     s.press("k", ("ctrl",))
     s.wait(2)
     s.press("Escape")
-    return s, [], {"palette": near(0), "settings_open": near(1), "settings_tab": is_text("Touch")}
+    return s, [], {"palette": near(0), "settings_open": near(1), "settings_section": is_text("Touch")}
 
 
 @scenario
@@ -10126,7 +10142,7 @@ def help_gives_its_place_to_settings():
     s.press("Return")
     s.wait(8)
     return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(1),
-                   "settings_tab": is_text("Touch"), "window_help": lambda v: v == "0,0,0,0",
+                   "settings_section": is_text("Touch"), "window_help": lambda v: v == "0,0,0,0",
                    "window_inspector": lambda v: v == "0,0,0,0"}
 
 
@@ -10140,7 +10156,7 @@ def settings_gives_its_place_to_help():
     s.wait(8)
     s.press("F1")
     s.wait(8)
-    return s, [], {"help_open": near(1), "settings_open": near(0), "settings_tab": is_text("Touch"),
+    return s, [], {"help_open": near(1), "settings_open": near(0), "settings_section": is_text("Touch"),
                    "window_settings": lambda v: v == "0,0,0,0"}
 
 
@@ -10187,9 +10203,9 @@ def crash_log_kept_after_a_crash():
     crash = Script()
     crash.wait(2)
     after = Script()
-    after.ftap(LENS_SETTINGS["open"])
+    after.ftap(SETTINGS_SHEET["open"])
     after.wait(12)
-    after.ftap(LENS_SETTINGS["search"])
+    after.ftap(SETTINGS_SHEET["search"])
     after.wait(4)
     after.add("text:crash")
     after.wait(8)
@@ -12452,12 +12468,12 @@ def blender_link_keeps_voxels_and_dynamic():
 
 
 @scenario
-def settings_system_shows_the_link():
-    """Settings > System, scrolled to the end, shows the Blender link's folder with Copy
+def settings_files_shows_the_link():
+    """Settings > Files, scrolled to the end, shows the Blender link's folder with Copy
     path, and Send to Blender there writes the selected sphere to it."""
     s = Script()
     s.press("k", ("ctrl",))
-    s.type("system")
+    s.type("settings files")
     s.press("Return")
     s.wait(3)
     s.add("move:1400,500")
@@ -12467,7 +12483,7 @@ def settings_system_shows_the_link():
     s.type("send to blender")
     s.press("Return")
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"settings_open": near(1), "settings_tab": is_text("Performance"), "link_sent": near(1, 0),
+    return s, [f"--settings-file={settings_file()}"], {"settings_open": near(1), "settings_section": is_text("Files"), "link_sent": near(1, 0),
                                                        "@the manifest": lambda _: os.path.exists(os.path.join(link_folder(), "link.txt")) or "no link.txt"}
 
 

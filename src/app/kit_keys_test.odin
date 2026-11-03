@@ -85,7 +85,7 @@ keys_tab_resets :: proc(t: ^testing.T) {
 	app.nav = NAV_DEFAULT
 	testing.expect(t, bind_assign(&app, .Wireframe, 0, {KEY_K, {}, false}))
 	app.nav.mouse_scheme = .Blender
-	settings_reset(&app, .Keys)
+	settings_section_reset(&app, .Shortcuts)
 	testing.expect_value(t, app.key_override_count, 0)
 	testing.expect_value(t, app.nav.mouse_scheme, Mouse_Scheme.ZBrush)
 	testing.expect_value(t, command_keys(&app, .Wireframe), "Shift+F")

@@ -21,7 +21,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export...")
 	testing.expect_value(t, palette_where(&a, cmd(.Undo)), "Top bar")
 	testing.expect_value(t, palette_where(&a, cmd(.Flat_Shading)), "")
-	testing.expect_value(t, palette_where(&a, {kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings")
+	testing.expect_value(t, palette_where(&a, {kind = .Settings_Section, arg = int(Settings_Section.Touch)}), "Settings")
 	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Layers))), "Panel · Layers card")
 	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Remesh))), "Panel · Rebuild card")
 	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layers card")
@@ -34,7 +34,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 palette_groups_keep_rank_inside_each :: proc(t: ^testing.T) {
 	entries := []Palette_Entry{
 		{.Command, .Brush, int(sculpt.Brush_Kind.Clay)},
-		{kind = .Settings_Tab, arg = 0},
+		{kind = .Settings_Section, arg = 0},
 		{.Command, .Wireframe, 0},
 		{.Command, .Brush, int(sculpt.Brush_Kind.Draw)},
 		{.Command, .Remesh, 0},
@@ -67,6 +67,6 @@ put_on_a_bar_goes_where_it_belongs :: proc(t: ^testing.T) {
 	testing.expect(t, palette_put_on_bar(&a, wire))
 	testing.expect_value(t, bar_count(&a, .View_Rail)^, rail + 1)
 	testing.expect_value(t, palette_where(&a, wire), "View rail")
-	testing.expect(t, !palette_put_on_bar(&a, {kind = .Settings_Tab}))
+	testing.expect(t, !palette_put_on_bar(&a, {kind = .Settings_Section}))
 	testing.expect_value(t, a.kit.palette_bar_puts, 2)
 }

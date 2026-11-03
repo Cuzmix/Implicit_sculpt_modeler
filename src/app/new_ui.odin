@@ -154,9 +154,10 @@ Kit_State :: struct {
 	stats:      bool, // the Stats panel (F11)
 	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
 	settings:   bool, // the Settings panel (Menu > Settings)
-	settings_tab: Settings_Tab,
-	// Lens's sheet (lens_settings.odin): the section open and what Search settings holds.
+	// The section open (settings_sections.odin), whether the narrow panel shows it rather
+	// than the list of sections, and what Search settings holds.
 	settings_section: Settings_Section,
+	settings_drill:   bool,
 	settings_find:    [64]u8,
 	settings_side_scroll: f32,
 	export:           Export_Sheet, // lens_export.odin

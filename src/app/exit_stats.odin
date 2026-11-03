@@ -405,7 +405,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
 		fmt.printfln("keyboard_down=%d keyboard_restarts=%d", int(k.keyboard_down), k.keyboard_restarts)
-		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
+		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_section=%v settings_drill=%d settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_section, int(k.settings_drill), settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("export_open=%d export_preset=%v export_format=%v export_runs=%d export_last=%s export_print_all=%d export_decimate=%d export_decimate_to=%d export_decimated=%d export_hollow=%d export_hollow_wall=%.2f export_hollowed=%d", int(k.export.open), k.export.preset, k.export.format, k.export.runs, fmt.tprint(k.export.last_format) if k.export.ran else "none", int(k.export.print_all), int(k.export.decimate), k.export.decimate_to, app.export_decimated, int(k.export.hollow), export_hollow_wall(&k.export), app.export_hollowed)
 		dial := strings.builder_make(context.temp_allocator)
 		for d, i in dial_of(k) {
