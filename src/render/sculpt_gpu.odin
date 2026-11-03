@@ -178,7 +178,7 @@ Sculpt_Entry :: struct {
 	download:  ^sdl.GPUTransferBuffer,
 	offset:    u32,
 	pbytes:    u32, // of positions; 0 when none were read
-	nbytes:    u32, // of packed normals
+	nbytes:    u32, // of packed normals; 0 when none were read
 	hbytes:    u32, // of heights; 0 when none were read
 }
 
@@ -515,6 +515,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	if len(ms.queued) == 0 && len(ms.dabs) == 0 && len(ms.back) == 0 do return true
 	defer {
 		clear(&ms.back)
+		ms.back_normals = nil
 		clear(&ms.queued)
 		clear(&ms.dabs)
 		clear(&ms.dab_ranges)

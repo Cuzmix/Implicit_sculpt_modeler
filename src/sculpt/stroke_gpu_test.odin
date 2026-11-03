@@ -427,10 +427,11 @@ stroke_gpu_dabs_normals_come_back_after_the_stroke :: proc(t: ^testing.T) {
 		_ = sculptor_stroke_end(&a)
 		_ = sculptor_flush(&a)
 		_ = sculptor_stroke_end(&b)
-		// The last flush hands the stroke back and asks for the first slice; the next
-		// frames' flushes ask for the rest, and the frames' readbacks land at the sync.
+		// The last flush hands the stroke back; each frame then asks for a slice after its
+		// flush, as the app's frame does, and the frames' readbacks land at the sync.
 		for frame := 0; frame < 8; frame += 1 {
 			_ = sculptor_flush(&b)
+			sculptor_gpu_back(&b)
 			_ = sculptor_gpu_sync(&b, normals = false)
 		}
 		testing.expect(t, len(b.gpu_owed_list) == 0, "every owed normal came back")

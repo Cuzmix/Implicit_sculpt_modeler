@@ -252,6 +252,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			gpu := gpus[part]
 			t_flush := time.tick_now()
 			ranges := sculpt.sculptor_flush(&lv.sculptor)
+			// After the flush, so a share the GPU refuses is stale for the next one.
+			sculpt.sculptor_gpu_back(&lv.sculptor)
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 			flash_damage(app, obj, lv.sculptor.changed_bounds)
 			bytes, uploaded_ok := level_upload(app, cmd, gpu, lv, ranges)

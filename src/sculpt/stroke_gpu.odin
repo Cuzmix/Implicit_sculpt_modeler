@@ -55,7 +55,7 @@ Stroke_Gpu :: struct {
 }
 
 // The most vertices a frame reads the normals of back after a stroke whose dabs ran on
-// the GPU (stroke_gpu_back): a quarter million cost about 2 ms to unpack on the VM.
+// the GPU (sculptor_gpu_back): a quarter million cost about 2 ms to unpack on the VM.
 GPU_BACK_VERTS :: 262144
 
 // How much of a stroke the GPU takes.
@@ -124,7 +124,9 @@ stroke_gpu: Stroke_Gpu
 sculptor_gpu_sync :: proc(s: ^Sculptor, normals := true) -> bool {
 	exact := true
 	if stroke_gpu.sync != nil do exact = stroke_gpu.sync(stroke_gpu.data, s)
-	if normals && len(s.gpu_owed_list) > 0 {
+	// Not where a readback of this frame is still to be submitted: a read now would come
+	// before the frame's kernels; the normals stay owed until a sync that is exact.
+	if normals && exact && len(s.gpu_owed_list) > 0 {
 		ranges := gpu_owed_take(s, max(int))
 		if stroke_gpu.normals_now == nil || !stroke_gpu.normals_now(stroke_gpu.data, s, ranges) {
 			gpu_owed_to_cpu(s, s.gpu_back_last[:])
@@ -172,10 +174,12 @@ gpu_owed_to_cpu :: proc(s: ^Sculptor, ids: []u32) {
 	for id in ids do mark_stale(s, id, .Shape)
 }
 
-// After a stroke whose dabs ran on the GPU, reads a frame's share of the normals still
-// owed back (sculptor_flush, once the stroke is over).
-@(private)
-stroke_gpu_back :: proc(s: ^Sculptor) {
+// After a stroke whose dabs ran on the GPU, asks for a frame's share of the normals
+// still owed back. The frame calls it once, after its sculptor_flush and before the
+// dispatch that records the readback (other flushes, outside the frame, have no dispatch
+// after them, so they leave it).
+sculptor_gpu_back :: proc(s: ^Sculptor) {
+	clear(&s.gpu_back_last)
 	if len(s.gpu_owed_list) == 0 || s.gpu_take != .None do return
 	ranges := gpu_owed_take(s, GPU_BACK_VERTS)
 	if stroke_gpu.normals_back == nil || !stroke_gpu.normals_back(stroke_gpu.data, s, ranges) {

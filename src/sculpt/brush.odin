@@ -433,7 +433,7 @@ Sculptor :: struct {
 	gpu_flush_dabs:  [dynamic]int, // the dabs of each flush on its way, oldest first
 	// Nodes whose normals the GPU has and the mesh not: a stroke's dabs on the GPU read
 	// back positions alone, and the normals follow after the stroke, GPU_BACK_VERTS a
-	// frame, or all at once at a sync (stroke_gpu_back). `gpu_back_last` is the last
+	// frame, or all at once at a sync (sculptor_gpu_back). `gpu_back_last` is the last
 	// frame's share, which a refusal gives to the CPU.
 	gpu_owed:       []bool,
 	gpu_owed_list:  [dynamic]u32,
@@ -858,8 +858,6 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		s.stale[id] = .None
 	}
 	clear(&s.dirty_nodes)
-	// Last: a share the GPU will not read back goes stale for the next flush.
-	stroke_gpu_back(s)
 	return s.ranges[:]
 }
 
