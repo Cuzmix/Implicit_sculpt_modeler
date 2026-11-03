@@ -245,3 +245,47 @@ carry_weights :: proc(m: geom.Mesh, tri: u32, p: Vec3) -> [3]f32 {
 	wc := linalg.dot(linalg.cross(pb - pa, p - pa), n) / area
 	return {1 - wb - wc, wb, wc}
 }
+
+// The skin as a mesh of its own, for a bake to read: a vertex at every sample where the
+// skin shows it (`shown`, over its curved base) and the same triangles over the samples'
+// flat points (`rest`, sharing `shown`'s indices), in the small triangles' winding, the
+// mesh's. Both in `allocator`, `rest` with no normals and its indices `shown`'s own array:
+// free `shown` whole and only `rest`'s positions.
+sculptor_skin_mesh :: proc(s: ^Sculptor, allocator := context.allocator) -> (shown, rest: geom.Mesh, ok: bool) {
+	sk := s.skin
+	if sk == nil do return
+	n := len(sk.heights)
+	S := sk.segments
+	shown.positions = make([dynamic]Vec3, n, allocator)
+	rest.positions = make([dynamic]Vec3, n, allocator)
+	shown.indices = make([dynamic]u32, 0, 3 * int(sk.tri_count * S * S), allocator)
+	Job :: struct {
+		s:           ^Sculptor,
+		shown, rest: []Vec3,
+	}
+	job := Job{s, shown.positions[:], rest.positions[:]}
+	// Each sample is written by the triangle that owns it.
+	jobs.parallel_ranges(s.pool, int(sk.tri_count), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		s := job.s
+		sk := s.skin
+		I := s.mesh.indices[:]
+		S := sk.segments
+		for t in u32(lo) ..< u32(hi) do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+			if !skin_owns(s, sk, t, i, j) do continue
+			p, nb := skin_base(s, sk, t, i, j)
+			nu := linalg.normalize0(nb)
+			x := skin_sample(sk, I, t, i, j)
+			job.rest[x] = p
+			job.shown[x] = p + skin_lift(s, sk, x, t, i, j, nu, f32(sk.heights[x])) + skin_curve(s, sk, t, i, j, p, nu)
+		}
+	}, 1 << 10)
+	I := s.mesh.indices[:]
+	for t in u32(0) ..< sk.tri_count do for j in u32(0) ..< S do for i in u32(0) ..< S - j {
+		a, b, c := skin_sample(sk, I, t, i, j), skin_sample(sk, I, t, i + 1, j), skin_sample(sk, I, t, i, j + 1)
+		append(&shown.indices, a, b, c)
+		if i + j + 1 < S do append(&shown.indices, b, skin_sample(sk, I, t, i + 1, j + 1), c)
+	}
+	rest.indices = shown.indices
+	return shown, rest, true
+}

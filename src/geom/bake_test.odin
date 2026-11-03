@@ -238,3 +238,86 @@ normal_map_reads_back_through_the_tangents :: proc(t: ^testing.T) {
 	testing.expectf(t, checked > len(indices) / 3 / 2, "only %d triangles checked", checked)
 	testing.expectf(t, off == 0, "%d of %d texels read back more than 2 degrees off (worst %.2f)", off, checked, worst)
 }
+
+// A bake from the low mesh's own detail (Bake_Source.rest) takes each texel's exact
+// offset: the low sphere's triangles moved bodily, sideways and out, give that same
+// offset at every texel in object space, and in tangent space read back through the
+// frame a reader builds; Unreal's normal map has its green turned over.
+@(test)
+vector_map_takes_the_rest_offset :: proc(t: ^testing.T) {
+	sphere := icosphere(4)
+	defer mesh_destroy(&sphere)
+	sphere_bvh := bvh_build(sphere)
+	defer bvh_destroy(&sphere_bvh)
+	q, _, ok := mesh_retopo(sphere, &sphere_bvh, 400, nil)
+	defer quad_mesh_destroy(&q)
+	if !testing.expect(t, ok) do return
+	uvs := quad_uv_unwrap(q, 4.0 / 128)
+	defer uv_layout_destroy(&uvs)
+	// Split as the bake splits the quads, so each texel's point lies on the rest mesh.
+	rest: Mesh
+	rest.positions = make([dynamic]Vec3, len(q.positions))
+	copy(rest.positions[:], q.positions[:])
+	for f, i in q.quads do for half in quad_halves(q, i) do for k in half do append(&rest.indices, f[k])
+	defer mesh_destroy(&rest)
+	rest_bvh := bvh_build(rest)
+	defer bvh_destroy(&rest_bvh)
+	OFFSET :: Vec3{0.01, -0.02, 0.015}
+	moved: Mesh
+	moved.indices = rest.indices
+	moved.positions = make([dynamic]Vec3, len(rest.positions))
+	defer delete(moved.positions)
+	for p, i in rest.positions do moved.positions[i] = p + OFFSET
+	moved.normals = make([dynamic]Vec3, len(rest.positions))
+	defer delete(moved.normals)
+	mesh_recompute_normals(&moved)
+	moved_bvh := bvh_build(moved)
+	defer bvh_destroy(&moved_bvh)
+	src := Bake_Source{mesh = moved, bvh = &moved_bvh, rest = rest, rest_bvh = &rest_bvh}
+	SIZE :: 128
+	obj := bake_maps(q, uvs, src, SIZE, 0.2, {.Vector}, nil, options = {object_space = true})
+	defer bake_maps_destroy(&obj)
+	testing.expect_value(t, obj.hit, obj.covered)
+	worst, worst_obj: f32
+
+	tan := bake_maps(q, uvs, src, SIZE, 0.2, {.Vector}, nil)
+	defer bake_maps_destroy(&tan)
+	dx := bake_maps(q, uvs, src, SIZE, 0.2, {}, nil, options = {directx = true})
+	defer bake_maps_destroy(&dx)
+	defer free_all(context.temp_allocator)
+	normals := quad_mesh_normals(q, context.temp_allocator)
+	frame := quad_mesh_tangents(q, uvs, normals, context.temp_allocator)
+	positions, split_normals, texcoords, indices := quad_mesh_split_uvs(q, uvs, normals, frame, context.temp_allocator)
+	_ = positions
+	checked: int
+	for tri in 0 ..< len(indices) / 3 {
+		c := indices[3 * tri:][:3]
+		uv := (texcoords[c[0]] + texcoords[c[1]] + texcoords[c[2]]) / 3
+		x, y := int(uv.x * SIZE), int((1 - uv.y) * SIZE)
+		centre := [2]f32{(f32(x) + 0.5) / SIZE, 1 - (f32(y) + 0.5) / SIZE}
+		a, bb, cc := texcoords[c[0]], texcoords[c[1]], texcoords[c[2]]
+		area := (bb.x - a.x) * (cc.y - a.y) - (cc.x - a.x) * (bb.y - a.y)
+		if abs(area) < 1e-12 do continue
+		w1 := ((centre.x - a.x) * (cc.y - a.y) - (cc.x - a.x) * (centre.y - a.y)) / area
+		w2 := ((bb.x - a.x) * (centre.y - a.y) - (centre.x - a.x) * (bb.y - a.y)) / area
+		w := [3]f32{1 - w1 - w2, w1, w2}
+		if w[0] < 0.05 || w[1] < 0.05 || w[2] < 0.05 do continue
+		vn, vt: Vec3
+		handed: f32
+		for k in 0 ..< 3 {
+			vn += w[k] * split_normals[c[k]]
+			vt += w[k] * frame.tangents[c[k]].xyz
+			handed += w[k] * frame.tangents[c[k]].w
+		}
+		vb := (f32(1) if handed >= 0 else -1) * linalg.cross(vn, vt)
+		at := y * SIZE + x
+		m := tan.vector[at]
+		worst = max(worst, linalg.length(m.x * vt + m.y * vb + m.z * vn - OFFSET))
+		worst_obj = max(worst_obj, linalg.length(obj.vector[at] - OFFSET))
+		testing.expect(t, i32(dx.normal[4 * at + 1]) + i32(tan.normal[4 * at + 1]) >= 254 && i32(dx.normal[4 * at + 1]) + i32(tan.normal[4 * at + 1]) <= 256, "Unreal's green is not turned over")
+		checked += 1
+	}
+	testing.expectf(t, checked > 100, "only %d triangles checked", checked)
+	testing.expectf(t, worst < 1e-4, "a tangent-space offset reads back %v off", worst)
+	testing.expectf(t, worst_obj < 1e-5, "an object-space offset is %v off", worst_obj)
+}
