@@ -18,20 +18,20 @@ Sample_Count :: gpu.Sample_Count
 // Waits until the GPU has finished everything submitted: before freeing a buffer or
 // texture a frame in flight may still read.
 wait_idle :: proc(r: ^Renderer) {
-	if !gpu.wait_for_idle(r.device) do log.warnf("WaitForGPUIdle failed: %s", sdl.GetError())
+	if !gpu.wait_for_idle() do log.warnf("WaitForGPUIdle failed: %s", gpu.last_error())
 }
 
 // A command buffer to record into, or nil (logged) when the device has none to give.
 cmd_begin :: proc(r: ^Renderer) -> Cmd {
-	cmd := gpu.acquire_command_buffer(r.device)
-	if cmd == nil do log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
+	cmd := gpu.acquire_command_buffer()
+	if cmd == nil do log.errorf("AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 	return cmd
 }
 
 // Sends the recorded work to the GPU; false (logged) when the device refused it.
 cmd_submit :: proc(cmd: Cmd) -> bool {
 	if gpu.submit_command_buffer(cmd) do return true
-	log.errorf("submit failed: %s", sdl.GetError())
+	log.errorf("submit failed: %s", gpu.last_error())
 	return false
 }
 
@@ -39,7 +39,7 @@ cmd_submit :: proc(cmd: Cmd) -> bool {
 // (logged) when the device refused it.
 cmd_submit_fenced :: proc(cmd: Cmd) -> Fence {
 	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil do log.errorf("submit failed: %s", sdl.GetError())
+	if fence == nil do log.errorf("submit failed: %s", gpu.last_error())
 	return fence
 }
 
@@ -57,8 +57,8 @@ cmd_recorded :: proc(cmd: Cmd) -> bool {
 // Waits for the fence, releases it and clears the handle; nothing for nil.
 fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
 	if fence^ == nil do return
-	_ = gpu.wait_for_fences(r.device, true, fence, 1)
-	gpu.release_fence(r.device, fence^)
+	_ = gpu.wait_for_fences(true, fence, 1)
+	gpu.release_fence(fence^)
 	fence^ = nil
 }
 
@@ -72,7 +72,7 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 	} else {
 		ok = gpu.acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
 	}
-	if !ok do log.errorf("acquire swapchain failed: %s", sdl.GetError())
+	if !ok do log.errorf("acquire swapchain failed: %s", gpu.last_error())
 	return
 }
 
@@ -90,7 +90,7 @@ ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, sw
 	}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	if draw {
-		format := gpu.get_swapchain_texture_format(r.device, window)
+		format := gpu.get_swapchain_texture_format(window)
 		ui_pass_draw(r, up, cmd, pass, format, size, draws, gpu.swapchain_turns(window))
 	}
 	gpu.end_render_pass(pass)
@@ -110,7 +110,7 @@ set_pre_rotate :: proc(on: bool) {
 
 // Whether the device exists: false before renderer_init and in runs without a window.
 renderer_ready :: proc(r: ^Renderer) -> bool {
-	return r.device != nil
+	return r.has_device
 }
 
 // Names the commands recorded from here to the end of the enclosing scope for capture

@@ -44,7 +44,6 @@ Mtl_State :: struct {
 	link_wanted:   bool,
 	link_failed:   bool,
 	link_taken:    u64,
-	properties_id: sdl.PropertiesID,
 }
 
 mtl_state: Mtl_State
@@ -58,14 +57,9 @@ Mtl_Objc_Anchor :: struct {
 	using _: NS.Object,
 }
 
-// The device handle the app holds stands for the one Metal device.
-mtl_device_handle :: proc() -> Device {
-	return (Device)(&mtl_state)
-}
-
 // Makes the device and its queue, or returns false with the reason kept for
 // backend_error (and the app then says why it cannot start).
-mtl_create_device :: proc(debug: bool) -> (Device, bool) {
+mtl_create_device :: proc(debug: bool) -> bool {
 	NS.scoped_autoreleasepool()
 	// Metal reads its API validation switch when the device is made; SDL_GPU sets it for a
 	// debug device too.
@@ -73,56 +67,47 @@ mtl_create_device :: proc(debug: bool) -> (Device, bool) {
 	device := MTL.CreateSystemDefaultDevice()
 	if device == nil {
 		backend_fail("Metal", "no Metal device")
-		return nil, false
+		return false
 	}
 	// The floor SDL_GPU kept, which the app was tried on: the A9's family on the iPad, Mac2 on the Mac.
 	family := MTL.GPUFamily.Apple3 when ODIN_PLATFORM_SUBTARGET_IOS else MTL.GPUFamily.Mac2
 	if !MTL.Device_supportsFamily(device, family) {
 		NS.release(device)
 		backend_fail("Metal", "the GPU is older than the %v family", family)
-		return nil, false
+		return false
 	}
 	queue := MTL.Device_newCommandQueue(device)
 	if queue == nil {
 		NS.release(device)
 		backend_fail("Metal", "no command queue")
-		return nil, false
+		return false
 	}
 	mtl_state.device, mtl_state.queue = device, queue
 	mtl_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	when !ODIN_PLATFORM_SUBTARGET_IOS {
 		mtl_state.depth24 = bool(MTL.Device_isDepth24Stencil8PixelFormatSupported(device))
 	}
-	mtl_state.properties_id = sdl.CreateProperties()
 	name := MTL.Device_name(device)
-	if name != nil do _ = sdl.SetStringProperty(mtl_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, NS.String_UTF8String(name))
-	return mtl_device_handle(), true
+	device_info_set(string(NS.String_UTF8String(name)) if name != nil else "", "")
+	return true
 }
 
 // Waits for the GPU, then frees everything the backend still holds.
-mtl_destroy_device :: proc(device: Device) {
+mtl_destroy_device :: proc() {
 	if mtl_state.device == nil do return
-	_ = mtl_wait_for_idle(device)
-	for len(mtl_state.windows) > 0 do mtl_release_window(device, mtl_state.windows[0].window)
+	_ = mtl_wait_for_idle()
+	for len(mtl_state.windows) > 0 do mtl_release_window(mtl_state.windows[0].window)
 	mtl_link_stop()
 	delete(mtl_state.windows)
 	mtl_present_logs_destroy()
 	for cmd in mtl_state.free_cmds do mtl_cmd_free(cmd)
 	delete(mtl_state.free_cmds)
 	delete(mtl_state.in_flight)
-	if mtl_state.properties_id != 0 do sdl.DestroyProperties(mtl_state.properties_id)
 	NS.release(mtl_state.queue)
 	NS.release(mtl_state.device)
 	mtl_state = {}
 }
 
-mtl_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
-	return mtl_state.properties_id
-}
-
-mtl_get_device_driver :: proc(device: Device) -> cstring {
-	return "metal (own backend)"
-}
 
 // The Metal format of each of the gpu package's formats. Depth24 exists only on some
 // Macs and never on the iPad, where SDL_GPU refuses D24 too.
@@ -170,7 +155,7 @@ mtl_is_stencil :: proc(format: Format) -> bool {
 
 // SDL_GPU's answer: every format it maps is offered, a depth target only in a depth format,
 // and D24 only where the Mac has it.
-mtl_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
+mtl_texture_supports_format :: proc(format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	if mtl_pixel_format(format) == .Invalid do return false
 	if .Depth_Target in usage && !format_is_depth(format) do return false
 	if format == .D24_Unorm || format == .D24_Unorm_S8 do return mtl_state.depth24
@@ -187,7 +172,7 @@ mtl_samples :: proc(count: Sample_Count) -> NS.UInteger {
 	return 1
 }
 
-mtl_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
+mtl_texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count) -> bool {
 	return bool(MTL.Device_supportsTextureSampleCount(mtl_state.device, mtl_samples(sample_count)))
 }
 
@@ -216,7 +201,7 @@ mtl_wait_serial :: proc(serial: u64) -> bool {
 	return serial <= mtl_state.completed
 }
 
-mtl_wait_for_idle :: proc(device: Device) -> bool {
+mtl_wait_for_idle :: proc() -> bool {
 	return mtl_wait_serial(mtl_state.submitted)
 }
 

@@ -2,7 +2,6 @@ package render
 
 import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // MatCaps: a picture of a lit sphere that the mesh shader looks up by the surface's
 // normal as the camera sees it, so the light, colour and sheen painted into the picture
@@ -23,8 +22,8 @@ matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> gpu.Tex
 // Waits for the GPU (a frame in flight may still sample it) and releases the texture.
 matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 	if tex^ == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	gpu.release_texture(r.device, tex^)
+	_ = gpu.wait_for_idle()
+	gpu.release_texture(tex^)
 	tex^ = nil
 }
 
@@ -32,23 +31,23 @@ matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 // rest of the chain; waits for the GPU so the transfer buffer can go at once.
 @(private)
 texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, height: int, mips: bool) -> bool {
-	transfer := gpu.create_transfer_buffer(r.device, {usage = .Upload, size = u32(len(pixels))})
+	transfer := gpu.create_transfer_buffer({usage = .Upload, size = u32(len(pixels))})
 	if transfer == nil {
-		log.errorf("texture upload buffer: %s", sdl.GetError())
+		log.errorf("texture upload buffer: %s", gpu.last_error())
 		return false
 	}
-	defer gpu.release_transfer_buffer(r.device, transfer)
-	dst := ([^]u8)(gpu.map_transfer_buffer(r.device, transfer, false))
+	defer gpu.release_transfer_buffer(transfer)
+	dst := ([^]u8)(gpu.map_transfer_buffer(transfer, false))
 	if dst == nil {
-		log.errorf("texture upload map: %s", sdl.GetError())
+		log.errorf("texture upload map: %s", gpu.last_error())
 		return false
 	}
 	copy(dst[:len(pixels)], pixels)
-	gpu.unmap_transfer_buffer(r.device, transfer)
+	gpu.unmap_transfer_buffer(transfer)
 
-	cmd := gpu.acquire_command_buffer(r.device)
+	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
-		log.errorf("texture upload: %s", sdl.GetError())
+		log.errorf("texture upload: %s", gpu.last_error())
 		return false
 	}
 	pass := gpu.begin_copy_pass(cmd)
@@ -59,11 +58,11 @@ texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, heig
 	if mips do gpu.generate_mipmaps_for_texture(cmd, tex)
 	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
 	if fence == nil {
-		log.errorf("texture upload submit: %s", sdl.GetError())
+		log.errorf("texture upload submit: %s", gpu.last_error())
 		return false
 	}
-	defer gpu.release_fence(r.device, fence)
-	return gpu.wait_for_fences(r.device, true, &fence, 1)
+	defer gpu.release_fence(fence)
+	return gpu.wait_for_fences(true, &fence, 1)
 }
 
 // Makes a picture the interface draws from `pixels`: RGBA8 already encoded for the display

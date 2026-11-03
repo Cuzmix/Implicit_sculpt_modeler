@@ -7,7 +7,6 @@ import "core:math/linalg"
 import "core:slice"
 import "core:time"
 
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../jobs"
@@ -353,7 +352,7 @@ Sculpt_Gpu :: struct {
 // kernels from their .msl, compiled without fast math (gpu.create_compute_pipeline_exact),
 // and a serial compute encoder orders the dispatches as the Vulkan backend's barriers do.
 sculpt_gpu_offered :: proc(r: ^Renderer) -> bool {
-	when gpu.VULKAN || gpu.METAL do return gpu.storage_buffers_per_stage(r.device) >= SCULPT_STORAGE_BUFFERS && gpu.compute_group_threads(r.device) >= SCULPT_SLAB
+	when gpu.VULKAN || gpu.METAL do return gpu.storage_buffers_per_stage() >= SCULPT_STORAGE_BUFFERS && gpu.compute_group_threads() >= SCULPT_SLAB
 	else do return false
 }
 
@@ -386,7 +385,7 @@ sculpt_gpu_frame :: proc(r: ^Renderer) {
 	for i in slot_order(sg) {
 		s := &sg.slots[i]
 		if s.fence != nil {
-			if !blocked && (sg.sync || i == sg.slot || gpu.query_fence(r.device, s.fence)) do sculpt_slot_apply(r, s)
+			if !blocked && (sg.sync || i == sg.slot || gpu.query_fence(s.fence)) do sculpt_slot_apply(r, s)
 			else do blocked = true
 		}
 		// Entries with no fence were recorded by a frame that was never submitted: they
@@ -475,7 +474,7 @@ sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, faces:
 	transfer: [^]u8
 	if staged > 0 {
 		if !transfer_fit(r, &sg.lookup_transfer, &sg.lookup_transfer_size, u32(SCULPT_LOOKUP_SLICE)) do return sculpt_lookup_refused(r, mb, "an upload buffer of 16 MB")
-		transfer = cast([^]u8)gpu.map_transfer_buffer(r.device, sg.lookup_transfer, true)
+		transfer = cast([^]u8)gpu.map_transfer_buffer(sg.lookup_transfer, true)
 		if transfer == nil do return sculpt_lookup_refused(r, mb, "the lookup's upload")
 	}
 	copy_start := time.tick_now()
@@ -490,7 +489,7 @@ sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, faces:
 		sg.lookup_rate = rate if sg.lookup_rate == 0 else 0.5 * (sg.lookup_rate + rate)
 	}
 	if staged > 0 {
-		gpu.unmap_transfer_buffer(r.device, sg.lookup_transfer)
+		gpu.unmap_transfer_buffer(sg.lookup_transfer)
 		buffers := [3]gpu.Buffer{ms.offsets, ms.tris, ms.shared}
 		pass := gpu.begin_copy_pass(cmd)
 		for pc in pieces[:count] {
@@ -506,7 +505,7 @@ sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, faces:
 	ms.lookup_ready = true
 	// The staging buffer's backings go once the GPU has copied from them: another mesh's
 	// lookup makes it again.
-	if sg.lookup_transfer != nil do gpu.release_transfer_buffer(r.device, sg.lookup_transfer)
+	if sg.lookup_transfer != nil do gpu.release_transfer_buffer(sg.lookup_transfer)
 	sg.lookup_transfer, sg.lookup_transfer_size = nil, 0
 	log.infof("sculpt on the GPU: %d MB lookup uploaded over %d frames, %.0f ms after it began, %.1f ms a frame on the CPU", total >> 20, ms.lookup_frames, time.duration_milliseconds(time.tick_since(ms.lookup_start)), (ms.lookup_ms + time.duration_milliseconds(time.tick_since(slice_start))) / f64(ms.lookup_frames))
 	return .Ready
@@ -527,7 +526,7 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 	held := &ms.bytes[kind]
 	what := "mask" if kind == .Mask else "fade"
 	if values == nil || ms.offsets == nil || ms.failed {
-		if held.buffer != nil do gpu.release_buffer(r.device, held.buffer)
+		if held.buffer != nil do gpu.release_buffer(held.buffer)
 		held^ = {}
 		return 0
 	}
@@ -544,14 +543,14 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 	}
 	spans := make([dynamic]Span, 0, len(ranges) + 1, context.temp_allocator)
 	if held.buffer == nil || held.vertices != count {
-		if held.buffer != nil do gpu.release_buffer(r.device, held.buffer)
+		if held.buffer != nil do gpu.release_buffer(held.buffer)
 		held^ = {}
-		held.buffer = gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = max(padded, 4)})
+		held.buffer = gpu.create_buffer({usage = {.Storage_Read}, size = max(padded, 4)})
 		if held.buffer == nil {
-			log.errorf("sculpt on the GPU: the %s's %d MB were refused (%s); its strokes stay on the CPU", what, padded >> 20, sdl.GetError())
+			log.errorf("sculpt on the GPU: the %s's %d MB were refused (%s); its strokes stay on the CPU", what, padded >> 20, gpu.last_error())
 			return 0
 		}
-		gpu.set_buffer_name(r.device, held.buffer, "sculpt mask" if kind == .Mask else "sculpt fade")
+		gpu.set_buffer_name(held.buffer, "sculpt mask" if kind == .Mask else "sculpt fade")
 		append(&spans, Span{0, padded})
 	} else {
 		for rg in ranges {
@@ -571,14 +570,14 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 	if total == 0 do return 0
 	transfer, transfer_size := &sg.bytes_transfer[kind], &sg.bytes_transfer_size[kind]
 	if !transfer_fit(r, transfer, transfer_size, total) {
-		log.errorf("sculpt on the GPU: an upload buffer of %d KB for the %s was refused (%s)", total >> 10, what, sdl.GetError())
-		gpu.release_buffer(r.device, held.buffer)
+		log.errorf("sculpt on the GPU: an upload buffer of %d KB for the %s was refused (%s)", total >> 10, what, gpu.last_error())
+		gpu.release_buffer(held.buffer)
 		held^ = {}
 		return 0
 	}
-	dst := cast([^]u8)gpu.map_transfer_buffer(r.device, transfer^, true)
+	dst := cast([^]u8)gpu.map_transfer_buffer(transfer^, true)
 	if dst == nil {
-		gpu.release_buffer(r.device, held.buffer)
+		gpu.release_buffer(held.buffer)
 		held^ = {}
 		return 0
 	}
@@ -590,7 +589,7 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 		for k in have ..< sp.count do dst[at + k] = 0
 		at += sp.count
 	}
-	gpu.unmap_transfer_buffer(r.device, transfer^)
+	gpu.unmap_transfer_buffer(transfer^)
 	pass := gpu.begin_copy_pass(cmd)
 	at = 0
 	for sp in spans {
@@ -602,7 +601,7 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 	// mask's pick, which changes every vertex) goes once the GPU has copied from it: the
 	// ranges of a mask stroke need a sliver of it.
 	if total >= SCULPT_BYTES_KEEP {
-		gpu.release_transfer_buffer(r.device, transfer^)
+		gpu.release_transfer_buffer(transfer^)
 		transfer^, transfer_size^ = nil, 0
 	}
 	if held.vertices == 0 {
@@ -631,7 +630,7 @@ sculpt_lookup_make :: proc(r: ^Renderer, mb: ^Mesh_Buffers, sizes: [3]int) -> bo
 	// system share (an 8 GB tablet then carries about 20M; a larger mesh sculpts on the CPU
 	// as before, rather than the system closing the app).
 	total := sizes[0] + sizes[1] + sizes[2]
-	if budget, unified := gpu.memory_budget(r.device); budget > 0 && u64(total) > budget / (8 if unified else 4) {
+	if budget, unified := gpu.memory_budget(); budget > 0 && u64(total) > budget / (8 if unified else 4) {
 		log.warnf("sculpt on the GPU: the lookup's %d MB are more than %s %d MB allow; this mesh's strokes stay on the CPU", total >> 20, "an eighth of the device's" if unified else "a quarter of the GPU's", budget >> 20)
 		ms.failed = true
 		return false
@@ -641,13 +640,13 @@ sculpt_lookup_make :: proc(r: ^Renderer, mb: ^Mesh_Buffers, sizes: [3]int) -> bo
 	for size, i in sizes {
 		// Never empty, for the binding's sake (a mesh with no shared vertices).
 		info := gpu.Buffer_Desc{usage = {.Storage_Read}, size = u32(max(size, 4))}
-		if r.caps.shared_buffers do buffers[i], ms.lookup_maps[i] = gpu.create_buffer_mapped(r.device, info)
-		if buffers[i] == nil do buffers[i] = gpu.create_buffer(r.device, info)
-		if buffers[i] != nil do gpu.set_buffer_name(r.device, buffers[i], names[i])
+		if r.caps.shared_buffers do buffers[i], ms.lookup_maps[i] = gpu.create_buffer_mapped(info)
+		if buffers[i] == nil do buffers[i] = gpu.create_buffer(info)
+		if buffers[i] != nil do gpu.set_buffer_name(buffers[i], names[i])
 	}
 	ms.offsets, ms.tris, ms.shared = buffers[0], buffers[1], buffers[2]
 	if ms.offsets == nil || ms.tris == nil || ms.shared == nil {
-		log.errorf("sculpt on the GPU: the lookup's %d MB were refused (%s); this mesh's strokes stay on the CPU", (sizes[0] + sizes[1] + sizes[2]) >> 20, sdl.GetError())
+		log.errorf("sculpt on the GPU: the lookup's %d MB were refused (%s); this mesh's strokes stay on the CPU", (sizes[0] + sizes[1] + sizes[2]) >> 20, gpu.last_error())
 		sculpt_lookup_release(r, mb)
 		ms.failed = true
 		return false
@@ -662,7 +661,7 @@ sculpt_lookup_make :: proc(r: ^Renderer, mb: ^Mesh_Buffers, sizes: [3]int) -> bo
 // mesh's strokes to the CPU.
 @(private = "file")
 sculpt_lookup_refused :: proc(r: ^Renderer, mb: ^Mesh_Buffers, what: string) -> Sculpt_Lookup {
-	log.errorf("sculpt on the GPU: %s was refused (%s); this mesh's strokes stay on the CPU", what, sdl.GetError())
+	log.errorf("sculpt on the GPU: %s was refused (%s); this mesh's strokes stay on the CPU", what, gpu.last_error())
 	sculpt_lookup_release(r, mb)
 	mb.sculpt.failed = true
 	return .Off
@@ -673,7 +672,7 @@ sculpt_lookup_refused :: proc(r: ^Renderer, mb: ^Mesh_Buffers, what: string) -> 
 sculpt_lookup_unmap :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	ms := &mb.sculpt
 	buffers := [3]gpu.Buffer{ms.offsets, ms.tris, ms.shared}
-	for m, i in ms.lookup_maps do if m != nil && buffers[i] != nil do gpu.buffer_filled(r.device, buffers[i])
+	for m, i in ms.lookup_maps do if m != nil && buffers[i] != nil do gpu.buffer_filled(buffers[i])
 	ms.lookup_maps = {}
 }
 
@@ -695,10 +694,10 @@ sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Fac
 		return false
 	}
 	for {
-		cmd := gpu.acquire_command_buffer(r.device)
+		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
 		state := sculpt_gpu_prepare(r, cmd, mb, faces, shared)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle(r.device) {
+		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() {
 			_ = sculpt_lookup_refused(r, mb, "the lookup's upload")
 			return false
 		}
@@ -713,7 +712,7 @@ sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Fac
 sculpt_pipelines_make :: proc(r: ^Renderer) -> bool {
 	sg := &r.sculpt_gpu
 	make_one :: proc(r: ^Renderer, code: string, readonly, readwrite: u32, what: string) -> gpu.Compute_Pipeline {
-		p := gpu.create_compute_pipeline_exact(r.device, {
+		p := gpu.create_compute_pipeline_exact({
 			code                          = code,
 			entrypoint                    = SHADER_ENTRY,
 			format                        = SHADER_FORMAT,
@@ -724,7 +723,7 @@ sculpt_pipelines_make :: proc(r: ^Renderer) -> bool {
 			threadcount_y                 = 1,
 			threadcount_z                 = 1,
 		})
-		if p == nil do log.errorf("sculpt on the GPU: the %s kernel could not be made (%s); strokes stay on the CPU", what, sdl.GetError())
+		if p == nil do log.errorf("sculpt on the GPU: the %s kernel could not be made (%s); strokes stay on the CPU", what, gpu.last_error())
 		return p
 	}
 	sg.pipeline = make_one(r, NODE_NORMALS_COMP_CODE, 5, 1, "normals")
@@ -803,13 +802,13 @@ sculpt_gpu_read_normals :: proc(r: ^Renderer, mb: ^Mesh_Buffers, ranges: []geom.
 	if verts == 0 do return true
 	if mb.normals == nil do return false
 	size := verts * size_of(Normal_Packed)
-	download := gpu.create_transfer_buffer(r.device, {usage = .Download, size = size})
+	download := gpu.create_transfer_buffer({usage = .Download, size = size})
 	if download == nil {
-		log.errorf("sculpt on the GPU: a readback buffer of %d KB was refused (%s)", size >> 10, sdl.GetError())
+		log.errorf("sculpt on the GPU: a readback buffer of %d KB was refused (%s)", size >> 10, gpu.last_error())
 		return false
 	}
-	defer gpu.release_transfer_buffer(r.device, download)
-	cmd := gpu.acquire_command_buffer(r.device)
+	defer gpu.release_transfer_buffer(download)
+	cmd := gpu.acquire_command_buffer()
 	if cmd == nil do return false
 	pass := gpu.begin_copy_pass(cmd)
 	at: u32
@@ -821,12 +820,12 @@ sculpt_gpu_read_normals :: proc(r: ^Renderer, mb: ^Mesh_Buffers, ranges: []geom.
 	gpu.end_copy_pass(pass)
 	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
 	if fence == nil do return false
-	defer gpu.release_fence(r.device, fence)
-	if !gpu.wait_for_fences(r.device, true, &fence, 1) do return false
-	src := ([^]Normal_Packed)(gpu.map_transfer_buffer(r.device, download, false))
+	defer gpu.release_fence(fence)
+	if !gpu.wait_for_fences(true, &fence, 1) do return false
+	src := ([^]Normal_Packed)(gpu.map_transfer_buffer(download, false))
 	if src == nil do return false
 	sculpt_unpack_normals(r, src, ranges, normals)
-	gpu.unmap_transfer_buffer(r.device, download)
+	gpu.unmap_transfer_buffer(download)
 	return true
 }
 
@@ -994,15 +993,15 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		if !storage_fit(r, &sg.bounds, &sg.bounds_capacity, bbytes, {.Storage_Read, .Storage_Write}) do return sculpt_refused(sg, fmt.tprintf("a bounds buffer of %d KB", bbytes >> 10))
 	}
 	if !sculpt_slot_fit(r, s, pbytes + nbytes + hbytes + bbytes + back_bytes) do return sculpt_refused(sg, fmt.tprintf("a readback buffer of %d KB", (s.bytes + pbytes + nbytes + hbytes + bbytes + back_bytes) >> 10))
-	dst := gpu.map_transfer_buffer(r.device, sg.transfer, true)
+	dst := gpu.map_transfer_buffer(sg.transfer, true)
 	if dst == nil do return sculpt_refused(sg, "mapping the slabs")
 	copy(([^]u8)(dst)[:sbytes], slice.to_bytes(slabs[:]))
-	gpu.unmap_transfer_buffer(r.device, sg.transfer)
+	gpu.unmap_transfer_buffer(sg.transfer)
 	if len(records) > 0 {
-		dst = gpu.map_transfer_buffer(r.device, sg.dabs_transfer, true)
+		dst = gpu.map_transfer_buffer(sg.dabs_transfer, true)
 		if dst == nil do return sculpt_refused(sg, "mapping the dabs")
 		copy(([^]u8)(dst)[:dbytes], slice.to_bytes(records))
-		gpu.unmap_transfer_buffer(r.device, sg.dabs_transfer)
+		gpu.unmap_transfer_buffer(sg.dabs_transfer)
 	}
 	// The tables go up unless the buffer holds them already: the same values (by where
 	// they live) for the same stroke on the same mesh, which a stroke's brush keeps.
@@ -1016,20 +1015,20 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		tables_up = !same
 	}
 	if tables_up {
-		dst = gpu.map_transfer_buffer(r.device, sg.tables_transfer, true)
+		dst = gpu.map_transfer_buffer(sg.tables_transfer, true)
 		if dst == nil do return sculpt_refused(sg, "mapping the alphas and falloffs")
 		out := ([^]f32)(dst)
 		for t in table_of do copy(out[t.first:][:len(t.values)], t.values)
-		gpu.unmap_transfer_buffer(r.device, sg.tables_transfer)
+		gpu.unmap_transfer_buffer(sg.tables_transfer)
 		clear(&sg.tables_held)
 		append(&sg.tables_held, ..table_of[:])
 		sg.tables_mesh, sg.tables_stroke = mb, ms.dabs[0].stroke
 	}
 	if node_count > 0 {
-		dst = gpu.map_transfer_buffer(r.device, sg.nodes_transfer, true)
+		dst = gpu.map_transfer_buffer(sg.nodes_transfer, true)
 		if dst == nil do return sculpt_refused(sg, "mapping the nodes")
 		copy(([^]u8)(dst)[:node_count * size_of(Sculpt_Node)], slice.to_bytes(ms.queued_nodes[:]))
-		gpu.unmap_transfer_buffer(r.device, sg.nodes_transfer)
+		gpu.unmap_transfer_buffer(sg.nodes_transfer)
 	}
 
 	debug_group(cmd, "GPU sculpt", .Sculpt)
@@ -1187,10 +1186,10 @@ sculpt_slot_fit :: proc(r: ^Renderer, s: ^Sculpt_Slot, bytes: u32) -> bool {
 	// An earlier mesh's readback this frame lives in the old buffer, whose copies are
 	// recorded: it stays until the slot is applied.
 	if s.download != nil && s.bytes > 0 do append(&s.retired, s.download)
-	else if s.download != nil do gpu.release_transfer_buffer(r.device, s.download)
+	else if s.download != nil do gpu.release_transfer_buffer(s.download)
 	want := s.bytes + bytes
 	s.download_size = want + want / 4
-	s.download = gpu.create_transfer_buffer(r.device, {usage = .Download, size = s.download_size})
+	s.download = gpu.create_transfer_buffer({usage = .Download, size = s.download_size})
 	if s.download == nil {
 		s.download_size = 0
 		return false
@@ -1251,9 +1250,9 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 @(private = "file")
 transfer_fit :: proc(r: ^Renderer, buffer: ^gpu.Transfer_Buffer, size: ^u32, bytes: u32) -> bool {
 	if buffer^ != nil && size^ >= bytes do return true
-	if buffer^ != nil do gpu.release_transfer_buffer(r.device, buffer^)
+	if buffer^ != nil do gpu.release_transfer_buffer(buffer^)
 	size^ = bytes + bytes / 4
-	buffer^ = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = size^})
+	buffer^ = gpu.create_transfer_buffer({usage = .Upload, size = size^})
 	if buffer^ == nil do size^ = 0
 	return buffer^ != nil
 }
@@ -1265,11 +1264,11 @@ transfer_fit :: proc(r: ^Renderer, buffer: ^gpu.Transfer_Buffer, size: ^u32, byt
 storage_fit :: proc(r: ^Renderer, buffer: ^gpu.Buffer, capacity: ^u32, bytes: u32, usage: gpu.Buffer_Usages) -> bool {
 	if buffer^ != nil && capacity^ >= bytes do return true
 	if buffer^ != nil {
-		_ = gpu.wait_for_idle(r.device)
-		gpu.release_buffer(r.device, buffer^)
+		_ = gpu.wait_for_idle()
+		gpu.release_buffer(buffer^)
 	}
 	capacity^ = bytes + bytes / 4
-	buffer^ = gpu.create_buffer(r.device, {usage = usage, size = capacity^})
+	buffer^ = gpu.create_buffer({usage = usage, size = capacity^})
 	if buffer^ == nil do capacity^ = 0
 	return buffer^ != nil
 }
@@ -1277,7 +1276,7 @@ storage_fit :: proc(r: ^Renderer, buffer: ^gpu.Buffer, capacity: ^u32, bytes: u3
 // Logs a refusal and gives every stroke from now on to the CPU.
 @(private = "file")
 sculpt_refused :: proc(sg: ^Sculpt_Gpu, what: string) -> bool {
-	log.errorf("sculpt on the GPU: %s was refused (%s); strokes stay on the CPU", what, sdl.GetError())
+	log.errorf("sculpt on the GPU: %s was refused (%s); strokes stay on the CPU", what, gpu.last_error())
 	sg.failed = true
 	return false
 }
@@ -1290,7 +1289,7 @@ sculpt_gpu_submitted :: proc(r: ^Renderer, fence: gpu.Fence) {
 	s := &sg.slots[sg.slot]
 	sg.recorded = false
 	if len(s.entries) == 0 {
-		if fence != nil do gpu.release_fence(r.device, fence)
+		if fence != nil do gpu.release_fence(fence)
 		return
 	}
 	s.fence = fence
@@ -1366,13 +1365,13 @@ sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	sculpt_lookup_unmap(r, mb)
 	ms := &mb.sculpt
-	if ms.offsets != nil do gpu.release_buffer(r.device, ms.offsets)
-	if ms.tris != nil do gpu.release_buffer(r.device, ms.tris)
-	if ms.heights_buffer != nil do gpu.release_buffer(r.device, ms.heights_buffer)
-	if ms.shared != nil do gpu.release_buffer(r.device, ms.shared)
+	if ms.offsets != nil do gpu.release_buffer(ms.offsets)
+	if ms.tris != nil do gpu.release_buffer(ms.tris)
+	if ms.heights_buffer != nil do gpu.release_buffer(ms.heights_buffer)
+	if ms.shared != nil do gpu.release_buffer(ms.shared)
 	ms.shared = nil
 	for &held in ms.bytes {
-		if held.buffer != nil do gpu.release_buffer(r.device, held.buffer)
+		if held.buffer != nil do gpu.release_buffer(held.buffer)
 		held = {}
 	}
 	ms.offsets, ms.tris, ms.lookup_version, ms.lookup_bytes = nil, nil, 0, 0
@@ -1383,12 +1382,12 @@ sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 // Waits for the GPU, then releases the ring, the buffers and the kernels.
 sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	sg := &r.sculpt_gpu
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
 	for &s in sg.slots {
-		if s.fence != nil do gpu.release_fence(r.device, s.fence)
-		if s.download != nil do gpu.release_transfer_buffer(r.device, s.download)
-		for b in s.retired do gpu.release_transfer_buffer(r.device, b)
+		if s.fence != nil do gpu.release_fence(s.fence)
+		if s.download != nil do gpu.release_transfer_buffer(s.download)
+		for b in s.retired do gpu.release_transfer_buffer(b)
 		delete(s.retired)
 		for e in s.entries {
 			delete(e.ranges)
@@ -1398,24 +1397,24 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	}
 	sculpt_gpu_landed_clear(r)
 	delete(sg.landed)
-	if sg.slabs != nil do gpu.release_buffer(r.device, sg.slabs)
-	if sg.transfer != nil do gpu.release_transfer_buffer(r.device, sg.transfer)
-	if sg.dabs != nil do gpu.release_buffer(r.device, sg.dabs)
-	if sg.dabs_transfer != nil do gpu.release_transfer_buffer(r.device, sg.dabs_transfer)
-	if sg.partials != nil do gpu.release_buffer(r.device, sg.partials)
-	if sg.areas != nil do gpu.release_buffer(r.device, sg.areas)
-	if sg.scratch != nil do gpu.release_buffer(r.device, sg.scratch)
-	if sg.nodes != nil do gpu.release_buffer(r.device, sg.nodes)
-	if sg.nodes_transfer != nil do gpu.release_transfer_buffer(r.device, sg.nodes_transfer)
-	if sg.bounds != nil do gpu.release_buffer(r.device, sg.bounds)
-	if sg.lookup_transfer != nil do gpu.release_transfer_buffer(r.device, sg.lookup_transfer)
-	if sg.tables != nil do gpu.release_buffer(r.device, sg.tables)
+	if sg.slabs != nil do gpu.release_buffer(sg.slabs)
+	if sg.transfer != nil do gpu.release_transfer_buffer(sg.transfer)
+	if sg.dabs != nil do gpu.release_buffer(sg.dabs)
+	if sg.dabs_transfer != nil do gpu.release_transfer_buffer(sg.dabs_transfer)
+	if sg.partials != nil do gpu.release_buffer(sg.partials)
+	if sg.areas != nil do gpu.release_buffer(sg.areas)
+	if sg.scratch != nil do gpu.release_buffer(sg.scratch)
+	if sg.nodes != nil do gpu.release_buffer(sg.nodes)
+	if sg.nodes_transfer != nil do gpu.release_transfer_buffer(sg.nodes_transfer)
+	if sg.bounds != nil do gpu.release_buffer(sg.bounds)
+	if sg.lookup_transfer != nil do gpu.release_transfer_buffer(sg.lookup_transfer)
+	if sg.tables != nil do gpu.release_buffer(sg.tables)
 	delete(sg.tables_held)
-	if sg.tables_transfer != nil do gpu.release_transfer_buffer(r.device, sg.tables_transfer)
-	for t in sg.bytes_transfer do if t != nil do gpu.release_transfer_buffer(r.device, t)
-	if sg.bounds_pipeline != nil do gpu.release_compute_pipeline(r.device, sg.bounds_pipeline)
-	if sg.pipeline != nil do gpu.release_compute_pipeline(r.device, sg.pipeline)
-	for p in sg.dab_pipelines do if p != nil do gpu.release_compute_pipeline(r.device, p)
+	if sg.tables_transfer != nil do gpu.release_transfer_buffer(sg.tables_transfer)
+	for t in sg.bytes_transfer do if t != nil do gpu.release_transfer_buffer(t)
+	if sg.bounds_pipeline != nil do gpu.release_compute_pipeline(sg.bounds_pipeline)
+	if sg.pipeline != nil do gpu.release_compute_pipeline(sg.pipeline)
+	for p in sg.dab_pipelines do if p != nil do gpu.release_compute_pipeline(p)
 	stats := sg.stats
 	sg^ = {}
 	sg.stats = stats
@@ -1428,8 +1427,8 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 	sg := &r.sculpt_gpu
 	if s.fence != nil {
-		_ = gpu.wait_for_fences(r.device, true, &s.fence, 1)
-		gpu.release_fence(r.device, s.fence)
+		_ = gpu.wait_for_fences(true, &s.fence, 1)
+		gpu.release_fence(s.fence)
 		s.fence = nil
 	} else if !waited {
 		sculpt_slot_drop(r, s)
@@ -1439,9 +1438,9 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 	if len(s.entries) == 0 do return
 	start := time.tick_now()
 	for e in s.entries {
-		src := ([^]u8)(gpu.map_transfer_buffer(r.device, e.download, false))
+		src := ([^]u8)(gpu.map_transfer_buffer(e.download, false))
 		if src == nil {
-			log.errorf("sculpt on the GPU: mapping a readback failed (%s)", sdl.GetError())
+			log.errorf("sculpt on the GPU: mapping a readback failed (%s)", gpu.last_error())
 			continue
 		}
 		Decode :: struct {
@@ -1488,7 +1487,7 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 			bounds = make([]geom.Aabb, len(e.nodes))
 			for &b, k in bounds do b = {corners[2 * k].xyz, corners[2 * k + 1].xyz}
 		}
-		gpu.unmap_transfer_buffer(r.device, e.download)
+		gpu.unmap_transfer_buffer(e.download)
 		if e.pbytes > 0 do append(&sg.landed, Sculpt_Landed{mesh = e.mesh, ranges = slice.clone(e.ranges), nodes = slice.clone(e.nodes), bounds = bounds})
 		sg.stats.applied_kb += f64(e.pbytes + e.nbytes + e.hbytes + u32(len(e.nodes)) * 32) / 1024
 	}
@@ -1504,7 +1503,7 @@ sculpt_slot_drop :: proc(r: ^Renderer, s: ^Sculpt_Slot) {
 		delete(e.nodes)
 	}
 	clear(&s.entries)
-	for b in s.retired do gpu.release_transfer_buffer(r.device, b)
+	for b in s.retired do gpu.release_transfer_buffer(b)
 	clear(&s.retired)
 	s.bytes = 0
 }

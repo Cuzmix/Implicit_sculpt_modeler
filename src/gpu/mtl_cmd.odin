@@ -6,7 +6,6 @@ import "core:mem"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import CA "vendor:darwin/QuartzCore"
-import sdl "vendor:sdl3"
 
 // Command buffers, passes and fences of the Metal backend. A render pass is a render
 // command encoder, a compute pass a compute encoder and a copy pass a blit encoder, each
@@ -138,12 +137,12 @@ mtl_cmd_recycle :: proc(cmd: ^Mtl_Cmd) {
 	append(&mtl_state.free_cmds, cmd)
 }
 
-mtl_acquire_command_buffer :: proc(device: Device) -> Cmd {
+mtl_acquire_command_buffer :: proc() -> Cmd {
 	NS.scoped_autoreleasepool()
 	mtl_collect()
 	cb := MTL.CommandQueue_commandBuffer(mtl_state.queue)
 	if cb == nil {
-		sdl.SetError("Metal: no command buffer")
+		fail(.Refused, "Metal: no command buffer")
 		return nil
 	}
 	NS.retain(cb)
@@ -165,7 +164,7 @@ mtl_acquire_command_buffer :: proc(device: Device) -> Cmd {
 mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 	NS.scoped_autoreleasepool()
 	if cmd.render != nil || cmd.blit != nil || cmd.compute != nil {
-		sdl.SetError("Metal: submitted inside a pass")
+		fail(.Invalid, "Metal: submitted inside a pass")
 		return 0, false
 	}
 	// Each drawable is presented once this command buffer has drawn it, and says when it
@@ -216,7 +215,7 @@ mtl_command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 mtl_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Mtl_Cmd)(command_buffer)
 	if len(cmd.presents) > 0 {
-		sdl.SetError("a command buffer holding a swapchain texture cannot be cancelled")
+		fail(.Invalid, "a command buffer holding a swapchain texture cannot be cancelled")
 		return false
 	}
 	if cmd.render != nil do MTL.CommandEncoder_endEncoding(cmd.render)
@@ -226,12 +225,12 @@ mtl_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	return true
 }
 
-mtl_query_fence :: proc(device: Device, fence: Fence) -> bool {
+mtl_query_fence :: proc(fence: Fence) -> bool {
 	mtl_collect()
 	return (^Mtl_Fence)(fence).serial <= mtl_state.completed
 }
 
-mtl_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
+mtl_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	if num_fences == 0 do return true
 	// Submissions finish in order, so all of them are done when the latest is, and any one
 	// when the earliest is.
@@ -243,7 +242,7 @@ mtl_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, nu
 	return mtl_wait_serial(serial)
 }
 
-mtl_release_fence :: proc(device: Device, fence: Fence) {
+mtl_release_fence :: proc(fence: Fence) {
 	free((^Mtl_Fence)(fence))
 }
 
@@ -252,7 +251,7 @@ mtl_release_fence :: proc(device: Device, fence: Fence) {
 @(private = "file")
 mtl_push_uniform :: proc(cmd: ^Mtl_Cmd, stage: Mtl_Stage, slot, length: u32, data: rawptr) {
 	if length > MTL_UNIFORM_RANGE || slot >= 4 {
-		sdl.SetError("Metal: a uniform block is too large or its slot is out of range")
+		fail(.Invalid, "Metal: a uniform block is too large or its slot is out of range")
 		return
 	}
 	u := &cmd.uniforms[stage][slot]
@@ -395,7 +394,7 @@ mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_
 	}
 	enc := MTL.CommandBuffer_renderCommandEncoderWithDescriptor(cmd.cb, desc)
 	if enc == nil {
-		sdl.SetError("Metal: the render pass could not begin")
+		fail(.Refused, "Metal: the render pass could not begin")
 		return nil
 	}
 	NS.retain(enc)
@@ -497,7 +496,7 @@ mtl_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, te
 	cmd.samplers_dirty = true
 }
 
-mtl_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
+mtl_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: Rect) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	MTL.RenderCommandEncoder_setScissorRect(cmd.render, {NS.Integer(scissor.x), NS.Integer(scissor.y), NS.Integer(max(scissor.w, 0)), NS.Integer(max(scissor.h, 0))})
 }
@@ -552,12 +551,12 @@ mtl_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
 	if num_storage_texture_bindings > MTL_COMPUTE_WRITES || num_storage_buffer_bindings > MTL_COMPUTE_WRITES {
-		sdl.SetError("Metal: a compute pass writes more than SDL_GPU allows")
+		fail(.Unsupported, "Metal: a compute pass writes more than the Metal backend binds")
 		return nil
 	}
 	enc := MTL.CommandBuffer_computeCommandEncoder(cmd.cb)
 	if enc == nil {
-		sdl.SetError("Metal: the compute pass could not begin")
+		fail(.Refused, "Metal: the compute pass could not begin")
 		return nil
 	}
 	NS.retain(enc)
@@ -679,7 +678,7 @@ mtl_begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 	cmd.recorded = true
 	enc := MTL.CommandBuffer_blitCommandEncoder(cmd.cb)
 	if enc == nil {
-		sdl.SetError("Metal: the copy pass could not begin")
+		fail(.Refused, "Metal: the copy pass could not begin")
 		return nil
 	}
 	NS.retain(enc)

@@ -5,7 +5,6 @@ import "core:hash"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
-import sdl "vendor:sdl3"
 
 // The finishing stack: what the viewport shows, finished as a camera's picture is
 // (finish.frag.slang), in one full-screen pass over what it would show otherwise. The
@@ -216,14 +215,14 @@ finish_reset :: proc(f: ^Finish) {
 }
 
 finish_destroy :: proc(r: ^Renderer, f: ^Finish) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
 	for p in ([?]gpu.Graphics_Pipeline{f.pipeline, f.mid_pipeline, f.sharpen_pipeline, f.down_pipeline, f.up_pipeline}) {
-		if p != nil do gpu.release_graphics_pipeline(r.device, p)
+		if p != nil do gpu.release_graphics_pipeline(p)
 	}
-	if f.sampler != nil do gpu.release_sampler(r.device, f.sampler)
-	if f.shown != nil do gpu.release_texture(r.device, f.shown)
-	if f.mid != nil do gpu.release_texture(r.device, f.mid)
+	if f.sampler != nil do gpu.release_sampler(f.sampler)
+	if f.shown != nil do gpu.release_texture(f.shown)
+	if f.mid != nil do gpu.release_texture(f.mid)
 	bloom_release(r, f)
 	f^ = {failed = f.failed, passes = f.passes, bloomed = f.bloomed, sharpened = f.sharpened}
 }
@@ -231,8 +230,8 @@ finish_destroy :: proc(r: ^Renderer, f: ^Finish) {
 @(private = "file")
 bloom_release :: proc(r: ^Renderer, f: ^Finish) {
 	for i in 0 ..< BLOOM_LEVELS_MAX {
-		if f.down[i] != nil do gpu.release_texture(r.device, f.down[i])
-		if f.up[i] != nil do gpu.release_texture(r.device, f.up[i])
+		if f.down[i] != nil do gpu.release_texture(f.down[i])
+		if f.up[i] != nil do gpu.release_texture(f.up[i])
 	}
 	f.down, f.up, f.levels, f.bloom_for = {}, {}, 0, {}
 }
@@ -348,27 +347,27 @@ finish_key :: proc(source: gpu.Texture, width, height: u32, linear: bool, look: 
 finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.pipeline == nil {
 		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 2)
-		f.sampler = gpu.create_sampler(r.device, {
+		f.sampler = gpu.create_sampler({
 			min_filter = .Linear, mag_filter = .Linear, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		if f.pipeline == nil || f.sampler == nil {
-			log.errorf("finishing: setup failed (%s); the picture shows unfinished", sdl.GetError())
+			log.errorf("finishing: setup failed (%s); the picture shows unfinished", gpu.last_error())
 			return false
 		}
 	}
 	if f.shown != nil && f.width == width && f.height == height do return true
-	if f.shown != nil do gpu.release_texture(r.device, f.shown)
-	f.shown = gpu.create_texture(r.device, {
+	if f.shown != nil do gpu.release_texture(f.shown)
+	f.shown = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	f.width, f.height, f.key = width, height, 0
 	if f.shown == nil {
-		log.errorf("finishing: target creation failed (%s); the picture shows unfinished", sdl.GetError())
+		log.errorf("finishing: target creation failed (%s); the picture shows unfinished", gpu.last_error())
 		return false
 	}
-	if f.mid != nil do gpu.release_texture(r.device, f.mid)
+	if f.mid != nil do gpu.release_texture(f.mid)
 	f.mid = nil
 	bloom_release(r, f)
 	return true
@@ -381,13 +380,13 @@ finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look
 		if f.mid_pipeline == nil do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, FINISH_MID_FORMAT, samplers = 2)
 		if f.sharpen_pipeline == nil do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 1)
 		if f.mid == nil {
-			f.mid = gpu.create_texture(r.device, {
+			f.mid = gpu.create_texture({
 				type = .D2, format = FINISH_MID_FORMAT, usage = {.Color_Target, .Sampled},
 				width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 			})
 		}
 		if f.mid_pipeline == nil || f.sharpen_pipeline == nil || f.mid == nil {
-			log.errorf("finishing: sharpening setup failed (%s); the picture shows unfinished", sdl.GetError())
+			log.errorf("finishing: sharpening setup failed (%s); the picture shows unfinished", gpu.last_error())
 			return false
 		}
 	}
@@ -395,11 +394,11 @@ finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look
 		if f.down_pipeline == nil {
 			// Packed floats where the device draws into them, at half half-floats' memory.
 			f.bloom_format = .RG11B10_Float
-			if !gpu.texture_supports_format(r.device, f.bloom_format, .D2, {.Color_Target, .Sampled}) do f.bloom_format = .RGBA16_Float
+			if !gpu.texture_supports_format(f.bloom_format, .D2, {.Color_Target, .Sampled}) do f.bloom_format = .RGBA16_Float
 			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG_CODE, f.bloom_format, samplers = 1)
 			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG_CODE, f.bloom_format, samplers = 2)
 			if f.down_pipeline == nil || f.up_pipeline == nil {
-				log.errorf("finishing: bloom setup failed (%s); the picture shows unfinished", sdl.GetError())
+				log.errorf("finishing: bloom setup failed (%s); the picture shows unfinished", gpu.last_error())
 				return false
 			}
 		}
@@ -412,11 +411,11 @@ finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look
 					type = .D2, format = f.bloom_format, usage = {.Color_Target, .Sampled},
 					width = f.level_size[i].x, height = f.level_size[i].y, layer_count_or_depth = 1, num_levels = 1,
 				}
-				f.down[i] = gpu.create_texture(r.device, info)
+				f.down[i] = gpu.create_texture(info)
 				// The finest level's upsample is the glow; the coarsest has none.
-				if i < f.levels - 1 do f.up[i] = gpu.create_texture(r.device, info)
+				if i < f.levels - 1 do f.up[i] = gpu.create_texture(info)
 				if f.down[i] == nil || (i < f.levels - 1 && f.up[i] == nil) {
-					log.errorf("finishing: bloom targets failed (%s); the picture shows unfinished", sdl.GetError())
+					log.errorf("finishing: bloom targets failed (%s); the picture shows unfinished", gpu.last_error())
 					return false
 				}
 			}

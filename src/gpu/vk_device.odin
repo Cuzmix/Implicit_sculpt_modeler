@@ -79,7 +79,6 @@ Vk_State :: struct {
 	set_layouts:       map[Vk_Set_Key]vk.DescriptorSetLayout,
 	graphics_layouts:  map[Vk_Graphics_Layout_Key]^Vk_Pipeline_Layout,
 	compute_layouts:   map[Vk_Compute_Layout_Key]^Vk_Pipeline_Layout,
-	properties_id:     sdl.PropertiesID,
 }
 
 vk_state: Vk_State
@@ -104,11 +103,6 @@ vk_validation_error :: proc(format: string, args: ..any) {
 @(private = "file")
 vk_fail :: proc(format: string, args: ..any) {
 	backend_fail("Vulkan", format, ..args)
-}
-
-// The device handle the app holds stands for the one Vulkan device.
-vk_device_handle :: proc() -> Device {
-	return (Device)(&vk_state)
 }
 
 @(private = "file")
@@ -177,11 +171,11 @@ vk_unfit :: proc(physical: vk.PhysicalDevice, family: ^u32) -> string {
 
 // Creates the instance and the device, or returns false with the reason logged and kept for
 // backend_error (and the app then says why it cannot start).
-vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
+vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> bool {
 	vk.load_proc_addresses_global(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
 	if vk.CreateInstance == nil {
 		vk_fail("the loader has no vkCreateInstance")
-		return nil, false
+		return false
 	}
 	count: u32
 	sdl_extensions := sdl.Vulkan_GetInstanceExtensions(&count)
@@ -234,7 +228,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
 	}
 	if r := vk.CreateInstance(&instance_info, nil, &vk_state.instance); r != .SUCCESS {
 		vk_fail("vkCreateInstance failed (%v)", r)
-		return nil, false
+		return false
 	}
 	vk.load_proc_addresses_instance(vk_state.instance)
 	if validation {
@@ -277,7 +271,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
 	if vk_state.physical == nil {
 		vk_fail("no device qualifies (%s)", reason)
 		vk_destroy_instance()
-		return nil, false
+		return false
 	}
 
 	// Present timing (Gpu_Caps.present_timing): present_wait where offered, which also
@@ -390,7 +384,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
 	if r := vk.CreateDevice(vk_state.physical, &device_info, nil, &vk_state.device); r != .SUCCESS {
 		vk_fail("vkCreateDevice failed (%v)", r)
 		vk_destroy_instance()
-		return nil, false
+		return false
 	}
 	vk.load_proc_addresses_device(vk_state.device)
 	vk.GetDeviceQueue(vk_state.device, vk_state.family, 0, &vk_state.queue)
@@ -425,19 +419,15 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
 	pool := vk.CommandPoolCreateInfo{sType = .COMMAND_POOL_CREATE_INFO, flags = {.RESET_COMMAND_BUFFER}, queueFamilyIndex = vk_state.family}
 	if vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.timeline) != .SUCCESS || vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.compute_timeline) != .SUCCESS || vk.CreateCommandPool(vk_state.device, &pool, nil, &vk_state.command_pool) != .SUCCESS {
 		vk_fail("the timeline semaphores or command pool could not be made")
-		vk_destroy_device(vk_device_handle())
-		return nil, false
+		vk_destroy_device()
+		return false
 	}
 
-	vk_state.properties_id = sdl.CreateProperties()
-	name := strings.clone_to_cstring(strings.truncate_to_byte(string(vk_state.properties.deviceName[:]), 0), context.temp_allocator)
-	driver := strings.clone_to_cstring(strings.truncate_to_byte(string(vk_state.driver.driverInfo[:]), 0), context.temp_allocator)
-	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, name)
-	_ = sdl.SetStringProperty(vk_state.properties_id, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, driver)
+	device_info_set(strings.truncate_to_byte(string(vk_state.properties.deviceName[:]), 0), strings.truncate_to_byte(string(vk_state.driver.driverInfo[:]), 0))
 	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
 	if have12.hostQueryReset do _ = vk_timing_init(families[vk_state.family].timestampValidBits)
 	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v; ray query: %v; barycentrics: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute, vk_state.ray_query, vk_state.barycentric)
-	return vk_device_handle(), true
+	return true
 }
 
 @(private = "file")
@@ -448,13 +438,13 @@ vk_destroy_instance :: proc() {
 }
 
 // Waits for the GPU, then frees everything the backend still holds.
-vk_destroy_device :: proc(device: Device) {
+vk_destroy_device :: proc() {
 	if vk_state.device == nil {
 		vk_destroy_instance()
 		return
 	}
-	vk_wait_for_idle(device)
-	for len(vk_state.windows) > 0 do vk_release_window(device, vk_state.windows[0].window)
+	vk_wait_for_idle()
+	for len(vk_state.windows) > 0 do vk_release_window(vk_state.windows[0].window)
 	delete(vk_state.windows)
 	for cmd in vk_state.free_cmds do vk_cmd_free(cmd)
 	delete(vk_state.free_cmds)
@@ -476,17 +466,8 @@ vk_destroy_device :: proc(device: Device) {
 	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
 	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
 	if vk_state.compute_timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.compute_timeline, nil)
-	if vk_state.properties_id != 0 do sdl.DestroyProperties(vk_state.properties_id)
 	vk.DestroyDevice(vk_state.device, nil)
 	vk_destroy_instance()
-}
-
-vk_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
-	return vk_state.properties_id
-}
-
-vk_get_device_driver :: proc(device: Device) -> cstring {
-	return "vulkan (own backend)"
 }
 
 // The Vulkan format of each of the gpu package's formats.
@@ -516,7 +497,7 @@ vk_format :: proc(format: Format) -> vk.Format {
 	return .UNDEFINED
 }
 
-vk_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
+vk_texture_supports_format :: proc(format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	f := vk_format(format)
 	if f == .UNDEFINED do return false
 	flags: vk.ImageUsageFlags
@@ -530,7 +511,7 @@ vk_texture_supports_format :: proc(device: Device, format: Format, type: Texture
 	return vk.GetPhysicalDeviceImageFormatProperties(vk_state.physical, f, .D3 if type == .D3 else .D2, .OPTIMAL, flags, create, &props) == .SUCCESS
 }
 
-vk_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
+vk_texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count) -> bool {
 	limits := &vk_state.properties.limits
 	counts := limits.framebufferDepthSampleCounts if format_is_depth(format) else limits.framebufferColorSampleCounts
 	return vk_samples(sample_count) <= counts
@@ -608,7 +589,7 @@ vk_wait_serial :: proc(serial: u64, queue := Vk_Queue.Graphics) -> bool {
 	return ok
 }
 
-vk_wait_for_idle :: proc(device: Device) -> bool {
+vk_wait_for_idle :: proc() -> bool {
 	ok := vk_wait_serial(vk_state.submitted)
 	ok = vk_wait_serial(vk_state.compute_submitted, .Compute) && ok
 	vk_collect()

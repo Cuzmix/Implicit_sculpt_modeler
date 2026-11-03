@@ -68,7 +68,7 @@ vk_accel_track :: proc(cmd: ^Vk_Cmd, a: ^Vk_Accel) {
 vk_accel_reap :: proc(a: ^Vk_Accel) {
 	if !a.released || a.refs > 0 do return
 	vk.DestroyAccelerationStructureKHR(vk_state.device, a.handle, nil)
-	vk_release_buffer(vk_device_handle(), (Buffer)(a.buffer))
+	vk_release_buffer((Buffer)(a.buffer))
 	for b in a.instances {
 		b.refs -= 1
 		vk_accel_reap(b)
@@ -90,7 +90,7 @@ vk_accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
 
 // Frees the scratch memory, once the GPU is idle (vk_destroy_device).
 vk_accel_destroy :: proc() {
-	if vk_scratch != nil do vk_release_buffer(vk_device_handle(), (Buffer)(vk_scratch))
+	if vk_scratch != nil do vk_release_buffer((Buffer)(vk_scratch))
 	vk_scratch = nil
 }
 
@@ -101,7 +101,7 @@ VK_SCRATCH_KEEP :: 64 << 20
 
 vk_accel_trim :: proc() {
 	if vk_scratch == nil || vk_scratch.size <= VK_SCRATCH_KEEP do return
-	vk_release_buffer(vk_device_handle(), (Buffer)(vk_scratch))
+	vk_release_buffer((Buffer)(vk_scratch))
 	vk_scratch = nil
 }
 
@@ -146,7 +146,7 @@ vk_accel_make :: proc(top: bool, size: vk.DeviceSize) -> ^Vk_Accel {
 		type   = .TOP_LEVEL if top else .BOTTOM_LEVEL,
 	}
 	if vk.CreateAccelerationStructureKHR(vk_state.device, &info, nil, &a.handle) != .SUCCESS {
-		vk_release_buffer(vk_device_handle(), (Buffer)(buffer))
+		vk_release_buffer((Buffer)(buffer))
 		free(a)
 		return nil
 	}
@@ -164,7 +164,7 @@ vk_scratch_address :: proc(cmd: ^Vk_Cmd, size: vk.DeviceSize) -> vk.DeviceAddres
 	if vk_scratch == nil || vk.DeviceSize(vk_scratch.size) < need {
 		if need > vk.DeviceSize(max(u32)) do return 0
 		// The old scratch goes once the builds that used it are done.
-		if vk_scratch != nil do vk_release_buffer(vk_device_handle(), (Buffer)(vk_scratch))
+		if vk_scratch != nil do vk_release_buffer((Buffer)(vk_scratch))
 		vk_scratch = vk_buffer_make(u32(need), {.STORAGE_BUFFER, .SHADER_DEVICE_ADDRESS}, .None)
 		if vk_scratch == nil do return 0
 	}
@@ -257,7 +257,7 @@ vk_build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^
 	// The instances go up through a buffer of this build's own, freed once it has run.
 	upload := vk_buffer_make(u32(len(instances) * size_of(Vk_Instance)), {.SHADER_DEVICE_ADDRESS, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}, .Upload)
 	if upload == nil do return nil
-	defer vk_release_buffer(vk_device_handle(), (Buffer)(upload))
+	defer vk_release_buffer((Buffer)(upload))
 	words := ([^]Vk_Instance)(upload.active.mapped)
 	for inst, i in instances {
 		t: [3][4]f32

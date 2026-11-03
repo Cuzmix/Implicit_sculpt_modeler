@@ -3,7 +3,6 @@ package render
 import "../gpu"
 import "core:log"
 import "core:math/bits"
-import sdl "vendor:sdl3"
 
 // The textured preview: a small mesh of its own for an object whose maps were baked or
 // loaded (a retopologized object's quads, split where its UVs are, research-3-pbr.md
@@ -74,27 +73,27 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 		return true
 	}
 	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity || vbytes + ibytes > tm.transfer_size {
-		_ = gpu.wait_for_idle(r.device)
+		_ = gpu.wait_for_idle()
 		textured_buffers_release(r, tm)
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
 		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + 2 * tm.index_capacity * size_of(u32)
-		tm.vertices = gpu.create_buffer(r.device, {usage = {.Vertex}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
-		tm.indices = gpu.create_buffer(r.device, {usage = {.Index}, size = tm.index_capacity * size_of(u32)})
+		tm.vertices = gpu.create_buffer({usage = {.Vertex}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
+		tm.indices = gpu.create_buffer({usage = {.Index}, size = tm.index_capacity * size_of(u32)})
 		// Render mode only copies it into its own buffers; storage read is a usage every
 		// device takes.
-		tm.corners = gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = tm.index_capacity * size_of(u32)})
-		tm.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = tm.transfer_size})
+		tm.corners = gpu.create_buffer({usage = {.Storage_Read}, size = tm.index_capacity * size_of(u32)})
+		tm.transfer = gpu.create_transfer_buffer({usage = .Upload, size = tm.transfer_size})
 		if tm.vertices == nil || tm.indices == nil || tm.corners == nil || tm.transfer == nil {
-			log.errorf("textured mesh buffers: %s", sdl.GetError())
+			log.errorf("textured mesh buffers: %s", gpu.last_error())
 			textured_buffers_release(r, tm)
 			return false
 		}
 	}
 	// Cycled, so a frame still reading the last upload keeps its copy.
-	dst := ([^]u8)(gpu.map_transfer_buffer(r.device, tm.transfer, true))
+	dst := ([^]u8)(gpu.map_transfer_buffer(tm.transfer, true))
 	if dst == nil {
-		log.errorf("textured mesh upload: %s", sdl.GetError())
+		log.errorf("textured mesh upload: %s", gpu.last_error())
 		tm.index_count, tm.corner_count = 0, 0
 		return false
 	}
@@ -102,7 +101,7 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 	copy(dst[vbytes:][:ibytes], ([^]u8)(raw_data(indices))[:ibytes])
 	cbytes := ibytes if len(corners) == len(indices) else 0
 	if cbytes > 0 do copy(dst[vbytes + ibytes:][:cbytes], ([^]u8)(raw_data(corners))[:cbytes])
-	gpu.unmap_transfer_buffer(r.device, tm.transfer)
+	gpu.unmap_transfer_buffer(tm.transfer)
 	pass := gpu.begin_copy_pass(cmd)
 	gpu.upload_to_buffer(pass, {transfer_buffer = tm.transfer}, {buffer = tm.vertices, size = vbytes}, false)
 	gpu.upload_to_buffer(pass, {transfer_buffer = tm.transfer, offset = vbytes}, {buffer = tm.indices, size = ibytes}, false)
@@ -122,8 +121,8 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 // when the device refuses.
 textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, pixels: []u8, width, height: int) -> bool {
 	if tm.maps[m] != nil {
-		_ = gpu.wait_for_idle(r.device)
-		gpu.release_texture(r.device, tm.maps[m])
+		_ = gpu.wait_for_idle()
+		gpu.release_texture(tm.maps[m])
 		tm.maps[m], tm.sizes[m] = nil, {}
 	}
 	r.last_version += 1
@@ -138,18 +137,18 @@ textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, 
 // Waits for the GPU and releases everything the mesh holds.
 textured_mesh_destroy :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 	if tm.vertices == nil && tm.maps == {} do return
-	_ = gpu.wait_for_idle(r.device)
+	_ = gpu.wait_for_idle()
 	textured_buffers_release(r, tm)
-	for tex in tm.maps do if tex != nil do gpu.release_texture(r.device, tex)
+	for tex in tm.maps do if tex != nil do gpu.release_texture(tex)
 	tm^ = {}
 }
 
 @(private = "file")
 textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
-	if tm.vertices != nil do gpu.release_buffer(r.device, tm.vertices)
-	if tm.indices != nil do gpu.release_buffer(r.device, tm.indices)
-	if tm.corners != nil do gpu.release_buffer(r.device, tm.corners)
-	if tm.transfer != nil do gpu.release_transfer_buffer(r.device, tm.transfer)
+	if tm.vertices != nil do gpu.release_buffer(tm.vertices)
+	if tm.indices != nil do gpu.release_buffer(tm.indices)
+	if tm.corners != nil do gpu.release_buffer(tm.corners)
+	if tm.transfer != nil do gpu.release_transfer_buffer(tm.transfer)
 	tm.vertices, tm.indices, tm.corners, tm.transfer = nil, nil, nil, nil
 	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0, 0
 }
@@ -190,16 +189,16 @@ draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, it
 texture_create :: proc(r: ^Renderer, format: gpu.Format, pixels: []u8, width, height: int) -> gpu.Texture {
 	assert(width > 0 && height > 0 && len(pixels) == width * height * 4)
 	levels := u32(bits.log2(uint(max(width, height)))) + 1
-	tex := gpu.create_texture(r.device, {
+	tex := gpu.create_texture({
 		type = .D2, format = format, usage = {.Sampled, .Color_Target},
 		width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = levels,
 	})
 	if tex == nil {
-		log.errorf("texture %d x %d: %s", width, height, sdl.GetError())
+		log.errorf("texture %d x %d: %s", width, height, gpu.last_error())
 		return nil
 	}
 	if !texture_upload(r, tex, pixels, width, height, mips = levels > 1) {
-		gpu.release_texture(r.device, tex)
+		gpu.release_texture(tex)
 		return nil
 	}
 	return tex

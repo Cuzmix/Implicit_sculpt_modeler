@@ -6,7 +6,6 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:mem"
-import sdl "vendor:sdl3"
 
 import "../jobs"
 
@@ -524,16 +523,16 @@ studio_reset :: proc(st: ^Studio) {
 }
 
 studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	if st.shadow_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.shadow_pipeline)
-	if st.depth_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.depth_pipeline)
-	if st.gather_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.gather_pipeline)
-	if st.composite_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.composite_pipeline)
-	if st.reproject_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.reproject_pipeline)
-	if st.keep_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.keep_pipeline)
-	if st.sampler != nil do gpu.release_sampler(r.device, st.sampler)
-	for t in ([6]gpu.Texture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	if st.shadow_pipeline != nil do gpu.release_graphics_pipeline(st.shadow_pipeline)
+	if st.depth_pipeline != nil do gpu.release_graphics_pipeline(st.depth_pipeline)
+	if st.gather_pipeline != nil do gpu.release_graphics_pipeline(st.gather_pipeline)
+	if st.composite_pipeline != nil do gpu.release_graphics_pipeline(st.composite_pipeline)
+	if st.reproject_pipeline != nil do gpu.release_graphics_pipeline(st.reproject_pipeline)
+	if st.keep_pipeline != nil do gpu.release_graphics_pipeline(st.keep_pipeline)
+	if st.sampler != nil do gpu.release_sampler(st.sampler)
+	for t in ([6]gpu.Texture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(t)
 	tracer_destroy(r, &st.trace)
 	st^ = {trace = st.trace, carries = st.carries, carried_bare = st.carried_bare, restarts = st.restarts}
 }
@@ -579,48 +578,48 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 3)
 		st.reproject_pipeline = create_fullscreen_pipeline(r, STUDIO_REPROJECT_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 3)
 		st.keep_pipeline = create_fullscreen_pipeline(r, STUDIO_DEPTH_KEEP_FRAG_CODE, STUDIO_PREV_DEPTH_FORMAT, samplers = 1)
-		st.sampler = gpu.create_sampler(r.device, {
+		st.sampler = gpu.create_sampler({
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
-		st.shadow = gpu.create_texture(r.device, {
+		st.shadow = gpu.create_texture({
 			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = STUDIO_SHADOW_SIZE, height = STUDIO_SHADOW_SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if st.shadow_pipeline == nil || st.depth_pipeline == nil || st.gather_pipeline == nil || st.composite_pipeline == nil || st.reproject_pipeline == nil || st.keep_pipeline == nil || st.sampler == nil || st.shadow == nil {
-			log.errorf("studio render: setup failed (%s); it stays off", sdl.GetError())
+			log.errorf("studio render: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
 	}
 	want_view_depth := vt.samples != ._1
 	if st.accum != nil && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != nil) do return true
-	for t in ([5]gpu.Texture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([5]gpu.Texture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(t)
 	st.view_depth, st.accum, st.accums, st.prev_depth = nil, nil, {}, nil
 	if want_view_depth {
-		st.view_depth = gpu.create_texture(r.device, {
+		st.view_depth = gpu.create_texture({
 			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &a in st.accums {
-		a = gpu.create_texture(r.device, {
+		a = gpu.create_texture({
 			type = .D2, format = STUDIO_ACCUM_FORMAT, usage = {.Color_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	st.accum = st.accums[0]
-	st.prev_depth = gpu.create_texture(r.device, {
+	st.prev_depth = gpu.create_texture({
 		type = .D2, format = STUDIO_PREV_DEPTH_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
-	st.shown = gpu.create_texture(r.device, {
+	st.shown = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	st.width, st.height = vt.width, vt.height
 	st.samples, st.shown_valid, st.carried, st.depth_kept = 0, false, false, false
 	if st.accums[0] == nil || st.accums[1] == nil || st.prev_depth == nil || st.shown == nil || want_view_depth && st.view_depth == nil {
-		log.errorf("studio render: target creation failed (%s); it stays off", sdl.GetError())
+		log.errorf("studio render: target creation failed (%s); it stays off", gpu.last_error())
 		return false
 	}
 	return true

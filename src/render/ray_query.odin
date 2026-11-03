@@ -5,7 +5,6 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 
-import sdl "vendor:sdl3"
 
 // The ray query check, run when the device is made under --gpu-debug where Gpu_Caps.ray_query
 // is true: a bottom level over a fixture of two triangles (an opaque geometry and one that
@@ -81,38 +80,38 @@ ray_query_trusted :: proc(r: ^Renderer) -> bool {
 @(private = "file")
 ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	RAYS :: len(RQ_RAYS)
-	positions := gpu.create_buffer(r.device, {usage = {.Vertex}, size = 4 * 12}, accel_input = true)
-	indices := gpu.create_buffer(r.device, {usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
-	rays := gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = RAYS * 32})
-	hits := gpu.create_buffer(r.device, {usage = {.Storage_Write}, size = RAYS * 32})
-	upload := gpu.create_transfer_buffer(r.device, {usage = .Upload, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
-	download := gpu.create_transfer_buffer(r.device, {usage = .Download, size = RAYS * 32})
-	pipeline := gpu.create_compute_pipeline_traced(r.device, {
+	positions := gpu.create_buffer({usage = {.Vertex}, size = 4 * 12}, accel_input = true)
+	indices := gpu.create_buffer({usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
+	rays := gpu.create_buffer({usage = {.Storage_Read}, size = RAYS * 32})
+	hits := gpu.create_buffer({usage = {.Storage_Write}, size = RAYS * 32})
+	upload := gpu.create_transfer_buffer({usage = .Upload, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
+	download := gpu.create_transfer_buffer({usage = .Download, size = RAYS * 32})
+	pipeline := gpu.create_compute_pipeline_traced({
 		code = RAY_QUERY_CHECK_COMP_CODE, entrypoint = RQ_ENTRY,
 		format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
 		threadcount_x = 64, threadcount_y = 1, threadcount_z = 1,
 	})
 	blas, tlas: ^gpu.Gpu_Accel
 	defer {
-		gpu.release_accel(r.device, tlas)
-		gpu.release_accel(r.device, blas)
-		gpu.release_compute_pipeline(r.device, pipeline)
-		gpu.release_transfer_buffer(r.device, download)
-		gpu.release_transfer_buffer(r.device, upload)
-		gpu.release_buffer(r.device, hits)
-		gpu.release_buffer(r.device, rays)
-		gpu.release_buffer(r.device, indices)
-		gpu.release_buffer(r.device, positions)
+		gpu.release_accel(tlas)
+		gpu.release_accel(blas)
+		gpu.release_compute_pipeline(pipeline)
+		gpu.release_transfer_buffer(download)
+		gpu.release_transfer_buffer(upload)
+		gpu.release_buffer(hits)
+		gpu.release_buffer(rays)
+		gpu.release_buffer(indices)
+		gpu.release_buffer(positions)
 	}
 	if positions == nil || indices == nil || rays == nil || hits == nil || upload == nil || download == nil || pipeline == nil {
-		log.errorf("ray query check: its buffers or kernel could not be made (%s)", sdl.GetError())
+		log.errorf("ray query check: its buffers or kernel could not be made (%s)", gpu.last_error())
 		return false
 	}
 	geometries := [2]gpu.Blas_Geometry{{first_triangle = 0, triangle_count = 1, opaque = true}, {first_triangle = 1, triangle_count = 1, opaque = false}}
 	for round in 0 ..< 2 {
 		// The first round fills everything; the second moves the vertices up by 1.
 		z := f32(round)
-		data := ([^]u8)(gpu.map_transfer_buffer(r.device, upload, true))
+		data := ([^]u8)(gpu.map_transfer_buffer(upload, true))
 		if data == nil do return false
 		corners := [4][3]f32{{-1, -1, z}, {1, -1, z}, {1, 1, z}, {-1, 1, z}}
 		copy(data[:4 * 12], ([^]u8)(&corners)[:4 * 12])
@@ -122,8 +121,8 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 			ray_words[2 * i] = {ray.origin.x, ray.origin.y, ray.origin.z, 0}
 			ray_words[2 * i + 1] = {ray.direction.x, ray.direction.y, ray.direction.z, 0}
 		}
-		gpu.unmap_transfer_buffer(r.device, upload)
-		cmd := gpu.acquire_command_buffer(r.device)
+		gpu.unmap_transfer_buffer(upload)
+		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
 		copy_pass := gpu.begin_copy_pass(cmd)
 		gpu.upload_to_buffer(copy_pass, {transfer_buffer = upload}, {buffer = positions, size = 48}, false)
@@ -133,7 +132,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		new_blas := gpu.build_blas(cmd, positions, indices, 4, geometries[:], blas)
 		if round == 1 && new_blas != blas {
 			log.error("ray query check: the refit made a new bottom level")
-			if new_blas != nil do gpu.release_accel(r.device, new_blas)
+			if new_blas != nil do gpu.release_accel(new_blas)
 			_ = gpu.submit_command_buffer(cmd)
 			return false
 		}
@@ -146,7 +145,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		if blas != nil do new_tlas = gpu.build_tlas(cmd, instances[:], tlas)
 		if round == 1 && new_tlas != tlas {
 			log.error("ray query check: the top level was not rebuilt in place")
-			if new_tlas != nil do gpu.release_accel(r.device, new_tlas)
+			if new_tlas != nil do gpu.release_accel(new_tlas)
 			_ = gpu.submit_command_buffer(cmd)
 			return false
 		}
@@ -168,8 +167,8 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		copy_pass = gpu.begin_copy_pass(cmd)
 		gpu.download_from_buffer(copy_pass, {buffer = hits, size = RAYS * 32}, {transfer_buffer = download})
 		gpu.end_copy_pass(copy_pass)
-		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle(r.device) do return false
-		got := ([^][4]f32)(gpu.map_transfer_buffer(r.device, download, false))
+		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return false
+		got := ([^][4]f32)(gpu.map_transfer_buffer(download, false))
 		if got == nil do return false
 		ok := true
 		for ray, i in RQ_RAYS {
@@ -183,7 +182,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 				ok = false
 			}
 		}
-		gpu.unmap_transfer_buffer(r.device, download)
+		gpu.unmap_transfer_buffer(download)
 		if !ok do return false
 	}
 	return true

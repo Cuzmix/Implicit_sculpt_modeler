@@ -5,7 +5,6 @@ import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "../geom"
-import sdl "vendor:sdl3"
 
 // The detail skin (sculpt/skin.odin) on the GPU: per sample its normal, per triangle its
 // edges and lead corner, read by the skinned pipeline's fragment shader to light each
@@ -183,21 +182,21 @@ mesh_buffers_set_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, tris: [][4]u32, n
 	mesh_buffers_drop_skin(r, mb)
 	if !mb.storage || len(tris) == 0 || len(normals) == 0 || len(heights) != len(normals) do return false
 	words := heights_packed(heights, {{0, u32(len(heights) + 1) / 2}}, context.temp_allocator)
-	mb.skin_normals = gpu.create_buffer(r.device, {usage = {.Graphics_Storage_Read}, size = u32(len(normals) * size_of([2]i16))})
-	mb.skin_tris = gpu.create_buffer(r.device, {usage = {.Graphics_Storage_Read}, size = u32(len(tris) * size_of([4]u32))})
-	mb.skin_heights = gpu.create_buffer(r.device, {usage = {.Graphics_Storage_Read}, size = u32(len(words) * size_of(u32))})
+	mb.skin_normals = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(normals) * size_of([2]i16))})
+	mb.skin_tris = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(tris) * size_of([4]u32))})
+	mb.skin_heights = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(words) * size_of(u32))})
 	ok := mb.skin_normals != nil && mb.skin_tris != nil && mb.skin_heights != nil
 	ok = ok && upload_blocking(r, mb, mb.skin_normals, slice.to_bytes(normals))
 	ok = ok && upload_blocking(r, mb, mb.skin_tris, slice.to_bytes(tris))
 	ok = ok && upload_blocking(r, mb, mb.skin_heights, slice.to_bytes(words))
 	if !ok {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 		mesh_buffers_drop_skin(r, mb)
 		return false
 	}
-	gpu.set_buffer_name(r.device, mb.skin_normals, "skin normals")
-	gpu.set_buffer_name(r.device, mb.skin_tris, "skin triangles")
-	gpu.set_buffer_name(r.device, mb.skin_heights, "skin heights")
+	gpu.set_buffer_name(mb.skin_normals, "skin normals")
+	gpu.set_buffer_name(mb.skin_tris, "skin triangles")
+	gpu.set_buffer_name(mb.skin_heights, "skin heights")
 	mb.skin_meta = {segments, verts, edges}
 	mb.skin_reach = reach
 	mb.skin_samples = u32(len(normals))
@@ -218,14 +217,14 @@ mesh_buffers_upload_skin :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, 
 	// A packed normal is one u32, and a range of samples one of indices.
 	words := slice.reinterpret([]u32, normals)
 	if !upload_index_ranges(r, cmd, mb, mb.skin_normals, words, transmute([]geom.Index_Range)ranges) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	// The heights go two a word: each range widened to whole words, packed one after another.
 	word_ranges := make([]geom.Index_Range, len(ranges), context.temp_allocator)
 	for g, i in ranges do word_ranges[i] = {g.first / 2, (g.first + g.count + 1) / 2 - g.first / 2}
 	packed := heights_packed(heights, word_ranges, context.temp_allocator)
 	if !upload_index_ranges(r, cmd, mb, mb.skin_heights, packed, word_ranges, packed = true) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	mb_touch(r, mb)
 }
@@ -256,7 +255,7 @@ mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buff
 	words := slice.reinterpret([]u32, tris)
 	whole := [1]geom.Index_Range{{0, u32(len(words))}}
 	if !upload_index_ranges(r, cmd, mb, mb.skin_tris, words, whole[:]) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	mb_touch(r, mb)
 }
@@ -264,9 +263,9 @@ mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buff
 // Takes the skin off the mesh, which draws by its own normals again. The caller waits for
 // the GPU first (render.wait_idle) when it may still be drawing it.
 mesh_buffers_drop_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
-	if mb.skin_normals != nil do gpu.release_buffer(r.device, mb.skin_normals)
-	if mb.skin_tris != nil do gpu.release_buffer(r.device, mb.skin_tris)
-	if mb.skin_heights != nil do gpu.release_buffer(r.device, mb.skin_heights)
+	if mb.skin_normals != nil do gpu.release_buffer(mb.skin_normals)
+	if mb.skin_tris != nil do gpu.release_buffer(mb.skin_tris)
+	if mb.skin_heights != nil do gpu.release_buffer(mb.skin_heights)
 	mb.skin_normals, mb.skin_tris, mb.skin_heights, mb.skin_meta, mb.skin_samples, mb.skin_lead_stamp, mb.skin_stamp = nil, nil, nil, {}, 0, 0, 0
 	mb.skin_reach, mb.tess_draw_count = 0, 0
 	mb_touch(r, mb)

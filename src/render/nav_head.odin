@@ -4,7 +4,6 @@ import "../gpu"
 import "core:hash"
 import "core:log"
 import "core:slice"
-import sdl "vendor:sdl3"
 
 import "../geom"
 
@@ -35,15 +34,15 @@ nav_head_init :: proc(r: ^Renderer, nh: ^Nav_Head, mesh: geom.Mesh) -> bool {
 		return false
 	}
 	// The head never changes after this, so the large transfer buffer goes now.
-	gpu.release_transfer_buffer(r.device, mb.transfer)
+	gpu.release_transfer_buffer(mb.transfer)
 	mb.transfer, mb.transfer_size = nil, 0
 	nh.mesh = mb
 	return true
 }
 
 nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
 	mesh_buffers_destroy(r, &nh.mesh)
 	viewport_target_destroy(r, &nh.target)
 	nh^ = {}
@@ -58,7 +57,7 @@ nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: gpu.Cmd, size: [2]u32, r
 	w, h := size.x * NAV_HEAD_SUPERSAMPLE, size.y * NAV_HEAD_SUPERSAMPLE
 	if !viewport_target_resize(r, &nh.target, w, h, transient_depth = true) {
 		nh.failed = true
-		log.errorf("navigation head target: %s", sdl.GetError())
+		log.errorf("navigation head target: %s", gpu.last_error())
 		return nil
 	}
 	// The camera's view without its place: the head sits three units in front of the eye.

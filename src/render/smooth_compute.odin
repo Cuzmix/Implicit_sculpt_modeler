@@ -4,7 +4,6 @@ import "../gpu"
 import "core:log"
 import "core:mem"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 
@@ -63,7 +62,7 @@ smooth_timing_total :: proc(t: Smooth_Timing) -> f64 {
 
 smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 	// Exact (IEEE 754 arithmetic, no fast maths), so the result can equal the CPU's.
-	sc.pipeline = gpu.create_compute_pipeline_exact(r.device, {
+	sc.pipeline = gpu.create_compute_pipeline_exact({
 		code                          = SMOOTH_ALL_COMP_CODE,
 		entrypoint                    = SHADER_ENTRY,
 		format                        = SHADER_FORMAT,
@@ -75,7 +74,7 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 		threadcount_z                 = 1,
 	})
 	if sc.pipeline == nil {
-		log.errorf("smooth compute: CreateGPUComputePipeline failed: %s", sdl.GetError())
+		log.errorf("smooth compute: CreateGPUComputePipeline failed: %s", gpu.last_error())
 		return false
 	}
 	return true
@@ -83,12 +82,12 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 
 // Waits for the GPU, then releases every buffer and the pipeline.
 smooth_compute_destroy :: proc(r: ^Renderer, sc: ^Smooth_Compute) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	for b in sc.buffers do if b != nil do gpu.release_buffer(r.device, b)
-	if sc.upload != nil do gpu.release_transfer_buffer(r.device, sc.upload)
-	if sc.download != nil do gpu.release_transfer_buffer(r.device, sc.download)
-	if sc.pipeline != nil do gpu.release_compute_pipeline(r.device, sc.pipeline)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	for b in sc.buffers do if b != nil do gpu.release_buffer(b)
+	if sc.upload != nil do gpu.release_transfer_buffer(sc.upload)
+	if sc.download != nil do gpu.release_transfer_buffer(sc.download)
+	if sc.pipeline != nil do gpu.release_compute_pipeline(sc.pipeline)
 	sc^ = {}
 }
 
@@ -140,15 +139,15 @@ smooth_compute_run :: proc(
 	for kind in Smooth_Buffer {
 		if u32(sizes[kind]) <= sc.capacity[kind] do continue
 		if sc.buffers[kind] != nil {
-			_ = gpu.wait_for_idle(r.device)
-			gpu.release_buffer(r.device, sc.buffers[kind])
+			_ = gpu.wait_for_idle()
+			gpu.release_buffer(sc.buffers[kind])
 		}
 		usage := gpu.Buffer_Usages{.Storage_Read}
 		if kind >= .Pos_A do usage += {.Storage_Write}
-		sc.buffers[kind] = gpu.create_buffer(r.device, {usage = usage, size = u32(sizes[kind])})
+		sc.buffers[kind] = gpu.create_buffer({usage = usage, size = u32(sizes[kind])})
 		sc.capacity[kind] = u32(sizes[kind]) if sc.buffers[kind] != nil else 0
 		if sc.buffers[kind] == nil {
-			log.errorf("smooth compute: CreateGPUBuffer of %d MB failed: %s", sizes[kind] >> 20, sdl.GetError())
+			log.errorf("smooth compute: CreateGPUBuffer of %d MB failed: %s", sizes[kind] >> 20, gpu.last_error())
 			sc.topology = 0
 			return
 		}
@@ -163,15 +162,15 @@ smooth_compute_run :: proc(
 		total += len(sources[kind])
 	}
 	if !transfer_reserve(r, &sc.upload, &sc.upload_size, total, .Upload) do return
-	mapped := cast([^]u8)gpu.map_transfer_buffer(r.device, sc.upload, false)
+	mapped := cast([^]u8)gpu.map_transfer_buffer(sc.upload, false)
 	if mapped == nil {
-		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", sdl.GetError())
+		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", gpu.last_error())
 		return
 	}
-	cmd := gpu.acquire_command_buffer(r.device)
+	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
-		gpu.unmap_transfer_buffer(r.device, sc.upload)
-		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", sdl.GetError())
+		gpu.unmap_transfer_buffer(sc.upload)
+		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
 	copy_pass := gpu.begin_copy_pass(cmd)
@@ -183,7 +182,7 @@ smooth_compute_run :: proc(
 		gpu.upload_to_buffer(copy_pass, {transfer_buffer = sc.upload, offset = u32(at)}, {buffer = sc.buffers[kind], size = u32(len(src))}, false)
 		at += len(src)
 	}
-	gpu.unmap_transfer_buffer(r.device, sc.upload)
+	gpu.unmap_transfer_buffer(sc.upload)
 	gpu.end_copy_pass(copy_pass)
 	if !submit_and_wait(r, cmd) do return
 	timing.upload_mb = f64(total) / (1 << 20)
@@ -191,9 +190,9 @@ smooth_compute_run :: proc(
 	if timing.topology do sc.topology = topology_key
 
 	start = time.tick_now()
-	cmd = gpu.acquire_command_buffer(r.device)
+	cmd = gpu.acquire_command_buffer()
 	if cmd == nil {
-		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", sdl.GetError())
+		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
 	groups := (vcount + SMOOTH_THREADS - 1) / SMOOTH_THREADS
@@ -225,22 +224,22 @@ smooth_compute_run :: proc(
 	result := Smooth_Buffer.Pos_B if steps % 2 == 1 else Smooth_Buffer.Pos_A
 	bytes := len(sources[.Pos_A])
 	if !transfer_reserve(r, &sc.download, &sc.download_size, bytes, .Download) do return
-	cmd = gpu.acquire_command_buffer(r.device)
+	cmd = gpu.acquire_command_buffer()
 	if cmd == nil {
-		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", sdl.GetError())
+		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
 	copy_pass = gpu.begin_copy_pass(cmd)
 	gpu.download_from_buffer(copy_pass, {buffer = sc.buffers[result], size = u32(bytes)}, {transfer_buffer = sc.download})
 	gpu.end_copy_pass(copy_pass)
 	if !submit_and_wait(r, cmd) do return
-	back := cast([^]u8)gpu.map_transfer_buffer(r.device, sc.download, false)
+	back := cast([^]u8)gpu.map_transfer_buffer(sc.download, false)
 	if back == nil {
-		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", sdl.GetError())
+		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", gpu.last_error())
 		return
 	}
 	mem.copy_non_overlapping(raw_data(positions), back, bytes)
-	gpu.unmap_transfer_buffer(r.device, sc.download)
+	gpu.unmap_transfer_buffer(sc.download)
 	timing.readback_ms = time.duration_milliseconds(time.tick_since(start))
 	return timing, true
 }
@@ -250,13 +249,13 @@ smooth_compute_run :: proc(
 transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32, size: int, usage: gpu.Transfer_Usage) -> bool {
 	if size <= int(capacity^) && tb^ != nil do return true
 	if tb^ != nil {
-		_ = gpu.wait_for_idle(r.device)
-		gpu.release_transfer_buffer(r.device, tb^)
+		_ = gpu.wait_for_idle()
+		gpu.release_transfer_buffer(tb^)
 	}
-	tb^ = gpu.create_transfer_buffer(r.device, {usage = usage, size = u32(size)})
+	tb^ = gpu.create_transfer_buffer({usage = usage, size = u32(size)})
 	capacity^ = u32(size) if tb^ != nil else 0
 	if tb^ == nil {
-		log.errorf("smooth compute: CreateGPUTransferBuffer of %d MB failed: %s", size >> 20, sdl.GetError())
+		log.errorf("smooth compute: CreateGPUTransferBuffer of %d MB failed: %s", size >> 20, gpu.last_error())
 		return false
 	}
 	return true
@@ -267,12 +266,12 @@ transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32,
 submit_and_wait :: proc(r: ^Renderer, cmd: gpu.Cmd) -> bool {
 	fence := gpu.submit_command_buffer_and_acquire_fence(cmd)
 	if fence == nil {
-		log.errorf("smooth compute: submit failed: %s", sdl.GetError())
+		log.errorf("smooth compute: submit failed: %s", gpu.last_error())
 		return false
 	}
-	defer gpu.release_fence(r.device, fence)
-	if !gpu.wait_for_fences(r.device, true, &fence, 1) {
-		log.errorf("smooth compute: WaitForGPUFences failed: %s", sdl.GetError())
+	defer gpu.release_fence(fence)
+	if !gpu.wait_for_fences(true, &fence, 1) {
+		log.errorf("smooth compute: WaitForGPUFences failed: %s", gpu.last_error())
 		return false
 	}
 	return true

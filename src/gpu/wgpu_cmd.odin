@@ -163,7 +163,7 @@ wgpu_cmd_recycle :: proc(cmd: ^Wgpu_Cmd) {
 	wgpu_reap()
 }
 
-wgpu_acquire_command_buffer :: proc(device: Device) -> Cmd {
+wgpu_acquire_command_buffer :: proc() -> Cmd {
 	encoder := wgpu.DeviceCreateCommandEncoder(wgpu_state.device)
 	if encoder == nil {
 		wgpu_fail("WebGPU: no command encoder")
@@ -362,7 +362,7 @@ wgpu_dummy :: proc() -> ^Wgpu_Dummies {
 	d := &wgpu_dummies
 	if d.buffer == nil {
 		d.buffer = wgpu.DeviceCreateBuffer(wgpu_state.device, &{usage = {.Storage, .Uniform, .CopyDst}, size = 256})
-		d.texture = (^Wgpu_Texture)(wgpu_create_texture(wgpu_device_handle(), {type = .D2, format = .RGBA8_Unorm, usage = {.Sampled}, width = 1, height = 1, layer_count_or_depth = 1, num_levels = 1}))
+		d.texture = (^Wgpu_Texture)(wgpu_create_texture({type = .D2, format = .RGBA8_Unorm, usage = {.Sampled}, width = 1, height = 1, layer_count_or_depth = 1, num_levels = 1}))
 		d.sampler = wgpu.DeviceCreateSampler(wgpu_state.device, &{addressModeU = .ClampToEdge, addressModeV = .ClampToEdge, addressModeW = .ClampToEdge, magFilter = .Linear, minFilter = .Linear, mipmapFilter = .Linear, lodMaxClamp = 32, maxAnisotropy = 1})
 	}
 	return d
@@ -583,7 +583,7 @@ wgpu_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, t
 	cmd.resources_dirty = true
 }
 
-wgpu_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
+wgpu_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: Rect) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	// WebGPU refuses a scissor past the target, where SDL_GPU clips it.
 	x0 := u32(clamp(scissor.x, 0, i32(cmd.pass_size.x)))
@@ -627,7 +627,7 @@ wgpu_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	cmd.recorded = true
 	if num_storage_texture_bindings > 8 || num_storage_buffer_bindings > 8 {
-		wgpu_fail("WebGPU: a compute pass writes more than SDL_GPU allows")
+		wgpu_fail("WebGPU: a compute pass writes more than the Metal backend binds")
 		return nil
 	}
 	for i in 0 ..< num_storage_texture_bindings do cmd.compute_written[i] = storage_texture_bindings[i]
@@ -925,19 +925,19 @@ wgpu_pop_debug_group :: proc(command_buffer: Cmd) {}
 
 // ---- The canvas ---------------------------------------------------------------------
 
-wgpu_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
+wgpu_claim_window :: proc(window: ^sdl.Window) -> bool {
 	return true
 }
 
-wgpu_release_window :: proc(device: Device, window: ^sdl.Window) {}
+wgpu_release_window :: proc(window: ^sdl.Window) {}
 
 // The canvas presents what the frame drew when the page's task ends; its pace is the
 // browser's, the display's refresh.
-wgpu_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+wgpu_window_supports_present_mode :: proc(window: ^sdl.Window, present_mode: Present_Mode) -> bool {
 	return present_mode == .Vsync
 }
 
-wgpu_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
+wgpu_set_swapchain_parameters :: proc(window: ^sdl.Window, composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
 	if composition != .Sdr && composition != .Sdr_Linear do return false
 	srgb := composition == .Sdr_Linear
 	if srgb != wgpu_state.srgb {
@@ -947,7 +947,7 @@ wgpu_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, compo
 	return present_mode == .Vsync
 }
 
-wgpu_set_allowed_frames_in_flight :: proc(device: Device, frames: u32) -> bool {
+wgpu_set_allowed_frames_in_flight :: proc(frames: u32) -> bool {
 	return true
 }
 
@@ -960,7 +960,7 @@ wgpu_srgb_of :: proc(format: wgpu.TextureFormat) -> wgpu.TextureFormat {
 	return format
 }
 
-wgpu_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
+wgpu_get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 	bgra := wgpu_state.canvas_format == .BGRA8Unorm
 	if wgpu_state.srgb do return .BGRA8_Srgb if bgra else .RGBA8_Srgb
 	return .BGRA8_Unorm if bgra else .RGBA8_Unorm
@@ -1002,7 +1002,7 @@ wgpu_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture
 		texture = current.texture,
 		format = format,
 		swapchain = true,
-		info = {type = .D2, format = wgpu_get_swapchain_texture_format(nil, window), usage = {.Color_Target}, width = s.configured.x, height = s.configured.y, layer_count_or_depth = 1, num_levels = 1},
+		info = {type = .D2, format = wgpu_get_swapchain_texture_format(window), usage = {.Color_Target}, width = s.configured.x, height = s.configured.y, layer_count_or_depth = 1, num_levels = 1},
 	}
 	t.view = wgpu.TextureCreateView(current.texture, &{format = format, dimension = ._2D, mipLevelCount = 1, arrayLayerCount = 1, aspect = .All})
 	texture^ = (Texture)(t)

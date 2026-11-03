@@ -4,7 +4,6 @@ import "../gpu"
 import "core:log"
 import "core:math"
 import "core:mem"
-import sdl "vendor:sdl3"
 
 // Sampling an environment by its brightness (stage 4.4b), so render mode's paths find a
 // bright sun in a panorama, or the built-in studio's softbox, as often as they matter
@@ -146,16 +145,16 @@ panorama_direction :: proc(x, y, width, height: int) -> [3]f32 {
 
 // Uploads a table as an RGBA32F texture; nil, logged, when the device refuses.
 env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> gpu.Texture {
-	tex := gpu.create_texture(r.device, {
+	tex := gpu.create_texture({
 		type = .D2, format = ENV_TABLE_FORMAT, usage = {.Sampled},
 		width = u32(t.width), height = u32(t.height), layer_count_or_depth = 1, num_levels = 1,
 	})
 	if tex == nil {
-		log.errorf("environment table %d x %d: %s", t.width, t.height, sdl.GetError())
+		log.errorf("environment table %d x %d: %s", t.width, t.height, gpu.last_error())
 		return nil
 	}
 	if !texture_upload(r, tex, mem.slice_to_bytes(t.texels), t.width, t.height, mips = false) {
-		gpu.release_texture(r.device, tex)
+		gpu.release_texture(tex)
 		return nil
 	}
 	return tex

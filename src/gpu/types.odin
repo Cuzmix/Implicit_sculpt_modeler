@@ -1,28 +1,32 @@
 package gpu
 
-import sdl "vendor:sdl3"
-
 // The GPU's own vocabulary: the formats, usages, states and descriptions render hands the
 // seam, named for what Sculpt does with them rather than copied from SDL_GPU, and holding
 // only what the backends read (no property ids, no padding). Each backend maps them to its
 // API's own (vk_format, mtl_pixel_format, wgpu_format and their neighbours).
 
-// The objects render holds. They are still the opaque pointers each backend points at its
-// own objects; the next step makes them generational handles a stale use cannot crash on
-// (notes/gpu-own-model/design.md, G1). Render never looks inside one.
-Device           :: ^sdl.GPUDevice
-Buffer           :: ^sdl.GPUBuffer
-Transfer_Buffer  :: ^sdl.GPUTransferBuffer
-Texture          :: ^sdl.GPUTexture
-Sampler          :: ^sdl.GPUSampler
-Shader           :: ^sdl.GPUShader
-Graphics_Pipeline :: ^sdl.GPUGraphicsPipeline
-Compute_Pipeline :: ^sdl.GPUComputePipeline
-Cmd              :: ^sdl.GPUCommandBuffer
-Render_Pass      :: ^sdl.GPURenderPass
-Compute_Pass     :: ^sdl.GPUComputePass
-Copy_Pass        :: ^sdl.GPUCopyPass
-Fence            :: ^sdl.GPUFence
+// The objects render holds: opaque pointers each backend points at objects of its own
+// (Vk_Texture, Mtl_Texture, ...), nil for none. Render never looks inside one. The next
+// step makes the resources generational handles a stale use cannot crash on
+// (notes/gpu-own-model/design.md, G1).
+Buffer            :: distinct ^Opaque
+Transfer_Buffer   :: distinct ^Opaque
+Texture           :: distinct ^Opaque
+Sampler           :: distinct ^Opaque
+Shader            :: distinct ^Opaque
+Graphics_Pipeline :: distinct ^Opaque
+Compute_Pipeline  :: distinct ^Opaque
+// A recording, valid from its acquire until it is submitted or cancelled, and the passes
+// inside one, each valid until it ends.
+Cmd               :: distinct ^Opaque
+Render_Pass       :: distinct ^Opaque
+Compute_Pass      :: distinct ^Opaque
+Copy_Pass         :: distinct ^Opaque
+// A submission's completion, waited on or queried, then released.
+Fence             :: distinct ^Opaque
+
+// What a handle points at, as far as render knows: nothing.
+Opaque :: struct {}
 
 // The texture formats Sculpt uses, and nothing else: colour targets and pictures (8-bit,
 // sRGB, 10-bit), half and float images for light and data, one integer image for ids, and
@@ -371,4 +375,9 @@ Storage_Texture_Binding :: struct {
 	texture:          Texture,
 	mip_level, layer: u32,
 	cycle:            bool,
+}
+
+// A rectangle of a target in pixels, from its top left corner: the scissor.
+Rect :: struct {
+	x, y, w, h: i32,
 }

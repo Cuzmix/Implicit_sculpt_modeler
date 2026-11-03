@@ -7,7 +7,6 @@ import "core:strconv"
 import "core:strings"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
-import sdl "vendor:sdl3"
 
 // Ray tracing under the own Metal backend (native GPU plan 6.4,
 // notes/native-gpu/metal-ray-tracing-design.md): Metal's acceleration structures, built as
@@ -266,15 +265,15 @@ mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 
 // A traced kernel's pipeline: Metal source from slangc, whose second line maps SDL_GPU's
 // slots to slangc's (scripts/shaders_msl.py); the counts in `info` must match that table.
-mtl_create_compute_pipeline_traced :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	slots, ok := mtl_slots_parse(info.code)
 	counts := [6]u32{info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
 	if !ok || slots.counts != counts || slots.accel < 0 {
 		log.errorf("Metal: a traced kernel's slot table does not match its pipeline (%v against %v)", slots.counts, counts)
-		sdl.SetError("Metal: a traced kernel's slot table does not match its pipeline")
+		fail(.Invalid, "Metal: a traced kernel's slot table does not match its pipeline")
 		return nil
 	}
-	pipeline := mtl_create_compute_pipeline(device, info)
+	pipeline := mtl_create_compute_pipeline(info)
 	if pipeline != nil do (^Mtl_Compute_Pipeline)(pipeline).slots = slots
 	return pipeline
 }

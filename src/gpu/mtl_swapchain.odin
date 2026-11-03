@@ -191,17 +191,20 @@ mtl_layer_present_mode :: proc(w: ^Mtl_Window, mode: Present_Mode) {
 	w.present_mode = mode
 }
 
-mtl_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
+mtl_claim_window :: proc(window: ^sdl.Window) -> bool {
 	NS.scoped_autoreleasepool()
 	if mtl_window_find(window) != nil do return true
 	view := sdl.Metal_CreateView(window)
-	if view == nil do return false
+	if view == nil {
+		fail(.Refused, "no Metal view for the window (%s)", sdl.GetError())
+		return false
+	}
 	w := new(Mtl_Window)
 	w.window, w.view = window, view
 	w.layer = (^CA.MetalLayer)(sdl.Metal_GetLayer(view))
 	CA.MetalLayer_setDevice(w.layer, mtl_state.device)
 	mtl_layer_present_mode(w, .Vsync)
-	// SDL_GPU's SDR composition: BGRA8 in the sRGB colour space.
+	// The SDR composition: BGRA8 in the sRGB colour space.
 	w.format = .BGRA8_Unorm
 	CA.MetalLayer_setPixelFormat(w.layer, .BGRA8Unorm)
 	if space := CGColorSpaceCreateWithName(kCGColorSpaceSRGB); space != nil {
@@ -218,10 +221,10 @@ mtl_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	return true
 }
 
-mtl_release_window :: proc(device: Device, window: ^sdl.Window) {
+mtl_release_window :: proc(window: ^sdl.Window) {
 	w := mtl_window_find(window)
 	if w == nil do return
-	_ = mtl_wait_for_idle(device)
+	_ = mtl_wait_for_idle()
 	if mtl_state.link != nil && mtl_state.link.window == w do mtl_link_stop()
 	if w.log != nil {
 		sync.guard(&w.log.lock)
@@ -237,7 +240,7 @@ mtl_release_window :: proc(device: Device, window: ^sdl.Window) {
 }
 
 // Vsync everywhere, and no sync on the Mac only, as SDL_GPU offers.
-mtl_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+mtl_window_supports_present_mode :: proc(window: ^sdl.Window, present_mode: Present_Mode) -> bool {
 	switch present_mode {
 	case .Vsync:     return true
 	case .Immediate: return !ODIN_PLATFORM_SUBTARGET_IOS
@@ -246,21 +249,21 @@ mtl_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, pr
 	return false
 }
 
-mtl_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
+mtl_set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
 	w := mtl_window_find(window)
-	if w == nil || swapchain_composition != .Sdr || !mtl_window_supports_present_mode(device, window, present_mode) {
-		sdl.SetError("this swapchain composition or present mode is not offered")
+	if w == nil || swapchain_composition != .Sdr || !mtl_window_supports_present_mode(window, present_mode) {
+		fail(.Unsupported, "this swapchain composition or present mode is not offered")
 		return false
 	}
-	_ = mtl_wait_for_idle(device)
+	_ = mtl_wait_for_idle()
 	mtl_layer_present_mode(w, present_mode)
 	return true
 }
 
 // As SDL_GPU's Metal: the GPU is waited for, then each window starts again at its first
 // frame slot.
-mtl_set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_flight: u32) -> bool {
-	if !mtl_wait_for_idle(device) do return false
+mtl_set_allowed_frames_in_flight :: proc(allowed_frames_in_flight: u32) -> bool {
+	if !mtl_wait_for_idle() do return false
 	mtl_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
 	for w in mtl_state.windows {
 		w.frame = 0
@@ -269,7 +272,7 @@ mtl_set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_fligh
 	return true
 }
 
-mtl_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
+mtl_get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 	w := mtl_window_find(window)
 	return w.format if w != nil else .Invalid
 }
@@ -280,7 +283,7 @@ mtl_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture:
 	texture^ = nil
 	w := mtl_window_find(window)
 	if w == nil {
-		sdl.SetError("the window was not claimed")
+		fail(.Invalid, "the window was not claimed")
 		return false
 	}
 	// SDL's Metal view keeps the drawable size in step with the window's pixels.
