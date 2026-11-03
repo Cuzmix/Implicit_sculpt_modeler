@@ -1,4 +1,5 @@
 // slangc wgsl from ui.vert.spv sha256 9d9cf5632916c5e2f9ef95d2be7feee6066296d6e560d2e1a267eb0355c06100
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Ui_Vertex_Uniforms_std140_0
 {
     @align(16) target_0 : vec4<f32>,

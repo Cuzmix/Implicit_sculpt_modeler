@@ -1,4 +1,5 @@
 // slangc wgsl from smooth_all.comp.spv sha256 5b053976a10cbb7699d06d98698f7e1577599bda5da5246fe9e2b8ab1871f7bc
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
     @align(16) vertex_count_0 : u32,

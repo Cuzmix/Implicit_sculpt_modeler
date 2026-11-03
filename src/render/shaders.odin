@@ -7,7 +7,9 @@ import sdl "vendor:sdl3"
 // which takes SPIR-V: build.sh and build.bat compile each shaders/name.stage.slang to
 // name.stage.spv, scripts/shaders_msl.py turns that into name.stage.msl with SDL_shadercross,
 // and both are committed, as is the WGSL scripts/shaders_wgsl.py makes for the web
-// version's WebGPU. Each build embeds only its own kind, so none grows another's binary; a shader's constant is `#load("shaders/name.stage" + SHADER_EXT)`.
+// version's WebGPU. Each build embeds only its own kind, so none grows another's binary; a
+// shader's constant is `#load("shaders/name.stage" + SHADER_EXT, string)`, as a string because
+// Odin's wasm64p32 code generation stops on #load as bytes (README "Web").
 
 @(private)
 SHADER_EXT :: ".msl" when ODIN_OS == .Darwin else ".wgsl" when ODIN_OS == .JS else ".spv"

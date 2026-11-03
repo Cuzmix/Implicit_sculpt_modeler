@@ -1,4 +1,5 @@
 // slangc wgsl from mesh_area.frag.spv sha256 c6ba3f094f1ad5be4e8c19cbdc2395f180a0cde2bc087094c4040a10b76a612e
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
     @align(16) base_color_0 : vec4<f32>,
@@ -53,9 +54,9 @@ struct Mesh_Varyings_0
      view_pos_0 : vec3<f32>,
      mask_0 : f32,
      paint_0 : vec4<f32>,
-    @interpolate(flat)  group_0 : vec3<f32>,
+    group_0 : vec3<f32>,
      mesh_pos_0 : vec3<f32>,
-    @interpolate(flat)  slot_0 : u32,
+    slot_0 : u32,
 };
 
 var<private> frag_in_0 : Mesh_Varyings_0;

@@ -1,4 +1,5 @@
 // slangc wgsl from skin.vert.spv sha256 9a2d581e7dd24bb2640fd25d6f4dbe0c6fae5abb018aa7307da96f2265785b00
+diagnostic(off, derivative_uniformity);
 @binding(2) @group(0) var<storage, read> indices_0 : array<u32>;
 
 @binding(4) @group(0) var<storage, read> positions_0 : array<f32>;

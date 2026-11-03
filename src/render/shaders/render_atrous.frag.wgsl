@@ -1,4 +1,5 @@
 // slangc wgsl from render_atrous.frag.spv sha256 9925bb31d909c91dc08f7950dac7a8b7a5c8e0d39104c0cfa6b4bd88507e2204
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var src_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var src_sampler_0 : sampler;

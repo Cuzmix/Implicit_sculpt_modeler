@@ -1,4 +1,5 @@
 // slangc wgsl from cull_count.comp.spv sha256 8e06e7ac8bba1c5fcbd952b4560bcb13f4c0147cad4f1fbb6cb775a9c1d407ec
+diagnostic(off, derivative_uniformity);
 @binding(2) @group(0) var<storage, read> groups_0 : array<u32>;
 
 struct SLANG_ParameterGroup_Cull_Uniforms_std140_0

@@ -1,4 +1,5 @@
 // slangc wgsl from cull_write.comp.spv sha256 3d94c3806ae8ba9cb39b6e39a66e5751e9334ee2bedd92e21a4884a912057101
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Cull_Uniforms_std140_0
 {
     @align(16) planes_0 : array<vec4<f32>, i32(6)>,

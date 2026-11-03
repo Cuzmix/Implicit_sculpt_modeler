@@ -7,6 +7,8 @@ import stbtt "vendor:stb/truetype"
 
 // The typefaces: Inter for text (SIL Open Font License) and Lucide for icons (ISC), both
 // embedded so the app needs no files beside it. Their licences are beside them.
+// Loaded as strings and turned into bytes where used: Odin's wasm64p32 code generation
+// stops on #load as bytes (README "Web").
 INTER_REGULAR := #load("../../assets/fonts/Inter-Regular.ttf", string)
 INTER_SEMIBOLD := #load("../../assets/fonts/Inter-SemiBold.ttf", string)
 LUCIDE := #load("../../assets/fonts/Lucide.ttf", string)

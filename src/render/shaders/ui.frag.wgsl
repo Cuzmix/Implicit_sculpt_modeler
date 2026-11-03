@@ -1,4 +1,5 @@
 // slangc wgsl from ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Ui_Fragment_Uniforms_std140_0
 {
     @align(16) params_0 : vec4<f32>,

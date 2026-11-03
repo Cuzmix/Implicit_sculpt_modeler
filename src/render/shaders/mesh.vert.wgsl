@@ -1,4 +1,5 @@
 // slangc wgsl from mesh.vert.spv sha256 7210bb53cb69eea984a2b3481c69813f790ff6ee8fb67fc9b0673bf097c6ecd4
+diagnostic(off, derivative_uniformity);
 struct _MatrixStorage_float4x4std140_0
 {
     @align(16) data_0 : array<vec4<f32>, i32(4)>,

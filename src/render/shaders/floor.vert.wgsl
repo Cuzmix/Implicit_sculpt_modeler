@@ -1,4 +1,5 @@
 // slangc wgsl from floor.vert.spv sha256 aacdd9ba553dbbdaa5f6e58f759b2dd54dd5f5f1ec54e9d6e8d7f793d8c07c4a
+diagnostic(off, derivative_uniformity);
 struct Vertex_Out_0
 {
     @builtin(position) position_0 : vec4<f32>,

@@ -1,4 +1,5 @@
 // slangc wgsl from render_display_linear.frag.spv sha256 6f6054655839ff6f2dae82e2acb65d33bf48425e2cc27ec6dc69a72cf658ff26
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var view_color_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var view_color_sampler_0 : sampler;

@@ -1,4 +1,5 @@
 // slangc wgsl from skin.frag.spv sha256 ea1e1a6051657ff6a87c2ac324bf44da2f58c43a09339b57fda4466030bfaf97
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
     @align(16) base_color_0 : vec4<f32>,
@@ -57,15 +58,15 @@ struct Mesh_Varyings_0
      view_pos_0 : vec3<f32>,
      mask_0 : f32,
      paint_0 : vec4<f32>,
-    @interpolate(flat)  group_0 : vec3<f32>,
+    group_0 : vec3<f32>,
      mesh_pos_0 : vec3<f32>,
-    @interpolate(flat)  slot_0 : u32,
+    slot_0 : u32,
      bary_0 : vec3<f32>,
-    @interpolate(flat)  skin_tri_0 : vec4<u32>,
-    @interpolate(flat)  turn_x_0 : vec3<f32>,
-    @interpolate(flat)  turn_y_0 : vec3<f32>,
-    @interpolate(flat)  turn_z_0 : vec3<f32>,
-    @interpolate(flat)  skin_meta_0 : vec4<u32>,
+    skin_tri_0 : vec4<u32>,
+    turn_x_0 : vec3<f32>,
+    turn_y_0 : vec3<f32>,
+    turn_z_0 : vec3<f32>,
+    skin_meta_0 : vec4<u32>,
 };
 
 var<private> frag_in_0 : Mesh_Varyings_0;

@@ -1,4 +1,5 @@
 // slangc wgsl from bloom_up.frag.spv sha256 5c31954aaf11c958715d6f765d9e7f352093db06e81724fddecfde1bbce58263
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Bloom_Up_Uniforms_std140_0
 {
     @align(16) params_0 : vec4<f32>,

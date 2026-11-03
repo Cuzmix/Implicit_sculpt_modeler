@@ -1,4 +1,5 @@
 // slangc wgsl from finish.frag.spv sha256 8932938b2271fc1f4e00ac594bfd937fb2aceb3c5f4bb2ae21e406f2e503ad87
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var source_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var source_sampler_0 : sampler;

@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Builds the web version (README "Web") into build/web/site, or type-checks it.
 
-    python scripts/web_build.py            # release: build/web/site/{index.html,sculpt.wasm,odin.js,wgpu.js}
+    python scripts/web_build.py            # release: build/web/site/{index.html,sculpt.wasm,odin.js,wgpu.js,sdl_web.js}
     python scripts/web_build.py --debug    # with bounds checks and debug info
     python scripts/web_build.py --check    # odin check only, with the strict flags
     python scripts/web_build.py --serve    # build, then serve the site at http://localhost:8000
     python scripts/web_build.py --test     # build, then scripts/web_check.mjs in headless Chromium
 
-The page is src/web (the entry) with render/webgpu (its viewport) compiled by Odin's own
-wasm target, js_wasm64p32: Odin's int stays 64-bit as on the desktop while pointers are
-32-bit, as browsers need. Odin compiles every file of a package, *_test.odin included, and
+The page runs the whole app, src/app (src/app/web.odin is its web entry), drawn by render's
+WebGPU backend, with web/sdl_web.js answering SDL's procs, compiled by Odin's own wasm
+target, js_wasm64p32: Odin's int stays 64-bit as on the desktop while pointers are 32-bit,
+as browsers need. Odin compiles every file of a package, *_test.odin included, and
 core:testing and the tests' core:os do not build for js, so the build compiles a copy of
 src without its test files (build/web/tree/src, updated in place) and maps the compiler's
 paths back to src. Odin's runtime leaves heap_allocator unimplemented on js, which the
-sculpt engine allocates with on its jobs: the build runs Odin with an Odin root under
+sculpt engine allocates with on its jobs, and core:os and core:thread have nothing for js:
+the build runs Odin with an Odin root under
 build/web whose base/ is a copy with web/odin_overlay laid over it (deps/odin is never
 edited), and core/ and vendor/ linked to the real ones. The site needs no server headers
 yet: one thread, no SharedArrayBuffer.
@@ -39,6 +41,8 @@ STRICT = ["-vet", "-strict-style", "-warnings-as-errors"]
 # The wasm's memory comes from the page (web/index.html), which asks for up to 4 GB; the
 # module must take it rather than make its own, and keep its function table for WebGPU's
 # callbacks.
+# vendor:sdl3 imports SDL's procs from the page (web/sdl_web.js) rather than linking SDL.
+DEFINES = ["-define:SDL3_WASM_LIB=sdl3"]
 LINKER = "--export-table --import-memory --initial-memory=134217728 --max-memory=4294967296"
 
 
@@ -199,14 +203,17 @@ def odin(args):
 def build(debug):
     mirror()
     os.makedirs(SITE, exist_ok=True)
-    flags = ["-debug"] if debug else ["-o:speed"]
-    code = odin(["build", os.path.join(TREE, "src", "web"), f"-target:{TARGET}", f"-out:{os.path.join(SITE, 'sculpt.wasm')}",
-                 f"-collection:deps={DEPS}", *STRICT, *flags, f"-extra-linker-flags:{LINKER}"])
+    # -o:minimal rather than -o:speed: LLVM's wasm back end stops on the vectors of f16 the
+    # optimiser makes of the app's half-float loops (the detail skin, EXR, environments).
+    flags = ["-debug"] if debug else ["-o:minimal"]
+    code = odin(["build", os.path.join(TREE, "src", "app"), f"-target:{TARGET}", f"-out:{os.path.join(SITE, 'sculpt.wasm')}",
+                 f"-collection:deps={DEPS}", *DEFINES, *STRICT, *flags, f"-extra-linker-flags:{LINKER}"])
     if code != 0:
         return code
     shutil.copy2(os.path.join(DEPS, "odin", "core", "sys", "wasm", "js", "odin.js"), SITE)
     shutil.copy2(os.path.join(DEPS, "odin", "vendor", "wgpu", "wgpu.js"), SITE)
     shutil.copy2(os.path.join(ROOT, "web", "index.html"), SITE)
+    shutil.copy2(os.path.join(ROOT, "web", "sdl_web.js"), SITE)
     size = os.path.getsize(os.path.join(SITE, "sculpt.wasm"))
     print(f"web: build/web/site ({'debug' if debug else 'release'}, sculpt.wasm {size / 1e6:.1f} MB)")
     return 0
@@ -214,9 +221,9 @@ def build(debug):
 
 def check():
     mirror()
-    code = odin(["check", os.path.join(TREE, "src", "web"), f"-target:{TARGET}", f"-collection:deps={DEPS}", *STRICT])
+    code = odin(["check", os.path.join(TREE, "src", "app"), f"-target:{TARGET}", f"-collection:deps={DEPS}", *DEFINES, *STRICT])
     if code == 0:
-        print("webcheck: src/web and render/webgpu type-check for js_wasm64p32")
+        print("webcheck: src/app type-checks for js_wasm64p32")
     return code
 
 

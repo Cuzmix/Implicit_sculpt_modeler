@@ -1,4 +1,5 @@
 // slangc wgsl from sharpen.frag.spv sha256 1cf0840b1af5897bdec06a7096de32ca98fff55a9f872f5481f956da61542d7e
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var graded_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var graded_sampler_0 : sampler;

@@ -1,4 +1,5 @@
 // slangc wgsl from ao_blur.frag.spv sha256 8418bdcbcc0f9561f215b107d665d2826cd0d711910d0291c89c7207d01a47a8
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var view_color_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var view_color_sampler_0 : sampler;

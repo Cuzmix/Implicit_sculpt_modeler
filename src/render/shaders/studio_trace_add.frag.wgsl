@@ -1,4 +1,5 @@
 // slangc wgsl from studio_trace_add.frag.spv sha256 a035bc36ededd91e986bb2774b8124d7f6b1d42549b5d634b7357b8b5da70759
+diagnostic(off, derivative_uniformity);
 @binding(2) @group(2) var view_depth_texture_0 : texture_2d<f32>;
 
 @binding(3) @group(2) var view_depth_sampler_0 : sampler;

@@ -1,4 +1,5 @@
 // slangc wgsl from studio_gather.frag.spv sha256 a2b5bb1ba5f07cf3b06c709c2f9e52355ea4c3ec406031729408d10cd1090f7c
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var view_depth_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var view_depth_sampler_0 : sampler;

@@ -1,4 +1,5 @@
 // slangc wgsl from studio_composite.frag.spv sha256 685cca1bac19695ac23cbedf1f1bb14ea674f301b8388403eb8bc6f309963264
+diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var view_color_texture_0 : texture_2d<f32>;
 
 @binding(1) @group(2) var view_color_sampler_0 : sampler;

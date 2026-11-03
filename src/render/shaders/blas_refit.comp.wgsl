@@ -1,4 +1,5 @@
 // slangc wgsl from blas_refit.comp.spv sha256 7025cc138e90d09c7dd4b21a01acbb9d43b161987c35280d807d1d29878bedda
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
     @align(16) chunk_count_0 : u32,

@@ -1,4 +1,5 @@
 // slangc wgsl from env_prefilter.frag.spv sha256 2008435844bb971eb3c4cbcd02ad636b00489be5981e4ceedc1012285ce90b99
+diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Prefilter_Uniforms_std140_0
 {
     @align(16) params_0 : vec4<f32>,

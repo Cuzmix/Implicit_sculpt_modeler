@@ -102,6 +102,20 @@ def renumber(body):
     return "\n".join(lines)
 
 
+# WGSL refuses a texture sample whose derivatives depend on control flow that may differ
+# between neighbouring pixels, which SPIR-V and Metal leave to the shader's author; the
+# shaders sample in such branches on the desktop too (a split view's two halves, a masked
+# area), where the derivatives are what the GPU gives, so the web takes them alike.
+UNIFORMITY = "diagnostic(off, derivative_uniformity);\n"
+
+
+def strip_interpolation(body):
+    """slangc copies a flat varying's @interpolate onto the plain struct the shader keeps its
+    inputs in, a member with no @location, which WGSL refuses; the entry's own input struct
+    keeps it where it counts."""
+    return re.sub(r"(?m)^(\s*)@interpolate\(\w+\)\s+(?!.*@location)", r"\1", body)
+
+
 def remake(source):
     name = source[:-len(".slang")]
     spv = name + ".spv"
@@ -121,7 +135,7 @@ def remake(source):
             unavailable = True
         else:
             with open(out, encoding="utf-8") as f:
-                text = header + renumber(f.read().replace("\r\n", "\n"))
+                text = header + UNIFORMITY + renumber(strip_interpolation(f.read().replace("\r\n", "\n")))
             unavailable = False
     with open(os.path.join(SHADERS, name + ".wgsl"), "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
