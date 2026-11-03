@@ -356,17 +356,6 @@ sculpt_gpu_offered :: proc(r: ^Renderer) -> bool {
 	else do return false
 }
 
-// Whether Sculpt on the GPU starts on: on a video card under Vulkan, where it was measured
-// (an RTX 3060 Ti at 25M: a stroke's brush p99 1.2 ms against 122 on the CPU), and off on
-// unified-memory GPUs (tablets, Apple's, integrated ones), whose GPU has little time to
-// spare at that size, until a run there says otherwise.
-sculpt_gpu_by_default :: proc(r: ^Renderer) -> bool {
-	when VULKAN {
-		_, unified := gpu_memory_budget(r.device)
-		return !unified
-	} else do return false
-}
-
 // Makes the kernels now, if they are not made yet, so the first stroke after the switch
 // is on does not wait for them (they took 289 ms on an RTX 3060 Ti): at start-up.
 sculpt_gpu_kernels :: proc(r: ^Renderer) {

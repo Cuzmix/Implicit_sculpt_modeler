@@ -327,7 +327,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `renderer_destroy` waits and releases in reverse order.
 - Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
   `SCULPT_SLAB` threads in a workgroup (`gpu_storage_buffers_per_stage`, `gpu_compute_group_threads`), and starts on
-  only for discrete Vulkan GPUs (`sculpt_gpu_by_default`, `gpu_memory_budget`'s `unified`). A new kernel buffer raises
+  wherever it is offered in a person's run (scripted runs keep the CPU as their oracle). A new kernel buffer raises
   the constant and both backends' binding arrays; a new per-mesh buffer joins `sculpt_lookup_make`'s budget check
   (a quarter of a card's memory, an eighth of a unified device's), past which that mesh sculpts on the CPU.
 - Shaders are Slang (one source for SPIR-V, Metal through it, WGSL later). `name.stage.slang` (vert, frag, comp) is an
