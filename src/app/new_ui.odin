@@ -353,11 +353,6 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
-	// The view rail's panel groups (rail_groups.odin), where each rail slot was laid out
-	// this frame (for a group opened from Search) and, for the exit stats, the joins.
-	rail_groups:    [RAIL_GROUPS]Rail_Group,
-	rail_group_at:  [VIEW_RAIL_MAX]ui.Rect,
-	rail_joins:     int,
 	// The rail palette the panel stack's column shows (nil for Main), its body's scroll,
 	// how many times a rail button docked one, and whether the rail just read needs Main
 	// put on it (rail_dock.odin).
@@ -383,10 +378,10 @@ Kit_State :: struct {
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
 	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
-	// Which Stats sections are open, and which tray sections show their More options;
-	// with all_options (Settings > Interface) every section shows everything.
-	open:       [Kit_Section]bool,
-	more:       [Kit_Section]bool,
+	// Which Stats sections are open, and which sections show their More options; with
+	// all_options (Settings > Interface) every section shows everything.
+	stats_open: [Stats_Section]bool,
+	more:       [Panel_Kind]bool,
 	all_options: bool,
 	// Every paragraph of the cards and Settings shown whole rather than as a one-line hint
 	// with a ? (Settings > Interface > Inspector, ui.hint_line).
@@ -576,62 +571,12 @@ window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 
 	return 1 if (w.x if w.moved else side) == .End else -1
 }
 
-// The sections of the tray's palettes, then the Stats panel's: the tray's come first and
-// end with Background (TRAY_SECTIONS), each palette's together (section_palette).
-Kit_Section :: enum u8 {
-	// The Brush card's.
-	Preset,
-	Stroke,
-	Paint_Color,
-	Recall,
-	Falloff,
-	Samples,
-	Alpha,
-	Pen,
-	Options,
-	Recorder,
-	// The Object palette's.
-	Transform,
-	Levels,
-	Hd,
-	Topology,
-	Mask,
-	Sets,
-	Visibility,
-	Paint,
-	Groups,
-	Morph,
-	Layers,
-	Deform,
-	Deformers,
-	Remesh,
-	Mirror,
-	Voxels,
-	Retopo,
-	Textures,
-	Project,
-	Booleans,
-	Extract,
-	// The Scene card's.
-	Objects,
-	Add,
-	Look,
-	Material,
-	Lights,
-	Environment,
-	Render,
-	Lens,
-	Finish,
-	Camera,
-	Turntable,
-	Print,
-	Floor,
-	Background,
-	// The Stats panel's.
+// The Stats panel's sections, each folding (kit_stats.odin).
+Stats_Section :: enum u8 {
 	Frame,
 	Drawing,
 	Sculpting,
-	Stats_Help,
+	Help,
 }
 
 // One scripted input event (--ui-events), pushed into SDL's queue at the start of its
@@ -1056,7 +1001,7 @@ kit_init :: proc(app: ^App) {
 	k.inspector = true
 	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
-	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
+	k.stats_open[.Frame], k.stats_open[.Sculpting] = true, true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true

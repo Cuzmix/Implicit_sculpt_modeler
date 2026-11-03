@@ -257,7 +257,7 @@ brush_item_category :: proc(it: Brush_Item) -> Brush_Category {
 		s := it.slot
 		#partial switch s.command.id {
 		case .None:
-		case .Show_Panel, .Show_Section: return .Cards
+		case .Open_Card: return .Cards
 		case .Brush_Value:               return .Sliders
 		case:                            return .Commands
 		}
@@ -318,11 +318,10 @@ brush_items_all :: proc(app: ^App, buttons := false) -> [dynamic]Listed_Brush {
 }
 
 // Whether command `id`'s buttons are listed already as the Library's own items (the
-// brushes, presets, tools and shapes), or are no button of their own to choose (a rail
-// group, made by joining panels).
+// brushes, presets, tools and shapes).
 @(private = "file")
 library_lists_already :: proc(id: Command_Id) -> bool {
-	if shelf_holds_brushes(id) || id == .Rail_Group do return true
+	if shelf_holds_brushes(id) do return true
 	return id == TOOL_COMMANDS[.Curve] || id == TOOL_COMMANDS[.Insert] || id == TOOL_COMMANDS[.Model]
 }
 

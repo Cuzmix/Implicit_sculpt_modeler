@@ -23,7 +23,7 @@ Object_Page :: enum u8 {
 // it draws.
 Object_Section :: struct {
 	page:    Object_Page,
-	section: Kit_Section,
+	section: Panel_Kind,
 	title:   string,
 	draw:    proc(app: ^App, obj: ^Object),
 }

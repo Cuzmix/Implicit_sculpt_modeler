@@ -442,7 +442,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
-		// The inspector sections showing their More options, as Kit_Section names.
+		// The inspector sections showing their More options, as Panel_Kind names.
 		more := "none"
 		for open, sec in k.more {
 			if !open do continue
@@ -500,8 +500,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printf("stack_place=%s ", strings.to_lower(fmt.tprint(k.stack.place), context.temp_allocator))
 		pins := strings.builder_make(context.temp_allocator)
 		for c in k.stack.order {
-			sec, is := panel_section(c)
-			if !is || !k.stack.set || !stack_kept(&k.stack, c) do continue
+			sec := c
+			if !panel_is_section(c) || !k.stack.set || !stack_kept(&k.stack, c) do continue
 			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}
@@ -532,7 +532,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(app, Kit_Window.Thumbnail)
 			fmt.printfln("view_rail=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
-			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
+			fmt.printfln("rail_dock=%s rail_docks=%d", rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
@@ -679,6 +679,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
+	// The GPU seam's own counts (render/gpu_counters.odin): the CPU time spent recording
+	// command buffers, the stalls on the whole GPU or on a fence, and memory allocations.
+	gc := render.gpu_counters()
+	fmt.printfln("encode_ms=%.2f encode_cmds=%d encode_ms_per_cmd=%.3f gpu_idle_waits=%d gpu_fence_waits=%d gpu_allocations=%d gpu_allocated_mb=%.1f", f64(gc.encode_ns) / 1e6, gc.command_buffers, f64(gc.encode_ns) / 1e6 / f64(max(gc.command_buffers, 1)), gc.idle_waits, gc.fence_waits, gc.allocations, f64(gc.allocated_bytes) / (1 << 20))
 	fmt.printfln("gpu_timestamps=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {

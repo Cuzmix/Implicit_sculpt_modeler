@@ -50,7 +50,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.value_row(ctx, label, fmt.tprintf("p50 %.2f   p99 %.2f %s", p50, p99, unit))
 	}
 
-	if ui.section(ctx, "Frame", &k.open[.Frame]) {
+	if ui.section(ctx, "Frame", &k.stats_open[.Frame]) {
 		ring(ctx, "Frame  frame_ms", s.frame_ms, "ms")
 		ring(ctx, "CPU  cpu_ms", s.cpu_ms, "ms")
 		if app.time_gpu do ring(ctx, "GPU (3D)  gpu_ms", s.gpu_ms, "ms")
@@ -70,7 +70,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.section_end(ctx)
 	}
 
-	if ui.section(ctx, "Drawing", &k.open[.Drawing]) {
+	if ui.section(ctx, "Drawing", &k.stats_open[.Drawing]) {
 		v := s.viewport
 		frame_rate_controls(app, explain = false)
 		if ui.switch_row(ctx, "Time GPU work", &app.time_gpu) do s.gpu_ms = {}
@@ -112,7 +112,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.section_end(ctx)
 	}
 
-	if ui.section(ctx, "While sculpting", &k.open[.Sculpting]) {
+	if ui.section(ctx, "While sculpting", &k.stats_open[.Sculpting]) {
 		ring(ctx, "Raycast  raycast_ms", s.raycast_ms, "ms")
 		ring(ctx, "Brush  brush_ms", s.brush_ms, "ms")
 		ring(ctx, "Normals  normals_ms", s.normals_ms, "ms")
@@ -248,7 +248,7 @@ kit_stats_help :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.spacer(ctx, 4)
-	if ui.section(ctx, "What do these numbers mean?", &k.open[.Stats_Help]) {
+	if ui.section(ctx, "What do these numbers mean?", &k.stats_open[.Help]) {
 		ui.paragraph(ctx, "Times are in milliseconds (ms), thousandths of a second; at 60 frames per second each frame has 16.7 ms.")
 		ui.paragraph(ctx, fmt.tprintf("Typical is the median, p50, of the last %d frames: half took less, half took more.", HISTORY))
 		ui.paragraph(ctx, "Slower moments is the 99th percentile, p99: 99 in every 100 frames took this long or less. It shows the hitches without being the single slowest frame.")

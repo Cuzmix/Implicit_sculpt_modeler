@@ -75,8 +75,8 @@ summary.
   palette in as `s.visit` (`stack_visit`; `stack_keep` keeps a section for good, Pin to the stack, `stack_kept` asks; the layout never writes the visit; markers ask
   `palette_on_screen`; `s.revealed` is the section opened last); the tray and its Palettes card are gone (PR 9c),
   and `stack_layout_upgrade` rewrites a saved layout that still names Palettes; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
-  (`panel_kind.odin`: one enum, the cards then a palette per tray section, `panel_of_section`/`panel_section` between
-  it and `Kit_Section`; sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
+  (`panel_kind.odin`: one enum, the cards of their own (`STACK_CARDS`) then a card per section, `panel_is_section`;
+  sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
   `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack and the pane strip's tab
   both call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
   the `panel_kind_*` procs. The brush pie is

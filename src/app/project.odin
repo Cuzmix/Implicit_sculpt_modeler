@@ -97,7 +97,7 @@ project_detail :: proc(app: ^App, obj, src: ^Object) {
 	free_all(context.temp_allocator)
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Deform, "Project detail")
-	report(app, Kit_Section.Project, {.Undo} if changed else {}, "Projected %s onto %s: %.1f%% of vertices found the surface, %.0f ms", object_label(src), object_label(obj), 100 * f64(hits) / f64(max(count, 1)), ms)
+	report(app, Panel_Kind.Project, {.Undo} if changed else {}, "Projected %s onto %s: %.1f%% of vertices found the surface, %.0f ms", object_label(src), object_label(obj), 100 * f64(hits) / f64(max(count, 1)), ms)
 }
 
 // The weights of `p` (on the triangle's plane) at the corners a, b and c.

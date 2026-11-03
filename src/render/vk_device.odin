@@ -579,6 +579,7 @@ vk_allocate_type :: proc(size: vk.DeviceSize, index: u32, device_address: bool) 
 	info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, pNext = &flags if device_address else nil, allocationSize = size, memoryTypeIndex = index}
 	memory: vk.DeviceMemory
 	if vk.AllocateMemory(vk_state.device, &info, nil, &memory) != .SUCCESS do return 0, false
+	gpu_count_allocation(i64(size))
 	return memory, true
 }
 

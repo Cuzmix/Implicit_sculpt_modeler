@@ -21,10 +21,12 @@ WEBGPU :: ODIN_OS == .JS
 VULKAN :: !METAL && !WEBGPU
 
 @(require_results)
-gpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
-	when METAL do return mtl_acquire_command_buffer(device)
-	else when WEBGPU do return wgpu_acquire_command_buffer(device)
-	else do return vk_acquire_command_buffer(device)
+gpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> (cmd: ^sdl.GPUCommandBuffer) {
+	when METAL do cmd = mtl_acquire_command_buffer(device)
+	else when WEBGPU do cmd = wgpu_acquire_command_buffer(device)
+	else do cmd = vk_acquire_command_buffer(device)
+	gpu_count_acquire(cmd)
+	return
 }
 
 // A command buffer whose compute passes run on the compute queue (Gpu_Caps.async_compute),
@@ -39,7 +41,9 @@ gpu_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCo
 		sdl.SetError("no compute queue under WebGPU")
 		return nil
 	} else {
-		return vk_acquire_compute_command_buffer(device)
+		cmd := vk_acquire_compute_command_buffer(device)
+		gpu_count_acquire(cmd)
+		return cmd
 	}
 }
 
@@ -175,6 +179,7 @@ gpu_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bo
 
 @(require_results)
 gpu_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+	gpu_count_finish(command_buffer)
 	when METAL do return mtl_cancel_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_cancel_command_buffer(command_buffer)
 	else do return vk_cancel_command_buffer(command_buffer)
@@ -888,6 +893,7 @@ gpu_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window
 
 @(require_results)
 gpu_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+	gpu_count_finish(command_buffer)
 	when METAL do return mtl_submit_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_submit_command_buffer(command_buffer)
 	else do return vk_submit_command_buffer(command_buffer)
@@ -895,6 +901,7 @@ gpu_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool
 
 @(require_results)
 gpu_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+	gpu_count_finish(command_buffer)
 	when METAL do return mtl_submit_command_buffer_and_acquire_fence(command_buffer)
 	else when WEBGPU do return wgpu_submit_command_buffer_and_acquire_fence(command_buffer)
 	else do return vk_submit_command_buffer_and_acquire_fence(command_buffer)
@@ -928,6 +935,7 @@ gpu_wait_and_acquire_swapchain_texture :: proc(command_buffer: ^sdl.GPUCommandBu
 
 @(require_results)
 gpu_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: sdl.Uint32) -> bool {
+	gpu_count_fence_wait()
 	when METAL do return mtl_wait_for_fences(device, wait_all, fences, num_fences)
 	else when WEBGPU do return wgpu_wait_for_fences(device, wait_all, fences, num_fences)
 	else do return vk_wait_for_fences(device, wait_all, fences, num_fences)
@@ -935,6 +943,7 @@ gpu_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^
 
 @(require_results)
 gpu_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
+	gpu_count_idle_wait()
 	when METAL do return mtl_wait_for_idle(device)
 	else when WEBGPU do return wgpu_wait_for_idle(device)
 	else do return vk_wait_for_idle(device)

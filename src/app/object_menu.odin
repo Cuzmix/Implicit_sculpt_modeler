@@ -231,7 +231,7 @@ kit_object_menu :: proc(app: ^App) {
 		k.object_menu_rows += 1
 	}
 	ui.divider(ctx, across = true)
-	if command_menu_item(app, .Show_Panel, int(Panel_Kind.Material), label = "Material") do picked = true
+	if command_menu_item(app, .Open_Card, int(Panel_Kind.Material), label = "Material") do picked = true
 	if command_menu_item(app, .Rename_Object) do picked = true
 	if command_menu_item(app, .Duplicate_Object) do picked = true
 	// The Scene card's rows have no ghost of their own (an eye, a lock and this menu fit
@@ -289,7 +289,7 @@ object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 	for id in ([?]Command_Id{.Focus_Selected, .Solo_Object, .Hide_Object, .Lock_Object}) {
 		if command_button(app, id, glyph = COMMANDS[id].icon, icon_only = true) do picked = true
 	}
-	if kind == .Sculpt_Mesh && command_button(app, .Show_Panel, int(Panel_Kind.Layers), label = "Layers", glyph = STACK_CARD_ICONS[.Layers], icon_only = true) do picked = true
+	if kind == .Sculpt_Mesh && command_button(app, .Open_Card, int(Panel_Kind.Layers), label = "Layers", glyph = STACK_CARD_ICONS[.Layers], icon_only = true) do picked = true
 	return
 }
 

@@ -110,8 +110,8 @@ Bar_List :: struct {
 // shows (the layers' pictures, the material's look pad). The view's own settings are the
 // readout's menus (readout.odin).
 VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
-	{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)},
-	{.Show_Panel, int(Panel_Kind.Symmetry)}, {.Show_Panel, int(Panel_Kind.Lights)},
+	{.Inspector, 0}, {.Open_Card, int(Panel_Kind.Scene)}, {.Open_Card, int(Panel_Kind.Layers)}, {.Open_Card, int(Panel_Kind.Material)},
+	{.Open_Card, int(Panel_Kind.Symmetry)}, {.Open_Card, int(Panel_Kind.Lights)},
 }
 
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
@@ -160,7 +160,6 @@ bars_reset :: proc(k: ^Kit_State) {
 // them.
 bar_lists_reset :: proc(k: ^Kit_State) {
 	for which in BAR_LAYOUT do bar_list_k(k, which)^ = bar_fresh(which)
-	k.rail_groups = {}
 }
 
 // A fresh install's list for the view rail, a shelf page or the brush pie.
@@ -275,11 +274,6 @@ bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		// The rail's groups go before its slots, so a reader has them when a slot names one.
-		if which == .View_Rail {
-			rail_groups_settle(k)
-			rail_groups_save(k, out)
-		}
 		for s, i in used {
 			fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
 			if _, value := value_of(s); value && bar_look(k, which, i) != bar_default_look(which) {
@@ -308,8 +302,6 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 			l.slots[slot] = {id, arg}
 			l.looks[slot] = bar_default_look(which)
 		}
-	case "rail_group":
-		rail_group_read(k, f)
 	case "bar_look":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])
@@ -322,7 +314,7 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one
 // that acts at the pointer over the model, which is on the bar when the button is pressed.
 bar_lists :: proc(id: Command_Id) -> bool {
-	return palette_lists(id) || id == .Command_Palette || id == .Rail_Group
+	return palette_lists(id) || id == .Command_Palette
 }
 
 // Opens the Library to choose the button for `pick` (library_open_for).
@@ -442,9 +434,7 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Tool_Move:    return "Gizmo"
 	case .Inspector:    return "Main palette"
-	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
-	case .Show_Panel:   return stack_title(app, Panel_Kind(s.arg))
-	case .Rail_Group:   if s.arg >= 0 && s.arg < RAIL_GROUPS && app.kit.rail_groups[s.arg].used do return rail_group_name(app, s.arg)
+	case .Open_Card:    if s.arg >= 0 && s.arg < len(Panel_Kind) do return panel_kind_title(app, Panel_Kind(s.arg))
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
@@ -487,9 +477,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Thumbnail:       return ICON_MINI_VIEW
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
-	case .Show_Section:    return SECTION_ICONS[Kit_Section(s.arg)] if s.arg < len(Kit_Section) else ui.ICON_PANEL
-	case .Show_Panel:      return panel_kind_icon(app, Panel_Kind(s.arg))
-	case .Rail_Group:      if s.arg >= 0 && s.arg < RAIL_GROUPS do return rail_group_icon(app, s.arg)
+	case .Open_Card:       return panel_kind_icon(app, Panel_Kind(s.arg)) if s.arg >= 0 && s.arg < len(Panel_Kind) else ui.ICON_PANEL
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})
@@ -497,7 +485,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 
 // The section a slot's long press opens, for the commands that have one.
 @(private = "file")
-bar_more_section :: proc(id: Command_Id) -> (Kit_Section, bool) {
+bar_more_section :: proc(id: Command_Id) -> (Panel_Kind, bool) {
 	#partial switch id {
 	case .Studio_Render:  return .Render, true
 	case .Floor_Grid:     return .Floor, true
@@ -531,8 +519,7 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Show_Section:    return card_pop_shows(k, stack_card_of(app, Kit_Section(s.arg))) || rail_dock_is(app, s)
-	case .Show_Panel:      return card_pop_shows(k, Panel_Kind(s.arg)) || rail_dock_is(app, s)
+	case .Open_Card:       return card_pop_shows(k, stack_card_of(app, Panel_Kind(s.arg))) || rail_dock_is(app, s)
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Inspector:       return rail_dock_is(app, s)
 	case .Command_Palette: return k.palette
@@ -556,12 +543,9 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 		k.bar_at[kind], k.bar_side[kind] = at, side
 	case .Pass_Menu:
 		k.passes.menu_at, k.passes.menu_side = at, side
-	case .Show_Section:
-		// A section or card on a dock pops its card out beside the button (card_pop.odin).
-		card_pop_section(app, Kit_Section(s.arg), at, side)
-		return
-	case .Show_Panel:
-		card_pop_toggle(app, Panel_Kind(s.arg), at, side)
+	case .Open_Card:
+		// A card on a dock pops out beside the button (card_pop.odin).
+		card_pop_section(app, Panel_Kind(s.arg), at, side)
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)

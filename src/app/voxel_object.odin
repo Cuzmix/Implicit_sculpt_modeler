@@ -186,7 +186,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Kit_Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Panel_Kind.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
@@ -398,7 +398,7 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 // Whether the Object palette offers section `sec` for the selected object: a voxel object
 // has its placement, its Voxels section and Booleans (which work on clay), and a mesh every
 // section (Voxels then says what voxel objects are).
-object_section_offered :: proc(app: ^App, sec: Kit_Section) -> bool {
+object_section_offered :: proc(app: ^App, sec: Panel_Kind) -> bool {
 	obj := selected_object(app)
 	if obj != nil && obj.voxel != nil do return sec == .Transform || sec == .Voxels || sec == .Booleans
 	return true

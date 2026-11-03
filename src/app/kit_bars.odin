@@ -51,7 +51,6 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
-	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
 }
 
@@ -59,7 +58,6 @@ Bar_Pop_Kind :: enum u8 {
 Bar_Pop :: struct {
 	open:    bool,
 	kind:    Bar_Pop_Kind,
-	group:   int,
 	at:      ui.Rect,
 	side:    ui.Side,
 	scroll:  f32,
@@ -241,8 +239,6 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
-	case .Group_Menu:
-		kit_group_menu(app)
 	case .Dock_Menu:
 		kit_dock_menu(app)
 	}
@@ -280,7 +276,7 @@ symmetry_controls :: proc(app: ^App) {
 
 // Section `sec` of the tray, wherever its palette lists it: its title and what draws it
 // (for the Object palette's, with the object).
-bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
+bar_section :: proc(app: ^App, sec: Panel_Kind) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title, nil, s.draw, true

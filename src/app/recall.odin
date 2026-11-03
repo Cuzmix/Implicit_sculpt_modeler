@@ -39,19 +39,19 @@ recall_entry :: proc(app: ^App, obj: ^Object, back: int) -> (History_Entry, bool
 recall_ready :: proc(app: ^App, obj: ^Object, say: bool) -> bool {
 	s := object_sculptor(obj)
 	if object_dynamic(obj) {
-		if say do report(app, Kit_Section.Recall, {.Warning}, "The History brush does not work with dynamic topology on")
+		if say do report(app, Panel_Kind.Recall, {.Warning}, "The History brush does not work with dynamic topology on")
 		return false
 	}
 	if _, ok := sculpt.sculptor_recall_back(s); ok do return true
 	lost := sculpt.sculptor_recall_pinned(s)
 	reach := sculpt.sculptor_recall_reach(s)
 	if reach == 0 {
-		if say do report(app, Kit_Section.Recall, {.Warning}, "History brush: nothing earlier on this level to paint back to yet")
+		if say do report(app, Panel_Kind.Recall, {.Warning}, "History brush: nothing earlier on this level to paint back to yet")
 		return false
 	}
 	recall_build(app, s, reach, false)
 	// Said whatever started the stroke: it happens once, as the point is lost.
-	if lost do report(app, Kit_Section.Recall, {.Warning}, "History brush: the chosen step is out of reach now, so it paints back to the oldest")
+	if lost do report(app, Panel_Kind.Recall, {.Warning}, "History brush: the chosen step is out of reach now, so it paints back to the oldest")
 	return true
 }
 
@@ -81,14 +81,14 @@ recall_to_entry :: proc(app: ^App, index: int) -> bool {
 	e := app.history.done[index]
 	s := entry_sculptor(app, e)
 	if s == nil || !entry_is_step(e) {
-		report(app, Kit_Section.Recall, {.Warning}, "History brush: only a sculpting step can be what it paints back to")
+		report(app, Panel_Kind.Recall, {.Warning}, "History brush: only a sculpting step can be what it paints back to")
 		return false
 	}
 	// A step of a level not shown: going there brings that level up to date with the one
 	// shown now, which puts the step out of reach (history_seal), so it is not taken.
 	obj := object_by_id(app, e.id)
 	if shown := HD_LEVEL if object_in_hd(obj) else obj.levels.current; e.level != shown {
-		report(app, Kit_Section.Recall, {.Warning}, "History brush: %s is on another level; go to level %d first", entry_label(e), e.level + 1)
+		report(app, Panel_Kind.Recall, {.Warning}, "History brush: %s is on another level; go to level %d first", entry_label(e), e.level + 1)
 		return false
 	}
 	// The entry is this many steps back on its sculptor: its own and the newer ones of
@@ -96,11 +96,11 @@ recall_to_entry :: proc(app: ^App, index: int) -> bool {
 	back := 0
 	for f in app.history.done[index:] do if f.id == e.id && f.level == e.level && entry_is_step(f) do back += 1
 	if s.dyn != nil || back > sculpt.sculptor_recall_reach(s) {
-		report(app, Kit_Section.Recall, {.Warning}, "History brush: %s is out of its reach (before dynamic topology, a change carried from another level, or a step the undo memory dropped)", entry_label(e))
+		report(app, Panel_Kind.Recall, {.Warning}, "History brush: %s is out of its reach (before dynamic topology, a change carried from another level, or a step the undo memory dropped)", entry_label(e))
 		return false
 	}
 	recall_build(app, s, back, true)
-	report(app, Kit_Section.Recall, {}, "History brush: paints %s back to before %s", object_label(obj), entry_label(e))
+	report(app, Panel_Kind.Recall, {}, "History brush: paints %s back to before %s", object_label(obj), entry_label(e))
 	return true
 }
 

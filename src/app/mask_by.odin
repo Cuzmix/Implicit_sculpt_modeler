@@ -103,7 +103,7 @@ mask_by_command :: proc(app: ^App, by: sculpt.Mask_By) {
 		case .Group_Borders:                     why = ": it has no polygroups"
 		}
 	}
-	report(app, Kit_Section.Mask, {.Quiet}, "%s in %.0f ms%s%s", name, ms, "" if changed else ", nothing changed", why)
+	report(app, Panel_Kind.Mask, {.Quiet}, "%s in %.0f ms%s%s", name, ms, "" if changed else ", nothing changed", why)
 }
 
 // Reshapes the selected object's mask through the Mask section's adjust curve and blur,
@@ -117,7 +117,7 @@ mask_adjust_command :: proc(app: ^App) {
 	changed := sculpt.sculptor_mask_adjust(object_sculptor(obj), set.adjust_curve, int(clamp(set.adjust_blur, 0, MASK_BY_BLUR_MAX)))
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Mask, "Mask adjust")
-	report(app, Kit_Section.Mask, {.Quiet}, "Mask adjust in %.0f ms%s", ms, "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Mask, {.Quiet}, "Mask adjust in %.0f ms%s", ms, "" if changed else ", nothing changed")
 }
 
 // The Mask by kind as the picker shows it: its name with a capital.

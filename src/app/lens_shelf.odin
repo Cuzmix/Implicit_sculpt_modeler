@@ -101,7 +101,7 @@ SHELF_MODEL :: [?]Bar_Slot {
 // app. A brush picked from All goes back to Sculpt, as the space follows the tool.
 SHELF_RENDER :: [?]Bar_Slot {
 	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Shading_Mode, int(Shading_Mode.Material_Preview)}, {.Shading_Mode, int(Shading_Mode.Solid)},
-	{.Show_Panel, int(Panel_Kind.Material)}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Show_Panel, int(Panel_Kind.Environment)},
+	{.Open_Card, int(Panel_Kind.Material)}, {.Open_Card, int(Panel_Kind.Lights)}, {.Open_Card, int(Panel_Kind.Environment)},
 	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
 }
 
@@ -988,8 +988,8 @@ kit_shelf_quick :: proc(app: ^App) {
 			else do shelf_pin(app, slot, which)
 		}
 	}
-	pinned := command_checked(app, .Pin_Section, int(Kit_Section.Stroke))
-	if command_button(app, .Pin_Section, int(Kit_Section.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
+	pinned := command_checked(app, .Pin_Section, int(Panel_Kind.Stroke))
+	if command_button(app, .Pin_Section, int(Panel_Kind.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {
 		sh.quick = false
 		brush_item_settings(app, cur)

@@ -7,11 +7,9 @@ import "../ui"
 // The view rail's cards: any card can stand on the rail (or any dock), as Open card. The
 // Library's Cards (the dock ⋯'s Add a button) lists them all.
 
-// The slot that shows panel `p` on a bar: Show panel for a card, Show section for a
-// section's palette.
+// The slot that shows panel `p` on a bar: Open card.
 rail_panel_slot :: proc(p: Panel_Kind) -> Bar_Slot {
-	if sec, ok := panel_section(p); ok do return {.Show_Section, int(sec)}
-	return {.Show_Panel, int(p)}
+	return {.Open_Card, int(p)}
 }
 
 // Where panel `p` stands on the rail; false when it is not there.
@@ -56,7 +54,7 @@ panel_pop_head :: proc(app: ^App, name, title: string, extra: int) {
 // of sections is not a column of one panel icon (Lucide's download, camera, video and
 // printer by their code points, as the Export card has them).
 @(rodata)
-SECTION_ICONS := [Kit_Section]rune {
+SECTION_ICONS := #partial [Panel_Kind]rune {
 	.Preset      = ICON_BOOKMARK,
 	.Stroke      = ui.ICON_SPLINE,
 	.Paint_Color = ICON_COLOUR,
@@ -88,8 +86,6 @@ SECTION_ICONS := [Kit_Section]rune {
 	.Project     = rune(0xe0b6), // download
 	.Booleans    = ICON_BOOLEAN,
 	.Extract     = ICON_SPLIT,
-	.Objects     = ICON_OBJECTS_CARD,
-	.Add         = ui.ICON_CIRCLE_PLUS,
 	.Look        = ICON_SHADING,
 	.Material    = ICON_MATERIAL,
 	.Lights      = ui.ICON_SUN,
@@ -102,8 +98,4 @@ SECTION_ICONS := [Kit_Section]rune {
 	.Print       = rune(0xe145), // printer
 	.Floor       = ICON_FLOOR,
 	.Background  = ui.ICON_FRAME,
-	.Frame       = ui.ICON_ACTIVITY,
-	.Drawing     = ui.ICON_ACTIVITY,
-	.Sculpting   = ui.ICON_ACTIVITY,
-	.Stats_Help  = ui.ICON_HELP,
 }

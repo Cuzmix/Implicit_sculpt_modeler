@@ -243,10 +243,8 @@ Command_Id :: enum u16 {
 	// The app
 	Stats,
 	Inspector,
-	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
-	Show_Panel, // the argument is a card's Panel_Kind, below STACK_CARD_COUNT (rail_panels.odin)
-	Rail_Group, // the argument is the rail group, below RAIL_GROUPS (rail_groups.odin)
-	Pin_Section, // the argument is the Kit_Section, below TRAY_SECTIONS (panels.odin)
+	Open_Card, // the argument is the card's Panel_Kind
+	Pin_Section, // the argument is a section's Panel_Kind (panels.odin)
 	Panels_Reset,
 	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
 	Workspace_Save,
@@ -2206,56 +2204,35 @@ COMMANDS := [Command_Id]Command {
 			return k.inspector
 		},
 	},
-	.Show_Section = {
+	.Open_Card = {
 		label = "Open card",
-		help = "Opens this section's card (the Brush card for the brush's sections, switching to the brush); on a bar, beside its button.",
+		help = "Opens this card (a section of the brush's opens the Brush card on it, switching to the brush); on a bar, beside its button.",
 		icon = ui.ICON_PANEL,
-		args = TRAY_SECTIONS,
+		args = len(Panel_Kind),
 		run = proc(app: ^App, arg: int) {
-			sec := Kit_Section(arg)
-			if section_palette(sec) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
-			tray_open(app, sec)
+			p := Panel_Kind(arg)
+			if panel_is_section(p) && section_palette(p) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
+			tray_open(app, p)
 		},
 		// The brush's Colour and History brush sections only for the brushes that have them.
-		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
-	},
-	.Show_Panel = {
-		label = "Open card",
-		help = "Opens this card; on a bar, beside its button.",
-		icon = ui.ICON_PANEL,
-		args = STACK_CARD_COUNT,
-		run = proc(app: ^App, arg: int) {
-			side_panel_close(app)
-			app.kit.inspector = true
-			// The card is opened where it stands in Main, the stack itself.
-			app.kit.rail_dock = nil
-			stack_reveal_card(app, Panel_Kind(arg))
-		},
-		checked = proc(app: ^App, arg: int) -> bool {return palette_on_screen(app, Panel_Kind(arg))},
-	},
-	.Rail_Group = {
-		label = "Panel group",
-		help = "Docks this group of panels in the panel stack's column, as tabs or one under another; again puts the column away.",
-		icon = ui.ICON_PANEL,
-		args = RAIL_GROUPS,
-		run = proc(app: ^App, arg: int) {rail_dock_toggle(app, {.Rail_Group, arg})},
-		enabled = proc(app: ^App, arg: int) -> bool {return arg >= 0 && arg < RAIL_GROUPS && app.kit.rail_groups[arg].used},
-		checked = proc(app: ^App, arg: int) -> bool {return rail_dock_is(app, {.Rail_Group, arg})},
+		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Panel_Kind(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return !panel_is_section(Panel_Kind(arg)) && palette_on_screen(app, Panel_Kind(arg))},
 	},
 	.Pin_Section = {
 		label = "Pin to the stack",
 		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
 		icon = ui.ICON_PANEL,
-		args = TRAY_SECTIONS,
+		args = len(Panel_Kind),
 		run = proc(app: ^App, arg: int) {
-			p, _ := panel_of_section(Kit_Section(arg))
+			p := Panel_Kind(arg)
 			on := !(app.kit.stack.set && stack_kept(&app.kit.stack, p))
 			stack_keep(&app.kit, p, on)
 			app.kit.inspector = true
 			if on do stack_pop_open(app)
 		},
+		enabled = proc(app: ^App, arg: int) -> bool {return panel_is_section(Panel_Kind(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {
-			p, _ := panel_of_section(Kit_Section(arg))
+			p := Panel_Kind(arg)
 			return app.kit.stack.set && stack_kept(&app.kit.stack, p)
 		},
 	},
@@ -2983,17 +2960,14 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
-	case .Show_Section:
-		sec := Kit_Section(arg)
-		if section_palette(sec) == .Tool do return fmt.tprintf("Brush card: %s", tray_section_title(sec))
-		return fmt.tprintf("%s card", tray_section_title(sec))
+	case .Open_Card:
+		p := Panel_Kind(arg)
+		if !panel_is_section(p) do return fmt.tprintf("%s card", STACK_CARD_NAMES[p])
+		if section_palette(p) == .Tool do return fmt.tprintf("Brush card: %s", tray_section_title(p))
+		return fmt.tprintf("%s card", tray_section_title(p))
 	case .Pin_Section:
-		sec := Kit_Section(arg)
-		return fmt.tprintf("Pin %s to the stack", tray_section_title(sec))
-	case .Show_Panel:
-		return fmt.tprintf("%s card", STACK_CARD_NAMES[Panel_Kind(arg)])
-	case .Rail_Group:
-		return fmt.tprintf("Panel group %d", arg + 1)
+		p := Panel_Kind(arg)
+		return fmt.tprintf("Pin %s to the stack", tray_section_title(p) if panel_is_section(p) else STACK_CARD_NAMES[p])
 	case .View_Pass:
 		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
