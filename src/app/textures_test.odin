@@ -81,7 +81,8 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	vertices, indices, corners := textured_vertices(obj)
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
-	frame := geom.quad_mesh_tangents(quads, obj.levels.faces.uv, normals, context.temp_allocator)
+	layout, _ := sculpt.levels_quad_uvs(&obj.levels)
+	frame := geom.quad_mesh_tangents(quads, layout, normals, context.temp_allocator)
 	testing.expect_value(t, len(vertices), len(frame.vertex))
 	testing.expect_value(t, len(indices), 6 * len(quads.quads))
 	for v, slot in vertices {
@@ -149,7 +150,7 @@ scene_keeps_textures :: proc(t: ^testing.T) {
 }
 
 // Baking (textures_replace) and New UVs are undo steps of their own: undo puts the maps
-// and the layout back and redo takes them again, while the object's strokes stay; the
+// and the UVs back and redo takes them again, while the object's strokes stay; the
 // maps go when the UVs do.
 @(test)
 textures_undo_and_redo :: proc(t: ^testing.T) {
@@ -164,27 +165,27 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	textures_replace(&app, obj, baked, "bake maps")
 	testing.expect(t, object_has_textures(obj))
 	stamp := obj.textures.stamp
-	layout := raw_data(obj.levels.faces.uv.uvs)
+	layout := raw_data(obj.levels.uvs.corner)
 	counter := obj.textures.layout
 	testing.expect_value(t, counter, 0)
 
 	object_layout_uvs(&app, obj)
 	testing.expect(t, !object_has_textures(obj), "New UVs keeps maps made on the old layout")
-	testing.expect(t, raw_data(obj.levels.faces.uv.uvs) != layout)
+	testing.expect(t, raw_data(obj.levels.uvs.corner) != layout)
 	testing.expect(t, obj.textures.layout != counter, "the preview must see the new layout")
 	counter = obj.textures.layout
 	testing.expect_value(t, len(app.history.done), 2)
 	testing.expect_value(t, app.history.done[1].kind, History_Kind.Textures)
 
 	history_undo(&app)
-	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.faces.uv.uvs) == layout, "undo of New UVs brings both back")
+	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.uvs.corner) == layout, "undo of New UVs brings both back")
 	testing.expect(t, obj.textures.stamp != stamp, "the preview must see the change")
 	testing.expect(t, obj.textures.layout != counter, "nor may it miss the old layout coming back")
 	history_undo(&app)
 	testing.expect(t, !object_has_textures(obj))
 	history_redo(&app)
 	history_redo(&app)
-	testing.expect(t, !object_has_textures(obj) && raw_data(obj.levels.faces.uv.uvs) != layout)
+	testing.expect(t, !object_has_textures(obj) && raw_data(obj.levels.uvs.corner) != layout)
 	testing.expect(t, app.history.swap_bytes > 0, "texture steps count toward the memory limit")
 
 	// Maps never outlive their UVs.
