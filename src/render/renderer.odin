@@ -288,7 +288,6 @@ Mesh_Buffers :: struct {
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
 	indirect:          gpu.Buffer,
-	indirect_transfer: gpu.Transfer_Buffer,
 	indirect_capacity: u32, // commands
 	draw_count:        u32, // commands recorded this frame (with cull.culled, the most the kernels may write)
 	visible:           [dynamic]geom.Index_Range, // scratch
@@ -1269,7 +1268,6 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.normals != 0 do gpu.release_buffer(mb.normals)
 	if mb.indices != 0 do gpu.release_buffer(mb.indices)
 	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
-	if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
 	if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
 	gpu_cull_release(r, mb)
 	sculpt_gpu_forget(r, mb)
@@ -1705,7 +1703,6 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 	// With parallel projection every chunk is seen from the same direction: an eye far
 	// back along it makes the back-facing test agree.
 	eye_world := linalg.inverse(view) * [4]f32{0, 0, 1e4 if proj[3, 3] == 1 else 0, 1}
-	copy_pass: gpu.Copy_Pass
 	gpu_culled := false
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
@@ -1719,13 +1716,9 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
 		tess := r.cull && height > 0 && skin_tess_near(r, item, proj, height, eye.xyz)
-		// The GPU writes the commands itself, between this frame's copy passes, so one of
-		// those open must end first. Chunks drawn as a skin's grid are picked on the CPU.
+		// The GPU writes the commands itself, after the commands staged for the meshes
+		// before it. Chunks drawn as a skin's grid are picked on the CPU.
 		if r.cull && !tess && len(item.chunks) > 0 && gpu_cull_wanted(r, item, simplify) {
-			if copy_pass != nil {
-				gpu.end_copy_pass(copy_pass)
-				copy_pass = nil
-			}
 			if gpu_cull_item(r, cmd, item, clip, eye.xyz) {
 				mb.draw_count = u32(len(item.chunks))
 				stats.chunks += u64(len(item.chunks))
@@ -1762,7 +1755,14 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 		mb.lod_draw_count = u32(len(mb.lod_visible))
 		mb.tess_draw_count = u32(len(mb.tess_visible)) if tess else 0
 		if mb.draw_count + mb.lod_draw_count + mb.tess_draw_count == 0 do continue
-		dst := cast([^]gpu.Indexed_Indirect_Draw)gpu.map_transfer_buffer(mb.indirect_transfer, true)
+		size := (mb.draw_count + mb.lod_draw_count + mb.tess_draw_count) * size_of(gpu.Indexed_Indirect_Draw)
+		staged := gpu.stage_buffer(cmd, mb.indirect, 0, size)
+		if staged == nil {
+			log.errorf("indirect draws: upload memory was refused (%s); the mesh is left out of this frame", gpu.last_error())
+			mb.draw_count, mb.lod_draw_count, mb.tess_draw_count = 0, 0, 0
+			continue
+		}
+		dst := cast([^]gpu.Indexed_Indirect_Draw)raw_data(staged)
 		// Where the wireframe can be drawn in the shading pass, each command's first instance
 		// is its first triangle's number, which the shader adds the primitive id to; a
 		// simplified copy's triangles have no polygons behind them (WIRE_ALL_EDGES).
@@ -1777,12 +1777,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 		for v, i in mb.tess_visible[:mb.tess_draw_count] {
 			dst[int(mb.draw_count + mb.lod_draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
 		}
-		gpu.unmap_transfer_buffer(mb.indirect_transfer)
-		if copy_pass == nil do copy_pass = gpu.begin_copy_pass(cmd)
-		size := (mb.draw_count + mb.lod_draw_count + mb.tess_draw_count) * size_of(gpu.Indexed_Indirect_Draw)
-		gpu.upload_to_buffer(copy_pass, {transfer_buffer = mb.indirect_transfer}, {buffer = mb.indirect, size = size}, true)
 	}
-	if copy_pass != nil do gpu.end_copy_pass(copy_pass)
 	// This pass's numbers from the GPU, as the same pass of a few frames back found them.
 	if gpu_culled {
 		g := &r.gpu_culling
@@ -1803,18 +1798,14 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool {
 	if mb.indirect != 0 && mb.indirect_capacity >= commands do return true
 	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
-	if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
 	size := commands * size_of(gpu.Indexed_Indirect_Draw)
 	// Kernels write the commands where the GPU culls.
 	usage: gpu.Buffer_Usages = {.Indirect, .Storage_Write} if r.caps.gpu_cull else {.Indirect}
 	mb.indirect = gpu.create_buffer({usage = usage, size = size})
-	mb.indirect_transfer = gpu.create_transfer_buffer({usage = .Upload, size = size})
 	mb.indirect_capacity = commands
-	if mb.indirect == 0 || mb.indirect_transfer == 0 {
+	if mb.indirect == 0 {
 		log.errorf("indirect buffer creation failed: %s", gpu.last_error())
-		if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
-		if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
-		mb.indirect, mb.indirect_transfer, mb.indirect_capacity = 0, 0, 0
+		mb.indirect_capacity = 0
 		return false
 	}
 	return true

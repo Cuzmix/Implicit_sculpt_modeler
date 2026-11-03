@@ -512,6 +512,9 @@ transient_targets_offered :: proc() -> bool {
 }
 
 @(require_results)
+// Transfer buffers are staging's own (staging.odin): render moves bytes through
+// upload, stage_buffer and readbacks, so these are private to the package.
+@(private)
 create_transfer_buffer :: proc(#by_ptr createinfo: Transfer_Buffer_Desc) -> Transfer_Buffer {
 	when METAL do return Transfer_Buffer(pool_add(&pools.transfer_buffers, mtl_create_transfer_buffer(createinfo)))
 	else when WEBGPU do return Transfer_Buffer(pool_add(&pools.transfer_buffers, wgpu_create_transfer_buffer(createinfo)))
@@ -532,12 +535,14 @@ dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y,
 	else do vk_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
 }
 
+@(private)
 download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region,           #by_ptr destination: Transfer_Buffer_Location) {
 	when METAL do mtl_download_from_buffer(copy_pass, source, destination)
 	else when WEBGPU do wgpu_download_from_buffer(copy_pass, source, destination)
 	else do vk_download_from_buffer(copy_pass, source, destination)
 }
 
+@(private)
 download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region,          #by_ptr destination: Texture_Transfer_Info) {
 	transient_check_use(source.texture, "downloaded")
 	when METAL do mtl_download_from_texture(copy_pass, source, destination)
@@ -659,6 +664,7 @@ get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 }
 
 @(require_results)
+@(private)
 map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	when METAL do return mtl_map_transfer_buffer(transfer_buffer, cycle)
 	else when WEBGPU do return wgpu_map_transfer_buffer(transfer_buffer, cycle)
@@ -735,6 +741,7 @@ release_texture :: proc(texture: Texture) {
 	else do vk_release_texture(pool_remove(&pools.textures, u32(texture)))
 }
 
+@(private)
 release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
 	when METAL do mtl_release_transfer_buffer(pool_remove(&pools.transfer_buffers, u32(transfer_buffer)))
 	else when WEBGPU do wgpu_release_transfer_buffer(pool_remove(&pools.transfer_buffers, u32(transfer_buffer)))
@@ -907,18 +914,21 @@ submit :: proc(command_buffer: Cmd) -> (ticket: Ticket, ok: bool) {
 	return
 }
 
+@(private)
 unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
 	when METAL do mtl_unmap_transfer_buffer(transfer_buffer)
 	else when WEBGPU do wgpu_unmap_transfer_buffer(transfer_buffer)
 	else do vk_unmap_transfer_buffer(transfer_buffer)
 }
 
+@(private)
 upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	when METAL do mtl_upload_to_buffer(copy_pass, source, destination, cycle)
 	else when WEBGPU do wgpu_upload_to_buffer(copy_pass, source, destination, cycle)
 	else do vk_upload_to_buffer(copy_pass, source, destination, cycle)
 }
 
+@(private)
 upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info,    #by_ptr destination: Texture_Region, cycle: bool) {
 	transient_check_use(destination.texture, "uploaded to")
 	when METAL do mtl_upload_to_texture(copy_pass, source, destination, cycle)
