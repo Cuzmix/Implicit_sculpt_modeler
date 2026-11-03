@@ -12657,6 +12657,25 @@ def lattice_point_dragged():
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
 
 
+@scenario
+def lattice_point_dragged_with_physics():
+    """With the Physics switch on, a mouse drag of the lattice's side point poses the sphere
+    with the cloth following it (one pose the cloth followed), still as one undo step that
+    moves the surface; the camera stays still."""
+    s = Script()
+    s.wait(3)
+    palette_run(s, "lattice")
+    s.wait(3)
+    s.press("Tab")
+    s.wait(3)
+    s.press("w")
+    s.wait(5)
+    s.mouse_drag(line(LATTICE_SIDE, (LATTICE_SIDE[0], LATTICE_SIDE[1] - 120), 10))
+    s.wait(5)
+    return s, ["--script=set physics on"], camera_still({"lattice_drags": near(1, 0), "pose_drags": near(1, 0), "physics_poses": near(1, 0),
+                                                        "undo_steps": near(1, 0), "dabs": near(0)})
+
+
 LATTICE_SIDE = (1032, 522)  # the cage's +x side middle point round the starting sphere
 
 

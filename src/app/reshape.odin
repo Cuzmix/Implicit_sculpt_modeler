@@ -211,6 +211,7 @@ reshape_drag_begin :: proc(app: ^App, obj: ^Object) -> bool {
 			return false
 		}
 		drag.reshape, drag.posed = r, true
+		pose_physics_begin(app, obj, Kit_Section.Deform)
 	}
 	p.drag = drag
 	return true

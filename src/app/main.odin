@@ -379,6 +379,7 @@ App :: struct {
 	// and how many were built, for the exit stats.
 	cloth_volumes:       [dynamic]Cloth_Volume_Kept,
 	cloth_volume_builds: int,
+	physics_poses:       int, // poses the cloth followed (pose_physics_begin), for the exit stats
 	background:      Background_Settings, // the viewport's background (background.odin)
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
