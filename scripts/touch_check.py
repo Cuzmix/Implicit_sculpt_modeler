@@ -3840,13 +3840,13 @@ def lens_rail_names_its_buttons_on_a_wide_window():
 
 @scenario
 def lens_rail_opens_beside_itself():
-    """The rail's (eight_rail) Passes opens beside the rail, Lights docks its card in the column, and View layout opens its menu of grids."""
+    """The rail's (eight_rail) Passes opens beside the rail, Lights pops its card out beside it, and View layout opens its menu of grids."""
     def run(name, checks):
         s = Script()
         s.ftap(LENS_RAIL[name])
         s.wait(10)
         return (s, LENS_1440 + eight_rail(), camera_still(checks))
-    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"rail_dock": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
+    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_pop": is_text("lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
 @scenario
@@ -8702,7 +8702,7 @@ RAIL_TOOLS = At("view bar/Tools", 1563, 373)
 @scenario
 def rail_panels_picker_adds_a_card():
     """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
-    Tools and Environment cards: both go on the rail. The Tools button the rail gets docks the Tools card in the panels' column; nothing
+    Tools and Environment cards: both go on the rail. The Tools button the rail gets unfolds the Tools card where the panel stack shows it; nothing
     turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
@@ -8724,7 +8724,7 @@ def rail_panels_picker_adds_a_card():
     s.wait(6)
     s.ftap(RAIL_TOOLS)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Tools"), "library_puts": near(2),
+    return s, [], camera_still({"dabs": near(0), "stack": lambda v: "Tools+" in v.split(","), "library_puts": near(2),
                                 "view_rail": is_text("Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Material,Open_Card:Symmetry,Open_Card:Lights,Open_Card:Tools,Open_Card:Environment")})
 
 

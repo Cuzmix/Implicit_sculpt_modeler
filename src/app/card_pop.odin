@@ -4,9 +4,8 @@ import "core:fmt"
 
 import "../ui"
 
-// Cards popped out of a dock's button: a card or section button anywhere but the rail
-// (whose buttons dock their card in the stack's column, rail_dock.odin), and a button's
-// long press that opens its section, show that card as a window of its own beside the
+// Cards popped out of a dock's button: a card or section button on any dock, the view rail
+// too, and a button's long press that opens its section, show that card as a window of its own beside the
 // button, one at a time, as Affinity's studio buttons pop out their panels. It is the
 // stack's own floating card, so it has the stack's header, tabs or sections, resize
 // handles and carry; while popped out its header holds Keep open (it stays as a floating

@@ -2182,7 +2182,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Inspector = {
 		label = "Main palette",
-		help = "Shows or hides the main palette in the panel stack's column: the cards the stack keeps, in its order. On the view rail it is Main, a palette like the others there.",
+		help = "Shows or hides the main palette in the panel stack's column: the cards the stack keeps, in its order. On the view rail it is Main.",
 		icon = ui.ICON_PANEL,
 		// While Settings or Help has its place, it comes back in their place rather than
 		// changing unseen.
@@ -2199,7 +2199,6 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, _: int) -> bool {
 			k := &app.kit
-			if _, other := rail_dock_valid(k).?; other do return false
 			if _, docked := stack_docked(k); docked && stack_narrow(app) do return k.inspector && k.panels.popped
 			return k.inspector
 		},
