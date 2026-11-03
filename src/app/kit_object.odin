@@ -171,6 +171,8 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 		} else if ui.button(ctx, "Load map into skin...", .Bordered, glyph = ui.ICON_IMAGE) {
 			file_dialog(app, .Skin_Map)
 		}
+		// The skin as a micro-map for renderers that displace triangles in hardware.
+		if ui.button(ctx, "Export micro-map (.bary)...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Export_Bary)
 	} else if why != "" {
 		ui.paragraph(ctx, why)
 	} else {

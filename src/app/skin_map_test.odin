@@ -106,6 +106,12 @@ skin_map_round_trips_through_a_bake :: proc(t: ^testing.T) {
 	history_undo(app)
 	apart, _, _ := skin_map_spread(obj, before)
 	testing.expectf(t, apart < 1e-6, "undo left the skin %v from the waves", apart)
+	// The waves as a micro-map: the right size for the skin's level, every value in it.
+	testing.expect(t, skin_bary_export(app, FOLDER + "waves.bary"))
+	bary, read_err := os.read_entire_file(FOLDER + "waves.bary", context.temp_allocator)
+	testing.expect(t, read_err == nil && len(bary) > 64 && string(bary[1:5]) == "BARY")
+	tris := len(object_sculptor(obj).mesh.indices) / 3
+	testing.expectf(t, len(bary) > tris * geom.bary_vertex_count(2) * 2, "%d bytes for %d triangles", len(bary), tris)
 	// A grey PNG is a height only.
 	app.skin_map_kind = .Object_Vector
 	testing.expect(t, !skin_map_load(app, FOLDER + "waves.png"), "a PNG loaded as a vector map")

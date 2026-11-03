@@ -67,6 +67,7 @@ Script_Verb :: enum u8 {
 	Hardness,
 	Capture_Vdm,
 	Export_Vdm,
+	Export_Bary,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -101,6 +102,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Hardness      = {"hardness", "a number from 0 to 95: every brush's hardness, in percent of the radius"},
 	.Capture_Vdm   = {"capture_vdm", "a name for the VDM stamp the selected slab's top face makes, kept in the library and picked"},
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
+	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -532,7 +534,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -641,6 +643,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 	case .Export_Vdm:
 		if !vdm_export(app, st.text) do return app.result.text, true
 		return "", true
+	case .Export_Bary:
+		if !skin_bary_export(app, st.text) do return app.result.text, true
+		return "", true
 	case .Pack_Mesh:
 		// As Add object does with the mesh picked, in place so the next line sees it.
 		j := pack_mesh_by_ref(app, st.text)
@@ -704,7 +709,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

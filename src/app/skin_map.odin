@@ -5,6 +5,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 
+import "../geom"
 import "../hdri"
 import "../sculpt"
 
@@ -112,4 +113,41 @@ skin_map_range_beside :: proc(path: string, fallback: f32) -> f32 {
 	if end < 0 do return fallback
 	d, ok := strconv.parse_f32(rest[:end])
 	return d if ok && d > 0 else fallback
+}
+
+// Writes the selected object's skin to `path` as an NVIDIA displacement micro-map
+// (geom.bary_encode): the top level's triangles with their vertex normals as the
+// directions, in the units and place an OBJ export gives them, each triangle subdivided
+// as the skin is. A vector page cannot go into a scalar map; the note says it was left out.
+skin_bary_export :: proc(app: ^App, path: string) -> bool {
+	name := filepath.base(path)
+	obj := selected_object(app)
+	if object_top_skin(obj) == nil {
+		file_note(app, true, "Cannot export %s: select an object with a detail skin first", name)
+		return false
+	}
+	stroke_finish(app)
+	top := &obj.levels.levels[len(obj.levels.levels) - 1].sculptor
+	values, level, folded, ok := sculpt.sculptor_skin_bary(top, context.temp_allocator)
+	if !ok {
+		file_note(app, true, "Cannot export %s: the skin's segments are not a power of two", name)
+		return false
+	}
+	mesh := top.mesh
+	scale := obj.file.scale if obj.file.scale > 0 else 1
+	positions := make([]geom.Vec3, len(mesh.positions), context.temp_allocator)
+	for p, i in mesh.positions do positions[i] = p * scale + obj.file.position
+	for &v in values do v *= scale
+	data := geom.bary_encode({positions = positions, directions = mesh.normals[:], indices = mesh.indices[:], level = level, values = values}, context.temp_allocator)
+	if data == nil {
+		file_note(app, true, "Cannot export %s: the mesh and its skin do not match", name)
+		return false
+	}
+	if failed := write_durably(path, data); failed != "" {
+		file_note(app, true, "Cannot export %s: %s", name, failed)
+		return false
+	}
+	app.skin_bary_exports += 1
+	file_note(app, folded, "Exported %s: %s triangles at level %d (%d segments)%s", name, count_label(len(mesh.indices) / 3), level, 1 << level, ", without the skin's sideways offsets, which a micro-map cannot hold" if folded else "")
+	return true
 }
