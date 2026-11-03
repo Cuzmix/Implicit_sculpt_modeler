@@ -65,7 +65,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			strings.write_string(&shows, name)
 		}
 		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", g.views[0].shading.lighting)
-		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d stack_density=%s", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs, "icons" if app.kit.stack.density == .Icons else "panels")
+		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
 	}
 	{
 		vws := &app.view_windows
@@ -303,7 +303,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			preset := "none"
 			if p, on := brush_preset(app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(app)))
-			fmt.printfln("browser=%d bar_tools=%s bars_edit=%d bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), bar_names(app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open),
+			fmt.printfln("browser=%d bars_edit=%d bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), int(app.kit.bars_edit), int(app.kit.bar_slot.open),
 				app.kit.bar_lifts, app.kit.bar_drops, app.kit.bar_refusals, app.kit.bar_drops_off, int(app.kit.bar_carry != nil))
 			// The island's items and how its values show, the values on every bar, and the
 			// value popovers opened, the chips scrubbed and the value the popover is on.
@@ -403,12 +403,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			case Bar_Slot: strings.write_string(&dial, command_name(v.id, v.arg))
 			}
 		}
-		zone := "none"
-		if z, ok := k.arrange.picked.?; ok do zone = fmt.tprint(z)
 		changed := 0
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
-		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries)
+		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
 		// The chip bar's sections standing on their own, and how many Arrange let go.
 		fmt.printfln("chip_islands=%s chip_carries=%d", chip_islands_text(k), k.arrange.chip_carries)
 		// The top bar's islands from the start corner, and how many Arrange let go.
@@ -420,7 +418,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
-		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
+		fmt.printfln("dial_sectors=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0
@@ -529,8 +527,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
 			fmt.printfln("stack_visit=%s stack_visits=%d", stack_visit_text(k), k.stack.visits)
-			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), k.stack.drops, stack_carry_text(k), k.stack.target.kind)
-			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d stack_columns=%s tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, stack_columns_text(k), int(tray_width(app)))
+			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_sections=%s stack_section_folds=%d stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), stack_sections_text(k), k.stack.section_folds, k.stack.drops, stack_carry_text(k), k.stack.target.kind)
+			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, int(tray_width(app)))
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
@@ -540,10 +538,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
-		// The side bars' popover: what it shows (a section by its name), or none; the look.
+		// The side bars' popover: what it shows, or none; the card popped out of a button
+		// and how many times one popped; the look.
 		pop := "none"
-		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprintf("panel_%v", p.panel) if p.kind == .Panel else fmt.tprint(p.kind), context.temp_allocator)
-		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
+		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.kind), context.temp_allocator)
+		fmt.printfln("bar_pop=%s card_pop=%s card_pops=%d look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(card_pop_text(k), context.temp_allocator), k.card_pop.pops, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
 		// The theme shown: its name, whether a control moved it from what was saved, its mode
 		// and accent, and how many themes of their own the settings hold.
@@ -643,12 +642,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	}
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
+	// The last frame's wireframes: items drawn with one, in the shading pass where the
+	// device reads barycentrics, else as lines; and whether it could.
+	fmt.printfln("wire_shaded=%d wire_lines=%d wire_barycentric=%v", v.wire_shaded, v.wire_lines, render.caps(&app.renderer).barycentric)
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f gpu_cull=%v gpu_culls=%d", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms, app.renderer.gpu_cull && render.caps(&app.renderer).gpu_cull, app.renderer.gpu_culling.culls)
 	if app.renderer.gpu_culling.check {
 		meshes, commands, mismatch := render.gpu_cull_check(&app.renderer)
 		fmt.printfln("cull_meshes=%d cull_commands=%d cull_mismatch=%d", meshes, commands, mismatch)
 	}
-	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
+	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f idle_skipped=%d idle_recorded=%d cmds_dropped=%d background_frames=%d", app.idle.rests, app.idle.rest_ms, app.idle.skipped, app.idle.recorded, app.stats.cmds_dropped, app.idle.held)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	fmt.printfln("viewport_tile=%v viewport_target_mb=%.1f", app.target.tile, f64(render.viewport_target_bytes(app.target)) / (1 << 20))
 	lod_pending := 0

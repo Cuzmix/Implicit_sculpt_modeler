@@ -73,7 +73,12 @@ mode="${1:-debug}"; shift || true
 # warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). A
 # shader whose first line starts "// ray query" raises the profile for ray queries the same
 # way, so it is quieted too; its Metal source is slangc's own (name.comp.metal), which
-# scripts/shaders_msl.py makes with slangc alone. Without deps/slang (scripts/setup_deps.sh)
+# scripts/shaders_msl.py makes with slangc alone. A shader whose first line starts
+# "// barycentric" reads where the pixel lies between the triangle's corners, which raises
+# the profile with SPV_KHR_fragment_shader_barycentric, so the warning is quieted for it
+# too; the renderer loads it only where the device offers that (Gpu_Caps.barycentric), and
+# its Metal source is made for MSL 2.3, the first with barycentrics on both the Mac and the
+# iPad. Without deps/slang (scripts/setup_deps.sh)
 # the committed .spv files are used as they are.
 SLANGC="$DEPS/slang/bin/slangc"
 compile_shaders() {
@@ -84,7 +89,7 @@ compile_shaders() {
 		case "${name##*.}" in vert) stage=vertex;; frag) stage=fragment;; comp) stage=compute;; esac
 		flags=()
 		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
-		if head -n 1 "$src" | grep -q '^// vulkan only\|^// ray query'; then flags+=(-warnings-disable 41012); fi
+		if head -n 1 "$src" | grep -q '^// vulkan only\|^// ray query\|^// barycentric'; then flags+=(-warnings-disable 41012); fi
 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
 	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py): the .msl when

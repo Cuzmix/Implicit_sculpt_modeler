@@ -126,7 +126,7 @@ UI = {
 MENU_ROWS = {"home": ("Home", 84), "new": ("New", 129), "open": ("Open scene...", 173), "recent": ("Open recent", 217),
              "save": ("Save scene", 261), "save_as": ("Save scene as...", 305), "save_copy": ("Save a copy...", 349),
              "earlier_saves": ("Earlier saves...", 393), "import": ("Import", 438), "export": ("Export...", 482),
-             "workspaces": ("Workspaces", 527), "customise": ("Customise...", 571), "settings": ("Settings...", 615),
+             "workspaces": ("Workspaces", 527), "customise": ("Edit docks...", 571), "settings": ("Settings...", 615),
              "help": ("Help and shortcuts", 659), "more": ("More", 703)}
 UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y) in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
@@ -343,7 +343,7 @@ def pen_response_page_sets_clay():
 
 @scenario
 def long_press_draw_size_opens_its_menu():
-    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) in its place."""
+    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) on the Brush card the stack shows."""
     s = Script()
     long_press(s, UI["size"])
     s.wait(4)
@@ -353,7 +353,7 @@ def long_press_draw_size_opens_its_menu():
     s.wait(4)
     s.ftap(VALUE_MENU_SETTINGS)
     s.wait(4)
-    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)}))])
+    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "card_pop": is_text("none"), "stack_shut": lambda v: "pen" not in v.lower(), "brush_radius_px": near(60)}))])
 
 
 @scenario
@@ -420,8 +420,8 @@ PRESSURE_STRENGTH_SWITCH = At("bar value/Pressure changes the strength", 1050, 7
 def value_bars(island=(), strip=()):
     """Arguments that start the run with the island holding `island` and the shelf's Brushes
     page `strip`, each a list of (value, look) or a command name, through the scenario's
-    settings file (with no old tools strip for version 12 to bring onto the pages)."""
-    lines = ["version 6", "bar_count bottom_tools 0"]
+    settings file."""
+    lines = []
     for zone, items in (("offhand_island", island), ("shelf_sculpt", strip)):
         if not items:
             continue
@@ -443,7 +443,7 @@ def eight_rail(step=""):
     had them before it started with four: Focus selected, Symmetry, Wireframe and the mini
     view between Camera and Lights, through the scenario's settings file (with `step`, a
     file of that step's own, so what an earlier step saved does not carry over)."""
-    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Section:Lights", "Thumbnail"]
+    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Panel:Lights", "Thumbnail"]
     lines = ["version 13", f"bar_count view_rail {len(rail)}"] + [f"bar view_rail {i} {c}" for i, c in enumerate(rail)]
     path = settings_file()[:-len(".txt")] + step + ".txt"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -933,7 +933,7 @@ def mesh_tools_on_the_shelf():
         (divide, tools_page(), camera_still({"dabs": near(0), "selected_levels": near(2)})),
         (remesh, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
         (retopo, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "objects": near(2), "undo_steps": near(1)})),
-        (retopo_held, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
+        (retopo_held, tools_page(), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "card_pop": is_text("retopo"), "undo_steps": near(0)})),
     ])
 
 
@@ -1020,7 +1020,7 @@ def first_touch_scrolls_inspector():
 
 # How much higher a section's controls stand on its own card than they stood on the
 # Palettes card, which put a field picking the section over them, and for the Object
-# palette the object's name and size and the section's title, for the Scene palette its
+# palette the object's name and size and the section's title, for the Scene card its
 # title (round 3, PR 9b), and for the Brush card the folded Palettes card that stood above
 # it (PR 9c): measured from screen dumps at 1600 x 900.
 SECTION_DY = {"object": -143, "scene": -85, "objects": -59, "brush": -60}
@@ -2624,10 +2624,10 @@ def ring_off_the_model_is_flat():
 CURRENT = threading.local()
 
 
-# The sections whose Show section opens a card of their own (the Layers, Scene, Lights and
-# Material cards), which palettes_only shows as the tray drew them instead, and the brush's,
+# The sections that are a card's twin (the Layers, Scene, Lights and Material cards), by
+# the card's word in a layout line, and the brush's,
 # which are groups of the Brush card.
-CARD_SECTIONS = ("layers", "objects", "lights", "material")
+CARD_SECTIONS = {"layers": "Layers", "objects": "Scene", "lights": "Lights", "material": "Material"}
 BRUSH_SECTIONS = ("preset", "stroke", "paint_color", "recall", "falloff", "samples", "alpha", "pen", "options", "recorder")
 
 
@@ -2639,8 +2639,17 @@ def palettes_only(section, setup=""):
     path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + "-palettes.workspace")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     word = "_".join(w.capitalize() for w in section.split("_"))
-    cards = "Brush+ -Symmetry" if section in BRUSH_SECTIONS else f"section:{word}+ -Brush -Symmetry"
-    layout = f"open Inspector\nstack {cards} -Layers -Scene -Tools\nbars\n"
+    rest = ["-Layers", "-Scene", "-Tools"]
+    if section in BRUSH_SECTIONS:
+        cards = "Brush+ -Symmetry"
+    elif section in CARD_SECTIONS:
+        # A card's twin section is named as its card (the Objects section is the Scene card).
+        card = CARD_SECTIONS[section]
+        cards = f"{card}+ -Brush -Symmetry"
+        rest = [r for r in rest if r != "-" + card]
+    else:
+        cards = f"section:{word}+ -Brush -Symmetry"
+    layout = f"open Inspector\nstack {cards} {' '.join(rest)}\nbars\n"
     escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
     with open(path, "w") as f:
         f.write(f"SCULPT_WORKSPACE 1\nname Palettes\nlayout {escaped}\n")
@@ -3180,7 +3189,7 @@ def nav_head_drag_turns_the_view():
 
 @scenario
 def show_where_marks_the_control():
-    """Search's Shift+Enter on Blur mask opens the tray on the Object palette's Mask section with its More options open and marks the Blur button; nothing runs or is sculpted."""
+    """Search's Shift+Enter on Blur mask opens the tray on the Mask card with its More options open and marks the Blur button; nothing runs or is sculpted."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("blur mask")
@@ -3196,7 +3205,7 @@ PALETTE_SHOW_ONE_ROW = (885, 268)
 
 @scenario
 def long_press_a_search_row_shows_where():
-    """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Object palette's Layers section."""
+    """A finger's long press on search's first row (Layers' New layer) picks it rather than running it; the footer's Show where it lives then opens the Layers card."""
     s = Script()
     s.ftap(UI["search"])
     s.wait(4)
@@ -3229,9 +3238,9 @@ def search_icon_leaves_the_middle_empty():
 
 @scenario
 def search_opens_a_section_by_name():
-    """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush palette."""
+    """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush card."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "palette_last": is_text("Show_Section:Paint"), "inspector_tab": is_text("object"), "tray_section": is_text("Paint")})
 
@@ -3277,7 +3286,7 @@ def window_drag_by_title_is_remembered():
 
 # The Brush card's More at 1600 x 900, its Where the stack goes... row, and that menu's Dock on
 # the left (the first row: the stack is docked on the right).
-STACK_WHERE = {"more": (1508, 94), "where": (1470, 460), "left": (1440, 174)}
+STACK_WHERE = {"more": (1508, 94), "where": At("stack menu/Where the stack goes...", 1470, 416), "left": (1440, 174)}
 
 
 @scenario
@@ -3851,7 +3860,7 @@ def view_island_holds_the_view():
     s.ftap(UI["island_wire"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "symmetry": is_text("x"), "wireframe": near(1),
-                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Section:Lights,Focus_Selected")})
+                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Panel:Lights,Focus_Selected")})
 
 
 @scenario
@@ -5690,11 +5699,14 @@ def export_sheet_checks_a_print():
     return Steps([run(0), run(1), run(2)])
 
 
-# Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
+# Lens's Edit docks at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
 # and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
-# top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
+# Dial tab's Put the dial back, the top bar's Done, the Rail's head, the dial's top sector,
+# and a dock menu's Put back as it comes and Delete dock.
 LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
-                "reset_zone": At("arrange top bar/Reset zone", 675, 30), "done": At("arrange top bar/Done", 1014, 30), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+                "dial_reset": At("arrange library/Put the dial back as it comes", 520, 712), "done": At("arrange top bar/Done", 1014, 30),
+                "rail_tag": (1404, 67), "dial_top": (78, 778), "dock_reset": At("dock menu/Put back as it comes", 400, 500),
+                "dock_delete": At("dock menu/Delete dock", 400, 544)}
 
 
 @scenario
@@ -5723,7 +5735,7 @@ def lens_arrange_dial_sector_runs_a_command():
 
 @scenario
 def lens_arrange_reset_zone():
-    """A tap on a zone's tag picks it; with Hide on the dial's bottom sector, picking the Dial and Reset zone puts the dial back as it comes."""
+    """A tap on a dock's head opens its menu; with Hide on the dial's bottom sector, the Dial tab's Put the dial back as it comes puts the dial back."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
@@ -5731,19 +5743,18 @@ def lens_arrange_reset_zone():
         s.ftap(a["rail_tag"])
         s.wait(4)
         if not reset:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Rail"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_pop": is_text("dock_menu"), "dabs": near(0)})
+        s.press("escape")
+        s.wait(4)
         s.ftap(a["dial_tab"])
         s.wait(6)
         s.ftap(a["bottom"])
         s.wait(6)
         s.ftap(a["hide"])
         s.wait(6)
-        s.ftap(a["dial_tag"])
-        s.wait(4)
-        s.ftap(a["reset_zone"])
+        s.ftap(a["dial_reset"])
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
-                                                                         "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_resets": near(1), "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -5783,7 +5794,7 @@ def lens_arrange_drags_the_rail_to_the_left():
     s.ftap(a["done"])
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "bar_pop": is_text("none"),
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
@@ -5813,13 +5824,13 @@ def lens_arrange_slides_the_shelf_along_the_bottom():
         x = float(v.split(",")[0])
         return 144 < x < 190
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "bar_pop": is_text("none"),
         "layout_dock": dock, "layout_dock_pages": lambda v: abs(dock_centre_x(v) - pages.get("dock", -99)) < 2, "dabs": near(0)})
 
 
 @scenario
 def lens_arrange_floats_the_shelf():
-    """The mouse drags the Shelf tag up into the view: the shelf floats there, kept in the window, with its page names under it, and Reset zone with it picked brings it home."""
+    """The mouse drags the Shelf head up into the view: the shelf floats there, kept in the window, with its page names under it, and its menu's Put back as it comes brings it home."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
@@ -5837,11 +5848,13 @@ def lens_arrange_floats_the_shelf():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
                                                                              "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
                                                                              "dabs": near(0)})
-        # Wider where it floats, the shelf was kept in the window, its tag with it, clear
-        # of the Library.
-        s.ftap(600, 700)
+        # Wider where it floats, the shelf was kept in the window, its head with it, clear
+        # of the Library, which is put away so the head's tap opens its menu.
+        s.ftap(LIBRARY_AWAY)
         s.wait(4)
-        s.ftap(a["reset_zone"])
+        s.ftap(At("arrange tag Shelf/Shelf", 600, 700))
+        s.wait(6)
+        s.ftap(a["dock_reset"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
                                                                          "layout_dock": lambda v: float(v.split(",")[1]) > 780, "dabs": near(0)})
@@ -5850,23 +5863,23 @@ def lens_arrange_floats_the_shelf():
 
 @scenario
 def lens_arrange_floats_the_island():
-    """The mouse drags the Off-hand tag into the view's middle: the island floats there, and Reset zone with it picked puts it back."""
+    """The mouse drags the Brush bar's head into the view's middle: the island floats there, and its menu's Put back as it comes puts it back."""
     a = LENS_ARRANGE
     def run(reset):
         s = Script()
         s.wait(6)
         s.ftap(a["dial_tab"])
         s.wait(4)
-        tag = At("arrange tag Offhand/Off-hand", 44, 338)
+        tag = At("arrange tag Offhand/Brush bar", 44, 338)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
         if not reset:
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
                                                                              "layout_brush_bar": lambda v: float(v.split(",")[0]) > 700})
-        # The tag went with the island, under where the pointer let go.
-        s.ftap(ARRANGE_MIDDLE)
-        s.wait(4)
-        s.ftap(a["reset_zone"])
+        # The head went with the island, under where the pointer let go.
+        s.ftap(tag)
+        s.wait(6)
+        s.ftap(a["dock_reset"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
@@ -5953,8 +5966,8 @@ def dock_made(s):
     s.wait(8)
 
 
-# The new dock's tag, over its top-left, and its row's controls in Library > Docks.
-DOCK_ONE_TAG, DOCK_ROW_DELETE = (848, 386), At("Delete Dock 1", 751, 260)
+# The new dock's head, over its top-left.
+DOCK_ONE_TAG = (848, 386)
 # A dock's ⋯ and its menu's More lines.
 DOCK_ONE_MORE, DOCK_MORE_LINES = At("user dock 1/More", 800, 440), At("More lines", 900, 440)
 
@@ -5973,7 +5986,7 @@ def dock_carried_to_the_left_edge():
 
 @scenario
 def dock_lines_then_delete():
-    """A dock's ⋯ opens its menu, whose More lines stands its buttons in two lines; its row in Library > Docks has Delete, which takes it away with a note."""
+    """A dock's ⋯ opens its menu, whose More lines stands its buttons in two lines; a tap on its head opens the menu too, whose Delete dock takes it away with a note."""
     def run(delete):
         s = Script()
         dock_made(s)
@@ -5985,10 +5998,61 @@ def dock_lines_then_delete():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:0"), "dock_looks": lambda v: ",dock1:2:" in v, "bar_pop": is_text("dock_menu"), "dabs": near(0)})
         s.press("escape")
         s.wait(4)
-        s.ftap(DOCK_ROW_DELETE)
+        s.ftap(At("arrange tag Dock_1/Dock 1", 848, 386))
+        s.wait(6)
+        s.ftap(LENS_ARRANGE["dock_delete"])
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("none"), "docks_deleted": near(1), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+# The Brush bar's resize corner while editing at 1440x900, and its ⋯.
+OFFHAND_CORNER, OFFHAND_MORE = (65, 556), At("brush bar/More", 39, 440)
+
+
+@scenario
+def dock_corner_adds_lines():
+    """While editing, a finger drags the Brush bar's curved corner one line's width toward the middle: the bar stands in two lines; dragged back it is one again."""
+    def run(back):
+        s = Script()
+        s.wait(6)
+        s.fdrag(line(OFFHAND_CORNER, (OFFHAND_CORNER[0] + 60, OFFHAND_CORNER[1]), 12))
+        s.wait(6)
+        if not back:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_looks": lambda v: v.startswith("offhand:2:"), "dock_resizes": near(1), "dabs": near(0)})
+        # Two lines wide and a row shorter, the bar's corner stands further out and higher.
+        s.fdrag(line((113, 528), (53, 528), 12))
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_looks": lambda v: v.startswith("offhand:1:"), "dock_resizes": near(2), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def dock_more_held_starts_editing():
+    """A long press on the Brush bar's ⋯ starts editing docks, with no menu left open; a tap on it opens its menu, which ends with Edit docks."""
+    def run(hold):
+        s = Script()
+        s.wait(6)
+        s.ftap(OFFHAND_MORE, hold=50 if hold else 2)
+        s.wait(8)
+        if hold:
+            return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
+        s.ftap(At("dock menu/Edit docks", 200, 600))
+        s.wait(8)
+        return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def dock_floats_in_line_with_its_neighbour():
+    """The mouse carries a new dock's head to float with its top a few points off the Brush bar's: it lets go lined up with it."""
+    s = Script()
+    dock_made(s)
+    s.ftap(LIBRARY_AWAY)
+    s.wait(6)
+    s.mouse_drag(line(DOCK_ONE_TAG, (500, 342), 30))
+    s.wait(6)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_aligns": near(1), "dock_places": lambda v: ",dock1:float:" in v, "dabs": near(0)})
 
 
 @scenario
@@ -6452,7 +6516,7 @@ def store_set(s):
 
 
 def open_sets(s):
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(12)
 
 
@@ -6899,7 +6963,7 @@ SPHERES3 = [(477, 397), (647, 437), (853, 485)]
 
 
 def scene_tab(s):
-    """With scene_args, shows the tray's Scene palette on Objects at the stack's top."""
+    """With scene_args, shows the tray's Scene card on Objects at the stack's top."""
     palettes_section(s)
 
 
@@ -8046,7 +8110,7 @@ def import_runs_as_a_long_job():
 
 @scenario
 def import_nests_the_files_folders():
-    """A glTF whose meshes sit two nodes deep comes in as one folder named after the file, holding a folder for each node, nested as the file nests them; the Scene palette shows them indented."""
+    """A glTF whose meshes sit two nodes deep comes in as one folder named after the file, holding a folder for each node, nested as the file nests them; the Scene card shows them indented."""
     s = Script()
     s.add(f"drop:{os.path.join(ROOT, 'src', 'app', 'testdata', 'import', 'rig.gltf')}")
     s.wait(40)
@@ -8416,7 +8480,7 @@ def keys_come_back_from_settings():
 
 @scenario
 def status_chip_tap_and_long_press():
-    """A long press on the chip bar's object chip shows the Scene palette's objects; a tap on it opens the object menu."""
+    """A long press on the chip bar's object chip shows the Scene card's objects; a tap on it opens the object menu."""
     s = Script()
     long_press(s, STATUS_CHIP)
     s.wait(6)
@@ -8572,6 +8636,44 @@ def single_tap_dab_lands_after_the_gap():
     s.ftap(MODEL)
     s.wait(24)
     return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
+
+
+@scenario
+def rest_when_idle_wakes_for_a_tap():
+    """Rest when idle (Settings > System), as a tablet's battery wants it: once nothing
+    has changed for a second the frames rest, taking no image and waking no GPU
+    (idle_skipped, cmds_dropped), and a finger tapping the model wakes the loop at once
+    and lays its dab. The frame rate is held to 15 a second, so the second of quiet is 15
+    frames and the rests after it, a tenth of a second each, cost the run little."""
+    s = Script()
+    s.wait(60)
+    s.ftap(MODEL)
+    s.wait(24)
+    return s, ["--idle-sleep", "--frame-limit=15"], camera_still({"dabs": lambda v: int(v) >= 1, "undo_steps": near(1),
+                                                                 "idle_rests": lambda v: int(v) > 0, "idle_skipped": lambda v: int(v) > 0,
+                                                                 "cmds_dropped": lambda v: int(v) > 0})
+
+
+@scenario
+def background_hold_keeps_a_dropped_file():
+    """Sent to the background (as a tablet's system does; bg and fg stand in for its events)
+    the frame loop holds: frames are held, not drawn, until the app comes back, and a file
+    handed over meanwhile (the iPad's Open in Sculpt arrives as a drop before the
+    foreground event) waits, queued, for the first frame back and imports then: the quad
+    cube takes the starting sphere's place."""
+    path = os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".obj")
+    with open(path, "w") as f:
+        f.write("v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n"
+                "f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n")
+    s = Script()
+    s.wait(4)
+    s.add("bg")
+    s.wait(3)
+    s.add(f"drop:{path}")
+    s.wait(3)
+    s.add("fg")
+    s.wait(20)
+    return s, [], camera_still({"background_frames": lambda v: int(v) >= 2, "objects": near(1), "undo_steps": near(2)})
 
 
 # The middle and right spheres of THREE on screen; the left one starts selected.
@@ -10397,6 +10499,87 @@ def autosave_crash_then_recover():
     ])
 
 
+def background_args(*more):
+    """Autosave with an interval far past the run, so only going to the background writes
+    one, and the log kept in the scenario's folder (made first: the log opens before the
+    autosave makes it) to say in what order things happened."""
+    os.makedirs(autosave_folder(), exist_ok=True)
+    return ["--autosave=600", "--autosave-rest=0.2", "--check-autosave", f"--autosave-folder={autosave_folder()}",
+            f"--log-file={crash_log_file()}", *more]
+
+
+def log_order(*texts):
+    """True when the scenario's log holds each text, in this order, else which is missing."""
+    with open(crash_log_file(), encoding="utf-8", errors="replace") as f:
+        log = f.read()
+    at = 0
+    for text in texts:
+        at = log.find(text, at)
+        if at < 0:
+            return f"no {text!r} after the earlier lines in {crash_log_file()}"
+    return True
+
+
+@scenario
+def background_autosaves_before_coming_back():
+    """Sent to the background (bg, as a tablet's system does) two frames after a stroke, long
+    before the interval, the app hands the scene to its autosave as the event arrives
+    (lifecycle_watch, as SDL sends it on a tablet), and the autosave is written while the loop
+    holds, before any fg: the run is killed there (--crash-after-autosave stands for the
+    system ending a backgrounded app) and its log never says it came back. The next start
+    recovers the stroke exactly: the mesh exported after Recover is the one a run that never
+    left exports."""
+    control = autosave_folder() + "-control.ply"
+    recovered = autosave_folder() + "-recovered.ply"
+    away = Script()
+    away.mouse_drag([(800, 450), (830, 465), (860, 480)])
+    away.wait(2)
+    away.add("bg")
+    away.wait(40)
+    away.add("fg")
+    away.wait(5)
+    after = Script()
+    after.wait(10)
+    click(after, CARD["recover"])
+    return Steps([
+        (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
+        (away, background_args("--crash-after-autosave"), {
+            "@one autosave": lambda _: len(autosave_files()) == 1,
+            "@written in the background": lambda _: log_order("lifecycle: background", "autosave: ", "--crash-after-autosave"),
+            "@never back": lambda _: not file_holds(crash_log_file(), "lifecycle: foreground") or "the run came back before the autosave"}),
+        (after, autosave_args(f"--export={recovered}"), {"recovered": near(1, 0), "recover_offers": near(0, 0),
+                                                         "@same mesh": lambda _: file_difference(control, recovered)}),
+    ])
+
+
+@scenario
+def background_mid_stroke_ends_the_stroke():
+    """Sent to the background with the button still down in a stroke, the stroke ends there as
+    its undo step and the autosave written in the background holds it; back in the
+    foreground the held button is forgotten (its release never came while away), so moving
+    on draws nothing more, and the clean exit has nothing left to write."""
+    s = Script()
+    s.add("move:800,450")
+    s.wait(1)
+    s.add("down")
+    for x, y in [(815, 457), (830, 465), (845, 472)]:
+        s.wait(1)
+        s.add(f"move:{x},{y}")
+    s.wait(1)
+    s.add("bg")
+    s.wait(12)
+    s.add("fg")
+    s.wait(2)
+    s.add("move:900,500")
+    s.wait(2)
+    s.add("up")
+    s.wait(6)
+    return s, background_args(), camera_still({
+        "undo_steps": near(1), "autosaves": near(1), "autosave_torn": near(0, 0), "background_frames": lambda v: int(v) >= 2,
+        "@one autosave": lambda _: len(autosave_files()) == 1,
+        "@written in the background": lambda _: log_order("lifecycle: background", "autosave: ", "lifecycle: foreground")})
+
+
 @scenario
 def autosave_crash_then_discard():
     """Discard deletes the crashed run's autosave, and nothing is offered again."""
@@ -11474,35 +11657,33 @@ ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
 ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
 @scenario
 def stack_as_icons_opens_a_palette():
-    """Search's "palettes as icons" shows the docked palettes as the strip without any panes: the pen taps the Brush icon and its card opens over the view; Escape puts it away."""
+    """With panes beside the main view the docked palettes are the strip: the pen taps the Brush icon and its card opens over the view; Escape puts it away."""
     def run(close):
         s = Script()
         s.wait(4)
-        palette_run(s, "palettes as icons")
         s.add("pnear")
         s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
         s.wait(2)
         s.add("pup")
         s.wait(8)
         if not close:
-            return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
         s.press("Escape")
         s.wait(6)
-        return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("none"), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_tab": is_text("none"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
 @scenario
 def stack_icons_show_where_opens_the_card():
-    """With the palettes as icons, Search's Shift+Enter on Blur mask opens the Mask section's card from its icon and marks the Blur button."""
+    """With panes beside the main view, Search's Shift+Enter on Blur mask opens the Mask section's card from its icon and marks the Blur button."""
     s = Script()
     s.wait(4)
-    palette_run(s, "palettes as icons")
     s.press("k", ("ctrl",))
     s.type("blur mask")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, LENS_1440, camera_still({"stack_tab": is_text("Mask"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_tab": is_text("Mask"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(0), "dabs": near(0)})
 
 
 # Palette groups at 1440x900 (stack_groups.odin), with Brush folded: Symmetry's and
@@ -11558,16 +11739,17 @@ def stack_take_out_of_a_group():
 
 @scenario
 def stack_group_as_icons_opens_on_its_tab():
-    """With Symmetry joined to Brush and the palettes as icons, the pen taps the group's icon: the group opens over the view on its Symmetry tab."""
+    """With Symmetry joined to Brush, panes beside the main view make the stack the strip: the pen taps the group's icon and the group opens over the view on its Symmetry tab."""
     s = Script()
     stack_group_join(s)
-    palette_run(s, "palettes as icons")
+    palette_run(s, "one plus two")
+    s.wait(6)
     s.add("pnear")
     s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
     s.wait(2)
     s.add("pup")
     s.wait(8)
-    return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
 
 
 @scenario
@@ -11696,7 +11878,7 @@ def stack_tab_carried_left_handed_by_pen():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "dabs": near(0)})
 
 
-# The strip of icons at 1440x900 (the palettes as icons, or panes beside the main view):
+# The strip of icons at 1440x900 (panes beside the main view):
 # each docked card's icon, 50 points apart from Brush's.
 STACK_ICONS = {c: (1348, 95 + 50 * i) for i, c in enumerate(["Brush", "Symmetry", "Layers", "Scene", "Tools"])}
 
@@ -11714,12 +11896,11 @@ def stack_icon_carry(s, frm, to, rest, mouse=False):
 
 @scenario
 def stack_icon_rested_on_another_joins_it():
-    """With the palettes as icons, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
+    """With panes beside the main view, Layers' icon carried onto Brush's and rested there till the ring fills joins Brush's group; by finger and by mouse."""
     def run(mouse):
         s = Script()
-        palette_run(s, "palettes as icons")
         stack_icon_carry(s, "Layers", "Brush", 40, mouse)
-        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_density": is_text("icons"), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,&Layers,Symmetry"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -11727,25 +11908,23 @@ def stack_icon_rested_on_another_joins_it():
 def stack_icon_resting_fills_the_ring():
     """Layers' icon resting on Brush's, still held, shows the ring filling and the hint to hold; nothing has changed yet."""
     s = Script()
-    palette_run(s, "palettes as icons")
     a, b = STACK_ICONS["Layers"], STACK_ICONS["Brush"]
     s.fdrag([a] * LONG_PRESS_FRAMES + line(a, b, 8) + [b] * 16, lift=False)
     s.wait(2)
-    return s, LENS_1440, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_carry": is_text("Layers"), "stack_target": is_text("Line"), "stack_drops": near(0), "dabs": near(0)})
 
 
 @scenario
 def stack_icon_let_go_early_reorders():
     """Layers' icon let go over Brush's before the ring fills moves Layers to the top of the strip instead; passing over an icon never joins it."""
     s = Script()
-    palette_run(s, "palettes as icons")
     stack_icon_carry(s, "Layers", "Brush", 3)
-    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Layers,Brush+,Symmetry"), "stack_joins": near(0), "stack_drops": near(1), "dabs": near(0)})
 
 
 @scenario
 def stack_icon_carried_with_panes():
-    """With panes beside the main view (the palettes as panels), the strip reorders the same way: Scene's icon let go over Symmetry's goes there."""
+    """With panes beside the main view the strip reorders: Scene's icon let go over Symmetry's goes there."""
     s = Script()
     stack_icon_carry(s, "Scene", "Symmetry", 3)
     return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: v.startswith("Brush+,Scene,Symmetry,Layers"), "stack_drops": near(1), "stack_strip": near(1), "dabs": near(0)})
@@ -11753,81 +11932,29 @@ def stack_icon_carried_with_panes():
 
 @scenario
 def stack_icon_carried_clear_floats():
-    """Shown as icons, as panels, then as icons again (the cards' places left behind), Layers' icon carried well clear of the strip floats its card there."""
+    """With panes beside the main view, Layers' icon carried well clear of the strip floats its card there."""
     s = Script()
-    palette_run(s, "palettes as icons")
-    palette_run(s, "palettes as icons")
-    palette_run(s, "palettes as icons")
     stack_icon_carry(s, "Layers", (400, 400), 3)
-    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_density": is_text("icons"), "stack_drops": near(1), "dabs": near(0)})
-
-
-# Columns at 1440x900 (5b-2), Brush folded: just left of Brush's card (beside it, over the
-# view), and once Symmetry stands as its second column the divider between the columns.
-STACK_BESIDE = {"brush_left": (1000, 94), "divider": (1057, 400)}
-
-
-def stack_beside_drop(s, grip=None, to=None):
-    """Folds Brush and carries Symmetry's grip (or `grip`) to just left of Brush's card."""
-    s.ftap(LENS_STACK["brush"])
-    s.wait(6)
-    grip, to = grip or STACK_CARRY["symmetry_grip"], to or STACK_BESIDE["brush_left"]
-    s.fdrag(line(grip, to, 8) + [to] * 3)
-    s.wait(10)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_strip": near(1), "stack_drops": near(1), "dabs": near(0)})
 
 
 @scenario
-def stack_grip_dropped_beside_makes_two_columns():
-    """Symmetry's grip let go just beyond Brush's view side makes it Brush's second column: the stack widens by its width toward the view."""
-    s = Script()
-    stack_beside_drop(s)
-    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,Layers"), "stack_columns": is_text("Brush=Symmetry:312"),
-                                       "tray_width": near(312 + 312 + 12), "stack_drops": near(1), "dabs": near(0)})
-
-
-@scenario
-def stack_column_divider_sets_the_width():
-    """The divider between a group's columns dragged 40 points toward the view makes column two 352 wide; a double tap puts 312 back."""
-    def run(reset):
+def stack_group_shows_as_sections():
+    """With Symmetry joined to Brush, the group's More > Show as sections stands both cards one under another; More > Collapse all folds every section to its header."""
+    def run(collapse):
         s = Script()
-        stack_beside_drop(s)
-        d = STACK_BESIDE["divider"]
-        s.fdrag(line(d, (d[0] - 40, d[1]), 4) + [(d[0] - 40, d[1])] * 2)
-        s.wait(6)
-        if not reset:
-            return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:352"), "stack_resizes": near(1), "dabs": near(0)})
-        # Column two grows toward the view, so the divider stays where it was.
-        s.ftap(d, gap=2)
-        s.ftap(d)
-        s.wait(6)
-        return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:312"), "stack_resizes": near(2), "dabs": near(0)})
+        stack_group_join(s)
+        def tap(at):
+            s.ftap(at)
+            s.wait(8)
+        tap(At("stack Brush/Panel options", 1348, 94))
+        tap(At("stack menu/Show as sections", 1300, 500))
+        if not collapse:
+            return s, LENS_1440, camera_still({"stack_sections": is_text("Brush"), "stack": lambda v: v.startswith("Brush+,&Symmetry"), "dabs": near(0)})
+        tap(At("stack Brush/Panel options", 1348, 94))
+        tap(At("stack menu/Collapse all", 1300, 560))
+        return s, LENS_1440, camera_still({"stack_sections": is_text("Brush:Brush-:Symmetry-"), "stack_section_folds": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
-
-
-@scenario
-def stack_beside_without_room_goes_below():
-    """In a window 1100 wide a second column would leave too little view: Layers let go beside Brush goes below Brush instead, as the hint says."""
-    s = Script()
-    s.wait(4)
-    s.ftap(1010, 92)
-    s.wait(10)
-    s.ftap(840, 94)
-    s.wait(6)
-    s.fdrag(line((735, 214), (682, 94), 8) + [(682, 94)] * 3)
-    s.wait(10)
-    return s, ["--width=1100", "--height=900"], camera_still({"stack": lambda v: v.startswith("Brush,Layers,Symmetry"), "stack_columns": is_text("none"), "stack_drops": near(1), "dabs": near(0)})
-
-
-@scenario
-def stack_beside_left_handed_grows_right():
-    """Left-handed, the stack stands on the left: Symmetry let go just right of Brush's card is its second column, on the view's side."""
-    s = Script()
-    s.ftap(LENS_STACK["brush"][0] - 994, LENS_STACK["brush"][1])
-    s.wait(6)
-    grip, to = (STACK_CARRY["symmetry_grip"][0] - 994, STACK_CARRY["symmetry_grip"][1]), (420, 94)
-    s.fdrag(line(grip, to, 8) + [to] * 3)
-    s.wait(10)
-    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,"), "stack_columns": is_text("Brush=Symmetry:312"), "dabs": near(0)})
 
 
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
@@ -13330,7 +13457,7 @@ def remesh_quick_menu_density_shows_the_cells():
     more.ftap(REMESH_QUICK["more"])
     more.wait(8)
     return Steps([
-        (more, [], camera_still({"bar_pop": is_text("remesh"), "undo_steps": near(0)})),
+        (more, [], camera_still({"bar_pop": is_text("none"), "card_pop": is_text("remesh"), "undo_steps": near(0)})),
         (held, [], camera_still({"rebuild_preview": near(1), "rebuild_cell": lambda v: float(v) > 0, "undo_steps": near(0), "dabs": near(0)})),
     ])
 
@@ -14142,9 +14269,9 @@ def search_opens_a_section_as_its_own_card():
     """Search's Polypaint then Selection sets: each opens as the visiting card at the stack's
     foot, Selection sets taking Polypaint's place."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(6)
     return s, [], camera_still({"palette_last": is_text("Show_Section:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
                                 "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+"), "dabs": near(0)})
@@ -14173,13 +14300,13 @@ def a_pinned_visit_stays_in_the_stack():
     """Polypaint opened by Search, pinned from its More, stays in the stack when Selection
     sets opens after it."""
     s = Script()
-    palette_run(s, "object polypaint")
+    palette_run(s, "polypaint card")
     s.wait(6)
     s.ftap(VISIT_MORE)
     s.wait(8)
     s.ftap(VISIT_PIN)
     s.wait(8)
-    palette_run(s, "object selection sets")
+    palette_run(s, "selection sets card")
     s.wait(6)
     return s, [], camera_still({"stack_visit": is_text("Sets"), "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Paint+,Sets+"), "dabs": near(0)})
 

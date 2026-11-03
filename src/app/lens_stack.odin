@@ -14,17 +14,15 @@ import "../ui"
 // has the mockups' header: a grip that drags it up or down the stack (or out, to float),
 // a chevron that folds it to its header and a line saying what it holds, its icon and
 // title, Float (or Dock) and its options. The Brush card shows the brush's card, Radius and
-// Strength always, then the Brush palette's sections as groups that fold, each saying how
+// Strength always, then the Brush card's sections as groups that fold, each saying how
 // it is set while folded, in place of the tray's list beside one section. The stack is
 // the tray's panel (Kit_Window.Inspector), so it docks, floats and opens wherever the tray
 // does.
 
-// Every panel the stack holds (round 3, PR 9): its cards, then a palette for each tray
-// section, in Kit_Section's order, which draws exactly what the tray drew under that
-// section. Layers, Material and Lights have a card and their full section beside it
-// (Layer_Settings, Material_Settings, Light_Settings); the Environment section is its
-// card. Cases are appended, never reordered: files name them by panel_word, never by
-// number, but the exit stats and tests name them too.
+// Every card the stack holds: the cards of their own, then one card for each section, in
+// Kit_Section's order. A section that is a card's twin (Layers, Material, Lights,
+// Environment, and Objects and Add object, the Scene card's) has no card of its own: it
+// opens its card (panel_of_section). Files name them by panel_word, never by number.
 Panel_Kind :: enum u8 {
 	Brush,
 	Symmetry,
@@ -35,7 +33,7 @@ Panel_Kind :: enum u8 {
 	Lights,
 	Material,
 	Environment,
-	// The Brush palette's sections.
+	// The Brush card's sections.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -57,7 +55,6 @@ Panel_Kind :: enum u8 {
 	Paint,
 	Groups,
 	Morph,
-	Layer_Settings,
 	Deform,
 	Deformers,
 	Remesh,
@@ -68,12 +65,8 @@ Panel_Kind :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The Scene palette's.
-	Objects,
-	Add,
+	// The Scene card's.
 	Look,
-	Material_Settings,
-	Light_Settings,
 	Render,
 	Lens,
 	Finish,
@@ -169,10 +162,7 @@ Lens_Stack :: struct {
 	tab_open:  bool,
 	tab_at:    ui.Rect,
 	tabs:      int,
-	// How the docked stack shows (the layout's): its cards, or the strip of their icons
-	// beside the rail, each opening its card over the view (lens_panes.odin); and where
-	// each icon was laid out, for Show where to open its card from.
-	density:  Stack_Density,
+	// Where each icon of the strip was laid out, for Show where to open its card from.
 	strip_at: [Panel_Kind]ui.Rect,
 	// Palette groups (stack_groups.odin): the cards that are tabs of the card before them
 	// (never the first), the tab each group's host shows, and for the exit stats, how many
@@ -180,12 +170,13 @@ Lens_Stack :: struct {
 	joined: bit_set[Panel_Kind],
 	shown:  [Panel_Kind]Panel_Kind,
 	joins:  int,
-	// Columns (stack_groups.odin): the tabs that begin their group's second column, each
-	// host's second column width (0 for the usual) and the floating groups whose second
-	// column stands on their left.
-	beside:      bit_set[Panel_Kind],
-	beside_w:    [Panel_Kind]f32,
-	beside_left: bit_set[Panel_Kind],
+	// Groups shown as sections (stack_groups.odin), by their hosts: every card one under
+	// another with a slim header of its own, in place of the tabs; the cards folded to that
+	// header; and for the exit stats, how many folds and Expand all or Collapse all there
+	// were.
+	sections:      bit_set[Panel_Kind],
+	folded:        bit_set[Panel_Kind],
+	section_folds: int,
 	// Drop targets (stack_carry.odin), this frame's only: the cards laid out, each one's
 	// rect as the panel shows it (clipped where the column scrolls), its header, its tab
 	// row and each tab; the target under a carry and, for the exit stats, the drops that
@@ -219,13 +210,6 @@ Lens_Stack :: struct {
 	set:     bool,
 }
 
-// The docked stack's density, as round 3's docks have it: Panels (the cards, open or
-// folded, down the column) or Icons (the strip, whatever panes there are).
-Stack_Density :: enum u8 {
-	Panels,
-	Icons,
-}
-
 // Puts the stack as a fresh layout has it.
 stack_default :: proc(k: ^Kit_State) {
 	s := &k.stack
@@ -234,8 +218,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.windows = {}
 	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
-	s.density, s.strip_at = .Panels, {}
-	s.joined, s.beside, s.beside_left, s.beside_w = {}, {}, {}, {}
+	s.strip_at, s.joined, s.sections, s.folded = {}, {}, {}, {}
 	for c in Panel_Kind do s.shown[c] = c
 	s.visit, s.revealed = nil, nil
 	s.place = .Right
@@ -359,6 +342,7 @@ stack_reveal_card :: proc(app: ^App, c: Panel_Kind) {
 	s.open += {host}
 	for x in stack_group(s, host) do s.hidden -= {x}
 	stack_show_tab(s, c)
+	s.folded -= {c}
 	k.panels.scroll, k.scroll = 0, 0
 	// Shown as icons, the card opens from its icon, so what is asked for is in sight.
 	if stack_strip_shown(app) && host not_in s.floated {
@@ -367,64 +351,18 @@ stack_reveal_card :: proc(app: ^App, c: Panel_Kind) {
 	if host not_in s.floated do stack_pop_open(app)
 }
 
-// The layout's density line, `stack_density icons`, only when it is not Panels.
-stack_density_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
-	if k.stack.density == .Icons do strings.write_string(out, "stack_density icons\n")
-}
-
-// Reads a `stack_density panels|icons` line; another word leaves Panels.
-stack_density_read :: proc(k: ^Kit_State, f: []string) {
-	if len(f) != 2 do return
-	if !k.stack.set do stack_default(k)
-	if f[1] == "icons" do k.stack.density = .Icons
-}
-
-// Shows the docked stack as its cards or as the strip of their icons.
-stack_density_set :: proc(app: ^App, d: Stack_Density) {
-	s := &app.kit.stack
-	if !s.set do stack_default(&app.kit)
-	if s.density == d do return
-	s.density = d
-	s.tab_open = false
-}
-
 // The stack's docked cards in order, `width` wide, where the tray's panel is (kit_inspector
 // calls it in Lens inside the panel's body, `owner`); the floating ones come later.
 kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	k := &app.kit
-	ctx := &k.ctx
 	s := &k.stack
 	if !s.set do stack_default(k)
 	stack_visit_settle(s)
 	s.owner = owner
-	// While a group shows two columns the stack is wider by its second column; the other
-	// cards keep the stack's width against the edge it is docked on.
-	base := width - stack_docked_extra(k)
-	right := stack_docked_right(k)
 	for c in s.order {
 		if c in s.floated || c in s.hidden || c in s.joined do continue
-		w := base + stack_group_extra(k, c)
-		if w >= width {
-			stack_card(app, c, width, false)
-			continue
-		}
-		ui.begin(ctx, fmt.tprintf("stack row %v", c), {direction = .Row, width = width})
-		if right do ui.spacer(ctx, width - w)
-		stack_card(app, c, w, false)
-		ui.end(ctx)
+		stack_card(app, c, width, false)
 	}
-}
-
-// How much wider than its width the docked stack stands: the widest second column of an
-// open docked group, or nothing (and nothing while it shows as the strip).
-stack_docked_extra :: proc(k: ^Kit_State) -> f32 {
-	s := &k.stack
-	extra: f32 = 0
-	for c in s.order {
-		if c in s.floated || c in s.hidden || c in s.joined do continue
-		extra = max(extra, stack_group_extra(k, c))
-	}
-	return extra
 }
 
 // Floating card `c`, where it was put, if it floats now: a card of its own over the view,
@@ -436,11 +374,19 @@ stack_float_card :: proc(app: ^App, c: Panel_Kind) -> (raised: bool) {
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.stack
-	if !k.inspector || side_panel_open(k) do return
+	// A card popped out of a dock's button shows while the stack is put away too.
+	if !k.inspector && !card_popped(k, c) || side_panel_open(k) do return
 	if c not_in s.floated || c in s.hidden do return
 	name := fmt.tprintf("stack card %v", c)
+	// A card just popped out of a button goes beside it again by the size it laid out at.
+	if card_popped(k, c) && k.card_pop.place {
+		if r := ui.prev_rect(ctx, name); r.h > 0 {
+			card_pop_place(app, {r.w, r.h})
+			k.card_pop.place = false
+		}
+	}
 	w := &s.windows[c]
-	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k) + stack_group_extra(k, c)
+	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
 	pressed, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
 	stack_card(app, c, width - 20, true)
 	ui.window_end(ctx)
@@ -497,9 +443,8 @@ stack_card :: proc(app: ^App, c: Panel_Kind, width: f32, floating: bool) {
 	}
 	outer := width - (0 if floating else 2 * EDGE)
 	inner := outer - (0 if floating else 2 * PAD)
-	_, two := stack_beside_of(s, c)
-	if c in s.open && two do stack_columns_tabs(app, c, outer)
-	else if c in s.open do stack_tab_row(app, c, outer)
+	as_sections := stack_as_sections(s, c)
+	if c in s.open && !as_sections do stack_tab_row(app, c, outer)
 	if c in s.open {
 		pad: f32 = 0 if floating else PAD
 		ui.begin(ctx, "stack body", {direction = .Column, gap = 6, padding = pad, width = outer})
@@ -511,7 +456,7 @@ stack_card :: proc(app: ^App, c: Panel_Kind, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		if two do stack_columns_bodies(app, c, inner)
+		if as_sections do stack_sections_body(app, c, inner)
 		else do panel_body(app, stack_shown(s, c), inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
@@ -563,11 +508,13 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 	t := ctx.theme
 	s := &k.stack
 	open := c in s.open
-	// A group's header is its shown tab's: its icon, title and line, and Symmetry's axes.
-	v := stack_shown(s, c)
+	// A group's header is its shown tab's: its icon, title and line, and Symmetry's axes;
+	// a group of sections keeps its host's.
+	v := c if stack_as_sections(s, c) else stack_shown(s, c)
 	ui.begin(ctx, "stack head", {direction = .Row, width = inner, center = true})
 	CHIP :: 26
-	extras: f32 = 2 * t.target
+	popped := floating && card_popped(k, c)
+	extras: f32 = (3 if popped else 2) * t.target
 	if v == .Symmetry do extras += 3 * CHIP + 4
 	if !floating {
 		g := ui.area(ctx, "stack grip", {18, t.target})
@@ -584,10 +531,12 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 	x += 22
 	ui.icon(ctx, panel_kind_icon(app, v), {x, y}, t.icon_small, t.text_secondary)
 	x += 16
-	title := stack_title(app, v)
+	// A group of sections is named by all its cards, its sections saying the rest.
+	title := stack_sections_title(app, c) if stack_as_sections(s, c) else stack_title(app, v)
+	title = ui.text_fit(ctx, title, t.text_size, head.rect.x + head.rect.w - x - 6, .Semibold)
 	ui.text(ctx, title, x, y, t.text_size, t.text, .Semibold)
 	x += ui.text_width(ctx, title, t.text_size, .Semibold) + 10
-	if line := stack_summary(app, v) if !open else stack_open_line(app, v); line != "" && head.rect.x + head.rect.w - x > 24 {
+	if line := stack_summary(app, v) if !open else stack_open_line(app, v); !stack_as_sections(s, c) && line != "" && head.rect.x + head.rect.w - x > 24 {
 		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, head.rect.x + head.rect.w - x - 6), head.rect.x + head.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 	}
 	if head.clicked {
@@ -611,7 +560,12 @@ stack_head :: proc(app: ^App, c: Panel_Kind, inner: f32, floating: bool) {
 		}
 		ui.spacer(ctx, 4)
 	}
-	if ui.icon_button(ctx, "Dock in the stack" if floating else "Float", ui.ICON_RESTORE if floating else ui.ICON_PANEL) {
+	// Popped out of a button (card_pop.odin): Keep open leaves it floating, Close puts it
+	// back as it was.
+	if popped {
+		if ui.icon_button(ctx, "Keep open", ICON_PIN) do card_pop_keep(app)
+		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do card_pop_close(app)
+	} else if ui.icon_button(ctx, "Dock in the stack" if floating else "Float", ui.ICON_RESTORE if floating else ui.ICON_PANEL) {
 		if floating do stack_dock(app, c)
 		else do stack_float(app, c)
 	}
@@ -902,10 +856,22 @@ kit_stack_menu :: proc(app: ^App) {
 		stack_ungroup(k, c)
 		s.menu = false
 	}
-	icons := s.density == .Icons
-	if ui.menu_item(ctx, "Show as panels" if icons else "Show as icons", glyph = ui.ICON_PANEL if icons else ui.ICON_GRID) {
-		stack_density_set(app, .Panels if icons else .Icons)
-		s.menu = false
+	// A group shows its cards as tabs, one at a time, or as sections one under another,
+	// each folding on its own.
+	if len(group) > 1 {
+		sections := stack_as_sections(s, c)
+		if ui.menu_item(ctx, "Show as tabs" if sections else "Show as sections", glyph = ui.ICON_PANEL if sections else ICON_HISTORY_LIST) {
+			stack_sections_set(k, c, !sections)
+			s.menu = false
+		}
+		if sections && ui.menu_item(ctx, "Expand all", glyph = ui.ICON_CHEVRON_DOWN, enabled = group_any_folded(s, group)) {
+			stack_sections_fold(k, c, false)
+			s.menu = false
+		}
+		if sections && ui.menu_item(ctx, "Collapse all", glyph = ui.ICON_CHEVRON_RIGHT, enabled = group_any_open(s, group)) {
+			stack_sections_fold(k, c, true)
+			s.menu = false
+		}
 	}
 	if ui.menu_item(ctx, "Fold the others") {
 		s.open = {c}
@@ -919,15 +885,14 @@ kit_stack_menu :: proc(app: ^App) {
 }
 
 // The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones,
-// & before a group's tab and | before the one beginning its second column; the cards left
-// out are not named.
+// & before a group's tab; the cards left out are not named.
 stack_text :: proc(k: ^Kit_State) -> string {
 	s := &k.stack
 	b := strings.builder_make(context.temp_allocator)
 	for c in s.order {
 		if c in s.hidden do continue
 		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')
-		mark := "|" if c in s.beside else ("&" if c in s.joined else "")
+		mark := "&" if c in s.joined else ""
 		fmt.sbprintf(&b, "%s%v%s%s", mark, c, "+" if c in s.open else "", "^" if c in s.floated else "")
 	}
 	return strings.to_string(b)
@@ -1012,9 +977,10 @@ palette_on_screen :: proc(app: ^App, p: Panel_Kind) -> bool {
 	s := &k.stack
 	if !s.set || !k.inspector || side_panel_open(k) || p in s.hidden do return false
 	host := stack_host(s, p)
-	if stack_shown(s, host) != p {
-		b, two := stack_beside_of(s, host)
-		if !two || stack_shown(s, b) != p do return false
+	if stack_as_sections(s, host) {
+		if p in s.folded do return false
+	} else if stack_shown(s, host) != p {
+		return false
 	}
 	if host in s.floated do return true
 	if stack_strip_shown(app) do return s.tab_open && s.tab == host
@@ -1030,4 +996,16 @@ stack_visit_text :: proc(k: ^Kit_State) -> string {
 // Whether section palette `p` is kept in the stack: in it, and not merely visiting.
 stack_kept :: proc(s: ^Lens_Stack, p: Panel_Kind) -> bool {
 	return p not_in s.hidden && !stack_visiting(s, p)
+}
+
+@(private = "file")
+group_any_folded :: proc(s: ^Lens_Stack, group: []Panel_Kind) -> bool {
+	for x in group do if x in s.folded do return true
+	return false
+}
+
+@(private = "file")
+group_any_open :: proc(s: ^Lens_Stack, group: []Panel_Kind) -> bool {
+	for x in group do if x not_in s.folded do return true
+	return false
 }

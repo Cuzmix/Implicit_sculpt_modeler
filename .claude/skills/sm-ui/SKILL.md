@@ -144,7 +144,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   camera goes at the end so touch scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
-  card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /
+  card (`kit_objects_card.odin`, `Kit_Window.Objects`) is one: Add / Duplicate / New folder /
   More, then `ui.thumb_row` rows (a picture cell of `KIT_THUMBS_IMAGE` from `thumb_for`, the name, a switch under it,
   toggles at the right, an accent outline when selected; `drags = true` makes a mouse drag or a long press then drag
   report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. It

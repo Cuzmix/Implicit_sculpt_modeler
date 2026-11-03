@@ -50,6 +50,13 @@ Mtl_Instance :: struct {
 }
 #assert(size_of(Mtl_Instance) == 68)
 
+// Whether fragment shaders can read barycentric coordinates (gpu_barycentric_offered):
+// Apple silicon and recent Macs' GPUs.
+mtl_barycentric_offered :: proc() -> bool {
+	if mtl_state.device == nil do return false
+	return bool(MTL.Device_supportsShaderBarycentricCoordinates(mtl_state.device))
+}
+
 // Metal 3 (A14, M1 and later), whose buffers have the GPU addresses the studio's kernel reads
 // indices through, and ray tracing.
 mtl_ray_query_offered :: proc() -> bool {
@@ -143,6 +150,7 @@ mtl_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices
 	}
 	scratch := mtl_scratch(cmd, a.refit_scratch if refit else build_scratch)
 	enc := MTL.CommandBuffer_accelerationStructureCommandEncoder(cmd.cb)
+	cmd.recorded = cmd.recorded || enc != nil
 	if scratch == nil || enc == nil {
 		if !refit do mtl_accel_unref(a)
 		return nil
@@ -207,6 +215,7 @@ mtl_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_
 	}
 	scratch := mtl_scratch(cmd, NS.UInteger(sizes.buildScratchBufferSize))
 	enc := MTL.CommandBuffer_accelerationStructureCommandEncoder(cmd.cb)
+	cmd.recorded = cmd.recorded || enc != nil
 	if scratch == nil || enc == nil {
 		if a != old do mtl_accel_unref(a)
 		return nil

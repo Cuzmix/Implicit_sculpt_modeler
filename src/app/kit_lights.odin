@@ -8,7 +8,7 @@ import "core:strings"
 import "../ui"
 import "../geom"
 
-// The Lights card, the one Lights interface (the Scene palette's Lights section, the view
+// The Lights card, the one Lights interface (the Lights card, the view
 // rail and the View island's lights open it): the light sphere; each light a row with its
 // colour, name, kind, temperature and intensity and its eye, as Marmoset's and Blender's
 // light lists; Add a light of each kind and Lights follow the camera; the picked light's

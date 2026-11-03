@@ -594,7 +594,7 @@ brush_palette_grid :: proc(app: ^App, owner: ui.Id, list: []Listed_Brush, height
 		case p.searching:              empty = "No brush has that in its name."
 		case p.category == .Recent:    empty = "The brushes you pick show here, the last one first."
 		case p.category == .Favorites: empty = "Tap the heart beside the current brush to keep it here."
-		case p.category == .Presets:   empty = "Save a brush as a preset (Brush palette, Preset) to find it here."
+		case p.category == .Presets:   empty = "Save a brush as a preset (Brush card, Preset) to find it here."
 		case:                          empty = "Nothing here yet."
 		}
 		ui.paragraph(ctx, empty, width)

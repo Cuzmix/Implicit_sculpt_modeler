@@ -17,7 +17,7 @@ import "../sculpt"
 import "../ui"
 
 // Brush alphas in the app: the built-in ones and any images loaded, which way a dab's
-// image faces, and the Brush palette's Alpha section. The sculpting side is
+// image faces, and the Brush card's Alpha section. The sculpting side is
 // sculpt/alpha.odin.
 
 // Which way the image's top faces on screen.
@@ -28,6 +28,10 @@ Alpha_Mode :: enum u8 {
 	// Turned with the pen about its own length, as Procreate's barrel roll turns a brush's
 	// shape: the outline shows the image's top before the pen touches down.
 	Pen_Roll,
+	// Turned to face the way the pen leans, as Procreate's azimuth turns a brush's shape
+	// and a pencil laid on its side shades along its lean: the image's top points where
+	// the pen's top leans across the screen.
+	Pen_Lean,
 }
 
 ALPHA_MODE_NAMES := [Alpha_Mode]string {
@@ -35,6 +39,7 @@ ALPHA_MODE_NAMES := [Alpha_Mode]string {
 	.Fixed  = "Fixed",
 	.Random = "Random",
 	.Pen_Roll = "Pen roll",
+	.Pen_Lean = "Pen lean",
 }
 
 Alpha_Entry :: struct {
@@ -236,8 +241,22 @@ alpha_screen_angle :: proc(app: ^App, for_display := false) -> f32 {
 		// The roll turns clockwise as seen from the pen's top, which is the screen's
 		// clockwise; the angle counts the other way.
 		angle -= math.to_radians(app.alpha_roll)
+	case .Pen_Lean:
+		angle += app.alpha_lean
 	}
 	return angle
+}
+
+// Below this lean from upright, in degrees, the way a pen leans is a tremor of the hand
+// more than a direction, so a Pen lean alpha keeps the way it last faced.
+ALPHA_LEAN_MIN :: 5
+
+// Takes the frame's lean (degrees toward the right and the bottom of the screen) for a
+// Pen lean alpha: the angle from the screen's up, counter-clockwise, that the pen's top
+// leans toward, as alpha_screen_angle counts. A pen held about upright keeps the last one.
+alpha_lean_take :: proc(app: ^App, tilt: [2]f32) {
+	if tilt.x * tilt.x + tilt.y * tilt.y < ALPHA_LEAN_MIN * ALPHA_LEAN_MIN do return
+	app.alpha_lean = math.atan2(-tilt.x, -tilt.y)
 }
 
 // The world direction the image's top faces for a dab now: the screen direction

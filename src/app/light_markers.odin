@@ -8,7 +8,7 @@ import "../gizmo"
 import "../ui"
 import "../geom"
 
-// The lights in the viewport, while the Scene palette's Lights section shows: a marker
+// The lights in the viewport, while the Lights card shows: a marker
 // for each light, as Blender, KeyShot and Marmoset draw their lamps, the picked one
 // ringed. A point light or a spot shows where it stands, held at the view's edge when it
 // is off screen; a sun, which has only a direction, shows on a large circle round the
@@ -149,7 +149,7 @@ sun_marker :: proc(app: ^App, i: int, size: [2]f32) -> (at: [2]f32, front: bool)
 }
 
 // The part of the viewport a marker may stand in: inside its edge by the inset and
-// clear of the bars and the Scene palette round it, which would hide it, in viewport
+// clear of the bars and the Scene card round it, which would hide it, in viewport
 // points.
 light_marker_room :: proc(app: ^App, size: [2]f32) -> (lo, hi: [2]f32) {
 	inset := LIGHT_MARKER_INSET * gizmo_scale(app)

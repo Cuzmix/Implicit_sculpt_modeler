@@ -83,7 +83,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 			if s := &app.kit.stack; s.set && c in s.joined do return fmt.tprintf("Panel · %s tab of %s", panel_kind_title(app, c), stack_title(app, stack_host(s, c)))
 			return fmt.tprintf("Panel · %s card", panel_kind_title(app, c))
 		}
-		return fmt.tprintf("Panel · %s palette", palette_name(section_palette(sec)))
+		return "Panel · Brush card"
 	}
 	s := Bar_Slot{e.id, e.arg}
 	if shelf_holds_brushes(e.id) {

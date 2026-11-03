@@ -38,11 +38,17 @@ re-check the stores' pages before a first submission, because they move every ye
   means raising that line too. On desktops and Apple's platforms the app says what it needs in the system's message
   box and closes (`graphics_failed_text`).
 - Going to the background (SDL `EVENT_WILL_ENTER_BACKGROUND` / `DID_ENTER_BACKGROUND`) saves recoverable state and
-  stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene. Today
-  `DID_ENTER_BACKGROUND` starts an autosave at once (`app.autosave.background`, `src/app/autosave.odin`), and on mobile
-  every session not closed is offered back at the next start, since a kill there looks like a crash.
-- UNVERIFIED on an iPad: iOS gives a backgrounded app only seconds unless it asks for more
-  (`beginBackgroundTask`), so a big scene's autosave may be cut short there (the copy before it stays whole).
+  stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene. SDL 3.4 sends
+  these events only to an event watch, never to the queue, so they are answered in `lifecycle_watch`
+  (`src/app/idle.odin`): `DID_ENTER_BACKGROUND` saves the settings, ends a stroke and hands the scene to the autosave
+  thread before the watch returns (`autosave_background`, `src/app/autosave.odin`), as Android's SDL then blocks the
+  main thread until the resume; and on mobile every session not closed is offered back at the next start, since a
+  kill there looks like a crash. A new piece of state to save on leaving goes there, not in the queue's handling.
+- The iPad asks for background time around that autosave (`sculpt_ios_background_begin`/`_end`, `ios/sculpt_ios.m`:
+  `beginBackgroundTaskWithExpirationHandler`, ended once the autosave thread is done, on the return, or by the
+  expiration handler). UNVERIFIED on a real iPad and a real Android tablet (scripted `bg`/`fg` cover the desktop
+  only): that a big scene's autosave finishes within iOS's background time, and that Android's cached-app freezer
+  leaves the autosave thread running long enough; if not, the write stops and the copy before it stays whole.
   `SDL_GetPrefPath` on iOS is backed up to iCloud, so the `autosave` folder is marked `NSURLIsExcludedFromBackupKey`
   when it is made (`sculpt_ios_exclude_from_backup`, `ios/sculpt_ios.m`); any other folder of copies the app can
   make again gets the same.

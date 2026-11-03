@@ -66,17 +66,17 @@ stack_groups_read_back :: proc(t: ^testing.T) {
 	stack_join(&a, .Layers)
 	stack_show_tab(&a.stack, .Symmetry)
 	text := kit_layout_text(&a)
-	testing.expect(t, strings.contains(text, "stack_group card:Brush *card:Symmetry card:Layers\n"), text)
+	testing.expect(t, strings.contains(text, "stack_group tabs card:Brush *card:Symmetry card:Layers\n"), text)
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, stack_text(&b), stack_text(&a))
 	testing.expect_value(t, stack_shown(&b.stack, .Brush), Panel_Kind.Symmetry)
 	// The group line may come first: it is read once the stack's order is in place. A
 	// section's palette is a tab like a card, and comes into the stack with its group.
-	kit_layout_put(&b, "stack_group card:Tools card:Unknown section:Stroke card:Brush\nstack Brush+ Symmetry Layers Scene Tools\n")
+	kit_layout_put(&b, "stack_group tabs card:Tools card:Unknown section:Stroke card:Brush\nstack Brush+ Symmetry Layers Scene Tools\n")
 	testing.expect_value(t, stack_text(&b), "Symmetry,Layers,Scene,Tools,&Stroke,&Brush")
 	// A tab is left out with its group.
-	kit_layout_put(&b, "stack Brush+ Symmetry -Layers Scene Tools\nstack_group card:Layers card:Scene\n")
+	kit_layout_put(&b, "stack Brush+ Symmetry -Layers Scene Tools\nstack_group tabs card:Layers card:Scene\n")
 	testing.expect_value(t, stack_text(&b), "Brush+,Symmetry,Tools")
 	free_all(context.temp_allocator)
 }
@@ -98,5 +98,39 @@ stack_reveal_opens_a_group_on_its_tab :: proc(t: ^testing.T) {
 	testing.expect(t, .Symmetry in k.stack.open)
 	testing.expect(t, k.stack.hidden & {.Symmetry, .Layers} == {})
 	testing.expect_value(t, stack_shown(&k.stack, .Symmetry), Panel_Kind.Layers)
+	free_all(context.temp_allocator)
+}
+
+// A group shown as sections is one line of the layout too, `sections` first and a `-` on
+// each folded section; Expand all and Collapse all fold every section at once; a group
+// taken apart to one card shows no sections.
+@(test)
+stack_sections_read_back :: proc(t: ^testing.T) {
+	a: Kit_State
+	stack_default(&a)
+	stack_join(&a, .Symmetry)
+	stack_join(&a, .Layers)
+	stack_sections_set(&a, .Brush, true)
+	testing.expect(t, stack_as_sections(&a.stack, .Brush))
+	stack_sections_fold(&a, .Brush, true)
+	testing.expect_value(t, a.stack.folded, bit_set[Panel_Kind]{.Brush, .Symmetry, .Layers})
+	stack_sections_fold(&a, .Brush, false)
+	a.stack.folded += {.Symmetry}
+	text := kit_layout_text(&a)
+	testing.expect(t, strings.contains(text, "stack_group sections card:Brush -card:Symmetry *card:Layers\n"), text)
+	testing.expect_value(t, stack_sections_text(&a), "Brush:Symmetry-")
+	b: Kit_State
+	kit_layout_put(&b, text)
+	testing.expect(t, stack_as_sections(&b.stack, .Brush))
+	testing.expect_value(t, b.stack.folded, bit_set[Panel_Kind]{.Symmetry})
+	// A line that says neither tabs nor sections makes no group.
+	c: Kit_State
+	kit_layout_put(&c, "stack_group card:Brush card:Symmetry\n")
+	testing.expect_value(t, len(stack_group(&c.stack, .Brush)), 1)
+	// The host taken out hands the sections to the next card; ungrouped, none show.
+	stack_take_out(&a, .Brush)
+	testing.expect(t, stack_as_sections(&a.stack, .Symmetry))
+	stack_ungroup(&a, .Symmetry)
+	testing.expect(t, !stack_as_sections(&a.stack, .Symmetry))
 	free_all(context.temp_allocator)
 }

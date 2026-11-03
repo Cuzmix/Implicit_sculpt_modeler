@@ -11,19 +11,20 @@ import "../sculpt"
 // the way a Model mode cage's go), made when the wireframe first asks for them and again
 // only when the level's polygons change, which Object.poly_edges remembers per level.
 
-// Whether the wireframe wants polygon edges on `obj` this frame (or the Wireframe shading
-// mode, which always shows them): Lines on, not a cage
-// (whose edges are its own), a voxel or a dynamic object, and not while an HD window is
-// open, since the base level around the window is drawn with the window's part hidden.
+// Whether the wireframe wants polygon edges on `obj` this frame: the Wireframe overlay's
+// Lines on the active object (the overlay is its alone, as ZBrush's PolyFrame is), or the
+// Wireframe shading mode on any; not a cage (whose edges are its own), a voxel or a
+// dynamic object, and not while an HD window is open, since the base level around the
+// window is drawn with the window's part hidden.
 @(private = "file")
 poly_edges_wanted :: proc(app: ^App, obj: ^Object) -> bool {
-	return (app.wireframe && app.polyframe_lines || shading_wire(app)) && obj.cage == nil && obj.voxel == nil && !object_in_hd(obj) && !object_dynamic(obj)
+	return (app.wireframe && app.polyframe_lines && selected_object(app) == obj || shading_wire(app)) && obj.cage == nil && obj.voxel == nil && !object_in_hd(obj) && !object_dynamic(obj)
 }
 
 // Gives every shown object's shown level its polygon edges before the frame draws, when
-// the wireframe wants them and they are not what the level's buffers hold: the wireframe
-// is on every object, as Blender's overlay and ZBrush's PolyFrame show it, so an object
-// not selected shows its quads too rather than its triangles. A failed upload leaves the
+// the wireframe wants them and they are not what the level's buffers hold: the Wireframe
+// shading mode shows every object's, so an object not selected shows its quads too rather
+// than its triangles. A failed upload leaves the
 // level without edges, so its triangles' edges show, until its polygons change; a level
 // whose polygons went loses its edges.
 poly_edges_frame :: proc(app: ^App) {

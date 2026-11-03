@@ -18,7 +18,7 @@ import "../ui"
 import "../retopo"
 
 // What the app remembers between interactive runs: the brush settings, how the
-// viewport looks, the Scene palette's choices and the Settings panel's, in a text file of `key values...`
+// viewport looks, the Scene card's choices and the Settings panel's, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
 // command line win over what it holds. Unknown or malformed lines are skipped, so a

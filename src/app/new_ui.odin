@@ -38,7 +38,7 @@ Kit_State :: struct {
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
 	inspector:  bool, // the panel stack is open
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
-	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
+	pen_page:    int, // the Brush card's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
 	// Search's Show where (tray_show): the command whose control the tray marks, since
 	// when; and whether the tray's content is being drawn, where the mark is looked for.
 	pointed:    struct {
@@ -88,14 +88,14 @@ Kit_State :: struct {
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
+	// The card popped out of a dock's button (card_pop.odin).
+	card_pop:   Card_Pop,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
 	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
 	browser_at: Browser_At, // ...which of the two
-	// The shelf's tool strip (bars.odin), and Arrange (once Customise bars): on, and the
-	// slot popover a tap on a slot opens while it is.
-	tools:      Bar_List,
+	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	view_island: Bar_List, // the View island's, after its head and chips (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
@@ -304,7 +304,7 @@ Kit_State :: struct {
 	object_menu_rows: int,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
-	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	object_menu_side: ui.Side, // at the pointer from the Scene card, above the status chip
 	// What opened the object menu or the scene menu last (an exit stat), where the object chip
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
@@ -320,7 +320,7 @@ Kit_State :: struct {
 	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
 	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	view_chips_at:    [2]f32, // where, in points (an exit stat)
-	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
+	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
 	folder_menu_id: int,
@@ -344,7 +344,7 @@ Kit_State :: struct {
 	alpha_armed:    int,
 	alpha_armed_at: f64,
 	tree_rows:      int,
-	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
+	// Select several (the Scene card's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
@@ -591,7 +591,7 @@ window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
 // end with Background (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
-	// The Brush palette's.
+	// The Brush card's.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -624,7 +624,7 @@ Kit_Section :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The Scene palette's.
+	// The Scene card's.
 	Objects,
 	Add,
 	Look,
@@ -661,6 +661,10 @@ Kit_Event :: struct {
 	// it, so it follows the control wherever the layout moved it; `at` is then an offset
 	// from the control's middle (@NAME~DX,DY).
 	name:   string,
+	// A dropped file's path as the event carries it: SDL never frees a string the app
+	// pushed, and the event may wait in the queue through a background hold, so the path
+	// lives as long as the events do.
+	path:   cstring,
 }
 
 Kit_Event_Kind :: enum u8 {
@@ -707,6 +711,11 @@ Kit_Event_Kind :: enum u8 {
 	Keyboard_Hidden,
 	// A file dropped on the window from the desktop, its path in `key`.
 	Drop_File,
+	// The app sent to the background and brought back, as a tablet's system does
+	// (lifecycle_watch, which SDL_PushEvent calls before queuing them):
+	// SDL_EVENT_DID_ENTER_BACKGROUND and SDL_EVENT_DID_ENTER_FOREGROUND.
+	Background,
+	Foreground,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -785,6 +794,8 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
 			case "kbhide": ev.kind = .Keyboard_Hidden
+			case "bg":     ev.kind = .Background
+			case "fg":     ev.kind = .Foreground
 			case "wheel", "ppress", "proll", "pbutton", "ponly", "pdist":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
@@ -801,7 +812,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				raw := strings.trim_space(item)
 				rest := raw[min(len(parts[0]) + len(":drop:"), len(raw)):]
 				ok = len(parts) >= 3 && rest != ""
-				if ok do ev.key = strings.clone(rest)
+				if ok do ev.key, ev.path = strings.clone(rest), strings.clone_to_cstring(rest)
 				ev.kind = .Drop_File
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
@@ -978,8 +989,10 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			e.common = {type = .SCREEN_KEYBOARD_HIDDEN, timestamp = now}
 			push(e)
 		case .Drop_File:
-			// Read in this frame, before temp memory is freed.
-			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = strings.clone_to_cstring(ev.key, context.temp_allocator)}
+			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = ev.path}
+			push(e)
+		case .Background, .Foreground:
+			e.common = {type = .DID_ENTER_BACKGROUND if ev.kind == .Background else .DID_ENTER_FOREGROUND, timestamp = now}
 			push(e)
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.
@@ -1109,6 +1122,7 @@ kit_destroy :: proc(app: ^App) {
 	for ev in app.kit.events {
 		delete(ev.key)
 		delete(ev.name)
+		delete(ev.path)
 	}
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
@@ -1698,7 +1712,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
 	// own surface; floating, one window round them all.
 	strip := stack_strip_shown(app)
-	stack_w := STACK_STRIP_W if strip else stack_width(k) + stack_docked_extra(k)
+	stack_w := STACK_STRIP_W if strip else stack_width(k)
 	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
 	if _, docked := stack_docked(k); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
 	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector))
@@ -1721,7 +1735,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 // The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
 // clear of it.
 tray_width :: proc(app: ^App) -> f32 {
-	return stack_width(&app.kit) + stack_docked_extra(&app.kit)
+	return stack_width(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1788,7 +1802,9 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
-		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Look)
+		at := app.kit.bar_pop.at
+		app.kit.bar_pop.open = false
+		card_pop_section(app, .Look, at, .Left)
 	}
 }
 
@@ -1848,7 +1864,7 @@ folder_menu_open :: proc(app: ^App, id: int, at: ui.Rect) {
 	k.folder_menu, k.folder_menu_id, k.folder_menu_at = true, id, at
 }
 
-// A folder's menu in the Scene palette: rename it, empty it into the list, or delete it with
+// A folder's menu in the Scene card: rename it, empty it into the list, or delete it with
 // what is in it.
 @(private = "file")
 kit_folder_menu :: proc(app: ^App) {
@@ -2075,11 +2091,19 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	return draws
 }
 
-// Uploads this frame's interface on `cmd`, ahead of the render pass that draws it.
-kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
-	k := &app.kit
-	dl := ui.frame_end(&k.ctx)
+// Ends the frame's interface: its triangles, with the fading picture's alpha set. The
+// same whether they are uploaded or not, so a rested frame's list hashes as a drawn
+// one's (idle_note) and the rest goes on.
+kit_frame_end :: proc(app: ^App) -> ^ui.Draw_List {
+	dl := ui.frame_end(&app.kit.ctx)
 	cross_fade_tint(app, dl)
+	return dl
+}
+
+// Uploads this frame's interface `dl` (kit_frame_end) on `cmd`, ahead of the render
+// pass that draws it.
+kit_upload :: proc(app: ^App, cmd: render.Cmd, dl: ^ui.Draw_List) -> bool {
+	k := &app.kit
 	pixels, w, h, dirty, changed := ui.atlas_take(&k.ctx)
 	vertices := transmute([]render.Ui_Vertex)dl.vertices[:]
 	return render.ui_pass_upload(&app.renderer, &k.pass, cmd, vertices, dl.indices[:], pixels, {u32(w), u32(h)}, dirty, changed)

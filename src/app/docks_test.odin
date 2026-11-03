@@ -6,7 +6,7 @@ import "core:testing"
 
 import "../ui"
 
-// New dock makes the first free dock, floating in the middle, picked, with Arrange on; four
+// New dock makes the first free dock, floating in the middle, with Arrange on; four
 // at most; a deleted dock goes with its buttons and place, and the next New dock is that
 // one again, empty.
 @(test)
@@ -20,7 +20,6 @@ new_docks_float_and_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !user_dock_new(&app))
 	testing.expect_value(t, user_docks_used(k), USER_DOCKS)
 	testing.expect(t, k.bars_edit)
-	testing.expect_value(t, k.arrange.picked, Maybe(Arrange_Zone)(Arrange_Zone.Dock_4))
 	testing.expect_value(t, k.docks[.Dock_2].place, Dock_Place{edge = .Float, at = user_dock_middle(k)})
 	testing.expect_value(t, user_dock_middle(k), [2]f32{774, 390})
 
@@ -77,7 +76,7 @@ docks_read_back :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, b.dock_lists[0], a.dock_lists[0])
 	testing.expect_value(t, b.dock_lists[2].count, 0)
-	testing.expect_value(t, dock_looks_text(&b), "offhand:1:wide,rail:3:off,dock1:2:always,dock3:1:wide:nomore")
+	testing.expect_value(t, dock_looks_text(&b), "offhand:1:wide,rail:3:off,shelf:1:wide,dock1:2:always,dock3:1:wide:nomore")
 
 	// Wrong counts, names, edges and numbers, and buttons of a dock no line makes: none of them.
 	kit_layout_put(&b, "dock dock5 Float 0 0 0 1 Wide 1\ndock shelf Left 0.5 0 0 1 Wide 1\ndock rail Bottom 0.5 0 0 1 Wide 1\ndock offhand Left NaN 0 0 1 Wide 1\ndock offhand Float 0 inf 0 1 Wide 1\ndock rail Default 0 0 0 1 Tiles 1\ndock offhand Left 0 0 0 1\nbars\nbar_count dock_2 1\nbar dock_2 0 frame_all\n")

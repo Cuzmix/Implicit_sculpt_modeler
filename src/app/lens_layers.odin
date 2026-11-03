@@ -16,7 +16,7 @@ import "../ui"
 // lists do; a long press, a right click or the pen's side button opens the layer's menu.
 // Under the rows Base sculpt, everything outside the layers, then Duplicate, Merge down,
 // Bake all and the menu, how many layers and how much memory. It is the one Layers
-// interface: the Object palette's Layers section and the rail draw this card.
+// interface: the Layers card and the rail draw this card.
 
 // A layer row's height, in points, and its picture's side.
 LAYER_ROW_H :: 56

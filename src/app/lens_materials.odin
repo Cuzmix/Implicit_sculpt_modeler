@@ -17,7 +17,7 @@ import "../ui"
 // Roughness for a lit material; Environment is the Environment section. Under the grid the
 // colour, Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others;
 // with polygroups, Object or Group over it (kit_group_material). It is the one Material
-// interface: the Scene palette's Material section and the view rail open this card. Holding a sphere
+// interface: the Material card and the view rail open this card. Holding a sphere
 // (a long press, a right click or the pen's side button) adds it to the favourites or
 // takes it off, a star on its corner; Favourites over the grid shows only those, as the
 // brush browser's Favorites does, and settings.txt keeps them (material_favorite).

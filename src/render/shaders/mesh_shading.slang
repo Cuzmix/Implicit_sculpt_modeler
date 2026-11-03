@@ -57,6 +57,10 @@
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	float4 pass;
+#ifdef WIRE_BARY
+	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below).
+	float4 wire;
+#endif
 };
 
 #ifndef TEXTURED
@@ -430,7 +434,35 @@ float underside(float3 n, float3x3 rig) {
 	return lerp(style.y, 1.0, sky_facing(n, rig));
 }
 
+#ifdef WIRE_BARY
+// The wireframe drawn in the shading itself (mesh_wire.frag.slang), on devices whose
+// fragment stage knows where it lies between the triangle's corners: the edges in one pass
+// with no second draw of the triangles as lines. Each corner's weight over its change per
+// pixel is how many pixels away the edge across from it is, so a line a little over a
+// pixel wide is anti-aliased whatever the triangle's size. Where the triangles shrink to a
+// pixel or two the lines would cover all of it in a moire of rings, so they even out to
+// WIRE_DENSE of the colour there: the surface reads as dense and its form still shows.
+#define WIRE_DENSE 0.5
+float4 wire_over(float4 c, float3 bary) {
+	float3 per_px = max(fwidth(bary), float3(1e-8));
+	float3 px = bary / per_px;
+	float near = min(px.x, min(px.y, px.z));
+	// The triangle's narrowest height in pixels, roughly.
+	float size = 1.0 / max(per_px.x, max(per_px.y, per_px.z));
+	float cover = lerp(WIRE_DENSE, saturate(1.2 - near), saturate((size - 1.5) / 3.0));
+	return float4(lerp(c.rgb, srgb_encode(wire.rgb), cover), c.a);
+}
+
+float4 shade(Mesh_Varyings v_in, float4 position, bool is_front);
+
+float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace, float3 bary : SV_Barycentrics) : SV_Target0 {
+	return wire_over(shade(v_in, position, is_front), bary);
+}
+
+float4 shade(Mesh_Varyings v_in, float4 position, bool is_front) {
+#else
 float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace) : SV_Target0 {
+#endif
 	frag_in = v_in;
 	frag_coord = position;
 	front_facing = is_front;

@@ -202,51 +202,41 @@ brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
 }
 
 // What fits across the shelf: everything when there is room; with less, the brushes give
-// way to six, then the tools to three, then the brushes to three, then the last tools; a
-// page with fewer keeps what it has.
+// way down to three; a page with fewer keeps what it has. Arrange's + takes room of its own.
 @(test)
-shelf_fit_gives_brushes_way_before_tools :: proc(t: ^testing.T) {
-	b, m := shelf_fit(10, 6, 2000)
-	testing.expect(t, b == 10 && m == 6)
-	b, m = shelf_fit(10, 6, shelf_width(8, 6))
-	testing.expect(t, b == 8 && m == 6)
-	b, m = shelf_fit(10, 6, shelf_width(6, 4) + 10)
-	testing.expect(t, b == 6 && m == 4)
-	b, m = shelf_fit(10, 6, shelf_width(5, 3) + 10)
-	testing.expect(t, b == 5 && m == 3)
-	b, m = shelf_fit(10, 6, 0)
-	testing.expect(t, b == 3 && m == 0)
-	b, m = shelf_fit(3, 6, shelf_width(3, 6))
-	testing.expect(t, b == 3 && m == 6)
-	// Arrange's + tiles take room of their own.
-	testing.expect(t, shelf_width(4, 2, true) > shelf_width(4, 2))
-	b, m = shelf_fit(10, 6, shelf_width(10, 6), adding = true)
-	testing.expect(t, b < 10)
+shelf_fit_keeps_three_brushes :: proc(t: ^testing.T) {
+	testing.expect_value(t, shelf_fit(10, 2000), 10)
+	testing.expect_value(t, shelf_fit(10, shelf_width(8)), 8)
+	testing.expect_value(t, shelf_fit(10, 0), 3)
+	testing.expect_value(t, shelf_fit(2, 0), 2)
+	testing.expect(t, shelf_width(4, true) > shelf_width(4))
+	testing.expect(t, shelf_fit(10, shelf_width(10), adding = true) < 10)
 }
 
-// Every tile shows while it can: at full width with room, the tools giving way to three
-// first, then the tiles narrowing, then the tools down to two; only past that are tiles
-// left out. A tablet's row keeps to eight full tiles' width. An iPad Air's room (628
-// points) shows all ten of a fresh Sculpt page.
+// Every tile shows while it can: at full width with room, then narrower; only past the
+// narrowest are tiles left out. A tablet's row keeps to eight full tiles' width. An iPad
+// Air's room (628 points) shows all ten of a fresh Sculpt page. In lines, each row holds
+// its share.
 @(test)
 shelf_layout_narrows_tiles_before_hiding_them :: proc(t: ^testing.T) {
-	b, m, tile := shelf_layout(10, 6, 2000, false)
-	testing.expect(t, b == 10 && m == 6 && tile == ui.BRUSH_TILE.x)
-	b, m, tile = shelf_layout(10, 6, shelf_width(10, 3) + 1, false)
-	testing.expect(t, b == 10 && m == 3 && tile == ui.BRUSH_TILE.x, "the tools give way before the tiles narrow")
-	b, m, tile = shelf_layout(10, 6, shelf_width(10, 3, tile = 50) + 1, false)
-	testing.expect(t, b == 10 && m == 3 && tile <= 50 && tile > SHELF_TILE_MIN)
-	b, m, tile = shelf_layout(10, 6, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
-	testing.expect(t, b == 10 && m == 2 && tile == SHELF_TILE_MIN, "an iPad Air's shelf shows the whole page")
-	b, m, tile = shelf_layout(12, 6, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
-	testing.expect(t, b < 12 && tile == SHELF_TILE_MIN, "past the narrowest, tiles are left out")
+	b, tile := shelf_layout(10, 2000, false)
+	testing.expect(t, b == 10 && tile == ui.BRUSH_TILE.x)
+	b, tile = shelf_layout(10, shelf_width(10, tile = 50) + 1, false)
+	testing.expect(t, b == 10 && tile <= 50 && tile > SHELF_TILE_MIN)
+	b, tile = shelf_layout(10, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b == 10, "an iPad Air's shelf shows the whole page")
+	b, tile = shelf_layout(30, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b < 30 && tile == SHELF_TILE_MIN, "past the narrowest, tiles are left out")
 	// The row on a tablet keeps to eight full tiles' width, however wide the window.
-	b, _, tile = shelf_layout(12, 6, 2000, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	b, tile = shelf_layout(12, 2000, false, SHELF_TABLET * ui.BRUSH_TILE.x)
 	testing.expect(t, b == 12 && f32(b) * tile <= SHELF_TABLET * ui.BRUSH_TILE.x)
+	// Two lines: twelve tiles in two rows of six at full width.
+	b, tile = shelf_lines_layout(12, 2, shelf_width(6) + 1, false)
+	testing.expect(t, b == 12 && tile == ui.BRUSH_TILE.x)
 }
 
 // A turn steps the page and stays at either end; each one counts, slides the new page in,
-// and closes the quick settings; Reset zone on the shelf puts its tools back too.
+// and closes the quick settings; Put back as it comes on the shelf puts its page back.
 @(test)
 shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	app := new(App)
@@ -267,10 +257,11 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	_ = shelf_turn(app, -1)
 	testing.expect(t, sh.page == .Model && !shelf_turn(app, 1) && !shelf_turn(app, -1))
 
-	bar_remove(app, .Tools, 0)
-	testing.expect(t, bar_changed(app, .Tools))
-	arrange_zone_reset(app, .Shelf)
-	testing.expect(t, !bar_changed(app, .Tools))
+	bar_remove(app, .Shelf_Sculpt, 0)
+	testing.expect(t, bar_changed(app, .Shelf_Sculpt))
+	sh.page = .Sculpt
+	dock_reset(app, .Shelf)
+	testing.expect(t, !bar_changed(app, .Shelf_Sculpt))
 }
 
 // A page of one's own is added after the space's built-in ones, empty and called by where

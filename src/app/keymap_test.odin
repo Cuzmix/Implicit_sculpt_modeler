@@ -72,6 +72,8 @@ chords_read_back_from_their_text :: proc(t: ^testing.T) {
 	for id in Command_Id {
 		if id == .None do continue
 		for arg in 0 ..< max(COMMANDS[id].args, 1) {
+			// A card's twin section is named only as its card.
+			if id == .Show_Section && section_is_card(Kit_Section(arg)) do continue
 			back, back_arg, ok := command_from_name(command_name(id, arg))
 			testing.expectf(t, ok && back == id && back_arg == arg, "%s reads back as %v %d", command_name(id, arg), back, back_arg)
 		}

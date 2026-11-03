@@ -40,14 +40,14 @@ summary.
   Places: each dock stands where `Kit_State.docks[d].place` says (`Dock_Place`:
   Default, Left/Right at `along` for the columns, Bottom at `along` for the shelf (`dock_edges`), Float at `at`, layout terms). Default must draw as before
   (parity); anything that keeps clear of a side bar asks `kit_left`/`kit_right` (they measure the bars on each edge) and
-  a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
-  (`arrange_carry_follow`, `dock_drop`, `dock_place_set` swaps two docks on one edge). Whatever keeps clear of the
+  a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Edit docks' heads carry them
+  (`arrange_carry_follow`, `dock_drop`, `dock_place_set` swaps two docks on one edge; a floating drop lines up by `dock_align`),
+  and each dock's resize corner (`arrange_resize_corner`) sets `more_lines`; a dock's menu holds `dock_reset` and Delete dock. Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
-  User docks: `Kit_State.dock_lists[i]` is `Bar_Which.Dock_1 + i`'s list, `Dock_Id.Dock_1 + i` (`user_dock_id`) its dock and
-  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float
+  User docks: `Kit_State.dock_lists[i]` is `Bar_Which.Dock_1 + i`'s list, `Dock_Id.Dock_1 + i` (`user_dock_id`) its dock; they are layout-only (`bars_save` skips them in settings and while unused), home Float
   (a Default one floats in the middle, `dock_anchor`). Ask `user_dock_shown`, and from inside a container find a root with
   `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
-  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
+  Bars (`bars.odin`): `Bar_Which` is View_Rail, the `Shelf_*` pages (each space's from `shelf_pages_of`),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
   View_Rail) go in workspace layouts, the pages, the pie and the island only in settings. Brush values
@@ -57,12 +57,14 @@ summary.
   Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
   chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
   `arrange_show_chips` + `arrange_panel_rows` (the stack Hidden/Left/Right/Float, other windows Hidden/Shown), and
-  `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): a tray section by
-  `Kit_Section` (any palette's, `bar_section`), the symmetry axes, the polyframe parts, the Remesh quick menu, Shading,
-  Camera or View layout. `corner = true` on `icon_button` draws the triangle that says a long press does more.
+  `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
+  polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A section or card button off the rail (and a
+  long press's section, a value menu's or quick menu's settings) pops the stack's own card out as a floating window
+  beside it (`card_pop.odin`: `card_pop_toggle`, `card_pop_section`, one at a time, placed again by its laid-out size,
+  Keep open / Close in its head, `card_pop=` stat); a card the docked stack shows opens there instead. `corner = true` on `icon_button` draws the triangle that says a long press does more.
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
   press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the docked stack above it. The shelf's pages are
-  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
+  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_lines_layout`/`shelf_fit` decide how many tiles (in the dock's lines as rows)
   show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows and floated
   `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
@@ -81,17 +83,17 @@ summary.
   `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
   Split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
-  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view, or the layout's
-  `k.stack.density == .Icons`; `kit_stack_tab` draws a card over the view through `stack_card_body`, and
+  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view;
+  `kit_stack_tab` draws a card over the view through `stack_card_body`, and
   `stack_reveal` opens the strip's card at `s.strip_at`). Palette groups (`stack_groups.odin`) are runs in
   `s.order`: a host then the cards in `s.joined`; the host carries open, floated, hidden, window, height, size and
   scroll, `s.shown[host]` (read through `stack_shown`) the tab drawn. Iterate hosts only (skip `s.joined`), move runs
   (`stack_move_to_k`), and read `stack_group` lines after the whole layout (`kit_layout_put`). Carrying is
   `stack_carry.odin`: sources set `s.carry` (the grip; `ui.tabs(dragged = &i)`), `stack_carry_update` runs once after
   the floats (new_ui.odin) and targets only this frame's `s.seen` and `s.strip_seen` rects, cleared by `stack_frame_begin`; a strip icon
-  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`). Columns: `s.beside` (the
-  tab beginning column two), `stack_column`/`stack_column_head`, `stack_shown` per column head; the panel's width is
-  `stack_width + stack_docked_extra` everywhere (`tray_width`, `panel_width`), never `stack_width` alone; `view_grid_room` is the whole window, panes always under the panels.
+  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`). A group shows as tabs or, with its
+  host in `s.sections` (`stack_as_sections`), as sections (`stack_sections_body`, folds in `s.folded`); the panel's width is
+  `stack_width` everywhere (`tray_width`, `panel_width`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against
@@ -103,7 +105,7 @@ summary.
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
   own. The Scene card is the outliner: its chips (`Outliner.kind`, `object_scene_kind`) and Find narrow the rows and
   stop drags (a narrowed list is not the scene's order); its Add menu (`kit_scene_add_menu`, drawn after the layer
-  menu) sends the same `Scene_Command`s and commands as the Scene palette; a light's row changes the lights through
+  menu) sends the same `Scene_Command`s and commands as the Scene card; a light's row changes the lights through
   `light_drag_changed`, so the change is one undo step like the Lights section's; a row's ⋯ opens the object menu at
   `row_toggle_rect`, the toggle's own rect, which must follow `ui.thumb_row`'s layout of the toggles.
   An object's spaces dots (`Object.spaces_off`, `ui.Thumb_Row.dots`) feed `object_flags`, so leaving an object out of

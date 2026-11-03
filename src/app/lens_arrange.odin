@@ -1,43 +1,20 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 
 import "../ui"
 
-// Arrange's own controls (round 2 of the mockups, screen custom2): the top bar's workspace pill
-// gives way to what arranging needs (Reset zone, Reset workspace, Save as new, Done);
-// every zone of the layout shows its outline and a name tag, a tap on which picks it for
-// Reset zone; and the Library, a sheet over the view, holds the panels' places and the
-// bars' Show chips and the dial's sectors. The ringed
-// buttons and + tiles of Customise bars still change what each bar holds.
-
-// The zones Arrange names, as their tags call them.
-Arrange_Zone :: enum u8 {
-	Offhand, // the size and strength sliders
-	Dial, // the modifier wheel
-	Shelf, // the brushes along the bottom
-	Panels, // the stack of cards at the right
-	Rail, // the view rail down the pen side
-	// The person's own docks (docks.odin), while they are in use.
-	Dock_1,
-	Dock_2,
-	Dock_3,
-	Dock_4,
-}
-
-@(rodata)
-ARRANGE_ZONE_NAMES := [Arrange_Zone]string {
-	.Offhand = "Off-hand",
-	.Dial    = "Dial",
-	.Shelf   = "Shelf",
-	.Panels  = "Panels",
-	.Rail    = "Rail",
-	.Dock_1  = "Dock 1",
-	.Dock_2  = "Dock 2",
-	.Dock_3  = "Dock 3",
-	.Dock_4  = "Dock 4",
-}
+// Edit docks (Arrange): every dock shows its outline and a head, the grip that carries it
+// to an edge or anywhere and a tap on which opens its menu (Lines, Names, Put back as it
+// comes, Delete for one of the person's), and a curved corner on the side facing the
+// view's middle that a drag turns into more or fewer lines, a whole button at a time. A
+// floating dock carried near another lines up with it (soft alignment), a faint line
+// showing which edge. The top bar's workspace pill gives way to what editing needs
+// (Library, Reset workspace, Save as new, Done), and the Library, a sheet over the view,
+// holds the panels' places, the bars' Show chips, the dial's sectors and the person's
+// docks. The ringed buttons and + of every dock still change what each holds.
 
 // The Library's tabs.
 Library_Tab :: enum u8 {
@@ -46,12 +23,11 @@ Library_Tab :: enum u8 {
 	Docks,
 }
 
-// Arrange's own state in Kit_State: the zone picked for Reset zone, whether the Library
-// is put away, its tab, how many resets ran (for the exit stats), and the bar being carried
-// by its tag: its outline at the press, where the press was, and whether it went past the
-// slop (until then the press is a tap that picks the zone).
+// Arrange's own state in Kit_State: whether the Library is put away, its tab, how many
+// resets ran (for the exit stats), and the dock being carried by its head: its outline at
+// the press, where the press was, and whether it went past the slop (until then the press
+// is a tap that opens the dock's menu).
 Arrange_State :: struct {
-	picked:      Maybe(Arrange_Zone),
 	library_off: bool,
 	tab:         Library_Tab,
 	resets:      int,
@@ -59,8 +35,16 @@ Arrange_State :: struct {
 	carry_from:  ui.Rect,
 	carry_press: [2]f32,
 	carrying:    bool,
-	carries:     int, // bars let go (for the exit stats)
-	// The chip bar's section being carried (chip_islands.odin), which shares the bar's
+	carries:     int, // docks let go (for the exit stats)
+	// The dock whose corner is dragged, its lines at the press and where the press was,
+	// and how many drags changed a dock's lines (for the exit stats).
+	resize:       Maybe(Dock_Id),
+	resize_lines: int,
+	resize_press: [2]f32,
+	resizes:      int,
+	// Floating drops that lined up with a neighbour (for the exit stats).
+	aligns:       int,
+	// The chip bar's section being carried (chip_islands.odin), which shares the dock's
 	// carry_from, carry_press and carrying, and how many were let go.
 	chip_carry:   Maybe(Chip_Section),
 	chip_carries: int,
@@ -77,110 +61,76 @@ Arrange_State :: struct {
 	docks_deleted: int,
 }
 
-// The bar a zone's tag carries, if it carries one.
-arrange_zone_bar :: proc(z: Arrange_Zone) -> (Dock_Id, bool) {
-	#partial switch z {
-	case .Offhand: return .Offhand, true
-	case .Rail:    return .Rail, true
-	case .Shelf:   return .Shelf, true
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return Dock_Id(int(Dock_Id.Dock_1) + int(z) - int(Arrange_Zone.Dock_1)), true
-	}
-	return {}, false
-}
-
 // The Library's width, in points.
 LIBRARY_W :: 540
 
-// Where zone `z` was drawn last frame, in points; empty while it is not shown.
-arrange_zone_rect :: proc(app: ^App, z: Arrange_Zone) -> ui.Rect {
+// The dock's head: its title, with the shelf's page and how many buttons it holds.
+@(private = "file")
+arrange_dock_tag :: proc(app: ^App, d: Dock_Id) -> string {
 	k := &app.kit
-	ctx := &k.ctx
-	switch z {
-	case .Offhand: return ui.prev_rect(ctx, "brush bar")
-	case .Dial:
-		r := &app.rail
-		if r.outer <= 0 do return {}
-		o := r.outer / k.scale
-		c := r.center / k.scale
-		return {c.x - o * 0.5, c.y - o * 0.5, o, o}
-	case .Shelf:  return ui.prev_rect(ctx, "dock")
-	case .Panels:
-		if r := k.panels.rect[.Right]; r.w > 0 do return r
-		return k.panels.rect[.Left]
-	case .Rail:   return ui.prev_rect(ctx, "view bar")
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		b, _ := arrange_zone_bar(z)
-		if !dock_shown(k, b) do return {}
-		return ui.prev_rect(ctx, DOCK_ROOTS[b])
-	}
-	return {}
-}
-
-// The zone's tag: its name, with the shelf's page and the rail's count.
-arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
-	k := &app.kit
-	#partial switch z {
+	#partial switch d {
 	case .Shelf:
 		// Counted among the pages the space shows.
 		pages := shelf_pages(k, k.spaces.current)
 		at := 1
 		for p, i in pages do if p == k.shelf.page do at = i + 1
 		return fmt.tprintf("Shelf · %s · %d of %d", shelf_page_name(k, k.shelf.page), at, len(pages))
-	case .Rail:  return fmt.tprintf("Rail · %d", len(bar_used(app, .View_Rail)))
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		i := int(z) - int(Arrange_Zone.Dock_1)
-		return fmt.tprintf("%s · %d", DOCK_TITLES[user_dock_id(i)], k.dock_lists[i].count)
+	case .Offhand:
+		return DOCK_TITLES[d]
 	}
-	return ARRANGE_ZONE_NAMES[z]
+	return fmt.tprintf("%s · %d", DOCK_TITLES[d], len(bar_used(app, dock_which(k, d))))
 }
 
-// Whether Reset zone has anything to put back for `z`: the off-hand island only its
-// place, its items being the person's.
-arrange_zone_resettable :: proc(k: ^Kit_State, z: Arrange_Zone) -> bool {
-	#partial switch z {
-	case .Offhand: return k.docks[.Offhand].edge != .Default
-	// A dock's reset empties it, keeping its place and how its buttons show.
-	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return k.dock_lists[int(z) - int(Arrange_Zone.Dock_1)].count > 0
+// Whether Put back as it comes has anything to put back for dock `d`: the brush bar only
+// its place and looks, its items being the person's; one of the person's docks its
+// buttons.
+dock_resettable :: proc(k: ^Kit_State, d: Dock_Id) -> bool {
+	#partial switch d {
+	case .Offhand: return k.docks[.Offhand] != {}
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return k.dock_lists[int(d) - int(Dock_Id.Dock_1)].count > 0
 	}
 	return true
 }
 
-// Puts zone `z` back as a fresh install has it: the island's place; the dial's sectors,
-// size, turn and place; the shelf's page shown; the stack of cards; the rail's buttons and
-// place; a dock's buttons (a dock comes empty).
-arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
+// Puts dock `d` back as a fresh install has it: the brush bar's place, lines and names;
+// the shelf's page shown and its place; the rail's buttons, place, lines and names; one
+// of the person's docks is emptied, keeping its place and looks (a dock comes empty).
+dock_reset :: proc(app: ^App, d: Dock_Id) {
 	k := &app.kit
-	switch z {
+	k.arrange.resets += 1
+	switch d {
 	case .Offhand:
-		k.docks[.Offhand].place = {}
-	case .Dial:
-		k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
+		k.docks[.Offhand] = {}
 	case .Shelf:
 		// The page shown gets its own tiles back (an added one comes empty) and a built-in
 		// one its own name; an added page keeps the name it was given.
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
 		if k.shelf.page < SHELF_EXTRA_FIRST do k.shelf.names[k.shelf.page] = {}
-		k.tools = bar_fresh(.Tools)
-		k.docks[.Shelf].place = {}
-	case .Panels:
-		stack_default(k)
+		k.docks[.Shelf] = {}
 	case .Rail:
 		bar_list_k(k, .View_Rail)^ = bar_fresh(.View_Rail)
 		k.docks[.Rail] = {}
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
-		i := int(z) - int(Arrange_Zone.Dock_1)
+		i := int(d) - int(Dock_Id.Dock_1)
 		k.dock_lists[i] = bar_fresh(user_dock_which(i))
-		k.arrange.resets += 1
-		report(app, nil, {}, "Emptied %s", DOCK_TITLES[user_dock_id(i)])
+		report(app, nil, {}, "Emptied %s", DOCK_TITLES[d])
 		return
 	}
-	k.arrange.resets += 1
-	report(app, nil, {}, "%s is as it comes again", ARRANGE_ZONE_NAMES[z])
+	report(app, nil, {}, "%s is as it comes again", DOCK_TITLES[d])
 }
 
-// The top bar's controls while arranging, in place of the workspace pill: what is being
-// arranged, the Library, Reset zone, Reset workspace, Save as new and Done. Returns their
-// width; arrange_top_width says it before they are drawn.
+// Puts the dial back as a fresh install has it: every space's sectors, its size, turn and
+// place.
+dial_reset :: proc(app: ^App) {
+	k := &app.kit
+	k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
+	k.arrange.resets += 1
+	report(app, nil, {}, "The dial is as it comes again")
+}
+
+// The top bar's controls while editing docks, in place of the workspace pill: what is
+// being edited, the Library, Reset workspace, Save as new and Done. Returns their width;
+// arrange_top_width says it before they are drawn.
 arrange_top_controls :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
@@ -193,25 +143,23 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 	ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.accent, .Semibold)
 	if w.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
 	labels := ARRANGE_TOP_LABELS
-	if ui.toggle_button(ctx, "Library##arrange", !k.arrange.library_off, arrange_button_width(ctx, labels[0]), tooltip = "Panels' places, the bars to show and the dial's sectors") do k.arrange.library_off = !k.arrange.library_off
-	picked, has := k.arrange.picked.?
-	if ui.button(ctx, "Reset zone##arrange", .Bordered, width = arrange_button_width(ctx, labels[1]), enabled = has && arrange_zone_resettable(k, picked)) do arrange_zone_reset(app, picked)
-	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
-	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[3]))
-	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[4])) do k.bars_edit = false
+	if ui.toggle_button(ctx, "Library##arrange", !k.arrange.library_off, arrange_button_width(ctx, labels[0]), tooltip = "Panels' places, the bars to show, the dial's sectors and your docks") do k.arrange.library_off = !k.arrange.library_off
+	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
+	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
+	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[3])) do k.bars_edit = false
 	end := ctx.last_rect
 	ui.end(ctx)
 	return end.x + end.w - start
 }
 
 @(private = "file")
-ARRANGE_TOP_LABELS := [5]string{"Library", "Reset zone", "Reset workspace", "Save as new", "Done"}
+ARRANGE_TOP_LABELS := [4]string{"Library", "Reset workspace", "Save as new", "Done"}
 
 @(private = "file")
 arrange_title :: proc(app: ^App) -> string {
 	k := &app.kit
 	name := workspace_name(k, k.workspaces.current) if len(k.workspaces.list) > 0 else "Sculpt"
-	return fmt.tprintf("Arranging %s", name)
+	return fmt.tprintf("Editing %s", name)
 }
 
 @(private = "file")
@@ -228,18 +176,18 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 	return w
 }
 
-// How long an outline takes to draw in as Arrange opens, and how long after the zone before
+// How long an outline takes to draw in as Arrange opens, and how long after the dock before
 // it each one starts.
 ARRANGE_DRAW_TIME :: 0.22
 ARRANGE_DRAW_STAGGER :: 0.025
 
-// While arranging: each zone's outline and name tag, then the Library. Leaving
-// Arrange forgets the zone picked and brings the Library back for the next time.
+// While editing docks: each shown dock's outline, head and resize corner, then the
+// Library. Leaving forgets any carry and brings the Library back for the next time.
 kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
 	if !k.bars_edit {
-		k.arrange.picked, k.arrange.library_off = nil, false
-		k.arrange.carry, k.arrange.carrying = nil, false
+		k.arrange.library_off = false
+		k.arrange.carry, k.arrange.carrying, k.arrange.resize = nil, false, nil
 		k.arrange.chip_carry, k.arrange.island_carry = nil, nil
 		k.arrange.was_on = false
 		return
@@ -251,55 +199,79 @@ kit_arrange_lens :: proc(app: ^App) {
 	top := kit_top() - 12
 	carried, carrying := k.arrange.carry.?
 	carrying &&= k.arrange.carrying
-	for z in Arrange_Zone {
-		r := arrange_zone_rect(app, z)
+	align_lines: [2]Align_Line
+	for d in Dock_Id {
+		if !dock_shown(k, d) do continue
+		r := ui.prev_rect(ctx, DOCK_ROOTS[d])
 		if r.w <= 0 do continue
-		picked := k.arrange.picked == z
-		bar, carries := arrange_zone_bar(z)
 		box := ui.Rect{r.x - 4, r.y - 4, r.w + 8, r.h + 8}
-		// A bar being carried shows its outline under the pointer, the bar staying put
-		// until it is let go.
-		if carrying && carries && bar == carried {
-			from := k.arrange.carry_from
-			m := ctx.input.mouse
-			box = {from.x - 4 + m.x - k.arrange.carry_press.x, from.y - 4 + m.y - k.arrange.carry_press.y, from.w + 8, from.h + 8}
+		// A dock being carried shows its outline under the pointer, lined up with its
+		// neighbours where it would float, the dock staying put until it is let go.
+		if carrying && d == carried {
+			moved, lines := arrange_carry_box(app, d, ctx.input.mouse)
+			align_lines = lines
+			box = {moved.x - 4, moved.y - 4, moved.w + 8, moved.h + 8}
 		}
-		// Each outline draws in as Arrange opens, one zone a moment after another: it fades
-		// in and settles from a touch larger onto its bar.
+		// Each outline draws in as editing starts, one dock a moment after another: it fades
+		// in and settles from a touch larger onto its dock.
 		mark := ui.vertex_mark(ctx)
-		draw := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "arrange outline"), u64(z) + 64 * u64(k.arrange.openings)), 0, 1, ARRANGE_DRAW_TIME, .Linear, ARRANGE_DRAW_STAGGER * f32(z), motion_class(.Arrange))
-		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if picked else ui.color_fade(t.accent, 0.5), 2 if picked else 1)
-		// The tag at the outline's top left, kept under the top bar. On a bar that has a
-		// place it is the bar's grip too: a drag past the slop carries the bar.
-		tag := arrange_zone_tag(app, z)
-		tw := ui.text_width(ctx, tag, t.small_size, .Semibold) + 16
+		draw := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "arrange outline"), u64(d) + 64 * u64(k.arrange.openings)), 0, 1, ARRANGE_DRAW_TIME, .Linear, ARRANGE_DRAW_STAGGER * f32(d), motion_class(.Arrange))
+		menu := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == d
+		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if menu else ui.color_fade(t.accent, 0.5), 2 if menu else 1)
+		// The head at the outline's top left, kept under the top bar: the grip that carries
+		// the dock, a tap on which opens its menu.
+		tag := arrange_dock_tag(app, d)
+		tw := ui.text_width(ctx, tag, t.small_size, .Semibold) + 30
+		// On a dock in the window's end half the head ends at the outline's end corner, so
+		// it stays in the window; the shelf's always starts at its start, its corner at its end.
 		at := [2]f32{box.x + 6, max(box.y - 11, top)}
-		ui.begin_at(ctx, fmt.tprintf("arrange tag %v", z), at, {direction = .Row})
-		a := ui.area(ctx, fmt.tprintf("%s##arrange tag", ARRANGE_ZONE_NAMES[z]), {tw, 22}, drag = carries)
-		ui.fill_rect(ctx, a.rect, t.radius_medium, t.accent if picked else t.surface_raised)
+		area := ui.safe_area(ctx)
+		end_half := d != .Shelf && box.x + box.w * 0.5 > area.x + area.w * 0.5
+		if end_half do at.x = box.x + box.w - 6 - tw
+		at.x = clamp(at.x, area.x + 2, max(area.x + area.w - tw - 2, area.x + 2))
+		ui.begin_at(ctx, fmt.tprintf("arrange tag %v", d), at, {direction = .Row})
+		a := ui.area(ctx, fmt.tprintf("%s##arrange tag", DOCK_TITLES[d]), {tw, 22})
+		ui.fill_rect(ctx, a.rect, t.radius_medium, t.accent if menu else t.surface_raised)
 		ui.stroke_rect(ctx, a.rect, t.radius_medium, ui.color_fade(t.accent, 0.7), 1)
-		ui.text(ctx, tag, a.rect.x + 8, a.rect.y + a.rect.h * 0.5, t.small_size, t.frame if picked else t.accent, .Semibold)
-		hint := fmt.tprintf("Drag to move %s to an edge or anywhere; tap to pick it for Reset zone", ARRANGE_ZONE_NAMES[z]) if carries else fmt.tprintf("Pick %s for Reset zone", ARRANGE_ZONE_NAMES[z])
-		ui.tip(ctx, a.id, a.rect, hint)
-		was_carrying := carrying && carries && bar == carried
-		if carries do arrange_carry_follow(app, bar, r, a)
-		if a.clicked && !was_carrying do k.arrange.picked = nil if picked else z
+		ink := t.frame if menu else t.accent
+		ui.icon(ctx, ui.ICON_GRIP, {a.rect.x + 11, a.rect.y + a.rect.h * 0.5}, 14, ink)
+		ui.text(ctx, tag, a.rect.x + 22, a.rect.y + a.rect.h * 0.5, t.small_size, ink, .Semibold)
+		ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to move %s to an edge or anywhere; tap for its lines, names and reset", DOCK_TITLES[d]))
+		was_carrying := carrying && d == carried
+		arrange_carry_follow(app, d, r, a)
+		if a.clicked && !was_carrying do dock_menu_toggle(app, d, a.rect)
 		ui.end(ctx)
+		if !(carrying && d == carried) do arrange_resize_corner(app, d, box, !end_half)
 		if draw < 1 {
 			e := ui.ease(.Out_Cubic, draw)
 			ui.transform_since(ctx, mark, e, 1.03 - 0.03 * e, {box.x + box.w * 0.5, box.y + box.h * 0.5})
 		}
 	}
-	if carrying do arrange_drop_edges(app, carried)
+	if carrying {
+		arrange_drop_edges(app, carried)
+		for l in align_lines do if l.shown do ui.line(ctx, l.a, l.b, ui.color_fade(t.accent, 0.55), 1)
+	}
 	chips := arrange_chip_sections(app)
 	islands := arrange_top_islands(app)
-	// The Library steps aside while a bar, a section or an island is carried, so the view
+	// The Library steps aside while a dock, a section or an island is carried, so the view
 	// under it takes the drop.
 	if !carrying && !chips && !islands do kit_library(app)
 }
 
-// Follows a press on bar `b`'s tag `a` (its outline `r`): past the slop it carries the
-// bar, and let go it puts the bar where it was dropped (dock_drop).
+// Where carried dock `b`'s outline (its rect at the press, moved with the pointer `p`)
+// stands: lined up with its neighbours where the drop would float (dock_align), as it is
+// where it would stand on an edge.
+@(private = "file")
+arrange_carry_box :: proc(app: ^App, b: Dock_Id, p: [2]f32) -> (box: ui.Rect, lines: [2]Align_Line) {
+	s := &app.kit.arrange
+	box = {s.carry_from.x + p.x - s.carry_press.x, s.carry_from.y + p.y - s.carry_press.y, s.carry_from.w, s.carry_from.h}
+	if dock_drop(app, b, box, p, 0).edge != .Float do return
+	return dock_align(app, b, box)
+}
+
+// Follows a press on dock `b`'s head `a` (its outline `r`): past the slop it carries the
+// dock, and let go it puts the dock where it was dropped (dock_drop), lined up with its
+// neighbours where it floats.
 @(private = "file")
 arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	k := &app.kit
@@ -317,16 +289,70 @@ arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 		if !s.carrying && d.x * d.x + d.y * d.y > ctx.theme.slop * ctx.theme.slop {
 			s.carrying = true
 			ui.long_cancel(ctx)
+			k.bar_pop.open = false
 		}
 		return
 	}
 	if s.carrying {
-		box := ui.Rect{s.carry_from.x + a.mouse.x - s.carry_press.x, s.carry_from.y + a.mouse.y - s.carry_press.y, s.carry_from.w, s.carry_from.h}
+		box, lines := arrange_carry_box(app, b, a.mouse)
+		if lines[0].shown || lines[1].shown do s.aligns += 1
 		default_top := brush_bar_top(app) if b == .Offhand else TOP_BAR_H + 6
 		dock_place_set(app, b, dock_drop(app, b, box, a.mouse, default_top))
 		s.carries += 1
 	}
 	s.carry, s.carrying = nil, false
+}
+
+// The size of a dock's resize corner, in points, and how far it stands out of the outline.
+DOCK_CORNER :: 22
+
+// Dock `d`'s resize corner on its outline `box`: on the side facing the view's middle, away
+// from its head (`right` on the screen's right; a left dock's right, a right dock's left;
+// the shelf's top end), a quarter curve following the
+// outline's round corner. A drag across the dock's lines adds or removes a whole line per
+// line's width (per tile row on the shelf), 1 to the dock's most.
+@(private = "file")
+arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	up := d == .Shelf
+	cx := box.x + box.w - DOCK_CORNER + 6 if right else box.x - 6
+	cy := box.y - 6 if up else box.y + box.h - DOCK_CORNER + 6
+	ui.begin_at(ctx, fmt.tprintf("dock corner %v", d), {cx, cy}, {direction = .Row})
+	a := ui.area(ctx, fmt.tprintf("Resize %s##dock corner", DOCK_TITLES[d]), {DOCK_CORNER, DOCK_CORNER})
+	ui.end(ctx)
+	s := &k.arrange
+	lines := dock_lines(k, d)
+	if a.pressed {
+		s.resize, s.resize_lines, s.resize_press = d, lines, a.mouse
+		k.bar_pop.open = false
+	}
+	active := false
+	if dragged, ok := s.resize.?; ok && dragged == d {
+		active = a.held
+		// A line is a column's width across a side dock and a row of tiles up the shelf.
+		cell := max(box.w - 14, t.target) / f32(lines) if !up else max(box.h - 14, t.target) / f32(lines)
+		delta := (a.mouse.x - s.resize_press.x) * (1 if right else -1)
+		if up do delta = s.resize_press.y - a.mouse.y
+		want := clamp(s.resize_lines + int(math.round(delta / cell)), 1, dock_lines_most(d))
+		if a.held && want != lines do k.docks[d].more_lines = u8(want - 1)
+		if !a.held {
+			if dock_lines(k, d) != s.resize_lines do s.resizes += 1
+			s.resize = nil
+		}
+	}
+	// The curve: a quarter circle on the outline's corner, thicker while held or hovered.
+	rad := t.radius_large + 4
+	o := [2]f32{box.x + box.w - rad if right else box.x + rad, box.y + rad if up else box.y + box.h - rad}
+	pts: [9][2]f32
+	for i in 0 ..< len(pts) {
+		ang := f32(i) / f32(len(pts) - 1) * math.PI * 0.5
+		dx, dy := math.cos(ang) * rad, math.sin(ang) * rad
+		pts[i] = {o.x + (dx if right else -dx), o.y + (-dy if up else dy)}
+	}
+	ui.polyline(ctx, pts[:], t.accent, 3.5 if active || a.hovered else 2.5)
+	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if up else "lines"))
 }
 
 // While bar `b` is carried: the edges it may go on as strips down the window's sides (or
@@ -356,7 +382,7 @@ arrange_drop_edges :: proc(app: ^App, b: Dock_Id) {
 	}
 }
 
-// The Library: a sheet over the view, left of the middle, with Panels and Dial.
+// The Library: a sheet over the view, left of the middle, with Panels, Dial and Docks.
 @(private = "file")
 kit_library :: proc(app: ^App) {
 	k := &app.kit
@@ -379,6 +405,11 @@ kit_library :: proc(app: ^App) {
 	case .Panels:
 		arrange_show_chips(app)
 		arrange_panel_rows(app)
+		if ui.button(ctx, "Put the cards back as they come##library", .Bordered, width = inner) {
+			stack_default(k)
+			k.arrange.resets += 1
+			report(app, nil, {}, "The cards are as they come again")
+		}
 	case .Dial:
 		library_dial(app, inner)
 	case .Docks:
@@ -446,4 +477,5 @@ library_dial :: proc(app: ^App, width: f32) {
 	labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
 	if picked := ui.tabs(ctx, "Dial sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 	_ = ui.switch_row(ctx, "Keep the dial in clean view##library", &k.clean_dial)
+	if ui.button(ctx, "Put the dial back as it comes##library", .Bordered, width = width) do dial_reset(app)
 }

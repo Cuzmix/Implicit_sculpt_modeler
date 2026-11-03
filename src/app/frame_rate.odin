@@ -155,7 +155,11 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 	period := u64(1e9) / u64(clamp(app.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	now := sdl.GetTicksNS()
 	if p.next_ns > now {
-		sdl.DelayPrecise(p.next_ns - now)
+		// A tablet sleeps the whole wait: the screen's own refresh paces the acquire there,
+		// and DelayPrecise spends its last millisecond spinning, which costs the battery
+		// for a precision the display rounds away.
+		when MOBILE do sdl.DelayNS(p.next_ns - now)
+		else do sdl.DelayPrecise(p.next_ns - now)
 		p.next_ns += period
 	} else if now - p.next_ns < period {
 		// A little late: keep the beat, so the rate averages out at the limit.
