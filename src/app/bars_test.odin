@@ -66,7 +66,7 @@ bars_are_remembered :: proc(t: ^testing.T) {
 	for which in Bar_Which do if which != .View_Rail do testing.expectf(t, !bar_changed(&c, which), "%v changed", which)
 }
 
-// The view rail starts with its panels, the View island with the view's tools, and is kept as the other bars are:
+// The view rail starts with its cards, and is kept as the other bars are:
 // whole in settings.txt and in a workspace's layout once it changes, as a fresh install's
 // otherwise.
 @(test)
@@ -76,9 +76,8 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material")
-	testing.expect_value(t, bar_names(&a, .View_Island), "View_Layout_Menu,Symmetry_X,Wireframe,Show_Panel:Lights,Focus_Selected")
-	testing.expect(t, !bar_changed(&a, .View_Rail) && !bar_changed(&a, .View_Island))
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")
+	testing.expect(t, !bar_changed(&a, .View_Rail))
 	bar_remove(&a, .View_Rail, 2)
 	bar_put(&a, {which = .View_Rail, slot = 0, add = true}, {.Floor_Grid, 0})
 	testing.expect(t, bar_changed(&a, .View_Rail) && !bar_changed(&a, .Offhand))
@@ -121,7 +120,7 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	bars_reset(&app.kit)
-	// The rail with four view tools, as it held before the View island took them.
+	// The rail with four view tools.
 	rail_tools := [?]Bar_Slot{{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Show_Panel, int(Panel_Kind.Lights)}}
 	app.kit.view_rail = bar_list_of(rail_tools[:], bar_default_look(.View_Rail))
 	// The wireframe joins the rail's four, at its end, for the strip to take later.

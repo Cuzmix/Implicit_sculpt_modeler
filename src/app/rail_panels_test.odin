@@ -17,16 +17,16 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	bars_reset(&app.kit)
-	testing.expect(t, rail_panel_toggle(&app, .Symmetry))
+	testing.expect(t, rail_panel_toggle(&app, .Tools))
 	testing.expect(t, rail_panel_toggle(&app, .Camera))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Section:Camera")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools,Show_Section:Camera")
 	// A tap on the Material card's tile takes it off and a second puts it back at the foot.
 	_, on := rail_panel_at(&app, .Material)
 	testing.expect(t, on)
 	testing.expect(t, !rail_panel_toggle(&app, .Material))
 	testing.expect(t, rail_panel_toggle(&app, .Material))
-	testing.expect(t, !rail_panel_toggle(&app, .Symmetry))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Section:Camera,Show_Panel:Material")
+	testing.expect(t, !rail_panel_toggle(&app, .Tools))
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Section:Camera,Show_Panel:Material")
 	id, arg, ok := command_from_name("Show_Panel:Lights")
 	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Lights)
 	// A card's twin section is named only as its card: a line naming the section is passed
