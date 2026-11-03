@@ -9,6 +9,8 @@ import "core:sync"
 // (upload, upload_texture) or writes them where stage_buffer and stage_texture point, and
 // the copies are recorded together, in one copy pass, just before the command buffer's
 // next pass begins or it is submitted. So an upload lands before the next pass reads it.
+// Uploads are staged between passes, never while a pass of the recording is open: they
+// would land after the open pass, not before.
 //
 // The memory is blocks of upload transfer buffers, each owned by one open recording at a
 // time. A block taken afresh is mapped with `cycle`, so the backend hands it a backing no

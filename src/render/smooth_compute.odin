@@ -38,8 +38,6 @@ Smooth_Compute :: struct {
 	pipeline:      gpu.Compute_Pipeline,
 	buffers:       [Smooth_Buffer]gpu.Buffer,
 	capacity:      [Smooth_Buffer]u32, // bytes each buffer holds
-	upload:        gpu.Transfer_Buffer,
-	upload_size:   u32,
 	download:      gpu.Transfer_Buffer,
 	download_size: u32,
 	// Identifies the triangles and lookup the topology buffers hold (the caller's key),
@@ -49,7 +47,7 @@ Smooth_Compute :: struct {
 
 // What one run cost, part by part, each including its wait for the GPU.
 Smooth_Timing :: struct {
-	upload_ms:   f64, // filling the transfer buffer and copying it to the GPU
+	upload_ms:   f64, // staging the bytes and copying them to the GPU
 	compute_ms:  f64, // the dispatches
 	readback_ms: f64, // copying the result back and into the CPU mesh
 	upload_mb:   f64,
@@ -84,7 +82,6 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 smooth_compute_destroy :: proc(r: ^Renderer, sc: ^Smooth_Compute) {
 	if !r.has_device do return
 	for b in sc.buffers do if b != 0 do gpu.release_buffer(b)
-	if sc.upload != 0 do gpu.release_transfer_buffer(sc.upload)
 	if sc.download != 0 do gpu.release_transfer_buffer(sc.download)
 	if sc.pipeline != 0 do gpu.release_compute_pipeline(sc.pipeline)
 	sc^ = {}
@@ -153,35 +150,26 @@ smooth_compute_run :: proc(
 	}
 	sc.topology = 0 // until the upload below lands
 
-	// Every upload goes through one transfer buffer, kept between runs.
+	// Every upload goes through the GPU layer's upload memory.
 	total := 0
 	for kind in Smooth_Buffer {
 		if kind <= .Tris && !timing.topology do continue
 		total += len(sources[kind])
 	}
-	if !transfer_reserve(r, &sc.upload, &sc.upload_size, total, .Upload) do return
-	mapped := cast([^]u8)gpu.map_transfer_buffer(sc.upload, false)
-	if mapped == nil {
-		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", gpu.last_error())
-		return
-	}
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
-		gpu.unmap_transfer_buffer(sc.upload)
 		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
-	copy_pass := gpu.begin_copy_pass(cmd)
-	at := 0
 	for kind in Smooth_Buffer {
 		src := sources[kind]
 		if len(src) == 0 || (kind <= .Tris && !timing.topology) do continue
-		mem.copy_non_overlapping(mapped[at:], raw_data(src), len(src))
-		gpu.upload_to_buffer(copy_pass, {transfer_buffer = sc.upload, offset = u32(at)}, {buffer = sc.buffers[kind], size = u32(len(src))}, false)
-		at += len(src)
+		if !gpu.upload(cmd, sc.buffers[kind], 0, src) {
+			log.errorf("smooth compute: upload failed: %s", gpu.last_error())
+			_ = gpu.cancel_command_buffer(cmd)
+			return
+		}
 	}
-	gpu.unmap_transfer_buffer(sc.upload)
-	gpu.end_copy_pass(copy_pass)
 	if !submit_and_wait(r, cmd) do return
 	timing.upload_mb = f64(total) / (1 << 20)
 	timing.upload_ms = time.duration_milliseconds(time.tick_since(start))
@@ -227,7 +215,7 @@ smooth_compute_run :: proc(
 		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
-	copy_pass = gpu.begin_copy_pass(cmd)
+	copy_pass := gpu.begin_copy_pass(cmd)
 	gpu.download_from_buffer(copy_pass, {buffer = sc.buffers[result], size = u32(bytes)}, {transfer_buffer = sc.download})
 	gpu.end_copy_pass(copy_pass)
 	if !submit_and_wait(r, cmd) do return
