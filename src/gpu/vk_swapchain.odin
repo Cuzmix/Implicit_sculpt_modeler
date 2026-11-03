@@ -132,7 +132,9 @@ vk_swapchain_free :: proc(w: ^Vk_Window) {
 // minimised window), to be tried again at the next acquire.
 @(private = "file")
 vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
+	// Idle, presents included (vk_release_window), before the old semaphores go.
 	_ = vk_wait_for_idle()
+	_ = vk.QueueWaitIdle(vk_state.queue)
 	caps: vk.SurfaceCapabilitiesKHR
 	if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(vk_state.physical, w.surface, &caps) != .SUCCESS do return false
 	pw, ph: i32
@@ -270,7 +272,10 @@ vk_claim_window :: proc(window: ^sdl.Window) -> bool {
 vk_release_window :: proc(window: ^sdl.Window) {
 	w := vk_window_find(window)
 	if w == nil do return
+	// The timelines say when the submissions are done, not the presents that wait on
+	// render_done: only an idle queue says those are, before their semaphores go.
 	_ = vk_wait_for_idle()
+	_ = vk.QueueWaitIdle(vk_state.queue)
 	vk_swapchain_free(w)
 	if w.swapchain != 0 do vk.DestroySwapchainKHR(vk_state.device, w.swapchain, nil)
 	for s in w.acquired do vk.DestroySemaphore(vk_state.device, s, nil)

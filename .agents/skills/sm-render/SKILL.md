@@ -242,8 +242,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   compute pass with a dispatch per item that only stores 0, then an additive pass into `accum` in the gather's encoding.
   Check: `--no-trace` equals the base to the bit; traced vs gather within ~12/255 off silhouettes; two runs 0 px.
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp.slang` pipeline,
-  six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
-  buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
+  six storage buffers (indices, CSR offsets and tris, weights, two position buffers), grown on demand and kept, its
+  uploads and readback through the GPU layer; `smooth_compute_run` uploads (topology only when its key changed or is 0),
   dispatches one compute pass a step (the own backends put a full barrier after every dispatch, so dependent dispatches may chain inside one pass, as the sculpt kernels do) in rows of at most 65535
   groups, downloads, and waits for each part's ticket to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp.slang` with the other shaders.
@@ -338,6 +338,12 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   recorded in one copy pass just before the command buffer's next pass, mipmap build, acceleration build or submit, so
   make no transfer buffer and open no copy pass for an upload (the interface, pictures, textures, textured meshes and
   mesh buffers do so; `gpu.flush_uploads` records them early, inside a timing group).
+- Readbacks go through the same layer: `gpu.reserve_readback(cmd, size)` then `gpu.download(cmd, rb, at, buffer,
+  offset, size)` or `gpu.download_texture(cmd, rb, at, region, size)` (or `gpu.download_buffer` for one copy); the copies
+  are recorded in order with the uploads, so a download sees the passes before it. `gpu.readback(rb)` gives the bytes once
+  the submission's ticket is done ((nil, false) before; (nil, true) when refused or cancelled), valid until
+  `gpu.release_readback(rb)`, which is safe any time. Reserve before recording work that a refusal should undo (GPU
+  sculpting does), and release every readback before `renderer_destroy` (the tracking allocator reports one kept).
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); release any time, even what this frame drew (the
   backends free it once no work uses it); only `renderer_destroy` waits for the GPU, then releases in reverse order.
 - Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs

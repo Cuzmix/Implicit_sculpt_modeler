@@ -38,8 +38,6 @@ Smooth_Compute :: struct {
 	pipeline:      gpu.Compute_Pipeline,
 	buffers:       [Smooth_Buffer]gpu.Buffer,
 	capacity:      [Smooth_Buffer]u32, // bytes each buffer holds
-	download:      gpu.Transfer_Buffer,
-	download_size: u32,
 	// Identifies the triangles and lookup the topology buffers hold (the caller's key),
 	// 0 when they hold nothing to reuse.
 	topology:      u64,
@@ -82,7 +80,6 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 smooth_compute_destroy :: proc(r: ^Renderer, sc: ^Smooth_Compute) {
 	if !r.has_device do return
 	for b in sc.buffers do if b != 0 do gpu.release_buffer(b)
-	if sc.download != 0 do gpu.release_transfer_buffer(sc.download)
 	if sc.pipeline != 0 do gpu.release_compute_pipeline(sc.pipeline)
 	sc^ = {}
 }
@@ -209,41 +206,27 @@ smooth_compute_run :: proc(
 	start = time.tick_now()
 	result := Smooth_Buffer.Pos_B if steps % 2 == 1 else Smooth_Buffer.Pos_A
 	bytes := len(sources[.Pos_A])
-	if !transfer_reserve(r, &sc.download, &sc.download_size, bytes, .Download) do return
 	cmd = gpu.acquire_command_buffer()
 	if cmd == nil {
 		log.errorf("smooth compute: AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 		return
 	}
-	copy_pass := gpu.begin_copy_pass(cmd)
-	gpu.download_from_buffer(copy_pass, {buffer = sc.buffers[result], size = u32(bytes)}, {transfer_buffer = sc.download})
-	gpu.end_copy_pass(copy_pass)
-	if !submit_and_wait(r, cmd) do return
-	back := cast([^]u8)gpu.map_transfer_buffer(sc.download, false)
-	if back == nil {
-		log.errorf("smooth compute: MapGPUTransferBuffer failed: %s", gpu.last_error())
+	download := gpu.download_buffer(cmd, sc.buffers[result], 0, u32(bytes))
+	defer gpu.release_readback(download)
+	if download == 0 {
+		log.errorf("smooth compute: readback memory of %d MB was refused: %s", bytes >> 20, gpu.last_error())
+		_ = gpu.cancel_command_buffer(cmd)
 		return
 	}
-	mem.copy_non_overlapping(raw_data(positions), back, bytes)
-	gpu.unmap_transfer_buffer(sc.download)
+	if !submit_and_wait(r, cmd) do return
+	back, _ := gpu.readback(download)
+	if back == nil {
+		log.errorf("smooth compute: the readback could not be read: %s", gpu.last_error())
+		return
+	}
+	copy(([^]u8)(raw_data(positions))[:bytes], back)
 	timing.readback_ms = time.duration_milliseconds(time.tick_since(start))
 	return timing, true
-}
-
-// Makes `tb` hold at least `size` bytes, replacing a smaller one.
-@(private = "file")
-transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32, size: int, usage: gpu.Transfer_Usage) -> bool {
-	if size <= int(capacity^) && tb^ != 0 do return true
-	if tb^ != 0 {
-		gpu.release_transfer_buffer(tb^)
-	}
-	tb^ = gpu.create_transfer_buffer({usage = usage, size = u32(size)})
-	capacity^ = u32(size) if tb^ != 0 else 0
-	if tb^ == 0 {
-		log.errorf("smooth compute: CreateGPUTransferBuffer of %d MB failed: %s", size >> 20, gpu.last_error())
-		return false
-	}
-	return true
 }
 
 // Submits `cmd` and waits until the GPU has finished it.

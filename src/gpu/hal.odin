@@ -187,7 +187,7 @@ command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 @(require_results)
 cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	count_finish(command_buffer)
-	staging_done(command_buffer)
+	staging_done(command_buffer, {}, false)
 	when METAL do return mtl_cancel_command_buffer(command_buffer)
 	else when WEBGPU do return wgpu_cancel_command_buffer(command_buffer)
 	else do return vk_cancel_command_buffer(command_buffer)
@@ -897,13 +897,14 @@ set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swa
 // Sends the recording to its queue and hands back its ticket; false (with last_error)
 // where the device refused it.
 @(require_results)
-submit :: proc(command_buffer: Cmd) -> (Ticket, bool) {
+submit :: proc(command_buffer: Cmd) -> (ticket: Ticket, ok: bool) {
 	count_finish(command_buffer)
 	staging_flush(command_buffer)
-	defer staging_done(command_buffer)
-	when METAL do return mtl_submit_command_buffer(command_buffer)
-	else when WEBGPU do return wgpu_submit_command_buffer(command_buffer)
-	else do return vk_submit_command_buffer(command_buffer)
+	when METAL do ticket, ok = mtl_submit_command_buffer(command_buffer)
+	else when WEBGPU do ticket, ok = wgpu_submit_command_buffer(command_buffer)
+	else do ticket, ok = vk_submit_command_buffer(command_buffer)
+	staging_done(command_buffer, ticket, ok)
+	return
 }
 
 unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
