@@ -24,6 +24,10 @@ import "../send"
 SEND_IDLE :: 30 * time.Second
 // How long the receiving side's person has to allow a pairing.
 SEND_PAIR_WAIT :: 3 * time.Minute
+// How long a send to a desktop by name (--send-to=@NAME) asks the network before it
+// says none answered: answers come within a fraction of a second on a quiet network, and
+// each second asks again for a packet Wi-Fi lost.
+SEND_FIND_WAIT :: 3 * time.Second
 @(private = "file")
 SEND_TICK :: 1 * time.Second
 @(private = "file")
@@ -302,6 +306,22 @@ send_start :: proc(sh: ^Send_Shared, job: ^Send_Job, ctx: runtime.Context) -> ^t
 @(private = "file")
 send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 	target := job.host if strings.contains_rune(job.host, ':') else fmt.tprintf("%s:%d", job.host, SEND_PORT)
+	if strings.has_prefix(job.host, "@") {
+		// A desktop found on the local network: by its name, or the first to answer.
+		name := job.host[1:]
+		found, ok := send_find_run(sh, name, SEND_FIND_WAIT)
+		if !ok {
+			if sync.atomic_load(&sh.cancel) do return
+			called := fmt.tprintf(" called %s", name) if name != "" else ""
+			send_event(sh, .Warning, "", 0, "No computer%s answered on this network. Is Sculpt open there with Receive scenes on?", called)
+			return
+		}
+		defer send.found_destroy(&found)
+		sync.atomic_add(&sh.found, 1)
+		a := found.addresses[0]
+		target = fmt.tprintf("%d.%d.%d.%d:%d", a[0], a[1], a[2], a[3], found.port)
+		log.infof("send: found %s at %s", found.name, target)
+	}
 	sock, derr := net.dial_tcp(target)
 	if derr != nil {
 		send_event(sh, .Warning, "", 0, "Cannot reach %s: %v. Is Sculpt open there with Receive scenes on?", job.host, derr)

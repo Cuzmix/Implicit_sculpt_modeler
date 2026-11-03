@@ -825,7 +825,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer send_destroy(&app, false)
 	if opts.send_to != "" {
 		target := opts.send_to
-		if opts.send_port > 0 && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
+		if opts.send_port > 0 && !strings.has_prefix(target, "@") && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
 		app.send.pending = strings.clone(target)
 	}
 	defer delete(app.send.pending)

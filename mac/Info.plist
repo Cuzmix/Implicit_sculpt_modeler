@@ -42,6 +42,10 @@
 	<string>NSApplication</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sculpt receives scenes your tablet sends over your local network, and sends them back.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sculptsend._tcp</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<true/>
 </dict>
