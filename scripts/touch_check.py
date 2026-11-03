@@ -3494,7 +3494,7 @@ def model_dial_picks_select():
 # the shelf's Clay tile and the tool strip's last button shown (Retopologize), Search, its first
 # row and a point on the view clear of every bar.
 DRAG_1280 = ["--width=1280", "--height=720"]
-DRAG_RAIL = {"layout": (1243, 133), "camera": (1243, 229), "focus": (1243, 277), "wireframe": (1243, 373)}
+DRAG_RAIL = {"layout": (1243, 85), "camera": (1243, 181), "focus": (1243, 229), "wireframe": (1243, 325)}
 DRAG_CLAY = (324, 653)
 # The Curve page's last tile at 1280 x 720 (Smooth, after the Curve and Insert tools).
 DRAG_CURVE_LAST = (740, 653)
@@ -3768,9 +3768,9 @@ def a_stroke_under_the_tray_fades_it():
 LENS_ISLAND_SIZE = (42, 380)
 LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
 # Where eight_rail() puts them.
-LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421)}
+LENS_RAIL = {"layout": (1403, 85), "passes": (1403, 133), "camera": (1403, 181), "lights": (1403, 373)}
 # The mini view's button where eight_rail() puts it.
-LENS_RAIL_MINI = (1403, 470)
+LENS_RAIL_MINI = (1403, 421)
 LENS_1440 = ["--width=1440", "--height=900"]
 LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
 LENS_MINI_PICTURE = (1285, 720)
@@ -3840,13 +3840,13 @@ def lens_rail_names_its_buttons_on_a_wide_window():
 
 @scenario
 def lens_rail_opens_beside_itself():
-    """The rail's (eight_rail) Passes and Lights open beside the rail, and View layout its menu of grids."""
+    """The rail's (eight_rail) Passes opens beside the rail, Lights docks its card in the column, and View layout opens its menu of grids."""
     def run(name, checks):
         s = Script()
         s.ftap(LENS_RAIL[name])
         s.wait(10)
         return (s, LENS_1440 + eight_rail(), camera_still(checks))
-    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"bar_pop": is_text("lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
+    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"rail_dock": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
 @scenario
