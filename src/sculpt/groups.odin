@@ -451,45 +451,17 @@ levels_carry_groups :: proc(l: ^Levels, from, to: int) {
 	}
 }
 
-// Gives each UV chart of a retopologized object its own group (the chart's number + 1)
-// on the level shown, as ZBrush's Groups by UVs does, in one undo step: each base
-// triangle takes the chart of the quad it is half of, and each triangle above the chart
-// of the one it was cut from. Hidden triangles keep their groups. False without UVs,
+// Gives each UV island of the object its own group (the island's number + 1) on the
+// level shown, as ZBrush's Groups by UVs does, in one undo step: each base triangle
+// takes its island, and each triangle above the island of the one it was cut from. Hidden triangles keep their groups. False without UVs,
 // under dynamic topology, and when nothing changes.
 levels_group_uv_charts :: proc(l: ^Levels) -> bool {
 	if !levels_has_uvs(l) || l.hd.window != nil do return false
 	s := &levels_current(l).sculptor
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil do return false
-	base := l.levels[0]
-	m := base.mesh
-	// The quads at each base vertex, to find the one holding a triangle's three corners.
-	// As offsets into one list: vertex v's quads are list[first[v]:first[v + 1]].
-	first := make([]u32, len(m.positions) + 1, context.temp_allocator)
-	for q in l.faces.quads do for v in q do first[v + 1] += 1
-	for v in 0 ..< len(m.positions) do first[v + 1] += first[v]
-	list := make([]u32, 4 * len(l.faces.quads), context.temp_allocator)
-	fill := slice.clone(first, context.temp_allocator)
-	for q, i in l.faces.quads {
-		for v in q {
-			list[fill[v]] = u32(i)
-			fill[v] += 1
-		}
-	}
-	chart := make([]u32, len(m.indices) / 3, context.temp_allocator)
-	for &c, t in chart {
-		i := m.indices[3 * t:][:3]
-		found := false
-		for q in list[first[i[0]]:first[i[0] + 1]] {
-			quad := l.faces.quads[q]
-			if slice.contains(quad[:], i[1]) && slice.contains(quad[:], i[2]) {
-				c, found = l.faces.uv.chart[q], true
-				break
-			}
-		}
-		// The base level's triangles are its quads' halves, in its own vertex numbers.
-		assert(found, "a base triangle is no quad's half")
-	}
+	// Each base triangle's island, carried up the levels below.
+	chart := slice.clone(l.uvs.island, context.temp_allocator)
 	for j in 1 ..= l.current {
 		parent := level_tri_parents(l, j)
 		up := make([]u32, len(parent), context.temp_allocator)

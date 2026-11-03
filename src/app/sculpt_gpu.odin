@@ -46,6 +46,20 @@ sculpt_gpu_sculptor :: proc(app: ^App, gpu: ^render.Mesh_Buffers) -> ^sculpt.Scu
 	return nil
 }
 
+// Uploads the next slice of the lookup the kernels read for a level of the selected
+// object (render.sculpt_gpu_prepare), so the first stroke on it finds the lookup on the
+// GPU rather than waiting seconds for 700 MB at 25M; whether more is to come. Nothing
+// goes up with the switch off, nor for a level whose strokes all stay on the CPU (the
+// conditions sculpt_gpu_wanted reads before the brush), and the frame calls it only
+// while no stroke is under way.
+sculpt_gpu_prepare_level :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, lv: ^sculpt.Level, gpu: ^render.Mesh_Buffers) -> (waiting: bool) {
+	if !app.gpu_sculpt || !render.caps(&app.renderer).gpu_sculpt || app.renderer.sculpt_gpu.failed do return false
+	s := &lv.sculptor
+	if object_dynamic(obj) || sculpt.sculptor_skin(s) != nil || sculpt.sculptor_hidden_count(s) > 0 do return false
+	if !gpu.storage || gpu.vertex_capacity != u32(len(lv.mesh.positions)) || gpu.index_count != u32(len(lv.mesh.indices)) do return false
+	return render.sculpt_gpu_prepare(&app.renderer, cmd, gpu, s.faces, sculpt.sculptor_gpu_shared(s)) == .Uploading
+}
+
 // How much of this stroke the GPU takes: with the switch on, for a brush that moves the
 // surface (a mask or paint stroke moves nothing, and its uploads carry the mask), on a
 // level with no dynamic topology, detail skin or hidden triangles (which the GPU's

@@ -12,6 +12,7 @@ import "core:thread"
 import "../geom"
 import "../render"
 import "../sculpt"
+import "../uv"
 import "../ui"
 import "../retopo"
 
@@ -117,7 +118,7 @@ texture_image_check :: proc(data: []u8) -> string {
 // materials_settle.
 textures_settle :: proc(app: ^App) {
 	for obj in app.scene.objects {
-		if !object_has_textures(obj) || sculpt.levels_has_uvs(&obj.levels) do continue
+		if !object_has_textures(obj) || sculpt.levels_has_quad_uvs(&obj.levels) do continue
 		autosave_settle(app)
 		textures_free(&obj.textures)
 		obj.textures.stamp += 1
@@ -125,37 +126,37 @@ textures_settle :: proc(app: ^App) {
 }
 
 // Replaces `obj`'s maps with `t` (taken) as one undo step named `what`, keeping the old
-// ones in the step; with `uvs`, the object's UV layout is replaced in the same step
-// (taken). Every scene change goes through the frame start, which settles autosave.
-textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: string, uvs: Maybe(geom.Uv_Layout) = nil) {
+// ones in the step; with `uvs` (made with the object's levels' allocator), the object's
+// UVs are replaced in the same step (taken). Every scene change goes through the frame start, which settles autosave.
+textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: string, uvs: Maybe(uv.Uvs) = nil) {
 	autosave_settle(app)
 	step := new(Texture_Step)
 	step.textures = obj.textures
 	obj.textures = t
 	obj.textures.stamp = step.textures.stamp + 1
 	obj.textures.layout = step.textures.layout
-	if layout, ok := uvs.?; ok {
-		step.uvs, step.has_uvs = obj.levels.faces.uv, true
-		obj.levels.faces.uv = layout
+	if next, ok := uvs.?; ok {
+		step.uvs, step.has_uvs = obj.levels.uvs, true
+		obj.levels.uvs = next
 		obj.textures.layout += 1
 	}
 	history_record_textures(app, obj, step, what)
 	app.scene_edits += 1
 }
 
-// What a .Textures undo step keeps: the object's maps (and, for New UVs, its UV layout)
+// What a .Textures undo step keeps: the object's maps (and, for New UVs, its UVs)
 // on the other side of the change. Undo and redo swap them with the object's, so the same
 // step goes back and forth.
 Texture_Step :: struct {
 	textures: Object_Textures,
-	uvs:      geom.Uv_Layout,
+	uvs:      uv.Uvs,
 	has_uvs:  bool,
 }
 
 texture_step_free :: proc(step: ^Texture_Step) {
 	if step == nil do return
 	textures_free(&step.textures)
-	if step.has_uvs do geom.uv_layout_destroy(&step.uvs)
+	if step.has_uvs do uv.destroy(&step.uvs)
 	free(step)
 }
 
@@ -163,7 +164,7 @@ texture_step_free :: proc(step: ^Texture_Step) {
 texture_step_bytes :: proc(step: ^Texture_Step) -> int {
 	if step == nil do return 0
 	n := textures_bytes(step.textures)
-	if step.has_uvs do n += len(step.uvs.uvs) * size_of([4][2]f32) + len(step.uvs.chart) * size_of(u32)
+	if step.has_uvs do n += uv.bytes(step.uvs)
 	return n
 }
 
@@ -175,7 +176,7 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 	obj.textures.stamp = max(stamp, step.textures.stamp) + 1
 	obj.textures.layout = layout
 	if step.has_uvs {
-		obj.levels.faces.uv, step.uvs = step.uvs, obj.levels.faces.uv
+		obj.levels.uvs, step.uvs = step.uvs, obj.levels.uvs
 		obj.textures.layout += 1
 	}
 }
@@ -185,11 +186,16 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 object_layout_uvs :: proc(app: ^App, obj: ^Object) {
 	if !sculpt.levels_has_quads(&obj.levels) do return
 	sculpt.levels_sync(&obj.levels)
-	uv := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), retopo.UV_PADDING)
+	layout := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), retopo.UV_PADDING, context.temp_allocator)
+	next, folded := sculpt.levels_uvs_from_layout(&obj.levels, layout, obj.levels.allocator)
+	if !folded {
+		report(app, Kit_Section.Retopo, {}, "New UVs on %s failed: its triangles are not all halves of its quads", object_label(obj))
+		return
+	}
 	had := object_has_textures(obj)
-	textures_replace(app, obj, {}, "new UVs", uv)
+	textures_replace(app, obj, {}, "new UVs", next)
 	note := ", its maps removed (they followed the old UVs)" if had else ""
-	report(app, Kit_Section.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), uv.charts, 100 * uv.filled, note)
+	report(app, Kit_Section.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), layout.charts, 100 * layout.filled, note)
 }
 
 // What a .Textures step that loads map `m` is called in the History (constants: the
@@ -204,7 +210,7 @@ TEXTURE_LOAD_LABELS := [render.Texture_Map]string {
 // UVs of a quad object's base level.
 texture_target_check :: proc(obj: ^Object) -> string {
 	if obj == nil do return "Select an object with UVs first"
-	if obj.voxel != nil || !sculpt.levels_has_quads(&obj.levels) || !sculpt.levels_has_uvs(&obj.levels) {
+	if obj.voxel != nil || !sculpt.levels_has_quad_uvs(&obj.levels) {
 		return fmt.tprintf("%s has no UVs: Shape > Rebuild > Quads makes an object with them", object_label(obj))
 	}
 	return ""
@@ -245,7 +251,7 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	view := texture_view_shown(app)
 	if view == .Off || obj.voxel != nil || obj.levels.current != 0 || object_in_hd(obj) || object_dynamic(obj) do return false
-	if !sculpt.levels_has_quads(&obj.levels) || !sculpt.levels_has_uvs(&obj.levels) do return false
+	if !sculpt.levels_has_quad_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
 	if app.stroke.active && app.stroke.object == obj.id do return false
 	maps := obj.preview.mesh.maps
@@ -291,7 +297,7 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 // memory.
 textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
 	quads := sculpt.levels_quad_mesh(&obj.levels)
-	uvs := obj.levels.faces.uv
+	uvs, _ := sculpt.levels_quad_uvs(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
 	positions, split_normals, uv_coords, split_indices := geom.quad_mesh_split_uvs(quads, uvs, normals, frame, context.temp_allocator)

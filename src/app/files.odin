@@ -24,6 +24,7 @@ import "../fbx"
 import "../usd"
 import "../voxel"
 import "../retopo"
+import "../uv"
 
 // Files: meshes in and out as OBJ, PLY, STL, glTF and USD, and whole scenes saved and opened in the
 // native format. A request comes from a File menu dialog, a shortcut or a flag and runs
@@ -80,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(37)
+SCENE_VERSION :: u32(38)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -747,12 +748,10 @@ import_folder_count :: proc(paths: [][]string) -> int {
 // Takes an imported part's polygons (in the part's numbering, which `old_to_new` and
 // `tri_from` turn into the base level's) as its object's base level's, so Wireframe draws
 // the file's faces and Subdivide cuts them as Catmull-Clark does, as ZBrush and Blender
-// do with an imported quad mesh; an object of only quads keeps them as quads too, with
-// the file's UVs (`uv`, taken; nil for none), for the UV checker, the texture views and
-// baking.
-import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32, uv: Maybe(geom.Uv_Layout) = nil) {
-	uv := uv
-	defer if layout, has := &uv.?; has do geom.uv_layout_destroy(layout)
+// do with an imported quad mesh; an object of only quads keeps them as quads too, which
+// with the file's UVs (taken before, mesh_import_prepare) the UV checker, the texture
+// views and baking need.
+import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new, tri_from: []u32) {
 	retopo.polys_renumber(polys, old_to_new, tri_from)
 	quads := true
 	for f in 0 ..< len(polys.first) - 1 do quads &&= polys.first[f + 1] - polys.first[f] == 4
@@ -764,15 +763,21 @@ import_take_polygons :: proc(l: ^sculpt.Levels, polys: ^sculpt.Polys, old_to_new
 	faces := make([][4]u32, len(polys.first) - 1)
 	for &f, q in faces do copy(f[:], polys.corners[4 * q:][:4])
 	sculpt.levels_set_quads(l, faces)
-	if layout, has := uv.?; has {
-		sculpt.levels_set_uvs(l, layout)
-		uv = nil
-	}
+}
+
+// Takes an imported part's texture coordinates (`file_uvs`, one a corner of the part's
+// `corners` triangle corners, v down) as its object's UVs, on whatever polygons. The
+// levels keep each triangle's corners in the file's order, so the coordinates follow
+// through `tri_from` alone; a file whose coordinates are not one a corner has none.
+import_take_uvs :: proc(l: ^sculpt.Levels, file_uvs: [][2]f32, corners: int, tri_from: []u32) {
+	if len(file_uvs) != corners || corners == 0 do return
+	base := l.levels[0]
+	sculpt.levels_take_uvs(l, uv.from_corners(base.mesh.indices[:], file_uvs, tri_from, base.sculptor.faces, l.allocator))
 }
 
 // Makes each part's levels ready to sculpt, as object_build_from makes a mesh's (normals
-// worked out, polypaint and polygroups taken), with the file's polygons and UVs
-// (import_take_polygons), taking the part's mesh: on the frame's thread, or on an import
+// worked out, polypaint and polygroups taken), with the file's UVs on its triangles,
+// whatever their polygons (uv.from_corners), and its polygons (import_take_polygons), taking the part's mesh: on the frame's thread, or on an import
 // job's, with its `pool`, moving `progress` over `share` by each part's triangles and
 // stopping early when it is cancelled (the parts left then have no levels).
 mesh_import_prepare :: proc(m: ^Mesh_Import, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
@@ -791,7 +796,7 @@ mesh_import_prepare :: proc(m: ^Mesh_Import, pool: ^jobs.Pool, progress: ^jobs.P
 		// vertices and triangles.
 		polys: sculpt.Polys
 		polys.first, polys.corners, polys.tri_poly = geom.mesh_polygons(mesh.indices[:], p.polys[:])
-		uv, mapped := geom.quad_uvs_from_corners(mesh.indices[:], p.uvs[:], polys.first, polys.corners, polys.tri_poly)
+		corners := len(mesh.indices)
 		old_to_new := make([]u32, len(mesh.positions))
 		defer delete(old_to_new)
 		tri_from := make([]u32, len(mesh.indices) / 3)
@@ -801,7 +806,8 @@ mesh_import_prepare :: proc(m: ^Mesh_Import, pool: ^jobs.Pool, progress: ^jobs.P
 		surface := import_surface(p)
 		if surface.color != nil || surface.groups != nil do sculpt.levels_take_surface(l, surface.color, surface.groups, old_to_new, tri_from)
 		sculpt.sculptor_recompute_all(&sculpt.levels_current(l).sculptor)
-		if polys.first != nil do import_take_polygons(l, &polys, old_to_new, tri_from, uv if mapped else nil)
+		import_take_uvs(l, p.uvs[:], corners, tri_from)
+		if polys.first != nil do import_take_polygons(l, &polys, old_to_new, tri_from)
 		// The simplified copies too, as a long job's result gets them (long_job_prepare).
 		_, _ = sculpt.sculptor_lod_update(&sculpt.levels_current(l).sculptor, finish = true)
 		free_all(context.temp_allocator)
@@ -1305,7 +1311,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	case quads_out:
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
-		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
+		layout, _ := sculpt.levels_quad_uvs(&obj.levels)
+		geom.quad_mesh_write_obj(&out, q.positions, q.quads, layout.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	case ext == ".stl":
@@ -1353,7 +1360,8 @@ object_exports_textures :: proc(obj: ^Object) -> bool {
 usd_extras :: proc(obj: ^Object, lv: ^sculpt.Level, m: ^geom.Mesh_Export) {
 	g := lv.sculptor.groups
 	if obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) {
-		m.quads, m.uvs = obj.levels.faces.quads, obj.levels.faces.uv.uvs
+		layout, _ := sculpt.levels_quad_uvs(&obj.levels)
+		m.quads, m.uvs = obj.levels.faces.quads, layout.uvs
 		if g.tris != nil && g.vertex != nil {
 			groups := make([]u16, len(m.quads), context.temp_allocator)
 			for q, i in m.quads do groups[i] = g.vertex[q[0]]
@@ -2189,7 +2197,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 			free_all(context.temp_allocator)
 			return obj, true, made
 		}
-	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
+	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_quad_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
 		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
 			report(app, Kit_Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)

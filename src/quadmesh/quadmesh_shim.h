@@ -26,12 +26,26 @@ typedef struct Qm_Params {
      * for none. */
     const float* density;
     uint32_t density_count;
+    /* Refinement per vertex: the isotropic mesh's edge there as a share of what the quad
+     * size alone gives (1 as usual, 0.5 twice as fine), clamped to 0.25..1. The quads keep
+     * their size; a part only a few quads round (a thin tube) needs the finer triangles
+     * for its quads to be extracted at all. NULL, or a count other than the vertices', for
+     * none. */
+    const float* refine;
+    uint32_t refine_count;
     /* Guide curves: `guide_count` segments, each two points of x, y and z (six floats),
      * near the surface; the quads' edges are pulled to run along them, by
      * `guide_strength` (0 not at all, 1 as closely as the field can follow). NULL for none. */
     const float* guides;
     uint32_t guide_count;
     float guide_strength;
+    /* Planes the caller drops the result's polygons on (Keep symmetry's caps): bit a of
+     * `cap_axes` for the plane through `cap_center` square to axis a. A triangle with
+     * every corner within `cap_snap` of one counts for none of the quads asked, which go
+     * to the rest; 0 for none. */
+    uint32_t cap_axes;
+    float cap_center[3];
+    float cap_snap;
 } Qm_Params;
 
 /* Called as the remesh advances, from the calling thread or a worker; returns whether to
@@ -48,6 +62,8 @@ typedef struct Qm_Times {
     float parameterize_ms; /* frame field, singularity simplification, quad cover */
     float extract_ms;      /* quads traced from the cover and cleaned up */
     float total_ms;        /* the whole call */
+    uint32_t isotropic_triangles; /* the isotropic meshes' triangles, over the islands */
+    uint32_t covers;              /* the quad covers solved, over the islands (up to three each) */
 } Qm_Times;
 
 enum {

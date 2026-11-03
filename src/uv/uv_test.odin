@@ -200,3 +200,62 @@ check_refuses_damage :: proc(t: ^testing.T) {
 	u.island = u.island[1:]
 	testing.expect_value(t, check(u, f.indices, f.faces, vertices), "the counts differ from the triangles'")
 }
+
+// An OBJ strip of three quads with texture coordinates, read as an import reads it: the
+// first two quads share their edge's coordinates and make one island, the third is cut off
+// by a seam (other `vt` lines on the same edge) and makes a second; v comes back running
+// up, as the file has it.
+@(test)
+obj_coordinates_keep_their_seams :: proc(t: ^testing.T) {
+	text := `v 0 0 0
+v 1 0 0
+v 2 0 0
+v 3 0 0
+v 0 1 0
+v 1 1 0
+v 2 1 0
+v 3 1 0
+vt 0 0
+vt 0.25 0
+vt 0.5 0
+vt 0 0.5
+vt 0.25 0.5
+vt 0.5 0.5
+vt 0.75 0
+vt 1 0
+vt 0.75 0.5
+vt 1 0.5
+f 1/1 2/2 6/5 5/4
+f 2/2 3/3 7/6 6/5
+f 3/7 4/8 8/10 7/9
+`
+	parts: [dynamic]geom.Mesh_Part
+	defer geom.mesh_parts_destroy(&parts)
+	err, _ := geom.mesh_read_obj_parts(&parts, transmute([]u8)text, nil)
+	if !testing.expect_value(t, err, geom.Mesh_File_Error.None) do return
+	p := &parts[0]
+	_, clean_err := geom.mesh_clean(&p.mesh, nil, &p.colors, &p.groups, &p.polys, &p.uvs)
+	testing.expect_value(t, clean_err, geom.Mesh_File_Error.None)
+	first, corners, tri_poly := geom.mesh_polygons(p.mesh.indices[:], p.polys[:])
+	defer {
+		delete(first)
+		delete(corners)
+		delete(tri_poly)
+	}
+	faces := geom.vertex_faces_build(p.mesh, nil, context.temp_allocator)
+	indices := p.mesh.indices[:]
+	u := from_corners(indices, p.uvs[:], nil, faces, context.temp_allocator)
+	testing.expect_value(t, check(u, indices, faces, len(p.mesh.positions)), "")
+	testing.expect_value(t, u.islands, 2)
+	testing.expect(t, abs(u.filled - 0.375) < 1e-6, "two boxes of 0.5 by 0.5 and 0.25 by 0.5")
+	for q, tri in tri_poly {
+		testing.expect_value(t, u.island[tri], 0 if q < 2 else 1)
+		for k in 0 ..< 3 {
+			pos := p.mesh.positions[indices[3 * tri + k]]
+			// The first two quads lie on the texture as the strip lies in space, a quarter
+			// across and a half up a unit; the third's corner at (3, 0) is the texture's (1, 0).
+			if q < 2 do testing.expectf(t, u.corner[tri][k] == [2]f32{pos.x / 4, pos.y / 2}, "triangle %d corner %d: %v", tri, k, u.corner[tri][k])
+			else if pos.xy == {3, 0} do testing.expect_value(t, u.corner[tri][k], [2]f32{1, 0})
+		}
+	}
+}
