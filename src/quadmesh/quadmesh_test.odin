@@ -31,7 +31,7 @@ sphere_becomes_regular_quads :: proc(t: ^testing.T) {
 	defer polygon_mesh_destroy(&out)
 	if !testing.expectf(t, err == .None, "remesh failed: %v %s", err, reason) do return
 	log.infof("sphere: %d faces (%d quads, %d triangles, %d n-gons), %d vertices in %.0f ms", report.faces, report.quads, report.triangles, report.ngons, len(out.positions), report.ms)
-	testing.expectf(t, report.quads >= 1000 && report.quads <= 1600, "%d quads for 1500 asked", report.quads)
+	testing.expectf(t, report.quads >= 1425 && report.quads <= 1575, "%d quads for 1500 asked", report.quads)
 	testing.expectf(t, f32(report.quads) >= 0.99 * f32(report.faces), "only %d of %d polygons are quads", report.quads, report.faces)
 	uses := make(map[u64]int, 4 * report.faces, context.temp_allocator)
 	valence := make([]int, len(out.positions), context.temp_allocator)
@@ -75,6 +75,48 @@ threads_do_not_change_the_result :: proc(t: ^testing.T) {
 	if same do for c, i in one.corners do if c != four.corners[i] do same = false
 	if same do for f, i in one.first do if f != four.first[i] do same = false
 	testing.expect(t, same, "one thread and four give different polygons")
+}
+
+// Two spheres in one mesh are two islands, which the remesh runs on its own threads when
+// given them: the polygons of each island come back in the same order, bit for bit, on one
+// thread and on four, and the count lands over the two islands together.
+@(test)
+islands_do_not_change_the_result :: proc(t: ^testing.T) {
+	when !AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	two_spheres :: proc(threads: int) -> (out: Polygon_Mesh, report: Report, err: Error, reason: string) {
+		source := geom.icosphere(3)
+		defer geom.mesh_destroy(&source)
+		n := len(source.positions)
+		positions := make([]geom.Vec3, 2 * n, context.temp_allocator)
+		indices := make([]u32, 2 * len(source.indices), context.temp_allocator)
+		for p, i in source.positions {
+			positions[i] = p + {-1.5, 0, 0}
+			positions[n + i] = 0.6 * p + {1.5, 0, 0}
+		}
+		for v, i in source.indices {
+			indices[i] = v
+			indices[len(source.indices) + i] = v + u32(n)
+		}
+		params := DEFAULT_PARAMS
+		params.quads, params.threads = 1000, threads
+		return remesh(positions, indices, params)
+	}
+	one, report, err1, reason := two_spheres(1)
+	defer polygon_mesh_destroy(&one)
+	if !testing.expectf(t, err1 == .None, "remesh failed: %v %s", err1, reason) do return
+	log.infof("two spheres: %d faces (%d quads) in %.0f ms", report.faces, report.quads, report.ms)
+	testing.expectf(t, report.quads >= 900 && report.quads <= 1100, "%d quads for 1000 asked over two islands", report.quads)
+	four, _, err4, _ := two_spheres(4)
+	defer polygon_mesh_destroy(&four)
+	if !testing.expect(t, err4 == .None) do return
+	same := len(one.positions) == len(four.positions) && len(one.first) == len(four.first) && len(one.corners) == len(four.corners)
+	if same do for p, i in one.positions do if p != four.positions[i] do same = false
+	if same do for c, i in one.corners do if c != four.corners[i] do same = false
+	if same do for f, i in one.first do if f != four.first[i] do same = false
+	testing.expect(t, same, "one thread and four give different polygons over two islands")
 }
 
 // An empty mesh, a broken index and a zero count are refused with a reason before anything
