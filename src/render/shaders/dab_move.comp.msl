@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_move.comp.spv sha256 3c6e9b93c190cc710d65a173cec1720b360b398f298c46528b4450af13ee21b9
+// SDL_shadercross 1ff05bec5739 from dab_move.comp.spv sha256 75852b7e6a49b08b60210f6f27a0007a80f04ab5a7bb58beb9a34c9ede8c71be
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -67,18 +67,6 @@ template<typename T>
     return fma(T(-1), r, l);
 }
 
-struct Dab_std430_logical
-{
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    uint4 slabs;
-};
-
 struct SLANG_ParameterGroup_Params_std140
 {
     uint dab;
@@ -96,6 +84,7 @@ struct Dab_std430
     float4 tilt1;
     float4 tilt2;
     float4 misc;
+    float4 alpha_up;
     uint4 slabs;
 };
 
@@ -119,14 +108,14 @@ struct StructuredBuffer_2
     uint _member0[1];
 };
 
-struct StructuredBuffer_3
-{
-    float _member0[1];
-};
-
 struct RWStructuredBuffer_1
 {
     float4 _member0[1];
+};
+
+struct StructuredBuffer_3
+{
+    float _member0[1];
 };
 
 struct RWStructuredBuffer_2
@@ -135,40 +124,40 @@ struct RWStructuredBuffer_2
 };
 
 static inline __attribute__((always_inline))
-bool slab_vertex(thread const Dab_std430_logical& d, uint3 group_id, uint3 local_id, thread uint& g, thread uint& v, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs)
+bool slab_vertex(uint _88, uint3 _89, uint3 _90, thread uint& _91, thread uint& _92, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& dabs, device StructuredBuffer_1& slabs)
 {
-    g = (group_id.y * Params.groups_x) + group_id.x;
-    v = 0u;
-    if (g >= d.slabs.y)
+    _91 = (_89.y * Params.groups_x) + _89.x;
+    _92 = 0u;
+    if (_91 >= dabs._member0[_88].slabs.y)
     {
         return false;
     }
-    uint _163 = d.slabs.x + g;
-    if (local_id.x >= slabs._member0[_163].y)
+    uint _121 = dabs._member0[_88].slabs.x + _91;
+    if (_90.x >= slabs._member0[_121].y)
     {
         return false;
     }
-    v = slabs._member0[_163].x + local_id.x;
+    _92 = slabs._member0[_121].x + _90.x;
     return true;
 }
 
 static inline __attribute__((always_inline))
 float3 at(uint v, device RWStructuredBuffer& positions)
 {
-    uint _191 = 3u * v;
-    return float3(positions._member0[_191], positions._member0[_191 + 1u], positions._member0[_191 + 2u]);
+    uint _149 = 3u * v;
+    return float3(positions._member0[_149], positions._member0[_149 + 1u], positions._member0[_149 + 2u]);
 }
 
 static inline __attribute__((always_inline))
 float3 normal_at(uint v, device StructuredBuffer_2& normals)
 {
-    float _255 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
-    float _261 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
-    float _263 = spvFSub(1.0, abs(_255));
-    float _265 = abs(_261);
-    float _266 = spvFSub(_263, _265);
-    float3 n = float3(_255, _261, _266);
-    if (_266 < 0.0)
+    float _215 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
+    float _221 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
+    float _223 = spvFSub(1.0, abs(_215));
+    float _225 = abs(_221);
+    float _226 = spvFSub(_223, _225);
+    float3 n = float3(_215, _221, _226);
+    if (_226 < 0.0)
     {
         float sx;
         if (n.x >= 0.0)
@@ -188,33 +177,50 @@ float3 normal_at(uint v, device StructuredBuffer_2& normals)
         {
             sy = -1.0;
         }
-        n.x = spvFMul(spvFSub(1.0, _265), sx);
-        n.y = spvFMul(_263, sy);
+        n.x = spvFMul(spvFSub(1.0, _225), sx);
+        n.y = spvFMul(_223, sy);
     }
-    float _299 = length(n);
-    float3 _226;
-    if (_299 > 0.0)
+    float _259 = length(n);
+    float3 _186;
+    if (_259 > 0.0)
     {
-        _226 = n / float3(_299);
+        _186 = n / float3(_259);
     }
     else
     {
-        _226 = float3(0.0);
+        _186 = float3(0.0);
     }
-    return _226;
+    return _186;
 }
 
 static inline __attribute__((always_inline))
-float falloff_drawn(thread const Dab_std430_logical& d, float x2, device StructuredBuffer_3& tables)
+float alpha_sample(uint _328, float _329, float _330, device StructuredBuffer& dabs, device StructuredBuffer_3& tables)
 {
-    if (x2 >= 1.0)
+    bool _333;
+    if (abs(_329) < 1.0)
+    {
+        _333 = abs(_330) < 1.0;
+    }
+    else
+    {
+        _333 = false;
+    }
+    if (!_333)
     {
         return 0.0;
     }
-    float x = spvFMul(x2, 256.0);
-    int i = int(x);
-    uint _374 = uint(d.misc.w) + uint(i);
-    return spvFAdd(tables._member0[_374], spvFMul(spvFSub(tables._member0[_374 + 1u], tables._member0[_374]), spvFSub(x, float(i))));
+    int size = int(dabs._member0[_328].alpha_up.w);
+    float last = float(size - 1);
+    float x = spvFMul(spvFAdd(spvFMul(_329, 0.5), 0.5), last);
+    float y = spvFMul(spvFSub(0.5, spvFMul(_330, 0.5)), last);
+    int _373 = size - 2;
+    int _375 = min(int(x), _373);
+    int _377 = min(int(y), _373);
+    float fx = spvFSub(x, float(_375));
+    uint row = uint(dabs._member0[_328].misc.w) + uint((_377 * size) + _375);
+    uint below = row + uint(size);
+    float top = spvFAdd(tables._member0[row], spvFMul(spvFSub(tables._member0[row + 1u], tables._member0[row]), fx));
+    return spvFAdd(top, spvFMul(spvFSub(spvFAdd(tables._member0[below], spvFMul(spvFSub(tables._member0[below + 1u], tables._member0[below]), fx)), top), spvFSub(y, float(_377))));
 }
 
 static inline __attribute__((always_inline))
@@ -229,108 +235,122 @@ float falloff(float x2)
 }
 
 static inline __attribute__((always_inline))
-float dab_weight(thread const Dab_std430_logical& d, float3 delta, float d2, device StructuredBuffer_3& tables)
+float falloff_drawn(uint _459, float _460, device StructuredBuffer& dabs, device StructuredBuffer_3& tables)
 {
-    float x2_1 = spvFMul(d2, d.view_inv_r2.w);
-    float x2;
-    if (any(d.view_inv_r2.xyz != float3(0.0)))
+    if (_460 >= 1.0)
     {
-        float _337 = dot(delta, d.view_inv_r2.xyz);
-        float _338 = spvFMul(_337, _337);
-        if (_338 >= 1.0)
+        return 0.0;
+    }
+    float x = spvFMul(_460, 256.0);
+    int i = int(x);
+    uint _476 = uint(dabs._member0[_459].misc.w) + uint(i);
+    return spvFAdd(tables._member0[_476], spvFMul(spvFSub(tables._member0[_476 + 1u], tables._member0[_476]), spvFSub(x, float(i))));
+}
+
+static inline __attribute__((always_inline))
+float dab_weight(uint _275, float3 _276, float _277, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& dabs, device RWStructuredBuffer_1& areas, device StructuredBuffer_3& tables)
+{
+    if ((dabs._member0[_275].slabs.w & 256u) != 0u)
+    {
+        float _322 = dot(_276, areas._member0[(5u * Params.dab) + 4u].xyz);
+        return spvFMul(alpha_sample(_275, dot(_276, areas._member0[(5u * Params.dab) + 2u].xyz), dot(_276, areas._member0[(5u * Params.dab) + 3u].xyz), dabs, tables), falloff(spvFMul(_322, _322)));
+    }
+    float x2_1 = spvFMul(_277, dabs._member0[_275].view_inv_r2.w);
+    float x2;
+    if (any(dabs._member0[_275].view_inv_r2.xyz != float3(0.0)))
+    {
+        float _441 = dot(_276, dabs._member0[_275].view_inv_r2.xyz);
+        float _442 = spvFMul(_441, _441);
+        if (_442 >= 1.0)
         {
             return 0.0;
         }
-        x2 = spvFSub(x2_1, _338);
+        x2 = spvFSub(x2_1, _442);
     }
     else
     {
         x2 = x2_1;
     }
-    if ((d.slabs.w & 64u) != 0u)
+    if ((dabs._member0[_275].slabs.w & 64u) != 0u)
     {
-        return falloff_drawn(d, x2, tables);
+        return falloff_drawn(_275, x2, dabs, tables);
     }
     return falloff(x2);
 }
 
 static inline __attribute__((always_inline))
-float shield(thread const Dab_std430_logical& d, uint v, device StructuredBuffer_2& fade, device StructuredBuffer_2& mask)
+float shield(uint _496, uint _497, device StructuredBuffer& dabs, device StructuredBuffer_2& fade, device StructuredBuffer_2& mask)
 {
-    uint shift = (v & 3u) * 8u;
+    uint shift = (_497 & 3u) * 8u;
     float w;
-    if ((d.slabs.w & 128u) != 0u)
+    if ((dabs._member0[_496].slabs.w & 128u) != 0u)
     {
-        w = spvFMul(float((fade._member0[v >> uint(2)] >> shift) & 255u), 0.0039215688593685626983642578125);
+        w = spvFMul(float((fade._member0[_497 >> uint(2)] >> shift) & 255u), 0.0039215688593685626983642578125);
     }
     else
     {
         w = 1.0;
     }
-    if ((d.slabs.w & 32u) != 0u)
+    if ((dabs._member0[_496].slabs.w & 32u) != 0u)
     {
-        w = spvFMul(w, spvFMul(float(255u - ((mask._member0[v >> uint(2)] >> shift) & 255u)), 0.0039215688593685626983642578125));
+        w = spvFMul(w, spvFMul(float(255u - ((mask._member0[_497 >> uint(2)] >> shift) & 255u)), 0.0039215688593685626983642578125));
     }
     return w;
 }
 
 static inline __attribute__((always_inline))
-float facing_weight(thread const Dab_std430_logical& d, float3 n)
+float facing_weight(uint _553, float3 _554, device StructuredBuffer& dabs)
 {
-    if (all(d.facing_amount.xyz == float3(0.0)))
+    if (all(dabs._member0[_553].facing_amount.xyz == float3(0.0)))
     {
         return 1.0;
     }
-    return fast::clamp(spvFAdd(spvFMul(dot(n, d.facing_amount.xyz), 5.0), 0.5), 0.0, 1.0);
+    return fast::clamp(spvFAdd(spvFMul(dot(_554, dabs._member0[_553].facing_amount.xyz), 5.0), 0.5), 0.0, 1.0);
 }
 
 static inline __attribute__((always_inline))
 void put(uint v, float3 p, device RWStructuredBuffer& positions)
 {
-    uint _678 = 3u * v;
-    positions._member0[_678] = p.x;
-    positions._member0[_678 + 1u] = p.y;
-    positions._member0[_678 + 2u] = p.z;
+    uint _765 = 3u * v;
+    positions._member0[_765] = p.x;
+    positions._member0[_765 + 1u] = p.y;
+    positions._member0[_765 + 2u] = p.z;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], device RWStructuredBuffer& positions [[buffer(7)]], device StructuredBuffer_2& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer_2& fade [[buffer(9)]], device RWStructuredBuffer_1& areas [[buffer(9)]], device RWStructuredBuffer_2& heights [[buffer(11)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], device RWStructuredBuffer& positions [[buffer(7)]], device StructuredBuffer_2& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device RWStructuredBuffer_1& areas [[buffer(9)]], device StructuredBuffer_2& fade [[buffer(9)]], device RWStructuredBuffer_2& heights [[buffer(11)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    Dab_std430_logical _11;
-    _11.center_r2 = dabs._member0[Params.dab].center_r2;
-    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
-    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
-    _11.tilt0 = dabs._member0[Params.dab].tilt0;
-    _11.tilt1 = dabs._member0[Params.dab].tilt1;
-    _11.tilt2 = dabs._member0[Params.dab].tilt2;
-    _11.misc = dabs._member0[Params.dab].misc;
-    _11.slabs = dabs._member0[Params.dab].slabs;
     uint g;
     uint v;
-    bool _131 = slab_vertex(_11, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs);
-    if (!_131)
+    bool _85 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, dabs, slabs);
+    if (!_85)
     {
         return;
     }
     float3 p_1 = at(v, positions);
-    float3 delta = spvFSub(p_1, _11.center_r2.xyz);
-    float _213 = dot(delta, delta);
-    if (_213 >= _11.center_r2.w)
+    float4 _170 = dabs._member0[Params.dab].center_r2;
+    float3 delta = spvFSub(p_1, _170.xyz);
+    float _173 = dot(delta, delta);
+    if (_173 >= _170.w)
     {
         return;
     }
     float3 n = normal_at(v, normals);
-    float _312 = dab_weight(_11, delta, _213, tables);
-    float _406 = shield(_11, v, fade, mask);
-    float w = spvFMul(spvFMul(_312, _406), facing_weight(_11, n));
+    float _272 = dab_weight(Params.dab, delta, _173, Params, dabs, areas, tables);
+    float _493 = shield(Params.dab, v, dabs, fade, mask);
+    float _550 = facing_weight(Params.dab, n, dabs);
+    float w = spvFMul(spvFMul(_272, _493), _550);
     if (w <= 0.0)
     {
         return;
     }
-    float4 _500 = areas._member0[2u * Params.dab];
-    float4 _506 = areas._member0[(2u * Params.dab) + 1u];
+    float4 _578 = dabs._member0[Params.dab].facing_amount;
+    float4 _582 = dabs._member0[Params.dab].tilt0;
+    float4 _587 = areas._member0[5u * Params.dab];
+    float4 _593 = areas._member0[(5u * Params.dab) + 1u];
+    uint4 _596 = dabs._member0[Params.dab].slabs;
     float3 p;
     float h;
-    if ((_11.slabs.w & 16u) != 0u)
+    if ((_596.w & 16u) != 0u)
     {
         if (heights._member0[v].x == Params.stroke)
         {
@@ -340,9 +360,9 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         {
             h = 0.0;
         }
-        float want = spvFMul(_11.facing_amount.w, w);
+        float want = spvFMul(_578.w, w);
         float next;
-        if (_11.facing_amount.w > 0.0)
+        if (_578.w > 0.0)
         {
             next = fast::max(h, want);
         }
@@ -350,9 +370,9 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         {
             next = fast::min(h, want);
         }
-        if (_11.slabs.z == 0u)
+        if (_596.z == 0u)
         {
-            p = _500.xyz;
+            p = _587.xyz;
         }
         else
         {
@@ -363,24 +383,24 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     }
     else
     {
-        if (_11.slabs.z == 0u)
+        if (_596.z == 0u)
         {
-            p = spvFAdd(p_1, _500.xyz * spvFMul(_11.facing_amount.w, w));
+            p = spvFAdd(p_1, _587.xyz * spvFMul(_578.w, w));
         }
         else
         {
-            if (_11.slabs.z == 1u)
+            if (_596.z == 1u)
             {
-                p = spvFAdd(p_1, n * spvFMul(_11.facing_amount.w, w));
+                p = spvFAdd(p_1, n * spvFMul(_578.w, w));
             }
             else
             {
-                if (_11.slabs.z == 2u)
+                if (_596.z == 2u)
                 {
-                    float _581 = dot(spvFSub(p_1, _506.xyz), _500.xyz);
-                    if (spvFMul(_581, _11.facing_amount.w) < 0.0)
+                    float _669 = dot(spvFSub(p_1, _593.xyz), _587.xyz);
+                    if (spvFMul(_669, _578.w) < 0.0)
                     {
-                        p = spvFSub(p_1, _500.xyz * spvFMul(_581, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
+                        p = spvFSub(p_1, _587.xyz * spvFMul(_669, fast::min(spvFMul(spvFMul(_582.w, w), 0.5), 1.0)));
                     }
                     else
                     {
@@ -389,20 +409,20 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                 }
                 else
                 {
-                    if (_11.slabs.z == 3u)
+                    if (_596.z == 3u)
                     {
-                        float _599 = dot(spvFSub(p_1, _506.xyz), _500.xyz);
-                        if (_599 > 0.0)
+                        float _687 = dot(spvFSub(p_1, _593.xyz), _587.xyz);
+                        if (_687 > 0.0)
                         {
-                            h = _11.misc.x;
+                            h = dabs._member0[Params.dab].misc.x;
                         }
                         else
                         {
-                            h = _11.misc.y;
+                            h = dabs._member0[Params.dab].misc.y;
                         }
-                        if (abs(_599) <= spvFMul(_11.misc.z, spvFSub(1.0, fast::clamp(h, 0.0, 1.0))))
+                        if (abs(_687) <= spvFMul(dabs._member0[Params.dab].misc.z, spvFSub(1.0, fast::clamp(h, 0.0, 1.0))))
                         {
-                            p = spvFSub(p_1, _500.xyz * spvFMul(spvFMul(_599, _11.facing_amount.w), fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
+                            p = spvFSub(p_1, _587.xyz * spvFMul(spvFMul(_687, _578.w), fast::min(spvFMul(spvFMul(_582.w, w), 0.5), 1.0)));
                         }
                         else
                         {
@@ -411,18 +431,18 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                     }
                     else
                     {
-                        if (_11.slabs.z == 4u)
+                        if (_596.z == 4u)
                         {
-                            float3 to = spvFSub(_11.center_r2.xyz, p_1);
-                            p = spvFAdd(p_1, spvFSub(to, _500.xyz * dot(to, _500.xyz)) * spvFMul(_11.facing_amount.w, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.25), 1.0)));
+                            float3 to = spvFSub(_170.xyz, p_1);
+                            p = spvFAdd(p_1, spvFSub(to, _587.xyz * dot(to, _587.xyz)) * spvFMul(_578.w, fast::min(spvFMul(spvFMul(_582.w, w), 0.25), 1.0)));
                         }
                         else
                         {
                             float3 p_1_1;
-                            if (_11.slabs.z == 5u)
+                            if (_596.z == 5u)
                             {
-                                float3 to_1 = spvFSub(_11.center_r2.xyz, p_1);
-                                p_1_1 = spvFAdd(p_1, spvFAdd(_500.xyz * spvFMul(spvFMul(_11.facing_amount.w, w), w), spvFSub(to_1, _500.xyz * dot(to_1, _500.xyz)) * fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.20000000298023223876953125), 1.0)));
+                                float3 to_1 = spvFSub(_170.xyz, p_1);
+                                p_1_1 = spvFAdd(p_1, spvFAdd(_587.xyz * spvFMul(spvFMul(_578.w, w), w), spvFSub(to_1, _587.xyz * dot(to_1, _587.xyz)) * fast::min(spvFMul(spvFMul(_582.w, w), 0.20000000298023223876953125), 1.0)));
                             }
                             else
                             {

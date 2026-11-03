@@ -6,7 +6,7 @@
 // one after another in the order they were laid, each reading the positions the one before
 // it wrote, as the CPU's do.
 //
-// A dab record is eight float4s, as render.Sculpt_Dab lays it out (the sculptor's
+// A dab record is nine float4s, as render.Sculpt_Dab lays it out (the sculptor's
 // Gpu_Dab translated by the app): the kinds and flags are the DAB_* constants below.
 //
 // SDL_GPU's SPIR-V layout for compute: set 0 holds the read-only storage buffers, set 1
@@ -31,6 +31,12 @@ static const uint FLAG_ONCE = 16;   // Draw, Inflate: Accumulate off, the stroke
 static const uint FLAG_MASK = 32;   // the mask's bytes shield the vertices (sculpt.shield)
 static const uint FLAG_DRAWN = 64;  // a drawn falloff's table (sculpt.falloff_drawn) in place of the round one
 static const uint FLAG_FADE = 128;  // an HD window's fade bytes shield the vertices (sculpt.shield)
+static const uint FLAG_ALPHA = 256; // an alpha's values in `tables` weigh the dab (sculpt.dab_weight)
+static const uint FLAG_MIRROR = 512; // the alpha is mirrored (Brush.alpha_mirror)
+
+// The float4s a dab's area takes in `areas`: the normal, a point on the plane, then with
+// an alpha its frame (sculpt.alpha_frame's au, av and an).
+static const uint AREA_ROWS = 5;
 
 // sculpt.FALLOFF_STEPS: a drawn falloff's table holds one more value.
 static const float FALLOFF_STEPS = 256.0;
@@ -47,7 +53,8 @@ struct Dab {
 	float4 tilt0;         // the tilt's rows (FLAG_TILT), .w the strength
 	float4 tilt1;         // .w 1 / (the sample radius)²
 	float4 tilt2;         // .w Clay's plane offset along the normal (0 for the rest)
-	float4 misc;          // Flatten's plane_short above and below, the radius, the drawn falloff's first value in `tables`
+	float4 misc;          // Flatten's plane_short above and below, the radius, the alpha's or else the drawn falloff's first value in `tables`
+	float4 alpha_up;      // the alpha's up (FLAG_ALPHA), .w its size a side
 	uint4 slabs;          // first slab, slab count, kind, flags
 };
 
@@ -60,7 +67,8 @@ struct Dab {
 // The level's mask, a byte a vertex four to a uint (render.sculpt_gpu_bytes_upload): read
 // only with FLAG_MASK. The nibbles in `normals` are for drawing, too coarse for the brush.
 [[vk::binding(6, 0)]] StructuredBuffer<uint> mask;
-// The frame's drawn falloff tables (sculpt.Falloff.table): read only with FLAG_DRAWN.
+// The frame's alphas and drawn falloff tables (sculpt.Alpha.values, sculpt.Falloff.table):
+// read only with FLAG_ALPHA or FLAG_DRAWN.
 [[vk::binding(7, 0)]] StructuredBuffer<float> tables;
 // An HD window's fade toward its border, packed as the mask is: read only with FLAG_FADE.
 [[vk::binding(8, 0)]] StructuredBuffer<uint> fade;
@@ -129,9 +137,37 @@ float falloff_drawn(Dab d, float x2) {
 	return a + (tables[first + uint(i) + 1] - a) * (x - float(i));
 }
 
-// sculpt.dab_weight without an alpha: the round or drawn falloff, or Projected's across
-// the view line.
+// sculpt.alpha_sample: the alpha read between its pixels at (u, v), -1 to 1 across and
+// up, 0 outside; integer indices as the CPU's, so no sampler rounds them.
+float alpha_sample(Dab d, float u, float v) {
+	if (!(abs(u) < 1.0 && abs(v) < 1.0)) return 0.0;
+	uint first = uint(d.misc.w);
+	int size = int(d.alpha_up.w);
+	float last = float(size - 1);
+	float x = (u * 0.5 + 0.5) * last;
+	float y = (0.5 - v * 0.5) * last;
+	int x0 = min(int(x), size - 2);
+	int y0 = min(int(y), size - 2);
+	float fx = x - float(x0);
+	float fy = y - float(y0);
+	uint row = first + uint(y0 * size + x0);
+	uint below = row + uint(size);
+	float top = tables[row] + (tables[row + 1] - tables[row]) * fx;
+	float bottom = tables[below] + (tables[below + 1] - tables[below]) * fx;
+	return top + (bottom - top) * fy;
+}
+
+// sculpt.dab_weight: the round or drawn falloff, or Projected's across the view line; with
+// an alpha, the image's value where the vertex falls on it, fading as the vertex lies
+// further off its plane, in the frame dab_reduce.comp.slang left after the area.
 float dab_weight(Dab d, float3 delta, float d2) {
+	if ((d.slabs.w & FLAG_ALPHA) != 0) {
+		float3 au = areas[AREA_ROWS * dab + 2].xyz;
+		float3 av = areas[AREA_ROWS * dab + 3].xyz;
+		float3 an = areas[AREA_ROWS * dab + 4].xyz;
+		float h = dot(delta, an);
+		return alpha_sample(d, dot(delta, au), dot(delta, av)) * falloff(h * h);
+	}
 	float x2 = d2 * d.view_inv_r2.w;
 	float3 view = d.view_inv_r2.xyz;
 	if (any(view != float3(0.0))) {

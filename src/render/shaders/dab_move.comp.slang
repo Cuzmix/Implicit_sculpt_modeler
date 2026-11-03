@@ -22,8 +22,8 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	if (w <= 0.0) return;
 	float amount = d.facing_amount.w;
 	float strength = d.tilt0.w;
-	float3 normal = areas[2 * dab].xyz;
-	float3 plane = areas[2 * dab + 1].xyz;
+	float3 normal = areas[AREA_ROWS * dab].xyz;
+	float3 plane = areas[AREA_ROWS * dab + 1].xyz;
 	uint kind = d.slabs.z;
 	if ((d.slabs.w & FLAG_ONCE) != 0) {
 		uint2 l = heights[v];

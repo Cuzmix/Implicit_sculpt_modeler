@@ -146,6 +146,10 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 			stroke       = d.stroke,
 			masked       = d.masked,
 			faded        = d.faded,
+			alpha        = d.alpha,
+			alpha_size   = d.alpha_size,
+			alpha_up     = d.alpha_up,
+			alpha_mirror = d.alpha_mirror,
 			falloff      = d.falloff,
 			ranges       = d.ranges,
 		}

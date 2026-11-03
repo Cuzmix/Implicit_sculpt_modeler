@@ -161,6 +161,12 @@ Sculpt_Dab :: struct {
 	masked:       bool, // the mesh's mask bytes shield the vertices (sculpt_gpu_bytes_upload)
 	faded:        bool, // the HD window's fade bytes do too
 	falloff:      []f32, // a drawn falloff's table (sculpt.FALLOFF_STEPS + 1 values), nil for the round one
+	// An alpha's values (sculpt.Alpha.values, alpha_size a side, 0 to 1), nil for none, and
+	// the way its top faces and whether it is mirrored (sculpt.alpha_frame).
+	alpha:        []f32,
+	alpha_size:   int,
+	alpha_up:     geom.Vec3,
+	alpha_mirror: bool,
 	// The hit nodes' owned vertex ranges, coalesced and sorted: what the kernels work on.
 	ranges:       []geom.Vertex_Range,
 }
@@ -176,7 +182,14 @@ Sculpt_Dab_Kind :: enum u32 {
 	Smooth,
 }
 
-// A dab as dab.slang reads it: eight float4s.
+// A table the dab kernels read from `tables`: an alpha's values or a drawn falloff's, and
+// where they start there, in floats.
+Sculpt_Table :: struct {
+	values: []f32,
+	first:  u32,
+}
+
+// A dab as dab.slang reads it: nine float4s.
 @(private = "file")
 Sculpt_Dab_Record :: struct {
 	center_r2:     [4]f32,
@@ -185,9 +198,15 @@ Sculpt_Dab_Record :: struct {
 	tilt0:         [4]f32, // .w the strength
 	tilt1:         [4]f32, // .w 1 / (the sample radius)²
 	tilt2:         [4]f32, // .w Clay's plane offset
-	misc:          [4]f32, // plane_short above and below, the radius, the drawn falloff's first float in `tables`
+	misc:          [4]f32, // plane_short above and below, the radius, the alpha's or else the drawn falloff's first float in `tables`
+	alpha_up:      [4]f32, // the alpha's up (FLAG_ALPHA), .w its size a side
 	slabs:         [4]u32, // first slab, slab count, kind, flags
 }
+
+// The float4s a dab's area takes in `areas` (dab.slang AREA_ROWS): the normal, a point
+// on the plane, and with an alpha its frame (sculpt.Dab's au, av and an).
+@(private = "file")
+SCULPT_AREA_ROWS :: 5
 
 // dab.slang's FLAG_* bits.
 @(private = "file")
@@ -206,6 +225,10 @@ DAB_FLAG_MASK :: 32
 DAB_FLAG_DRAWN :: 64
 @(private = "file")
 DAB_FLAG_FADE :: 128
+@(private = "file")
+DAB_FLAG_ALPHA :: 256
+@(private = "file")
+DAB_FLAG_MIRROR :: 512
 
 // The dab kernels, in the order a dab runs them.
 Sculpt_Dab_Stage :: enum {
@@ -298,8 +321,13 @@ Sculpt_Gpu :: struct {
 	nodes_transfer_size: u32,
 	bounds:           ^sdl.GPUBuffer, // two float4 a node: lowest, highest
 	bounds_capacity:  u32,
-	// The drawn falloffs' tables of the frame's dabs (dab.slang `tables`).
+	// The alphas and drawn falloffs' tables of the frame's dabs (dab.slang `tables`), and
+	// what they were when last uploaded: the same values for the same stroke on the same
+	// mesh are not sent again (an alpha is up to 1 MB, a stroke's brush keeps it).
 	tables:               ^sdl.GPUBuffer,
+	tables_held:          [dynamic]Sculpt_Table,
+	tables_mesh:          ^Mesh_Buffers,
+	tables_stroke:        u32,
 	tables_capacity:      u32,
 	tables_transfer:      ^sdl.GPUTransferBuffer,
 	tables_transfer_size: u32,
@@ -868,13 +896,16 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	records := make([]Sculpt_Dab_Record, len(ms.dabs), context.temp_allocator)
 	widest: u32
 	once, masked, faded: bool
-	// The drawn falloffs' tables, each once (a stroke has one), one after another.
-	tables := make([dynamic]f32, 0, context.temp_allocator)
-	Table :: struct {
-		values: []f32,
-		first:  u32,
+	// The alphas and drawn falloffs' tables, each once (a stroke has one of each), one
+	// after another.
+	table_of := make([dynamic]Sculpt_Table, 0, context.temp_allocator)
+	table_count: u32
+	table_at :: proc(table_of: ^[dynamic]Sculpt_Table, count: ^u32, values: []f32) -> u32 {
+		for t in table_of do if raw_data(t.values) == raw_data(values) && len(t.values) == len(values) do return t.first
+		append(table_of, Sculpt_Table{values, count^})
+		count^ += u32(len(values))
+		return count^ - u32(len(values))
 	}
-	table_of := make([dynamic]Table, 0, context.temp_allocator)
 	for d, i in ms.dabs {
 		first := u32(len(slabs))
 		_ = cut(&slabs, d.ranges)
@@ -883,21 +914,11 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		once ||= d.once
 		masked ||= d.masked
 		faded ||= d.faded
+		// An alpha's weight leaves the drawn falloff out (sculpt.dab_weight), so a dab
+		// reads one table.
 		table_first: u32
-		if d.falloff != nil {
-			found := false
-			for t in table_of {
-				if raw_data(t.values) == raw_data(d.falloff) && len(t.values) == len(d.falloff) {
-					table_first, found = t.first, true
-					break
-				}
-			}
-			if !found {
-				table_first = u32(len(tables))
-				append(&tables, ..d.falloff)
-				append(&table_of, Table{d.falloff, table_first})
-			}
-		}
+		if d.alpha != nil do table_first = table_at(&table_of, &table_count, d.alpha)
+		else if d.falloff != nil do table_first = table_at(&table_of, &table_count, d.falloff)
 		records[i] = dab_record(d, first, count, table_first)
 	}
 	dab_slabs := u32(len(slabs))
@@ -915,7 +936,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		if !transfer_fit(r, &sg.dabs_transfer, &sg.dabs_transfer_size, dbytes) do return sculpt_refused(sg, fmt.tprintf("a dab upload buffer of %d KB", dbytes >> 10))
 		if !storage_fit(r, &sg.dabs, &sg.dabs_capacity, dbytes, {.COMPUTE_STORAGE_READ}) do return sculpt_refused(sg, fmt.tprintf("a dab buffer of %d KB", dbytes >> 10))
 		if !storage_fit(r, &sg.partials, &sg.partials_capacity, dab_slabs * 32, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a partials buffer of %d KB", (dab_slabs * 32) >> 10))
-		if !storage_fit(r, &sg.areas, &sg.areas_capacity, u32(len(records)) * 32, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, "an areas buffer")
+		if !storage_fit(r, &sg.areas, &sg.areas_capacity, u32(len(records)) * SCULPT_AREA_ROWS * 16, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, "an areas buffer")
 		if !storage_fit(r, &sg.scratch, &sg.scratch_capacity, max(widest * SCULPT_SLAB * 16, 16), {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a scratch buffer of %d KB", (widest * SCULPT_SLAB * 16) >> 10))
 		// A masked or faded dab reads the mesh's mask or fade bytes, which the app keeps
 		// on the GPU (sculpt_gpu_bytes_upload); without them (their buffer was refused,
@@ -923,10 +944,13 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		// everything else.
 		if masked && ms.bytes[.Mask].vertices < mb.vertex_capacity do return false
 		if faded && ms.bytes[.Fade].vertices < mb.vertex_capacity do return false
-		if len(tables) > 0 {
-			tbytes := u32(len(tables) * size_of(f32))
-			if !transfer_fit(r, &sg.tables_transfer, &sg.tables_transfer_size, tbytes) do return sculpt_refused(sg, "a falloff upload buffer")
-			if !storage_fit(r, &sg.tables, &sg.tables_capacity, tbytes, {.COMPUTE_STORAGE_READ}) do return sculpt_refused(sg, "a falloff buffer")
+		if table_count > 0 {
+			tbytes := table_count * size_of(f32)
+			if !transfer_fit(r, &sg.tables_transfer, &sg.tables_transfer_size, tbytes) do return sculpt_refused(sg, "an alpha and falloff upload buffer")
+			held := sg.tables
+			if !storage_fit(r, &sg.tables, &sg.tables_capacity, tbytes, {.COMPUTE_STORAGE_READ}) do return sculpt_refused(sg, "an alpha and falloff buffer")
+			// A new buffer holds nothing yet.
+			if sg.tables != held do clear(&sg.tables_held)
 		}
 		hbytes := mb.vertex_capacity * size_of(Sculpt_Height)
 		if (once || ms.heights != nil) && !storage_fit(r, &ms.heights_buffer, &ms.heights_capacity, hbytes, {.COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE}) do return sculpt_refused(sg, fmt.tprintf("a heights buffer of %d MB", hbytes >> 20))
@@ -960,11 +984,26 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		copy(([^]u8)(dst)[:dbytes], slice.to_bytes(records))
 		gpu_unmap_transfer_buffer(r.device, sg.dabs_transfer)
 	}
-	if len(tables) > 0 {
+	// The tables go up unless the buffer holds them already: the same values (by where
+	// they live) for the same stroke on the same mesh, which a stroke's brush keeps.
+	tables_up := table_count > 0 && len(records) > 0
+	if tables_up && sg.tables_mesh == mb && len(ms.dabs) > 0 && sg.tables_stroke == ms.dabs[0].stroke && len(sg.tables_held) == len(table_of) {
+		same := true
+		for t, k in table_of {
+			h := sg.tables_held[k]
+			if raw_data(h.values) != raw_data(t.values) || len(h.values) != len(t.values) || h.first != t.first do same = false
+		}
+		tables_up = !same
+	}
+	if tables_up {
 		dst = gpu_map_transfer_buffer(r.device, sg.tables_transfer, true)
-		if dst == nil do return sculpt_refused(sg, "mapping the falloffs")
-		copy(([^]u8)(dst)[:len(tables) * size_of(f32)], slice.to_bytes(tables[:]))
+		if dst == nil do return sculpt_refused(sg, "mapping the alphas and falloffs")
+		out := ([^]f32)(dst)
+		for t in table_of do copy(out[t.first:][:len(t.values)], t.values)
 		gpu_unmap_transfer_buffer(r.device, sg.tables_transfer)
+		clear(&sg.tables_held)
+		append(&sg.tables_held, ..table_of[:])
+		sg.tables_mesh, sg.tables_stroke = mb, ms.dabs[0].stroke
 	}
 	if node_count > 0 {
 		dst = gpu_map_transfer_buffer(r.device, sg.nodes_transfer, true)
@@ -978,7 +1017,8 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	pass := gpu_begin_copy_pass(cmd)
 	gpu_upload_to_buffer(pass, {transfer_buffer = sg.transfer}, {buffer = sg.slabs, size = sbytes}, true)
 	if len(records) > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = sg.dabs_transfer}, {buffer = sg.dabs, size = dbytes}, true)
-	if len(tables) > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = sg.tables_transfer}, {buffer = sg.tables, size = u32(len(tables) * size_of(f32))}, true)
+	// Not cycled: a frame that skips the upload reads what the last one sent.
+	if tables_up do gpu_upload_to_buffer(pass, {transfer_buffer = sg.tables_transfer}, {buffer = sg.tables, size = table_count * size_of(f32)}, false)
 	if node_count > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = sg.nodes_transfer}, {buffer = sg.nodes, size = node_count * size_of(Sculpt_Node)}, true)
 	gpu_end_copy_pass(pass)
 
@@ -999,7 +1039,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 		// A stroke with no mask, drawn falloff or fade binds the slabs in their place,
 		// which no kernel then reads (the record's flags say).
 		mask := ms.bytes[.Mask].buffer if masked else sg.slabs
-		falloffs := sg.tables if len(tables) > 0 else sg.slabs
+		falloffs := sg.tables if table_count > 0 else sg.slabs
 		fade := ms.bytes[.Fade].buffer if faded else sg.slabs
 		reads := [9]^sdl.GPUBuffer{mb.indices, ms.offsets, ms.tris, sg.slabs, sg.dabs, mb.normals, mask, falloffs, fade}
 		gpu_bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
@@ -1008,6 +1048,16 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 			groups_x := max(min(count, MAX_SLAB_GROUPS_X), 1)
 			groups_y := (count + groups_x - 1) / groups_x
 			params := Params{dab = u32(i), groups_x = u32(groups_x), stroke = d.stroke}
+			// The area, for the kinds that work along it and for any dab with an alpha,
+			// which lies on its plane (sculpt.dab_lay), Smooth's and Inflate's too.
+			if (d.kind != .Inflate && d.kind != .Smooth) || d.alpha != nil {
+				gpu_bind_compute_pipeline(compute, sg.dab_pipelines[.Area])
+				gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
+				gpu_dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
+				gpu_bind_compute_pipeline(compute, sg.dab_pipelines[.Reduce])
+				gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
+				gpu_dispatch_compute(compute, 1, 1, 1)
+			}
 			if d.kind == .Smooth {
 				for pass_index in 0 ..< d.passes {
 					params.rate = d.rates[pass_index]
@@ -1019,14 +1069,6 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 					gpu_dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 				}
 				continue
-			}
-			if d.kind != .Inflate {
-				gpu_bind_compute_pipeline(compute, sg.dab_pipelines[.Area])
-				gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
-				gpu_dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
-				gpu_bind_compute_pipeline(compute, sg.dab_pipelines[.Reduce])
-				gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
-				gpu_dispatch_compute(compute, 1, 1, 1)
 			}
 			gpu_bind_compute_pipeline(compute, sg.dab_pipelines[.Move])
 			gpu_push_compute_uniform_data(cmd, 0, &params, size_of(params))
@@ -1166,8 +1208,10 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 	if d.peaks do flags |= DAB_FLAG_PEAKS
 	if d.tilt != {} do flags |= DAB_FLAG_TILT
 	if d.masked do flags |= DAB_FLAG_MASK
-	if d.falloff != nil do flags |= DAB_FLAG_DRAWN
+	if d.falloff != nil && d.alpha == nil do flags |= DAB_FLAG_DRAWN
 	if d.faded do flags |= DAB_FLAG_FADE
+	if d.alpha != nil do flags |= DAB_FLAG_ALPHA
+	if d.alpha_mirror do flags |= DAB_FLAG_MIRROR
 	t := d.tilt
 	return {
 		center_r2     = {d.center.x, d.center.y, d.center.z, d.r2},
@@ -1177,6 +1221,7 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 		tilt1         = {t[1, 0], t[1, 1], t[1, 2], d.inv_sample2},
 		tilt2         = {t[2, 0], t[2, 1], t[2, 2], d.plane_offset},
 		misc          = {d.plane_short[0], d.plane_short[1], d.radius, f32(table_first)},
+		alpha_up      = {d.alpha_up.x, d.alpha_up.y, d.alpha_up.z, f32(d.alpha_size)},
 		slabs         = {first_slab, slab_count, u32(d.kind), flags},
 	}
 }
@@ -1269,6 +1314,12 @@ sculpt_gpu_sync :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 @(private)
 sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	sg := &r.sculpt_gpu
+	// Buffers made later in the same place start their strokes again from 1, and a brush's
+	// tables may change between strokes: they go up afresh.
+	if sg.tables_mesh == mb {
+		clear(&sg.tables_held)
+		sg.tables_mesh = nil
+	}
 	for &s in sg.slots {
 		for i := len(s.entries) - 1; i >= 0; i -= 1 {
 			if s.entries[i].mesh != mb do continue
@@ -1339,6 +1390,7 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	if sg.bounds != nil do gpu_release_buffer(r.device, sg.bounds)
 	if sg.lookup_transfer != nil do gpu_release_transfer_buffer(r.device, sg.lookup_transfer)
 	if sg.tables != nil do gpu_release_buffer(r.device, sg.tables)
+	delete(sg.tables_held)
 	if sg.tables_transfer != nil do gpu_release_transfer_buffer(r.device, sg.tables_transfer)
 	for t in sg.bytes_transfer do if t != nil do gpu_release_transfer_buffer(r.device, t)
 	if sg.bounds_pipeline != nil do gpu_release_compute_pipeline(r.device, sg.bounds_pipeline)

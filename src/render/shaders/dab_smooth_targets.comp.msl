@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_smooth_targets.comp.spv sha256 825bb37c0f363681a10fd5b8860d5115d64f1cc0d91c100e62e853e016418ed6
+// SDL_shadercross 1ff05bec5739 from dab_smooth_targets.comp.spv sha256 823e4b6e48a1689967b7fc2d8af502c2dd2ad2b13e384a3e8ac2d17c2ecffe65
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wmissing-braces"
 
@@ -57,18 +57,6 @@ template<typename T>
     return fma(T(-1), r, l);
 }
 
-struct Dab_std430_logical
-{
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    uint4 slabs;
-};
-
 struct SLANG_ParameterGroup_Params_std140
 {
     uint dab;
@@ -86,6 +74,7 @@ struct Dab_std430
     float4 tilt1;
     float4 tilt2;
     float4 misc;
+    float4 alpha_up;
     uint4 slabs;
 };
 
@@ -115,54 +104,45 @@ struct RWStructuredBuffer_1
 };
 
 static inline __attribute__((always_inline))
-bool slab_vertex(thread const Dab_std430_logical& d, uint3 group_id, uint3 local_id, thread uint& g, thread uint& v, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs)
+bool slab_vertex(uint _141, uint3 _142, uint3 _143, thread uint& _144, thread uint& _145, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& dabs, device StructuredBuffer_1& slabs)
 {
-    g = (group_id.y * Params.groups_x) + group_id.x;
-    v = 0u;
-    if (g >= d.slabs.y)
+    _144 = (_142.y * Params.groups_x) + _142.x;
+    _145 = 0u;
+    if (_144 >= dabs._member0[_141].slabs.y)
     {
         return false;
     }
-    uint _216 = d.slabs.x + g;
-    if (local_id.x >= slabs._member0[_216].y)
+    uint _174 = dabs._member0[_141].slabs.x + _144;
+    if (_143.x >= slabs._member0[_174].y)
     {
         return false;
     }
-    v = slabs._member0[_216].x + local_id.x;
+    _145 = slabs._member0[_174].x + _143.x;
     return true;
 }
 
 static inline __attribute__((always_inline))
 float3 at(uint v, device RWStructuredBuffer& positions)
 {
-    uint _244 = 3u * v;
-    return float3(positions._member0[_244], positions._member0[_244 + 1u], positions._member0[_244 + 2u]);
+    uint _202 = 3u * v;
+    return float3(positions._member0[_202], positions._member0[_202 + 1u], positions._member0[_202 + 2u]);
 }
 
 kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_2& indices [[buffer(1)]], device StructuredBuffer_2& offsets [[buffer(2)]], device StructuredBuffer_2& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer& positions [[buffer(6)]], device RWStructuredBuffer_1& scratch [[buffer(9)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    Dab_std430_logical _11;
-    _11.center_r2 = dabs._member0[Params.dab].center_r2;
-    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
-    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
-    _11.tilt0 = dabs._member0[Params.dab].tilt0;
-    _11.tilt1 = dabs._member0[Params.dab].tilt1;
-    _11.tilt2 = dabs._member0[Params.dab].tilt2;
-    _11.misc = dabs._member0[Params.dab].misc;
-    _11.slabs = dabs._member0[Params.dab].slabs;
     uint g;
     uint v;
-    bool _184 = slab_vertex(_11, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs);
-    if (!_184)
+    bool _138 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, dabs, slabs);
+    if (!_138)
     {
         return;
     }
-    float3 delta = spvFSub(at(v, positions), _11.center_r2.xyz);
-    if (dot(delta, delta) >= _11.center_r2.w)
+    float3 delta = spvFSub(at(v, positions), dabs._member0[Params.dab].center_r2.xyz);
+    if (dot(delta, delta) >= dabs._member0[Params.dab].center_r2.w)
     {
         return;
     }
-    uint _279 = v + 1u;
+    uint _239 = v + 1u;
     uint k = offsets._member0[v];
     float3 sum = float3(0.0);
     uint odd = 0u;
@@ -172,23 +152,23 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         float3 sum_1;
         uint odd_1;
         float n_1;
-        bool _45_ladder_break = false;
+        bool _40_ladder_break = false;
         do
         {
-            if (!(k < offsets._member0[_279]))
+            if (!(k < offsets._member0[_239]))
             {
-                _45_ladder_break = true;
+                _40_ladder_break = true;
                 break;
             }
-            uint _295 = 3u * tris._member0[k];
-            uint _299 = _295 + 1u;
-            uint _302 = _295 + 2u;
-            sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_295], positions), at(indices._member0[_299], positions)), at(indices._member0[_302], positions)));
-            odd_1 = odd ^ (((indices._member0[_295] ^ indices._member0[_299]) ^ indices._member0[_302]) ^ v);
+            uint _255 = 3u * tris._member0[k];
+            uint _259 = _255 + 1u;
+            uint _262 = _255 + 2u;
+            sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_255], positions), at(indices._member0[_259], positions)), at(indices._member0[_262], positions)));
+            odd_1 = odd ^ (((indices._member0[_255] ^ indices._member0[_259]) ^ indices._member0[_262]) ^ v);
             n_1 = spvFAdd(n, 3.0);
             break;
         } while(false);
-        if (_45_ladder_break)
+        if (_40_ladder_break)
         {
             break;
         }
@@ -206,36 +186,36 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     {
         sum = at(v, positions);
     }
-    bool _24;
+    bool _19;
     if (odd != 0u)
     {
-        _24 = n <= 96.0;
+        _19 = n <= 96.0;
     }
     else
     {
-        _24 = false;
+        _19 = false;
     }
     float3 q;
-    if (_24)
+    if (_19)
     {
         uint j = 0u;
         spvUnsafeArray<uint, 64> seen;
         spvUnsafeArray<uint, 64> times;
         for (;;)
         {
-            bool _62_ladder_break = false;
+            bool _57_ladder_break = false;
             do
             {
                 if (!(j < 64u))
                 {
-                    _62_ladder_break = true;
+                    _57_ladder_break = true;
                     break;
                 }
                 seen[j] = 0u;
                 times[j] = 0u;
                 break;
             } while(false);
-            if (_62_ladder_break)
+            if (_57_ladder_break)
             {
                 break;
             }
@@ -248,28 +228,28 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         uint count_2;
         for (;;)
         {
-            bool _72_ladder_break = false;
+            bool _67_ladder_break = false;
             do
             {
-                if (!(k < offsets._member0[_279]))
+                if (!(k < offsets._member0[_239]))
                 {
-                    _72_ladder_break = true;
+                    _67_ladder_break = true;
                     break;
                 }
                 uint i = 0u;
                 count_1 = count;
                 for (;;)
                 {
-                    bool _77_ladder_break = false;
+                    bool _72_ladder_break = false;
                     do
                     {
                         if (!(i < 3u))
                         {
-                            _77_ladder_break = true;
+                            _72_ladder_break = true;
                             break;
                         }
-                        uint _390 = (3u * tris._member0[k]) + i;
-                        if (indices._member0[_390] == v)
+                        uint _350 = (3u * tris._member0[k]) + i;
+                        if (indices._member0[_350] == v)
                         {
                             break;
                         }
@@ -278,13 +258,13 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         {
                             if (j < count_1)
                             {
-                                _24 = seen[j] != indices._member0[_390];
+                                _19 = seen[j] != indices._member0[_350];
                             }
                             else
                             {
-                                _24 = false;
+                                _19 = false;
                             }
-                            if (!_24)
+                            if (!_19)
                             {
                                 break;
                             }
@@ -293,7 +273,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         }
                         if (j == count_1)
                         {
-                            seen[j] = indices._member0[_390];
+                            seen[j] = indices._member0[_350];
                             times[j] = 0u;
                             count_2 = count_1 + 1u;
                         }
@@ -305,7 +285,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         count_1 = count_2;
                         break;
                     } while(false);
-                    if (_77_ladder_break)
+                    if (_72_ladder_break)
                     {
                         break;
                     }
@@ -314,7 +294,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                 }
                 break;
             } while(false);
-            if (_72_ladder_break)
+            if (_67_ladder_break)
             {
                 break;
             }
@@ -327,12 +307,12 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         float b = 0.0;
         for (;;)
         {
-            bool _106_ladder_break = false;
+            bool _101_ladder_break = false;
             do
             {
                 if (!(j < count))
                 {
-                    _106_ladder_break = true;
+                    _101_ladder_break = true;
                     break;
                 }
                 if (times[j] == 1u)
@@ -342,7 +322,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                 }
                 break;
             } while(false);
-            if (_106_ladder_break)
+            if (_101_ladder_break)
             {
                 break;
             }

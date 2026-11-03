@@ -58,7 +58,7 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 	m := s.mesh
 	normal_sum, center_sum: Vec3
 	weight: f32
-	if rec.kind != .Inflate {
+	if rec.kind != .Inflate || rec.alpha != nil {
 		for r in rec.ranges do for v in r.first ..< r.first + r.count {
 			delta := m.positions[v] - rec.center
 			d2 := linalg.dot(delta, delta)
@@ -73,6 +73,15 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 	normal := linalg.normalize0(normal_sum)
 	plane := center_sum / weight if weight > 0 else Vec3{}
 	plane += normal * rec.plane_offset
+	// The alpha's frame, as alpha_frame works it out from this area.
+	alpha: Alpha
+	au, av, an: Vec3
+	if rec.alpha != nil {
+		alpha = {size = rec.alpha_size, values = rec.alpha}
+		fd := Dab{normal = normal, brush = {radius = rec.radius, alpha = &alpha, alpha_up = rec.alpha_up, alpha_mirror = rec.alpha_mirror}}
+		alpha_frame(&fd)
+		au, av, an = fd.au, fd.av, fd.an
+	}
 	for r in rec.ranges do for v in r.first ..< r.first + r.count {
 		p := m.positions[v]
 		delta := p - rec.center
@@ -82,7 +91,10 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 		// mask's shield.
 		x2 := d2 * rec.inv_r2
 		w := falloff(x2)
-		if rec.falloff != nil {
+		if rec.alpha != nil {
+			h := linalg.dot(delta, an)
+			w = alpha_sample(&alpha, linalg.dot(delta, au), linalg.dot(delta, av)) * falloff(h * h)
+		} else if rec.falloff != nil {
 			if x2 >= 1 do continue
 			x := x2 * FALLOFF_STEPS
 			i := int(x)
@@ -271,6 +283,7 @@ stroke_gpu_hand_off :: proc(t: ^testing.T) {
 	stroke_gpu_dabs_normals_come_back_after_the_stroke(t)
 	stroke_gpu_dabs_masked_and_drawn_match_the_cpu(t)
 	stroke_gpu_dabs_faded_match_the_cpu(t)
+	stroke_gpu_dabs_with_an_alpha_match_the_cpu(t)
 }
 
 // Two sculptors, each stroked the same way: the twin on the CPU, the other with its dabs
@@ -727,4 +740,37 @@ stroke_gpu_dabs_faded_match_the_cpu :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, still, "no vertex on the border moved")
 	testing.expect(t, moved > 0, "the strokes moved the faded vertices")
+}
+
+@(private = "file")
+stroke_gpu_dabs_with_an_alpha_match_the_cpu :: proc(t: ^testing.T) {
+	// The Noise alpha on Draw, Inflate (whose area the GPU then finds only for the alpha's
+	// frame) and Clay turned and mirrored: the dabs stay on the GPU and end as the CPU's.
+	// A vector displacement alpha stays on the CPU.
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	noise := alpha_make(.Noise, 64)
+	defer alpha_destroy(&noise)
+	brushes := []Brush {
+		{kind = .Draw, radius = 0.3, strength = 0.5, alpha = &noise, alpha_up = {0, 1, 0}},
+		{kind = .Inflate, radius = 0.3, strength = 0.5, alpha = &noise, alpha_up = {0, 1, 0}},
+		{kind = .Clay, radius = 0.3, strength = 0.5, alpha = &noise, alpha_up = {1, 1, 0}, alpha_mirror = true},
+	}
+	dabs_pair(t, &f, &a, &b, brushes, true)
+	testing.expectf(t, f.begins == 3 && f.laid == 9, "every dab was laid by the stand-in (begins %d, laid %d)", f.begins, f.laid)
+	expect_positions(t, &mb, &ma, 1e-5, "after GPU strokes with an alpha")
+
+	vdm := alpha_make(.Noise, 8)
+	defer alpha_destroy(&vdm)
+	vdm.vectors = make([][3]f32, vdm.size * vdm.size)
+	testing.expect(t, !dab_gpu_takes(&b, {kind = .Draw, radius = 0.3, strength = 0.5, alpha = &vdm}), "a vector displacement alpha stays on the CPU")
+	testing.expect(t, dab_gpu_takes(&b, {kind = .Draw, radius = 0.3, strength = 0.5, alpha = &noise}), "a grey alpha goes to the GPU")
 }
