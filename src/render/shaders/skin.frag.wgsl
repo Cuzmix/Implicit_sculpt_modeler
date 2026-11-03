@@ -1,4 +1,4 @@
-// slangc wgsl from skin.frag.spv sha256 b7cdcf816b024bcc6392a9ac664ba84b89893fe7edb88dff4e357facc885483b
+// slangc wgsl from skin.frag.spv sha256 3eb63a8f46d19ddd8dd3ad78b984b3cbb5faee7e7f44ca6837a5c6f54f81f388
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -151,130 +151,134 @@ fn skin_index_0( i_0 : u32,  j_0 : u32,  S_0 : u32,  V_0 : u32,  E_0 : u32,  tri
     return V_0 + ((ref_0 >> (u32(1)))) * (S_0 - u32(1)) + (along_0 - u32(1));
 }
 
-fn oct_decode_0( e_1 : vec2<f32>) -> vec3<f32>
+fn skin_grid_corners_0( S_1 : u32,  V_1 : u32,  E_1 : u32,  tri_1 : u32,  rec_0 : vec4<u32>,  gb_0 : vec3<f32>,  gv_0 : vec3<u32>,  x_1 : ptr<function, vec3<u32>>,  w_0 : ptr<function, vec3<f32>>)
 {
-    var _S9 : f32 = e_1.x;
-    var _S10 : f32 = e_1.y;
-    var _S11 : vec3<f32> = vec3<f32>(e_1, 1.0f - abs(_S9) - abs(_S10));
-    var v_1 : vec3<f32> = _S11;
-    if((_S11.z) < 0.0f)
-    {
-        var _S12 : vec2<f32> = vec2<f32>(1.0f) - abs(e_1.yx);
-        var _S13 : f32;
-        if(_S9 >= 0.0f)
-        {
-            _S13 = 1.0f;
-        }
-        else
-        {
-            _S13 = -1.0f;
-        }
-        var _S14 : f32;
-        if(_S10 >= 0.0f)
-        {
-            _S14 = 1.0f;
-        }
-        else
-        {
-            _S14 = -1.0f;
-        }
-        var _S15 : vec2<f32> = _S12 * vec2<f32>(_S13, _S14);
-        v_1.x = _S15.x;
-        v_1.y = _S15.y;
-    }
-    return normalize(v_1);
-}
-
-fn skin_normal_at_0( x_1 : u32) -> vec3<f32>
-{
-    var p_0 : u32 = skin_normals_0[x_1];
-    return oct_decode_0(max(vec2<f32>(vec2<i32>((i32((p_0 << (u32(16)))) >> (u32(16))), (i32(p_0) >> (u32(16))))) / vec2<f32>(32767.0f), vec2<f32>(-1.0f)));
-}
-
-fn skin_view_normal_0() -> vec3<f32>
-{
-    var S_1 : u32 = frag_in_0.skin_meta_0.x;
-    var V_1 : u32 = frag_in_0.skin_meta_0.y;
-    var E_1 : u32 = frag_in_0.skin_meta_0.z;
-    var tri_1 : u32 = frag_in_0.skin_tri_0.x;
-    var rec_0 : vec4<u32> = skin_tris_0[tri_1];
     var lead_0 : u32 = ((rec_0.w) & (u32(3)));
-    var gb_0 : vec3<f32> = frag_in_0.bary_0;
-    var gv_0 : vec3<u32> = frag_in_0.skin_tri_0.yzw;
     var b_0 : vec3<f32>;
-    var v_2 : vec3<u32>;
+    var v_1 : vec3<u32>;
     if(lead_0 == u32(1))
     {
-        var _S16 : vec3<u32> = gv_0.zxy;
+        var _S9 : vec3<u32> = gv_0.zxy;
         b_0 = gb_0.zxy;
-        v_2 = _S16;
+        v_1 = _S9;
     }
     else
     {
         if(lead_0 == u32(2))
         {
-            var _S17 : vec3<u32> = gv_0.yzx;
+            var _S10 : vec3<u32> = gv_0.yzx;
             b_0 = gb_0.yzx;
-            v_2 = _S17;
+            v_1 = _S10;
         }
         else
         {
             b_0 = gb_0;
-            v_2 = gv_0;
+            v_1 = gv_0;
         }
     }
     var fs_0 : f32 = f32(S_1);
     var u_0 : f32 = clamp(b_0.y, 0.0f, 1.0f) * fs_0;
-    var w_0 : f32 = clamp(b_0.z, 0.0f, 1.0f) * fs_0;
-    var _S18 : u32 = S_1 - u32(1);
-    var _S19 : u32 = min(u32(u_0), _S18);
-    var _S20 : u32 = min(u32(w_0), _S18);
+    var t_0 : f32 = clamp(b_0.z, 0.0f, 1.0f) * fs_0;
+    var _S11 : u32 = S_1 - u32(1);
+    var _S12 : u32 = min(u32(u_0), _S11);
+    var _S13 : u32 = min(u32(t_0), _S11);
     var i0_0 : u32;
     var j0_0 : u32;
-    if((_S19 + _S20) > _S18)
+    if((_S12 + _S13) > _S11)
     {
-        if(u_0 > w_0)
+        if(u_0 > t_0)
         {
-            i0_0 = _S18 - _S20;
-            j0_0 = _S20;
+            i0_0 = _S11 - _S13;
+            j0_0 = _S13;
         }
         else
         {
-            var _S21 : u32 = _S18 - _S19;
-            i0_0 = _S19;
-            j0_0 = _S21;
+            var _S14 : u32 = _S11 - _S12;
+            i0_0 = _S12;
+            j0_0 = _S14;
         }
     }
     else
     {
-        i0_0 = _S19;
-        j0_0 = _S20;
+        i0_0 = _S12;
+        j0_0 = _S13;
     }
     var fu_0 : f32 = u_0 - f32(i0_0);
-    var fw_0 : f32 = w_0 - f32(j0_0);
-    var _S22 : f32 = fu_0 + fw_0;
-    var _S23 : bool;
-    if(_S22 <= 1.0f)
+    var fw_0 : f32 = t_0 - f32(j0_0);
+    var _S15 : f32 = fu_0 + fw_0;
+    var _S16 : bool;
+    if(_S15 <= 1.0f)
     {
-        _S23 = true;
+        _S16 = true;
     }
     else
     {
-        _S23 = (i0_0 + j0_0 + u32(1)) > _S18;
+        _S16 = (i0_0 + j0_0 + u32(1)) > _S11;
     }
-    var n_0 : vec3<f32>;
-    if(_S23)
+    if(_S16)
     {
-        var _S24 : vec3<u32> = rec_0.xyz;
-        n_0 = skin_normal_at_0(skin_index_0(i0_0, j0_0, S_1, V_1, E_1, tri_1, v_2, _S24)) * vec3<f32>((1.0f - fu_0 - fw_0)) + skin_normal_at_0(skin_index_0(i0_0 + u32(1), j0_0, S_1, V_1, E_1, tri_1, v_2, _S24)) * vec3<f32>(fu_0) + skin_normal_at_0(skin_index_0(i0_0, j0_0 + u32(1), S_1, V_1, E_1, tri_1, v_2, _S24)) * vec3<f32>(fw_0);
+        var _S17 : vec3<u32> = rec_0.xyz;
+        (*x_1) = vec3<u32>(skin_index_0(i0_0, j0_0, S_1, V_1, E_1, tri_1, v_1, _S17), skin_index_0(i0_0 + u32(1), j0_0, S_1, V_1, E_1, tri_1, v_1, _S17), skin_index_0(i0_0, j0_0 + u32(1), S_1, V_1, E_1, tri_1, v_1, _S17));
+        (*w_0) = vec3<f32>(1.0f - fu_0 - fw_0, fu_0, fw_0);
     }
     else
     {
-        var _S25 : u32 = i0_0 + u32(1);
-        var _S26 : u32 = j0_0 + u32(1);
-        var _S27 : vec3<u32> = rec_0.xyz;
-        n_0 = skin_normal_at_0(skin_index_0(_S25, _S26, S_1, V_1, E_1, tri_1, v_2, _S27)) * vec3<f32>((_S22 - 1.0f)) + skin_normal_at_0(skin_index_0(i0_0, _S26, S_1, V_1, E_1, tri_1, v_2, _S27)) * vec3<f32>((1.0f - fu_0)) + skin_normal_at_0(skin_index_0(_S25, j0_0, S_1, V_1, E_1, tri_1, v_2, _S27)) * vec3<f32>((1.0f - fw_0));
+        var _S18 : u32 = i0_0 + u32(1);
+        var _S19 : u32 = j0_0 + u32(1);
+        var _S20 : vec3<u32> = rec_0.xyz;
+        (*x_1) = vec3<u32>(skin_index_0(_S18, _S19, S_1, V_1, E_1, tri_1, v_1, _S20), skin_index_0(i0_0, _S19, S_1, V_1, E_1, tri_1, v_1, _S20), skin_index_0(_S18, j0_0, S_1, V_1, E_1, tri_1, v_1, _S20));
+        (*w_0) = vec3<f32>(_S15 - 1.0f, 1.0f - fu_0, 1.0f - fw_0);
     }
+    return;
+}
+
+fn oct_decode_0( e_1 : vec2<f32>) -> vec3<f32>
+{
+    var _S21 : f32 = e_1.x;
+    var _S22 : f32 = e_1.y;
+    var _S23 : vec3<f32> = vec3<f32>(e_1, 1.0f - abs(_S21) - abs(_S22));
+    var v_2 : vec3<f32> = _S23;
+    if((_S23.z) < 0.0f)
+    {
+        var _S24 : vec2<f32> = vec2<f32>(1.0f) - abs(e_1.yx);
+        var _S25 : f32;
+        if(_S21 >= 0.0f)
+        {
+            _S25 = 1.0f;
+        }
+        else
+        {
+            _S25 = -1.0f;
+        }
+        var _S26 : f32;
+        if(_S22 >= 0.0f)
+        {
+            _S26 = 1.0f;
+        }
+        else
+        {
+            _S26 = -1.0f;
+        }
+        var _S27 : vec2<f32> = _S24 * vec2<f32>(_S25, _S26);
+        v_2.x = _S27.x;
+        v_2.y = _S27.y;
+    }
+    return normalize(v_2);
+}
+
+fn skin_normal_at_0( x_2 : u32) -> vec3<f32>
+{
+    var p_0 : u32 = skin_normals_0[x_2];
+    return oct_decode_0(max(vec2<f32>(vec2<i32>((i32((p_0 << (u32(16)))) >> (u32(16))), (i32(p_0) >> (u32(16))))) / vec2<f32>(32767.0f), vec2<f32>(-1.0f)));
+}
+
+fn skin_view_normal_0() -> vec3<f32>
+{
+    var tri_2 : u32 = frag_in_0.skin_tri_0.x;
+    var x_3 : vec3<u32>;
+    var w_1 : vec3<f32>;
+    skin_grid_corners_0(frag_in_0.skin_meta_0.x, frag_in_0.skin_meta_0.y, frag_in_0.skin_meta_0.z, tri_2, skin_tris_0[tri_2], frag_in_0.bary_0, frag_in_0.skin_tri_0.yzw, &(x_3), &(w_1));
+    var n_0 : vec3<f32> = skin_normal_at_0(x_3.x) * vec3<f32>(w_1.x) + skin_normal_at_0(x_3.y) * vec3<f32>(w_1.y) + skin_normal_at_0(x_3.z) * vec3<f32>(w_1.z);
     return vec3<f32>(n_0.x) * frag_in_0.turn_x_0 + vec3<f32>(n_0.y) * frag_in_0.turn_y_0 + vec3<f32>(n_0.z) * frag_in_0.turn_z_0;
 }
 
@@ -325,9 +329,9 @@ fn skin_detail_color_0( n_2 : vec3<f32>,  v_3 : vec3<f32>) -> vec3<f32>
     {
         ref_1 = vec3<f32>(1.0f, 0.0f, 0.0f);
     }
-    var t_0 : vec3<f32> = normalize(cross(ref_1, m_0));
+    var t_1 : vec3<f32> = normalize(cross(ref_1, m_0));
     var _S28 : vec3<f32> = vec3<f32>(0.5f);
-    var rgb_0 : vec3<f32> = vec3<f32>(clamp(2.0f * dot(s_0, t_0), -1.0f, 1.0f), clamp(2.0f * dot(s_0, cross(m_0, t_0)), -1.0f, 1.0f), dot(s_0, m_0)) * _S28 + _S28;
+    var rgb_0 : vec3<f32> = vec3<f32>(clamp(2.0f * dot(s_0, t_1), -1.0f, 1.0f), clamp(2.0f * dot(s_0, cross(m_0, t_1)), -1.0f, 1.0f), dot(s_0, m_0)) * _S28 + _S28;
     var heat_0 : u32 = ((skin_tris_0[frag_in_0.skin_tri_0.x].w) >> (u32(16)));
     var rgb_1 : vec3<f32>;
     if(heat_0 > u32(0))
@@ -364,9 +368,9 @@ fn opacity_0() -> f32
     return _S29;
 }
 
-fn glsl_mod_0( x_2 : f32,  y_0 : f32) -> f32
+fn glsl_mod_0( x_4 : f32,  y_0 : f32) -> f32
 {
-    return x_2 - y_0 * floor(x_2 / y_0);
+    return x_4 - y_0 * floor(x_4 / y_0);
 }
 
 fn light_at_0( i_1 : i32,  l_0 : ptr<function, vec3<f32>>,  spread_0 : ptr<function, f32>) -> f32
@@ -391,9 +395,9 @@ fn light_at_0( i_1 : i32,  l_0 : ptr<function, vec3<f32>>,  spread_0 : ptr<funct
     var k_2 : f32;
     if(_S33 > 0.0f)
     {
-        var x_3 : f32 = _S31 / (_S33 * _S33);
-        var w_1 : f32 = clamp(1.0f - x_3 * x_3, 0.0f, 1.0f);
-        k_2 = k_1 * (w_1 * w_1);
+        var x_5 : f32 = _S31 / (_S33 * _S33);
+        var w_2 : f32 = clamp(1.0f - x_5 * x_5, 0.0f, 1.0f);
+        k_2 = k_1 * (w_2 * w_2);
     }
     else
     {
@@ -485,9 +489,9 @@ fn lobe_0( dir_0 : vec3<f32>,  toward_0 : vec3<f32>,  color_1 : vec3<f32>,  shar
 
 fn studio_0( dir_1 : vec3<f32>,  rough_2 : f32) -> vec3<f32>
 {
-    var w_2 : f32 = 0.07999999821186066f + 0.89999997615814209f * rough_2;
+    var w_3 : f32 = 0.07999999821186066f + 0.89999997615814209f * rough_2;
     var _S46 : f32 = dir_1.y;
-    return mix(vec3<f32>(0.07000000029802322f, 0.06499999761581421f, 0.05999999865889549f), vec3<f32>(0.40000000596046448f, 0.43000000715255737f, 0.47999998927116394f), vec3<f32>(smoothstep(- w_2, w_2, _S46))) + vec3<f32>(0.12999999523162842f, 0.11999999731779099f, 0.10999999940395355f) * vec3<f32>(exp(- abs(_S46) / (0.05999999865889549f + 0.5f * rough_2))) + lobe_0(dir_1, vec3<f32>(-0.65590423345565796f, 0.7433580756187439f, 0.13118083775043488f), vec3<f32>(4.0f, 3.79999995231628418f, 3.5f), 300.0f, rough_2) + lobe_0(dir_1, vec3<f32>(0.84478187561035156f, 0.32852628827095032f, -0.42239093780517578f), vec3<f32>(1.60000002384185791f, 1.79999995231628418f, 2.09999990463256836f), 600.0f, rough_2) + lobe_0(dir_1, vec3<f32>(0.09396819770336151f, -0.32888868451118469f, 0.93968194723129272f), vec3<f32>(0.5f, 0.5f, 0.5f), 4.0f, rough_2);
+    return mix(vec3<f32>(0.07000000029802322f, 0.06499999761581421f, 0.05999999865889549f), vec3<f32>(0.40000000596046448f, 0.43000000715255737f, 0.47999998927116394f), vec3<f32>(smoothstep(- w_3, w_3, _S46))) + vec3<f32>(0.12999999523162842f, 0.11999999731779099f, 0.10999999940395355f) * vec3<f32>(exp(- abs(_S46) / (0.05999999865889549f + 0.5f * rough_2))) + lobe_0(dir_1, vec3<f32>(-0.65590423345565796f, 0.7433580756187439f, 0.13118083775043488f), vec3<f32>(4.0f, 3.79999995231628418f, 3.5f), 300.0f, rough_2) + lobe_0(dir_1, vec3<f32>(0.84478187561035156f, 0.32852628827095032f, -0.42239093780517578f), vec3<f32>(1.60000002384185791f, 1.79999995231628418f, 2.09999990463256836f), 600.0f, rough_2) + lobe_0(dir_1, vec3<f32>(0.09396819770336151f, -0.32888868451118469f, 0.93968194723129272f), vec3<f32>(0.5f, 0.5f, 0.5f), 4.0f, rough_2);
 }
 
 fn sky_facing_0( n_6 : vec3<f32>,  rig_0 : mat3x3<f32>) -> f32

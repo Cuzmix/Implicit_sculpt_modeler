@@ -131,35 +131,10 @@ float3 skin_normal_at(uint x) {
 float3 skin_view_normal() {
 	uint S = frag_in.skin_meta.x, V = frag_in.skin_meta.y, E = frag_in.skin_meta.z;
 	uint tri = frag_in.skin_tri.x;
-	uint4 rec = skin_tris[tri];
-	// From the corners as drawn back to the mesh's order: drawn corner k is the mesh's
-	// corner (k + lead) mod 3.
-	uint lead = rec.w & 3u;
-	float3 gb = frag_in.bary;
-	uint3 gv = frag_in.skin_tri.yzw;
-	float3 b;
-	uint3 v;
-	if (lead == 1u) { b = gb.zxy; v = gv.zxy; }
-	else if (lead == 2u) { b = gb.yzx; v = gv.yzx; }
-	else { b = gb; v = gv; }
-	float fs = float(S);
-	float u = clamp(b.y, 0.0, 1.0) * fs, w = clamp(b.z, 0.0, 1.0) * fs;
-	uint i0 = min(uint(u), S - 1u), j0 = min(uint(w), S - 1u);
-	if (i0 + j0 > S - 1u) {
-		// Rounding past the triangle's far edge: back onto the last row of small triangles.
-		if (u > w) i0 = S - 1u - j0; else j0 = S - 1u - i0;
-	}
-	float fu = u - float(i0), fw = w - float(j0);
-	float3 n;
-	if (fu + fw <= 1.0 || i0 + j0 + 1u > S - 1u) {
-		n = skin_normal_at(skin_index(i0, j0, S, V, E, tri, v, rec.xyz)) * (1.0 - fu - fw)
-			+ skin_normal_at(skin_index(i0 + 1u, j0, S, V, E, tri, v, rec.xyz)) * fu
-			+ skin_normal_at(skin_index(i0, j0 + 1u, S, V, E, tri, v, rec.xyz)) * fw;
-	} else {
-		n = skin_normal_at(skin_index(i0 + 1u, j0 + 1u, S, V, E, tri, v, rec.xyz)) * (fu + fw - 1.0)
-			+ skin_normal_at(skin_index(i0, j0 + 1u, S, V, E, tri, v, rec.xyz)) * (1.0 - fu)
-			+ skin_normal_at(skin_index(i0 + 1u, j0, S, V, E, tri, v, rec.xyz)) * (1.0 - fw);
-	}
+	uint3 x;
+	float3 w;
+	skin_grid_corners(S, V, E, tri, skin_tris[tri], frag_in.bary, frag_in.skin_tri.yzw, x, w);
+	float3 n = skin_normal_at(x.x) * w.x + skin_normal_at(x.y) * w.y + skin_normal_at(x.z) * w.z;
 	return n.x * frag_in.turn_x + n.y * frag_in.turn_y + n.z * frag_in.turn_z;
 }
 #endif
