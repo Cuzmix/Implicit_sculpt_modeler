@@ -7,7 +7,8 @@ the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linu
 ## 1. Before you plan: load skills
 Skills live in `.claude/skills/<name>/SKILL.md` (mirrored to `.agents/skills/` by `scripts/agents_sync.py`, which also writes the agents as Codex's `.codex/agents/*.toml`). Load every
 skill whose description fits the request BEFORE you form a plan.
-- Always: `sm-odin` (rules for the pinned Odin) and `sm-build` (the build, run and verify loop).
+- Always: `sm-odin` (rules for the pinned Odin) and `sm-build` (the build, run and verify loop). Any design, plan, mock,
+  tech choice or "should we have X like app Y" question: `sm-design` (modern over dated, best of all apps, measured).
 - Meshes, BVH, culling math, mesh tests: `sm-geom`. Brushes, undo, subdivision levels, HD, simplified copies, the stroke
   pipeline, masking, symmetry, dynamic topology: `sm-sculpt`. Modelling tools other than brushes (voxel remesh, primitives, booleans, trims, mirror, measure): `sm-cad`.
   SDFs, voxels, implicit surfaces: `sm-sdf`. Anything drawn or uploaded: `sm-render`. Panels, input, shortcuts: `sm-ui`.
