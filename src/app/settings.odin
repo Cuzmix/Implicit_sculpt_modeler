@@ -228,6 +228,7 @@ SETTINGS := [?]Setting {
 	{"remesh_cell_mm", U + offset_of(Ui_State, remesh_cell_mm), f32, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX},
 	{"remesh_smooth", U + offset_of(Ui_State, remesh_smooth), i32, 0, geom.REMESH_SMOOTH_MAX},
 	{"remesh_keep_detail", U + offset_of(Ui_State, remesh_keep_detail), bool, 0, 0},
+	{"remesh_keep_thin", U + offset_of(Ui_State, remesh_keep_thin), bool, 0, 0},
 	{"remesh_groups", U + offset_of(Ui_State, remesh_groups), bool, 0, 0},
 	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"remesh_keep_symmetry", U + offset_of(Ui_State, remesh_keep_symmetry), bool, 0, 0},
