@@ -7,8 +7,8 @@ import "../geom"
 
 // A flat grid of n by n squares in the z = 0 plane, each cut along its diagonal, with
 // UVs `uv_of` each corner's position, and the triangles round each vertex. Temp memory.
-@(private = "file")
-grid :: proc(n: int, uv_of: proc(p: geom.Vec3) -> [2]f32) -> (positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, u: Uvs) {
+@(private)
+test_grid :: proc(n: int, uv_of: proc(p: geom.Vec3) -> [2]f32) -> (positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, u: Uvs) {
 	m: geom.Mesh
 	m.positions = make([dynamic]geom.Vec3, context.temp_allocator)
 	m.indices = make([dynamic]u32, context.temp_allocator)
@@ -25,11 +25,11 @@ grid :: proc(n: int, uv_of: proc(p: geom.Vec3) -> [2]f32) -> (positions: []geom.
 	return
 }
 
-@(private = "file")
+@(private)
 same :: proc(p: geom.Vec3) -> [2]f32 {return p.xy}
 
 // Marks the edge from vertex a to vertex b a seam on both of its triangles.
-@(private = "file")
+@(private)
 cut :: proc(u: ^Uvs, indices: []u32, a, b: u32) {
 	for t in 0 ..< len(u.corner) do for k in 0 ..< 3 {
 		p, q := indices[3 * t + k], indices[3 * t + (k + 1) % 3]
@@ -41,7 +41,7 @@ cut :: proc(u: ^Uvs, indices: []u32, a, b: u32) {
 // fan is cut in two, while round the inner end the fan still holds together.
 @(test)
 wedges_split_where_a_seam_cuts_a_fan :: proc(t: ^testing.T) {
-	positions, indices, faces, u := grid(2, same)
+	positions, indices, faces, u := test_grid(2, same)
 	cut(&u, indices, 1, 4) // (1, 0) to (1, 1): from the bottom edge to the middle
 	islands_find(&u, indices, faces)
 	testing.expect_value(t, u.islands, 1)
@@ -118,13 +118,13 @@ closed_islands_have_no_border :: proc(t: ^testing.T) {
 // have the singular values a known affine map has, and mirrored they all flip.
 @(test)
 stretch_of_known_maps :: proc(t: ^testing.T) {
-	positions, indices, _, u := grid(4, same)
+	positions, indices, _, u := test_grid(4, same)
 	s := stretch(u, positions, indices)
 	testing.expect_value(t, s.triangles, 32)
 	testing.expect(t, abs(s.l2 - 1) < 1e-9 && abs(s.worst - 1) < 1e-9 && s.angle < 1e-6, "an exact copy")
 	testing.expect_value(t, s.flips, 0)
 
-	_, _, _, wide := grid(4, proc(p: geom.Vec3) -> [2]f32 {return {2 * p.x, p.y}})
+	_, _, _, wide := test_grid(4, proc(p: geom.Vec3) -> [2]f32 {return {2 * p.x, p.y}})
 	// Scaled to the surface's area, the texture is √2 across and 1/√2 up, so the map back
 	// to the surface has singular values √2 and 1/√2.
 	s = stretch(wide, positions, indices)
@@ -132,7 +132,7 @@ stretch_of_known_maps :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(s.worst - 2) < 1e-9, "worst %v", s.worst)
 	testing.expect(t, s.angle > 1, "the diagonals' corners change")
 
-	_, _, _, mirrored := grid(4, proc(p: geom.Vec3) -> [2]f32 {return {-p.x, p.y}})
+	_, _, _, mirrored := test_grid(4, proc(p: geom.Vec3) -> [2]f32 {return {-p.x, p.y}})
 	s = stretch(mirrored, positions, indices)
 	testing.expect_value(t, s.flips, 32)
 
