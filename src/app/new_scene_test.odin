@@ -51,10 +51,10 @@ new_scene_asks_before_discarding_work :: proc(t: ^testing.T) {
 }
 
 // The six first starts keep their numbers, so what names one by number still starts it;
-// every start has a name of its own that reads back; Lens's Home shows each start once.
+// every start has a name of its own that reads back; Home shows each start once.
 @(test)
 new_scene_starts_keep_their_numbers_and_names :: proc(t: ^testing.T) {
-	first := [NARROW_HOME_STARTS]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
+	first := [?]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
 	for shape, i in first do testing.expect(t, NEW_SCENES[i].kind == .Mesh && NEW_SCENES[i].shape == shape)
 	for _, i in NEW_SCENES {
 		id, arg, ok := command_from_name(command_name(.New_Scene, i))
@@ -69,8 +69,8 @@ new_scene_starts_keep_their_numbers_and_names :: proc(t: ^testing.T) {
 	testing.expect(t, s.statements[0].command == .New_Scene && s.statements[0].arg == 7)
 	testing.expect_value(t, s.statements[1].arg, 9)
 	shown: [len(NEW_SCENES)]int
-	for i in LENS_HOME_STARTS do shown[i] += 1
-	for i in LENS_HOME_MORE do shown[i] += 1
+	for i in HOME_STARTS do shown[i] += 1
+	for i in HOME_MORE do shown[i] += 1
 	for n, i in shown do testing.expectf(t, n == 1, "%s shows %d times", NEW_SCENES[i].name, n)
 }
 
