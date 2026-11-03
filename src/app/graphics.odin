@@ -17,10 +17,15 @@ RAY_QUERY_DEFAULT :: !GRAPHICS_METAL
 // What a device that cannot run the backend is told before Sculpt closes: what the app
 // needs and why it stopped, shown in the system's message box (platform_alert).
 graphics_failed_text :: proc() -> string {
-	needs := "a GPU with Metal (an A9, any Apple silicon Mac or a Mac with Metal 2)" if GRAPHICS_METAL else "a GPU and driver with Vulkan 1.3 (dynamic rendering, synchronization2 and timeline semaphores)"
 	why := render.backend_error()
 	if why == "" do why = "the GPU could not be started"
-	return fmt.tprintf("Sculpt needs %s. It cannot draw here: %s.", needs, why)
+	when ODIN_OS == .JS {
+		// A browser's WebGPU is what fails here, and what to try is the browser's.
+		return fmt.tprintf("Sculpt needs WebGPU on this device's GPU, and it cannot draw here: %s. A current Chrome or Edge (on Android, version 12 or later), Safari 26 or Firefox 141 or later has it; chrome://gpu or edge://gpu shows whether WebGPU is on for this GPU and driver.", why)
+	} else {
+		needs := "a GPU with Metal (an A9, any Apple silicon Mac or a Mac with Metal 2)" if GRAPHICS_METAL else "a GPU and driver with Vulkan 1.3 (dynamic rendering, synchronization2 and timeline semaphores)"
+		return fmt.tprintf("Sculpt needs %s. It cannot draw here: %s.", needs, why)
+	}
 }
 
 // The Graphics block of Settings > System: what draws, and the switches its GPU offers.

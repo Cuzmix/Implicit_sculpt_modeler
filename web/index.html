@@ -64,6 +64,9 @@ function fail(message) {
 		box.firstElementChild.appendChild(log);
 	}
 	box.style.display = "grid";
+	// The development server (scripts/web_build.py --serve) prints this in its terminal, so a
+	// tablet's failure can be read on the computer; any other host refuses it, unnoticed.
+	fetch("failure", { method: "POST", body: [navigator.userAgent, message, ...recent].join("\n") }).catch(() => { });
 }
 
 async function start() {

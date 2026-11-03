@@ -524,8 +524,12 @@ app_main :: proc() {
 		ok = ok && leaks == 0 && len(tracking.bad_free_array) == 0
 		mem.tracking_allocator_destroy(&tracking)
 	}
-	if !ok do os.exit(1)
-	if exit_code != 0 do os.exit(exit_code)
+	// On the web a run has no process to end, and os.exit there is a trap the page would
+	// report over the reason already shown: app_main returns, and step tells the page.
+	when ODIN_OS != .JS {
+		if !ok do os.exit(1)
+		if exit_code != 0 do os.exit(exit_code)
+	}
 }
 
 // Whether a run is a person's rather than a script's or a benchmark's: one that runs until

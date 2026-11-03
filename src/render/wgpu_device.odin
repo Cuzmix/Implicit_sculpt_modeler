@@ -124,6 +124,13 @@ wgpu_features: [8]wgpu.FeatureName
 @(private = "file")
 wgpu_on_adapter :: proc "c" (status: wgpu.RequestAdapterStatus, adapter: wgpu.Adapter, message: string, userdata1, userdata2: rawptr) {
 	context = wgpu_state.ctx
+	if status == .Success && adapter == nil {
+		// requestAdapter resolving to null: the browser has WebGPU but keeps it from this
+		// GPU or driver (its block list) or has it switched off for this system.
+		backend_fail("WebGPU", "the browser has WebGPU but gave this page no GPU")
+		wgpu_state.on_ready(false)
+		return
+	}
 	if status != .Success || adapter == nil {
 		backend_fail("WebGPU", "no WebGPU adapter (%v): %s", status, message)
 		wgpu_state.on_ready(false)

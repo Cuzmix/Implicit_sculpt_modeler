@@ -342,8 +342,25 @@ class Tls_Server(http.server.ThreadingHTTPServer):
             super().handle_error(request, address)
 
 
+class Site_Handler(http.server.SimpleHTTPRequestHandler):
+    """The site's files, and POST /failure, where the page sends the message and last log
+    lines of a failure (web/index.html), printed here since a tablet has no console."""
+
+    def do_POST(self):
+        if self.path != "/failure":
+            self.send_error(404)
+            return
+        length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
+        text = self.rfile.read(length).decode("utf-8", "replace")
+        print(f"web: failure on {self.client_address[0]}:", flush=True)
+        for line in text.splitlines():
+            print(f"    {line}", flush=True)
+        self.send_response(204)
+        self.end_headers()
+
+
 def serve(port, lan):
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE)
+    handler = functools.partial(Site_Handler, directory=SITE)
     if not lan:
         # WebGPU needs a secure context, which localhost is.
         with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
