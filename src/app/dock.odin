@@ -101,13 +101,6 @@ GESTURE_ICONS := [Gesture_Tool]rune {
 	.Knife          = 0xe2f0,
 }
 
-// Where the brushes open: the brush picker over the shelf (All, or B), or with the shelf
-// hidden the brush browser under the menu.
-Browser_At :: enum u8 {
-	Dock,
-	Bar,
-}
-
 // Picks `tool` and shows its settings: the tray, on the tool's palette.
 tool_settings_open :: proc(app: ^App, tool: Tool) {
 	command_run(app, TOOL_COMMANDS[tool])

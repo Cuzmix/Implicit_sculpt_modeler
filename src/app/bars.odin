@@ -311,10 +311,9 @@ bar_lists :: proc(id: Command_Id) -> bool {
 	return palette_lists(id) || id == .Command_Palette || id == .Rail_Group
 }
 
-// Opens Search to choose the command for `pick`.
+// Opens the Library to choose the button for `pick` (library_open_for).
 bar_choose :: proc(app: ^App, pick: Bar_Pick) {
-	palette_open(app)
-	app.kit.palette_for = pick
+	library_open_for(app, pick)
 }
 
 // Puts command `s` where `pick` says: in its slot, or in a new slot there.

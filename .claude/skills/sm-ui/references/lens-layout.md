@@ -54,8 +54,8 @@ summary.
   (`brush_values.odin`) are `Brush_Value` slots (one argument per value); their look is the bar's
   (`Bar_List.looks`, kept parallel by insert, remove and move; `bar_look` turns a Slider off the island into a
   Chip), and `value_item` draws every look, a Chip claiming the drag only across its bar (`claim_drag`). Customise bars (`k.bars_edit`) is
-  Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
-  chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
+  Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, the
+  Library (`bar_choose` -> `library_open_for`, `library_put` -> `bar_put`) chooses its button; Arrange's sheet's Panels tab is
   `arrange_show_chips` + `arrange_panel_rows` (the stack Hidden/Left/Right/Float, other windows Hidden/Shown), and
   `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
   polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A section or card button off the rail (and a

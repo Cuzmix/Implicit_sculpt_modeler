@@ -4,11 +4,8 @@ import "core:fmt"
 
 import "../ui"
 
-// The view rail's panels: any card of the stack or section palette can stand on the rail,
-// opening beside its button. The rail's + opens the Panels picker, every panel as a tile
-// lit where it is on the rail, so a person adds and takes off panels without knowing a
-// command's name; More buttons... still offers any command through Search. The cards open
-// through Show panel, the section palettes through Show section as before.
+// The view rail's cards: any card can stand on the rail (or any dock), as Open card. The
+// Library's Cards (the dock ⋯'s Add a button) lists them all.
 
 // The slot that shows panel `p` on a bar: Show panel for a card, Show section for a
 // section's palette.
@@ -17,20 +14,10 @@ rail_panel_slot :: proc(p: Panel_Kind) -> Bar_Slot {
 	return {.Show_Panel, int(p)}
 }
 
-// The cards whose section's palette a fresh rail holds (Layers, Material) or the View
-// island does (Lights): the picker shows the card's tile alone and counts either button as
-// the card on the rail, so a fresh rail's Layers lights the Layers tile.
-@(rodata)
-CARD_SECTIONS := #partial [Panel_Kind]Maybe(Kit_Section) {
-	.Layers = .Layers, .Material = .Material, .Lights = .Lights, .Environment = .Environment,
-}
-
 // Where panel `p` stands on the rail; false when it is not there.
 rail_panel_at :: proc(app: ^App, p: Panel_Kind) -> (int, bool) {
 	s := rail_panel_slot(p)
-	also := Bar_Slot{.Show_Panel, -1}
-	if sec, ok := CARD_SECTIONS[p].?; ok do also = {.Show_Section, int(sec)}
-	for u, i in bar_used(app, .View_Rail) do if u == s || u == also do return i, true
+	for u, i in bar_used(app, .View_Rail) do if u == s do return i, true
 	return 0, false
 }
 
@@ -76,72 +63,7 @@ panel_pop_head :: proc(app: ^App, name, title: string, extra: int) {
 	ui.end(ctx)
 }
 
-// The Panels picker: every panel as a tile, the stack's cards first and then each
-// palette's sections, lit where it is on the rail; a tap puts it on or takes it off.
-kit_panels_picker :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	p := &k.bar_pop
-	owner := ui.id_of(ctx, "rail panels")
-	if !ui.popover_begin(ctx, "rail panels", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = PANEL_POP_PAD, width = PANEL_POP_W}) do return
-	defer ui.popover_end(ctx)
-	panel_pop_head(app, "rail panels head", "Panels", 0)
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
-	ui.end(ctx)
-	full := bar_count(app, .View_Rail)^ >= bar_capacity(.View_Rail)
-	ui.paragraph(ctx, "The view rail is full: take a panel off first." if full else "Tap a panel to put it on the view rail, again to take it off.")
-	inner: f32 = PANEL_POP_W - 2 * PANEL_POP_PAD
-	room := panel_pop_room(app, "rail panels", "rail panels body")
-	scroll := kit_scroll_begin(ctx, "rail panels body", &p.scroll, owner, inner, room, 6)
-	panels_picker_group(app, "CARDS", .Tool, true, inner, full)
-	for tab in ([?]Kit_Tab{.Tool, .Object, .Scene}) do panels_picker_group(app, fmt.tprintf("%s PALETTE", palette_caps(tab)), tab, false, inner, full)
-	if ui.menu_item(ctx, "More buttons...", glyph = ui.ICON_SEARCH) {
-		p.open = false
-		bar_choose(app, {which = .View_Rail, slot = len(bar_used(app, .View_Rail)), add = true})
-	}
-	kit_scroll_end(ctx, scroll)
-}
-
-// "BRUSH", "OBJECT", "SCENE": a palette's name as a caption.
-@(private = "file")
-palette_caps :: proc(tab: Kit_Tab) -> string {
-	#partial switch tab {
-	case .Tool:   return "BRUSH"
-	case .Object: return "OBJECT"
-	}
-	return "SCENE"
-}
-
-// One group of the picker's tiles under its caption, three to a row for room for most
-// names: the cards, or the sections of palette `tab`.
-@(private = "file")
-panels_picker_group :: proc(app: ^App, caption: string, tab: Kit_Tab, cards: bool, inner: f32, full: bool) {
-	ctx := &app.kit.ctx
-	PER_ROW :: 3
-	GAP :: 4
-	list: [len(Panel_Kind)]Panel_Kind
-	n := 0
-	for c in Panel_Kind {
-		if cards != (c in STACK_CARDS) do continue
-		if sec, ok := panel_section(c); ok && section_palette(sec) != tab do continue
-		list[n] = c
-		n += 1
-	}
-	if n == 0 do return
-	ui.caption(ctx, caption)
-	tile := (inner - GAP * (PER_ROW - 1)) / PER_ROW
-	for row := 0; row < n; row += PER_ROW {
-		ui.begin(ctx, fmt.tprintf("panels %s %d", caption, row), {direction = .Row, gap = GAP})
-		for c in list[row:min(row + PER_ROW, n)] {
-			_, on := rail_panel_at(app, c)
-			name := fmt.tprintf("%s##panel %v", panel_kind_title(app, c), c)
-			if ui.brush_tile(ctx, name, panel_kind_icon(app, c), on, enabled = on || !full, width = tile) do rail_panel_toggle(app, c)
-		}
-		ui.end(ctx)
-	}
-}
-
-// Each section's icon, for its button on a bar and its tile in the Panels picker: the
+// Each section's icon, for its button on a bar and its tile in the Library: the
 // look's own where a card shows it, else the nearest of the interface's glyphs, so a rail
 // of sections is not a column of one panel icon (Lucide's download, camera, video and
 // printer by their code points, as the Export card has them).

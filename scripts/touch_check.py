@@ -6244,7 +6244,7 @@ def lens_brush_pie_rest_shows_quick_settings():
 
 @scenario
 def lens_pie_editor_brush_slot_chooses_in_search():
-    """In Lens the pie editor's first row is the brush pie; a tap on a slot there opens Search, and what is chosen there takes the slot."""
+    """In Lens the pie editor's first row is the brush pie; a tap on a slot there opens the Library, and what is typed there and Enter takes the slot."""
     s = Script()
     s.ftap(LENS_PIE["search"])
     s.wait(8)
@@ -6256,7 +6256,7 @@ def lens_pie_editor_brush_slot_chooses_in_search():
     s.type("snake hook")
     s.press("Return")
     s.wait(8)
-    return s, LENS_1440, camera_still({"pie_editor": near(0), "palette": near(0), "brush_pie": lambda v: v.startswith("Brush:Snake_Hook,Brush:Draw")})
+    return s, LENS_1440, camera_still({"pie_editor": near(0), "palette": near(0), "brush_sheet": near(0), "library_puts": near(1), "brush_pie": lambda v: v.startswith("Brush:Snake_Hook,Brush:Draw")})
 
 
 @scenario
@@ -8725,25 +8725,33 @@ def stroke_on_another_object_keeps_to_the_selected():
     ])
 
 
-# The view rail's ⋯ and its menu's Add cards and groups, two of the Panels picker's tiles,
-# and the rail's button the Symmetry card gets at its foot.
+# The view rail's ⋯ and its menu's Add a button, which opens the Library on its Cards, two
+# of the Library's cards, and the rail's button the Symmetry card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 254)
-RAIL_ADD_CARDS = At("Add cards and groups...", 1400, 300)
-PICKER_SYMMETRY = At("panel Symmetry", 1300, 160)
-PICKER_LIGHTS = At("panel Lights", 1300, 160)
+RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
+PICKER_SYMMETRY = At("sheet button/Show_Panel/Symmetry", 1300, 160)
+PICKER_LIGHTS = At("sheet button/Show_Panel/Lights", 1300, 160)
 RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
 
 
 @scenario
 def rail_panels_picker_adds_a_card():
-    """A finger taps the rail's ⋯ and Add cards and groups, then the picker's Symmetry and Lights tiles: both go on
-    the rail. The Symmetry button the rail gets docks the Symmetry card in the panels' column; nothing turns or sculpts."""
+    """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
+    Symmetry and Lights cards: both go on the rail. The Symmetry button the rail gets docks the Symmetry card in the panels' column; nothing
+    turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
     s.wait(6)
     s.ftap(RAIL_ADD_CARDS)
     s.wait(6)
+    # Its search field has the keys: a few letters bring each card into sight.
+    s.type("symm")
+    s.wait(4)
     s.ftap(PICKER_SYMMETRY)
+    s.wait(4)
+    for _ in range(4):
+        s.press("Backspace")
+    s.type("light")
     s.wait(4)
     s.ftap(PICKER_LIGHTS)
     s.wait(4)
@@ -8751,7 +8759,7 @@ def rail_panels_picker_adds_a_card():
     s.wait(6)
     s.ftap(RAIL_SYMMETRY)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Symmetry"),
+    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Symmetry"), "library_puts": near(2),
                                 "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
 
 

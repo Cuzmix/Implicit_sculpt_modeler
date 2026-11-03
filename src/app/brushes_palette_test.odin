@@ -79,3 +79,38 @@ brush_palette_lists_categories :: proc(t: ^testing.T) {
 	for l in found do testing.expectf(t, l.low[:6] == "smooth", "search found %s", l.name)
 	free_all(context.temp_allocator)
 }
+
+// The Library opened for a dock starts on that dock's kind of button and lists the
+// buttons that are not brushes under Cards, Sliders and Commands; a tap puts one on the
+// dock after the last one put there, a second tap takes it off, and choosing for one slot
+// takes that slot and closes the Library.
+@(test)
+library_adds_buttons_to_a_dock :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	bars_reset(&app.kit)
+	n := len(bar_used(&app, .View_Rail))
+	library_open_for(&app, {which = .View_Rail, slot = n, add = true})
+	testing.expect(t, app.kit.browser)
+	testing.expect_value(t, app.kit.brushes.category, Brush_Category.Cards)
+	all := brush_items_all(&app, buttons = true)
+	cards := brush_palette_list(&app, all[:])
+	testing.expect(t, len(cards) > 0)
+	for l in cards do testing.expect_value(t, brush_item_category(l.item), Brush_Category.Cards)
+	lights: Brush_Item
+	for l in cards do if l.item.slot.command == (Bar_Slot{.Show_Panel, int(Panel_Kind.Lights)}) do lights = l.item
+	testing.expect(t, brush_item_is_button(lights))
+	library_put(&app, lights)
+	testing.expect_value(t, len(bar_used(&app, .View_Rail)), n + 1)
+	testing.expect(t, library_on_bar(&app, lights))
+	library_put(&app, lights)
+	testing.expect_value(t, len(bar_used(&app, .View_Rail)), n)
+	testing.expect(t, app.kit.browser)
+
+	library_open_for(&app, {which = .Offhand, slot = 0})
+	testing.expect_value(t, app.kit.brushes.category, Brush_Category.Sliders)
+	library_put(&app, {what = .Slot, slot = {command = {.Brush_Value, int(Brush_Value.Exposure)}}})
+	testing.expect_value(t, bar_used(&app, .Offhand)[0], Bar_Slot{.Brush_Value, int(Brush_Value.Exposure)})
+	testing.expect(t, !app.kit.browser)
+	free_all(context.temp_allocator)
+}

@@ -51,7 +51,6 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
-	Panels, // the rail's Panels picker (rail_panels.odin)
 	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
 }
@@ -242,8 +241,6 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
-	case .Panels:
-		kit_panels_picker(app)
 	case .Group_Menu:
 		kit_group_menu(app)
 	case .Dock_Menu:

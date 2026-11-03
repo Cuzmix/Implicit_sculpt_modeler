@@ -350,7 +350,6 @@ SETTINGS := [?]Setting {
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
 	{"color_default", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, default_palette), int, 0, f32(len(BUILT_IN_PALETTES) + USER_PALETTES - 1)},
 	{"brush_category", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, category), Brush_Category, 0, 0},
-	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
