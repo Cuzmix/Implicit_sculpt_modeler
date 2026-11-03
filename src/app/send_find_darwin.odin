@@ -6,6 +6,7 @@ import "core:log"
 import "core:strings"
 import "core:sync"
 import "core:sys/posix"
+import "core:thread"
 import "core:time"
 
 import "../send"
@@ -57,7 +58,7 @@ be16 :: proc(v: u16) -> u16 {return v >> 8 | v << 8}
 
 // Registers this desktop's service; the system answers for it until the run ends. Its
 // name is the device's, and the system renames it should another computer hold it.
-send_answer_begin :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> (a: Send_Answer) {
+send_answer_begin :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> (a: Send_Answer) {
 	sync.lock(&sh.lock)
 	advert := send.Advert {
 		device = sh.me.device,
@@ -77,9 +78,11 @@ send_answer_begin :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> (a: Send_An
 	return a
 }
 
-send_answer_end :: proc(sh: ^Send_Shared, a: ^Send_Answer) {
+// Stops answering at once: the system's responder withdraws the service. No thread to join.
+send_answer_stop :: proc(a: ^Send_Answer) -> ^thread.Thread {
 	if a.ref != nil do DNSServiceRefDeallocate(a.ref)
 	a^ = {}
+	return nil
 }
 
 @(private = "file")
@@ -116,9 +119,10 @@ dnssd_step :: proc(ref: DNSServiceRef, until: time.Tick) -> bool {
 }
 
 // Browses for desktops receiving scenes for up to wait and returns the first that
-// answers: the one called name (any case) when name is given, else any. The found
-// desktop's name is owned by the caller (send.found_destroy).
-send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (found: send.Found, ok: bool) {
+// answers: the one called name (any case) when name is given, else any. With all, it
+// looks the whole time instead and appends every desktop found, once each. Stops early
+// once stop is set. Found names are owned by the caller (send.found_destroy).
+send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration, stop: ^bool, all: ^[dynamic]send.Found = nil) -> (found: send.Found, ok: bool) {
 	sync.lock(&sh.lock)
 	me := sh.me.device
 	sync.unlock(&sh.lock)
@@ -140,9 +144,9 @@ send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (f
 	defer DNSServiceRefDeallocate(browse)
 	until := time.tick_add(time.tick_now(), wait)
 	looked := 0
-	for !sync.atomic_load(&sh.quit) && !sync.atomic_load(&sh.cancel) {
+	for !sync.atomic_load(&sh.quit) && !sync.atomic_load(stop) {
 		if looked == len(f.instances) {
-			if !dnssd_step(browse, until) do return
+			if !dnssd_step(browse, until) do break
 			continue
 		}
 		inst := f.instances[looked]
@@ -168,7 +172,7 @@ send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (f
 		if !f.resolved do continue
 		candidate: send.Found
 		if !send.txt_get(f.txt, &candidate) || candidate.device == me || candidate.protocol != send.PROTOCOL do continue
-		if name != "" && !strings.equal_fold(candidate.name, name) do continue
+		if all == nil && name != "" && !strings.equal_fold(candidate.name, name) do continue
 		// Its IPv4 address.
 		on_addr :: proc "c" (ref: DNSServiceRef, flags: u32, iface: u32, err: i32, host: cstring, addr: [^]u8, ttl: u32, ctx: rawptr) {
 			f := cast(^Find)ctx
@@ -188,7 +192,8 @@ send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (f
 		candidate.addresses[0] = f.address
 		candidate.count = 1
 		candidate.name = strings.clone(candidate.name)
-		return candidate, true
+		if all == nil do return candidate, true
+		if !send_found_keep(all, &candidate, me) do send.found_destroy(&candidate)
 	}
-	return
+	return {}, all != nil && len(all) > 0
 }

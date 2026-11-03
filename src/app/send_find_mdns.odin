@@ -19,15 +19,13 @@ import "../send"
 // the group (Android would need a multicast lock for that). Apple's systems use dns_sd
 // instead (send_find_darwin.odin), which the iPad requires.
 
-// The answering side: its thread, which ends with the run.
+// The answering side: its thread, which owns its socket and ends with its generation.
 Send_Answer :: struct {
 	thread: ^thread.Thread,
-	sock:   net.UDP_Socket,
-	open:   bool,
 }
 
-// Starts answering for this desktop, beside the listener.
-send_answer_begin :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> (a: Send_Answer) {
+// Starts answering for this desktop, beside the listener of generation gen.
+send_answer_begin :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> (a: Send_Answer) {
 	any_sock, err := net.create_socket(.IP4, .UDP)
 	if err != nil {
 		log.warnf("send: cannot answer on the network: %v", err)
@@ -48,38 +46,37 @@ send_answer_begin :: proc(sh: ^Send_Shared, ctx: runtime.Context) -> (a: Send_An
 	local_addresses(&locals)
 	for l in locals do joined = mdns_join(sock, l) || joined
 	if !joined do log.warnf("send: cannot join the mDNS group: the tablet will not find this computer by itself")
-	a.sock, a.open = sock, true
 	Start :: struct {
 		sh:   ^Send_Shared,
 		sock: net.UDP_Socket,
+		gen:  int,
 	}
 	start := new(Start)
-	start^ = {sh, sock}
+	start^ = {sh, sock, gen}
 	a.thread = thread.create_and_start_with_data(start, proc(data: rawptr) {
 		start := cast(^Start)data
-		sh, sock := start.sh, start.sock
+		sh, sock, gen := start.sh, start.sock, start.gen
 		free(start)
 		arena: runtime.Arena
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
-		send_answer_run(sh, sock, &arena)
+		send_answer_run(sh, sock, gen, &arena)
+		net.close(sock)
 	}, ctx, .Normal, name = "send answer")
 	log.infof("send: answering for %s on the local network", sh.me.name)
 	return a
 }
 
-send_answer_end :: proc(sh: ^Send_Shared, a: ^Send_Answer) {
-	if a.thread != nil {
-		// quit is already set: the thread sees it within its one-second receive.
-		thread.join(a.thread)
-		thread.destroy(a.thread)
-	}
-	if a.open do net.close(a.sock)
+// Stops answering: the generation has moved on already, so the thread ends within its
+// one-second receive. Returns it to be joined once done.
+send_answer_stop :: proc(a: ^Send_Answer) -> ^thread.Thread {
+	t := a.thread
 	a^ = {}
+	return t
 }
 
 @(private = "file")
-send_answer_run :: proc(sh: ^Send_Shared, sock: net.UDP_Socket, arena: ^runtime.Arena) {
+send_answer_run :: proc(sh: ^Send_Shared, sock: net.UDP_Socket, gen: int, arena: ^runtime.Arena) {
 	buf: [send.MDNS_MAX]u8
 	// Kept across packets, while the temp arena is emptied after each.
 	out := make([dynamic]u8)
@@ -90,7 +87,7 @@ send_answer_run :: proc(sh: ^Send_Shared, sock: net.UDP_Socket, arena: ^runtime.
 	defer delete(name)
 	host := strings.clone(send.host_name(device))
 	defer delete(host)
-	for !sync.atomic_load(&sh.quit) {
+	for send_receiving(sh, gen) {
 		n, from, err := net.recv_udp(sock, buf[:])
 		if err != nil || n == 0 do continue
 		ip, is4 := from.address.(net.IP4_Address)
@@ -117,9 +114,11 @@ send_answer_run :: proc(sh: ^Send_Shared, sock: net.UDP_Socket, arena: ^runtime.
 }
 
 // Asks the local network for a desktop receiving scenes, and waits up to wait for the
-// first that answers: the one called name (any case) when name is given, else any. The
-// found desktop's name is owned by the caller (send.found_destroy).
-send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (found: send.Found, ok: bool) {
+// first that answers: the one called name (any case) when name is given, else any. With
+// all, it waits out the whole time instead and appends every desktop that answered there,
+// once each. Stops early once stop is set. Found names are owned by the caller
+// (send.found_destroy).
+send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration, stop: ^bool, all: ^[dynamic]send.Found = nil) -> (found: send.Found, ok: bool) {
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if err != nil {
 		log.warnf("send: cannot ask the network: %v", err)
@@ -141,7 +140,7 @@ send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (f
 	buf: [send.MDNS_MAX]u8
 	for {
 		since := time.tick_since(start)
-		if since >= wait || sync.atomic_load(&sh.quit) || sync.atomic_load(&sh.cancel) do return
+		if since >= wait || sync.atomic_load(&sh.quit) || sync.atomic_load(stop) do return found, ok || (all != nil && len(all) > 0)
 		// Asked again each second, as a lost packet on Wi-Fi is common.
 		if asked < 0 || since - asked >= time.Second {
 			_, _ = net.send_udp(sock, query[:], group)
@@ -154,7 +153,8 @@ send_find_run :: proc(sh: ^Send_Shared, name: string, wait: time.Duration) -> (f
 		list := send.answer_get(buf[:n], cast([4]u8)ip)
 		defer delete(list)
 		for &f in list {
-			if !ok && f.device != me && f.protocol == send.PROTOCOL && (name == "" || strings.equal_fold(f.name, name)) {
+			if all != nil && send_found_keep(all, &f, me) do continue
+			if all == nil && !ok && f.device != me && f.protocol == send.PROTOCOL && (name == "" || strings.equal_fold(f.name, name)) {
 				found, ok = f, true
 			} else {
 				send.found_destroy(&f)

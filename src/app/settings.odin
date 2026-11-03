@@ -386,6 +386,7 @@ SETTINGS := [?]Setting {
 	{"display_link", offset_of(App, display_link), bool, 0, 0},
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
+	{"send_receive", offset_of(App, send_receive), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"async_compute", offset_of(App, async_compute), bool, 0, 0},
 	{"ray_query", offset_of(App, ray_query), bool, 0, 0},
@@ -909,6 +910,10 @@ settings_load :: proc(app: ^App, path: string) {
 				}
 			}
 			c.palette_count += 1
+		case "send_last":
+			// send_last <target, escaped>: where Send scene sends, `address|name` for a
+			// computer found on the network or the address typed.
+			if len(f) == 2 do send_last_set(app, preset_unescape(f[1]))
 		case "recent_scenes":
 			// recent_scenes <path, escaped> ..., newest first: Home's Recent. A path given
 			// twice counts once; a file gone since stays, and Home says so.
@@ -1171,6 +1176,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for rgb in p.colors[:p.count] do fmt.sbprintf(&out, " %s", hex_text(rgb))
 		strings.write_byte(&out, '\n')
 	}
+	if app.send.last != "" do fmt.sbprintf(&out, "send_last %s\n", preset_escape(app.send.last))
 	if len(app.recent_scenes) > 0 {
 		strings.write_string(&out, "recent_scenes")
 		for s in app.recent_scenes do fmt.sbprintf(&out, " %s", preset_escape(s))

@@ -3,7 +3,6 @@ package main
 import "core:crypto"
 import "core:fmt"
 import "core:log"
-import "core:net"
 import "core:os"
 import "core:path/filepath"
 import "core:strconv"
@@ -73,9 +72,20 @@ Send_Shared :: struct {
 	allow:    bool, // --send-allow: pair with whoever asks, without asking anyone
 	pairs:    [dynamic]Send_Pair,
 	events:   [dynamic]Send_Event,
-	listener: net.TCP_Socket, // the listening socket, for waking the listener at the end
 	port:     int,
 	found:    int, // atomic: desktops the last find heard from
+	// Receiving: each start of the listener and its answering is a generation, and a
+	// thread of an older one ends by itself (Receive scenes turned off, or the run ending).
+	receive_gen: int, // atomic
+	// What the send under way is doing, for the pill (send_ui.odin), under the lock.
+	phase:    Send_Phase,
+	peer:     string, // owned: who it is with
+	code:     u32, // the pairing's six digits, while pairing
+	// A device asking this desktop to pair, waiting for its person (the pill's Allow).
+	asking:   Send_Ask,
+	// The computers on the network, while the Export sheet's Send shows them.
+	browse_stop: bool, // atomic
+	computers:   [dynamic]send.Found, // owned names
 	// The send under way: how far it is, in bytes of the file.
 	done, total: i64,
 }
@@ -85,6 +95,14 @@ Send :: struct {
 	listen:   ^thread.Thread,
 	answer:   Send_Answer, // answering on the local network for the listener (send_find_*.odin)
 	sender:   ^thread.Thread,
+	browse:   ^thread.Thread, // finding computers for the Export sheet (send_ui.odin)
+	// Threads told to end and not yet joined: joined once done, so turning Receive scenes
+	// off never waits on the frame.
+	ending:   [dynamic]^thread.Thread,
+	receive:  bool, // --receive: receiving whatever the setting says
+	last:     string, // owned: where the last send went (`send_last` in the settings), for Send scene
+	pick:     int, // the Export sheet's computer, an index into the list it shows
+	address:  [128]u8, // the Export sheet's typed address
 	revision: u64, // rises with each send from this run
 	pending:  string, // --send-to: sent once the run is set up; owned
 	frames:   int,
@@ -188,8 +206,8 @@ send_pairs_save :: proc(sh: ^Send_Shared) {
 	when ODIN_OS != .Windows do _ = os.chmod(path, {.Read_User, .Write_User})
 }
 
-// Sets up sending for a run with a send folder: this device's id and pairs, and the
-// listener when receive is on.
+// Sets up sending for a run with a send folder: this device's id and pairs. The listener
+// starts at the next frame when receive (--receive) or Receive scenes says so.
 send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive: bool, port: int) {
 	when !SEND_AVAILABLE do return
 	if folder == "" do return
@@ -214,9 +232,55 @@ send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive:
 	send_pairs_load(sh)
 	app.send.shared = sh
 	app.send.exit_after_receive = exit_after_receive
-	if receive && !MOBILE {
-		app.send.listen = send_listen_start(sh, context)
-		if app.send.listen != nil do app.send.answer = send_answer_begin(sh, context)
+	app.send.receive = receive
+	// A run told to receive listens before its first frame, so a sender started beside it
+	// finds it at once.
+	send_receive_follow(app)
+}
+
+// Starts or stops receiving as --receive and Receive scenes say: a desktop only.
+send_receive_follow :: proc(app: ^App) {
+	sh := app.send.shared
+	if sh == nil || MOBILE do return
+	want := app.send.receive || app.send_receive
+	if want && app.send.listen == nil {
+		// A listener being ended still holds the port for a moment.
+		for t in app.send.ending do if !thread.is_done(t) do return
+		gen := sync.atomic_add(&sh.receive_gen, 1) + 1
+		app.send.listen = send_listen_start(sh, gen, context)
+		if app.send.listen != nil do app.send.answer = send_answer_begin(sh, gen, context)
+	} else if !want && app.send.listen != nil {
+		sync.atomic_add(&sh.receive_gen, 1)
+		send_listen_wake(sh)
+		append(&app.send.ending, app.send.listen)
+		app.send.listen = nil
+		if t := send_answer_stop(&app.send.answer); t != nil do append(&app.send.ending, t)
+	}
+}
+
+// Joins the threads told to end that have.
+@(private = "file")
+send_ending_join :: proc(app: ^App, wait: bool) {
+	for i := len(app.send.ending) - 1; i >= 0; i -= 1 {
+		t := app.send.ending[i]
+		if !wait && !thread.is_done(t) do continue
+		thread.join(t)
+		thread.destroy(t)
+		unordered_remove(&app.send.ending, i)
+	}
+}
+
+// Forgets a paired device: its next send pairs again.
+send_pair_drop :: proc(app: ^App, device: [16]u8) {
+	sh := app.send.shared
+	if sh == nil do return
+	sync.lock(&sh.lock)
+	defer sync.unlock(&sh.lock)
+	for p, i in sh.pairs do if p.device == device {
+		delete(p.name)
+		ordered_remove(&sh.pairs, i)
+		send_pairs_save(sh)
+		return
 	}
 }
 
@@ -232,20 +296,30 @@ send_destroy :: proc(app: ^App, finish_send: bool) {
 		app.send.sender = nil
 	}
 	sync.atomic_store(&sh.quit, true)
-	send_answer_end(sh, &app.send.answer)
+	sync.atomic_store(&sh.browse_stop, true)
+	sync.atomic_add(&sh.receive_gen, 1)
+	if app.send.browse != nil do append(&app.send.ending, app.send.browse)
+	app.send.browse = nil
+	if t := send_answer_stop(&app.send.answer); t != nil do append(&app.send.ending, t)
 	if app.send.listen != nil {
 		send_listen_wake(sh)
-		thread.join(app.send.listen)
-		thread.destroy(app.send.listen)
+		append(&app.send.ending, app.send.listen)
 		app.send.listen = nil
 	}
+	send_ending_join(app, true)
+	delete(app.send.ending)
+	app.send.ending = nil
 	send_events_take(app)
 	app.send.found = sync.atomic_load(&sh.found)
 	for p in sh.pairs do delete(p.name)
 	delete(sh.pairs)
+	for &f in sh.computers do send.found_destroy(&f)
+	delete(sh.computers)
 	delete(sh.events)
 	delete(sh.me.name)
 	delete(sh.me.build)
+	delete(sh.peer)
+	delete(sh.asking.name)
 	delete(sh.folder)
 	free(sh)
 	app.send.shared = nil
@@ -258,9 +332,10 @@ send_event :: proc(sh: ^Send_Shared, kind: Send_Event_Kind, path: string, hash: 
 	sync.unlock(&sh.lock)
 }
 
-// Sends the scene to host (`name`, `name:port`, an address), on a thread: the scene is
-// read here, as Save reads it, then the thread does the rest.
-send_scene :: proc(app: ^App, host: string) -> bool {
+// Sends the scene to host (`name`, `name:port`, an address, `@name` or `@` to find it),
+// on a thread: the scene is read here, as Save reads it, then the thread does the rest.
+// label names the computer when host is the address it was found at.
+send_scene :: proc(app: ^App, host: string, label := "") -> bool {
 	sh := app.send.shared
 	if sh == nil {
 		file_note(app, true, "This run keeps no settings, so it cannot send: it has no send folder")
@@ -285,17 +360,14 @@ send_scene :: proc(app: ^App, host: string) -> bool {
 	app.send.revision += 1
 	job.revision = app.send.revision
 	job.host = strings.clone(host)
+	job.label = strings.clone(label)
 	job.hd_dropped = hd
 	sync.atomic_store(&sh.cancel, false)
 	sync.lock(&sh.lock)
 	sh.done, sh.total = 0, i64(len(job.data))
 	sync.unlock(&sh.lock)
 	app.send.sender = send_start(sh, job, context)
-	if strings.has_prefix(host, "@") {
-		file_note(app, false, "Looking for %s on this network...", host[1:] if len(host) > 1 else "a computer")
-	} else {
-		file_note(app, false, "Sending the scene to %s...", host)
-	}
+	send_last_set(app, fmt.tprintf("%s|%s", host, label) if label != "" else host)
 	return true
 }
 
@@ -347,6 +419,9 @@ send_events_take :: proc(app: ^App) {
 send_frame :: proc(app: ^App) {
 	if app.send.shared == nil do return
 	send_events_take(app)
+	send_ending_join(app, false)
+	send_receive_follow(app)
+	send_browse_follow(app)
 	app.send.frames += 1
 	// --send-to waits for a set-up script and for the first frames, which draw the
 	// scene's preview the file keeps.
