@@ -85,7 +85,7 @@ Brush_Settings :: struct {
 	// as at SPACING_REFERENCE (spacing_strength), as Blender's Adjust strength for spacing.
 	even_strength:     bool,
 	// Dots: the spacing is measured along the surface rather than on screen, so a stroke
-	// over a part turned away keeps its dabs as far apart on the model (scene_spacing_px).
+	// over a part turned away keeps its dabs as far apart on the model (stroke_spacing).
 	scene_spacing:     bool,
 	// Symmetry's images near a plane or the radial axis share the strength they overlap
 	// by (sculpt.Brush.feather).

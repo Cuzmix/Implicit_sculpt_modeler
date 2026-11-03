@@ -7,8 +7,8 @@ import sdl "vendor:sdl3"
 
 import "../geom"
 
-// Whole-mesh smoothing on the GPU, as a compute shader (shaders/smooth_all.comp.slang): the
-// trial of moving one heavy sculpt operation off the CPU. A run uploads what the shader
+// Whole-mesh smoothing on the GPU, as a compute shader (shaders/smooth_all.comp.slang),
+// which Smooth all takes where the GPU offers it. A run uploads what the shader
 // reads, dispatches one pass a step, ping-ponging between two position buffers, and
 // downloads the result, waiting for the GPU after each part so each one can be timed.
 // The mesh the viewport draws is not touched: the caller writes the result back to the

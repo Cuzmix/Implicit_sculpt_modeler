@@ -618,8 +618,7 @@ SETTING_LINES := [?]Setting_Line {
 	{
 		// A material by its name, which may have spaces ("red wax"), or a content pack's as
 		// `<id>/<name>`, escaped as preset names are, which settings_load and scripts look
-		// up in the library, since parse has none (older versions skip the line, and start
-		// on Clay).
+		// up in the library, since parse has none.
 		"material",
 		proc(f: []string) -> (Setting_Line_Value, bool) {
 			i, ok := material_by_name(strings.join(f, " ", context.temp_allocator))
