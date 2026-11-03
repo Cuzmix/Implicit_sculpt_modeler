@@ -192,7 +192,7 @@ alpha_loaded_note :: proc(app: ^App, name: string, alpha: sculpt.Alpha, width, h
 
 // Fills `grey` (width × height) with the image's brightness, 0 to 1, times its opacity
 // where it has one. False for channel depths other than 8 and 16 bits.
-@(private = "file")
+@(private)
 image_grey :: proc(img: ^image.Image, grey: []f32) -> bool {
 	n := img.width * img.height
 	channels := img.channels

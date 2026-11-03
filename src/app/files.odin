@@ -62,6 +62,8 @@ File_Kind :: enum u8 {
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
+	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
+	Export_Bary,  // the selected object's skin goes to an NVIDIA displacement micro-map file (skin_map.odin)
 }
 
 File_Request :: struct {
@@ -131,6 +133,7 @@ PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
 @(private = "file")
 EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
+BARY_FILTERS := [?]sdl.DialogFileFilter{{"NVIDIA displacement micro-map", "bary"}}
 // Alphas take OpenEXR vector maps too; Android's picker knows no MIME type for `.exr`, so
 // there every file is offered and the decoder's check of the bytes decides.
 when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -264,7 +267,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
-	case .Alpha:                                                 dialog_open(app, userdata, ALPHA_FILTERS[:])
+	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
 	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
@@ -274,6 +277,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Install_Pack:                                          dialog_open(app, userdata, PACK_FILTERS[:])
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
 	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
+	case .Export_Bary:                                           dialog_save(app, userdata, BARY_FILTERS[:])
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
@@ -317,6 +321,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
+		case .Export_Bary: suffix = ".bary"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
@@ -522,6 +527,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = pack_make(app, req.path)
 	case .Export_Vdm:
 		_ = vdm_export(app, req.path)
+	case .Skin_Map:
+		_ = skin_map_load(app, req.path)
+	case .Export_Bary:
+		_ = skin_bary_export(app, req.path)
 	case .Export_Workspace:
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:

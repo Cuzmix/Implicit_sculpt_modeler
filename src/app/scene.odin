@@ -852,15 +852,15 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	if gpu.skin_normals == nil || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
 		if gpu.skin_normals != nil do render.wait_idle(&app.renderer)
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
-		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.segments, sk.vert_count, sk.edge_count) do return 0
+		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.heights, sk.height_max, sk.segments, sk.vert_count, sk.edge_count) do return 0
 		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
 		render.viewport_invalidate(&app.target)
-		return len(sk.normals) * size_of([2]i16) + len(tris) * size_of([4]u32)
+		return len(sk.normals) * (size_of([2]i16) + size_of(f16)) + len(tris) * size_of([4]u32)
 	}
 	bytes := 0
 	ranges := sculpt.sculptor_skin_ranges(s)
-	render.mesh_buffers_upload_skin(&app.renderer, cmd, gpu, sk.normals, ranges)
-	for r in ranges do bytes += int(r.count) * size_of([2]i16)
+	render.mesh_buffers_upload_skin(&app.renderer, cmd, gpu, sk.normals, sk.heights, sk.height_max, ranges)
+	for r in ranges do bytes += int(r.count) * (size_of([2]i16) + size_of(f16))
 	if gpu.skin_lead_stamp != stamp {
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		render.mesh_buffers_upload_skin_tris(&app.renderer, cmd, gpu, tris)

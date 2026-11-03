@@ -15,6 +15,10 @@ sender as a tablet runs it, over loopback.
    file from the copy it kept, so fewer chunks than the file has go over. The hashes and
    the mesh must match again.
 
+3. The same, found on the network (--send-to=@ and --send-to=@NAME): the receiver answers
+   the sender's multicast DNS question, and the send goes to the address it answered from.
+   A name no computer has is said so after the wait, and nothing is sent.
+
 Each check prints PASS or FAIL and the script exits 1 on any FAIL. Like link_check, it is a
 development aid outside the gate: it opens a port on loopback and runs two apps at once.
 """
@@ -75,11 +79,11 @@ def receiver(env, tag):
     return p, log, log_path
 
 
-def sender(env, tag, args):
+def sender(env, tag, args, target):
     log_path = os.path.join(WORK, f"send{tag}.log")
     with open(log_path, "w") as log:
         p = subprocess.run([APP, "--frames=60", "--send-folder=" + os.path.join(WORK, "tab"),
-                            f"--send-to=127.0.0.1:{PORT}", "--check-mesh"] + args,
+                            "--send-to=" + target, "--check-mesh"] + args,
                            env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, timeout=WAIT)
     with open(log_path, errors="replace") as f:
         return p.returncode, f.read()
@@ -96,9 +100,9 @@ def finish(p, log, log_path):
         return code, f.read()
 
 
-def round_trip(env, tag, args):
+def round_trip(env, tag, args, target=f"127.0.0.1:{PORT}"):
     r = receiver(env, tag)
-    s_code, s_log = sender(env, tag, args)
+    s_code, s_log = sender(env, tag, args, target)
     r_code, r_log = finish(*r)
     check(f"{tag}: sender exits 0", s_code == 0, f"exit {s_code}")
     check(f"{tag}: receiver exits 0", r_code == 0, f"exit {r_code}")
@@ -140,6 +144,20 @@ def main():
     check("again: no pairing", "Pairing with" not in s_log and "Paired with" not in r_log)
     went, total = chunks(r_log)
     check("again: only some chunks went over", went is not None and went < total, f"{went} of {total}")
+
+    # Found on the network rather than by address: the receiver answers the sender's
+    # question for the service, by this machine's name and then as the first to answer.
+    with open(os.path.join(WORK, "receiveagain.log"), errors="replace") as f:
+        names = re.findall(r"answering for (.+) on the local network", f.read())
+    check("found: the receiver answers on the network", bool(names), names[-1] if names else "no 'answering for' line")
+    if names:
+        for tag, target in (("found", "@"), ("named", "@" + names[-1])):
+            s_log, r_log = round_trip(env, tag, ["--open=" + scene], target)
+            check(f"{tag}: found the receiver", stat(s_log, "send_found") == "1", f"send_found={stat(s_log, 'send_found')}")
+            check(f"{tag}: no pairing", "Pairing with" not in s_log and "Paired with" not in r_log)
+        _, s_log = sender(env, "nobody", ["--vertices=2000"], "@no such computer")
+        check("nobody: a name nobody has is said so", "No computer called no such computer answered" in s_log
+              and stat(s_log, "send_sent") == "0" and stat(s_log, "send_found") == "0")
 
     if not a.keep:
         shutil.rmtree(WORK, ignore_errors=True)

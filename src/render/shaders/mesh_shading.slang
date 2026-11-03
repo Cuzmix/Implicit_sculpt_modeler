@@ -126,24 +126,6 @@ float3 skin_normal_at(uint x) {
 	return oct_decode(e);
 }
 
-// The sample at grid place (i, j) of a triangle, i toward its second corner and j toward its
-// third in the mesh's order, whose corners' vertices are `v` and edges `e`.
-uint skin_index(uint i, uint j, uint S, uint V, uint E, uint tri, uint3 v, uint3 e) {
-	if (i == 0u && j == 0u) return v.x;
-	if (i == S) return v.y;
-	if (j == S) return v.z;
-	uint ref, k;
-	if (j == 0u) { ref = e.x; k = i; }
-	else if (i + j == S) { ref = e.y; k = j; }
-	else if (i == 0u) { ref = e.z; k = S - j; }
-	else {
-		uint row = (j - 1u) * (S - 2u) - (j - 1u) * (j - 2u) / 2u;
-		return V + E * (S - 1u) + tri * ((S - 1u) * (S - 2u) / 2u) + row + (i - 1u);
-	}
-	uint along = (ref & 1u) == 0u ? k : S - k;
-	return V + (ref >> 1u) * (S - 1u) + (along - 1u);
-}
-
 // The skin's normal at the pixel, in view space (not unit length): the three samples of the
 // small triangle it lies in, mixed by where it lies in it.
 float3 skin_view_normal() {

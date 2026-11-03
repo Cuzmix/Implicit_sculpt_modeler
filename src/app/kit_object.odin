@@ -158,6 +158,21 @@ kit_skin :: proc(app: ^App, obj: ^Object) {
 			vertices, _, bytes := sculpt.levels_skin_apply_estimate(&obj.levels)
 			ui.paragraph(ctx, fmt.tprintf("Apply adds %d level%s, the top one of %s vertices, about %s.", steps, "" if steps == 1 else "s", count_label(vertices), bytes_label(bytes)))
 		}
+		// Maps in: a displacement or vector displacement image read through the UVs.
+		ui.caption(ctx, "MAP IS")
+		kinds: [len(sculpt.Skin_Map_Kind)]string
+		for n, k in SKIN_MAP_KIND_NAMES do kinds[int(k)] = n
+		if picked := ui.tabs(ctx, "skin map kind", kinds[:], int(app.skin_map_kind)); picked >= 0 do app.skin_map_kind = sculpt.Skin_Map_Kind(picked)
+		if app.skin_map_kind == .Height {
+			_ = ui.slider(ctx, "Range##skin map", &app.skin_map_range, 0.001, 1, .Logarithmic, fmt.tprintf("%.3f", app.skin_map_range))
+		}
+		if refused := skin_map_refusal(obj); refused != "" {
+			ui.paragraph(ctx, refused)
+		} else if ui.button(ctx, "Load map into skin...", .Bordered, glyph = ui.ICON_IMAGE) {
+			file_dialog(app, .Skin_Map)
+		}
+		// The skin as a micro-map for renderers that displace triangles in hardware.
+		if ui.button(ctx, "Export micro-map (.bary)...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Export_Bary)
 	} else if why != "" {
 		ui.paragraph(ctx, why)
 	} else {

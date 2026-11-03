@@ -63,6 +63,10 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sculpt sends scenes to your computer over your local network, and receives them back.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sculptsend._tcp</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<true/>
 </dict>

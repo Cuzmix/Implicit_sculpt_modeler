@@ -405,6 +405,10 @@ App :: struct {
 	skin_auto:                bool,
 	// How an OpenEXR alpha's channels are read: the app the vector map came from.
 	vdm_axes:                 sculpt.Vdm_Axes,
+	skin_map_kind:            sculpt.Skin_Map_Kind, // what Load map into skin reads an image as
+	skin_map_range:           f32, // the distance a grey map's black and white stand for
+	skin_maps_loaded:         int,
+	skin_bary_exports:        int,
 	// What the last rebuild's skin carry reported, for the exit stats.
 	skin_carry:               sculpt.Skin_Carry_Report,
 	skin_squeezes:            int, // Squeezes run this session, for the exit stats
@@ -777,6 +781,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.skin_auto = true
+	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -821,7 +826,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer send_destroy(&app, false)
 	if opts.send_to != "" {
 		target := opts.send_to
-		if opts.send_port > 0 && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
+		if opts.send_port > 0 && !strings.has_prefix(target, "@") && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)
 		app.send.pending = strings.clone(target)
 	}
 	defer delete(app.send.pending)

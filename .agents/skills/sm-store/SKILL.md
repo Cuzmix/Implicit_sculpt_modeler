@@ -89,8 +89,12 @@ re-check the stores' pages before a first submission, because they move every ye
   goes to the internet or to a server. Android declares `INTERNET` (a normal permission, no prompt; the only one);
   the iPad and the Mac carry `NSLocalNetworkUsageDescription`, whose prompt iOS shows at the first send, so the
   first send must come from a visible Send control, never at startup (`--send-to` is a developer flag). Windows'
-  firewall asks once when the desktop first listens. Discovery (Bonjour) adds `NSBonjourServices` with its exact
-  service type in the same change.
+  firewall asks once when the desktop first listens. Finding the desktop is DNS-SD (`_sculptsend._tcp`): Apple's
+  dns_sd on the iPad and the Mac (`NSBonjourServices` lists that exact type; a new type goes there in the same
+  change), the app's own responder on UDP 5353 on Windows and Linux, and on Android a legacy unicast question from a
+  port of its own, so no `CHANGE_WIFI_MULTICAST_STATE`, multicast lock or Apple multicast entitlement
+  (`com.apple.developer.networking.multicast`, granted by request only) is ever needed: never join the multicast
+  group on a tablet.
 - Encryption: Send seals its frames with ChaCha20-Poly1305 under X25519 pairing keys (`core:crypto`, standard
   algorithms, not the OS's), so the iPad and Mac builds set `ITSAppUsesNonExemptEncryption` to true. Each App Store
   Connect upload then asks the export compliance questions: standard encryption, mass-market, which exempts it from

@@ -174,11 +174,12 @@ render_focus 0.5 -1 2
 hardness 50
 capture_vdm my horn
 export_vdm vdm/horn 2.exr
+export_bary skins/head 1.bary
 render_focus Pivot`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 27) do return
+	if !testing.expect_value(t, len(s.statements), 28) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
@@ -211,7 +212,8 @@ render_focus Pivot`
 	testing.expect_value(t, st[23].numbers[0], 50)
 	testing.expect_value(t, st[24].text, "my horn")
 	testing.expect_value(t, st[25].text, "vdm/horn 2.exr")
-	testing.expect(t, st[26].verb == .Render_Focus && st[26].flip)
+	testing.expect_value(t, st[26].text, "skins/head 1.bary")
+	testing.expect(t, st[27].verb == .Render_Focus && st[27].flip)
 
 	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\ninstall_pack\nfocal 101\nmatcap\npreset\npack_mesh", "bad")
 	defer script_destroy(&bad)
