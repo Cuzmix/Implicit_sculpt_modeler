@@ -71,7 +71,7 @@ skin_stroke_allowed :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, sa
 	if obj.voxel != nil do return true
 	label := BRUSHES[kind].name
 	if object_skin(obj) == nil {
-		if say do report(app, Kit_Section.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (Object palette, HD detail) or set Detail goes to Auto", label, object_label(obj))
+		if say do report(app, Kit_Section.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (HD detail card) or set Detail goes to Auto", label, object_label(obj))
 		return false
 	}
 	if sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 {

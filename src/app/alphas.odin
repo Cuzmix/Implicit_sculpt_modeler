@@ -17,7 +17,7 @@ import "../sculpt"
 import "../ui"
 
 // Brush alphas in the app: the built-in ones and any images loaded, which way a dab's
-// image faces, and the Brush palette's Alpha section. The sculpting side is
+// image faces, and the Brush card's Alpha section. The sculpting side is
 // sculpt/alpha.odin.
 
 // Which way the image's top faces on screen.

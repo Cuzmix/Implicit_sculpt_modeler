@@ -224,7 +224,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
 	.Inspector        = "panel properties tray subpalette",
-	.Show_Section     = "palette section subpalette panel go",
+	.Show_Section     = "card section panel open go",
 	.Show_Panel       = "panel card stack open show subtools subtool list outliner objects",
 	.Rail_Group       = "panel group tabs stack",
 	.Pin_Section      = "pin keep card stack panel unpin",
@@ -282,7 +282,11 @@ palette_entries :: proc() -> []Palette_Entry {
 	for id in Command_Id {
 		if !palette_lists(id) do continue
 		n := COMMANDS[id].args
-		for arg in 0 ..< max(n, 1) do append(&out, Palette_Entry{.Command, id, arg})
+		for arg in 0 ..< max(n, 1) {
+			// A card's twin section is offered as its card, Show panel's.
+			if id == .Show_Section && section_is_card(Kit_Section(arg)) do continue
+			append(&out, Palette_Entry{.Command, id, arg})
+		}
 	}
 	for tab in Settings_Tab do append(&out, Palette_Entry{kind = .Settings_Tab, arg = int(tab)})
 	return out[:]
@@ -766,11 +770,13 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if e, ok := ran.?; ok do palette_run(app, e)
 }
 
-// Where the entry's control is in the tray, as "the Object palette's Mask section", or
+// Where the entry's control is in the tray, as "the Mask card", or
 // "" for one with no home there (a Settings tab, or a command only the bars or keys run).
 palette_home :: proc(e: Palette_Entry) -> string {
 	if e.kind != .Command do return ""
 	sec, ok := COMMAND_HOMES[e.id].?
 	if !ok do return ""
-	return fmt.tprintf("the %s palette's %s section", palette_name(section_palette(sec)), tray_section_title(sec))
+	if section_palette(sec) == .Tool do return fmt.tprintf("the Brush card's %s", tray_section_title(sec))
+	if p, _ := panel_of_section(sec); !panel_is_section(p) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[p])
+	return fmt.tprintf("the %s card", tray_section_title(sec))
 }

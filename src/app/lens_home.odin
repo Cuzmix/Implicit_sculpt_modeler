@@ -103,7 +103,7 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	t := ctx.theme
 	h := &app.home
 	kind := Continue_Kind.Start
-	path, name, line := "", "Sphere", "A fresh sphere at the Scene palette's Add size, to start on."
+	path, name, line := "", "Sphere", "A fresh sphere at the Scene card's Add size, to start on."
 	if len(app.recent_scenes) > 0 {
 		kind, path = .Recent, app.recent_scenes[0]
 		name = filepath.stem(path)

@@ -365,7 +365,7 @@ voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8,
 	return true
 }
 
-// The Object palette's Voxels section: what the clay is, and Convert to mesh.
+// The Voxels card: what the clay is, and Convert to mesh.
 kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	vp := obj.voxel

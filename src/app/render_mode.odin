@@ -83,7 +83,7 @@ render_busy :: proc(app: ^App) -> bool {
 	return render_running(app) && pr.refused == "" && pr.samples < int(app.render_samples)
 }
 
-// The Scene palette's Render section: the switch and Quality, then the chosen quality's
+// The Render card: the switch and Quality, then the chosen quality's
 // own controls.
 kit_render :: proc(app: ^App) {
 	ctx := &app.kit.ctx

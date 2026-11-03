@@ -22,7 +22,7 @@ import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
-	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene palette choices, the Settings panel); runs with --frames or a benchmark never do."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene card choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
@@ -30,7 +30,7 @@ Options :: struct {
 	no_pre_rotate: bool `usage:"Leave turning the picture to the system on a turned Android tablet instead of drawing it turned (for comparing frame and GPU times)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
-	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene palette's Add object does."`,
+	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene card's Add object does."`,
 	voxels:    int `usage:"Start with a voxel sphere this many voxels across (32 to 1024) instead of a mesh sphere, as Add object with As voxels does; 256 meshes to about 350k vertices, 512 to 1.4M."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
@@ -81,7 +81,7 @@ Options :: struct {
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
-	cpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
+	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -145,7 +145,7 @@ App :: struct {
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	plugins:  Plugins, // the script plugins and their commands' slots (plugins.odin)
-	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
+	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush card offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	link:     Link, // the live link with Blender (link.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
