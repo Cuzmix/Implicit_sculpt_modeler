@@ -17,7 +17,7 @@ noise :: proc(n: int, seed: u64, allocator := context.allocator) -> []u8 {
 
 @(private = "file")
 hello_fixture :: proc() -> Hello {
-	return {protocol = PROTOCOL, scene_version = 36, role = .Tablet, device = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, name = "Bolt's iPad", build = "dev"}
+	return {protocol = PROTOCOL, scene_version = 36, role = .Tablet, device = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, port = 47820, name = "Bolt's iPad", build = "dev"}
 }
 
 @(test)
