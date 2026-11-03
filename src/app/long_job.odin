@@ -224,8 +224,9 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 		// The dynamic layout's compacting renumbers the triangles, and it has no groups.
 		if s := object_sculptor(obj); !object_dynamic(obj) {
-			if cmd.remesh.keep_detail && s.color != nil do j.color = slice.clone(s.color)
-			if (cmd.remesh.keep_detail || cmd.remesh.groups) && sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
+			if s.color != nil do j.color = slice.clone(s.color)
+			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
+			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
 		}
 	case .Decimate:
 		src := decimate_source(obj, cmd.decimate)
@@ -245,7 +246,13 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.masked = voxel.clay_has_mask(clay)
 	}
 	// A dynamic object's mask for Use mask comes from the same packing as the copy.
-	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, &j.retopo_source.mask if cmd.kind == .Retopo && cmd.quad.use_mask && object_dynamic(obj) else nil)
+	// So does a dynamic object's mask a remesh carries.
+	copy_mask: ^[]u8
+	if object_dynamic(obj) {
+		if cmd.kind == .Retopo && cmd.quad.use_mask do copy_mask = &j.retopo_source.mask
+		if cmd.kind == .Remesh do copy_mask = &j.mask
+	}
+	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, copy_mask)
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -321,8 +328,8 @@ long_job_thread :: proc(data: rawptr) {
 	}
 	#partial switch j.cmd.kind {
 	case .Remesh:
-		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups), report = &j.remesh)
-		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups)
+		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
+		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups, j.mask)
 		long_job_prepare(j, normals = false)
 	case .Decimate:
 		src := Decimate_Source{mesh = j.input, color = j.color, groups = j.groups, mask = j.mask}
@@ -358,7 +365,7 @@ long_job_thread :: proc(data: rawptr) {
 long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	if !j.built || jobs.progress_cancelled(&j.progress) do return
 	share := [2]f32{JOB_COMPUTE_SHARE[j.cmd.kind], 1}
-	if j.surface.color != nil || j.surface.groups != nil || j.remesh.quads != nil {
+	if j.surface.color != nil || j.surface.groups != nil || j.surface.mask != nil || j.remesh.quads != nil {
 		// The surface's parts and the quads follow the renumbering onto the level, as
 		// object_build_from and remesh_apply take them on the frame thread.
 		old_to_new := make([]u32, len(j.mesh.positions))
@@ -366,7 +373,7 @@ long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 		tri_from := make([]u32, len(j.mesh.indices) / 3)
 		defer delete(tri_from)
 		sculpt.levels_init(&j.levels, j.mesh, &j.pool, old_to_new = old_to_new, tri_from = tri_from, progress = &j.progress, share = share)
-		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from)
+		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from, j.surface.mask)
 		if j.remesh.quads != nil do remesh_take_quads(&j.levels, j.remesh.quads, old_to_new, tri_from)
 	} else {
 		sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = share)
