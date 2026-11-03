@@ -42,7 +42,6 @@ nav_head_init :: proc(r: ^Renderer, nh: ^Nav_Head, mesh: geom.Mesh) -> bool {
 
 nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	mesh_buffers_destroy(r, &nh.mesh)
 	viewport_target_destroy(r, &nh.target)
 	nh^ = {}

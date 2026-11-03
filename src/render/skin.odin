@@ -260,8 +260,8 @@ mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buff
 	mb_touch(r, mb)
 }
 
-// Takes the skin off the mesh, which draws by its own normals again. The caller waits for
-// the GPU first (render.wait_idle) when it may still be drawing it.
+// Takes the skin off the mesh, which draws by its own normals again. A frame in flight
+// still drawing the skin keeps its buffers until it is done.
 mesh_buffers_drop_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.skin_normals != 0 do gpu.release_buffer(mb.skin_normals)
 	if mb.skin_tris != 0 do gpu.release_buffer(mb.skin_tris)

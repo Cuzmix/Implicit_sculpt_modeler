@@ -683,6 +683,12 @@ query_fence :: proc(fence: Fence) -> bool {
 	else do return vk_query_fence(fence)
 }
 
+// Releasing is safe at any time, with frames or compute still in flight, or in the middle
+// of a recording that used the object: the handle stops resolving at once, and each
+// backend frees the object only when no command buffer recorded or in flight still uses
+// it (Vulkan and Metal count each backing's uses, Metal's command buffers retain what they
+// encode, and WebGPU destroys after the work submitted before it). So nothing waits for
+// the GPU before freeing.
 release_buffer :: proc(buffer: Buffer) {
 	when METAL do mtl_release_buffer(pool_remove(&pools.buffers, u32(buffer)))
 	else when WEBGPU do wgpu_release_buffer(pool_remove(&pools.buffers, u32(buffer)))

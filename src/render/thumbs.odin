@@ -22,7 +22,6 @@ THUMB_SLOTS :: THUMB_CELLS * THUMB_CELLS
 
 thumbs_destroy :: proc(r: ^Renderer, t: ^Thumbs) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if t.atlas != 0 do gpu.release_texture(t.atlas)
 	viewport_target_destroy(r, &t.scratch)
 	t^ = {}

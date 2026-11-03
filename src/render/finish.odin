@@ -216,7 +216,6 @@ finish_reset :: proc(f: ^Finish) {
 
 finish_destroy :: proc(r: ^Renderer, f: ^Finish) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	for p in ([?]gpu.Graphics_Pipeline{f.pipeline, f.mid_pipeline, f.sharpen_pipeline, f.down_pipeline, f.up_pipeline}) {
 		if p != 0 do gpu.release_graphics_pipeline(p)
 	}

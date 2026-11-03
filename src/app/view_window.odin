@@ -162,9 +162,8 @@ view_window_close :: proc(app: ^App, i: int) {
 	vws := &app.view_windows
 	w := vws.open[i]
 	if w == nil do return
-	// Its picture and interface buffers may still be read by work in flight; this wait
-	// covers the destroys below and the window's release.
-	render.wait_idle(&app.renderer)
+	// Its picture and interface buffers may still be read by work in flight; the GPU layer
+	// frees them once that work is done, and releasing the window waits for its frames.
 	vws.draws += w.pic.draws
 	vws.presents += w.presents
 	if w.laid_out do _ = ui.frame_end(&w.ctx)

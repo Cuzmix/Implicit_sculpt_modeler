@@ -285,7 +285,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
   through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The
-  kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy` waits for the GPU).
+  kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy`).
 - Kept pictures: `viewport_copy` copies a viewport-format texture into a `Viewport_Target` on its own command buffer,
   submitted before the frame draws over the source. The still a worked view pane leaves (`grid_work_gpu`) and the
   cross-fade (app `cross_fade.odin`: last frame's shown texture, copied after the interface, drawn over the main pane
@@ -308,13 +308,13 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 | garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:149-151, 457, 492`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
-| validation errors in `smoke` | a buffer released while in flight (`render.wait_idle` before every destroy, as `src/app/scene.odin` does), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
+| validation errors in `smoke` | an upload outside a copy pass, a transfer buffer mapped without `cycle`, a backend that frees a released object while a recording or the GPU still uses it (each counts uses: `vk_buffer_reap`, `mtl_release_later`) |
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules
 - Only `src/gpu` talks to the GPU, and only `render` imports it; `app` imports `vendor:sdl3` for windows, events
   and the pen only, and reaches the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`,
-  `Sample_Count`, and `wait_idle`, `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`,
+  `Sample_Count`, and `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`,
   `swapchain_acquire`, `ui_present` (each window's present pass), `renderer_ready`; the backend's own procs the app
   needs (`backend_select`, `backend_error`, `window_flags`, `validation_errors`, `gpu_counters`) are named again
   in `src/render/backend.odin`. `scripts/boundary_check.py` (run by `check`) fails on any native GPU import outside
@@ -330,8 +330,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   (0 is none; a released handle stops resolving), compared with 0, never nil; `gpu.Cmd`, the passes and `gpu.Fence`
   stay opaque pointers for one frame's use. A failed call returns 0, nil or false and `gpu.last_error()` says why.
   `render` never reads UI state.
-- Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
-  `renderer_destroy` waits and releases in reverse order.
+- Every `gpu_*` result is consumed (`require_results`, sm-odin); release any time, even what this frame drew (the
+  backends free it once no work uses it); only `renderer_destroy` waits for the GPU, then releases in reverse order.
 - Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
   `SCULPT_SLAB` threads in a workgroup (`gpu.storage_buffers_per_stage`, `gpu.compute_group_threads`), and starts on
   wherever it is offered in a person's run (scripted runs keep the CPU as their oracle). A new kernel buffer raises

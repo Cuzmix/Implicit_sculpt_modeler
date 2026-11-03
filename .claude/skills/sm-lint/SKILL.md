@@ -24,7 +24,7 @@ check` and `build.bat test` again. Report the items you could not verify.
   are cloned; nothing from `context.temp_allocator` outlives the frame or sits in a struct; the slices `sculptor_flush`
   and `sculptor_lod_update` return are used before the next call.
 - Per-job scratch uses `runtime.heap_allocator()` for both make and delete (sm-odin's trap table says why).
-- `render.wait_idle` (SDL's `WaitForGPUIdle` inside `render`) before destroying any buffer or texture that may be in flight; `viewport_target_resize` only where
+- No wait for the whole GPU before a release: `gpu.release_*` is safe with work in flight (`src/gpu/hal.odin` says why); `viewport_target_resize` only where
   the frame loop does it; every `sdl.*GPU*` result consumed.
 
 ## 4. Behaviour

@@ -8,7 +8,6 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../gizmo"
-import "../render"
 import "../sculpt"
 
 // A curve object: cubic Bézier points that stay editable in the scene until they are
@@ -202,7 +201,6 @@ curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	start := time.tick_now()
 	autosave_settle(app)
 	obj.curve = nil
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	ok := curve_part_attach(app, obj, cp)
 	app.curve.tube_ms = time.duration_milliseconds(time.tick_since(start))
@@ -337,7 +335,6 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, l
 	obj := new(Object)
 	obj.transform, obj.file = {position = middle, scale = 1}, {scale = 1}
 	if !curve_part_attach(app, obj, cp) {
-		render.wait_idle(&app.renderer)
 		object_discard(app, obj)
 		return false
 	}

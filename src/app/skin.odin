@@ -6,7 +6,6 @@ import "core:math/linalg"
 import "core:time"
 
 import "../geom"
-import "../render"
 import "../sculpt"
 
 // The detail skin (sculpt/skin.odin) in the app: where a brush's detail goes, and adding,
@@ -316,7 +315,6 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 		return true
 	}
 	before := history_snapshot(app, obj, "squeeze")
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, start, normals = true, surface = surface, squeeze = segments) {
 		history_snapshot_drop(before)
 		scene_delete_selected(app, undoable = false)

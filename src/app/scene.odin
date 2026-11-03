@@ -250,7 +250,6 @@ Scene_Command :: struct {
 }
 
 scene_destroy :: proc(app: ^App) {
-	render.wait_idle(&app.renderer)
 	for obj in app.scene.objects do object_free(app, obj)
 	delete(app.scene.objects)
 	folders_clear(&app.scene.folders)
@@ -340,7 +339,6 @@ object_make_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t
 	// A starter is a closed manifold mesh, so each level divides; the top is shown.
 	for _ in 0 ..< levels do if !sculpt.levels_subdivide(&obj.levels) do break
 	if !object_show_level(app, obj, start) {
-		render.wait_idle(&app.renderer)
 		object_discard(app, obj)
 		return nil, false
 	}
@@ -449,7 +447,6 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 // when the old mesh is gone and the new one could not be uploaded.
 remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, remeshed: geom.Remesh_Report = {}, setup: Remesh_Setup = {}) -> bool {
 	ready := time.tick_now()
-	render.wait_idle(&app.renderer)
 	// With Quads the maps say where the quads' corners and halves went, for the base
 	// level to keep them as its polygons (a long job's levels already do).
 	old_to_new, tri_from: []u32
@@ -504,7 +501,6 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_
 // (`unmirrored`, from decimate_compute).
 decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, setup: Decimate_Setup = {}, unmirrored := "") -> bool {
 	ready := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, ready, normals = true, surface = surface, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
@@ -564,7 +560,6 @@ object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: boo
 	defer delete(old_to_new)
 	defer delete(tri_from)
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}, old_to_new = old_to_new, tri_from = tri_from) {
 		sculpt.polys_destroy(&polys)
 		return true, false
@@ -602,7 +597,6 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 		return nil, false, true
 	}
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	// Both parts take the layers, so the level they came from stays until the second has.
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
@@ -654,7 +648,6 @@ object_knife :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (changed, 
 		return false, true
 	}
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, back, cut, normals = true) do return true, false
 	app.stats.slice_ms = time.duration_milliseconds(time.tick_diff(start, cut))
 	app.stats.slice_setup_ms = time.duration_milliseconds(time.tick_since(cut))
@@ -697,7 +690,6 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -728,7 +720,6 @@ scene_paste :: proc(app: ^App) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -807,7 +798,6 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 	object_forget_history(app, obj)
 	converted := time.tick_now()
 	// The layout changed completely: new buffers with everything in them.
-	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
 	obj.poly_edges[0] = {}
 	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
@@ -827,7 +817,6 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []geom.Vertex_Range) -> (bytes: int, ok: bool) {
 	m := lv.mesh
 	if u32(len(m.positions)) > gpu.vertex_capacity || u32(len(m.indices)) > gpu.index_count {
-		render.wait_idle(&app.renderer)
 		render.mesh_buffers_destroy(&app.renderer, gpu)
 		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
 		render.viewport_invalidate(&app.target)
@@ -862,7 +851,6 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	sk := sculpt.sculptor_skin(s)
 	if sk == nil {
 		if gpu.skin_normals != 0 {
-			render.wait_idle(&app.renderer)
 			render.mesh_buffers_drop_skin(&app.renderer, gpu)
 		}
 		return 0
@@ -870,7 +858,6 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	stamp := sculpt.sculptor_paint_stamp(s)
 	skin_stamp := sculpt.sculptor_skin_stamp(s)
 	if gpu.skin_normals == 0 || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
-		if gpu.skin_normals != 0 do render.wait_idle(&app.renderer)
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.heights, sk.height_max, sk.segments, sk.vert_count, sk.edge_count) do return 0
 		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
@@ -910,7 +897,6 @@ scene_delete_selected :: proc(app: ^App, undoable := true, chain := false) {
 	if obj == nil do return
 	stroke_finish(app)
 	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"), chain)
-	render.wait_idle(&app.renderer)
 	ordered_remove(&app.scene.objects, app.scene.selected)
 	object_free(app, obj)
 	app.scene.selected = min(app.scene.selected, len(app.scene.objects) - 1)
@@ -1285,7 +1271,6 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			return object_set_level(app, obj, cmd.level)
 		case .Delete_Higher:
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
-			render.wait_idle(&app.renderer)
 			for i in levels.current + 1 ..< len(levels.levels) {
 				render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 				obj.poly_edges[i] = {}
@@ -1297,7 +1282,6 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case .Delete_Lower:
 			k := levels.current
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete lower levels"))
-			render.wait_idle(&app.renderer)
 			for i in 0 ..< k do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_lower(levels)
 			// The buffers move down with their levels, and so does what edges they hold.
@@ -1408,7 +1392,6 @@ object_hd_leave :: proc(app: ^App, obj: ^Object) {
 	// The window's positions and normals land from the GPU before its buffers go, which
 	// would drop the readbacks still under way, and before the window is stored.
 	object_gpu_sync(obj)
-	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_hd_leave(&obj.levels)
 	history_forget_level(app, obj.id, HD_LEVEL)
@@ -1526,7 +1509,6 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 // the new mesh could not be uploaded.
 object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 	start := time.tick_now()
-	render.wait_idle(&app.renderer)
 	return object_rebuild(app, obj, mesh, start, normals = true)
 }
 
@@ -1536,7 +1518,7 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // its polypaint and polygroups (a repair's). `normals` works out the mesh's normals, for
 // a mesh that comes without them. `old_to_new` and `tri_from` (not temporary) receive the
 // renumbering, as object_build_from fills them, for a caller that keeps maps into the
-// level. The caller waits for the GPU first. Returns false only when the new mesh could
+// level. Returns false only when the new mesh could
 // not be uploaded. The object forgets its remesh cell (Object.remesh_cell).
 object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil, old_to_new: []u32 = nil, tri_from: []u32 = nil, squeeze: u32 = 0) -> bool {
 	layered := object_take_layered(app, obj)
@@ -1609,7 +1591,8 @@ object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Lev
 	log.infof("layers: carried %d onto the rebuilt mesh in %.0f ms", kept, ms)
 }
 
-// Frees the levels and GPU buffers. The caller waits for the GPU first. A rebuild
+// Frees the levels and GPU buffers (the GPU layer keeps them until work in flight is
+// done). A rebuild
 // (`rebuild`) counts the selection sets that go for the command's note.
 object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	if rebuild do app.sets_lost += len(sculpt.levels_sets(&obj.levels))

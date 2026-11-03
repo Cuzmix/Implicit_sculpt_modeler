@@ -32,7 +32,6 @@ Picture_Upload :: struct {
 
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if p.atlas != 0 do gpu.release_texture(p.atlas)
 	if p.transfer != 0 do gpu.release_transfer_buffer(p.transfer)
 	p^ = {}

@@ -287,7 +287,6 @@ cage_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	autosave_settle(app)
 	cage, look, held := obj.cage.mesh, obj.cage.look, obj.cage.held
 	obj.cage.mesh, obj.cage.held = {}, nil
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	return object_build_cage(app, obj, cage, look, held)
 }
@@ -321,7 +320,6 @@ scene_add_cage :: proc(app: ^App, kind: poly.Primitive, opts: poly.Primitive_Opt
 object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.cage == nil do return false
 	autosave_settle(app)
-	render.wait_idle(&app.renderer)
 	cp := obj.cage
 	steps := cp.look.smooth
 	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
@@ -454,7 +452,6 @@ object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if len(s.layers.list) > 0 || sculpt.sculptor_paint_shows(s) || s.mask != nil {
 		report(app, nil, {}, "Edit cage on %s keeps its sculpted detail, but not its polypaint, mask or layers", object_label(obj))
 	}
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	return object_build_cage(app, obj, cage, look, held)
 }

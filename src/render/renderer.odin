@@ -626,7 +626,7 @@ window_claim :: proc(r: ^Renderer, window: ^sdl.Window) -> bool {
 	return true
 }
 
-// Gives a window claimed with window_claim back; the caller waits for the device first.
+// Gives a window claimed with window_claim back; the GPU layer waits for its frames.
 window_release :: proc(r: ^Renderer, window: ^sdl.Window) {
 	gpu.release_window(window)
 }
@@ -701,8 +701,8 @@ renderer_destroy :: proc(r: ^Renderer) {
 // smooth the edges of silhouettes and wireframe lines (MSAA). Where the device cannot
 // use the count asked for with both the colour and the depth format, it tries the other
 // of 2 and 4 (Vulkan promises 4), then none. Returns what it set; the viewport target
-// is remade at that count on its next viewport_target_resize. Waits for the GPU when
-// it changes anything.
+// is remade at that count on its next viewport_target_resize. The old pipelines go once
+// the frames that drew with them are done.
 renderer_set_msaa :: proc(r: ^Renderer, want: gpu.Sample_Count) -> gpu.Sample_Count {
 	supported :: proc(r: ^Renderer, count: gpu.Sample_Count) -> bool {
 		return count == ._1 || gpu.texture_supports_sample_count(VIEWPORT_COLOR_FORMAT, count) && gpu.texture_supports_sample_count(r.depth_format, count)
@@ -714,7 +714,6 @@ renderer_set_msaa :: proc(r: ^Renderer, want: gpu.Sample_Count) -> gpu.Sample_Co
 	case want != ._1 && supported(r, other): got = other
 	}
 	if got == r.samples do return got
-	_ = gpu.wait_for_idle()
 	mesh_pipelines_destroy(r, &r.multi)
 	if got != ._1 {
 		r.multi = mesh_pipelines_create(r, got)
@@ -2191,7 +2190,6 @@ CAGE_LINE_COLOR :: [4]f32{0.02, 0.02, 0.025, 1}
 // can. Waits for the copies. Returns false, with no edges, on a GPU failure.
 mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tri_edges: []u32 = nil) -> bool {
 	if mb.edges != 0 || mb.tri_edges != 0 {
-		_ = gpu.wait_for_idle()
 		if mb.edges != 0 do gpu.release_buffer(mb.edges)
 		if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
 		mb.edges, mb.edge_indices, mb.tri_edges = 0, 0, 0

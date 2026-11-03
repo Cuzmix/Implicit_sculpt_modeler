@@ -385,7 +385,7 @@ mtl_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> rawptr {
 }
 
 mtl_release_sampler :: proc(sampler: rawptr) {
-	if sampler != nil do NS.release((^MTL.SamplerState)(sampler))
+	mtl_release_later(sampler, proc(object: rawptr) {NS.release((^MTL.SamplerState)(object))})
 }
 
 // Compiles Metal source into a library and finds its entry point; nil, nil (with SDL's error
@@ -433,11 +433,12 @@ mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
 
 // A shader is only read while pipelines are made from it, so it goes at once.
 mtl_release_shader :: proc(shader: rawptr) {
-	s := (^Mtl_Shader)(shader)
-	if s == nil do return
-	NS.release(s.function)
-	NS.release(s.library)
-	free(s)
+	mtl_release_later(shader, proc(object: rawptr) {
+		s := (^Mtl_Shader)(object)
+		NS.release(s.function)
+		NS.release(s.library)
+		free(s)
+	})
 }
 
 // ---- Pipelines ----------------------------------------------------------------------
@@ -655,11 +656,12 @@ mtl_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> ra
 }
 
 mtl_release_graphics_pipeline :: proc(pipeline: rawptr) {
-	p := (^Mtl_Pipeline)(pipeline)
-	if p == nil do return
-	NS.release(p.state)
-	if p.depth_stencil != nil do NS.release(p.depth_stencil)
-	free(p)
+	mtl_release_later(pipeline, proc(object: rawptr) {
+		p := (^Mtl_Pipeline)(object)
+		NS.release(p.state)
+		if p.depth_stencil != nil do NS.release(p.depth_stencil)
+		free(p)
+	})
 }
 
 // Made as SDL_GPU's Metal backend makes it, keeping the counts its binding slots follow:
@@ -720,8 +722,9 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> r
 
 // Released at once: a command buffer keeps the pipeline state it used alive until it ends.
 mtl_release_compute_pipeline :: proc(pipeline: rawptr) {
-	p := (^Mtl_Compute_Pipeline)(pipeline)
-	if p == nil do return
-	NS.release(p.state)
-	free(p)
+	mtl_release_later(pipeline, proc(object: rawptr) {
+		p := (^Mtl_Compute_Pipeline)(object)
+		NS.release(p.state)
+		free(p)
+	})
 }

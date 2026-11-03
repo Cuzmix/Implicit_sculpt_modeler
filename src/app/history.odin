@@ -1028,12 +1028,10 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 			return true
 		}
 		if !made {
-			render.wait_idle(&app.renderer)
 			object_discard(app, restored)
 			return false
 		}
 	}
-	render.wait_idle(&app.renderer)
 	history_forget_strokes(app, e.id)
 	scene := &app.scene
 	if obj != nil {

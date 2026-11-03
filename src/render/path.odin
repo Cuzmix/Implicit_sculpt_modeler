@@ -518,7 +518,6 @@ path_render_reset :: proc(pr: ^Path_Render) {
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if !r.has_device do return
-	_ = gpu.wait_for_idle()
 	if pr.band_fence != nil do gpu.release_fence(pr.band_fence)
 	pr.band_fence = nil
 	if pr.pipeline != 0 do gpu.release_compute_pipeline(pr.pipeline)
@@ -1180,7 +1179,6 @@ path_buffer_ensure :: proc(r: ^Renderer, pr: ^Path_Render, which: Scene_Buffer, 
 	size := max(wanted, 64)
 	if pr.buffers[which] != 0 && u32(size) <= pr.capacity[which] do return true
 	if pr.buffers[which] != 0 {
-		_ = gpu.wait_for_idle()
 		gpu.release_buffer(pr.buffers[which])
 	}
 	capacity := u32(min(size + size / 4, TRACE_BUFFER_MAX))

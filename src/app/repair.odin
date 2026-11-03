@@ -6,7 +6,6 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
-import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -154,7 +153,6 @@ object_repair :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> (changed, 
 	}
 	free_all(context.temp_allocator)
 	made := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, made, normals = true, surface = surface) do return true, false
 	app.repair.ms = time.duration_milliseconds(time.tick_diff(start, made))
 	repair_done(app, obj, kind, start, what)

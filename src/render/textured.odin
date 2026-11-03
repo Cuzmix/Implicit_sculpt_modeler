@@ -73,7 +73,6 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 		return true
 	}
 	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity || vbytes + ibytes > tm.transfer_size {
-		_ = gpu.wait_for_idle()
 		textured_buffers_release(r, tm)
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
@@ -121,7 +120,6 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 // when the device refuses.
 textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, pixels: []u8, width, height: int) -> bool {
 	if tm.maps[m] != 0 {
-		_ = gpu.wait_for_idle()
 		gpu.release_texture(tm.maps[m])
 		tm.maps[m], tm.sizes[m] = 0, {}
 	}
@@ -134,10 +132,9 @@ textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, 
 	return true
 }
 
-// Waits for the GPU and releases everything the mesh holds.
+// Releases everything the mesh holds (freed once no frame in flight draws it).
 textured_mesh_destroy :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 	if tm.vertices == 0 && tm.maps == {} do return
-	_ = gpu.wait_for_idle()
 	textured_buffers_release(r, tm)
 	for tex in tm.maps do if tex != 0 do gpu.release_texture(tex)
 	tm^ = {}

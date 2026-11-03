@@ -35,6 +35,12 @@ Mtl_State :: struct {
 	completed:     u64,
 	free_cmds:     [dynamic]^Mtl_Cmd,
 	in_flight:     [dynamic]^Mtl_Cmd,
+	// Recordings acquired and not yet committed or cancelled, and the pipelines, samplers and
+	// shaders released meanwhile (mtl_release_later): a recording keeps a bound pipeline only
+	// as a pointer until its next draw, so they go once no recording is open and the GPU has
+	// run everything committed by then.
+	recording:     int,
+	doomed:        [dynamic]Mtl_Doomed,
 	windows:       [dynamic]^Mtl_Window,
 	present_logs:  [MTL_PRESENT_LOGS]Mtl_Present_Log,
 	// Display-link pacing (mtl_link.odin): whether the app asked for it, the running link
@@ -103,6 +109,9 @@ mtl_destroy_device :: proc() {
 	for cmd in mtl_state.free_cmds do mtl_cmd_free(cmd)
 	delete(mtl_state.free_cmds)
 	delete(mtl_state.in_flight)
+	mtl_state.recording = 0
+	mtl_reap_doomed()
+	delete(mtl_state.doomed)
 	NS.release(mtl_state.queue)
 	NS.release(mtl_state.device)
 	mtl_state = {}
@@ -187,6 +196,37 @@ mtl_collect :: proc() {
 		ordered_remove(&mtl_state.in_flight, 0)
 		mtl_state.completed = cmd.serial
 		mtl_cmd_recycle(cmd)
+	}
+	mtl_reap_doomed()
+}
+
+// An object released while the GPU or a recording may still use it, and the submission
+// after which neither can (0 until no recording is open).
+Mtl_Doomed :: struct {
+	object:  rawptr,
+	release: proc(object: rawptr),
+	after:   u64,
+}
+
+// Calls `release` on `object` now when nothing can be using it, else once mtl_reap_doomed
+// finds every recording that could have bound it run.
+mtl_release_later :: proc(object: rawptr, release: proc(object: rawptr)) {
+	if object == nil do return
+	append(&mtl_state.doomed, Mtl_Doomed{object = object, release = release})
+	mtl_reap_doomed()
+}
+
+@(private = "file")
+mtl_reap_doomed :: proc() {
+	for i := 0; i < len(mtl_state.doomed); {
+		d := &mtl_state.doomed[i]
+		if d.after == 0 && mtl_state.recording == 0 do d.after = mtl_state.submitted + 1
+		if d.after != 0 && d.after - 1 <= mtl_state.completed {
+			d.release(d.object)
+			unordered_remove(&mtl_state.doomed, i)
+			continue
+		}
+		i += 1
 	}
 }
 

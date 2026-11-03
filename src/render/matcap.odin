@@ -19,10 +19,9 @@ matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> gpu.Tex
 	return texture_create(r, MATCAP_FORMAT, pixels, width, height)
 }
 
-// Waits for the GPU (a frame in flight may still sample it) and releases the texture.
+// Releases the texture; a frame in flight that samples it keeps it until it is done.
 matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 	if tex^ == 0 do return
-	_ = gpu.wait_for_idle()
 	gpu.release_texture(tex^)
 	tex^ = 0
 }
