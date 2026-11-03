@@ -812,16 +812,6 @@ gpu_buffer_filled :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
 	}
 }
 
-// The compute kernels' subgroup width (0 when unknown) and whether 64-bit buffer atomics
-// work.
-@(require_results)
-gpu_compute_features :: proc(device: ^sdl.GPUDevice) -> (subgroup_size: u32, int64_atomics: bool) {
-	when METAL do return mtl_compute_features()
-	else when WEBGPU do return wgpu_compute_features()
-	else when WEBGPU do return 0, false
-	else do return vk_state.subgroup_size, vk_state.int64_atomics
-}
-
 // GPU timestamps, the own Vulkan backend's only: Apple GPUs sample counters only where a
 // pass begins or ends, so the own Metal backend would time passes, not the debug groups
 // these timestamps bracket.

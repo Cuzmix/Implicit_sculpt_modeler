@@ -359,5 +359,5 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   nor depth: `target_pass` must never load it, so a new viewport pass that loads goes after the resolve or skips tile.
 - Mapped device buffers (`gpu_create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
   and closed with `gpu_buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
-- A compute kernel that wants subgroup operations or 64-bit atomics checks `Gpu_Caps.subgroup_size` (0 = unknown,
-  keep a plain path) and `int64_atomics`; never sum floats with atomics (order breaks determinism).
+- A compute kernel never sums floats with atomics (order breaks determinism); one that wants subgroup operations or
+  64-bit atomics adds the capability to `Gpu_Caps` with a plain path where it is missing.
