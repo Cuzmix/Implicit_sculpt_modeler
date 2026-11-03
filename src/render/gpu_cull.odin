@@ -26,9 +26,9 @@ import "../geom"
 // same number in its frame (cull_call); the numbers are those of a few frames back.
 
 // Vulkan only, so no Metal source is made for them.
-when ODIN_OS != .Darwin {
-	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv")
-	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv")
+when VULKAN {
+	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv", string)
+	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv", string)
 }
 
 // Words of the indirect buffer's header: one command's size, so the commands after it
@@ -165,7 +165,7 @@ gpu_cull_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, item: Draw_Item,
 gpu_cull_kernels :: proc(r: ^Renderer) -> bool {
 	g := &r.gpu_culling
 	if g.count_pipeline != nil && g.write_pipeline != nil do return true
-	when ODIN_OS != .Darwin {
+	when VULKAN {
 		info := sdl.GPUComputePipelineCreateInfo {
 			code_size = len(CULL_COUNT_COMP_CODE), code = raw_data(CULL_COUNT_COMP_CODE), entrypoint = SHADER_ENTRY, format = SHADER_FORMAT,
 			num_readonly_storage_buffers = 2, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,

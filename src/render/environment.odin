@@ -56,7 +56,7 @@ Prefilter_Uniforms :: struct {
 	target: [4]f32, // xy: the level's size, z: the source mip a mirror reads
 }
 
-ENV_PREFILTER_FRAG_CODE :: #load("shaders/env_prefilter.frag" + SHADER_EXT)
+ENV_PREFILTER_FRAG_CODE :: #load("shaders/env_prefilter.frag" + SHADER_EXT, string)
 
 // Makes an environment from `pixels`, linear RGB rows top (straight up) to bottom,
 // `width` by `height` (2:1, at least 64 wide), and its harmonics `sh`: uploads it,

@@ -15,10 +15,10 @@ import sdl "vendor:sdl3"
 // the grain. With every control at its none value finish_active is false and nothing runs,
 // so the picture stays the viewport's to the bit.
 
-FINISH_FRAG_CODE :: #load("shaders/finish.frag" + SHADER_EXT)
-BLOOM_DOWN_FRAG_CODE :: #load("shaders/bloom_down.frag" + SHADER_EXT)
-BLOOM_UP_FRAG_CODE :: #load("shaders/bloom_up.frag" + SHADER_EXT)
-SHARPEN_FRAG_CODE :: #load("shaders/sharpen.frag" + SHADER_EXT)
+FINISH_FRAG_CODE :: #load("shaders/finish.frag" + SHADER_EXT, string)
+BLOOM_DOWN_FRAG_CODE :: #load("shaders/bloom_down.frag" + SHADER_EXT, string)
+BLOOM_UP_FRAG_CODE :: #load("shaders/bloom_up.frag" + SHADER_EXT, string)
+SHARPEN_FRAG_CODE :: #load("shaders/sharpen.frag" + SHADER_EXT, string)
 
 // The bloom chain's sizes at most, from half the picture's down: six halvings reach 1/64 of
 // it, a glow about a fifth of a 1440p picture across at the widest scatter.

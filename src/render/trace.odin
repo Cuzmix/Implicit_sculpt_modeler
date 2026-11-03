@@ -23,12 +23,12 @@ import "../jobs"
 // Anything the device refuses, or a mesh that cannot be traced, leaves that run on the
 // shadow-map gather, which stays as it was.
 
-STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT)
+STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT, string)
 // The same kernel over the driver's acceleration structures (Gpu_Caps.ray_query), whose
 // Metal source comes from slangc (RQ_EXT).
-STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp" + RQ_EXT)
-STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT)
-BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT)
+STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp" + RQ_EXT, string)
+STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT, string)
+BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT, string)
 
 // Matches numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
 @(private = "file")
