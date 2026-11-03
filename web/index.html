@@ -16,7 +16,10 @@
 	#note, #failure { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; }
 	#note { color: var(--muted); pointer-events: none; }
 	#failure { display: none; background: var(--bg); font-size: 15px; }
-	#failure div { max-width: 520px; }
+	#failure div { max-width: min(720px, 100%); }
+	#failure pre { margin: 16px 0 0; padding: 12px; text-align: left; white-space: pre-wrap; word-break: break-word;
+		font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); background: #0c0d10; border-radius: 6px;
+		-webkit-user-select: text; user-select: text; }
 </style>
 </head>
 <body>
@@ -32,10 +35,34 @@
 const canvas = document.getElementById("viewport");
 const note = document.getElementById("note");
 
+// The last lines the page printed, shown under a failure: an Odin panic prints its message
+// and place just before the wasm traps, and WebGPU's errors are logged, but a tablet's
+// browser has no console to read them in.
+const recent = [];
+for (const level of ["log", "warn", "error"]) {
+	const original = console[level].bind(console);
+	console[level] = (...args) => {
+		// odin.js prints errors as ("%c" + text, style): the style is not part of the line.
+		const styled = typeof args[0] === "string" && args[0].startsWith("%c");
+		const parts = styled ? [args[0].slice(2), ...args.slice(2)] : args;
+		const text = parts.map(String).join(" ").trim();
+		if (text) {
+			recent.push(text);
+			if (recent.length > 12) recent.shift();
+		}
+		original(...args);
+	};
+}
+
 function fail(message) {
 	note.style.display = "none";
 	const box = document.getElementById("failure");
 	box.firstElementChild.textContent = message;
+	if (recent.length > 0) {
+		const log = document.createElement("pre");
+		log.textContent = recent.join("\n");
+		box.firstElementChild.appendChild(log);
+	}
 	box.style.display = "grid";
 }
 
