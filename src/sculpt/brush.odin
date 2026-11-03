@@ -431,6 +431,13 @@ Sculptor :: struct {
 	gpu_unlanded:    int,          // dabs recorded whose flush has not landed
 	gpu_flush_count: int,          // dabs recorded since the last flush
 	gpu_flush_dabs:  [dynamic]int, // the dabs of each flush on its way, oldest first
+	// Nodes whose normals the GPU has and the mesh not: a stroke's dabs on the GPU read
+	// back positions alone, and the normals follow after the stroke, GPU_BACK_VERTS a
+	// frame, or all at once at a sync (sculptor_gpu_back). `gpu_back_last` is the last
+	// frame's share, which a refusal gives to the CPU.
+	gpu_owed:       []bool,
+	gpu_owed_list:  [dynamic]u32,
+	gpu_back_last:  [dynamic]u32,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -471,6 +478,7 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.edited = make([]bool, len(s.nodes), allocator)
 	s.edited_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.gpu_pending = make([]u32, len(s.nodes), allocator)
+	s.gpu_owed = make([]bool, len(s.nodes), allocator)
 	history_init(&s.history, len(s.nodes), allocator)
 	s.changed_bounds = geom.AABB_EMPTY
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
@@ -787,6 +795,15 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 				if s.stale[id] != .Shape || s.cone_waiting[id] do continue
 				s.cone_waiting[id] = true
 				append(&s.waiting_cones, id)
+			}
+		}
+		// A node the CPU changes while its normals are owed by the GPU would upload the
+		// mesh's older ones over the GPU's: they come back first.
+		if s.gpu_take != .Dabs && len(s.gpu_owed_list) > 0 {
+			for id in s.dirty_nodes do if s.gpu_owed[id] {
+				_ = sculptor_gpu_sync(s)
+				slice.sort(s.dirty_nodes[:])
+				break
 			}
 		}
 		// The ranges to upload, coalesced, which the GPU's normals kernel takes too.

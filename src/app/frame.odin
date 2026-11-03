@@ -48,10 +48,12 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The positions and normals a stroke's earlier frames read back land in the mesh
 	// before the dabs, and the bounds of what landed are refit.
 	render.sculpt_gpu_frame(&app.renderer)
+	land_start := time.tick_now()
 	sculpt_gpu_landed(app)
 	if sg := app.renderer.sculpt_gpu.stats; sg.applied {
 		ring_push(&app.stats.gpu_sculpt_kb, sg.applied_kb)
 		ring_push(&app.stats.gpu_sculpt_apply_ms, sg.apply_ms)
+		ring_push(&app.stats.gpu_sculpt_land_ms, time.duration_milliseconds(time.tick_since(land_start)))
 	}
 	setting_up := frame_settle(app, loop) or_return
 	// Wait for the display, or the frame rate limit, and while timing the GPU for the
@@ -250,6 +252,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			gpu := gpus[part]
 			t_flush := time.tick_now()
 			ranges := sculpt.sculptor_flush(&lv.sculptor)
+			// After the flush, so a share the GPU refuses is stale for the next one.
+			sculpt.sculptor_gpu_back(&lv.sculptor)
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 			flash_damage(app, obj, lv.sculptor.changed_bounds)
 			bytes, uploaded_ok := level_upload(app, cmd, gpu, lv, ranges)
@@ -262,7 +266,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			// The dabs and normals of a stroke on the GPU, now that what the CPU moved is up;
 			// where the device refused a buffer, the CPU lays the dabs and computes and
 			// uploads the normals next frame.
-			if render.sculpt_gpu_upload(gpu) != .Full && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
+			if render.sculpt_gpu_wanted(gpu) && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)

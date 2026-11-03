@@ -694,6 +694,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	if app.stats.gpu_sculpt_kb.count > 0 {
 		print_stat("gpu_sculpt_kb", app.stats.gpu_sculpt_kb)
 		print_stat("gpu_sculpt_apply_ms", app.stats.gpu_sculpt_apply_ms)
+		print_stat("gpu_sculpt_land_ms", app.stats.gpu_sculpt_land_ms)
 	}
 	if app.stats.display_ms.count > 0 do print_stat("display_ms", app.stats.display_ms)
 	if dropped, known := render.frames_dropped(&app.renderer); known do fmt.printfln("frames_dropped=%d", dropped)
