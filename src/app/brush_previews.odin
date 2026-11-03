@@ -176,7 +176,7 @@ brush_previews_poll :: proc(app: ^App) {
 	defer preview_batch_free(b)
 	w, h := PREVIEW_COLUMNS * sculpt.PREVIEW_W, b.rows * sculpt.PREVIEW_H
 	tex := render.picture_create(&app.renderer, b.pixels, w, h)
-	if tex == nil do return
+	if tex == 0 do return
 	render.matcap_destroy(&app.renderer, &bp.atlas)
 	bp.atlas, bp.size = tex, {w, h}
 	preview_cells_clear(bp)
@@ -196,7 +196,7 @@ brush_preview_draw :: proc(app: ^App, key: string, r: ui.Rect) -> bool {
 	brush_previews_want(app)
 	bp := &app.brush_previews
 	cell, ok := bp.cells[key]
-	if !ok || bp.atlas == nil do return false
+	if !ok || bp.atlas == 0 do return false
 	cw, ch := f32(sculpt.PREVIEW_W) / f32(bp.size.x), f32(sculpt.PREVIEW_H) / f32(bp.size.y)
 	lo := [2]f32{f32(cell % PREVIEW_COLUMNS) * cw, f32(cell / PREVIEW_COLUMNS) * ch}
 	ui.picture_cover(&app.kit.ctx, r, {image = KIT_BRUSH_PREVIEWS_IMAGE, lo = lo, hi = lo + {cw, ch}, aspect = f32(sculpt.PREVIEW_W) / f32(sculpt.PREVIEW_H)})

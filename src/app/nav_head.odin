@@ -184,11 +184,11 @@ Nav_State :: struct {
 // Draws the head for this frame on `cmd`, once the kit has laid it out, making its mesh
 // the first time; the interface shows what it drew (KIT_NAV_HEAD_IMAGE).
 nav_head_frame :: proc(app: ^App, cmd: render.Cmd) {
-	app.nav_shown = nil
+	app.nav_shown = 0
 	nh := &app.nav_head
 	size := app.kit.nav.size
 	if !app.kit.nav.placed || size.x == 0 || size.y == 0 || nh.failed do return
-	if nh.mesh.positions == nil {
+	if nh.mesh.positions == 0 {
 		m := nav_head_mesh()
 		defer geom.mesh_destroy(&m)
 		if !render.nav_head_init(&app.renderer, nh, m) do return

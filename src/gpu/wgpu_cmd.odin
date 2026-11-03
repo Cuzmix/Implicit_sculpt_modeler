@@ -466,7 +466,7 @@ wgpu_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color
 	colors := make([]wgpu.RenderPassColorAttachment, int(num_color_targets), context.temp_allocator)
 	for i in 0 ..< int(num_color_targets) {
 		info := color_target_infos[i]
-		t := (^Wgpu_Texture)(info.texture)
+		t := (^Wgpu_Texture)(object(info.texture))
 		width, height = min(width, max(t.info.width >> info.mip_level, 1)), min(height, max(t.info.height >> info.mip_level, 1))
 		c := info.clear_color
 		colors[i] = {
@@ -477,13 +477,13 @@ wgpu_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color
 			clearValue = {f64(c.r), f64(c.g), f64(c.b), f64(c.a)},
 		}
 		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
-			colors[i].resolveTarget = wgpu_texture_level((^Wgpu_Texture)(info.resolve_texture), info.resolve_mip_level)
+			colors[i].resolveTarget = wgpu_texture_level((^Wgpu_Texture)(object(info.resolve_texture)), info.resolve_mip_level)
 		}
 	}
 	depth: wgpu.RenderPassDepthStencilAttachment
 	has_depth := false
 	if d, ok := depth_stencil_target_info.?; ok && d != nil {
-		t := (^Wgpu_Texture)(d.texture)
+		t := (^Wgpu_Texture)(object(d.texture))
 		level := u32(d.mip_level)
 		width, height = min(width, max(t.info.width >> level, 1)), min(height, max(t.info.height >> level, 1))
 		depth = {
@@ -531,7 +531,7 @@ wgpu_end_render_pass :: proc(render_pass: Render_Pass) {
 
 wgpu_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Wgpu_Cmd)(render_pass)
-	p := (^Wgpu_Pipeline)(graphics_pipeline)
+	p := (^Wgpu_Pipeline)(object(graphics_pipeline))
 	if p == nil || p == cmd.pipeline do return
 	cmd.pipeline = p
 	wgpu.RenderPassEncoderSetPipeline(cmd.render, p.pipeline)
@@ -542,7 +542,7 @@ wgpu_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline:
 wgpu_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Wgpu_Buffer)(bindings[i].buffer)
+		b := (^Wgpu_Buffer)(object(bindings[i].buffer))
 		if b == nil do continue
 		offset := bindings[i].offset
 		size := (b.size + 3) &~ 3
@@ -552,7 +552,7 @@ wgpu_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bind
 
 wgpu_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Wgpu_Cmd)(render_pass)
-	b := (^Wgpu_Buffer)(binding.buffer)
+	b := (^Wgpu_Buffer)(object(binding.buffer))
 	if b == nil do return
 	size := (b.size + 3) &~ 3
 	format: wgpu.IndexFormat = .Uint16 if index_element_size == .U16 else .Uint32
@@ -562,13 +562,13 @@ wgpu_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer
 
 wgpu_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
-	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.vertex_storage) do cmd.vertex_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
+	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.vertex_storage) do cmd.vertex_storage[first_slot + i] = (^Wgpu_Buffer)(object(storage_buffers[i]))
 	cmd.resources_dirty = true
 }
 
 wgpu_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
-	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.fragment_storage) do cmd.fragment_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
+	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.fragment_storage) do cmd.fragment_storage[first_slot + i] = (^Wgpu_Buffer)(object(storage_buffers[i]))
 	cmd.resources_dirty = true
 }
 
@@ -577,8 +577,8 @@ wgpu_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, t
 	for i in 0 ..< num_bindings {
 		slot := first_slot + i
 		if slot >= len(cmd.fragment_textures) do continue
-		cmd.fragment_textures[slot] = (^Wgpu_Texture)(texture_sampler_bindings[i].texture)
-		cmd.fragment_samplers[slot] = wgpu.Sampler(texture_sampler_bindings[i].sampler)
+		cmd.fragment_textures[slot] = (^Wgpu_Texture)(object(texture_sampler_bindings[i].texture))
+		cmd.fragment_samplers[slot] = wgpu.Sampler(object(texture_sampler_bindings[i].sampler))
 	}
 	cmd.resources_dirty = true
 }
@@ -609,7 +609,7 @@ wgpu_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_
 wgpu_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
-	b := (^Wgpu_Buffer)(buffer)
+	b := (^Wgpu_Buffer)(object(buffer))
 	stride :: u32(size_of(Indexed_Indirect_Draw))
 	for i in 0 ..< draw_count do wgpu.RenderPassEncoderDrawIndexedIndirect(cmd.render, b.buffer, u64(offset + i * stride))
 }
@@ -617,7 +617,7 @@ wgpu_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: 
 wgpu_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
-	b := (^Wgpu_Buffer)(buffer)
+	b := (^Wgpu_Buffer)(object(buffer))
 	for i in 0 ..< draw_count do wgpu.RenderPassEncoderDrawIndirect(cmd.render, b.buffer, u64(offset + i * stride))
 }
 
@@ -631,7 +631,7 @@ wgpu_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [
 		return nil
 	}
 	for i in 0 ..< num_storage_texture_bindings do cmd.compute_written[i] = storage_texture_bindings[i]
-	for i in 0 ..< num_storage_buffer_bindings do cmd.compute_rw[i] = (^Wgpu_Buffer)(storage_buffer_bindings[i].buffer)
+	for i in 0 ..< num_storage_buffer_bindings do cmd.compute_rw[i] = (^Wgpu_Buffer)(object(storage_buffer_bindings[i].buffer))
 	cmd.compute_writes = {num_storage_texture_bindings, num_storage_buffer_bindings}
 	cmd.compute = wgpu.CommandEncoderBeginComputePass(cmd.encoder)
 	if cmd.compute == nil {
@@ -656,7 +656,7 @@ wgpu_end_compute_pass :: proc(compute_pass: Compute_Pass) {
 
 wgpu_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
-	p := (^Wgpu_Compute_Pipeline)(compute_pipeline)
+	p := (^Wgpu_Compute_Pipeline)(object(compute_pipeline))
 	if p == nil do return
 	cmd.compute_pipeline = p
 	wgpu.ComputePassEncoderSetPipeline(cmd.compute, p.pipeline)
@@ -669,15 +669,15 @@ wgpu_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, 
 	for i in 0 ..< num_bindings {
 		slot := first_slot + i
 		if slot >= len(cmd.compute_textures) do continue
-		cmd.compute_textures[slot] = (^Wgpu_Texture)(texture_sampler_bindings[i].texture)
-		cmd.compute_samplers[slot] = wgpu.Sampler(texture_sampler_bindings[i].sampler)
+		cmd.compute_textures[slot] = (^Wgpu_Texture)(object(texture_sampler_bindings[i].texture))
+		cmd.compute_samplers[slot] = wgpu.Sampler(object(texture_sampler_bindings[i].sampler))
 	}
 	cmd.compute_dirty = true
 }
 
 wgpu_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
-	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.compute_storage) do cmd.compute_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
+	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.compute_storage) do cmd.compute_storage[first_slot + i] = (^Wgpu_Buffer)(object(storage_buffers[i]))
 	cmd.compute_dirty = true
 }
 
@@ -712,7 +712,7 @@ wgpu_bind_dispatch :: proc(cmd: ^Wgpu_Cmd) -> bool {
 				n := b.binding / 2
 				if n < cmd.compute_writes[0] {
 					w := cmd.compute_written[n]
-					t := (^Wgpu_Texture)(w.texture)
+					t := (^Wgpu_Texture)(object(w.texture))
 					entries[i] = {binding = b.binding, textureView = wgpu_texture_level(t, w.mip_level)}
 				} else {
 					k := n - info.num_readwrite_storage_textures
@@ -757,8 +757,8 @@ wgpu_end_copy_pass :: proc(copy_pass: Copy_Pass) {}
 
 wgpu_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	src := (^Wgpu_Transfer)(source.transfer_buffer)
-	dst := (^Wgpu_Buffer)(destination.buffer)
+	src := (^Wgpu_Transfer)(object(source.transfer_buffer))
+	dst := (^Wgpu_Buffer)(object(destination.buffer))
 	if src == nil || dst == nil || destination.size == 0 do return
 	if destination.offset % 4 != 0 {
 		log.errorf("WebGPU: an upload to byte %d of a buffer, which WebGPU copies in words", destination.offset)
@@ -773,8 +773,8 @@ wgpu_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buf
 
 wgpu_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	src := (^Wgpu_Transfer)(source.transfer_buffer)
-	t := (^Wgpu_Texture)(destination.texture)
+	src := (^Wgpu_Transfer)(object(source.transfer_buffer))
+	t := (^Wgpu_Texture)(object(destination.texture))
 	if src == nil || t == nil do return
 	texel := wgpu_texel_size(t.info.format)
 	row := destination.w * texel
@@ -802,16 +802,16 @@ wgpu_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Tra
 
 wgpu_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	src := (^Wgpu_Buffer)(source.buffer)
-	dst := (^Wgpu_Buffer)(destination.buffer)
+	src := (^Wgpu_Buffer)(object(source.buffer))
+	dst := (^Wgpu_Buffer)(object(destination.buffer))
 	if src == nil || dst == nil || size == 0 do return
 	wgpu.CommandEncoderCopyBufferToBuffer(cmd.encoder, src.buffer, u64(source.offset), dst.buffer, u64(destination.offset), u64((size + 3) &~ 3))
 }
 
 wgpu_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	src := (^Wgpu_Texture)(source.texture)
-	dst := (^Wgpu_Texture)(destination.texture)
+	src := (^Wgpu_Texture)(object(source.texture))
+	dst := (^Wgpu_Texture)(object(destination.texture))
 	if src == nil || dst == nil do return
 	wgpu.CommandEncoderCopyTextureToTexture(cmd.encoder,
 		&{texture = src.texture, mipLevel = source.mip_level, origin = {source.x, source.y, 0}, aspect = .All},
@@ -821,8 +821,8 @@ wgpu_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Textu
 
 wgpu_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	src := (^Wgpu_Buffer)(source.buffer)
-	dst := (^Wgpu_Transfer)(destination.transfer_buffer)
+	src := (^Wgpu_Buffer)(object(source.buffer))
+	dst := (^Wgpu_Transfer)(object(destination.transfer_buffer))
 	if src == nil || dst == nil || source.size == 0 do return
 	size := (source.size + 3) &~ 3
 	readback := wgpu.DeviceCreateBuffer(wgpu_state.device, &{usage = {.MapRead, .CopyDst}, size = u64(size)})
@@ -834,8 +834,8 @@ wgpu_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_R
 
 wgpu_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
-	t := (^Wgpu_Texture)(source.texture)
-	dst := (^Wgpu_Transfer)(destination.transfer_buffer)
+	t := (^Wgpu_Texture)(object(source.texture))
+	dst := (^Wgpu_Transfer)(object(destination.transfer_buffer))
 	if t == nil || dst == nil do return
 	texel := wgpu_texel_size(t.info.format)
 	row := source.w * texel
@@ -894,7 +894,7 @@ wgpu_mip_pipeline :: proc(format: wgpu.TextureFormat) -> wgpu.RenderPipeline {
 
 wgpu_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 	cmd := (^Wgpu_Cmd)(command_buffer)
-	t := (^Wgpu_Texture)(texture)
+	t := (^Wgpu_Texture)(object(texture))
 	if t == nil || t.info.num_levels < 2 || format_is_depth(t.info.format) do return
 	cmd.recorded = true
 	p := wgpu_mip_pipeline(t.format)
@@ -1005,7 +1005,8 @@ wgpu_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture
 		info = {type = .D2, format = wgpu_get_swapchain_texture_format(window), usage = {.Color_Target}, width = s.configured.x, height = s.configured.y, layer_count_or_depth = 1, num_levels = 1},
 	}
 	t.view = wgpu.TextureCreateView(current.texture, &{format = format, dimension = ._2D, mipLevelCount = 1, arrayLayerCount = 1, aspect = .All})
-	texture^ = (Texture)(t)
+	if s.swapchain_handle == 0 do s.swapchain_handle = Texture(pool_add(&pools.textures, t))
+	texture^ = s.swapchain_handle
 	width^, height^ = s.configured.x, s.configured.y
 	cmd.presented = true
 	return true

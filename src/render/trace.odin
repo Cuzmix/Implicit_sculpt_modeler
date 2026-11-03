@@ -286,14 +286,14 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 tracer_destroy :: proc(r: ^Renderer, tr: ^Tracer) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	if tr.trace_pipeline != nil do gpu.release_compute_pipeline(tr.trace_pipeline)
-	if tr.refit_pipeline != nil do gpu.release_compute_pipeline(tr.refit_pipeline)
-	if tr.add_pipeline != nil do gpu.release_graphics_pipeline(tr.add_pipeline)
-	if tr.visible != nil do gpu.release_texture(tr.visible)
-	if tr.transfer != nil do gpu.release_transfer_buffer(tr.transfer)
-	if tr.rq_pipeline != nil do gpu.release_compute_pipeline(tr.rq_pipeline)
+	if tr.trace_pipeline != 0 do gpu.release_compute_pipeline(tr.trace_pipeline)
+	if tr.refit_pipeline != 0 do gpu.release_compute_pipeline(tr.refit_pipeline)
+	if tr.add_pipeline != 0 do gpu.release_graphics_pipeline(tr.add_pipeline)
+	if tr.visible != 0 do gpu.release_texture(tr.visible)
+	if tr.transfer != 0 do gpu.release_transfer_buffer(tr.transfer)
+	if tr.rq_pipeline != 0 do gpu.release_compute_pipeline(tr.rq_pipeline)
 	gpu.release_accel(tr.tlas)
-	for b in tr.rq_buffers do if b != nil do gpu.release_buffer(b)
+	for b in tr.rq_buffers do if b != 0 do gpu.release_buffer(b)
 	// The counters outlive the device's objects, for the exit stats.
 	tr^ = {samples = tr.samples, build_ms = tr.build_ms, chunks_built = tr.chunks_built, failed = tr.failed, rq_failed = tr.rq_failed, rq_samples = tr.rq_samples, blas_builds = tr.blas_builds, blas_refits = tr.blas_refits}
 }
@@ -308,7 +308,7 @@ trace_mesh_destroy :: proc(r: ^Renderer, tm: ^Trace_Mesh) {
 	delete(tm.ranges)
 	delete(tm.chunk_of)
 	delete(tm.range_bounds)
-	for b in tm.buffers do if b != nil do gpu.release_buffer(b)
+	for b in tm.buffers do if b != 0 do gpu.release_buffer(b)
 	gpu.release_accel(tm.blas)
 	delete(tm.geometries)
 	delete(tm.rq_ranges)
@@ -331,7 +331,7 @@ trace_traceable :: proc(item: Draw_Item) -> bool {
 
 @(private = "file")
 tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
-	if tr.trace_pipeline == nil {
+	if tr.trace_pipeline == 0 {
 		visible_usage := gpu.Texture_Usages{.Color_Target, .Sampled, .Storage_Write}
 		if !gpu.texture_supports_format(.R32_Float, .D2, visible_usage) {
 			log.warn("traced studio: this device cannot write R32_FLOAT from compute; the studio uses shadow maps")
@@ -349,19 +349,19 @@ tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 		})
 		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
 		tr.transfer = gpu.create_transfer_buffer({usage = .Upload, size = TRACE_TRANSFER_SIZE})
-		if tr.trace_pipeline == nil || tr.refit_pipeline == nil || tr.add_pipeline == nil || tr.transfer == nil {
+		if tr.trace_pipeline == 0 || tr.refit_pipeline == 0 || tr.add_pipeline == 0 || tr.transfer == 0 {
 			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", gpu.last_error())
 			return false
 		}
 	}
-	if tr.visible != nil && tr.width == vt.width && tr.height == vt.height do return true
-	if tr.visible != nil do gpu.release_texture(tr.visible)
+	if tr.visible != 0 && tr.width == vt.width && tr.height == vt.height do return true
+	if tr.visible != 0 do gpu.release_texture(tr.visible)
 	tr.visible = gpu.create_texture({
 		type = .D2, format = .R32_Float, usage = {.Color_Target, .Sampled, .Storage_Write},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	tr.width, tr.height = vt.width, vt.height
-	if tr.visible == nil {
+	if tr.visible == 0 {
 		log.errorf("traced studio: target creation failed (%s); the studio uses shadow maps", gpu.last_error())
 		return false
 	}
@@ -420,7 +420,7 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, item: Draw_It
 		resize(&tm.chunk_of, len(chunk_of))
 		copy(tm.chunk_of[:], chunk_of[:])
 		tm.index_version = mb.index_version
-		rebuilt = len(which) > 0 || !same || tm.buffers[.Nodes] == nil
+		rebuilt = len(which) > 0 || !same || tm.buffers[.Nodes] == 0
 		tr.chunks_built += len(which)
 		tr.build_ms += time.duration_milliseconds(time.tick_since(start))
 	}
@@ -509,13 +509,13 @@ trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk
 // tracer's view that way. A refusal is logged and the studio walks its own trees from then.
 trace_rq_kernel :: proc(r: ^Renderer, tr: ^Tracer) -> bool {
 	if !r.ray_query || !r.caps.ray_query || tr.rq_failed || !ray_query_trusted(r) do return false
-	if tr.rq_pipeline == nil {
+	if tr.rq_pipeline == 0 {
 		tr.rq_pipeline = gpu.create_compute_pipeline_traced({
 			code = STUDIO_TRACE_RQ_COMP_CODE, entrypoint = RQ_ENTRY,
 			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
 			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
 		})
-		if tr.rq_pipeline == nil {
+		if tr.rq_pipeline == 0 {
 			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", gpu.last_error())
 			tr.rq_failed = true
 			return false
@@ -673,14 +673,14 @@ trace_rq_tables :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_I
 // first when it does not fit.
 @(private = "file")
 trace_rq_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, which: Rq_Buffer, data: []u8) {
-	if tr.rq_buffers[which] == nil || u32(len(data)) > tr.rq_capacity[which] {
+	if tr.rq_buffers[which] == 0 || u32(len(data)) > tr.rq_capacity[which] {
 		// The buffer goes once the samples that read it have run.
-		if tr.rq_buffers[which] != nil do gpu.release_buffer(tr.rq_buffers[which])
+		if tr.rq_buffers[which] != 0 do gpu.release_buffer(tr.rq_buffers[which])
 		tr.rq_capacity[which] = u32(len(data) + len(data) / 4)
 		tr.rq_buffers[which] = gpu.create_buffer({usage = {.Storage_Read}, size = tr.rq_capacity[which]})
 	}
 	dst := gpu.map_transfer_buffer(tr.transfer, true)
-	if dst == nil || tr.rq_buffers[which] == nil do return
+	if dst == nil || tr.rq_buffers[which] == 0 do return
 	copy(([^]u8)(dst)[:len(data)], data)
 	gpu.unmap_transfer_buffer(tr.transfer)
 	pass := gpu.begin_copy_pass(cmd)
@@ -771,8 +771,8 @@ trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_
 		log.warnf("traced studio: %d MB of trees is more than this device reads; the studio uses shadow maps", size >> 20)
 		return false
 	}
-	if tm.buffers[which] == nil || u32(size) > tm.capacity[which] {
-		if tm.buffers[which] != nil {
+	if tm.buffers[which] == 0 || u32(size) > tm.capacity[which] {
+		if tm.buffers[which] != 0 {
 			_ = gpu.wait_for_idle()
 			gpu.release_buffer(tm.buffers[which])
 		}
@@ -780,10 +780,10 @@ trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_
 		usage := gpu.Buffer_Usages{.Storage_Read}
 		if which == .Nodes do usage += {.Storage_Write}
 		tm.buffers[which] = gpu.create_buffer({usage = usage, size = capacity})
-		tm.capacity[which] = capacity if tm.buffers[which] != nil else 0
+		tm.capacity[which] = capacity if tm.buffers[which] != 0 else 0
 		tm.bytes = 0
 		for c in tm.capacity do tm.bytes += int(c)
-		if tm.buffers[which] == nil {
+		if tm.buffers[which] == 0 {
 			log.errorf("traced studio: a buffer of %d MB was refused (%s); the studio uses shadow maps", capacity >> 20, gpu.last_error())
 			return false
 		}

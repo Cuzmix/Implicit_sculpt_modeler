@@ -105,7 +105,7 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: gpu.Cmd, vt: ^Viewport_T
 	// The depth both passes read: the viewport's own, or with multisampling the camera's
 	// drawn again at one sample over what changed.
 	depth := vt.depth
-	if lao.view_depth != nil {
+	if lao.view_depth != 0 {
 		depth = lao.view_depth
 		view_depth_draw(r, cmd, lao.depth_pipeline, lao.clear_pipeline, lao.view_depth, vt.width, vt.height, view, proj, items, rect if partial else nil)
 	}
@@ -166,7 +166,7 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: gpu.Cmd, vt: ^Viewport_T
 // when there is none (it has not run since it was last reset, or cannot run) and the
 // plain viewport shows.
 live_ao_texture :: proc(lao: ^Live_AO) -> gpu.Texture {
-	if lao.failed || lao.key == 0 do return nil
+	if lao.failed || lao.key == 0 do return 0
 	return lao.shown
 }
 
@@ -184,9 +184,9 @@ live_ao_supported :: proc(r: ^Renderer, lao: ^Live_AO) -> bool {
 live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu.release_graphics_pipeline(p)
-	if lao.sampler != nil do gpu.release_sampler(lao.sampler)
-	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(t)
+	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != 0 do gpu.release_graphics_pipeline(p)
+	if lao.sampler != 0 do gpu.release_sampler(lao.sampler)
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != 0 do gpu.release_texture(t)
 	full, partial, skipped := lao.full, lao.partial, lao.skipped
 	lao^ = {}
 	lao.full, lao.partial, lao.skipped = full, partial, skipped
@@ -216,7 +216,7 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		log.warn("live occlusion: this device cannot sample the depth format; it stays off")
 		return false
 	}
-	if lao.gtao_pipeline == nil {
+	if lao.gtao_pipeline == 0 {
 		lao.gtao_pipeline = create_fullscreen_pipeline(r, GTAO_FRAG_CODE, LIVE_AO_FORMAT, samplers = 1)
 		lao.blur_pipeline = create_fullscreen_pipeline(r, AO_BLUR_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 3)
 		lao.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
@@ -225,16 +225,16 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
-		if lao.gtao_pipeline == nil || lao.blur_pipeline == nil || lao.depth_pipeline == nil || lao.clear_pipeline == nil || lao.sampler == nil {
+		if lao.gtao_pipeline == 0 || lao.blur_pipeline == 0 || lao.depth_pipeline == 0 || lao.clear_pipeline == 0 || lao.sampler == 0 {
 			log.errorf("live occlusion: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
 	}
 	want_view_depth := vt.samples != ._1
-	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
+	if lao.ao != 0 && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != 0) do return true
 	// A frame in flight may still read these; the backend defers the release until it is done.
-	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(t)
-	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != 0 do gpu.release_texture(t)
+	lao.ao, lao.shown, lao.view_depth = 0, 0, 0
 	lao.key = 0
 	if want_view_depth {
 		lao.view_depth = gpu.create_texture({
@@ -251,7 +251,7 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	lao.width, lao.height, lao.scale = vt.width, vt.height, scale
-	if lao.ao == nil || lao.shown == nil || want_view_depth && lao.view_depth == nil {
+	if lao.ao == 0 || lao.shown == 0 || want_view_depth && lao.view_depth == 0 {
 		log.errorf("live occlusion: target creation failed (%s); it stays off", gpu.last_error())
 		return false
 	}

@@ -23,24 +23,24 @@ THUMB_SLOTS :: THUMB_CELLS * THUMB_CELLS
 thumbs_destroy :: proc(r: ^Renderer, t: ^Thumbs) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	if t.atlas != nil do gpu.release_texture(t.atlas)
+	if t.atlas != 0 do gpu.release_texture(t.atlas)
 	viewport_target_destroy(r, &t.scratch)
 	t^ = {}
 }
 
 // The atlas, made and cleared to transparent on first use; nil when it cannot be made.
 thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: gpu.Cmd) -> gpu.Texture {
-	if t.failed do return nil
-	if t.atlas != nil do return t.atlas
+	if t.failed do return 0
+	if t.atlas != 0 do return t.atlas
 	SIZE :: THUMB_PX * THUMB_CELLS
 	t.atlas = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 	})
-	if t.atlas == nil || !viewport_target_resize(r, &t.scratch, THUMB_PX, THUMB_PX, transient_depth = true) {
+	if t.atlas == 0 || !viewport_target_resize(r, &t.scratch, THUMB_PX, THUMB_PX, transient_depth = true) {
 		log.errorf("thumbnail textures: %s", gpu.last_error())
 		t.failed = true
-		return nil
+		return 0
 	}
 	// A new texture holds anything: every cell starts empty.
 	color := gpu.Color_Target{texture = t.atlas, load_op = .Clear, store_op = .Store}
@@ -53,7 +53,7 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: gpu.Cmd) -> gpu.Texture {
 // transparent background. False when there is no atlas to draw into.
 thumbs_draw :: proc(r: ^Renderer, t: ^Thumbs, cmd: gpu.Cmd, slot: int, view, proj: Mat4, item: Draw_Item) -> bool {
 	debug_group(cmd, "Thumbnail", .Pictures)
-	if thumbs_atlas(r, t, cmd) == nil || slot < 0 || slot >= THUMB_SLOTS do return false
+	if thumbs_atlas(r, t, cmd) == 0 || slot < 0 || slot >= THUMB_SLOTS do return false
 	whole := item
 	whole.chunks, whole.chunk_groups, whole.hidden = nil, nil, nil
 	pass := begin_mesh_pass(r, cmd, &r.single, t.scratch.color, t.scratch.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})

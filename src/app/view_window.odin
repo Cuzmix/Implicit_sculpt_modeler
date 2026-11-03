@@ -318,7 +318,7 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 	ui.begin_at(ctx, "view window", {0, 0}, {width = room.x, height = room.y})
 	a := ui.area(ctx, "picture", room)
 	ui.fill_rect(ctx, a.rect, 0, t.pane)
-	if w.pic.shown != nil do ui.image(ctx, a.rect, VIEW_WINDOW_IMAGE)
+	if w.pic.shown != 0 do ui.image(ctx, a.rect, VIEW_WINDOW_IMAGE)
 	second_view_input(app, ctx, scale, &w.view, a)
 	ui.end(ctx)
 	ui.begin_at(ctx, "view window head", {6, 6}, {direction = .Row, center = true, gap = 4, padding = 4, radius = t.radius_large, background = .Panel})
@@ -335,7 +335,7 @@ view_windows_pictures :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_I
 	for w in app.view_windows.open {
 		if w == nil || w.close || w.pixels.x <= 0 || w.pixels.y <= 0 || view_window_hidden(w) do continue
 		if app.kit.home {
-			w.pic.shown, w.pic.due = nil, false
+			w.pic.shown, w.pic.due = 0, false
 			continue
 		}
 		picture_frame(app, cmd, draws, froms, &w.view, &w.pic, view_window_picture_size(w.pixels), 1)
@@ -379,7 +379,7 @@ view_window_present :: proc(app: ^App, w: ^View_Window, dl: ^ui.Draw_List) -> bo
 		_ = render.cmd_cancel(cmd)
 		return false
 	}
-	if swapchain == nil {
+	if swapchain == 0 {
 		w.stale = true
 		return render.cmd_cancel(cmd)
 	}
@@ -415,7 +415,7 @@ view_window_draws :: proc(w: ^View_Window, dl: ^ui.Draw_List) -> []render.Ui_Dra
 		}
 		if c.texture != .Image do continue
 		draws[i].image, draws[i].smooth = picture_shown(&w.pic), true
-		if c.image != VIEW_WINDOW_IMAGE || w.pic.shown == nil do draws[i].index_count = 0
+		if c.image != VIEW_WINDOW_IMAGE || w.pic.shown == 0 do draws[i].index_count = 0
 	}
 	return draws
 }

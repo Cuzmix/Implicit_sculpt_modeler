@@ -195,7 +195,7 @@ kit_mini_view :: proc(app: ^App) -> (raised: bool) {
 		d := ctx.input.pixel_density
 		k.thumbnail_px = {u32(pic.w * d + 0.5), u32(pic.h * d + 0.5)}
 		ui.fill_rect(ctx, pic, t.radius_small, t.fill)
-		if app.thumbnail.shown != nil {
+		if app.thumbnail.shown != 0 {
 			lo, hi := [2]f32{0, 0}, [2]f32{1, 1}
 			if k.thumbnail_flip do lo.x, hi.x = 1, 0
 			ui.image_part(ctx, pic, KIT_THUMBNAIL_IMAGE, lo, hi)

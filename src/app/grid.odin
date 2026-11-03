@@ -984,14 +984,14 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 		ui.image(ctx, a.rect, KIT_VIEWPORT_IMAGE)
 	} else {
 		ui.fill_rect(ctx, a.rect, 0, t.pane)
-		if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
+		if app.panes[i - 1].shown != 0 do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
 		second_view_input(app, ctx, k.scale, sv, a)
 	}
 	ui.end(ctx)
 	if working {
 		k.layer = ui.layer_mark(ctx)
 		kit_guides(app, r, app.camera, fmt.tprintf("pane %d", i))
-	} else if app.panes[i - 1].shown != nil {
+	} else if app.panes[i - 1].shown != 0 {
 		kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
 	}
 	// Its head comes after the corner handles (kit_grid: lens_pane_head).
@@ -1039,13 +1039,13 @@ grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms:
 	for &pic, i in app.panes {
 		size := k.grid.px[i]
 		if k.home || size.x == 0 || size.y == 0 {
-			pic.shown, pic.due = nil, false
+			pic.shown, pic.due = 0, false
 			continue
 		}
 		if k.grid.work == i + 1 do continue
 		// A 2D tab draws no picture; the pane's is drawn again once a 3D tab shows.
 		if !pane_shows_view(&k.grid, i + 1) {
-			pic.shown, pic.key, pic.due = nil, 0, false
+			pic.shown, pic.key, pic.due = 0, 0, false
 			continue
 		}
 		picture_frame(app, cmd, draws, froms, grid_view(&k.grid, i + 1), &pic, size, 1)
@@ -1130,7 +1130,7 @@ grid_work_begin :: proc(app: ^App, i: int) {
 	// What the main pane shows, taken while the main view is still its own: the studio
 	// render or live occlusion pause while a view pane is worked in.
 	g.work_shown = viewport_shown(app)
-	if g.work_shown == nil do g.work_shown = app.target.color
+	if g.work_shown == 0 do g.work_shown = app.target.color
 	g.work_back = app.camera
 	app.camera = second_orbit(app, sv)
 	g.work, g.work_serial, g.work_from = i, g.serial, app.camera
@@ -1159,7 +1159,7 @@ grid_work_end :: proc(app: ^App) {
 	}
 	g.work_dabs += app.stats.dabs_total - g.work_dabs_from
 	g.work_live = viewport_shown(app)
-	if g.work_live == nil do g.work_live = app.target.color
+	if g.work_live == 0 do g.work_live = app.target.color
 	if g.serial == g.work_serial do g.work_ended = g.work
 	app.camera = g.work_back
 	g.work = 0

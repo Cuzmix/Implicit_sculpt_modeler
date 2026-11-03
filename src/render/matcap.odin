@@ -21,10 +21,10 @@ matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> gpu.Tex
 
 // Waits for the GPU (a frame in flight may still sample it) and releases the texture.
 matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
-	if tex^ == nil do return
+	if tex^ == 0 do return
 	_ = gpu.wait_for_idle()
 	gpu.release_texture(tex^)
-	tex^ = nil
+	tex^ = 0
 }
 
 // Copies RGBA8 `pixels` into mip level 0 of `tex` and, with `mips`, has the GPU build the
@@ -32,7 +32,7 @@ matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 @(private)
 texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, height: int, mips: bool) -> bool {
 	transfer := gpu.create_transfer_buffer({usage = .Upload, size = u32(len(pixels))})
-	if transfer == nil {
+	if transfer == 0 {
 		log.errorf("texture upload buffer: %s", gpu.last_error())
 		return false
 	}

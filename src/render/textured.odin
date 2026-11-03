@@ -84,7 +84,7 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 		// device takes.
 		tm.corners = gpu.create_buffer({usage = {.Storage_Read}, size = tm.index_capacity * size_of(u32)})
 		tm.transfer = gpu.create_transfer_buffer({usage = .Upload, size = tm.transfer_size})
-		if tm.vertices == nil || tm.indices == nil || tm.corners == nil || tm.transfer == nil {
+		if tm.vertices == 0 || tm.indices == 0 || tm.corners == 0 || tm.transfer == 0 {
 			log.errorf("textured mesh buffers: %s", gpu.last_error())
 			textured_buffers_release(r, tm)
 			return false
@@ -120,36 +120,36 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, ver
 // waits for it, like a MatCap's. False, with the map left out and the reason logged,
 // when the device refuses.
 textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, pixels: []u8, width, height: int) -> bool {
-	if tm.maps[m] != nil {
+	if tm.maps[m] != 0 {
 		_ = gpu.wait_for_idle()
 		gpu.release_texture(tm.maps[m])
-		tm.maps[m], tm.sizes[m] = nil, {}
+		tm.maps[m], tm.sizes[m] = 0, {}
 	}
 	r.last_version += 1
 	tm.maps_stamp = r.last_version
 	if pixels == nil do return true
 	tex := texture_create(r, TEXTURE_FORMATS[m], pixels, width, height)
-	if tex == nil do return false
+	if tex == 0 do return false
 	tm.maps[m], tm.sizes[m] = tex, {u32(width), u32(height)}
 	return true
 }
 
 // Waits for the GPU and releases everything the mesh holds.
 textured_mesh_destroy :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
-	if tm.vertices == nil && tm.maps == {} do return
+	if tm.vertices == 0 && tm.maps == {} do return
 	_ = gpu.wait_for_idle()
 	textured_buffers_release(r, tm)
-	for tex in tm.maps do if tex != nil do gpu.release_texture(tex)
+	for tex in tm.maps do if tex != 0 do gpu.release_texture(tex)
 	tm^ = {}
 }
 
 @(private = "file")
 textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
-	if tm.vertices != nil do gpu.release_buffer(tm.vertices)
-	if tm.indices != nil do gpu.release_buffer(tm.indices)
-	if tm.corners != nil do gpu.release_buffer(tm.corners)
-	if tm.transfer != nil do gpu.release_transfer_buffer(tm.transfer)
-	tm.vertices, tm.indices, tm.corners, tm.transfer = nil, nil, nil, nil
+	if tm.vertices != 0 do gpu.release_buffer(tm.vertices)
+	if tm.indices != 0 do gpu.release_buffer(tm.indices)
+	if tm.corners != 0 do gpu.release_buffer(tm.corners)
+	if tm.transfer != 0 do gpu.release_transfer_buffer(tm.transfer)
+	tm.vertices, tm.indices, tm.corners, tm.transfer = 0, 0, 0, 0
 	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0, 0
 }
 
@@ -157,7 +157,7 @@ textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 // view that shows it, and the device made the textured pipeline.
 @(private)
 draws_textured :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
-	return item.textured != nil && item.texture_view != .Off && item.textured.index_count > 0 && pipes.textured != nil
+	return item.textured != nil && item.texture_view != .Off && item.textured.index_count > 0 && pipes.textured != 0
 }
 
 // Draws `item` from its textured mesh with the textured pipeline (bound by the caller),
@@ -165,13 +165,13 @@ draws_textured :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 @(private)
 draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, item: Draw_Item, frame: ^Frame_Uniforms, material: ^Material_Uniforms, stats: ^Viewport_Stats) {
 	tm := item.textured
-	for m in Texture_Map do material.maps[int(m)] = 1 if tm.maps[m] != nil else 0
+	for m in Texture_Map do material.maps[int(m)] = 1 if tm.maps[m] != 0 else 0
 	material.maps.w = f32(item.texture_view)
 	gpu.push_vertex_uniform_data(cmd, 0, frame, size_of(Frame_Uniforms))
 	gpu.push_fragment_uniform_data(cmd, 0, material, size_of(Material_Uniforms))
 	defaults := [Texture_Map]gpu.Texture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
-	samplers := [5]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
-	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != nil else defaults[m], sampler = r.texture_sampler}
+	samplers := [5]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
+	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != 0 else defaults[m], sampler = r.texture_sampler}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	vbuf := gpu.Buffer_Binding{buffer = tm.vertices}
 	gpu.bind_vertex_buffers(pass, 0, &vbuf, 1)
@@ -193,13 +193,13 @@ texture_create :: proc(r: ^Renderer, format: gpu.Format, pixels: []u8, width, he
 		type = .D2, format = format, usage = {.Sampled, .Color_Target},
 		width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = levels,
 	})
-	if tex == nil {
+	if tex == 0 {
 		log.errorf("texture %d x %d: %s", width, height, gpu.last_error())
-		return nil
+		return 0
 	}
 	if !texture_upload(r, tex, pixels, width, height, mips = levels > 1) {
 		gpu.release_texture(tex)
-		return nil
+		return 0
 	}
 	return tex
 }

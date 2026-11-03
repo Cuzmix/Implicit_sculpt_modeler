@@ -155,7 +155,7 @@ material_balls :: proc(app: ^App, tab: Material_Tab) -> []Material_Ball {
 		for i in FIRST_MATCAP ..< len(MATERIALS) {
 			append(&out, Material_Ball{MATERIALS[i], strings.trim_suffix(string(MATERIALS[i].label), " MatCap")})
 		}
-		if app.matcap_image != nil do append(&out, Material_Ball{{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE}, "Imported"})
+		if app.matcap_image != 0 do append(&out, Material_Ball{{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE}, "Imported"})
 		for pm, k in app.library.matcaps {
 			if pm.gone || pm.failed do continue
 			append(&out, Material_Ball{{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = PACK_MATCAP + k}, pm.stem})

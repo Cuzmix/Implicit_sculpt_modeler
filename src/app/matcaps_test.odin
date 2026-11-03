@@ -47,7 +47,7 @@ matcap_presets_name_their_pictures :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, MATERIALS[index].matcap, 1)
 	app: App
-	testing.expect(t, material_matcap(&app, MATERIALS[0]) == nil)
+	testing.expect(t, material_matcap(&app, MATERIALS[0]) == 0)
 	testing.expect_value(t, matcap_label(&app, 6), "Toon")
 	testing.expect_value(t, matcap_label(&app, MATCAP_IMAGE), "image")
 }

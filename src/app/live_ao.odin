@@ -40,7 +40,7 @@ live_ao_view_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, 
 // read it, so each shows what the others do.
 viewport_shown :: proc(app: ^App) -> render.Texture {
 	if finish_wanted(app) {
-		if t := render.finish_texture(&app.finished); t != nil do return t
+		if t := render.finish_texture(&app.finished); t != 0 do return t
 	}
 	return viewport_unfinished(app)
 }
@@ -52,12 +52,12 @@ viewport_shown :: proc(app: ^App) -> render.Texture {
 viewport_unfinished :: proc(app: ^App) -> render.Texture {
 	// A view pane worked in shows the viewport as it draws, or its live occlusion when it
 	// shows AO only.
-	if app.kit.grid.work != 0 do return render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil
+	if app.kit.grid.work != 0 do return render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else 0
 	if render_running(app) && app.path.samples >= RENDER_SHOW_MIN do return render.render_texture(&app.path)
 	studio := studio_running(app)
 	if studio && (render.studio_shows(&app.studio, STUDIO_SHOW_MIN) || !live_ao_wanted(app)) do return render.studio_texture(&app.studio)
 	if live_ao_wanted(app) do return render.live_ao_texture(&app.live_ao)
-	return nil
+	return 0
 }
 
 // The studio render's samples before it shows instead of live occlusion: about a quarter

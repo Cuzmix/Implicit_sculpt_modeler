@@ -73,7 +73,7 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 		threadcount_y                 = 1,
 		threadcount_z                 = 1,
 	})
-	if sc.pipeline == nil {
+	if sc.pipeline == 0 {
 		log.errorf("smooth compute: CreateGPUComputePipeline failed: %s", gpu.last_error())
 		return false
 	}
@@ -84,10 +84,10 @@ smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 smooth_compute_destroy :: proc(r: ^Renderer, sc: ^Smooth_Compute) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	for b in sc.buffers do if b != nil do gpu.release_buffer(b)
-	if sc.upload != nil do gpu.release_transfer_buffer(sc.upload)
-	if sc.download != nil do gpu.release_transfer_buffer(sc.download)
-	if sc.pipeline != nil do gpu.release_compute_pipeline(sc.pipeline)
+	for b in sc.buffers do if b != 0 do gpu.release_buffer(b)
+	if sc.upload != 0 do gpu.release_transfer_buffer(sc.upload)
+	if sc.download != 0 do gpu.release_transfer_buffer(sc.download)
+	if sc.pipeline != 0 do gpu.release_compute_pipeline(sc.pipeline)
 	sc^ = {}
 }
 
@@ -109,7 +109,7 @@ smooth_compute_run :: proc(
 	timing: Smooth_Timing,
 	ok: bool,
 ) {
-	if sc.pipeline == nil || steps < 1 || len(positions) == 0 do return
+	if sc.pipeline == 0 || steps < 1 || len(positions) == 0 do return
 	vcount := len(positions)
 	assert(len(offsets) == vcount + 1 && len(weights) == vcount, "smooth compute: lookup and weights must cover every vertex")
 	sizes := [Smooth_Buffer]int {
@@ -138,15 +138,15 @@ smooth_compute_run :: proc(
 	timing.topology = topology_key == 0 || topology_key != sc.topology
 	for kind in Smooth_Buffer {
 		if u32(sizes[kind]) <= sc.capacity[kind] do continue
-		if sc.buffers[kind] != nil {
+		if sc.buffers[kind] != 0 {
 			_ = gpu.wait_for_idle()
 			gpu.release_buffer(sc.buffers[kind])
 		}
 		usage := gpu.Buffer_Usages{.Storage_Read}
 		if kind >= .Pos_A do usage += {.Storage_Write}
 		sc.buffers[kind] = gpu.create_buffer({usage = usage, size = u32(sizes[kind])})
-		sc.capacity[kind] = u32(sizes[kind]) if sc.buffers[kind] != nil else 0
-		if sc.buffers[kind] == nil {
+		sc.capacity[kind] = u32(sizes[kind]) if sc.buffers[kind] != 0 else 0
+		if sc.buffers[kind] == 0 {
 			log.errorf("smooth compute: CreateGPUBuffer of %d MB failed: %s", sizes[kind] >> 20, gpu.last_error())
 			sc.topology = 0
 			return
@@ -247,14 +247,14 @@ smooth_compute_run :: proc(
 // Makes `tb` hold at least `size` bytes, replacing a smaller one.
 @(private = "file")
 transfer_reserve :: proc(r: ^Renderer, tb: ^gpu.Transfer_Buffer, capacity: ^u32, size: int, usage: gpu.Transfer_Usage) -> bool {
-	if size <= int(capacity^) && tb^ != nil do return true
-	if tb^ != nil {
+	if size <= int(capacity^) && tb^ != 0 do return true
+	if tb^ != 0 {
 		_ = gpu.wait_for_idle()
 		gpu.release_transfer_buffer(tb^)
 	}
 	tb^ = gpu.create_transfer_buffer({usage = usage, size = u32(size)})
-	capacity^ = u32(size) if tb^ != nil else 0
-	if tb^ == nil {
+	capacity^ = u32(size) if tb^ != 0 else 0
+	if tb^ == 0 {
 		log.errorf("smooth compute: CreateGPUTransferBuffer of %d MB failed: %s", size >> 20, gpu.last_error())
 		return false
 	}

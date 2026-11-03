@@ -325,9 +325,10 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   the Metal backend under `when METAL` (Darwin), the WebGPU one under `when WEBGPU` and the Vulkan one otherwise;
   nothing else chooses a backend. The check fails on any `sdl.*GPU*(` call anywhere and on any `sdl.GPU*` type in render: the seam
   speaks `src/gpu/types.odin` (`gpu.Format`, `gpu.Texture_Desc`, `gpu.Color_Target`, ...; Ada_Case members such
-  as `.RGBA8_Unorm`, `.Clear`, `.Triangle_List`). Its handles (`gpu.Texture`, `gpu.Buffer`, `gpu.Cmd`, ...) are
-  still SDL's opaque pointers underneath, which render never dereferences, until the GPU abstraction's own
-  handles replace them (`notes/gpu-own-model/design.md`, G1b).
+  as `.RGBA8_Unorm`, `.Clear`, `.Triangle_List`). Resources (`gpu.Buffer`, `gpu.Texture`, `gpu.Sampler`,
+  `gpu.Shader`, the pipelines, `gpu.Transfer_Buffer`) are generational `u32` handles into `src/gpu/pool.odin`
+  (0 is none; a released handle stops resolving), compared with 0, never nil; `gpu.Cmd`, the passes and `gpu.Fence`
+  stay opaque pointers for one frame's use. A failed call returns 0, nil or false and `gpu.last_error()` says why.
   `render` never reads UI state.
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.

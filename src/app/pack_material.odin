@@ -324,7 +324,7 @@ pack_materials_retarget :: proc(app: ^App) -> (fell: int) {
 	if changed do app.scene_edits += 1
 	released := false
 	for &mc in l.matcaps {
-		if !mc.gone || mc.texture == nil do continue
+		if !mc.gone || mc.texture == 0 do continue
 		render.matcap_destroy(&app.renderer, &mc.texture)
 		released = true
 	}
@@ -378,7 +378,7 @@ pack_matcaps_settle :: proc(app: ^App) {
 	for obj in app.scene.objects do mark(need, obj.material)
 	made := false
 	for &mc, k in l.matcaps {
-		if !need[k] || mc.gone || mc.failed || mc.texture != nil do continue
+		if !need[k] || mc.gone || mc.failed || mc.texture != 0 do continue
 		why := ""
 		data, err := os.read_entire_file(mc.file, context.temp_allocator)
 		if err != nil do why = fmt.tprintf("%v", err)
@@ -387,7 +387,7 @@ pack_matcaps_settle :: proc(app: ^App) {
 			// Install held it to the limit; a file changed by hand since is held to it too.
 			if failed == "" && (w > PACK_MATCAP_SIZE_MAX || h > PACK_MATCAP_SIZE_MAX) do failed = fmt.tprintf("it is %d x %d, past the %d x %d a MatCap may be", w, h, PACK_MATCAP_SIZE_MAX, PACK_MATCAP_SIZE_MAX)
 			if failed == "" do mc.texture = render.matcap_create(&app.renderer, pixels, w, h)
-			why = failed if failed != "" else ("the GPU refused it" if mc.texture == nil else "")
+			why = failed if failed != "" else ("the GPU refused it" if mc.texture == 0 else "")
 		}
 		if why != "" {
 			mc.failed = true
@@ -398,6 +398,6 @@ pack_matcaps_settle :: proc(app: ^App) {
 		l.textures_made += 1
 	}
 	if !made do return
-	for &mc, k in l.matcaps do if !need[k] && mc.texture != nil do render.matcap_destroy(&app.renderer, &mc.texture)
+	for &mc, k in l.matcaps do if !need[k] && mc.texture != 0 do render.matcap_destroy(&app.renderer, &mc.texture)
 	render.viewport_invalidate(&app.target)
 }

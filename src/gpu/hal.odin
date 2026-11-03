@@ -215,16 +215,16 @@ copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Lo
 // which only the own Vulkan backend with ray queries marks; elsewhere it changes nothing.
 @(require_results)
 create_buffer :: proc(#by_ptr createinfo: Buffer_Desc, accel_input := false) -> Buffer {
-	when METAL do return mtl_create_buffer(createinfo)
-	else when WEBGPU do return wgpu_create_buffer(createinfo)
-	else do return vk_create_buffer(createinfo, accel_input)
+	when METAL do return Buffer(pool_add(&pools.buffers, mtl_create_buffer(createinfo)))
+	else when WEBGPU do return Buffer(pool_add(&pools.buffers, wgpu_create_buffer(createinfo)))
+	else do return Buffer(pool_add(&pools.buffers, vk_create_buffer(createinfo, accel_input)))
 }
 
 @(require_results)
 create_compute_pipeline :: proc(#by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
-	when METAL do return mtl_create_compute_pipeline(createinfo)
-	else when WEBGPU do return wgpu_create_compute_pipeline(createinfo)
-	else do return vk_create_compute_pipeline(createinfo)
+	when METAL do return Compute_Pipeline(pool_add(&pools.compute_pipelines, mtl_create_compute_pipeline(createinfo)))
+	else when WEBGPU do return Compute_Pipeline(pool_add(&pools.compute_pipelines, wgpu_create_compute_pipeline(createinfo)))
+	else do return Compute_Pipeline(pool_add(&pools.compute_pipelines, vk_create_compute_pipeline(createinfo)))
 }
 
 // A compute pipeline that also reads an array of up to `capacity` sampled textures, indexed
@@ -235,12 +235,12 @@ create_compute_pipeline :: proc(#by_ptr createinfo: Compute_Pipeline_Desc) -> Co
 create_compute_pipeline_array :: proc(#by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	when METAL {
 		fail(.Unsupported, "texture arrays need the own Vulkan backend")
-		return nil
+		return 0
 	} else when WEBGPU {
 		fail(.Unsupported, "texture arrays need the own Vulkan backend")
-		return nil
+		return 0
 	} else {
-		return vk_create_compute_pipeline_array(createinfo, capacity)
+		return Compute_Pipeline(pool_add(&pools.compute_pipelines, vk_create_compute_pipeline_array(createinfo, capacity)))
 	}
 }
 
@@ -377,14 +377,14 @@ build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^Gpu
 @(require_results)
 create_compute_pipeline_traced :: proc(#by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32 = 0) -> Compute_Pipeline {
 	when METAL {
-		if mtl_ray_query_offered() && capacity == 0 do return mtl_create_compute_pipeline_traced(createinfo)
+		if mtl_ray_query_offered() && capacity == 0 do return Compute_Pipeline(pool_add(&pools.compute_pipelines, mtl_create_compute_pipeline_traced(createinfo)))
 		fail(.Unsupported, "ray queries need the own Vulkan or Metal backend on a GPU that offers them")
-		return nil
+		return 0
 	} else when WEBGPU {
 		fail(.Unsupported, "WebGPU has no ray queries")
-		return nil
+		return 0
 	} else {
-		return vk_create_compute_pipeline_traced(createinfo, capacity)
+		return Compute_Pipeline(pool_add(&pools.compute_pipelines, vk_create_compute_pipeline_traced(createinfo, capacity)))
 	}
 }
 
@@ -447,37 +447,37 @@ accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
 // only the own Metal backend compiles differently: with fast maths off.
 @(require_results)
 create_compute_pipeline_exact :: proc(#by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
-	when METAL do return mtl_create_compute_pipeline_exact(createinfo)
-	else when WEBGPU do return wgpu_create_compute_pipeline_exact(createinfo)
-	else do return vk_create_compute_pipeline(createinfo)
+	when METAL do return Compute_Pipeline(pool_add(&pools.compute_pipelines, mtl_create_compute_pipeline_exact(createinfo)))
+	else when WEBGPU do return Compute_Pipeline(pool_add(&pools.compute_pipelines, wgpu_create_compute_pipeline_exact(createinfo)))
+	else do return Compute_Pipeline(pool_add(&pools.compute_pipelines, vk_create_compute_pipeline(createinfo)))
 }
 
 @(require_results)
 create_graphics_pipeline :: proc(#by_ptr createinfo: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
-	when METAL do return mtl_create_graphics_pipeline(createinfo)
-	else when WEBGPU do return wgpu_create_graphics_pipeline(createinfo)
-	else do return vk_create_graphics_pipeline(createinfo)
+	when METAL do return Graphics_Pipeline(pool_add(&pools.graphics_pipelines, mtl_create_graphics_pipeline(createinfo)))
+	else when WEBGPU do return Graphics_Pipeline(pool_add(&pools.graphics_pipelines, wgpu_create_graphics_pipeline(createinfo)))
+	else do return Graphics_Pipeline(pool_add(&pools.graphics_pipelines, vk_create_graphics_pipeline(createinfo)))
 }
 
 @(require_results)
 create_sampler :: proc(#by_ptr createinfo: Sampler_Desc) -> Sampler {
-	when METAL do return mtl_create_sampler(createinfo)
-	else when WEBGPU do return wgpu_create_sampler(createinfo)
-	else do return vk_create_sampler(createinfo)
+	when METAL do return Sampler(pool_add(&pools.samplers, mtl_create_sampler(createinfo)))
+	else when WEBGPU do return Sampler(pool_add(&pools.samplers, wgpu_create_sampler(createinfo)))
+	else do return Sampler(pool_add(&pools.samplers, vk_create_sampler(createinfo)))
 }
 
 @(require_results)
 create_shader :: proc(#by_ptr createinfo: Shader_Desc) -> Shader {
-	when METAL do return mtl_create_shader(createinfo)
-	else when WEBGPU do return wgpu_create_shader(createinfo)
-	else do return vk_create_shader(createinfo)
+	when METAL do return Shader(pool_add(&pools.shaders, mtl_create_shader(createinfo)))
+	else when WEBGPU do return Shader(pool_add(&pools.shaders, wgpu_create_shader(createinfo)))
+	else do return Shader(pool_add(&pools.shaders, vk_create_shader(createinfo)))
 }
 
 @(require_results)
 create_texture :: proc(#by_ptr createinfo: Texture_Desc) -> Texture {
-	when METAL do return mtl_create_texture(createinfo)
-	else when WEBGPU do return wgpu_create_texture(createinfo)
-	else do return vk_create_texture(createinfo)
+	when METAL do return Texture(pool_add(&pools.textures, mtl_create_texture(createinfo)))
+	else when WEBGPU do return Texture(pool_add(&pools.textures, wgpu_create_texture(createinfo)))
+	else do return Texture(pool_add(&pools.textures, vk_create_texture(createinfo)))
 }
 
 // A render target whose contents live only inside the pass that clears it (transient.odin):
@@ -488,9 +488,9 @@ create_texture :: proc(#by_ptr createinfo: Texture_Desc) -> Texture {
 create_texture_transient :: proc(#by_ptr createinfo: Texture_Desc) -> (texture: Texture) {
 	assert(createinfo.usage <= {.Color_Target, .Depth_Target}, "a transient texture is a render target only")
 	make_it :: proc(#by_ptr createinfo: Texture_Desc) -> Texture {
-		when METAL do return mtl_create_texture_transient(createinfo)
-		else when WEBGPU do return wgpu_create_texture_transient(createinfo)
-		else do return vk_create_texture_transient(createinfo)
+		when METAL do return Texture(pool_add(&pools.textures, mtl_create_texture_transient(createinfo)))
+		else when WEBGPU do return Texture(pool_add(&pools.textures, wgpu_create_texture_transient(createinfo)))
+		else do return Texture(pool_add(&pools.textures, vk_create_texture_transient(createinfo)))
 	}
 	texture = make_it(createinfo)
 	transient_note(texture)
@@ -508,15 +508,16 @@ transient_targets_offered :: proc() -> bool {
 
 @(require_results)
 create_transfer_buffer :: proc(#by_ptr createinfo: Transfer_Buffer_Desc) -> Transfer_Buffer {
-	when METAL do return mtl_create_transfer_buffer(createinfo)
-	else when WEBGPU do return wgpu_create_transfer_buffer(createinfo)
-	else do return vk_create_transfer_buffer(createinfo)
+	when METAL do return Transfer_Buffer(pool_add(&pools.transfer_buffers, mtl_create_transfer_buffer(createinfo)))
+	else when WEBGPU do return Transfer_Buffer(pool_add(&pools.transfer_buffers, wgpu_create_transfer_buffer(createinfo)))
+	else do return Transfer_Buffer(pool_add(&pools.transfer_buffers, vk_create_transfer_buffer(createinfo)))
 }
 
 destroy_device :: proc() {
 	when METAL do mtl_destroy_device()
 	else when WEBGPU do wgpu_destroy_device()
 	else do vk_destroy_device()
+	pools_reset()
 }
 
 dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: u32) {
@@ -683,15 +684,15 @@ query_fence :: proc(fence: Fence) -> bool {
 }
 
 release_buffer :: proc(buffer: Buffer) {
-	when METAL do mtl_release_buffer(buffer)
-	else when WEBGPU do wgpu_release_buffer(buffer)
-	else do vk_release_buffer(buffer)
+	when METAL do mtl_release_buffer(pool_remove(&pools.buffers, u32(buffer)))
+	else when WEBGPU do wgpu_release_buffer(pool_remove(&pools.buffers, u32(buffer)))
+	else do vk_release_buffer(pool_remove(&pools.buffers, u32(buffer)))
 }
 
 release_compute_pipeline :: proc(compute_pipeline: Compute_Pipeline) {
-	when METAL do mtl_release_compute_pipeline(compute_pipeline)
-	else when WEBGPU do wgpu_release_compute_pipeline(compute_pipeline)
-	else do vk_release_compute_pipeline(compute_pipeline)
+	when METAL do mtl_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
+	else when WEBGPU do wgpu_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
+	else do vk_release_compute_pipeline(pool_remove(&pools.compute_pipelines, u32(compute_pipeline)))
 }
 
 release_fence :: proc(fence: Fence) {
@@ -701,34 +702,34 @@ release_fence :: proc(fence: Fence) {
 }
 
 release_graphics_pipeline :: proc(graphics_pipeline: Graphics_Pipeline) {
-	when METAL do mtl_release_graphics_pipeline(graphics_pipeline)
-	else when WEBGPU do wgpu_release_graphics_pipeline(graphics_pipeline)
-	else do vk_release_graphics_pipeline(graphics_pipeline)
+	when METAL do mtl_release_graphics_pipeline(pool_remove(&pools.graphics_pipelines, u32(graphics_pipeline)))
+	else when WEBGPU do wgpu_release_graphics_pipeline(pool_remove(&pools.graphics_pipelines, u32(graphics_pipeline)))
+	else do vk_release_graphics_pipeline(pool_remove(&pools.graphics_pipelines, u32(graphics_pipeline)))
 }
 
 release_sampler :: proc(sampler: Sampler) {
-	when METAL do mtl_release_sampler(sampler)
-	else when WEBGPU do wgpu_release_sampler(sampler)
-	else do vk_release_sampler(sampler)
+	when METAL do mtl_release_sampler(pool_remove(&pools.samplers, u32(sampler)))
+	else when WEBGPU do wgpu_release_sampler(pool_remove(&pools.samplers, u32(sampler)))
+	else do vk_release_sampler(pool_remove(&pools.samplers, u32(sampler)))
 }
 
 release_shader :: proc(shader: Shader) {
-	when METAL do mtl_release_shader(shader)
-	else when WEBGPU do wgpu_release_shader(shader)
-	else do vk_release_shader(shader)
+	when METAL do mtl_release_shader(pool_remove(&pools.shaders, u32(shader)))
+	else when WEBGPU do wgpu_release_shader(pool_remove(&pools.shaders, u32(shader)))
+	else do vk_release_shader(pool_remove(&pools.shaders, u32(shader)))
 }
 
 release_texture :: proc(texture: Texture) {
 	transient_forget(texture)
-	when METAL do mtl_release_texture(texture)
-	else when WEBGPU do wgpu_release_texture(texture)
-	else do vk_release_texture(texture)
+	when METAL do mtl_release_texture(pool_remove(&pools.textures, u32(texture)))
+	else when WEBGPU do wgpu_release_texture(pool_remove(&pools.textures, u32(texture)))
+	else do vk_release_texture(pool_remove(&pools.textures, u32(texture)))
 }
 
 release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
-	when METAL do mtl_release_transfer_buffer(transfer_buffer)
-	else when WEBGPU do wgpu_release_transfer_buffer(transfer_buffer)
-	else do vk_release_transfer_buffer(transfer_buffer)
+	when METAL do mtl_release_transfer_buffer(pool_remove(&pools.transfer_buffers, u32(transfer_buffer)))
+	else when WEBGPU do wgpu_release_transfer_buffer(pool_remove(&pools.transfer_buffers, u32(transfer_buffer)))
+	else do vk_release_transfer_buffer(pool_remove(&pools.transfer_buffers, u32(transfer_buffer)))
 }
 
 release_window :: proc(window: ^sdl.Window) {
@@ -833,9 +834,11 @@ shared_buffers_offered :: proc() -> bool {
 // caller uploads into a plain buffer instead.
 @(require_results)
 create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> (buffer: Buffer, mapped: rawptr) {
-	when METAL do return mtl_create_buffer_mapped(info)
-	else when WEBGPU do return wgpu_create_buffer_mapped(info)
-	else do return vk_create_buffer_mapped(info, accel_input)
+	object: rawptr
+	when METAL do object, mapped = mtl_create_buffer_mapped(info)
+	else when WEBGPU do object, mapped = wgpu_create_buffer_mapped(info)
+	else do object, mapped = vk_create_buffer_mapped(info, accel_input)
+	return Buffer(pool_add(&pools.buffers, object)), mapped
 }
 
 // Ends the fill of a create_buffer_mapped buffer; the mapped pointer is invalid after.

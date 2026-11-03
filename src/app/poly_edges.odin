@@ -34,7 +34,7 @@ poly_edges_frame :: proc(app: ^App) {
 		gpu := &obj.gpu[k]
 		// The level's buffers are made when it is first shown; until then there is
 		// nothing to put the edges on.
-		if gpu.positions == nil do continue
+		if gpu.positions == 0 do continue
 		source := sculpt.levels_polygon_source(&obj.levels, k)
 		if source == obj.poly_edges[k] do continue
 		pairs := sculpt.levels_polygon_edges(&obj.levels, k, context.temp_allocator)
@@ -52,5 +52,5 @@ poly_edges_frame :: proc(app: ^App) {
 poly_edges_shown :: proc(app: ^App, obj: ^Object) -> bool {
 	if !poly_edges_wanted(app, obj) do return false
 	k := obj.levels.current
-	return obj.poly_edges[k] != {} && obj.gpu[k].edges != nil
+	return obj.poly_edges[k] != {} && obj.gpu[k].edges != 0
 }

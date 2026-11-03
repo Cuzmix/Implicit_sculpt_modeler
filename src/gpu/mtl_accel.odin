@@ -113,7 +113,7 @@ mtl_build_blas :: proc(command_buffer: Cmd, positions, indices: Buffer, vertex_c
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	if !mtl_accel_can_build(cmd) || len(geometries) == 0 || vertex_count == 0 do return nil
-	pos, idx := (^Mtl_Buffer)(positions).active, (^Mtl_Buffer)(indices).active
+	pos, idx := (^Mtl_Buffer)(object(positions)).active, (^Mtl_Buffer)(object(indices)).active
 	descs := make([]^NS.Object, len(geometries), context.temp_allocator)
 	for g, i in geometries {
 		d := MTL.AccelerationStructureTriangleGeometryDescriptor_descriptor()
@@ -257,7 +257,7 @@ mtl_bind_compute_accel :: proc(compute_pass: Compute_Pass, accel: ^Gpu_Accel) {
 // used.
 mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 	cmd := (^Mtl_Cmd)(command_buffer)
-	b := (^Mtl_Buffer)(buffer).active
+	b := (^Mtl_Buffer)(object(buffer)).active
 	mtl_cmd_track_buffer(cmd, b)
 	if !slice.contains(cmd.addressed[:], b.buffer) do append(&cmd.addressed, b.buffer)
 	return MTL.Buffer_gpuAddress(b.buffer)
@@ -265,7 +265,7 @@ mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 
 // A traced kernel's pipeline: Metal source from slangc, whose second line maps SDL_GPU's
 // slots to slangc's (scripts/shaders_msl.py); the counts in `info` must match that table.
-mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	slots, ok := mtl_slots_parse(info.code)
 	counts := [6]u32{info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
 	if !ok || slots.counts != counts || slots.accel < 0 {

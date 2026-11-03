@@ -47,7 +47,7 @@ KIT_TAB_IMAGE_END :: KIT_TAB_IMAGE + GRID_VIEWS
 // The map a Texture tab shows: the selected object's, once its preview holds it.
 flat_texture :: proc(app: ^App, f: ^Flat_Tab) -> (tex: render.Texture, size: [2]u32) {
 	obj := selected_object(app)
-	if obj == nil do return nil, {}
+	if obj == nil do return 0, {}
 	m := &obj.preview.mesh
 	return m.maps[f.which], m.sizes[f.which]
 }
@@ -99,7 +99,7 @@ kit_texture_tab :: proc(app: ^App, i: int, r: ui.Rect, tab: ^Pane_Tab) {
 	a := ui.area(ctx, "picture", {r.w, r.h})
 	ui.fill_rect(ctx, r, 0, t.pane)
 	tex, size := flat_texture(app, f)
-	if tex == nil {
+	if tex == 0 {
 		obj := selected_object(app)
 		note := "Select an object to see its maps"
 		if obj != nil do note = fmt.tprintf("%s has no %s map: bake one or load it in the Textures card", object_label(obj), TEXTURE_MAP_NAMES[f.which])

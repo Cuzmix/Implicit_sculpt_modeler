@@ -50,6 +50,7 @@ Wgpu_State :: struct {
 	configured:       [2]u32,
 	srgb:             bool, // SDR_LINEAR: draws go through an sRGB view of the canvas
 	swapchain:        ^Wgpu_Texture,
+	swapchain_handle: Texture, // the canvas texture's handle, the same object every frame
 	started:          bool,
 	on_ready:         proc(ok: bool),
 	// Recordings not yet submitted, and objects released while one was open: those are
@@ -230,6 +231,7 @@ wgpu_destroy_device :: proc() {
 	wgpu.BindGroupLayoutRelease(s.empty_layout)
 	delete(s.doomed_buffers)
 	delete(s.doomed_textures)
+	_ = pool_remove(&pools.textures, u32(s.swapchain_handle))
 	if s.swapchain != nil do free(s.swapchain)
 	wgpu.QueueRelease(s.queue)
 	wgpu.DeviceDestroy(s.device)
@@ -396,7 +398,7 @@ wgpu_shared_buffers_offered :: proc() -> bool {
 	return false
 }
 
-wgpu_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
+wgpu_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc) -> (rawptr, rawptr) {
 	return nil, nil
 }
 
@@ -408,7 +410,7 @@ wgpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 
 // WGSL has no switch for fused arithmetic; a kernel that must equal the CPU is compiled as
 // any other, and render's checks of it say whether it does on this GPU.
-wgpu_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+wgpu_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	return wgpu_create_compute_pipeline(info)
 }
 

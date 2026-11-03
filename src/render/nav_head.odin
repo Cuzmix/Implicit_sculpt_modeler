@@ -35,7 +35,7 @@ nav_head_init :: proc(r: ^Renderer, nh: ^Nav_Head, mesh: geom.Mesh) -> bool {
 	}
 	// The head never changes after this, so the large transfer buffer goes now.
 	gpu.release_transfer_buffer(mb.transfer)
-	mb.transfer, mb.transfer_size = nil, 0
+	mb.transfer, mb.transfer_size = 0, 0
 	nh.mesh = mb
 	return true
 }
@@ -53,12 +53,12 @@ nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
 // with the clay material, unless the texture holds that already. Returns the texture,
 // or nil when there is none to show.
 nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: gpu.Cmd, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> gpu.Texture {
-	if nh.failed || nh.mesh.positions == nil || size.x == 0 || size.y == 0 do return nil
+	if nh.failed || nh.mesh.positions == 0 || size.x == 0 || size.y == 0 do return 0
 	w, h := size.x * NAV_HEAD_SUPERSAMPLE, size.y * NAV_HEAD_SUPERSAMPLE
 	if !viewport_target_resize(r, &nh.target, w, h, transient_depth = true) {
 		nh.failed = true
 		log.errorf("navigation head target: %s", gpu.last_error())
-		return nil
+		return 0
 	}
 	// The camera's view without its place: the head sits three units in front of the eye.
 	m := rotation

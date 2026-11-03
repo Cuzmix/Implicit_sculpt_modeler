@@ -5,19 +5,19 @@ package gpu
 // only what the backends read (no property ids, no padding). Each backend maps them to its
 // API's own (vk_format, mtl_pixel_format, wgpu_format and their neighbours).
 
-// The objects render holds: opaque pointers each backend points at objects of its own
-// (Vk_Texture, Mtl_Texture, ...), nil for none. Render never looks inside one. The next
-// step makes the resources generational handles a stale use cannot crash on
-// (notes/gpu-own-model/design.md, G1).
-Buffer            :: distinct ^Opaque
-Transfer_Buffer   :: distinct ^Opaque
-Texture           :: distinct ^Opaque
-Sampler           :: distinct ^Opaque
-Shader            :: distinct ^Opaque
-Graphics_Pipeline :: distinct ^Opaque
-Compute_Pipeline  :: distinct ^Opaque
-// A recording, valid from its acquire until it is submitted or cancelled, and the passes
-// inside one, each valid until it ends.
+// The resources render holds: generational handles into the backend's objects (pool.odin),
+// 0 for none. A handle kept past its release resolves to nothing rather than to freed
+// memory. Render never looks inside one.
+Buffer            :: distinct u32
+Transfer_Buffer   :: distinct u32
+Texture           :: distinct u32
+Sampler           :: distinct u32
+Shader            :: distinct u32
+Graphics_Pipeline :: distinct u32
+Compute_Pipeline  :: distinct u32
+// The objects that live less than a frame are opaque pointers each backend points at its
+// own (Vk_Cmd, Mtl_Cmd, ...), nil for none: a recording, valid from its acquire until it
+// is submitted or cancelled, and the passes inside one, each valid until it ends.
 Cmd               :: distinct ^Opaque
 Render_Pass       :: distinct ^Opaque
 Compute_Pass      :: distinct ^Opaque

@@ -90,7 +90,7 @@ Wgpu_Compute_Pipeline :: struct {
 
 // ---- Buffers ------------------------------------------------------------------------
 
-wgpu_create_buffer :: proc(#by_ptr info: Buffer_Desc) -> Buffer {
+wgpu_create_buffer :: proc(#by_ptr info: Buffer_Desc) -> rawptr {
 	usage := wgpu.BufferUsageFlags{.CopyDst, .CopySrc}
 	if .Vertex in info.usage do usage += {.Vertex}
 	if .Index in info.usage do usage += {.Index}
@@ -105,10 +105,10 @@ wgpu_create_buffer :: proc(#by_ptr info: Buffer_Desc) -> Buffer {
 	}
 	b := new(Wgpu_Buffer)
 	b.buffer, b.size = buffer, info.size
-	return (Buffer)(b)
+	return b
 }
 
-wgpu_release_buffer :: proc(buffer: Buffer) {
+wgpu_release_buffer :: proc(buffer: rawptr) {
 	b := (^Wgpu_Buffer)(buffer)
 	if b == nil do return
 	append(&wgpu_state.doomed_buffers, b.buffer)
@@ -117,10 +117,10 @@ wgpu_release_buffer :: proc(buffer: Buffer) {
 }
 
 wgpu_set_buffer_name :: proc(buffer: Buffer, text: cstring) {
-	if b := (^Wgpu_Buffer)(buffer); b != nil do wgpu.BufferSetLabel(b.buffer, string(text))
+	if b := (^Wgpu_Buffer)(object(buffer)); b != nil do wgpu.BufferSetLabel(b.buffer, string(text))
 }
 
-wgpu_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
+wgpu_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> rawptr {
 	data, err := make([]u8, int(info.size) + 4, runtime.heap_allocator())
 	if err != nil {
 		wgpu_fail("WebGPU: a %d byte transfer buffer could not be made", info.size)
@@ -128,10 +128,10 @@ wgpu_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> Trans
 	}
 	t := new(Wgpu_Transfer)
 	t.data, t.usage, t.size = data, info.usage, info.size
-	return (Transfer_Buffer)(t)
+	return t
 }
 
-wgpu_release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
+wgpu_release_transfer_buffer :: proc(transfer_buffer: rawptr) {
 	t := (^Wgpu_Transfer)(transfer_buffer)
 	if t == nil do return
 	delete(t.data, runtime.heap_allocator())
@@ -141,7 +141,7 @@ wgpu_release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
 // The page's own memory: uploads copy it out as they are recorded, so it is free to write
 // again at once, and a download's bytes are there once its fence has signalled.
 wgpu_map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
-	t := (^Wgpu_Transfer)(transfer_buffer)
+	t := (^Wgpu_Transfer)(object(transfer_buffer))
 	return raw_data(t.data) if t != nil else nil
 }
 
@@ -149,7 +149,7 @@ wgpu_unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {}
 
 // ---- Textures -----------------------------------------------------------------------
 
-wgpu_create_texture :: proc(#by_ptr info: Texture_Desc) -> Texture {
+wgpu_create_texture :: proc(#by_ptr info: Texture_Desc) -> rawptr {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		wgpu_fail("WebGPU: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -187,12 +187,12 @@ wgpu_create_texture :: proc(#by_ptr info: Texture_Desc) -> Texture {
 		format = format, dimension = ._2D, mipLevelCount = t.info.num_levels, arrayLayerCount = 1,
 		aspect = .DepthOnly if depth else .All,
 	})
-	return (Texture)(t)
+	return t
 }
 
 // WebGPU has no memoryless targets; a transient texture is an ordinary one, and
 // transient_targets_offered says so.
-wgpu_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> Texture {
+wgpu_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> rawptr {
 	return wgpu_create_texture(info)
 }
 
@@ -217,7 +217,7 @@ wgpu_texture_free :: proc(t: ^Wgpu_Texture) {
 	free(t)
 }
 
-wgpu_release_texture :: proc(texture: Texture) {
+wgpu_release_texture :: proc(texture: rawptr) {
 	t := (^Wgpu_Texture)(texture)
 	if t == nil || t.swapchain do return
 	append(&wgpu_state.doomed_textures, t)
@@ -225,7 +225,7 @@ wgpu_release_texture :: proc(texture: Texture) {
 }
 
 wgpu_set_texture_name :: proc(texture: Texture, text: cstring) {
-	if t := (^Wgpu_Texture)(texture); t != nil && !t.swapchain do wgpu.TextureSetLabel(t.texture, string(text))
+	if t := (^Wgpu_Texture)(object(texture)); t != nil && !t.swapchain do wgpu.TextureSetLabel(t.texture, string(text))
 }
 
 // ---- Samplers -----------------------------------------------------------------------
@@ -255,7 +255,7 @@ wgpu_compare :: proc(op: Compare_Op) -> wgpu.CompareFunction {
 	return .Always
 }
 
-wgpu_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> Sampler {
+wgpu_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> rawptr {
 	desc := wgpu.SamplerDescriptor {
 		addressModeU = wgpu_address(info.address_mode_u),
 		addressModeV = wgpu_address(info.address_mode_v),
@@ -274,10 +274,10 @@ wgpu_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> Sampler {
 	}
 	sampler := wgpu.DeviceCreateSampler(wgpu_state.device, &desc)
 	if sampler == nil do wgpu_fail("WebGPU: the sampler could not be made")
-	return (Sampler)(sampler)
+	return sampler
 }
 
-wgpu_release_sampler :: proc(sampler: Sampler) {
+wgpu_release_sampler :: proc(sampler: rawptr) {
 	if sampler != nil do wgpu.SamplerRelease(wgpu.Sampler(sampler))
 }
 
@@ -346,7 +346,7 @@ wgpu_parse_bindings :: proc(code: string, out: ^[dynamic]Wgpu_Binding) {
 	}
 }
 
-wgpu_create_shader :: proc(#by_ptr info: Shader_Desc) -> Shader {
+wgpu_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
 	code := info.code
 	if reason := wgpu_unavailable(code); reason != "" {
 		wgpu_fail("WebGPU: this shader has no WGSL form (%s)", reason)
@@ -363,10 +363,10 @@ wgpu_create_shader :: proc(#by_ptr info: Shader_Desc) -> Shader {
 	s.module, s.stage = module, info.stage
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
 	wgpu_parse_bindings(code, &s.bindings)
-	return (Shader)(s)
+	return s
 }
 
-wgpu_release_shader :: proc(shader: Shader) {
+wgpu_release_shader :: proc(shader: rawptr) {
 	s := (^Wgpu_Shader)(shader)
 	if s == nil do return
 	wgpu.ShaderModuleRelease(s.module)
@@ -523,9 +523,9 @@ wgpu_stencil_face :: proc(s: Stencil_Op_State, on: bool) -> wgpu.StencilFaceStat
 
 // A pipeline as SDL_GPU describes it. WebGPU has no line fill (the wireframe overlay then
 // stays off, as on a device that cannot draw lines) and no depth bias on lines or points.
-wgpu_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
-	vs := (^Wgpu_Shader)(info.vertex_shader)
-	fs := (^Wgpu_Shader)(info.fragment_shader)
+wgpu_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> rawptr {
+	vs := (^Wgpu_Shader)(object(info.vertex_shader))
+	fs := (^Wgpu_Shader)(object(info.fragment_shader))
 	if vs == nil || fs == nil {
 		wgpu_fail("WebGPU: a pipeline needs both shaders")
 		return nil
@@ -642,14 +642,14 @@ wgpu_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> G
 		fragment = &fragment,
 	})
 	if p.pipeline == nil {
-		wgpu_release_graphics_pipeline((Graphics_Pipeline)(p))
+		wgpu_release_graphics_pipeline(p)
 		wgpu_fail("WebGPU: the graphics pipeline could not be made")
 		return nil
 	}
-	return (Graphics_Pipeline)(p)
+	return p
 }
 
-wgpu_release_graphics_pipeline :: proc(graphics_pipeline: Graphics_Pipeline) {
+wgpu_release_graphics_pipeline :: proc(graphics_pipeline: rawptr) {
 	p := (^Wgpu_Pipeline)(graphics_pipeline)
 	if p == nil do return
 	if p.pipeline != nil do wgpu.RenderPipelineRelease(p.pipeline)
@@ -661,7 +661,7 @@ wgpu_release_graphics_pipeline :: proc(graphics_pipeline: Graphics_Pipeline) {
 
 // ---- Compute pipelines --------------------------------------------------------------
 
-wgpu_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+wgpu_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	code := info.code
 	if reason := wgpu_unavailable(code); reason != "" {
 		wgpu_fail("WebGPU: this kernel has no WGSL form (%s)", reason)
@@ -685,14 +685,14 @@ wgpu_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Com
 	p.layout = wgpu.DeviceCreatePipelineLayout(wgpu_state.device, &{bindGroupLayoutCount = 3, bindGroupLayouts = raw_data(layouts[:])})
 	p.pipeline = wgpu.DeviceCreateComputePipeline(wgpu_state.device, &{layout = p.layout, compute = {module = module, entryPoint = "main"}})
 	if p.pipeline == nil {
-		wgpu_release_compute_pipeline((Compute_Pipeline)(p))
+		wgpu_release_compute_pipeline(p)
 		wgpu_fail("WebGPU: the compute pipeline could not be made")
 		return nil
 	}
-	return (Compute_Pipeline)(p)
+	return p
 }
 
-wgpu_release_compute_pipeline :: proc(compute_pipeline: Compute_Pipeline) {
+wgpu_release_compute_pipeline :: proc(compute_pipeline: rawptr) {
 	p := (^Wgpu_Compute_Pipeline)(compute_pipeline)
 	if p == nil do return
 	if p.pipeline != nil do wgpu.ComputePipelineRelease(p.pipeline)

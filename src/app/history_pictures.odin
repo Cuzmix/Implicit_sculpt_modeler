@@ -31,7 +31,7 @@ KIT_STEP_PICTURES_IMAGE :: KIT_FADE_STILL_IMAGE + 1
 // The cell showing the step whose first entry was made at `at`, as texture coordinates;
 // ok is false when it has none.
 step_picture_of :: proc(app: ^App, at: time.Tick) -> (lo, hi: [2]f32, ok: bool) {
-	if at == {} || app.step_pictures.atlas == nil do return
+	if at == {} || app.step_pictures.atlas == 0 do return
 	for s, i in app.step_picture_slots.at do if s == at {
 		lo, hi = render.step_picture_uv(i)
 		return lo, hi, true

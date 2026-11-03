@@ -139,7 +139,7 @@ material_matcap :: proc(app: ^App, m: Material) -> render.Texture {
 		// lights.
 		if mc, ok := pack_matcap_at(app, m.matcap - PACK_MATCAP); ok do return mc.texture
 	}
-	return nil
+	return 0
 }
 
 // Loads an image (PNG, JPEG, BMP, TGA or QOI) of a lit sphere as the matcap and makes the
@@ -169,7 +169,7 @@ matcap_image_load :: proc(app: ^App, path: string, quiet := false) -> bool {
 		return false
 	}
 	tex := render.matcap_create(&app.renderer, rgba, width, height)
-	if tex == nil {
+	if tex == 0 {
 		file_note(app, true, "Cannot load MatCap %s: the GPU refused a %d x %d texture", name, width, height)
 		return false
 	}

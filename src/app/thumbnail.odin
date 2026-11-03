@@ -265,8 +265,8 @@ picture_destroy :: proc(app: ^App, pic: ^Picture) {
 // What a picture's window shows: its finished picture while Scene > Finish reaches it
 // (picture_finish), else the picture as drawn; nil for nothing yet.
 picture_shown :: proc(pic: ^Picture) -> render.Texture {
-	if pic.shown == nil do return nil
-	if t := render.finish_texture(&pic.finished); t != nil do return t
+	if pic.shown == 0 do return 0
+	if t := render.finish_texture(&pic.finished); t != 0 do return t
 	return pic.shown
 }
 
@@ -284,13 +284,13 @@ picture_finish_wanted :: proc(app: ^App, sv: ^Second_View) -> bool {
 // as copied, until it is drawn again.
 @(private = "file")
 picture_finish :: proc(app: ^App, cmd: render.Cmd, sv: ^Second_View, pic: ^Picture) {
-	if !picture_finish_wanted(app, sv) || pic.shown == nil || pic.key == 0 {
+	if !picture_finish_wanted(app, sv) || pic.shown == 0 || pic.key == 0 {
 		render.finish_reset(&pic.finished)
 		return
 	}
 	source, linear := pic.shown, false
 	if sv.pass == .Render && pic.shown == render.render_texture(&pic.path) {
-		if t := render.render_linear_texture(&pic.path); t != nil do source, linear = t, true
+		if t := render.render_linear_texture(&pic.path); t != 0 do source, linear = t, true
 	}
 	look := finish_look(app.finish)
 	look.seed = u32(pic.version)
@@ -308,7 +308,7 @@ thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, f
 	k := &app.kit
 	size := k.thumbnail_px
 	if !k.thumbnail || k.home || size.x == 0 || size.y == 0 {
-		app.thumbnail.shown, app.thumbnail.due = nil, false
+		app.thumbnail.shown, app.thumbnail.due = 0, false
 		return
 	}
 	picture_frame(app, cmd, draws, froms, &k.second, &app.thumbnail, size, render.THUMBNAIL_SUPERSAMPLE)
@@ -362,11 +362,11 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 	defer picture_finish(app, cmd, sv, pic)
 	// The path tracer's copy of the scene is costly to keep: a picture showing another pass
 	// gives it back.
-	if sv.pass != .Render && pic.path.pipeline != nil do render.path_render_destroy(&app.renderer, &pic.path)
+	if sv.pass != .Render && pic.path.pipeline != 0 do render.path_render_destroy(&app.renderer, &pic.path)
 	key, orbit := picture_key(app, sv, size, supersample)
 	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
 	pass := second_view_pass(sv.pass)
-	fresh := pic.shown == nil || key != pic.key
+	fresh := pic.shown == 0 || key != pic.key
 	gathering := !fresh && picture_gathers(app, sv, pic)
 	if !fresh && !gathering do return
 	// Each picture draws every object whole, without the viewport's culling or simplified
@@ -377,7 +377,7 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 	// One picture a frame at most, so the panes due after a stroke share out their cost; a
 	// studio sample waits for a frame with none, but never holds one back.
 	soon := fresh && time.duration_seconds(time.tick_since(pic.at)) < THUMBNAIL_EVERY
-	if pic.shown != nil && !sv.dragging && (moving || app.pictures_drawn > 0 || soon) {
+	if pic.shown != 0 && !sv.dragging && (moving || app.pictures_drawn > 0 || soon) {
 		pic.due = true
 		return
 	}
@@ -396,10 +396,10 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 	if gathering {
 		if sv.pass == .Render {
 			picture_render(app, cmd, pic, view, proj, items, lights, orbit, false)
-			if tex := render.render_texture(&pic.path); tex != nil && pic.path.samples >= RENDER_SHOW_MIN do pic.shown = tex
+			if tex := render.render_texture(&pic.path); tex != 0 && pic.path.samples >= RENDER_SHOW_MIN do pic.shown = tex
 		} else {
 			_ = render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, false, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness)
-			if tex := render.studio_texture(&pic.studio); tex != nil do pic.shown = tex
+			if tex := render.studio_texture(&pic.studio); tex != 0 do pic.shown = tex
 		}
 		pic.version += 1
 		pic.due = picture_gathers(app, sv, pic)
@@ -417,7 +417,7 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 	if pass == .Silhouette {
 		for &d in items {
 			d.wireframe, d.paint, d.groups = false, false, false
-			d.matcap, d.textured, d.slots = nil, nil, nil
+			d.matcap, d.textured, d.slots = 0, nil, nil
 			d.checker = {}
 		}
 	}
@@ -446,16 +446,16 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 		}
 	}
 	defer if scene do r.background, r.floor, r.environment_look = saved_background, saved_floor, saved_look
-	if tex := render.thumbnail_view_draw(r, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy, scene = scene); tex != nil {
+	if tex := render.thumbnail_view_draw(r, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy, scene = scene); tex != 0 {
 		shown := tex
 		if heavy && sv.pass == .Occlusion {
 			reach := clamp(app.live_ao_reach, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX)
 			if render.live_ao_frame(&app.renderer, &pic.ao, cmd, &pic.view.target, view, proj, items, {}, reach, 1, LIVE_AO_SCALE) {
-				if t := render.live_ao_texture(&pic.ao); t != nil do shown = t
+				if t := render.live_ao_texture(&pic.ao); t != 0 do shown = t
 			}
 		} else if heavy && sv.pass == .Studio {
 			if render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, true, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness) {
-				if t := render.studio_texture(&pic.studio); t != nil do shown = t
+				if t := render.studio_texture(&pic.studio); t != 0 do shown = t
 			}
 		} else if heavy && sv.pass == .Render {
 			// It starts over here and traces from the next frame at rest, the shaded picture

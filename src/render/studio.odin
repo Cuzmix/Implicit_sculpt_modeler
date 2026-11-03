@@ -154,7 +154,7 @@ Shadow_Lights :: struct {
 // shown where they are too few, live occlusion's picture when it runs (nil: the viewport's).
 // Returns false only when the studio cannot run on this device, after which it never tries
 // again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS, under: gpu.Texture = nil) -> bool {
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS, under: gpu.Texture = 0) -> bool {
 	debug_group(cmd, "Studio", .Studio)
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
@@ -224,7 +224,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	view_depth := vt.depth
 	if vt.samples != ._1 {
 		view_depth = st.view_depth
-		if first do view_depth_draw(r, cmd, st.depth_pipeline, nil, st.view_depth, vt.width, vt.height, view, proj, items)
+		if first do view_depth_draw(r, cmd, st.depth_pipeline, 0, st.view_depth, vt.width, vt.height, view, proj, items)
 	}
 	defer if !st.depth_kept do studio_keep_depth(st, cmd, view_depth)
 
@@ -315,7 +315,7 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	view_depth := vt.depth
 	if vt.samples != ._1 {
 		view_depth = st.view_depth
-		view_depth_draw(r, cmd, st.depth_pipeline, nil, st.view_depth, vt.width, vt.height, view, proj, items)
+		view_depth_draw(r, cmd, st.depth_pipeline, 0, st.view_depth, vt.width, vt.height, view, proj, items)
 	}
 	from := st.accum
 	to := st.accums[1] if st.accum == st.accums[0] else st.accums[0]
@@ -495,12 +495,12 @@ studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, 
 // while the view turns with lights fixed to the camera, whose shadows build again only once
 // it rests: a frame's one light sample would show as speckle.
 @(private = "file")
-studio_composite :: proc(st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, ao, shadow: f32, under: gpu.Texture = nil, no_shadows := false) {
+studio_composite :: proc(st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, ao, shadow: f32, under: gpu.Texture = 0, no_shadows := false) {
 	st.strengths = {ao, shadow}
 	target := gpu.Color_Target{texture = st.shown, load_op = .Dont_Care, store_op = .Store, cycle = true}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.composite_pipeline)
-	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != nil else vt.color, sampler = st.sampler}}
+	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != 0 else vt.color, sampler = st.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	params := [4]f32{clamp(ao, 0, 1), 0 if no_shadows else clamp(shadow, 0, 1), STUDIO_CARRY_SETTLED if st.carried else 0, STUDIO_CARRY_KEY_SETTLED}
 	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
@@ -511,7 +511,7 @@ studio_composite :: proc(st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, ao, sh
 // What the viewport panel should show while the studio render is on: its image, or nil
 // when there is none yet (or the device cannot make one) and the plain viewport shows.
 studio_texture :: proc(st: ^Studio) -> gpu.Texture {
-	if st.failed || !st.shown_valid do return nil
+	if st.failed || !st.shown_valid do return 0
 	return st.shown
 }
 
@@ -525,14 +525,14 @@ studio_reset :: proc(st: ^Studio) {
 studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	if st.shadow_pipeline != nil do gpu.release_graphics_pipeline(st.shadow_pipeline)
-	if st.depth_pipeline != nil do gpu.release_graphics_pipeline(st.depth_pipeline)
-	if st.gather_pipeline != nil do gpu.release_graphics_pipeline(st.gather_pipeline)
-	if st.composite_pipeline != nil do gpu.release_graphics_pipeline(st.composite_pipeline)
-	if st.reproject_pipeline != nil do gpu.release_graphics_pipeline(st.reproject_pipeline)
-	if st.keep_pipeline != nil do gpu.release_graphics_pipeline(st.keep_pipeline)
-	if st.sampler != nil do gpu.release_sampler(st.sampler)
-	for t in ([6]gpu.Texture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(t)
+	if st.shadow_pipeline != 0 do gpu.release_graphics_pipeline(st.shadow_pipeline)
+	if st.depth_pipeline != 0 do gpu.release_graphics_pipeline(st.depth_pipeline)
+	if st.gather_pipeline != 0 do gpu.release_graphics_pipeline(st.gather_pipeline)
+	if st.composite_pipeline != 0 do gpu.release_graphics_pipeline(st.composite_pipeline)
+	if st.reproject_pipeline != 0 do gpu.release_graphics_pipeline(st.reproject_pipeline)
+	if st.keep_pipeline != 0 do gpu.release_graphics_pipeline(st.keep_pipeline)
+	if st.sampler != 0 do gpu.release_sampler(st.sampler)
+	for t in ([6]gpu.Texture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != 0 do gpu.release_texture(t)
 	tracer_destroy(r, &st.trace)
 	st^ = {trace = st.trace, carries = st.carries, carried_bare = st.carried_bare, restarts = st.restarts}
 }
@@ -571,7 +571,7 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		log.warn("studio render: this device cannot sample the depth format; it stays off")
 		return false
 	}
-	if st.shadow_pipeline == nil {
+	if st.shadow_pipeline == 0 {
 		st.shadow_pipeline = create_shadow_pipeline(r, cull_back = false)
 		st.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
@@ -586,15 +586,15 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = STUDIO_SHADOW_SIZE, height = STUDIO_SHADOW_SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		if st.shadow_pipeline == nil || st.depth_pipeline == nil || st.gather_pipeline == nil || st.composite_pipeline == nil || st.reproject_pipeline == nil || st.keep_pipeline == nil || st.sampler == nil || st.shadow == nil {
+		if st.shadow_pipeline == 0 || st.depth_pipeline == 0 || st.gather_pipeline == 0 || st.composite_pipeline == 0 || st.reproject_pipeline == 0 || st.keep_pipeline == 0 || st.sampler == 0 || st.shadow == 0 {
 			log.errorf("studio render: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
 	}
 	want_view_depth := vt.samples != ._1
-	if st.accum != nil && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != nil) do return true
-	for t in ([5]gpu.Texture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(t)
-	st.view_depth, st.accum, st.accums, st.prev_depth = nil, nil, {}, nil
+	if st.accum != 0 && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != 0) do return true
+	for t in ([5]gpu.Texture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != 0 do gpu.release_texture(t)
+	st.view_depth, st.accum, st.accums, st.prev_depth = 0, 0, {}, 0
 	if want_view_depth {
 		st.view_depth = gpu.create_texture({
 			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
@@ -618,7 +618,7 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	})
 	st.width, st.height = vt.width, vt.height
 	st.samples, st.shown_valid, st.carried, st.depth_kept = 0, false, false, false
-	if st.accums[0] == nil || st.accums[1] == nil || st.prev_depth == nil || st.shown == nil || want_view_depth && st.view_depth == nil {
+	if st.accums[0] == 0 || st.accums[1] == 0 || st.prev_depth == 0 || st.shown == 0 || want_view_depth && st.view_depth == 0 {
 		log.errorf("studio render: target creation failed (%s); it stays off", gpu.last_error())
 		return false
 	}
