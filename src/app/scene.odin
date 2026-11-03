@@ -396,7 +396,7 @@ scene_append :: proc(app: ^App, obj: ^Object) {
 // topology and strokes go (a swap entry recorded by the caller takes the whole remesh
 // back). `changed` says whether it was remeshed; ok is false only when the old mesh is
 // gone and the new one could not be uploaded.
-object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT}) -> (changed, ok: bool) {
+object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT, keep_thin = true}) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()

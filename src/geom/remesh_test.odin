@@ -420,8 +420,12 @@ remesh_options_agree_serial_and_parallel :: proc(t: ^testing.T) {
 		mesh:    ^Mesh,
 		options: Remesh_Options,
 	}
+	slab := turned_slab(0.2, 3000, &pool)
+	defer mesh_destroy(&slab)
 	cases := [?]Case {
 		{"bowl, no smoothing", &bowl, {smooth = 0}},
+		{"thin slab kept, detail kept", &slab, {smooth = REMESH_SMOOTH_DEFAULT, keep_thin = true, keep_detail = true}},
+		{"thin slab kept, quads", &slab, {smooth = 0, keep_thin = true, quads = true}},
 		{"bowl, eight rounds, detail kept", &bowl, {smooth = REMESH_SMOOTH_MAX, keep_detail = true}},
 		{"three groups, detail kept", &sphere, {smooth = REMESH_SMOOTH_DEFAULT, keep_detail = true, groups = groups}},
 		{"bowl, quads, no smoothing", &bowl, {smooth = 0, quads = true}},
@@ -439,7 +443,8 @@ remesh_options_agree_serial_and_parallel :: proc(t: ^testing.T) {
 		testing.expectf(t, ok1 && ok2, "%s: a remesh failed", c.name)
 		testing.expectf(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]), "%s: serial and parallel differ", c.name)
 		testing.expectf(t, slice.equal(serial_report.groups, parallel_report.groups) && slice.equal(serial_report.source_tris, parallel_report.source_tris) && slice.equal(serial_report.quads, parallel_report.quads), "%s: the reports differ", c.name)
-		testing.expectf(t, serial_report.holes_closed == parallel_report.holes_closed && serial_report.pieces == parallel_report.pieces, "%s: the counts differ", c.name)
+		testing.expectf(t, serial_report.holes_closed == parallel_report.holes_closed && serial_report.pieces == parallel_report.pieces && serial_report.thickened == parallel_report.thickened, "%s: the counts differ", c.name)
+		if c.options.keep_thin do testing.expectf(t, serial_report.thickened > 0, "%s: nothing was thin", c.name)
 		if c.options.groups != nil do testing.expectf(t, serial_report.holes_closed == 0, "%s: seams counted as %d holes", c.name, serial_report.holes_closed)
 	}
 	// A doubled triangle pairs its edges, as the check promises.
@@ -850,4 +855,95 @@ remesh_at_a_cell_uses_that_spacing :: proc(t: ^testing.T) {
 	testing.expectf(t, len(out.positions) > 6000, "%d vertices at a 0.05 cell", len(out.positions))
 	h, _, _ := remesh_lattice(area, bounds, 1000, cell = 1e-6)
 	testing.expect_value(t, h, (bounds.hi.x - bounds.lo.x) / (REMESH_MAX_LATTICE - 4))
+}
+
+// A flat slab turned off the lattice's axes, thinner than a cell. Thickness in cells.
+@(private)
+turned_slab :: proc(cells: f32, target: int, pool: ^jobs.Pool) -> Mesh {
+	m, _ := primitive(.Cube, 20_000, pool)
+	_, b := mesh_area_bounds(m, pool)
+	half := b.hi.x
+	// The cell depends on the slab's area, which barely depends on its thickness.
+	thick := f32(0.1)
+	for _ in 0 ..< 4 {
+		probe := Mesh{}
+		for p in m.positions do append(&probe.positions, Vec3{p.x, p.y * thick / (2 * half), p.z})
+		append(&probe.indices, ..m.indices[:])
+		thick = cells * remesh_spacing(probe, target, pool)
+		mesh_destroy(&probe)
+	}
+	turn := linalg.matrix3_from_euler_angles_xyz_f32(0.37, 0.61, 0.23)
+	for &p in m.positions do p = turn * Vec3{p.x, p.y * thick / (2 * half), p.z}
+	return m
+}
+
+// A slab a tenth or a fifth of a cell thick comes out whole, closed and as thick as it was,
+// where the lattice alone keeps a few scraps of it;
+// a fin through a ball stays joined to it; a sphere has nothing thin and comes out the
+// same with the switch on or off.
+@(test)
+remesh_keeps_parts_thinner_than_a_cell :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	for cells in ([]f32{0.1, 0.2}) {
+		slab := turned_slab(cells, 50_000, &pool)
+		defer mesh_destroy(&slab)
+		area, bounds := mesh_area_bounds(slab, &pool)
+		truth := mesh_check(slab).volume
+		lost_options := REMESH_OPTIONS_DEFAULT
+		lost_options.keep_thin = false
+		lost, ok1 := remesh_voxel_measured(slab, area, bounds, 50_000, &pool, options = lost_options)
+		defer mesh_destroy(&lost)
+		report: Remesh_Report
+		defer remesh_report_destroy(&report)
+		kept, ok2 := remesh_voxel_measured(slab, area, bounds, 50_000, &pool, report = &report)
+		defer mesh_destroy(&kept)
+		testing.expectf(t, ok1 && ok2, "%.1f cells: a remesh failed", cells)
+		edges := expect_closed_manifold(t, kept)
+		euler := len(kept.positions) - edges + len(kept.indices) / 3
+		testing.expectf(t, euler == 2, "%.1f cells: V - E + F = %d, not one piece", cells, euler)
+		v_lost, v_kept := mesh_check(lost).volume / truth, mesh_check(kept).volume / truth
+		testing.expectf(t, v_lost < 0.05, "%.1f cells: the lattice alone kept %.0f %% of the slab", cells, 100 * v_lost)
+		// Its own vertices go back onto its two sides, so it keeps its volume, and so it
+		// does with Keep detail.
+		testing.expectf(t, v_kept > 0.8 && v_kept < 1.2, "%.1f cells: kept %.0f %% of the slab", cells, 100 * v_kept)
+		testing.expectf(t, report.thickened > 0, "%.1f cells: no point counted as thickened", cells)
+		detail_options := REMESH_OPTIONS_DEFAULT
+		detail_options.keep_detail = true
+		detail, ok3 := remesh_voxel_measured(slab, area, bounds, 50_000, &pool, options = detail_options)
+		defer mesh_destroy(&detail)
+		v_detail := mesh_check(detail).volume / truth
+		testing.expectf(t, ok3 && v_detail > 0.8 && v_detail < 1.2, "%.1f cells: with detail kept %.0f %% of the slab", cells, 100 * v_detail)
+	}
+	// A fin through a ball stays joined to it: one piece.
+	{
+		fin := turned_slab(0.2, 20_000, &pool)
+		defer mesh_destroy(&fin)
+		ball := icosphere(4)
+		defer mesh_destroy(&ball)
+		base := u32(len(fin.positions))
+		for p in ball.positions do append(&fin.positions, 0.4 * p)
+		for i in ball.indices do append(&fin.indices, base + i)
+		area, bounds := mesh_area_bounds(fin, &pool)
+		out, ok := remesh_voxel_measured(fin, area, bounds, 20_000, &pool)
+		defer mesh_destroy(&out)
+		testing.expect(t, ok, "the fin and ball failed")
+		edges := expect_closed_manifold(t, out)
+		euler := len(out.positions) - edges + len(out.indices) / 3
+		testing.expectf(t, euler == 2, "fin and ball: V - E + F = %d, not one piece", euler)
+	}
+	sphere := bumpy_sphere(50_000, &pool)
+	defer mesh_destroy(&sphere)
+	area, bounds := mesh_area_bounds(sphere, &pool)
+	off := REMESH_OPTIONS_DEFAULT
+	off.keep_thin = false
+	a, _ := remesh_voxel_measured(sphere, area, bounds, 50_000, &pool, options = off)
+	defer mesh_destroy(&a)
+	report: Remesh_Report
+	defer remesh_report_destroy(&report)
+	b, _ := remesh_voxel_measured(sphere, area, bounds, 50_000, &pool, report = &report)
+	defer mesh_destroy(&b)
+	testing.expectf(t, report.thickened == 0, "a sphere thickened %d points", report.thickened)
+	testing.expect(t, slice.equal(a.positions[:], b.positions[:]) && slice.equal(a.indices[:], b.indices[:]), "a sphere came out different with thin parts kept")
 }

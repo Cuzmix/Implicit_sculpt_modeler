@@ -16,6 +16,7 @@ import "../ui"
 Remesh_Setup :: struct {
 	smooth:      int,  // relax rounds, 0 to geom.REMESH_SMOOTH_MAX
 	keep_detail: bool, // the result put back on the old surface, its polypaint and polygroups along
+	keep_thin:   bool, // parts thinner than a cell kept whole, about a cell thick (geom's keep_thin)
 	groups:      bool, // each polygroup a closed piece of its own
 	quads:       bool, // a closed mesh of quads only (the marching cubes' dual), kept as the object's polygons
 	mirror:      geom.Remesh_Mirror, // Keep symmetry: the brush's symmetry planes, which the result keeps (remesh_mirror)
@@ -49,7 +50,7 @@ REMESH_CELL_MM_DEFAULT :: 1
 remesh_setup :: proc(app: ^App) -> Remesh_Setup {
 	obj := selected_object(app)
 	cell := remesh_cell_of_mm(app, obj, app.ui.remesh_cell_mm) if app.ui.remesh_by == .Cell else 0
-	return {int(app.ui.remesh_smooth), app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads, remesh_mirror(app, obj), cell}
+	return {smooth = int(app.ui.remesh_smooth), keep_detail = app.ui.remesh_keep_detail, keep_thin = app.ui.remesh_keep_thin, groups = app.ui.remesh_groups, quads = app.ui.remesh_quads, mirror = remesh_mirror(app, obj), cell = cell}
 }
 
 // What Remesh again (Ctrl+R) runs: the panel's options at the object's own cell, the one
@@ -82,7 +83,7 @@ remesh_mirror :: proc(app: ^App, obj: ^Object) -> geom.Remesh_Mirror {
 
 // The panel set to a command's options (Adjust last).
 remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
-	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.groups, s.quads
+	app.ui.remesh_smooth, app.ui.remesh_keep_detail, app.ui.remesh_keep_thin, app.ui.remesh_groups, app.ui.remesh_quads = i32(s.smooth), s.keep_detail, s.keep_thin, s.groups, s.quads
 	if s.mirror.axes != {} do app.ui.remesh_keep_symmetry = true
 	// A cell shows as one only where the panel sets cells; a count's panel keeps its count.
 	if s.cell > 0 && app.ui.remesh_by == .Cell do app.ui.remesh_cell_mm = clamp(remesh_cell_mm(app, selected_object(app), s.cell), REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
@@ -91,7 +92,7 @@ remesh_setup_set :: proc(app: ^App, s: Remesh_Setup) {
 // The geometry's options for `setup` on a mesh whose triangles have `groups` (nil for
 // none, as under dynamic topology): Groups does nothing without them.
 remesh_options :: proc(setup: Remesh_Setup, groups: []u16) -> geom.Remesh_Options {
-	return {smooth = setup.smooth, keep_detail = setup.keep_detail, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror, cell = setup.cell}
+	return {smooth = setup.smooth, keep_detail = setup.keep_detail, keep_thin = setup.keep_thin, groups = groups if setup.groups else nil, quads = setup.quads, mirror = setup.mirror, cell = setup.cell}
 }
 
 // The polypaint and polygroups the remeshed mesh `out` takes from the mesh it came from,
@@ -160,7 +161,7 @@ surface_free :: proc(s: ^Surface) {
 
 // What the result line adds after the count for `setup`, from what the remesh reported:
 // "; turned outward first; 2 triangles mended first; 2 holes closed first; 3 pieces, 1 too
-// thin; detail kept; quads", or
+// thin; thin parts kept; detail kept; quads", or
 // nothing. Temporary, so made after anything that frees the temp memory.
 remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 	b := strings.builder_make(context.temp_allocator)
@@ -171,6 +172,7 @@ remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 		fmt.sbprintf(&b, "; %d piece%s", report.pieces, "" if report.pieces == 1 else "s")
 		if report.dropped > 0 do fmt.sbprintf(&b, ", %d too thin", report.dropped)
 	}
+	if report.thickened > 0 do strings.write_string(&b, "; thin parts kept")
 	if setup.keep_detail do strings.write_string(&b, "; detail kept")
 	if report.quads != nil do strings.write_string(&b, "; quads")
 	return strings.to_string(b)
@@ -202,7 +204,7 @@ remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_fr
 }
 
 // The option rows under Rebuild's Even density: whether Density is a count or a cell size
-// (as Fewer keeps its share or count there), Smooth, Keep detail, Quads, Groups (which has
+// (as Fewer keeps its share or count there), Smooth, Keep detail, Keep thin parts, Quads, Groups (which has
 // nothing to do on an object without polygroups, or under dynamic topology) and Keep
 // symmetry.
 kit_remesh_options :: proc(app: ^App, obj: ^Object) {
@@ -215,6 +217,7 @@ kit_remesh_options :: proc(app: ^App, obj: ^Object) {
 		app.ui.remesh_smooth = i32(smooth + 0.5)
 	}
 	_ = ui.switch_row(ctx, "Keep detail", &app.ui.remesh_keep_detail)
+	_ = ui.switch_row(ctx, "Keep thin parts", &app.ui.remesh_keep_thin)
 	_ = ui.switch_row(ctx, "Quads", &app.ui.remesh_quads)
 	grouped := obj != nil && !object_dynamic(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
 	_ = ui.switch_row(ctx, "Groups", &app.ui.remesh_groups, enabled = grouped)
