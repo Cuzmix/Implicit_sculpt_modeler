@@ -75,8 +75,50 @@ live(`page: ${navigator.userAgent}`);
 function stage(name) { live(`page: ${name}`); flush(); }
 let watched_memory = null;
 setInterval(() => {
-	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB`);
+	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB, GPU ${(gpu_bytes / 1048576).toFixed(0)} MB in ${gpu_objects} buffers and textures`);
 }, 500);
+
+// What the app holds on the GPU, which a tablet's browser counts against the tab: every
+// buffer and texture made and destroyed through WebGPU, by its size (a texture's by its
+// format, samples, layers and mip chain), with each one of 16 MB or more named as it comes.
+let gpu_bytes = 0, gpu_objects = 0;
+const gpu_sizes = new WeakMap();
+const FORMAT_BYTES = { r8unorm: 1, r8uint: 1, r8snorm: 1, rg8unorm: 2, r16float: 2, r16uint: 2, depth16unorm: 2,
+	rgba16float: 8, rg32float: 8, rg32uint: 8, rgba16uint: 8, "depth32float-stencil8": 8,
+	rgba32float: 16, rgba32uint: 16 };
+function texture_bytes(d) {
+	const size = Array.isArray(d.size) ? { width: d.size[0], height: d.size[1] || 1, depthOrArrayLayers: d.size[2] || 1 } : d.size;
+	const per = FORMAT_BYTES[d.format] || 4;
+	let total = 0, w = size.width, h = size.height || 1;
+	const layers = size.depthOrArrayLayers || 1;
+	for (let level = 0; level < (d.mipLevelCount || 1); level += 1) {
+		total += Math.max(1, w) * Math.max(1, h) * layers * per;
+		w >>= 1; h >>= 1;
+	}
+	return total * (d.sampleCount || 1);
+}
+function gpu_track(object, bytes, what) {
+	gpu_sizes.set(object, bytes);
+	gpu_bytes += bytes; gpu_objects += 1;
+	if (bytes >= 16 * 1048576) live(`page: GPU ${what} ${(bytes / 1048576).toFixed(0)} MB, now ${(gpu_bytes / 1048576).toFixed(0)} MB`);
+	const destroy = object.destroy;
+	object.destroy = function () {
+		if (gpu_sizes.has(this)) { gpu_bytes -= gpu_sizes.get(this); gpu_objects -= 1; gpu_sizes.delete(this); }
+		return destroy.call(this);
+	};
+	return object;
+}
+if (typeof GPUDevice !== "undefined") {
+	const createBuffer = GPUDevice.prototype.createBuffer;
+	GPUDevice.prototype.createBuffer = function (d) {
+		return gpu_track(createBuffer.call(this, d), d.size, `buffer "${d.label || ""}"`);
+	};
+	const createTexture = GPUDevice.prototype.createTexture;
+	GPUDevice.prototype.createTexture = function (d) {
+		const s = Array.isArray(d.size) ? d.size : [d.size.width, d.size.height, d.size.depthOrArrayLayers];
+		return gpu_track(createTexture.call(this, d), texture_bytes(d), `texture "${d.label || ""}" ${s.filter((v) => v).join("x")} ${d.format} x${d.sampleCount || 1} mips ${d.mipLevelCount || 1}`);
+	};
+}
 
 function fail(message) {
 	note.style.display = "none";
