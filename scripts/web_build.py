@@ -299,19 +299,42 @@ class Tls_Server(http.server.ThreadingHTTPServer):
         self.context = context
         super().__init__(address, handler)
 
-    def get_request(self):
-        sock, address = self.socket.accept()
-        return self.context.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), address
-
     def finish_request(self, request, address):
         request.settimeout(self.HANDSHAKE_SECONDS)
         try:
-            request.do_handshake()
+            first = request.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if first != b"\x16":
+            # Not a TLS handshake: an address typed without https:// reaches here as plain
+            # HTTP, which is sent on to the same address over HTTPS rather than dropped.
+            self.redirect(request)
+            return
+        try:
+            tls = self.context.wrap_socket(request, server_side=True)
         except (ssl.SSLError, OSError):
             # A browser that has not accepted the certificate yet hangs up here.
             return
-        request.settimeout(None)
-        super().finish_request(request, address)
+        # The wrapped socket replaces the accepted one, which the server's own close no
+        # longer reaches, so it is closed here.
+        try:
+            tls.settimeout(None)
+            super().finish_request(tls, address)
+        finally:
+            self.shutdown_request(tls)
+
+    def redirect(self, request):
+        try:
+            head = request.recv(8192).decode("latin-1")
+            host = next((line.split(":", 1)[1].strip() for line in head.split("\r\n") if line.lower().startswith("host:")), None)
+            path = head.split(" ", 2)[1] if head.count(" ") >= 2 else "/"
+            if host is None or not path.startswith("/"):
+                return
+            target = f"https://{host}{path}"
+            request.sendall((f"HTTP/1.1 301 Moved Permanently\r\nLocation: {target}\r\n"
+                             "Content-Length: 0\r\nConnection: close\r\n\r\n").encode("latin-1"))
+        except OSError:
+            pass
 
     def handle_error(self, request, address):
         # A tablet that drops a connection mid-file is not worth a traceback.
