@@ -63,6 +63,7 @@ Command_Id :: enum u16 {
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
+	Physics,
 	Local_Symmetry,
 	Radial_Symmetry,
 	Brush_Add,
@@ -888,6 +889,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Mirrors strokes across the X axis.",
 		run = proc(app: ^App, _: int) {app.brush.symmetry ~= {.X}},
 		checked = proc(app: ^App, _: int) -> bool {return .X in app.brush.symmetry},
+	},
+	.Physics = {
+		label = "Physics",
+		help = "Makes what a moving brush moves (Grab, Elastic, Snake hook and the dab brushes) drive the surface round it as cloth, which follows in folds, swings past and settles.",
+		run = proc(app: ^App, _: int) {app.brush.physics = !app.brush.physics},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.physics},
 	},
 	.Local_Symmetry = {
 		label = "Local symmetry",

@@ -254,3 +254,93 @@ cloth_stroke_undoes :: proc(t: ^testing.T) {
 	testing.expect(t, sculptor_undo(&s), "undo failed")
 	for p, i in m.positions do testing.expect_value(t, p, before[i])
 }
+
+// A grab of 0.3 along x on icosphere(5), with or without Physics behind it, and the
+// frames after the pointer stops.
+@(private = "file")
+physics_grab :: proc(pool: ^jobs.Pool, physics: bool, follow: f32 = 0.35) -> (m: geom.Mesh, before: []Vec3) {
+	m = geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, pool, 96)
+	defer sculptor_destroy(&s)
+	before = make([]Vec3, len(m.positions), context.temp_allocator)
+	copy(before, m.positions[:])
+	brush := Brush{kind = .Grab, radius = 0.25, strength = 1}
+	sculptor_stroke_begin(&s)
+	_ = sculptor_grab_begin(&s, brush, {0, 0, 1})
+	if physics do _ = sculptor_physics_begin(&s, brush, {0, 0, 1}, follow, 2.5)
+	for i in 1 ..= 30 {
+		_ = sculptor_grab_move(&s, {0.3 * f32(min(i, 20)) / 20, 0, 0})
+		if physics do _ = sculptor_physics_step(&s, {0, 0, 1}, {0, -1, 0})
+	}
+	sculptor_cloth_end(&s)
+	sculptor_grab_end(&s)
+	_ = sculptor_stroke_end(&s)
+	_ = sculptor_flush(&s)
+	return
+}
+
+@(test)
+physics_grab_carries_the_surface_round_it :: proc(t: ^testing.T) {
+	plain, pb := physics_grab(nil, false)
+	defer geom.mesh_destroy(&plain)
+	cloth, cb := physics_grab(nil, true)
+	defer geom.mesh_destroy(&cloth)
+	// Past the grab's radius only the cloth moves anything.
+	outside_plain, outside_cloth := 0, 0
+	for i in 0 ..< len(pb) do if linalg.length(pb[i] - {0, 0, 1}) > 0.3 {
+		if plain.positions[i] != pb[i] do outside_plain += 1
+		if cloth.positions[i] != cb[i] do outside_cloth += 1
+	}
+	testing.expect_value(t, outside_plain, 0)
+	testing.expectf(t, outside_cloth > 200, "physics should carry the surface round the grab along, moved %d", outside_cloth)
+	a, _ := mean_stretch(plain, pb)
+	b, _ := mean_stretch(cloth, cb)
+	testing.expectf(t, b < a, "physics should stretch the surface less than a plain grab: %v against %v", b, a)
+	// The middle still went most of the way the grab took it.
+	nearest, best := 0, f32(1e9)
+	for p, i in cb do if d := linalg.length(p - {0, 0, 1}); d < best do nearest, best = i, d
+	testing.expectf(t, cloth.positions[nearest].x - cb[nearest].x > 0.2, "the grabbed middle moved only %v", cloth.positions[nearest] - cb[nearest])
+}
+
+@(test)
+physics_serial_and_parallel_agree_and_undo :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	a, _ := physics_grab(nil, true)
+	defer geom.mesh_destroy(&a)
+	b, _ := physics_grab(&pool, true)
+	defer geom.mesh_destroy(&b)
+	for p, i in a.positions do if b.positions[i] != p {
+		testing.expectf(t, false, "vertex %d differs", i)
+		break
+	}
+
+	// Dabs drive it too, over a region that follows them; one undo takes it all back.
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 96)
+	defer sculptor_destroy(&s)
+	_ = sculptor_flush(&s)
+	before := make([]Vec3, len(m.positions), context.temp_allocator)
+	copy(before, m.positions[:])
+	brush := Brush{kind = .Draw, radius = 0.15, strength = 1}
+	set := CLOTH_DEFAULTS
+	set.region = .Follows
+	sculptor_stroke_begin(&s)
+	_ = sculptor_physics_begin(&s, brush, {0, 0, 1}, 0.35, settings = set)
+	for i in 0 ..< 12 {
+		at := linalg.normalize(Vec3{0.05 * f32(i), 0, 1})
+		_ = apply_dab(&s, brush, at)
+		_ = sculptor_physics_step(&s, at, {0, -1, 0})
+	}
+	sculptor_cloth_end(&s)
+	testing.expect(t, sculptor_stroke_end(&s), "the stroke should be an undo step")
+	moved := 0
+	for p, i in m.positions do if p != before[i] do moved += 1
+	testing.expect(t, moved > 100, "the dabs did not move the cloth")
+	testing.expect(t, sculptor_undo(&s), "undo failed")
+	for p, i in m.positions do testing.expect_value(t, p, before[i])
+}
