@@ -78,6 +78,7 @@ Saved_Node :: struct {
 	colors:     []Color, // the node's owned vertices' colours, for a painting step
 	groups:     []u16,   // the node's triangles' groups, for a grouping step
 	heights:    []f16,   // the node's detail skin heights (skin_node_ranges), for a skin stroke
+	side:       [][2]f16, // and its sideways offsets (Skin.side), nil while the skin has none
 	// With `is_delta`: the node's displacement in layer `delta_layer` before a recording
 	// stroke added to it (nil when it had none).
 	delta:       []Vec3,
@@ -522,7 +523,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
 	for sv in step.saved {
 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16)
+		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	bytes += skin_bytes(step.skin_op.skin)
@@ -545,6 +546,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
 		delete(sv.heights, h.allocator)
+		delete(sv.side, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
@@ -576,6 +578,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.indices, h.allocator)
 		delete(sv.delta, h.allocator)
 		delete(sv.heights, h.allocator)
+		delete(sv.side, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)

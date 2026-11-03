@@ -93,7 +93,7 @@ skin_step_swap :: proc(s: ^Sculptor, step: ^Undo_Step) {
 @(private)
 skin_bytes :: proc(sk: ^Skin) -> int {
 	if sk == nil do return 0
-	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
+	bytes := size_of(Skin) + len(sk.heights) * size_of(f16) + len(sk.side) * size_of([2]f16) + len(sk.normals) * size_of([2]i16) + len(sk.layer) * size_of(Layer_Height)
 	bytes += (len(sk.edge_first) + len(sk.near_first) + len(sk.near)) * size_of(u32) + len(sk.tri_edges) * size_of([3]u32)
 	bytes += len(sk.redo_vert) + len(sk.redo_edge) + len(sk.redo_tri) + len(sk.dab_moved) + len(sk.node_edge) * size_of(f32)
 	return bytes + len(sk.edges) * size_of(Skin_Edge) + len(sk.stale) * size_of(Skin_Stale)
@@ -1002,7 +1002,12 @@ record_skin_hit :: proc(s: ^Sculptor) {
 		h.skin_saved[id] = h.stamp
 		heights := make([]f16, skin_node_count(s, sk, id), h.allocator)
 		skin_node_copy(s, sk, id, heights, out = true)
-		append(&h.current.saved, Saved_Node{node = id, heights = heights})
+		side: [][2]f16
+		if sk.side != nil {
+			side = make([][2]f16, len(heights), h.allocator)
+			skin_node_copy_side(s, sk, id, side, out = true)
+		}
+		append(&h.current.saved, Saved_Node{node = id, heights = heights, side = side})
 	}
 }
 
@@ -1013,6 +1018,20 @@ skin_node_copy :: proc(s: ^Sculptor, sk: ^Skin, id: u32, buf: []f16, out: bool) 
 	for r in skin_node_ranges(s, sk, id) {
 		live := sk.heights[r.first:][:r.count]
 		if out do copy(buf[at:], live)
+		else do copy(live, buf[at:][:r.count])
+		at += int(r.count)
+	}
+}
+
+// Copies node `id`'s sideways offsets into `buf` (out) or from it (not out); a nil `buf`
+// coming in stands for offsets saved before the skin had any, all zero.
+@(private)
+skin_node_copy_side :: proc(s: ^Sculptor, sk: ^Skin, id: u32, buf: [][2]f16, out: bool) {
+	at := 0
+	for r in skin_node_ranges(s, sk, id) {
+		live := sk.side[r.first:][:r.count]
+		if out do copy(buf[at:], live)
+		else if buf == nil do slice.zero(live)
 		else do copy(live, buf[at:][:r.count])
 		at += int(r.count)
 	}
@@ -1033,6 +1052,24 @@ skin_saved_swap :: proc(s: ^Sculptor, sv: ^Saved_Node) {
 		}
 		at += int(r.count)
 	}
+	// Offsets saved before the skin had a vector page were all zero: the live ones go
+	// into a new save so a redo brings them back.
+	if sk.side != nil {
+		if sv.side == nil {
+			sv.side = make([][2]f16, len(sv.heights), s.history.allocator)
+			skin_node_copy_side(s, sk, sv.node, sv.side, out = true)
+			skin_node_copy_side(s, sk, sv.node, nil, out = false)
+		} else {
+			at = 0
+			for r in skin_node_ranges(s, sk, sv.node) {
+				for &x, k in sk.side[r.first:][:r.count] {
+					x, sv.side[at + k] = sv.side[at + k], x
+					sk.height_max = max(sk.height_max, abs(f32(x.x)) + abs(f32(x.y)))
+				}
+				at += int(r.count)
+			}
+		}
+	}
 	skin_mark(s, sv.node)
 }
 
@@ -1042,5 +1079,6 @@ skin_saved_restore :: proc(s: ^Sculptor, sv: Saved_Node) {
 	sk := s.skin
 	if sk == nil || skin_node_count(s, sk, sv.node) != len(sv.heights) do return
 	skin_node_copy(s, sk, sv.node, sv.heights, out = false)
+	if sk.side != nil do skin_node_copy_side(s, sk, sv.node, sv.side, out = false)
 	skin_mark(s, sv.node)
 }
