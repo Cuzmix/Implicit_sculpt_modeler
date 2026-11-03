@@ -103,7 +103,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		gpu.release_buffer(indices)
 		gpu.release_buffer(positions)
 	}
-	if positions == nil || indices == nil || rays == nil || hits == nil || upload == nil || download == nil || pipeline == nil {
+	if positions == 0 || indices == 0 || rays == 0 || hits == 0 || upload == 0 || download == 0 || pipeline == 0 {
 		log.errorf("ray query check: its buffers or kernel could not be made (%s)", gpu.last_error())
 		return false
 	}

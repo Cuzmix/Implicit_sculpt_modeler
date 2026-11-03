@@ -15,7 +15,7 @@ when ODIN_DEBUG {
 }
 
 transient_note :: proc(texture: Texture) {
-	when ODIN_DEBUG do if texture != nil do transient_textures[texture] = true
+	when ODIN_DEBUG do if texture != 0 do transient_textures[texture] = true
 }
 
 transient_forget :: proc(texture: Texture) {
@@ -31,7 +31,7 @@ transient_forget :: proc(texture: Texture) {
 
 // Panics when `texture` is transient: it is being used outside its pass.
 transient_check_use :: proc(texture: Texture, use: string) {
-	when ODIN_DEBUG do if texture != nil && texture in transient_textures do fmt.panicf("a transient texture was %s", use)
+	when ODIN_DEBUG do if texture != 0 && texture in transient_textures do fmt.panicf("a transient texture was %s", use)
 }
 
 // Panics when a pass loads or stores a transient attachment.

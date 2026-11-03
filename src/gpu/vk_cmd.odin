@@ -780,7 +780,7 @@ vk_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_T
 	vk_memory_barrier(cmd)
 	for i in 0 ..< num_color_targets {
 		info := color_target_infos[i]
-		t := (^Vk_Texture)(info.texture)
+		t := (^Vk_Texture)(object(info.texture))
 		width, height = min(width, max(t.info.width >> info.mip_level, 1)), min(height, max(t.info.height >> info.mip_level, 1))
 		img := vk_target(cmd, t, info.mip_level, info.cycle, .COLOR_ATTACHMENT_OPTIMAL)
 		c := &colors[i]
@@ -793,7 +793,7 @@ vk_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_T
 		}
 		c.clearValue.color.float32 = {info.clear_color.r, info.clear_color.g, info.clear_color.b, info.clear_color.a}
 		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
-			rt := (^Vk_Texture)(info.resolve_texture)
+			rt := (^Vk_Texture)(object(info.resolve_texture))
 			resolve := vk_target(cmd, rt, info.resolve_mip_level, info.cycle_resolve_texture, .COLOR_ATTACHMENT_OPTIMAL)
 			c.resolveMode = {.AVERAGE}
 			c.resolveImageView = resolve.level_views[info.resolve_mip_level]
@@ -804,7 +804,7 @@ vk_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_T
 	stencil: vk.RenderingAttachmentInfo
 	has_depth, has_stencil := false, false
 	if d, ok := depth_stencil_target_info.?; ok && d != nil {
-		t := (^Vk_Texture)(d.texture)
+		t := (^Vk_Texture)(object(d.texture))
 		level := u32(d.mip_level)
 		width, height = min(width, max(t.info.width >> level, 1)), min(height, max(t.info.height >> level, 1))
 		img := vk_target(cmd, t, level, d.cycle, .DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
@@ -868,7 +868,7 @@ vk_end_render_pass :: proc(render_pass: Render_Pass) {
 
 vk_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Vk_Cmd)(render_pass)
-	p := (^Vk_Pipeline)(graphics_pipeline)
+	p := (^Vk_Pipeline)(object(graphics_pipeline))
 	vk.CmdBindPipeline(cmd.cb, .GRAPHICS, p.pipeline)
 	vk_cmd_track_pipeline(cmd, p)
 	cmd.pipeline = p
@@ -880,7 +880,7 @@ vk_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindin
 	buffers: [16]vk.Buffer
 	offsets: [16]vk.DeviceSize
 	for i in 0 ..< num_bindings {
-		b := (^Vk_Buffer)(bindings[i].buffer).active
+		b := (^Vk_Buffer)(object(bindings[i].buffer)).active
 		vk_cmd_track_buffer(cmd, b)
 		buffers[i], offsets[i] = b.buffer, vk.DeviceSize(bindings[i].offset)
 	}
@@ -889,7 +889,7 @@ vk_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindin
 
 vk_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Vk_Cmd)(render_pass)
-	b := (^Vk_Buffer)(binding.buffer).active
+	b := (^Vk_Buffer)(object(binding.buffer)).active
 	vk_cmd_track_buffer(cmd, b)
 	vk.CmdBindIndexBuffer(cmd.cb, b.buffer, vk.DeviceSize(binding.offset), .UINT32 if index_element_size == .U32 else .UINT16)
 }
@@ -897,7 +897,7 @@ vk_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_B
 vk_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Vk_Buffer)(storage_buffers[i]).active
+		b := (^Vk_Buffer)(object(storage_buffers[i])).active
 		vk_cmd_track_buffer(cmd, b)
 		cmd.vertex_storage[first_slot + i] = b.buffer
 	}
@@ -907,8 +907,8 @@ vk_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32
 @(private = "file")
 vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	for i in 0 ..< num_bindings {
-		t := (^Vk_Texture)(bindings[i].texture)
-		s := (^Vk_Sampler)(bindings[i].sampler)
+		t := (^Vk_Texture)(object(bindings[i].texture))
+		s := (^Vk_Sampler)(object(bindings[i].sampler))
 		vk_cmd_track_image(cmd, t.active)
 		vk_cmd_track_sampler(cmd, s)
 		cmd.samplers_bound[first_slot + i] = {t.active.view, s.sampler}
@@ -918,7 +918,7 @@ vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]Texture_Sam
 vk_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Vk_Buffer)(storage_buffers[i]).active
+		b := (^Vk_Buffer)(object(storage_buffers[i])).active
 		vk_cmd_track_buffer(cmd, b)
 		cmd.fragment_storage[first_slot + i] = b.buffer
 	}
@@ -952,7 +952,7 @@ vk_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_in
 vk_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
-	b := (^Vk_Buffer)(buffer).active
+	b := (^Vk_Buffer)(object(buffer)).active
 	vk_cmd_track_buffer(cmd, b)
 	stride :: u32(size_of(Indexed_Indirect_Draw))
 	if vk_state.multi_draw || draw_count <= 1 {
@@ -968,7 +968,7 @@ vk_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Bu
 vk_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
-	b := (^Vk_Buffer)(buffer).active
+	b := (^Vk_Buffer)(object(buffer)).active
 	vk_cmd_track_buffer(cmd, b)
 	if vk_state.multi_draw || draw_count <= 1 {
 		vk.CmdDrawIndirect(cmd.cb, b.buffer, vk.DeviceSize(offset), draw_count, stride)
@@ -981,7 +981,7 @@ vk_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, of
 vk_draw_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, count_buffer: Buffer, count_offset, max_draws, stride: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
-	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
+	b, n := (^Vk_Buffer)(object(buffer)).active, (^Vk_Buffer)(object(count_buffer)).active
 	vk_cmd_track_buffer(cmd, b)
 	vk_cmd_track_buffer(cmd, n)
 	vk.CmdDrawIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, stride)
@@ -992,7 +992,7 @@ vk_draw_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer: Buff
 vk_draw_indexed_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, count_buffer: Buffer, count_offset: u32, max_draws: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
-	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
+	b, n := (^Vk_Buffer)(object(buffer)).active, (^Vk_Buffer)(object(count_buffer)).active
 	vk_cmd_track_buffer(cmd, b)
 	vk_cmd_track_buffer(cmd, n)
 	vk.CmdDrawIndexedIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, size_of(Indexed_Indirect_Draw))
@@ -1008,13 +1008,13 @@ vk_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]
 	cmd.write_buffers = {}
 	for i in 0 ..< num_storage_texture_bindings {
 		binding := storage_texture_bindings[i]
-		img := vk_target(cmd, (^Vk_Texture)(binding.texture), binding.mip_level, binding.cycle, .GENERAL)
+		img := vk_target(cmd, (^Vk_Texture)(object(binding.texture)), binding.mip_level, binding.cycle, .GENERAL)
 		cmd.write_textures[i] = img.level_views[binding.mip_level]
 		if cmd.queue == .Compute do append(&cmd.written_images, img)
 	}
 	for i in 0 ..< num_storage_buffer_bindings {
 		binding := storage_buffer_bindings[i]
-		b := (^Vk_Buffer)(binding.buffer)
+		b := (^Vk_Buffer)(object(binding.buffer))
 		if binding.cycle && b.active.refs > 0 do vk_buffer_cycle(b)
 		vk_cmd_track_buffer(cmd, b.active)
 		cmd.write_buffers[i] = b.active.buffer
@@ -1032,7 +1032,7 @@ vk_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]
 
 vk_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Vk_Cmd)(compute_pass)
-	p := (^Vk_Pipeline)(compute_pipeline)
+	p := (^Vk_Pipeline)(object(compute_pipeline))
 	vk.CmdBindPipeline(cmd.cb, .COMPUTE, p.pipeline)
 	vk_cmd_track_pipeline(cmd, p)
 	cmd.pipeline = p
@@ -1050,8 +1050,8 @@ vk_bind_compute_texture_array :: proc(compute_pass: Compute_Pass, bindings: []Te
 	cmd := (^Vk_Cmd)(compute_pass)
 	n := min(len(bindings), VK_TEXTURE_ARRAY_MAX)
 	for b, i in bindings[:n] {
-		t := (^Vk_Texture)(b.texture)
-		s := (^Vk_Sampler)(b.sampler)
+		t := (^Vk_Texture)(object(b.texture))
+		s := (^Vk_Sampler)(object(b.sampler))
 		vk_cmd_track_image(cmd, t.active)
 		vk_cmd_track_sampler(cmd, s)
 		cmd.array_images[i] = {sampler = s.sampler, imageView = t.active.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
@@ -1063,7 +1063,7 @@ vk_bind_compute_texture_array :: proc(compute_pass: Compute_Pass, bindings: []Te
 vk_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Vk_Buffer)(storage_buffers[i]).active
+		b := (^Vk_Buffer)(object(storage_buffers[i])).active
 		vk_cmd_track_buffer(cmd, b)
 		cmd.compute_storage[first_slot + i] = b.buffer
 	}
@@ -1107,8 +1107,8 @@ vk_subresource :: proc(t: ^Vk_Texture, level: u32) -> vk.ImageSubresourceLayers 
 
 vk_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	src := (^Vk_Buffer)(source.transfer_buffer).active
-	t := (^Vk_Texture)(destination.texture)
+	src := (^Vk_Buffer)(object(source.transfer_buffer)).active
+	t := (^Vk_Texture)(object(destination.texture))
 	vk_cmd_track_buffer(cmd, src)
 	vk_memory_barrier(cmd)
 	img := vk_target(cmd, t, destination.mip_level, cycle, .TRANSFER_DST_OPTIMAL)
@@ -1126,8 +1126,8 @@ vk_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Trans
 
 vk_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	src := (^Vk_Buffer)(source.transfer_buffer).active
-	dst := (^Vk_Buffer)(destination.buffer)
+	src := (^Vk_Buffer)(object(source.transfer_buffer)).active
+	dst := (^Vk_Buffer)(object(destination.buffer))
 	if cycle && dst.active.refs > 0 do vk_buffer_cycle(dst)
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst.active)
@@ -1139,8 +1139,8 @@ vk_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffe
 
 vk_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	src := (^Vk_Buffer)(source.buffer).active
-	dst := (^Vk_Buffer)(destination.buffer)
+	src := (^Vk_Buffer)(object(source.buffer)).active
+	dst := (^Vk_Buffer)(object(destination.buffer))
 	if cycle && dst.active.refs > 0 do vk_buffer_cycle(dst)
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst.active)
@@ -1152,8 +1152,8 @@ vk_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Lo
 
 vk_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	st := (^Vk_Texture)(source.texture)
-	dt := (^Vk_Texture)(destination.texture)
+	st := (^Vk_Texture)(object(source.texture))
+	dt := (^Vk_Texture)(object(destination.texture))
 	vk_memory_barrier(cmd)
 	src := vk_target(cmd, st, source.mip_level, false, .TRANSFER_SRC_OPTIMAL)
 	dst := vk_target(cmd, dt, destination.mip_level, cycle, .TRANSFER_DST_OPTIMAL)
@@ -1170,8 +1170,8 @@ vk_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture
 
 vk_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	t := (^Vk_Texture)(source.texture)
-	dst := (^Vk_Buffer)(destination.transfer_buffer).active
+	t := (^Vk_Texture)(object(source.texture))
+	dst := (^Vk_Buffer)(object(destination.transfer_buffer)).active
 	vk_cmd_track_buffer(cmd, dst)
 	vk_memory_barrier(cmd)
 	img := vk_target(cmd, t, source.mip_level, false, .TRANSFER_SRC_OPTIMAL)
@@ -1190,8 +1190,8 @@ vk_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_R
 
 vk_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Vk_Cmd)(copy_pass)
-	src := (^Vk_Buffer)(source.buffer).active
-	dst := (^Vk_Buffer)(destination.transfer_buffer).active
+	src := (^Vk_Buffer)(object(source.buffer)).active
+	dst := (^Vk_Buffer)(object(destination.transfer_buffer)).active
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst)
 	vk_memory_barrier(cmd)
@@ -1204,7 +1204,7 @@ vk_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Reg
 vk_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.recorded = true
-	t := (^Vk_Texture)(texture)
+	t := (^Vk_Texture)(object(texture))
 	img := t.active
 	vk_cmd_track_image(cmd, img)
 	for level in 1 ..< t.info.num_levels {

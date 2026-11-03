@@ -197,7 +197,7 @@ paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	colors, groups := sculpt.sculptor_paint_shown(s), sculpt.sculptor_vertex_groups(s)
 	if colors == nil && groups == nil do return 0
 	stamp := sculpt.sculptor_paint_stamp(s)
-	all := gpu.paint == nil || gpu.paint_stamp != stamp
+	all := gpu.paint == 0 || gpu.paint_stamp != stamp
 	if !all && len(ranges) == 0 do return 0
 	render.mesh_buffers_upload_paint(&app.renderer, cmd, gpu, colors, groups, ranges, all)
 	gpu.paint_stamp = stamp

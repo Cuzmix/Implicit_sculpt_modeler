@@ -258,7 +258,7 @@ object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	switch view {
 	case .Off:        return false
 	case .Textured:   return maps != {}
-	case .Normal_Map: return maps[.Normal] != nil
+	case .Normal_Map: return maps[.Normal] != 0
 	case .Uv_Checker: return true
 	}
 	return false
@@ -391,7 +391,7 @@ texture_decoder_poll :: proc(app: ^App, obj: ^Object, wait := false) {
 		p.failed[m] = d.failed[m]
 		if fresh do file_note(app, true, "The %s map of %s could not be read; it shows without it", TEXTURE_MAP_NAMES[m], object_label(obj))
 		if d.pixels[m] == nil {
-			if p.mesh.maps[m] != nil do _ = render.textured_mesh_set_map(&app.renderer, &p.mesh, m, nil, 0, 0)
+			if p.mesh.maps[m] != 0 do _ = render.textured_mesh_set_map(&app.renderer, &p.mesh, m, nil, 0, 0)
 			continue
 		}
 		if !render.textured_mesh_set_map(&app.renderer, &p.mesh, m, d.pixels[m], d.size[m].x, d.size[m].y) {
@@ -442,7 +442,7 @@ kit_textures_section :: proc(app: ^App) {
 		case obj.textures.image[m] == nil:    state = "none"
 		case p.failed[m]:                     state = "unreadable"
 		case p.maps_stamp != obj.textures.stamp: state = "loading"
-		case p.mesh.maps[m] == nil:           state = "not shown"
+		case p.mesh.maps[m] == 0:           state = "not shown"
 		case:                                 state = fmt.tprintf("%d x %d", p.mesh.sizes[m].x, p.mesh.sizes[m].y)
 		}
 		append(&shown, fmt.tprintf("%s: %s", TEXTURE_MAP_LABELS[m], state))

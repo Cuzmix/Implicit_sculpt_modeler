@@ -38,6 +38,7 @@ Mtl_Window :: struct {
 	layer:        ^CA.MetalLayer,
 	format:       Format,
 	present_mode: Present_Mode,
+	texture_handle: Texture, // `texture`'s handle, made at its first acquire
 	// The texture the app draws the window into: a container whose one backing is pointed
 	// at each frame's drawable.
 	texture:      Mtl_Texture,
@@ -231,6 +232,7 @@ mtl_release_window :: proc(window: ^sdl.Window) {
 		w.log.in_use = false
 		w.log.pending = {}
 	}
+	_ = pool_remove(&pools.textures, u32(w.texture_handle))
 	sdl.Metal_DestroyView(w.view)
 	for other, i in mtl_state.windows do if other == w {
 		ordered_remove(&mtl_state.windows, i)
@@ -280,7 +282,7 @@ mtl_get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 mtl_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: ^Texture, width, height: ^u32, wait: bool) -> bool {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
-	texture^ = nil
+	texture^ = 0
 	w := mtl_window_find(window)
 	if w == nil {
 		fail(.Invalid, "the window was not claimed")
@@ -313,6 +315,7 @@ mtl_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture:
 	w.backing.texture = CA.MetalDrawable_texture(drawable)
 	append(&cmd.presents, Mtl_Present{w, drawable, slot})
 	w.frame = (w.frame + 1) % int(mtl_state.frames)
-	texture^ = (Texture)(&w.texture)
+	if w.texture_handle == 0 do w.texture_handle = Texture(pool_add(&pools.textures, &w.texture))
+	texture^ = w.texture_handle
 	return true
 }

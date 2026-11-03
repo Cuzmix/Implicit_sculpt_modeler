@@ -119,6 +119,7 @@ vk_swapchain_free :: proc(w: ^Vk_Window) {
 			free(img)
 		}
 		delete(t.backings)
+		_ = pool_remove(&pools.textures, u32(t.handle))
 		free(t)
 	}
 	delete(w.textures)
@@ -321,7 +322,7 @@ vk_get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 
 vk_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: ^Texture, width, height: ^u32, wait: bool) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
-	texture^ = nil
+	texture^ = 0
 	w := vk_window_find(window)
 	if w == nil {
 		fail(.Invalid, "the window was not claimed")
@@ -361,7 +362,8 @@ vk_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: 
 	vk_image_barrier(cmd, t.active, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
 	append(&cmd.presents, Vk_Present{w, index, slot})
 	w.frame = (w.frame + 1) % int(vk_state.frames)
-	texture^ = (Texture)(t)
+	if t.handle == 0 do t.handle = Texture(pool_add(&pools.textures, t))
+	texture^ = t.handle
 	if width != nil do width^ = w.width
 	if height != nil do height^ = w.height
 	return true

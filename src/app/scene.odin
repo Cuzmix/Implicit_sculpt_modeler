@@ -861,7 +861,7 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	s := &lv.sculptor
 	sk := sculpt.sculptor_skin(s)
 	if sk == nil {
-		if gpu.skin_normals != nil {
+		if gpu.skin_normals != 0 {
 			render.wait_idle(&app.renderer)
 			render.mesh_buffers_drop_skin(&app.renderer, gpu)
 		}
@@ -869,8 +869,8 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	}
 	stamp := sculpt.sculptor_paint_stamp(s)
 	skin_stamp := sculpt.sculptor_skin_stamp(s)
-	if gpu.skin_normals == nil || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
-		if gpu.skin_normals != nil do render.wait_idle(&app.renderer)
+	if gpu.skin_normals == 0 || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
+		if gpu.skin_normals != 0 do render.wait_idle(&app.renderer)
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.heights, sk.height_max, sk.segments, sk.vert_count, sk.edge_count) do return 0
 		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
@@ -1354,7 +1354,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 	lv := object_level(obj)
 	ranges := sculpt.sculptor_flush(&lv.sculptor)
 	gpu := object_gpu(obj)
-	if gpu.positions == nil {
+	if gpu.positions == 0 {
 		ok: bool
 		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		return ok

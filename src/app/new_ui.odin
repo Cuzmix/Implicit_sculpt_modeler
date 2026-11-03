@@ -1956,7 +1956,7 @@ kit_rename :: proc(app: ^App) {
 // Material card drew KIT_MATCAP_IMAGE plus one's number.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
-	if tex := viewport_shown(app); tex != nil do shown = tex
+	if tex := viewport_shown(app); tex != 0 do shown = tex
 	cross_fade_shown(app, shown)
 	draws := make([]render.Ui_Draw, len(dl.cmds), context.temp_allocator)
 	for c, i in dl.cmds {
@@ -1964,61 +1964,61 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			first_index = c.first_index,
 			index_count = c.index_count,
 			clip        = {i32(c.clip.x), i32(c.clip.y), i32(c.clip.w + 0.5), i32(c.clip.h + 0.5)},
-			image       = shown if c.texture == .Image else nil,
+			image       = shown if c.texture == .Image else 0,
 		}
 		if c.texture == .Image && c.image == KIT_NAV_HEAD_IMAGE {
 			draws[i].image, draws[i].smooth = app.nav_shown, true
 			// Without its texture, the head is not drawn at all: a nil image is the atlas.
-			if app.nav_shown == nil do draws[i].index_count = 0
+			if app.nav_shown == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
-			if app.thumbs.atlas == nil do draws[i].index_count = 0
+			if app.thumbs.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
 			draws[i].image, draws[i].smooth = picture_shown(&app.thumbnail), true
-			if app.thumbnail.shown == nil do draws[i].index_count = 0
+			if app.thumbnail.shown == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_PANE_IMAGE && c.image < KIT_PANE_IMAGE + GRID_VIEWS {
 			pic := picture_shown(&app.panes[c.image - KIT_PANE_IMAGE])
 			draws[i].image, draws[i].smooth = pic, true
-			if pic == nil do draws[i].index_count = 0
+			if pic == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_FADE_STILL_IMAGE {
 			draws[i].image = app.cross_fade.still.color
-			if !app.cross_fade.on || app.cross_fade.still.color == nil do draws[i].index_count = 0
+			if !app.cross_fade.on || app.cross_fade.still.color == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
 			draws[i].image = app.work_still.color
-			if app.work_still.color == nil do draws[i].index_count = 0
+			if app.work_still.color == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_LAYER_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.layer_pictures.atlas, true
-			if app.layer_pictures.atlas == nil do draws[i].index_count = 0
+			if app.layer_pictures.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_STEP_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.step_pictures.atlas, true
-			if app.step_pictures.atlas == nil do draws[i].index_count = 0
+			if app.step_pictures.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_MATCAP_IMAGE && c.image < KIT_MATCAP_IMAGE_END {
 			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
 			draws[i].image, draws[i].smooth = tex, true
-			if tex == nil do draws[i].index_count = 0
+			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {
 			// A Texture tab's map: smoothed until its texels show as squares.
 			tab := pane_tab_shown(&app.kit.grid, int(c.image - KIT_TAB_IMAGE) + 1)
 			tex, _ := flat_texture(app, &tab.flat)
 			draws[i].image, draws[i].smooth = tex, tab.flat.zoom < TEXEL_GRID_ZOOM
-			if tex == nil || tab.kind != .Texture do draws[i].index_count = 0
+			if tex == 0 || tab.kind != .Texture do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
-			if app.brush_previews.atlas == nil do draws[i].index_count = 0
+			if app.brush_previews.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
-			if app.home.pictures.atlas == nil do draws[i].index_count = 0
+			if app.home.pictures.atlas == 0 do draws[i].index_count = 0
 		}
 	}
 	return draws

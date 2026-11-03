@@ -73,7 +73,7 @@ cross_fade_start :: proc(app: ^App, kind: Motion_Kind) {
 	f := &app.cross_fade
 	if ui.motion_duration(&app.kit.ctx, motion_class(kind), 1) <= 0 do return
 	if app.kit.grid.work != 0 || turntable_recording(app) || timeline_busy(app) || replay_busy(app) do return
-	if f.last == nil || f.last_size != {app.target.width, app.target.height} || !cross_fade_source_alive(app, f.last) do return
+	if f.last == 0 || f.last_size != {app.target.width, app.target.height} || !cross_fade_source_alive(app, f.last) do return
 	f.on, f.kind, f.at, f.copy, f.camera = true, kind, app.kit.ctx.time, true, app.camera
 	if kind == .Look_Fade do f.looks += 1
 	else do f.meshes += 1

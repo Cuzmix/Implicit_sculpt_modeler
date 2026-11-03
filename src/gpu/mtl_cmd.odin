@@ -348,7 +348,7 @@ mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_
 	colors := MTL.RenderPassDescriptor_colorAttachments(desc)
 	for i in 0 ..< num_color_targets {
 		info := color_target_infos[i]
-		t := (^Mtl_Texture)(info.texture)
+		t := (^Mtl_Texture)(object(info.texture))
 		target := mtl_texture_for_write(t, info.cycle)
 		mtl_cmd_track_texture(cmd, target)
 		width, height = min(width, max(t.info.width >> info.mip_level, 1)), min(height, max(t.info.height >> info.mip_level, 1))
@@ -361,7 +361,7 @@ mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_
 		MTL.RenderPassAttachmentDescriptor_setLoadAction(a, mtl_load_action(info.load_op))
 		MTL.RenderPassAttachmentDescriptor_setStoreAction(a, mtl_store_action(info.store_op))
 		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
-			resolve := mtl_texture_for_write((^Mtl_Texture)(info.resolve_texture), info.cycle_resolve_texture)
+			resolve := mtl_texture_for_write((^Mtl_Texture)(object(info.resolve_texture)), info.cycle_resolve_texture)
 			mtl_cmd_track_texture(cmd, resolve)
 			MTL.RenderPassAttachmentDescriptor_setResolveTexture(a, resolve.texture)
 			MTL.RenderPassAttachmentDescriptor_setResolveSlice(a, NS.UInteger(info.resolve_layer))
@@ -369,7 +369,7 @@ mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_
 		}
 	}
 	if d, ok := depth_stencil_target_info.?; ok && d != nil {
-		t := (^Mtl_Texture)(d.texture)
+		t := (^Mtl_Texture)(object(d.texture))
 		target := mtl_texture_for_write(t, d.cycle)
 		mtl_cmd_track_texture(cmd, target)
 		level := u32(d.mip_level)
@@ -424,7 +424,7 @@ mtl_end_render_pass :: proc(render_pass: Render_Pass) {
 
 mtl_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Mtl_Cmd)(render_pass)
-	p := (^Mtl_Pipeline)(graphics_pipeline)
+	p := (^Mtl_Pipeline)(object(graphics_pipeline))
 	enc := cmd.render
 	rs := p.raster
 	MTL.RenderCommandEncoder_setRenderPipelineState(enc, p.state)
@@ -451,7 +451,7 @@ mtl_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: 
 mtl_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Mtl_Buffer)(bindings[i].buffer).active
+		b := (^Mtl_Buffer)(object(bindings[i].buffer)).active
 		mtl_cmd_track_buffer(cmd, b)
 		MTL.RenderCommandEncoder_setVertexBuffer(cmd.render, b.buffer, NS.UInteger(bindings[i].offset), NS.UInteger(MTL_FIRST_VERTEX_BUFFER + first_slot + i))
 	}
@@ -459,7 +459,7 @@ mtl_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindi
 
 mtl_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Mtl_Cmd)(render_pass)
-	b := (^Mtl_Buffer)(binding.buffer).active
+	b := (^Mtl_Buffer)(object(binding.buffer)).active
 	mtl_cmd_track_buffer(cmd, b)
 	cmd.index_buffer, cmd.index_offset = b.buffer, binding.offset
 	cmd.index_type = .UInt32 if index_element_size == .U32 else .UInt16
@@ -468,7 +468,7 @@ mtl_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_
 mtl_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Mtl_Buffer)(storage_buffers[i]).active
+		b := (^Mtl_Buffer)(object(storage_buffers[i])).active
 		mtl_cmd_track_buffer(cmd, b)
 		cmd.vertex_storage[first_slot + i] = b.buffer
 	}
@@ -478,7 +478,7 @@ mtl_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u3
 mtl_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Mtl_Buffer)(storage_buffers[i]).active
+		b := (^Mtl_Buffer)(object(storage_buffers[i])).active
 		mtl_cmd_track_buffer(cmd, b)
 		cmd.fragment_storage[first_slot + i] = b.buffer
 	}
@@ -488,10 +488,10 @@ mtl_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: 
 mtl_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
-		t := (^Mtl_Texture)(texture_sampler_bindings[i].texture).active
+		t := (^Mtl_Texture)(object(texture_sampler_bindings[i].texture)).active
 		mtl_cmd_track_texture(cmd, t)
 		cmd.fragment_textures[first_slot + i] = t.texture
-		cmd.fragment_samplers[first_slot + i] = (^MTL.SamplerState)(texture_sampler_bindings[i].sampler)
+		cmd.fragment_samplers[first_slot + i] = (^MTL.SamplerState)(object(texture_sampler_bindings[i].sampler))
 	}
 	cmd.samplers_dirty = true
 }
@@ -523,7 +523,7 @@ mtl_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_i
 mtl_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
-	b := (^Mtl_Buffer)(buffer).active
+	b := (^Mtl_Buffer)(object(buffer)).active
 	mtl_cmd_track_buffer(cmd, b)
 	stride :: u32(size_of(Indexed_Indirect_Draw))
 	for i in 0 ..< draw_count {
@@ -537,7 +537,7 @@ mtl_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: B
 mtl_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
-	b := (^Mtl_Buffer)(buffer).active
+	b := (^Mtl_Buffer)(object(buffer)).active
 	mtl_cmd_track_buffer(cmd, b)
 	for i in 0 ..< draw_count {
 		MTL.RenderCommandEncoder_drawPrimitivesWithIndirect(cmd.render, cmd.pipeline.primitive, b.buffer, NS.UInteger(offset + i * stride))
@@ -563,7 +563,7 @@ mtl_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^
 	cmd.compute = enc
 	for i in 0 ..< num_storage_texture_bindings {
 		b := storage_texture_bindings[i]
-		t := (^Mtl_Texture)(b.texture)
+		t := (^Mtl_Texture)(object(b.texture))
 		target := mtl_texture_for_write(t, b.cycle)
 		mtl_cmd_track_texture(cmd, target)
 		// A view of the one level and layer written, as SDL_GPU binds it; the command
@@ -572,7 +572,7 @@ mtl_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^
 	}
 	for i in 0 ..< num_storage_buffer_bindings {
 		b := storage_buffer_bindings[i]
-		target := mtl_buffer_for_write((^Mtl_Buffer)(b.buffer), b.cycle)
+		target := mtl_buffer_for_write((^Mtl_Buffer)(object(b.buffer)), b.cycle)
 		mtl_cmd_track_buffer(cmd, target)
 		cmd.compute_rw[i] = target.buffer
 	}
@@ -605,7 +605,7 @@ mtl_compute_views_release :: proc(cmd: ^Mtl_Cmd) {
 // pass's; the rest follow at the next dispatch.
 mtl_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Mtl_Cmd)(compute_pass)
-	p := (^Mtl_Compute_Pipeline)(compute_pipeline)
+	p := (^Mtl_Compute_Pipeline)(object(compute_pipeline))
 	enc := cmd.compute
 	MTL.ComputeCommandEncoder_setComputePipelineState(enc, p.state)
 	cmd.compute_pipeline = p
@@ -618,10 +618,10 @@ mtl_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: 
 mtl_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
-		t := (^Mtl_Texture)(texture_sampler_bindings[i].texture).active
+		t := (^Mtl_Texture)(object(texture_sampler_bindings[i].texture)).active
 		mtl_cmd_track_texture(cmd, t)
 		cmd.compute_textures[first_slot + i] = t.texture
-		cmd.compute_samplers[first_slot + i] = (^MTL.SamplerState)(texture_sampler_bindings[i].sampler)
+		cmd.compute_samplers[first_slot + i] = (^MTL.SamplerState)(object(texture_sampler_bindings[i].sampler))
 	}
 	cmd.samplers_dirty = true
 }
@@ -629,7 +629,7 @@ mtl_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, t
 mtl_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
-		b := (^Mtl_Buffer)(storage_buffers[i]).active
+		b := (^Mtl_Buffer)(object(storage_buffers[i])).active
 		mtl_cmd_track_buffer(cmd, b)
 		cmd.compute_storage[first_slot + i] = b.buffer
 	}
@@ -695,8 +695,8 @@ mtl_end_copy_pass :: proc(copy_pass: Copy_Pass) {
 
 mtl_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	src := (^Mtl_Buffer)(source.transfer_buffer).active
-	dst := mtl_buffer_for_write((^Mtl_Buffer)(destination.buffer), cycle)
+	src := (^Mtl_Buffer)(object(source.transfer_buffer)).active
+	dst := mtl_buffer_for_write((^Mtl_Buffer)(object(destination.buffer)), cycle)
 	mtl_cmd_track_buffer(cmd, src)
 	mtl_cmd_track_buffer(cmd, dst)
 	MTL.BlitCommandEncoder_copyFromBuffer(cmd.blit, src.buffer, NS.UInteger(source.offset), dst.buffer, NS.UInteger(destination.offset), NS.UInteger(destination.size))
@@ -704,8 +704,8 @@ mtl_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buff
 
 mtl_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	src := (^Mtl_Buffer)(source.transfer_buffer).active
-	t := (^Mtl_Texture)(destination.texture)
+	src := (^Mtl_Buffer)(object(source.transfer_buffer)).active
+	t := (^Mtl_Texture)(object(destination.texture))
 	dst := mtl_texture_for_write(t, cycle)
 	mtl_cmd_track_buffer(cmd, src)
 	mtl_cmd_track_texture(cmd, dst)
@@ -719,8 +719,8 @@ mtl_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Tran
 
 mtl_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	src := (^Mtl_Buffer)(source.buffer).active
-	dst := mtl_buffer_for_write((^Mtl_Buffer)(destination.buffer), cycle)
+	src := (^Mtl_Buffer)(object(source.buffer)).active
+	dst := mtl_buffer_for_write((^Mtl_Buffer)(object(destination.buffer)), cycle)
 	mtl_cmd_track_buffer(cmd, src)
 	mtl_cmd_track_buffer(cmd, dst)
 	MTL.BlitCommandEncoder_copyFromBuffer(cmd.blit, src.buffer, NS.UInteger(source.offset), dst.buffer, NS.UInteger(destination.offset), NS.UInteger(size))
@@ -728,8 +728,8 @@ mtl_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_L
 
 mtl_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	src := (^Mtl_Texture)(source.texture).active
-	dst := mtl_texture_for_write((^Mtl_Texture)(destination.texture), cycle)
+	src := (^Mtl_Texture)(object(source.texture)).active
+	dst := mtl_texture_for_write((^Mtl_Texture)(object(destination.texture)), cycle)
 	mtl_cmd_track_texture(cmd, src)
 	mtl_cmd_track_texture(cmd, dst)
 	size := MTL.Size{NS.Integer(w), NS.Integer(h), NS.Integer(max(d, 1))}
@@ -740,9 +740,9 @@ mtl_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Textur
 
 mtl_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	t := (^Mtl_Texture)(source.texture)
+	t := (^Mtl_Texture)(object(source.texture))
 	src := t.active
-	dst := (^Mtl_Buffer)(destination.transfer_buffer).active
+	dst := (^Mtl_Buffer)(object(destination.transfer_buffer)).active
 	mtl_cmd_track_texture(cmd, src)
 	mtl_cmd_track_buffer(cmd, dst)
 	row := (destination.pixels_per_row if destination.pixels_per_row > 0 else source.w) * mtl_texel_size(t.info.format)
@@ -754,8 +754,8 @@ mtl_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_
 
 mtl_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Mtl_Cmd)(copy_pass)
-	src := (^Mtl_Buffer)(source.buffer).active
-	dst := (^Mtl_Buffer)(destination.transfer_buffer).active
+	src := (^Mtl_Buffer)(object(source.buffer)).active
+	dst := (^Mtl_Buffer)(object(destination.transfer_buffer)).active
 	mtl_cmd_track_buffer(cmd, src)
 	mtl_cmd_track_buffer(cmd, dst)
 	MTL.BlitCommandEncoder_copyFromBuffer(cmd.blit, src.buffer, NS.UInteger(source.offset), dst.buffer, NS.UInteger(destination.offset), NS.UInteger(source.size))
@@ -767,7 +767,7 @@ mtl_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) 
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
-	t := (^Mtl_Texture)(texture).active
+	t := (^Mtl_Texture)(object(texture)).active
 	mtl_cmd_track_texture(cmd, t)
 	enc := MTL.CommandBuffer_blitCommandEncoder(cmd.cb)
 	if enc == nil do return

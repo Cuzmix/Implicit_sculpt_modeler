@@ -571,9 +571,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	}
 
 	r.single = mesh_pipelines_create(r, ._1)
-	if r.single.wire == nil do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
+	if r.single.wire == 0 do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
 	r.no_paint = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = size_of(Paint_Packed)})
-	if r.no_paint == nil do log.errorf("paint buffer creation failed: %s", gpu.last_error())
+	if r.no_paint == 0 do log.errorf("paint buffer creation failed: %s", gpu.last_error())
 	white := [4]u8{255, 255, 255, 255}
 	r.no_matcap = matcap_create(r, white[:], 1, 1)
 	r.matcap_sampler = gpu.create_sampler({
@@ -581,7 +581,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		max_lod = 1000,
 	})
-	if r.matcap_sampler == nil do log.errorf("matcap sampler: %s", gpu.last_error())
+	if r.matcap_sampler == 0 do log.errorf("matcap sampler: %s", gpu.last_error())
 	flat_normal := [4]u8{128, 128, 255, 255}
 	r.no_normal_map = texture_create(r, TEXTURE_FORMATS[.Normal], flat_normal[:], 1, 1)
 	r.texture_sampler = gpu.create_sampler({
@@ -589,7 +589,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		address_mode_u = .Repeat, address_mode_v = .Repeat, address_mode_w = .Repeat,
 		max_lod = 1000, max_anisotropy = 8, enable_anisotropy = r.anisotropy,
 	})
-	if r.texture_sampler == nil do log.errorf("texture sampler: %s", gpu.last_error())
+	if r.texture_sampler == 0 do log.errorf("texture sampler: %s", gpu.last_error())
 	black := [4]u8{0, 0, 0, 255}
 	r.no_environment = texture_create(r, .RGBA8_Unorm, black[:], 1, 1)
 	r.env_sampler = gpu.create_sampler({
@@ -597,9 +597,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		address_mode_u = .Repeat, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		max_lod = 1000,
 	})
-	if r.env_sampler == nil do log.errorf("environment sampler: %s", gpu.last_error())
-	if r.single.textured == nil do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
-	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil && r.no_normal_map != nil && r.texture_sampler != nil && r.no_environment != nil && r.env_sampler != nil
+	if r.env_sampler == 0 do log.errorf("environment sampler: %s", gpu.last_error())
+	if r.single.textured == 0 do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
+	return r.single.mesh != 0 && r.single.clear != 0 && r.no_paint != 0 && r.no_matcap != 0 && r.matcap_sampler != 0 && r.no_normal_map != 0 && r.texture_sampler != 0 && r.no_environment != 0 && r.env_sampler != 0
 }
 
 // The GPU's name alone, for people (Settings > System > Graphics). Temp-allocated.
@@ -685,13 +685,13 @@ renderer_destroy :: proc(r: ^Renderer) {
 	sculpt_gpu_destroy(r)
 	mesh_pipelines_destroy(r, &r.single)
 	mesh_pipelines_destroy(r, &r.multi)
-	if r.no_paint != nil do gpu.release_buffer(r.no_paint)
-	if r.no_matcap != nil do gpu.release_texture(r.no_matcap)
-	if r.matcap_sampler != nil do gpu.release_sampler(r.matcap_sampler)
-	if r.no_normal_map != nil do gpu.release_texture(r.no_normal_map)
-	if r.texture_sampler != nil do gpu.release_sampler(r.texture_sampler)
-	if r.no_environment != nil do gpu.release_texture(r.no_environment)
-	if r.env_sampler != nil do gpu.release_sampler(r.env_sampler)
+	if r.no_paint != 0 do gpu.release_buffer(r.no_paint)
+	if r.no_matcap != 0 do gpu.release_texture(r.no_matcap)
+	if r.matcap_sampler != 0 do gpu.release_sampler(r.matcap_sampler)
+	if r.no_normal_map != 0 do gpu.release_texture(r.no_normal_map)
+	if r.texture_sampler != 0 do gpu.release_sampler(r.texture_sampler)
+	if r.no_environment != 0 do gpu.release_texture(r.no_environment)
+	if r.env_sampler != 0 do gpu.release_sampler(r.env_sampler)
 	gpu.release_window(r.window)
 	gpu.destroy_device()
 	r^ = {}
@@ -718,7 +718,7 @@ renderer_set_msaa :: proc(r: ^Renderer, want: gpu.Sample_Count) -> gpu.Sample_Co
 	mesh_pipelines_destroy(r, &r.multi)
 	if got != ._1 {
 		r.multi = mesh_pipelines_create(r, got)
-		if r.multi.mesh == nil || r.multi.clear == nil {
+		if r.multi.mesh == 0 || r.multi.clear == 0 {
 			log.warnf("anti-aliasing stays off: the %v pipelines could not be made", got)
 			mesh_pipelines_destroy(r, &r.multi)
 			got = ._1
@@ -754,9 +754,9 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> Mesh_P
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([10]gpu.Graphics_Pipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned, p.skin_tess}) do if pipeline != nil do gpu.release_graphics_pipeline(pipeline)
-	for pipeline in p.area do if pipeline != nil do gpu.release_graphics_pipeline(pipeline)
-	if p.mesh_wire != nil do gpu.release_graphics_pipeline(p.mesh_wire)
+	for pipeline in ([10]gpu.Graphics_Pipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned, p.skin_tess}) do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
+	for pipeline in p.area do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
+	if p.mesh_wire != 0 do gpu.release_graphics_pipeline(p.mesh_wire)
 	p^ = {}
 }
 
@@ -779,7 +779,7 @@ area_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 // refused it (logged once), and the wireframe is then drawn as lines.
 @(private)
 wire_pipeline :: proc(r: ^Renderer, p: ^Mesh_Pipelines) -> gpu.Graphics_Pipeline {
-	if !r.caps.barycentric || r.wire_as_lines do return nil
+	if !r.caps.barycentric || r.wire_as_lines do return 0
 	if !p.mesh_wire_made {
 		p.mesh_wire_made = true
 		p.mesh_wire = create_mesh_pipeline(r, .Solid, p.samples, wire_bary = true)
@@ -826,11 +826,11 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_
 		num_storage_buffers = SKIN_FRAGMENT_STORAGE if skinned else (1 if wire_bary else 0),
 	})
 	// Shaders are only needed until the pipeline is built.
-	defer if vert != nil do gpu.release_shader(vert)
-	defer if frag != nil do gpu.release_shader(frag)
-	if vert == nil || frag == nil {
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
 		log.errorf("CreateGPUShader failed: %s", gpu.last_error())
-		return nil
+		return 0
 	}
 
 	buffers := [2]gpu.Vertex_Buffer {
@@ -882,7 +882,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_
 		},
 	})
 	switch {
-	case pipeline != nil:
+	case pipeline != 0:
 	case area:
 		log.warnf("area lights left out: the %v area pipeline could not be made: %s", mode, gpu.last_error())
 	case textured:
@@ -926,11 +926,11 @@ create_floor_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Gr
 		code = FLOOR_FRAG_CODE, entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .Fragment, num_uniform_buffers = 1,
 	})
-	defer if vert != nil do gpu.release_shader(vert)
-	defer if frag != nil do gpu.release_shader(frag)
-	if vert == nil || frag == nil {
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
 		log.warnf("the floor grid stays off: its shaders could not be made: %s", gpu.last_error())
-		return nil
+		return 0
 	}
 	color_targets := [1]gpu.Color_Target_Desc{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER}}
 	pipeline := gpu.create_graphics_pipeline({
@@ -947,7 +947,7 @@ create_floor_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Gr
 			has_depth_stencil_target = true,
 		},
 	})
-	if pipeline == nil do log.warnf("the floor grid stays off: its pipeline could not be made: %s", gpu.last_error())
+	if pipeline == 0 do log.warnf("the floor grid stays off: its pipeline could not be made: %s", gpu.last_error())
 	return pipeline
 }
 
@@ -961,11 +961,11 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Gr
 		code = CLEAR_FRAG_CODE, entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
 	})
-	defer if vert != nil do gpu.release_shader(vert)
-	defer if frag != nil do gpu.release_shader(frag)
-	if vert == nil || frag == nil {
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
 		log.errorf("CreateGPUShader failed: %s", gpu.last_error())
-		return nil
+		return 0
 	}
 	color_targets := [1]gpu.Color_Target_Desc{{format = VIEWPORT_COLOR_FORMAT}}
 	pipeline := gpu.create_graphics_pipeline({
@@ -982,7 +982,7 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Gr
 			has_depth_stencil_target = true,
 		},
 	})
-	if pipeline == nil {
+	if pipeline == 0 {
 		log.errorf("CreateGPUGraphicsPipeline (clear) failed: %s", gpu.last_error())
 	}
 	return pipeline
@@ -997,7 +997,7 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 	width, height := max(requested_width, 1), max(requested_height, 1)
 	multi := samples != ._1
 	tile := multi && !transient_depth && (r.caps.transient_targets || r.tile_msaa) && !r.partial
-	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples && vt.transient_depth == transient_depth && vt.tile == tile do return true
+	if vt.color != 0 && vt.width == width && vt.height == height && vt.samples == samples && vt.transient_depth == transient_depth && vt.tile == tile do return true
 	viewport_target_destroy(r, vt)
 
 	vt.color = gpu.create_texture({
@@ -1023,7 +1023,7 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
 		})
 	}
-	if vt.color == nil || vt.depth == nil || multi && vt.multi_color == nil {
+	if vt.color == 0 || vt.depth == 0 || multi && vt.multi_color == 0 {
 		log.errorf("viewport target creation failed: %s", gpu.last_error())
 		viewport_target_destroy(r, vt)
 		return false
@@ -1036,7 +1036,7 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 }
 
 viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
-	for t in ([5]gpu.Texture{vt.color, vt.depth, vt.multi_color, vt.cache.color, vt.cache.depth}) do if t != nil do gpu.release_texture(t)
+	for t in ([5]gpu.Texture{vt.color, vt.depth, vt.multi_color, vt.cache.color, vt.cache.depth}) do if t != 0 do gpu.release_texture(t)
 	vt^ = {}
 }
 
@@ -1045,7 +1045,7 @@ viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
 // or remade at that size first, on a command buffer of its own submitted at once: the copy
 // is queued before anything later this frame draws over `src` or releases it.
 viewport_copy :: proc(r: ^Renderer, dst: ^Viewport_Target, src: gpu.Texture, width, height: u32) -> bool {
-	if !r.has_device || src == nil || width == 0 || height == 0 do return false
+	if !r.has_device || src == 0 || width == 0 || height == 0 do return false
 	if !viewport_target_resize(r, dst, width, height) do return false
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil do return false
@@ -1059,7 +1059,7 @@ viewport_copy :: proc(r: ^Renderer, dst: ^Viewport_Target, src: gpu.Texture, wid
 // with the target, so a resize recreates them.
 @(private)
 static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
-	if vt.cache.color != nil do return true
+	if vt.cache.color != 0 do return true
 	vt.cache.color = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1, sample_count = vt.samples,
@@ -1069,10 +1069,10 @@ static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1, sample_count = vt.samples,
 	})
 	vt.cache.key = 0
-	if vt.cache.color == nil || vt.cache.depth == nil {
+	if vt.cache.color == 0 || vt.cache.depth == 0 {
 		log.errorf("viewport cache creation failed: %s", gpu.last_error())
-		if vt.cache.color != nil do gpu.release_texture(vt.cache.color)
-		if vt.cache.depth != nil do gpu.release_texture(vt.cache.depth)
+		if vt.cache.color != 0 do gpu.release_texture(vt.cache.color)
+		if vt.cache.depth != 0 do gpu.release_texture(vt.cache.depth)
 		vt.cache = {}
 		return false
 	}
@@ -1115,20 +1115,20 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 		mb.indices, indices_map = gpu.create_buffer_mapped(indices_info, rq)
 		mb.normals, normals_map = gpu.create_buffer_mapped(normals_info)
 	}
-	if mb.positions == nil do mb.positions = gpu.create_buffer(positions_info, rq)
-	if mb.indices == nil do mb.indices = gpu.create_buffer(indices_info, rq)
-	mb.storage = mb.positions != nil && mb.indices != nil
+	if mb.positions == 0 do mb.positions = gpu.create_buffer(positions_info, rq)
+	if mb.indices == 0 do mb.indices = gpu.create_buffer(indices_info, rq)
+	mb.storage = mb.positions != 0 && mb.indices != 0
 	if !mb.storage {
-		if mb.positions != nil do gpu.release_buffer(mb.positions)
-		if mb.indices != nil do gpu.release_buffer(mb.indices)
+		if mb.positions != 0 do gpu.release_buffer(mb.positions)
+		if mb.indices != 0 do gpu.release_buffer(mb.indices)
 		positions_map, indices_map = nil, nil
 		mb.positions = gpu.create_buffer({usage = {.Vertex}, size = vbytes})
 		mb.indices = gpu.create_buffer({usage = {.Index}, size = ibytes})
 	}
-	if mb.normals == nil do mb.normals = gpu.create_buffer(normals_info)
+	if mb.normals == 0 do mb.normals = gpu.create_buffer(normals_info)
 	// Strokes upload through it whichever way the mesh came in.
 	mb.transfer = gpu.create_transfer_buffer({usage = .Upload, size = mb.transfer_size})
-	if mb.positions == nil || mb.normals == nil || mb.indices == nil || mb.transfer == nil {
+	if mb.positions == 0 || mb.normals == 0 || mb.indices == 0 || mb.transfer == 0 {
 		log.errorf("mesh buffer creation failed: %s", gpu.last_error())
 		mesh_buffers_destroy(r, &mb)
 		return {}, false
@@ -1258,24 +1258,24 @@ upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom
 }
 
 mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
-	if mb.positions != nil do gpu.release_buffer(mb.positions)
-	if mb.normals != nil do gpu.release_buffer(mb.normals)
-	if mb.indices != nil do gpu.release_buffer(mb.indices)
-	if mb.transfer != nil do gpu.release_transfer_buffer(mb.transfer)
-	if mb.indirect != nil do gpu.release_buffer(mb.indirect)
-	if mb.indirect_transfer != nil do gpu.release_transfer_buffer(mb.indirect_transfer)
-	if mb.lod_indices != nil do gpu.release_buffer(mb.lod_indices)
+	if mb.positions != 0 do gpu.release_buffer(mb.positions)
+	if mb.normals != 0 do gpu.release_buffer(mb.normals)
+	if mb.indices != 0 do gpu.release_buffer(mb.indices)
+	if mb.transfer != 0 do gpu.release_transfer_buffer(mb.transfer)
+	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
+	if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
+	if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
 	gpu_cull_release(r, mb)
 	sculpt_gpu_forget(r, mb)
-	if mb.cull.download != nil do gpu.release_transfer_buffer(mb.cull.download)
+	if mb.cull.download != 0 do gpu.release_transfer_buffer(mb.cull.download)
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
-	if mb.paint != nil do gpu.release_buffer(mb.paint)
-	if mb.edges != nil do gpu.release_buffer(mb.edges)
-	if mb.tri_edges != nil do gpu.release_buffer(mb.tri_edges)
-	if mb.skin_normals != nil do gpu.release_buffer(mb.skin_normals)
-	if mb.skin_tris != nil do gpu.release_buffer(mb.skin_tris)
-	if mb.skin_heights != nil do gpu.release_buffer(mb.skin_heights)
+	if mb.paint != 0 do gpu.release_buffer(mb.paint)
+	if mb.edges != 0 do gpu.release_buffer(mb.edges)
+	if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
+	if mb.skin_normals != 0 do gpu.release_buffer(mb.skin_normals)
+	if mb.skin_tris != 0 do gpu.release_buffer(mb.skin_tris)
+	if mb.skin_heights != 0 do gpu.release_buffer(mb.skin_heights)
 	if mb.trace != nil {
 		trace_mesh_destroy(r, mb.trace)
 		free(mb.trace)
@@ -1362,9 +1362,9 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers
 mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
 	debug_group(cmd, "Paint upload", .Uploads)
 	ranges, all := ranges, all
-	if mb.paint == nil {
+	if mb.paint == 0 {
 		mb.paint = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = max(mb.vertex_capacity, 1) * size_of(Paint_Packed)})
-		if mb.paint == nil {
+		if mb.paint == 0 {
 			log.errorf("paint buffer creation failed: %s", gpu.last_error())
 			return
 		}
@@ -1404,7 +1404,7 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers,
 		if dst == nil {
 			log.errorf("paint upload failed: %s", gpu.last_error())
 			gpu.release_buffer(mb.paint)
-			mb.paint = nil
+			mb.paint = 0
 			return
 		}
 		for p in batch {
@@ -1432,12 +1432,12 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers,
 // dropped, so the mesh is drawn at full detail until a later upload succeeds.
 mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, indices: []u32, ranges: []geom.Index_Range, all: bool, expected := 0) {
 	ranges, all := ranges, all
-	if mb.lod_indices == nil || u32(len(indices)) > mb.lod_capacity {
-		if mb.lod_indices != nil do gpu.release_buffer(mb.lod_indices)
+	if mb.lod_indices == 0 || u32(len(indices)) > mb.lod_capacity {
+		if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
 		capacity := max(u32(len(indices)) + u32(len(indices)) / 2, u32(expected), 1024)
 		mb.lod_indices = gpu.create_buffer({usage = {.Index}, size = capacity * size_of(u32)})
-		mb.lod_capacity = capacity if mb.lod_indices != nil else 0
-		if mb.lod_indices == nil {
+		mb.lod_capacity = capacity if mb.lod_indices != 0 else 0
+		if mb.lod_indices == 0 {
 			log.errorf("LOD index buffer creation failed: %s", gpu.last_error())
 			return
 		}
@@ -1448,7 +1448,7 @@ mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, i
 	if !upload_index_ranges(r, cmd, mb, mb.lod_indices, indices, ranges) {
 		log.errorf("LOD upload failed: %s", gpu.last_error())
 		gpu.release_buffer(mb.lod_indices)
-		mb.lod_indices, mb.lod_capacity = nil, 0
+		mb.lod_indices, mb.lod_capacity = 0, 0
 	}
 }
 
@@ -1803,7 +1803,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 		mb.tess_draw_count = 0
 		mb.cull.culled = false
 		// A skinned mesh's simplified copies would lose its triangles' numbers.
-		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil && mb.skin_normals == nil
+		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != 0 && mb.skin_normals == 0
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
 		tess := r.cull && height > 0 && skin_tess_near(r, item, proj, height, eye.xyz)
@@ -1889,20 +1889,20 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 // the mesh is drawn whole.
 @(private)
 indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool {
-	if mb.indirect != nil && mb.indirect_capacity >= commands do return true
-	if mb.indirect != nil do gpu.release_buffer(mb.indirect)
-	if mb.indirect_transfer != nil do gpu.release_transfer_buffer(mb.indirect_transfer)
+	if mb.indirect != 0 && mb.indirect_capacity >= commands do return true
+	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
+	if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
 	size := commands * size_of(gpu.Indexed_Indirect_Draw)
 	// Kernels write the commands where the GPU culls.
 	usage: gpu.Buffer_Usages = {.Indirect, .Storage_Write} if r.caps.gpu_cull else {.Indirect}
 	mb.indirect = gpu.create_buffer({usage = usage, size = size})
 	mb.indirect_transfer = gpu.create_transfer_buffer({usage = .Upload, size = size})
 	mb.indirect_capacity = commands
-	if mb.indirect == nil || mb.indirect_transfer == nil {
+	if mb.indirect == 0 || mb.indirect_transfer == 0 {
 		log.errorf("indirect buffer creation failed: %s", gpu.last_error())
-		if mb.indirect != nil do gpu.release_buffer(mb.indirect)
-		if mb.indirect_transfer != nil do gpu.release_transfer_buffer(mb.indirect_transfer)
-		mb.indirect, mb.indirect_transfer, mb.indirect_capacity = nil, nil, 0
+		if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
+		if mb.indirect_transfer != 0 do gpu.release_transfer_buffer(mb.indirect_transfer)
+		mb.indirect, mb.indirect_transfer, mb.indirect_capacity = 0, 0, 0
 		return false
 	}
 	return true
@@ -1964,7 +1964,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 // The colour texture passes draw the viewport into: the multisampled one, or `color`.
 @(private)
 target_color :: proc(vt: ^Viewport_Target) -> gpu.Texture {
-	return vt.multi_color if vt.multi_color != nil else vt.color
+	return vt.multi_color if vt.multi_color != 0 else vt.color
 }
 
 // Opens a pass drawing into the viewport, keeping its depth; with multisampling it keeps
@@ -1973,7 +1973,7 @@ target_color :: proc(vt: ^Viewport_Target) -> gpu.Texture {
 @(private)
 target_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, vt: ^Viewport_Target, load: bool) -> gpu.Render_Pass {
 	assert(!(vt.tile && load), "a tile target's samples cannot be loaded")
-	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = !vt.tile, background = r.background.top, resolve = vt.color if vt.multi_color != nil else nil, resolve_only = vt.tile)
+	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = !vt.tile, background = r.background.top, resolve = vt.color if vt.multi_color != 0 else 0, resolve_only = vt.tile)
 }
 
 // The bytes of memory the target's textures take, leaving out the transient ones a tile
@@ -1983,10 +1983,10 @@ viewport_target_bytes :: proc(vt: Viewport_Target) -> u64 {
 	samples := u64(1) << u32(vt.samples)
 	depth := u64(4)
 	total := px * 4
-	if vt.multi_color != nil && !vt.tile do total += px * 4 * samples
+	if vt.multi_color != 0 && !vt.tile do total += px * 4 * samples
 	if !vt.tile && !vt.transient_depth do total += px * depth * samples
-	if vt.cache.color != nil do total += px * 4 * samples
-	if vt.cache.depth != nil do total += px * depth * samples
+	if vt.cache.color != 0 do total += px * 4 * samples
+	if vt.cache.depth != 0 do total += px * depth * samples
 	return total
 }
 
@@ -2020,9 +2020,9 @@ draw_background :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes
 // `pipes.mesh` bound. With `resolve`, `color_tex` is multisampled and the pass ends by
 // resolving it into `resolve`, keeping its samples.
 @(private)
-begin_mesh_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pipes: ^Mesh_Pipelines, color_tex, depth_tex: gpu.Texture, load, keep_depth: bool, background := BACKGROUND, resolve: gpu.Texture = nil, resolve_only := false) -> gpu.Render_Pass {
+begin_mesh_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pipes: ^Mesh_Pipelines, color_tex, depth_tex: gpu.Texture, load, keep_depth: bool, background := BACKGROUND, resolve: gpu.Texture = 0, resolve_only := false) -> gpu.Render_Pass {
 	store: gpu.Store_Op = .Store
-	if resolve != nil do store = .Resolve if resolve_only else .Resolve_And_Store
+	if resolve != 0 do store = .Resolve if resolve_only else .Resolve_And_Store
 	color := gpu.Color_Target {
 		texture     = color_tex,
 		clear_color = background,
@@ -2031,7 +2031,7 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pipes: ^Mesh_Pipelines, colo
 		cycle       = !load,
 		// The resolve writes all of it, so a frame still showing the last one need not wait.
 		resolve_texture = resolve,
-		cycle_resolve_texture = resolve != nil,
+		cycle_resolve_texture = resolve != 0,
 	}
 	depth := gpu.Depth_Target {
 		texture          = depth_tex,
@@ -2063,7 +2063,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			area_pipelines(r, pipes)
 			which := Area_Pipeline.See if see else .Mesh
 			if textured do which = .Textured_See if see else .Textured
-			if pipes.area[which] != nil do main = pipes.area[which]
+			if pipes.area[which] != 0 do main = pipes.area[which]
 		}
 		// The skin's own shader has no area lights' code: a skinned item leaves them out.
 		if skinned do main = pipes.skinned
@@ -2073,8 +2073,8 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		// diagonals. The rest draw them as lines.
 		wire_lines := item.wireframe
 		poly_shaded := false
-		if (item.wireframe || item.cage_lines && item.mesh.tri_edges != nil) && main == pipes.mesh {
-			if wired := wire_pipeline(r, pipes); wired != nil {
+		if (item.wireframe || item.cage_lines && item.mesh.tri_edges != 0) && main == pipes.mesh {
+			if wired := wire_pipeline(r, pipes); wired != 0 {
 				main = wired
 				wire_lines = false
 				poly_shaded = !item.wireframe
@@ -2089,8 +2089,8 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			bound = main
 		}
 		mb := item.mesh
-		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
-		slotted := item.slots != nil && mb.paint != nil && !textured
+		show_paint, show_groups := item.paint && mb.paint != 0, item.groups && mb.paint != 0
+		slotted := item.slots != nil && mb.paint != 0 && !textured
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
 		frame.slot_group = SLOT_NONE
 		if slotted {
@@ -2098,7 +2098,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			gpu.push_fragment_uniform_data(cmd, 1, &item.slots.uniforms, size_of(Slot_Uniforms))
 		}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
-		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
+		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != 0 else 0}
 		lights := item.lights if item.lights != {} else lights_default()
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
 		if poly_shaded do material.wire.w = 1
@@ -2108,7 +2108,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		if textured {
 			frame.options = {}
 			draw_textured_item(r, cmd, pass, item, &frame, &material, stats)
-			if item.wireframe && pipes.wire != nil {
+			if item.wireframe && pipes.wire != 0 {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
 				gpu.push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
 				paint := [1]gpu.Buffer{r.no_paint}
@@ -2126,9 +2126,9 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
 		gpu.push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
 		gpu.push_fragment_uniform_data(cmd, 0, &material, size_of(material))
-		paint := [1]gpu.Buffer{mb.paint if mb.paint != nil else r.no_paint}
+		paint := [1]gpu.Buffer{mb.paint if mb.paint != 0 else r.no_paint}
 		gpu.bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
-		samplers := [2]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
+		samplers := [2]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
 		gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 		if main == pipes.mesh_wire {
 			edges := [1]gpu.Buffer{mb.tri_edges if poly_shaded else r.no_paint}
@@ -2143,7 +2143,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		}
 		// The wireframe and the cage lines draw from the vertex buffers.
 		if skinned && (wire_lines || item.cage_lines) do gpu.bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
-		if wire_lines && pipes.wire != nil {
+		if wire_lines && pipes.wire != 0 {
 			wire_pass(r, cmd, pass, pipes, item)
 			bound = pipes.wire
 		}
@@ -2159,7 +2159,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 @(private)
 lines_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, item: Draw_Item, frame: Frame_Uniforms, view, proj: Mat4) -> bool {
 	mb := item.mesh
-	if !item.cage_lines || pipes.lines == nil || mb.edges == nil || mb.edge_indices == 0 do return false
+	if !item.cage_lines || pipes.lines == 0 || mb.edges == 0 || mb.edge_indices == 0 do return false
 	nudge := linalg.identity(Mat4)
 	if proj[3, 3] == 0 {
 		nudge = linalg.matrix4_scale(geom.Vec3{1, 1, 1} * (1 - CAGE_LINE_PULL))
@@ -2190,11 +2190,11 @@ CAGE_LINE_COLOR :: [4]f32{0.02, 0.02, 0.025, 1}
 // (tri_edge_flags), which let the wireframe be drawn in the shading pass where the device
 // can. Waits for the copies. Returns false, with no edges, on a GPU failure.
 mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tri_edges: []u32 = nil) -> bool {
-	if mb.edges != nil || mb.tri_edges != nil {
+	if mb.edges != 0 || mb.tri_edges != 0 {
 		_ = gpu.wait_for_idle()
-		if mb.edges != nil do gpu.release_buffer(mb.edges)
-		if mb.tri_edges != nil do gpu.release_buffer(mb.tri_edges)
-		mb.edges, mb.edge_indices, mb.tri_edges = nil, 0, nil
+		if mb.edges != 0 do gpu.release_buffer(mb.edges)
+		if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
+		mb.edges, mb.edge_indices, mb.tri_edges = 0, 0, 0
 	}
 	r.last_version += 1
 	mb.version = r.last_version
@@ -2202,19 +2202,19 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tr
 	if len(tri_edges) > 0 {
 		assert(len(tri_edges) == (int(mb.index_count / 3) + 7) / 8, "the triangles' edge bits do not match the buffers' triangles")
 		mb.tri_edges = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(tri_edges) * size_of(u32))})
-		if mb.tri_edges == nil || !upload_blocking(r, mb, mb.tri_edges, slice.to_bytes(tri_edges)) {
+		if mb.tri_edges == 0 || !upload_blocking(r, mb, mb.tri_edges, slice.to_bytes(tri_edges)) {
 			// The edges still draw as lines.
 			log.warnf("polygon edge bits upload failed: %s", gpu.last_error())
-			if mb.tri_edges != nil do gpu.release_buffer(mb.tri_edges)
-			mb.tri_edges = nil
+			if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
+			mb.tri_edges = 0
 		}
 	}
 	for v in pairs do assert(v < mb.vertex_capacity, "an edge names a vertex the buffers do not hold")
 	mb.edges = gpu.create_buffer({usage = {.Index}, size = u32(len(pairs) * size_of(u32))})
-	if mb.edges == nil || !upload_blocking(r, mb, mb.edges, slice.to_bytes(pairs)) {
+	if mb.edges == 0 || !upload_blocking(r, mb, mb.edges, slice.to_bytes(pairs)) {
 		log.errorf("cage edge upload failed: %s", gpu.last_error())
-		if mb.edges != nil do gpu.release_buffer(mb.edges)
-		mb.edges = nil
+		if mb.edges != 0 do gpu.release_buffer(mb.edges)
+		mb.edges = 0
 		return false
 	}
 	mb.edge_indices = u32(len(pairs))
@@ -2235,8 +2235,8 @@ wire_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mes
 // (Draw_Item.look.w) and the device made the blended pipeline.
 @(private)
 blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
-	if draws_textured(pipes, item) do return item.look.w > 0 && pipes.textured_see != nil
-	return item.look.w > 0 && pipes.see != nil
+	if draws_textured(pipes, item) do return item.look.w > 0 && pipes.textured_see != 0
+	return item.look.w > 0 && pipes.see != 0
 }
 
 // Draws the viewport's items whose `live` matches in the order blending needs: the opaque
@@ -2248,7 +2248,7 @@ draw_scene :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 	draw_items(r, cmd, pass, pipes, view, proj, items, live, stats)
 	if rect, ok := inside.?; ok do gpu.set_scissor(pass, {rect.x, rect.y, rect.w, rect.h})
 	draw_floor(r, cmd, pass, pipes, view, proj)
-	if pipes.see == nil && pipes.textured_see == nil do return
+	if pipes.see == 0 && pipes.textured_see == 0 do return
 	for item in items do if blended(pipes, item) {
 		draw_items(r, cmd, pass, pipes, view, proj, items, live, stats, see = true)
 		break
@@ -2260,7 +2260,7 @@ draw_scene :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 @(private)
 draw_floor :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, view, proj: Mat4) {
 	f := r.floor
-	if pipes.floor == nil || f.shown == {} || f.cell <= 0 do return
+	if pipes.floor == 0 || f.shown == {} || f.cell <= 0 do return
 	view_proj := proj * view
 	u := Floor_Uniforms {
 		inv_view_proj = linalg.inverse(view_proj),
@@ -2386,10 +2386,10 @@ wire_color :: proc(r: ^Renderer) -> [4]f32 {
 draw_item_triangles :: proc(r: ^Renderer, pass: gpu.Render_Pass, item: Draw_Item, stats: ^Viewport_Stats) {
 	mb := item.mesh
 	gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)
-	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != nil {
+	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
 		// The kernels wrote the commands and their count; prepare_draws counted the stats.
 		gpu.draw_indexed_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count)
-	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
+	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != 0 {
 		if mb.draw_count > 0 do gpu.draw_indexed_primitives_indirect(pass, mb.indirect, 0, mb.draw_count)
 		if mb.lod_draw_count > 0 {
 			gpu.bind_index_buffer(pass, {buffer = mb.lod_indices}, .U32)
@@ -2410,8 +2410,8 @@ draw_item_triangles :: proc(r: ^Renderer, pass: gpu.Render_Pass, item: Draw_Item
 // Reads the viewport colour back to the CPU (RGBA8, rows top to bottom), waiting for
 // the GPU: `texture` (a viewport-sized RGBA8 one, such as the studio render's) or the
 // target's own. For tests and debugging, not per frame. Returns nil on failure.
-viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator, texture: gpu.Texture = nil) -> []u8 {
-	return texture_download(r, texture if texture != nil else vt.color, vt.width, vt.height, allocator)
+viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator, texture: gpu.Texture = 0) -> []u8 {
+	return texture_download(r, texture if texture != 0 else vt.color, vt.width, vt.height, allocator)
 }
 
 // A texture read back without waiting for it: the copy is submitted after the frame's
@@ -2427,9 +2427,9 @@ Readback :: struct {
 // under way. False when the device refused, with nothing left to collect.
 readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width, height: u32) -> bool {
 	readback_cancel(r, rb)
-	if texture == nil || width == 0 || height == 0 do return false
+	if texture == 0 || width == 0 || height == 0 do return false
 	rb.transfer = gpu.create_transfer_buffer({usage = .Download, size = width * height * 4})
-	if rb.transfer == nil do return false
+	if rb.transfer == 0 do return false
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
 		readback_cancel(r, rb)
@@ -2450,7 +2450,7 @@ readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: gpu.Texture, width,
 // The pixels once the GPU has copied them (RGBA8, rows top to bottom), with done false
 // while it has not; done with nil pixels when there was nothing to collect or mapping failed.
 readback_poll :: proc(r: ^Renderer, rb: ^Readback, allocator := context.allocator) -> (pixels: []u8, done: bool) {
-	if rb.transfer == nil do return nil, true
+	if rb.transfer == 0 do return nil, true
 	if !gpu.query_fence(rb.fence) do return nil, false
 	size := rb.width * rb.height * 4
 	if src := gpu.map_transfer_buffer(rb.transfer, false); src != nil {
@@ -2469,7 +2469,7 @@ readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
 		_ = gpu.wait_for_fences(true, ([^]gpu.Fence)(&fence), 1)
 		gpu.release_fence(fence)
 	}
-	if rb.transfer != nil do gpu.release_transfer_buffer(rb.transfer)
+	if rb.transfer != 0 do gpu.release_transfer_buffer(rb.transfer)
 	rb^ = {}
 }
 
@@ -2478,7 +2478,7 @@ readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
 texture_download :: proc(r: ^Renderer, texture: gpu.Texture, width, height: u32, allocator := context.allocator) -> []u8 {
 	size := width * height * 4
 	transfer := gpu.create_transfer_buffer({usage = .Download, size = size})
-	if transfer == nil do return nil
+	if transfer == 0 do return nil
 	defer gpu.release_transfer_buffer(transfer)
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil do return nil

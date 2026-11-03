@@ -149,13 +149,13 @@ env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> gpu.Texture {
 		type = .D2, format = ENV_TABLE_FORMAT, usage = {.Sampled},
 		width = u32(t.width), height = u32(t.height), layer_count_or_depth = 1, num_levels = 1,
 	})
-	if tex == nil {
+	if tex == 0 {
 		log.errorf("environment table %d x %d: %s", t.width, t.height, gpu.last_error())
-		return nil
+		return 0
 	}
 	if !texture_upload(r, tex, mem.slice_to_bytes(t.texels), t.width, t.height, mips = false) {
 		gpu.release_texture(tex)
-		return nil
+		return 0
 	}
 	return tex
 }

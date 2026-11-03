@@ -54,7 +54,7 @@ render_toggle :: proc(app: ^App) {
 // traced scene.
 render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, items: []render.Draw_Item, changed: bool) {
 	if !app.render_on {
-		if app.path.pipeline != nil do render.path_render_destroy(&app.renderer, &app.path)
+		if app.path.pipeline != 0 do render.path_render_destroy(&app.renderer, &app.path)
 		return
 	}
 	// A pass pauses it, keeping what it holds on the device; it starts over once the

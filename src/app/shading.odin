@@ -185,7 +185,7 @@ solid_lighting_set :: proc(app: ^App, l: Solid_Lighting) {
 // is gone (a content pack's taken away).
 shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 	if s.matcap != 0 {
-		if tex := material_matcap(app, {matcap = s.matcap}); tex != nil do return tex
+		if tex := material_matcap(app, {matcap = s.matcap}); tex != 0 do return tex
 	}
 	return material_matcap(app, {matcap = SHADING_MATCAP_DEFAULT})
 }
@@ -245,7 +245,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 		f := froms[i] if i < len(froms) else {}
 		switch mode {
 		case .Wireframe:
-			d.paint, d.groups, d.slots, d.matcap = false, false, nil, nil
+			d.paint, d.groups, d.slots, d.matcap = false, false, nil, 0
 			d.textured, d.texture_view = nil, .Off
 			// A level with polygon edges and a cage draw those; the rest their triangles'.
 			if f.poly_edges {
@@ -275,7 +275,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 				if s.color == .Material do m.selected, m.idle = {1, 1, 1, 1}, MATCAP_IDLE
 				d.matcap = shading_matcap(app, s)
 			} else if s.lighting == .Flat {
-				d.matcap = nil
+				d.matcap = 0
 			}
 			d.material = m.shading
 			if s.color != .Material || s.lighting == .MatCap {

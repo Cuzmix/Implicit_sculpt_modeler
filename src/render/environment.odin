@@ -78,7 +78,7 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 		type = .D2, format = ENV_FORMAT, usage = {.Sampled, .Color_Target},
 		width = u32(pw), height = u32(ph), layer_count_or_depth = 1, num_levels = u32(env.levels),
 	})
-	if env.source == nil || env.prefiltered == nil {
+	if env.source == 0 || env.prefiltered == 0 {
 		log.errorf("environment %d x %d: %s", width, height, gpu.last_error())
 		return
 	}
@@ -89,11 +89,11 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	lum, tw, th := env_table_luminance(pixels, width, height, context.temp_allocator)
 	table := env_table_build(lum, tw, th, context.temp_allocator)
 	env.table = env_table_texture(r, table)
-	if env.table == nil do return
+	if env.table == 0 do return
 	env.table_width, env.table_height, env.mean = tw, th, table.mean
 
 	pipeline := create_prefilter_pipeline(r)
-	if pipeline == nil do return
+	if pipeline == 0 do return
 	defer gpu.release_graphics_pipeline(pipeline)
 	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
@@ -131,17 +131,17 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 
 // Waits for the GPU (a frame in flight may still sample it) and releases the textures.
 environment_destroy :: proc(r: ^Renderer, env: ^Environment) {
-	if env.source == nil && env.prefiltered == nil && env.table == nil do return
+	if env.source == 0 && env.prefiltered == 0 && env.table == 0 do return
 	_ = gpu.wait_for_idle()
-	if env.source != nil do gpu.release_texture(env.source)
-	if env.prefiltered != nil do gpu.release_texture(env.prefiltered)
-	if env.table != nil do gpu.release_texture(env.table)
+	if env.source != 0 do gpu.release_texture(env.source)
+	if env.prefiltered != 0 do gpu.release_texture(env.prefiltered)
+	if env.table != 0 do gpu.release_texture(env.table)
 	env^ = {}
 }
 
 // The bytes the environment's textures hold on the GPU, mips included.
 environment_bytes :: proc(env: Environment) -> int {
-	if env.source == nil do return 0
+	if env.source == 0 do return 0
 	// A full mip chain adds a third; each texel is 8 bytes.
 	source := env.width * env.height * 8 * 4 / 3
 	prefiltered := 0
@@ -198,11 +198,11 @@ create_prefilter_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
 		code = ENV_PREFILTER_FRAG_CODE, entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
 	})
-	defer if vert != nil do gpu.release_shader(vert)
-	defer if frag != nil do gpu.release_shader(frag)
-	if vert == nil || frag == nil {
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
 		log.errorf("environment prefilter shaders: %s", gpu.last_error())
-		return nil
+		return 0
 	}
 	color_targets := [1]gpu.Color_Target_Desc{{format = ENV_FORMAT}}
 	pipeline := gpu.create_graphics_pipeline({
@@ -212,6 +212,6 @@ create_prefilter_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
 		rasterizer_state = {fill_mode = .Fill, cull_mode = .None},
 		targets = {color_targets = color_targets[:]},
 	})
-	if pipeline == nil do log.errorf("environment prefilter pipeline: %s", gpu.last_error())
+	if pipeline == 0 do log.errorf("environment prefilter pipeline: %s", gpu.last_error())
 	return pipeline
 }

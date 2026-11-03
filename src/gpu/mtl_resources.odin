@@ -156,40 +156,40 @@ mtl_name :: proc(resource: ^MTL.Resource, name: cstring) {
 }
 
 mtl_set_buffer_name :: proc(buffer: Buffer, text: cstring) {
-	b := (^Mtl_Buffer)(buffer)
+	b := (^Mtl_Buffer)(object(buffer))
 	b.name = text
 	for backing in b.backings do mtl_name(backing.buffer, text)
 }
 
 mtl_set_texture_name :: proc(texture: Texture, text: cstring) {
-	t := (^Mtl_Texture)(texture)
+	t := (^Mtl_Texture)(object(texture))
 	t.name = text
 	for backing in t.backings do mtl_name(backing.texture, text)
 }
 
-mtl_create_buffer :: proc(#by_ptr info: Buffer_Desc) -> Buffer {
+mtl_create_buffer :: proc(#by_ptr info: Buffer_Desc) -> rawptr {
 	b := mtl_buffer_make(info.size, {.StorageModePrivate})
 	if b == nil do log.errorf("Metal: a %d byte buffer could not be made", info.size)
-	return (Buffer)(b)
+	return b
 }
 
 // A device buffer in shared memory, filled by the CPU before its first use, where the GPU
 // shares the CPU's memory (every Apple silicon GPU); nil elsewhere. A cycle of it makes
 // another shared backing, which on unified memory costs what a private one would.
-mtl_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
+mtl_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc) -> (rawptr, rawptr) {
 	if !MTL.Device_hasUnifiedMemory(mtl_state.device) do return nil, nil
 	b := mtl_buffer_make(info.size, MTL.ResourceStorageModeShared)
 	if b == nil do return nil, nil
-	return (Buffer)(b), MTL.Buffer_contentsPointer(b.active.buffer)
+	return b, MTL.Buffer_contentsPointer(b.active.buffer)
 }
 
 // Transfer buffers are shared memory the CPU maps in place; an upload buffer is only
 // written by the CPU, so it is write-combined, as SDL_GPU makes it.
-mtl_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
+mtl_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> rawptr {
 	options := MTL.ResourceOptions{.CPUCacheModeWriteCombined} if info.usage == .Upload else MTL.ResourceStorageModeShared
 	b := mtl_buffer_make(info.size, options)
 	if b == nil do log.errorf("Metal: a %d byte transfer buffer could not be made", info.size)
-	return (Transfer_Buffer)(b)
+	return b
 }
 
 // Frees what of a released buffer the GPU no longer uses, and the buffer with its last
@@ -212,15 +212,15 @@ mtl_buffer_reap :: proc(b: ^Mtl_Buffer) {
 	}
 }
 
-mtl_release_buffer :: proc(buffer: Buffer) {
+mtl_release_buffer :: proc(buffer: rawptr) {
 	b := (^Mtl_Buffer)(buffer)
 	if b == nil do return
 	b.released = true
 	mtl_buffer_reap(b)
 }
 
-mtl_release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
-	mtl_release_buffer((Buffer)(transfer_buffer))
+mtl_release_transfer_buffer :: proc(transfer_buffer: rawptr) {
+	mtl_release_buffer(transfer_buffer)
 }
 
 // Points `b` at a backing no command buffer uses, making one if every backing is in use.
@@ -242,7 +242,7 @@ mtl_buffer_for_write :: proc(b: ^Mtl_Buffer, cycle: bool) -> ^Mtl_Buffer_Backing
 }
 
 mtl_map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
-	b := (^Mtl_Buffer)(transfer_buffer)
+	b := (^Mtl_Buffer)(object(transfer_buffer))
 	return MTL.Buffer_contentsPointer(mtl_buffer_for_write(b, cycle).buffer)
 }
 
@@ -281,18 +281,18 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 	return backing
 }
 
-mtl_create_texture :: proc(#by_ptr info: Texture_Desc) -> Texture {
+mtl_create_texture :: proc(#by_ptr info: Texture_Desc) -> rawptr {
 	return mtl_texture_make(info, false)
 }
 
 // Memoryless: the texture lives in tile memory for its pass alone, which every Apple GPU
 // offers; its pass must neither load nor store it (transient.odin checks).
-mtl_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> Texture {
+mtl_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> rawptr {
 	return mtl_texture_make(info, true)
 }
 
 @(private = "file")
-mtl_texture_make :: proc(info: Texture_Desc, transient: bool) -> Texture {
+mtl_texture_make :: proc(info: Texture_Desc, transient: bool) -> rawptr {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		log.errorf("Metal: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -311,7 +311,7 @@ mtl_texture_make :: proc(info: Texture_Desc, transient: bool) -> Texture {
 		free(t)
 		return nil
 	}
-	return (Texture)(t)
+	return t
 }
 
 mtl_texture_reap :: proc(t: ^Mtl_Texture) {
@@ -332,7 +332,7 @@ mtl_texture_reap :: proc(t: ^Mtl_Texture) {
 	}
 }
 
-mtl_release_texture :: proc(texture: Texture) {
+mtl_release_texture :: proc(texture: rawptr) {
 	t := (^Mtl_Texture)(texture)
 	if t == nil do return
 	t.released = true
@@ -356,7 +356,7 @@ mtl_texture_for_write :: proc(t: ^Mtl_Texture, cycle: bool) -> ^Mtl_Texture_Back
 // ---- Samplers and shaders -----------------------------------------------------------
 
 // A sampler handle is the Metal sampler itself.
-mtl_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> Sampler {
+mtl_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> rawptr {
 	NS.scoped_autoreleasepool()
 	filter :: proc(f: Filter) -> MTL.SamplerMinMagFilter {return .Linear if f == .Linear else .Nearest}
 	address :: proc(a: Address_Mode) -> MTL.SamplerAddressMode {
@@ -381,10 +381,10 @@ mtl_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> Sampler {
 	MTL.SamplerDescriptor_setCompareFunction(desc, mtl_compare(info.compare_op) if info.enable_compare else .Always)
 	sampler := MTL.Device_newSamplerState(mtl_state.device, desc)
 	if sampler == nil do fail(.Refused, "Metal: the sampler could not be made")
-	return (Sampler)(sampler)
+	return sampler
 }
 
-mtl_release_sampler :: proc(sampler: Sampler) {
+mtl_release_sampler :: proc(sampler: rawptr) {
 	if sampler != nil do NS.release((^MTL.SamplerState)(sampler))
 }
 
@@ -417,7 +417,7 @@ mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool) -> (^MTL.Lib
 	return library, function
 }
 
-mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> Shader {
+mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
 	NS.scoped_autoreleasepool()
 	if info.format != .Msl {
 		fail(.Invalid, "Metal: shaders must be Metal source")
@@ -428,11 +428,11 @@ mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> Shader {
 	s := new(Mtl_Shader)
 	s.library, s.function, s.stage = library, function, info.stage
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
-	return (Shader)(s)
+	return s
 }
 
 // A shader is only read while pipelines are made from it, so it goes at once.
-mtl_release_shader :: proc(shader: Shader) {
+mtl_release_shader :: proc(shader: rawptr) {
 	s := (^Mtl_Shader)(shader)
 	if s == nil do return
 	NS.release(s.function)
@@ -573,9 +573,9 @@ mtl_depth_stencil_state :: proc(ds: Depth_Stencil_State) -> ^MTL.DepthStencilSta
 	return MTL.Device_newDepthStencilState(mtl_state.device, desc)
 }
 
-mtl_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
+mtl_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> rawptr {
 	NS.scoped_autoreleasepool()
-	vertex, fragment := (^Mtl_Shader)(info.vertex_shader), (^Mtl_Shader)(info.fragment_shader)
+	vertex, fragment := (^Mtl_Shader)(object(info.vertex_shader)), (^Mtl_Shader)(object(info.fragment_shader))
 	if vertex == nil || fragment == nil do return nil
 	desc := MTL.RenderPipelineDescriptor_init(MTL.RenderPipelineDescriptor_alloc())
 	defer NS.release(desc)
@@ -651,10 +651,10 @@ mtl_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> Gr
 	}
 	copy(p.counts[0:4], vertex.counts[:])
 	copy(p.counts[4:8], fragment.counts[:])
-	return (Graphics_Pipeline)(p)
+	return p
 }
 
-mtl_release_graphics_pipeline :: proc(pipeline: Graphics_Pipeline) {
+mtl_release_graphics_pipeline :: proc(pipeline: rawptr) {
 	p := (^Mtl_Pipeline)(pipeline)
 	if p == nil do return
 	NS.release(p.state)
@@ -665,17 +665,17 @@ mtl_release_graphics_pipeline :: proc(pipeline: Graphics_Pipeline) {
 // Made as SDL_GPU's Metal backend makes it, keeping the counts its binding slots follow:
 // sampled textures and samplers from 0, then the read-only and read-write storage textures;
 // uniform buffers from buffer 0, then the read-only and read-write storage buffers.
-mtl_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+mtl_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	return mtl_compute_pipeline_make(info, false)
 }
 
 // The same with fast maths off, for kernels whose result must equal the CPU's.
-mtl_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+mtl_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	return mtl_compute_pipeline_make(info, true)
 }
 
 @(private = "file")
-mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> Compute_Pipeline {
+mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> rawptr {
 	NS.scoped_autoreleasepool()
 	if info.format != .Msl {
 		fail(.Invalid, "Metal: shaders must be Metal source")
@@ -715,11 +715,11 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> C
 	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
 	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
 	p.slots = mtl_slots_sdl(info)
-	return (Compute_Pipeline)(p)
+	return p
 }
 
 // Released at once: a command buffer keeps the pipeline state it used alive until it ends.
-mtl_release_compute_pipeline :: proc(pipeline: Compute_Pipeline) {
+mtl_release_compute_pipeline :: proc(pipeline: rawptr) {
 	p := (^Mtl_Compute_Pipeline)(pipeline)
 	if p == nil do return
 	NS.release(p.state)

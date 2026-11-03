@@ -33,8 +33,8 @@ Picture_Upload :: struct {
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	if p.atlas != nil do gpu.release_texture(p.atlas)
-	if p.transfer != nil do gpu.release_transfer_buffer(p.transfer)
+	if p.atlas != 0 do gpu.release_texture(p.atlas)
+	if p.transfer != 0 do gpu.release_transfer_buffer(p.transfer)
 	p^ = {}
 }
 
@@ -44,14 +44,14 @@ pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Picture_Upload) -> bool {
 	if p.failed do return false
 	CELL_BYTES :: PICTURE_PX * PICTURE_PX * 4
-	if p.atlas == nil {
+	if p.atlas == 0 {
 		SIZE :: PICTURE_PX * PICTURE_CELLS
 		p.atlas = gpu.create_texture({
 			type = .D2, format = .RGBA8_Unorm, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
 		p.transfer = gpu.create_transfer_buffer({usage = .Upload, size = CELL_BYTES * PICTURES_PER_FRAME})
-		if p.atlas == nil || p.transfer == nil {
+		if p.atlas == 0 || p.transfer == 0 {
 			log.errorf("picture textures: %s", gpu.last_error())
 			p.failed = true
 			return false

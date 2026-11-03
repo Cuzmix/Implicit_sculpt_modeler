@@ -301,8 +301,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			poly_edges := part == 0 && poly_edges_shown(app, obj)
 			overlay := app.wireframe && selected
 			poly_lines := poly_edges && overlay && app.polyframe_lines
-			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil, poly_edges = poly_edges})
-			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
+			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != 0, poly_edges = poly_edges})
+			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != 0)
 			// The groups are made first: the stamps say when.
 			chunk_groups := sculpt.sculptor_chunk_groups(&lv.sculptor)
 			group_stamps, chunk_layout := sculpt.sculptor_chunk_stamps(&lv.sculptor)
@@ -422,7 +422,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		if shown_pass == .Silhouette {
 			for &d in draws {
 				d.wireframe, d.paint, d.groups = false, false, false
-				d.matcap, d.textured, d.slots = nil, nil, nil
+				d.matcap, d.textured, d.slots = 0, nil, nil
 				d.checker = {}
 			}
 		}
@@ -441,7 +441,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	if studio_running(app) {
 		// Render mode takes the GPU while it runs; the studio waits, keeping what it built.
 		studio_max := 0 if render_running(app) else int(app.studio_samples)
-		under := render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil
+		under := render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else 0
 		_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(app), &app.pool, app.studio_softness, under)
 	}
 	render_mode_frame(app, cmd, view, proj, draws[:], changed)
@@ -495,13 +495,13 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The interface, the viewport image in it, into the swapchain.
 	kit_ready := false
 	dl := kit_frame_end(app)
-	if swapchain != nil do kit_ready = kit_upload(app, present_cmd, dl)
+	if swapchain != 0 do kit_ready = kit_upload(app, present_cmd, dl)
 	app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
 	// Once ui.frame_end settled the held control and the field with the keys.
 	diag_frame(app)
 	// The pass clears the image even when the interface could not be uploaded, so a
 	// failed upload shows an empty frame rather than whatever the image held.
-	if swapchain != nil {
+	if swapchain != 0 {
 		draws := kit_draws(app, &app.kit.ctx.draw) if kit_ready else nil
 		render.ui_present(&app.renderer, &app.kit.pass, present_cmd, loop.window, swapchain, swapchain_size, kit_frame_color(&app.kit), draws, kit_ready)
 	}
@@ -517,7 +517,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	render.present_input(&app.renderer, loop.window, app.device.input_at if sculpted.dabs > 0 else 0)
 	present_start := time.tick_now()
 	submitted := false
-	if swapchain == nil {
+	if swapchain == 0 {
 		// No image was drawn into: the recording holds nothing and is dropped.
 		submitted = frame_submit(app, present_cmd)
 	} else if app.time_gpu {

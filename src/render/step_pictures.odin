@@ -23,7 +23,7 @@ STEP_PICTURE_SLOTS :: STEP_PICTURE_CELLS * STEP_PICTURE_CELLS
 step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 	if !r.has_device do return
 	_ = gpu.wait_for_idle()
-	if s.atlas != nil do gpu.release_texture(s.atlas)
+	if s.atlas != 0 do gpu.release_texture(s.atlas)
 	thumbnail_view_destroy(r, &s.scratch)
 	s^ = {}
 }
@@ -33,13 +33,13 @@ step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: gpu.Cmd, slot: int, view, proj: Mat4, items: []Draw_Item, background: [4]f32) -> bool {
 	debug_group(cmd, "Step picture", .Pictures)
 	if s.failed || slot < 0 || slot >= STEP_PICTURE_SLOTS do return false
-	if s.atlas == nil {
+	if s.atlas == 0 {
 		SIZE :: STEP_PICTURE_PX * STEP_PICTURE_CELLS
 		s.atlas = gpu.create_texture({
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		if s.atlas == nil {
+		if s.atlas == 0 {
 			log.errorf("step pictures: %s", gpu.last_error())
 			s.failed = true
 			return false
@@ -50,7 +50,7 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: gpu.Cmd, slot: 
 		gpu.end_render_pass(pass)
 	}
 	drawn := thumbnail_view_draw(r, &s.scratch, cmd, {STEP_PICTURE_PX, STEP_PICTURE_PX}, view, proj, items, background, supersample = 1)
-	if drawn == nil {
+	if drawn == 0 {
 		s.failed = s.scratch.failed
 		return false
 	}

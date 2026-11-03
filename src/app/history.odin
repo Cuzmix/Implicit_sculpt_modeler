@@ -625,7 +625,7 @@ remove_stretching_command :: proc(app: ^App, _: int) {
 // CPU smooths) when the device refuses it; it is not asked again.
 @(private = "file")
 smooth_gpu_ready :: proc(app: ^App) -> bool {
-	if app.smooth_gpu.pipeline != nil do return true
+	if app.smooth_gpu.pipeline != 0 do return true
 	if app.smooth_gpu_failed do return false
 	if !render.smooth_compute_init(&app.renderer, &app.smooth_gpu) {
 		app.smooth_gpu_failed = true
