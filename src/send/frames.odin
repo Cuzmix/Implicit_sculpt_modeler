@@ -33,7 +33,17 @@ Kind :: enum u8 {
 	Need     = 4, // the chunks of an offer the receiver lacks
 	Chunk    = 5, // one chunk's bytes
 	Received = 6, // the whole file is rebuilt and checked
+	// Pairing (pair.odin): the tablet commits to its key, the desktop answers with its
+	// own, the tablet opens its commitment, and the desktop says when its person allowed it.
+	Pair_Commit = 7,
+	Pair_Key    = 8,
+	Pair_Open   = 9,
+	Pair_Done   = 10,
 }
+
+// A frame whose body is sealed with the session's key (seal.odin). Every frame after the
+// two hellos and the pairing's is.
+FLAG_SEALED :: u8(1)
 
 Frame :: struct {
 	kind:  Kind,
@@ -72,8 +82,8 @@ frame_parse :: proc(buf: []u8) -> (f: Frame, used: int, status: Parse) {
 	}
 	if buf[0] != 'S' || buf[1] != 'S' || buf[2] != 'N' || buf[3] != 'D' do return {}, 0, .Bad
 	kind := buf[4]
-	if kind < u8(Kind.Hello) || kind > u8(Kind.Received) do return {}, 0, .Bad
-	if buf[6] != 0 || buf[7] != 0 do return {}, 0, .Bad
+	if kind < u8(Kind.Hello) || kind > u8(max(Kind)) do return {}, 0, .Bad
+	if buf[5] & ~FLAG_SEALED != 0 || buf[6] != 0 || buf[7] != 0 do return {}, 0, .Bad
 	size := int(endian.unchecked_get_u32le(buf[12:]))
 	if size > BODY_MAX do return {}, 0, .Bad
 	if len(buf) < HEADER_SIZE + size do return {}, 0, .More

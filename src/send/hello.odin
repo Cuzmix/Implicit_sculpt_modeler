@@ -20,6 +20,7 @@ Hello :: struct {
 	scene_version: u32,
 	role:          Role,
 	device:        [16]u8, // random, made once per installation; names the device in pairings
+	nonce:         [32]u8, // random, new for each session: both sides' make the session's keys (seal.odin)
 	name:          string, // the device's name as shown ("Bolt's iPad"); into the body parsed
 	build:         string, // the app's build, shown when the two differ
 }
@@ -33,6 +34,7 @@ Refusal :: enum u8 {
 	Declined,      // the person on the other side said no
 	Too_Big,       // the file is over FILE_MAX, or the receiver has no room for it
 	Cancelled,     // the sender stopped
+	Not_Paired,    // the receiver does not know this device, or its key no longer matches
 }
 
 REFUSAL_TEXT := [Refusal]string {
@@ -44,6 +46,7 @@ REFUSAL_TEXT := [Refusal]string {
 	.Declined      = "it was declined on the other device",
 	.Too_Big       = "the scene is too big for the other device",
 	.Cancelled     = "the send was cancelled",
+	.Not_Paired    = "the two devices are not paired: pair them again",
 }
 
 hello_put :: proc(out: ^[dynamic]u8, h: Hello) {
@@ -52,6 +55,8 @@ hello_put :: proc(out: ^[dynamic]u8, h: Hello) {
 	append(out, u8(h.role))
 	device := h.device
 	append(out, ..device[:])
+	nonce := h.nonce
+	append(out, ..nonce[:])
 	put_string(out, h.name, NAME_MAX)
 	put_string(out, h.build, BUILD_MAX)
 }
@@ -64,6 +69,7 @@ hello_get :: proc(body: []u8) -> (h: Hello, ok: bool) {
 	h.scene_version = get_u32(&r)
 	role := get_u8(&r)
 	get_bytes(&r, h.device[:])
+	get_bytes(&r, h.nonce[:])
 	h.name = get_string(&r, NAME_MAX)
 	h.build = get_string(&r, BUILD_MAX)
 	if !reader_done(&r) do return {}, false
