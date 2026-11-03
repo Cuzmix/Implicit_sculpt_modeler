@@ -82,7 +82,8 @@ Options :: struct {
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
 	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
-	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered: a kernel recomputes each stroke's vertex normals on the GPU and reads them back, and the CPU uploads only positions (README \"Sculpt on the GPU\")."`,
+	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered, and in a scripted run too, which otherwise sculpts on the CPU: kernels lay each stroke's dabs and recompute its vertex normals on the GPU and read them back (README \"Sculpt on the GPU\")."`,
+	cpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU off, where it would start on (a video card under Vulkan)."`,
 	gpu_sculpt_sync: bool `usage:"With --gpu-sculpt, wait for each frame's readback of normals before the next frame's dabs, so the CPU reads the normals the CPU path would have (for comparing the two paths' arithmetic alone)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
@@ -142,8 +143,9 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
-	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their normals to a
-	// kernel where render.caps offers it; off until the kernels cover a stroke's whole work.
+	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their dabs and
+	// normals to kernels where render.caps offers it; on at the start of a person's run on
+	// a video card (render.sculpt_gpu_by_default).
 	gpu_sculpt: bool,
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
@@ -763,7 +765,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.cull = !opts.no_cull
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
-	app.gpu_sculpt = opts.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt
+	// On where it starts on, in a person's run: tests, replays and benchmarks keep the CPU's
+	// path, their oracle, unless --gpu-sculpt asks.
+	gpu_caps := render.caps(&app.renderer)
+	app.gpu_sculpt = gpu_caps.gpu_sculpt && !opts.cpu_sculpt && (opts.gpu_sculpt || (gpu_caps.gpu_sculpt_default && run_interactive(opts)))
+	if app.gpu_sculpt do render.sculpt_gpu_kernels(&app.renderer)
 	app.gpu_lookup_waiting = app.gpu_sculpt
 	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
 	sculpt_gpu_install(&app)

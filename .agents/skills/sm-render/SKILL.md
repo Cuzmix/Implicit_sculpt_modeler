@@ -325,6 +325,11 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `render` never reads UI state.
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.
+- Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
+  `SCULPT_SLAB` threads in a workgroup (`gpu_storage_buffers_per_stage`, `gpu_compute_group_threads`), and starts on
+  only for discrete Vulkan GPUs (`sculpt_gpu_by_default`, `gpu_memory_budget`'s `unified`). A new kernel buffer raises
+  the constant and both backends' binding arrays; a new per-mesh buffer joins `sculpt_lookup_make`'s budget check
+  (a quarter of a card's memory, an eighth of a unified device's), past which that mesh sculpts on the CPU.
 - Shaders are Slang (one source for SPIR-V, Metal through it, WGSL later). `name.stage.slang` (vert, frag, comp) is an
   entry file whose `main` builds `name.stage.spv`, and `scripts/shaders_msl.py` turns that into `name.stage.msl` with
   SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots, but a compute kernel's read-write

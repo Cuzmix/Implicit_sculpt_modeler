@@ -45,7 +45,7 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat web | webcheck                          # the web version into build\web\site (scripts/web_build.py: --serve, --test)
     build.bat iphonecheck                             # the app compiled for the iPad to an object (no Mac): iOS-only compile errors
     build.bat maccheck                                # the app compiled for the Mac (Apple silicon) to an object: Mac-only compile errors
-    python scripts\try_it.py [names] [--debug]      # on a real machine: 11 checks on its own GPU, build\try_it\report.md and build\try_it.zip
+    python scripts\try_it.py [names] [--debug]      # on a real machine: 12 checks on its own GPU, build\try_it\report.md and build\try_it.zip
     python scripts\ipad_build.py [--latest]           # the pushed branch's IPA built on GitHub, saved as build\ios\Sculpt.ipa
     build.bat all | clean                             # everything that builds (no display needed); remove build\ and Android's outputs
     (Linux: ./build.sh <mode>, plus wincheck and androidcheck; macOS: ./build.sh ios | iosupload | mac | macnotarize, the iPad IPA

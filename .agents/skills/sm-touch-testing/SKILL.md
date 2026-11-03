@@ -211,6 +211,10 @@ what was done, what should happen, what happened; a screen recording when someth
     and lifting does not press it; a quick tap still presses. Long-press an object in the Scene tab: its menu opens.
     Note whether the 0.25 s Hold delay feels right (Settings > Touch changes it) and whether the ring shows round
     the fingertip.
+14. Sculpt on the GPU (Stats > Drawing): on a 10M model, stroke with it off and then on, with Draw, Smooth and an
+    alpha, inside an HD window too. The shape must look the same both ways, the stroke must follow the pen without
+    a lag at its end, and undo must take back exactly the stroke. Note each stroke's brush time from Stats and whether
+    the switch started on (desktop GPUs) or off (the iPad, Android and integrated GPUs, which share system memory).
 
 ## 7. Recording a failure
     Title: <what went wrong, in the user's words>
