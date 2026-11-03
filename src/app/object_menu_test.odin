@@ -9,14 +9,14 @@ import "core:testing"
 object_verbs_are_commands_that_run :: proc(t: ^testing.T) {
 	for kind in Object_Type {
 		for space in Space {
-			for v in OBJECT_VERBS[kind][space] {
+			for v in object_verbs(kind, space) {
 				testing.expect(t, v.id != .None)
 				args := COMMANDS[v.id].args
 				testing.expectf(t, v.arg >= 0 && v.arg < max(args, 1), "%v: arg %d of %d", v.id, v.arg, args)
 				testing.expect(t, (v.label if v.label != "" else command_label(v.id, v.arg)) != "")
 			}
 		}
-		testing.expect(t, len(OBJECT_VERBS[kind][.Sculpt]) > 0 && len(OBJECT_VERBS[kind][.Model]) > 0)
+		testing.expect(t, len(object_verbs(kind, .Sculpt)) > 0 && len(object_verbs(kind, .Model)) > 0)
 		conv := OBJECT_CONVERSIONS[kind]
 		testing.expect(t, conv.id != .None && conv.arg < max(COMMANDS[conv.id].args, 1))
 	}

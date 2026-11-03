@@ -119,6 +119,18 @@ exr_is :: proc(data: []u8) -> bool {
 // Reads an OpenEXR file as a panorama no wider than `max_width` (a power of two halves
 // it); why it cannot be one otherwise (a temp string). Never reads past `data`.
 exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
+	return exr_decode_as(data, max_width, true, allocator)
+}
+
+// Reads an OpenEXR file as a picture of any shape, 2 to MAX_SIDE pixels a side, no wider
+// than `max_width` (a power of two halves it), its values as they are, signed and all: a
+// vector displacement map's offsets, say. Why it cannot otherwise (a temp string).
+exr_decode_picture :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Image, why: string) {
+	return exr_decode_as(data, max_width, false, allocator)
+}
+
+@(private = "file")
+exr_decode_as :: proc(data: []u8, max_width: int, panorama: bool, allocator := context.allocator) -> (img: Image, why: string) {
 	if !exr_is(data) || len(data) < 8 do return {}, "it is not an OpenEXR file"
 	version, _ := endian.get_u32(data[4:], .Little)
 	if version & 0xff != 2 do return {}, fmt.tprintf("OpenEXR version %d is not read", version & 0xff)
@@ -184,7 +196,11 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 	x0, y0 := int(h.window[0]), int(h.window[1])
 	width, height := int(h.window[2]) - x0 + 1, int(h.window[3]) - y0 + 1
 	if width <= 0 || height <= 0 do return {}, "its data window is empty"
-	if why = panorama_size_check(width, height); why != "" do return
+	if panorama {
+		if why = panorama_size_check(width, height); why != "" do return
+	} else if width < 2 || height < 2 || width > MAX_SIDE || height > MAX_SIDE {
+		return {}, fmt.tprintf("%d x %d is not between 2 and %d a side", width, height, MAX_SIDE)
+	}
 	// A chunk is a band of whole rows, or under tiles one tile of a band of them.
 	tile_w, band := width, EXR_LINES[comp]
 	if tiled {
@@ -273,7 +289,7 @@ exr_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -
 			for c in channels {
 				if c.takes >= 0 {
 					for x in 0 ..< w {
-						v := exr_sample(line[start + x * c.size:], c.kind)
+						v := exr_sample(line[start + x * c.size:], c.kind, panorama)
 						if c.takes == 3 do row[x] = {v, v, v}
 						else do row[x][c.takes] = v
 					}
@@ -377,18 +393,23 @@ exr_chunk :: proc(d: ^Exr_Decoder, packed, out: []u8, width, lines: int) -> stri
 	return ""
 }
 
-// A sample as linear light, clamped to what a half float holds and to no less than nothing
-// (an environment emits no negative light; a NaN or an infinity is dark).
+// A sample, clamped to what a half float holds, a NaN read as zero. As light (`light`) it
+// is also no less than nothing, since an environment emits no negative light; a picture
+// such as a vector displacement map keeps its sign.
 @(private = "file")
-exr_sample :: proc(b: []u8, kind: i32) -> f32 {
+exr_sample :: proc(b: []u8, kind: i32, light: bool) -> f32 {
 	v: f32
 	switch kind {
 	case 0: v = f32(endian.unchecked_get_u32le(b))
 	case 1: v = f32(transmute(f16)endian.unchecked_get_u16le(b))
 	case:   v = transmute(f32)endian.unchecked_get_u32le(b)
 	}
-	if !(v >= 0) do return 0
-	return min(v, HDR_MAX_VALUE)
+	if light {
+		if !(v >= 0) do return 0
+		return min(v, HDR_MAX_VALUE)
+	}
+	if v != v do return 0
+	return clamp(v, -HDR_MAX_VALUE, HDR_MAX_VALUE)
 }
 
 // Reads a zero-ended string at `at`, moving past it.
@@ -1342,4 +1363,73 @@ dct_inverse :: proc(data: ^[64]f32, a, b, c, d, e, f, g: f32) {
 		p = one(p, a, b, c, d, e, f, g)
 		for i in 0 ..< 8 do data[i * 8 + col] = p[i]
 	}
+}
+
+// Writes a `width` by `height` picture (`pixels` row by row from the top) as an OpenEXR
+// file: one part of scanlines, uncompressed, its R, G and B channels 32-bit floats, as
+// every EXR reader takes. A vector displacement map goes out this way (sculpt/vdm.odin).
+exr_encode :: proc(pixels: [][3]f32, width, height: int, allocator := context.allocator) -> []u8 {
+	out := make([dynamic]u8, 0, 512 + width * height * 12 + height * 16, allocator)
+	put_u32 :: proc(out: ^[dynamic]u8, v: u32) {
+		b: [4]u8
+		endian.unchecked_put_u32le(b[:], v)
+		append(out, ..b[:])
+	}
+	put_f32 :: proc(out: ^[dynamic]u8, v: f32) {put_u32(out, transmute(u32)v)}
+	put_str :: proc(out: ^[dynamic]u8, s: string) {
+		append(out, ..transmute([]u8)s)
+		append(out, 0)
+	}
+	attr :: proc(out: ^[dynamic]u8, name, kind: string, size: int) {
+		put_str(out, name)
+		put_str(out, kind)
+		put_u32(out, u32(size))
+	}
+	magic := EXR_MAGIC
+	append(&out, ..magic[:])
+	put_u32(&out, 2)
+	// Channels in the order EXR keeps them, by name: B, G, R.
+	attr(&out, "channels", "chlist", 3 * (2 + 16) + 1)
+	for name in ([3]string{"B", "G", "R"}) {
+		put_str(&out, name)
+		put_u32(&out, 2) // FLOAT
+		put_u32(&out, 0) // pLinear and three reserved bytes
+		put_u32(&out, 1)
+		put_u32(&out, 1)
+	}
+	append(&out, 0)
+	attr(&out, "compression", "compression", 1)
+	append(&out, 0)
+	for window in ([2]string{"dataWindow", "displayWindow"}) {
+		attr(&out, window, "box2i", 16)
+		put_u32(&out, 0)
+		put_u32(&out, 0)
+		put_u32(&out, u32(width - 1))
+		put_u32(&out, u32(height - 1))
+	}
+	attr(&out, "lineOrder", "lineOrder", 1)
+	append(&out, 0)
+	attr(&out, "pixelAspectRatio", "float", 4)
+	put_f32(&out, 1)
+	attr(&out, "screenWindowCenter", "v2f", 8)
+	put_f32(&out, 0)
+	put_f32(&out, 0)
+	attr(&out, "screenWindowWidth", "float", 4)
+	put_f32(&out, 1)
+	append(&out, 0)
+	// One line a chunk: its offset table, then each line's number, size and channels.
+	line := 3 * 4 * width
+	first := len(out) + 8 * height
+	for y in 0 ..< height {
+		lo := u64(first + y * (8 + line))
+		put_u32(&out, u32(lo))
+		put_u32(&out, u32(lo >> 32))
+	}
+	for y in 0 ..< height {
+		put_u32(&out, u32(y))
+		put_u32(&out, u32(line))
+		row := pixels[y * width:][:width]
+		for c in ([3]int{2, 1, 0}) do for p in row do put_f32(&out, p[c])
+	}
+	return out[:]
 }

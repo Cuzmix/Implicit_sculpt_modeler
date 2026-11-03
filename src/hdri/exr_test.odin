@@ -2,6 +2,7 @@ package hdri
 
 import "core:hash"
 import "core:mem"
+import "core:slice"
 import "core:testing"
 
 // The OpenEXR fixtures were written by the OpenEXR library itself (its Python binding,
@@ -182,4 +183,22 @@ exr_refuses_what_it_does_not_read :: proc(t: ^testing.T) {
 	// The same for each lossy coding, tiles and parts.
 	for f in EXR_MORE do flipped(f.data, 211)
 	for f in EXR_DWA do flipped(f.data, 149)
+}
+
+// A picture written by exr_encode reads back as it was, signed values and any shape.
+@(test)
+exr_picture_round_trip :: proc(t: ^testing.T) {
+	w, h := 5, 3
+	src := make([][3]f32, w * h, context.temp_allocator)
+	for &p, i in src do p = {f32(i) * 0.5 - 2, -f32(i), f32(i % 4) * 0.25}
+	file := exr_encode(src, w, h)
+	defer delete(file)
+	img, why := exr_decode_picture(file, 1 << 20)
+	defer image_destroy(&img)
+	testing.expect_value(t, why, "")
+	testing.expect(t, img.width == w && img.height == h)
+	testing.expect(t, slice.equal(img.pixels, src), "the pixels changed")
+	// Not a panorama: the panorama reader refuses it.
+	_, no := exr_decode(file, 1 << 20)
+	testing.expect(t, no != "")
 }

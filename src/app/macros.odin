@@ -83,7 +83,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
-	case .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Workspace, .Workspace_Save, .Workspace_Save_As, .Workspace_Revert, .Workspace_Reset, .Workspace_Rename, .Workspace_Delete, .Workspace_Export, .Workspace_Import, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
+	case .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Workspace, .Workspace_Save, .Workspace_Save_As, .Workspace_Revert, .Workspace_Reset, .Workspace_Rename, .Workspace_Delete, .Workspace_Export, .Workspace_Import, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Viewport_Readout, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip
@@ -97,55 +97,56 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 
 // The values each command reads from its panel when it runs, by the keys `set` takes:
 // a replay sets them first, so it does what the command did then, whatever the panel
-// holds when it runs.
+// holds when it runs. Fixed arrays, as the web build's compiler cannot make a static slice
+// of constants.
 @(private = "file")
 macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
-	@(static, rodata) SMOOTH := []string{"smooth_steps", "smooth_strength"}
-	@(static, rodata) MIRROR := []string{"mirror_axis", "mirror_negative"}
-	@(static, rodata) HOLES := []string{"holes_leave_largest"}
-	@(static, rodata) WELD := []string{"weld_distance"}
-	@(static, rodata) EVEN := []string{"rebuild_goal", "rebuild_even", "remesh_smooth", "remesh_keep_detail", "remesh_groups", "remesh_quads", "remesh_keep_symmetry"}
-	@(static, rodata) FEWER := []string{"rebuild_goal", "rebuild_fewer", "decimate_by", "decimate_percent", "decimate_keep_paint", "decimate_keep_groups", "decimate_keep_borders", "decimate_use_mask", "decimate_keep_symmetry"}
-	@(static, rodata) QUADS := []string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first"}
-	@(static, rodata) RETOPO := []string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first"}
-	@(static, rodata) EXTRACT := []string{"extract_thickness"}
-	@(static, rodata) BOOLEAN := []string{"boolean_vertices"}
-	@(static, rodata) MASK := []string{"mask_steps"}
-	@(static, rodata) CREASES := []string{"crease_degrees"}
-	@(static, rodata) MASK_BY := []string{"mask_by_strength", "mask_by_blur", "mask_by_curve", "crease_degrees", "paint_color"}
-	@(static, rodata) MASK_ADJUST := []string{"mask_adjust_blur", "mask_adjust_curve"}
-	@(static, rodata) PAINT := []string{"paint_color"}
-	@(static, rodata) ADD := []string{"new_shape", "new_vertices", "new_voxels"}
+	@(static, rodata) SMOOTH := [?]string{"smooth_steps", "smooth_strength"}
+	@(static, rodata) MIRROR := [?]string{"mirror_axis", "mirror_negative"}
+	@(static, rodata) HOLES := [?]string{"holes_leave_largest"}
+	@(static, rodata) WELD := [?]string{"weld_distance"}
+	@(static, rodata) EVEN := [?]string{"rebuild_goal", "rebuild_even", "remesh_smooth", "remesh_keep_detail", "remesh_groups", "remesh_quads", "remesh_keep_symmetry"}
+	@(static, rodata) FEWER := [?]string{"rebuild_goal", "rebuild_fewer", "decimate_by", "decimate_percent", "decimate_keep_paint", "decimate_keep_groups", "decimate_keep_borders", "decimate_use_mask", "decimate_keep_symmetry"}
+	@(static, rodata) QUADS := [?]string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first"}
+	@(static, rodata) RETOPO := [?]string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first"}
+	@(static, rodata) EXTRACT := [?]string{"extract_thickness"}
+	@(static, rodata) BOOLEAN := [?]string{"boolean_vertices"}
+	@(static, rodata) MASK := [?]string{"mask_steps"}
+	@(static, rodata) CREASES := [?]string{"crease_degrees"}
+	@(static, rodata) MASK_BY := [?]string{"mask_by_strength", "mask_by_blur", "mask_by_curve", "crease_degrees", "paint_color"}
+	@(static, rodata) MASK_ADJUST := [?]string{"mask_adjust_blur", "mask_adjust_curve"}
+	@(static, rodata) PAINT := [?]string{"paint_color"}
+	@(static, rodata) ADD := [?]string{"new_shape", "new_vertices", "new_voxels"}
 	#partial switch id {
-	case .Smooth_All:     return SMOOTH
-	case .Mirror_Weld, .Delete_Half: return MIRROR
-	case .Close_Holes:    return HOLES
-	case .Weld_Points:    return WELD
-	case .Retopologize:   return RETOPO
-	case .Extract_Masked: return EXTRACT
-	case .Make_Boolean:   return BOOLEAN
+	case .Smooth_All:     return SMOOTH[:]
+	case .Mirror_Weld, .Delete_Half: return MIRROR[:]
+	case .Close_Holes:    return HOLES[:]
+	case .Weld_Points:    return WELD[:]
+	case .Retopologize:   return RETOPO[:]
+	case .Extract_Masked: return EXTRACT[:]
+	case .Make_Boolean:   return BOOLEAN[:]
 	case .Add_Object:
 		// A content pack's mesh is named by its own line (macro_statement).
 		if _, mesh := pack_mesh_at(app, app.kit.add_mesh - 1); mesh do return nil
-		return ADD
+		return ADD[:]
 	case .Rebuild:
 		switch app.ui.rebuild_goal {
-		case .Even:  return EVEN
-		case .Fewer: return FEWER
-		case .Quads: return QUADS
+		case .Even:  return EVEN[:]
+		case .Fewer: return FEWER[:]
+		case .Quads: return QUADS[:]
 		}
 	case .Mask:
 		#partial switch sculpt.Mask_Command(arg) {
-		case .Blur, .Sharpen, .Grow, .Shrink: return MASK
+		case .Blur, .Sharpen, .Grow, .Shrink: return MASK[:]
 		}
-	case .Mask_By:     return MASK_BY
-	case .Mask_Adjust: return MASK_ADJUST
+	case .Mask_By:     return MASK_BY[:]
+	case .Mask_Adjust: return MASK_ADJUST[:]
 	case .Group:
 		#partial switch sculpt.Group_Command(arg) {
-		case .Creases, .Normals: return CREASES
+		case .Creases, .Normals: return CREASES[:]
 		}
 	case .Paint:
-		if sculpt.Paint_Command(arg) == .Fill do return PAINT
+		if sculpt.Paint_Command(arg) == .Fill do return PAINT[:]
 	}
 	return nil
 }

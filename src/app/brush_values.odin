@@ -80,16 +80,25 @@ BRUSH_VALUE_SECTIONS := [Brush_Value]Kit_Section {
 
 // The values the popover's steps set, a tap each: the sizes doubling, the strength in
 // quarters, the focal shift either way, the usual spacings and lazy strings, and a stop
-// down, none and a stop up.
-@(rodata)
-VALUE_STEPS := [Brush_Value][]f32 {
-	.Size        = {12, 24, 48, 96, 192},
-	.Strength    = {0.25, 0.5, 0.75, 1},
-	.Focal_Shift = {-50, 0, 50},
-	.Spacing     = {0.05, 0.1, 0.2, 0.5},
-	.Lazy        = {0, 10, 30, 60},
-	.Pressure    = {},
-	.Exposure    = {-1, 0, 1},
+// down, none and a stop up. Each is a fixed array of its own, as the web build's compiler
+// cannot make a global that holds slices of constants.
+value_steps :: proc(v: Brush_Value) -> []f32 {
+	@(static, rodata) size := [?]f32{12, 24, 48, 96, 192}
+	@(static, rodata) strength := [?]f32{0.25, 0.5, 0.75, 1}
+	@(static, rodata) focal_shift := [?]f32{-50, 0, 50}
+	@(static, rodata) spacing := [?]f32{0.05, 0.1, 0.2, 0.5}
+	@(static, rodata) lazy := [?]f32{0, 10, 30, 60}
+	@(static, rodata) exposure := [?]f32{-1, 0, 1}
+	switch v {
+	case .Size:        return size[:]
+	case .Strength:    return strength[:]
+	case .Focal_Shift: return focal_shift[:]
+	case .Spacing:     return spacing[:]
+	case .Lazy:        return lazy[:]
+	case .Pressure:    return nil
+	case .Exposure:    return exposure[:]
+	}
+	return nil
 }
 
 // A value item's width and height on a column bar, and how far a scrub must go to take
@@ -383,7 +392,7 @@ kit_value_pop :: proc(app: ^App) {
 	x := value_get(app, v)
 	// The head names it, so the slider itself goes unlabelled.
 	if ui.slider(ctx, fmt.tprintf("##value pop %v", v), &x, lo, hi, scale, "", enabled) do value_set(app, v, x)
-	steps := VALUE_STEPS[v]
+	steps := value_steps(v)
 	if len(steps) == 0 do return
 	ui.begin(ctx, "value steps", {direction = .Row, gap = 6})
 	w := (VALUE_POP_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))

@@ -44,7 +44,7 @@ pack_make :: proc(app: ^App, path: string) -> (error: string) {
 		switch {
 		case alpha_is_mine(app, v.alpha):
 			word = filepath.stem(app.alphas[v.alpha].file)
-		case v.alpha >= 0 && v.alpha < len(sculpt.Alpha_Shape):
+		case v.alpha >= 0 && v.alpha < len(sculpt.Alpha_Shape) + len(sculpt.Vdm_Shape):
 			word = app.alphas[v.alpha].ref
 		case v.alpha >= 0 && v.alpha < len(app.alphas) && !app.alphas[v.alpha].gone:
 			went_round += 1

@@ -96,6 +96,8 @@ compile_shaders() {
 	# SDL_shadercross is built (scripts/build_shadercross.py), and a ray query kernel's .metal
 	# with slangc alone; `check` fails on a stale one.
 	python3 "$ROOT/scripts/shaders_msl.py"
+	# And its WGSL for the web version (scripts/shaders_wgsl.py), likewise checked.
+	python3 "$ROOT/scripts/shaders_wgsl.py"
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
@@ -259,10 +261,11 @@ case "$mode" in
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
+		python3 "$ROOT/scripts/shaders_wgsl.py" --check
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal shaders current, the web version type-checks"
+		echo "check: 19 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"

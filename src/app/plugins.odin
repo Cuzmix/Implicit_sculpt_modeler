@@ -7,7 +7,6 @@ import "core:path/filepath"
 import "core:strings"
 import "core:unicode/utf8"
 // Used only where plugins are (PLUGINS_AVAILABLE), which the Android build leaves out.
-@(require) import "core:c/libc"
 @(require) import "core:os"
 @(require) import "core:slice"
 
@@ -336,7 +335,7 @@ when PLUGINS_AVAILABLE {
 			luau.luaL_sandboxthread(p.thread)
 			chunk := strings.clone_to_cstring(fmt.tprintf("=%s", p.file), context.temp_allocator)
 			status := luau.luau_load(p.thread, chunk, code, size, 0)
-			libc.free(code)
+			plugin_c_free(code)
 			if status == luau.OK {
 				p.limited = true
 				status = luau.lua_pcall(p.thread, 0, 0, 0)
@@ -373,13 +372,13 @@ when PLUGINS_AVAILABLE {
 	plugin_alloc :: proc "c" (ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
 		p := (^Plugin)(ud)
 		if nsize == 0 {
-			libc.free(ptr)
+			plugin_c_free(ptr)
 			p.memory -= int(osize)
 			return nil
 		}
 		grow := int(nsize) - int(osize)
 		if grow > 0 && p.limited && p.memory + grow > PLUGIN_MEMORY do return nil
-		q := libc.realloc(ptr, nsize)
+		q := plugin_c_realloc(ptr, nsize)
 		if q != nil do p.memory += grow
 		return q
 	}

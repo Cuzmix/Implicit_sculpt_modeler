@@ -8,8 +8,6 @@ import "core:testing"
 rail_with_cards :: proc(app: ^App) {
 	bars_reset(&app.kit)
 	stack_default(&app.kit)
-	rail_panel_toggle(app, .Symmetry)
-	rail_panel_toggle(app, .Lights)
 	rail_panel_toggle(app, .Tools)
 }
 

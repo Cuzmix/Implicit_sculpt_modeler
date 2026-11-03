@@ -391,6 +391,8 @@ App :: struct {
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
+	// How an OpenEXR alpha's channels are read: the app the vector map came from.
+	vdm_axes:                 sculpt.Vdm_Axes,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -449,6 +451,9 @@ main :: proc() {
 	// starts here.
 	when ODIN_PLATFORM_SUBTARGET_IOS {
 		ios_start()
+	} else when ODIN_OS == .JS {
+		// A browser runs the app a frame at a time (web.odin).
+		web_main()
 	} else {
 		app_main()
 	}
@@ -464,7 +469,10 @@ app_main :: proc() {
 	}
 
 	opts := Options{subdiv = 6, width = 1600, height = 900, spheres = 1}
-	flags.parse_or_exit(&opts, os.args, .Unix)
+	// A browser has no command line: the page's address gives the flags (web.odin).
+	args := os.args
+	when ODIN_OS == .JS do args = web_args()
+	flags.parse_or_exit(&opts, args, .Unix)
 	// An interactive run keeps its log in the app's folder, and a crash's with it; a scripted
 	// one only where --log-file asks, so tests never touch the person's log.
 	log_path := opts.log_file if opts.log_file != "" else (platform_log_path() if run_interactive(opts) else "")
@@ -862,6 +870,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// are set up, and it must be gone before anything the frame loop used is.
 	lifecycle_watch_add(&app)
 	defer lifecycle_watch_remove()
+	// A browser calls each frame itself, so the web version leaves here (web.odin).
+	when ODIN_OS == .JS do web_hold(&app, &loop)
 	for app.running {
 		if !frame_step(&app, &loop) do return false
 	}

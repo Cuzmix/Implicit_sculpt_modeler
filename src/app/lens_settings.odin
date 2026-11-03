@@ -71,7 +71,6 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Size, "SIZE"},
 	{.Hands, "SCREEN LAYOUT"},
 	{.Top_Bar, "TOP BAR"},
-	{.Nav_Head, "NAVIGATION HEAD"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},

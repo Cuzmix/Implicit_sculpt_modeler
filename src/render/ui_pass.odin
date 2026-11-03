@@ -5,8 +5,8 @@ import "core:log"
 
 import sdl "vendor:sdl3"
 
-UI_VERT_CODE :: #load("shaders/ui.vert" + SHADER_EXT)
-UI_FRAG_CODE :: #load("shaders/ui.frag" + SHADER_EXT)
+UI_VERT_CODE :: #load("shaders/ui.vert" + SHADER_EXT, string)
+UI_FRAG_CODE :: #load("shaders/ui.frag" + SHADER_EXT, string)
 
 // One corner of an interface triangle, as the app's interface kit makes them (it mirrors
 // ui.Vertex; render does not import the kit). Matches ui.vert.slang.

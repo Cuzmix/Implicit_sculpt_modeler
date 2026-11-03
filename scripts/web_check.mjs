@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-// Runs the web build (build/web/site, from scripts/web_build.py) in headless Chromium and
-// checks it sculpts: the page starts WebGPU and shows the sphere, a scripted mouse stroke
-// changes the picture and leaves one undo step, Ctrl+Z brings back the very same pixels,
-// a Grab and a Shift-smooth stroke land, and nothing on the way logs a WebGPU error or
-// throws. Screenshots go to build/web/check/*.png; the last line is key=value stats.
+// Runs the web version (build/web/site, from scripts/web_build.py) in headless Chromium and
+// checks the whole app works there: the page starts WebGPU and the app's Home screen shows,
+// Start opens a sphere, a scripted mouse stroke changes the picture, Ctrl+Z brings back the
+// picture before it and Ctrl+Shift+Z the stroke, a drag off the sphere turns the view,
+// Ctrl+S hands a .sculpt file to the browser's downloads, and nothing on the way logs a
+// WebGPU error or throws. Screenshots go to build/web/check/*.png; the last line is
+// key=value results.
 //
-//     node scripts/web_check.mjs [--vertices=N] [--headed]
+//     node scripts/web_check.mjs [--headed] [--verbose]
 //
 // Needs Node and Playwright's Chromium (npm i -g playwright; npx playwright install chromium).
 // Headless Chromium draws WebGPU on SwiftShader where there is no GPU (a cloud container),
-// so frame times here say nothing about a real GPU; dab times are the wasm's own.
+// so its times say nothing about a real GPU.
 import { createRequire } from "node:module";
 import http from "node:http";
 import fs from "node:fs";
@@ -31,7 +33,6 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SITE = path.join(ROOT, "build", "web", "site");
 const OUT = path.join(ROOT, "build", "web", "check");
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, "").split("=")));
-const vertices = +(args.vertices || 250000);
 
 if (!fs.existsSync(path.join(SITE, "sculpt.wasm"))) {
 	console.error("web_check: build/web/site/sculpt.wasm missing; run python scripts/web_build.py first");
@@ -48,7 +49,7 @@ const server = http.createServer((req, res) => {
 	fs.createReadStream(file).pipe(res);
 });
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
-const url = `http://127.0.0.1:${server.address().port}/?vertices=${vertices}`;
+const url = `http://127.0.0.1:${server.address().port}/`;
 
 const browser = await chromium.launch({
 	headless: !("headed" in args),
@@ -57,35 +58,24 @@ const browser = await chromium.launch({
 	args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader",
 		"--disable-vulkan-surface", "--use-angle=swiftshader"],
 });
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
 const problems = [];
 page.on("console", (m) => {
 	const text = m.text();
-	if (/WebGPU|error/i.test(text) && m.type() !== "log") problems.push(`console ${m.type()}: ${text}`);
-	if (/WebGPU .* error/.test(text)) problems.push(text);
+	// WebGPU's validation messages come as warnings; the app's own log as plain logs, its
+	// errors marked [ERROR].
+	if (m.type() !== "log" || /\[ERROR\]|\[FATAL\]/.test(text)) problems.push(`console ${m.type()}: ${text}`);
 	if ("verbose" in args) console.log(`[page] ${text}`);
 });
 page.on("pageerror", (e) => problems.push(`page error: ${e.message}`));
 
-function parse(text) {
-	return Object.fromEntries(text.split(" ").map((kv) => kv.split("=")));
-}
-async function state() {
-	const text = await page.$eval("#state", (e) => e.textContent);
-	if (text.startsWith("failed=")) throw new Error(text);
-	return parse(text);
-}
-// The page writes its state twice a second: wait for a write after now.
-async function fresh() {
-	const before = await page.$eval("#state", (e) => e.textContent);
-	await page.waitForFunction((b) => document.getElementById("state").textContent !== b, before, { timeout: 5000 }).catch(() => {});
-	await page.waitForTimeout(600);
-	return state();
-}
-// The middle of the canvas, where the sphere is: the bars and the status line, whose
-// numbers change by themselves, stay out of the comparisons.
-const CLIP = { x: 300, y: 110, width: 680, height: 630 };
+// The sphere's part of the window: the panels, the tips and the notes under the viewport,
+// which change by themselves, stay out of the comparisons.
+const CLIP = { x: 320, y: 240, width: 560, height: 400 };
+// Empty viewport, where the pointer rests between strokes so no ring is on the sphere.
+const REST = [150, 450];
 async function shot(name) {
+	await page.waitForTimeout(800);
 	await page.screenshot({ path: path.join(OUT, `${name}.png`) });
 	return page.screenshot({ clip: CLIP });
 }
@@ -96,11 +86,14 @@ async function stroke(from, to, steps = 30, mods = []) {
 	for (let i = 1; i <= steps; i++) {
 		const k = i / steps;
 		await page.mouse.move(from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k);
-		await page.waitForTimeout(8);
+		await page.waitForTimeout(16);
 	}
 	await page.mouse.up();
 	for (const m of mods) await page.keyboard.up(m);
-	await page.mouse.move(20, 780); // off the sphere: no ring in the next picture
+	await page.mouse.move(REST[0], REST[1]);
+}
+async function failure() {
+	return page.$eval("#failure", (e) => (e.style.display === "grid" ? e.textContent : ""));
 }
 
 // The largest difference of any channel of any pixel between two screenshots, worked out
@@ -132,65 +125,56 @@ function expect(ok, what) {
 try {
 	const t0 = Date.now();
 	await page.goto(url);
-	await page.waitForFunction(() => /vertices=[1-9]/.test(document.getElementById("state").textContent) ||
-		document.getElementById("state").textContent.startsWith("failed="), null, { timeout: 60000 });
+	// The loading note goes once the app reaches its frame loop.
+	await page.waitForFunction(() => document.getElementById("note").style.display === "none" ||
+		document.getElementById("failure").style.display === "grid", null, { timeout: 120000 });
 	results.start_ms = Date.now() - t0;
-	let s = await fresh();
-	results.vertices = +s.vertices;
-	results.ready_ms = +s.ready_ms;
-	await page.mouse.move(20, 780);
-	await page.waitForTimeout(300);
-	const before = await shot("1-start");
+	const why = await failure();
+	if (why) throw new Error(`the page failed: ${why}`);
+	await shot("1-home");
+
+	// Home's Start (a fresh sphere). The first-run tips above the sphere change as they
+	// go, so the comparisons start below them.
+	await page.mouse.click(500, 382);
+	await page.waitForTimeout(3000);
+	await page.mouse.move(REST[0], REST[1]);
+	const before = await shot("2-start");
 
 	// A Draw stroke across the middle of the sphere.
 	await stroke([520, 420], [760, 380]);
-	s = await fresh();
-	const drawn = await shot("2-draw");
+	const drawn = await shot("3-draw");
 	results.draw_diff = await maxDiff(before, drawn);
-	results.draw_changed = results.draw_diff > 8;
-	results.undo_after_draw = +s.undo;
-	results.dab_ms = +s.dab_ms;
-	expect(results.draw_changed, "a Draw stroke changed nothing on screen");
-	expect(results.undo_after_draw === 1, `one stroke left ${s.undo} undo steps`);
+	expect(results.draw_diff > 8, "a Draw stroke changed nothing on screen");
 
-	// Undo brings back the same pixels; redo the stroke again.
+	// Undo brings back the picture before the stroke, redo the stroke. Undo puts the
+	// positions back exactly; the normals around the stroke are worked out again from them,
+	// and the studio look's soft shading over them with them, which can round a channel by
+	// a few levels.
 	await page.keyboard.press("Control+z");
-	s = await fresh();
-	const undone = await shot("3-undo");
-	// Undo puts the positions back exactly; the normals around the stroke are worked out
-	// again from them, where the sphere's own were made with it, which can round a
-	// channel by one.
+	const undone = await shot("4-undo");
 	results.undo_diff = await maxDiff(before, undone);
-	results.undo_restores = results.undo_diff <= 1;
-	results.redo_after_undo = +s.redo;
-	expect(results.undo_restores, "undo did not bring back the picture before the stroke");
+	expect(results.undo_diff <= 4, "undo did not bring back the picture before the stroke");
 	await page.keyboard.press("Control+Shift+z");
-	s = await fresh();
-	expect(+s.undo === 1 && +s.redo === 0, `redo left undo=${s.undo} redo=${s.redo}`);
+	const redone = await shot("5-redo");
+	results.redo_diff = await maxDiff(drawn, redone);
+	expect(results.redo_diff <= 4, "redo did not bring back the stroke");
 
-	// Clay with X symmetry, then Grab, then Shift to smooth.
-	await page.keyboard.press("2");
-	await page.keyboard.press("x");
-	await stroke([600, 300], [700, 520], 25);
-	await page.keyboard.press("9");
-	await stroke([640, 250], [640, 160], 15);
-	await page.keyboard.press("1");
-	await stroke([560, 470], [720, 470], 25, ["Shift"]);
-	s = await fresh();
-	results.brush = s.brush;
-	results.symmetry = +s.symmetry;
-	results.undo_steps = +s.undo;
-	expect(s.brush === "Draw" && +s.symmetry === 1, `keys left brush=${s.brush} symmetry=${s.symmetry}`);
-	expect(+s.undo === 4, `four strokes left ${s.undo} undo steps`);
-	// Turn the view with a drag off the sphere, so the last picture shows the work from the side.
-	await stroke([150, 400], [320, 330], 20);
-	await page.waitForTimeout(300);
-	await shot("4-sculpted");
-	s = await fresh();
-	results.view_turned = Math.abs(+s.yaw - 0.6) > 0.1 || Math.abs(+s.pitch - 0.35) > 0.1;
-	expect(results.view_turned, `a drag off the sphere left the view at yaw=${s.yaw} pitch=${s.pitch}`);
-	results.fps = +s.fps;
-	results.frame_ms = +s.frame_ms;
+	// A drag on empty space turns the view.
+	await stroke([200, 500], [300, 430], 20);
+	const turned = await shot("6-turned");
+	results.turn_diff = await maxDiff(redone, turned);
+	expect(results.turn_diff > 8, "a drag off the sphere did not turn the view");
+
+	// Save hands the scene file to the browser's downloads.
+	const download = page.waitForEvent("download", { timeout: 30000 }).catch(() => null);
+	await page.keyboard.press("Control+s");
+	const file = await download;
+	results.saved = file ? file.suggestedFilename() : "none";
+	results.saved_bytes = file ? fs.statSync(await file.path()).size : 0;
+	expect(file && results.saved.endsWith(".sculpt") && results.saved_bytes > 1000, "Ctrl+S gave no .sculpt download");
+	await shot("7-saved");
+	const late = await failure();
+	expect(!late, `the page failed: ${late}`);
 } catch (e) {
 	failed = true;
 	console.error(`web_check: ${e.message}`);

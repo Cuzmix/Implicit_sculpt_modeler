@@ -36,7 +36,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens; never add a second chrome (`settings_load` passes over the old Classic lines). `kit_layout`
   (`new_ui.odin`) lays out in order: the chip bar `kit_top_bar` (`kit_top_lens.odin`; each section `chip_section_draw`,
-  one taken out an island, `chip_islands.odin`), the view chips ("points"), the off-hand island ("brush bar"), the
+  one taken out an island, `chip_islands.odin`), the readout ("points", readout.odin), the off-hand island ("brush bar"), the
   navigation head, the view rail ("view bar"), the person's docks, the shelf ("dock"), the action bar, the picker,
   Search and the menu. Keep-clear rules and Arrange find each by its container name (`ui.prev_rect`, or
   `prev_root_rect` from inside another root), so renaming one moves them all. The full map, bar by bar (fits,
