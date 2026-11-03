@@ -12,7 +12,7 @@ import "core:unicode/utf8"
 
 // Bumped whenever a frame or message changes. There is no compatibility between builds
 // before release: a peer with another number is refused in the hello.
-PROTOCOL :: u16(1)
+PROTOCOL :: u16(2)
 
 // The first bytes of every frame, so that something else that answers on the port is
 // told apart at once.

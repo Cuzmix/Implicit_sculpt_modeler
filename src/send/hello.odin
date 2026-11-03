@@ -21,6 +21,9 @@ Hello :: struct {
 	role:          Role,
 	device:        [16]u8, // random, made once per installation; names the device in pairings
 	nonce:         [32]u8, // random, new for each session: both sides' make the session's keys (seal.odin)
+	// The port this device receives scenes on while it is open, 0 when it does not: a
+	// tablet that sends to a computer says where the computer can send it back.
+	port:          u16,
 	name:          string, // the device's name as shown ("Bolt's iPad"); into the body parsed
 	build:         string, // the app's build, shown when the two differ
 }
@@ -57,6 +60,7 @@ hello_put :: proc(out: ^[dynamic]u8, h: Hello) {
 	append(out, ..device[:])
 	nonce := h.nonce
 	append(out, ..nonce[:])
+	put_u16(out, h.port)
 	put_string(out, h.name, NAME_MAX)
 	put_string(out, h.build, BUILD_MAX)
 }
@@ -70,6 +74,7 @@ hello_get :: proc(body: []u8) -> (h: Hello, ok: bool) {
 	role := get_u8(&r)
 	get_bytes(&r, h.device[:])
 	get_bytes(&r, h.nonce[:])
+	h.port = get_u16(&r)
 	h.name = get_string(&r, NAME_MAX)
 	h.build = get_string(&r, BUILD_MAX)
 	if !reader_done(&r) do return {}, false

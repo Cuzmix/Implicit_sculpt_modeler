@@ -460,13 +460,13 @@ send_listen_start :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> ^
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
 		for send_receiving(sh, gen) {
-			client, _, aerr := net.accept_tcp(sock)
+			client, source, aerr := net.accept_tcp(sock)
 			if !send_receiving(sh, gen) {
 				if aerr == nil do net.close(client)
 				break
 			}
 			if aerr != nil do continue
-			receive_run(sh, client)
+			receive_run(sh, client, source)
 			runtime.arena_free_all(&arena)
 		}
 		net.close(sock)
@@ -493,7 +493,7 @@ received_path :: proc(sh: ^Send_Shared, token: u64, device: [16]u8) -> string {
 }
 
 @(private = "file")
-receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
+receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket, source: net.Endpoint) {
 	c: Conn
 	conn_init(&c, sock, sh)
 	defer conn_destroy(&c)
@@ -518,6 +518,11 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if kind == .Pair_Commit && !c.sealed {
+		// A tablet takes scenes only from the computers it paired with by sending.
+		if MOBILE {
+			conn_refuse(&c, .Not_Paired)
+			return
+		}
 		if _, pok := pair_listening(&c, body, me, theirs); !pok do return
 		kind, body, r, gok = conn_next(&c)
 		if !gok do return
@@ -539,7 +544,8 @@ receive_run :: proc(sh: ^Send_Shared, sock: net.TCP_Socket) {
 		return
 	}
 	if !conn_send(&c, .Received, nil) do log.warn("send: the sender left before hearing the scene arrived")
-	send_event_received(sh, file, send_hash(offer.hash), offer.token, theirs.name, "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
+	back := send_back_keep(sh, theirs, source)
+	send_event_received(sh, file, send_hash(offer.hash), offer.token, theirs.name, back, "Got a scene from %s: %s, %d of %d chunks went over", theirs.name, export_size_label(int(offer.size)), receive_sent_chunks, len(offer.chunks))
 }
 
 // How many chunks the last receive asked for, for its note. Only the listener writes it.
@@ -690,4 +696,39 @@ receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string
 	send.resume_put(&listed, &r)
 	if e := os.write_entire_file(list, listed[:]); e != nil do log.warnf("send: cannot write %s: %v", filepath.base(list), e)
 	return strings.clone(path, context.temp_allocator), ""
+}
+
+// How many devices that sent here Send lists to send back to.
+SEND_BACKS :: 3
+
+// Keeps a device that sent here and receives too (its hello names its port, its address
+// is the one it came from) at the head of the backs; returns where a scene goes back as
+// `address:port`, or "".
+@(private = "file")
+send_back_keep :: proc(sh: ^Send_Shared, theirs: send.Hello, source: net.Endpoint) -> string {
+	ip, is4 := source.address.(net.IP4_Address)
+	if theirs.port == 0 || !is4 do return ""
+	f := send.Found {
+		device   = theirs.device,
+		name     = strings.clone(theirs.name),
+		protocol = theirs.protocol,
+		scene    = theirs.scene_version,
+		port     = theirs.port,
+		count    = 1,
+	}
+	f.addresses[0] = cast([4]u8)ip
+	sync.lock(&sh.lock)
+	for i := len(sh.backs) - 1; i >= 0; i -= 1 {
+		if sh.backs[i].device != f.device do continue
+		send.found_destroy(&sh.backs[i])
+		ordered_remove(&sh.backs, i)
+	}
+	inject_at(&sh.backs, 0, f)
+	for len(sh.backs) > SEND_BACKS {
+		send.found_destroy(&sh.backs[len(sh.backs) - 1])
+		pop(&sh.backs)
+	}
+	sync.unlock(&sh.lock)
+	a := f.addresses[0]
+	return fmt.tprintf("%d.%d.%d.%d:%d", a[0], a[1], a[2], a[3], theirs.port)
 }
