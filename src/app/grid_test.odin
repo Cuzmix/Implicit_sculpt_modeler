@@ -315,3 +315,38 @@ pane_tabs_add_close_undo_and_read_back :: proc(t: ^testing.T) {
 	pane_tab_step(g, 1, -1)
 	testing.expect_value(t, g.tabs[0].active, PANE_TABS - 1)
 }
+
+// A Texture tab is a 2D tab: the pane shows no 3D view, its line names its map and reads
+// back, and a zoom about a point keeps the image point under it there.
+@(test)
+texture_tabs_read_back_and_zoom_about_the_pointer :: proc(t: ^testing.T) {
+	k := new(Kit_State)
+	defer free(k)
+	defer grid_undo_destroy(&k.grid)
+	panels_default(k)
+	grid_reset(&k.grid)
+	g := &k.grid
+	_, _ = grid_set(k, .Side_By_Side)
+	testing.expect(t, pane_tab_add(g, 1, grid_view(g, 1)^, .Texture), "no texture tab was added")
+	testing.expect(t, !pane_shows_view(g, 1), "a texture tab counts as a 3D view")
+	pane_tab_shown(g, 1).flat.which = .Orm
+	text := kit_layout_text(k)
+	testing.expect(t, strings.contains(text, "pane 1 Front Shaded\npane 1 Texture Orm\npane_tab 1 1\n"), "the texture tab is not written")
+	kit_layout_put(k, text)
+	testing.expect_value(t, pane_tab_shown(g, 1).kind, Tab_Kind.Texture)
+	testing.expect_value(t, pane_tab_shown(g, 1).flat.which, render.Texture_Map.Orm)
+	testing.expect(t, kit_layout_text(k) == text, "the texture tab does not read back to itself")
+	pane_tab_show(g, 1, 0)
+	testing.expect(t, pane_shows_view(g, 1), "the 3D tab does not show again")
+
+	f: Flat_Tab
+	size := [2]u32{1024, 512}
+	r := ui.Rect{100, 50, 800, 600}
+	at := [2]f32{300, 200}
+	before := flat_image_rect(&f, size, r)
+	under := [2]f32{(at.x - before.x) / before.w, (at.y - before.y) / before.h}
+	flat_zoom_about(&f, size, r, at, 3)
+	after := flat_image_rect(&f, size, r)
+	testing.expectf(t, abs(after.x + under.x * after.w - at.x) < 0.01 && abs(after.y + under.y * after.h - at.y) < 0.01, "the point under the pointer moved: %v", after)
+	testing.expectf(t, abs(after.w - before.w * 3) < 0.01, "the zoom is not three times: %v", after.w / before.w)
+}

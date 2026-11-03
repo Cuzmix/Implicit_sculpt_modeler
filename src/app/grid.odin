@@ -981,6 +981,11 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	g := &k.grid
+	// A 2D tab draws itself, with no picture.
+	if tab := pane_tab_shown(g, i); tab.kind != .View {
+		kit_texture_tab(app, i, r, tab)
+		return
+	}
 	sv := grid_view(g, i)
 	ui.begin_at(ctx, fmt.tprintf("view pane %d", i), {r.x, r.y}, {width = r.w, height = r.h})
 	a := ui.area(ctx, "picture", {r.w, r.h})
@@ -1048,6 +1053,11 @@ grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms:
 			continue
 		}
 		if k.grid.work == i + 1 do continue
+		// A 2D tab draws no picture; the pane's is drawn again once a 3D tab shows.
+		if !pane_shows_view(&k.grid, i + 1) {
+			pic.shown, pic.key, pic.due = nil, 0, false
+			continue
+		}
 		picture_frame(app, cmd, draws, froms, grid_view(&k.grid, i + 1), &pic, size, 1)
 	}
 }
@@ -1103,7 +1113,7 @@ grid_work :: proc(app: ^App, n: int) {
 	// whose place was in that view's coordinates.
 	if place != g.last_place do app.double_tap.valid = false
 	g.last_place = place
-	if place != 0 && g.work == 0 && k.panes_work && grid_work_may_start(app) do grid_work_begin(app, place)
+	if place != 0 && g.work == 0 && k.panes_work && pane_shows_view(g, place) && grid_work_may_start(app) do grid_work_begin(app, place)
 }
 
 // Whether a press may take the main view's role into a view pane: not while something
@@ -1201,7 +1211,7 @@ ICON_RENDER_PREVIEW :: rune(0xe48a)
 // The view pane (1 to 3) showing Render in the grid in use, 0 for none.
 render_preview_pane :: proc(k: ^Kit_State) -> int {
 	g := &k.grid
-	for i in 1 ..< grid_panes(g) do if grid_view(g, i).pass == .Render do return i
+	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) && grid_view(g, i).pass == .Render do return i
 	return 0
 }
 

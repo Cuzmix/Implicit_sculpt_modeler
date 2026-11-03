@@ -2069,6 +2069,13 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			draws[i].image, draws[i].smooth = tex, true
 			if tex == nil do draws[i].index_count = 0
 		}
+		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {
+			// A Texture tab's map: smoothed until its texels show as squares.
+			tab := pane_tab_shown(&app.kit.grid, int(c.image - KIT_TAB_IMAGE) + 1)
+			tex, _ := flat_texture(app, &tab.flat)
+			draws[i].image, draws[i].smooth = tex, tab.flat.zoom < TEXEL_GRID_ZOOM
+			if tex == nil || tab.kind != .Texture do draws[i].index_count = 0
+		}
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
 			if app.brush_previews.atlas == nil do draws[i].index_count = 0

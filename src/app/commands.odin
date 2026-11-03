@@ -270,6 +270,7 @@ Command_Id :: enum u16 {
 	View_Window, // view_window.odin
 	View_Windows_Close,
 	Pane_Tab_New, // grid_tabs.odin
+	Pane_Tab_Texture, // texture_tab.odin
 	Pane_Tab_Close,
 	Pane_Tab_Next,
 	Pane_Tab_Previous,
@@ -2442,6 +2443,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_New)},
 		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_New)},
+	},
+	.Pane_Tab_Texture = {
+		label = "New texture tab",
+		help = "Adds a tab to the view pane you used last that shows the selected object's maps flat: drag to pan, the wheel or a pinch to zoom, a double tap to fit.",
+		icon = ui.ICON_IMAGE,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Texture)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Texture)},
 	},
 	.Pane_Tab_Close = {
 		label = "Close tab",

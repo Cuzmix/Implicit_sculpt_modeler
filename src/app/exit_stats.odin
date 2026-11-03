@@ -49,7 +49,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			found += 1
 		}
 		heavy := 0
-		for i in 1 ..< n do if second_pass_heavy(grid_view(g, i).pass) do heavy += 1
+		for i in 1 ..< n do if pane_shows_view(g, i) && second_pass_heavy(grid_view(g, i).pass) do heavy += 1
 		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, grid_view(g, 1).camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
 		ar := &g.areas
 		tree := strings.builder_make(context.temp_allocator)
@@ -72,7 +72,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.sbprintf(&tabs, "%d", g.tabs[i - 1].count)
 		}
 		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.lighting)
-		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
+		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_kind=%v pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, pane_tab_shown(g, 1).kind, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
 		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
 	}
 	{

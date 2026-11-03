@@ -4887,10 +4887,12 @@ def lens_camera_chip_drags_a_pane_to_swap_or_dock():
 
 @scenario
 def lens_pane_tabs_add_show_and_undo():
-    """New tab on pane 1's head adds a Back tab and shows it; a tap on the Front tab shows that again, and Ctrl+Z instead takes the new tab back."""
+    """New tab on pane 1's head, then 3D view in its list, adds a Back tab and shows it; a tap on the Front tab shows that again, and Ctrl+Z instead takes the new tab back."""
     def run(undo):
         s = Script()
         s.ftap(At("pane 1 new tab", 1010, 89))
+        s.wait(4)
+        s.ftap(At("3D view", 1060, 160))
         s.wait(4)
         if undo:
             s.press("z", ("ctrl",))
@@ -4901,6 +4903,19 @@ def lens_pane_tabs_add_show_and_undo():
             return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("1,1"), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "grid_undos": near(1), "dabs": near(0)})
         return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("2,1"), "pane_tab": near(1), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "pane_tab_switches": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_pane_texture_tab_from_new_tab():
+    """New tab, then Texture in its list, shows the selected object's maps flat in pane 1: a 2D tab, so the pane is not worked in and a drag on it lays no dab."""
+    s = Script()
+    s.ftap(At("pane 1 new tab", 1010, 89))
+    s.wait(4)
+    s.ftap(At("Texture", 1060, 200))
+    s.wait(4)
+    s.fdrag(line((1100, 300), (1200, 380), 8))
+    s.wait(6)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("2,1"), "pane_tab": near(2), "pane_tab_kind": is_text("Texture"), "pane_works": near(0), "dabs": near(0)})
 
 
 @scenario

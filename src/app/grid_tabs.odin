@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
+import "../render"
 import "../ui"
 
 // Tabs in the view panes (docking DK1, after Dear ImGui's docking and VS Code's editor
@@ -20,11 +21,30 @@ PANE_TABS :: 8
 // What a tab shows. Layout lines name them, so a new kind goes at the end.
 Tab_Kind :: enum u8 {
 	View, // a 3D view: a second view (thumbnail.odin) with its camera and pass
+	Texture, // a map of the selected object, flat (texture_tab.odin)
 }
 
+@(rodata)
+TAB_KIND_NAMES := [Tab_Kind]string {
+	.View    = "3D view",
+	.Texture = "Texture",
+}
+
+@(rodata)
+TAB_KIND_ICONS := [Tab_Kind]rune {
+	.View    = ICON_ORBIT_VIEW,
+	.Texture = ui.ICON_IMAGE,
+}
+
+// Lucide's rotate-3d: a 3D view tab in the kind list.
+ICON_ORBIT_VIEW :: rune(0xe2d5)
+
+// A tab's state: every kind's, so a tab keeps what it showed whatever it shows now. A 2D
+// kind draws with the interface kit inside its pane, so it needs no picture of its own.
 Pane_Tab :: struct {
 	kind: Tab_Kind,
 	view: Second_View,
+	flat: Flat_Tab,
 }
 
 // A view pane's tabs, in their order on its head, and the one it shows.
@@ -34,10 +54,22 @@ Pane_Tabs :: struct {
 	active: int,
 }
 
-// The view that view pane `pane` (1 to 3) shows: its active tab's.
+// The view that view pane `pane` (1 to 3) shows: its active tab's. A 2D tab's is what the
+// tab keeps for when it is a 3D view again, so readers that draw or count 3D views ask
+// pane_shows_view first.
 grid_view :: proc(g: ^View_Grid, pane: int) -> ^Second_View {
+	return &pane_tab_shown(g, pane).view
+}
+
+// View pane `pane`'s active tab.
+pane_tab_shown :: proc(g: ^View_Grid, pane: int) -> ^Pane_Tab {
 	p := &g.tabs[pane - 1]
-	return &p.tabs[clamp(p.active, 0, max(p.count - 1, 0))].view
+	return &p.tabs[clamp(p.active, 0, max(p.count - 1, 0))]
+}
+
+// Whether view pane `pane` shows a 3D view, which draws a picture and may be worked in.
+pane_shows_view :: proc(g: ^View_Grid, pane: int) -> bool {
+	return pane_tab_shown(g, pane).kind == .View
 }
 
 // One tab showing `v`.
@@ -82,14 +114,14 @@ pane_tab_new_view :: proc(g: ^View_Grid, pane: int) -> Second_View {
 }
 
 // Adds a tab showing `v` after view pane `pane`'s active one and shows it, as a layout step.
-pane_tab_add :: proc(g: ^View_Grid, pane: int, v: Second_View) -> bool {
+pane_tab_add :: proc(g: ^View_Grid, pane: int, v: Second_View, kind := Tab_Kind.View) -> bool {
 	if pane < 1 || pane >= grid_panes(g) do return false
 	p := &g.tabs[pane - 1]
 	if p.count >= PANE_TABS do return false
 	grid_step_push(g, grid_step_now(g))
 	at := p.active + 1
 	for i := p.count; i > at; i -= 1 do p.tabs[i] = p.tabs[i - 1]
-	p.tabs[at] = {kind = .View, view = v}
+	p.tabs[at] = {kind = kind, view = v}
 	p.count += 1
 	p.active = at
 	g.tab_adds += 1
@@ -136,6 +168,8 @@ pane_tab_command :: proc(app: ^App, arg: int, what: Command_Id) {
 	#partial switch what {
 	case .Pane_Tab_New:
 		_ = pane_tab_add(g, pane, pane_tab_new_view(g, pane))
+	case .Pane_Tab_Texture:
+		_ = pane_tab_add(g, pane, grid_view(g, pane)^, .Texture)
 	case .Pane_Tab_Close:
 		_ = pane_tab_close(g, pane, g.tabs[pane - 1].active)
 	case .Pane_Tab_Next:
@@ -153,7 +187,7 @@ pane_tab_command_enabled :: proc(app: ^App, arg: int, what: Command_Id) -> bool 
 	pane := pane_tab_target(g, arg)
 	if pane == 0 || g.work != 0 do return false
 	count := g.tabs[pane - 1].count
-	return count < PANE_TABS if what == .Pane_Tab_New else count > 1
+	return count < PANE_TABS if what == .Pane_Tab_New || what == .Pane_Tab_Texture else count > 1
 }
 
 // A view pane's layout lines: one `pane N camera pass [shading]` line a tab, in order, then
@@ -162,7 +196,12 @@ grid_tab_lines :: proc(b: ^strings.Builder, g: ^View_Grid, pane: int) {
 	p := &g.tabs[pane - 1]
 	for &t in p.tabs[:max(p.count, 1)] {
 		v := &t.view
-		fmt.sbprintf(b, "pane %d %v %v%s\n", pane, v.camera, v.pass, second_shading_words(v))
+		switch t.kind {
+		case .View:
+			fmt.sbprintf(b, "pane %d %v %v%s\n", pane, v.camera, v.pass, second_shading_words(v))
+		case .Texture:
+			fmt.sbprintf(b, "pane %d Texture %v\n", pane, t.flat.which)
+		}
 	}
 	if p.active > 0 do fmt.sbprintf(b, "pane_tab %d %d\n", pane, p.active)
 }
@@ -179,6 +218,12 @@ grid_tab_line_read :: proc(g: ^View_Grid, i: int, f: []string) {
 		p.count += 1
 	}
 	g.tabs_read += {i - 1}
+	p.tabs[at].kind = .View
+	if strings.equal_fold(f[2], "Texture") {
+		p.tabs[at].kind = .Texture
+		for m in render.Texture_Map do if strings.equal_fold(fmt.tprint(m), f[3]) do p.tabs[at].flat.which = m
+		return
+	}
 	v := &p.tabs[at].view
 	for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[2]) do v.camera = c
 	for s in Second_Pass do if strings.equal_fold(fmt.tprint(s), f[3]) do v.pass = s
@@ -202,9 +247,12 @@ grid_tab_active_read :: proc(g: ^View_Grid, f: []string) {
 // shrinks to (its dot alone).
 PANE_TAB_DOT_W :: 28
 
-// A tab's label on its segment: the projection with "linked" while it follows the main
-// camera, an axis view with "ortho", "free" for its own camera.
-pane_tab_label :: proc(app: ^App, sv: ^Second_View) -> (name, sub: string) {
+// A tab's label on its segment: for a 3D view the projection with "linked" while it
+// follows the main camera, an axis view with "ortho", "free" for its own camera; for a
+// texture its map.
+pane_tab_label :: proc(app: ^App, tab: ^Pane_Tab) -> (name, sub: string) {
+	if tab.kind == .Texture do return TEXTURE_MAP_LABELS[tab.flat.which], "map"
+	sv := &tab.view
 	name = SECOND_CAMERA_NAMES[sv.camera]
 	if sv.camera >= .Front && sv.camera <= .Bottom do sub = "ortho"
 	#partial switch sv.camera {
@@ -218,11 +266,18 @@ pane_tab_label :: proc(app: ^App, sv: ^Second_View) -> (name, sub: string) {
 	return
 }
 
+// A tab's mark before its label: a 3D view's camera dot, a 2D kind's icon.
+pane_tab_mark :: proc(t: ui.Theme, tab: ^Pane_Tab, pane: int) -> (dot: Maybe(ui.Color), glyph: rune) {
+	if tab.kind != .View do return nil, TAB_KIND_ICONS[tab.kind]
+	c, _ := second_color(t, &tab.view, pane)
+	return c, 0
+}
+
 // View pane `i`'s tab strip on its head row, with `left` points to spend: with one tab, its
-// camera chip as ever; with more, every tab as a segment of one glass pill, the active one
-// the camera chip (its list on a tap, a drag carrying the pane) and the rest their dot and
-// name, dimmed, shrinking to their dots when room is short; a tap shows one. Returns the
-// active segment's area, and the points left.
+// chip as ever (a 3D view's camera chip); with more, every tab as a segment of one glass
+// pill, the active one the chip (its list on a tap, a drag carrying the pane) and the rest
+// their mark and name, dimmed, shrinking to their marks when room is short; a tap shows
+// one. Returns the active segment's area, and the points left.
 lens_pane_tabs :: proc(app: ^App, i: int, left: f32, menu_lit: bool) -> (active: ui.Area, rest: f32) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -231,24 +286,28 @@ lens_pane_tabs :: proc(app: ^App, i: int, left: f32, menu_lit: bool) -> (active:
 	p := &g.tabs[i - 1]
 	count := max(p.count, 1)
 	active_at := clamp(p.active, 0, count - 1)
-	sv := grid_view(g, i)
-	name, sub := pane_tab_label(app, sv)
+	shown := pane_tab_shown(g, i)
+	name, sub := pane_tab_label(app, shown)
+	dot, glyph := pane_tab_mark(t, shown, i)
+	width :: proc(ctx: ^ui.Context, name, sub: string, dot: Maybe(ui.Color), glyph: rune, chevron: bool) -> f32 {
+		return lens_chip_width(ctx, name, sub, glyph, dot != nil, chevron)
+	}
 	if count == 1 {
-		if lens_chip_width(ctx, name, sub, dot = true, chevron = true) > left do sub = ""
-		w := lens_chip_width(ctx, name, sub, dot = true, chevron = true)
-		dot, _ := second_color(t, sv, i)
-		active = lens_chip(ctx, fmt.tprintf("Camera##pane %d", i), name, sub, dot = dot, chevron = true, lit = menu_lit)
+		if width(ctx, name, sub, dot, glyph, true) > left do sub = ""
+		w := width(ctx, name, sub, dot, glyph, true)
+		active = lens_chip(ctx, fmt.tprintf("Camera##pane %d", i) if shown.kind == .View else fmt.tprintf("Map##pane %d", i), name, sub, glyph = glyph, dot = dot, chevron = true, lit = menu_lit)
 		return active, left - w
 	}
 	// Widths first: the active segment whole (its sub dropped when short), the others whole
-	// while everything fits, else their dots alone.
-	if lens_chip_width(ctx, name, sub, dot = true, chevron = true) + f32(count - 1) * PANE_TAB_DOT_W > left do sub = ""
-	active_w := lens_chip_width(ctx, name, sub, dot = true, chevron = true)
+	// while everything fits, else their marks alone.
+	if width(ctx, name, sub, dot, glyph, true) + f32(count - 1) * PANE_TAB_DOT_W > left do sub = ""
+	active_w := width(ctx, name, sub, dot, glyph, true)
 	widths: [PANE_TABS]f32
 	total := active_w
 	for j in 0 ..< count do if j != active_at {
-		n, _ := pane_tab_label(app, &p.tabs[j].view)
-		widths[j] = lens_chip_width(ctx, n, dot = true)
+		n, _ := pane_tab_label(app, &p.tabs[j])
+		d, gl := pane_tab_mark(t, &p.tabs[j], i)
+		widths[j] = width(ctx, n, "", d, gl, false)
 		total += widths[j]
 	}
 	compact := total > left
@@ -265,10 +324,15 @@ lens_pane_tabs :: proc(app: ^App, i: int, left: f32, menu_lit: bool) -> (active:
 	ui.begin(ctx, fmt.tprintf("pane %d tabs", i), {direction = .Row, center = true})
 	for j in 0 ..< count {
 		w := widths[j]
-		tv := &p.tabs[j].view
-		dot, _ := second_color(t, tv, i)
-		n, s := pane_tab_label(app, tv)
-		id := fmt.tprintf("Camera##pane %d", i) if j == active_at else fmt.tprintf("%s##pane %d tab %d", n, i, j)
+		tab := &p.tabs[j]
+		d, gl := pane_tab_mark(t, tab, i)
+		n, s := pane_tab_label(app, tab)
+		id: string
+		switch {
+		case j != active_at:      id = fmt.tprintf("%s##pane %d tab %d", n, i, j)
+		case tab.kind == .View:   id = fmt.tprintf("Camera##pane %d", i)
+		case:                     id = fmt.tprintf("Map##pane %d", i)
+		}
 		a := ui.area(ctx, id, {w, t.target})
 		pill := ui.Rect{a.rect.x, a.rect.y + (a.rect.h - LENS_CHIP_H) * 0.5, total, LENS_CHIP_H}
 		if j == 0 {
@@ -278,18 +342,19 @@ lens_pane_tabs :: proc(app: ^App, i: int, left: f32, menu_lit: bool) -> (active:
 		seg := ui.Rect{a.rect.x + 2, pill.y + 2, w - 4, pill.h - 4}
 		if j == active_at {
 			ui.fill_rect(ctx, seg, t.radius_medium - 2, t.fill_pressed if a.held else t.fill_hover if a.hovered else t.fill)
-			lens_chip_draw(ctx, {a.rect.x, pill.y, w, pill.h}, name, sub, dot = dot, chevron = true, lit = menu_lit, glass = false)
-			ui.tip(ctx, a.id, a.rect, "Camera")
+			lens_chip_draw(ctx, {a.rect.x, pill.y, w, pill.h}, name, sub, glyph = glyph, dot = dot, chevron = true, lit = menu_lit, glass = false)
+			ui.tip(ctx, a.id, a.rect, "Camera" if tab.kind == .View else "Map")
 			active = a
 			continue
 		}
 		if a.hovered || a.held do ui.fill_rect(ctx, seg, t.radius_medium - 2, t.fill_pressed if a.held else t.fill_hover)
 		cy := pill.y + pill.h * 0.5
-		if compact {
-			ui.fill_circle(ctx, {a.rect.x + w * 0.5, cy}, 4, ui.color_fade(dot, 0.7))
-		} else {
-			ui.fill_circle(ctx, {a.rect.x + LENS_CHIP_PAD + 4, cy}, 4, ui.color_fade(dot, 0.7))
-			ui.text(ctx, n, a.rect.x + LENS_CHIP_PAD + 14, cy, t.small_size, t.text_secondary, .Semibold)
+		x := a.rect.x + (w * 0.5 if compact else LENS_CHIP_PAD + 4)
+		if c, ok := d.?; ok do ui.fill_circle(ctx, {x, cy}, 4, ui.color_fade(c, 0.7))
+		else do ui.icon(ctx, gl, {x + (0 if compact else t.icon_small * 0.5 - 4), cy}, t.icon_small, t.text_tertiary)
+		if !compact {
+			tx := a.rect.x + LENS_CHIP_PAD + (14 if d != nil else t.icon_small + 6)
+			ui.text(ctx, n, tx, cy, t.small_size, t.text_secondary, .Semibold)
 		}
 		ui.tip(ctx, a.id, a.rect, fmt.tprintf("%s %s", n, s) if s != "" else n, command_keys(app, .Pane_Tab_Next) if j == (active_at + 1) % count else "")
 		if a.clicked do pane_tab_show(g, i, j)
