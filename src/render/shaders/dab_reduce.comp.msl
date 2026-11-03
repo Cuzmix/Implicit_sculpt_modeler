@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 8ad3a07de6e07fbcba1e2c518001c3b95cb158151062bb52d760ca358db60365
+// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 7a7fbfadde947e480a206886cdb920c4a02408878d46b37ba4c1fe2037b33418
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wmissing-braces"
 
@@ -51,17 +51,11 @@ template<typename T>
     return fma(T(1), l, r);
 }
 
-struct Dab_std430_logical
+template<typename T>
+[[clang::optnone]] T spvFSub(T l, T r)
 {
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    uint4 slabs;
-};
+    return fma(T(-1), r, l);
+}
 
 struct SLANG_ParameterGroup_Params_std140
 {
@@ -80,6 +74,7 @@ struct Dab_std430
     float4 tilt1;
     float4 tilt2;
     float4 misc;
+    float4 alpha_up;
     uint4 slabs;
 };
 
@@ -96,55 +91,46 @@ struct RWStructuredBuffer
 static inline __attribute__((always_inline))
 float3 normalize0(float3 v)
 {
-    float _213 = length(v);
-    float3 _209;
-    if (_213 > 0.0)
+    float _189 = length(v);
+    float3 _185;
+    if (_189 > 0.0)
     {
-        _209 = v / float3(_213);
+        _185 = v / float3(_189);
     }
     else
     {
-        _209 = float3(0.0);
+        _185 = float3(0.0);
     }
-    return _209;
+    return _185;
 }
 
 kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device RWStructuredBuffer& partials [[buffer(3)]], device RWStructuredBuffer& areas [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup spvUnsafeArray<float4, 256> lane_normal;
     threadgroup spvUnsafeArray<float4, 256> lane_center;
-    Dab_std430_logical _11;
-    _11.center_r2 = dabs._member0[Params.dab].center_r2;
-    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
-    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
-    _11.tilt0 = dabs._member0[Params.dab].tilt0;
-    _11.tilt1 = dabs._member0[Params.dab].tilt1;
-    _11.tilt2 = dabs._member0[Params.dab].tilt2;
-    _11.misc = dabs._member0[Params.dab].misc;
-    _11.slabs = dabs._member0[Params.dab].slabs;
     uint k = gl_LocalInvocationID.x;
     float4 n = float4(0.0);
     float4 c = float4(0.0);
-    uint4 _118;
+    uint4 _93;
     for (;;)
     {
         float4 n_1;
         float4 c_1;
-        bool _25_ladder_break = false;
+        bool _24_ladder_break = false;
         do
         {
-            _118 = _11.slabs;
-            if (!(k < _118.y))
+            _93 = dabs._member0[Params.dab].slabs;
+            if (!(k < _93.y))
             {
-                _25_ladder_break = true;
+                _24_ladder_break = true;
                 break;
             }
-            uint _127 = 2u * (_118.x + k);
-            n_1 = spvFAdd(n, partials._member0[_127]);
-            c_1 = spvFAdd(c, partials._member0[_127 + 1u]);
+            uint _102 = 2u * (_93.x + k);
+            n_1 = spvFAdd(n, partials._member0[_102]);
+            c_1 = spvFAdd(c, partials._member0[_102 + 1u]);
             break;
         } while(false);
-        if (_25_ladder_break)
+        if (_24_ladder_break)
         {
             break;
         }
@@ -167,19 +153,19 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     {
         float4 sum_n_1;
         float4 sum_c_1;
-        bool _37_ladder_break = false;
+        bool _36_ladder_break = false;
         do
         {
             if (!(k < 256u))
             {
-                _37_ladder_break = true;
+                _36_ladder_break = true;
                 break;
             }
             sum_n_1 = spvFAdd(sum_n, lane_normal[k]);
             sum_c_1 = spvFAdd(sum_c, lane_center[k]);
             break;
         } while(false);
-        if (_37_ladder_break)
+        if (_36_ladder_break)
         {
             break;
         }
@@ -199,15 +185,63 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         plane = float3(0.0);
     }
     float3 normal;
-    if ((_118.w & 8u) != 0u)
+    if ((_93.w & 8u) != 0u)
     {
-        normal = normalize0(normal_1 * float3x3(_11.tilt0.xyz, _11.tilt1.xyz, _11.tilt2.xyz));
+        normal = normalize0(normal_1 * float3x3(dabs._member0[Params.dab].tilt0.xyz, dabs._member0[Params.dab].tilt1.xyz, dabs._member0[Params.dab].tilt2.xyz));
     }
     else
     {
         normal = normal_1;
     }
-    areas._member0[2u * Params.dab] = float4(normal, 0.0);
-    areas._member0[(2u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _11.tilt2.w), 0.0);
+    float4 _241 = dabs._member0[Params.dab].tilt2;
+    areas._member0[5u * Params.dab] = float4(normal, 0.0);
+    areas._member0[(5u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _241.w), 0.0);
+    if ((_93.w & 256u) == 0u)
+    {
+        return;
+    }
+    float3 an;
+    if (all(normal == float3(0.0)))
+    {
+        an = float3(0.0, 0.0, 1.0);
+    }
+    else
+    {
+        an = normal;
+    }
+    float3 up = spvFSub(dabs._member0[Params.dab].alpha_up.xyz, an * dot(dabs._member0[Params.dab].alpha_up.xyz, an));
+    float3 helper;
+    if (dot(up, up) < 9.9999999600419720025001879548654e-13)
+    {
+        if (abs(an.x) < 0.89999997615814208984375)
+        {
+            helper = float3(1.0, 0.0, 0.0);
+        }
+        else
+        {
+            helper = float3(0.0, 1.0, 0.0);
+        }
+        helper = cross(an, helper);
+    }
+    else
+    {
+        helper = up;
+    }
+    float3 v = helper / float3(length(helper));
+    float3 _316 = cross(v, an);
+    float3 u;
+    if ((_93.w & 512u) != 0u)
+    {
+        u = -_316;
+    }
+    else
+    {
+        u = _316;
+    }
+    float4 _328 = dabs._member0[Params.dab].misc;
+    float inv_r = 1.0 / _328.z;
+    areas._member0[(5u * Params.dab) + 2u] = float4(u * inv_r, 0.0);
+    areas._member0[(5u * Params.dab) + 3u] = float4(v * inv_r, 0.0);
+    areas._member0[(5u * Params.dab) + 4u] = float4(an * inv_r, 0.0);
 }
 
