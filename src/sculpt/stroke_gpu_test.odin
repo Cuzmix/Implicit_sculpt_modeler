@@ -150,7 +150,16 @@ fake_sync :: proc(data: rawptr, s: ^Sculptor) -> bool {
 	f.syncs += 1
 	for r in f.pending do copy(s.mesh.normals[r.first:][:r.count], f.normals[r.first:][:r.count])
 	clear(&f.pending)
-	if len(f.landing) > 0 do sculptor_positions_landed(s, f.landing[:])
+	// As the readback does: each node's own bounds found from the positions that landed.
+	if len(f.landing) > 0 {
+		nodes := sculptor_range_nodes(s, f.landing[:])
+		bounds := make([]geom.Aabb, len(nodes), context.temp_allocator)
+		for n, k in nodes {
+			bounds[k] = geom.AABB_EMPTY
+			for p in s.mesh.positions[n.first:][:n.count] do geom.aabb_grow(&bounds[k], p)
+		}
+		sculptor_positions_landed(s, f.landing[:], nodes, bounds)
+	}
 	clear(&f.landing)
 	return true
 }
@@ -175,6 +184,14 @@ expect_bounds_refit :: proc(t: ^testing.T, s, twin: ^Sculptor, what: string) {
 			return
 		}
 		testing.expectf(t, s.gpu_pending[id] == 0, "node %d still waits for %d readbacks %s", id, s.gpu_pending[id], what)
+		// The landing's bounds are a full refit's to the bit.
+		exact := geom.AABB_EMPTY
+		for v in n.vert_first ..< n.vert_first + n.vert_count do geom.aabb_grow(&exact, s.mesh.positions[v])
+		for v in node_shared(s, u32(id)) do geom.aabb_grow(&exact, s.mesh.positions[v])
+		if b != exact {
+			testing.expectf(t, false, "node %d: its bounds are %v..%v %s, a refit's %v..%v", id, b.lo, b.hi, what, exact.lo, exact.hi)
+			return
+		}
 	}
 }
 
