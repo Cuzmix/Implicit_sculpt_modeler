@@ -77,6 +77,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\hdri" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\retopo" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\uv" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\send" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
@@ -85,7 +86,7 @@ python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 20 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
+echo check: 21 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
 exit /b 0
 
 :web
@@ -136,6 +137,7 @@ exit /b 0
 
 :test
 "%ODIN%" test "%ROOT%src\geom" -out:"%ROOT%build\test_geom.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\uv" -out:"%ROOT%build\test_uv.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\poly" -out:"%ROOT%build\test_poly.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\camera" -out:"%ROOT%build\test_camera.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1

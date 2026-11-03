@@ -32,7 +32,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py --changed                # each PR of a series: only what the branch's changes reach; the full gate ends the series
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app
+    build.bat test                                    # odin test on geom, uv, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -60,6 +60,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
+| `src/uv` | UVs on any triangle mesh (`uv.Uvs`): a coordinate per triangle corner, seams as a 3-bit edge mask per triangle, islands, pins; folding a quad object's `geom.Uv_Layout` in and seeing it as quads again; `check`. The engine of the Surface plan's UV series grows here (unwrap, relax, seams, packing) |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
@@ -84,7 +85,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
+- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `hal.odin`'s
