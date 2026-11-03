@@ -171,3 +171,50 @@ levels_tri_uvs :: proc(l: ^Levels, allocator := context.allocator) -> (out: Skin
 	}
 	return out, true
 }
+
+// The skin as a displacement micro-map (geom.Bary_Mesh's values): per triangle, the grid
+// vertices in bird-curve order, each the distance along the mesh's interpolated vertex
+// normal (not normalised, as the file's directions are) from the flat triangle to the
+// point the skin shows, its curved base included. A sample shared by triangles is worked
+// out once, so neighbours agree along their edges. `folded` says the skin had sideways
+// offsets, which a scalar map cannot hold and are left out. Not ok without a skin.
+sculptor_skin_bary :: proc(s: ^Sculptor, allocator := context.allocator) -> (values: []f32, level: u32, folded, ok: bool) {
+	sk := s.skin
+	if sk == nil || sk.segments & (sk.segments - 1) != 0 do return
+	for u32(1) << level < sk.segments do level += 1
+	along := make([]f32, len(sk.heights), context.temp_allocator)
+	Job :: struct {
+		s:     ^Sculptor,
+		along: []f32,
+	}
+	job := Job{s, along}
+	// Each sample is written by the triangle that owns it.
+	jobs.parallel_ranges(s.pool, int(sk.tri_count), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		s := job.s
+		sk := s.skin
+		I := s.mesh.indices[:]
+		S := sk.segments
+		for t in u32(lo) ..< u32(hi) do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+			if !skin_owns(s, sk, t, i, j) do continue
+			p, nb := skin_base(s, sk, t, i, j)
+			nu := linalg.normalize0(nb)
+			x := skin_sample(sk, I, t, i, j)
+			off := nu * f32(sk.heights[x]) + skin_curve(s, sk, t, i, j, p, nu)
+			d := linalg.dot(nb, nb)
+			job.along[x] = linalg.dot(off, nb) / d if d > 1e-12 else 0
+		}
+	}, 1 << 10)
+	S := sk.segments
+	per := u32(geom.bary_vertex_count(level))
+	values = make([]f32, int(sk.tri_count * per), allocator)
+	I := s.mesh.indices[:]
+	for t in u32(0) ..< sk.tri_count do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+		values[t * per + geom.bary_bird_index(i, j, level)] = along[skin_sample(sk, I, t, i, j)]
+	}
+	if sk.side != nil do for sd in sk.side do if sd != {} {
+		folded = true
+		break
+	}
+	return values, level, folded, true
+}

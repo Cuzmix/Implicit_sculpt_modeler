@@ -408,6 +408,7 @@ App :: struct {
 	skin_map_kind:            sculpt.Skin_Map_Kind, // what Load map into skin reads an image as
 	skin_map_range:           f32, // the distance a grey map's black and white stand for
 	skin_maps_loaded:         int,
+	skin_bary_exports:        int,
 	// What the last rebuild's skin carry reported, for the exit stats.
 	skin_carry:               sculpt.Skin_Carry_Report,
 	skin_squeezes:            int, // Squeezes run this session, for the exit stats
