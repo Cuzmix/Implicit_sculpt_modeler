@@ -176,10 +176,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `tray_mark_draw` rings `ctx.marked.rect`; `show_where_finds_every_home` checks every home has its control. The
   Show_Section command (one argument per section) opens any section from search, keys and scripts. While Settings
   or Help is open the tray is hidden and inert.
-- Settings panel (`kit_settings.odin`): tabs Interface, Camera, Touch, Performance (`Settings_Tab`), anchored right
-  in the tray's place, its body scrolling as the tray does; each tab ends in "Reset <tab> settings"
-  (`settings_reset`), the foot holds Reset everything (a second tap within `SETTINGS_WIPE_TIME` confirms) and Done
-  (`settings_close` saves). Camera and touch preferences are `app.nav` (`Nav_Prefs`, `NAV_DEFAULT`, `navigate.odin`).
+- Settings (`kit_settings.odin`, `settings_sections.odin`): one list of `Settings_Section`s. From
+  `SETTINGS_SHEET_MIN_WINDOW` the sheet (sections down its side, the open one beside them); narrower, a panel in the
+  tray's place that drills down (`settings_drill`: the section list under Search settings, or one section under
+  Back). Each section ends in "Reset <section> settings" (`settings_section_reset`); `settings_wipe_button` is Reset
+  all settings (a second tap within `SETTINGS_WIPE_TIME` confirms); `settings_open(app, section)` opens on one and
+  `settings_close` saves. Camera and touch preferences are `app.nav` (`Nav_Prefs`, `NAV_DEFAULT`, `navigate.odin`).
 - Stats panel (`kit_stats.odin`): Simple (plain labels in Performance, While sculpting, Mesh, Memory groups; p50 is
   "typical", p99 "slower moments", never "worst") and Advanced (exact key names, p50/p99, graph, drawing switches);
   "What do these numbers mean?" explains them. Show only what is measured: an empty ring says "not measured yet".

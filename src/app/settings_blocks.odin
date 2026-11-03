@@ -79,23 +79,6 @@ SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.Safe_Zone, "SAFE ZONE"
 @(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 
-// The blocks of the narrow panel's tab `tab`: its sections' blocks one after another
-// (SETTINGS_SECTION_TAB), so the tabs and the sheet are one list of settings that cannot
-// drift apart. A later section whose first block has no caption, as the sheet titles it
-// with the section's name, gets that name as its caption here.
-settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
-	entries := make([dynamic]Settings_Entry, context.temp_allocator)
-	for s in Settings_Section {
-		if SETTINGS_SECTION_TAB[s] != tab do continue
-		for e, i in settings_section_entries(s) {
-			e := e
-			if i == 0 && e.caption == "" && len(entries) > 0 do e.caption = strings.to_upper(SETTINGS_SECTION_NAMES[s], context.temp_allocator)
-			append(&entries, e)
-		}
-	}
-	return entries[:]
-}
-
 // The words Search settings finds a block by, besides its caption: its rows' labels and
 // what they are called elsewhere, in lower case.
 @(rodata)

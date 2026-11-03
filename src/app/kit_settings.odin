@@ -5,39 +5,24 @@ import "core:strings"
 
 import "../ui"
 
-// The Settings panel (Menu > Settings): the app's own preferences in one place, by
-// category, each changed at once and remembered (settings.odin) when the panel closes,
-// when the app goes to the background and on exit. It takes the inspector's place on the
-// right while open, so the model stays in view and a change to the camera or the touch
-// gestures can be tried as it is made. Brush and tool settings stay with the tool, in the
-// inspector; the drawing switches for comparing speed stay in the Stats panel's
-// Advanced view, being for development.
-Settings_Tab :: enum u8 {
-	Interface,
-	Camera,
-	Touch,
-	Keys,
-	Performance,
-}
-
-SETTINGS_TAB_NAMES := [Settings_Tab]string {
-	.Interface   = "Interface",
-	.Camera      = "Camera",
-	.Touch       = "Touch",
-	.Keys        = "Keys",
-	// "Performance" is wider than a fifth of the panel; the statistics and the frame rate are the
-	// system's side of things.
-	.Performance = "System",
-}
+// Settings (Menu > Settings): the app's own preferences in one place, by section
+// (settings_sections.odin), each changed at once and remembered (settings.odin) when it
+// closes, when the app goes to the background and on exit. Brush and tool settings stay
+// with the tool, in the inspector; the drawing switches for comparing speed stay in the
+// Stats panel's Advanced view, being for development. A window wide enough has the sheet
+// (kit_settings_sheet), sections down its side and the open one beside them; a narrower
+// one has a panel in the inspector's place that drills down: Search settings over the
+// sections, and a tap on one shows its blocks under Back, as a phone's settings do. Both
+// are the same sections, search and resets.
 
 // The interface sizes on offer, times what the display asks for. None is smaller than
 // what it asks for, so every touch target stays at least 48 points (sm-store).
 UI_SCALES := [?]f32{1, 1.15, 1.3, 1.5}
 
-// The Settings panel's width.
+// The narrow panel's width.
 KIT_SETTINGS_W :: 400
 
-// Seconds Reset everything waits for its second tap.
+// Seconds Reset all settings waits for its second tap.
 SETTINGS_WIPE_TIME :: 3
 
 kit_settings :: proc(app: ^App) -> (raised: bool) {
@@ -47,7 +32,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	id := ui.id_of(ctx, "settings")
 	shown := ui.presence(ctx, id, k.settings, t.panel_time)
 	if shown <= 0 do return
-	if lens_settings_fits(app) do return kit_settings_lens(app, shown)
+	if settings_sheet_fits(app) do return kit_settings_sheet(app, shown)
 	win := &k.windows[.Settings]
 	top := kit_top()
 	room := window_room(app, win^, top)
@@ -63,31 +48,44 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 		return
 	}
-	names: [len(Settings_Tab)]string
-	for tab in Settings_Tab do names[int(tab)] = SETTINGS_TAB_NAMES[tab]
-	if picked := ui.tabs(ctx, "settings tabs", names[:], int(k.settings_tab)); picked >= 0 && Settings_Tab(picked) != k.settings_tab {
-		k.settings_tab = Settings_Tab(picked)
-		k.settings_scroll = 0
+	q := settings_query(k)
+	// The head: Back and the section's name while one is open, else Search settings.
+	if k.settings_drill {
+		ui.begin(ctx, "settings head", {direction = .Row, gap = 8, center = true, width = inner, height = t.target})
+		if ui.icon_button(ctx, "Back to the sections##settings back", ui.ICON_CHEVRON_LEFT) {
+			k.settings_drill, k.settings_scroll = false, 0
+		}
+		title := ui.place(ctx, {inner - t.target - 8, t.target})
+		ui.text(ctx, SETTINGS_SECTION_NAMES[k.settings_section], title.x, title.y + title.h * 0.5, t.heading_size, t.text, .Semibold)
+		ui.end(ctx)
+	} else {
+		_ = ui.text_field(ctx, "Search settings##narrow", k.settings_find[:], inner, hint = "Search settings")
 	}
 
-	// The category scrolls in the room left between the tabs and the buttons below.
+	// The list or the section scrolls in the room left between the head and the buttons below.
 	body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
 	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, inner, body_h, 4)
 	k.settings_body = scroll.at
-	settings_entries_draw(app, settings_tab_entries(k.settings_tab))
-	ui.spacer(ctx, 4)
-	if ui.button(ctx, fmt.tprintf("Reset %s settings", SETTINGS_TAB_NAMES[k.settings_tab]), .Bordered) do settings_reset(app, k.settings_tab)
+	if k.settings_drill {
+		name := strings.to_lower(SETTINGS_SECTION_NAMES[k.settings_section], context.temp_allocator)
+		settings_entries_draw(app, settings_section_entries(k.settings_section), q, name)
+		ui.spacer(ctx, 4)
+		if ui.button(ctx, fmt.tprintf("Reset %s settings", SETTINGS_SECTION_NAMES[k.settings_section]), .Bordered) do settings_section_reset(app, k.settings_section)
+	} else {
+		found := 0
+		for s in Settings_Section {
+			if q != "" && !settings_section_matches(s, q) do continue
+			found += 1
+			if ui.list_row(ctx, fmt.tprintf("%s##settings section", SETTINGS_SECTION_NAMES[s]), glyph = ui.ICON_CHEVRON_RIGHT).clicked {
+				k.settings_section, k.settings_drill, k.settings_scroll = s, true, 0
+			}
+		}
+		if found == 0 do ui.paragraph(ctx, "No setting has that name.", inner)
+	}
 	kit_scroll_end(ctx, scroll)
 
-	// Everything goes back only on a second tap, so a stray finger never wipes it all.
 	ui.begin(ctx, "settings foot", {direction = .Row, gap = 8, width = inner})
-	armed := k.settings_wipe > 0 && ctx.time - k.settings_wipe < SETTINGS_WIPE_TIME
-	if ui.button(ctx, "Tap again to reset all" if armed else "Reset everything", .Light, .Danger, width = (inner - 8) * 0.5) {
-		if armed {
-			settings_reset_all(app)
-			k.settings_wipe = 0
-		} else do k.settings_wipe = max(ctx.time, 1e-6)
-	}
+	if settings_wipe_button(app, (inner - 8) * 0.5) do settings_reset_all(app)
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
 	ui.window_end(ctx)
@@ -95,23 +93,33 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	return
 }
 
-// Opens Settings as Menu > Settings does, on `tab` from its top; returns whether it ran.
-settings_open :: proc(app: ^App, tab: Settings_Tab) -> bool {
+// Reset all settings, `width` wide: everything goes back only on a second tap, so a stray
+// finger never wipes it all. Returns true on that second tap.
+settings_wipe_button :: proc(app: ^App, width: f32) -> bool {
+	k := &app.kit
+	ctx := &k.ctx
+	armed := k.settings_wipe > 0 && ctx.time - k.settings_wipe < SETTINGS_WIPE_TIME
+	if !ui.button(ctx, "Tap again to reset all" if armed else "Reset all settings", .Light, .Danger, width = width) do return false
+	if armed {
+		k.settings_wipe = 0
+		return true
+	}
+	k.settings_wipe = max(ctx.time, 1e-6)
+	return false
+}
+
+// Opens Settings as Menu > Settings does, on section `s` from its top (on the narrow panel,
+// drilled into it); returns whether it ran.
+settings_open :: proc(app: ^App, s: Settings_Section) -> bool {
 	if !command_run(app, .Settings) do return false
-	app.kit.settings_tab, app.kit.settings_scroll = tab, 0
-	app.kit.settings_section = SETTINGS_TAB_SECTION[tab]
+	app.kit.settings_section, app.kit.settings_drill, app.kit.settings_scroll = s, true, 0
 	return true
 }
 
-// Closes the Settings panel and remembers what it holds.
+// Closes Settings and remembers what it holds.
 settings_close :: proc(app: ^App) {
 	app.kit.settings = false
 	if app.settings_file != "" do _ = settings_save(app, app.settings_file)
-}
-
-// Puts one of the narrow panel's tabs back as a fresh install has it: each of its blocks.
-settings_reset :: proc(app: ^App, tab: Settings_Tab) {
-	for e in settings_tab_entries(tab) do settings_block_reset(app, e.block)
 }
 
 // `s` as it fits in `width` points: whole, or its end with "..." before it.
