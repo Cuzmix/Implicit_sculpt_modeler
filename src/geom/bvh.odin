@@ -244,6 +244,13 @@ ray_aabb :: #force_inline proc(bounds: Aabb, origin, inv_dir: Vec3, t_max: f32) 
 	t1 := (bounds.hi - origin) * inv_dir
 	tmin := linalg.min(t0, t1)
 	tmax := linalg.max(t0, t1)
+	// A ray that does not move along an axis, from a point on one of the box's bounds on
+	// that axis, gives zero times infinity, NaN, there; it lies in the box's face plane all
+	// along, so that axis bounds nothing. Without this the box is missed, as every box
+	// touching an axis-aligned tube's ring was by rays along the tube's normals.
+	for k in 0 ..< 3 do if t0[k] != t0[k] || t1[k] != t1[k] {
+		tmin[k], tmax[k] = min(f32), max(f32)
+	}
 	enter := max(tmin.x, tmin.y, tmin.z, 0)
 	exit := min(tmax.x, tmax.y, tmax.z, t_max)
 	return enter, enter <= exit

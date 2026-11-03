@@ -1,5 +1,5 @@
 diff --git a/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp b/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
-index b5876ce..ac99e1d 100644
+index b5876ce..54b8922 100644
 --- a/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
 +++ b/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
 @@ -61,7 +61,8 @@ IsotropicHalfedgeMesh::~IsotropicHalfedgeMesh()
@@ -138,13 +138,19 @@ index b5876ce..ac99e1d 100644
          
      Vertex *topVertex = halfedge->previousHalfedge->startVertex;
      Vertex *bottomVertex = halfedge->oppositeHalfedge->previousHalfedge->startVertex;
-@@ -670,15 +745,25 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
+@@ -670,15 +745,32 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
      
      if (topVertex == bottomVertex)
          return false;
 -    
 -    if (topVertex->featured)
--        return false;
++
++    // The two faces that go hand their outer edges' other sides to each other, and the
++    // corners left take one of those as their first halfedge, so an outer edge on a
++    // border (no other side) would leave a corner with none; such an edge is left.
++    if (nullptr == halfedge->previousHalfedge->oppositeHalfedge || nullptr == halfedge->nextHalfedge->oppositeHalfedge
++            || nullptr == opposite->previousHalfedge->oppositeHalfedge || nullptr == opposite->nextHalfedge->oppositeHalfedge)
+         return false;
 -    
 -    if (bottomVertex->featured)
 +
@@ -170,7 +176,7 @@ index b5876ce..ac99e1d 100644
              !halfedge->nextHalfedge->startVertex->_smoothNormal.isZero()) {
          const Vector3 &p1 = halfedge->startVertex->position;
          const Vector3 &p2 = halfedge->nextHalfedge->startVertex->position;
-@@ -739,6 +824,21 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
+@@ -739,6 +831,21 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
          bottomVertex->firstHalfedge = opposite->nextHalfedge->oppositeHalfedge;
      }
      
