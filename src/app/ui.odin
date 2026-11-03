@@ -89,6 +89,8 @@ Ui_State :: struct {
 	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (AutoRemesher)
 	retopo_keep_creases: bool, // ...creased edges kept as quad edges (AutoRemesher)
 	retopo_edge_degrees: f32, // ...and edges sharper than this kept (AutoRemesher; 90 keeps right angles and sharper)
+	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (AutoRemesher)
+	retopo_use_mask:    bool, // ...and more where it is masked (AutoRemesher)
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for
 	remesh_smooth:      i32,  // ...with this many relax rounds (remesh.odin)...

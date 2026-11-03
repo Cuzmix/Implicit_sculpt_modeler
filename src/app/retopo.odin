@@ -39,12 +39,15 @@ BAKE_OCCLUSION_RAYS_MAX :: 64
 
 // The mesh to read the object's shape from: its top level (with the edits on any level
 // carried up), or a packed copy when dynamic. Normals are computed fresh into `normals`
-// (its own allocation, which the caller frees, along with `packed`).
-object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.Mesh) {
+// (its own allocation, which the caller frees, along with `packed`). With `mask`, a
+// dynamic object's mask in the packed copy's order goes there for the caller to free
+// (nil when it has none; a level's own mask is the sculptor's, in the level's order).
+object_shape :: proc(obj: ^Object, top: bool, mask: ^[]u8 = nil) -> (view: geom.Mesh, packed: geom.Mesh) {
 	if object_dynamic(obj) {
-		mask: []u8
-		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
+		packed_mask: []u8
+		packed, packed_mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		if mask != nil && sculpt.sculptor_has_mask(object_sculptor(obj)) do mask^ = packed_mask
+		else do delete(packed_mask)
 		view = packed
 	} else {
 		sculpt.levels_sync(&obj.levels)
@@ -60,24 +63,31 @@ object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask}
 }
 
 // The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
 RETOPO_EDGE_DEGREES_MIN :: f32(15)
 
-// What the selected object carries for Keep groups and Keep creases: its polygroups per
-// triangle of the shown level, and the base level's creases when the base level is the
-// one shown (the creases are the base level's, and a level above has other vertices).
-// Both are copies the caller frees (quad_source_destroy): the job's thread reads them
-// while the object goes on being edited.
-quad_source :: proc(obj: ^Object) -> (src: retopo.Source) {
+// What the selected object carries for the options that ask for it: its polygroups per
+// triangle of the shown level, the base level's creases when the base level is the one
+// shown (the creases are the base level's, and a level above has other vertices), and
+// the shown level's paint and mask per vertex for Use paint and Use mask. All are copies
+// the caller frees (quad_source_destroy): the job's thread reads them while the object
+// goes on being edited. A dynamic object's packing renumbers its vertices and keeps no
+// paint, so its mask comes from the packing (object_shape, long_job_copy) and its paint
+// is not used.
+quad_source :: proc(obj: ^Object, options: retopo.Options) -> (src: retopo.Source) {
 	if obj == nil || obj.voxel != nil do return
 	s := object_sculptor(obj)
 	if sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
-	if !object_dynamic(obj) && obj.levels.current == 0 {
-		sharp := obj.levels.levels[0].sharp
-		if len(sharp.edges) > 0 do src.creases = slice.clone(sharp.edges)
+	if !object_dynamic(obj) {
+		if obj.levels.current == 0 {
+			sharp := obj.levels.levels[0].sharp
+			if len(sharp.edges) > 0 do src.creases = slice.clone(sharp.edges)
+		}
+		if options.use_paint && sculpt.sculptor_has_color(s) do src.paint = slice.clone(s.color)
+		if options.use_mask && sculpt.sculptor_has_mask(s) do src.mask = slice.clone(s.mask)
 	}
 	return
 }
@@ -85,6 +95,8 @@ quad_source :: proc(obj: ^Object) -> (src: retopo.Source) {
 quad_source_destroy :: proc(src: ^retopo.Source) {
 	delete(src.groups)
 	delete(src.creases)
+	delete(src.paint)
+	delete(src.mask)
 	src^ = {}
 }
 
@@ -94,6 +106,7 @@ quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_close_first = o.engine, o.adaptivity, o.close_first
 	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases = o.keep_groups, o.keep_creases
 	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
+	app.ui.retopo_use_paint, app.ui.retopo_use_mask = o.use_paint, o.use_mask
 	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
@@ -104,9 +117,9 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int, options: retopo.Optio
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	view, packed := object_shape(obj, top = false)
-	source := quad_source(obj)
+	source := quad_source(obj, options)
 	defer quad_source_destroy(&source)
+	view, packed := object_shape(obj, top = false, mask = &source.mask if options.use_mask && object_dynamic(obj) else nil)
 	r := retopo.compute(view, quads, options, &app.pool, source = source)
 	delete(view.normals)
 	geom.mesh_destroy(&packed)

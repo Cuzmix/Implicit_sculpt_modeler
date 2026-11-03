@@ -1,14 +1,39 @@
 diff --git a/src/AutoRemesher/framefield.cpp b/src/AutoRemesher/framefield.cpp
-index 54c52e3..4cd3713 100644
+index 54c52e3..a4f098b 100644
 --- a/src/AutoRemesher/framefield.cpp
 +++ b/src/AutoRemesher/framefield.cpp
-@@ -84,11 +84,30 @@ namespace {
+@@ -83,12 +83,55 @@ namespace {
+     }
  }
  
++double FrameField::conformalTurn(const SurfaceMesh& mesh, size_t corner, const std::vector<double>& vertexLogScale)
++{
++    const size_t other = mesh.oppositeCorner(corner);
++    if (other == SurfaceMesh::npos || vertexLogScale.size() != mesh.vertexCount())
++        return 0.0;
++    // The cotangent of the angle facing the edge in each face, from the edges that meet there.
++    const auto cotangentFacing = [&mesh](size_t c) {
++        const Vector3 toStart = mesh.edgeVector(mesh.previousCorner(c));
++        const Vector3 toEnd = -mesh.edgeVector(mesh.nextCorner(c));
++        const double sine = Vector3::crossProduct(toStart, toEnd).length();
++        return sine > 1e-30 ? std::max(-10.0, std::min(10.0, Vector3::dotProduct(toStart, toEnd) / sine)) : 0.0;
++    };
++    // The continuous connection turns by the log scale's normal derivative along the dual
++    // edge, half the cotangents' sum times the change along the edge; the smoothing below
++    // realises about half of a turn asked of it (it trades the turn against smoothness), so
++    // the whole sum is asked: measured on a sphere asked four times denser on a half, a
++    // quarter on a half and four times on a cap, it lands 3.3, 0.27 and 3.8 times per area
++    // against 2.6, 0.40 and 2.4 with the half sum. The sign is the field's angle convention.
++    const double weight = cotangentFacing(corner) + cotangentFacing(other);
++    const size_t start = mesh.cornerVertex(corner), end = mesh.cornerVertex(mesh.nextCorner(corner));
++    return -weight * (vertexLogScale[end] - vertexLogScale[start]);
++}
++
  bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
 -    std::vector<Vector3>* field)
-+    std::vector<Vector3>* field, const std::vector<char>* cornerFeature)
++    std::vector<Vector3>* field, const std::vector<char>* cornerFeature, const std::vector<double>* vertexLogScale)
  {
++    const bool scaled = nullptr != vertexLogScale && vertexLogScale->size() == mesh.vertexCount();
 +    const bool hasCornerFeature = nullptr != cornerFeature && cornerFeature->size() == mesh.cornerCount();
      if (nullptr == field || mesh.faceCount() == 0)
          return false;
@@ -34,7 +59,7 @@ index 54c52e3..4cd3713 100644
      std::vector<FacetTangentBasis> facetBases(faces);
      tbb::parallel_for(tbb::blocked_range<size_t>(0, faces), [&](const tbb::blocked_range<size_t>& range) {
          for (size_t faceIndex = range.begin(); faceIndex != range.end(); ++faceIndex)
-@@ -101,7 +120,8 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+@@ -101,7 +144,8 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
      for (size_t faceIndex = 0; faceIndex < faces; ++faceIndex)
          for (size_t cornerIndex = 3 * faceIndex; cornerIndex < 3 * faceIndex + 3; ++cornerIndex) {
              const size_t oppositeCornerIndex = mesh.oppositeCorner(cornerIndex);
@@ -44,46 +69,88 @@ index 54c52e3..4cd3713 100644
                  continue;
              const double fieldAngle = kSymmetry * tangentAngle(mesh.edgeVector(cornerIndex), facetBases[faceIndex]);
              periodic[2 * faceIndex] = std::cos(fieldAngle);
+@@ -183,7 +227,10 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
+         const size_t f = mesh.cornerFace(c), g = mesh.cornerFace(other);
+         if (f < g)
+             continue;
+-        const double transport = -kSymmetry * (tangentAngle(mesh.edgeVector(c), facetBases[g]) - tangentAngle(mesh.edgeVector(c), facetBases[f]));
++        double turn = tangentAngle(mesh.edgeVector(c), facetBases[g]) - tangentAngle(mesh.edgeVector(c), facetBases[f]);
++        if (scaled)
++            turn += conformalTurn(mesh, c, *vertexLogScale);
++        const double transport = -kSymmetry * turn;
+         const double co = std::cos(transport), si = std::sin(transport);
+         system.addEnergy({ { 2 * f, co }, { 2 * f + 1, si }, { 2 * g, -1.0 } }, 0.0);
+         system.addEnergy({ { 2 * f, -si }, { 2 * f + 1, co }, { 2 * g + 1, -1.0 } }, 0.0);
 diff --git a/src/AutoRemesher/framefield.h b/src/AutoRemesher/framefield.h
-index 3e586d0..8177d05 100644
+index 3e586d0..17ecaf7 100644
 --- a/src/AutoRemesher/framefield.h
 +++ b/src/AutoRemesher/framefield.h
-@@ -32,8 +32,10 @@ class SurfaceMesh;
+@@ -32,8 +32,24 @@ class SurfaceMesh;
  
  class FrameField {
  public:
 +    // A corner flagged in `cornerFeature` (per corner of `mesh`, 3 a face) locks its face's
 +    // frame to that edge as a sharp edge does, whatever the angle.
++    //
++    // `vertexLogScale` (per vertex, the log of the quad size wanted there relative to the
++    // rest; null for even quads) solves the field in the metric scaled by it, so the field
++    // turns where the size changes and singularities come where a denser part needs more
++    // loops than its border brings in: without it the cover can only stretch quads along
++    // a fixed field, and a part asked four times denser comes out barely half as dense
++    // again.
      static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
 -        std::vector<Vector3>* field);
-+        std::vector<Vector3>* field, const std::vector<char>* cornerFeature = nullptr);
++        std::vector<Vector3>* field, const std::vector<char>* cornerFeature = nullptr,
++        const std::vector<double>* vertexLogScale = nullptr);
++
++    // The turn the scaled metric adds to parallel transport across `corner`'s edge, from
++    // its face to the face beyond, in radians: the change of the log scale along the edge
++    // times the edge's cotangent weight (the scaled metric's connection, discretely, at the
++    // strength the smoothing needs; see the definition).
++    static double conformalTurn(const SurfaceMesh& mesh, size_t corner, const std::vector<double>& vertexLogScale);
  };
  }
  #endif
 diff --git a/src/AutoRemesher/parameterizer.cpp b/src/AutoRemesher/parameterizer.cpp
-index 03cc94a..1311bd7 100644
+index 03cc94a..02fc931 100644
 --- a/src/AutoRemesher/parameterizer.cpp
 +++ b/src/AutoRemesher/parameterizer.cpp
-@@ -352,6 +352,9 @@ bool Parameterizer::parameterize()
+@@ -352,6 +352,16 @@ bool Parameterizer::parameterize()
  
      std::vector<double> faceScalingField = computeFaceScalingField(*m_vertices,
          *m_triangles, vertexNormals, faceAroundVertexMap);
-+    if (nullptr != m_faceScaling && m_faceScaling->size() == faceScalingField.size())
-+        for (size_t i = 0; i < faceScalingField.size(); ++i)
-+            faceScalingField[i] *= std::max(1e-6, (*m_faceScaling)[i]);
++    std::vector<double> vertexLogScale;
++    if (nullptr != m_vertexScaling && m_vertexScaling->size() == m_vertices->size()) {
++        vertexLogScale.resize(m_vertices->size());
++        for (size_t v = 0; v < vertexLogScale.size(); ++v)
++            vertexLogScale[v] = std::log(std::max(1e-6, (*m_vertexScaling)[v]));
++        for (size_t i = 0; i < faceScalingField.size(); ++i) {
++            const auto& t = (*m_triangles)[i];
++            faceScalingField[i] *= std::max(1e-6, ((*m_vertexScaling)[t[0]] + (*m_vertexScaling)[t[1]] + (*m_vertexScaling)[t[2]]) / 3.0);
++        }
++    }
  
      report(0.02f, "Building surface topology");
      // The parameterization pipeline uses the triangle/corner mesh;
-@@ -368,7 +371,7 @@ bool Parameterizer::parameterize()
+@@ -368,7 +378,7 @@ bool Parameterizer::parameterize()
      if (nullptr != m_triangleFieldVectors) {
          field = *m_triangleFieldVectors;
      } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
 -                   &field)) {
-+                   &field, m_cornerFeature)) {
++                   &field, m_cornerFeature, vertexLogScale.empty() ? nullptr : &vertexLogScale)) {
          std::cerr << "Frame field solve failed" << std::endl;
          return false;
      }
-@@ -382,6 +385,7 @@ bool Parameterizer::parameterize()
+@@ -378,10 +388,15 @@ bool Parameterizer::parameterize()
+     }
+ 
+     SingularitySimplifier simplifier(topology, &field);
+-    if (m_singularitySimplification) {
++    // A field solved in a scaled metric keeps its singularities: the ones it has beyond
++    // the plain field's sit in pairs along the size's changes, a few faces apart, and are
++    // what brings the extra loops into a denser part; the simplifier cancels exactly such
++    // pairs (at any pair distance, measured), which takes the density back out.
++    if (m_singularitySimplification && vertexLogScale.empty()) {
          report(0.17f, "Simplifying singularities");
          simplifier.setSharpEdgeDegrees(m_sharpEdgeDegrees);
          simplifier.setMaximumPairDistance(m_maximumSingularityPairDistance);
@@ -91,7 +158,7 @@ index 03cc94a..1311bd7 100644
          simplifier.simplify();
      }
  
-@@ -407,7 +411,7 @@ bool Parameterizer::parameterize()
+@@ -407,7 +422,7 @@ bool Parameterizer::parameterize()
      if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
              &field, m_scaling, m_sharpEdgeDegrees, &cover,
              &faceScalingField, &faceScalingU, &faceScalingV,
@@ -101,10 +168,10 @@ index 03cc94a..1311bd7 100644
          return false;
      }
 diff --git a/src/AutoRemesher/parameterizer.h b/src/AutoRemesher/parameterizer.h
-index 9a6b98b..63dede4 100644
+index 9a6b98b..2fc3117 100644
 --- a/src/AutoRemesher/parameterizer.h
 +++ b/src/AutoRemesher/parameterizer.h
-@@ -90,6 +90,21 @@ public:
+@@ -90,6 +90,24 @@ public:
          m_maximumSingularityPairDistance = faceHops;
      }
  
@@ -116,22 +183,25 @@ index 9a6b98b..63dede4 100644
 +        m_cornerFeature = cornerFeature;
 +    }
 +
-+    // Per triangle: a multiplier on the quad size there (1 as usual, under 1 smaller
-+    // quads), on top of what the gradient adaptivity gives.
-+    void setFaceScaling(const std::vector<double>* faceScaling)
++    // Per vertex: the quad size wanted there relative to the rest (1 as usual, under 1
++    // smaller quads), on top of what the gradient adaptivity gives. The frame field is
++    // solved in the metric it scales (FrameField::create), so the field turns and brings
++    // in singularities where the size changes, and the cover sizes each face by the mean
++    // of its corners.
++    void setVertexScaling(const std::vector<double>* vertexScaling)
 +    {
-+        m_faceScaling = faceScaling;
++        m_vertexScaling = vertexScaling;
 +    }
 +
      void setProgressHandler(ProgressHandler progressHandler)
      {
          m_progressHandler = std::move(progressHandler);
-@@ -112,6 +127,8 @@ private:
+@@ -112,6 +130,8 @@ private:
      double m_maxAspectRatio = 2.3;
      bool m_singularitySimplification = true;
      size_t m_maximumSingularityPairDistance = 6;
 +    const std::vector<char>* m_cornerFeature = nullptr;
-+    const std::vector<double>* m_faceScaling = nullptr;
++    const std::vector<double>* m_vertexScaling = nullptr;
      ProgressHandler m_progressHandler;
  
      std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,

@@ -203,6 +203,42 @@ feature_edges_become_a_loop :: proc(t: ^testing.T) {
 	testing.expectf(t, broken == 0, "%d ring vertices do not have two ring edges", broken)
 }
 
+// A sphere asking four times the density on its upper half gets about four times the quads
+// per area there, and one asking a quarter about a quarter, all quads, and the count still
+// lands: Use paint's red, and its blue, against plain clay.
+@(test)
+density_moves_the_quads :: proc(t: ^testing.T) {
+	when !AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	source := geom.icosphere(5)
+	defer geom.mesh_destroy(&source)
+	density := make([]f32, len(source.positions), context.temp_allocator)
+	for upper_density in ([2]f32{4, 0.25}) {
+		for p, v in source.positions do density[v] = upper_density if p.z > 0 else 1
+		params := DEFAULT_PARAMS
+		params.quads, params.threads, params.density = 2000, 4, density
+		out, report, err, reason := remesh(source.positions[:], source.indices[:], params)
+		defer polygon_mesh_destroy(&out)
+		if !testing.expectf(t, err == .None, "remesh failed: %v %s", err, reason) do return
+		upper, lower: int
+		for f in 0 ..< report.faces {
+			c := out.corners[out.first[f]:out.first[f + 1]]
+			z: f32
+			for v in c do z += out.positions[v].z / f32(len(c))
+			if z > 0 do upper += 1
+			else do lower += 1
+		}
+		// The halves have the same area, so the ratio of their counts is the ratio per area.
+		ratio := f32(upper) / f32(max(lower, 1))
+		log.infof("density %.2f above: %d faces (%d quads, %d triangles, %d n-gons), %d upper and %d lower, %.2f times, in %.0f ms", upper_density, report.faces, report.quads, report.triangles, report.ngons, upper, lower, ratio, report.ms)
+		testing.expectf(t, report.faces >= 1900 && report.faces <= 2100, "%d faces for 2000 asked", report.faces)
+		testing.expectf(t, ratio >= 0.75 * upper_density && ratio <= 1.25 * upper_density, "the half asked %.2f times as dense has %.2f times the quads", upper_density, ratio)
+		testing.expectf(t, f32(report.quads) >= 0.99 * f32(report.faces), "only %d of %d polygons are quads", report.quads, report.faces)
+	}
+}
+
 // An empty mesh, a broken index and a zero count are refused with a reason before anything
 // runs, whatever the platform.
 @(test)

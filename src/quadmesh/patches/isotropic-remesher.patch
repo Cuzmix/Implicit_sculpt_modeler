@@ -1,5 +1,5 @@
 diff --git a/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp b/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
-index b5876ce..d64e638 100644
+index b5876ce..ac99e1d 100644
 --- a/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
 +++ b/thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
 @@ -61,7 +61,8 @@ IsotropicHalfedgeMesh::~IsotropicHalfedgeMesh()
@@ -37,7 +37,7 @@ index b5876ce..d64e638 100644
      
      for (Vertex *vertex = m_firstVertex; nullptr != vertex; vertex = vertex->nextVertex) {
          vertex->_isBoundary = false;
-@@ -323,8 +342,11 @@ void IsotropicHalfedgeMesh::breakEdge(IsotropicHalfedgeMesh::Halfedge *halfedge)
+@@ -323,10 +342,14 @@ void IsotropicHalfedgeMesh::breakEdge(IsotropicHalfedgeMesh::Halfedge *halfedge)
              halfedge->nextHalfedge->startVertex->position) * 0.5;
      }
  
@@ -50,8 +50,11 @@ index b5876ce..d64e638 100644
 +    breakPointVertex->featured = featureState >= 1 || nullptr == oppositeHalfedge;
  
      // Propagate target edge length to the new vertex
++    breakPointVertex->payload = (halfedge->startVertex->payload + halfedge->nextHalfedge->startVertex->payload) * 0.5;
      if (halfedge->startVertex->targetEdgeLength > 0 && 
-@@ -348,7 +370,42 @@ void IsotropicHalfedgeMesh::breakEdge(IsotropicHalfedgeMesh::Halfedge *halfedge)
+             halfedge->nextHalfedge->startVertex->targetEdgeLength > 0) {
+         breakPointVertex->targetEdgeLength = (halfedge->startVertex->targetEdgeLength +
+@@ -348,7 +371,42 @@ void IsotropicHalfedgeMesh::breakEdge(IsotropicHalfedgeMesh::Halfedge *halfedge)
              rightNewFaceHalfedges, rightOldFaceHalfedges);
          linkHalfedgePair(leftOldFaceHalfedges[1], rightNewFaceHalfedges[1]);
          linkHalfedgePair(leftNewFaceHalfedges[1], rightOldFaceHalfedges[1]);
@@ -94,7 +97,7 @@ index b5876ce..d64e638 100644
  }
  
  void IsotropicHalfedgeMesh::collectVerticesAroundVertex(Vertex *vertex,
-@@ -505,11 +562,25 @@ void IsotropicHalfedgeMesh::relaxVertex(Vertex *vertex)
+@@ -505,11 +563,25 @@ void IsotropicHalfedgeMesh::relaxVertex(Vertex *vertex)
  
      Vector3 position;
      size_t count = 0;
@@ -125,7 +128,7 @@ index b5876ce..d64e638 100644
  
      if (0 == count)
          return;
-@@ -551,6 +622,9 @@ bool IsotropicHalfedgeMesh::flipEdge(Halfedge *halfedge)
+@@ -551,6 +623,9 @@ bool IsotropicHalfedgeMesh::flipEdge(Halfedge *halfedge)
  {
      if (nullptr == halfedge->oppositeHalfedge)
          return false;
@@ -135,7 +138,7 @@ index b5876ce..d64e638 100644
          
      Vertex *topVertex = halfedge->previousHalfedge->startVertex;
      Vertex *bottomVertex = halfedge->oppositeHalfedge->previousHalfedge->startVertex;
-@@ -670,15 +744,25 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
+@@ -670,15 +745,25 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
      
      if (topVertex == bottomVertex)
          return false;
@@ -167,7 +170,7 @@ index b5876ce..d64e638 100644
              !halfedge->nextHalfedge->startVertex->_smoothNormal.isZero()) {
          const Vector3 &p1 = halfedge->startVertex->position;
          const Vector3 &p2 = halfedge->nextHalfedge->startVertex->position;
-@@ -739,6 +823,21 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
+@@ -739,6 +824,21 @@ bool IsotropicHalfedgeMesh::collapseEdge(Halfedge *halfedge, double maxEdgeLengt
          bottomVertex->firstHalfedge = opposite->nextHalfedge->oppositeHalfedge;
      }
      
@@ -190,10 +193,18 @@ index b5876ce..d64e638 100644
          halfedge->nextHalfedge->oppositeHalfedge);
      linkHalfedgePair(opposite->previousHalfedge->oppositeHalfedge,
 diff --git a/thirdparty/isotropicremesher/isotropichalfedgemesh.h b/thirdparty/isotropicremesher/isotropichalfedgemesh.h
-index 15c62fc..f241e99 100644
+index 15c62fc..5c43068 100644
 --- a/thirdparty/isotropicremesher/isotropichalfedgemesh.h
 +++ b/thirdparty/isotropicremesher/isotropichalfedgemesh.h
-@@ -74,8 +74,19 @@ public:
+@@ -48,6 +48,7 @@ public:
+         size_t outputIndex = 0;
+         bool featured = false;
+         double targetEdgeLength = 0.0; // 0 = use global default in split/collapse
++        double payload = 1.0; // the caller's value carried through the remesh: a split averages it, a collapse keeps the kept vertex's
+         Vertex *_allocLink = nullptr;
+     };
+ 
+@@ -74,8 +75,19 @@ public:
          Halfedge *_allocLink = nullptr;
      };
      
@@ -214,7 +225,7 @@ index 15c62fc..f241e99 100644
      ~IsotropicHalfedgeMesh();
      
      double averageEdgeLength();
-@@ -140,6 +151,8 @@ private:
+@@ -140,6 +152,8 @@ private:
          const Vector3 &target, 
          double maxEdgeLengthSquared);
      bool isVertexPairConnected(Vertex *first, Vertex *second);
@@ -223,7 +234,7 @@ index 15c62fc..f241e99 100644
      bool testMoveWouldDegenerate(Vertex *vertex, const Vector3 &target);
      bool testCollapseWouldFoldOrDegenerate(Vertex *vertex,
          Vertex *otherVertex,
-@@ -148,8 +161,9 @@ private:
+@@ -148,8 +162,9 @@ private:
          Face *removedFaceTwo);
      void collectVerticesAroundVertex(Vertex *vertex,
          std::set<Vertex *> *vertices);
@@ -235,7 +246,7 @@ index 15c62fc..f241e99 100644
  
  #endif
 diff --git a/thirdparty/isotropicremesher/isotropicremesher.cpp b/thirdparty/isotropicremesher/isotropicremesher.cpp
-index 7a91179..29a340a 100644
+index 7a91179..679e238 100644
 --- a/thirdparty/isotropicremesher/isotropicremesher.cpp
 +++ b/thirdparty/isotropicremesher/isotropicremesher.cpp
 @@ -23,6 +23,7 @@
@@ -246,7 +257,19 @@ index 7a91179..29a340a 100644
  #include "isotropichalfedgemesh.h"
  
  IsotropicRemesher::~IsotropicRemesher()
-@@ -232,11 +233,20 @@ void IsotropicRemesher::buildAxisAlignedBoundingBoxTree()
+@@ -63,6 +64,11 @@ void IsotropicRemesher::setVertexTargetEdgeLengths(const std::vector<double> *ta
+     m_vertexTargetEdgeLengths = targetLengths;
+ }
+ 
++void IsotropicRemesher::setVertexPayloads(const std::vector<double> *payloads)
++{
++    m_vertexPayloads = payloads;
++}
++
+ void IsotropicRemesher::setTargetTriangleCount(size_t triangleCount)
+ {
+     m_targetTriangleCount = triangleCount;
+@@ -232,11 +238,20 @@ void IsotropicRemesher::buildAxisAlignedBoundingBoxTree()
  }
  
  IsotropicRemesher::IsotropicRemesher(const std::vector<Vector3> *vertices,
@@ -269,7 +292,21 @@ index 7a91179..29a340a 100644
      m_initialAverageEdgeLength = m_halfedgeMesh->averageEdgeLength();
  }
  
-@@ -438,10 +448,10 @@ void IsotropicRemesher::collapseShortEdges(double minEdgeLengthSquared, double m
+@@ -331,6 +346,13 @@ void IsotropicRemesher::remesh(size_t iteration)
+             vertex->targetEdgeLength = (*m_vertexTargetEdgeLengths)[vi];
+         }
+     }
++    if (m_vertexPayloads != nullptr) {
++        IsotropicHalfedgeMesh::Vertex *vertex = m_halfedgeMesh->moveToNextVertex(nullptr);
++        for (size_t vi = 0; vertex != nullptr && vi < m_vertexPayloads->size();
++             vertex = m_halfedgeMesh->moveToNextVertex(vertex), ++vi) {
++            vertex->payload = (*m_vertexPayloads)[vi];
++        }
++    }
+ 
+     report(0.15f, "Splitting long edges");
+     bool skipSplitOnce = true;
+@@ -438,10 +460,10 @@ void IsotropicRemesher::collapseShortEdges(double minEdgeLengthSquared, double m
                  edgeMaxLenSq = std::pow(4.0 / 3.0 * edgeTarget, 2);
              }
              if (lengthSquared < edgeMinLenSq) {
@@ -284,7 +321,7 @@ index 7a91179..29a340a 100644
                  }
              }
              halfedge = nextHalfedge;
-@@ -496,8 +506,33 @@ void IsotropicRemesher::projectVertices()
+@@ -496,8 +518,33 @@ void IsotropicRemesher::projectVertices()
      for (IsotropicHalfedgeMesh::Vertex *vertex = m_halfedgeMesh->moveToNextVertex(nullptr);
              nullptr != vertex;
              vertex = m_halfedgeMesh->moveToNextVertex(vertex)) {
@@ -320,10 +357,10 @@ index 7a91179..29a340a 100644
          const auto &startHalfedge = vertex->firstHalfedge;
          if (nullptr == startHalfedge)
 diff --git a/thirdparty/isotropicremesher/isotropicremesher.h b/thirdparty/isotropicremesher/isotropicremesher.h
-index 180e6d9..767c172 100644
+index 180e6d9..da5bd2c 100644
 --- a/thirdparty/isotropicremesher/isotropicremesher.h
 +++ b/thirdparty/isotropicremesher/isotropicremesher.h
-@@ -34,8 +34,14 @@ class IsotropicHalfedgeMesh;
+@@ -34,13 +34,21 @@ class IsotropicHalfedgeMesh;
  class IsotropicRemesher
  {
  public:
@@ -339,7 +376,21 @@ index 180e6d9..767c172 100644
      ~IsotropicRemesher();
      double initialAverageEdgeLength();
      void setSharpEdgeIncludedAngle(double degrees);
-@@ -70,6 +76,7 @@ private:
+     void setTargetEdgeLength(double edgeLength);
+     void setVertexTargetEdgeLengths(const std::vector<double> *targetLengths);
++    // A value per input vertex that the remesh carries to its vertices (Vertex::payload).
++    void setVertexPayloads(const std::vector<double> *payloads);
+     void setTargetTriangleCount(size_t triangleCount);
+     void setSmoothNormalDegrees(double degrees);
+     // Reports 0..1 across remesh(), which is otherwise a long silent stretch of
+@@ -64,12 +72,14 @@ private:
+     double m_initialAverageEdgeLength = 0;
+     size_t m_targetTriangleCount = 0;
+     const std::vector<double> *m_vertexTargetEdgeLengths = nullptr;
++    const std::vector<double> *m_vertexPayloads = nullptr;
+     double m_smoothNormalDegrees = 0.0;
+     std::vector<Vector3> m_smoothVertexNormals; // Per-vertex smooth normals (input)
+     std::vector<Vector3> m_smoothVertices;      // Subdivided mesh vertices for AABB tree
      std::vector<std::vector<size_t>> m_smoothTriangles; // Subdivided mesh triangles
      std::vector<Vector3> m_smoothTriangleNormals; // Subdivided mesh normals
      std::function<void(float, const char *)> m_progressHandler;

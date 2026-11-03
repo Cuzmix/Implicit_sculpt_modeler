@@ -241,8 +241,8 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			if ui.button(ctx, "Double", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces * 2, 100, 1_000_000))
 			ui.end(ctx)
 		}
-		// The engine, Adaptivity, Close first and Keep symmetry under the same fold, for the same
-		// reasons.
+		// The engine, Adaptive size, Close first and Keep symmetry under the same fold, for the
+		// same reasons.
 		if kit_more(app, .Remesh) {
 			// Where only the built-in engine is compiled there is nothing to choose.
 			when quadmesh.AVAILABLE {
@@ -251,7 +251,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
 				if app.ui.retopo_engine == .Auto {
 					a := app.ui.retopo_adaptivity
-					_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+					_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
 					// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
 					// KeepCreases and its hard-edge detection: the quads' edges run along
 					// them. The object's own groups and creases decide what there is to keep.
@@ -261,6 +261,13 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 					d := app.ui.retopo_edge_degrees
 					_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
 					app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
+					// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
+					// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
+					s := object_sculptor(obj)
+					painted := obj.voxel == nil && sculpt.sculptor_has_color(s)
+					masked := obj.voxel == nil && s.mask != nil
+					_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
+					_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
 				}
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)

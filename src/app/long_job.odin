@@ -232,7 +232,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
-		j.retopo_source = quad_source(obj)
+		j.retopo_source = quad_source(obj, cmd.quad)
 	case .Subdivide:
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels
@@ -244,7 +244,8 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		if f := voxel.clay_flush(clay); len(f.ranges) > 0 || len(f.indices) > 0 || f.regrow do clay.surface.regrow = true
 		j.masked = voxel.clay_has_mask(clay)
 	}
-	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj)
+	// A dynamic object's mask for Use mask comes from the same packing as the copy.
+	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, &j.retopo_source.mask if cmd.kind == .Retopo && cmd.quad.use_mask && object_dynamic(obj) else nil)
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -283,12 +284,14 @@ import_job_start :: proc(app: ^App, path: string) {
 }
 
 // A copy of the triangles of the level `obj` is on, its own: compacted from a dynamic
-// layout (as the commands read it), else the level's positions and indices.
+// layout (as the commands read it), else the level's positions and indices. With `mask`,
+// a dynamic layout's mask in the copy's order goes there (left as it is without one).
 @(private = "file")
-long_job_copy :: proc(obj: ^Object) -> geom.Mesh {
+long_job_copy :: proc(obj: ^Object, mask: ^[]u8 = nil) -> geom.Mesh {
 	if object_dynamic(obj) {
-		packed, mask := sculpt.sculptor_compact_mesh(object_sculptor(obj))
-		delete(mask)
+		packed, packed_mask := sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		if mask != nil && sculpt.sculptor_has_mask(object_sculptor(obj)) do mask^ = packed_mask
+		else do delete(packed_mask)
 		return packed
 	}
 	m := object_mesh(obj)
