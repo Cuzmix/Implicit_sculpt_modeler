@@ -552,7 +552,7 @@ macro_delete :: proc(app: ^App, slot: int) -> bool {
 macros_open :: proc(app: ^App) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.help, k.macros, k.library, k.macro_armed = false, true, false, 0
+	k.help, k.macros, k.macro_armed = false, true, 0
 	k.windows[.Macros].minimized = false
 	window_raise(k, .Macros)
 }

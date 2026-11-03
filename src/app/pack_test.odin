@@ -147,7 +147,7 @@ pack_installs_replaces_and_removes :: proc(t: ^testing.T) {
 
 	// Version 2 waits on Replace, then keeps Pebble and drops crack.
 	testing.expect_value(t, pack_install_finish(&b, pack_unpack(v2, b.library.folder), replace = false), "")
-	testing.expect(t, b.library.pending != nil && b.kit.library)
+	testing.expect(t, b.library.pending != nil && b.kit.browser && b.kit.brushes.category == .Pack && b.kit.brushes.pack == PACKS_MANAGE)
 	testing.expect(t, !command_enabled(&b, .Pick_Pack))
 	pack_pending_answer(&b, true)
 	testing.expect(t, b.library.pending == nil)
