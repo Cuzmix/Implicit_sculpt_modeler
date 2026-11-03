@@ -344,7 +344,8 @@ class Tls_Server(http.server.ThreadingHTTPServer):
 
 class Site_Handler(http.server.SimpleHTTPRequestHandler):
     """The site's files, and POST /failure, where the page sends the message and last log
-    lines of a failure (web/index.html), printed here since a tablet has no console."""
+    lines of a failure, a script error or a start still loading after ten seconds
+    (web/index.html), printed here since a tablet has no console."""
 
     def do_POST(self):
         if self.path != "/failure":
@@ -352,7 +353,7 @@ class Site_Handler(http.server.SimpleHTTPRequestHandler):
             return
         length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
         text = self.rfile.read(length).decode("utf-8", "replace")
-        print(f"web: failure on {self.client_address[0]}:", flush=True)
+        print(f"web: report from {self.client_address[0]}:", flush=True)
         for line in text.splitlines():
             print(f"    {line}", flush=True)
         self.send_response(204)

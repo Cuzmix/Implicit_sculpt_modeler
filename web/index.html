@@ -64,10 +64,24 @@ function fail(message) {
 		box.firstElementChild.appendChild(log);
 	}
 	box.style.display = "grid";
-	// The development server (scripts/web_build.py --serve) prints this in its terminal, so a
-	// tablet's failure can be read on the computer; any other host refuses it, unnoticed.
+	report(message);
+}
+
+// The development server (scripts/web_build.py --serve) prints a report in its terminal, so
+// what happened on a tablet can be read on the computer; any other host refuses it, unnoticed.
+function report(message) {
 	fetch("failure", { method: "POST", body: [navigator.userAgent, message, ...recent].join("\n") }).catch(() => { });
 }
+
+// Errors outside the app's own calls (a rejected promise in WebGPU's glue, a script error)
+// stop nothing visibly, so they are kept with the log and reported.
+window.addEventListener("error", (e) => { console.error(`script error: ${e.message} (${e.filename}:${e.lineno})`); report("script error"); });
+window.addEventListener("unhandledrejection", (e) => { console.error(`unhandled rejection: ${e.reason && (e.reason.stack || e.reason)}`); report("unhandled rejection"); });
+// A page still loading after ten seconds has hung somewhere that reports nothing: what it
+// shows and its last lines go to the server too.
+setTimeout(() => {
+	if (getComputedStyle(note).display !== "none") report("still loading after 10 s");
+}, 10000);
 
 async function start() {
 	if (!navigator.gpu) {
