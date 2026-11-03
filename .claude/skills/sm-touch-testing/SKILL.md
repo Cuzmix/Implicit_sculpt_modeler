@@ -213,8 +213,8 @@ what was done, what should happen, what happened; a screen recording when someth
     the fingertip.
 14. Sculpt on the GPU (Stats > Drawing): on a 10M model, stroke with it off and then on, with Draw, Smooth and an
     alpha, inside an HD window too. The shape must look the same both ways, the stroke must follow the pen without
-    a lag at its end, and undo must take back exactly the stroke. Note each stroke's brush time from Stats and whether
-    the switch started on (desktop GPUs) or off (the iPad, Android and integrated GPUs, which share system memory).
+    a lag at its end, and undo must take back exactly the stroke. Note each stroke's brush time from Stats with it on
+    and off, and whether a 20M+ model stays on the CPU (a note in the log: its lookup is past the memory budget).
 
 ## 7. Recording a failure
     Title: <what went wrong, in the user's words>

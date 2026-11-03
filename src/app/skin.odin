@@ -227,15 +227,37 @@ skin_auto_add :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, radius: 
 	if obj.voxel != nil || sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 do return false
 	m := object_mesh(obj)
 	tris := len(m.indices) / 3
-	if tris == 0 do return false
-	// The mean edge from the area, as if the triangles were equilateral: one pass, and close
-	// enough to judge a dab by.
-	area, _ := geom.mesh_area_bounds(m^, &app.pool)
-	edge := f32(math.sqrt(4 * area / (math.sqrt(f64(3)) * f64(tris))))
+	// A mesh too dense for even the coarsest skin within SKIN_AUTO_BYTES (about 22M
+	// triangles) never gets one, so it is not measured: this runs at every press.
+	if tris == 0 || skin_auto_bytes(tris, SKIN_SEGMENTS[1]) > SKIN_AUTO_BYTES do return false
+	// The mean edge from the mean triangle area, as if the triangles were equilateral, the
+	// mean taken over at most SKIN_AUTO_SAMPLES triangles spread over the mesh: close
+	// enough to judge a dab by, and well under a millisecond where measuring every
+	// triangle took 130 ms a press at 25M.
+	edge := f32(math.sqrt(4 * skin_mean_area(m^, tris) / math.sqrt(f64(3))))
 	segments := skin_auto_segments(tris, edge, radius)
 	if segments == 0 do return false
 	why := fmt.tprintf("Added a detail skin of %d segments to %s: %s's dab is finer than its mesh, so the detail goes into the skin (Detail skin section; Add a skin by itself turns this off)", segments, object_label(obj), BRUSHES[kind].name)
 	return skin_set(app, segments, why)
+}
+
+// Triangles skin_mean_area measures at most.
+SKIN_AUTO_SAMPLES :: 1 << 12
+
+// The mean area of `m`'s `tris` triangles, measured on every triangle up to
+// SKIN_AUTO_SAMPLES of them and on evenly spaced ones past that.
+@(private = "file")
+skin_mean_area :: proc(m: geom.Mesh, tris: int) -> f64 {
+	step := max(1, tris / SKIN_AUTO_SAMPLES)
+	sum, count := f64(0), 0
+	for t := 0; t < tris; t += step {
+		a := m.positions[m.indices[3 * t]]
+		b := m.positions[m.indices[3 * t + 1]]
+		c := m.positions[m.indices[3 * t + 2]]
+		sum += 0.5 * f64(linalg.length(linalg.cross(b - a, c - a)))
+		count += 1
+	}
+	return sum / f64(count)
 }
 
 // Squeeze: a dense sculpt becomes a lighter mesh holding its forms and a detail skin

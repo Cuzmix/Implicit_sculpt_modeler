@@ -144,8 +144,8 @@ App :: struct {
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
 	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their dabs and
-	// normals to kernels where render.caps offers it; on at the start of a person's run on
-	// a video card (render.sculpt_gpu_by_default).
+	// normals to kernels where render.caps offers it; on at the start of a person's run
+	// wherever it is offered.
 	gpu_sculpt: bool,
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
@@ -768,7 +768,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// On where it starts on, in a person's run: tests, replays and benchmarks keep the CPU's
 	// path, their oracle, unless --gpu-sculpt asks.
 	gpu_caps := render.caps(&app.renderer)
-	app.gpu_sculpt = gpu_caps.gpu_sculpt && !opts.cpu_sculpt && (opts.gpu_sculpt || (gpu_caps.gpu_sculpt_default && run_interactive(opts)))
+	app.gpu_sculpt = gpu_caps.gpu_sculpt && !opts.cpu_sculpt && (opts.gpu_sculpt || run_interactive(opts))
 	if app.gpu_sculpt do render.sculpt_gpu_kernels(&app.renderer)
 	app.gpu_lookup_waiting = app.gpu_sculpt
 	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
