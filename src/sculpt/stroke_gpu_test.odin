@@ -78,7 +78,8 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 		delta := p - rec.center
 		d2 := linalg.dot(delta, delta)
 		if d2 >= rec.r2 do continue
-		// The kernels' weight: the round or drawn falloff, then the mask's shield.
+		// The kernels' weight: the round or drawn falloff, then the HD fade's and the
+		// mask's shield.
 		x2 := d2 * rec.inv_r2
 		w := falloff(x2)
 		if rec.falloff != nil {
@@ -87,7 +88,7 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 			i := int(x)
 			w = rec.falloff[i] + (rec.falloff[i + 1] - rec.falloff[i]) * (x - f32(i))
 		}
-		if rec.masked do w *= shield(nil, s.mask, v)
+		if rec.masked || rec.faded do w *= shield(s.fade if rec.faded else nil, s.mask if rec.masked else nil, v)
 		if w <= 0 do continue
 		#partial switch rec.kind {
 		case .Draw, .Inflate:
@@ -269,6 +270,7 @@ stroke_gpu_hand_off :: proc(t: ^testing.T) {
 	stroke_gpu_dabs_step_down_for_a_brush_the_kernels_lack(t)
 	stroke_gpu_dabs_normals_come_back_after_the_stroke(t)
 	stroke_gpu_dabs_masked_and_drawn_match_the_cpu(t)
+	stroke_gpu_dabs_faded_match_the_cpu(t)
 }
 
 // Two sculptors, each stroked the same way: the twin on the CPU, the other with its dabs
@@ -687,4 +689,42 @@ stroke_gpu_dabs_masked_and_drawn_match_the_cpu :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, still, "no fully masked vertex moved")
 	testing.expect(t, moved > 0, "the strokes moved the unmasked vertices")
+}
+
+@(private = "file")
+stroke_gpu_dabs_faded_match_the_cpu :: proc(t: ^testing.T) {
+	// An HD window's fade (0 on its border, a ramp, then full strength) under a partial
+	// mask: the dabs stay on the GPU, a border vertex never moves, and the rest end as
+	// the CPU's, the fade and the mask taken in sculpt.shield's order.
+	ma, mb: geom.Mesh
+	a, b: Sculptor
+	f: Fake_Gpu
+	dabs_fixture(&f, &ma, &mb, &a, &b)
+	defer geom.mesh_destroy(&ma)
+	defer geom.mesh_destroy(&mb)
+	defer sculptor_destroy(&a)
+	defer sculptor_destroy(&b)
+	defer fake_destroy(&f)
+	defer stroke_gpu = {}
+	for s in ([]^Sculptor{&a, &b}) {
+		s.fade = make([]u8, len(s.mesh.positions))
+		mask_ensure(s)
+		for p, v in s.mesh.positions {
+			s.fade[v] = 0 if p.x > 0.1 else u8(clamp(255 * (0.1 - p.x) / 0.2, 1, 255))
+			s.mask[v] = 100 if p.y > 0 else 0
+		}
+	}
+	before := make([]Vec3, len(mb.positions), context.temp_allocator)
+	copy(before, mb.positions[:])
+	brushes := []Brush{{kind = .Draw, radius = 0.3, strength = 0.5}, {kind = .Clay, radius = 0.3, strength = 0.5}}
+	dabs_pair(t, &f, &a, &b, brushes, true)
+	testing.expectf(t, f.begins == 2 && f.laid > 0, "the dabs were laid by the stand-in (begins %d, laid %d)", f.begins, f.laid)
+	expect_positions(t, &mb, &ma, 1e-5, "after faded GPU strokes")
+	still, moved := true, 0
+	for p, v in mb.positions {
+		if b.fade[v] == 0 && p != before[v] do still = false
+		if p != before[v] do moved += 1
+	}
+	testing.expect(t, still, "no vertex on the border moved")
+	testing.expect(t, moved > 0, "the strokes moved the faded vertices")
 }

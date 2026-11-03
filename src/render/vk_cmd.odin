@@ -61,6 +61,11 @@ Vk_Queue :: enum u8 {
 	Compute,
 }
 
+// The read-only storage buffers a compute pipeline may bind: twice SDL_GPU's eight, for the
+// sculpt dab kernels (sculpt_gpu.odin SCULPT_STORAGE_BUFFERS), whose device check is
+// gpu_storage_buffers_per_stage.
+VK_COMPUTE_STORAGE_BUFFERS :: 16
+
 Vk_Cmd :: struct {
 	cb:              vk.CommandBuffer,
 	queue:           Vk_Queue,
@@ -93,7 +98,7 @@ Vk_Cmd :: struct {
 	vertex_storage:  [8]vk.Buffer,
 	fragment_storage: [8]vk.Buffer, // read-only storage buffers of the fragment stage, after its samplers in set 2
 	samplers_bound:  [16]Vk_Sampled, // the fragment stage's in a render pass, the compute stage's in a compute pass
-	compute_storage: [8]vk.Buffer,   // read-only storage buffers
+	compute_storage: [VK_COMPUTE_STORAGE_BUFFERS]vk.Buffer, // read-only storage buffers
 	write_textures:  [8]vk.ImageView,
 	write_buffers:   [8]vk.Buffer,
 	// The compute pass's texture array (gpu_bind_compute_texture_array), written into set 3

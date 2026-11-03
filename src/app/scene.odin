@@ -839,8 +839,12 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	upload := render.sculpt_gpu_upload(gpu)
 	if upload != .None do render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask, upload == .Positions)
 	bytes += paint_upload(app, cmd, gpu, lv, ranges)
-	// The mask bytes the GPU's dab kernels read, once the mesh's lookup is there.
-	bytes += render.sculpt_gpu_mask_upload(&app.renderer, cmd, gpu, lv.sculptor.mask, ranges)
+	// The mask and HD fade bytes the GPU's dab kernels read, once the mesh's lookup is
+	// there. A level with hidden triangles has a fade too, marking them, but no stroke of
+	// its goes to the GPU.
+	bytes += render.sculpt_gpu_bytes_upload(&app.renderer, cmd, gpu, .Mask, lv.sculptor.mask, ranges)
+	fade := lv.sculptor.fade if sculpt.sculptor_hidden_count(&lv.sculptor) == 0 else nil
+	bytes += render.sculpt_gpu_bytes_upload(&app.renderer, cmd, gpu, .Fade, fade, ranges)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	if upload != .None do for r in ranges do bytes += int(r.count) * (size_of(geom.Vec3) if upload == .Positions else render.VERTEX_BYTES)
@@ -1401,6 +1405,9 @@ object_hd_leave :: proc(app: ^App, obj: ^Object) {
 	if !object_in_hd(obj) do return
 	if app.stroke.object == obj.id do stroke_finish(app)
 	start := time.tick_now()
+	// The window's positions and normals land from the GPU before its buffers go, which
+	// would drop the readbacks still under way, and before the window is stored.
+	object_gpu_sync(obj)
 	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_hd_leave(&obj.levels)

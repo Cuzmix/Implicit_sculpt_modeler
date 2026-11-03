@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_move.comp.spv sha256 7ed1e61b3205666a43245432df598d1f65539adf0137f92a17c124212c0cc0f5
+// SDL_shadercross 1ff05bec5739 from dab_move.comp.spv sha256 3c6e9b93c190cc710d65a173cec1720b360b398f298c46528b4450af13ee21b9
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
@@ -255,13 +255,23 @@ float dab_weight(thread const Dab_std430_logical& d, float3 delta, float d2, dev
 }
 
 static inline __attribute__((always_inline))
-float shield(thread const Dab_std430_logical& d, uint v, device StructuredBuffer_2& mask)
+float shield(thread const Dab_std430_logical& d, uint v, device StructuredBuffer_2& fade, device StructuredBuffer_2& mask)
 {
-    if ((d.slabs.w & 32u) == 0u)
+    uint shift = (v & 3u) * 8u;
+    float w;
+    if ((d.slabs.w & 128u) != 0u)
     {
-        return 1.0;
+        w = spvFMul(float((fade._member0[v >> uint(2)] >> shift) & 255u), 0.0039215688593685626983642578125);
     }
-    return spvFMul(float(255u - ((mask._member0[v >> uint(2)] >> ((v & 3u) * 8u)) & 255u)), 0.0039215688593685626983642578125);
+    else
+    {
+        w = 1.0;
+    }
+    if ((d.slabs.w & 32u) != 0u)
+    {
+        w = spvFMul(w, spvFMul(float(255u - ((mask._member0[v >> uint(2)] >> shift) & 255u)), 0.0039215688593685626983642578125));
+    }
+    return w;
 }
 
 static inline __attribute__((always_inline))
@@ -277,13 +287,13 @@ float facing_weight(thread const Dab_std430_logical& d, float3 n)
 static inline __attribute__((always_inline))
 void put(uint v, float3 p, device RWStructuredBuffer& positions)
 {
-    uint _654 = 3u * v;
-    positions._member0[_654] = p.x;
-    positions._member0[_654 + 1u] = p.y;
-    positions._member0[_654 + 2u] = p.z;
+    uint _678 = 3u * v;
+    positions._member0[_678] = p.x;
+    positions._member0[_678 + 1u] = p.y;
+    positions._member0[_678 + 2u] = p.z;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer& positions [[buffer(6)]], device StructuredBuffer_2& normals [[buffer(6)]], device StructuredBuffer_2& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device RWStructuredBuffer_1& areas [[buffer(8)]], device RWStructuredBuffer_2& heights [[buffer(10)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], device RWStructuredBuffer& positions [[buffer(7)]], device StructuredBuffer_2& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer_2& fade [[buffer(9)]], device RWStructuredBuffer_1& areas [[buffer(9)]], device RWStructuredBuffer_2& heights [[buffer(11)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     Dab_std430_logical _11;
     _11.center_r2 = dabs._member0[Params.dab].center_r2;
@@ -310,14 +320,14 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     }
     float3 n = normal_at(v, normals);
     float _312 = dab_weight(_11, delta, _213, tables);
-    float _406 = shield(_11, v, mask);
+    float _406 = shield(_11, v, fade, mask);
     float w = spvFMul(spvFMul(_312, _406), facing_weight(_11, n));
     if (w <= 0.0)
     {
         return;
     }
-    float4 _476 = areas._member0[2u * Params.dab];
-    float4 _482 = areas._member0[(2u * Params.dab) + 1u];
+    float4 _500 = areas._member0[2u * Params.dab];
+    float4 _506 = areas._member0[(2u * Params.dab) + 1u];
     float3 p;
     float h;
     if ((_11.slabs.w & 16u) != 0u)
@@ -342,7 +352,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         }
         if (_11.slabs.z == 0u)
         {
-            p = _476.xyz;
+            p = _500.xyz;
         }
         else
         {
@@ -355,7 +365,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     {
         if (_11.slabs.z == 0u)
         {
-            p = spvFAdd(p_1, _476.xyz * spvFMul(_11.facing_amount.w, w));
+            p = spvFAdd(p_1, _500.xyz * spvFMul(_11.facing_amount.w, w));
         }
         else
         {
@@ -367,10 +377,10 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
             {
                 if (_11.slabs.z == 2u)
                 {
-                    float _557 = dot(spvFSub(p_1, _482.xyz), _476.xyz);
-                    if (spvFMul(_557, _11.facing_amount.w) < 0.0)
+                    float _581 = dot(spvFSub(p_1, _506.xyz), _500.xyz);
+                    if (spvFMul(_581, _11.facing_amount.w) < 0.0)
                     {
-                        p = spvFSub(p_1, _476.xyz * spvFMul(_557, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
+                        p = spvFSub(p_1, _500.xyz * spvFMul(_581, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
                     }
                     else
                     {
@@ -381,8 +391,8 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                 {
                     if (_11.slabs.z == 3u)
                     {
-                        float _575 = dot(spvFSub(p_1, _482.xyz), _476.xyz);
-                        if (_575 > 0.0)
+                        float _599 = dot(spvFSub(p_1, _506.xyz), _500.xyz);
+                        if (_599 > 0.0)
                         {
                             h = _11.misc.x;
                         }
@@ -390,9 +400,9 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         {
                             h = _11.misc.y;
                         }
-                        if (abs(_575) <= spvFMul(_11.misc.z, spvFSub(1.0, fast::clamp(h, 0.0, 1.0))))
+                        if (abs(_599) <= spvFMul(_11.misc.z, spvFSub(1.0, fast::clamp(h, 0.0, 1.0))))
                         {
-                            p = spvFSub(p_1, _476.xyz * spvFMul(spvFMul(_575, _11.facing_amount.w), fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
+                            p = spvFSub(p_1, _500.xyz * spvFMul(spvFMul(_599, _11.facing_amount.w), fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.5), 1.0)));
                         }
                         else
                         {
@@ -404,7 +414,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         if (_11.slabs.z == 4u)
                         {
                             float3 to = spvFSub(_11.center_r2.xyz, p_1);
-                            p = spvFAdd(p_1, spvFSub(to, _476.xyz * dot(to, _476.xyz)) * spvFMul(_11.facing_amount.w, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.25), 1.0)));
+                            p = spvFAdd(p_1, spvFSub(to, _500.xyz * dot(to, _500.xyz)) * spvFMul(_11.facing_amount.w, fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.25), 1.0)));
                         }
                         else
                         {
@@ -412,7 +422,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                             if (_11.slabs.z == 5u)
                             {
                                 float3 to_1 = spvFSub(_11.center_r2.xyz, p_1);
-                                p_1_1 = spvFAdd(p_1, spvFAdd(_476.xyz * spvFMul(spvFMul(_11.facing_amount.w, w), w), spvFSub(to_1, _476.xyz * dot(to_1, _476.xyz)) * fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.20000000298023223876953125), 1.0)));
+                                p_1_1 = spvFAdd(p_1, spvFAdd(_500.xyz * spvFMul(spvFMul(_11.facing_amount.w, w), w), spvFSub(to_1, _500.xyz * dot(to_1, _500.xyz)) * fast::min(spvFMul(spvFMul(_11.tilt0.w, w), 0.20000000298023223876953125), 1.0)));
                             }
                             else
                             {

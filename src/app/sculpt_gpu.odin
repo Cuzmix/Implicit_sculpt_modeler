@@ -50,10 +50,16 @@ sculpt_gpu_sculptor :: proc(app: ^App, gpu: ^render.Mesh_Buffers) -> ^sculpt.Scu
 // object (render.sculpt_gpu_prepare), so the first stroke on it finds the lookup on the
 // GPU rather than waiting seconds for 700 MB at 25M; whether more is to come. Nothing
 // goes up with the switch off, nor for a level whose strokes all stay on the CPU (the
-// conditions sculpt_gpu_wanted reads before the brush), and the frame calls it only
-// while no stroke is under way.
+// conditions sculpt_gpu_wanted reads before the brush), nor for the level around an HD
+// window, which brushes do not reach while it is open (its lookup is given back unless a
+// stroke took it, sculpt_gpu_unselected); the frame calls it only while no stroke is
+// under way.
 sculpt_gpu_prepare_level :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, lv: ^sculpt.Level, gpu: ^render.Mesh_Buffers) -> (waiting: bool) {
 	if !app.gpu_sculpt || !render.caps(&app.renderer).gpu_sculpt || app.renderer.sculpt_gpu.failed do return false
+	if window := obj.levels.hd.window; window != nil && lv != window {
+		render.sculpt_gpu_unselected(&app.renderer, gpu)
+		return false
+	}
 	s := &lv.sculptor
 	if object_dynamic(obj) || sculpt.sculptor_skin(s) != nil || sculpt.sculptor_hidden_count(s) > 0 do return false
 	if !gpu.storage || gpu.vertex_capacity != u32(len(lv.mesh.positions)) || gpu.index_count != u32(len(lv.mesh.indices)) do return false
@@ -66,9 +72,9 @@ sculpt_gpu_prepare_level :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, lv: ^
 // triangles leave out), whose buffers the kernels can read, and only once the mesh's
 // lookup is on the GPU: its normals; and its dabs too for a stroke that lays dabs along
 // its path (Drag rectangle, Drag dot and a straight line put the stroke back every
-// frame, which the GPU's copy would not follow) on the current level (an HD window's
-// border fades the brush out, which the kernels do not read). The sculptor narrows Dabs
-// to Normals for a brush its kernels do not lay.
+// frame, which the GPU's copy would not follow), on the current level or an HD window
+// (whose fade toward its border the kernels read as they read the mask). The sculptor
+// narrows Dabs to Normals for a brush its kernels do not lay.
 @(private = "file")
 sculpt_gpu_begin :: proc(data: rawptr, s: ^sculpt.Sculptor, brush: sculpt.Brush) -> sculpt.Gpu_Take {
 	app := cast(^App)data
@@ -92,7 +98,7 @@ sculpt_gpu_wanted :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level, gpu: ^rend
 	st := &app.stroke
 	// Physics writes the positions on the CPU after the dabs, so the GPU takes only normals.
 	if st.physics do return .Normals
-	if lv != sculpt.levels_current(&obj.levels) || st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
+	if st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
 	return .Dabs
 }
 
@@ -139,6 +145,7 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 			once         = d.once,
 			stroke       = d.stroke,
 			masked       = d.masked,
+			faded        = d.faded,
 			falloff      = d.falloff,
 			ranges       = d.ranges,
 		}

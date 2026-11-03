@@ -1,4 +1,4 @@
-// slangc wgsl from dab_smooth_apply.comp.spv sha256 ffbfd3dbe7e07768990976fc6fb12a0bc4dff9608ebfbb590394cfb9bc1f4e9a
+// slangc wgsl from dab_smooth_apply.comp.spv sha256 1745a9e41bc74fae1010120d8d950fdc0bb7051f7a57425c40758e421e33aade
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -28,6 +28,8 @@ struct Dab_std430_0
 @binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
 
 @binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
+
+@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
 
 @binding(12) @group(0) var<storage, read> mask_0 : array<u32>;
 
@@ -107,11 +109,25 @@ fn normal_at_0( v_2 : u32) -> vec3<f32>
 
 fn shield_0( d_1 : ptr<function, Dab_std430_0>,  v_3 : u32) -> f32
 {
-    if(((((*d_1).slabs_0.w) & (u32(32)))) == u32(0))
+    var shift_0 : u32 = ((v_3 & (u32(3)))) * u32(8);
+    var _S10 : u32 = (*d_1).slabs_0.w;
+    var w_0 : f32;
+    if(((_S10 & (u32(128)))) != u32(0))
     {
-        return 1.0f;
+        w_0 = f32((((fade_0[(v_3 >> (u32(2)))] >> (shift_0))) & (u32(255)))) * 0.00392156885936856f;
     }
-    return f32(u32(255) - ((((mask_0[(v_3 >> (u32(2)))] >> ((((v_3 & (u32(3)))) * u32(8))))) & (u32(255))))) * 0.00392156885936856f;
+    else
+    {
+        w_0 = 1.0f;
+    }
+    if(((_S10 & (u32(32)))) != u32(0))
+    {
+        w_0 = w_0 * (f32(u32(255) - ((((mask_0[(v_3 >> (u32(2)))] >> (shift_0))) & (u32(255))))) * 0.00392156885936856f);
+    }
+    else
+    {
+    }
+    return w_0;
 }
 
 fn facing_weight_0( d_2 : ptr<function, Dab_std430_0>,  n_1 : vec3<f32>) -> f32
@@ -132,9 +148,9 @@ fn falloff_drawn_0( d_3 : ptr<function, Dab_std430_0>,  x2_0 : f32) -> f32
     }
     var x_0 : f32 = x2_0 * 256.0f;
     var i_0 : i32 = i32(x_0);
-    var _S10 : u32 = u32((*d_3).misc_0.w) + u32(i_0);
-    var a_0 : f32 = tables_0[_S10];
-    return a_0 + (tables_0[_S10 + u32(1)] - a_0) * (x_0 - f32(i_0));
+    var _S11 : u32 = u32((*d_3).misc_0.w) + u32(i_0);
+    var a_0 : f32 = tables_0[_S11];
+    return a_0 + (tables_0[_S11 + u32(1)] - a_0) * (x_0 - f32(i_0));
 }
 
 fn falloff_0( x2_1 : f32) -> f32
@@ -155,12 +171,12 @@ fn dab_weight_0( d_4 : ptr<function, Dab_std430_0>,  delta_0 : vec3<f32>,  d2_0 
     if((any((view_0 != vec3<f32>(0.0f)))))
     {
         var h_0 : f32 = dot(delta_0, view_0);
-        var _S11 : f32 = h_0 * h_0;
-        if(_S11 >= 1.0f)
+        var _S12 : f32 = h_0 * h_0;
+        if(_S12 >= 1.0f)
         {
             return 0.0f;
         }
-        x2_3 = x2_2 - _S11;
+        x2_3 = x2_2 - _S12;
     }
     else
     {
@@ -168,18 +184,18 @@ fn dab_weight_0( d_4 : ptr<function, Dab_std430_0>,  delta_0 : vec3<f32>,  d2_0 
     }
     if(((((*d_4).slabs_0.w) & (u32(64)))) != u32(0))
     {
-        var _S12 : f32 = falloff_drawn_0(&((*d_4)), x2_3);
-        return _S12;
+        var _S13 : f32 = falloff_drawn_0(&((*d_4)), x2_3);
+        return _S13;
     }
     return falloff_0(x2_3);
 }
 
 fn put_0( v_4 : u32,  p_0 : vec3<f32>)
 {
-    var _S13 : u32 = u32(3) * v_4;
-    positions_0[_S13] = p_0.x;
-    positions_0[_S13 + u32(1)] = p_0.y;
-    positions_0[_S13 + u32(2)] = p_0.z;
+    var _S14 : u32 = u32(3) * v_4;
+    positions_0[_S14] = p_0.x;
+    positions_0[_S14 + u32(1)] = p_0.y;
+    positions_0[_S14 + u32(2)] = p_0.z;
     return;
 }
 
@@ -187,59 +203,59 @@ fn put_0( v_4 : u32,  p_0 : vec3<f32>)
 @workgroup_size(256, 1, 1)
 fn main(@builtin(workgroup_id) group_id_1 : vec3<u32>, @builtin(local_invocation_id) local_id_1 : vec3<u32>)
 {
-    var _S14 : Dab_std430_0 = dabs_0[Params_0.dab_0];
+    var _S15 : Dab_std430_0 = dabs_0[Params_0.dab_0];
     var g_1 : u32;
     var v_5 : u32;
-    var _S15 : bool = slab_vertex_0(&(_S14), group_id_1, local_id_1, &(g_1), &(v_5));
-    if(!_S15)
+    var _S16 : bool = slab_vertex_0(&(_S15), group_id_1, local_id_1, &(g_1), &(v_5));
+    if(!_S16)
     {
         return;
     }
     var p_1 : vec3<f32> = at_0(v_5);
-    var delta_1 : vec3<f32> = p_1 - _S14.center_r2_0.xyz;
+    var delta_1 : vec3<f32> = p_1 - _S15.center_r2_0.xyz;
     var d2_1 : f32 = dot(delta_1, delta_1);
-    if(d2_1 >= (_S14.center_r2_0.w))
+    if(d2_1 >= (_S15.center_r2_0.w))
     {
         return;
     }
     var n_2 : vec3<f32> = normal_at_0(v_5);
-    var _S16 : f32 = shield_0(&(_S14), v_5);
-    var _S17 : f32 = facing_weight_0(&(_S14), n_2);
-    var w_0 : f32 = _S16 * _S17;
-    if(w_0 <= 0.0f)
+    var _S17 : f32 = shield_0(&(_S15), v_5);
+    var _S18 : f32 = facing_weight_0(&(_S15), n_2);
+    var w_1 : f32 = _S17 * _S18;
+    if(w_1 <= 0.0f)
     {
         return;
     }
     var step_0 : vec3<f32> = scratch_0[g_1 * u32(256) + local_id_1.x].xyz - p_1;
-    var flags_0 : u32 = _S14.slabs_0.w;
+    var flags_0 : u32 = _S15.slabs_0.w;
     var along_0 : f32 = dot(step_0, n_2);
-    var _S18 : bool;
+    var _S19 : bool;
     if(((flags_0 & (u32(2)))) != u32(0))
     {
-        _S18 = !(along_0 > 0.0f);
+        _S19 = !(along_0 > 0.0f);
     }
     else
     {
-        _S18 = false;
+        _S19 = false;
     }
-    if(_S18)
+    if(_S19)
     {
         return;
     }
     if(((flags_0 & (u32(4)))) != u32(0))
     {
-        _S18 = !(along_0 < 0.0f);
+        _S19 = !(along_0 < 0.0f);
     }
     else
     {
-        _S18 = false;
+        _S19 = false;
     }
-    if(_S18)
+    if(_S19)
     {
         return;
     }
-    var _S19 : f32 = dab_weight_0(&(_S14), delta_1, d2_1);
-    var t_1 : f32 = clamp(Params_0.rate_0 * _S19, 0.0f, 1.0f) * w_0;
+    var _S20 : f32 = dab_weight_0(&(_S15), delta_1, d2_1);
+    var t_1 : f32 = clamp(Params_0.rate_0 * _S20, 0.0f, 1.0f) * w_1;
     var step_1 : vec3<f32>;
     if(((flags_0 & (u32(1)))) != u32(0))
     {

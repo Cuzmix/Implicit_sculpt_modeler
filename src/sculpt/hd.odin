@@ -500,6 +500,8 @@ levels_hd_leave :: proc(l: ^Levels) {
 	hd := &l.hd
 	lv := hd.window
 	if lv == nil do return
+	// The window's positions as the GPU left them, where its strokes ran there.
+	_ = sculptor_gpu_sync(&lv.sculptor)
 	r := &hd.region
 	e := Hd_Leave{hd = hd, lv = lv, base = {positions = r.below.positions[:], indices = r.below.indices[:], faces = r.below.faces}}
 	e.changed = make([]bool, len(r.nodes), context.temp_allocator)
