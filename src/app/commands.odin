@@ -1627,7 +1627,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) or Brush path (a path to run the brush along). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad Remesh's loops follow). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {

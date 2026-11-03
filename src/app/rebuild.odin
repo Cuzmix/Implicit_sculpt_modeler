@@ -268,6 +268,11 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 					masked := obj.voxel == nil && s.mask != nil
 					_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
 					_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
+					// Guide strength, as ZRemesher's Curves Strength: how hard the Guide
+					// curves (a curve's use) pull the loops along them.
+					guides := quad_guide_count(app)
+					g := app.ui.retopo_guide_strength
+					_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
 				}
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)

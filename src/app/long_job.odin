@@ -232,7 +232,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
-		j.retopo_source = quad_source(obj, cmd.quad)
+		j.retopo_source = quad_source(app, obj, cmd.quad)
 	case .Subdivide:
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels

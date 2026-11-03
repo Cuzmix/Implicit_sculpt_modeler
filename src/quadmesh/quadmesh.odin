@@ -37,6 +37,11 @@ Params :: struct {
 	// relative to its mean over the area, so the count stays what was asked, as
 	// ZRemesher's Use PolyPaint moves its quads.
 	density:       []f32,
+	// Guide curves, two points a segment, lying on or near the surface: the quads' edges
+	// are pulled to run along them, by `guide_strength` (0 not at all, 1 as closely as
+	// the field can follow), as ZRemesher's Curves and Curves Strength. Nil for none.
+	guides:         []geom.Vec3,
+	guide_strength: f32,
 }
 
 // AutoRemesher's own values.
@@ -114,6 +119,9 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 			feature_count = u32(len(params.features) / 2),
 			density       = raw_data(params.density) if len(params.density) == len(positions) else nil,
 			density_count = u32(len(params.density)) if len(params.density) == len(positions) else 0,
+			guides         = ([^]f32)(raw_data(params.guides)),
+			guide_count    = u32(len(params.guides) / 2),
+			guide_strength = params.guide_strength,
 		}
 		message := make([]u8, REASON_MAX, context.temp_allocator)
 		result: ^Qm_Result
@@ -177,6 +185,9 @@ Qm_Params :: struct {
 	feature_count: u32,
 	density:       [^]f32,
 	density_count: u32,
+	guides:         [^]f32,
+	guide_count:    u32,
+	guide_strength: f32,
 }
 
 @(private = "file")

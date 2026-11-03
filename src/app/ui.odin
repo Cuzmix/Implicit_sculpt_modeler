@@ -91,6 +91,7 @@ Ui_State :: struct {
 	retopo_edge_degrees: f32, // ...and edges sharper than this kept (AutoRemesher; 90 keeps right angles and sharper)
 	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (AutoRemesher)
 	retopo_use_mask:    bool, // ...and more where it is masked (AutoRemesher)
+	retopo_guide_strength: f32, // ...with the loops pulled along the Guide curves this hard (AutoRemesher)
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for
 	remesh_smooth:      i32,  // ...with this many relax rounds (remesh.odin)...
@@ -186,7 +187,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.
