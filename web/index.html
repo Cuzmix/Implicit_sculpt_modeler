@@ -75,13 +75,13 @@ live(`page: ${navigator.userAgent}`);
 function stage(name) { live(`page: ${name}`); flush(); }
 let watched_memory = null;
 setInterval(() => {
-	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB, GPU ${(gpu_bytes / 1048576).toFixed(0)} MB in ${gpu_objects} buffers and textures`);
+	if (watched_memory) live(`page: wasm memory ${(watched_memory.buffer.byteLength / 1048576).toFixed(0)} MB, GPU ${(gpu_bytes / 1048576).toFixed(0)} MB in ${gpu_objects} buffers and textures, ${gpu_submits} submits`);
 }, 500);
 
 // What the app holds on the GPU, which a tablet's browser counts against the tab: every
 // buffer and texture made and destroyed through WebGPU, by its size (a texture's by its
 // format, samples, layers and mip chain), with each one of 16 MB or more named as it comes.
-let gpu_bytes = 0, gpu_objects = 0;
+let gpu_bytes = 0, gpu_objects = 0, gpu_submits = 0;
 const gpu_sizes = new WeakMap();
 const FORMAT_BYTES = { r8unorm: 1, r8uint: 1, r8snorm: 1, rg8unorm: 2, r16float: 2, r16uint: 2, depth16unorm: 2,
 	rgba16float: 8, rg32float: 8, rg32uint: 8, rgba16uint: 8, "depth32float-stencil8": 8,
@@ -112,6 +112,44 @@ if (typeof GPUDevice !== "undefined") {
 	const createBuffer = GPUDevice.prototype.createBuffer;
 	GPUDevice.prototype.createBuffer = function (d) {
 		return gpu_track(createBuffer.call(this, d), d.size, `buffer "${d.label || ""}"`);
+	};
+	// Each shader and pipeline as it is made, and the work queued since the last memory
+	// line: a shader that crashes or hangs the browser's GPU process takes the tab with it,
+	// and the last of these lines before the end names it.
+	let shader_count = 0;
+	const createShaderModule = GPUDevice.prototype.createShaderModule;
+	GPUDevice.prototype.createShaderModule = function (d) {
+		shader_count += 1;
+		const first = (d.code.match(/@(compute|vertex|fragment)[^{]*fn\s+(\w+)/) || [])[2];
+		live(`page: shader ${shader_count} "${d.label || ""}" ${d.code.length} chars, first entry ${first}`);
+		return createShaderModule.call(this, d);
+	};
+	const pipeline_name = (d) => [d.label, d.vertex && d.vertex.entryPoint, d.fragment && d.fragment.entryPoint, d.compute && d.compute.entryPoint].filter((v) => v).join(" ");
+	for (const kind of ["createRenderPipeline", "createComputePipeline"]) {
+		const make = GPUDevice.prototype[kind];
+		GPUDevice.prototype[kind] = function (d) {
+			live(`page: ${kind} ${pipeline_name(d)}`);
+			return make.call(this, d);
+		};
+		const make_async = GPUDevice.prototype[kind + "Async"];
+		if (make_async) GPUDevice.prototype[kind + "Async"] = function (d) {
+			live(`page: ${kind}Async ${pipeline_name(d)}`);
+			return make_async.call(this, d);
+		};
+	}
+	// The scene preview's copy back from the GPU, and when it lands.
+	const mapAsync = GPUBuffer.prototype.mapAsync;
+	GPUBuffer.prototype.mapAsync = function (mode, offset, size) {
+		const bytes = this.size;
+		live(`page: mapAsync ${(bytes / 1048576).toFixed(1)} MB`);
+		return mapAsync.call(this, mode, offset, size).then(
+			(v) => { live(`page: mapped ${(bytes / 1048576).toFixed(1)} MB`); return v; },
+			(e) => { live(`page: map failed ${e && e.name}: ${e && e.message}`); throw e; });
+	};
+	const submit = GPUQueue.prototype.submit;
+	GPUQueue.prototype.submit = function (buffers) {
+		gpu_submits += 1;
+		return submit.call(this, buffers);
 	};
 	const createTexture = GPUDevice.prototype.createTexture;
 	GPUDevice.prototype.createTexture = function (d) {
@@ -191,6 +229,21 @@ async function start() {
 		};
 	}
 	const web = new SculptWeb.Web(canvas, memory, fail);
+	// Each write the app makes to the page's files (an autosave among them) and each save of
+	// them to IndexedDB, logged before it happens.
+	const write = web.fs.changed.bind(web.fs);
+	web.fs.changed = function (path) {
+		const e = this.entries.get(path);
+		if (e && !e.dir && (!this.dirty.has(path))) live(`page: file ${path} ${(e.size / 1048576).toFixed(2)} MB`);
+		return write(path);
+	};
+	const save = web.fs.flush.bind(web.fs);
+	web.fs.flush = function () {
+		let bytes = 0;
+		for (const path of this.dirty) { const e = this.entries.get(path); if (e && !e.dir) bytes += e.size; }
+		stage(`saving ${this.dirty.size} files, ${(bytes / 1048576).toFixed(2)} MB, to IndexedDB`);
+		return save();
+	};
 	// The files kept from earlier visits (settings, library, scenes), before the app reads them.
 	await web.fs.open();
 	stage("files opened");
@@ -223,8 +276,11 @@ async function start() {
 		const dt = last === undefined ? 0 : (now - last) / 1000;
 		last = now;
 		let keep = true;
+		const began = performance.now();
 		try {
 			keep = ex.step(dt);
+			const took = performance.now() - began;
+			if (took > 100) live(`page: a frame took ${took.toFixed(0)} ms`);
 		} catch (e) {
 			if (e !== SculptWeb.UNWIND) {
 				console.error(e);
