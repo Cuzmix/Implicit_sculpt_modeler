@@ -327,7 +327,9 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `renderer_destroy` waits and releases in reverse order.
 - Shaders are Slang (one source for SPIR-V, Metal through it, WGSL later). `name.stage.slang` (vert, frag, comp) is an
   entry file whose `main` builds `name.stage.spv`, and `scripts/shaders_msl.py` turns that into `name.stage.msl` with
-  SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots); render `#load`s
+  SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots, but a compute kernel's read-write
+  buffers land after the read-only ones it *reads*, so a kernel must read every read-only binding it declares, as
+  `dab.slang`'s `keep_bindings` does; `shaders_msl.py --check` fails on a gap); render `#load`s
   `"shaders/name.stage" + SHADER_EXT` with `SHADER_ENTRY` and `SHADER_FORMAT` (`shaders.odin`), so Darwin embeds only
   `.msl` and everything else only `.spv`; other `.slang` files are includes
   (`#include`, `#define TEXTURED` before `mesh_shading.slang`). Bindings are SDL's sets, written

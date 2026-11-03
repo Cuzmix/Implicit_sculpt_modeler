@@ -1,4 +1,4 @@
-// slangc wgsl from dab_area.comp.spv sha256 0af46b4cc0482801f44b6879b6819c9a2aec450ececd918958493746c2976a14
+// slangc wgsl from dab_area.comp.spv sha256 a442483d35866ef02a7bd09bcde3ef6ad1351eeee1500d8f932fc32273f9bdc5
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -9,6 +9,14 @@ struct SLANG_ParameterGroup_Params_std140_0
 };
 
 @binding(0) @group(2) var<uniform> Params_0 : SLANG_ParameterGroup_Params_std140_0;
+@binding(0) @group(0) var<storage, read> indices_0 : array<u32>;
+
+@binding(2) @group(0) var<storage, read> offsets_0 : array<u32>;
+
+@binding(4) @group(0) var<storage, read> tris_0 : array<u32>;
+
+@binding(6) @group(0) var<storage, read> slabs_0 : array<vec2<u32>>;
+
 struct Dab_std430_0
 {
     @align(16) center_r2_0 : vec4<f32>,
@@ -19,18 +27,31 @@ struct Dab_std430_0
     @align(16) tilt2_0 : vec4<f32>,
     @align(16) misc_0 : vec4<f32>,
     @align(16) alpha_up_0 : vec4<f32>,
-    @align(16) slabs_0 : vec4<u32>,
+    @align(16) slabs_1 : vec4<u32>,
 };
 
 @binding(8) @group(0) var<storage, read> dabs_0 : array<Dab_std430_0>;
 
-@binding(6) @group(0) var<storage, read> slabs_1 : array<vec2<u32>>;
+@binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
+
+@binding(12) @group(0) var<storage, read> mask_0 : array<u32>;
+
+@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
 
 @binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
 
-@binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
+@binding(14) @group(0) var<storage, read> tables_0 : array<f32>;
 
 @binding(2) @group(1) var<storage, read_write> partials_0 : array<vec4<f32>>;
+
+fn keep_bindings_0()
+{
+    if((Params_0.groups_x_0) == u32(0))
+    {
+        positions_0[i32(0)] = f32(indices_0[i32(0)] + offsets_0[i32(0)] + tris_0[i32(0)] + slabs_0[i32(0)].x + dabs_0[i32(0)].slabs_1.x + normals_0[i32(0)] + mask_0[i32(0)] + fade_0[i32(0)]) + tables_0[i32(0)];
+    }
+    return;
+}
 
 fn at_0( v_0 : u32) -> vec3<f32>
 {
@@ -101,12 +122,12 @@ fn slab_vertex_0( _S8 : u32,  _S9 : vec3<u32>,  _S10 : vec3<u32>,  _S11 : ptr<fu
 {
     (*_S11) = _S9.y * Params_0.groups_x_0 + _S9.x;
     (*_S12) = u32(0);
-    var _S13 : vec4<u32> = dabs_0[_S8].slabs_0;
-    if((*_S11) >= (dabs_0[_S8].slabs_0.y))
+    var _S13 : vec4<u32> = dabs_0[_S8].slabs_1;
+    if((*_S11) >= (dabs_0[_S8].slabs_1.y))
     {
         return false;
     }
-    var slab_0 : vec2<u32> = slabs_1[_S13.x + (*_S11)];
+    var slab_0 : vec2<u32> = slabs_0[_S13.x + (*_S11)];
     var _S14 : u32 = _S10.x;
     if(_S14 >= (slab_0.y))
     {
@@ -120,6 +141,7 @@ fn slab_vertex_0( _S8 : u32,  _S9 : vec3<u32>,  _S10 : vec3<u32>,  _S11 : ptr<fu
 @workgroup_size(256, 1, 1)
 fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation_id) local_id_0 : vec3<u32>)
 {
+    keep_bindings_0();
     var g_0 : u32;
     var v_2 : u32;
     var _S15 : bool = slab_vertex_0(Params_0.dab_0, group_id_0, local_id_0, &(g_0), &(v_2));
@@ -156,7 +178,7 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     var _S21 : bool;
     if(_S20 == u32(0))
     {
-        _S21 = g_0 < (dabs_0[Params_0.dab_0].slabs_0.y);
+        _S21 = g_0 < (dabs_0[Params_0.dab_0].slabs_1.y);
     }
     else
     {
@@ -182,7 +204,7 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
             n_1 = n_2;
             c_0 = c_1;
         }
-        var _S22 : u32 = dabs_0[Params_0.dab_0].slabs_0.x;
+        var _S22 : u32 = dabs_0[Params_0.dab_0].slabs_1.x;
         partials_0[u32(2) * (_S22 + g_0)] = n_1;
         partials_0[u32(2) * (_S22 + g_0) + u32(1)] = c_0;
     }

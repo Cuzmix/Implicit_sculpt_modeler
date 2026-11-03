@@ -66,9 +66,13 @@ Mtl_Pipeline :: struct {
 	counts:        [8]u32, // the vertex shader's four counts, then the fragment shader's
 }
 
-// SDL_GPU's limits per compute pipeline, which size the command buffer's binding arrays.
+// The limits per compute pipeline, which size the command buffer's binding arrays:
+// SDL_GPU's, but for twice its eight read-only buffers, which the sculpt dab kernels
+// need (sculpt_gpu.odin SCULPT_STORAGE_BUFFERS; uniforms, then read-only, then
+// read-write buffers take 15 of Metal's 31 buffer slots), as the Vulkan backend's
+// VK_COMPUTE_STORAGE_BUFFERS.
 MTL_SAMPLERS :: 16
-MTL_STORAGE_BUFFERS :: 8
+MTL_STORAGE_BUFFERS :: 16
 MTL_COMPUTE_WRITES :: 8
 
 Mtl_Compute_Pipeline :: struct {

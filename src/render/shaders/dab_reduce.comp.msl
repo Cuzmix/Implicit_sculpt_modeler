@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 7a7fbfadde947e480a206886cdb920c4a02408878d46b37ba4c1fe2037b33418
+// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 f1eafbd2b49beb23c595af521dad0feb2beb4ff817dae283b4ab3ba37ac6fb18
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wmissing-braces"
 
@@ -65,6 +65,16 @@ struct SLANG_ParameterGroup_Params_std140
     uint stroke;
 };
 
+struct StructuredBuffer
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint2 _member0[1];
+};
+
 struct Dab_std430
 {
     float4 center_r2;
@@ -78,40 +88,60 @@ struct Dab_std430
     uint4 slabs;
 };
 
-struct StructuredBuffer
+struct StructuredBuffer_2
 {
     Dab_std430 _member0[1];
 };
 
 struct RWStructuredBuffer
 {
+    float _member0[1];
+};
+
+struct StructuredBuffer_3
+{
+    float _member0[1];
+};
+
+struct RWStructuredBuffer_1
+{
     float4 _member0[1];
 };
 
 static inline __attribute__((always_inline))
+void keep_bindings(constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& indices, device StructuredBuffer& offsets, device StructuredBuffer& tris, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs, device StructuredBuffer& normals, device StructuredBuffer& mask, device StructuredBuffer& fade, device RWStructuredBuffer& positions, device StructuredBuffer_3& tables)
+{
+    if (Params.groups_x == 0u)
+    {
+        positions._member0[0] = spvFAdd(float(((((((indices._member0[0] + offsets._member0[0]) + tris._member0[0]) + slabs._member0[0].x) + dabs._member0[0].slabs.x) + normals._member0[0]) + mask._member0[0]) + fade._member0[0]), tables._member0[0]);
+    }
+}
+
+static inline __attribute__((always_inline))
 float3 normalize0(float3 v)
 {
-    float _189 = length(v);
-    float3 _185;
-    if (_189 > 0.0)
+    float _256 = length(v);
+    float3 _252;
+    if (_256 > 0.0)
     {
-        _185 = v / float3(_189);
+        _252 = v / float3(_256);
     }
     else
     {
-        _185 = float3(0.0);
+        _252 = float3(0.0);
     }
-    return _185;
+    return _252;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device RWStructuredBuffer& partials [[buffer(3)]], device RWStructuredBuffer& areas [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer& indices [[buffer(1)]], device StructuredBuffer& offsets [[buffer(2)]], device StructuredBuffer& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer_2& dabs [[buffer(5)]], device StructuredBuffer& normals [[buffer(6)]], device StructuredBuffer& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer& fade [[buffer(9)]], device RWStructuredBuffer& positions [[buffer(10)]], device RWStructuredBuffer_1& partials [[buffer(11)]], device RWStructuredBuffer_1& areas [[buffer(12)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup spvUnsafeArray<float4, 256> lane_normal;
     threadgroup spvUnsafeArray<float4, 256> lane_center;
+    keep_bindings(Params, indices, offsets, tris, slabs, dabs, normals, mask, fade, positions, tables);
     uint k = gl_LocalInvocationID.x;
     float4 n = float4(0.0);
     float4 c = float4(0.0);
-    uint4 _93;
+    uint4 _162;
     for (;;)
     {
         float4 n_1;
@@ -119,15 +149,15 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         bool _24_ladder_break = false;
         do
         {
-            _93 = dabs._member0[Params.dab].slabs;
-            if (!(k < _93.y))
+            _162 = dabs._member0[Params.dab].slabs;
+            if (!(k < _162.y))
             {
                 _24_ladder_break = true;
                 break;
             }
-            uint _102 = 2u * (_93.x + k);
-            n_1 = spvFAdd(n, partials._member0[_102]);
-            c_1 = spvFAdd(c, partials._member0[_102 + 1u]);
+            uint _170 = 2u * (_162.x + k);
+            n_1 = spvFAdd(n, partials._member0[_170]);
+            c_1 = spvFAdd(c, partials._member0[_170 + 1u]);
             break;
         } while(false);
         if (_24_ladder_break)
@@ -185,7 +215,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         plane = float3(0.0);
     }
     float3 normal;
-    if ((_93.w & 8u) != 0u)
+    if ((_162.w & 8u) != 0u)
     {
         normal = normalize0(normal_1 * float3x3(dabs._member0[Params.dab].tilt0.xyz, dabs._member0[Params.dab].tilt1.xyz, dabs._member0[Params.dab].tilt2.xyz));
     }
@@ -193,10 +223,10 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     {
         normal = normal_1;
     }
-    float4 _241 = dabs._member0[Params.dab].tilt2;
+    float4 _308 = dabs._member0[Params.dab].tilt2;
     areas._member0[5u * Params.dab] = float4(normal, 0.0);
-    areas._member0[(5u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _241.w), 0.0);
-    if ((_93.w & 256u) == 0u)
+    areas._member0[(5u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _308.w), 0.0);
+    if ((_162.w & 256u) == 0u)
     {
         return;
     }
@@ -228,18 +258,18 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         helper = up;
     }
     float3 v = helper / float3(length(helper));
-    float3 _316 = cross(v, an);
+    float3 _383 = cross(v, an);
     float3 u;
-    if ((_93.w & 512u) != 0u)
+    if ((_162.w & 512u) != 0u)
     {
-        u = -_316;
+        u = -_383;
     }
     else
     {
-        u = _316;
+        u = _383;
     }
-    float4 _328 = dabs._member0[Params.dab].misc;
-    float inv_r = 1.0 / _328.z;
+    float4 _395 = dabs._member0[Params.dab].misc;
+    float inv_r = 1.0 / _395.z;
     areas._member0[(5u * Params.dab) + 2u] = float4(u * inv_r, 0.0);
     areas._member0[(5u * Params.dab) + 3u] = float4(v * inv_r, 0.0);
     areas._member0[(5u * Params.dab) + 4u] = float4(an * inv_r, 0.0);

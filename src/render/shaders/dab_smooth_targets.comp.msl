@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_smooth_targets.comp.spv sha256 823e4b6e48a1689967b7fc2d8af502c2dd2ad2b13e384a3e8ac2d17c2ecffe65
+// SDL_shadercross 1ff05bec5739 from dab_smooth_targets.comp.spv sha256 252c9bda806713fd8a41ab608d3ebb84c7d6717aab2ed3eac286bc49656ab74a
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wmissing-braces"
 
@@ -65,6 +65,16 @@ struct SLANG_ParameterGroup_Params_std140
     uint stroke;
 };
 
+struct StructuredBuffer
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint2 _member0[1];
+};
+
 struct Dab_std430
 {
     float4 center_r2;
@@ -78,14 +88,9 @@ struct Dab_std430
     uint4 slabs;
 };
 
-struct StructuredBuffer
+struct StructuredBuffer_2
 {
     Dab_std430 _member0[1];
-};
-
-struct StructuredBuffer_1
-{
-    uint2 _member0[1];
 };
 
 struct RWStructuredBuffer
@@ -93,9 +98,9 @@ struct RWStructuredBuffer
     float _member0[1];
 };
 
-struct StructuredBuffer_2
+struct StructuredBuffer_3
 {
-    uint _member0[1];
+    float _member0[1];
 };
 
 struct RWStructuredBuffer_1
@@ -104,36 +109,46 @@ struct RWStructuredBuffer_1
 };
 
 static inline __attribute__((always_inline))
-bool slab_vertex(uint _141, uint3 _142, uint3 _143, thread uint& _144, thread uint& _145, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& dabs, device StructuredBuffer_1& slabs)
+void keep_bindings(constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& indices, device StructuredBuffer& offsets, device StructuredBuffer& tris, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs, device StructuredBuffer& normals, device StructuredBuffer& mask, device StructuredBuffer& fade, device RWStructuredBuffer& positions, device StructuredBuffer_3& tables)
 {
-    _144 = (_142.y * Params.groups_x) + _142.x;
-    _145 = 0u;
-    if (_144 >= dabs._member0[_141].slabs.y)
+    if (Params.groups_x == 0u)
+    {
+        positions._member0[0] = spvFAdd(float(((((((indices._member0[0] + offsets._member0[0]) + tris._member0[0]) + slabs._member0[0].x) + dabs._member0[0].slabs.x) + normals._member0[0]) + mask._member0[0]) + fade._member0[0]), tables._member0[0]);
+    }
+}
+
+static inline __attribute__((always_inline))
+bool slab_vertex(uint _211, uint3 _212, uint3 _213, thread uint& _214, thread uint& _215, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs)
+{
+    _214 = (_212.y * Params.groups_x) + _212.x;
+    _215 = 0u;
+    if (_214 >= dabs._member0[_211].slabs.y)
     {
         return false;
     }
-    uint _174 = dabs._member0[_141].slabs.x + _144;
-    if (_143.x >= slabs._member0[_174].y)
+    uint _240 = dabs._member0[_211].slabs.x + _214;
+    if (_213.x >= slabs._member0[_240].y)
     {
         return false;
     }
-    _145 = slabs._member0[_174].x + _143.x;
+    _215 = slabs._member0[_240].x + _213.x;
     return true;
 }
 
 static inline __attribute__((always_inline))
 float3 at(uint v, device RWStructuredBuffer& positions)
 {
-    uint _202 = 3u * v;
-    return float3(positions._member0[_202], positions._member0[_202 + 1u], positions._member0[_202 + 2u]);
+    uint _262 = 3u * v;
+    return float3(positions._member0[_262], positions._member0[_262 + 1u], positions._member0[_262 + 2u]);
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_2& indices [[buffer(1)]], device StructuredBuffer_2& offsets [[buffer(2)]], device StructuredBuffer_2& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer& positions [[buffer(6)]], device RWStructuredBuffer_1& scratch [[buffer(9)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer& indices [[buffer(1)]], device StructuredBuffer& offsets [[buffer(2)]], device StructuredBuffer& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer_2& dabs [[buffer(5)]], device StructuredBuffer& normals [[buffer(6)]], device StructuredBuffer& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer& fade [[buffer(9)]], device RWStructuredBuffer& positions [[buffer(10)]], device RWStructuredBuffer_1& scratch [[buffer(13)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
+    keep_bindings(Params, indices, offsets, tris, slabs, dabs, normals, mask, fade, positions, tables);
     uint g;
     uint v;
-    bool _138 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, dabs, slabs);
-    if (!_138)
+    bool _208 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs, dabs);
+    if (!_208)
     {
         return;
     }
@@ -142,7 +157,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
     {
         return;
     }
-    uint _239 = v + 1u;
+    uint _290 = v + 1u;
     uint k = offsets._member0[v];
     float3 sum = float3(0.0);
     uint odd = 0u;
@@ -155,16 +170,16 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
         bool _40_ladder_break = false;
         do
         {
-            if (!(k < offsets._member0[_239]))
+            if (!(k < offsets._member0[_290]))
             {
                 _40_ladder_break = true;
                 break;
             }
-            uint _255 = 3u * tris._member0[k];
-            uint _259 = _255 + 1u;
-            uint _262 = _255 + 2u;
-            sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_255], positions), at(indices._member0[_259], positions)), at(indices._member0[_262], positions)));
-            odd_1 = odd ^ (((indices._member0[_255] ^ indices._member0[_259]) ^ indices._member0[_262]) ^ v);
+            uint _305 = 3u * tris._member0[k];
+            uint _308 = _305 + 1u;
+            uint _311 = _305 + 2u;
+            sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_305], positions), at(indices._member0[_308], positions)), at(indices._member0[_311], positions)));
+            odd_1 = odd ^ (((indices._member0[_305] ^ indices._member0[_308]) ^ indices._member0[_311]) ^ v);
             n_1 = spvFAdd(n, 3.0);
             break;
         } while(false);
@@ -231,7 +246,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
             bool _67_ladder_break = false;
             do
             {
-                if (!(k < offsets._member0[_239]))
+                if (!(k < offsets._member0[_290]))
                 {
                     _67_ladder_break = true;
                     break;
@@ -248,8 +263,8 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                             _72_ladder_break = true;
                             break;
                         }
-                        uint _350 = (3u * tris._member0[k]) + i;
-                        if (indices._member0[_350] == v)
+                        uint _399 = (3u * tris._member0[k]) + i;
+                        if (indices._member0[_399] == v)
                         {
                             break;
                         }
@@ -258,7 +273,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         {
                             if (j < count_1)
                             {
-                                _19 = seen[j] != indices._member0[_350];
+                                _19 = seen[j] != indices._member0[_399];
                             }
                             else
                             {
@@ -273,7 +288,7 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
                         }
                         if (j == count_1)
                         {
-                            seen[j] = indices._member0[_350];
+                            seen[j] = indices._member0[_399];
                             times[j] = 0u;
                             count_2 = count_1 + 1u;
                         }

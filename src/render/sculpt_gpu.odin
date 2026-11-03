@@ -345,11 +345,13 @@ Sculpt_Gpu :: struct {
 	stats:    Sculpt_Gpu_Stats,
 }
 
-// Whether the backend sculpts on the GPU at all: the own Vulkan backend, where the kernels
-// and their readback are verified, on a device whose kernels may bind as many storage
-// buffers as the dab kernels do; Metal waits for its own run on a device.
+// Whether the backend sculpts on the GPU at all: the own Vulkan and Metal backends, on a
+// device whose kernels may bind as many storage buffers as the dab kernels do (every
+// Apple GPU's 31). The web's WebGPU offers 8, too few. Metal runs the same kernels from
+// their .msl, compiled without fast math (gpu_create_compute_pipeline_exact), and a
+// serial compute encoder orders the dispatches as the Vulkan backend's barriers do.
 sculpt_gpu_offered :: proc(r: ^Renderer) -> bool {
-	when VULKAN do return gpu_storage_buffers_per_stage(r.device) >= SCULPT_STORAGE_BUFFERS
+	when VULKAN || METAL do return gpu_storage_buffers_per_stage(r.device) >= SCULPT_STORAGE_BUFFERS
 	else do return false
 }
 
