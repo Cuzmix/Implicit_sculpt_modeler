@@ -148,14 +148,6 @@ palette_names_round_trip :: proc(t: ^testing.T) {
 	}
 }
 
-// A tall window shows every row; a short one fewer, never under two.
-@(test)
-palette_rows_fit_the_room :: proc(t: ^testing.T) {
-	testing.expect_value(t, palette_rows(800, 48), PALETTE_ROWS)
-	testing.expect_value(t, palette_rows(400, 48), 3)
-	testing.expect_value(t, palette_rows(100, 48), 2)
-}
-
 // The touch scenarios that star, pie or bind Wireframe (scripts/touch_check.py) type
 // "wire" and tap the buttons under the rows it finds, where four rows put them
 // (PALETTE_STAR and the rest). A new command whose label also holds w, i, r, e in order
@@ -170,4 +162,14 @@ palette_wire_finds_four_rows :: proc(t: ^testing.T) {
 	labels := make([]string, len(hits), context.temp_allocator)
 	for h, i in hits do labels[i] = palette_label(entries[h.entry])
 	testing.expectf(t, len(hits) == 4, "\"wire\" finds %v", labels)
+}
+
+// A tall window shows every result row; a short one fewer, never under two, and each
+// group caption takes a row's room.
+@(test)
+lens_search_rows_fit_the_room :: proc(t: ^testing.T) {
+	testing.expect_value(t, lens_search_rows(800, 0), LENS_SEARCH_ROWS)
+	testing.expect_value(t, lens_search_rows(400, 0), 4)
+	testing.expect_value(t, lens_search_rows(400, 2), 3)
+	testing.expect_value(t, lens_search_rows(100, 0), 2)
 }

@@ -422,9 +422,6 @@ saved_ago :: proc(d: time.Duration) -> string {
 	return fmt.tprintf("Saved %d days ago", m / (24 * 60))
 }
 
-// Lucide's plus.
-ICON_PLUS_SMALL :: rune(0xe141)
-
 // The Search field's width, in points: room for its hint and its keys.
 TOP_SEARCH_W :: 300
 

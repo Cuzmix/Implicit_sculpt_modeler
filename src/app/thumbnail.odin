@@ -23,8 +23,6 @@ import "../ui"
 // a drag on the picture redraws it every frame, as nothing else moves then.
 
 THUMBNAIL_EVERY :: 0.1
-// The picture's width in points; its height follows the viewport's shape, within reason.
-THUMBNAIL_W :: 232
 
 // Where the second view looks from. Linked and Mirrored are the main camera itself, so a
 // drag on either turns the main view and every linked view with it; the others are the

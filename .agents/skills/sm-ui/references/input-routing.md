@@ -59,7 +59,7 @@ Read from sm-ui before changing how a finger, the pen or the mouse reaches a pan
   tooltip shows it at frame end (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget
   that moves a value while held calls `long_cancel`; one that takes the press for a drag of its own (the island's
   values) calls `press_used`: no long press, no click, the arena won. `vslider(reset = v)` resets on a long press.
-  `list_row.menu` is `secondary`. `tree_row` lays out its trailing toggles and chevron before its body, so a press on
+  `list_row.menu` is `secondary`. `thumb_row` lays out its trailing toggles, switch and chevron before its body, so a press on
   them never selects the row or opens its menu.
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press

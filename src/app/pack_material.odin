@@ -268,12 +268,6 @@ material_ref_valid :: proc(ref: string) -> bool {
 	return ref == "" || (slash > 0 && slash < len(ref) - 1)
 }
 
-// The name of the pack material `j` comes from, for lists.
-pack_material_pack_name :: proc(app: ^App, j: int) -> string {
-	for p in app.library.packs do if p.id == app.library.materials[j].pack do return p.name
-	return app.library.materials[j].pack
-}
-
 // What of `m` is a content pack's, by name (temp memory), for the scene file.
 material_refs :: proc(app: ^App, m: Material) -> (refs: Material_Refs) {
 	if pm, ok := pack_material_at(app, m.pack - 1); ok && m.pack > 0 do refs.material = fmt.tprintf("%s/%s", pm.pack, pm.name)

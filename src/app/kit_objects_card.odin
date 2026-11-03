@@ -70,13 +70,6 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 	{0xe03f, 0xe03d, 0xe03e},
 }
 
-// The Objects card is the Scene card's Pictures now: what opens it (its command, a layout
-// that kept it open, Arrange's Show) shows the Scene card with pictures instead, so a
-// gesture or a workspace that named the card keeps working.
-objects_card_toggle :: proc(app: ^App) {
-	app.kit.objects_card = true
-}
-
 // Turns a request for the old floating card into the Scene card with its pictures; draws
 // nothing itself, so it never raises a window.
 kit_objects_card :: proc(app: ^App) -> (raised: bool) {

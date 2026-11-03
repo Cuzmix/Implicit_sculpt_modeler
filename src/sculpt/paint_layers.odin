@@ -195,13 +195,6 @@ sculptor_paint_pick :: proc(s: ^Sculptor, index: int) {
 	paint_changed(s)
 }
 
-// Renames a layer (not an undo step), cutting the name to fit.
-sculptor_paint_rename :: proc(s: ^Sculptor, index: int, name: string) {
-	l := &s.paint.list[index]
-	l.name = {}
-	copy(l.name[:len(l.name) - 1], name)
-}
-
 // Adds an empty layer above the picked one (on top with none) and picks it, as an undo
 // step. Returns its index, or -1 when there are MAX_PAINT_LAYERS or dynamic topology is on.
 sculptor_paint_add :: proc(s: ^Sculptor) -> int {

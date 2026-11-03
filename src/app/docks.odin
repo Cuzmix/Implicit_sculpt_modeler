@@ -198,12 +198,6 @@ dock_edge :: proc(k: ^Kit_State, b: Dock_Id) -> Dock_Edge {
 	return DOCK_HOME[b] if p.edge == .Default else p.edge
 }
 
-// The column dock standing on `edge`, if one is shown there.
-dock_on :: proc(k: ^Kit_State, edge: Dock_Edge) -> (b: Dock_Id, ok: bool) {
-	for p in Dock_Id do if dock_edge(k, p) == edge && dock_shown(k, p) do return p, true
-	return
-}
-
 // Whether dock `b` is shown in the layout.
 dock_shown :: proc(k: ^Kit_State, b: Dock_Id) -> bool {
 	switch b {

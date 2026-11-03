@@ -5,8 +5,6 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-import "../ui"
-
 // The scene tree's view of the objects: which are shown, which a press can pick, and
 // the changes to that (the eye, ghost and solo, as ZBrush's SubTool list and Nomad's
 // scene have them). These are view state, saved with the scene but not undo steps, as
@@ -374,15 +372,6 @@ scene_view_counts :: proc(app: ^App) -> (off, ghosts: int) {
 		if g do ghosts += 1
 	}
 	return
-}
-
-// The eye and ghost toggles of a row in the Scene card (an object's, or a folder's), ghost
-// first so the eye sits at the row's end, where a finger running down the column finds it.
-row_toggles :: proc(label: string, off, ghost: bool) -> [2]ui.Row_Toggle {
-	return {
-		{name = "Show solid" if ghost else "Make a ghost", glyph = ui.ICON_GHOST, lit = ghost, faint = !ghost},
-		{name = fmt.tprintf("Show %s", label) if off else fmt.tprintf("Hide %s", label), glyph = ui.ICON_EYE_OFF if off else ui.ICON_EYE, faint = off},
-	}
 }
 
 // The folder `id` names, nil for 0 or one not there. The folders are kept in order of id

@@ -190,16 +190,6 @@ shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 	return material_matcap(app, {matcap = SHADING_MATCAP_DEFAULT})
 }
 
-// The name of the MatCap Solid shades with.
-shading_matcap_name :: proc(app: ^App, s: View_Shading) -> string {
-	i := s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT
-	if s.matcap == MATCAP_IMAGE && app.matcap_image != nil do return "Imported"
-	if s.matcap >= PACK_MATCAP {
-		if mc, ok := pack_matcap_at(app, s.matcap - PACK_MATCAP); ok do return mc.stem
-	}
-	return string(MATCAP_RECIPES[i - 1].label)
-}
-
 // The pass a view in shading `s` draws its items in, where the pass picked is `p`: a pass
 // that checks the form as it is; otherwise Wireframe's plain fill, Solid's Flat lighting
 // unlit, or the shading as the materials say.

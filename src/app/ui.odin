@@ -143,9 +143,6 @@ SPHERE_PRESETS := [?]struct {
 	{"25M", 25_000_000},
 }
 
-// Measured at 25M vertices: mesh, sculpt nodes and topology together.
-BYTES_PER_VERTEX :: 108
-
 // What the viewport saw this frame, in window coordinates. This is the only thing the
 // camera and the tools read; none of them touches the interface directly.
 Viewport_Input :: struct {

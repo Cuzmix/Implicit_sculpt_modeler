@@ -253,32 +253,6 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 	return ""
 }
 
-// The line a folded panel keeps beside its title: what it holds, in a few words.
-panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
-	k := &app.kit
-	switch r in ref {
-	case Kit_Window:
-		#partial switch r {
-		case .Inspector:
-			return ""
-		case .Stats:
-			if app.stats.frame_ms.count == 0 do return ""
-			p50, _ := ring_percentiles(app.stats.frame_ms)
-			return fmt.tprintf("%.1f ms a frame", p50)
-		case .History:
-			return fmt.tprintf("Step %d of %d", len(app.history.done), history_total(app))
-		case .Objects:
-			n := len(app.scene.objects)
-			return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
-		case .Colors:
-			return hex_text(colors_target(app)^)
-		case .Thumbnail:
-			return fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[k.second.camera], second_shows_name(&k.second))
-		}
-	}
-	return ""
-}
-
 // What section `sec` holds, in a few words, for its folded card.
 section_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 	obj := selected_object(app)

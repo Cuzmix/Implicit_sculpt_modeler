@@ -25,12 +25,6 @@ Tab_Kind :: enum u8 {
 }
 
 @(rodata)
-TAB_KIND_NAMES := [Tab_Kind]string {
-	.View    = "3D view",
-	.Texture = "Texture",
-}
-
-@(rodata)
 TAB_KIND_ICONS := [Tab_Kind]rune {
 	.View    = ICON_ORBIT_VIEW,
 	.Texture = ui.ICON_IMAGE,

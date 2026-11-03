@@ -792,7 +792,6 @@ gpu_display_link_frames :: proc() -> u64 {
 gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	when METAL do return mtl_shared_buffers_offered()
 	else when WEBGPU do return wgpu_shared_buffers_offered()
-	else when WEBGPU do return false
 	else do return vk_state.shared_buffers
 }
 
