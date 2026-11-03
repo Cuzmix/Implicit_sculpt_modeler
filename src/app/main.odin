@@ -117,6 +117,7 @@ Options :: struct {
 	send_to: string `usage:"Once the run is set up, send the scene to the copy of Sculpt receiving at this address (a name or address, with :PORT when not the default), as Send does."`,
 	send_allow: bool `usage:"Pair with any device that asks, without asking anyone (for scripted tests of Send)."`,
 	send_folder: string `usage:"Keep this device's id, its paired devices and the received scenes in this folder instead of the one beside the settings."`,
+	send_cut_after: int `usage:"A send drops its connection after this many chunks, as a lost Wi-Fi would (for scripted tests of a send that carries on)."`,
 	send_port: int `usage:"The port --receive listens on and --send-to sends to when the address names none (default 47820)."`,
 	exit_after_receive: bool `usage:"With --receive, open the first scene that arrives and end the run (for scripted tests of Send)."`,
 	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
@@ -825,6 +826,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer link_destroy(&app)
 	send_init(&app, opts.send_folder if opts.send_folder != "" else send_folder(settings), opts.receive, opts.send_allow, opts.exit_after_receive, opts.send_port)
 	defer send_destroy(&app, false)
+	if app.send.shared != nil do app.send.shared.cut_after = opts.send_cut_after
 	if opts.send_to != "" {
 		target := opts.send_to
 		if opts.send_port > 0 && !strings.has_prefix(target, "@") && !strings.contains_rune(target, ':') do target = fmt.tprintf("%s:%d", target, opts.send_port)

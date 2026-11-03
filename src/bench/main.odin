@@ -71,6 +71,7 @@ files := false
 masks := false
 voxels := false
 profile := false
+sends := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -104,6 +105,8 @@ main :: proc() {
 			masks = true
 		} else if arg == "--voxel" {
 			voxels = true
+		} else if arg == "--send" {
+			sends = true
 		} else if arg == "--profile" {
 			profile = true
 		} else if strings.has_prefix(arg, "--seconds=") {
@@ -123,6 +126,8 @@ main :: proc() {
 		for v in ([]int{12_500_000, 25_000_000}) do append(&cases, Case{v, 1})
 	} else if skin && len(targets) == 0 {
 		for v in ([]int{50_000, 250_000, 1_000_000}) do append(&cases, Case{v, 1})
+	} else if sends && len(targets) == 0 {
+		for v in ([]int{1_000_000, 10_000_000, 25_000_000}) do append(&cases, Case{v, 1})
 	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
@@ -174,6 +179,12 @@ main :: proc() {
 		files_header()
 		for c in cases do if c.meshes == 1 do run_files(c.vertices, pool)
 		files_footer()
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if sends {
+		send_header()
+		for c in cases do if c.meshes == 1 do run_send(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

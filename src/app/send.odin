@@ -70,6 +70,9 @@ Send_Shared :: struct {
 	me:       send.Hello, // this device's hello, its strings owned
 	role:     send.Role,
 	allow:    bool, // --send-allow: pair with whoever asks, without asking anyone
+	// --send-cut-after: a send drops its connection after this many chunks, as a lost
+	// Wi-Fi would, so a script can watch the next send carry on (0: never).
+	cut_after: int,
 	pairs:    [dynamic]Send_Pair,
 	events:   [dynamic]Send_Event,
 	port:     int,

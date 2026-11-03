@@ -18,6 +18,11 @@ sender as a tablet runs it, over loopback.
 3. The same, found on the network (--send-to=@ and --send-to=@NAME): the receiver answers
    the sender's multicast DNS question, and the send goes to the address it answered from.
    A name no computer has is said so after the wait, and nothing is sent.
+4. A send cut short (--send-cut-after=3 drops the connection after three chunks, as a lost
+   Wi-Fi would) and the same scene sent again to the same receiver: the second send asks
+   only for what the first did not write (but the first chunk, which holds the time the
+   scene was written), read back from the partial file it kept, and the hashes and the
+   mesh match.
 
 Each check prints PASS or FAIL and the script exits 1 on any FAIL. Like link_check, it is a
 development aid outside the gate: it opens a port on loopback and runs two apps at once.
@@ -158,6 +163,25 @@ def main():
         _, s_log = sender(env, "nobody", ["--vertices=2000"], "@no such computer")
         check("nobody: a name nobody has is said so", "No computer called no such computer answered" in s_log
               and stat(s_log, "send_sent") == "0" and stat(s_log, "send_found") == "0")
+
+    # Cut short, then carried on: a new scene (so no copy of it to start from), its send
+    # dropped after three chunks, then sent again to the same receiver.
+    big = os.path.join(WORK, "big.sculpt")
+    r = receiver(env, "resume")
+    _, cut_log = sender(env, "cut", ["--vertices=400000", "--save=" + big, "--send-cut-after=3"], f"127.0.0.1:{PORT}")
+    check("cut: the sender says the connection dropped", "dropped after 3 of" in cut_log and stat(cut_log, "send_sent") == "0")
+    s_code, s_log = sender(env, "resume", ["--open=" + big], f"127.0.0.1:{PORT}")
+    r_code, r_log = finish(*r)
+    check("resume: both exit 0", s_code == 0 and r_code == 0, f"exit {s_code} {r_code}")
+    check("resume: no leaks", "allocation tracking: no leaks" in s_log and "allocation tracking: no leaks" in r_log)
+    sh, rh = stat(s_log, "send_sent_hash"), stat(r_log, "send_received_hash")
+    check("resume: the same file hash", sh is not None and sh == rh and sh != "0" * 16, f"{sh} {rh}")
+    check("resume: the same mesh", mesh(s_log) == mesh(r_log) and mesh(s_log)[0] is not None, f"{mesh(s_log)} {mesh(r_log)}")
+    went, total = chunks(r_log)
+    # The three chunks the cut send wrote are the file's first, and the first holds the time
+    # the scene was written, which differs between the two sends: the other two are not
+    # sent again.
+    check("resume: the chunks the cut send wrote are not sent again", went is not None and went <= total - 2, f"{went} of {total}")
 
     if not a.keep:
         shutil.rmtree(WORK, ignore_errors=True)
