@@ -145,6 +145,9 @@ App :: struct {
 	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their normals to a
 	// kernel where render.caps offers it; off until the kernels cover a stroke's whole work.
 	gpu_sculpt: bool,
+	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
+	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
+	gpu_lookup_waiting: bool,
 	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
 	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
@@ -755,6 +758,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
 	app.gpu_sculpt = opts.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt
+	app.gpu_lookup_waiting = app.gpu_sculpt
 	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
 	sculpt_gpu_install(&app)
 	app.renderer.partial = !opts.no_partial
