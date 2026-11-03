@@ -298,12 +298,8 @@ Sculpt_Gpu :: struct {
 	sync:     bool,
 	slabs:            gpu.Buffer,
 	slabs_capacity:   u32, // bytes
-	transfer:         gpu.Transfer_Buffer, // the slabs on their way up
-	transfer_size:    u32,
 	dabs:             gpu.Buffer, // the frame's dab records
 	dabs_capacity:    u32,
-	dabs_transfer:    gpu.Transfer_Buffer,
-	dabs_transfer_size: u32,
 	partials:         gpu.Buffer, // a slab's area sums, 32 bytes each
 	partials_capacity: u32,
 	areas:            gpu.Buffer, // a dab's area, 32 bytes each
@@ -313,8 +309,6 @@ Sculpt_Gpu :: struct {
 	bounds_pipeline:  gpu.Compute_Pipeline,
 	nodes:            gpu.Buffer, // the frame's Sculpt_Nodes
 	nodes_capacity:   u32,
-	nodes_transfer:   gpu.Transfer_Buffer,
-	nodes_transfer_size: u32,
 	bounds:           gpu.Buffer, // two float4 a node: lowest, highest
 	bounds_capacity:  u32,
 	// The alphas and drawn falloffs' tables of the frame's dabs (dab.slang `tables`), and
@@ -325,14 +319,6 @@ Sculpt_Gpu :: struct {
 	tables_mesh:          ^Mesh_Buffers,
 	tables_stroke:        u32,
 	tables_capacity:      u32,
-	tables_transfer:      gpu.Transfer_Buffer,
-	tables_transfer_size: u32,
-	// The mask and fade bytes on their way up (sculpt_gpu_bytes_upload).
-	bytes_transfer:       [Sculpt_Bytes]gpu.Transfer_Buffer,
-	bytes_transfer_size:  [Sculpt_Bytes]u32,
-	// A slice of a lookup on its way up (sculpt_gpu_prepare), released once it is all up.
-	lookup_transfer:      gpu.Transfer_Buffer,
-	lookup_transfer_size: u32,
 	lookup_rate:          f64, // how fast the CPU copied the slices so far, in bytes a millisecond
 	slots:    [SCULPT_SLOTS]Sculpt_Slot,
 	slot:     int,  // the slot this frame records into
@@ -453,62 +439,43 @@ sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, faces:
 	// device sharing its memory) or staged for a copy.
 	Piece :: struct {
 		part, at, size: int, // which buffer, from where in it, how many bytes
-		staged:         int, // where in the transfer buffer
 	}
 	pieces: [3]Piece
-	count, staged := 0, 0
+	count := 0
 	base := 0
 	for p, i in parts {
 		lo, hi := max(ms.lookup_done, base), min(end, base + len(p))
 		if lo < hi {
-			pieces[count] = {i, lo - base, hi - lo, staged}
-			if ms.lookup_maps[i] == nil do staged += hi - lo
+			pieces[count] = {i, lo - base, hi - lo}
 			count += 1
 		}
 		base += len(p)
 	}
-	transfer: [^]u8
-	if staged > 0 {
-		if !transfer_fit(r, &sg.lookup_transfer, &sg.lookup_transfer_size, u32(SCULPT_LOOKUP_SLICE)) do return sculpt_lookup_refused(r, mb, "an upload buffer of 16 MB")
-		transfer = cast([^]u8)gpu.map_transfer_buffer(sg.lookup_transfer, true)
-		if transfer == nil do return sculpt_lookup_refused(r, mb, "the lookup's upload")
-	}
+	buffers := [3]gpu.Buffer{ms.offsets, ms.tris, ms.shared}
 	copy_start := time.tick_now()
 	for pc in pieces[:count] {
 		src := parts[pc.part][pc.at:][:pc.size]
-		if m := ms.lookup_maps[pc.part]; m != nil do copy(([^]u8)(m)[pc.at:][:pc.size], src)
-		else do copy(transfer[pc.staged:][:pc.size], src)
+		if m := ms.lookup_maps[pc.part]; m != nil {
+			copy(([^]u8)(m)[pc.at:][:pc.size], src)
+		} else {
+			dst := gpu.stage_buffer(cmd, buffers[pc.part], u32(pc.at), u32(pc.size))
+			if dst == nil do return sculpt_lookup_refused(r, mb, "the lookup's upload")
+			copy(dst, src)
+		}
 	}
 	// Bytes a millisecond, the last slices weighing most.
 	if copy_ms := time.duration_milliseconds(time.tick_since(copy_start)); copy_ms > 0 {
 		rate := f64(end - ms.lookup_done) / copy_ms
 		sg.lookup_rate = rate if sg.lookup_rate == 0 else 0.5 * (sg.lookup_rate + rate)
 	}
-	if staged > 0 {
-		gpu.unmap_transfer_buffer(sg.lookup_transfer)
-		buffers := [3]gpu.Buffer{ms.offsets, ms.tris, ms.shared}
-		pass := gpu.begin_copy_pass(cmd)
-		for pc in pieces[:count] {
-			if ms.lookup_maps[pc.part] != nil do continue
-			gpu.upload_to_buffer(pass, {transfer_buffer = sg.lookup_transfer, offset = u32(pc.staged)}, {buffer = buffers[pc.part], offset = u32(pc.at), size = u32(pc.size)}, false)
-		}
-		gpu.end_copy_pass(pass)
-	}
 	ms.lookup_done = end
 	ms.lookup_frames += 1
 	if end < total do return .Uploading
 	sculpt_lookup_unmap(r, mb)
 	ms.lookup_ready = true
-	// The staging buffer's backings go once the GPU has copied from them: another mesh's
-	// lookup makes it again.
-	if sg.lookup_transfer != 0 do gpu.release_transfer_buffer(sg.lookup_transfer)
-	sg.lookup_transfer, sg.lookup_transfer_size = 0, 0
 	log.infof("sculpt on the GPU: %d MB lookup uploaded over %d frames, %.0f ms after it began, %.1f ms a frame on the CPU", total >> 20, ms.lookup_frames, time.duration_milliseconds(time.tick_since(ms.lookup_start)), (ms.lookup_ms + time.duration_milliseconds(time.tick_since(slice_start))) / f64(ms.lookup_frames))
 	return .Ready
 }
-
-// The largest byte upload whose upload buffer is kept for the next.
-SCULPT_BYTES_KEEP :: 4 << 20
 
 // Keeps the level's bytes of one `kind` (`values`, a byte a vertex, nil for none) on the
 // GPU for the dab kernels while the mesh has a lookup (sculpt_gpu_prepare): all of them
@@ -518,7 +485,7 @@ SCULPT_BYTES_KEEP :: 4 << 20
 // changes only under dynamic topology, which changes the vertex count). Recorded on the
 // frame's `cmd` before its dispatch. Bytes, for the stats.
 sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, kind: Sculpt_Bytes, values: []u8, ranges: []geom.Vertex_Range) -> int {
-	sg, ms := &r.sculpt_gpu, &mb.sculpt
+	ms := &mb.sculpt
 	held := &ms.bytes[kind]
 	what := "mask" if kind == .Mask else "fade"
 	if values == nil || ms.offsets == 0 || ms.failed {
@@ -564,41 +531,18 @@ sculpt_gpu_bytes_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, k
 	total: u32
 	for sp in spans do total += sp.count
 	if total == 0 do return 0
-	transfer, transfer_size := &sg.bytes_transfer[kind], &sg.bytes_transfer_size[kind]
-	if !transfer_fit(r, transfer, transfer_size, total) {
-		log.errorf("sculpt on the GPU: an upload buffer of %d KB for the %s was refused (%s)", total >> 10, what, gpu.last_error())
-		gpu.release_buffer(held.buffer)
-		held^ = {}
-		return 0
-	}
-	dst := cast([^]u8)gpu.map_transfer_buffer(transfer^, true)
-	if dst == nil {
-		gpu.release_buffer(held.buffer)
-		held^ = {}
-		return 0
-	}
-	at: u32
 	for sp in spans {
+		dst := gpu.stage_buffer(cmd, held.buffer, sp.first, sp.count)
+		if dst == nil {
+			log.errorf("sculpt on the GPU: upload memory of %d KB for the %s was refused (%s)", sp.count >> 10, what, gpu.last_error())
+			gpu.release_buffer(held.buffer)
+			held^ = {}
+			return 0
+		}
 		// The last uint's bytes past the mesh's end are zero (never read).
 		have := min(sp.first + sp.count, count) - sp.first
-		copy(dst[at:][:have], values[sp.first:][:have])
-		for k in have ..< sp.count do dst[at + k] = 0
-		at += sp.count
-	}
-	gpu.unmap_transfer_buffer(transfer^)
-	pass := gpu.begin_copy_pass(cmd)
-	at = 0
-	for sp in spans {
-		gpu.upload_to_buffer(pass, {transfer_buffer = transfer^, offset = at}, {buffer = held.buffer, offset = sp.first, size = sp.count}, false)
-		at += sp.count
-	}
-	gpu.end_copy_pass(pass)
-	// A large upload buffer (a whole mask, 25 MB at 25M, a window's fade, or a layer
-	// mask's pick, which changes every vertex) goes once the GPU has copied from it: the
-	// ranges of a mask stroke need a sliver of it.
-	if total >= SCULPT_BYTES_KEEP {
-		gpu.release_transfer_buffer(transfer^)
-		transfer^, transfer_size^ = 0, 0
+		copy(dst[:have], values[sp.first:][:have])
+		for k in have ..< sp.count do dst[k] = 0
 	}
 	if held.vertices == 0 {
 		log.infof("sculpt on the GPU: the %d MB %s went up in %.1f ms", total >> 20, what, time.duration_milliseconds(time.tick_since(start)))
@@ -941,11 +885,9 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 	// Every buffer the frame needs, sized before anything is recorded, so a refusal
 	// leaves nothing half done on the GPU.
 	sbytes := u32(len(slabs) * size_of(Slab))
-	if !transfer_fit(r, &sg.transfer, &sg.transfer_size, sbytes) do return sculpt_refused(sg, fmt.tprintf("an upload buffer of %d KB", sbytes >> 10))
 	if !storage_fit(r, &sg.slabs, &sg.slabs_capacity, sbytes, {.Storage_Read}) do return sculpt_refused(sg, fmt.tprintf("a slab buffer of %d KB", sbytes >> 10))
 	dbytes := u32(len(records) * size_of(Sculpt_Dab_Record))
 	if len(records) > 0 {
-		if !transfer_fit(r, &sg.dabs_transfer, &sg.dabs_transfer_size, dbytes) do return sculpt_refused(sg, fmt.tprintf("a dab upload buffer of %d KB", dbytes >> 10))
 		if !storage_fit(r, &sg.dabs, &sg.dabs_capacity, dbytes, {.Storage_Read}) do return sculpt_refused(sg, fmt.tprintf("a dab buffer of %d KB", dbytes >> 10))
 		if !storage_fit(r, &sg.partials, &sg.partials_capacity, dab_slabs * 32, {.Storage_Read, .Storage_Write}) do return sculpt_refused(sg, fmt.tprintf("a partials buffer of %d KB", (dab_slabs * 32) >> 10))
 		if !storage_fit(r, &sg.areas, &sg.areas_capacity, u32(len(records)) * SCULPT_AREA_ROWS * 16, {.Storage_Read, .Storage_Write}) do return sculpt_refused(sg, "an areas buffer")
@@ -958,7 +900,6 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		if faded && ms.bytes[.Fade].vertices < mb.vertex_capacity do return false
 		if table_count > 0 {
 			tbytes := table_count * size_of(f32)
-			if !transfer_fit(r, &sg.tables_transfer, &sg.tables_transfer_size, tbytes) do return sculpt_refused(sg, "an alpha and falloff upload buffer")
 			held := sg.tables
 			if !storage_fit(r, &sg.tables, &sg.tables_capacity, tbytes, {.Storage_Read}) do return sculpt_refused(sg, "an alpha and falloff buffer")
 			// A new buffer holds nothing yet.
@@ -980,7 +921,6 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 	bbytes := node_count * 2 * size_of([4]f32)
 	if node_count > 0 {
 		nbytes_up := node_count * size_of(Sculpt_Node)
-		if !transfer_fit(r, &sg.nodes_transfer, &sg.nodes_transfer_size, nbytes_up) do return sculpt_refused(sg, fmt.tprintf("a node upload buffer of %d KB", nbytes_up >> 10))
 		if !storage_fit(r, &sg.nodes, &sg.nodes_capacity, nbytes_up, {.Storage_Read}) do return sculpt_refused(sg, fmt.tprintf("a node buffer of %d KB", nbytes_up >> 10))
 		if !storage_fit(r, &sg.bounds, &sg.bounds_capacity, bbytes, {.Storage_Read, .Storage_Write}) do return sculpt_refused(sg, fmt.tprintf("a bounds buffer of %d KB", bbytes >> 10))
 	}
@@ -997,16 +937,11 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		back = gpu.reserve_readback(cmd, back_bytes)
 		if back == 0 do return sculpt_refused(sg, fmt.tprintf("readback memory of %d KB", back_bytes >> 10))
 	}
-	dst := gpu.map_transfer_buffer(sg.transfer, true)
-	if dst == nil do return sculpt_refused(sg, "mapping the slabs")
-	copy(([^]u8)(dst)[:sbytes], slice.to_bytes(slabs[:]))
-	gpu.unmap_transfer_buffer(sg.transfer)
-	if len(records) > 0 {
-		dst = gpu.map_transfer_buffer(sg.dabs_transfer, true)
-		if dst == nil do return sculpt_refused(sg, "mapping the dabs")
-		copy(([^]u8)(dst)[:dbytes], slice.to_bytes(records))
-		gpu.unmap_transfer_buffer(sg.dabs_transfer)
-	}
+	// The uploads land before the kernels' first pass, after the last frame's dispatches
+	// have read the buffers (in queue order). A refusal here leaves nothing recorded but
+	// copies into buffers the kernels then never read.
+	if !gpu.upload(cmd, sg.slabs, 0, slice.to_bytes(slabs[:])) do return sculpt_refused(sg, fmt.tprintf("upload memory of %d KB for the slabs", sbytes >> 10))
+	if len(records) > 0 && !gpu.upload(cmd, sg.dabs, 0, slice.to_bytes(records)) do return sculpt_refused(sg, fmt.tprintf("upload memory of %d KB for the dabs", dbytes >> 10))
 	// The tables go up unless the buffer holds them already: the same values (by where
 	// they live) for the same stroke on the same mesh, which a stroke's brush keeps.
 	tables_up := table_count > 0 && len(records) > 0
@@ -1019,31 +954,20 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		tables_up = !same
 	}
 	if tables_up {
-		dst = gpu.map_transfer_buffer(sg.tables_transfer, true)
-		if dst == nil do return sculpt_refused(sg, "mapping the alphas and falloffs")
-		out := ([^]f32)(dst)
-		for t in table_of do copy(out[t.first:][:len(t.values)], t.values)
-		gpu.unmap_transfer_buffer(sg.tables_transfer)
+		// A frame that skips the upload reads what the last one sent.
+		for t in table_of {
+			if !gpu.upload(cmd, sg.tables, t.first * size_of(f32), slice.to_bytes(t.values)) do return sculpt_refused(sg, "upload memory for the alphas and falloffs")
+		}
 		clear(&sg.tables_held)
 		append(&sg.tables_held, ..table_of[:])
 		sg.tables_mesh, sg.tables_stroke = mb, ms.dabs[0].stroke
 	}
 	if node_count > 0 {
-		dst = gpu.map_transfer_buffer(sg.nodes_transfer, true)
-		if dst == nil do return sculpt_refused(sg, "mapping the nodes")
-		copy(([^]u8)(dst)[:node_count * size_of(Sculpt_Node)], slice.to_bytes(ms.queued_nodes[:]))
-		gpu.unmap_transfer_buffer(sg.nodes_transfer)
+		if !gpu.upload(cmd, sg.nodes, 0, slice.to_bytes(ms.queued_nodes[:node_count])) do return sculpt_refused(sg, "upload memory for the nodes")
 	}
 
 	debug_group(cmd, "GPU sculpt", .Sculpt)
-	// The slabs and dabs go up cycled: the last frame's dispatch may still read the buffers.
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.upload_to_buffer(pass, {transfer_buffer = sg.transfer}, {buffer = sg.slabs, size = sbytes}, true)
-	if len(records) > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = sg.dabs_transfer}, {buffer = sg.dabs, size = dbytes}, true)
-	// Not cycled: a frame that skips the upload reads what the last one sent.
-	if tables_up do gpu.upload_to_buffer(pass, {transfer_buffer = sg.tables_transfer}, {buffer = sg.tables, size = table_count * size_of(f32)}, false)
-	if node_count > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = sg.nodes_transfer}, {buffer = sg.nodes, size = node_count * size_of(Sculpt_Node)}, true)
-	gpu.end_copy_pass(pass)
+	gpu.flush_uploads(cmd)
 
 	Params :: struct {
 		dab:      u32,
@@ -1225,18 +1149,6 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 	}
 }
 
-// Grows an upload transfer buffer to hold `bytes` (with a quarter's slack); false where
-// the device refuses it.
-@(private = "file")
-transfer_fit :: proc(r: ^Renderer, buffer: ^gpu.Transfer_Buffer, size: ^u32, bytes: u32) -> bool {
-	if buffer^ != 0 && size^ >= bytes do return true
-	if buffer^ != 0 do gpu.release_transfer_buffer(buffer^)
-	size^ = bytes + bytes / 4
-	buffer^ = gpu.create_transfer_buffer({usage = .Upload, size = size^})
-	if buffer^ == 0 do size^ = 0
-	return buffer^ != 0
-}
-
 // Grows a storage buffer to hold `bytes` (with a quarter's slack). A dispatch of the last
 // frame may still read the old one: it is released once the GPU is idle, which is rare
 // (the slack) and never inside a stroke's steady state.
@@ -1371,20 +1283,14 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	sculpt_gpu_landed_clear(r)
 	delete(sg.landed)
 	if sg.slabs != 0 do gpu.release_buffer(sg.slabs)
-	if sg.transfer != 0 do gpu.release_transfer_buffer(sg.transfer)
 	if sg.dabs != 0 do gpu.release_buffer(sg.dabs)
-	if sg.dabs_transfer != 0 do gpu.release_transfer_buffer(sg.dabs_transfer)
 	if sg.partials != 0 do gpu.release_buffer(sg.partials)
 	if sg.areas != 0 do gpu.release_buffer(sg.areas)
 	if sg.scratch != 0 do gpu.release_buffer(sg.scratch)
 	if sg.nodes != 0 do gpu.release_buffer(sg.nodes)
-	if sg.nodes_transfer != 0 do gpu.release_transfer_buffer(sg.nodes_transfer)
 	if sg.bounds != 0 do gpu.release_buffer(sg.bounds)
-	if sg.lookup_transfer != 0 do gpu.release_transfer_buffer(sg.lookup_transfer)
 	if sg.tables != 0 do gpu.release_buffer(sg.tables)
 	delete(sg.tables_held)
-	if sg.tables_transfer != 0 do gpu.release_transfer_buffer(sg.tables_transfer)
-	for t in sg.bytes_transfer do if t != 0 do gpu.release_transfer_buffer(t)
 	if sg.bounds_pipeline != 0 do gpu.release_compute_pipeline(sg.bounds_pipeline)
 	if sg.pipeline != 0 do gpu.release_compute_pipeline(sg.pipeline)
 	for p in sg.dab_pipelines do if p != 0 do gpu.release_compute_pipeline(p)

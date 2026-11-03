@@ -309,7 +309,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 | garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:149-151, 457, 492`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
-| validation errors in `smoke` | an upload outside a copy pass, a transfer buffer mapped without `cycle`, a backend that frees a released object while a recording or the GPU still uses it (each counts uses: `vk_buffer_reap`, `mtl_release_later`) |
+| validation errors in `smoke` | an upload or download staged while a pass is open, a copy into a staged range past its end, a backend that frees a released object while a recording or the GPU still uses it (each counts uses: `vk_buffer_reap`, `mtl_release_later`) |
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules
@@ -336,8 +336,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - New uploads go through the GPU layer's upload memory (`src/gpu/staging.odin`): `gpu.upload(cmd, buffer, offset, bytes)`,
   `gpu.upload_texture(cmd, region, bytes)`, or `gpu.stage_buffer`/`gpu.stage_texture` to write in place; the copies are
   recorded in one copy pass just before the command buffer's next pass, mipmap build, acceleration build or submit, so
-  make no transfer buffer and open no copy pass for an upload (the interface, pictures, textures, textured meshes and
-  mesh buffers do so; `gpu.flush_uploads` records them early, inside a timing group).
+  make no transfer buffer and open no copy pass for an upload: transfer buffers are private to `src/gpu` (every upload
+  in render goes this way, GPU sculpting's and the indirect draws' included; `gpu.flush_uploads` records them early, inside a timing group).
 - Readbacks go through the same layer: `gpu.reserve_readback(cmd, size)` then `gpu.download(cmd, rb, at, buffer,
   offset, size)` or `gpu.download_texture(cmd, rb, at, region, size)` (or `gpu.download_buffer` for one copy); the copies
   are recorded in order with the uploads, so a download sees the passes before it. `gpu.readback(rb)` gives the bytes once
