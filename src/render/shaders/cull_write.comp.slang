@@ -55,5 +55,5 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	commands[at + 1u] = 1u;
 	commands[at + 2u] = r.first_index;
 	commands[at + 3u] = 0u;
-	commands[at + 4u] = 0u;
+	commands[at + 4u] = counts.z != 0u ? r.first_index / 3u : 0u;
 }
