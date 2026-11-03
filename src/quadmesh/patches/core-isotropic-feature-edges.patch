@@ -1,0 +1,84 @@
+diff --git a/src/AutoRemesher/isotropicremesher.cpp b/src/AutoRemesher/isotropicremesher.cpp
+index 8f8772a..169f0a1 100644
+--- a/src/AutoRemesher/isotropicremesher.cpp
++++ b/src/AutoRemesher/isotropicremesher.cpp
+@@ -35,7 +35,13 @@ bool IsotropicRemesher::remesh()
+     for (const auto& position : m_vertices)
+         inputVertices.push_back(::Vector3(position.x(), position.y(), position.z()));
+ 
+-    ::IsotropicRemesher remesher(&inputVertices, &m_triangles);
++    std::vector<::Vector3> featurePositions;
++    if (nullptr != m_featurePositions && m_featurePositions->size() == m_vertices.size()) {
++        featurePositions.reserve(m_featurePositions->size());
++        for (const auto& position : *m_featurePositions)
++            featurePositions.push_back(::Vector3(position.x(), position.y(), position.z()));
++    }
++    ::IsotropicRemesher remesher(&inputVertices, &m_triangles, m_featureEdges, featurePositions.empty() ? nullptr : &featurePositions);
+     if (m_targetEdgeLength > 0)
+         remesher.setTargetEdgeLength(m_targetEdgeLength);
+     if (m_vertexTargetEdgeLengths != nullptr)
+@@ -68,6 +74,21 @@ bool IsotropicRemesher::remesh()
+             face->halfedge->startVertex->outputIndex,
+             face->halfedge->nextHalfedge->startVertex->outputIndex });
+     }
++    m_remeshedFeatureEdges.clear();
++    for (IsotropicHalfedgeMesh::Face* face = halfedgeMesh->moveToNextFace(nullptr);
++        nullptr != face;
++        face = halfedgeMesh->moveToNextFace(face)) {
++        IsotropicHalfedgeMesh::Halfedge* halfedge = face->halfedge;
++        for (int k = 0; k < 3; ++k, halfedge = halfedge->nextHalfedge) {
++            if (halfedge->featureState < 1)
++                continue;
++            const size_t from = halfedge->startVertex->outputIndex, to = halfedge->nextHalfedge->startVertex->outputIndex;
++            // An inner edge is seen from both faces; the one whose start index is lower lists it.
++            if (nullptr != halfedge->oppositeHalfedge && from > to)
++                continue;
++            m_remeshedFeatureEdges.push_back({ from, to });
++        }
++    }
+ 
+     return true;
+ }
+diff --git a/src/AutoRemesher/isotropicremesher.h b/src/AutoRemesher/isotropicremesher.h
+index d68b6bc..368d645 100644
+--- a/src/AutoRemesher/isotropicremesher.h
++++ b/src/AutoRemesher/isotropicremesher.h
+@@ -42,6 +42,28 @@ public:
+         m_constraintVertices = constraintVertices;
+     }
+ 
++    // Edges (pairs of vertex indices) kept as edges whatever their angle, their
++    // vertices held on the input's feature polyline: a polygroup border, a crease.
++    void setFeatureEdges(const std::vector<std::pair<size_t, size_t>>* featureEdges)
++    {
++        m_featureEdges = featureEdges;
++    }
++
++    // Where the feature polyline runs, per vertex (a smoothed copy of the vertices, so a
++    // border jagged at the triangles' scale is followed as a curve); the vertices
++    // themselves when not given.
++    void setFeaturePositions(const std::vector<Vector3>* featurePositions)
++    {
++        m_featurePositions = featurePositions;
++    }
++
++    // The remeshed mesh's feature edges (pairs of remeshed vertex indices, each once):
++    // the caller's, carried through the remesh, and the edges found sharp by angle.
++    const std::vector<std::pair<size_t, size_t>>& remeshedFeatureEdges()
++    {
++        return m_remeshedFeatureEdges;
++    }
++
+     void setVertexTargetEdgeLengths(const std::vector<double>* targetLengths)
+     {
+         m_vertexTargetEdgeLengths = targetLengths;
+@@ -85,6 +107,9 @@ private:
+     std::vector<Vector3> m_vertices;
+     std::vector<std::vector<size_t>> m_triangles;
+     const std::unordered_set<size_t>* m_constraintVertices = nullptr;
++    const std::vector<std::pair<size_t, size_t>>* m_featureEdges = nullptr;
++    const std::vector<Vector3>* m_featurePositions = nullptr;
++    std::vector<std::pair<size_t, size_t>> m_remeshedFeatureEdges;
+     const std::vector<double>* m_vertexTargetEdgeLengths = nullptr;
+     double m_targetEdgeLength = 0;
+     double m_sharpEdgeDegrees = 60;

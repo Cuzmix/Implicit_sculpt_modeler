@@ -65,6 +65,7 @@ Long_Job :: struct {
 	prepared:   bool,
 	error:      f32,
 	unmirrored: string, // Decimate: why the symmetry asked was not kept (a literal)
+	retopo_source: retopo.Source, // Retopo: the polygroups and creases copied with the input (quad_source)
 	retopo:     retopo.Result,
 	// Remesh and Decimate: the old polypaint and polygroups copied with the input when
 	// their options carry them (Decimate: and the mask that steers it), what the remesh
@@ -231,6 +232,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
 	case .Retopo:
 		sculpt.levels_sync(&obj.levels)
+		j.retopo_source = quad_source(obj)
 	case .Subdivide:
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels
@@ -326,7 +328,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Retopo:
 		resize(&j.input.normals, len(j.input.positions))
 		geom.mesh_recompute_normals(&j.input)
-		j.retopo = retopo.compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress)
+		j.retopo = retopo.compute(j.input, j.cmd.vertices, j.cmd.quad, &j.pool, &j.progress, j.retopo_source)
 		j.built = j.retopo.built
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
@@ -391,6 +393,7 @@ long_job_drop :: proc(j: ^Long_Job) {
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
 	retopo.result_destroy(&j.retopo)
+	quad_source_destroy(&j.retopo_source)
 	delete(j.color)
 	delete(j.groups)
 	delete(j.mask)

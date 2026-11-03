@@ -249,3 +249,50 @@ quad_remesh_adaptivity_makes_fewer_quads :: proc(t: ^testing.T) {
 	if !testing.expect(t, even.built && bent.built, "nothing built") do return
 	testing.expectf(t, bent.faces < even.faces, "adaptivity 1 gave %d faces, even %d", bent.faces, even.faces)
 }
+
+// Keep groups: a sphere whose top is one polygroup and the rest another hands the border
+// to AutoRemesher as feature edges (one per edge between the groups) and the quads come
+// back as before; with the mirror on, the half's border goes in too. Off, or without
+// groups, nothing is handed over.
+@(test)
+quad_remesh_keeps_group_borders :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	groups := make([]u16, len(m.indices) / 3)
+	defer delete(groups)
+	border := 0
+	side := make(map[u64]bool, len(m.indices), context.temp_allocator)
+	for tri in 0 ..< len(groups) {
+		c := (m.positions[m.indices[3 * tri]] + m.positions[m.indices[3 * tri + 1]] + m.positions[m.indices[3 * tri + 2]]) / 3
+		groups[tri] = 1 if c.z > 0.3 else 0
+		for k in 0 ..< 3 {
+			a, b := m.indices[3 * tri + k], m.indices[3 * tri + (k + 1) % 3]
+			key := sculpt.sharp_key(a, b)
+			if other, seen := side[key]; seen {
+				if other != (groups[tri] == 1) do border += 1
+			} else {
+				side[key] = groups[tri] == 1
+			}
+		}
+	}
+	view := shape_view(&m)
+	r := compute(view, 1500, {engine = .Auto, keep_groups = true}, nil, source = {groups = groups})
+	defer result_destroy(&r)
+	if !testing.expect(t, r.built, "nothing built") do return
+	testing.expect_value(t, r.engine, Engine.Auto)
+	testing.expect_value(t, r.features, border)
+	testing.expectf(t, r.quads >= 1350 && r.quads <= 1650 && r.quads == r.faces, "%d quads of %d faces for 1500 asked", r.quads, r.faces)
+	off := compute(view, 1500, {engine = .Auto, keep_groups = false}, nil, source = {groups = groups})
+	defer result_destroy(&off)
+	testing.expect_value(t, off.features, 0)
+	half := compute(view, 1500, {engine = .Auto, keep_groups = true, mirror = {axes = {true, false, false}}}, nil, source = {groups = groups})
+	defer result_destroy(&half)
+	if !testing.expect(t, half.built, "nothing built with the mirror") do return
+	testing.expect(t, half.mirrored, "not mirrored")
+	// The half carries its share of the border and its cap's rim, which goes in as a group border too.
+	testing.expectf(t, half.features > border / 3, "%d feature edges on the half for %d on the whole", half.features, border)
+}

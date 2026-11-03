@@ -28,6 +28,10 @@ Params :: struct {
 	anisotropy:    f32, // 0 for AutoRemesher's own
 	scaling:       f32, // 0 for the quad edge from the count; else the quad edge as a multiple of the isotropic mesh's mean edge
 	threads:       int, // threads the remesh may use, 1 to MAX_THREADS; the result is the same for any count
+	// Feature edges, two vertex indices each: edges kept as quad edges whatever their
+	// angle (a polygroup border, a crease), so the quads' edges run along them, as
+	// ZRemesher's KeepGroups and KeepCreases do. Nil for none.
+	features:      []u32,
 }
 
 // AutoRemesher's own values, except adaptivity, whose 1 lands three times under the count.
@@ -101,6 +105,8 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 			anisotropy    = params.anisotropy,
 			scaling       = params.scaling,
 			threads       = u32(clamp(params.threads, 1, MAX_THREADS)),
+			features      = raw_data(params.features) if len(params.features) >= 2 else nil,
+			feature_count = u32(len(params.features) / 2),
 		}
 		message := make([]u8, REASON_MAX, context.temp_allocator)
 		result: ^Qm_Result
@@ -160,6 +166,8 @@ Qm_Params :: struct {
 	anisotropy:    f32,
 	scaling:       f32,
 	threads:       u32,
+	features:      [^]u32,
+	feature_count: u32,
 }
 
 @(private = "file")

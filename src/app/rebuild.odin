@@ -150,6 +150,21 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 	return {p.origin.x, p.origin.y, p.origin.z, p.cell}
 }
 
+// How many polygroups the object's shown level has and how many creased edges its base
+// level has (the ones Keep groups and Keep creases keep), so the switches can say when
+// there is nothing to keep.
+quad_source_counts :: proc(obj: ^Object) -> (groups, creases: int) {
+	if obj == nil || obj.voxel != nil do return
+	s := object_sculptor(obj)
+	if sculpt.sculptor_has_groups(s) {
+		seen := make(map[u16]bool, 16, context.temp_allocator)
+		for g in sculpt.sculptor_groups(s) do seen[g] = true
+		groups = len(seen)
+	}
+	if !object_dynamic(obj) && obj.levels.current == 0 do creases = len(obj.levels.levels[0].sharp.edges)
+	return
+}
+
 // The faces the selected object is made of, as Half, Same and Double count them: the
 // base level's polygons where it keeps them, else its quads, else its triangles.
 object_face_count :: proc(obj: ^Object) -> int {
@@ -237,6 +252,15 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 				if app.ui.retopo_engine == .Auto {
 					a := app.ui.retopo_adaptivity
 					_ = ui.slider(ctx, "Adaptivity", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+					// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
+					// KeepCreases and its hard-edge detection: the quads' edges run along
+					// them. The object's own groups and creases decide what there is to keep.
+					groups, creases := quad_source_counts(obj)
+					_ = ui.switch_row(ctx, "Keep groups" if groups > 1 else "Keep groups (none)", &app.ui.retopo_keep_groups, enabled = groups > 1)
+					_ = ui.switch_row(ctx, "Keep creases" if creases > 0 else "Keep creases (none)", &app.ui.retopo_keep_creases, enabled = creases > 0)
+					d := app.ui.retopo_edge_degrees
+					_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
+					app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
 				}
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
