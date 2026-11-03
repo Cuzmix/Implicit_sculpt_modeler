@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "core:log"
 import sdl "vendor:sdl3"
 
@@ -50,6 +51,6 @@ thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUComm
 	if scene do draw_background(r, cmd, pass, &r.single, tv.target, proj, flat_too = true)
 	draw_items(r, cmd, pass, &r.single, view, proj, whole, nil, nil)
 	if scene do draw_floor(r, cmd, pass, &r.single, view, proj)
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 	return tv.target.color
 }

@@ -1,11 +1,11 @@
-package render
+package gpu
 
 // Used only by debug builds.
 @(require) import "core:fmt"
 
 import sdl "vendor:sdl3"
 
-// Transient textures (gpu_create_texture_transient) hold their contents only inside the
+// Transient textures (create_texture_transient) hold their contents only inside the
 // one render pass that clears and uses them: a tile GPU then never gives them memory.
 // Debug builds keep the set of them and check, at the seam and so under every backend,
 // that no pass loads or stores one and that nothing samples, copies or downloads one.

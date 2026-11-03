@@ -1,5 +1,5 @@
 #+build darwin
-package render
+package gpu
 
 import "core:mem"
 
@@ -46,7 +46,7 @@ Mtl_Cmd :: struct {
 	presents:          [dynamic]Mtl_Present,
 	// Whether anything was encoded that the GPU would run: a pass, a build, a mipmap
 	// chain. A recording without it is dropped rather than committed
-	// (gpu_command_buffer_recorded), so a frame that changes nothing wakes no GPU.
+	// (command_buffer_recorded), so a frame that changes nothing wakes no GPU.
 	recorded:          bool,
 	pipeline:          ^Mtl_Pipeline,
 	index_buffer:      ^MTL.Buffer,

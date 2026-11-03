@@ -1,5 +1,5 @@
 #+build darwin
-package render
+package gpu
 
 import "base:intrinsics"
 import "base:runtime"

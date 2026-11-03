@@ -69,6 +69,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\luau" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\png_write" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\poly" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\gpu" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\ui" -no-entry-point %COMMON% || exit /b 1
@@ -86,7 +87,7 @@ python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 21 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
+echo check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
 exit /b 0
 
 :web

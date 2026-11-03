@@ -5,7 +5,7 @@
     python scripts/shaders_msl.py --all     # remake every .msl
     python scripts/shaders_msl.py --check   # fail on a missing or stale .msl, without the tool (build check runs it)
 
-The Metal backend (src/render/mtl_*.odin) on Apple's platforms takes Metal source, so each
+The Metal backend (src/gpu/mtl_*.odin) on Apple's platforms takes Metal source, so each
 src/render/shaders/name.stage.spv (made from its Slang source by build.sh or build.bat) has a
 name.stage.msl beside it, and the iPad build embeds those instead (src/render/shaders.odin).
 They are made by SDL_shadercross (scripts/build_shadercross.py builds it into deps/shadercross),
@@ -25,7 +25,7 @@ they are, as the build does with the .spv when slangc is missing.
 A shader whose Slang source starts with "// ray query" traces against an acceleration
 structure, which SDL_shadercross's Metal language (1.2) cannot name and SDL_GPU cannot bind.
 Its Metal source, name.stage.metal, is made by slangc's own Metal target instead, for the own
-Metal backend alone (src/render/mtl_accel.odin). slangc numbers the Metal slots its own way,
+Metal backend alone (src/gpu/mtl_accel.odin). slangc numbers the Metal slots its own way,
 so the file's second line maps SDL's: from both targets' reflection, each sampler, read-only
 and read-write texture and buffer, uniform block and the structure (set 3, binding 0) in
 SDL_GPU's order, to the slot slangc gave it, as
@@ -39,7 +39,7 @@ deps/slang (scripts/setup_deps.sh).
 A shader whose Slang source starts with "// barycentric" reads where the pixel lies between
 the triangle's corners, which Metal names only from language 2.2 on the Mac and 2.3 on the
 iPad, so its .msl is made for 2.3 (the renderer loads it only where the device offers
-barycentrics, src/render/mtl_device.odin).
+barycentrics, src/gpu/mtl_device.odin).
 """
 
 import hashlib

@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import "core:log"
 import "core:mem"
@@ -63,7 +63,7 @@ Vk_Queue :: enum u8 {
 
 // The read-only storage buffers a compute pipeline may bind: twice SDL_GPU's eight, for the
 // sculpt dab kernels (sculpt_gpu.odin SCULPT_STORAGE_BUFFERS), whose device check is
-// gpu_storage_buffers_per_stage.
+// storage_buffers_per_stage.
 VK_COMPUTE_STORAGE_BUFFERS :: 16
 
 Vk_Cmd :: struct {
@@ -71,7 +71,7 @@ Vk_Cmd :: struct {
 	queue:           Vk_Queue,
 	serial:          u64, // the submission's timeline value on its queue, once submitted
 	// A graphics command buffer waits for the compute timeline to reach this before it
-	// runs (gpu_wait_on); 0 for no wait.
+	// runs (wait_on); 0 for no wait.
 	compute_wait:    u64,
 	// What a compute-queue recording writes, marked with its serial when it is submitted.
 	written_images:  [dynamic]^Vk_Image,
@@ -90,7 +90,7 @@ Vk_Cmd :: struct {
 	presents:        [dynamic]Vk_Present,
 	// Whether anything was recorded that the GPU would run: a pass, a build, a mipmap
 	// chain (not a timestamp). A recording without it is dropped rather than submitted
-	// (gpu_command_buffer_recorded), so a frame that changes nothing wakes no GPU.
+	// (command_buffer_recorded), so a frame that changes nothing wakes no GPU.
 	recorded:        bool,
 	pass:            Vk_Pass,
 	targets:         [dynamic]Vk_Target,
@@ -101,11 +101,11 @@ Vk_Cmd :: struct {
 	compute_storage: [VK_COMPUTE_STORAGE_BUFFERS]vk.Buffer, // read-only storage buffers
 	write_textures:  [8]vk.ImageView,
 	write_buffers:   [8]vk.Buffer,
-	// The compute pass's texture array (gpu_bind_compute_texture_array), written into set 3
+	// The compute pass's texture array (bind_compute_texture_array), written into set 3
 	// at the next dispatch; array_count 0 until one is bound.
 	array_images:    [VK_TEXTURE_ARRAY_MAX]vk.DescriptorImageInfo,
 	array_count:     u32,
-	// The compute pass's top-level acceleration structure (gpu_bind_compute_accel), 0 until
+	// The compute pass's top-level acceleration structure (bind_compute_accel), 0 until
 	// one is bound.
 	accel:           vk.AccelerationStructureKHR,
 	accels:          [dynamic]^Vk_Accel,
@@ -307,7 +307,7 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 	return (^sdl.GPUCommandBuffer)(cmd)
 }
 
-// A command buffer for the compute queue (gpu_acquire_compute_command_buffer): compute
+// A command buffer for the compute queue (acquire_compute_command_buffer): compute
 // passes only (vk_check_compute_writes knows their writes, not a copy's), submitted with
 // vk_submit_compute.
 vk_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
@@ -455,7 +455,7 @@ vk_submit_compute :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 }
 
 // Under --gpu-debug: a graphics submission that uses an image or buffer the compute queue
-// wrote, without waiting for that write (gpu_wait_on, here or in an earlier submission),
+// wrote, without waiting for that write (wait_on, here or in an earlier submission),
 // would read it before it is written, or before it is visible. One queue runs the two in
 // order anyway, so the validation layer cannot see this there; this check can.
 @(private = "file")

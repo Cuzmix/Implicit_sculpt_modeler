@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "core:log"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
@@ -44,24 +45,24 @@ view_depth_draw :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, depth_pipeline
 		// A partial redraw keeps the rest, so it must draw into the same texture.
 		cycle            = !partial,
 	}
-	pass := gpu_begin_render_pass(cmd, nil, 0, &depth)
+	pass := gpu.begin_render_pass(cmd, nil, 0, &depth)
 	if partial {
-		gpu_set_scissor(pass, {part.x, part.y, part.w, part.h})
-		gpu_bind_graphics_pipeline(pass, clear_pipeline)
-		gpu_draw_primitives(pass, 3, 1, 0, 0)
+		gpu.set_scissor(pass, {part.x, part.y, part.w, part.h})
+		gpu.bind_graphics_pipeline(pass, clear_pipeline)
+		gpu.draw_primitives(pass, 3, 1, 0, 0)
 	}
-	gpu_bind_graphics_pipeline(pass, depth_pipeline)
+	gpu.bind_graphics_pipeline(pass, depth_pipeline)
 	for item in items {
 		// See-through items leave the viewport's own depth be, so they stay out of this
 		// one too: the anti-aliased viewport then shades as the plain one does.
 		if blended(&r.single, item) do continue
 		u := Shadow_Uniforms{proj * view, item.model}
-		gpu_push_vertex_uniform_data(cmd, 0, &u, size_of(u))
+		gpu.push_vertex_uniform_data(cmd, 0, &u, size_of(u))
 		vbufs := [1]sdl.GPUBufferBinding{{buffer = item.mesh.positions}}
-		gpu_bind_vertex_buffers(pass, 0, &vbufs[0], 1)
+		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		draw_item_triangles(r, pass, item, nil)
 	}
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 }
 
 // Maps the pixel rectangle `rect` of a `width` by `height` target to the whole of clip
@@ -121,20 +122,20 @@ scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bo
 // with `cull_back`, the camera's (front faces, matching what the viewport drew).
 @(private)
 create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
+	vert := gpu.create_shader(r.device, {
 		code_size = len(SHADOW_VERT_CODE), code = raw_data(SHADOW_VERT_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .VERTEX, num_uniform_buffers = 1,
 	})
-	frag := gpu_create_shader(r.device, {
+	frag := gpu.create_shader(r.device, {
 		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .FRAGMENT,
 	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
+	defer if vert != nil do gpu.release_shader(r.device, vert)
+	defer if frag != nil do gpu.release_shader(r.device, frag)
 	if vert == nil || frag == nil do return nil
 	buffers := [1]sdl.GPUVertexBufferDescription{{slot = 0, pitch = size_of(geom.Vec3), input_rate = .VERTEX}}
 	attributes := [1]sdl.GPUVertexAttribute{{location = 0, buffer_slot = 0, format = .FLOAT3}}
-	return gpu_create_graphics_pipeline(r.device, {
+	return gpu.create_graphics_pipeline(r.device, {
 		vertex_shader = vert,
 		fragment_shader = frag,
 		vertex_input_state = {
@@ -155,18 +156,18 @@ create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphic
 // pass can only clear whole.
 @(private)
 create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
+	vert := gpu.create_shader(r.device, {
 		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .VERTEX,
 	})
-	frag := gpu_create_shader(r.device, {
+	frag := gpu.create_shader(r.device, {
 		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .FRAGMENT,
 	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
+	defer if vert != nil do gpu.release_shader(r.device, vert)
+	defer if frag != nil do gpu.release_shader(r.device, frag)
 	if vert == nil || frag == nil do return nil
-	return gpu_create_graphics_pipeline(r.device, {
+	return gpu.create_graphics_pipeline(r.device, {
 		vertex_shader = vert,
 		fragment_shader = frag,
 		primitive_type = .TRIANGLELIST,
@@ -180,16 +181,16 @@ create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 // and one uniform buffer, into one colour target; `additive` blends by adding.
 @(private)
 create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: string, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
+	vert := gpu.create_shader(r.device, {
 		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .VERTEX,
 	})
-	frag := gpu_create_shader(r.device, {
+	frag := gpu.create_shader(r.device, {
 		code_size = len(frag_code), code = raw_data(frag_code), entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = samplers, num_uniform_buffers = 1,
 	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
+	defer if vert != nil do gpu.release_shader(r.device, vert)
+	defer if frag != nil do gpu.release_shader(r.device, frag)
 	if vert == nil || frag == nil {
 		log.errorf("full-screen pass shaders: %s", sdl.GetError())
 		return nil
@@ -203,7 +204,7 @@ create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: string, format: sdl.
 		}
 	}
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = format, blend_state = blend}}
-	return gpu_create_graphics_pipeline(r.device, {
+	return gpu.create_graphics_pipeline(r.device, {
 		vertex_shader = vert,
 		fragment_shader = frag,
 		primitive_type = .TRIANGLELIST,

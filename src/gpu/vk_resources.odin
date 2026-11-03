@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import "core:log"
 import "core:mem"
@@ -65,7 +65,7 @@ Vk_Texture :: struct {
 	backings:       [dynamic]^Vk_Image,
 	active:         ^Vk_Image,
 	swapchain:      bool, // owned by a window's swapchain: never cycled or destroyed here
-	// Its contents live only inside a pass (gpu_create_texture_transient): every backing,
+	// Its contents live only inside a pass (create_texture_transient): every backing,
 	// cycled ones too, is a transient attachment in lazily allocated memory where offered.
 	transient:      bool,
 	name:           cstring, // for capture tools, given to every backing; a literal, never freed
@@ -97,9 +97,9 @@ Vk_Set_Key :: struct {
 	write_buf:       u32,
 	uniform_buffers: u32,
 	// A set of one binding, an array of up to this many sampled textures whose count is
-	// given when the set is allocated (gpu_bind_compute_texture_array); 0 for none.
+	// given when the set is allocated (bind_compute_texture_array); 0 for none.
 	array:           u32,
-	// An acceleration structure at binding 0 (gpu_bind_compute_accel), the array then at
+	// An acceleration structure at binding 0 (bind_compute_accel), the array then at
 	// binding 1, since a binding of variable count must be the set's last.
 	accel:           bool,
 }
@@ -305,7 +305,7 @@ vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, te
 }
 
 // Every buffer can be copied into and out of, as SDL_GPU's are. An acceleration structure
-// build input (gpu_build_blas reads vertices and indices through their addresses) also gets
+// build input (build_blas reads vertices and indices through their addresses) also gets
 // the two usages that needs, where ray queries are on.
 @(private = "file")
 vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags, accel_input: bool) -> vk.BufferUsageFlags {
@@ -876,7 +876,7 @@ vk_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPU
 }
 
 // A kernel that traces rays against the acceleration structure at set 3, binding 0
-// (gpu_bind_compute_accel), and reads an array of up to `capacity` sampled textures at
+// (bind_compute_accel), and reads an array of up to `capacity` sampled textures at
 // binding 1 when capacity is not 0.
 vk_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
 	if !vk_state.ray_query {
@@ -891,7 +891,7 @@ vk_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: 
 }
 
 // A kernel that also reads an array of up to `capacity` sampled textures from set 3,
-// binding 0 (gpu_create_compute_pipeline_array).
+// binding 0 (create_compute_pipeline_array).
 vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
 	if capacity == 0 || capacity > vk_state.texture_arrays {
 		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)

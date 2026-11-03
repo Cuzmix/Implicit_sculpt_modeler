@@ -1,6 +1,6 @@
 #+build !linux
 #+build !js
-package render
+package gpu
 
 // VK_GOOGLE_display_timing reports times on CLOCK_MONOTONIC, which only Linux and Android
 // name; elsewhere the backend never turns it on (vk_clock_linux.odin).

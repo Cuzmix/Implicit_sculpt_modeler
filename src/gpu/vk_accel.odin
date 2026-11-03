@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import "core:log"
 import "core:slice"
