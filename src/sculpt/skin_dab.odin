@@ -342,7 +342,7 @@ skin_split_moved :: proc(s: ^Sculptor, d: ^Dab) {
 @(private)
 skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	sk := s.skin
-	if d.brush.kind in SKIN_SIDE_KINDS do skin_side_fit(sk, s.history.allocator)
+	if d.brush.kind in SKIN_SIDE_KINDS || dab_vdm(d) do skin_side_fit(sk, s.history.allocator)
 	if s.history.recording do record_skin_hit(s)
 	brush := d.brush
 	sign: f32 = -1 if brush.invert else 1
@@ -367,7 +367,8 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	case .Draw, .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		if brush.kind == .Draw {
-			if once do jobs.parallel_for(pool, items, d, job_skin_draw_once)
+			if dab_vdm(d) do jobs.parallel_for(pool, items, d, job_skin_draw)
+			else if once do jobs.parallel_for(pool, items, d, job_skin_draw_once)
 			else do jobs.parallel_for(pool, items, d, job_skin_draw)
 		} else {
 			if once do jobs.parallel_for(pool, items, d, job_skin_inflate_once)
@@ -640,7 +641,18 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 		next = h + (to - was) * along
 		l^ = {s.layer_stroke, to}
 	} else when K == .Draw {
-		next = h + d.amount * (w - given) * linalg.dot(d.normal, nu)
+		if dab_vdm(d) {
+			// A VDM stamp moves the sample by its offset at the flat point, as the vertices'
+			// pass moves a corner at its own point, less what the moved corners give it.
+			if w > 0 || given != 0 {
+				gate := skin_gate(d, t, i, j)
+				if d.brush.facing != {} do gate *= clamp(linalg.dot(nu, d.brush.facing) * 5 + 0.5, 0, 1)
+				mv = vdm_move(d, p - d.center) * gate
+				if d.mesh_share > 0 do mv -= skin_vdm_given(d, t, i, j)
+			}
+		} else {
+			next = h + d.amount * (w - given) * linalg.dot(d.normal, nu)
+		}
 	} else when K == .Inflate {
 		next = h + d.amount * (w - given)
 	} else when K == .Clay {
@@ -693,7 +705,7 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 	// A sideways move goes along the normal into the height and across it into the vector
 	// page, in the sample's owner frame: the two together are the move to the bit of f16.
 	side_moved := false
-	when K == .Pinch || K == .Snake_Hook || K == .Crease {
+	when K == .Pinch || K == .Snake_Hook || K == .Crease || K == .Draw {
 		if mv != {} {
 			tu, tv := skin_frame(s, sk, t, i, j, nu)
 			next += linalg.dot(mv, nu)
@@ -712,6 +724,28 @@ skin_touch_at :: #force_inline proc(d: ^Dab, x, t, i, j: u32, p, nn: Vec3, corne
 	sk.heights[x] = stored
 	moved^ += 1
 	top^ = max(top^, abs(f32(stored)) + (abs(f32(sk.side[x].x)) + abs(f32(sk.side[x].y)) if sk.side != nil else 0))
+}
+
+// What a split VDM dab's vertices' pass gives the sample at grid place (i, j) of triangle
+// t: each corner's move, as job_vdm makes it times the vertices' share, mixed by where the
+// sample lies between the corners.
+@(private)
+skin_vdm_given :: proc(d: ^Dab, t, i, j: u32) -> (given: Vec3) {
+	s := d.s
+	I := s.mesh.indices[:]
+	P := s.mesh.positions[:]
+	S := f32(s.skin.segments)
+	b1, b2 := f32(i) / S, f32(j) / S
+	b := [3]f32{1 - b1 - b2, b1, b2}
+	for c in 0 ..< 3 {
+		if b[c] <= 0 do continue
+		v := I[3 * t + u32(c)]
+		delta := P[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		guard := shield(s.fade, s.mask, v) * facing_weight(d, s.mesh.normals[:], v)
+		given += vdm_move(d, delta) * (guard * d.mesh_share * b[c])
+	}
+	return
 }
 
 // A vector page's offset as two f32.

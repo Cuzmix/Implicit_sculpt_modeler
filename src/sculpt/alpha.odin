@@ -17,6 +17,9 @@ Alpha :: struct {
 	// this far out, so an image that fades out inside its circle costs no more than
 	// the round brush (alpha_measure).
 	reach:  f32,
+	// A vector displacement stamp's offsets (vdm.odin), size × size like `values`, which
+	// then hold their lengths; nil for a grey alpha.
+	vectors: [][3]f32,
 }
 
 // The built-in alphas.
@@ -45,6 +48,7 @@ ALPHA_MAX_SIZE :: 512
 
 alpha_destroy :: proc(a: ^Alpha, allocator := context.allocator) {
 	delete(a.values, allocator)
+	delete(a.vectors, allocator)
 	a^ = {}
 }
 

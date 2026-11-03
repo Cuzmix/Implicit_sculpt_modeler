@@ -62,6 +62,11 @@ alphas_init :: proc(app: ^App) {
 		name := sculpt.ALPHA_SHAPE_NAMES[shape]
 		alpha_add(app, name, name, sculpt.alpha_make(shape))
 	}
+	// Then the starter VDM stamps, which Draw lays as 3D offsets (sculpt/vdm.odin).
+	for shape in sculpt.Vdm_Shape {
+		name := sculpt.VDM_SHAPE_NAMES[shape]
+		alpha_add(app, name, name, sculpt.vdm_make(shape))
+	}
 }
 
 alphas_destroy :: proc(app: ^App) {
@@ -95,6 +100,7 @@ alpha_find :: proc(app: ^App, ref: string) -> int {
 	for e, i in app.alphas do if !e.gone && strings.equal_fold(e.ref, ref) do return i
 	if len(app.alphas) == 0 {
 		for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(ref, name) do return int(shape)
+		for name, shape in sculpt.VDM_SHAPE_NAMES do if strings.equal_fold(ref, name) do return len(sculpt.Alpha_Shape) + int(shape)
 	}
 	return -1
 }
@@ -289,24 +295,26 @@ kit_alpha_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	PER_ROW :: 6
 	cell := ui.fill_width(ctx) / PER_ROW
-	// The round brush and the built-ins, then the person's own, then each pack's under
-	// its name; alphas taken out of the library are not shown.
-	groups := make([dynamic][dynamic]int, 2 + len(app.library.packs), context.temp_allocator)
+	// The round brush and the built-ins, then the VDM stamps, then the person's own, then
+	// each pack's under its name; alphas taken out of the library are not shown.
+	groups := make([dynamic][dynamic]int, 3 + len(app.library.packs), context.temp_allocator)
 	for &g in groups do g = make([dynamic]int, context.temp_allocator)
 	append(&groups[0], -1)
 	for e, i in app.alphas {
 		if e.gone do continue
 		group := 0
-		if strings.has_prefix(e.ref, LIBRARY_MINE + "/") && e.file != "" do group = 1
-		else if p := pack_of_ref(app, e.ref); p >= 0 do group = 2 + p
+		if strings.has_prefix(e.ref, LIBRARY_MINE + "/") && e.file != "" do group = 2
+		else if p := pack_of_ref(app, e.ref); p >= 0 do group = 3 + p
+		else if e.alpha.vectors != nil do group = 1
 		append(&groups[group], i)
 	}
 	for shown, group in groups {
 		if len(shown) == 0 do continue
 		switch group {
 		case 0:
-		case 1: ui.caption(ctx, "YOUR LIBRARY")
-		case:   ui.caption(ctx, strings.to_upper(app.library.packs[group - 2].name, context.temp_allocator))
+		case 1: ui.caption(ctx, "VDM STAMPS")
+		case 2: ui.caption(ctx, "YOUR LIBRARY")
+		case:   ui.caption(ctx, strings.to_upper(app.library.packs[group - 3].name, context.temp_allocator))
 		}
 		for first := 0; first < len(shown); first += PER_ROW {
 			ui.begin(ctx, fmt.tprintf("alpha row %d %d", group, first), {direction = .Row})
@@ -334,7 +342,7 @@ kit_alpha_section :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey.")
 }
 
 // One thumbnail of the Alpha section (and the Lens shelf's quick settings): the round
