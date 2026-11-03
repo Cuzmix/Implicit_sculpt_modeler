@@ -1,7 +1,6 @@
 package render
 
 import "../gpu"
-import "base:runtime"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
@@ -85,9 +84,6 @@ RENDER_FRAME_SLOW :: 50 * time.Millisecond
 RENDER_FRAME_FAST :: 20 * time.Millisecond
 @(private = "file")
 RENDER_ROWS_MIN :: 16
-// Uploads go through a transfer buffer this big, cycled between batches.
-@(private = "file")
-RENDER_TRANSFER_SIZE :: 4 << 20
 
 // The item flags of render_trace.comp.slang's ITEM_ constants.
 @(private = "file")
@@ -137,7 +133,6 @@ Path_Render :: struct {
 	// mean luminance.
 	studio_table:   gpu.Texture,
 	studio_mean:    f32,
-	transfer:       gpu.Transfer_Buffer,
 	// The sum of the samples done in accum[current]; the sample under way is written to
 	// the other one, band by band.
 	accum:          [2]gpu.Texture,
@@ -527,7 +522,6 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if pr.atrous != 0 do gpu.release_graphics_pipeline(pr.atrous)
 	if pr.sampler != 0 do gpu.release_sampler(pr.sampler)
 	if pr.studio_table != 0 do gpu.release_texture(pr.studio_table)
-	if pr.transfer != 0 do gpu.release_transfer_buffer(pr.transfer)
 	path_targets_release(r, pr)
 	for b in pr.buffers do if b != 0 do gpu.release_buffer(b)
 	tracer_destroy(r, &pr.tracer)
@@ -703,10 +697,9 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
-		pr.transfer = gpu.create_transfer_buffer({usage = .Upload, size = RENDER_TRANSFER_SIZE})
 		studio := studio_table_build(context.temp_allocator)
 		pr.studio_table, pr.studio_mean = env_table_texture(r, studio), studio.mean
-		if pr.studio_table == 0 || pr.pipeline == 0 || pr.display == 0 || pr.atrous == 0 || pr.sampler == 0 || pr.transfer == 0 {
+		if pr.studio_table == 0 || pr.pipeline == 0 || pr.display == 0 || pr.atrous == 0 || pr.sampler == 0 {
 			log.errorf("render mode: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
@@ -1191,22 +1184,12 @@ path_buffer_ensure :: proc(r: ^Renderer, pr: ^Path_Render, which: Scene_Buffer, 
 	return true
 }
 
-// Copies `data` into a scene buffer at `offset` through the transfer buffer, a batch at a
-// time.
+// Copies `data` into a scene buffer at `offset` through the GPU layer's upload memory.
 @(private = "file")
 path_upload :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, which: Scene_Buffer, offset: int, data: []u8) -> bool {
-	for at := 0; at < len(data); at += RENDER_TRANSFER_SIZE {
-		part := data[at:min(at + RENDER_TRANSFER_SIZE, len(data))]
-		dst := gpu.map_transfer_buffer(pr.transfer, true)
-		if dst == nil {
-			log.errorf("render mode: upload failed (%s)", gpu.last_error())
-			return false
-		}
-		runtime.mem_copy_non_overlapping(dst, raw_data(part), len(part))
-		gpu.unmap_transfer_buffer(pr.transfer)
-		pass := gpu.begin_copy_pass(cmd)
-		gpu.upload_to_buffer(pass, {transfer_buffer = pr.transfer}, {buffer = pr.buffers[which], offset = u32(offset + at), size = u32(len(part))}, false)
-		gpu.end_copy_pass(pass)
+	if !gpu.upload(cmd, pr.buffers[which], u32(offset), data) {
+		log.errorf("render mode: upload failed (%s)", gpu.last_error())
+		return false
 	}
 	return true
 }

@@ -49,9 +49,6 @@ TRACE_BUFFER_MAX :: 128 << 20 when MOBILE else int(max(u32))
 // The least distance a ray starts off the surface, as a share of the scene's radius: well
 // above a float's rounding at the scene's scale.
 TRACE_EPSILON :: 1e-4
-// Uploads go through a transfer buffer this big, cycled between batches.
-@(private = "file")
-TRACE_TRANSFER_SIZE :: 16 << 20
 // A mesh's acceleration structure is built afresh after this many refits in a row, since
 // each refit keeps the tree of the first build however far the vertices have moved.
 @(private = "file")
@@ -63,7 +60,6 @@ Tracer :: struct {
 	add_pipeline:   gpu.Graphics_Pipeline,
 	visible:        gpu.Texture, // R32_FLOAT, 1 where this sample's ray got out
 	width, height:  u32, // of visible
-	transfer:       gpu.Transfer_Buffer,
 	failed:         bool, // the device refused part of it; the studio stays on the gather
 	// For the exit stats: samples traced, time spent building chunk trees and how many
 	// were built, and the GPU memory of the trees of the items traced last.
@@ -289,7 +285,6 @@ tracer_destroy :: proc(r: ^Renderer, tr: ^Tracer) {
 	if tr.refit_pipeline != 0 do gpu.release_compute_pipeline(tr.refit_pipeline)
 	if tr.add_pipeline != 0 do gpu.release_graphics_pipeline(tr.add_pipeline)
 	if tr.visible != 0 do gpu.release_texture(tr.visible)
-	if tr.transfer != 0 do gpu.release_transfer_buffer(tr.transfer)
 	if tr.rq_pipeline != 0 do gpu.release_compute_pipeline(tr.rq_pipeline)
 	gpu.release_accel(tr.tlas)
 	for b in tr.rq_buffers do if b != 0 do gpu.release_buffer(b)
@@ -347,8 +342,7 @@ tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 			num_uniform_buffers = 1, threadcount_x = REFIT_THREADS, threadcount_y = 1, threadcount_z = 1,
 		})
 		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
-		tr.transfer = gpu.create_transfer_buffer({usage = .Upload, size = TRACE_TRANSFER_SIZE})
-		if tr.trace_pipeline == 0 || tr.refit_pipeline == 0 || tr.add_pipeline == 0 || tr.transfer == 0 {
+		if tr.trace_pipeline == 0 || tr.refit_pipeline == 0 || tr.add_pipeline == 0 {
 			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", gpu.last_error())
 			return false
 		}
@@ -678,13 +672,8 @@ trace_rq_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, which: Rq_Buffe
 		tr.rq_capacity[which] = u32(len(data) + len(data) / 4)
 		tr.rq_buffers[which] = gpu.create_buffer({usage = {.Storage_Read}, size = tr.rq_capacity[which]})
 	}
-	dst := gpu.map_transfer_buffer(tr.transfer, true)
-	if dst == nil || tr.rq_buffers[which] == 0 do return
-	copy(([^]u8)(dst)[:len(data)], data)
-	gpu.unmap_transfer_buffer(tr.transfer)
-	pass := gpu.begin_copy_pass(cmd)
-	gpu.upload_to_buffer(pass, {transfer_buffer = tr.transfer}, {buffer = tr.rq_buffers[which], size = u32(len(data))}, true)
-	gpu.end_copy_pass(pass)
+	if tr.rq_buffers[which] == 0 do return
+	if !gpu.upload(cmd, tr.rq_buffers[which], 0, data) do log.errorf("traced studio: upload failed (%s)", gpu.last_error())
 }
 
 // The runs of an item's trees that are shown and not empty, and their boxes in mesh space,
@@ -761,8 +750,7 @@ trace_mesh_upload_trees :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Tr
 }
 
 // Copies `data` to the start of one of the mesh's trace buffers, making it bigger first
-// (by a quarter again) when it does not fit, through the tracer's transfer buffer one
-// batch at a time. False when the device refused the buffer or it is too big to read.
+// (by a quarter again) when it does not fit, through the GPU layer's upload memory. False when the device refused the buffer or it is too big to read.
 @(private = "file")
 trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_Mesh, which: Trace_Buffer, data: []u8) -> bool {
 	size := max(len(data), size_of(geom.Gpu_Bvh_Node))
@@ -786,18 +774,9 @@ trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_
 			return false
 		}
 	}
-	for offset := 0; offset < len(data); offset += TRACE_TRANSFER_SIZE {
-		part := data[offset:min(offset + TRACE_TRANSFER_SIZE, len(data))]
-		dst := gpu.map_transfer_buffer(tr.transfer, true)
-		if dst == nil {
-			log.errorf("traced studio: upload failed (%s)", gpu.last_error())
-			return false
-		}
-		copy(([^]u8)(dst)[:len(part)], part)
-		gpu.unmap_transfer_buffer(tr.transfer)
-		pass := gpu.begin_copy_pass(cmd)
-		gpu.upload_to_buffer(pass, {transfer_buffer = tr.transfer}, {buffer = tm.buffers[which], offset = u32(offset), size = u32(len(part))}, false)
-		gpu.end_copy_pass(pass)
+	if !gpu.upload(cmd, tm.buffers[which], 0, data) {
+		log.errorf("traced studio: upload failed (%s)", gpu.last_error())
+		return false
 	}
 	return true
 }

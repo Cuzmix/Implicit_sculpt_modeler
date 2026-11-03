@@ -84,7 +84,6 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	indices := gpu.create_buffer({usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
 	rays := gpu.create_buffer({usage = {.Storage_Read}, size = RAYS * 32})
 	hits := gpu.create_buffer({usage = {.Storage_Write}, size = RAYS * 32})
-	upload := gpu.create_transfer_buffer({usage = .Upload, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
 	download := gpu.create_transfer_buffer({usage = .Download, size = RAYS * 32})
 	pipeline := gpu.create_compute_pipeline_traced({
 		code = RAY_QUERY_CHECK_COMP_CODE, entrypoint = RQ_ENTRY,
@@ -97,13 +96,12 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		gpu.release_accel(blas)
 		gpu.release_compute_pipeline(pipeline)
 		gpu.release_transfer_buffer(download)
-		gpu.release_transfer_buffer(upload)
 		gpu.release_buffer(hits)
 		gpu.release_buffer(rays)
 		gpu.release_buffer(indices)
 		gpu.release_buffer(positions)
 	}
-	if positions == 0 || indices == 0 || rays == 0 || hits == 0 || upload == 0 || download == 0 || pipeline == 0 {
+	if positions == 0 || indices == 0 || rays == 0 || hits == 0 || download == 0 || pipeline == 0 {
 		log.errorf("ray query check: its buffers or kernel could not be made (%s)", gpu.last_error())
 		return false
 	}
@@ -111,24 +109,19 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	for round in 0 ..< 2 {
 		// The first round fills everything; the second moves the vertices up by 1.
 		z := f32(round)
-		data := ([^]u8)(gpu.map_transfer_buffer(upload, true))
-		if data == nil do return false
 		corners := [4][3]f32{{-1, -1, z}, {1, -1, z}, {1, 1, z}, {-1, 1, z}}
-		copy(data[:4 * 12], ([^]u8)(&corners)[:4 * 12])
-		copy(data[48:48 + size_of(RQ_INDICES)], ([^]u8)(&RQ_INDICES)[:size_of(RQ_INDICES)])
-		ray_words := ([^][4]f32)(&data[48 + size_of(RQ_INDICES)])
+		indices_data := RQ_INDICES
+		ray_words: [2 * RAYS][4]f32
 		for ray, i in RQ_RAYS {
 			ray_words[2 * i] = {ray.origin.x, ray.origin.y, ray.origin.z, 0}
 			ray_words[2 * i + 1] = {ray.direction.x, ray.direction.y, ray.direction.z, 0}
 		}
-		gpu.unmap_transfer_buffer(upload)
 		cmd := gpu.acquire_command_buffer()
 		if cmd == nil do return false
-		copy_pass := gpu.begin_copy_pass(cmd)
-		gpu.upload_to_buffer(copy_pass, {transfer_buffer = upload}, {buffer = positions, size = 48}, false)
-		gpu.upload_to_buffer(copy_pass, {transfer_buffer = upload, offset = 48}, {buffer = indices, size = size_of(RQ_INDICES)}, false)
-		gpu.upload_to_buffer(copy_pass, {transfer_buffer = upload, offset = 48 + size_of(RQ_INDICES)}, {buffer = rays, size = RAYS * 32}, false)
-		gpu.end_copy_pass(copy_pass)
+		if !gpu.upload(cmd, positions, 0, ([^]u8)(&corners)[:4 * 12]) || !gpu.upload(cmd, indices, 0, ([^]u8)(&indices_data)[:size_of(RQ_INDICES)]) || !gpu.upload(cmd, rays, 0, ([^]u8)(&ray_words)[:RAYS * 32]) {
+			_ = gpu.cancel_command_buffer(cmd)
+			return false
+		}
 		new_blas := gpu.build_blas(cmd, positions, indices, 4, geometries[:], blas)
 		if round == 1 && new_blas != blas {
 			log.error("ray query check: the refit made a new bottom level")
@@ -164,7 +157,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 		gpu.push_compute_uniform_data(cmd, 0, &count, size_of(count))
 		gpu.dispatch_compute(pass, 1, 1, 1)
 		gpu.end_compute_pass(pass)
-		copy_pass = gpu.begin_copy_pass(cmd)
+		copy_pass := gpu.begin_copy_pass(cmd)
 		gpu.download_from_buffer(copy_pass, {buffer = hits, size = RAYS * 32}, {transfer_buffer = download})
 		gpu.end_copy_pass(copy_pass)
 		if !gpu.submit_command_buffer(cmd) || !gpu.wait_for_idle() do return false
