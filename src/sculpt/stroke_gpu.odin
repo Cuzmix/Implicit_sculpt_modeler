@@ -410,79 +410,31 @@ sculptor_normals_stale :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
 	}
 }
 
-// The nodes' own vertex ranges tiling `ranges` (a flush's, which are whole nodes), in
-// order: the readback finds each one's bounds while it copies the positions in, which
-// sculptor_positions_landed then takes instead of reading the positions again.
-sculptor_range_nodes :: proc(s: ^Sculptor, ranges: []Vertex_Range, allocator := context.temp_allocator) -> []Vertex_Range {
-	ids := nodes_of_ranges(s, ranges)
-	out := make([]Vertex_Range, len(ids), allocator)
-	for id, k in ids do out[k] = {s.nodes[id].vert_first, s.nodes[id].vert_count}
-	return out
-}
-
 // The positions of `ranges` (a flush's, handed to the GPU) landed in the mesh from the
 // GPU: refits the bounds of their nodes from the positions as they are now, exactly,
 // where no later dab of the stroke is still on its way for the node (its bounds keep the
 // margin dab_gpu_record gave them until that one lands too), and the BVH above them.
-// `nodes` and `bounds`, when the readback found them (sculptor_range_nodes), are the
-// bounds of each node's own vertices as they landed: only its shared vertices are read
-// then, and the result is the full refit's to the bit, the same vertices grown in the
-// same order.
-sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range, nodes: []Vertex_Range = nil, bounds: []geom.Aabb = nil) {
+sculptor_positions_landed :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
 	gpu_flush_done(s)
 	clear(&s.changed)
-	ids := nodes_of_ranges(s, ranges)
-	// The readback's nodes are these in this order when they tile the same ranges.
-	known := len(nodes) == len(ids) && len(bounds) == len(ids)
-	if known do for id, k in ids do if nodes[k].first != s.nodes[id].vert_first || nodes[k].count != s.nodes[id].vert_count {
-		known = false
-		break
-	}
-	owned_bounds := make([dynamic]geom.Aabb, 0, len(ids) if known else 0, context.temp_allocator)
-	for id, k in ids {
+	for id in nodes_of_ranges(s, ranges) {
 		if s.gpu_pending[id] > 0 {
 			s.gpu_pending[id] -= 1
 			if s.gpu_pending[id] > 0 do continue
 		}
-		if s.nodes[id].leaf == geom.BVH_NONE do continue
-		append(&s.changed, s.nodes[id].leaf)
-		if known do append(&owned_bounds, bounds[k])
+		if s.nodes[id].leaf != geom.BVH_NONE do append(&s.changed, s.nodes[id].leaf)
 	}
 	if len(s.changed) == 0 do return
 	verts: u32
 	for leaf in s.changed do verts += s.nodes[s.node_of[leaf]].vert_count
-	l := Landing{s = s, owned = owned_bounds[:] if known else nil}
-	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &l, job_landed_bounds)
+	d := Dab{s = s}
+	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	for leaf in s.changed {
 		id := s.node_of[leaf]
 		s.chunks[id].bounds = s.bvh.nodes[leaf].bounds
 		chunk_touched(s, id)
 	}
-}
-
-@(private = "file")
-Landing :: struct {
-	s:     ^Sculptor,
-	owned: []geom.Aabb, // each changed leaf's own vertices' bounds, or nil to find them
-}
-
-// A landed leaf's bounds: its own vertices' (as the readback found them, or read here)
-// grown by its shared vertices', as job_leaf_bounds finds them.
-@(private = "file")
-job_landed_bounds :: proc(data: rawptr, i: int) {
-	l := cast(^Landing)data
-	s := l.s
-	leaf := s.changed[i]
-	bounds := geom.AABB_EMPTY
-	if l.owned != nil {
-		bounds = l.owned[i]
-	} else {
-		first, last := owned(s, leaf)
-		for v in first ..< last do geom.aabb_grow(&bounds, s.mesh.positions[v])
-	}
-	for v in shared_of(s, leaf) do geom.aabb_grow(&bounds, s.mesh.positions[v])
-	s.bvh.nodes[leaf].bounds = bounds
 }
 
 // Frees what the GPU's records hold (sculptor_destroy).

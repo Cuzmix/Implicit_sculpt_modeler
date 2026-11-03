@@ -68,11 +68,8 @@ Mesh_Sculpt :: struct {
 	// The vertex ranges whose normals this frame's dispatch recomputes and reads back, where
 	// the read-back normals go, and whether they end the stroke; and where the read-back
 	// positions go, nil when the dabs ran on the CPU (nothing to read back of them), and
-	// the stroke heights too, nil when no dab of the stroke keeps them. With the
-	// positions, `queued_nodes` holds the nodes' own ranges that tile `queued`, in its order,
-	// whose bounds the readback's copy finds on the way (Sculpt_Landed).
-	queued:       [dynamic]geom.Vertex_Range,
-	queued_nodes: [dynamic]geom.Vertex_Range,
+	// the stroke heights too, nil when no dab of the stroke keeps them.
+	queued:    [dynamic]geom.Vertex_Range,
 	normals:   []geom.Vec3,
 	positions: []geom.Vec3,
 	heights:   []Sculpt_Height,
@@ -174,7 +171,6 @@ Sculpt_Entry :: struct {
 	normals:   []geom.Vec3,
 	heights:   []Sculpt_Height,
 	ranges:    []geom.Vertex_Range,
-	nodes:     []geom.Vertex_Range, // tiling ranges, when the positions are read and the caller gave them
 	download:  ^sdl.GPUTransferBuffer,
 	offset:    u32,
 	pbytes:    u32, // of positions; 0 when none were read
@@ -199,11 +195,6 @@ Sculpt_Slot :: struct {
 Sculpt_Landed :: struct {
 	mesh:   ^Mesh_Buffers,
 	ranges: []geom.Vertex_Range,
-	// The nodes' own ranges tiling `ranges` and the bounds of each one's positions as they
-	// landed, grown vertex by vertex in order (geom.aabb_grow), as a refit of the node's
-	// own vertices would: empty where the caller gave no nodes.
-	nodes:  []geom.Vertex_Range,
-	bounds: []geom.Aabb,
 }
 
 // What a run of sculpting on the GPU counts, for the exit stats and the Stats panel.
@@ -284,36 +275,12 @@ sculpt_gpu_frame :: proc(r: ^Renderer) {
 
 // The readbacks of positions that landed since the last clear (a frame's start, or a
 // sync), for the app to refit their sculptors' bounds with.
-// Whether `nodes` tile `ranges`: in order, each node inside the range it falls in and the
-// ranges covered with no gap (the counts were already found to sum the same).
-@(private = "file")
-sculpt_nodes_tile :: proc(nodes, ranges: []geom.Vertex_Range) -> bool {
-	k := 0
-	for rg in ranges {
-		at := rg.first
-		for at < rg.first + rg.count {
-			if k == len(nodes) || nodes[k].first != at || nodes[k].count == 0 do return false
-			at += nodes[k].count
-			k += 1
-		}
-		if at != rg.first + rg.count do return false
-	}
-	return k == len(nodes)
-}
-
-@(private = "file")
-sculpt_landed_free :: proc(l: Sculpt_Landed) {
-	delete(l.ranges)
-	delete(l.nodes)
-	delete(l.bounds)
-}
-
 sculpt_gpu_landed :: proc(r: ^Renderer) -> []Sculpt_Landed {
 	return r.sculpt_gpu.landed[:]
 }
 
 sculpt_gpu_landed_clear :: proc(r: ^Renderer) {
-	for l in r.sculpt_gpu.landed do sculpt_landed_free(l)
+	for l in r.sculpt_gpu.landed do delete(l.ranges)
 	clear(&r.sculpt_gpu.landed)
 }
 
@@ -429,10 +396,9 @@ sculpt_gpu_queue_dabs :: proc(mb: ^Mesh_Buffers, dabs: []Sculpt_Dab) {
 // the readback are recorded by sculpt_gpu_dispatch once the frame has uploaded what the
 // CPU moved. With `positions` nil only the normals are read back (the CPU laid the dabs);
 // else the positions too, into it, and the stroke heights into `heights` when not nil.
-sculpt_gpu_queue :: proc(mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, nodes: []geom.Vertex_Range, normals: []geom.Vec3, positions: []geom.Vec3, heights: []Sculpt_Height, last: bool) {
+sculpt_gpu_queue :: proc(mb: ^Mesh_Buffers, ranges: []geom.Vertex_Range, normals: []geom.Vec3, positions: []geom.Vec3, heights: []Sculpt_Height, last: bool) {
 	ms := &mb.sculpt
 	append(&ms.queued, ..ranges)
-	if positions != nil do append(&ms.queued_nodes, ..nodes)
 	ms.normals = normals
 	ms.positions = positions
 	ms.heights = heights if positions != nil else nil
@@ -463,7 +429,6 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	if len(ms.queued) == 0 && len(ms.dabs) == 0 do return true
 	defer {
 		clear(&ms.queued)
-		clear(&ms.queued_nodes)
 		clear(&ms.dabs)
 		clear(&ms.dab_ranges)
 		ms.last = false
@@ -623,13 +588,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 	mb.version = r.last_version
 
 	if verts > 0 {
-		// The nodes count only when they tile the ranges exactly, which the decode's walk
-		// relies on; a caller's slip then costs the landing a refit, not wrong bounds.
-		tiled: u32
-		for n in ms.queued_nodes do tiled += n.count
-		nodes: []geom.Vertex_Range
-		if pbytes > 0 && len(ms.queued_nodes) > 0 && tiled == verts && sculpt_nodes_tile(ms.queued_nodes[:], ms.queued[:]) do nodes = slice.clone(ms.queued_nodes[:])
-		entry := Sculpt_Entry{nodes = nodes, mesh = mb, positions = ms.positions, normals = ms.normals, heights = ms.heights, ranges = slice.clone(ms.queued[:]), download = s.download, offset = s.bytes, pbytes = pbytes, nbytes = nbytes, hbytes = hbytes}
+		entry := Sculpt_Entry{mesh = mb, positions = ms.positions, normals = ms.normals, heights = ms.heights, ranges = slice.clone(ms.queued[:]), download = s.download, offset = s.bytes, pbytes = pbytes, nbytes = nbytes, hbytes = hbytes}
 		pass = gpu_begin_copy_pass(cmd)
 		at := s.bytes
 		if pbytes > 0 {
@@ -779,12 +738,11 @@ sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	}
 	for i := len(sg.landed) - 1; i >= 0; i -= 1 {
 		if sg.landed[i].mesh != mb do continue
-		sculpt_landed_free(sg.landed[i])
+		delete(sg.landed[i].ranges)
 		unordered_remove(&sg.landed, i)
 	}
 	sculpt_lookup_release(r, mb)
 	delete(mb.sculpt.queued)
-	delete(mb.sculpt.queued_nodes)
 	delete(mb.sculpt.dabs)
 	delete(mb.sculpt.dab_ranges)
 	mb.sculpt = {}
@@ -859,73 +817,38 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 			positions:     []geom.Vec3,
 			normals:       []geom.Vec3,
 			heights:       []Sculpt_Height,
-			// Each piece's runs: pieces[i] spans runs[pieces[i].first:][:pieces[i].count],
-			// a run being a node's own range (whose bounds are found) or a cut of a range.
-			pieces:        []geom.Vertex_Range,
-			runs:          []geom.Vertex_Range,
-			starts:        []u32, // each run's first vertex in the sources
-			bounds:        []geom.Aabb, // each run's, when the runs are the nodes
+			ranges:        []geom.Vertex_Range,
+			starts:        []u32, // each range's first vertex in the sources
 		}
-		job := Decode{positions = e.positions, normals = e.normals, heights = e.heights}
+		job := Decode{positions = e.positions, normals = e.normals, heights = e.heights, ranges = e.ranges}
 		if e.pbytes > 0 do job.positions_src = ([^]geom.Vec3)(src[e.offset:])
 		job.normals_src = ([^]Normal_Packed)(src[e.offset + e.pbytes:])
 		if e.hbytes > 0 do job.heights_src = ([^]Sculpt_Height)(src[e.offset + e.pbytes + e.nbytes:])
-		// The ranges come coalesced, often one long run, so they are cut into pieces of
-		// about PIECE vertices for the workers (a 200k-vertex run on one thread took 6 ms
-		// at 25M); with the nodes given, a piece is whole nodes, whose bounds it finds while
-		// the positions are in hand (a second pass over them for the bounds cost the
-		// landing 2.9 ms a frame at 25M).
+		// The ranges come coalesced, often one long run, so they are cut into pieces for
+		// the workers (a 200k-vertex run on one thread took 6 ms at 25M).
 		PIECE :: 4096
-		runs := e.nodes
-		if runs == nil {
-			cut := make([dynamic]geom.Vertex_Range, 0, 64, context.temp_allocator)
-			for rg in e.ranges {
-				for first := rg.first; first < rg.first + rg.count; first += PIECE {
-					append(&cut, geom.Vertex_Range{first, min(PIECE, rg.first + rg.count - first)})
-				}
-			}
-			runs = cut[:]
-		}
 		pieces := make([dynamic]geom.Vertex_Range, 0, 64, context.temp_allocator)
-		starts := make([]u32, len(runs), context.temp_allocator)
-		at, size: u32
-		for rg, k in runs {
-			starts[k] = at
-			at += rg.count
-			if len(pieces) == 0 || size + rg.count > PIECE {
-				append(&pieces, geom.Vertex_Range{u32(k), 0})
-				size = 0
+		starts := make([dynamic]u32, 0, 64, context.temp_allocator)
+		at: u32
+		for rg in e.ranges {
+			for first := rg.first; first < rg.first + rg.count; first += PIECE {
+				count := min(PIECE, rg.first + rg.count - first)
+				append(&pieces, geom.Vertex_Range{first, count})
+				append(&starts, at)
+				at += count
 			}
-			pieces[len(pieces) - 1].count += 1
-			size += rg.count
 		}
-		job.pieces, job.runs, job.starts = pieces[:], runs, starts
-		if e.nodes != nil do job.bounds = make([]geom.Aabb, len(e.nodes))
+		job.ranges, job.starts = pieces[:], starts[:]
 		jobs.parallel_for(r.pool, len(pieces), &job, proc(data: rawptr, i: int) {
 			job := cast(^Decode)data
-			piece := job.pieces[i]
-			for k in piece.first ..< piece.first + piece.count {
-				rg, from := job.runs[k], job.starts[k]
-				if job.positions_src != nil {
-					src := job.positions_src[from:][:rg.count]
-					copy(job.positions[rg.first:][:rg.count], src)
-					if job.bounds != nil {
-						b := geom.AABB_EMPTY
-						for p in src do geom.aabb_grow(&b, p)
-						job.bounds[k] = b
-					}
-				}
-				if job.heights_src != nil do copy(job.heights[rg.first:][:rg.count], job.heights_src[from:][:rg.count])
-				packed := job.normals_src[from:][:rg.count]
-				for p, j in packed do job.normals[rg.first + u32(j)] = unpack_normal(p)
-			}
+			rg := job.ranges[i]
+			if job.positions_src != nil do copy(job.positions[rg.first:][:rg.count], job.positions_src[job.starts[i]:][:rg.count])
+			if job.heights_src != nil do copy(job.heights[rg.first:][:rg.count], job.heights_src[job.starts[i]:][:rg.count])
+			packed := job.normals_src[job.starts[i]:][:rg.count]
+			for p, k in packed do job.normals[rg.first + u32(k)] = unpack_normal(p)
 		})
 		gpu_unmap_transfer_buffer(r.device, e.download)
-		if e.pbytes > 0 {
-			append(&sg.landed, Sculpt_Landed{mesh = e.mesh, ranges = slice.clone(e.ranges), nodes = slice.clone(e.nodes), bounds = job.bounds})
-		} else {
-			delete(job.bounds)
-		}
+		if e.pbytes > 0 do append(&sg.landed, Sculpt_Landed{mesh = e.mesh, ranges = slice.clone(e.ranges)})
 		sg.stats.applied_kb += f64(e.pbytes + e.nbytes + e.hbytes) / 1024
 	}
 	sg.stats.apply_ms += time.duration_milliseconds(time.tick_since(start))
@@ -935,10 +858,7 @@ sculpt_slot_apply :: proc(r: ^Renderer, s: ^Sculpt_Slot, waited := false) {
 // Frees a slot's entries without reading them, and the download buffers a regrow retired.
 @(private = "file")
 sculpt_slot_drop :: proc(r: ^Renderer, s: ^Sculpt_Slot) {
-	for e in s.entries {
-		delete(e.ranges)
-		delete(e.nodes)
-	}
+	for e in s.entries do delete(e.ranges)
 	clear(&s.entries)
 	for b in s.retired do gpu_release_transfer_buffer(r.device, b)
 	clear(&s.retired)

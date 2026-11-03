@@ -145,9 +145,7 @@ sculpt_gpu_normals :: proc(data: rawptr, s: ^sculpt.Sculptor, ranges: []sculpt.V
 		// The same bytes: the stroke's number, then the height.
 		heights = slice.reinterpret([]render.Sculpt_Height, sculpt.sculptor_gpu_heights(s))
 	}
-	nodes: []sculpt.Vertex_Range
-	if positions != nil do nodes = sculpt.sculptor_range_nodes(s, ranges)
-	render.sculpt_gpu_queue(gpu, ranges, nodes, lv.mesh.normals[:], positions, heights, last)
+	render.sculpt_gpu_queue(gpu, ranges, lv.mesh.normals[:], positions, heights, last)
 	return true
 }
 
@@ -167,7 +165,7 @@ sculpt_gpu_sync :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
 // last call (sculpt.sculptor_positions_landed): after the frame's start and after a sync.
 sculpt_gpu_landed :: proc(app: ^App) {
 	for l in render.sculpt_gpu_landed(&app.renderer) {
-		if s := sculpt_gpu_sculptor(app, l.mesh); s != nil do sculpt.sculptor_positions_landed(s, l.ranges, l.nodes, l.bounds)
+		if s := sculpt_gpu_sculptor(app, l.mesh); s != nil do sculpt.sculptor_positions_landed(s, l.ranges)
 	}
 	render.sculpt_gpu_landed_clear(&app.renderer)
 }
