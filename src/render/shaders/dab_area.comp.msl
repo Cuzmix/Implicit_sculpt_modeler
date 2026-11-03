@@ -1,4 +1,4 @@
-// SDL_shadercross 1ff05bec5739 from dab_area.comp.spv sha256 0af46b4cc0482801f44b6879b6819c9a2aec450ececd918958493746c2976a14
+// SDL_shadercross 1ff05bec5739 from dab_area.comp.spv sha256 a442483d35866ef02a7bd09bcde3ef6ad1351eeee1500d8f932fc32273f9bdc5
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wmissing-braces"
 
@@ -114,6 +114,16 @@ struct SLANG_ParameterGroup_Params_std140
     uint stroke;
 };
 
+struct StructuredBuffer
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint2 _member0[1];
+};
+
 struct Dab_std430
 {
     float4 center_r2;
@@ -127,14 +137,9 @@ struct Dab_std430
     uint4 slabs;
 };
 
-struct StructuredBuffer
+struct StructuredBuffer_2
 {
     Dab_std430 _member0[1];
-};
-
-struct StructuredBuffer_1
-{
-    uint2 _member0[1];
 };
 
 struct RWStructuredBuffer
@@ -142,9 +147,9 @@ struct RWStructuredBuffer
     float _member0[1];
 };
 
-struct StructuredBuffer_2
+struct StructuredBuffer_3
 {
-    uint _member0[1];
+    float _member0[1];
 };
 
 struct RWStructuredBuffer_1
@@ -153,28 +158,37 @@ struct RWStructuredBuffer_1
 };
 
 static inline __attribute__((always_inline))
-bool slab_vertex(uint _66, uint3 _67, uint3 _68, thread uint& _69, thread uint& _70, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& dabs, device StructuredBuffer_1& slabs)
+void keep_bindings(constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& indices, device StructuredBuffer& offsets, device StructuredBuffer& tris, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs, device StructuredBuffer& normals, device StructuredBuffer& mask, device StructuredBuffer& fade, device RWStructuredBuffer& positions, device StructuredBuffer_3& tables)
 {
-    _69 = (_67.y * Params.groups_x) + _67.x;
-    _70 = 0u;
-    if (_69 >= dabs._member0[_66].slabs.y)
+    if (Params.groups_x == 0u)
+    {
+        positions._member0[0] = spvFAdd(float(((((((indices._member0[0] + offsets._member0[0]) + tris._member0[0]) + slabs._member0[0].x) + dabs._member0[0].slabs.x) + normals._member0[0]) + mask._member0[0]) + fade._member0[0]), tables._member0[0]);
+    }
+}
+
+static inline __attribute__((always_inline))
+bool slab_vertex(uint _136, uint3 _137, uint3 _138, thread uint& _139, thread uint& _140, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs)
+{
+    _139 = (_137.y * Params.groups_x) + _137.x;
+    _140 = 0u;
+    if (_139 >= dabs._member0[_136].slabs.y)
     {
         return false;
     }
-    uint _99 = dabs._member0[_66].slabs.x + _69;
-    if (_68.x >= slabs._member0[_99].y)
+    uint _165 = dabs._member0[_136].slabs.x + _139;
+    if (_138.x >= slabs._member0[_165].y)
     {
         return false;
     }
-    _70 = slabs._member0[_99].x + _68.x;
+    _140 = slabs._member0[_165].x + _138.x;
     return true;
 }
 
 static inline __attribute__((always_inline))
 float3 at(uint v, device RWStructuredBuffer& positions)
 {
-    uint _126 = 3u * v;
-    return float3(positions._member0[_126], positions._member0[_126 + 1u], positions._member0[_126 + 2u]);
+    uint _186 = 3u * v;
+    return float3(positions._member0[_186], positions._member0[_186 + 1u], positions._member0[_186 + 2u]);
 }
 
 static inline __attribute__((always_inline))
@@ -189,15 +203,15 @@ float falloff(float x2)
 }
 
 static inline __attribute__((always_inline))
-float3 normal_at(uint v, device StructuredBuffer_2& normals)
+float3 normal_at(uint v, device StructuredBuffer& normals)
 {
-    float _212 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
-    float _218 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
-    float _220 = spvFSub(1.0, abs(_212));
-    float _221 = abs(_218);
-    float _222 = spvFSub(_220, _221);
-    float3 n = float3(_212, _218, _222);
-    if (_222 < 0.0)
+    float _263 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
+    float _269 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
+    float _271 = spvFSub(1.0, abs(_263));
+    float _272 = abs(_269);
+    float _273 = spvFSub(_271, _272);
+    float3 n = float3(_263, _269, _273);
+    if (_273 < 0.0)
     {
         float sx;
         if (n.x >= 0.0)
@@ -217,38 +231,39 @@ float3 normal_at(uint v, device StructuredBuffer_2& normals)
         {
             sy = -1.0;
         }
-        n.x = spvFMul(spvFSub(1.0, _221), sx);
-        n.y = spvFMul(_220, sy);
+        n.x = spvFMul(spvFSub(1.0, _272), sx);
+        n.y = spvFMul(_271, sy);
     }
-    float _254 = length(n);
-    float3 _183;
-    if (_254 > 0.0)
+    float _305 = length(n);
+    float3 _238;
+    if (_305 > 0.0)
     {
-        _183 = n / float3(_254);
+        _238 = n / float3(_305);
     }
     else
     {
-        _183 = float3(0.0);
+        _238 = float3(0.0);
     }
-    return _183;
+    return _238;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device RWStructuredBuffer& positions [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer_1& partials [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer& indices [[buffer(1)]], device StructuredBuffer& offsets [[buffer(2)]], device StructuredBuffer& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer_2& dabs [[buffer(5)]], device StructuredBuffer& normals [[buffer(6)]], device StructuredBuffer& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer& fade [[buffer(9)]], device RWStructuredBuffer& positions [[buffer(10)]], device RWStructuredBuffer_1& partials [[buffer(11)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup spvUnsafeArray<float4, 256> lane_normal;
     threadgroup spvUnsafeArray<float4, 256> lane_center;
+    keep_bindings(Params, indices, offsets, tris, slabs, dabs, normals, mask, fade, positions, tables);
     uint g;
     uint v;
-    bool _63 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, dabs, slabs);
+    bool _133 = slab_vertex(Params.dab, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs, dabs);
     float4 normal;
     float4 center;
-    if (_63)
+    if (_133)
     {
         float3 delta = spvFSub(at(v, positions), dabs._member0[Params.dab].center_r2.xyz);
-        float _155 = spvFMul(dot(delta, delta), dabs._member0[Params.dab].tilt1.w);
-        if (_155 < 1.0)
+        float _210 = spvFMul(dot(delta, delta), dabs._member0[Params.dab].tilt1.w);
+        if (_210 < 1.0)
         {
-            float w = falloff(_155);
+            float w = falloff(_210);
             normal = float4(normal_at(v, normals) * w, w);
             center = float4(at(v, positions) * w, 0.0);
         }
@@ -305,9 +320,9 @@ kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0
             c = c_1;
             continue;
         }
-        uint4 _344 = dabs._member0[Params.dab].slabs;
-        partials._member0[2u * (_344.x + g)] = n;
-        partials._member0[(2u * (_344.x + g)) + 1u] = c;
+        uint4 _395 = dabs._member0[Params.dab].slabs;
+        partials._member0[2u * (_395.x + g)] = n;
+        partials._member0[(2u * (_395.x + g)) + 1u] = c;
     }
 }
 

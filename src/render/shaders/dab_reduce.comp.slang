@@ -11,6 +11,7 @@ groupshared float4 lane_center[SLAB];
 
 [numthreads(256, 1, 1)]
 void main(uint3 local_id : SV_GroupThreadID) {
+	keep_bindings();
 	Dab d = dabs[dab];
 	float4 n = float4(0.0);
 	float4 c = float4(0.0);

@@ -1,4 +1,4 @@
-// slangc wgsl from dab_move.comp.spv sha256 75852b7e6a49b08b60210f6f27a0007a80f04ab5a7bb58beb9a34c9ede8c71be
+// slangc wgsl from dab_move.comp.spv sha256 645bef0164085e2b415f2c071635f3863c76bbee82e503606bbb9d8a14c5118e
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -9,6 +9,14 @@ struct SLANG_ParameterGroup_Params_std140_0
 };
 
 @binding(0) @group(2) var<uniform> Params_0 : SLANG_ParameterGroup_Params_std140_0;
+@binding(0) @group(0) var<storage, read> indices_0 : array<u32>;
+
+@binding(2) @group(0) var<storage, read> offsets_0 : array<u32>;
+
+@binding(4) @group(0) var<storage, read> tris_0 : array<u32>;
+
+@binding(6) @group(0) var<storage, read> slabs_0 : array<vec2<u32>>;
+
 struct Dab_std430_0
 {
     @align(16) center_r2_0 : vec4<f32>,
@@ -19,26 +27,33 @@ struct Dab_std430_0
     @align(16) tilt2_0 : vec4<f32>,
     @align(16) misc_0 : vec4<f32>,
     @align(16) alpha_up_0 : vec4<f32>,
-    @align(16) slabs_0 : vec4<u32>,
+    @align(16) slabs_1 : vec4<u32>,
 };
 
 @binding(8) @group(0) var<storage, read> dabs_0 : array<Dab_std430_0>;
 
-@binding(6) @group(0) var<storage, read> slabs_1 : array<vec2<u32>>;
-
-@binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
-
 @binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
-
-@binding(4) @group(1) var<storage, read_write> areas_0 : array<vec4<f32>>;
-
-@binding(14) @group(0) var<storage, read> tables_0 : array<f32>;
-
-@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
 
 @binding(12) @group(0) var<storage, read> mask_0 : array<u32>;
 
+@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
+
+@binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
+
+@binding(14) @group(0) var<storage, read> tables_0 : array<f32>;
+
+@binding(4) @group(1) var<storage, read_write> areas_0 : array<vec4<f32>>;
+
 @binding(8) @group(1) var<storage, read_write> heights_0 : array<vec2<u32>>;
+
+fn keep_bindings_0()
+{
+    if((Params_0.groups_x_0) == u32(0))
+    {
+        positions_0[i32(0)] = f32(indices_0[i32(0)] + offsets_0[i32(0)] + tris_0[i32(0)] + slabs_0[i32(0)].x + dabs_0[i32(0)].slabs_1.x + normals_0[i32(0)] + mask_0[i32(0)] + fade_0[i32(0)]) + tables_0[i32(0)];
+    }
+    return;
+}
 
 fn at_0( v_0 : u32) -> vec3<f32>
 {
@@ -114,12 +129,12 @@ fn slab_vertex_0( _S9 : u32,  _S10 : vec3<u32>,  _S11 : vec3<u32>,  _S12 : ptr<f
 {
     (*_S12) = _S10.y * Params_0.groups_x_0 + _S10.x;
     (*_S13) = u32(0);
-    var _S14 : vec4<u32> = dabs_0[_S9].slabs_0;
-    if((*_S12) >= (dabs_0[_S9].slabs_0.y))
+    var _S14 : vec4<u32> = dabs_0[_S9].slabs_1;
+    if((*_S12) >= (dabs_0[_S9].slabs_1.y))
     {
         return false;
     }
-    var slab_0 : vec2<u32> = slabs_1[_S14.x + (*_S12)];
+    var slab_0 : vec2<u32> = slabs_0[_S14.x + (*_S12)];
     var _S15 : u32 = _S11.x;
     if(_S15 >= (slab_0.y))
     {
@@ -173,7 +188,7 @@ fn falloff_drawn_0( _S23 : u32,  _S24 : f32) -> f32
 
 fn dab_weight_0( _S26 : u32,  _S27 : vec3<f32>,  _S28 : f32) -> f32
 {
-    var _S29 : u32 = dabs_0[_S26].slabs_0.w;
+    var _S29 : u32 = dabs_0[_S26].slabs_1.w;
     if(((_S29 & (u32(256)))) != u32(0))
     {
         var h_0 : f32 = dot(_S27, areas_0[u32(5) * Params_0.dab_0 + u32(4)].xyz);
@@ -206,7 +221,7 @@ fn dab_weight_0( _S26 : u32,  _S27 : vec3<f32>,  _S28 : f32) -> f32
 fn shield_0( _S31 : u32,  _S32 : u32) -> f32
 {
     var shift_0 : u32 = ((_S32 & (u32(3)))) * u32(8);
-    var _S33 : u32 = dabs_0[_S31].slabs_0.w;
+    var _S33 : u32 = dabs_0[_S31].slabs_1.w;
     var w_0 : f32;
     if(((_S33 & (u32(128)))) != u32(0))
     {
@@ -240,6 +255,7 @@ fn facing_weight_0( _S34 : u32,  _S35 : vec3<f32>) -> f32
 @workgroup_size(256, 1, 1)
 fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation_id) local_id_0 : vec3<u32>)
 {
+    keep_bindings_0();
     var _S36 : u32 = Params_0.dab_0;
     var g_0 : u32;
     var v_3 : u32;
@@ -266,10 +282,10 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     var strength_0 : f32 = dabs_0[Params_0.dab_0].tilt0_0.w;
     var normal_0 : vec3<f32> = areas_0[u32(5) * Params_0.dab_0].xyz;
     var plane_0 : vec3<f32> = areas_0[u32(5) * Params_0.dab_0 + u32(1)].xyz;
-    var kind_0 : u32 = dabs_0[Params_0.dab_0].slabs_0.z;
+    var kind_0 : u32 = dabs_0[Params_0.dab_0].slabs_1.z;
     var p_2 : vec3<f32>;
     var h_2 : f32;
-    if((((dabs_0[Params_0.dab_0].slabs_0.w) & (u32(16)))) != u32(0))
+    if((((dabs_0[Params_0.dab_0].slabs_1.w) & (u32(16)))) != u32(0))
     {
         var l_1 : vec2<u32> = heights_0[v_3];
         if((heights_0[v_3].x) == (Params_0.stroke_0))

@@ -1,4 +1,4 @@
-// slangc wgsl from dab_reduce.comp.spv sha256 7a7fbfadde947e480a206886cdb920c4a02408878d46b37ba4c1fe2037b33418
+// slangc wgsl from dab_reduce.comp.spv sha256 f1eafbd2b49beb23c595af521dad0feb2beb4ff817dae283b4ab3ba37ac6fb18
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -9,6 +9,14 @@ struct SLANG_ParameterGroup_Params_std140_0
 };
 
 @binding(0) @group(2) var<uniform> Params_0 : SLANG_ParameterGroup_Params_std140_0;
+@binding(0) @group(0) var<storage, read> indices_0 : array<u32>;
+
+@binding(2) @group(0) var<storage, read> offsets_0 : array<u32>;
+
+@binding(4) @group(0) var<storage, read> tris_0 : array<u32>;
+
+@binding(6) @group(0) var<storage, read> slabs_0 : array<vec2<u32>>;
+
 struct Dab_std430_0
 {
     @align(16) center_r2_0 : vec4<f32>,
@@ -19,14 +27,33 @@ struct Dab_std430_0
     @align(16) tilt2_0 : vec4<f32>,
     @align(16) misc_0 : vec4<f32>,
     @align(16) alpha_up_0 : vec4<f32>,
-    @align(16) slabs_0 : vec4<u32>,
+    @align(16) slabs_1 : vec4<u32>,
 };
 
 @binding(8) @group(0) var<storage, read> dabs_0 : array<Dab_std430_0>;
 
+@binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
+
+@binding(12) @group(0) var<storage, read> mask_0 : array<u32>;
+
+@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
+
+@binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
+
+@binding(14) @group(0) var<storage, read> tables_0 : array<f32>;
+
 @binding(2) @group(1) var<storage, read_write> partials_0 : array<vec4<f32>>;
 
 @binding(4) @group(1) var<storage, read_write> areas_0 : array<vec4<f32>>;
+
+fn keep_bindings_0()
+{
+    if((Params_0.groups_x_0) == u32(0))
+    {
+        positions_0[i32(0)] = f32(indices_0[i32(0)] + offsets_0[i32(0)] + tris_0[i32(0)] + slabs_0[i32(0)].x + dabs_0[i32(0)].slabs_1.x + normals_0[i32(0)] + mask_0[i32(0)] + fade_0[i32(0)]) + tables_0[i32(0)];
+    }
+    return;
+}
 
 var<workgroup> lane_normal_0 : array<vec4<f32>, i32(256)>;
 
@@ -52,6 +79,7 @@ fn normalize0_0( v_0 : vec3<f32>) -> vec3<f32>
 fn main(@builtin(local_invocation_id) local_id_0 : vec3<u32>)
 {
     var _S2 : vec4<u32>;
+    keep_bindings_0();
     var _S3 : vec4<f32> = vec4<f32>(0.0f);
     var _S4 : u32 = local_id_0.x;
     var k_0 : u32 = _S4;
@@ -59,9 +87,9 @@ fn main(@builtin(local_invocation_id) local_id_0 : vec3<u32>)
     var c_0 : vec4<f32> = _S3;
     for(;;)
     {
-        var _S5 : vec4<u32> = dabs_0[Params_0.dab_0].slabs_0;
-        _S2 = dabs_0[Params_0.dab_0].slabs_0;
-        if(k_0 < (dabs_0[Params_0.dab_0].slabs_0.y))
+        var _S5 : vec4<u32> = dabs_0[Params_0.dab_0].slabs_1;
+        _S2 = dabs_0[Params_0.dab_0].slabs_1;
+        if(k_0 < (dabs_0[Params_0.dab_0].slabs_1.y))
         {
         }
         else

@@ -226,6 +226,36 @@ def remake(spv, commit):
     return True
 
 
+# A kernel argument bound to a buffer slot: its type and name, and the slot.
+KERNEL_BUFFER = re.compile(r"(constant|device)\s+(\w+)&?\s*&?\s*(\w+)\s*\[\[buffer\((\d+)\)\]\]")
+
+
+def slot_problem(msl):
+    """Why a compute shader's storage buffers would not sit where the Metal backend binds
+    them, or None. SDL_shadercross numbers a kernel's read-only buffers by their bindings and
+    its read-write ones after the read-only ones the kernel reads, while the backend binds
+    the read-write ones after every read-only one the pipeline declares: the two agree only
+    when the kernel reads each read-only binding, so a gap in the read-only slots (a binding
+    the kernel never reads) puts its read-write buffers in the wrong slots (the sculpt dab
+    kernels read each one for this, dab.slang keep_bindings)."""
+    with open(os.path.join(SHADERS, msl), encoding="utf-8") as f:
+        text = f.read()
+    start = text.find("kernel void")
+    if start < 0:
+        return None
+    head = text[start:text.find("{", start)]
+    read, write = [], []
+    for space, kind, name, slot in KERNEL_BUFFER.findall(head):
+        if space == "constant":
+            continue
+        (write if kind.startswith("RW") else read).append(int(slot))
+    if not write or not read:
+        return None
+    if sorted(read) != list(range(min(read), min(read) + len(read))) or min(write) <= max(read):
+        return f"{msl}: a read-only binding the kernel never reads shifts its read-write buffers' Metal slots (read-only {sorted(read)}, read-write {sorted(write)})"
+    return None
+
+
 def main(argv):
     commit = pinned_commit()
     spvs = spv_files()
@@ -233,6 +263,7 @@ def main(argv):
         problems = [p for p in (problem(s, commit) for s in spvs) if p]
         orphans = [m for m in sorted(os.listdir(SHADERS)) if m.endswith(".msl") and m[:-len(".msl")] + ".spv" not in spvs]
         problems += [f"{m} has no .spv beside it" for m in orphans]
+        problems += [p for p in (slot_problem(m) for m in sorted(os.listdir(SHADERS)) if m.endswith(".comp.msl")) if p]
         rqs = rq_files()
         problems += [p for p in (rq_problem(s) for s in rqs) if p]
         problems += [f"{m} has no ray query .spv beside it" for m in sorted(os.listdir(SHADERS))
