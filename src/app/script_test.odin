@@ -233,7 +233,7 @@ render_focus Pivot`
 // and the statements outlive the temp allocator, which the operations they run free.
 @(test)
 script_set_writes_the_fields :: proc(t: ^testing.T) {
-	s := script_parse("set orbit_style turntable; set wireframe on; set smooth_steps 12; set hd_window 2000000; set cloth_mode gravity; set symmetry y; set paint_color 1 0 0.5; set material steel", "x")
+	s := script_parse("set orbit_style turntable; set wireframe on; set smooth_steps 12; set hd_window 2000000; set cloth_mode twist; set cloth_gravity 0.5; set symmetry y; set paint_color 1 0 0.5; set material steel", "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, len(s.errors), 0)
 	free_all(context.temp_allocator)
@@ -243,7 +243,8 @@ script_set_writes_the_fields :: proc(t: ^testing.T) {
 	testing.expect(t, app.wireframe)
 	testing.expect_value(t, app.ui.smooth_steps, 12)
 	testing.expect_value(t, app.hd_window_vertices, 2_000_000)
-	testing.expect_value(t, app.brush.cloth_mode, sculpt.Cloth_Mode.Gravity)
+	testing.expect_value(t, app.brush.cloth_mode, sculpt.Cloth_Mode.Twist)
+	testing.expect_value(t, app.brush.cloth.gravity, 0.5)
 	testing.expect_value(t, app.brush.symmetry, sculpt.Symmetry{.Y})
 	testing.expect_value(t, app.brush.color, [3]f32{1, 0, 0.5})
 	steel, _ := material_by_name("steel")
