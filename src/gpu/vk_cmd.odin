@@ -4,7 +4,6 @@ package gpu
 import "core:log"
 import "core:mem"
 
-import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 // Command buffers, passes and fences of the Vulkan backend. A texture rests in its default
@@ -275,7 +274,7 @@ vk_cmd_recycle :: proc(cmd: ^Vk_Cmd) {
 	append(&vk_state.free_cmds, cmd)
 }
 
-vk_acquire_command_buffer :: proc(device: Device) -> Cmd {
+vk_acquire_command_buffer :: proc() -> Cmd {
 	vk_collect()
 	cmd: ^Vk_Cmd
 	if len(vk_state.free_cmds) > 0 {
@@ -285,7 +284,7 @@ vk_acquire_command_buffer :: proc(device: Device) -> Cmd {
 		info := vk.CommandBufferAllocateInfo{sType = .COMMAND_BUFFER_ALLOCATE_INFO, commandPool = vk_state.command_pool, level = .PRIMARY, commandBufferCount = 1}
 		if vk.AllocateCommandBuffers(vk_state.device, &info, &cmd.cb) != .SUCCESS {
 			free(cmd)
-			sdl.SetError("vkAllocateCommandBuffers failed")
+			fail(.Refused, "vkAllocateCommandBuffers failed")
 			return nil
 		}
 	}
@@ -301,7 +300,7 @@ vk_acquire_command_buffer :: proc(device: Device) -> Cmd {
 	begin := vk.CommandBufferBeginInfo{sType = .COMMAND_BUFFER_BEGIN_INFO, flags = {.ONE_TIME_SUBMIT}}
 	if vk.BeginCommandBuffer(cmd.cb, &begin) != .SUCCESS {
 		append(&vk_state.free_cmds, cmd)
-		sdl.SetError("vkBeginCommandBuffer failed")
+		fail(.Refused, "vkBeginCommandBuffer failed")
 		return nil
 	}
 	return (Cmd)(cmd)
@@ -310,8 +309,8 @@ vk_acquire_command_buffer :: proc(device: Device) -> Cmd {
 // A command buffer for the compute queue (acquire_compute_command_buffer): compute
 // passes only (vk_check_compute_writes knows their writes, not a copy's), submitted with
 // vk_submit_compute.
-vk_acquire_compute_command_buffer :: proc(device: Device) -> Cmd {
-	cmd := (^Vk_Cmd)(vk_acquire_command_buffer(device))
+vk_acquire_compute_command_buffer :: proc() -> Cmd {
+	cmd := (^Vk_Cmd)(vk_acquire_command_buffer())
 	if cmd != nil do cmd.queue = .Compute
 	return (Cmd)(cmd)
 }
@@ -326,14 +325,14 @@ vk_wait_on :: proc(command_buffer: Cmd, fence: Fence) {
 // The command buffer that moves new textures into their default layouts, opened when the
 // first one since the last submission is made.
 vk_setup_cmd :: proc() -> ^Vk_Cmd {
-	if vk_state.setup == nil do vk_state.setup = (^Vk_Cmd)(vk_acquire_command_buffer(vk_device_handle()))
+	if vk_state.setup == nil do vk_state.setup = (^Vk_Cmd)(vk_acquire_command_buffer())
 	return vk_state.setup
 }
 
 @(private = "file")
 vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	if cmd.pass != .None {
-		sdl.SetError("submitted inside a pass")
+		fail(.Invalid, "submitted inside a pass")
 		return 0, false
 	}
 	if cmd.queue == .Compute do return vk_submit_compute(cmd)
@@ -347,13 +346,13 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 		vk_image_barrier(cmd, t.active, .COLOR_ATTACHMENT_OPTIMAL, .PRESENT_SRC_KHR)
 	}
 	if vk.EndCommandBuffer(cmd.cb) != .SUCCESS {
-		sdl.SetError("vkEndCommandBuffer failed")
+		fail(.Refused, "vkEndCommandBuffer failed")
 		return 0, false
 	}
 	setup := vk_state.setup
 	vk_state.setup = nil
 	if setup != nil && setup != cmd && vk.EndCommandBuffer(setup.cb) != .SUCCESS {
-		sdl.SetError("vkEndCommandBuffer failed")
+		fail(.Refused, "vkEndCommandBuffer failed")
 		return 0, false
 	}
 	vk_state.submitted += 1
@@ -386,7 +385,7 @@ vk_submit :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	}
 	if r := vk.QueueSubmit2(vk_state.queue, 1, &submit, 0); r != .SUCCESS {
 		log.errorf("Vulkan: vkQueueSubmit2 failed: %v", r)
-		sdl.SetError("vkQueueSubmit2 failed")
+		fail(.Refused, "vkQueueSubmit2 failed")
 		return 0, false
 	}
 	vk_timing_submitted(cmd, serial)
@@ -416,14 +415,14 @@ vk_compute_waited: u64
 @(private = "file")
 vk_submit_compute :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	if len(cmd.presents) > 0 || len(cmd.targets) > 0 {
-		sdl.SetError("a compute-queue command buffer holds compute passes only")
+		fail(.Invalid, "a compute-queue command buffer holds compute passes only")
 		return 0, false
 	}
 	if setup := vk_state.setup; setup != nil {
 		if _, ok := vk_submit(setup); !ok do return 0, false
 	}
 	if vk.EndCommandBuffer(cmd.cb) != .SUCCESS {
-		sdl.SetError("vkEndCommandBuffer failed")
+		fail(.Refused, "vkEndCommandBuffer failed")
 		return 0, false
 	}
 	vk_state.compute_submitted += 1
@@ -442,7 +441,7 @@ vk_submit_compute :: proc(cmd: ^Vk_Cmd) -> (u64, bool) {
 	}
 	if r := vk.QueueSubmit2(vk_state.compute_queue, 1, &submit, 0); r != .SUCCESS {
 		log.errorf("Vulkan: vkQueueSubmit2 (compute) failed: %v", r)
-		sdl.SetError("vkQueueSubmit2 failed")
+		fail(.Refused, "vkQueueSubmit2 failed")
 		return 0, false
 	}
 	for img in cmd.written_images do img.compute_write = serial
@@ -492,7 +491,7 @@ vk_command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 vk_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
 	if len(cmd.presents) > 0 {
-		sdl.SetError("a command buffer holding a swapchain texture cannot be cancelled")
+		fail(.Invalid, "a command buffer holding a swapchain texture cannot be cancelled")
 		return false
 	}
 	when ODIN_DEBUG {
@@ -505,13 +504,13 @@ vk_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	return true
 }
 
-vk_query_fence :: proc(device: Device, fence: Fence) -> bool {
+vk_query_fence :: proc(fence: Fence) -> bool {
 	vk_collect()
 	f := (^Vk_Fence)(fence)
 	return vk_serial_done(f.queue, f.serial)
 }
 
-vk_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
+vk_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	if num_fences == 0 do return true
 	// Each queue's submissions finish in order, so all of a queue's fences are done when its
 	// latest is, and any one when its earliest is; one wait then covers both timelines.
@@ -535,7 +534,7 @@ vk_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num
 	return ok
 }
 
-vk_release_fence :: proc(device: Device, fence: Fence) {
+vk_release_fence :: proc(fence: Fence) {
 	free((^Vk_Fence)(fence))
 }
 
@@ -932,7 +931,7 @@ vk_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, tex
 	cmd.set_dirty[2] = true
 }
 
-vk_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
+vk_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: Rect) {
 	cmd := (^Vk_Cmd)(render_pass)
 	rect := vk.Rect2D{offset = {scissor.x, scissor.y}, extent = {u32(max(scissor.w, 0)), u32(max(scissor.h, 0))}}
 	vk.CmdSetScissor(cmd.cb, 0, 1, &rect)

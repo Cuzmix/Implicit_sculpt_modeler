@@ -6,7 +6,6 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
-import sdl "vendor:sdl3"
 
 // Live ambient occlusion (stage 4.2, notes/rendering/stage4-design.md): screen-space
 // occlusion from the camera's depth, every frame, so creases and contact darken while
@@ -183,11 +182,11 @@ live_ao_supported :: proc(r: ^Renderer, lao: ^Live_AO) -> bool {
 }
 
 live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu.release_graphics_pipeline(r.device, p)
-	if lao.sampler != nil do gpu.release_sampler(r.device, lao.sampler)
-	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu.release_graphics_pipeline(p)
+	if lao.sampler != nil do gpu.release_sampler(lao.sampler)
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(t)
 	full, partial, skipped := lao.full, lao.partial, lao.skipped
 	lao^ = {}
 	lao.full, lao.partial, lao.skipped = full, partial, skipped
@@ -222,38 +221,38 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		lao.blur_pipeline = create_fullscreen_pipeline(r, AO_BLUR_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 3)
 		lao.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		lao.clear_pipeline = create_depth_clear_pipeline(r)
-		lao.sampler = gpu.create_sampler(r.device, {
+		lao.sampler = gpu.create_sampler({
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		if lao.gtao_pipeline == nil || lao.blur_pipeline == nil || lao.depth_pipeline == nil || lao.clear_pipeline == nil || lao.sampler == nil {
-			log.errorf("live occlusion: setup failed (%s); it stays off", sdl.GetError())
+			log.errorf("live occlusion: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
 	}
 	want_view_depth := vt.samples != ._1
 	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
 	// A frame in flight may still read these; the backend defers the release until it is done.
-	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(t)
 	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
 	lao.key = 0
 	if want_view_depth {
-		lao.view_depth = gpu.create_texture(r.device, {
+		lao.view_depth = gpu.create_texture({
 			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	lao.ao = gpu.create_texture(r.device, {
+	lao.ao = gpu.create_texture({
 		type = .D2, format = LIVE_AO_FORMAT, usage = {.Color_Target, .Sampled},
 		width = (vt.width + scale - 1) / scale, height = (vt.height + scale - 1) / scale, layer_count_or_depth = 1, num_levels = 1,
 	})
-	lao.shown = gpu.create_texture(r.device, {
+	lao.shown = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	lao.width, lao.height, lao.scale = vt.width, vt.height, scale
 	if lao.ao == nil || lao.shown == nil || want_view_depth && lao.view_depth == nil {
-		log.errorf("live occlusion: target creation failed (%s); it stays off", sdl.GetError())
+		log.errorf("live occlusion: target creation failed (%s); it stays off", gpu.last_error())
 		return false
 	}
 	return true

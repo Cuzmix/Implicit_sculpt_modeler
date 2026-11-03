@@ -2,7 +2,6 @@ package render
 
 import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // Pictures the CPU decoded for the interface to show, such as the Home screen's previews
 // of saved scenes: each goes into a cell of one atlas texture from the frame's own
@@ -32,10 +31,10 @@ Picture_Upload :: struct {
 }
 
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	if p.atlas != nil do gpu.release_texture(r.device, p.atlas)
-	if p.transfer != nil do gpu.release_transfer_buffer(r.device, p.transfer)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	if p.atlas != nil do gpu.release_texture(p.atlas)
+	if p.transfer != nil do gpu.release_transfer_buffer(p.transfer)
 	p^ = {}
 }
 
@@ -47,13 +46,13 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Pictu
 	CELL_BYTES :: PICTURE_PX * PICTURE_PX * 4
 	if p.atlas == nil {
 		SIZE :: PICTURE_PX * PICTURE_CELLS
-		p.atlas = gpu.create_texture(r.device, {
+		p.atlas = gpu.create_texture({
 			type = .D2, format = .RGBA8_Unorm, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		p.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = CELL_BYTES * PICTURES_PER_FRAME})
+		p.transfer = gpu.create_transfer_buffer({usage = .Upload, size = CELL_BYTES * PICTURES_PER_FRAME})
 		if p.atlas == nil || p.transfer == nil {
-			log.errorf("picture textures: %s", sdl.GetError())
+			log.errorf("picture textures: %s", gpu.last_error())
 			p.failed = true
 			return false
 		}
@@ -68,9 +67,9 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Pictu
 	}
 	if n == 0 do return true
 	// Cycled: the copy of an earlier frame may still be reading the buffer.
-	dst := ([^]u8)(gpu.map_transfer_buffer(r.device, p.transfer, true))
+	dst := ([^]u8)(gpu.map_transfer_buffer(p.transfer, true))
 	if dst == nil {
-		log.errorf("picture map: %s", sdl.GetError())
+		log.errorf("picture map: %s", gpu.last_error())
 		return false
 	}
 	at := 0
@@ -80,7 +79,7 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Pictu
 		copy(dst[at * CELL_BYTES:][:it.width * it.height * 4], it.pixels)
 		at += 1
 	}
-	gpu.unmap_transfer_buffer(r.device, p.transfer)
+	gpu.unmap_transfer_buffer(p.transfer)
 	pass := gpu.begin_copy_pass(cmd)
 	at = 0
 	for it in items {

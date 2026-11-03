@@ -131,7 +131,7 @@ vk_swapchain_free :: proc(w: ^Vk_Window) {
 // minimised window), to be tried again at the next acquire.
 @(private = "file")
 vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
-	_ = vk_wait_for_idle(vk_device_handle())
+	_ = vk_wait_for_idle()
 	caps: vk.SurfaceCapabilitiesKHR
 	if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(vk_state.physical, w.surface, &caps) != .SUCCESS do return false
 	pw, ph: i32
@@ -222,22 +222,23 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 	return true
 }
 
-vk_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
+vk_claim_window :: proc(window: ^sdl.Window) -> bool {
 	if vk_window_find(window) != nil do return true
 	w := new(Vk_Window)
 	w.window = window
 	if !sdl.Vulkan_CreateSurface(window, vk_state.instance, nil, &w.surface) {
 		free(w)
+		fail(.Refused, "no Vulkan surface for the window (%s)", sdl.GetError())
 		return false
 	}
 	supported: b32
 	if vk.GetPhysicalDeviceSurfaceSupportKHR(vk_state.physical, vk_state.family, w.surface, &supported) != .SUCCESS || !supported {
 		vk.DestroySurfaceKHR(vk_state.instance, w.surface, nil)
 		free(w)
-		sdl.SetError("the Vulkan queue cannot present to this window")
+		fail(.Unsupported, "the Vulkan queue cannot present to this window")
 		return false
 	}
-	// SDL_GPU's SDR composition: BGRA8, else RGBA8, in sRGB colour space.
+	// The SDR composition: BGRA8, else RGBA8, in the sRGB colour space.
 	count: u32
 	vk.GetPhysicalDeviceSurfaceFormatsKHR(vk_state.physical, w.surface, &count, nil)
 	formats := make([]vk.SurfaceFormatKHR, count, context.temp_allocator)
@@ -253,7 +254,7 @@ vk_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	if w.format == .UNDEFINED {
 		vk.DestroySurfaceKHR(vk_state.instance, w.surface, nil)
 		free(w)
-		sdl.SetError("the window offers no 8-bit sRGB swapchain format")
+		fail(.Unsupported, "the window offers no 8-bit sRGB swapchain format")
 		return false
 	}
 	w.sdl_format = .BGRA8_Unorm if w.format == .B8G8R8A8_UNORM else .RGBA8_Unorm
@@ -265,10 +266,10 @@ vk_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	return true
 }
 
-vk_release_window :: proc(device: Device, window: ^sdl.Window) {
+vk_release_window :: proc(window: ^sdl.Window) {
 	w := vk_window_find(window)
 	if w == nil do return
-	_ = vk_wait_for_idle(device)
+	_ = vk_wait_for_idle()
 	vk_swapchain_free(w)
 	if w.swapchain != 0 do vk.DestroySwapchainKHR(vk_state.device, w.swapchain, nil)
 	for s in w.acquired do vk.DestroySemaphore(vk_state.device, s, nil)
@@ -280,7 +281,7 @@ vk_release_window :: proc(device: Device, window: ^sdl.Window) {
 	free(w)
 }
 
-vk_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+vk_window_supports_present_mode :: proc(window: ^sdl.Window, present_mode: Present_Mode) -> bool {
 	if present_mode == .Vsync do return true
 	w := vk_window_find(window)
 	if w == nil do return false
@@ -293,10 +294,10 @@ vk_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, pre
 	return false
 }
 
-vk_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
+vk_set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
 	w := vk_window_find(window)
-	if w == nil || swapchain_composition != .Sdr || !vk_window_supports_present_mode(device, window, present_mode) {
-		sdl.SetError("this swapchain composition or present mode is not offered")
+	if w == nil || swapchain_composition != .Sdr || !vk_window_supports_present_mode(window, present_mode) {
+		fail(.Unsupported, "this swapchain composition or present mode is not offered")
 		return false
 	}
 	w.present_mode = present_mode
@@ -306,14 +307,14 @@ vk_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapcha
 
 // As SDL_GPU's: a frame slot per allowed frame. The GPU is waited for first, so every slot
 // is free and each window starts again at its first; the swapchains stay as they are.
-vk_set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_flight: u32) -> bool {
-	if !vk_wait_for_idle(device) do return false
+vk_set_allowed_frames_in_flight :: proc(allowed_frames_in_flight: u32) -> bool {
+	if !vk_wait_for_idle() do return false
 	vk_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
 	for w in vk_state.windows do w.frame = 0
 	return true
 }
 
-vk_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
+vk_get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
 	w := vk_window_find(window)
 	return w.sdl_format if w != nil else .Invalid
 }
@@ -323,7 +324,7 @@ vk_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: 
 	texture^ = nil
 	w := vk_window_find(window)
 	if w == nil {
-		sdl.SetError("the window was not claimed")
+		fail(.Invalid, "the window was not claimed")
 		return false
 	}
 	pw, ph: i32

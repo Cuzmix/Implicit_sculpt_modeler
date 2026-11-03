@@ -49,3 +49,30 @@ Gpu_Timestamp :: struct {
 	ns:  f64,
 }
 
+
+// The device's name and its driver's version, for people and logs, set by the backend that
+// made the device and kept in buffers of their own, as the backends' words are temporary.
+@(private = "file")
+device_name_text: [256]u8
+@(private = "file")
+device_name_len: int
+@(private = "file")
+driver_text: [256]u8
+@(private = "file")
+driver_len: int
+
+@(private)
+device_info_set :: proc(name, driver: string) {
+	device_name_len = copy(device_name_text[:], name)
+	driver_len = copy(driver_text[:], driver)
+}
+
+// The device's name ("" where the backend does not say).
+device_name :: proc() -> string {
+	return string(device_name_text[:device_name_len])
+}
+
+// The driver's version ("" where the backend does not say).
+driver_version :: proc() -> string {
+	return string(driver_text[:driver_len])
+}

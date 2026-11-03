@@ -2,7 +2,6 @@ package render
 
 import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // The thumbnail view: the scene drawn again, into a texture of its own, as the app's
 // second view sees it (its camera, its pass). The interface shows the texture, mirrored
@@ -20,7 +19,7 @@ THUMBNAIL_SUPERSAMPLE :: 2
 THUMBNAIL_PAPER :: [4]f32{0.86, 0.86, 0.85, 1}
 
 thumbnail_view_destroy :: proc(r: ^Renderer, tv: ^Thumbnail_View) {
-	if r.device == nil do return
+	if !r.has_device do return
 	viewport_target_destroy(r, &tv.target)
 	tv^ = {}
 }
@@ -38,7 +37,7 @@ thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: gpu.Cmd, siz
 	scale := max(supersample, 1)
 	if !viewport_target_resize(r, &tv.target, size.x * scale, size.y * scale, transient_depth = !keep_depth) {
 		tv.failed = true
-		log.errorf("thumbnail view target: %s", sdl.GetError())
+		log.errorf("thumbnail view target: %s", gpu.last_error())
 		return nil
 	}
 	whole := make([]Draw_Item, len(items), context.temp_allocator)

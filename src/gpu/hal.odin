@@ -6,15 +6,16 @@ import sdl "vendor:sdl3"
 
 // The GPU seam: every GPU call render makes goes through one of these procs, answered by
 // the own Metal backend (mtl_*.odin) on Apple's platforms, the WebGPU one (wgpu_*.odin) in a
-// browser and the own Vulkan backend (vk_*.odin) everywhere else. They keep the names and
-// arguments of SDL_GPU's procs without its prefix, which the backends were written to mirror
-// (sdl.CreateGPUTexture is gpu.create_texture), though SDL_GPU itself no longer draws; the
-// GPU abstraction's own API replaces them step by step (notes/gpu-own-model/design.md).
-// They speak the package's own types (types.odin): its formats, states and descriptions,
-// and handles that are for now SDL's opaque pointers, which render only passes back to
-// these procs and each backend points at objects of its own. Render names no SDL_GPU type
-// and nothing calls an sdl.*GPU* proc; scripts/boundary_check.py enforces both. Every proc that returns
-// something is require_results, as SDL_GPU's were, so no failure goes unread.
+// browser and the own Vulkan backend (vk_*.odin) everywhere else. Their names still follow
+// SDL_GPU's procs without the prefix (sdl.CreateGPUTexture was gpu.create_texture), though
+// SDL_GPU itself no longer draws; the GPU abstraction's own API replaces them step by step
+// (notes/gpu-own-model/design.md). There is one device, made by create_device and held by
+// the backend, so no proc takes one. They speak the package's own types (types.odin): its
+// formats, states and descriptions, and opaque handles render only passes back to these
+// procs, which each backend points at objects of its own. A proc that fails returns nil or
+// false and says why through last_error (errors.odin). Render names no SDL_GPU type and
+// nothing calls an sdl.*GPU* proc; scripts/boundary_check.py enforces both. Every proc that
+// returns something is require_results, so no failure goes unread.
 
 // The Metal backend exists only where Metal does; elsewhere its branches are not compiled,
 // and on Apple's platforms the Vulkan ones are not.
@@ -25,10 +26,10 @@ WEBGPU :: ODIN_OS == .JS
 VULKAN :: !METAL && !WEBGPU
 
 @(require_results)
-acquire_command_buffer :: proc(device: Device) -> (cmd: Cmd) {
-	when METAL do cmd = mtl_acquire_command_buffer(device)
-	else when WEBGPU do cmd = wgpu_acquire_command_buffer(device)
-	else do cmd = vk_acquire_command_buffer(device)
+acquire_command_buffer :: proc() -> (cmd: Cmd) {
+	when METAL do cmd = mtl_acquire_command_buffer()
+	else when WEBGPU do cmd = wgpu_acquire_command_buffer()
+	else do cmd = vk_acquire_command_buffer()
 	count_acquire(cmd)
 	return
 }
@@ -37,15 +38,15 @@ acquire_command_buffer :: proc(device: Device) -> (cmd: Cmd) {
 // submitted with submit_compute; nil with SDL's error set where there is none. It
 // holds compute passes only.
 @(require_results)
-acquire_compute_command_buffer :: proc(device: Device) -> Cmd {
+acquire_compute_command_buffer :: proc() -> Cmd {
 	when METAL {
-		sdl.SetError("no compute queue under this backend")
+		fail(.Unsupported, "no compute queue under this backend")
 		return nil
 	} else when WEBGPU {
-		sdl.SetError("no compute queue under WebGPU")
+		fail(.Unsupported, "no compute queue under WebGPU")
 		return nil
 	} else {
-		cmd := vk_acquire_compute_command_buffer(device)
+		cmd := vk_acquire_compute_command_buffer()
 		count_acquire(cmd)
 		return cmd
 	}
@@ -69,21 +70,21 @@ wait_on :: proc(command_buffer: Cmd, fence: Fence) {
 }
 
 @(require_results)
-async_compute_offered :: proc(device: Device) -> Async_Compute {
+async_compute_offered :: proc() -> Async_Compute {
 	when METAL do return .Off
 	else when WEBGPU do return .Off
 	else do return vk_state.async_compute
 }
 
 @(require_results)
-acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^sdl.Uint32) -> bool {
+acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^u32) -> bool {
 	when METAL do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	else when WEBGPU do return wgpu_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	else do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 }
 
 @(require_results)
-begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: sdl.Uint32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: sdl.Uint32) -> Compute_Pass {
+begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: u32) -> Compute_Pass {
 	when METAL do return mtl_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
 	else when WEBGPU do return wgpu_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
 	else do return vk_begin_compute_pass(command_buffer, storage_texture_bindings, num_storage_texture_bindings, storage_buffer_bindings, num_storage_buffer_bindings)
@@ -97,7 +98,7 @@ begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 }
 
 @(require_results)
-begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: sdl.Uint32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
+begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	transient_check_pass(color_target_infos, num_color_targets, depth_stencil_target_info)
 	when METAL do return mtl_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
 	else when WEBGPU do return wgpu_begin_render_pass(command_buffer, color_target_infos, num_color_targets, depth_stencil_target_info)
@@ -110,7 +111,7 @@ bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Comp
 	else do vk_bind_compute_pipeline(compute_pass, compute_pipeline)
 }
 
-bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: sdl.Uint32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: sdl.Uint32) {
+bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	for b in texture_sampler_bindings[:num_bindings] do transient_check_use(b.texture, "sampled")
 	when METAL do mtl_bind_compute_samplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
 	else when WEBGPU do wgpu_bind_compute_samplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
@@ -126,13 +127,13 @@ bind_compute_texture_array :: proc(compute_pass: Compute_Pass, bindings: []Textu
 	}
 }
 
-bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: sdl.Uint32, storage_buffers: [^]Buffer, num_bindings: sdl.Uint32) {
+bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	when METAL do mtl_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
 	else when WEBGPU do wgpu_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
 	else do vk_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
 }
 
-bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: sdl.Uint32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: sdl.Uint32) {
+bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	for b in texture_sampler_bindings[:num_bindings] do transient_check_use(b.texture, "sampled")
 	when METAL do mtl_bind_fragment_samplers(render_pass, first_slot, texture_sampler_bindings, num_bindings)
 	else when WEBGPU do wgpu_bind_fragment_samplers(render_pass, first_slot, texture_sampler_bindings, num_bindings)
@@ -151,20 +152,20 @@ bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Bind
 	else do vk_bind_index_buffer(render_pass, binding, index_element_size)
 }
 
-bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: sdl.Uint32, bindings: [^]Buffer_Binding, num_bindings: sdl.Uint32) {
+bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	when METAL do mtl_bind_vertex_buffers(render_pass, first_slot, bindings, num_bindings)
 	else when WEBGPU do wgpu_bind_vertex_buffers(render_pass, first_slot, bindings, num_bindings)
 	else do vk_bind_vertex_buffers(render_pass, first_slot, bindings, num_bindings)
 }
 
-bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: sdl.Uint32, storage_buffers: [^]Buffer, num_bindings: sdl.Uint32) {
+bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	when METAL do mtl_bind_vertex_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 	else when WEBGPU do wgpu_bind_vertex_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 	else do vk_bind_vertex_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 }
 
 // Read-only storage buffers for the fragment stage, after its samplers (SDL_GPU's slots).
-bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: sdl.Uint32, storage_buffers: [^]Buffer, num_bindings: sdl.Uint32) {
+bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	when METAL do mtl_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 	else when WEBGPU do wgpu_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 	else do vk_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
@@ -190,19 +191,19 @@ cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 }
 
 @(require_results)
-claim_window_for_device :: proc(device: Device, window: ^sdl.Window) -> bool {
-	when METAL do return mtl_claim_window(device, window)
-	else when WEBGPU do return wgpu_claim_window(device, window)
-	else do return vk_claim_window(device, window)
+claim_window :: proc(window: ^sdl.Window) -> bool {
+	when METAL do return mtl_claim_window(window)
+	else when WEBGPU do return wgpu_claim_window(window)
+	else do return vk_claim_window(window)
 }
 
-copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location,         #by_ptr destination: Buffer_Location, size: sdl.Uint32, cycle: bool) {
+copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location,         #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	when METAL do mtl_copy_buffer_to_buffer(copy_pass, source, destination, size, cycle)
 	else when WEBGPU do wgpu_copy_buffer_to_buffer(copy_pass, source, destination, size, cycle)
 	else do vk_copy_buffer_to_buffer(copy_pass, source, destination, size, cycle)
 }
 
-copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location,        #by_ptr destination: Texture_Location, w, h, d: sdl.Uint32, cycle: bool) {
+copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location,        #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	transient_check_use(source.texture, "copied from")
 	transient_check_use(destination.texture, "copied to")
 	when METAL do mtl_copy_texture_to_texture(copy_pass, source, destination, w, h, d, cycle)
@@ -213,17 +214,17 @@ copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Lo
 // `accel_input` for a buffer an acceleration structure is built from (build_blas),
 // which only the own Vulkan backend with ray queries marks; elsewhere it changes nothing.
 @(require_results)
-create_buffer :: proc(device: Device, #by_ptr createinfo: Buffer_Desc, accel_input := false) -> Buffer {
-	when METAL do return mtl_create_buffer(device, createinfo)
-	else when WEBGPU do return wgpu_create_buffer(device, createinfo)
-	else do return vk_create_buffer(device, createinfo, accel_input)
+create_buffer :: proc(#by_ptr createinfo: Buffer_Desc, accel_input := false) -> Buffer {
+	when METAL do return mtl_create_buffer(createinfo)
+	else when WEBGPU do return wgpu_create_buffer(createinfo)
+	else do return vk_create_buffer(createinfo, accel_input)
 }
 
 @(require_results)
-create_compute_pipeline :: proc(device: Device, #by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
-	when METAL do return mtl_create_compute_pipeline(device, createinfo)
-	else when WEBGPU do return wgpu_create_compute_pipeline(device, createinfo)
-	else do return vk_create_compute_pipeline(device, createinfo)
+create_compute_pipeline :: proc(#by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
+	when METAL do return mtl_create_compute_pipeline(createinfo)
+	else when WEBGPU do return wgpu_create_compute_pipeline(createinfo)
+	else do return vk_create_compute_pipeline(createinfo)
 }
 
 // A compute pipeline that also reads an array of up to `capacity` sampled textures, indexed
@@ -231,22 +232,22 @@ create_compute_pipeline :: proc(device: Device, #by_ptr createinfo: Compute_Pipe
 // only, up to Gpu_Caps.texture_arrays; nil with SDL's error set elsewhere, and the caller
 // keeps a kernel with named samplers.
 @(require_results)
-create_compute_pipeline_array :: proc(device: Device, #by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
+create_compute_pipeline_array :: proc(#by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	when METAL {
-		sdl.SetError("texture arrays need the own Vulkan backend")
+		fail(.Unsupported, "texture arrays need the own Vulkan backend")
 		return nil
 	} else when WEBGPU {
-		sdl.SetError("texture arrays need the own Vulkan backend")
+		fail(.Unsupported, "texture arrays need the own Vulkan backend")
 		return nil
 	} else {
-		return vk_create_compute_pipeline_array(device, createinfo, capacity)
+		return vk_create_compute_pipeline_array(createinfo, capacity)
 	}
 }
 
 // How many textures one array binding may hold; 0 where create_compute_pipeline_array
 // makes nothing.
 @(require_results)
-texture_arrays_offered :: proc(device: Device) -> u32 {
+texture_arrays_offered :: proc() -> u32 {
 	when METAL do return 0
 	else when WEBGPU do return 0
 	else do return vk_state.texture_arrays
@@ -255,7 +256,7 @@ texture_arrays_offered :: proc(device: Device) -> u32 {
 // How many storage buffers one compute kernel may bind: the device's own limit under
 // Vulkan (the spec asks only 4), Metal's 31 buffer slots, WebGPU's default 8.
 @(require_results)
-storage_buffers_per_stage :: proc(device: Device) -> u32 {
+storage_buffers_per_stage :: proc() -> u32 {
 	when METAL do return 31
 	else when WEBGPU do return 8
 	else do return vk_state.properties.limits.maxPerStageDescriptorStorageBuffers
@@ -266,7 +267,7 @@ storage_buffers_per_stage :: proc(device: Device) -> u32 {
 // with everything the CPU holds: Metal's recommended working set; under Vulkan the largest
 // device-local heap; 0 under WebGPU, which does not say.
 @(require_results)
-memory_budget :: proc(device: Device) -> (bytes: u64, unified: bool) {
+memory_budget :: proc() -> (bytes: u64, unified: bool) {
 	when METAL do return mtl_memory_budget()
 	else when WEBGPU do return 0, false
 	else {
@@ -283,7 +284,7 @@ memory_budget :: proc(device: Device) -> (bytes: u64, unified: bool) {
 // and its first dimension's size): Metal's pipelines say for themselves when they are
 // made (mtl_compute_pipeline_make refuses one that cannot), and WebGPU's default is 256.
 @(require_results)
-compute_group_threads :: proc(device: Device) -> u32 {
+compute_group_threads :: proc() -> u32 {
 	when METAL do return 1024
 	else when WEBGPU do return 256
 	else do return min(vk_state.properties.limits.maxComputeWorkGroupInvocations, vk_state.properties.limits.maxComputeWorkGroupSize[0])
@@ -320,7 +321,7 @@ Tlas_Instance :: struct {
 // (Gpu_Caps.barycentric): VK_KHR_fragment_shader_barycentric under the own Vulkan backend,
 // supportsShaderBarycentricCoordinates under the own Metal one.
 @(require_results)
-barycentric_offered :: proc(device: Device) -> bool {
+barycentric_offered :: proc() -> bool {
 	when METAL do return mtl_barycentric_offered()
 	else when WEBGPU do return wgpu_barycentric_offered()
 	else when WEBGPU do return false
@@ -328,7 +329,7 @@ barycentric_offered :: proc(device: Device) -> bool {
 }
 
 @(require_results)
-ray_query_offered :: proc(device: Device) -> bool {
+ray_query_offered :: proc() -> bool {
 	when METAL do return mtl_ray_query_offered()
 	else when WEBGPU do return wgpu_ray_query_offered()
 	else when WEBGPU do return false
@@ -374,16 +375,16 @@ build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^Gpu
 // with SDL's error set where ray queries are not offered. Under Metal the code is slangc's
 // Metal source with its slot table (RQ_EXT), and texture arrays are not offered.
 @(require_results)
-create_compute_pipeline_traced :: proc(device: Device, #by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32 = 0) -> Compute_Pipeline {
+create_compute_pipeline_traced :: proc(#by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32 = 0) -> Compute_Pipeline {
 	when METAL {
-		if mtl_ray_query_offered() && capacity == 0 do return mtl_create_compute_pipeline_traced(device, createinfo)
-		sdl.SetError("ray queries need the own Vulkan or Metal backend on a GPU that offers them")
+		if mtl_ray_query_offered() && capacity == 0 do return mtl_create_compute_pipeline_traced(createinfo)
+		fail(.Unsupported, "ray queries need the own Vulkan or Metal backend on a GPU that offers them")
 		return nil
 	} else when WEBGPU {
-		sdl.SetError("WebGPU has no ray queries")
+		fail(.Unsupported, "WebGPU has no ray queries")
 		return nil
 	} else {
-		return vk_create_compute_pipeline_traced(device, createinfo, capacity)
+		return vk_create_compute_pipeline_traced(createinfo, capacity)
 	}
 }
 
@@ -396,7 +397,7 @@ bind_compute_accel :: proc(compute_pass: Compute_Pass, accel: ^Gpu_Accel) {
 }
 
 // Frees a structure once no submitted command buffer and no top level uses it.
-release_accel :: proc(device: Device, accel: ^Gpu_Accel) {
+release_accel :: proc(accel: ^Gpu_Accel) {
 	when METAL do mtl_release_accel(accel)
 	else when WEBGPU do return
 	else do if accel != nil do vk_release_accel(accel)
@@ -405,7 +406,7 @@ release_accel :: proc(device: Device, accel: ^Gpu_Accel) {
 // Lets go of the build scratch memory beyond what refits need, once a still view's builds
 // are recorded; it goes when they have run. Metal gives each build scratch of its own,
 // freed with its command buffer, so there is nothing to trim there.
-accel_trim :: proc(device: Device) {
+accel_trim :: proc() {
 	when VULKAN {
 		if vk_state.ray_query do vk_accel_trim()
 	}
@@ -445,38 +446,38 @@ accel_bytes :: proc(accel: ^Gpu_Accel) -> u64 {
 // SPIR-V shaders already are, built with `-fp-mode precise` (their first line says so), so
 // only the own Metal backend compiles differently: with fast maths off.
 @(require_results)
-create_compute_pipeline_exact :: proc(device: Device, #by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
-	when METAL do return mtl_create_compute_pipeline_exact(device, createinfo)
-	else when WEBGPU do return wgpu_create_compute_pipeline_exact(device, createinfo)
-	else do return vk_create_compute_pipeline(device, createinfo)
+create_compute_pipeline_exact :: proc(#by_ptr createinfo: Compute_Pipeline_Desc) -> Compute_Pipeline {
+	when METAL do return mtl_create_compute_pipeline_exact(createinfo)
+	else when WEBGPU do return wgpu_create_compute_pipeline_exact(createinfo)
+	else do return vk_create_compute_pipeline(createinfo)
 }
 
 @(require_results)
-create_graphics_pipeline :: proc(device: Device, #by_ptr createinfo: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
-	when METAL do return mtl_create_graphics_pipeline(device, createinfo)
-	else when WEBGPU do return wgpu_create_graphics_pipeline(device, createinfo)
-	else do return vk_create_graphics_pipeline(device, createinfo)
+create_graphics_pipeline :: proc(#by_ptr createinfo: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
+	when METAL do return mtl_create_graphics_pipeline(createinfo)
+	else when WEBGPU do return wgpu_create_graphics_pipeline(createinfo)
+	else do return vk_create_graphics_pipeline(createinfo)
 }
 
 @(require_results)
-create_sampler :: proc(device: Device, #by_ptr createinfo: Sampler_Desc) -> Sampler {
-	when METAL do return mtl_create_sampler(device, createinfo)
-	else when WEBGPU do return wgpu_create_sampler(device, createinfo)
-	else do return vk_create_sampler(device, createinfo)
+create_sampler :: proc(#by_ptr createinfo: Sampler_Desc) -> Sampler {
+	when METAL do return mtl_create_sampler(createinfo)
+	else when WEBGPU do return wgpu_create_sampler(createinfo)
+	else do return vk_create_sampler(createinfo)
 }
 
 @(require_results)
-create_shader :: proc(device: Device, #by_ptr createinfo: Shader_Desc) -> Shader {
-	when METAL do return mtl_create_shader(device, createinfo)
-	else when WEBGPU do return wgpu_create_shader(device, createinfo)
-	else do return vk_create_shader(device, createinfo)
+create_shader :: proc(#by_ptr createinfo: Shader_Desc) -> Shader {
+	when METAL do return mtl_create_shader(createinfo)
+	else when WEBGPU do return wgpu_create_shader(createinfo)
+	else do return vk_create_shader(createinfo)
 }
 
 @(require_results)
-create_texture :: proc(device: Device, #by_ptr createinfo: Texture_Desc) -> Texture {
-	when METAL do return mtl_create_texture(device, createinfo)
-	else when WEBGPU do return wgpu_create_texture(device, createinfo)
-	else do return vk_create_texture(device, createinfo)
+create_texture :: proc(#by_ptr createinfo: Texture_Desc) -> Texture {
+	when METAL do return mtl_create_texture(createinfo)
+	else when WEBGPU do return wgpu_create_texture(createinfo)
+	else do return vk_create_texture(createinfo)
 }
 
 // A render target whose contents live only inside the pass that clears it (transient.odin):
@@ -484,14 +485,14 @@ create_texture :: proc(device: Device, #by_ptr createinfo: Texture_Desc) -> Text
 // Memoryless on the own Metal backend, lazily allocated where the own Vulkan backend's
 // device offers it (tile GPUs), a plain target otherwise.
 @(require_results)
-create_texture_transient :: proc(device: Device, #by_ptr createinfo: Texture_Desc) -> (texture: Texture) {
+create_texture_transient :: proc(#by_ptr createinfo: Texture_Desc) -> (texture: Texture) {
 	assert(createinfo.usage <= {.Color_Target, .Depth_Target}, "a transient texture is a render target only")
-	make_it :: proc(device: Device, #by_ptr createinfo: Texture_Desc) -> Texture {
-		when METAL do return mtl_create_texture_transient(device, createinfo)
-		else when WEBGPU do return wgpu_create_texture_transient(device, createinfo)
-		else do return vk_create_texture_transient(device, createinfo)
+	make_it :: proc(#by_ptr createinfo: Texture_Desc) -> Texture {
+		when METAL do return mtl_create_texture_transient(createinfo)
+		else when WEBGPU do return wgpu_create_texture_transient(createinfo)
+		else do return vk_create_texture_transient(createinfo)
 	}
-	texture = make_it(device, createinfo)
+	texture = make_it(createinfo)
 	transient_note(texture)
 	return
 }
@@ -499,26 +500,26 @@ create_texture_transient :: proc(device: Device, #by_ptr createinfo: Texture_Des
 // Whether transient textures save memory: a lazily allocated memory type under the own
 // Vulkan backend, any Apple GPU under the own Metal one.
 @(require_results)
-transient_targets_offered :: proc(device: Device) -> bool {
+transient_targets_offered :: proc() -> bool {
 	when METAL do return true
 	else when WEBGPU do return false
 	else do return vk_state.lazy_memory
 }
 
 @(require_results)
-create_transfer_buffer :: proc(device: Device, #by_ptr createinfo: Transfer_Buffer_Desc) -> Transfer_Buffer {
-	when METAL do return mtl_create_transfer_buffer(device, createinfo)
-	else when WEBGPU do return wgpu_create_transfer_buffer(device, createinfo)
-	else do return vk_create_transfer_buffer(device, createinfo)
+create_transfer_buffer :: proc(#by_ptr createinfo: Transfer_Buffer_Desc) -> Transfer_Buffer {
+	when METAL do return mtl_create_transfer_buffer(createinfo)
+	else when WEBGPU do return wgpu_create_transfer_buffer(createinfo)
+	else do return vk_create_transfer_buffer(createinfo)
 }
 
-destroy_device :: proc(device: Device) {
-	when METAL do mtl_destroy_device(device)
-	else when WEBGPU do wgpu_destroy_device(device)
-	else do vk_destroy_device(device)
+destroy_device :: proc() {
+	when METAL do mtl_destroy_device()
+	else when WEBGPU do wgpu_destroy_device()
+	else do vk_destroy_device()
 }
 
-dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: sdl.Uint32) {
+dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: u32) {
 	when METAL do mtl_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
 	else when WEBGPU do wgpu_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
 	else do vk_dispatch_compute(compute_pass, groupcount_x, groupcount_y, groupcount_z)
@@ -537,13 +538,13 @@ download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Regi
 	else do vk_download_from_texture(copy_pass, source, destination)
 }
 
-draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices: sdl.Uint32,  num_instances: sdl.Uint32, first_index:  sdl.Uint32, vertex_offset: sdl.Sint32, first_instance: sdl.Uint32) {
+draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices: u32,  num_instances: u32, first_index:  u32, vertex_offset: i32, first_instance: u32) {
 	when METAL do mtl_draw_indexed_primitives(render_pass, num_indices, num_instances, first_index, vertex_offset, first_instance)
 	else when WEBGPU do wgpu_draw_indexed_primitives(render_pass, num_indices, num_instances, first_index, vertex_offset, first_instance)
 	else do vk_draw_indexed_primitives(render_pass, num_indices, num_instances, first_index, vertex_offset, first_instance)
 }
 
-draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: sdl.Uint32, draw_count: sdl.Uint32) {
+draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	when METAL do mtl_draw_indexed_primitives_indirect(render_pass, buffer, offset, draw_count)
 	else when WEBGPU do wgpu_draw_indexed_primitives_indirect(render_pass, buffer, offset, draw_count)
 	else do vk_draw_indexed_primitives_indirect(render_pass, buffer, offset, draw_count)
@@ -580,7 +581,7 @@ draw_indexed_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer:
 // with indirect draws that take many commands and read their count from a buffer, so the
 // culled-away chunks cost the GPU nothing.
 @(require_results)
-cull_offered :: proc(device: Device) -> bool {
+cull_offered :: proc() -> bool {
 	when METAL do return false
 	else when WEBGPU do return false
 	else do return vk_state.multi_draw && vk_state.indirect_count
@@ -591,13 +592,13 @@ cull_offered :: proc(device: Device) -> bool {
 // command up to the most a draw may take: there it is offered off, for a tablet's
 // numbers to say whether it pays (Stats > Drawing, --gpu-cull).
 @(require_results)
-cull_by_default :: proc(device: Device) -> bool {
+cull_by_default :: proc() -> bool {
 	when METAL do return false
 	else when WEBGPU do return false
 	else do return !vk_state.lazy_memory
 }
 
-draw_primitives :: proc(render_pass: Render_Pass, num_vertices: sdl.Uint32, num_instances: sdl.Uint32, first_vertex: sdl.Uint32, first_instance: sdl.Uint32) {
+draw_primitives :: proc(render_pass: Render_Pass, num_vertices: u32, num_instances: u32, first_vertex: u32, first_instance: u32) {
 	when METAL do mtl_draw_primitives(render_pass, num_vertices, num_instances, first_vertex, first_instance)
 	else when WEBGPU do wgpu_draw_primitives(render_pass, num_vertices, num_instances, first_vertex, first_instance)
 	else do vk_draw_primitives(render_pass, num_vertices, num_instances, first_vertex, first_instance)
@@ -622,17 +623,17 @@ end_render_pass :: proc(render_pass: Render_Pass) {
 }
 
 @(require_results)
-texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
-	when METAL do return mtl_texture_supports_format(device, format, type, usage)
-	else when WEBGPU do return wgpu_texture_supports_format(device, format, type, usage)
-	else do return vk_texture_supports_format(device, format, type, usage)
+texture_supports_format :: proc(format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
+	when METAL do return mtl_texture_supports_format(format, type, usage)
+	else when WEBGPU do return wgpu_texture_supports_format(format, type, usage)
+	else do return vk_texture_supports_format(format, type, usage)
 }
 
 @(require_results)
-texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
-	when METAL do return mtl_texture_supports_sample_count(device, format, sample_count)
-	else when WEBGPU do return wgpu_texture_supports_sample_count(device, format, sample_count)
-	else do return vk_texture_supports_sample_count(device, format, sample_count)
+texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count) -> bool {
+	when METAL do return mtl_texture_supports_sample_count(format, sample_count)
+	else when WEBGPU do return wgpu_texture_supports_sample_count(format, sample_count)
+	else do return vk_texture_supports_sample_count(format, sample_count)
 }
 
 generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
@@ -643,114 +644,100 @@ generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 }
 
 @(require_results)
-get_device_driver :: proc(device: Device) -> cstring {
-	when METAL do return mtl_get_device_driver(device)
-	else when WEBGPU do return wgpu_get_device_driver(device)
-	else do return vk_get_device_driver(device)
+get_swapchain_texture_format :: proc(window: ^sdl.Window) -> Format {
+	when METAL do return mtl_get_swapchain_texture_format(window)
+	else when WEBGPU do return wgpu_get_swapchain_texture_format(window)
+	else do return vk_get_swapchain_texture_format(window)
 }
 
 @(require_results)
-get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
-	when METAL do return mtl_get_device_properties(device)
-	else when WEBGPU do return wgpu_get_device_properties(device)
-	else do return vk_get_device_properties(device)
+map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
+	when METAL do return mtl_map_transfer_buffer(transfer_buffer, cycle)
+	else when WEBGPU do return wgpu_map_transfer_buffer(transfer_buffer, cycle)
+	else do return vk_map_transfer_buffer(transfer_buffer, cycle)
 }
 
-@(require_results)
-get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
-	when METAL do return mtl_get_swapchain_texture_format(device, window)
-	else when WEBGPU do return wgpu_get_swapchain_texture_format(device, window)
-	else do return vk_get_swapchain_texture_format(device, window)
-}
-
-@(require_results)
-map_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
-	when METAL do return mtl_map_transfer_buffer(device, transfer_buffer, cycle)
-	else when WEBGPU do return wgpu_map_transfer_buffer(device, transfer_buffer, cycle)
-	else do return vk_map_transfer_buffer(device, transfer_buffer, cycle)
-}
-
-push_compute_uniform_data :: proc(command_buffer: Cmd, slot_index: sdl.Uint32, data: rawptr, length: sdl.Uint32) {
+push_compute_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	when METAL do mtl_push_compute_uniform_data(command_buffer, slot_index, data, length)
 	else when WEBGPU do wgpu_push_compute_uniform_data(command_buffer, slot_index, data, length)
 	else do vk_push_compute_uniform_data(command_buffer, slot_index, data, length)
 }
 
-push_fragment_uniform_data :: proc(command_buffer: Cmd, slot_index: sdl.Uint32, data: rawptr, length: sdl.Uint32) {
+push_fragment_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	when METAL do mtl_push_fragment_uniform_data(command_buffer, slot_index, data, length)
 	else when WEBGPU do wgpu_push_fragment_uniform_data(command_buffer, slot_index, data, length)
 	else do vk_push_fragment_uniform_data(command_buffer, slot_index, data, length)
 }
 
-push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: sdl.Uint32, data: rawptr, length: sdl.Uint32) {
+push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	when METAL do mtl_push_vertex_uniform_data(command_buffer, slot_index, data, length)
 	else when WEBGPU do wgpu_push_vertex_uniform_data(command_buffer, slot_index, data, length)
 	else do vk_push_vertex_uniform_data(command_buffer, slot_index, data, length)
 }
 
 @(require_results)
-query_fence :: proc(device: Device, fence: Fence) -> bool {
-	when METAL do return mtl_query_fence(device, fence)
-	else when WEBGPU do return wgpu_query_fence(device, fence)
-	else do return vk_query_fence(device, fence)
+query_fence :: proc(fence: Fence) -> bool {
+	when METAL do return mtl_query_fence(fence)
+	else when WEBGPU do return wgpu_query_fence(fence)
+	else do return vk_query_fence(fence)
 }
 
-release_buffer :: proc(device: Device, buffer: Buffer) {
-	when METAL do mtl_release_buffer(device, buffer)
-	else when WEBGPU do wgpu_release_buffer(device, buffer)
-	else do vk_release_buffer(device, buffer)
+release_buffer :: proc(buffer: Buffer) {
+	when METAL do mtl_release_buffer(buffer)
+	else when WEBGPU do wgpu_release_buffer(buffer)
+	else do vk_release_buffer(buffer)
 }
 
-release_compute_pipeline :: proc(device: Device, compute_pipeline: Compute_Pipeline) {
-	when METAL do mtl_release_compute_pipeline(device, compute_pipeline)
-	else when WEBGPU do wgpu_release_compute_pipeline(device, compute_pipeline)
-	else do vk_release_compute_pipeline(device, compute_pipeline)
+release_compute_pipeline :: proc(compute_pipeline: Compute_Pipeline) {
+	when METAL do mtl_release_compute_pipeline(compute_pipeline)
+	else when WEBGPU do wgpu_release_compute_pipeline(compute_pipeline)
+	else do vk_release_compute_pipeline(compute_pipeline)
 }
 
-release_fence :: proc(device: Device, fence: Fence) {
-	when METAL do mtl_release_fence(device, fence)
-	else when WEBGPU do wgpu_release_fence(device, fence)
-	else do vk_release_fence(device, fence)
+release_fence :: proc(fence: Fence) {
+	when METAL do mtl_release_fence(fence)
+	else when WEBGPU do wgpu_release_fence(fence)
+	else do vk_release_fence(fence)
 }
 
-release_graphics_pipeline :: proc(device: Device, graphics_pipeline: Graphics_Pipeline) {
-	when METAL do mtl_release_graphics_pipeline(device, graphics_pipeline)
-	else when WEBGPU do wgpu_release_graphics_pipeline(device, graphics_pipeline)
-	else do vk_release_graphics_pipeline(device, graphics_pipeline)
+release_graphics_pipeline :: proc(graphics_pipeline: Graphics_Pipeline) {
+	when METAL do mtl_release_graphics_pipeline(graphics_pipeline)
+	else when WEBGPU do wgpu_release_graphics_pipeline(graphics_pipeline)
+	else do vk_release_graphics_pipeline(graphics_pipeline)
 }
 
-release_sampler :: proc(device: Device, sampler: Sampler) {
-	when METAL do mtl_release_sampler(device, sampler)
-	else when WEBGPU do wgpu_release_sampler(device, sampler)
-	else do vk_release_sampler(device, sampler)
+release_sampler :: proc(sampler: Sampler) {
+	when METAL do mtl_release_sampler(sampler)
+	else when WEBGPU do wgpu_release_sampler(sampler)
+	else do vk_release_sampler(sampler)
 }
 
-release_shader :: proc(device: Device, shader: Shader) {
-	when METAL do mtl_release_shader(device, shader)
-	else when WEBGPU do wgpu_release_shader(device, shader)
-	else do vk_release_shader(device, shader)
+release_shader :: proc(shader: Shader) {
+	when METAL do mtl_release_shader(shader)
+	else when WEBGPU do wgpu_release_shader(shader)
+	else do vk_release_shader(shader)
 }
 
-release_texture :: proc(device: Device, texture: Texture) {
+release_texture :: proc(texture: Texture) {
 	transient_forget(texture)
-	when METAL do mtl_release_texture(device, texture)
-	else when WEBGPU do wgpu_release_texture(device, texture)
-	else do vk_release_texture(device, texture)
+	when METAL do mtl_release_texture(texture)
+	else when WEBGPU do wgpu_release_texture(texture)
+	else do vk_release_texture(texture)
 }
 
-release_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
-	when METAL do mtl_release_transfer_buffer(device, transfer_buffer)
-	else when WEBGPU do wgpu_release_transfer_buffer(device, transfer_buffer)
-	else do vk_release_transfer_buffer(device, transfer_buffer)
+release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
+	when METAL do mtl_release_transfer_buffer(transfer_buffer)
+	else when WEBGPU do wgpu_release_transfer_buffer(transfer_buffer)
+	else do vk_release_transfer_buffer(transfer_buffer)
 }
 
-release_window_from_device :: proc(device: Device, window: ^sdl.Window) {
-	when METAL do mtl_release_window(device, window)
-	else when WEBGPU do wgpu_release_window(device, window)
-	else do vk_release_window(device, window)
+release_window :: proc(window: ^sdl.Window) {
+	when METAL do mtl_release_window(window)
+	else when WEBGPU do wgpu_release_window(window)
+	else do vk_release_window(window)
 }
 
-set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
+set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: Rect) {
 	when METAL do mtl_set_scissor(render_pass, scissor)
 	else when WEBGPU do wgpu_set_scissor(render_pass, scissor)
 	else do vk_set_scissor(render_pass, scissor)
@@ -768,28 +755,28 @@ pop_debug_group :: proc(command_buffer: Cmd) {
 	else do vk_pop_debug_group(command_buffer)
 }
 
-set_buffer_name :: proc(device: Device, buffer: Buffer, text: cstring) {
-	when METAL do mtl_set_buffer_name(device, buffer, text)
-	else when WEBGPU do wgpu_set_buffer_name(device, buffer, text)
-	else do vk_set_buffer_name(device, buffer, text)
+set_buffer_name :: proc(buffer: Buffer, text: cstring) {
+	when METAL do mtl_set_buffer_name(buffer, text)
+	else when WEBGPU do wgpu_set_buffer_name(buffer, text)
+	else do vk_set_buffer_name(buffer, text)
 }
 
-set_texture_name :: proc(device: Device, texture: Texture, text: cstring) {
-	when METAL do mtl_set_texture_name(device, texture, text)
-	else when WEBGPU do wgpu_set_texture_name(device, texture, text)
-	else do vk_set_texture_name(device, texture, text)
+set_texture_name :: proc(texture: Texture, text: cstring) {
+	when METAL do mtl_set_texture_name(texture, text)
+	else when WEBGPU do wgpu_set_texture_name(texture, text)
+	else do vk_set_texture_name(texture, text)
 }
 
 @(require_results)
-set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_flight: u32) -> bool {
-	when METAL do return mtl_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
-	else when WEBGPU do return wgpu_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
-	else do return vk_set_allowed_frames_in_flight(device, allowed_frames_in_flight)
+set_allowed_frames_in_flight :: proc(allowed_frames_in_flight: u32) -> bool {
+	when METAL do return mtl_set_allowed_frames_in_flight(allowed_frames_in_flight)
+	else when WEBGPU do return wgpu_set_allowed_frames_in_flight(allowed_frames_in_flight)
+	else do return vk_set_allowed_frames_in_flight(allowed_frames_in_flight)
 }
 
 // When a frame reached the screen, as far as each backend can tell (Gpu_Caps.present_timing).
 @(require_results)
-present_timing :: proc(device: Device) -> Present_Timing {
+present_timing :: proc() -> Present_Timing {
 	when METAL do return .Presented_Handler
 	else when WEBGPU do return .None
 	else do return vk_state.present_timing
@@ -835,7 +822,7 @@ display_link_frames :: proc() -> u64 {
 // Whether create_buffer_mapped makes buffers: the own Vulkan backend with a shared
 // memory type (vk_pick_shared_type), the own Metal backend on unified memory.
 @(require_results)
-shared_buffers_offered :: proc(device: Device) -> bool {
+shared_buffers_offered :: proc() -> bool {
 	when METAL do return mtl_shared_buffers_offered()
 	else when WEBGPU do return wgpu_shared_buffers_offered()
 	else do return vk_state.shared_buffers
@@ -845,16 +832,16 @@ shared_buffers_offered :: proc(device: Device) -> bool {
 // uses it, then ends with buffer_filled; nil, nil where the backend cannot, and the
 // caller uploads into a plain buffer instead.
 @(require_results)
-create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input := false) -> (buffer: Buffer, mapped: rawptr) {
-	when METAL do return mtl_create_buffer_mapped(device, info)
-	else when WEBGPU do return wgpu_create_buffer_mapped(device, info)
-	else do return vk_create_buffer_mapped(device, info, accel_input)
+create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> (buffer: Buffer, mapped: rawptr) {
+	when METAL do return mtl_create_buffer_mapped(info)
+	else when WEBGPU do return wgpu_create_buffer_mapped(info)
+	else do return vk_create_buffer_mapped(info, accel_input)
 }
 
 // Ends the fill of a create_buffer_mapped buffer; the mapped pointer is invalid after.
-buffer_filled :: proc(device: Device, buffer: Buffer) {
+buffer_filled :: proc(buffer: Buffer) {
 	when VULKAN {
-		vk_buffer_filled(device, buffer)
+		vk_buffer_filled(buffer)
 	}
 }
 
@@ -862,7 +849,7 @@ buffer_filled :: proc(device: Device, buffer: Buffer) {
 // pass begins or ends, so the own Metal backend would time passes, not the debug groups
 // these timestamps bracket.
 @(require_results)
-timestamps_offered :: proc(device: Device) -> bool {
+timestamps_offered :: proc() -> bool {
 	when METAL do return false
 	else when WEBGPU do return false
 	else do return vk_state.timing.slots[0].pool != 0
@@ -875,7 +862,7 @@ write_timestamp :: proc(command_buffer: Cmd, tag: u8) {
 }
 
 @(require_results)
-timestamps_frame :: proc(device: Device, out: []Gpu_Timestamp) -> int {
+timestamps_frame :: proc(out: []Gpu_Timestamp) -> int {
 	when METAL || WEBGPU do return 0
 	else do return vk_timestamps_frame(out)
 }
@@ -889,10 +876,10 @@ swapchain_turns :: proc(window: ^sdl.Window) -> int {
 }
 
 @(require_results)
-set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
-	when METAL do return mtl_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
-	else when WEBGPU do return wgpu_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
-	else do return vk_set_swapchain_parameters(device, window, swapchain_composition, present_mode)
+set_swapchain_parameters :: proc(window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
+	when METAL do return mtl_set_swapchain_parameters(window, swapchain_composition, present_mode)
+	else when WEBGPU do return wgpu_set_swapchain_parameters(window, swapchain_composition, present_mode)
+	else do return vk_set_swapchain_parameters(window, swapchain_composition, present_mode)
 }
 
 @(require_results)
@@ -911,10 +898,10 @@ submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
 	else do return vk_submit_command_buffer_and_acquire_fence(command_buffer)
 }
 
-unmap_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
-	when METAL do mtl_unmap_transfer_buffer(device, transfer_buffer)
-	else when WEBGPU do wgpu_unmap_transfer_buffer(device, transfer_buffer)
-	else do vk_unmap_transfer_buffer(device, transfer_buffer)
+unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
+	when METAL do mtl_unmap_transfer_buffer(transfer_buffer)
+	else when WEBGPU do wgpu_unmap_transfer_buffer(transfer_buffer)
+	else do vk_unmap_transfer_buffer(transfer_buffer)
 }
 
 upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
@@ -931,49 +918,45 @@ upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer
 }
 
 @(require_results)
-wait_and_acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^sdl.Uint32) -> bool {
+wait_and_acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^u32) -> bool {
 	when METAL do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 	else when WEBGPU do return wgpu_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 	else do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 }
 
 @(require_results)
-wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: sdl.Uint32) -> bool {
+wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	count_fence_wait()
-	when METAL do return mtl_wait_for_fences(device, wait_all, fences, num_fences)
-	else when WEBGPU do return wgpu_wait_for_fences(device, wait_all, fences, num_fences)
-	else do return vk_wait_for_fences(device, wait_all, fences, num_fences)
+	when METAL do return mtl_wait_for_fences(wait_all, fences, num_fences)
+	else when WEBGPU do return wgpu_wait_for_fences(wait_all, fences, num_fences)
+	else do return vk_wait_for_fences(wait_all, fences, num_fences)
 }
 
 @(require_results)
-wait_for_idle :: proc(device: Device) -> bool {
+wait_for_idle :: proc() -> bool {
 	count_idle_wait()
-	when METAL do return mtl_wait_for_idle(device)
-	else when WEBGPU do return wgpu_wait_for_idle(device)
-	else do return vk_wait_for_idle(device)
+	when METAL do return mtl_wait_for_idle()
+	else when WEBGPU do return wgpu_wait_for_idle()
+	else do return vk_wait_for_idle()
 }
 
 @(require_results)
-window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
-	when METAL do return mtl_window_supports_present_mode(device, window, present_mode)
-	else when WEBGPU do return wgpu_window_supports_present_mode(device, window, present_mode)
-	else do return vk_window_supports_present_mode(device, window, present_mode)
+window_supports_present_mode :: proc(window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+	when METAL do return mtl_window_supports_present_mode(window, present_mode)
+	else when WEBGPU do return wgpu_window_supports_present_mode(window, present_mode)
+	else do return vk_window_supports_present_mode(window, present_mode)
 }
 
-// Makes the device for the platform's backend, or nil and false with backend_error saying
+// Makes the device for the platform's backend, or false with backend_error saying
 // why when it falls short of the app's needs. `anisotropy` says whether its samplers may
 // filter anisotropically (Android's Vulkan is not asked to).
 @(require_results)
-create_device :: proc(debug: bool) -> (device: Device, anisotropy: bool, ok: bool) {
-	when METAL {
-		device, ok = mtl_create_device(debug)
-		return device, true, ok
-	} else when WEBGPU {
-		device, ok = wgpu_create_device(debug)
-		return device, true, ok
-	} else {
-		device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
-		return device, vk_state.anisotropy, ok
+create_device :: proc(debug: bool) -> (anisotropy: bool, ok: bool) {
+	when METAL do return true, mtl_create_device(debug)
+	else when WEBGPU do return true, wgpu_create_device(debug)
+	else {
+		ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
+		return vk_state.anisotropy, ok
 	}
 }
 

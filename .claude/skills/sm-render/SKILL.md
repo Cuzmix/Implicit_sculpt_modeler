@@ -6,7 +6,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 # Rendering
 
 ## Model (README: the render row of "Layout", "Idle objects", "Simplified drawing while the view moves", "GPU benchmark and frame timing")
-- `Renderer{device, window, depth_format, single, multi: Mesh_Pipelines{mesh, wire, clear}, samples, last_version,
+- `Renderer{has_device, window, depth_format, single, multi: Mesh_Pipelines{mesh, wire, clear}, samples, last_version,
   cull, partial, present_mode, lod_px}` (`src/render/renderer.odin`); `BACKGROUND`; `PARTIAL_MAX_AREA 0.6`;
   `Viewport_Target{color, depth, multi_color, samples, width, height, cache, frame_key}`; `Static_Cache`.
 - MSAA (`renderer_set_msaa`, app side `src/app/msaa.odin`, setting `msaa`): a pipeline only draws into targets of its
@@ -59,7 +59,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   in `render_rect`; `clear.frag.slang` dithers a gradient with a 4x4 Bayer pattern keyed on `gl_FragCoord`, so partial and full
   redraws match bit for bit. The background is in `frame_key` and `static_key` (the cache holds it); thumbnails and the
   nav head pass a transparent `background` to `begin_mesh_pass` and never draw it. `renderer_init` creates the device with `SHADER_FORMAT` (`shaders.odin`: `{.MSL}` on Darwin, `{.SPIRV}` elsewhere) and the debug flag from
-  `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
+  `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, gpu.last_error())` and `return false` (a backend records each with `gpu.fail(kind, …)`, `src/gpu/errors.odin`); no `gpu.*` call takes a device.
 - Blending passes (`Mesh_Pipelines.see`, `.floor`, both optional: nil logs a warning and the feature degrades): see-through
   items are those with `Draw_Item.look.w > 0` (the app's Transparency; `mesh.frag.slang` writes it as alpha via `opacity()`), drawn
   with `BLEND_OVER` (colour by source alpha, target alpha kept at 1, since the interface blends the viewport by its alpha)

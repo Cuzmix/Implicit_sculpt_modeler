@@ -7,7 +7,6 @@ import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../jobs"
@@ -285,16 +284,16 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 }
 
 tracer_destroy :: proc(r: ^Renderer, tr: ^Tracer) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	if tr.trace_pipeline != nil do gpu.release_compute_pipeline(r.device, tr.trace_pipeline)
-	if tr.refit_pipeline != nil do gpu.release_compute_pipeline(r.device, tr.refit_pipeline)
-	if tr.add_pipeline != nil do gpu.release_graphics_pipeline(r.device, tr.add_pipeline)
-	if tr.visible != nil do gpu.release_texture(r.device, tr.visible)
-	if tr.transfer != nil do gpu.release_transfer_buffer(r.device, tr.transfer)
-	if tr.rq_pipeline != nil do gpu.release_compute_pipeline(r.device, tr.rq_pipeline)
-	gpu.release_accel(r.device, tr.tlas)
-	for b in tr.rq_buffers do if b != nil do gpu.release_buffer(r.device, b)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	if tr.trace_pipeline != nil do gpu.release_compute_pipeline(tr.trace_pipeline)
+	if tr.refit_pipeline != nil do gpu.release_compute_pipeline(tr.refit_pipeline)
+	if tr.add_pipeline != nil do gpu.release_graphics_pipeline(tr.add_pipeline)
+	if tr.visible != nil do gpu.release_texture(tr.visible)
+	if tr.transfer != nil do gpu.release_transfer_buffer(tr.transfer)
+	if tr.rq_pipeline != nil do gpu.release_compute_pipeline(tr.rq_pipeline)
+	gpu.release_accel(tr.tlas)
+	for b in tr.rq_buffers do if b != nil do gpu.release_buffer(b)
 	// The counters outlive the device's objects, for the exit stats.
 	tr^ = {samples = tr.samples, build_ms = tr.build_ms, chunks_built = tr.chunks_built, failed = tr.failed, rq_failed = tr.rq_failed, rq_samples = tr.rq_samples, blas_builds = tr.blas_builds, blas_refits = tr.blas_refits}
 }
@@ -309,8 +308,8 @@ trace_mesh_destroy :: proc(r: ^Renderer, tm: ^Trace_Mesh) {
 	delete(tm.ranges)
 	delete(tm.chunk_of)
 	delete(tm.range_bounds)
-	for b in tm.buffers do if b != nil do gpu.release_buffer(r.device, b)
-	gpu.release_accel(r.device, tm.blas)
+	for b in tm.buffers do if b != nil do gpu.release_buffer(b)
+	gpu.release_accel(tm.blas)
 	delete(tm.geometries)
 	delete(tm.rq_ranges)
 	delete(tm.rq_opaque)
@@ -334,36 +333,36 @@ trace_traceable :: proc(item: Draw_Item) -> bool {
 tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 	if tr.trace_pipeline == nil {
 		visible_usage := gpu.Texture_Usages{.Color_Target, .Sampled, .Storage_Write}
-		if !gpu.texture_supports_format(r.device, .R32_Float, .D2, visible_usage) {
+		if !gpu.texture_supports_format(.R32_Float, .D2, visible_usage) {
 			log.warn("traced studio: this device cannot write R32_FLOAT from compute; the studio uses shadow maps")
 			return false
 		}
-		tr.trace_pipeline = gpu.create_compute_pipeline(r.device, {
+		tr.trace_pipeline = gpu.create_compute_pipeline({
 			code = STUDIO_TRACE_COMP_CODE, entrypoint = SHADER_ENTRY,
 			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 6, num_readwrite_storage_textures = 1,
 			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
 		})
-		tr.refit_pipeline = gpu.create_compute_pipeline(r.device, {
+		tr.refit_pipeline = gpu.create_compute_pipeline({
 			code = BLAS_REFIT_COMP_CODE, entrypoint = SHADER_ENTRY,
 			format = SHADER_FORMAT, num_readonly_storage_buffers = 4, num_readwrite_storage_buffers = 1,
 			num_uniform_buffers = 1, threadcount_x = REFIT_THREADS, threadcount_y = 1, threadcount_z = 1,
 		})
 		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
-		tr.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = TRACE_TRANSFER_SIZE})
+		tr.transfer = gpu.create_transfer_buffer({usage = .Upload, size = TRACE_TRANSFER_SIZE})
 		if tr.trace_pipeline == nil || tr.refit_pipeline == nil || tr.add_pipeline == nil || tr.transfer == nil {
-			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", sdl.GetError())
+			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", gpu.last_error())
 			return false
 		}
 	}
 	if tr.visible != nil && tr.width == vt.width && tr.height == vt.height do return true
-	if tr.visible != nil do gpu.release_texture(r.device, tr.visible)
-	tr.visible = gpu.create_texture(r.device, {
+	if tr.visible != nil do gpu.release_texture(tr.visible)
+	tr.visible = gpu.create_texture({
 		type = .D2, format = .R32_Float, usage = {.Color_Target, .Sampled, .Storage_Write},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	tr.width, tr.height = vt.width, vt.height
 	if tr.visible == nil {
-		log.errorf("traced studio: target creation failed (%s); the studio uses shadow maps", sdl.GetError())
+		log.errorf("traced studio: target creation failed (%s); the studio uses shadow maps", gpu.last_error())
 		return false
 	}
 	return true
@@ -511,13 +510,13 @@ trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk
 trace_rq_kernel :: proc(r: ^Renderer, tr: ^Tracer) -> bool {
 	if !r.ray_query || !r.caps.ray_query || tr.rq_failed || !ray_query_trusted(r) do return false
 	if tr.rq_pipeline == nil {
-		tr.rq_pipeline = gpu.create_compute_pipeline_traced(r.device, {
+		tr.rq_pipeline = gpu.create_compute_pipeline_traced({
 			code = STUDIO_TRACE_RQ_COMP_CODE, entrypoint = RQ_ENTRY,
 			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
 			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
 		})
 		if tr.rq_pipeline == nil {
-			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
+			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", gpu.last_error())
 			tr.rq_failed = true
 			return false
 		}
@@ -540,10 +539,10 @@ trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_
 		bytes += int(gpu.accel_bytes(tm.blas))
 		if !tm.rq_empty do append(&instances, gpu.Tlas_Instance{blas = tm.blas, transform = item.model, custom = u32(len(instances))})
 	}
-	gpu.accel_trim(r.device)
+	gpu.accel_trim()
 	tr.bytes = bytes
 	if len(instances) == 0 {
-		gpu.release_accel(r.device, tr.tlas)
+		gpu.release_accel(tr.tlas)
 		tr.tlas = nil
 		return true
 	}
@@ -552,7 +551,7 @@ trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_
 		log.warn("ray queries: the top-level acceleration structure could not be built; the view walks the app's own trees")
 		return false
 	}
-	if tlas != tr.tlas do gpu.release_accel(r.device, tr.tlas)
+	if tlas != tr.tlas do gpu.release_accel(tr.tlas)
 	tr.tlas = tlas
 	tr.bytes += int(gpu.accel_bytes(tlas))
 	return true
@@ -611,7 +610,7 @@ trace_mesh_update_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, item: Draw
 		tm.blas_refits += 1
 		tr.blas_refits += 1
 	} else {
-		gpu.release_accel(r.device, tm.blas)
+		gpu.release_accel(tm.blas)
 		tm.blas_refits = 0
 		tr.blas_builds += 1
 	}
@@ -676,14 +675,14 @@ trace_rq_tables :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_I
 trace_rq_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, which: Rq_Buffer, data: []u8) {
 	if tr.rq_buffers[which] == nil || u32(len(data)) > tr.rq_capacity[which] {
 		// The buffer goes once the samples that read it have run.
-		if tr.rq_buffers[which] != nil do gpu.release_buffer(r.device, tr.rq_buffers[which])
+		if tr.rq_buffers[which] != nil do gpu.release_buffer(tr.rq_buffers[which])
 		tr.rq_capacity[which] = u32(len(data) + len(data) / 4)
-		tr.rq_buffers[which] = gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = tr.rq_capacity[which]})
+		tr.rq_buffers[which] = gpu.create_buffer({usage = {.Storage_Read}, size = tr.rq_capacity[which]})
 	}
-	dst := gpu.map_transfer_buffer(r.device, tr.transfer, true)
+	dst := gpu.map_transfer_buffer(tr.transfer, true)
 	if dst == nil || tr.rq_buffers[which] == nil do return
 	copy(([^]u8)(dst)[:len(data)], data)
-	gpu.unmap_transfer_buffer(r.device, tr.transfer)
+	gpu.unmap_transfer_buffer(tr.transfer)
 	pass := gpu.begin_copy_pass(cmd)
 	gpu.upload_to_buffer(pass, {transfer_buffer = tr.transfer}, {buffer = tr.rq_buffers[which], size = u32(len(data))}, true)
 	gpu.end_copy_pass(pass)
@@ -774,30 +773,30 @@ trace_buffer_upload :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, tm: ^Trace_
 	}
 	if tm.buffers[which] == nil || u32(size) > tm.capacity[which] {
 		if tm.buffers[which] != nil {
-			_ = gpu.wait_for_idle(r.device)
-			gpu.release_buffer(r.device, tm.buffers[which])
+			_ = gpu.wait_for_idle()
+			gpu.release_buffer(tm.buffers[which])
 		}
 		capacity := u32(min(size + size / 4, TRACE_BUFFER_MAX))
 		usage := gpu.Buffer_Usages{.Storage_Read}
 		if which == .Nodes do usage += {.Storage_Write}
-		tm.buffers[which] = gpu.create_buffer(r.device, {usage = usage, size = capacity})
+		tm.buffers[which] = gpu.create_buffer({usage = usage, size = capacity})
 		tm.capacity[which] = capacity if tm.buffers[which] != nil else 0
 		tm.bytes = 0
 		for c in tm.capacity do tm.bytes += int(c)
 		if tm.buffers[which] == nil {
-			log.errorf("traced studio: a buffer of %d MB was refused (%s); the studio uses shadow maps", capacity >> 20, sdl.GetError())
+			log.errorf("traced studio: a buffer of %d MB was refused (%s); the studio uses shadow maps", capacity >> 20, gpu.last_error())
 			return false
 		}
 	}
 	for offset := 0; offset < len(data); offset += TRACE_TRANSFER_SIZE {
 		part := data[offset:min(offset + TRACE_TRANSFER_SIZE, len(data))]
-		dst := gpu.map_transfer_buffer(r.device, tr.transfer, true)
+		dst := gpu.map_transfer_buffer(tr.transfer, true)
 		if dst == nil {
-			log.errorf("traced studio: upload failed (%s)", sdl.GetError())
+			log.errorf("traced studio: upload failed (%s)", gpu.last_error())
 			return false
 		}
 		copy(([^]u8)(dst)[:len(part)], part)
-		gpu.unmap_transfer_buffer(r.device, tr.transfer)
+		gpu.unmap_transfer_buffer(tr.transfer)
 		pass := gpu.begin_copy_pass(cmd)
 		gpu.upload_to_buffer(pass, {transfer_buffer = tr.transfer}, {buffer = tm.buffers[which], offset = u32(offset), size = u32(len(part))}, false)
 		gpu.end_copy_pass(pass)

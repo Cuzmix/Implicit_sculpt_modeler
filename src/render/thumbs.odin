@@ -2,7 +2,6 @@ package render
 
 import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // Small pictures of objects for the Objects card's rows: each is drawn with the mesh
 // pipeline into a scratch target cleared to transparent, then copied into its cell of
@@ -22,9 +21,9 @@ THUMB_CELLS :: 8
 THUMB_SLOTS :: THUMB_CELLS * THUMB_CELLS
 
 thumbs_destroy :: proc(r: ^Renderer, t: ^Thumbs) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	if t.atlas != nil do gpu.release_texture(r.device, t.atlas)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	if t.atlas != nil do gpu.release_texture(t.atlas)
 	viewport_target_destroy(r, &t.scratch)
 	t^ = {}
 }
@@ -34,12 +33,12 @@ thumbs_atlas :: proc(r: ^Renderer, t: ^Thumbs, cmd: gpu.Cmd) -> gpu.Texture {
 	if t.failed do return nil
 	if t.atlas != nil do return t.atlas
 	SIZE :: THUMB_PX * THUMB_CELLS
-	t.atlas = gpu.create_texture(r.device, {
+	t.atlas = gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 	})
 	if t.atlas == nil || !viewport_target_resize(r, &t.scratch, THUMB_PX, THUMB_PX, transient_depth = true) {
-		log.errorf("thumbnail textures: %s", sdl.GetError())
+		log.errorf("thumbnail textures: %s", gpu.last_error())
 		t.failed = true
 		return nil
 	}

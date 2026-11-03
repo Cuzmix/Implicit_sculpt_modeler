@@ -3,7 +3,6 @@ package gpu
 // Used only by debug builds.
 @(require) import "core:fmt"
 
-import sdl "vendor:sdl3"
 
 // Transient textures (create_texture_transient) hold their contents only inside the
 // one render pass that clears and uses them: a tile GPU then never gives them memory.
@@ -36,7 +35,7 @@ transient_check_use :: proc(texture: Texture, use: string) {
 }
 
 // Panics when a pass loads or stores a transient attachment.
-transient_check_pass :: proc(colors: [^]Color_Target, count: sdl.Uint32, depth: Maybe(^Depth_Target)) {
+transient_check_pass :: proc(colors: [^]Color_Target, count: u32, depth: Maybe(^Depth_Target)) {
 	when ODIN_DEBUG {
 		if len(transient_textures) == 0 do return
 		for c in colors[:count] {

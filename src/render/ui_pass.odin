@@ -4,7 +4,6 @@ import "../gpu"
 import "base:intrinsics"
 import "core:log"
 
-import sdl "vendor:sdl3"
 
 UI_VERT_CODE :: #load("shaders/ui.vert" + SHADER_EXT, string)
 UI_FRAG_CODE :: #load("shaders/ui.frag" + SHADER_EXT, string)
@@ -57,15 +56,15 @@ Ui_Fragment_Uniforms :: struct {
 }
 
 ui_pass_destroy :: proc(r: ^Renderer, up: ^Ui_Pass) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	for p in up.pipelines do if p != nil do gpu.release_graphics_pipeline(r.device, p)
-	if up.sampler != nil do gpu.release_sampler(r.device, up.sampler)
-	if up.smooth != nil do gpu.release_sampler(r.device, up.smooth)
-	if up.atlas != nil do gpu.release_texture(r.device, up.atlas)
-	if up.vertices != nil do gpu.release_buffer(r.device, up.vertices)
-	if up.indices != nil do gpu.release_buffer(r.device, up.indices)
-	if up.transfer != nil do gpu.release_transfer_buffer(r.device, up.transfer)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	for p in up.pipelines do if p != nil do gpu.release_graphics_pipeline(p)
+	if up.sampler != nil do gpu.release_sampler(up.sampler)
+	if up.smooth != nil do gpu.release_sampler(up.smooth)
+	if up.atlas != nil do gpu.release_texture(up.atlas)
+	if up.vertices != nil do gpu.release_buffer(up.vertices)
+	if up.indices != nil do gpu.release_buffer(up.indices)
+	if up.transfer != nil do gpu.release_transfer_buffer(up.transfer)
 	up^ = {}
 }
 
@@ -79,22 +78,22 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 	if up.sampler == nil {
 		// Nearest: glyphs sit on whole pixels and the viewport image is shown pixel for
 		// pixel, so nothing is ever blurred by filtering.
-		up.sampler = gpu.create_sampler(r.device, {
+		up.sampler = gpu.create_sampler({
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		if up.sampler == nil {
-			log.errorf("ui sampler: %s", sdl.GetError())
+			log.errorf("ui sampler: %s", gpu.last_error())
 			return false
 		}
 	}
 	if up.smooth == nil {
-		up.smooth = gpu.create_sampler(r.device, {
+		up.smooth = gpu.create_sampler({
 			min_filter = .Linear, mag_filter = .Linear, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		if up.smooth == nil {
-			log.errorf("ui sampler: %s", sdl.GetError())
+			log.errorf("ui sampler: %s", gpu.last_error())
 			return false
 		}
 	}
@@ -102,15 +101,15 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 	upload_atlas := atlas_changed
 	if up.atlas == nil || up.atlas_size != atlas_size {
 		if up.atlas != nil {
-			_ = gpu.wait_for_idle(r.device)
-			gpu.release_texture(r.device, up.atlas)
+			_ = gpu.wait_for_idle()
+			gpu.release_texture(up.atlas)
 		}
-		up.atlas = gpu.create_texture(r.device, {
+		up.atlas = gpu.create_texture({
 			type = .D2, format = .R8_Unorm, usage = {.Sampled},
 			width = atlas_size.x, height = atlas_size.y, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if up.atlas == nil {
-			log.errorf("ui atlas: %s", sdl.GetError())
+			log.errorf("ui atlas: %s", gpu.last_error())
 			return false
 		}
 		up.atlas_size = atlas_size
@@ -127,22 +126,22 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 	if need == 0 do return true
 	if need > up.transfer_bytes {
 		if up.transfer != nil {
-			_ = gpu.wait_for_idle(r.device)
-			gpu.release_transfer_buffer(r.device, up.transfer)
+			_ = gpu.wait_for_idle()
+			gpu.release_transfer_buffer(up.transfer)
 		}
 		size := max(need, 1024 * 1024)
 		size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
-		up.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = size})
+		up.transfer = gpu.create_transfer_buffer({usage = .Upload, size = size})
 		if up.transfer == nil {
 			up.transfer_bytes = 0
-			log.errorf("ui transfer buffer: %s", sdl.GetError())
+			log.errorf("ui transfer buffer: %s", gpu.last_error())
 			return false
 		}
 		up.transfer_bytes = size
 	}
-	dst := ([^]u8)(gpu.map_transfer_buffer(r.device, up.transfer, true))
+	dst := ([^]u8)(gpu.map_transfer_buffer(up.transfer, true))
 	if dst == nil {
-		log.errorf("ui map: %s", sdl.GetError())
+		log.errorf("ui map: %s", gpu.last_error())
 		return false
 	}
 	if vb > 0 do copy(dst[:vb], ([^]u8)(raw_data(vertices))[:vb])
@@ -151,7 +150,7 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, vertices: []Ui_
 		src := atlas[(dirty[1] + row) * int(atlas_size.x) + dirty[0]:][:aw]
 		copy(dst[vb + ib + u32(row) * aw:][:aw], src)
 	}
-	gpu.unmap_transfer_buffer(r.device, up.transfer)
+	gpu.unmap_transfer_buffer(up.transfer)
 
 	pass := gpu.begin_copy_pass(cmd)
 	if vb > 0 do gpu.upload_to_buffer(pass, {transfer_buffer = up.transfer, offset = 0}, {buffer = up.vertices, offset = 0, size = vb}, false)
@@ -214,13 +213,13 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, pass: gpu.Render_
 // `clear` and returns its RGBA8 rows, top to bottom (for --dump-screen; the swapchain
 // cannot be read back). Waits for the GPU.
 ui_pass_capture :: proc(r: ^Renderer, up: ^Ui_Pass, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, vertices: []Ui_Vertex, indices: []u32, atlas: []u8, atlas_size: [2]u32, allocator := context.allocator) -> []u8 {
-	target := gpu.create_texture(r.device, {
+	target := gpu.create_texture({
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = size.x, height = size.y, layer_count_or_depth = 1, num_levels = 1,
 	})
 	if target == nil do return nil
-	defer gpu.release_texture(r.device, target)
-	cmd := gpu.acquire_command_buffer(r.device)
+	defer gpu.release_texture(target)
+	cmd := gpu.acquire_command_buffer()
 	if cmd == nil do return nil
 	// The whole atlas again: the copy on the GPU is current, but this keeps the capture
 	// independent of what the last frame uploaded.
@@ -245,18 +244,18 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 		break
 	}
 	if slot < 0 do return nil
-	vert := gpu.create_shader(r.device, {
+	vert := gpu.create_shader({
 		code = UI_VERT_CODE, entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .Vertex, num_uniform_buffers = 1,
 	})
-	frag := gpu.create_shader(r.device, {
+	frag := gpu.create_shader({
 		code = UI_FRAG_CODE, entrypoint = SHADER_ENTRY,
 		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
 	})
-	defer if vert != nil do gpu.release_shader(r.device, vert)
-	defer if frag != nil do gpu.release_shader(r.device, frag)
+	defer if vert != nil do gpu.release_shader(vert)
+	defer if frag != nil do gpu.release_shader(frag)
 	if vert == nil || frag == nil {
-		log.errorf("ui shaders: %s", sdl.GetError())
+		log.errorf("ui shaders: %s", gpu.last_error())
 		return nil
 	}
 	buffers := [1]gpu.Vertex_Buffer{{slot = 0, pitch = size_of(Ui_Vertex), input_rate = .Vertex}}
@@ -272,7 +271,7 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 		enable_blend = true,
 	}
 	targets := [1]gpu.Color_Target_Desc{{format = format, blend_state = blend}}
-	p := gpu.create_graphics_pipeline(r.device, {
+	p := gpu.create_graphics_pipeline({
 		vertex_shader = vert,
 		fragment_shader = frag,
 		vertex_input = {
@@ -284,7 +283,7 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 		targets = {color_targets = targets[:]},
 	})
 	if p == nil {
-		log.errorf("ui pipeline: %s", sdl.GetError())
+		log.errorf("ui pipeline: %s", gpu.last_error())
 		return nil
 	}
 	up.pipelines[slot], up.formats[slot] = p, format
@@ -296,18 +295,18 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 grow_buffer :: proc(r: ^Renderer, buffer: ^gpu.Buffer, capacity: ^u32, need: u32, usage: gpu.Buffer_Usages) -> bool {
 	if need <= capacity^ && buffer^ != nil do return true
 	if buffer^ != nil {
-		_ = gpu.wait_for_idle(r.device)
-		gpu.release_buffer(r.device, buffer^)
+		_ = gpu.wait_for_idle()
+		gpu.release_buffer(buffer^)
 	}
 	// Growing waits for the GPU to go idle, which on the first frames is waiting for a
 	// whole viewport of a big mesh; starting at 512 KB (about 25k vertices, several
 	// times what the interface draws) means it never grows in practice.
 	size := max(need, 512 * 1024)
 	size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
-	buffer^ = gpu.create_buffer(r.device, {usage = usage, size = size})
+	buffer^ = gpu.create_buffer({usage = usage, size = size})
 	if buffer^ == nil {
 		capacity^ = 0
-		log.errorf("ui buffer: %s", sdl.GetError())
+		log.errorf("ui buffer: %s", gpu.last_error())
 		return false
 	}
 	capacity^ = size

@@ -72,17 +72,17 @@ caps :: proc(r: ^Renderer) -> Gpu_Caps {
 @(private)
 caps_fill :: proc(r: ^Renderer) {
 	r.caps.frames_in_flight = FRAMES_IN_FLIGHT_DEFAULT
-	r.caps.present_timing = gpu.present_timing(r.device)
+	r.caps.present_timing = gpu.present_timing()
 	r.caps.display_link = gpu.display_link_offered()
-	r.caps.timestamps = gpu.timestamps_offered(r.device)
-	r.caps.shared_buffers = gpu.shared_buffers_offered(r.device)
-	r.caps.transient_targets = gpu.transient_targets_offered(r.device)
-	r.caps.texture_arrays = gpu.texture_arrays_offered(r.device)
-	r.caps.async_compute = gpu.async_compute_offered(r.device)
-	r.caps.ray_query = gpu.ray_query_offered(r.device)
-	r.caps.barycentric = gpu.barycentric_offered(r.device)
-	r.caps.gpu_cull = gpu.cull_offered(r.device)
-	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu.cull_by_default(r.device)
+	r.caps.timestamps = gpu.timestamps_offered()
+	r.caps.shared_buffers = gpu.shared_buffers_offered()
+	r.caps.transient_targets = gpu.transient_targets_offered()
+	r.caps.texture_arrays = gpu.texture_arrays_offered()
+	r.caps.async_compute = gpu.async_compute_offered()
+	r.caps.ray_query = gpu.ray_query_offered()
+	r.caps.barycentric = gpu.barycentric_offered()
+	r.caps.gpu_cull = gpu.cull_offered()
+	r.caps.gpu_cull_default = r.caps.gpu_cull && gpu.cull_by_default()
 	r.caps.gpu_sculpt = sculpt_gpu_offered(r)
 }
 
@@ -106,8 +106,8 @@ present_times :: proc(r: ^Renderer, window: ^sdl.Window, out: []Present_Time) ->
 renderer_set_frames_in_flight :: proc(r: ^Renderer, frames: u32) -> bool {
 	n := clamp(frames, 1, FRAMES_IN_FLIGHT_MAX)
 	if n == r.caps.frames_in_flight do return true
-	if !gpu.set_allowed_frames_in_flight(r.device, n) {
-		log.warnf("frames in flight stay at %d: %s", r.caps.frames_in_flight, sdl.GetError())
+	if !gpu.set_allowed_frames_in_flight(n) {
+		log.warnf("frames in flight stay at %d: %s", r.caps.frames_in_flight, gpu.last_error())
 		return false
 	}
 	r.caps.frames_in_flight = n
@@ -117,7 +117,7 @@ renderer_set_frames_in_flight :: proc(r: ^Renderer, frames: u32) -> bool {
 // Frames that never reached the screen since the device was made, `known` false where the
 // backend cannot tell.
 frames_dropped :: proc(r: ^Renderer) -> (dropped: u64, known: bool) {
-	if r.device == nil do return 0, false
+	if !r.has_device do return 0, false
 	return gpu.frames_dropped()
 }
 

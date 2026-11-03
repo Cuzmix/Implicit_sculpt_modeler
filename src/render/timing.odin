@@ -64,7 +64,7 @@ span_end :: proc(cmd: gpu.Cmd, span: Gpu_Span) {
 timestamps_frame :: proc(r: ^Renderer) -> (times: Gpu_Times, ok: bool) {
 	if !r.caps.timestamps do return
 	stamps: [TIMESTAMPS_MAX]Gpu_Timestamp
-	n := gpu.timestamps_frame(r.device, stamps[:])
+	n := gpu.timestamps_frame(stamps[:])
 	begun: [Gpu_Span]f64
 	open: bit_set[Gpu_Span]
 	for s in stamps[:n] {

@@ -2,7 +2,6 @@ package render
 
 import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // The History's pictures of steps: each is the scene drawn again, as the main view saw it
 // when the step was made, through that view's projection narrowed to a square round what
@@ -22,9 +21,9 @@ STEP_PICTURE_CELLS :: 8
 STEP_PICTURE_SLOTS :: STEP_PICTURE_CELLS * STEP_PICTURE_CELLS
 
 step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
-	if r.device == nil do return
-	_ = gpu.wait_for_idle(r.device)
-	if s.atlas != nil do gpu.release_texture(r.device, s.atlas)
+	if !r.has_device do return
+	_ = gpu.wait_for_idle()
+	if s.atlas != nil do gpu.release_texture(s.atlas)
 	thumbnail_view_destroy(r, &s.scratch)
 	s^ = {}
 }
@@ -36,12 +35,12 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: gpu.Cmd, slot: 
 	if s.failed || slot < 0 || slot >= STEP_PICTURE_SLOTS do return false
 	if s.atlas == nil {
 		SIZE :: STEP_PICTURE_PX * STEP_PICTURE_CELLS
-		s.atlas = gpu.create_texture(r.device, {
+		s.atlas = gpu.create_texture({
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if s.atlas == nil {
-			log.errorf("step pictures: %s", sdl.GetError())
+			log.errorf("step pictures: %s", gpu.last_error())
 			s.failed = true
 			return false
 		}

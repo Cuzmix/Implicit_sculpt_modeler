@@ -5,7 +5,6 @@ import "core:log"
 import "core:mem"
 import "core:strings"
 
-import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 // Buffers, textures, samplers, shaders and pipelines of the Vulkan backend. A handle the app
@@ -292,13 +291,13 @@ vk_name :: proc(type: vk.ObjectType, handle: u64, name: cstring) {
 	_ = vk.SetDebugUtilsObjectNameEXT(vk_state.device, &info)
 }
 
-vk_set_buffer_name :: proc(device: Device, buffer: Buffer, text: cstring) {
+vk_set_buffer_name :: proc(buffer: Buffer, text: cstring) {
 	b := (^Vk_Buffer)(buffer)
 	b.name = text
 	for backing in b.backings do vk_name(.BUFFER, u64(backing.buffer), text)
 }
 
-vk_set_texture_name :: proc(device: Device, texture: Texture, text: cstring) {
+vk_set_texture_name :: proc(texture: Texture, text: cstring) {
 	t := (^Vk_Texture)(texture)
 	t.name = text
 	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
@@ -318,7 +317,7 @@ vk_buffer_usage :: proc(usage: Buffer_Usages, accel_input: bool) -> vk.BufferUsa
 	return flags
 }
 
-vk_create_buffer :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input := false) -> Buffer {
+vk_create_buffer :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> Buffer {
 	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .None)
 	if b == nil do log.errorf("Vulkan: a %d byte buffer could not be made", info.size)
 	return (Buffer)(b)
@@ -326,7 +325,7 @@ vk_create_buffer :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input 
 
 // A device buffer mapped for its first fill, or nil where the device has no shared memory
 // type or that heap is full; the caller then makes a plain one.
-vk_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input := false) -> (Buffer, rawptr) {
+vk_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> (Buffer, rawptr) {
 	if !vk_state.shared_buffers do return nil, nil
 	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .Shared)
 	if b == nil do return nil, nil
@@ -335,14 +334,14 @@ vk_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc, accel
 
 // Ends a mapped buffer's fill: the mapping goes, so nothing writes the buffer after the
 // GPU may have begun to read it.
-vk_buffer_filled :: proc(device: Device, buffer: Buffer) {
+vk_buffer_filled :: proc(buffer: Buffer) {
 	b := (^Vk_Buffer)(buffer)
 	if b == nil || b.active.mapped == nil || b.host != .Shared do return
 	vk.UnmapMemory(vk_state.device, b.active.memory)
 	b.active.mapped = nil
 }
 
-vk_create_transfer_buffer :: proc(device: Device, #by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
+vk_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
 	b := vk_buffer_make(info.size, {.TRANSFER_SRC, .TRANSFER_DST}, .Upload if info.usage == .Upload else .Download)
 	if b == nil do log.errorf("Vulkan: a %d byte transfer buffer could not be made", info.size)
 	return (Transfer_Buffer)(b)
@@ -366,15 +365,15 @@ vk_buffer_reap :: proc(b: ^Vk_Buffer) {
 	}
 }
 
-vk_release_buffer :: proc(device: Device, buffer: Buffer) {
+vk_release_buffer :: proc(buffer: Buffer) {
 	b := (^Vk_Buffer)(buffer)
 	if b == nil do return
 	b.released = true
 	vk_buffer_reap(b)
 }
 
-vk_release_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
-	vk_release_buffer(device, (Buffer)(transfer_buffer))
+vk_release_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {
+	vk_release_buffer((Buffer)(transfer_buffer))
 }
 
 // Swaps in a backing no command buffer uses, making one if every backing is in use.
@@ -388,14 +387,14 @@ vk_buffer_cycle :: proc(b: ^Vk_Buffer) {
 	if backing := vk_buffer_backing_make(b); backing != nil do b.active = backing
 }
 
-vk_map_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
+vk_map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	b := (^Vk_Buffer)(transfer_buffer)
 	if cycle && b.active.refs > 0 do vk_buffer_cycle(b)
 	return b.active.mapped
 }
 
 // Transfer memory is host-coherent, so writes need no flush.
-vk_unmap_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {}
+vk_unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {}
 
 // ---- Textures -----------------------------------------------------------------------
 
@@ -488,13 +487,13 @@ vk_image_backing_destroy :: proc(img: ^Vk_Image) {
 	free(img)
 }
 
-vk_create_texture :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
+vk_create_texture :: proc(#by_ptr info: Texture_Desc) -> Texture {
 	return vk_texture_make(info, false)
 }
 
 // A transient attachment allows only attachment usage beside it, so it can be neither
 // copied nor sampled; the backend never does either to a render target unasked.
-vk_create_texture_transient :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
+vk_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> Texture {
 	return vk_texture_make(info, true)
 }
 
@@ -542,7 +541,7 @@ vk_texture_reap :: proc(t: ^Vk_Texture) {
 	}
 }
 
-vk_release_texture :: proc(device: Device, texture: Texture) {
+vk_release_texture :: proc(texture: Texture) {
 	t := (^Vk_Texture)(texture)
 	if t == nil do return
 	t.released = true
@@ -562,7 +561,7 @@ vk_texture_cycle :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) {
 
 // ---- Samplers and shaders -----------------------------------------------------------
 
-vk_create_sampler :: proc(device: Device, #by_ptr info: Sampler_Desc) -> Sampler {
+vk_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> Sampler {
 	filter :: proc(f: Filter) -> vk.Filter {return .LINEAR if f == .Linear else .NEAREST}
 	address :: proc(a: Address_Mode) -> vk.SamplerAddressMode {
 		switch a {
@@ -603,7 +602,7 @@ vk_sampler_reap :: proc(s: ^Vk_Sampler) {
 	free(s)
 }
 
-vk_release_sampler :: proc(device: Device, sampler: Sampler) {
+vk_release_sampler :: proc(sampler: Sampler) {
 	s := (^Vk_Sampler)(sampler)
 	if s == nil do return
 	s.released = true
@@ -621,7 +620,7 @@ vk_module :: proc(code: []u8) -> vk.ShaderModule {
 	return module
 }
 
-vk_create_shader :: proc(device: Device, #by_ptr info: Shader_Desc) -> Shader {
+vk_create_shader :: proc(#by_ptr info: Shader_Desc) -> Shader {
 	if info.format != .Spirv do return nil
 	module := vk_module(transmute([]u8)info.code)
 	if module == 0 do return nil
@@ -633,7 +632,7 @@ vk_create_shader :: proc(device: Device, #by_ptr info: Shader_Desc) -> Shader {
 }
 
 // A shader is only read while pipelines are made from it, so it goes at once.
-vk_release_shader :: proc(device: Device, shader: Shader) {
+vk_release_shader :: proc(shader: Shader) {
 	s := (^Vk_Shader)(shader)
 	if s == nil do return
 	vk.DestroyShaderModule(vk_state.device, s.module, nil)
@@ -732,7 +731,7 @@ vk_vertex_format :: proc(f: Vertex_Format) -> vk.Format {
 	return .UNDEFINED
 }
 
-vk_create_graphics_pipeline :: proc(device: Device, #by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
+vk_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
 	vertex, fragment := (^Vk_Shader)(info.vertex_shader), (^Vk_Shader)(info.fragment_shader)
 	if vertex == nil || fragment == nil do return nil
 	layout := vk_graphics_layout(vertex, fragment)
@@ -869,20 +868,20 @@ vk_create_graphics_pipeline :: proc(device: Device, #by_ptr info: Graphics_Pipel
 	return (Graphics_Pipeline)(p)
 }
 
-vk_create_compute_pipeline :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+vk_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	return vk_compute_pipeline_make(info, 0, false)
 }
 
 // A kernel that traces rays against the acceleration structure at set 3, binding 0
 // (bind_compute_accel), and reads an array of up to `capacity` sampled textures at
 // binding 1 when capacity is not 0.
-vk_create_compute_pipeline_traced :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
+vk_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	if !vk_state.ray_query {
-		sdl.SetError("Vulkan: this device has no ray queries")
+		fail(.Unsupported, "Vulkan: this device has no ray queries")
 		return nil
 	}
 	if capacity > vk_state.texture_arrays {
-		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
+		fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
 		return nil
 	}
 	return vk_compute_pipeline_make(info, capacity, true)
@@ -890,9 +889,9 @@ vk_create_compute_pipeline_traced :: proc(device: Device, #by_ptr info: Compute_
 
 // A kernel that also reads an array of up to `capacity` sampled textures from set 3,
 // binding 0 (create_compute_pipeline_array).
-vk_create_compute_pipeline_array :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
+vk_create_compute_pipeline_array :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	if capacity == 0 || capacity > vk_state.texture_arrays {
-		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
+		fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
 		return nil
 	}
 	return vk_compute_pipeline_make(info, capacity, false)
@@ -903,7 +902,7 @@ vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, array: u32, accel:
 	if info.format != .Spirv do return nil
 	// The command buffer holds that many read-only buffers' bindings (Vk_Cmd.compute_storage).
 	if info.num_readonly_storage_buffers > VK_COMPUTE_STORAGE_BUFFERS {
-		sdl.SetError("Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
+		fail(.Unsupported, "Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
 		return nil
 	}
 	layout := vk_compute_layout(info, array, accel)
@@ -933,14 +932,14 @@ vk_pipeline_reap :: proc(p: ^Vk_Pipeline) {
 	free(p)
 }
 
-vk_release_graphics_pipeline :: proc(device: Device, pipeline: Graphics_Pipeline) {
+vk_release_graphics_pipeline :: proc(pipeline: Graphics_Pipeline) {
 	p := (^Vk_Pipeline)(pipeline)
 	if p == nil do return
 	p.released = true
 	vk_pipeline_reap(p)
 }
 
-vk_release_compute_pipeline :: proc(device: Device, pipeline: Compute_Pipeline) {
+vk_release_compute_pipeline :: proc(pipeline: Compute_Pipeline) {
 	p := (^Vk_Pipeline)(pipeline)
 	if p == nil do return
 	p.released = true

@@ -4,7 +4,6 @@ package gpu
 import "base:runtime"
 import "core:fmt"
 import "core:log"
-import "core:strings"
 
 import sdl "vendor:sdl3"
 import wgpu "vendor:wgpu"
@@ -53,8 +52,6 @@ Wgpu_State :: struct {
 	swapchain:        ^Wgpu_Texture,
 	started:          bool,
 	on_ready:         proc(ok: bool),
-	properties_id:    sdl.PropertiesID,
-	driver:           cstring,
 	// Recordings not yet submitted, and objects released while one was open: those are
 	// destroyed once none is, as an open recording may still name them.
 	open_cmds:        int,
@@ -75,11 +72,6 @@ Wgpu_State :: struct {
 }
 
 wgpu_state: Wgpu_State
-
-// The device handle the app holds stands for the one WebGPU device.
-wgpu_device_handle :: proc() -> Device {
-	return (Device)(&wgpu_state)
-}
 
 // Starts WebGPU on the canvas `selector` names (a CSS selector such as "#viewport"), `width`
 // by `height` device pixels. The adapter and device come back asynchronously; `on_ready`
@@ -200,14 +192,11 @@ wgpu_on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Devic
 	if caps, caps_status := wgpu.SurfaceGetCapabilities(s.surface, s.adapter); caps_status == .Success && caps.formatCount > 0 {
 		s.canvas_format = caps.formats[0]
 	}
-	s.properties_id = sdl.CreateProperties()
 	if info, info_status := wgpu.AdapterGetInfo(s.adapter); info_status == .Success {
 		name := info.description if info.description != "" else info.device
 		if name == "" do name = info.vendor
-		if name != "" do _ = sdl.SetStringProperty(s.properties_id, sdl.PROP_GPU_DEVICE_NAME_STRING, strings.clone_to_cstring(name, context.temp_allocator))
-		s.driver = strings.clone_to_cstring(fmt.tprintf("webgpu (%s %s)", info.vendor, info.architecture))
+		device_info_set(name, fmt.tprintf("%s %s", info.vendor, info.architecture))
 	}
-	if s.driver == nil do s.driver = "webgpu"
 	s.empty_layout = wgpu.DeviceCreateBindGroupLayout(device, &{})
 	s.empty_group = wgpu.DeviceCreateBindGroup(device, &{layout = s.empty_layout})
 	s.started = true
@@ -215,16 +204,16 @@ wgpu_on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Devic
 }
 
 // The device wgpu_start made, or false with the reason kept for backend_error.
-wgpu_create_device :: proc(debug: bool) -> (Device, bool) {
+wgpu_create_device :: proc(debug: bool) -> bool {
 	if !wgpu_state.started {
 		// wgpu_start's own failure keeps its reason.
 		if backend_error() == "" do backend_fail("WebGPU", "the device was not started (wgpu_start)")
-		return nil, false
+		return false
 	}
-	return wgpu_device_handle(), true
+	return true
 }
 
-wgpu_destroy_device :: proc(device: Device) {
+wgpu_destroy_device :: proc() {
 	s := &wgpu_state
 	if s.device == nil do return
 	wgpu_reap()
@@ -242,26 +231,15 @@ wgpu_destroy_device :: proc(device: Device) {
 	delete(s.doomed_buffers)
 	delete(s.doomed_textures)
 	if s.swapchain != nil do free(s.swapchain)
-	if s.properties_id != 0 do sdl.DestroyProperties(s.properties_id)
-	if s.driver != "webgpu" do delete(s.driver)
 	wgpu.QueueRelease(s.queue)
 	wgpu.DeviceDestroy(s.device)
 	wgpu.DeviceRelease(s.device)
 	s.device = nil
 }
 
-wgpu_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
-	return wgpu_state.properties_id
-}
-
-wgpu_get_device_driver :: proc(device: Device) -> cstring {
-	return wgpu_state.driver
-}
-
-// Records a failure as SDL's error, as the other backends do, so render's messages read it.
+// Records a failure the WebGPU API reported, for last_error.
 wgpu_fail :: proc(format: string, args: ..any) {
-	text := fmt.tprintf(format, ..args)
-	_ = sdl.SetError("%s", strings.clone_to_cstring(text, context.temp_allocator))
+	fail(.Refused, format, ..args)
 }
 
 // ---- Formats ------------------------------------------------------------------------
@@ -322,7 +300,7 @@ wgpu_storage_format :: proc(format: Format) -> bool {
 // the shaders do not declare), 32-bit float textures are sampled only with the
 // float32-filterable feature (the shaders filter every texture they sample), RG11B10 is a
 // target only with its feature, and storage writes take WebGPU's core storage formats.
-wgpu_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
+wgpu_texture_supports_format :: proc(format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	if type != .D2 || wgpu_format(format) == .Undefined do return false
 	depth := format_is_depth(format)
 	if .Depth_Target in usage && !depth do return false
@@ -341,7 +319,7 @@ wgpu_texture_supports_format :: proc(device: Device, format: Format, type: Textu
 }
 
 // WebGPU multisamples with 4 samples or none.
-wgpu_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
+wgpu_texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count) -> bool {
 	return sample_count == ._1 || sample_count == ._4
 }
 
@@ -364,12 +342,12 @@ wgpu_fence_answered :: proc(f: ^Wgpu_Fence) {
 	if f.waiting <= 0 && f.released do free(f)
 }
 
-wgpu_query_fence :: proc(device: Device, fence: Fence) -> bool {
+wgpu_query_fence :: proc(fence: Fence) -> bool {
 	f := (^Wgpu_Fence)(fence)
 	return f == nil || f.waiting <= 0
 }
 
-wgpu_release_fence :: proc(device: Device, fence: Fence) {
+wgpu_release_fence :: proc(fence: Fence) {
 	f := (^Wgpu_Fence)(fence)
 	if f == nil do return
 	f.released = true
@@ -380,11 +358,11 @@ wgpu_release_fence :: proc(device: Device, fence: Fence) {
 // upload finished before the texture is drawn, a buffer idle before it is freed) the
 // queue's order already gives, so the waits answer true at once; a readback polls its
 // fence (query_fence) instead, which is what render's readbacks do.
-wgpu_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
+wgpu_wait_for_fences :: proc(wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	return true
 }
 
-wgpu_wait_for_idle :: proc(device: Device) -> bool {
+wgpu_wait_for_idle :: proc() -> bool {
 	wgpu_reap()
 	return true
 }
@@ -418,7 +396,7 @@ wgpu_shared_buffers_offered :: proc() -> bool {
 	return false
 }
 
-wgpu_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
+wgpu_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
 	return nil, nil
 }
 
@@ -430,8 +408,8 @@ wgpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 
 // WGSL has no switch for fused arithmetic; a kernel that must equal the CPU is compiled as
 // any other, and render's checks of it say whether it does on this GPU.
-wgpu_create_compute_pipeline_exact :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
-	return wgpu_create_compute_pipeline(device, info)
+wgpu_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+	return wgpu_create_compute_pipeline(info)
 }
 
 // How many errors WebGPU reported, for the exit stats and the smoke run, as the Vulkan
