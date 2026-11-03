@@ -4886,6 +4886,24 @@ def lens_camera_chip_drags_a_pane_to_swap_or_dock():
 
 
 @scenario
+def lens_pane_tabs_add_show_and_undo():
+    """New tab on pane 1's head adds a Back tab and shows it; a tap on the Front tab shows that again, and Ctrl+Z instead takes the new tab back."""
+    def run(undo):
+        s = Script()
+        s.ftap(At("pane 1 new tab", 1010, 89))
+        s.wait(4)
+        if undo:
+            s.press("z", ("ctrl",))
+        else:
+            s.ftap(At("pane 1 tab 0", 890, 89))
+        s.wait(6)
+        if undo:
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("1,1"), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "grid_undos": near(1), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("2,1"), "pane_tab": near(1), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "pane_tab_switches": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
 def lens_undo_takes_a_split_back():
     """Ctrl+Z after a corner split puts the three panes back, and Ctrl+Shift+Z splits again."""
     def run(redo):

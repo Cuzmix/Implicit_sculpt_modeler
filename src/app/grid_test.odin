@@ -82,14 +82,14 @@ a_layout_keeps_its_grid_and_single_writes_none :: proc(t: ^testing.T) {
 	_, _ = grid_set(k, .One_Plus_Two)
 	k.grid.tree.nodes[0].share = 0.6543
 	k.grid.tree.nodes[2].share = 0.3
-	k.grid.views[1] = {camera = .Top, pass = .Curvature}
+	grid_view(&k.grid, 2)^ = {camera = .Top, pass = .Curvature}
 	text := kit_layout_text(k)
 	testing.expect(t, strings.contains(text, "panes v654 0 h300 1 2\npane 1 Front Shaded\npane 2 Top Curvature\n"), "the grid lines are not written")
 	kit_layout_put(k, single)
 	testing.expect_value(t, grid_panes(&k.grid), 1)
 	kit_layout_put(k, text)
 	testing.expect_value(t, grid_shape_name(&k.grid), "One_Plus_Two")
-	testing.expect_value(t, k.grid.views[1].pass, Second_Pass.Curvature)
+	testing.expect_value(t, grid_view(&k.grid, 2).pass, Second_Pass.Curvature)
 	testing.expect(t, kit_layout_text(k) == text, "the grid does not read back to itself")
 
 	// What is no tree is passed over: a pane twice, no main view, a share out of range.
@@ -101,8 +101,8 @@ a_layout_keeps_its_grid_and_single_writes_none :: proc(t: ^testing.T) {
 	// Inspect's panes are four: curvature, normals and a front silhouette.
 	kit_layout_put(k, INSPECT_PANES)
 	testing.expect_value(t, grid_shape_name(&k.grid), "Four")
-	testing.expect_value(t, k.grid.views[0].pass, Second_Pass.Curvature)
-	testing.expect_value(t, k.grid.views[2], Second_View{camera = .Front, pass = .Silhouette})
+	testing.expect_value(t, grid_view(&k.grid, 1).pass, Second_Pass.Curvature)
+	testing.expect_value(t, grid_view(&k.grid, 3)^, Second_View{camera = .Front, pass = .Silhouette})
 	testing.expect(t, strings.contains(kit_layout_text(k), INSPECT_PANES), "Inspect's panes do not read back to themselves")
 }
 
@@ -150,8 +150,8 @@ a_layout_keeps_a_heavy_pane_pass :: proc(t: ^testing.T) {
 	k.grid.tree = grid_preset_tree(.Four)
 	grid_layout_read(&k.grid, {"pane", "1", "Front", "Studio"})
 	grid_layout_read(&k.grid, {"pane", "2", "Right", "Occlusion"})
-	testing.expect_value(t, k.grid.views[0].pass, Second_Pass.Studio)
-	testing.expect_value(t, k.grid.views[1].pass, Second_Pass.Occlusion)
+	testing.expect_value(t, grid_view(&k.grid, 1).pass, Second_Pass.Studio)
+	testing.expect_value(t, grid_view(&k.grid, 2).pass, Second_Pass.Occlusion)
 	testing.expect(t, strings.contains(grid_layout_lines(k), "pane 1 Front Studio"), "the layout did not write the Studio pass")
 	testing.expect_value(t, second_view_pass(.Occlusion), render.View_Pass.AO)
 	testing.expect_value(t, second_view_pass(.Studio), render.View_Pass.Shaded)
@@ -161,25 +161,26 @@ a_layout_keeps_a_heavy_pane_pass :: proc(t: ^testing.T) {
 render_preview_splits_the_view_and_toggles_back :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
+	defer grid_undo_destroy(&app.kit.grid)
 	g := &app.kit.grid
 	grid_reset(g)
 	testing.expect_value(t, render_preview_pane(&app.kit), 0)
 	// From a single view the grid goes side by side and its pane follows the main camera on Render.
 	render_preview_toggle(app)
 	testing.expect_value(t, grid_shape_name(g), "Side_By_Side")
-	testing.expect_value(t, g.views[0].camera, Second_Camera.Follow)
-	testing.expect_value(t, g.views[0].pass, Second_Pass.Render)
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Follow)
+	testing.expect_value(t, grid_view(g, 1).pass, Second_Pass.Render)
 	// Splitting the view was a layout step.
 	testing.expect_value(t, g.undo.back_n, 1)
 	testing.expect_value(t, render_preview_pane(&app.kit), 1)
 	// Again, the pane goes back to Shaded and the grid stays.
 	render_preview_toggle(app)
 	testing.expect_value(t, grid_shape_name(g), "Side_By_Side")
-	testing.expect_value(t, g.views[0].pass, Second_Pass.Shaded)
+	testing.expect_value(t, grid_view(g, 1).pass, Second_Pass.Shaded)
 	testing.expect_value(t, render_preview_pane(&app.kit), 0)
 	// A grid that has panes keeps its preset, and a Render pane anywhere in it is the one found.
 	g.tree = grid_preset_tree(.Four)
-	g.views[2].pass = .Render
+	grid_view(g, 3).pass = .Render
 	testing.expect_value(t, render_preview_pane(&app.kit), 3)
 	render_preview_toggle(app)
 	testing.expect_value(t, grid_shape_name(g), "Four")
@@ -193,7 +194,7 @@ work_in_a_pane_lends_the_camera_and_gives_it_back :: proc(t: ^testing.T) {
 	g := &app.kit.grid
 	grid_reset(g)
 	g.tree = grid_preset_tree(.Four)
-	g.views = grid_views_default(.Four)
+	g.tabs = grid_tabs_of(grid_views_default(.Four))
 	main := app.camera
 	main.yaw, main.distance = 0.6, 3.5
 	app.camera = main
@@ -207,23 +208,23 @@ work_in_a_pane_lends_the_camera_and_gives_it_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, g.work, 0)
 	testing.expect_value(t, g.work_ended, 1)
 	testing.expect(t, app.camera == main, "the main camera did not come back bit for bit")
-	testing.expect_value(t, g.views[0].camera, Second_Camera.Front)
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Front)
 	// A turn while working leaves the Front pane Free at the view it was turned to.
 	grid_work_begin(app, 1)
 	app.camera.yaw += 0.3
 	turned := app.camera
 	grid_work_end(app)
-	testing.expect_value(t, g.views[0].camera, Second_Camera.Free)
-	testing.expect(t, g.views[0].orbit == turned, "the pane did not keep its turn")
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Free)
+	testing.expect(t, grid_view(g, 1).orbit == turned, "the pane did not keep its turn")
 	testing.expect(t, app.camera == main, "the main camera moved")
 	// A linked pane's turn is the main camera's; a mirrored one's is the main camera's mirrored.
-	g.views[1].camera = .Follow
+	grid_view(g, 2).camera = .Follow
 	grid_work_begin(app, 2)
 	app.camera.pitch += 0.2
 	linked := app.camera
 	grid_work_end(app)
 	testing.expect(t, app.camera == linked, "a linked pane's turn did not move the main camera")
-	g.views[2].camera = .Mirror
+	grid_view(g, 3).camera = .Mirror
 	before := app.camera
 	grid_work_begin(app, 3)
 	app.camera.yaw += 0.1
@@ -265,6 +266,52 @@ a_mirrored_pane_reads_back :: proc(t: ^testing.T) {
 	panels_default(k)
 	grid_reset(&k.grid)
 	kit_layout_put(k, "panes v500 0 1\npane 1 Mirror Normals\n")
-	testing.expect_value(t, k.grid.views[0], Second_View{camera = .Mirror, pass = .Normals})
+	testing.expect_value(t, grid_view(&k.grid, 1)^, Second_View{camera = .Mirror, pass = .Normals})
 	testing.expect(t, strings.contains(kit_layout_text(k), "pane 1 Mirror Normals\n"), "a mirrored pane is not written")
+}
+
+// Tabs in a view pane: New adds an angle the pane has not shown and shows it, the active
+// tab is the pane's view, Close keeps one, each change is a layout step Undo takes back,
+// and the layout lines bring every tab and the one shown back as they were.
+@(test)
+pane_tabs_add_close_undo_and_read_back :: proc(t: ^testing.T) {
+	k := new(Kit_State)
+	defer free(k)
+	defer grid_undo_destroy(&k.grid)
+	panels_default(k)
+	grid_reset(&k.grid)
+	g := &k.grid
+	_, _ = grid_set(k, .Side_By_Side)
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Front)
+	testing.expect(t, pane_tab_add(g, 1, pane_tab_new_view(g, 1)), "no tab was added")
+	testing.expect_value(t, g.tabs[0].count, 2)
+	testing.expect_value(t, g.tabs[0].active, 1)
+	// Front is taken, so the next axis view.
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Back)
+	grid_view(g, 1).pass = .Normals
+	text := kit_layout_text(k)
+	testing.expect(t, strings.contains(text, "pane 1 Front Shaded\npane 1 Back Normals\npane_tab 1 1\n"), "the tabs are not written")
+	// The main pane takes no tab, nor does a pane the grid does not show.
+	testing.expect(t, !pane_tab_add(g, 0, {}) && !pane_tab_add(g, 2, {}), "a tab went where none goes")
+	// Switching is no step; adding was.
+	pane_tab_show(g, 1, 0)
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Front)
+	testing.expect_value(t, g.undo.back_n, 1)
+	testing.expect(t, pane_tab_close(g, 1, 0), "the tab did not close")
+	testing.expect_value(t, g.tabs[0].count, 1)
+	testing.expect_value(t, grid_view(g, 1).camera, Second_Camera.Back)
+	testing.expect(t, !pane_tab_close(g, 1, 0), "the last tab closed")
+	// The layout read back has both tabs and shows the second.
+	kit_layout_put(k, text)
+	testing.expect_value(t, g.tabs[0].count, 2)
+	testing.expect_value(t, g.tabs[0].active, 1)
+	testing.expect_value(t, grid_view(g, 1).pass, Second_Pass.Normals)
+	testing.expect(t, kit_layout_text(k) == text, "the tabs do not read back to themselves")
+	// The eighth is the last.
+	for _ in 2 ..< PANE_TABS do testing.expect(t, pane_tab_add(g, 1, pane_tab_new_view(g, 1)), "a tab short of the limit was refused")
+	testing.expect(t, !pane_tab_add(g, 1, {}), "a ninth tab was added")
+	pane_tab_step(g, 1, 1)
+	testing.expect_value(t, g.tabs[0].active, 0)
+	pane_tab_step(g, 1, -1)
+	testing.expect_value(t, g.tabs[0].active, PANE_TABS - 1)
 }

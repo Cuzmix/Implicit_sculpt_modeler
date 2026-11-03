@@ -74,7 +74,7 @@ grid_choose :: proc(app: ^App, preset: Grid_Preset) {
 	grid_step_push(g, before)
 	k.pane_menu.open = false
 	for i in had ..< grid_count(preset) {
-		v := &g.views[i - 1]
+		v := grid_view(g, i)
 		v.shading = k.passes.shading
 		switch k.new_panes {
 		case .Front_Side:
@@ -140,17 +140,16 @@ kit_view_layout_lens :: proc(app: ^App, width: f32) {
 }
 
 // View pane `i`'s head in Lens, at `at` in pane rect `r`: the main pane's chips, one row
-// of them over the pane's corner: its camera (the dot of the camera it sees through, its
-// name, "ortho" for the six axis views; a tap lists the cameras, a drag carries the pane
-// over `cells`, lens_areas.odin), its pass (a tap lists them), Link, Maximise or Restore,
-// and on the desktop a window of its own. A narrow pane shows as many as fit, from the
-// camera on.
+// of them over the pane's corner: its tabs (grid_tabs.odin; one tab is its camera chip, the
+// dot of the camera it sees through, its name, "ortho" for the six axis views; a tap lists
+// the cameras, a drag carries the pane over `cells`, lens_areas.odin), New tab, then the
+// active tab's pass (a tap lists them), Link, Maximise or Restore, and on the desktop a
+// window of its own. A narrow pane shows as many as fit, from the tabs on.
 lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_PANES]ui.Rect, n: int) {
 	k := &app.kit
 	ctx := &k.ctx
-	t := ctx.theme
 	g := &k.grid
-	sv := &g.views[i - 1]
+	sv := grid_view(g, i)
 	m := &k.pane_menu
 	free := lens_free_area(app)
 	left := min(r.x + r.w, free.x + free.w) - 6 - at.x
@@ -165,27 +164,17 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 		return true
 	}
 	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), at, {direction = .Row, gap = GAP, center = true})
-	dot, _ := second_color(t, sv, i)
-	ortho := sv.camera >= .Front && sv.camera <= .Bottom
-	// As the mock's chips: the projection with "linked" while the pane follows the main
-	// camera, an axis view with "ortho", and "free" for its own camera.
-	name := SECOND_CAMERA_NAMES[sv.camera]
-	sub := "ortho" if ortho else ""
-	#partial switch sv.camera {
-	case .Follow:
-		name, sub = "Ortho" if app.camera.ortho else "Persp", "linked"
-	case .Mirror:
-		sub = "linked"
-	case .Free:
-		name, sub = "Own camera", "free"
-	}
-	if lens_chip_width(ctx, name, sub, dot = true, chevron = true) > left do sub = ""
-	_ = fits(&left, lens_chip_width(ctx, name, sub, dot = true, chevron = true))
-	left = max(left, 0)
-	cam := lens_chip(ctx, fmt.tprintf("Camera##pane %d", i), name, sub, dot = dot, chevron = true, lit = m.open && m.pane == i && m.kind == .Camera)
+	cam, rest := lens_pane_tabs(app, i, left, m.open && m.pane == i && m.kind == .Camera)
+	left = max(rest - GAP, 0)
 	dragged := lens_chip_drag(app, i, cam, cells, n)
 	if cam.clicked && !dragged do pane_menu_toggle(k, i, .Camera, cam.rect)
 	icon := lens_chip_width(ctx, "", glyph = ICON_LINK)
+	// New tab, beside the tabs as a browser's is; its tip says two 3D views read best side
+	// by side, which tabs cannot show.
+	if g.tabs[i - 1].count < PANE_TABS && fits(&left, icon) {
+		add := lens_chip(ctx, fmt.tprintf("New tab (side by side shows both at once)##pane %d new tab", i), "", glyph = ui.ICON_PLUS, keys = command_keys(app, .Pane_Tab_New))
+		if add.clicked do _ = pane_tab_add(g, i, pane_tab_new_view(g, i))
+	}
 	shows := second_shows_name(sv)
 	if fits(&left, lens_chip_width(ctx, shows, chevron = true)) {
 		pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), shows, chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
@@ -231,7 +220,7 @@ kit_pane_menu :: proc(app: ^App) {
 	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
-	sv := &g.views[m.pane - 1]
+	sv := grid_view(g, m.pane)
 	switch m.kind {
 	case .Camera:
 		ui.caption(ctx, "  CAMERA")
@@ -239,6 +228,19 @@ kit_pane_menu :: proc(app: ^App) {
 			if !ui.menu_item(ctx, SECOND_CAMERA_NAMES[c], checked = sv.camera == c) do continue
 			if c == .Free do second_free(app, sv)
 			else do sv.camera = c
+			m.open = false
+		}
+		// The tab's own rows: another tab in the pane, and closing this one while the pane
+		// keeps another.
+		ui.divider(ctx, 248, across = true)
+		pane := m.pane
+		p := &g.tabs[pane - 1]
+		if p.count < PANE_TABS && ui.menu_item(ctx, "New tab", keys = command_keys(app, .Pane_Tab_New)) {
+			_ = pane_tab_add(g, pane, pane_tab_new_view(g, pane))
+			m.open = false
+		}
+		if p.count > 1 && ui.menu_item(ctx, "Close tab", keys = command_keys(app, .Pane_Tab_Close)) {
+			_ = pane_tab_close(g, pane, p.active)
 			m.open = false
 		}
 	case .Pass:

@@ -76,14 +76,14 @@ pane_shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	k := new(Kit_State)
 	defer free(k)
 	_, _ = grid_set(k, .Side_By_Side)
-	k.grid.views[0].shading = {mode = .Wireframe, lighting = .Flat}
+	grid_view(&k.grid, 1).shading = {mode = .Wireframe, lighting = .Flat}
 	text := kit_layout_text(k)
 	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Wireframe Flat Material 0\n"), "the pane's shading is not written")
-	k.grid.views[0].shading = {}
+	grid_view(&k.grid, 1).shading = {}
 	kit_layout_put(k, text)
-	testing.expect_value(t, k.grid.views[0].shading, View_Shading{mode = .Wireframe, lighting = .Flat})
+	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{mode = .Wireframe, lighting = .Flat})
 	kit_layout_put(k, "panes v500 0 1\npane 1 Top Shaded\n")
-	testing.expect_value(t, k.grid.views[0].shading, View_Shading{})
+	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{})
 }
 
 // A view's Shows list names its shading mode while it shows Shaded, Rendered for its Render
