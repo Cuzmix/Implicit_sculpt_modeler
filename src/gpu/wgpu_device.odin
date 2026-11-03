@@ -77,8 +77,8 @@ Wgpu_State :: struct {
 wgpu_state: Wgpu_State
 
 // The device handle the app holds stands for the one WebGPU device.
-wgpu_device_handle :: proc() -> ^sdl.GPUDevice {
-	return (^sdl.GPUDevice)(&wgpu_state)
+wgpu_device_handle :: proc() -> Device {
+	return (Device)(&wgpu_state)
 }
 
 // Starts WebGPU on the canvas `selector` names (a CSS selector such as "#viewport"), `width`
@@ -215,7 +215,7 @@ wgpu_on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Devic
 }
 
 // The device wgpu_start made, or false with the reason kept for backend_error.
-wgpu_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
+wgpu_create_device :: proc(debug: bool) -> (Device, bool) {
 	if !wgpu_state.started {
 		// wgpu_start's own failure keeps its reason.
 		if backend_error() == "" do backend_fail("WebGPU", "the device was not started (wgpu_start)")
@@ -224,7 +224,7 @@ wgpu_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 	return wgpu_device_handle(), true
 }
 
-wgpu_destroy_device :: proc(device: ^sdl.GPUDevice) {
+wgpu_destroy_device :: proc(device: Device) {
 	s := &wgpu_state
 	if s.device == nil do return
 	wgpu_reap()
@@ -250,11 +250,11 @@ wgpu_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	s.device = nil
 }
 
-wgpu_get_device_properties :: proc(device: ^sdl.GPUDevice) -> sdl.PropertiesID {
+wgpu_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
 	return wgpu_state.properties_id
 }
 
-wgpu_get_device_driver :: proc(device: ^sdl.GPUDevice) -> cstring {
+wgpu_get_device_driver :: proc(device: Device) -> cstring {
 	return wgpu_state.driver
 }
 
@@ -266,61 +266,53 @@ wgpu_fail :: proc(format: string, args: ..any) {
 
 // ---- Formats ------------------------------------------------------------------------
 
-wgpu_format :: proc(format: sdl.GPUTextureFormat) -> wgpu.TextureFormat {
+wgpu_format :: proc(format: Format) -> wgpu.TextureFormat {
 	#partial switch format {
-	case .R8G8B8A8_UNORM:      return .RGBA8Unorm
-	case .R8G8B8A8_UNORM_SRGB: return .RGBA8UnormSrgb
-	case .B8G8R8A8_UNORM:      return .BGRA8Unorm
-	case .B8G8R8A8_UNORM_SRGB: return .BGRA8UnormSrgb
-	case .R8_UNORM:            return .R8Unorm
-	case .R8G8_UNORM:          return .RG8Unorm
-	case .R16_FLOAT:           return .R16Float
-	case .R16G16_FLOAT:        return .RG16Float
-	case .R16G16B16A16_FLOAT:  return .RGBA16Float
-	case .R11G11B10_UFLOAT:    return .RG11B10Ufloat
-	case .R32_FLOAT:           return .R32Float
-	case .R32G32_FLOAT:        return .RG32Float
-	case .R32G32B32A32_FLOAT:  return .RGBA32Float
-	case .R32_UINT:            return .R32Uint
-	case .R10G10B10A2_UNORM:   return .RGB10A2Unorm
-	case .D16_UNORM:           return .Depth16Unorm
-	case .D24_UNORM:           return .Depth24Plus
-	case .D32_FLOAT:           return .Depth32Float
-	case .D24_UNORM_S8_UINT:   return .Depth24PlusStencil8
-	case .D32_FLOAT_S8_UINT:   return .Depth32FloatStencil8 if wgpu_state.depth32_stencil8 else .Undefined
+	case .RGBA8_Unorm:      return .RGBA8Unorm
+	case .RGBA8_Srgb: return .RGBA8UnormSrgb
+	case .BGRA8_Unorm:      return .BGRA8Unorm
+	case .BGRA8_Srgb: return .BGRA8UnormSrgb
+	case .R8_Unorm:            return .R8Unorm
+	case .RG8_Unorm:          return .RG8Unorm
+	case .R16_Float:           return .R16Float
+	case .RG16_Float:        return .RG16Float
+	case .RGBA16_Float:  return .RGBA16Float
+	case .RG11B10_Float:    return .RG11B10Ufloat
+	case .R32_Float:           return .R32Float
+	case .RG32_Float:        return .RG32Float
+	case .RGBA32_Float:  return .RGBA32Float
+	case .R32_Uint:            return .R32Uint
+	case .RGB10A2_Unorm:   return .RGB10A2Unorm
+	case .D16_Unorm:           return .Depth16Unorm
+	case .D24_Unorm:           return .Depth24Plus
+	case .D32_Float:           return .Depth32Float
+	case .D24_Unorm_S8:   return .Depth24PlusStencil8
+	case .D32_Float_S8:   return .Depth32FloatStencil8 if wgpu_state.depth32_stencil8 else .Undefined
 	}
 	return .Undefined
 }
 
 // The bytes one texel of `format` takes in a transfer buffer.
-wgpu_texel_size :: proc(format: sdl.GPUTextureFormat) -> u32 {
+wgpu_texel_size :: proc(format: Format) -> u32 {
 	#partial switch format {
-	case .R8_UNORM:                                   return 1
-	case .R8G8_UNORM, .R16_FLOAT, .D16_UNORM:         return 2
-	case .R16G16B16A16_FLOAT, .R32G32_FLOAT:          return 8
-	case .R32G32B32A32_FLOAT:                         return 16
-	case .D32_FLOAT_S8_UINT:                          return 8
+	case .R8_Unorm:                                   return 1
+	case .RG8_Unorm, .R16_Float, .D16_Unorm:         return 2
+	case .RGBA16_Float, .RG32_Float:          return 8
+	case .RGBA32_Float:                         return 16
+	case .D32_Float_S8:                          return 8
 	}
 	return 4
 }
 
-wgpu_is_depth :: proc(format: sdl.GPUTextureFormat) -> bool {
-	#partial switch format {
-	case .D16_UNORM, .D24_UNORM, .D32_FLOAT, .D24_UNORM_S8_UINT, .D32_FLOAT_S8_UINT:
-		return true
-	}
-	return false
-}
-
-wgpu_is_stencil :: proc(format: sdl.GPUTextureFormat) -> bool {
-	return format == .D24_UNORM_S8_UINT || format == .D32_FLOAT_S8_UINT
+wgpu_is_stencil :: proc(format: Format) -> bool {
+	return format == .D24_Unorm_S8 || format == .D32_Float_S8
 }
 
 // The formats WebGPU can write as storage textures without optional features.
 @(private = "file")
-wgpu_storage_format :: proc(format: sdl.GPUTextureFormat) -> bool {
+wgpu_storage_format :: proc(format: Format) -> bool {
 	#partial switch format {
-	case .R8G8B8A8_UNORM, .R16G16B16A16_FLOAT, .R32_FLOAT, .R32G32_FLOAT, .R32G32B32A32_FLOAT, .R32_UINT:
+	case .RGBA8_Unorm, .RGBA16_Float, .R32_Float, .RG32_Float, .RGBA32_Float, .R32_Uint:
 		return true
 	}
 	return false
@@ -330,30 +322,30 @@ wgpu_storage_format :: proc(format: sdl.GPUTextureFormat) -> bool {
 // the shaders do not declare), 32-bit float textures are sampled only with the
 // float32-filterable feature (the shaders filter every texture they sample), RG11B10 is a
 // target only with its feature, and storage writes take WebGPU's core storage formats.
-wgpu_texture_supports_format :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, type: sdl.GPUTextureType, usage: sdl.GPUTextureUsageFlags) -> bool {
+wgpu_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	if type != .D2 || wgpu_format(format) == .Undefined do return false
-	depth := wgpu_is_depth(format)
-	if .DEPTH_STENCIL_TARGET in usage && !depth do return false
-	if depth && usage & {.SAMPLER, .COLOR_TARGET, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} do return false
-	if .SAMPLER in usage {
+	depth := format_is_depth(format)
+	if .Depth_Target in usage && !depth do return false
+	if depth && usage & {.Sampled, .Color_Target, .Graphics_Storage_Read, .Storage_Read, .Storage_Write, .Storage_Read_Write} != {} do return false
+	if .Sampled in usage {
 		#partial switch format {
-		case .R32_FLOAT, .R32G32_FLOAT, .R32G32B32A32_FLOAT:
+		case .R32_Float, .RG32_Float, .RGBA32_Float:
 			if !wgpu_state.float32_filter do return false
-		case .R32_UINT:
+		case .R32_Uint:
 			return false
 		}
 	}
-	if .COLOR_TARGET in usage && format == .R11G11B10_UFLOAT && !wgpu_state.rg11b10_target do return false
-	if usage & {.COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE, .COMPUTE_STORAGE_READ, .GRAPHICS_STORAGE_READ} != {} && !wgpu_storage_format(format) do return false
+	if .Color_Target in usage && format == .RG11B10_Float && !wgpu_state.rg11b10_target do return false
+	if usage & {.Storage_Write, .Storage_Read_Write, .Storage_Read, .Graphics_Storage_Read} != {} && !wgpu_storage_format(format) do return false
 	return true
 }
 
 // WebGPU multisamples with 4 samples or none.
-wgpu_texture_supports_sample_count :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, sample_count: sdl.GPUSampleCount) -> bool {
+wgpu_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
 	return sample_count == ._1 || sample_count == ._4
 }
 
-wgpu_samples :: proc(count: sdl.GPUSampleCount) -> u32 {
+wgpu_samples :: proc(count: Sample_Count) -> u32 {
 	return 4 if count == ._4 else 1
 }
 
@@ -372,12 +364,12 @@ wgpu_fence_answered :: proc(f: ^Wgpu_Fence) {
 	if f.waiting <= 0 && f.released do free(f)
 }
 
-wgpu_query_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) -> bool {
+wgpu_query_fence :: proc(device: Device, fence: Fence) -> bool {
 	f := (^Wgpu_Fence)(fence)
 	return f == nil || f.waiting <= 0
 }
 
-wgpu_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
+wgpu_release_fence :: proc(device: Device, fence: Fence) {
 	f := (^Wgpu_Fence)(fence)
 	if f == nil do return
 	f.released = true
@@ -388,11 +380,11 @@ wgpu_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
 // upload finished before the texture is drawn, a buffer idle before it is freed) the
 // queue's order already gives, so the waits answer true at once; a readback polls its
 // fence (query_fence) instead, which is what render's readbacks do.
-wgpu_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: u32) -> bool {
+wgpu_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	return true
 }
 
-wgpu_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
+wgpu_wait_for_idle :: proc(device: Device) -> bool {
 	wgpu_reap()
 	return true
 }
@@ -426,7 +418,7 @@ wgpu_shared_buffers_offered :: proc() -> bool {
 	return false
 }
 
-wgpu_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
+wgpu_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
 	return nil, nil
 }
 
@@ -438,7 +430,7 @@ wgpu_present_times :: proc(window: ^sdl.Window, out: []Present_Time) -> int {
 
 // WGSL has no switch for fused arithmetic; a kernel that must equal the CPU is compiled as
 // any other, and render's checks of it say whether it does on this GPU.
-wgpu_create_compute_pipeline_exact :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+wgpu_create_compute_pipeline_exact :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	return wgpu_create_compute_pipeline(device, info)
 }
 

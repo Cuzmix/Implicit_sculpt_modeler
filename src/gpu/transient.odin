@@ -12,14 +12,14 @@ import sdl "vendor:sdl3"
 
 when ODIN_DEBUG {
 	@(private = "file")
-	transient_textures: map[^sdl.GPUTexture]bool
+	transient_textures: map[Texture]bool
 }
 
-transient_note :: proc(texture: ^sdl.GPUTexture) {
+transient_note :: proc(texture: Texture) {
 	when ODIN_DEBUG do if texture != nil do transient_textures[texture] = true
 }
 
-transient_forget :: proc(texture: ^sdl.GPUTexture) {
+transient_forget :: proc(texture: Texture) {
 	when ODIN_DEBUG {
 		delete_key(&transient_textures, texture)
 		// Let go of the map once empty, so a clean exit leaves nothing allocated.
@@ -31,20 +31,20 @@ transient_forget :: proc(texture: ^sdl.GPUTexture) {
 }
 
 // Panics when `texture` is transient: it is being used outside its pass.
-transient_check_use :: proc(texture: ^sdl.GPUTexture, use: string) {
+transient_check_use :: proc(texture: Texture, use: string) {
 	when ODIN_DEBUG do if texture != nil && texture in transient_textures do fmt.panicf("a transient texture was %s", use)
 }
 
 // Panics when a pass loads or stores a transient attachment.
-transient_check_pass :: proc(colors: [^]sdl.GPUColorTargetInfo, count: sdl.Uint32, depth: Maybe(^sdl.GPUDepthStencilTargetInfo)) {
+transient_check_pass :: proc(colors: [^]Color_Target, count: sdl.Uint32, depth: Maybe(^Depth_Target)) {
 	when ODIN_DEBUG {
 		if len(transient_textures) == 0 do return
 		for c in colors[:count] {
-			if c.texture in transient_textures && (c.load_op == .LOAD || c.store_op == .STORE || c.store_op == .RESOLVE_AND_STORE) do fmt.panicf("a pass loads or stores a transient colour target (%v, %v)", c.load_op, c.store_op)
+			if c.texture in transient_textures && (c.load_op == .Load || c.store_op == .Store || c.store_op == .Resolve_And_Store) do fmt.panicf("a pass loads or stores a transient colour target (%v, %v)", c.load_op, c.store_op)
 			transient_check_use(c.resolve_texture, "a resolve target")
 		}
 		if d, ok := depth.?; ok && d != nil && d.texture in transient_textures {
-			if d.load_op == .LOAD || d.store_op != .DONT_CARE || d.stencil_load_op == .LOAD || d.stencil_store_op != .DONT_CARE do fmt.panicf("a pass loads or stores a transient depth target (%v, %v)", d.load_op, d.store_op)
+			if d.load_op == .Load || d.store_op != .Dont_Care || d.stencil_load_op == .Load || d.stencil_store_op != .Dont_Care do fmt.panicf("a pass loads or stores a transient depth target (%v, %v)", d.load_op, d.store_op)
 		}
 	}
 }

@@ -10,10 +10,10 @@ import sdl "vendor:sdl3"
 // names the GPU API (AGENTS.md's package boundaries; `scripts/boundary_check.py` fails
 // the check otherwise), so another backend changes these and the procs below, and the
 // app stays as it is.
-Cmd :: ^sdl.GPUCommandBuffer
-Texture :: ^sdl.GPUTexture
-Fence :: ^sdl.GPUFence
-Sample_Count :: sdl.GPUSampleCount
+Cmd :: gpu.Cmd
+Texture :: gpu.Texture
+Fence :: gpu.Fence
+Sample_Count :: gpu.Sample_Count
 
 // Waits until the GPU has finished everything submitted: before freeing a buffer or
 // texture a frame in flight may still read.
@@ -82,11 +82,11 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 // window's; a pre-rotated swapchain's texture is turned from it (swapchain_turns).
 ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, swapchain: Texture, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, draw: bool) {
 	debug_group(cmd, "Interface", .Interface)
-	target := sdl.GPUColorTargetInfo {
+	target := gpu.Color_Target {
 		texture     = swapchain,
-		clear_color = sdl.FColor(clear),
-		load_op     = .CLEAR,
-		store_op    = .STORE,
+		clear_color = clear,
+		load_op     = .Clear,
+		store_op    = .Store,
 	}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	if draw {
@@ -118,13 +118,13 @@ renderer_ready :: proc(r: ^Renderer) -> bool {
 // Called outside any pass, so the group spans whole passes. A `span` also times the group
 // on the GPU for the Stats panel (timing.odin).
 @(deferred_in = debug_group_end)
-debug_group :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
+debug_group :: proc(cmd: gpu.Cmd, name: cstring, span := Gpu_Span.None) {
 	gpu.push_debug_group(cmd, name)
 	span_begin(cmd, span)
 }
 
 @(private)
-debug_group_end :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
+debug_group_end :: proc(cmd: gpu.Cmd, name: cstring, span := Gpu_Span.None) {
 	span_end(cmd, span)
 	gpu.pop_debug_group(cmd)
 }

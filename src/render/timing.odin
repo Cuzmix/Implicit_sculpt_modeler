@@ -1,7 +1,6 @@
 package render
 
 import "../gpu"
-import sdl "vendor:sdl3"
 
 // GPU time by pass from timestamps the GPU writes as it runs (Gpu_Caps.timestamps), read a
 // few frames late so no frame waits for the GPU. Each pass that should show in the Stats
@@ -46,14 +45,14 @@ Gpu_Timestamp :: gpu.Gpu_Timestamp
 span_open: Gpu_Span
 
 @(private)
-span_begin :: proc(cmd: ^sdl.GPUCommandBuffer, span: Gpu_Span) {
+span_begin :: proc(cmd: gpu.Cmd, span: Gpu_Span) {
 	if span == .None || span_open != .None do return
 	span_open = span
 	gpu.write_timestamp(cmd, u8(span) * 2)
 }
 
 @(private)
-span_end :: proc(cmd: ^sdl.GPUCommandBuffer, span: Gpu_Span) {
+span_end :: proc(cmd: gpu.Cmd, span: Gpu_Span) {
 	if span == .None || span_open != span do return
 	span_open = .None
 	gpu.write_timestamp(cmd, u8(span) * 2 + 1)

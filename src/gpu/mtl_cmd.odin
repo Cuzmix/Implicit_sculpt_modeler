@@ -138,7 +138,7 @@ mtl_cmd_recycle :: proc(cmd: ^Mtl_Cmd) {
 	append(&mtl_state.free_cmds, cmd)
 }
 
-mtl_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+mtl_acquire_command_buffer :: proc(device: Device) -> Cmd {
 	NS.scoped_autoreleasepool()
 	mtl_collect()
 	cb := MTL.CommandQueue_commandBuffer(mtl_state.queue)
@@ -158,7 +158,7 @@ mtl_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuf
 		u.length = 0
 		u.dirty = true
 	}
-	return (^sdl.GPUCommandBuffer)(cmd)
+	return (Cmd)(cmd)
 }
 
 @(private = "file")
@@ -191,29 +191,29 @@ mtl_submit :: proc(cmd: ^Mtl_Cmd) -> (u64, bool) {
 	return serial, true
 }
 
-mtl_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+mtl_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	_, ok := mtl_submit((^Mtl_Cmd)(command_buffer))
 	return ok
 }
 
-mtl_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+mtl_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
 	serial, ok := mtl_submit((^Mtl_Cmd)(command_buffer))
 	if !ok do return nil
 	fence := new(Mtl_Fence)
 	fence.serial = serial
-	return (^sdl.GPUFence)(fence)
+	return (Fence)(fence)
 }
 
 // Whether the recording holds anything for the GPU to run (Mtl_Cmd.recorded), or a
 // drawable to present.
-mtl_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+mtl_command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Mtl_Cmd)(command_buffer)
 	return cmd.recorded || len(cmd.presents) > 0
 }
 
 // A recording never committed is simply dropped; one holding a drawable is refused, as
 // SDL_GPU refuses it, since the window would wait for a frame that never comes.
-mtl_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+mtl_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Mtl_Cmd)(command_buffer)
 	if len(cmd.presents) > 0 {
 		sdl.SetError("a command buffer holding a swapchain texture cannot be cancelled")
@@ -226,12 +226,12 @@ mtl_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool
 	return true
 }
 
-mtl_query_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) -> bool {
+mtl_query_fence :: proc(device: Device, fence: Fence) -> bool {
 	mtl_collect()
 	return (^Mtl_Fence)(fence).serial <= mtl_state.completed
 }
 
-mtl_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: u32) -> bool {
+mtl_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	if num_fences == 0 do return true
 	// Submissions finish in order, so all of them are done when the latest is, and any one
 	// when the earliest is.
@@ -243,7 +243,7 @@ mtl_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^
 	return mtl_wait_serial(serial)
 }
 
-mtl_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
+mtl_release_fence :: proc(device: Device, fence: Fence) {
 	free((^Mtl_Fence)(fence))
 }
 
@@ -261,16 +261,16 @@ mtl_push_uniform :: proc(cmd: ^Mtl_Cmd, stage: Mtl_Stage, slot, length: u32, dat
 	u.dirty = true
 }
 
-mtl_push_vertex_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+mtl_push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	mtl_push_uniform((^Mtl_Cmd)(command_buffer), .Vertex, slot_index, length, data)
 }
 
-mtl_push_fragment_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+mtl_push_fragment_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	mtl_push_uniform((^Mtl_Cmd)(command_buffer), .Fragment, slot_index, length, data)
 }
 
 // Pushed before or inside a compute pass, and kept for the command buffer's later passes.
-mtl_push_compute_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+mtl_push_compute_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	mtl_push_uniform((^Mtl_Cmd)(command_buffer), .Compute, slot_index, length, data)
 }
 
@@ -320,27 +320,27 @@ mtl_bindings_dirty :: proc(cmd: ^Mtl_Cmd) {
 // ---- Render passes ------------------------------------------------------------------
 
 @(private = "file")
-mtl_load_action :: proc(op: sdl.GPULoadOp) -> MTL.LoadAction {
+mtl_load_action :: proc(op: Load_Op) -> MTL.LoadAction {
 	switch op {
-	case .LOAD:      return .Load
-	case .CLEAR:     return .Clear
-	case .DONT_CARE: return .DontCare
+	case .Load:      return .Load
+	case .Clear:     return .Clear
+	case .Dont_Care: return .DontCare
 	}
 	return .Load
 }
 
 @(private = "file")
-mtl_store_action :: proc(op: sdl.GPUStoreOp) -> MTL.StoreAction {
+mtl_store_action :: proc(op: Store_Op) -> MTL.StoreAction {
 	switch op {
-	case .STORE:             return .Store
-	case .DONT_CARE:         return .DontCare
-	case .RESOLVE:           return .MultisampleResolve
-	case .RESOLVE_AND_STORE: return .StoreAndMultisampleResolve
+	case .Store:             return .Store
+	case .Dont_Care:         return .DontCare
+	case .Resolve:           return .MultisampleResolve
+	case .Resolve_And_Store: return .StoreAndMultisampleResolve
 	}
 	return .Store
 }
 
-mtl_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: u32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
+mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
@@ -361,7 +361,7 @@ mtl_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_targe
 		MTL.RenderPassColorAttachmentDescriptor_setClearColor(a, {f64(c.r), f64(c.g), f64(c.b), f64(c.a)})
 		MTL.RenderPassAttachmentDescriptor_setLoadAction(a, mtl_load_action(info.load_op))
 		MTL.RenderPassAttachmentDescriptor_setStoreAction(a, mtl_store_action(info.store_op))
-		if info.store_op == .RESOLVE || info.store_op == .RESOLVE_AND_STORE {
+		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
 			resolve := mtl_texture_for_write((^Mtl_Texture)(info.resolve_texture), info.cycle_resolve_texture)
 			mtl_cmd_track_texture(cmd, resolve)
 			MTL.RenderPassAttachmentDescriptor_setResolveTexture(a, resolve.texture)
@@ -412,10 +412,10 @@ mtl_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_targe
 	cmd.fragment_textures = {}
 	cmd.fragment_samplers = {}
 	mtl_bindings_dirty(cmd)
-	return (^sdl.GPURenderPass)(cmd)
+	return (Render_Pass)(cmd)
 }
 
-mtl_end_render_pass :: proc(render_pass: ^sdl.GPURenderPass) {
+mtl_end_render_pass :: proc(render_pass: Render_Pass) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	MTL.CommandEncoder_endEncoding(cmd.render)
 	NS.release(cmd.render)
@@ -423,21 +423,21 @@ mtl_end_render_pass :: proc(render_pass: ^sdl.GPURenderPass) {
 	cmd.pipeline = nil
 }
 
-mtl_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pipeline: ^sdl.GPUGraphicsPipeline) {
+mtl_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	p := (^Mtl_Pipeline)(graphics_pipeline)
 	enc := cmd.render
 	rs := p.raster
 	MTL.RenderCommandEncoder_setRenderPipelineState(enc, p.state)
-	MTL.RenderCommandEncoder_setTriangleFillMode(enc, .Lines if rs.fill_mode == .LINE else .Fill)
+	MTL.RenderCommandEncoder_setTriangleFillMode(enc, .Lines if rs.fill_mode == .Line else .Fill)
 	cull := MTL.CullMode.None
 	switch rs.cull_mode {
-	case .NONE:
-	case .FRONT: cull = .Front
-	case .BACK:  cull = .Back
+	case .None:
+	case .Front: cull = .Front
+	case .Back:  cull = .Back
 	}
 	MTL.RenderCommandEncoder_setCullMode(enc, cull)
-	MTL.RenderCommandEncoder_setFrontFacingWinding(enc, .Clockwise if rs.front_face == .CLOCKWISE else .CounterClockwise)
+	MTL.RenderCommandEncoder_setFrontFacingWinding(enc, .Clockwise if rs.front_face == .Clockwise else .CounterClockwise)
 	MTL.RenderCommandEncoder_setDepthClipMode(enc, .Clip if rs.enable_depth_clip else .Clamp)
 	if rs.enable_depth_bias {
 		MTL.RenderCommandEncoder_setDepthBias(enc, rs.depth_bias_constant_factor, rs.depth_bias_slope_factor, rs.depth_bias_clamp)
@@ -449,7 +449,7 @@ mtl_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pip
 	mtl_bindings_dirty(cmd)
 }
 
-mtl_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, bindings: [^]sdl.GPUBufferBinding, num_bindings: u32) {
+mtl_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Mtl_Buffer)(bindings[i].buffer).active
@@ -458,15 +458,15 @@ mtl_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32
 	}
 }
 
-mtl_bind_index_buffer :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr binding: sdl.GPUBufferBinding, index_element_size: sdl.GPUIndexElementSize) {
+mtl_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	b := (^Mtl_Buffer)(binding.buffer).active
 	mtl_cmd_track_buffer(cmd, b)
 	cmd.index_buffer, cmd.index_offset = b.buffer, binding.offset
-	cmd.index_type = .UInt32 if index_element_size == ._32BIT else .UInt16
+	cmd.index_type = .UInt32 if index_element_size == .U32 else .UInt16
 }
 
-mtl_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+mtl_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Mtl_Buffer)(storage_buffers[i]).active
@@ -476,7 +476,7 @@ mtl_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_s
 	cmd.storage_dirty = true
 }
 
-mtl_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+mtl_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Mtl_Buffer)(storage_buffers[i]).active
@@ -486,7 +486,7 @@ mtl_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first
 	cmd.storage_dirty = true
 }
 
-mtl_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+mtl_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		t := (^Mtl_Texture)(texture_sampler_bindings[i].texture).active
@@ -497,12 +497,12 @@ mtl_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: 
 	cmd.samplers_dirty = true
 }
 
-mtl_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.Rect) {
+mtl_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	MTL.RenderCommandEncoder_setScissorRect(cmd.render, {NS.Integer(scissor.x), NS.Integer(scissor.y), NS.Integer(max(scissor.w, 0)), NS.Integer(max(scissor.h, 0))})
 }
 
-mtl_draw_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_vertices, num_instances, first_vertex, first_instance: u32) {
+mtl_draw_primitives :: proc(render_pass: Render_Pass, num_vertices, num_instances, first_vertex, first_instance: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
 	MTL.RenderCommandEncoder_drawPrimitivesWithInstances(cmd.render, cmd.pipeline.primitive, NS.UInteger(first_vertex), NS.UInteger(num_vertices), NS.UInteger(num_instances), NS.UInteger(first_instance))
@@ -513,7 +513,7 @@ mtl_index_size :: proc(cmd: ^Mtl_Cmd) -> u32 {
 	return 4 if cmd.index_type == .UInt32 else 2
 }
 
-mtl_draw_indexed_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
+mtl_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
 	offset := cmd.index_offset + first_index * mtl_index_size(cmd)
@@ -521,12 +521,12 @@ mtl_draw_indexed_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_indices
 }
 
 // Metal draws one indirect command per call, so SDL_GPU loops over them; so does this.
-mtl_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, draw_count: u32) {
+mtl_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
 	b := (^Mtl_Buffer)(buffer).active
 	mtl_cmd_track_buffer(cmd, b)
-	stride :: u32(size_of(sdl.GPUIndexedIndirectDrawCommand))
+	stride :: u32(size_of(Indexed_Indirect_Draw))
 	for i in 0 ..< draw_count {
 		MTL.RenderCommandEncoder_drawIndexPrimitivesWithIndirect(cmd.render, cmd.pipeline.primitive, cmd.index_type, cmd.index_buffer, NS.UInteger(cmd.index_offset), b.buffer, NS.UInteger(offset + i * stride))
 	}
@@ -535,7 +535,7 @@ mtl_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, bu
 // Non-indexed indirect draws `stride` bytes apart, one call each: Metal reads the first four
 // words at each offset, which in an indexed command's place are its index count, instance
 // count and first index, and its vertex offset (always 0 here) as the base instance.
-mtl_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+mtl_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	if !mtl_bind_draw(cmd) do return
 	b := (^Mtl_Buffer)(buffer).active
@@ -547,7 +547,7 @@ mtl_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^s
 
 // ---- Compute passes -----------------------------------------------------------------
 
-mtl_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
+mtl_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: u32) -> Compute_Pass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
@@ -581,10 +581,10 @@ mtl_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_te
 	cmd.compute_textures = {}
 	cmd.compute_samplers = {}
 	cmd.compute_storage = {}
-	return (^sdl.GPUComputePass)(cmd)
+	return (Compute_Pass)(cmd)
 }
 
-mtl_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
+mtl_end_compute_pass :: proc(compute_pass: Compute_Pass) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	MTL.CommandEncoder_endEncoding(cmd.compute)
 	NS.release(cmd.compute)
@@ -604,7 +604,7 @@ mtl_compute_views_release :: proc(cmd: ^Mtl_Cmd) {
 
 // The read-write textures and buffers go to the pipeline's slots now, since they are the
 // pass's; the rest follow at the next dispatch.
-mtl_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipeline: ^sdl.GPUComputePipeline) {
+mtl_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	p := (^Mtl_Compute_Pipeline)(compute_pipeline)
 	enc := cmd.compute
@@ -616,7 +616,7 @@ mtl_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pip
 	for &u in cmd.uniforms[.Compute] do u.dirty = true
 }
 
-mtl_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+mtl_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
 		t := (^Mtl_Texture)(texture_sampler_bindings[i].texture).active
@@ -627,7 +627,7 @@ mtl_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
 	cmd.samplers_dirty = true
 }
 
-mtl_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+mtl_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Mtl_Buffer)(storage_buffers[i]).active
@@ -664,7 +664,7 @@ mtl_bind_dispatch :: proc(cmd: ^Mtl_Cmd) -> bool {
 	return true
 }
 
-mtl_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, groupcount_y, groupcount_z: u32) {
+mtl_dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: u32) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	if !mtl_bind_dispatch(cmd) do return
 	groups := MTL.Size{NS.Integer(groupcount_x), NS.Integer(groupcount_y), NS.Integer(groupcount_z)}
@@ -673,7 +673,7 @@ mtl_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, gr
 
 // ---- Copy passes --------------------------------------------------------------------
 
-mtl_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCopyPass {
+mtl_begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
@@ -684,17 +684,17 @@ mtl_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCo
 	}
 	NS.retain(enc)
 	cmd.blit = enc
-	return (^sdl.GPUCopyPass)(cmd)
+	return (Copy_Pass)(cmd)
 }
 
-mtl_end_copy_pass :: proc(copy_pass: ^sdl.GPUCopyPass) {
+mtl_end_copy_pass :: proc(copy_pass: Copy_Pass) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	MTL.CommandEncoder_endEncoding(cmd.blit)
 	NS.release(cmd.blit)
 	cmd.blit = nil
 }
 
-mtl_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTransferBufferLocation, #by_ptr destination: sdl.GPUBufferRegion, cycle: bool) {
+mtl_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	src := (^Mtl_Buffer)(source.transfer_buffer).active
 	dst := mtl_buffer_for_write((^Mtl_Buffer)(destination.buffer), cycle)
@@ -703,7 +703,7 @@ mtl_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GP
 	MTL.BlitCommandEncoder_copyFromBuffer(cmd.blit, src.buffer, NS.UInteger(source.offset), dst.buffer, NS.UInteger(destination.offset), NS.UInteger(destination.size))
 }
 
-mtl_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureTransferInfo, #by_ptr destination: sdl.GPUTextureRegion, cycle: bool) {
+mtl_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	src := (^Mtl_Buffer)(source.transfer_buffer).active
 	t := (^Mtl_Texture)(destination.texture)
@@ -718,7 +718,7 @@ mtl_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.G
 	MTL.BlitCommandEncoder_copyFromBufferEx(cmd.blit, src.buffer, NS.UInteger(source.offset), NS.UInteger(row), NS.UInteger(row * rows), size, dst.texture, NS.UInteger(destination.layer), NS.UInteger(destination.mip_level), origin)
 }
 
-mtl_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferLocation, #by_ptr destination: sdl.GPUBufferLocation, size: u32, cycle: bool) {
+mtl_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	src := (^Mtl_Buffer)(source.buffer).active
 	dst := mtl_buffer_for_write((^Mtl_Buffer)(destination.buffer), cycle)
@@ -727,7 +727,7 @@ mtl_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: s
 	MTL.BlitCommandEncoder_copyFromBuffer(cmd.blit, src.buffer, NS.UInteger(source.offset), dst.buffer, NS.UInteger(destination.offset), NS.UInteger(size))
 }
 
-mtl_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureLocation, #by_ptr destination: sdl.GPUTextureLocation, w, h, d: u32, cycle: bool) {
+mtl_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	src := (^Mtl_Texture)(source.texture).active
 	dst := mtl_texture_for_write((^Mtl_Texture)(destination.texture), cycle)
@@ -739,7 +739,7 @@ mtl_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source:
 	MTL.BlitCommandEncoder_copyFromTextureWithDestinationOrigin(cmd.blit, src.texture, NS.UInteger(source.layer), NS.UInteger(source.mip_level), from, size, dst.texture, NS.UInteger(destination.layer), NS.UInteger(destination.mip_level), to)
 }
 
-mtl_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureRegion, #by_ptr destination: sdl.GPUTextureTransferInfo) {
+mtl_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	t := (^Mtl_Texture)(source.texture)
 	src := t.active
@@ -753,7 +753,7 @@ mtl_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: s
 	MTL.BlitCommandEncoder_copyFromTextureEx(cmd.blit, src.texture, NS.UInteger(source.layer), NS.UInteger(source.mip_level), origin, size, dst.buffer, NS.UInteger(destination.offset), NS.UInteger(row), NS.UInteger(row * rows))
 }
 
-mtl_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferRegion, #by_ptr destination: sdl.GPUTransferBufferLocation) {
+mtl_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Mtl_Cmd)(copy_pass)
 	src := (^Mtl_Buffer)(source.buffer).active
 	dst := (^Mtl_Buffer)(destination.transfer_buffer).active
@@ -764,7 +764,7 @@ mtl_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sd
 
 // Metal fills the levels below the first with a filter of its own choosing, as it does for
 // SDL_GPU.
-mtl_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
+mtl_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
@@ -778,7 +778,7 @@ mtl_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, 
 
 // A named group of commands for Xcode's GPU capture, on the open encoder if there is one
 // and otherwise on the command buffer, as SDL_GPU's Metal backend places it.
-mtl_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {
+mtl_push_debug_group :: proc(command_buffer: Cmd, name: cstring) {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	label := mtl_string(string(name))
@@ -790,7 +790,7 @@ mtl_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstrin
 	}
 }
 
-mtl_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
+mtl_pop_debug_group :: proc(command_buffer: Cmd) {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	switch {

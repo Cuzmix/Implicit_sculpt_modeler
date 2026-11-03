@@ -1,6 +1,6 @@
 package render
 
-import sdl "vendor:sdl3"
+import "../gpu"
 
 // The shader code render embeds, picked per platform when the app is compiled. Render draws
 // with Metal on Apple's platforms, which takes Metal source, and with Vulkan elsewhere,
@@ -14,10 +14,9 @@ import sdl "vendor:sdl3"
 @(private)
 SHADER_EXT :: ".msl" when ODIN_OS == .Darwin else ".wgsl" when ODIN_OS == .JS else ".spv"
 
-// SDL_GPU names no WGSL, so the web build's shaders say PRIVATE: only the WebGPU backend
-// (wgpu_resources.odin) reads them.
+// The language of the embedded shaders, which the running backend checks it reads.
 @(private)
-SHADER_FORMAT :: sdl.GPUShaderFormat{.MSL} when ODIN_OS == .Darwin else sdl.GPUShaderFormat{.PRIVATE} when ODIN_OS == .JS else sdl.GPUShaderFormat{.SPIRV}
+SHADER_FORMAT :: gpu.Shader_Format.Msl when ODIN_OS == .Darwin else gpu.Shader_Format.Wgsl when ODIN_OS == .JS else gpu.Shader_Format.Spirv
 
 // The entry point every shader's create info names: SDL_shadercross renames `main`, which
 // Metal refuses as a function name, to `main0`.

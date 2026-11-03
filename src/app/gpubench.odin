@@ -192,11 +192,11 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 	sb := strings.builder_make(context.temp_allocator)
 	present: string
 	switch app.renderer.present_mode {
-	case .VSYNC:
+	case .Vsync:
 		present = "vsync (the display offers no other mode)"
-	case .MAILBOX:
+	case .Mailbox:
 		present = "mailbox (vsync off)"
-	case .IMMEDIATE:
+	case .Immediate:
 		present = "immediate (vsync off)"
 	}
 	fmt.sbprintf(&sb, "## GPU benchmark\n\n")

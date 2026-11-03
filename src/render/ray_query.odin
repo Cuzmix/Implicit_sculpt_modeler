@@ -81,14 +81,14 @@ ray_query_trusted :: proc(r: ^Renderer) -> bool {
 @(private = "file")
 ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	RAYS :: len(RQ_RAYS)
-	positions := gpu.create_buffer(r.device, {usage = {.VERTEX}, size = 4 * 12}, accel_input = true)
-	indices := gpu.create_buffer(r.device, {usage = {.INDEX}, size = size_of(RQ_INDICES)}, accel_input = true)
-	rays := gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = RAYS * 32})
-	hits := gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_WRITE}, size = RAYS * 32})
-	upload := gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
-	download := gpu.create_transfer_buffer(r.device, {usage = .DOWNLOAD, size = RAYS * 32})
+	positions := gpu.create_buffer(r.device, {usage = {.Vertex}, size = 4 * 12}, accel_input = true)
+	indices := gpu.create_buffer(r.device, {usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
+	rays := gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = RAYS * 32})
+	hits := gpu.create_buffer(r.device, {usage = {.Storage_Write}, size = RAYS * 32})
+	upload := gpu.create_transfer_buffer(r.device, {usage = .Upload, size = 4 * 12 + size_of(RQ_INDICES) + RAYS * 32})
+	download := gpu.create_transfer_buffer(r.device, {usage = .Download, size = RAYS * 32})
 	pipeline := gpu.create_compute_pipeline_traced(r.device, {
-		code_size = len(RAY_QUERY_CHECK_COMP_CODE), code = raw_data(RAY_QUERY_CHECK_COMP_CODE), entrypoint = RQ_ENTRY,
+		code = RAY_QUERY_CHECK_COMP_CODE, entrypoint = RQ_ENTRY,
 		format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
 		threadcount_x = 64, threadcount_y = 1, threadcount_z = 1,
 	})
@@ -156,7 +156,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 			_ = gpu.submit_command_buffer(cmd)
 			return false
 		}
-		write := sdl.GPUStorageBufferReadWriteBinding{buffer = hits}
+		write := gpu.Storage_Buffer_Binding{buffer = hits}
 		pass := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
 		gpu.bind_compute_pipeline(pass, pipeline)
 		gpu.bind_compute_storage_buffers(pass, 0, &rays, 1)

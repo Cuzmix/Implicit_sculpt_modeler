@@ -57,7 +57,7 @@ Vk_Image :: struct {
 }
 
 Vk_Texture :: struct {
-	info:           sdl.GPUTextureCreateInfo,
+	info:           Texture_Desc,
 	format:         vk.Format,
 	aspect:         vk.ImageAspectFlags,
 	usage:          vk.ImageUsageFlags,
@@ -82,7 +82,7 @@ Vk_Sampler :: struct {
 Vk_Shader :: struct {
 	module: vk.ShaderModule,
 	entry:  cstring,
-	stage:  sdl.GPUShaderStage,
+	stage:  Shader_Stage,
 	counts: [4]u32, // samplers, storage textures, storage buffers, uniform buffers
 }
 
@@ -199,7 +199,7 @@ vk_graphics_layout :: proc(vertex, fragment: ^Vk_Shader) -> ^Vk_Pipeline_Layout 
 	return layout
 }
 
-vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32, accel: bool) -> ^Vk_Pipeline_Layout {
+vk_compute_layout :: proc(info: Compute_Pipeline_Desc, array: u32, accel: bool) -> ^Vk_Pipeline_Layout {
 	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array, u32(accel)}
 	if layout, ok := vk_state.compute_layouts[key]; ok do return layout
 	fourth := array > 0 || accel
@@ -292,13 +292,13 @@ vk_name :: proc(type: vk.ObjectType, handle: u64, name: cstring) {
 	_ = vk.SetDebugUtilsObjectNameEXT(vk_state.device, &info)
 }
 
-vk_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+vk_set_buffer_name :: proc(device: Device, buffer: Buffer, text: cstring) {
 	b := (^Vk_Buffer)(buffer)
 	b.name = text
 	for backing in b.backings do vk_name(.BUFFER, u64(backing.buffer), text)
 }
 
-vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+vk_set_texture_name :: proc(device: Device, texture: Texture, text: cstring) {
 	t := (^Vk_Texture)(texture)
 	t.name = text
 	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
@@ -308,44 +308,44 @@ vk_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, te
 // build input (build_blas reads vertices and indices through their addresses) also gets
 // the two usages that needs, where ray queries are on.
 @(private = "file")
-vk_buffer_usage :: proc(usage: sdl.GPUBufferUsageFlags, accel_input: bool) -> vk.BufferUsageFlags {
+vk_buffer_usage :: proc(usage: Buffer_Usages, accel_input: bool) -> vk.BufferUsageFlags {
 	flags := vk.BufferUsageFlags{.TRANSFER_SRC, .TRANSFER_DST}
 	if accel_input && vk_state.ray_query do flags += {.SHADER_DEVICE_ADDRESS, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
-	if .VERTEX in usage do flags += {.VERTEX_BUFFER}
-	if .INDEX in usage do flags += {.INDEX_BUFFER}
-	if .INDIRECT in usage do flags += {.INDIRECT_BUFFER}
-	if usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE} != {} do flags += {.STORAGE_BUFFER}
+	if .Vertex in usage do flags += {.VERTEX_BUFFER}
+	if .Index in usage do flags += {.INDEX_BUFFER}
+	if .Indirect in usage do flags += {.INDIRECT_BUFFER}
+	if usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write} != {} do flags += {.STORAGE_BUFFER}
 	return flags
 }
 
-vk_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo, accel_input := false) -> ^sdl.GPUBuffer {
+vk_create_buffer :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input := false) -> Buffer {
 	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .None)
 	if b == nil do log.errorf("Vulkan: a %d byte buffer could not be made", info.size)
-	return (^sdl.GPUBuffer)(b)
+	return (Buffer)(b)
 }
 
 // A device buffer mapped for its first fill, or nil where the device has no shared memory
 // type or that heap is full; the caller then makes a plain one.
-vk_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo, accel_input := false) -> (^sdl.GPUBuffer, rawptr) {
+vk_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc, accel_input := false) -> (Buffer, rawptr) {
 	if !vk_state.shared_buffers do return nil, nil
 	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .Shared)
 	if b == nil do return nil, nil
-	return (^sdl.GPUBuffer)(b), b.active.mapped
+	return (Buffer)(b), b.active.mapped
 }
 
 // Ends a mapped buffer's fill: the mapping goes, so nothing writes the buffer after the
 // GPU may have begun to read it.
-vk_buffer_filled :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+vk_buffer_filled :: proc(device: Device, buffer: Buffer) {
 	b := (^Vk_Buffer)(buffer)
 	if b == nil || b.active.mapped == nil || b.host != .Shared do return
 	vk.UnmapMemory(vk_state.device, b.active.memory)
 	b.active.mapped = nil
 }
 
-vk_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {
-	b := vk_buffer_make(info.size, {.TRANSFER_SRC, .TRANSFER_DST}, .Upload if info.usage == .UPLOAD else .Download)
+vk_create_transfer_buffer :: proc(device: Device, #by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
+	b := vk_buffer_make(info.size, {.TRANSFER_SRC, .TRANSFER_DST}, .Upload if info.usage == .Upload else .Download)
 	if b == nil do log.errorf("Vulkan: a %d byte transfer buffer could not be made", info.size)
-	return (^sdl.GPUTransferBuffer)(b)
+	return (Transfer_Buffer)(b)
 }
 
 // Frees what of a released buffer the GPU no longer uses, and the buffer with its last
@@ -366,15 +366,15 @@ vk_buffer_reap :: proc(b: ^Vk_Buffer) {
 	}
 }
 
-vk_release_buffer :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+vk_release_buffer :: proc(device: Device, buffer: Buffer) {
 	b := (^Vk_Buffer)(buffer)
 	if b == nil do return
 	b.released = true
 	vk_buffer_reap(b)
 }
 
-vk_release_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {
-	vk_release_buffer(device, (^sdl.GPUBuffer)(transfer_buffer))
+vk_release_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
+	vk_release_buffer(device, (Buffer)(transfer_buffer))
 }
 
 // Swaps in a backing no command buffer uses, making one if every backing is in use.
@@ -388,24 +388,24 @@ vk_buffer_cycle :: proc(b: ^Vk_Buffer) {
 	if backing := vk_buffer_backing_make(b); backing != nil do b.active = backing
 }
 
-vk_map_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer, cycle: bool) -> rawptr {
+vk_map_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	b := (^Vk_Buffer)(transfer_buffer)
 	if cycle && b.active.refs > 0 do vk_buffer_cycle(b)
 	return b.active.mapped
 }
 
 // Transfer memory is host-coherent, so writes need no flush.
-vk_unmap_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {}
+vk_unmap_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {}
 
 // ---- Textures -----------------------------------------------------------------------
 
-vk_default_layout :: proc(usage: sdl.GPUTextureUsageFlags) -> vk.ImageLayout {
+vk_default_layout :: proc(usage: Texture_Usages) -> vk.ImageLayout {
 	// SDL_GPU's order: a texture rests in the layout its first listed use needs.
 	switch {
-	case .SAMPLER in usage:               return .SHADER_READ_ONLY_OPTIMAL
-	case .GRAPHICS_STORAGE_READ in usage: return .GENERAL
-	case .COLOR_TARGET in usage:          return .COLOR_ATTACHMENT_OPTIMAL
-	case .DEPTH_STENCIL_TARGET in usage:  return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+	case .Sampled in usage:               return .SHADER_READ_ONLY_OPTIMAL
+	case .Graphics_Storage_Read in usage: return .GENERAL
+	case .Color_Target in usage:          return .COLOR_ATTACHMENT_OPTIMAL
+	case .Depth_Target in usage:  return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
 	}
 	return .GENERAL
 }
@@ -488,18 +488,18 @@ vk_image_backing_destroy :: proc(img: ^Vk_Image) {
 	free(img)
 }
 
-vk_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+vk_create_texture :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	return vk_texture_make(info, false)
 }
 
 // A transient attachment allows only attachment usage beside it, so it can be neither
 // copied nor sampled; the backend never does either to a render target unasked.
-vk_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+vk_create_texture_transient :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	return vk_texture_make(info, true)
 }
 
 @(private = "file")
-vk_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl.GPUTexture {
+vk_texture_make :: proc(info: Texture_Desc, transient: bool) -> Texture {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		log.errorf("Vulkan: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -507,14 +507,14 @@ vk_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl
 	t := new(Vk_Texture)
 	t.info = info
 	t.format = vk_format(info.format)
-	t.aspect = {.DEPTH} if vk_is_depth(info.format) else {.COLOR}
-	if info.format == .D24_UNORM_S8_UINT || info.format == .D32_FLOAT_S8_UINT do t.aspect += {.STENCIL}
+	t.aspect = {.DEPTH} if format_is_depth(info.format) else {.COLOR}
+	if info.format == .D24_Unorm_S8 || info.format == .D32_Float_S8 do t.aspect += {.STENCIL}
 	t.transient = transient
 	t.usage = {.TRANSIENT_ATTACHMENT} if transient else {.TRANSFER_SRC, .TRANSFER_DST}
-	if info.usage & {.SAMPLER, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ} != {} && !transient do t.usage += {.SAMPLED}
-	if .COLOR_TARGET in info.usage do t.usage += {.COLOR_ATTACHMENT}
-	if .DEPTH_STENCIL_TARGET in info.usage do t.usage += {.DEPTH_STENCIL_ATTACHMENT}
-	if info.usage & {.COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} && !transient do t.usage += {.STORAGE}
+	if info.usage & {.Sampled, .Graphics_Storage_Read, .Storage_Read} != {} && !transient do t.usage += {.SAMPLED}
+	if .Color_Target in info.usage do t.usage += {.COLOR_ATTACHMENT}
+	if .Depth_Target in info.usage do t.usage += {.DEPTH_STENCIL_ATTACHMENT}
+	if info.usage & {.Storage_Write, .Storage_Read_Write} != {} && !transient do t.usage += {.STORAGE}
 	t.default_layout = vk_default_layout(info.usage)
 	t.active = vk_image_backing_make(t, nil)
 	if t.active == nil {
@@ -523,7 +523,7 @@ vk_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl
 		free(t)
 		return nil
 	}
-	return (^sdl.GPUTexture)(t)
+	return (Texture)(t)
 }
 
 vk_texture_reap :: proc(t: ^Vk_Texture) {
@@ -542,7 +542,7 @@ vk_texture_reap :: proc(t: ^Vk_Texture) {
 	}
 }
 
-vk_release_texture :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture) {
+vk_release_texture :: proc(device: Device, texture: Texture) {
 	t := (^Vk_Texture)(texture)
 	if t == nil do return
 	t.released = true
@@ -562,13 +562,13 @@ vk_texture_cycle :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) {
 
 // ---- Samplers and shaders -----------------------------------------------------------
 
-vk_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerCreateInfo) -> ^sdl.GPUSampler {
-	filter :: proc(f: sdl.GPUFilter) -> vk.Filter {return .LINEAR if f == .LINEAR else .NEAREST}
-	address :: proc(a: sdl.GPUSamplerAddressMode) -> vk.SamplerAddressMode {
+vk_create_sampler :: proc(device: Device, #by_ptr info: Sampler_Desc) -> Sampler {
+	filter :: proc(f: Filter) -> vk.Filter {return .LINEAR if f == .Linear else .NEAREST}
+	address :: proc(a: Address_Mode) -> vk.SamplerAddressMode {
 		switch a {
-		case .REPEAT:          return .REPEAT
-		case .MIRRORED_REPEAT: return .MIRRORED_REPEAT
-		case .CLAMP_TO_EDGE:   return .CLAMP_TO_EDGE
+		case .Repeat:          return .REPEAT
+		case .Mirrored_Repeat: return .MIRRORED_REPEAT
+		case .Clamp_To_Edge:   return .CLAMP_TO_EDGE
 		}
 		return .REPEAT
 	}
@@ -576,7 +576,7 @@ vk_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerCr
 		sType            = .SAMPLER_CREATE_INFO,
 		magFilter        = filter(info.mag_filter),
 		minFilter        = filter(info.min_filter),
-		mipmapMode       = .LINEAR if info.mipmap_mode == .LINEAR else .NEAREST,
+		mipmapMode       = .LINEAR if info.mipmap_mode == .Linear else .NEAREST,
 		addressModeU     = address(info.address_mode_u),
 		addressModeV     = address(info.address_mode_v),
 		addressModeW     = address(info.address_mode_w),
@@ -594,7 +594,7 @@ vk_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerCr
 		free(s)
 		return nil
 	}
-	return (^sdl.GPUSampler)(s)
+	return (Sampler)(s)
 }
 
 vk_sampler_reap :: proc(s: ^Vk_Sampler) {
@@ -603,7 +603,7 @@ vk_sampler_reap :: proc(s: ^Vk_Sampler) {
 	free(s)
 }
 
-vk_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
+vk_release_sampler :: proc(device: Device, sampler: Sampler) {
 	s := (^Vk_Sampler)(sampler)
 	if s == nil do return
 	s.released = true
@@ -621,19 +621,19 @@ vk_module :: proc(code: []u8) -> vk.ShaderModule {
 	return module
 }
 
-vk_create_shader :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUShaderCreateInfo) -> ^sdl.GPUShader {
-	if .SPIRV not_in info.format do return nil
-	module := vk_module(info.code[:info.code_size])
+vk_create_shader :: proc(device: Device, #by_ptr info: Shader_Desc) -> Shader {
+	if info.format != .Spirv do return nil
+	module := vk_module(transmute([]u8)info.code)
 	if module == 0 do return nil
 	s := new(Vk_Shader)
 	s.module, s.stage = module, info.stage
 	s.entry = strings.clone_to_cstring(string(info.entrypoint) if info.entrypoint != nil else "main")
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
-	return (^sdl.GPUShader)(s)
+	return (Shader)(s)
 }
 
 // A shader is only read while pipelines are made from it, so it goes at once.
-vk_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
+vk_release_shader :: proc(device: Device, shader: Shader) {
 	s := (^Vk_Shader)(shader)
 	if s == nil do return
 	vk.DestroyShaderModule(vk_state.device, s.module, nil)
@@ -643,96 +643,96 @@ vk_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
 
 // ---- Pipelines ----------------------------------------------------------------------
 
-vk_compare :: proc(op: sdl.GPUCompareOp) -> vk.CompareOp {
+vk_compare :: proc(op: Compare_Op) -> vk.CompareOp {
 	switch op {
-	case .INVALID, .NEVER:    return .NEVER
-	case .LESS:               return .LESS
-	case .EQUAL:              return .EQUAL
-	case .LESS_OR_EQUAL:      return .LESS_OR_EQUAL
-	case .GREATER:            return .GREATER
-	case .NOT_EQUAL:          return .NOT_EQUAL
-	case .GREATER_OR_EQUAL:   return .GREATER_OR_EQUAL
-	case .ALWAYS:             return .ALWAYS
+	case .Invalid, .Never:    return .NEVER
+	case .Less:               return .LESS
+	case .Equal:              return .EQUAL
+	case .Less_Or_Equal:      return .LESS_OR_EQUAL
+	case .Greater:            return .GREATER
+	case .Not_Equal:          return .NOT_EQUAL
+	case .Greater_Or_Equal:   return .GREATER_OR_EQUAL
+	case .Always:             return .ALWAYS
 	}
 	return .NEVER
 }
 
 @(private = "file")
-vk_blend_factor :: proc(f: sdl.GPUBlendFactor) -> vk.BlendFactor {
+vk_blend_factor :: proc(f: Blend_Factor) -> vk.BlendFactor {
 	switch f {
-	case .INVALID, .ZERO:            return .ZERO
-	case .ONE:                       return .ONE
-	case .SRC_COLOR:                 return .SRC_COLOR
-	case .ONE_MINUS_SRC_COLOR:       return .ONE_MINUS_SRC_COLOR
-	case .DST_COLOR:                 return .DST_COLOR
-	case .ONE_MINUS_DST_COLOR:       return .ONE_MINUS_DST_COLOR
-	case .SRC_ALPHA:                 return .SRC_ALPHA
-	case .ONE_MINUS_SRC_ALPHA:       return .ONE_MINUS_SRC_ALPHA
-	case .DST_ALPHA:                 return .DST_ALPHA
-	case .ONE_MINUS_DST_ALPHA:       return .ONE_MINUS_DST_ALPHA
-	case .CONSTANT_COLOR:            return .CONSTANT_COLOR
-	case .ONE_MINUS_CONSTANT_COLOR:  return .ONE_MINUS_CONSTANT_COLOR
-	case .SRC_ALPHA_SATURATE:        return .SRC_ALPHA_SATURATE
+	case .Invalid, .Zero:            return .ZERO
+	case .One:                       return .ONE
+	case .Src_Color:                 return .SRC_COLOR
+	case .One_Minus_Src_Color:       return .ONE_MINUS_SRC_COLOR
+	case .Dst_Color:                 return .DST_COLOR
+	case .One_Minus_Dst_Color:       return .ONE_MINUS_DST_COLOR
+	case .Src_Alpha:                 return .SRC_ALPHA
+	case .One_Minus_Src_Alpha:       return .ONE_MINUS_SRC_ALPHA
+	case .Dst_Alpha:                 return .DST_ALPHA
+	case .One_Minus_Dst_Alpha:       return .ONE_MINUS_DST_ALPHA
+	case .Constant_Color:            return .CONSTANT_COLOR
+	case .One_Minus_Constant_Color:  return .ONE_MINUS_CONSTANT_COLOR
+	case .Src_Alpha_Saturate:        return .SRC_ALPHA_SATURATE
 	}
 	return .ZERO
 }
 
 @(private = "file")
-vk_blend_op :: proc(op: sdl.GPUBlendOp) -> vk.BlendOp {
+vk_blend_op :: proc(op: Blend_Op) -> vk.BlendOp {
 	switch op {
-	case .INVALID, .ADD:     return .ADD
-	case .SUBTRACT:          return .SUBTRACT
-	case .REVERSE_SUBTRACT:  return .REVERSE_SUBTRACT
-	case .MIN:               return .MIN
-	case .MAX:               return .MAX
+	case .Invalid, .Add:     return .ADD
+	case .Subtract:          return .SUBTRACT
+	case .Reverse_Subtract:  return .REVERSE_SUBTRACT
+	case .Min:               return .MIN
+	case .Max:               return .MAX
 	}
 	return .ADD
 }
 
 @(private = "file")
-vk_stencil_op :: proc(op: sdl.GPUStencilOp) -> vk.StencilOp {
+vk_stencil_op :: proc(op: Stencil_Op) -> vk.StencilOp {
 	switch op {
-	case .INVALID, .KEEP:        return .KEEP
-	case .ZERO:                  return .ZERO
-	case .REPLACE:               return .REPLACE
-	case .INCREMENT_AND_CLAMP:   return .INCREMENT_AND_CLAMP
-	case .DECREMENT_AND_CLAMP:   return .DECREMENT_AND_CLAMP
-	case .INVERT:                return .INVERT
-	case .INCREMENT_AND_WRAP:    return .INCREMENT_AND_WRAP
-	case .DECREMENT_AND_WRAP:    return .DECREMENT_AND_WRAP
+	case .Invalid, .Keep:        return .KEEP
+	case .Zero:                  return .ZERO
+	case .Replace:               return .REPLACE
+	case .Increment_And_Clamp:   return .INCREMENT_AND_CLAMP
+	case .Decrement_And_Clamp:   return .DECREMENT_AND_CLAMP
+	case .Invert:                return .INVERT
+	case .Increment_And_Wrap:    return .INCREMENT_AND_WRAP
+	case .Decrement_And_Wrap:    return .DECREMENT_AND_WRAP
 	}
 	return .KEEP
 }
 
 @(private = "file")
-vk_vertex_format :: proc(f: sdl.GPUVertexElementFormat) -> vk.Format {
+vk_vertex_format :: proc(f: Vertex_Format) -> vk.Format {
 	#partial switch f {
-	case .INT:          return .R32_SINT
-	case .INT2:         return .R32G32_SINT
-	case .INT3:         return .R32G32B32_SINT
-	case .INT4:         return .R32G32B32A32_SINT
-	case .UINT:         return .R32_UINT
-	case .UINT2:        return .R32G32_UINT
-	case .UINT3:        return .R32G32B32_UINT
-	case .UINT4:        return .R32G32B32A32_UINT
-	case .FLOAT:        return .R32_SFLOAT
-	case .FLOAT2:       return .R32G32_SFLOAT
-	case .FLOAT3:       return .R32G32B32_SFLOAT
-	case .FLOAT4:       return .R32G32B32A32_SFLOAT
-	case .UBYTE4:       return .R8G8B8A8_UINT
-	case .UBYTE4_NORM:  return .R8G8B8A8_UNORM
-	case .BYTE4_NORM:   return .R8G8B8A8_SNORM
-	case .SHORT2_NORM:  return .R16G16_SNORM
-	case .SHORT4_NORM:  return .R16G16B16A16_SNORM
-	case .USHORT2_NORM: return .R16G16_UNORM
-	case .USHORT4_NORM: return .R16G16B16A16_UNORM
-	case .HALF2:        return .R16G16_SFLOAT
-	case .HALF4:        return .R16G16B16A16_SFLOAT
+	case .Int:          return .R32_SINT
+	case .Int2:         return .R32G32_SINT
+	case .Int3:         return .R32G32B32_SINT
+	case .Int4:         return .R32G32B32A32_SINT
+	case .Uint:         return .R32_UINT
+	case .Uint2:        return .R32G32_UINT
+	case .Uint3:        return .R32G32B32_UINT
+	case .Uint4:        return .R32G32B32A32_UINT
+	case .Float:        return .R32_SFLOAT
+	case .Float2:       return .R32G32_SFLOAT
+	case .Float3:       return .R32G32B32_SFLOAT
+	case .Float4:       return .R32G32B32A32_SFLOAT
+	case .Ubyte4:       return .R8G8B8A8_UINT
+	case .Ubyte4_Norm:  return .R8G8B8A8_UNORM
+	case .Byte4_Norm:   return .R8G8B8A8_SNORM
+	case .Short2_Norm:  return .R16G16_SNORM
+	case .Short4_Norm:  return .R16G16B16A16_SNORM
+	case .Ushort2_Norm: return .R16G16_UNORM
+	case .Ushort4_Norm: return .R16G16B16A16_UNORM
+	case .Half2:        return .R16G16_SFLOAT
+	case .Half4:        return .R16G16B16A16_SFLOAT
 	}
 	return .UNDEFINED
 }
 
-vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUGraphicsPipelineCreateInfo) -> ^sdl.GPUGraphicsPipeline {
+vk_create_graphics_pipeline :: proc(device: Device, #by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
 	vertex, fragment := (^Vk_Shader)(info.vertex_shader), (^Vk_Shader)(info.fragment_shader)
 	if vertex == nil || fragment == nil do return nil
 	layout := vk_graphics_layout(vertex, fragment)
@@ -741,15 +741,15 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex.module, pName = vertex.entry},
 		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment.module, pName = fragment.entry},
 	}
-	vi := info.vertex_input_state
-	buffers := make([]vk.VertexInputBindingDescription, vi.num_vertex_buffers, context.temp_allocator)
+	vi := info.vertex_input
+	buffers := make([]vk.VertexInputBindingDescription, len(vi.buffers), context.temp_allocator)
 	for &b, i in buffers {
-		d := vi.vertex_buffer_descriptions[i]
-		b = {binding = d.slot, stride = d.pitch, inputRate = .INSTANCE if d.input_rate == .INSTANCE else .VERTEX}
+		d := vi.buffers[i]
+		b = {binding = d.slot, stride = d.pitch, inputRate = .INSTANCE if d.input_rate == .Instance else .VERTEX}
 	}
-	attributes := make([]vk.VertexInputAttributeDescription, vi.num_vertex_attributes, context.temp_allocator)
+	attributes := make([]vk.VertexInputAttributeDescription, len(vi.attributes), context.temp_allocator)
 	for &a, i in attributes {
-		d := vi.vertex_attributes[i]
+		d := vi.attributes[i]
 		a = {location = d.location, binding = d.buffer_slot, format = vk_vertex_format(d.format), offset = d.offset}
 	}
 	vertex_input := vk.PipelineVertexInputStateCreateInfo {
@@ -760,29 +760,29 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 		pVertexAttributeDescriptions    = raw_data(attributes),
 	}
 	topology: vk.PrimitiveTopology
-	switch info.primitive_type {
-	case .TRIANGLELIST:  topology = .TRIANGLE_LIST
-	case .TRIANGLESTRIP: topology = .TRIANGLE_STRIP
-	case .LINELIST:      topology = .LINE_LIST
-	case .LINESTRIP:     topology = .LINE_STRIP
-	case .POINTLIST:     topology = .POINT_LIST
+	switch info.primitive {
+	case .Triangle_List:  topology = .TRIANGLE_LIST
+	case .Triangle_Strip: topology = .TRIANGLE_STRIP
+	case .Line_List:      topology = .LINE_LIST
+	case .Line_Strip:     topology = .LINE_STRIP
+	case .Point_List:     topology = .POINT_LIST
 	}
 	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = topology}
 	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
 	rs := info.rasterizer_state
-	if rs.fill_mode == .LINE && !vk_state.wireframe do return nil
+	if rs.fill_mode == .Line && !vk_state.wireframe do return nil
 	cull: vk.CullModeFlags
 	switch rs.cull_mode {
-	case .NONE:
-	case .FRONT: cull = {.FRONT}
-	case .BACK:  cull = {.BACK}
+	case .None:
+	case .Front: cull = {.FRONT}
+	case .Back:  cull = {.BACK}
 	}
 	raster := vk.PipelineRasterizationStateCreateInfo {
 		sType                   = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		depthClampEnable        = b32(!rs.enable_depth_clip && vk_state.depth_clamp),
-		polygonMode             = .LINE if rs.fill_mode == .LINE else .FILL,
+		polygonMode             = .LINE if rs.fill_mode == .Line else .FILL,
 		cullMode                = cull,
-		frontFace               = .CLOCKWISE if rs.front_face == .CLOCKWISE else .COUNTER_CLOCKWISE,
+		frontFace               = .CLOCKWISE if rs.front_face == .Clockwise else .COUNTER_CLOCKWISE,
 		depthBiasEnable         = b32(rs.enable_depth_bias),
 		depthBiasConstantFactor = rs.depth_bias_constant_factor,
 		depthBiasClamp          = rs.depth_bias_clamp,
@@ -795,10 +795,9 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 		rasterizationSamples  = vk_samples(info.multisample_state.sample_count),
 		minSampleShading      = 1,
 		pSampleMask           = &sample_mask,
-		alphaToCoverageEnable = b32(info.multisample_state.enable_alpha_to_coverage),
 	}
 	ds := info.depth_stencil_state
-	stencil :: proc(s: sdl.GPUStencilOpState, ds: sdl.GPUDepthStencilState) -> vk.StencilOpState {
+	stencil :: proc(s: Stencil_Op_State, ds: Depth_Stencil_State) -> vk.StencilOpState {
 		return {failOp = vk_stencil_op(s.fail_op), passOp = vk_stencil_op(s.pass_op), depthFailOp = vk_stencil_op(s.depth_fail_op), compareOp = vk_compare(s.compare_op), compareMask = u32(ds.compare_mask), writeMask = u32(ds.write_mask)}
 	}
 	depth := vk.PipelineDepthStencilStateCreateInfo {
@@ -810,13 +809,12 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 		front             = stencil(ds.front_stencil_state, ds),
 		back              = stencil(ds.back_stencil_state, ds),
 	}
-	ti := info.target_info
-	blends := make([]vk.PipelineColorBlendAttachmentState, ti.num_color_targets, context.temp_allocator)
-	formats := make([]vk.Format, ti.num_color_targets, context.temp_allocator)
-	for i in 0 ..< int(ti.num_color_targets) {
-		d := ti.color_target_descriptions[i]
+	ti := info.targets
+	blends := make([]vk.PipelineColorBlendAttachmentState, len(ti.color_targets), context.temp_allocator)
+	formats := make([]vk.Format, len(ti.color_targets), context.temp_allocator)
+	for d, i in ti.color_targets {
 		b := d.blend_state
-		mask := b.color_write_mask if b.enable_color_write_mask else {.R, .G, .B, .A}
+		mask := b.color_write_mask if b.enable_color_write_mask else Color_Components{.R, .G, .B, .A}
 		blends[i] = {
 			blendEnable         = b32(b.enable_blend),
 			srcColorBlendFactor = vk_blend_factor(b.src_color_blendfactor),
@@ -831,7 +829,7 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 	}
 	blend := vk.PipelineColorBlendStateCreateInfo {
 		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		attachmentCount = ti.num_color_targets,
+		attachmentCount = u32(len(ti.color_targets)),
 		pAttachments    = raw_data(blends),
 		blendConstants  = {1, 1, 1, 1},
 	}
@@ -839,12 +837,12 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 	dynamics := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = 2, pDynamicStates = &dynamic_states[0]}
 	rendering := vk.PipelineRenderingCreateInfo {
 		sType                   = .PIPELINE_RENDERING_CREATE_INFO,
-		colorAttachmentCount    = ti.num_color_targets,
+		colorAttachmentCount    = u32(len(ti.color_targets)),
 		pColorAttachmentFormats = raw_data(formats),
 	}
 	if ti.has_depth_stencil_target {
 		rendering.depthAttachmentFormat = vk_format(ti.depth_stencil_format)
-		if ti.depth_stencil_format == .D24_UNORM_S8_UINT || ti.depth_stencil_format == .D32_FLOAT_S8_UINT do rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat
+		if ti.depth_stencil_format == .D24_Unorm_S8 || ti.depth_stencil_format == .D32_Float_S8 do rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat
 	}
 	create := vk.GraphicsPipelineCreateInfo {
 		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
@@ -868,17 +866,17 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 		free(p)
 		return nil
 	}
-	return (^sdl.GPUGraphicsPipeline)(p)
+	return (Graphics_Pipeline)(p)
 }
 
-vk_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+vk_create_compute_pipeline :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	return vk_compute_pipeline_make(info, 0, false)
 }
 
 // A kernel that traces rays against the acceleration structure at set 3, binding 0
 // (bind_compute_accel), and reads an array of up to `capacity` sampled textures at
 // binding 1 when capacity is not 0.
-vk_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+vk_create_compute_pipeline_traced :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	if !vk_state.ray_query {
 		sdl.SetError("Vulkan: this device has no ray queries")
 		return nil
@@ -892,7 +890,7 @@ vk_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: 
 
 // A kernel that also reads an array of up to `capacity` sampled textures from set 3,
 // binding 0 (create_compute_pipeline_array).
-vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
+vk_create_compute_pipeline_array :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> Compute_Pipeline {
 	if capacity == 0 || capacity > vk_state.texture_arrays {
 		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
 		return nil
@@ -901,8 +899,8 @@ vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: s
 }
 
 @(private = "file")
-vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32, accel: bool) -> ^sdl.GPUComputePipeline {
-	if .SPIRV not_in info.format do return nil
+vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, array: u32, accel: bool) -> Compute_Pipeline {
+	if info.format != .Spirv do return nil
 	// The command buffer holds that many read-only buffers' bindings (Vk_Cmd.compute_storage).
 	if info.num_readonly_storage_buffers > VK_COMPUTE_STORAGE_BUFFERS {
 		sdl.SetError("Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
@@ -910,7 +908,7 @@ vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: 
 	}
 	layout := vk_compute_layout(info, array, accel)
 	if layout == nil do return nil
-	module := vk_module(info.code[:info.code_size])
+	module := vk_module(transmute([]u8)info.code)
 	if module == 0 do return nil
 	defer vk.DestroyShaderModule(vk_state.device, module, nil)
 	entry := info.entrypoint if info.entrypoint != nil else "main"
@@ -926,7 +924,7 @@ vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: 
 		free(p)
 		return nil
 	}
-	return (^sdl.GPUComputePipeline)(p)
+	return (Compute_Pipeline)(p)
 }
 
 vk_pipeline_reap :: proc(p: ^Vk_Pipeline) {
@@ -935,14 +933,14 @@ vk_pipeline_reap :: proc(p: ^Vk_Pipeline) {
 	free(p)
 }
 
-vk_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUGraphicsPipeline) {
+vk_release_graphics_pipeline :: proc(device: Device, pipeline: Graphics_Pipeline) {
 	p := (^Vk_Pipeline)(pipeline)
 	if p == nil do return
 	p.released = true
 	vk_pipeline_reap(p)
 }
 
-vk_release_compute_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUComputePipeline) {
+vk_release_compute_pipeline :: proc(device: Device, pipeline: Compute_Pipeline) {
 	p := (^Vk_Pipeline)(pipeline)
 	if p == nil do return
 	p.released = true

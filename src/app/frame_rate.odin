@@ -239,9 +239,9 @@ frame_rate_status :: proc(app: ^App) -> string {
 	}
 	shown: string
 	switch app.renderer.present_mode {
-	case .VSYNC:     shown = "frames wait for its refresh"
-	case .MAILBOX:   shown = "frames show as soon as they are ready (mailbox)"
-	case .IMMEDIATE: shown = "frames show as soon as they are ready, and may tear (immediate)"
+	case .Vsync:     shown = "frames wait for its refresh"
+	case .Mailbox:   shown = "frames show as soon as they are ready (mailbox)"
+	case .Immediate: shown = "frames show as soon as they are ready, and may tear (immediate)"
 	}
 	return fmt.tprintf("%s; %s.", screen, shown)
 }

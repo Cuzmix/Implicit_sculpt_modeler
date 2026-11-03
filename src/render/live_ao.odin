@@ -17,16 +17,16 @@ import sdl "vendor:sdl3"
 // redrew, padded by how far they read, and `ao` and `shown` keep the rest, so the cost
 // while sculpting follows the brush, and the pixels match a full pass exactly.
 Live_AO :: struct {
-	gtao_pipeline:  ^sdl.GPUGraphicsPipeline,
-	blur_pipeline:  ^sdl.GPUGraphicsPipeline,
-	depth_pipeline: ^sdl.GPUGraphicsPipeline, // the camera's depth at one sample, under multisampling
-	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a rectangle of that depth for a partial redraw
-	sampler:        ^sdl.GPUSampler,
-	ao:             ^sdl.GPUTexture, // LIVE_AO_FORMAT, the viewport's size divided by `scale`
-	shown:          ^sdl.GPUTexture, // what the viewport panel shows
+	gtao_pipeline:  gpu.Graphics_Pipeline,
+	blur_pipeline:  gpu.Graphics_Pipeline,
+	depth_pipeline: gpu.Graphics_Pipeline, // the camera's depth at one sample, under multisampling
+	clear_pipeline: gpu.Graphics_Pipeline, // clears a rectangle of that depth for a partial redraw
+	sampler:        gpu.Sampler,
+	ao:             gpu.Texture, // LIVE_AO_FORMAT, the viewport's size divided by `scale`
+	shown:          gpu.Texture, // what the viewport panel shows
 	// The camera's depth at one sample, drawn when the viewport is multisampled, whose
 	// own depth shaders cannot read; nil otherwise.
-	view_depth:     ^sdl.GPUTexture,
+	view_depth:     gpu.Texture,
 	width, height:  u32, // of shown (the viewport's)
 	scale:          u32, // viewport pixels per ao texel, each way
 	// What the textures were last made for (live_ao_key); 0 when they hold nothing, so the
@@ -43,7 +43,7 @@ Live_AO :: struct {
 LIVE_AO_MAX_PX :: 48
 
 // Half floats: a pixel's value may pass 1 (gtao.frag.slang), which the blur's average needs.
-LIVE_AO_FORMAT :: sdl.GPUTextureFormat.R16_FLOAT
+LIVE_AO_FORMAT :: gpu.Format.R16_Float
 
 GTAO_FRAG_CODE :: #load("shaders/gtao.frag" + SHADER_EXT, string)
 AO_BLUR_FRAG_CODE :: #load("shaders/ao_blur.frag" + SHADER_EXT, string)
@@ -71,7 +71,7 @@ Blur_Uniforms :: struct {
 // `strength_right` instead, so only the side whose pass wants occlusion shows it.
 // Leaves the result in Live_AO.shown. Returns false only when it cannot run on this
 // device, after which it never tries again.
-live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, drawn: Viewport_Stats, reach, strength: f32, scale: u32, strength_right: f32 = 0, line_px: f32 = -1) -> bool {
+live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, drawn: Viewport_Stats, reach, strength: f32, scale: u32, strength_right: f32 = 0, line_px: f32 = -1) -> bool {
 	debug_group(cmd, "Live AO", .Live_AO)
 	if lao.failed do return false
 	if !live_ao_ensure(r, lao, vt, max(scale, 1)) {
@@ -135,11 +135,11 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		size     = {f32(vt.width), f32(vt.height), f32(lao.scale), 1 if ortho else 0},
 		params   = {world_reach, proj[1, 1] * f32(vt.height) / 2, LIVE_AO_MAX_PX, 0},
 	}
-	target := sdl.GPUColorTargetInfo{texture = lao.ao, load_op = .LOAD if partial else .DONT_CARE, store_op = .STORE, cycle = !partial}
+	target := gpu.Color_Target{texture = lao.ao, load_op = .Load if partial else .Dont_Care, store_op = .Store, cycle = !partial}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, lao.gtao_pipeline)
 	gpu.set_scissor(pass, {ao_rect.x, ao_rect.y, ao_rect.w, ao_rect.h})
-	binding := sdl.GPUTextureSamplerBinding{texture = depth, sampler = lao.sampler}
+	binding := gpu.Texture_Sampler_Binding{texture = depth, sampler = lao.sampler}
 	gpu.bind_fragment_samplers(pass, 0, &binding, 1)
 	gpu.push_fragment_uniform_data(cmd, 0, &g, size_of(g))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
@@ -151,11 +151,11 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		// Texels farther than half the reach in depth from the pixel's are another surface.
 		params   = {clamp(strength, 0, 1), world_reach * 0.5, line_px, clamp(strength_right, 0, 1)},
 	}
-	target = {texture = lao.shown, load_op = .LOAD if partial else .DONT_CARE, store_op = .STORE, cycle = !partial}
+	target = {texture = lao.shown, load_op = .Load if partial else .Dont_Care, store_op = .Store, cycle = !partial}
 	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, lao.blur_pipeline)
 	gpu.set_scissor(pass, {blur_rect.x, blur_rect.y, blur_rect.w, blur_rect.h})
-	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = lao.sampler}, {texture = lao.ao, sampler = lao.sampler}, {texture = depth, sampler = lao.sampler}}
+	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = lao.sampler}, {texture = lao.ao, sampler = lao.sampler}, {texture = depth, sampler = lao.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	gpu.push_fragment_uniform_data(cmd, 0, &b, size_of(b))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
@@ -166,7 +166,7 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 // What the viewport panel should show while live occlusion is on: its image, or nil
 // when there is none (it has not run since it was last reset, or cannot run) and the
 // plain viewport shows.
-live_ao_texture :: proc(lao: ^Live_AO) -> ^sdl.GPUTexture {
+live_ao_texture :: proc(lao: ^Live_AO) -> gpu.Texture {
 	if lao.failed || lao.key == 0 do return nil
 	return lao.shown
 }
@@ -185,9 +185,9 @@ live_ao_supported :: proc(r: ^Renderer, lao: ^Live_AO) -> bool {
 live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
 	if r.device == nil do return
 	_ = gpu.wait_for_idle(r.device)
-	for p in ([4]^sdl.GPUGraphicsPipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu.release_graphics_pipeline(r.device, p)
+	for p in ([4]gpu.Graphics_Pipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu.release_graphics_pipeline(r.device, p)
 	if lao.sampler != nil do gpu.release_sampler(r.device, lao.sampler)
-	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
 	full, partial, skipped := lao.full, lao.partial, lao.skipped
 	lao^ = {}
 	lao.full, lao.partial, lao.skipped = full, partial, skipped
@@ -223,8 +223,8 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		lao.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		lao.clear_pipeline = create_depth_clear_pipeline(r)
 		lao.sampler = gpu.create_sampler(r.device, {
-			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
-			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
+			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		if lao.gtao_pipeline == nil || lao.blur_pipeline == nil || lao.depth_pipeline == nil || lao.clear_pipeline == nil || lao.sampler == nil {
 			log.errorf("live occlusion: setup failed (%s); it stays off", sdl.GetError())
@@ -234,21 +234,21 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 	want_view_depth := vt.samples != ._1
 	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
 	// A frame in flight may still read these; the backend defers the release until it is done.
-	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([3]gpu.Texture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu.release_texture(r.device, t)
 	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
 	lao.key = 0
 	if want_view_depth {
 		lao.view_depth = gpu.create_texture(r.device, {
-			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
+			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	lao.ao = gpu.create_texture(r.device, {
-		type = .D2, format = LIVE_AO_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+		type = .D2, format = LIVE_AO_FORMAT, usage = {.Color_Target, .Sampled},
 		width = (vt.width + scale - 1) / scale, height = (vt.height + scale - 1) / scale, layer_count_or_depth = 1, num_levels = 1,
 	})
 	lao.shown = gpu.create_texture(r.device, {
-		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	lao.width, lao.height, lao.scale = vt.width, vt.height, scale

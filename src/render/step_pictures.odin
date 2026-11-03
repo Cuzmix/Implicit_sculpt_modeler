@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 // the interface shows a cell at a time. Cells are taken in turn, so the newest
 // STEP_PICTURE_SLOTS steps keep theirs.
 Step_Pictures :: struct {
-	atlas:   ^sdl.GPUTexture,
+	atlas:   gpu.Texture,
 	scratch: Thumbnail_View,
 	failed:  bool, // the device refused a texture; no picture is drawn
 }
@@ -31,13 +31,13 @@ step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 
 // Draws `items` seen through `view` and `proj` (the main view's, narrowed to the cell's
 // square) on `background` into cell `slot`. False when there is no atlas to draw into.
-step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: ^sdl.GPUCommandBuffer, slot: int, view, proj: Mat4, items: []Draw_Item, background: [4]f32) -> bool {
+step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: gpu.Cmd, slot: int, view, proj: Mat4, items: []Draw_Item, background: [4]f32) -> bool {
 	debug_group(cmd, "Step picture", .Pictures)
 	if s.failed || slot < 0 || slot >= STEP_PICTURE_SLOTS do return false
 	if s.atlas == nil {
 		SIZE :: STEP_PICTURE_PX * STEP_PICTURE_CELLS
 		s.atlas = gpu.create_texture(r.device, {
-			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if s.atlas == nil {
@@ -46,7 +46,7 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: ^sdl.GPUCommand
 			return false
 		}
 		// A new texture holds anything: every cell starts empty.
-		color := sdl.GPUColorTargetInfo{texture = s.atlas, load_op = .CLEAR, store_op = .STORE}
+		color := gpu.Color_Target{texture = s.atlas, load_op = .Clear, store_op = .Store}
 		pass := gpu.begin_render_pass(cmd, &color, 1, nil)
 		gpu.end_render_pass(pass)
 	}

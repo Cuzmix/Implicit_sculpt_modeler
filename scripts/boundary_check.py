@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fails when a package other than src/gpu talks to a GPU API, when one other than src/render
-imports src/gpu, when one other than those two names SDL_GPU's types, or when anything calls
+imports src/gpu, when one other than src/gpu names SDL_GPU's types, or when anything calls
 SDL_GPU at all.
 
 Only src/gpu talks to the GPU: it holds the seam (hal.odin) and the Vulkan, Metal and
@@ -13,7 +13,10 @@ system's services (APP_SDL_FILES); the tools, panels, commands and files name ke
 app's own Key (keys.odin) and ask platform.odin for the rest, and no other package
 imports SDL at all. SDL_GPU no longer draws: the seam (src/gpu/hal.odin, gpu.create_texture
 for sdl.CreateGPUTexture and so on) hands every call to a backend, and no file calls one of
-SDL_GPU's procs; its types and info structs stay the seam's vocabulary for now.
+SDL_GPU's procs. The seam speaks the gpu package's own types (src/gpu/types.odin): render
+names none of SDL_GPU's, and only the backends still hold SDL's opaque handle types
+underneath, until the GPU abstraction's own handles replace them
+(notes/gpu-own-model/design.md, G1b).
 """
 import pathlib
 import re
@@ -26,6 +29,8 @@ GPU_NAME = re.compile(r"\bsdl\.\w*GPU\w*")
 # A call of one of SDL_GPU's procs: they start with a verb (sdl.CreateGPUTexture,
 # sdl.WaitForGPUIdle) or ask what it supports (sdl.GPUTextureSupportsFormat), its types
 # with GPU, so a conversion such as sdl.GPUSampleCount(x) is not one.
+# SDL_GPU's types (sdl.GPUTexture, sdl.GPUTextureFormat), which render no longer names.
+GPU_TYPE = re.compile(r"\bsdl\.GPU\w*")
 GPU_CALL = re.compile(r"\bsdl\.((?!GPU)\w*GPU\w*|GPU\w*Supports\w*)\(")
 SDL_IMPORT = re.compile(r'^\s*import\s+(\w+\s+)?"vendor:sdl3[^"]*"', re.M)
 # The files of src/app that may import SDL: the run, its frame and its windows, the device
@@ -57,6 +62,9 @@ def main() -> int:
         if in_render:
             for m in GPU_IMPORT.finditer(text):
                 bad.append(f"{rel}: imports {m.group(0).strip()}; only src/gpu talks to the GPU")
+            for n, line in enumerate(text.splitlines(), 1):
+                if not line.lstrip().startswith("//") and GPU_TYPE.search(line):
+                    bad.append(f"{rel}:{n}: names SDL_GPU's type {GPU_TYPE.search(line).group(0)}; use the gpu package's (src/gpu/types.odin)")
         if in_gpu or in_render:
             continue
         for n, line in enumerate(text.splitlines(), 1):

@@ -38,9 +38,9 @@ Textured_Vertex :: struct {
 #assert(size_of(Textured_Vertex) == 32)
 
 Textured_Mesh :: struct {
-	vertices:        ^sdl.GPUBuffer,
-	indices:         ^sdl.GPUBuffer,
-	transfer:        ^sdl.GPUTransferBuffer,
+	vertices:        gpu.Buffer,
+	indices:         gpu.Buffer,
+	transfer:        gpu.Transfer_Buffer,
 	vertex_capacity: u32, // vertices
 	index_capacity:  u32, // indices
 	transfer_size:   u32, // bytes
@@ -49,25 +49,25 @@ Textured_Mesh :: struct {
 	// For render mode (path.odin): each corner of each triangle of the object's sculpt mesh
 	// the preview stands for, in that mesh's order, as a slot in `vertices`; as many
 	// corners as `indices` has, or none (corner_count 0) where they could not be matched.
-	corners:         ^sdl.GPUBuffer,
+	corners:         gpu.Buffer,
 	corner_count:    u32,
-	maps:            [Texture_Map]^sdl.GPUTexture, // nil: none (a default is bound)
+	maps:            [Texture_Map]gpu.Texture, // nil: none (a default is bound)
 	sizes:           [Texture_Map][2]u32,
 	stamp:           u64, // changes whenever the vertices or indices do
 	maps_stamp:      u64, // changes whenever a map does
 }
 
-TEXTURE_FORMATS := [Texture_Map]sdl.GPUTextureFormat {
-	.Base_Color = .R8G8B8A8_UNORM_SRGB,
-	.Orm        = .R8G8B8A8_UNORM,
-	.Normal     = .R8G8B8A8_UNORM,
+TEXTURE_FORMATS := [Texture_Map]gpu.Format {
+	.Base_Color = .RGBA8_Srgb,
+	.Orm        = .RGBA8_Unorm,
+	.Normal     = .RGBA8_Unorm,
 }
 
 // Copies `vertices` and `indices` into the mesh's buffers in a copy pass on `cmd`, growing
 // them (and waiting for the GPU before the old ones go) when they are too small, with
 // `corners` (geom.quad_mesh_triangle_corners; nil or the wrong count for none). False,
 // with the reason logged and the mesh left drawing nothing, when the device refuses.
-textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Textured_Mesh, vertices: []Textured_Vertex, indices: []u32, corners: []u32 = nil) -> bool {
+textured_mesh_upload :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh, vertices: []Textured_Vertex, indices: []u32, corners: []u32 = nil) -> bool {
 	vbytes, ibytes := u32(len(vertices) * size_of(Textured_Vertex)), u32(len(indices) * size_of(u32))
 	if vbytes == 0 || ibytes == 0 {
 		tm.index_count, tm.corner_count = 0, 0
@@ -79,12 +79,12 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
 		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + 2 * tm.index_capacity * size_of(u32)
-		tm.vertices = gpu.create_buffer(r.device, {usage = {.VERTEX}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
-		tm.indices = gpu.create_buffer(r.device, {usage = {.INDEX}, size = tm.index_capacity * size_of(u32)})
+		tm.vertices = gpu.create_buffer(r.device, {usage = {.Vertex}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
+		tm.indices = gpu.create_buffer(r.device, {usage = {.Index}, size = tm.index_capacity * size_of(u32)})
 		// Render mode only copies it into its own buffers; storage read is a usage every
 		// device takes.
-		tm.corners = gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tm.index_capacity * size_of(u32)})
-		tm.transfer = gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = tm.transfer_size})
+		tm.corners = gpu.create_buffer(r.device, {usage = {.Storage_Read}, size = tm.index_capacity * size_of(u32)})
+		tm.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = tm.transfer_size})
 		if tm.vertices == nil || tm.indices == nil || tm.corners == nil || tm.transfer == nil {
 			log.errorf("textured mesh buffers: %s", sdl.GetError())
 			textured_buffers_release(r, tm)
@@ -164,19 +164,19 @@ draws_textured :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 // Draws `item` from its textured mesh with the textured pipeline (bound by the caller),
 // its maps bound after the MatCap and the environment, and defaults for the ones it lacks.
 @(private)
-draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, item: Draw_Item, frame: ^Frame_Uniforms, material: ^Material_Uniforms, stats: ^Viewport_Stats) {
+draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, item: Draw_Item, frame: ^Frame_Uniforms, material: ^Material_Uniforms, stats: ^Viewport_Stats) {
 	tm := item.textured
 	for m in Texture_Map do material.maps[int(m)] = 1 if tm.maps[m] != nil else 0
 	material.maps.w = f32(item.texture_view)
 	gpu.push_vertex_uniform_data(cmd, 0, frame, size_of(Frame_Uniforms))
 	gpu.push_fragment_uniform_data(cmd, 0, material, size_of(Material_Uniforms))
-	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
-	samplers := [5]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
+	defaults := [Texture_Map]gpu.Texture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
+	samplers := [5]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
 	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != nil else defaults[m], sampler = r.texture_sampler}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	vbuf := sdl.GPUBufferBinding{buffer = tm.vertices}
+	vbuf := gpu.Buffer_Binding{buffer = tm.vertices}
 	gpu.bind_vertex_buffers(pass, 0, &vbuf, 1)
-	gpu.bind_index_buffer(pass, {buffer = tm.indices}, ._32BIT)
+	gpu.bind_index_buffer(pass, {buffer = tm.indices}, .U32)
 	gpu.draw_indexed_primitives(pass, tm.index_count, 1, 0, 0, 0)
 	if stats == nil do return
 	stats.triangles += u64(tm.index_count / 3)
@@ -187,11 +187,11 @@ draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.
 // to bottom) with a full mip chain built on the GPU. Nil, with the reason logged, when
 // the device refuses.
 @(private)
-texture_create :: proc(r: ^Renderer, format: sdl.GPUTextureFormat, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
+texture_create :: proc(r: ^Renderer, format: gpu.Format, pixels: []u8, width, height: int) -> gpu.Texture {
 	assert(width > 0 && height > 0 && len(pixels) == width * height * 4)
 	levels := u32(bits.log2(uint(max(width, height)))) + 1
 	tex := gpu.create_texture(r.device, {
-		type = .D2, format = format, usage = {.SAMPLER, .COLOR_TARGET},
+		type = .D2, format = format, usage = {.Sampled, .Color_Target},
 		width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = levels,
 	})
 	if tex == nil {

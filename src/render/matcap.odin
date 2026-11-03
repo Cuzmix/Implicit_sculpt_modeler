@@ -10,18 +10,18 @@ import sdl "vendor:sdl3"
 // Blender's MatCap shading do. The picture is sRGB, so sampling returns linear light and
 // filtering blends in linear light; it has a full mip chain, so a dense mesh whose normals
 // turn quickly across a pixel reads the blurred sphere rather than shimmering.
-MATCAP_FORMAT :: sdl.GPUTextureFormat.R8G8B8A8_UNORM_SRGB
+MATCAP_FORMAT :: gpu.Format.RGBA8_Srgb
 
 // Makes a matcap texture from `pixels`: RGBA8 sRGB, rows top to bottom, `width` by
 // `height`, the sphere filling the picture. The upload and the mip chain are recorded on
 // a command buffer of their own and submitted, so it may be called outside a frame. Nil,
 // with the reason logged, when the device refuses.
-matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
+matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> gpu.Texture {
 	return texture_create(r, MATCAP_FORMAT, pixels, width, height)
 }
 
 // Waits for the GPU (a frame in flight may still sample it) and releases the texture.
-matcap_destroy :: proc(r: ^Renderer, tex: ^^sdl.GPUTexture) {
+matcap_destroy :: proc(r: ^Renderer, tex: ^gpu.Texture) {
 	if tex^ == nil do return
 	_ = gpu.wait_for_idle(r.device)
 	gpu.release_texture(r.device, tex^)
@@ -31,8 +31,8 @@ matcap_destroy :: proc(r: ^Renderer, tex: ^^sdl.GPUTexture) {
 // Copies RGBA8 `pixels` into mip level 0 of `tex` and, with `mips`, has the GPU build the
 // rest of the chain; waits for the GPU so the transfer buffer can go at once.
 @(private)
-texture_upload :: proc(r: ^Renderer, tex: ^sdl.GPUTexture, pixels: []u8, width, height: int, mips: bool) -> bool {
-	transfer := gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = u32(len(pixels))})
+texture_upload :: proc(r: ^Renderer, tex: gpu.Texture, pixels: []u8, width, height: int, mips: bool) -> bool {
+	transfer := gpu.create_transfer_buffer(r.device, {usage = .Upload, size = u32(len(pixels))})
 	if transfer == nil {
 		log.errorf("texture upload buffer: %s", sdl.GetError())
 		return false
@@ -70,6 +70,6 @@ texture_upload :: proc(r: ^Renderer, tex: ^sdl.GPUTexture, pixels: []u8, width, 
 // (as the viewport's own pictures are, so the interface draws it unchanged), rows top to
 // bottom, `width` by `height`, with mips for drawing it smaller. Release it with
 // matcap_destroy. Nil, with the reason logged, when the device refuses.
-picture_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
+picture_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> gpu.Texture {
 	return texture_create(r, VIEWPORT_COLOR_FORMAT, pixels, width, height)
 }

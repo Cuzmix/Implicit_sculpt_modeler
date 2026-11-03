@@ -36,8 +36,8 @@ Mtl_Window :: struct {
 	window:       ^sdl.Window,
 	view:         sdl.MetalView,
 	layer:        ^CA.MetalLayer,
-	format:       sdl.GPUTextureFormat,
-	present_mode: sdl.GPUPresentMode,
+	format:       Format,
+	present_mode: Present_Mode,
 	// The texture the app draws the window into: a container whose one backing is pointed
 	// at each frame's drawable.
 	texture:      Mtl_Texture,
@@ -184,14 +184,14 @@ mtl_window_find :: proc(window: ^sdl.Window) -> ^Mtl_Window {
 
 // The Mac turns vsync off by not syncing the layer to the display; the iPad always syncs.
 @(private = "file")
-mtl_layer_present_mode :: proc(w: ^Mtl_Window, mode: sdl.GPUPresentMode) {
+mtl_layer_present_mode :: proc(w: ^Mtl_Window, mode: Present_Mode) {
 	when !ODIN_PLATFORM_SUBTARGET_IOS {
-		CA.MetalLayer_setDisplaySyncEnabled(w.layer, mode != .IMMEDIATE)
+		CA.MetalLayer_setDisplaySyncEnabled(w.layer, mode != .Immediate)
 	}
 	w.present_mode = mode
 }
 
-mtl_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
+mtl_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	NS.scoped_autoreleasepool()
 	if mtl_window_find(window) != nil do return true
 	view := sdl.Metal_CreateView(window)
@@ -200,15 +200,15 @@ mtl_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
 	w.window, w.view = window, view
 	w.layer = (^CA.MetalLayer)(sdl.Metal_GetLayer(view))
 	CA.MetalLayer_setDevice(w.layer, mtl_state.device)
-	mtl_layer_present_mode(w, .VSYNC)
+	mtl_layer_present_mode(w, .Vsync)
 	// SDL_GPU's SDR composition: BGRA8 in the sRGB colour space.
-	w.format = .B8G8R8A8_UNORM
+	w.format = .BGRA8_Unorm
 	CA.MetalLayer_setPixelFormat(w.layer, .BGRA8Unorm)
 	if space := CGColorSpaceCreateWithName(kCGColorSpaceSRGB); space != nil {
 		CA.MetalLayer_setColorSpace(w.layer, NS.id(space))
 		CGColorSpaceRelease(space)
 	}
-	w.texture.info = {type = .D2, format = w.format, usage = {.COLOR_TARGET}, layer_count_or_depth = 1, num_levels = 1}
+	w.texture.info = {type = .D2, format = w.format, usage = {.Color_Target}, layer_count_or_depth = 1, num_levels = 1}
 	w.texture.swapchain = true
 	w.texture.active = &w.backing
 	w.backing.owner = &w.texture
@@ -218,7 +218,7 @@ mtl_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
 	return true
 }
 
-mtl_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {
+mtl_release_window :: proc(device: Device, window: ^sdl.Window) {
 	w := mtl_window_find(window)
 	if w == nil do return
 	_ = mtl_wait_for_idle(device)
@@ -237,18 +237,18 @@ mtl_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {
 }
 
 // Vsync everywhere, and no sync on the Mac only, as SDL_GPU offers.
-mtl_window_supports_present_mode :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, present_mode: sdl.GPUPresentMode) -> bool {
+mtl_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
 	switch present_mode {
-	case .VSYNC:     return true
-	case .IMMEDIATE: return !ODIN_PLATFORM_SUBTARGET_IOS
-	case .MAILBOX:   return false
+	case .Vsync:     return true
+	case .Immediate: return !ODIN_PLATFORM_SUBTARGET_IOS
+	case .Mailbox:   return false
 	}
 	return false
 }
 
-mtl_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, swapchain_composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
+mtl_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
 	w := mtl_window_find(window)
-	if w == nil || swapchain_composition != .SDR || !mtl_window_supports_present_mode(device, window, present_mode) {
+	if w == nil || swapchain_composition != .Sdr || !mtl_window_supports_present_mode(device, window, present_mode) {
 		sdl.SetError("this swapchain composition or present mode is not offered")
 		return false
 	}
@@ -259,7 +259,7 @@ mtl_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window
 
 // As SDL_GPU's Metal: the GPU is waited for, then each window starts again at its first
 // frame slot.
-mtl_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
+mtl_set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_flight: u32) -> bool {
 	if !mtl_wait_for_idle(device) do return false
 	mtl_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
 	for w in mtl_state.windows {
@@ -269,12 +269,12 @@ mtl_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_
 	return true
 }
 
-mtl_get_swapchain_texture_format :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUTextureFormat {
+mtl_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
 	w := mtl_window_find(window)
-	return w.format if w != nil else .INVALID
+	return w.format if w != nil else .Invalid
 }
 
-mtl_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl.Window, texture: ^^sdl.GPUTexture, width, height: ^u32, wait: bool) -> bool {
+mtl_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: ^Texture, width, height: ^u32, wait: bool) -> bool {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	texture^ = nil
@@ -310,6 +310,6 @@ mtl_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sd
 	w.backing.texture = CA.MetalDrawable_texture(drawable)
 	append(&cmd.presents, Mtl_Present{w, drawable, slot})
 	w.frame = (w.frame + 1) % int(mtl_state.frames)
-	texture^ = (^sdl.GPUTexture)(&w.texture)
+	texture^ = (Texture)(&w.texture)
 	return true
 }

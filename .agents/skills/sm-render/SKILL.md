@@ -323,9 +323,11 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   SDL_GPU is retired: render calls the GPU only through the seam `src/gpu/hal.odin`, whose procs keep SDL_GPU's
   names without the prefix and its arguments (`gpu.create_texture` for `sdl.CreateGPUTexture`) and hand each call to
   the Metal backend under `when METAL` (Darwin), the WebGPU one under `when WEBGPU` and the Vulkan one otherwise;
-  nothing else chooses a backend. The check fails on any `sdl.*GPU*(` call anywhere. SDL's types and info structs
-  stay, as opaque handles render never dereferences, until the GPU abstraction's own types replace them
-  (`notes/gpu-own-model/design.md`, G1b).
+  nothing else chooses a backend. The check fails on any `sdl.*GPU*(` call anywhere and on any `sdl.GPU*` type in render: the seam
+  speaks `src/gpu/types.odin` (`gpu.Format`, `gpu.Texture_Desc`, `gpu.Color_Target`, ...; Ada_Case members such
+  as `.RGBA8_Unorm`, `.Clear`, `.Triangle_List`). Its handles (`gpu.Texture`, `gpu.Buffer`, `gpu.Cmd`, ...) are
+  still SDL's opaque pointers underneath, which render never dereferences, until the GPU abstraction's own
+  handles replace them (`notes/gpu-own-model/design.md`, G1b).
   `render` never reads UI state.
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.

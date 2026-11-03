@@ -16,9 +16,9 @@ Vk_Window :: struct {
 	surface:      vk.SurfaceKHR,
 	swapchain:    vk.SwapchainKHR,
 	format:       vk.Format,
-	sdl_format:   sdl.GPUTextureFormat,
+	sdl_format:   Format,
 	color_space:  vk.ColorSpaceKHR,
-	present_mode: sdl.GPUPresentMode,
+	present_mode: Present_Mode,
 	width:        u32,
 	height:       u32,
 	textures:     []^Vk_Texture,
@@ -101,11 +101,11 @@ vk_window_find :: proc(window: ^sdl.Window) -> ^Vk_Window {
 }
 
 @(private = "file")
-vk_present_mode :: proc(mode: sdl.GPUPresentMode) -> vk.PresentModeKHR {
+vk_present_mode :: proc(mode: Present_Mode) -> vk.PresentModeKHR {
 	switch mode {
-	case .VSYNC:     return .FIFO
-	case .IMMEDIATE: return .IMMEDIATE
-	case .MAILBOX:   return .MAILBOX
+	case .Vsync:     return .FIFO
+	case .Immediate: return .IMMEDIATE
+	case .Mailbox:   return .MAILBOX
 	}
 	return .FIFO
 }
@@ -200,7 +200,7 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
 	for handle, i in handles {
 		t := new(Vk_Texture)
-		t.info = {type = .D2, format = w.sdl_format, usage = {.COLOR_TARGET}, width = extent.width, height = extent.height, layer_count_or_depth = 1, num_levels = 1}
+		t.info = {type = .D2, format = w.sdl_format, usage = {.Color_Target}, width = extent.width, height = extent.height, layer_count_or_depth = 1, num_levels = 1}
 		t.format, t.aspect, t.usage = w.format, {.COLOR}, usage
 		t.default_layout = .COLOR_ATTACHMENT_OPTIMAL
 		t.swapchain = true
@@ -222,7 +222,7 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 	return true
 }
 
-vk_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
+vk_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	if vk_window_find(window) != nil do return true
 	w := new(Vk_Window)
 	w.window = window
@@ -256,8 +256,8 @@ vk_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
 		sdl.SetError("the window offers no 8-bit sRGB swapchain format")
 		return false
 	}
-	w.sdl_format = .B8G8R8A8_UNORM if w.format == .B8G8R8A8_UNORM else .R8G8B8A8_UNORM
-	w.present_mode = .VSYNC
+	w.sdl_format = .BGRA8_Unorm if w.format == .B8G8R8A8_UNORM else .RGBA8_Unorm
+	w.present_mode = .Vsync
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
 	for &s in w.acquired do _ = vk.CreateSemaphore(vk_state.device, &semaphore, nil, &s)
 	append(&vk_state.windows, w)
@@ -265,7 +265,7 @@ vk_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
 	return true
 }
 
-vk_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {
+vk_release_window :: proc(device: Device, window: ^sdl.Window) {
 	w := vk_window_find(window)
 	if w == nil do return
 	_ = vk_wait_for_idle(device)
@@ -280,8 +280,8 @@ vk_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {
 	free(w)
 }
 
-vk_window_supports_present_mode :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, present_mode: sdl.GPUPresentMode) -> bool {
-	if present_mode == .VSYNC do return true
+vk_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+	if present_mode == .Vsync do return true
 	w := vk_window_find(window)
 	if w == nil do return false
 	count: u32
@@ -293,9 +293,9 @@ vk_window_supports_present_mode :: proc(device: ^sdl.GPUDevice, window: ^sdl.Win
 	return false
 }
 
-vk_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, swapchain_composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
+vk_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, swapchain_composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
 	w := vk_window_find(window)
-	if w == nil || swapchain_composition != .SDR || !vk_window_supports_present_mode(device, window, present_mode) {
+	if w == nil || swapchain_composition != .Sdr || !vk_window_supports_present_mode(device, window, present_mode) {
 		sdl.SetError("this swapchain composition or present mode is not offered")
 		return false
 	}
@@ -306,19 +306,19 @@ vk_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window,
 
 // As SDL_GPU's: a frame slot per allowed frame. The GPU is waited for first, so every slot
 // is free and each window starts again at its first; the swapchains stay as they are.
-vk_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, allowed_frames_in_flight: u32) -> bool {
+vk_set_allowed_frames_in_flight :: proc(device: Device, allowed_frames_in_flight: u32) -> bool {
 	if !vk_wait_for_idle(device) do return false
 	vk_state.frames = clamp(allowed_frames_in_flight, 1, FRAMES_IN_FLIGHT_MAX)
 	for w in vk_state.windows do w.frame = 0
 	return true
 }
 
-vk_get_swapchain_texture_format :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUTextureFormat {
+vk_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
 	w := vk_window_find(window)
-	return w.sdl_format if w != nil else .INVALID
+	return w.sdl_format if w != nil else .Invalid
 }
 
-vk_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl.Window, texture: ^^sdl.GPUTexture, width, height: ^u32, wait: bool) -> bool {
+vk_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: ^Texture, width, height: ^u32, wait: bool) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
 	texture^ = nil
 	w := vk_window_find(window)
@@ -360,7 +360,7 @@ vk_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl
 	vk_image_barrier(cmd, t.active, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
 	append(&cmd.presents, Vk_Present{w, index, slot})
 	w.frame = (w.frame + 1) % int(vk_state.frames)
-	texture^ = (^sdl.GPUTexture)(t)
+	texture^ = (Texture)(t)
 	if width != nil do width^ = w.width
 	if height != nil do height^ = w.height
 	return true
@@ -431,7 +431,7 @@ vk_present_learn :: proc(w: ^Vk_Window, wait: bool) {
 	case .None, .Presented_Handler:
 	case .Present_Wait:
 		back := u64(vk_state.frames - 1)
-		if wait && w.present_mode == .VSYNC && w.pace_misses < VK_PACE_MISSES && w.present_id > back {
+		if wait && w.present_mode == .Vsync && w.pace_misses < VK_PACE_MISSES && w.present_id > back {
 			target := w.present_id - back
 			if target >= w.present_base && target > w.present_seen {
 				r := vk.WaitForPresentKHR(vk_state.device, w.swapchain, target, VK_PACE_TIMEOUT_NS)
