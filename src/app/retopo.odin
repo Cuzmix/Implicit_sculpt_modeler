@@ -243,7 +243,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	faces := fmt.tprintf("%s quads", thousands(res.quads))
 	if res.quads != res.faces do faces = fmt.tprintf("%s quads, %d triangles and %d larger faces, so no UVs", thousands(res.quads), res.triangles, res.ngons)
 	uvs := fmt.tprintf(", UVs in %d charts", charts) if charts > 0 else ""
-	report(app, Kit_Section.Retopo, flags, "Quad remeshed %s: %s (%s)%s, %.0f ms", object_label(obj), faces, engine, uvs, res.retopo_ms + res.uv_ms)
+	report(app, Panel_Kind.Retopo, flags, "Quad remeshed %s: %s (%s)%s, %.0f ms", object_label(obj), faces, engine, uvs, res.retopo_ms + res.uv_ms)
 	if res.engine == .Own {
 		how := res.how
 		log.infof("quad remesh: built-in decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * res.uv.filled, res.uv_ms)
@@ -390,7 +390,7 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	if app.texture_view == .Off do app.texture_view = .Textured
 	share := 100 * f64(maps.hit) / f64(max(maps.covered, 1))
 	more := strings.join(written[:], ", ", context.temp_allocator)
-	report(app, Kit_Section.Retopo, {.Warning} if share < 99 else {}, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png%s%s and .obj written, and the maps shown on it (View > Textures)%s",
+	report(app, Panel_Kind.Retopo, {.Warning} if share < 99 else {}, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png%s%s and .obj written, and the maps shown on it (View > Textures)%s",
 		object_label(low), object_label(src), size, size, baked_ms, share, full, base, ", " if more != "" else "", more,
 		"; it has dynamic topology, so no paint or polygroups to bake" if object_dynamic(src) && kinds & {.Base_Color, .Id} != {} else "")
 }

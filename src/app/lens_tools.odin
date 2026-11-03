@@ -11,7 +11,7 @@ import "../ui"
 // iPad's tool palettes have; Geometry holds Remesh, the subdivision levels and Modify
 // topology; Deform is the Deformation section. Every button is a command of the registry,
 // so its key, gesture and whether it can run now come from there. The full sections (Mask
-// by, Steps' help, Grow all and the rest) are cards of their own, which Show section opens.
+// by, Steps' help, Grow all and the rest) are cards of their own, which Open card opens.
 
 Tools_Tab :: enum u8 {
 	Mask,

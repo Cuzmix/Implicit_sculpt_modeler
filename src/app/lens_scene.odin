@@ -388,7 +388,7 @@ kit_scene_add_menu :: proc(app: ^App) {
 	t := ctx.theme
 	ol := &k.outliner
 	if !ol.add do return
-	// Opened by Show section (Add object) before the card was laid out: under its Add.
+	// Opened before the card was laid out: under its Add.
 	if ol.add_at.w <= 0 do ol.add_at = ui.prev_rect(ctx, "Add##scene add")
 	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)

@@ -68,7 +68,7 @@ VALUE_LOOK_NAMES := [Value_Look]string {
 
 // The section each value's settings are in, which its menu's Brush settings opens.
 @(rodata)
-BRUSH_VALUE_SECTIONS := [Brush_Value]Kit_Section {
+BRUSH_VALUE_SECTIONS := [Brush_Value]Panel_Kind {
 	.Size        = .Pen,
 	.Strength    = .Pen,
 	.Focal_Shift = .Falloff,

@@ -26,7 +26,7 @@ show_where_finds_every_home :: proc(t: ^testing.T) {
 			testing.expect(t, tray_show(&app, id, arg))
 			revealed, _ := app.kit.stack.revealed.?
 			testing.expectf(t, revealed == sec, "%v:%d opened %v", id, arg, revealed)
-			card := stack_card_of(&app, sec, exact = true)
+			card := stack_card_of(&app, sec)
 			testing.expectf(t, palette_on_screen(&app, card), "%v:%d left %v off screen", id, arg, card)
 			ui.frame_begin(ctx, {window = {1600, 900}, pixel_density = 1, dt = 1.0 / 60})
 			ui.begin_anchored(ctx, "tray", .End, .Start, {0, 0}, {direction = .Column, width = KIT_INSPECTOR_W})

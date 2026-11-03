@@ -222,8 +222,6 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 		return id, arg, best >= 0
 	}
 	for a in 0 ..< n do if command_arg_name(id, a) == tail {
-		// A section that is a card's twin is named only as the card (Show_Panel).
-		if id == .Show_Section && section_is_card(Kit_Section(a)) do return
 		return id, a, true
 	}
 	return
@@ -264,8 +262,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
-	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
-	case .Show_Panel: return fmt.tprint(Panel_Kind(arg))
+	case .Open_Card, .Pin_Section: return fmt.tprint(Panel_Kind(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
 	case .Space_Switch: return fmt.tprint(Space(arg))

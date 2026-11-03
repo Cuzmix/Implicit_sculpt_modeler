@@ -56,7 +56,7 @@ ADJUST_NAMES := [Adjust_Op]string {
 
 // The inspector section whose settings each operation takes.
 @(rodata)
-ADJUST_SECTIONS := [Adjust_Op]Kit_Section {
+ADJUST_SECTIONS := [Adjust_Op]Panel_Kind {
 	.None       = .Remesh,
 	.Remesh     = .Remesh,
 	.Decimate   = .Remesh,

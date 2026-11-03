@@ -280,7 +280,7 @@ symmetry_controls :: proc(app: ^App) {
 
 // Section `sec` of the tray, wherever its palette lists it: its title and what draws it
 // (for the Object palette's, with the object).
-bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
+bar_section :: proc(app: ^App, sec: Panel_Kind) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title, nil, s.draw, true

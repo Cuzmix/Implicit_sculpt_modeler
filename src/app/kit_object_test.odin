@@ -6,13 +6,13 @@ import "core:testing"
 // exactly one page, every page has one, and none holds more than six (UX roadmap phase 3).
 @(test)
 object_sections_each_on_one_page :: proc(t: ^testing.T) {
-	seen: [Kit_Section]int
+	seen: [Panel_Kind]int
 	per_page: [Object_Page]int
 	for sec in OBJECT_SECTIONS {
 		seen[sec.section] += 1
 		per_page[sec.page] += 1
 	}
-	for s in Kit_Section.Transform ..= Kit_Section.Extract {
+	for s in Panel_Kind.Transform ..= Panel_Kind.Extract {
 		testing.expectf(t, seen[s] == 1, "%v is on %d pages", s, seen[s])
 	}
 	for n, page in per_page do testing.expectf(t, n >= 1 && n <= 6, "%v has %d sections", page, n)

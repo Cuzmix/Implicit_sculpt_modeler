@@ -31,7 +31,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`viewport_mute`). Nothing else reaches the camera or the tools.
 - `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
   there, the pie, the S/U adjust, curve handles, and each section's own settings and last results. `Kit_State`
-  (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
+  (`new_ui.odin:30`): the kit context, which tab, which sections show More (`Panel_Kind`), menus, Stats (Simple or
   Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens; never add a second chrome (`settings_load` passes over the old Classic lines). `kit_layout`
@@ -167,14 +167,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`kit_tool.odin`: the brush's `BRUSH_SECTIONS`; `kit_tool_tab` is the Brush card under Curve, Insert, Move or
   Model), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: `kit_scene_objects`, the rows
   with eye and ghost in `scene_tree.odin`, then `SCENE_SECTIONS`); each section is a `Panel_Kind` card drawn by
-  `panel_body`; the stack's width is `tray_width`. Open a section with `tray_open(app, sec)`; Kit_Section
-  keeps the tray's sections first (`TRAY_SECTIONS`, `section_palette`) and the Stats panel's after. A feature's
+  `panel_body`; the stack's width is `tray_width`. Open a card with `tray_open(app, p)`; `Panel_Kind`
+  is the one card enum (cards of their own first, then the sections; `section_palette` says whose a section is). A feature's
   section lives beside its code (`kit_layers_section` in `layers.odin`, …) and starts with nothing but its
   controls (the tray draws its title). The content is the clipped "inspector body", which scrolls (see Input
   routing); the list scrolls on its own. Search's Show where (`tray_show`, `COMMAND_HOMES`) marks a command's
   control: `command_hint` calls `tray_mark`, which `ui.mark_next`s the next control while the tray draws, and
   `tray_mark_draw` rings `ctx.marked.rect`; `show_where_finds_every_home` checks every home has its control. The
-  Show_Section command (one argument per section) opens any section from search, keys and scripts. While Settings
+  Open_Card command (one argument per `Panel_Kind`) opens any card from search, bars, keys and scripts. While Settings
   or Help is open the tray is hidden and inert.
 - Settings (`kit_settings.odin`, `settings_sections.odin`): one list of `Settings_Section`s. From
   `SETTINGS_SHEET_MIN_WINDOW` the sheet (sections down its side, the open one beside them); narrower, a panel in the
@@ -279,7 +279,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | Want | Do |
 |---|---|
 | a control | a widget call in the right section of `kit_tool.odin`, `kit_object.odin`, `kit_scene.odin` or a feature's `kit_*_section`, editing `App` through a pointer |
-| a new section | a `Kit_Section` value (`new_ui.odin`), open by default only if it belongs in `kit_init`'s list, and a row in the tab's table (`BRUSH_SECTIONS` in kit_tool.odin, `OBJECT_SECTIONS` in kit_object.odin, `SCENE_SECTIONS` in kit_scene.odin), which draws it inside `ui.section` |
+| a new section | a `Panel_Kind` value after the cards (`lens_stack.odin`), open by default only if it belongs in `kit_init`'s list, and a row in the tab's table (`BRUSH_SECTIONS` in kit_tool.odin, `OBJECT_SECTIONS` in kit_object.odin, `SCENE_SECTIONS` in kit_scene.odin), which draws it inside `ui.section` |
 | more than five controls in a section | the first five (the commonest) as they are, the rest inside `if kit_more(app, .X) { …; kit_more_end(app) }` (kit_widgets.odin): a More options fold, or everything with Settings > Interface > Show every option. `sections_show_at_most_five_controls` (kit_more_test.odin) counts `ctx.controls` for every section in its widest state and fails over five; keep "Last: ..." lines and controls other features read (Mask's Steps) out of the fold |
 | something floating (a menu, popover, list) | add its flag to `kit_floating` (new_ui.odin): Escape closes it before Settings or Help, and the first-run tip (kit_coach.odin) hides under it |
 | a gesture that should count for a first-run tip | set `app.coach_seen += {.Step}` where the gesture changes the view or the model, only once it moved (past the slop for touches); coach_update counts it when the gesture ends |

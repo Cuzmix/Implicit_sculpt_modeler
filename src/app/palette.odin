@@ -218,8 +218,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
 	.Inspector        = "panel properties tray subpalette",
-	.Show_Section     = "card section panel open go",
-	.Show_Panel       = "panel card stack open show subtools subtool list outliner objects",
+	.Open_Card        = "card section panel stack open show go",
 	.Rail_Group       = "panel group tabs stack",
 	.Pin_Section      = "pin keep card stack panel unpin",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
@@ -287,8 +286,8 @@ palette_entries :: proc() -> []Palette_Entry {
 		if !palette_lists(id) do continue
 		n := COMMANDS[id].args
 		for arg in 0 ..< max(n, 1) {
-			// A card's twin section is offered as its card, Show panel's.
-			if id == .Show_Section && section_is_card(Kit_Section(arg)) do continue
+			// Only a section's card is pinned to the stack; the cards of their own are in it.
+			if id == .Pin_Section && !panel_is_section(Panel_Kind(arg)) do continue
 			append(&out, Palette_Entry{.Command, id, arg})
 		}
 	}
@@ -769,6 +768,6 @@ palette_home :: proc(e: Palette_Entry) -> string {
 	sec, ok := COMMAND_HOMES[e.id].?
 	if !ok do return ""
 	if section_palette(sec) == .Tool do return fmt.tprintf("the Brush card's %s", tray_section_title(sec))
-	if p, _ := panel_of_section(sec); !panel_is_section(p) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[p])
+	if !panel_is_section(sec) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[sec])
 	return fmt.tprintf("the %s card", tray_section_title(sec))
 }

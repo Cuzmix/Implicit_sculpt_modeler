@@ -47,10 +47,8 @@ GROUP_COLOUR_NAMES := [len(GROUP_COLOURS)]string{"Red", "Orange", "Yellow", "Gre
 // The panel a bar slot shows; false for a slot that is not a panel's.
 slot_panel :: proc(s: Bar_Slot) -> (Panel_Kind, bool) {
 	#partial switch s.id {
-	case .Show_Panel:
-		if s.arg >= 0 && s.arg < STACK_CARD_COUNT do return Panel_Kind(s.arg), true
-	case .Show_Section:
-		if s.arg >= 0 && s.arg < TRAY_SECTIONS do return panel_of_section(Kit_Section(s.arg))
+	case .Open_Card:
+		if s.arg >= 0 && s.arg < len(Panel_Kind) do return Panel_Kind(s.arg), true
 	}
 	return .Brush, false
 }
@@ -493,6 +491,6 @@ rail_groups_text :: proc(k: ^Kit_State) -> string {
 // A panel's name in a group: its section's own title for a section's palette ("Layers",
 // as the rail's button said it), else the card's.
 group_panel_title :: proc(app: ^App, p: Panel_Kind) -> string {
-	if sec, ok := panel_section(p); ok do return tray_section_title(sec)
+	if panel_is_section(p) do return tray_section_title(p)
 	return stack_title(app, p)
 }

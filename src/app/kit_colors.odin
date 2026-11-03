@@ -1092,7 +1092,7 @@ eyedropper_command :: proc(app: ^App) {
 	if u.viewport_hovered && !u.eyedrop_armed {
 		if rgb, ok := color_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
-			report(app, Kit_Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
+			report(app, Panel_Kind.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
 		return
 	}
@@ -1115,9 +1115,9 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	u.eyedrop_held = false
 	if u.eyedrop_hit {
 		colors_pick(app, u.eyedrop_color)
-		report(app, Kit_Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
+		report(app, Panel_Kind.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
 	} else {
-		report(app, Kit_Section.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
+		report(app, Panel_Kind.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
 	}
 	return true
 }

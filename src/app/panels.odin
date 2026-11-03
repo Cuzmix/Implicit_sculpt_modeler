@@ -254,7 +254,7 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 }
 
 // What section `sec` holds, in a few words, for its folded card.
-section_summary :: proc(app: ^App, sec: Kit_Section) -> string {
+section_summary :: proc(app: ^App, sec: Panel_Kind) -> string {
 	obj := selected_object(app)
 	{
 		#partial switch sec {
@@ -277,9 +277,6 @@ section_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 		case .Material:
 			if obj == nil || obj.material.label == nil do return ""
 			return string(obj.material.label)
-		case .Objects:
-			n := len(app.scene.objects)
-			return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
 		case .Render:
 			if !render_switch_on(app) do return "Off"
 			return "Full" if app.render_on else "Fast"

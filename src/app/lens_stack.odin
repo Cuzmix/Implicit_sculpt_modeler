@@ -9,7 +9,7 @@ import "../ui"
 
 // The Lens panel stack (round 2 of the mockups, screens sculpt2 and brushPanel): the
 // palettes as a stack of cards down the pen side, Brush, Symmetry, Layers, Scene and
-// Tools, and every tray section a card of its own that Show section brings in (round 3,
+// Tools, and every tray section a card of its own that Open card brings in (round 3,
 // PR 9: the tray and its Palettes card are gone). Each card
 // has the mockups' header: a grip that drags it up or down the stack (or out, to float),
 // a chevron that folds it to its header and a line saying what it holds, its icon and
@@ -19,10 +19,10 @@ import "../ui"
 // the tray's panel (Kit_Window.Inspector), so it docks, floats and opens wherever the tray
 // does.
 
-// Every card the stack holds: the cards of their own, then one card for each section, in
-// Kit_Section's order. A section that is a card's twin (Layers, Material, Lights,
-// Environment, and Objects and Add object, the Scene card's) has no card of its own: it
-// opens its card (panel_of_section). Files name them by panel_word, never by number.
+// Every card: the cards of their own (STACK_CARDS), then one card for each section, in
+// Panel_Kind's order. The one enum of cards: the stack, the groups, the bars (Open card),
+// Search, keys and scripts all name a card by it. Files name them by panel_word, never by
+// number.
 Panel_Kind :: enum u8 {
 	Brush,
 	Symmetry,
@@ -116,10 +116,13 @@ STACK_LOOK_CARDS :: bit_set[Panel_Kind]{.Lights, .Material, .Environment}
 // everything else; a complement keeps to the enum's cases.
 STACK_CARDS :: bit_set[Panel_Kind]{.Brush, .Symmetry, .Layers, .Scene, .Tools, .Lights, .Material, .Environment}
 STACK_SECTION_PANELS :: ~STACK_CARDS
-// The cards come first in Panel_Kind (STACK_CARDS), so Show panel's argument is below this.
-STACK_CARD_COUNT :: int(Panel_Kind.Environment) + 1
 
-STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder}
+// Whether `p` is a section's card rather than a card of its own.
+panel_is_section :: proc(p: Panel_Kind) -> bool {
+	return p in STACK_SECTION_PANELS
+}
+
+STACK_SHUT_DEFAULT :: bit_set[Panel_Kind]{.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder}
 
 // The stack's state, in Kit_State: the cards' order, which are open and which float (each
 // with its window), the Brush card's folded groups, the card its grip is carrying and the
@@ -133,7 +136,7 @@ Lens_Stack :: struct {
 	floated: bit_set[Panel_Kind],
 	hidden:  bit_set[Panel_Kind], // left out of the stack: not drawn, docked or floating
 	windows: [Panel_Kind]ui.Window,
-	shut:    bit_set[Kit_Section],
+	shut:    bit_set[Panel_Kind],
 	carry:   Maybe(Stack_Carry),
 	menu:    bool,
 	menu_of: Panel_Kind,
@@ -198,12 +201,12 @@ Lens_Stack :: struct {
 	dwell_on:   bool,
 	dwell_from: f64,
 	dwell_at:   [2]f32,
-	// Sections as cards (round 3, PR 9b): the section's palette Show section opened last
+	// Sections as cards (round 3, PR 9b): the section's palette Open card opened last
 	// while it is not kept (stack_visiting), the section opened last by stack_reveal (for
 	// the markers the Lights and Lens sections show, and the exit stats) and how many visits
 	// there were.
 	visit:    Maybe(Panel_Kind),
-	revealed: Maybe(Kit_Section),
+	revealed: Maybe(Panel_Kind),
 	visits:   int,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
@@ -294,36 +297,22 @@ slice_has :: proc(list: []Panel_Kind, c: Panel_Kind) -> bool {
 	return false
 }
 
-// The stack's card for tray section `sec`: the Brush card for the brush's sections (while
-// the brush is the tool), Layers, Scene, Lights, Material and Environment for theirs, and
-// the section's own palette for the rest. With `exact`, the section as the tray drew it:
-// the full Layers, Objects, Lights and Material sections rather than their cards.
-stack_card_of :: proc(app: ^App, sec: Kit_Section, exact := false) -> Panel_Kind {
-	if section_palette(sec) == .Tool && app.tool == .Brush do return .Brush
-	if !exact {
-		#partial switch sec {
-		case .Layers:      return .Layers
-		case .Objects, .Add: return .Scene
-		case .Lights:      return .Lights
-		case .Material:    return .Material
-		case .Environment: return .Environment
-		}
-	}
-	p, _ := panel_of_section(sec)
-	return p
+// The stack's card for card `sec`: the Brush card for the brush's sections while the
+// brush is the tool, the card itself otherwise.
+stack_card_of :: proc(app: ^App, sec: Panel_Kind) -> Panel_Kind {
+	if panel_is_section(sec) && section_palette(sec) == .Tool && app.tool == .Brush do return .Brush
+	return sec
 }
 
 // Opens the card that holds section `sec` (and, on the Brush card, unfolds its group); a
 // section's palette left out of the stack comes in as the visit (stack_visit). The tall
 // Brush card folds for another, and the stack scrolls to its top, so the card opened is in
-// sight. `exact` as stack_card_of has it (Show where).
-stack_reveal :: proc(app: ^App, sec: Kit_Section, exact := false) {
+// sight.
+stack_reveal :: proc(app: ^App, sec: Panel_Kind) {
 	k := &app.kit
 	s := &k.stack
 	if !s.set do stack_default(k)
-	c := stack_card_of(app, sec, exact)
-	// Add object is the Scene card's Add menu, opened under its Add once the card is laid out.
-	if sec == .Add do k.outliner.add, k.outliner.add_at = true, {}
+	c := stack_card_of(app, sec)
 	// A tab of a group left out comes in with its group instead, below.
 	if panel_is_section(c) && c in s.hidden && c not_in s.joined && len(stack_group(s, c)) == 1 do stack_visit(k, c)
 	s.revealed = sec
@@ -591,7 +580,7 @@ stack_brush_icon :: proc(app: ^App) -> rune {
 stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 	k := &app.kit
 	obj := selected_object(app)
-	if sec, ok := panel_section(c); ok do return section_summary(app, sec)
+	if panel_is_section(c) do return section_summary(app, c)
 	#partial switch c {
 	case .Brush:
 		if app.tool != .Brush do return ""
@@ -623,7 +612,7 @@ stack_summary :: proc(app: ^App, c: Panel_Kind) -> string {
 @(private = "file")
 stack_open_line :: proc(app: ^App, c: Panel_Kind) -> string {
 	// An Object palette section's says whose it is, as that palette's head did.
-	if sec, ok := panel_section(c); ok && section_palette(sec) == .Object {
+	if sec := c; panel_is_section(c) && section_palette(sec) == .Object {
 		obj := selected_object(app)
 		if obj == nil do return ""
 		return fmt.tprintf("%s · %s vertices", object_label(obj), count_label(object_vertex_count(obj)))
@@ -709,7 +698,7 @@ island_has_size_strength :: proc(k: ^Kit_State) -> bool {
 
 // How a Brush card group is set, for its header: the stroke and lazy mouse, the falloff,
 // the alpha, what the pen drives, the surface switches that are on, the preset.
-stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
+stack_group_summary :: proc(app: ^App, sec: Panel_Kind) -> string {
 	b := &app.brush
 	#partial switch sec {
 	case .Preset:
@@ -901,7 +890,7 @@ stack_text :: proc(k: ^Kit_State) -> string {
 // The Brush card's folded groups for the exit stats, by section, or none.
 stack_shut_text :: proc(k: ^Kit_State) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	for sec in Kit_Section {
+	for sec in Panel_Kind {
 		if sec not_in k.stack.shut do continue
 		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')
 		fmt.sbprint(&b, sec)
