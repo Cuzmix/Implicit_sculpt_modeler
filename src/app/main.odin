@@ -405,6 +405,9 @@ App :: struct {
 	skin_auto:                bool,
 	// How an OpenEXR alpha's channels are read: the app the vector map came from.
 	vdm_axes:                 sculpt.Vdm_Axes,
+	skin_map_kind:            sculpt.Skin_Map_Kind, // what Load map into skin reads an image as
+	skin_map_range:           f32, // the distance a grey map's black and white stand for
+	skin_maps_loaded:         int,
 	// What the last rebuild's skin carry reported, for the exit stats.
 	skin_carry:               sculpt.Skin_Carry_Report,
 	skin_squeezes:            int, // Squeezes run this session, for the exit stats
@@ -777,6 +780,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.skin_auto = true
+	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS

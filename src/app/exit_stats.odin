@@ -287,7 +287,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments
 			fmt.printfln("skin_segments=%d skin_auto=%d", skin_segments, int(app.skin_auto))
 			c := app.skin_carry
-			fmt.printfln("skin_carry_ms=%.1f skin_carry_worst=%.5f skin_carry_mean=%.6f skin_carry_missed=%d skin_carry_lost=%d skin_carry_side=%d skin_squeezes=%d", app.stats.skin_carry_ms, c.worst, c.mean, c.missed, c.lost, int(c.side), app.skin_squeezes)
+			fmt.printfln("skin_carry_ms=%.1f skin_carry_worst=%.5f skin_carry_mean=%.6f skin_carry_missed=%d skin_carry_lost=%d skin_carry_side=%d skin_squeezes=%d skin_maps_loaded=%d", app.stats.skin_carry_ms, c.worst, c.mean, c.missed, c.lost, int(c.side), app.skin_squeezes, app.skin_maps_loaded)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
