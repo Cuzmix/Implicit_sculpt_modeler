@@ -391,6 +391,8 @@ App :: struct {
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
+	// How an OpenEXR alpha's channels are read: the app the vector map came from.
+	vdm_axes:                 sculpt.Vdm_Axes,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens

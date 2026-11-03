@@ -91,3 +91,16 @@ vdm_from_vectors_keeps_the_offsets :: proc(t: ^testing.T) {
 	_, empty := alpha_from_vectors(nil, 0, 0)
 	testing.expect(t, !empty)
 }
+
+// Each file convention reads back what it wrote, to the bit, and the conventions agree on
+// which way is out of the surface.
+@(test)
+vdm_axes_round_trip :: proc(t: ^testing.T) {
+	v := Vec3{0.25, -0.5, 0.75}
+	for axes in Vdm_Axes {
+		testing.expectf(t, vdm_from_file(vdm_to_file(v, axes), axes) == v, "%v changed the offset", axes)
+		testing.expectf(t, vdm_from_file({0, 0, 0}, axes) == {}, "%v moved a zero", axes)
+	}
+	testing.expect_value(t, vdm_from_file({0, 0.5, 0}, .ZBrush).z, 2)
+	testing.expect_value(t, vdm_from_file({0, 0, 0.5}, .Blender).z, 1)
+}

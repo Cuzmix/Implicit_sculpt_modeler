@@ -128,6 +128,13 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+// Alphas take OpenEXR vector maps too; Android's picker knows no MIME type for `.exr`, so
+// there every file is offered and the decoder's check of the bytes decides.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	ALPHA_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	ALPHA_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI, OpenEXR)", "png;jpg;jpeg;bmp;tga;qoi;exr"}}
+}
 // Android's picker knows no MIME type for `.hdr` and would hide Radiance files, so there
 // every file is offered and the decoder's own check of the bytes decides, as for packs.
 when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -254,7 +261,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
-	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map: dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Alpha:                                                 dialog_open(app, userdata, ALPHA_FILTERS[:])
+	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])

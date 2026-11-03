@@ -311,6 +311,7 @@ SETTINGS := [?]Setting {
 	{"environment_tilt", offset_of(App, env) + offset_of(Environment_State, tilt), f32, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"skin_auto", offset_of(App, skin_auto), bool, 0, 0},
+	{"vdm_axes", offset_of(App, vdm_axes), sculpt.Vdm_Axes, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
