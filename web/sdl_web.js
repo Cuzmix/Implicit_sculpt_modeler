@@ -188,7 +188,10 @@ class Web {
 	// The canvas's size: CSS pixels are SDL's window coordinates, and the drawing buffer is
 	// that times the device pixel ratio, as a high pixel density window is.
 	layout(announce) {
-		const dpr = window.devicePixelRatio || 1;
+		// ?page-dpr=N draws at most N device pixels a CSS pixel (README "Web"), for trying the
+		// app at a lower resolution on a high density screen.
+		const cap = Number(new URLSearchParams(location.search).get("page-dpr")) || 0;
+		const dpr = cap > 0 ? Math.min(window.devicePixelRatio || 1, cap) : (window.devicePixelRatio || 1);
 		const rect = this.canvas.getBoundingClientRect();
 		const css = [Math.max(1, Math.round(rect.width)), Math.max(1, Math.round(rect.height))];
 		const px = [Math.max(1, Math.round(rect.width * dpr)), Math.max(1, Math.round(rect.height * dpr))];
@@ -541,7 +544,8 @@ class Web {
 				},
 				sculpt_page_args(buf, cap) {
 					const parts = [];
-					for (const [k, val] of new URLSearchParams(location.search)) parts.push(val === "" ? `--${k}` : `--${k}=${val}`);
+					// Options named page-... are the page's own, never the app's flags.
+					for (const [k, val] of new URLSearchParams(location.search)) if (!k.startsWith("page-")) parts.push(val === "" ? `--${k}` : `--${k}=${val}`);
 					const data = new TextEncoder().encode(parts.map((p) => p + "\0").join(""));
 					if (buf && Number(cap) >= data.length) self.bytes().set(data, buf);
 					return BigInt(data.length);
