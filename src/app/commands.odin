@@ -269,6 +269,7 @@ Command_Id :: enum u16 {
 	Pass_Menu, // passes.odin
 	Brush_Picker, // lens_shelf.odin
 	Settings,
+	Viewport_Readout,
 	Reduce_Motion,
 	Left_Handed,
 	Command_Palette,
@@ -2423,6 +2424,12 @@ COMMANDS := [Command_Id]Command {
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
+	},
+	.Viewport_Readout = {
+		label = "Viewport readout",
+		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices, the app's memory and the GPU's time a frame.",
+		run = proc(app: ^App, _: int) {app.kit.readout_hidden = !app.kit.readout_hidden},
+		checked = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
 	},
 	.Reduce_Motion = {
 		label = "Reduce motion",

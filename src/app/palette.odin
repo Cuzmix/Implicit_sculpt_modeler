@@ -252,6 +252,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
 	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
 	.Settings         = "preferences options",
+	.Viewport_Readout = "hud overlay stats vertices memory gpu corner",
 	.Reduce_Motion    = "animation accessibility",
 	.Left_Handed     = "left hand right hand mirror swap sides southpaw",
 }

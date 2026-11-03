@@ -92,18 +92,15 @@ UI = {
     # The off-hand island's Size and Strength sliders, by their knobs.
     "size": (42, 360), "strength": (42, 545),
     # The navigation head under the top bar at the pen side, left of the panel stack; the
-    # View island over the view's top-left corner: the camera and shading chips, then its
-    # buttons; and the chip bar's object chip.
+    # readout over the view's top-left corner: its camera and shading words; and the chip
+    # bar's object chip.
     "nav_head": At("navigation head/navigation head", 1186, 86),
-    "camera_chip": At("view chips/Camera", 129, 81), "pass_chip": At("view chips/Shading", 181, 81),
-    "island_layout": At("view chips/View layout", 305, 81), "island_sym": At("view chips/Symmetry across X", 357, 81),
-    "island_wire": At("view chips/Wireframe", 409, 81), "island_lights": At("view chips/Lights", 461, 81),
-    "island_frame": At("view chips/Focus selected", 513, 81),
+    "camera_chip": At("readout/Camera", 75, 75), "pass_chip": At("readout/Shading", 165, 75),
     "status": At("top bar/Object", 966, 28),
     # The view rail down the right edge: the tray (the panel stack), then where eight_rail()
-    # puts them the view tools a rail held before the View island took them (a fresh rail
+    # puts them the view tools a rail can hold (a fresh rail
     # holds the Objects, Layers and Material cards).
-    "inspector": At("view bar/Palettes", 1563, 85), "view_layout": At("view bar/View layout", 1563, 133),
+    "inspector": At("view bar/Main palette", 1563, 85), "view_layout": At("view bar/View layout", 1563, 133),
     "passes": At("view bar/Passes", 1563, 181), "camera": At("view bar/Camera", 1563, 229),
     "frame": At("view bar/Focus selected", 1563, 277), "sym_x": At("view bar/Symmetry across X", 1563, 325),
     "wireframe": At("view bar/Wireframe", 1563, 373), "lights": At("view bar/Lights", 1563, 421),
@@ -302,8 +299,7 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "island_sym", "island_sym",
-                 "island_lights", "island_lights", "island_wire", "island_wire", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
+    for name in ["menu", "menu", "undo", "history", "history", "remesh", "shelf_draw", "camera_chip", "camera_chip", "pass_chip", "pass_chip", "size", "size", "strength", "strength",
                  "shelf_smooth", "shelf_draw", "browser", "browser", "inspector", "inspector", "status"]:
         s.ftap(UI[name])
     # Just past the drawn edge of the shelf and the top bar, inside their targets.
@@ -2536,7 +2532,7 @@ def zoomed_in(s):
 
 def edge_drags(s):
     """A finger along the bottom edge (right of the shelf) and the pen along the top one
-    (under the top bar, right of the View island), both over the model, where no panel
+    (under the top bar, right of the readout), both over the model, where no panel
     is, each 200 points sideways."""
     zoomed_in(s)
     s.fdrag(past_slop((1320, 868), (1520, 868), 20))
@@ -3254,7 +3250,7 @@ def saved_line(line):
 
 # The view rail's Panels button, which shows and hides the stack of cards.
 INSPECTOR_CLOSE = UI["inspector"]
-# The Stats window's title, where it starts under the view chips (Settings > Performance or F11
+# The Stats window's title, where it starts under the readout (Settings > Performance or F11
 # opens it).
 STATS_TITLE = (156, 148)
 
@@ -3797,7 +3793,7 @@ def a_stroke_under_the_tray_fades_it():
     return s, [], {"panels_faded": lambda v: int(v) >= 1, "dabs": lambda v: int(v) > 0}
 
 
-# Lens's chrome round the view at 1440x900: the island's Size slider, the view chips,
+# Lens's chrome round the view at 1440x900: the island's Size slider, the readout,
 # the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
 # camera, it stands at the bottom of the pen side).
 LENS_ISLAND_SIZE = (42, 380)
@@ -3818,10 +3814,10 @@ def rect_x(lo, hi):
 
 @scenario
 def lens_rail_holds_the_view_tools():
-    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's panels (the View island holds the view's tools); nothing moves the camera."""
+    """Lens shows the off-hand island at the left, the readout over the view's top-left corner and the view rail's cards; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material"
+    rail = "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -3852,15 +3848,13 @@ def lens_object_chip_opens_the_scene_palette():
 
 
 @scenario
-def view_island_holds_the_view():
-    """The View island at the top-left holds the view's tools after the head and chips: a tap on its Symmetry turns X on and one on its Wireframe shows the lines, sculpting nothing."""
+def readout_opens_the_camera_menu():
+    """The readout at the top-left names the camera and the shading; a tap on the camera opens the Camera menu, sculpting nothing."""
     s = Script()
-    s.ftap(UI["island_sym"])
     s.wait(4)
-    s.ftap(UI["island_wire"])
-    s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("x"), "wireframe": near(1),
-                                "view_island": is_text("View_Layout_Menu,Symmetry_X,Wireframe,Show_Panel:Lights,Focus_Selected")})
+    s.ftap(UI["camera_chip"])
+    s.wait(8)
+    return s, [], camera_still({"dabs": near(0), "readout": near(1), "readout_menus": near(1), "bar_pop": is_text("camera")})
 
 
 @scenario
@@ -4757,10 +4751,10 @@ def lens_stack_floating_card_resizes_from_a_corner():
 
 # Lens's split views at 1440x900 in One plus two: the vertical divider, the one between the
 # two right panes, the Front pane's camera chip and Top in its list, the strip's Brush tab,
-# and in the View layout menu (the rail's first slot) the Four drawing.
+# and in the readout's Camera menu the view grid's Four.
 LENS_SPLIT = ["--script=view_grid one_plus_two"]
 LENS_PANES = {"divider": (862, 300), "divider_right": (1150, 451), "front_camera": (920, 89), "top": (900, 390),
-              "brush_tab": (1348, 95), "layout": At("view chips/View layout", 305, 81), "four": At("Four", 330, 211)}
+              "brush_tab": (1348, 95), "layout": At("readout/Camera", 75, 75), "four": At("Four", 120, 700)}
 
 
 @scenario
@@ -4818,7 +4812,7 @@ def lens_split_stack_becomes_tabs():
 
 @scenario
 def lens_view_layout_menu_draws_the_presets():
-    """The View layout menu's Four drawing shows four panes."""
+    """The Camera menu's view grid Four shows four panes."""
     s = Script()
     s.ftap(LENS_PANES["layout"])
     s.wait(8)
@@ -5315,7 +5309,7 @@ def lens_context_bar_extracts_the_mask():
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
 # options, while nothing is recent.
-LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("view chips/Shading", 181, 81), "curvature": (305, 540)}
+LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("readout/Shading", 165, 75), "curvature": (305, 540)}
 
 
 @scenario
@@ -6287,7 +6281,7 @@ def the_current_workspace_comes_back():
 
 # The view's shading chip at 1600 x 900, and the Wireframe, Normals and Wipe compare rows
 # of its list (the shading modes and Solid's options come first).
-PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], (230, 492), (234, 801)
+PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], (230, 492), At("Wipe compare", 234, 801)
 PASS_MENU_WIREFRAME = (220, 158)
 
 
@@ -11160,8 +11154,8 @@ def view_pane_shading_is_its_own():
 
 
 @scenario
-def view_chips_stay_on_the_main_pane_while_a_pane_is_worked():
-    """A right drag held in Three across's middle pane works in it (the main view's role lent to it), and the main view's chips stay on the main pane's corner, where they were, naming its own camera."""
+def readout_stays_on_the_main_pane_while_a_pane_is_worked():
+    """A right drag held in Three across's middle pane works in it (the main view's role lent to it), and the main view's readout stays on the main pane's corner, where it was, naming its own camera."""
     def run(work):
         s = Script()
         s.wait(20)
@@ -11171,7 +11165,7 @@ def view_chips_stay_on_the_main_pane_while_a_pane_is_worked():
             for i in range(1, 6):
                 s.add(f"move:{800 + i * 15},{400 + i * 4}")
         s.wait(4)
-        return s, ["--script=view_grid three_across"], {"pane_work": near(1 if work else 0), "view_chips_at": is_text("12,54")}
+        return s, ["--script=view_grid three_across"], {"pane_work": near(1 if work else 0), "readout_at": is_text("16,58")}
     return Steps([run(False), run(True)])
 
 
@@ -11341,9 +11335,9 @@ def view_pane_maximises_and_restores():
             s.ftap(GRID_PANE_RESTORE)
             s.wait(8)
         size = (lambda v: 780 < int(v.split("x")[0]) < 820) if restore else (lambda v: int(v.split("x")[0]) > 1000)
-        # The main view's chips stand aside while the pane covers it, so they never sit on its head.
+        # The main view's readout stands aside while the pane covers it, so it never sits on its head.
         return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0),
-                                                                     "view_chips": near(1 if restore else 0)}))
+                                                                     "readout": near(1 if restore else 0)}))
     return Steps([run(False), run(True)])
 
 
@@ -14133,7 +14127,7 @@ def finger_hold_on_empty_space_opens_the_scene_menu():
     """One finger held still on empty space opens the scene menu there, turning nothing; mirrored for the left hand too."""
     def run(left):
         s = Script()
-        # Left-handed, the tray stands over EMPTY: the mirrored corner, under the view chips.
+        # Left-handed, the tray stands over EMPTY: the mirrored corner, under the readout.
         finger_hold(s, *((1420, 190) if left else EMPTY))
         want = camera_still({"scene_menu": near(1), "object_menu": near(0), "object_menu_opened_by": is_text("finger"), "dabs": near(0), "undo_steps": near(0)})
         return s, ["--script=set left_handed 1"] if left else [], want

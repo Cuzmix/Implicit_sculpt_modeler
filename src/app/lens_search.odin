@@ -98,7 +98,6 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 		return fmt.tprintf("%s card", panel_kind_title(app, p))
 	}
 	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
-	if slice.contains(bar_used(app, .View_Island), s) do return "View island"
 	for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"
 	for i in 0 ..< USER_DOCKS do if app.kit.docks[user_dock_id(i)].used && slice.contains(bar_used(app, user_dock_which(i)), s) do return DOCK_TITLES[user_dock_id(i)]

@@ -512,15 +512,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// whose children lie over each other or spill out of a fixed size.
 			lo := k.ctx.overlap_prev
 			fmt.printfln("layout_overlaps=%d layout_overlap_at=%.0f,%.0f,%.0f,%.0f", k.ctx.overlaps_prev, lo.x, lo.y, lo.w, lo.h)
-			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s view_chips=%d view_chips_at=%.0f,%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.view_chips_shown), k.view_chips_at.x, k.view_chips_at.y)
+			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the mini view's swaps, the
-			// main camera's projection, and where the island, the chips, the navigation head and
+			// main camera's projection, and where the island, the readout, the navigation head and
 			// the mini view stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(app, Kit_Window.Thumbnail)
-			fmt.printfln("view_rail=%s view_island=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), bar_names(app, .View_Island), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
+			fmt.printfln("view_rail=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)

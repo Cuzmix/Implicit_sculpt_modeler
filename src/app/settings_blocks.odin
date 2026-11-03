@@ -18,7 +18,6 @@ Settings_Block :: enum u8 {
 	Clean_Dial,
 	Hands,
 	Top_Bar,
-	Nav_Head,
 	Motion,
 	Starting,
 	Brush_Ring,
@@ -105,7 +104,6 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon chip bar command palette three islands one bar centred style",
-	.Nav_Head         = "navigation head gizmo view cube axes corner top right view island orientation",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
@@ -210,7 +208,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Hands:
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
-		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view chips go to the right; the navigation, the view rail and the panels to the left.")
+		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the readout go to the right; the navigation, the view rail and the panels to the left.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -240,10 +238,6 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "Three islands: the file and Undo at the left, the spaces and the selected object centred on the window, Search, History and Settings at the right; as the window narrows the middle keeps its place while the others give up their least needed parts. One bar: the same in one strip across the top.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
-	case .Nav_Head:
-		places := [len(Nav_Place)]string{"Top corner", "View island"}
-		if picked := ui.tabs(ctx, "Navigation head place", places[:], int(k.nav_place)); picked >= 0 do k.nav_place = Nav_Place(picked)
-		ui.paragraph(ctx, "Top corner: the head stands on its own under the top bar on the pen side, beside the view rail, where the pen reaches it. View island: it is the island's first button, beside the Camera and Shading chips, on the off-hand side.")
 	case .Action_Bar:
 		_ = ui.switch_row(ctx, "Show next steps over the shelf", &k.action_bar)
 		ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
@@ -505,7 +499,6 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
 	case .Top_Bar:         k.search_field, k.top_islands, k.top_order = false, true, TOP_ORDER_DEFAULT
-	case .Nav_Head:        k.nav_place = .Corner
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true

@@ -19,7 +19,7 @@ import "../ui"
 // A place is the layout's, since it belongs to the screen (the dial's, which belongs to
 // the hand, is a setting): as the layout has it (Default), on the left or right edge at a
 // point down it (the shelf: along the bottom at a point across it), or floating where
-// Arrange let go of it. The top edge is no dock's: the top bar, the view chips, the
+// Arrange let go of it. The top edge is no dock's: the top bar, the readout, the
 // navigation head and the panels' tops hold it. Places are kept in layout terms, from the
 // start side, so the kit's mirror flips them for a left hand as it flips every anchor.
 
