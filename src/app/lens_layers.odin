@@ -16,7 +16,8 @@ import "../ui"
 // lists do; a long press, a right click or the pen's side button opens the layer's menu.
 // Under the rows Base sculpt, everything outside the layers, then Duplicate, Merge down,
 // Bake all and the menu, how many layers and how much memory. It is the one Layers
-// interface: the Layers card and the rail draw this card.
+// interface: the Layers card and the rail draw this card, whose Paint tab is the paint
+// layers (lens_paint_layers.odin).
 
 // A layer row's height, in points, and its picture's side.
 LAYER_ROW_H :: 56
@@ -60,6 +61,13 @@ kit_lens_layers :: proc(app: ^App) {
 	k.layer_rows = 0
 	if obj == nil {
 		ui.paragraph(ctx, "Add or select an object first.")
+		return
+	}
+	// One card for layers: sculpt layers and paint layers are its two tabs.
+	tab_names := [2]string{"Sculpt", "Paint"}
+	if tab := ui.tabs(ctx, "Layers kind", tab_names[:], int(app.ui.layers_paint)); tab >= 0 do app.ui.layers_paint = tab == 1
+	if app.ui.layers_paint {
+		kit_lens_paint_layers(app, obj)
 		return
 	}
 	allowed := layers_allowed(obj)
@@ -302,7 +310,7 @@ lens_layer_strength :: proc(app: ^App, obj: ^Object, i: int, w, fade: f32) {
 		if abs(v) < 0.04 do v = 0
 		if abs(v - 1) < 0.04 do v = 1
 		if v != strength {
-			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id {
+			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id || app.ui.layer_drag_paint {
 				layer_drag_finish(app)
 				stroke_finish(app)
 				app.ui.layer_dragging, app.ui.layer_drag_id, app.ui.layer_drag_wide = true, obj.id, wide

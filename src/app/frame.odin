@@ -321,7 +321,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				lights = viewport_lights(app),
 				matcap = material_matcap(app, material),
 				wireframe = overlay && app.polyframe_lines && !poly_edges,
-				paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
+				paint  = sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off,
 				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 				// A cage shows its edges, and its faces flat, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.

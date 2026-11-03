@@ -1154,7 +1154,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// the two.
 	material := export_material(object_material(app, obj))
 	colors: [][3]u8
-	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
+	if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil && !object_dynamic(obj) {
 		under := [3]u32{255, 255, 255}
 		if ext == ".glb" || ext == ".usda" {
 			for k in 0 ..< 3 do under[k] = u32(math.round(geom.srgb_encode(material.base[k]) * 255))
@@ -1254,7 +1254,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		if ext == ".usda" && len(from) == 0 do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {
 			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
-			paint := lv.sculptor.color
+			paint := sculpt.sculptor_paint_shown(&lv.sculptor)
 			if len(from) > 0 {
 				// A decimated copy's triangles are new: each takes the group of its first
 				// corner's vertex, and the paint goes by the new vertex numbers.
@@ -2142,6 +2142,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	n := len(s.mesh.positions)
 	if s.mask != nil do bytes += n
 	if s.color != nil do bytes += size_of(sculpt.Color) * n
+	bytes += sculpt.sculptor_paint_bytes(s)
 	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
 	// A set is written again in file order, at most a byte a vertex.
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices

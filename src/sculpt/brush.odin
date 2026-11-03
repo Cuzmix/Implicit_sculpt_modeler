@@ -380,6 +380,8 @@ Sculptor :: struct {
 	color:        []Color,
 	color_edited: bool, // painted since the level became current, so a level change carries the colours
 	paint_stamp:  u32,  // see sculptor_paint_stamp
+	// The paint layers, of which `color` is the picked one's (paint_layers.odin).
+	paint:        Paint_Layers,
 	// The polygroups per triangle, and what drawing them needs (groups.odin).
 	groups:       Groups,
 	// The sculpt layers (sculpt_layers.odin).
@@ -496,6 +498,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	hide_destroy(s)
 	groups_destroy(s)
 	layers_destroy(s)
+	paint_layers_destroy(s)
 	delete(s.color, s.history.allocator)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
@@ -828,6 +831,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		}
 	}
 	if s.skin != nil do skin_flush(s)
+	paint_flush(s)
 	if cones_held(s) {
 		s.cones_later = false
 	} else if len(s.waiting_cones) > 0 {
@@ -1439,6 +1443,9 @@ mark_shape_changed :: proc(s: ^Sculptor, id: u32) {
 mark_stale :: #force_inline proc(s: ^Sculptor, id: u32, level: Stale) {
 	if s.stale[id] == .None do append(&s.dirty_nodes, id)
 	if level > s.stale[id] do s.stale[id] = level
+	// A change of the paint (or the mask, which costs the composite little) goes into the
+	// paint layers' composite at the flush.
+	if level == .Paint do paint_touch(s, id)
 }
 
 @(private)

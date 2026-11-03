@@ -425,7 +425,7 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 	}
 	defer if dyn do delete(mask)
 	groups := sculpt.sculptor_groups(s) if !dyn else nil
-	color := s.color if !dyn else nil
+	color := sculpt.sculptor_paint_shown(s) if !dyn else nil
 	report: geom.Remesh_Report
 	defer geom.remesh_report_destroy(&report)
 	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)

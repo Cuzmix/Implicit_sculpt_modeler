@@ -115,7 +115,7 @@ decimate_source :: proc(obj: ^Object, setup: Decimate_Setup, borrow := false) ->
 		copy(src.mesh.positions[:], m.positions[:])
 		copy(src.mesh.indices[:], m.indices[:])
 	}
-	if setup.keep_paint && s.color != nil do src.color = slice.clone(s.color)
+	if c := sculpt.sculptor_paint_shown(s); setup.keep_paint && c != nil do src.color = slice.clone(c)
 	if setup.keep_groups && sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
 	if setup.use_mask && s.mask != nil do src.mask = slice.clone(s.mask)
 	return
@@ -285,7 +285,7 @@ kit_decimate_options :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.tabs(ctx, "decimate by", names[:], int(u.decimate_by)); picked >= 0 do u.decimate_by = Decimate_By(picked)
 	s := object_sculptor(obj)
 	dynamic_layout := object_dynamic(obj)
-	_ = ui.switch_row(ctx, "Keep paint", &u.decimate_keep_paint, enabled = s.color != nil && !dynamic_layout)
+	_ = ui.switch_row(ctx, "Keep paint", &u.decimate_keep_paint, enabled = sculpt.sculptor_paint_shows(s) && !dynamic_layout)
 	_ = ui.switch_row(ctx, "Keep groups", &u.decimate_keep_groups, enabled = sculpt.sculptor_has_groups(s) && !dynamic_layout)
 	_ = ui.switch_row(ctx, "Keep borders", &u.decimate_keep_borders)
 	_ = ui.switch_row(ctx, "Use mask", &u.decimate_use_mask, enabled = s.mask != nil)
