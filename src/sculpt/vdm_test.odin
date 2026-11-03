@@ -5,6 +5,7 @@ import "core:slice"
 import "core:testing"
 
 import "../geom"
+import "../jobs"
 
 // VDM stamps (vdm.odin): Draw with a vector alpha, on vertices and into the skin.
 
@@ -103,4 +104,47 @@ vdm_axes_round_trip :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, vdm_from_file({0, 0.5, 0}, .ZBrush).z, 2)
 	testing.expect_value(t, vdm_from_file({0, 0, 0.5}, .Blender).z, 1)
+}
+
+// A capture of a slab whose skin stands a little off its top everywhere reads that as the
+// stamp's height over the whole face, and nothing sideways; a slab untouched captures
+// nothing; and with sideways offsets in the skin the capture carries them.
+@(test)
+vdm_capture_reads_the_skin :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 2)
+	defer jobs.pool_destroy(&pool)
+	m, ok := geom.primitive(.Plane, 3000, &pool)
+	testing.expect(t, ok)
+	s: Sculptor
+	sculptor_init(&s, &m, &pool)
+	for id in 0 ..< len(s.nodes) do mark_stale(&s, u32(id), .Shape)
+	_ = sculptor_flush(&s)
+	defer {
+		sculptor_destroy(&s)
+		geom.mesh_destroy(&m)
+	}
+	testing.expect(t, sculptor_skin_set(&s, 4))
+	flat, why := vdm_capture(&s, 32)
+	testing.expect_value(t, why, "")
+	most: f32
+	for v in flat.vectors do most = max(most, linalg.length(v))
+	testing.expectf(t, most < 0.02, "an untouched slab captured an offset of %v", most)
+	alpha_destroy(&flat)
+
+	for &h in s.skin.heights do h = 0.02
+	raised, _ := vdm_capture(&s, 32)
+	defer alpha_destroy(&raised)
+	// The middle of the stamp, well inside the slab's flat top (half width 0.8 or so).
+	mid := raised.vectors[16 * 32 + 16]
+	testing.expectf(t, abs(mid.z - 0.02 / 0.8) < 0.004 && abs(mid.x) < 0.002 && abs(mid.y) < 0.002, "the middle read %v", mid)
+
+	skin_side_fit(s.skin, s.history.allocator)
+	for &sd in s.skin.side do sd = {0.03, 0}
+	for &h in s.skin.heights do h = 0
+	side, _ := vdm_capture(&s, 32)
+	defer alpha_destroy(&side)
+	m2 := side.vectors[16 * 32 + 16]
+	sideways := linalg.length(m2.xy)
+	testing.expectf(t, abs(sideways - 0.03 / 0.8) < 0.006 && abs(m2.z) < 0.004, "the middle read %v", m2)
 }
