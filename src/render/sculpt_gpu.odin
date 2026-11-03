@@ -33,8 +33,8 @@ import "../jobs"
 // strokes the CPU's mesh is the GPU's, within the twelve bits the packing keeps.
 //
 // The kernels need the mesh's vertex -> triangle lookup (geom.Vertex_Faces) beside the
-// positions and indices they read: 28 bytes a vertex, uploaded once per mesh on the first
-// stroke that takes the GPU and kept with the mesh's buffers.
+// positions and indices they read: 28 bytes a vertex, uploaded once per mesh a slice a
+// frame before a stroke needs it (sculpt_gpu_prepare) and kept with the mesh's buffers.
 
 NODE_NORMALS_COMP_CODE :: #load("shaders/node_normals.comp" + SHADER_EXT, string)
 DAB_AREA_COMP_CODE :: #load("shaders/dab_area.comp" + SHADER_EXT, string)
@@ -60,6 +60,20 @@ Mesh_Sculpt :: struct {
 	// (a regrown or remade mesh) uploads it again; 0 for none.
 	lookup_version: u64,
 	lookup_bytes:   int,
+	// The lookup goes up a slice a frame (sculpt_gpu_prepare): the bytes of the offsets,
+	// triangles and shared vertices, in that order, each part's size when its buffers
+	// were made, how many are up, and whether all are; the buffers' mappings while they
+	// fill, where the device shares its memory; when it began, and over how many frames.
+	lookup_sizes:  [3]int,
+	lookup_done:   int,
+	lookup_ready:  bool,
+	lookup_maps:   [3]rawptr,
+	lookup_start:  time.Tick,
+	lookup_frames: int,
+	lookup_ms:     f64, // the CPU's time in sculpt_gpu_prepare over those frames
+	// A stroke has taken the GPU with this lookup: it stays when its object is no longer
+	// selected, as the mesh may well be sculpted again (sculpt_gpu_unselected).
+	lookup_served: bool,
 	// The device refused the lookup's buffers, or a kernel failed: this mesh's strokes
 	// stay on the CPU.
 	failed:  bool,
@@ -258,6 +272,10 @@ Sculpt_Gpu :: struct {
 	nodes_transfer_size: u32,
 	bounds:           ^sdl.GPUBuffer, // two float4 a node: lowest, highest
 	bounds_capacity:  u32,
+	// A slice of a lookup on its way up (sculpt_gpu_prepare), released once it is all up.
+	lookup_transfer:      ^sdl.GPUTransferBuffer,
+	lookup_transfer_size: u32,
+	lookup_rate:          f64, // how fast the CPU copied the slices so far, in bytes a millisecond
 	slots:    [SCULPT_SLOTS]Sculpt_Slot,
 	slot:     int,  // the slot this frame records into
 	recorded: bool, // this frame's command buffer holds readbacks: submit it fenced (sculpt_gpu_submitted)
@@ -318,71 +336,187 @@ sculpt_gpu_landed_clear :: proc(r: ^Renderer) {
 	clear(&r.sculpt_gpu.landed)
 }
 
-// Whether the GPU takes a stroke on `mb` (triangles as `mb` holds them, lookup `faces`):
-// makes the kernels and the mesh's lookup buffers on first use, and false (logged, and
-// not asked again for that mesh) where the device refuses them.
+// How much of a lookup goes up a frame (sculpt_gpu_prepare): at 25M vertices the lookup
+// is 667 MB, which in one go held the first stroke for 2.4 s on an RTX 3060 Ti. A slice
+// is as much as the CPU copies in SCULPT_LOOKUP_MS, at the rate the slices before it were
+// copied (fresh upload memory is written at a few GB/s where the pages are new), between
+// a floor that keeps a slow machine from taking minutes and a ceiling the first slice,
+// with no rate known yet, takes.
+SCULPT_LOOKUP_SLICE :: 16 << 20
+SCULPT_LOOKUP_SLICE_MIN :: 4 << 20
+SCULPT_LOOKUP_MS :: 2.0
+
+// Where a mesh's lookup stands, for the frame that uploads it (sculpt_gpu_prepare).
+Sculpt_Lookup :: enum u8 {
+	Off,       // the GPU does not sculpt this mesh: nothing to upload
+	Uploading, // more slices to go
+	Ready,     // all up: a stroke on the mesh can take the GPU
+}
+
+// Uploads the next slice of the vertex -> triangle lookup and the nodes' shared vertices
+// (`faces`, `shared`) the kernels read for `mb`, recorded on the frame's `cmd` ahead of its
+// dispatch, making their buffers on the first. The frame calls it for the object a stroke
+// may begin on, while no stroke is under way, so no stroke waits for the whole: until it
+// is up, sculpt_gpu_begin keeps strokes on the CPU.
+sculpt_gpu_prepare :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, faces: geom.Vertex_Faces, shared: []u32) -> Sculpt_Lookup {
+	sg, ms := &r.sculpt_gpu, &mb.sculpt
+	if !r.caps.gpu_sculpt || sg.failed || ms.failed || !mb.storage do return .Off
+	if sg.pipeline == nil && !sculpt_pipelines_make(r) do return .Off
+	// The lookup is another mesh's than the buffers hold: never dereference it on the GPU.
+	if u32(len(faces.offsets)) != mb.vertex_capacity + 1 || u32(len(faces.tris)) != mb.index_count do return .Off
+	parts := [3][]u8{slice.to_bytes(faces.offsets), slice.to_bytes(faces.tris), slice.to_bytes(shared)}
+	sizes := [3]int{len(parts[0]), len(parts[1]), len(parts[2])}
+	// Other triangles (a regrown or remade mesh), or the nodes made again: up again from the start.
+	if ms.offsets == nil || ms.lookup_version != mb.index_version || ms.lookup_sizes != sizes {
+		if !sculpt_lookup_make(r, mb, sizes) do return .Off
+	}
+	if ms.lookup_ready do return .Ready
+	slice_start := time.tick_now()
+	defer ms.lookup_ms += time.duration_milliseconds(time.tick_since(slice_start))
+	total := sizes[0] + sizes[1] + sizes[2]
+	budget := SCULPT_LOOKUP_SLICE
+	if sg.lookup_rate > 0 do budget = clamp(int(sg.lookup_rate * SCULPT_LOOKUP_MS), SCULPT_LOOKUP_SLICE_MIN, SCULPT_LOOKUP_SLICE)
+	end := min(ms.lookup_done + budget, total)
+	// The slice's pieces of the three, written straight into a buffer the CPU maps (a
+	// device sharing its memory) or staged for a copy.
+	Piece :: struct {
+		part, at, size: int, // which buffer, from where in it, how many bytes
+		staged:         int, // where in the transfer buffer
+	}
+	pieces: [3]Piece
+	count, staged := 0, 0
+	base := 0
+	for p, i in parts {
+		lo, hi := max(ms.lookup_done, base), min(end, base + len(p))
+		if lo < hi {
+			pieces[count] = {i, lo - base, hi - lo, staged}
+			if ms.lookup_maps[i] == nil do staged += hi - lo
+			count += 1
+		}
+		base += len(p)
+	}
+	transfer: [^]u8
+	if staged > 0 {
+		if !transfer_fit(r, &sg.lookup_transfer, &sg.lookup_transfer_size, u32(SCULPT_LOOKUP_SLICE)) do return sculpt_lookup_refused(r, mb, "an upload buffer of 16 MB")
+		transfer = cast([^]u8)gpu_map_transfer_buffer(r.device, sg.lookup_transfer, true)
+		if transfer == nil do return sculpt_lookup_refused(r, mb, "the lookup's upload")
+	}
+	copy_start := time.tick_now()
+	for pc in pieces[:count] {
+		src := parts[pc.part][pc.at:][:pc.size]
+		if m := ms.lookup_maps[pc.part]; m != nil do copy(([^]u8)(m)[pc.at:][:pc.size], src)
+		else do copy(transfer[pc.staged:][:pc.size], src)
+	}
+	// Bytes a millisecond, the last slices weighing most.
+	if copy_ms := time.duration_milliseconds(time.tick_since(copy_start)); copy_ms > 0 {
+		rate := f64(end - ms.lookup_done) / copy_ms
+		sg.lookup_rate = rate if sg.lookup_rate == 0 else 0.5 * (sg.lookup_rate + rate)
+	}
+	if staged > 0 {
+		gpu_unmap_transfer_buffer(r.device, sg.lookup_transfer)
+		buffers := [3]^sdl.GPUBuffer{ms.offsets, ms.tris, ms.shared}
+		pass := gpu_begin_copy_pass(cmd)
+		for pc in pieces[:count] {
+			if ms.lookup_maps[pc.part] != nil do continue
+			gpu_upload_to_buffer(pass, {transfer_buffer = sg.lookup_transfer, offset = u32(pc.staged)}, {buffer = buffers[pc.part], offset = u32(pc.at), size = u32(pc.size)}, false)
+		}
+		gpu_end_copy_pass(pass)
+	}
+	ms.lookup_done = end
+	ms.lookup_frames += 1
+	if end < total do return .Uploading
+	sculpt_lookup_unmap(r, mb)
+	ms.lookup_ready = true
+	// The staging buffer's backings go once the GPU has copied from them: another mesh's
+	// lookup makes it again.
+	if sg.lookup_transfer != nil do gpu_release_transfer_buffer(r.device, sg.lookup_transfer)
+	sg.lookup_transfer, sg.lookup_transfer_size = nil, 0
+	log.infof("sculpt on the GPU: %d MB lookup uploaded over %d frames, %.0f ms after it began, %.1f ms a frame on the CPU", total >> 20, ms.lookup_frames, time.duration_milliseconds(time.tick_since(ms.lookup_start)), (ms.lookup_ms + time.duration_milliseconds(time.tick_since(slice_start))) / f64(ms.lookup_frames))
+	return .Ready
+}
+
+// Releases the lookup of a mesh no longer selected (or no longer its object's current
+// level) that no stroke has taken the GPU with: the frames upload one for whatever is
+// selected, and 700 MB at 25M for each object clicked through would fill the device.
+sculpt_gpu_unselected :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
+	if mb.sculpt.offsets != nil && !mb.sculpt.lookup_served do sculpt_lookup_release(r, mb)
+}
+
+// Makes `mb`'s lookup buffers, empty, for sculpt_gpu_prepare to fill: false (logged, and
+// the mesh's strokes left to the CPU) where the device refuses them.
+@(private = "file")
+sculpt_lookup_make :: proc(r: ^Renderer, mb: ^Mesh_Buffers, sizes: [3]int) -> bool {
+	sculpt_lookup_release(r, mb)
+	ms := &mb.sculpt
+	names := [3]cstring{"sculpt lookup offsets", "sculpt lookup triangles", "sculpt shared vertices"}
+	buffers: [3]^sdl.GPUBuffer
+	for size, i in sizes {
+		// Never empty, for the binding's sake (a mesh with no shared vertices).
+		info := sdl.GPUBufferCreateInfo{usage = {.COMPUTE_STORAGE_READ}, size = u32(max(size, 4))}
+		if r.caps.shared_buffers do buffers[i], ms.lookup_maps[i] = gpu_create_buffer_mapped(r.device, info)
+		if buffers[i] == nil do buffers[i] = gpu_create_buffer(r.device, info)
+		if buffers[i] != nil do gpu_set_buffer_name(r.device, buffers[i], names[i])
+	}
+	ms.offsets, ms.tris, ms.shared = buffers[0], buffers[1], buffers[2]
+	if ms.offsets == nil || ms.tris == nil || ms.shared == nil {
+		log.errorf("sculpt on the GPU: the lookup's %d MB were refused (%s); this mesh's strokes stay on the CPU", (sizes[0] + sizes[1] + sizes[2]) >> 20, sdl.GetError())
+		sculpt_lookup_release(r, mb)
+		ms.failed = true
+		return false
+	}
+	ms.lookup_version, ms.lookup_sizes = mb.index_version, sizes
+	ms.lookup_bytes = max(sizes[0], 4) + max(sizes[1], 4) + max(sizes[2], 4)
+	ms.lookup_done, ms.lookup_ready, ms.lookup_frames, ms.lookup_ms, ms.lookup_start = 0, false, 0, 0, time.tick_now()
+	return true
+}
+
+// Logs a refusal during the lookup's upload, releases what was made and leaves the
+// mesh's strokes to the CPU.
+@(private = "file")
+sculpt_lookup_refused :: proc(r: ^Renderer, mb: ^Mesh_Buffers, what: string) -> Sculpt_Lookup {
+	log.errorf("sculpt on the GPU: %s was refused (%s); this mesh's strokes stay on the CPU", what, sdl.GetError())
+	sculpt_lookup_release(r, mb)
+	mb.sculpt.failed = true
+	return .Off
+}
+
+// Ends the fill of the lookup's mapped buffers, if any.
+@(private = "file")
+sculpt_lookup_unmap :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
+	ms := &mb.sculpt
+	buffers := [3]^sdl.GPUBuffer{ms.offsets, ms.tris, ms.shared}
+	for m, i in ms.lookup_maps do if m != nil && buffers[i] != nil do gpu_buffer_filled(r.device, buffers[i])
+	ms.lookup_maps = {}
+}
+
+// Whether the GPU takes a stroke on `mb` (triangles as `mb` holds them, lookup `faces`,
+// shared vertices `shared`): only once the frames have uploaded the mesh's lookup
+// (sculpt_gpu_prepare). Under --gpu-sculpt-sync, which compares the paths stroke for
+// stroke, the rest of the lookup goes up here instead, waited for.
 sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Faces, shared: []u32) -> bool {
 	sg, ms := &r.sculpt_gpu, &mb.sculpt
 	if !r.caps.gpu_sculpt || sg.failed || ms.failed || !mb.storage do return false
-	if sg.pipeline == nil && !sculpt_pipelines_make(r) do return false
-	if ms.offsets != nil && ms.lookup_version == mb.index_version do return true
-	if u32(len(faces.offsets)) != mb.vertex_capacity + 1 || u32(len(faces.tris)) != mb.index_count {
-		// The lookup is another mesh's than the buffers hold: never dereference it on the GPU.
+	sizes := [3]int{len(faces.offsets) * size_of(u32), len(faces.tris) * size_of(u32), len(shared) * size_of(u32)}
+	if ms.lookup_ready && ms.lookup_version == mb.index_version && ms.lookup_sizes == sizes {
+		ms.lookup_served = true
+		return true
+	}
+	if !sg.sync {
+		total := sizes[0] + sizes[1] + sizes[2]
+		log.infof("sculpt on the GPU: the lookup is %d%% up; this stroke stays on the CPU", ms.lookup_done * 100 / max(total, 1) if ms.offsets != nil else 0)
 		return false
 	}
-	sculpt_lookup_release(r, mb)
-	obytes, tbytes := u32(len(faces.offsets)) * size_of(u32), u32(len(faces.tris)) * size_of(u32)
-	start := time.tick_now()
-	info := sdl.GPUBufferCreateInfo{usage = {.COMPUTE_STORAGE_READ}, size = obytes}
-	omap, tmap: rawptr
-	if r.caps.shared_buffers {
-		ms.offsets, omap = gpu_create_buffer_mapped(r.device, info)
-		info.size = tbytes
-		ms.tris, tmap = gpu_create_buffer_mapped(r.device, info)
+	for {
+		cmd := gpu_acquire_command_buffer(r.device)
+		if cmd == nil do return false
+		state := sculpt_gpu_prepare(r, cmd, mb, faces, shared)
+		if !gpu_submit_command_buffer(cmd) || !gpu_wait_for_idle(r.device) {
+			_ = sculpt_lookup_refused(r, mb, "the lookup's upload")
+			return false
+		}
+		if state == .Ready do ms.lookup_served = true
+		if state != .Uploading do return state == .Ready
 	}
-	if ms.offsets == nil do ms.offsets = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = obytes})
-	if ms.tris == nil do ms.tris = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tbytes})
-	if ms.offsets == nil || ms.tris == nil {
-		log.errorf("sculpt on the GPU: the lookup's %d MB were refused (%s); this mesh's strokes stay on the CPU", (obytes + tbytes) >> 20, sdl.GetError())
-		sculpt_lookup_release(r, mb)
-		ms.failed = true
-		return false
-	}
-	gpu_set_buffer_name(r.device, ms.offsets, "sculpt lookup offsets")
-	gpu_set_buffer_name(r.device, ms.tris, "sculpt lookup triangles")
-	ok := true
-	if omap != nil {
-		copy(([^]u8)(omap)[:obytes], slice.to_bytes(faces.offsets))
-		gpu_buffer_filled(r.device, ms.offsets)
-	} else {
-		ok = upload_blocking(r, mb, ms.offsets, slice.to_bytes(faces.offsets))
-	}
-	if tmap != nil {
-		copy(([^]u8)(tmap)[:tbytes], slice.to_bytes(faces.tris))
-		gpu_buffer_filled(r.device, ms.tris)
-	} else {
-		ok = ok && upload_blocking(r, mb, ms.tris, slice.to_bytes(faces.tris))
-	}
-	// The nodes' shared vertices, never empty for the binding's sake.
-	sbytes := max(u32(len(shared)) * size_of(u32), 4)
-	ms.shared = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = sbytes})
-	if ms.shared == nil {
-		log.errorf("sculpt on the GPU: the shared vertices' %d MB were refused (%s); this mesh's strokes stay on the CPU", sbytes >> 20, sdl.GetError())
-		sculpt_lookup_release(r, mb)
-		ms.failed = true
-		return false
-	}
-	gpu_set_buffer_name(r.device, ms.shared, "sculpt shared vertices")
-	if ok && len(shared) > 0 do ok = upload_blocking(r, mb, ms.shared, slice.to_bytes(shared))
-	if !ok {
-		log.errorf("sculpt on the GPU: the lookup's upload failed (%s); this mesh's strokes stay on the CPU", sdl.GetError())
-		sculpt_lookup_release(r, mb)
-		ms.failed = true
-		return false
-	}
-	ms.lookup_version, ms.lookup_bytes = mb.index_version, int(obytes + tbytes + sbytes)
-	log.infof("sculpt on the GPU: %d MB lookup uploaded in %.0f ms", (obytes + tbytes) >> 20, time.duration_milliseconds(time.tick_since(start)))
-	return true
 }
 
 // Makes the six kernels, exact (IEEE 754 arithmetic, no fast maths), so a result can
@@ -970,6 +1104,7 @@ sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 
 @(private = "file")
 sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
+	sculpt_lookup_unmap(r, mb)
 	ms := &mb.sculpt
 	if ms.offsets != nil do gpu_release_buffer(r.device, ms.offsets)
 	if ms.tris != nil do gpu_release_buffer(r.device, ms.tris)
@@ -977,6 +1112,7 @@ sculpt_lookup_release :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if ms.shared != nil do gpu_release_buffer(r.device, ms.shared)
 	ms.shared = nil
 	ms.offsets, ms.tris, ms.lookup_version, ms.lookup_bytes = nil, nil, 0, 0
+	ms.lookup_sizes, ms.lookup_done, ms.lookup_ready, ms.lookup_frames, ms.lookup_served = {}, 0, false, 0, false
 	ms.heights_buffer, ms.heights_capacity = nil, 0
 }
 
@@ -1008,6 +1144,7 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	if sg.nodes != nil do gpu_release_buffer(r.device, sg.nodes)
 	if sg.nodes_transfer != nil do gpu_release_transfer_buffer(r.device, sg.nodes_transfer)
 	if sg.bounds != nil do gpu_release_buffer(r.device, sg.bounds)
+	if sg.lookup_transfer != nil do gpu_release_transfer_buffer(r.device, sg.lookup_transfer)
 	if sg.bounds_pipeline != nil do gpu_release_compute_pipeline(r.device, sg.bounds_pipeline)
 	if sg.pipeline != nil do gpu_release_compute_pipeline(r.device, sg.pipeline)
 	for p in sg.dab_pipelines do if p != nil do gpu_release_compute_pipeline(r.device, p)

@@ -111,7 +111,11 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	cross_fade_gpu(app)
 	view_windows_layout(app)
 	if !rested do ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
-	bench_waits := loop.opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(app)
+	// A benchmark's stroke on the GPU waits for the lookup the kernels read to be up, as
+	// a person's first stroke comes seconds after the mesh, so it times the stroke alone;
+	// under --gpu-sculpt-sync the stroke's start uploads the rest instead, so its frames
+	// are the CPU path's frames, for comparing the two.
+	bench_waits := (loop.opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(app)) || (app.gpu_lookup_waiting && !app.renderer.sculpt_gpu.sync)
 	if bench_waits && !setting_up do loop.bench_skipped += 1
 	bench_frame := loop.frame_index - loop.bench_skipped
 	if loop.opts.bench_stroke > 0 && bench_frame < loop.opts.bench_stroke && !bench_waits && !setting_up {
@@ -205,6 +209,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 	// What each item was made from, for the main view's shading to make it again.
 	froms := make([dynamic]Item_From, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
+	lookup_waiting := false
 	for obj, i in app.scene.objects {
 		// A curve making nothing is only its line, which the overlay draws (curve_object.odin).
 		if !object_draws_triangles(obj) do continue
@@ -263,6 +268,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				return false
 			}
 			uploaded += bytes
+			if i != app.scene.selected do render.sculpt_gpu_unselected(&app.renderer, gpu)
+			else if !app.stroke.active && sculpt_gpu_prepare_level(app, cmd, obj, lv, gpu) do lookup_waiting = true
 			// The dabs and normals of a stroke on the GPU, now that what the CPU moved is up;
 			// where the device refused a buffer, the CPU lays the dabs and computes and
 			// uploads the normals next frame.
@@ -334,6 +341,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			})
 		}
 	}
+	// A stroke's frames leave the lookup as it was: its time is the stroke's.
+	if !app.stroke.active do app.gpu_lookup_waiting = lookup_waiting
 	flash_frame_end(app)
 	// After the uploads, so the preview measures the mesh as this frame draws it.
 	if checker := rebuild_preview_frame(app); checker != {} {
