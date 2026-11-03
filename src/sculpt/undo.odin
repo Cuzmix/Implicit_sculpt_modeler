@@ -129,6 +129,8 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	// lands first; it then asks the GPU afresh at its first dab (stroke_gpu.odin).
 	_ = sculptor_gpu_sync(s)
 	s.gpu_asked, s.gpu_take, s.gpu_once = false, .None, false
+	s.gpu_margin_dab, s.gpu_margin_once, s.gpu_unlanded, s.gpu_flush_count = 0, 0, 0, 0
+	clear(&s.gpu_flush_dabs)
 	// A new stroke starts a new Layer: earlier heights stop counting.
 	s.layer_stroke += 1
 	if s.layer_stroke == 0 {

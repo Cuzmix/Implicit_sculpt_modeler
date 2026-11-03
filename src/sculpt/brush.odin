@@ -422,6 +422,15 @@ Sculptor :: struct {
 	gpu_pending:    []u32,
 	gpu_pending_on: bool,
 	gpu_once:       bool, // a dab of the stroke keeps the heights on the GPU (sculptor_gpu_heights)
+	// How far the stroke's dabs not yet landed may have moved a vertex on the GPU beyond
+	// the mirror (gpu_query_margin): the most one dab moves it for the kinds that build up
+	// dab on dab, times the dabs whose flush has not landed, plus the most the kinds that
+	// stop at a plane or a height move it over the whole stroke.
+	gpu_margin_dab:  f32,
+	gpu_margin_once: f32,
+	gpu_unlanded:    int,          // dabs recorded whose flush has not landed
+	gpu_flush_count: int,          // dabs recorded since the last flush
+	gpu_flush_dabs:  [dynamic]int, // the dabs of each flush on its way, oldest first
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -1168,7 +1177,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		view   = view,
 	}
 	clear(&s.hit)
-	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
+	// With the dabs on the GPU the tree bounds the mirror, which lags the GPU's positions
+	// by up to the stroke's largest move: the query reaches that much further, and the
+	// kernels test each vertex's true distance (stroke_gpu.odin).
+	geom.bvh_query_leaves(&s.bvh, center, reach + gpu_query_margin(s), &s.hit)
 	if len(s.hit) == 0 do return 0
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
