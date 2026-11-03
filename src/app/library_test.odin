@@ -1,11 +1,14 @@
 package main
 
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
+import "../hdri"
 import "../png_write"
+import "../sculpt"
 
 // A small grey PNG whose pixels `seed` varies, so two seeds are two different images.
 @(private = "file")
@@ -135,4 +138,50 @@ library_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 	testing.expect_value(t, alpha_ref(&none, none.brush.alpha), "a")
 	testing.expect_value(t, none.alphas[none.brush.alpha].file, "")
 	free_all(context.temp_allocator)
+}
+
+// An OpenEXR alpha is a VDM, its channels read as the chosen app lays them: a ZBrush map
+// (out of the surface in green) stands up as the same stamp a Blender map does (out in
+// blue). Kept in the library, it comes back at the next start as the same offsets.
+@(test)
+library_keeps_vdm_exr_from_zbrush :: proc(t: ^testing.T) {
+	FOLDER :: "build/library_vdm_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	settings := FOLDER + "run.txt"
+	W :: 16
+	want := sculpt.vdm_make(.Horn, W, context.temp_allocator)
+	for axes in sculpt.Vdm_Axes {
+		pixels := make([][3]f32, W * W, context.temp_allocator)
+		for v, i in want.vectors do pixels[i] = sculpt.vdm_to_file(v, axes)
+		path := fmt.tprintf("%s%s.exr", FOLDER, sculpt.VDM_AXES_NAMES[axes])
+		testing.expect(t, os.write_entire_file(path, hdri.exr_encode(pixels, W, W, context.temp_allocator)) == nil)
+		a: App
+		alphas_init(&a)
+		library_load(&a, library_folder(settings))
+		a.vdm_axes = axes
+		testing.expectf(t, alpha_keep(&a, path), "%v: %s", axes, a.result.text)
+		got := a.alphas[a.brush.alpha].alpha.vectors
+		testing.expectf(t, slice_equal3(got, want.vectors), "%v read other offsets", axes)
+		library_app_free(&a)
+	}
+	// At the next start each kept map reads back as it was taken in.
+	b: App
+	defer library_app_free(&b)
+	alphas_init(&b)
+	library_load(&b, library_folder(settings))
+	testing.expect_value(t, b.library.alphas, len(sculpt.Vdm_Axes))
+	for axes in sculpt.Vdm_Axes {
+		i := alpha_find(&b, fmt.tprintf("mine/%s", sculpt.VDM_AXES_NAMES[axes]))
+		testing.expectf(t, i >= 0 && slice_equal3(b.alphas[i].alpha.vectors, want.vectors), "%v came back changed", axes)
+	}
+	free_all(context.temp_allocator)
+}
+
+@(private = "file")
+slice_equal3 :: proc(a, b: [][3]f32) -> bool {
+	if len(a) != len(b) do return false
+	for v, i in a do if v != b[i] do return false
+	return true
 }

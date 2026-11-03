@@ -13,6 +13,7 @@ import "core:path/filepath"
 import "core:strings"
 
 import "../camera"
+import "../hdri"
 import "../sculpt"
 import "../ui"
 
@@ -138,7 +139,7 @@ alpha_load :: proc(app: ^App, path: string) -> bool {
 		return false
 	}
 	defer delete(data)
-	alpha, width, height, failed := alpha_decode(data)
+	alpha, width, height, failed := alpha_decode(data, app.vdm_axes)
 	if failed != "" {
 		file_note(app, true, "Cannot load alpha %s: %s", name, failed)
 		return false
@@ -152,11 +153,23 @@ alpha_load :: proc(app: ^App, path: string) -> bool {
 
 // The alpha an image file's bytes make: its grey value sets the alpha, times its
 // opacity where it has one, so a white shape on a transparent ground works as well as a
-// grey image. When they make none, `failed` says why.
+// grey image. An OpenEXR file is a vector displacement map instead, its channels read as
+// `axes` says (sculpt.Vdm_Axes). When they make none, `failed` says why.
 @(private)
-alpha_decode :: proc(data: []u8) -> (alpha: sculpt.Alpha, width, height: int, failed: string) {
+alpha_decode :: proc(data: []u8, axes := sculpt.Vdm_Axes.Blender) -> (alpha: sculpt.Alpha, width, height: int, failed: string) {
+	if hdri.exr_is(data) {
+		// At full size: alpha_from_vectors averages it down to what an alpha holds.
+		img, why := hdri.exr_decode_picture(data, hdri.MAX_SIDE, context.temp_allocator)
+		if why != "" do return {}, 0, 0, why
+		vectors := make([][3]f32, len(img.pixels), context.temp_allocator)
+		for p, i in img.pixels do vectors[i] = sculpt.vdm_from_file(p, axes)
+		ok: bool
+		alpha, ok = sculpt.alpha_from_vectors(vectors, img.width, img.height)
+		if !ok do return {}, 0, 0, "the image is empty"
+		return alpha, img.width, img.height, ""
+	}
 	img, img_err := image.load_from_bytes(data)
-	if img_err != nil do return {}, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA and QOI images work)", img_err)
+	if img_err != nil do return {}, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA, QOI and OpenEXR images work)", img_err)
 	defer image.destroy(img)
 	grey := make([]f32, img.width * img.height, context.temp_allocator)
 	if !image_grey(img, grey) do return {}, 0, 0, fmt.tprintf("%d-bit channels are not supported", img.depth)
@@ -323,6 +336,11 @@ kit_alpha_section :: proc(app: ^App) {
 		}
 	}
 	if ui.button(ctx, "Load image...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Alpha)
+	// Which app an OpenEXR vector map comes from, as each lays its axes its own way.
+	ui.caption(ctx, "VDM FILES FROM")
+	axes: [len(sculpt.Vdm_Axes)]string
+	for a, i in sculpt.Vdm_Axes do axes[i] = sculpt.VDM_AXES_NAMES[a]
+	if picked := ui.tabs(ctx, "vdm axes", axes[:], int(app.vdm_axes)); picked >= 0 do app.vdm_axes = sculpt.Vdm_Axes(picked)
 	if i := app.brush.alpha; alpha_is_mine(app, i) {
 		// Taking an image out deletes its file, so it asks for a second tap.
 		k := &app.kit
@@ -342,7 +360,7 @@ kit_alpha_section :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more. A VDM stamp holds 3D offsets, so with Draw one dab lays a horn or a lip with overhangs (best with the Rectangle stroke); other brushes read it as grey. An OpenEXR image loads as a VDM, its axes read as the app it came from lays them (VDM files from).")
 }
 
 // One thumbnail of the Alpha section (and the Lens shelf's quick settings): the round
