@@ -29,6 +29,16 @@ Bake_Kind :: enum u8 {
 	Base_Color, // sRGB: the polypaint over the material's colour
 	Orm,        // linear: occlusion, roughness, metallic in red, green and blue
 	Id,         // sRGB: each polygroup in its viewport colour
+	Vector,     // float: the whole offset from the low mesh to the sculpt (vector displacement)
+}
+
+// How the maps are laid out for the program that reads them. Tangent-space maps are in
+// the low mesh's tangent frame (x along the tangent, y the bitangent toward +v, z the
+// normal); object-space ones in the object's own axes. `directx` turns the normal map's
+// green over, as DirectX's convention (Unreal's) reads it.
+Bake_Options :: struct {
+	object_space: bool,
+	directx:      bool,
 }
 
 // A surface the sculpt's faces are shaded with, in glTF's terms: `base` linear, 0 to 1.
@@ -49,6 +59,13 @@ Bake_Source :: struct {
 	surfaces:        []Bake_Surface, // [0] the object's own; none: a light grey
 	occlusion_rays:  int,            // per texel; 0 leaves occlusion white
 	occlusion_reach: f32,            // hits farther away do not occlude
+	// Where each vertex of `mesh` stood before its detail, a mesh of the same triangles
+	// (a detail skin's flat points), with `rest_bvh` over it; empty for none. A bake from
+	// the low mesh's own detail finds each texel's point on it, the nearest within reach,
+	// instead of casting rays, so the vector map holds the exact offset there, overhangs
+	// and sideways moves included.
+	rest:            Mesh,
+	rest_bvh:        ^Bvh,
 }
 
 Bake_Maps :: struct {
@@ -58,6 +75,7 @@ Bake_Maps :: struct {
 	base_color:       []u8,  // RGBA each, as Bake_Kind says; nil when not asked for
 	orm:              []u8,
 	id:               []u8,
+	vector:           [][3]f32, // per texel, as Bake_Options says; nil when not asked for
 	covered:          int,   // texels inside a chart
 	hit:              int,   // of those, texels whose rays found the sculpt
 	max_displacement: f32,   // largest distance either way
@@ -69,13 +87,14 @@ bake_maps_destroy :: proc(b: ^Bake_Maps) {
 	delete(b.base_color)
 	delete(b.orm)
 	delete(b.id)
+	delete(b.vector)
 	b^ = {}
 }
 
 // Bakes `src` into maps of `size` texels square on the quad mesh `low` laid out by
 // `uvs`: normal and displacement always, the others in `kinds`. Rays reach `reach`
 // either way.
-bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, reach: f32, kinds: bit_set[Bake_Kind], pool: ^jobs.Pool, allocator := context.allocator) -> (b: Bake_Maps) {
+bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, reach: f32, kinds: bit_set[Bake_Kind], pool: ^jobs.Pool, allocator := context.allocator, options: Bake_Options = {}) -> (b: Bake_Maps) {
 	b.size = size
 	texels := size * size
 	b.normal = make([]u8, 4 * texels, allocator)
@@ -83,6 +102,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 	if .Base_Color in kinds do b.base_color = make([]u8, 4 * texels, allocator)
 	if .Orm in kinds do b.orm = make([]u8, 4 * texels, allocator)
 	if .Id in kinds do b.id = make([]u8, 4 * texels, allocator)
+	if .Vector in kinds do b.vector = make([][3]f32, texels, allocator)
 	source, bvh := src.mesh, src.bvh
 	normals := quad_mesh_normals(low, context.temp_allocator)
 	frame := quad_mesh_tangents(low, uvs, normals, context.temp_allocator)
@@ -137,6 +157,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 		linear:      [256]f32,
 		rows_hit:    []int,
 		rows_max:    []f32,
+		options:     Bake_Options,
 	}
 	job := Job {
 		b        = &b,
@@ -153,6 +174,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 		hits     = make([]bool, texels, context.temp_allocator),
 		rows_hit = make([]int, size, context.temp_allocator),
 		rows_max = make([]f32, size, context.temp_allocator),
+		options  = options,
 	}
 	for &x, k in job.linear do x = srgb_decode(f32(k) / 255)
 	jobs.parallel_ranges(pool, size, &job, proc(data: rawptr, lo, hi: int) {
@@ -187,37 +209,66 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 				vb := turned * linalg.cross(vn, vt)
 				n := linalg.normalize0(vn)
 				shown := Vec3{0, 0, 1}
-				// Each ray starts a little behind the texel's point, so a surface right at
-				// it is hit by one of them.
-				back := 1e-3 * job.reach
-				out_t, out_tri, out_hit := bvh_raycast_with(job.bvh, job.source, p - back * n, n, job.reach + back, &stack)
-				in_t, in_tri, in_hit := bvh_raycast_with(job.bvh, job.source, p + back * n, -n, job.reach + back, &stack)
-				out_t -= back
-				in_t -= back
 				d: f32
 				tri: u32
+				weights: [3]f32
 				hit := true
-				switch {
-				case out_hit && (!in_hit || abs(out_t) <= abs(in_t)): d, tri = out_t, out_tri
-				case in_hit:                                          d, tri = -in_t, in_tri
-				case:                                                 hit = false
+				if len(job.src.rest.positions) > 0 {
+					// The texel's own point on the detail's rest mesh, and where the
+					// detail took it.
+					rt, rw, _, found := bvh_closest(job.src.rest_bvh^, job.src.rest, p, job.reach)
+					if found {
+						tri, weights = rt, rw
+						I := job.source.indices
+						q: Vec3
+						for k in 0 ..< 3 do q += job.source.positions[I[3 * tri + u32(k)]] * weights[k]
+						d = linalg.dot(q - p, n)
+						if b.vector != nil do b.vector[at] = q - p
+					} else {
+						hit = false
+					}
+				} else {
+					// Each ray starts a little behind the texel's point, so a surface right
+					// at it is hit by one of them.
+					back := 1e-3 * job.reach
+					out_t, out_tri, out_hit := bvh_raycast_with(job.bvh, job.source, p - back * n, n, job.reach + back, &stack)
+					in_t, in_tri, in_hit := bvh_raycast_with(job.bvh, job.source, p + back * n, -n, job.reach + back, &stack)
+					out_t -= back
+					in_t -= back
+					switch {
+					case out_hit && (!in_hit || abs(out_t) <= abs(in_t)): d, tri = out_t, out_tri
+					case in_hit:                                          d, tri = -in_t, in_tri
+					case:                                                 hit = false
+					}
+					if hit {
+						weights = triangle_weights(job.source, tri, p + d * n)
+						if b.vector != nil do b.vector[at] = d * n
+					}
 				}
+				det := linalg.dot(vt, linalg.cross(vb, vn))
 				if hit {
 					job.rows_hit[y] += 1
 					job.rows_max[y] = max(job.rows_max[y], abs(d))
 					b.displacement[at] = d
 					at_hit := p + d * n
-					weights := triangle_weights(job.source, tri, at_hit)
 					sn := source_normal(job.source, tri, weights)
-					// The sculpt's normal in that frame: what the reader's frame turns back
-					// into it (the reciprocal basis, as the frame need not be orthogonal).
-					det := linalg.dot(vt, linalg.cross(vb, vn))
-					if abs(det) > 1e-20 && sn != {} {
-						shown = linalg.normalize0(Vec3{linalg.dot(linalg.cross(vb, vn), sn), linalg.dot(linalg.cross(vn, vt), sn), linalg.dot(linalg.cross(vt, vb), sn)} / det)
+					if job.options.object_space {
+						if sn != {} do shown = linalg.normalize0(sn)
+					} else if abs(det) > 1e-20 && sn != {} {
+						// The sculpt's normal in that frame: what the reader's frame turns
+						// back into it (the reciprocal basis, as the frame need not be
+						// orthogonal).
+						shown = linalg.normalize0(tangent_coefficients(vt, vb, vn, det, sn))
 					}
 					job.hits[at] = true
 					bake_surface_texel(b, job.src, &job.linear, at, tri, weights, at_hit, &stack)
+				} else if job.options.object_space {
+					shown = n
 				}
+				// The offset in the reader's frame, as the normal: unnormalized, so the
+				// frame turns it back into the offset itself.
+				if b.vector != nil && !job.options.object_space && abs(det) > 1e-20 do b.vector[at] = tangent_coefficients(vt, vb, vn, det, b.vector[at])
+				if job.options.directx && !job.options.object_space do shown.y = -shown.y
 				put_normal(b.normal[4 * at:], shown)
 			}
 		}
@@ -345,6 +396,13 @@ perpendicular_pair :: proc(n: Vec3) -> (x, y: Vec3) {
 put_normal :: #force_inline proc(out: []u8, n: Vec3) {
 	for k in 0 ..< 3 do out[k] = u8(clamp((n[k] * 0.5 + 0.5) * 255 + 0.5, 0, 255))
 	out[3] = 255
+}
+
+// The coefficients of `v` in the frame (`t`, `b`, `n`) whose determinant is `det`: the
+// reciprocal basis, as the frame need not be orthogonal.
+@(private)
+tangent_coefficients :: #force_inline proc(t, b, n: Vec3, det: f32, v: Vec3) -> Vec3 {
+	return Vec3{linalg.dot(linalg.cross(b, n), v), linalg.dot(linalg.cross(n, t), v), linalg.dot(linalg.cross(t, b), v)} / det
 }
 
 // Where point `p` lies in triangle `tri`: the weights of its three corners, (1, 0, 0)
@@ -514,7 +572,7 @@ dilate :: proc(b: ^Bake_Maps, filled: []bool, surface: bool) {
 				at := y * size + x
 				if filled[at] do continue
 				if surface && b.base_color == nil && b.orm == nil && b.id == nil do return
-				sum: Vec3
+				sum, vec: Vec3
 				disp: f32
 				color, orm: [4]u32
 				count := 0
@@ -527,6 +585,7 @@ dilate :: proc(b: ^Bake_Maps, filled: []bool, surface: bool) {
 						if !filled[other] do continue
 						for k in 0 ..< 3 do sum[k] += f32(b.normal[4 * other + k]) / 255 * 2 - 1
 						disp += b.displacement[other]
+						if b.vector != nil do vec += b.vector[other]
 						for k in 0 ..< 4 {
 							if b.base_color != nil do color[k] += u32(b.base_color[4 * other + k])
 							if b.orm != nil do orm[k] += u32(b.orm[4 * other + k])
@@ -540,6 +599,7 @@ dilate :: proc(b: ^Bake_Maps, filled: []bool, surface: bool) {
 				if !surface {
 					put_normal(b.normal[4 * at:], linalg.normalize0(sum))
 					b.displacement[at] = disp / f32(count)
+					if b.vector != nil do b.vector[at] = vec / f32(count)
 					continue
 				}
 				half := u32(count) / 2

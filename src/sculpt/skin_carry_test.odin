@@ -71,3 +71,33 @@ skin_carry_reads_the_old_skin :: proc(t: ^testing.T) {
 	testing.expect(t, fresh.sculptor.skin.heat == nil)
 	_ = geom.Mesh{}
 }
+
+// The skin as a mesh: a vertex at every sample where the skin shows it, its rest at the
+// flat point, and segments squared small triangles to a triangle, closed as the mesh is.
+@(test)
+skin_mesh_has_every_sample :: proc(t: ^testing.T) {
+	sp := skin_sphere_with(1, 4)
+	defer skin_sphere_free(sp)
+	sk := sp.sculptor.skin
+	for &h, i in sk.heights do h = f16(0.01 * math.sin(f32(i)))
+	shown, rest, ok := sculptor_skin_mesh(&sp.sculptor)
+	defer {
+		geom.mesh_destroy(&shown)
+		delete(rest.positions)
+	}
+	if !testing.expect(t, ok) do return
+	testing.expect_value(t, len(shown.positions), len(sk.heights))
+	testing.expect_value(t, len(shown.indices), 3 * int(sk.tri_count * 16))
+	S := sk.segments
+	I := sp.sculptor.mesh.indices[:]
+	worst: f32
+	for tri in u32(0) ..< sk.tri_count do for j in u32(0) ..= S do for i in u32(0) ..= S - j {
+		b, n := skin_base(&sp.sculptor, sk, tri, i, j)
+		x := skin_sample(sk, I, tri, i, j)
+		want := skin_point(&sp.sculptor, sk, tri, i, j) + skin_curve(&sp.sculptor, sk, tri, i, j, b, linalg.normalize0(n))
+		worst = max(worst, linalg.length(shown.positions[x] - want), linalg.length(rest.positions[x] - b))
+	}
+	testing.expectf(t, worst < 1e-6, "a sample is %v off", worst)
+	stats := geom.mesh_check(shown)
+	testing.expectf(t, stats.closed && stats.inconsistent_edges == 0 && !stats.inverted, "the skin mesh is not closed and outward: %v", stats)
+}
