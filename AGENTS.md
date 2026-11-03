@@ -31,7 +31,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py --changed                # each PR of a series: only what the branch's changes reach; the full gate ends the series
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, app
+    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -68,6 +68,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/fbx` | FBX in (Import) through ufbx (`deps/ufbx-src`, built with our C shim `fbx_shim.c` by `scripts/build_ufbx.py`, by Android's CMakeLists and by `build.sh ios`): a few C calls, each mesh node a `geom.Mesh_Part` with its polygons and its parent node as its folder, materials and textures into a `geom.Mesh_Look`, skins, animations and shape keys counted; `build.sh`/`build.bat` rebuild it when the shim changes |
 | `src/quadmesh` | Quad Remesh's engine: the binding to AutoRemesher's core (`deps/autoremesher-src` at `AUTOREMESHER_COMMIT`, patched with `patches/*.patch` (feature edges, the hole-filling fix; regenerate a patch from a git copy of the source, keeping the third-party files' CRLF) and built with our C boundary `quadmesh_shim.cpp` and the TBB stand-ins in `shim/tbb` by `scripts/build_autoremesher.py`; desktops only, `AVAILABLE`): `remesh` turns triangles into a `Polygon_Mesh` of nearly all quads, with progress and cancel |
 | `src/retopo` | Quad Remesh's work with no scene: about so many quads on a mesh by AutoRemesher or the own engine (`geom.mesh_retopo`), Close first, symmetry and UVs (`compute`, `Result`, `Options`); run by the app's long job and by `bench --quadremesh` |
+| `src/send` | Send to computer and Send to tablet with no sockets: frames, the hello that refuses another build, the scene file cut into content-defined chunks (FastCDC, BLAKE2b), the offer and need lists, and `Rebuild`, which rebuilds the file from a base and the chunks sent; the app moves the bytes |
 | `src/hdri` | environment panoramas in: Radiance `.hdr`, OpenEXR (all but its newest compressions, HTJ2K and ZSTD) and pictures, as linear RGB halved to a width, and their nine-term diffuse light; decoded on a thread, uploaded by `app` |
 | `src/usd` | USD in (Import): `.usda` text, the `.usdc` binary crate (LZ4, integer coding) and `.usdz` through `zip`, read into a stage whose Mesh prims become `geom.Mesh_Part`s; composition not followed |
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
@@ -82,7 +83,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh` and `retopo` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
+- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `hal.odin`'s

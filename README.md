@@ -19,6 +19,7 @@ A performance-focused sculpting prototype in Odin, using SDL3 for windows and in
 | `src/quadmesh` | the Quad Remesh engine: the binding to [AutoRemesher](https://github.com/huxingyi/autoremesher)'s core (MIT, built from source with a small C boundary of ours and stand-ins for TBB), which turns a triangle mesh into quads that follow the surface (see Retopology, UVs and baking) |
 | `src/usd` | USD in, for Import: the text form (`.usda`), the binary crate (`.usdc`, with its LZ4 and integer coding) and `.usdz` packages, read into a stage whose Mesh prims become meshes; references, payloads and variants are not followed |
 | `src/jobs` | Persistent worker pool (`parallel_for`) used by sculpt and mesh setup |
+| `src/send` | What Send says over the local network, with no sockets or app: frames, the hello that refuses a peer of another build, the scene file cut into chunks where its content says (so a later send carries only what changed), the offer and need lists, and the rebuilding of a sent file from the copy the receiver already has and the chunks it lacked, every chunk checked against its hash; the app does not send yet |
 | `src/bench` | Headless sculpt benchmark at chosen mesh sizes (no window or GPU) |
 | `web` | The web version's page (see Web): `index.html`, `sdl_web.js` (what SDL does for the app on the desktop, done with the browser: the window, pointer, pen, touch and keys, dialogs, and the files kept in the browser) and `odin_overlay` (what Odin's runtime, `core:os` and `core:thread` lack on js) |
 | `src/voxel` | Voxel sculpting core: a signed distance field in a narrow band of 8³ bricks (16-bit values, tiles for the solid inside and the empty outside), Add, Subtract, Smooth, Flatten and Inflate brushes, a surface meshed by surface nets (one vertex a loop of crossings, no saddle faces in the field: closed and manifold) a 16³ node at a time into slots the GPU buffers upload in place, per-brick undo, band repair at a stroke's end, the clay's scene-file section and the conversion to a plain mesh (see Voxel sculpting below) |
@@ -40,7 +41,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, app)
+./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app)
 ./build.sh check      # odin check of every package with the strict flags, then the agent-file mirror check (scripts/agents_sync.py)
 ./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode on the Vulkan backend; non-zero exit on assert, GPU error or leak
