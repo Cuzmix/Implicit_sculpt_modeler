@@ -37,14 +37,26 @@ Stroke_Gpu :: struct {
 	dabs:    proc(data: rawptr, s: ^Sculptor, dabs: []Gpu_Dab) -> bool,
 	// Recomputes the normals of `ranges` (the mesh's owned vertex ranges of the nodes whose
 	// shape or border moved, coalesced and sorted) on the GPU, the stroke's last flush
-	// with `last`, and reads the ranges' positions and normals back; false leaves them to
-	// the CPU, this flush and every later one of the stroke.
+	// with `last`, and reads the ranges back: their normals, or where the dabs run on the
+	// GPU their positions alone (the normals follow after the stroke: normals_back); false
+	// leaves them to the CPU, this flush and every later one of the stroke.
 	normals: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range, last: bool) -> bool,
 	// Waits for every readback of `s`'s mesh already submitted and writes it into the
 	// mesh; false where one is recorded this frame and not yet submitted, which cannot be
 	// waited for (the caller then tries again next frame).
 	sync:    proc(data: rawptr, s: ^Sculptor) -> bool,
+	// Reads the GPU's normals of `ranges` back with the frame's readbacks, nothing
+	// recomputed (the normals the stroke's flushes left there); false leaves them to the
+	// CPU.
+	normals_back: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool,
+	// Reads them back now, waiting for the GPU, after the readbacks `sync` waited for;
+	// false leaves them to the CPU.
+	normals_now:  proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool,
 }
+
+// The most vertices a frame reads the normals of back after a stroke whose dabs ran on
+// the GPU (stroke_gpu_back): a quarter million cost about 2 ms to unpack on the VM.
+GPU_BACK_VERTS :: 262144
 
 // How much of a stroke the GPU takes.
 Gpu_Take :: enum u8 {
@@ -104,11 +116,72 @@ stroke_gpu: Stroke_Gpu
 // is then the GPU's; false where a readback recorded this frame is not yet submitted, so
 // the mesh still lags by it (the caller waits for the next frame, as sculptor_lod_update
 // does). Nothing, and true, where no stroke ran on the GPU.
-sculptor_gpu_sync :: proc(s: ^Sculptor) -> bool {
+//
+// The normals of a stroke whose dabs ran on the GPU come back after its positions; the
+// sync reads every one still owed, unless `normals` is false, for a caller that reads
+// the positions alone (the simplified copies), which then leaves them to come back a
+// slice a frame.
+sculptor_gpu_sync :: proc(s: ^Sculptor, normals := true) -> bool {
 	exact := true
 	if stroke_gpu.sync != nil do exact = stroke_gpu.sync(stroke_gpu.data, s)
+	if normals && len(s.gpu_owed_list) > 0 {
+		ranges := gpu_owed_take(s, max(int))
+		if stroke_gpu.normals_now == nil || !stroke_gpu.normals_now(stroke_gpu.data, s, ranges) {
+			gpu_owed_to_cpu(s, s.gpu_back_last[:])
+		}
+		clear(&s.gpu_back_last)
+	}
 	if len(s.gpu_replay) > 0 do gpu_replay(s)
 	return exact
+}
+
+// Takes up to `budget` vertices' worth of the nodes whose normals are owed, oldest first
+// (always one node at least), into gpu_back_last, and returns their ranges coalesced and
+// sorted, in temp memory.
+@(private = "file")
+gpu_owed_take :: proc(s: ^Sculptor, budget: int) -> []Vertex_Range {
+	clear(&s.gpu_back_last)
+	verts, k := 0, 0
+	for k < len(s.gpu_owed_list) && (k == 0 || verts + int(s.nodes[s.gpu_owed_list[k]].vert_count) <= budget) {
+		id := s.gpu_owed_list[k]
+		s.gpu_owed[id] = false
+		append(&s.gpu_back_last, id)
+		verts += int(s.nodes[id].vert_count)
+		k += 1
+	}
+	remove_range(&s.gpu_owed_list, 0, k)
+	ids := slice.clone(s.gpu_back_last[:], context.temp_allocator)
+	slice.sort(ids)
+	ranges := make([dynamic]Vertex_Range, 0, len(ids), context.temp_allocator)
+	for id in ids {
+		n := s.nodes[id]
+		if n.vert_count == 0 do continue
+		if l := len(ranges); l > 0 && ranges[l - 1].first + ranges[l - 1].count == n.vert_first {
+			ranges[l - 1].count += n.vert_count
+		} else {
+			append(&ranges, Vertex_Range{n.vert_first, n.vert_count})
+		}
+	}
+	return ranges[:]
+}
+
+// The GPU will not hand these nodes' normals back: the CPU works them out from the
+// positions at the next flush, which uploads them too.
+@(private = "file")
+gpu_owed_to_cpu :: proc(s: ^Sculptor, ids: []u32) {
+	for id in ids do mark_stale(s, id, .Shape)
+}
+
+// After a stroke whose dabs ran on the GPU, reads a frame's share of the normals still
+// owed back (sculptor_flush, once the stroke is over).
+@(private)
+stroke_gpu_back :: proc(s: ^Sculptor) {
+	if len(s.gpu_owed_list) == 0 || s.gpu_take != .None do return
+	ranges := gpu_owed_take(s, GPU_BACK_VERTS)
+	if stroke_gpu.normals_back == nil || !stroke_gpu.normals_back(stroke_gpu.data, s, ranges) {
+		gpu_owed_to_cpu(s, s.gpu_back_last[:])
+		clear(&s.gpu_back_last)
+	}
 }
 
 // Whether the stroke under way runs on the GPU, and how much of it, decided at its first dab.
@@ -280,6 +353,9 @@ stroke_gpu_dabs :: proc(s: ^Sculptor) {
 // them from the mirror, which the sync inside brings up to date first, and the stroke
 // steps down to Normals, so the next flush uploads what it laid.
 sculptor_gpu_refused :: proc(s: ^Sculptor, ranges: []Vertex_Range) {
+	// The frame's share of owed normals never comes either.
+	gpu_owed_to_cpu(s, s.gpu_back_last[:])
+	clear(&s.gpu_back_last)
 	if s.gpu_pending_on {
 		for id in nodes_of_ranges(s, ranges) do s.gpu_pending[id] -= 1
 		s.gpu_pending_on = false
@@ -356,7 +432,14 @@ stroke_gpu_normals :: proc(s: ^Sculptor) -> bool {
 	// each node counts the readbacks on their way, for sculptor_positions_landed.
 	s.gpu_pending_on = taken && s.gpu_take == .Dabs
 	if s.gpu_pending_on {
-		for id in nodes_of_ranges(s, s.ranges[:]) do s.gpu_pending[id] += 1
+		// Their positions come back with this flush, their normals after the stroke.
+		for id in nodes_of_ranges(s, s.ranges[:]) {
+			s.gpu_pending[id] += 1
+			if !s.gpu_owed[id] {
+				s.gpu_owed[id] = true
+				append(&s.gpu_owed_list, id)
+			}
+		}
 		append(&s.gpu_flush_dabs, s.gpu_flush_count)
 	}
 	s.gpu_flush_count = 0
@@ -449,4 +532,7 @@ stroke_gpu_destroy :: proc(s: ^Sculptor) {
 	delete(s.gpu_ranges_last)
 	delete(s.gpu_pending)
 	delete(s.gpu_flush_dabs)
+	delete(s.gpu_owed)
+	delete(s.gpu_owed_list)
+	delete(s.gpu_back_last)
 }

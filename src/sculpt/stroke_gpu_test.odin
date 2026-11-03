@@ -1,6 +1,7 @@
 package sculpt
 
 import "core:math/linalg"
+import "core:slice"
 import "core:testing"
 
 import "../geom"
@@ -21,6 +22,9 @@ Fake_Gpu :: struct {
 	lasts:    int,
 	syncs:    int,
 	laid:     int, // dab records laid
+	backs:    int, // frames that read owed normals back
+	nows:     int, // syncs that read every owed normal back at once
+	refuse_back: bool, // refuse reading normals back, which leaves them to the CPU
 	normals:  []Vec3, // the GPU's copy
 	pending:  [dynamic]Vertex_Range,
 	taken:    [dynamic]Vertex_Range, // every range handed over so far
@@ -44,13 +48,13 @@ fake_begin :: proc(data: rawptr, s: ^Sculptor, brush: Brush) -> Gpu_Take {
 fake_dabs :: proc(data: rawptr, s: ^Sculptor, dabs: []Gpu_Dab) -> bool {
 	f := cast(^Fake_Gpu)data
 	if s != f.s || f.refuse do return false
-	for rec in dabs do fake_lay(s, rec)
+	for rec in dabs do fake_lay(s, rec, f.normals)
 	f.laid += len(dabs)
 	return true
 }
 
 @(private = "file")
-fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab) {
+fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 	m := s.mesh
 	normal_sum, center_sum: Vec3
 	weight: f32
@@ -60,7 +64,7 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab) {
 			d2 := linalg.dot(delta, delta)
 			if d2 * rec.inv_sample2 < 1 {
 				w := falloff(d2 * rec.inv_sample2)
-				normal_sum += m.normals[v] * w
+				normal_sum += normals[v] * w
 				center_sum += m.positions[v] * w
 				weight += w
 			}
@@ -78,7 +82,7 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab) {
 		if w <= 0 do continue
 		#partial switch rec.kind {
 		case .Draw, .Inflate:
-			way := normal if rec.kind == .Draw else m.normals[v]
+			way := normal if rec.kind == .Draw else normals[v]
 			if rec.once {
 				l := &s.layer[v]
 				h := l.height if l.stroke == rec.stroke else 0
@@ -112,9 +116,29 @@ fake_normals :: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range, last: b
 			f.normals[v] = linalg.normalize0(sum)
 		}
 	}
-	append(&f.pending, ..ranges)
 	append(&f.taken, ..ranges)
+	// As the readback does: with the dabs on the GPU the positions come back alone, the
+	// normals after the stroke (fake_normals_back, fake_normals_now).
 	if sculptor_positions_on_gpu(s) do append(&f.landing, ..ranges)
+	else do append(&f.pending, ..ranges)
+	return true
+}
+
+@(private = "file")
+fake_normals_back :: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool {
+	f := cast(^Fake_Gpu)data
+	if s != f.s || f.refuse_back do return false
+	f.backs += 1
+	append(&f.pending, ..ranges)
+	return true
+}
+
+@(private = "file")
+fake_normals_now :: proc(data: rawptr, s: ^Sculptor, ranges: []Vertex_Range) -> bool {
+	f := cast(^Fake_Gpu)data
+	if s != f.s || f.refuse_back do return false
+	f.nows += 1
+	for r in ranges do copy(s.mesh.normals[r.first:][:r.count], f.normals[r.first:][:r.count])
 	return true
 }
 
@@ -216,6 +240,7 @@ stroke_gpu_hand_off :: proc(t: ^testing.T) {
 	stroke_gpu_dabs_refused_are_laid_by_the_cpu(t)
 	stroke_gpu_dabs_pending_at_a_sync_are_laid_by_the_cpu(t)
 	stroke_gpu_dabs_step_down_for_a_brush_the_kernels_lack(t)
+	stroke_gpu_dabs_normals_come_back_after_the_stroke(t)
 }
 
 // Two sculptors, each stroked the same way: the twin on the CPU, the other with its dabs
@@ -251,7 +276,7 @@ dabs_fixture :: proc(f: ^Fake_Gpu, ma, mb: ^geom.Mesh, a, b: ^Sculptor) {
 	_ = sculptor_flush(b)
 	f^ = Fake_Gpu{s = b, take = true, dabs = true, compute = true, normals = make([]Vec3, len(mb.normals))}
 	copy(f.normals, mb.normals[:])
-	stroke_gpu = {data = f, begin = fake_begin, dabs = fake_dabs, normals = fake_normals, sync = fake_sync}
+	stroke_gpu = {data = f, begin = fake_begin, dabs = fake_dabs, normals = fake_normals, sync = fake_sync, normals_back = fake_normals_back, normals_now = fake_normals_now}
 }
 
 @(private = "file")
@@ -366,6 +391,58 @@ stroke_gpu_dabs_pending_at_a_sync_are_laid_by_the_cpu :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
+stroke_gpu_dabs_normals_come_back_after_the_stroke :: proc(t: ^testing.T) {
+	// The readbacks of a stroke whose dabs run on the GPU carry the positions alone; the
+	// normals follow after the stroke, a slice a frame, and a sync that reads the
+	// positions alone (the simplified copies') leaves them to that. Then a refused read
+	// gives them to the CPU, which works them out from the positions.
+	for refuse in ([]bool{false, true}) {
+		ma, mb: geom.Mesh
+		a, b: Sculptor
+		f: Fake_Gpu
+		dabs_fixture(&f, &ma, &mb, &a, &b)
+		defer geom.mesh_destroy(&ma)
+		defer geom.mesh_destroy(&mb)
+		defer sculptor_destroy(&a)
+		defer sculptor_destroy(&b)
+		defer fake_destroy(&f)
+		defer stroke_gpu = {}
+		f.refuse_back = refuse
+		brush := Brush{kind = .Draw, radius = 0.3, strength = 0.5}
+		before := slice.clone(mb.normals[:], context.temp_allocator)
+		sculptor_stroke_begin(&a)
+		sculptor_stroke_begin(&b)
+		for k in 0 ..< 3 {
+			at := linalg.normalize(Vec3{0.1 * f32(k), 0.05 * f32(k), 1})
+			_ = apply_dab(&a, brush, at)
+			_ = sculptor_flush(&a)
+			_ = apply_dab(&b, brush, at)
+			_ = sculptor_flush(&b)
+			_ = sculptor_gpu_sync(&b, normals = false)
+		}
+		testing.expect(t, len(b.gpu_owed_list) > 0, "the stroke's normals are owed")
+		unchanged := true
+		for r in f.taken do for v in r.first ..< r.first + r.count do if mb.normals[v] != before[v] do unchanged = false
+		testing.expect(t, unchanged, "the mesh keeps its normals while the stroke's dabs run on the GPU")
+		_ = sculptor_stroke_end(&a)
+		_ = sculptor_flush(&a)
+		_ = sculptor_stroke_end(&b)
+		// The last flush hands the stroke back and asks for the first slice; the next
+		// frames' flushes ask for the rest, and the frames' readbacks land at the sync.
+		for frame := 0; frame < 8; frame += 1 {
+			_ = sculptor_flush(&b)
+			_ = sculptor_gpu_sync(&b, normals = false)
+		}
+		testing.expect(t, len(b.gpu_owed_list) == 0, "every owed normal came back")
+		testing.expectf(t, f.nows == 0, "nothing read them all at once (%d)", f.nows)
+		testing.expectf(t, (f.backs > 0) != refuse, "the frames read them back (%d), unless refused", f.backs)
+		what := "after the stroke, read back refused" if refuse else "after the stroke"
+		expect_positions(t, &mb, &ma, 1e-5, what)
+		expect_gpu_normals(t, &mb, &ma, f.taken[:], what)
+	}
+}
+
+@(private = "file")
 stroke_gpu_dabs_step_down_for_a_brush_the_kernels_lack :: proc(t: ^testing.T) {
 	// A brush the kernels do not lay (Layer) keeps the normals on the GPU and the dabs on
 	// the CPU; a dab's record carries the brush's terms.
@@ -413,7 +490,7 @@ stroke_gpu_takes_the_normals_and_gives_them_back_at_a_sync :: proc(t: ^testing.T
 	defer delete(f.pending)
 	defer delete(f.taken)
 	copy(f.normals, m.normals[:])
-	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync}
+	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync, normals_back = fake_normals_back, normals_now = fake_normals_now}
 	defer stroke_gpu = {}
 
 	before := make([]Vec3, len(m.normals), context.temp_allocator)
@@ -478,7 +555,7 @@ stroke_gpu_matches_the_cpu_path_with_exact_normals :: proc(t: ^testing.T) {
 	defer delete(f.pending)
 	defer delete(f.taken)
 	copy(f.normals, mb.normals[:])
-	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync}
+	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync, normals_back = fake_normals_back, normals_now = fake_normals_now}
 	defer stroke_gpu = {}
 
 	ra := fake_stroke(&a, true)
@@ -522,7 +599,7 @@ stroke_gpu_ranges_given_back_are_recomputed_by_the_cpu :: proc(t: ^testing.T) {
 	defer delete(f.pending)
 	defer delete(f.taken)
 	copy(f.normals, m.normals[:])
-	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync}
+	stroke_gpu = {data = &f, begin = fake_begin, normals = fake_normals, sync = fake_sync, normals_back = fake_normals_back, normals_now = fake_normals_now}
 	defer stroke_gpu = {}
 
 	// The twin's dabs read exact normals; the stand-in's read the stale ones the GPU left,

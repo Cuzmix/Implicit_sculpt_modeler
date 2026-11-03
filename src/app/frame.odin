@@ -264,7 +264,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			// The dabs and normals of a stroke on the GPU, now that what the CPU moved is up;
 			// where the device refused a buffer, the CPU lays the dabs and computes and
 			// uploads the normals next frame.
-			if render.sculpt_gpu_upload(gpu) != .Full && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
+			if render.sculpt_gpu_wanted(gpu) && !render.sculpt_gpu_dispatch(&app.renderer, cmd, gpu) do sculpt.sculptor_gpu_refused(&lv.sculptor, ranges)
 			// The textured preview follows the base level as this frame uploaded it.
 			textured: ^render.Textured_Mesh
 			if part == 0 do textured = texture_preview_frame(app, cmd, obj, gpu)
