@@ -53,7 +53,7 @@ nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
 // (the camera's right, up and back in world space, as its columns) and shaded `color`
 // with the clay material, unless the texture holds that already. Returns the texture,
 // or nil when there is none to show.
-nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> ^sdl.GPUTexture {
+nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: gpu.Cmd, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> gpu.Texture {
 	if nh.failed || nh.mesh.positions == nil || size.x == 0 || size.y == 0 do return nil
 	w, h := size.x * NAV_HEAD_SUPERSAMPLE, size.y * NAV_HEAD_SUPERSAMPLE
 	if !viewport_target_resize(r, &nh.target, w, h, transient_depth = true) {

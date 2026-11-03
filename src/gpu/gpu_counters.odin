@@ -3,7 +3,6 @@ package gpu
 import "core:sync"
 import "core:time"
 
-import sdl "vendor:sdl3"
 
 // What the GPU seam did over the run, for the exit stats: the baseline the GPU abstraction's
 // steps are measured against (notes/gpu-own-model/design.md, G0). Recording time is the CPU
@@ -31,7 +30,7 @@ counters: struct {
 	lock:  sync.Mutex,
 	total: Counters,
 	open:  [OPEN_MAX]struct {
-		cmd:   ^sdl.GPUCommandBuffer,
+		cmd:   Cmd,
 		start: time.Tick,
 	},
 }
@@ -44,7 +43,7 @@ counters :: proc() -> Counters {
 }
 
 // Notes that `cmd` was acquired now (nil, a refused acquire, is not counted).
-count_acquire :: proc(cmd: ^sdl.GPUCommandBuffer) {
+count_acquire :: proc(cmd: Cmd) {
 	if cmd == nil do return
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
@@ -55,7 +54,7 @@ count_acquire :: proc(cmd: ^sdl.GPUCommandBuffer) {
 }
 
 // Notes that `cmd` was submitted or cancelled now, adding its recording time.
-count_finish :: proc(cmd: ^sdl.GPUCommandBuffer) {
+count_finish :: proc(cmd: Cmd) {
 	if cmd == nil do return
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)

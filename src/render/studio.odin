@@ -25,23 +25,23 @@ import "../jobs"
 // Where the device and the meshes allow, samples cast rays at the triangles instead
 // (trace.odin), from the same lights; the shadow maps below are the fallback.
 Studio :: struct {
-	shadow_pipeline:    ^sdl.GPUGraphicsPipeline,
-	depth_pipeline:     ^sdl.GPUGraphicsPipeline, // the camera's depth, front faces only, as the mesh pipeline
-	gather_pipeline:    ^sdl.GPUGraphicsPipeline,
-	composite_pipeline: ^sdl.GPUGraphicsPipeline,
-	reproject_pipeline: ^sdl.GPUGraphicsPipeline,
-	keep_pipeline:      ^sdl.GPUGraphicsPipeline,
-	sampler:            ^sdl.GPUSampler,
-	shadow:             ^sdl.GPUTexture, // depth from the light of the current sample
-	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag.slang; one of accums
-	accums:             [2]^sdl.GPUTexture, // this frame's sums and last frame's, which a reprojection reads
+	shadow_pipeline:    gpu.Graphics_Pipeline,
+	depth_pipeline:     gpu.Graphics_Pipeline, // the camera's depth, front faces only, as the mesh pipeline
+	gather_pipeline:    gpu.Graphics_Pipeline,
+	composite_pipeline: gpu.Graphics_Pipeline,
+	reproject_pipeline: gpu.Graphics_Pipeline,
+	keep_pipeline:      gpu.Graphics_Pipeline,
+	sampler:            gpu.Sampler,
+	shadow:             gpu.Texture, // depth from the light of the current sample
+	accum:              gpu.Texture, // summed samples: see studio_gather.frag.slang; one of accums
+	accums:             [2]gpu.Texture, // this frame's sums and last frame's, which a reprojection reads
 	// The depth the samples in accum were taken at, as the depth buffer holds it, for the
 	// next reprojection; valid while depth_kept.
-	prev_depth:         ^sdl.GPUTexture,
-	shown:              ^sdl.GPUTexture, // what the viewport panel shows
+	prev_depth:         gpu.Texture,
+	shown:              gpu.Texture, // what the viewport panel shows
 	// The camera's depth at one sample, drawn when the viewport is multisampled, whose
 	// own depth shaders cannot read; nil otherwise.
-	view_depth:         ^sdl.GPUTexture,
+	view_depth:         gpu.Texture,
 	width, height:      u32, // of accum and shown
 	samples:            int, // added to accum since it started over or was last carried, which stopping counts
 	sequence:           int, // samples taken since it started over: the R2 sequence's place
@@ -80,8 +80,8 @@ STUDIO_NORMAL_OFFSET_TEXELS :: 1.5
 // based studio's diffuse give. Shadows take away only the lights' share of a pixel.
 STUDIO_AMBIENT_SHARE :: 0.1
 
-STUDIO_ACCUM_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
-STUDIO_PREV_DEPTH_FORMAT :: sdl.GPUTextureFormat.R32_FLOAT
+STUDIO_ACCUM_FORMAT :: gpu.Format.RGBA16_Float
+STUDIO_PREV_DEPTH_FORMAT :: gpu.Format.R32_Float
 
 // What a carried pixel's history may weigh at most, in samples: thirty-two ambient ones (each
 // adds about a quarter to the cosine sum), about half a second of new samples at 60 Hz, so a
@@ -155,7 +155,7 @@ Shadow_Lights :: struct {
 // shown where they are too few, live occlusion's picture when it runs (nil: the viewport's).
 // Returns false only when the studio cannot run on this device, after which it never tries
 // again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS, under: ^sdl.GPUTexture = nil) -> bool {
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS, under: gpu.Texture = nil) -> bool {
 	debug_group(cmd, "Studio", .Studio)
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
@@ -242,13 +242,13 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	light := light_view_proj(center, radius, dir)
 
 	// Depth from the light, every triangle of every item.
-	depth := sdl.GPUDepthStencilTargetInfo {
+	depth := gpu.Depth_Target {
 		texture          = st.shadow,
 		clear_depth      = 1,
-		load_op          = .CLEAR,
-		store_op         = .STORE,
-		stencil_load_op  = .DONT_CARE,
-		stencil_store_op = .DONT_CARE,
+		load_op          = .Clear,
+		store_op         = .Store,
+		stencil_load_op  = .Dont_Care,
+		stencil_store_op = .Dont_Care,
 		cycle            = true,
 	}
 	pass := gpu.begin_render_pass(cmd, nil, 0, &depth)
@@ -257,9 +257,9 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		mb := item.mesh
 		u := Shadow_Uniforms{light, item.model}
 		gpu.push_vertex_uniform_data(cmd, 0, &u, size_of(u))
-		vbufs := [1]sdl.GPUBufferBinding{{buffer = mb.positions}}
+		vbufs := [1]gpu.Buffer_Binding{{buffer = mb.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
-		gpu.bind_index_buffer(pass, {buffer = mb.indices}, ._32BIT)
+		gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)
 		gpu.draw_indexed_primitives(pass, mb.index_count, 1, 0, 0, 0)
 	}
 	gpu.end_render_pass(pass)
@@ -273,14 +273,14 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		params          = {STUDIO_DEPTH_BIAS_TEXELS / f32(STUDIO_SHADOW_SIZE), STUDIO_NORMAL_OFFSET_TEXELS * texel, 1 / f32(STUDIO_SHADOW_SIZE), 0},
 		shadow          = sl.shadow,
 	}
-	target := sdl.GPUColorTargetInfo {
+	target := gpu.Color_Target {
 		texture  = st.accum,
-		load_op  = .CLEAR if first else .LOAD,
-		store_op = .STORE,
+		load_op  = .Clear if first else .Load,
+		store_op = .Store,
 	}
 	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.gather_pipeline)
-	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = view_depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
+	samplers := [2]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], 2)
 	gpu.push_fragment_uniform_data(cmd, 0, &g, size_of(g))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
@@ -297,7 +297,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 // shadows only when the lights stood still in the world, as lights fixed to the scene do
 // (lights fixed to the camera turn with it, and their shadows build again from new samples).
 @(private = "file")
-studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, soft: f32, max_samples: int, lights: Lights) -> (carried, moving, keep_shadows: bool) {
+studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, soft: f32, max_samples: int, lights: Lights) -> (carried, moving, keep_shadows: bool) {
 	if !st.shown_valid || !st.depth_kept || soft != st.softness || max_samples <= 0 do return
 	if st.samples == 0 && !st.carried do return
 	if studio_scene_key(items, soft, vt.epoch) != st.scene_key do return
@@ -326,10 +326,10 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		prev_inv_view_proj = linalg.inverse(st.view_proj),
 		params             = {0.25 * STUDIO_CARRY_AMBIENT, STUDIO_CARRY_KEY, 1 if keep_shadows else 0, 0},
 	}
-	target := sdl.GPUColorTargetInfo{texture = to, load_op = .DONT_CARE, store_op = .STORE}
+	target := gpu.Color_Target{texture = to, load_op = .Dont_Care, store_op = .Store}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.reproject_pipeline)
-	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = view_depth, sampler = st.sampler}, {texture = st.prev_depth, sampler = st.sampler}, {texture = from, sampler = st.sampler}}
+	samplers := [3]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}, {texture = st.prev_depth, sampler = st.sampler}, {texture = from, sampler = st.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	gpu.push_fragment_uniform_data(cmd, 0, &u, size_of(u))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
@@ -345,11 +345,11 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 
 // Keeps `view_depth` for the next frame's carry.
 @(private = "file")
-studio_keep_depth :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, view_depth: ^sdl.GPUTexture) {
-	target := sdl.GPUColorTargetInfo{texture = st.prev_depth, load_op = .DONT_CARE, store_op = .STORE}
+studio_keep_depth :: proc(st: ^Studio, cmd: gpu.Cmd, view_depth: gpu.Texture) {
+	target := gpu.Color_Target{texture = st.prev_depth, load_op = .Dont_Care, store_op = .Store}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.keep_pipeline)
-	samplers := [1]sdl.GPUTextureSamplerBinding{{texture = view_depth, sampler = st.sampler}}
+	samplers := [1]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
@@ -496,12 +496,12 @@ studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, 
 // while the view turns with lights fixed to the camera, whose shadows build again only once
 // it rests: a frame's one light sample would show as speckle.
 @(private = "file")
-studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32, under: ^sdl.GPUTexture = nil, no_shadows := false) {
+studio_composite :: proc(st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, ao, shadow: f32, under: gpu.Texture = nil, no_shadows := false) {
 	st.strengths = {ao, shadow}
-	target := sdl.GPUColorTargetInfo{texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
+	target := gpu.Color_Target{texture = st.shown, load_op = .Dont_Care, store_op = .Store, cycle = true}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.composite_pipeline)
-	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != nil else vt.color, sampler = st.sampler}}
+	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != nil else vt.color, sampler = st.sampler}}
 	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	params := [4]f32{clamp(ao, 0, 1), 0 if no_shadows else clamp(shadow, 0, 1), STUDIO_CARRY_SETTLED if st.carried else 0, STUDIO_CARRY_KEY_SETTLED}
 	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
@@ -511,7 +511,7 @@ studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 
 // What the viewport panel should show while the studio render is on: its image, or nil
 // when there is none yet (or the device cannot make one) and the plain viewport shows.
-studio_texture :: proc(st: ^Studio) -> ^sdl.GPUTexture {
+studio_texture :: proc(st: ^Studio) -> gpu.Texture {
 	if st.failed || !st.shown_valid do return nil
 	return st.shown
 }
@@ -533,7 +533,7 @@ studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if st.reproject_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.reproject_pipeline)
 	if st.keep_pipeline != nil do gpu.release_graphics_pipeline(r.device, st.keep_pipeline)
 	if st.sampler != nil do gpu.release_sampler(r.device, st.sampler)
-	for t in ([6]^sdl.GPUTexture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([6]gpu.Texture{st.shadow, st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
 	tracer_destroy(r, &st.trace)
 	st^ = {trace = st.trace, carries = st.carries, carried_bare = st.carried_bare, restarts = st.restarts}
 }
@@ -580,11 +580,11 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		st.reproject_pipeline = create_fullscreen_pipeline(r, STUDIO_REPROJECT_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 3)
 		st.keep_pipeline = create_fullscreen_pipeline(r, STUDIO_DEPTH_KEEP_FRAG_CODE, STUDIO_PREV_DEPTH_FORMAT, samplers = 1)
 		st.sampler = gpu.create_sampler(r.device, {
-			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
-			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
+			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
 		st.shadow = gpu.create_texture(r.device, {
-			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
+			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = STUDIO_SHADOW_SIZE, height = STUDIO_SHADOW_SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if st.shadow_pipeline == nil || st.depth_pipeline == nil || st.gather_pipeline == nil || st.composite_pipeline == nil || st.reproject_pipeline == nil || st.keep_pipeline == nil || st.sampler == nil || st.shadow == nil {
@@ -594,27 +594,27 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	}
 	want_view_depth := vt.samples != ._1
 	if st.accum != nil && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != nil) do return true
-	for t in ([5]^sdl.GPUTexture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
+	for t in ([5]gpu.Texture{st.accums[0], st.accums[1], st.shown, st.view_depth, st.prev_depth}) do if t != nil do gpu.release_texture(r.device, t)
 	st.view_depth, st.accum, st.accums, st.prev_depth = nil, nil, {}, nil
 	if want_view_depth {
 		st.view_depth = gpu.create_texture(r.device, {
-			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
+			type = .D2, format = r.depth_format, usage = {.Depth_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &a in st.accums {
 		a = gpu.create_texture(r.device, {
-			type = .D2, format = STUDIO_ACCUM_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+			type = .D2, format = STUDIO_ACCUM_FORMAT, usage = {.Color_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	st.accum = st.accums[0]
 	st.prev_depth = gpu.create_texture(r.device, {
-		type = .D2, format = STUDIO_PREV_DEPTH_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+		type = .D2, format = STUDIO_PREV_DEPTH_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	st.shown = gpu.create_texture(r.device, {
-		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	st.width, st.height = vt.width, vt.height

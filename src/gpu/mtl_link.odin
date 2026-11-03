@@ -252,7 +252,7 @@ mtl_link_unused :: proc() {
 // drawable already waiting is taken, and `busy` says there is none yet, as a busy
 // swapchain gives no texture.
 mtl_link_drawable :: proc(w: ^Mtl_Window, wait: bool) -> (drawable: ^CA.MetalDrawable, busy: bool) {
-	if !mtl_state.link_wanted || mtl_state.frames != 1 || w.present_mode != .VSYNC || mtl_state.link_failed {
+	if !mtl_state.link_wanted || mtl_state.frames != 1 || w.present_mode != .Vsync || mtl_state.link_failed {
 		if mtl_state.link != nil && mtl_state.link.window == w do mtl_link_unused()
 		return nil, false
 	}

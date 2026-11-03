@@ -110,7 +110,7 @@ mtl_scratch :: proc(cmd: ^Mtl_Cmd, size: NS.UInteger) -> ^MTL.Buffer {
 	return buffer
 }
 
-mtl_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices: ^sdl.GPUBuffer, vertex_count: u32, geometries: []Blas_Geometry, update: ^Gpu_Accel) -> ^Gpu_Accel {
+mtl_build_blas :: proc(command_buffer: Cmd, positions, indices: Buffer, vertex_count: u32, geometries: []Blas_Geometry, update: ^Gpu_Accel) -> ^Gpu_Accel {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	if !mtl_accel_can_build(cmd) || len(geometries) == 0 || vertex_count == 0 do return nil
@@ -168,7 +168,7 @@ mtl_build_blas :: proc(command_buffer: ^sdl.GPUCommandBuffer, positions, indices
 	return (^Gpu_Accel)(a)
 }
 
-mtl_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_Instance, update: ^Gpu_Accel) -> ^Gpu_Accel {
+mtl_build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^Gpu_Accel) -> ^Gpu_Accel {
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	if !mtl_accel_can_build(cmd) || len(instances) == 0 do return nil
@@ -239,7 +239,7 @@ mtl_build_tlas :: proc(command_buffer: ^sdl.GPUCommandBuffer, instances: []Tlas_
 // The top level the next dispatch traces against, at the slot the pipeline's table names.
 // Metal sees only the top level bound, so each bottom level it instances, and each buffer a
 // kernel reads through its address (mtl_buffer_address), is declared used by the pass.
-mtl_bind_compute_accel :: proc(compute_pass: ^sdl.GPUComputePass, accel: ^Gpu_Accel) {
+mtl_bind_compute_accel :: proc(compute_pass: Compute_Pass, accel: ^Gpu_Accel) {
 	cmd := (^Mtl_Cmd)(compute_pass)
 	a := (^Mtl_Accel)(accel)
 	p := cmd.compute_pipeline
@@ -256,7 +256,7 @@ mtl_bind_compute_accel :: proc(compute_pass: ^sdl.GPUComputePass, accel: ^Gpu_Ac
 
 // The buffer's GPU address, which `command_buffer` keeps alive and its traced passes declare
 // used.
-mtl_buffer_address :: proc(command_buffer: ^sdl.GPUCommandBuffer, buffer: ^sdl.GPUBuffer) -> u64 {
+mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 	cmd := (^Mtl_Cmd)(command_buffer)
 	b := (^Mtl_Buffer)(buffer).active
 	mtl_cmd_track_buffer(cmd, b)
@@ -266,8 +266,8 @@ mtl_buffer_address :: proc(command_buffer: ^sdl.GPUCommandBuffer, buffer: ^sdl.G
 
 // A traced kernel's pipeline: Metal source from slangc, whose second line maps SDL_GPU's
 // slots to slangc's (scripts/shaders_msl.py); the counts in `info` must match that table.
-mtl_create_compute_pipeline_traced :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
-	slots, ok := mtl_slots_parse(string(info.code[:info.code_size]))
+mtl_create_compute_pipeline_traced :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+	slots, ok := mtl_slots_parse(info.code)
 	counts := [6]u32{info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
 	if !ok || slots.counts != counts || slots.accel < 0 {
 		log.errorf("Metal: a traced kernel's slot table does not match its pipeline (%v against %v)", slots.counts, counts)

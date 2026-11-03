@@ -5,7 +5,6 @@ import "base:runtime"
 import "core:strconv"
 import "core:strings"
 
-import sdl "vendor:sdl3"
 import wgpu "vendor:wgpu"
 
 // Buffers, textures, samplers, shaders and pipelines of the WebGPU backend. A handle the
@@ -27,12 +26,12 @@ Wgpu_Buffer :: struct {
 
 Wgpu_Transfer :: struct {
 	data:  []u8, // with 4 bytes to spare, as WebGPU copies whole words
-	usage: sdl.GPUTransferBufferUsage,
+	usage: Transfer_Usage,
 	size:  u32,
 }
 
 Wgpu_Texture :: struct {
-	info:      sdl.GPUTextureCreateInfo,
+	info:      Texture_Desc,
 	texture:   wgpu.Texture,
 	format:    wgpu.TextureFormat,
 	view:      wgpu.TextureView, // every level, for sampling
@@ -60,7 +59,7 @@ Wgpu_Binding :: struct {
 
 Wgpu_Shader :: struct {
 	module:   wgpu.ShaderModule,
-	stage:    sdl.GPUShaderStage,
+	stage:    Shader_Stage,
 	bindings: [dynamic]Wgpu_Binding,
 	counts:   [4]u32, // samplers, storage textures, storage buffers, uniform buffers
 }
@@ -86,17 +85,17 @@ Wgpu_Compute_Pipeline :: struct {
 	layout:    wgpu.PipelineLayout,
 	readonly:  Wgpu_Group, // group 0: samplers, read-only textures, read-only buffers
 	readwrite: Wgpu_Group, // group 1: read-write textures, then buffers
-	info:      sdl.GPUComputePipelineCreateInfo,
+	info:      Compute_Pipeline_Desc,
 }
 
 // ---- Buffers ------------------------------------------------------------------------
 
-wgpu_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
+wgpu_create_buffer :: proc(device: Device, #by_ptr info: Buffer_Desc) -> Buffer {
 	usage := wgpu.BufferUsageFlags{.CopyDst, .CopySrc}
-	if .VERTEX in info.usage do usage += {.Vertex}
-	if .INDEX in info.usage do usage += {.Index}
-	if .INDIRECT in info.usage do usage += {.Indirect}
-	if info.usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE} != {} do usage += {.Storage}
+	if .Vertex in info.usage do usage += {.Vertex}
+	if .Index in info.usage do usage += {.Index}
+	if .Indirect in info.usage do usage += {.Indirect}
+	if info.usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write} != {} do usage += {.Storage}
 	// Storage bindings and copies are whole words.
 	size := u64(max((info.size + 3) &~ 3, 4))
 	buffer := wgpu.DeviceCreateBuffer(wgpu_state.device, &{usage = usage, size = size})
@@ -106,10 +105,10 @@ wgpu_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCr
 	}
 	b := new(Wgpu_Buffer)
 	b.buffer, b.size = buffer, info.size
-	return (^sdl.GPUBuffer)(b)
+	return (Buffer)(b)
 }
 
-wgpu_release_buffer :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+wgpu_release_buffer :: proc(device: Device, buffer: Buffer) {
 	b := (^Wgpu_Buffer)(buffer)
 	if b == nil do return
 	append(&wgpu_state.doomed_buffers, b.buffer)
@@ -117,11 +116,11 @@ wgpu_release_buffer :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
 	wgpu_reap()
 }
 
-wgpu_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+wgpu_set_buffer_name :: proc(device: Device, buffer: Buffer, text: cstring) {
 	if b := (^Wgpu_Buffer)(buffer); b != nil do wgpu.BufferSetLabel(b.buffer, string(text))
 }
 
-wgpu_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {
+wgpu_create_transfer_buffer :: proc(device: Device, #by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
 	data, err := make([]u8, int(info.size) + 4, runtime.heap_allocator())
 	if err != nil {
 		wgpu_fail("WebGPU: a %d byte transfer buffer could not be made", info.size)
@@ -129,10 +128,10 @@ wgpu_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
 	}
 	t := new(Wgpu_Transfer)
 	t.data, t.usage, t.size = data, info.usage, info.size
-	return (^sdl.GPUTransferBuffer)(t)
+	return (Transfer_Buffer)(t)
 }
 
-wgpu_release_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {
+wgpu_release_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
 	t := (^Wgpu_Transfer)(transfer_buffer)
 	if t == nil do return
 	delete(t.data, runtime.heap_allocator())
@@ -141,16 +140,16 @@ wgpu_release_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^s
 
 // The page's own memory: uploads copy it out as they are recorded, so it is free to write
 // again at once, and a download's bytes are there once its fence has signalled.
-wgpu_map_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer, cycle: bool) -> rawptr {
+wgpu_map_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	t := (^Wgpu_Transfer)(transfer_buffer)
 	return raw_data(t.data) if t != nil else nil
 }
 
-wgpu_unmap_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {}
+wgpu_unmap_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {}
 
 // ---- Textures -----------------------------------------------------------------------
 
-wgpu_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+wgpu_create_texture :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		wgpu_fail("WebGPU: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -161,12 +160,12 @@ wgpu_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTexture
 		return nil
 	}
 	samples := wgpu_samples(info.sample_count)
-	depth := wgpu_is_depth(info.format)
+	depth := format_is_depth(info.format)
 	usage: wgpu.TextureUsageFlags
 	if samples == 1 && !depth do usage += {.CopySrc, .CopyDst}
-	if .SAMPLER in info.usage do usage += {.TextureBinding}
-	if info.usage & {.COLOR_TARGET, .DEPTH_STENCIL_TARGET} != {} do usage += {.RenderAttachment}
-	if info.usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} do usage += {.StorageBinding}
+	if .Sampled in info.usage do usage += {.TextureBinding}
+	if info.usage & {.Color_Target, .Depth_Target} != {} do usage += {.RenderAttachment}
+	if info.usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write, .Storage_Read_Write} != {} do usage += {.StorageBinding}
 	// Mipmaps are drawn level by level (wgpu_generate_mipmaps_for_texture).
 	if info.num_levels > 1 && !depth do usage += {.RenderAttachment, .TextureBinding}
 	texture := wgpu.DeviceCreateTexture(wgpu_state.device, &{
@@ -188,12 +187,12 @@ wgpu_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTexture
 		format = format, dimension = ._2D, mipLevelCount = t.info.num_levels, arrayLayerCount = 1,
 		aspect = .DepthOnly if depth else .All,
 	})
-	return (^sdl.GPUTexture)(t)
+	return (Texture)(t)
 }
 
 // WebGPU has no memoryless targets; a transient texture is an ordinary one, and
 // transient_targets_offered says so.
-wgpu_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+wgpu_create_texture_transient :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	return wgpu_create_texture(device, info)
 }
 
@@ -218,52 +217,52 @@ wgpu_texture_free :: proc(t: ^Wgpu_Texture) {
 	free(t)
 }
 
-wgpu_release_texture :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture) {
+wgpu_release_texture :: proc(device: Device, texture: Texture) {
 	t := (^Wgpu_Texture)(texture)
 	if t == nil || t.swapchain do return
 	append(&wgpu_state.doomed_textures, t)
 	wgpu_reap()
 }
 
-wgpu_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+wgpu_set_texture_name :: proc(device: Device, texture: Texture, text: cstring) {
 	if t := (^Wgpu_Texture)(texture); t != nil && !t.swapchain do wgpu.TextureSetLabel(t.texture, string(text))
 }
 
 // ---- Samplers -----------------------------------------------------------------------
 
 @(private = "file")
-wgpu_address :: proc(mode: sdl.GPUSamplerAddressMode) -> wgpu.AddressMode {
+wgpu_address :: proc(mode: Address_Mode) -> wgpu.AddressMode {
 	switch mode {
-	case .REPEAT:          return .Repeat
-	case .MIRRORED_REPEAT: return .MirrorRepeat
-	case .CLAMP_TO_EDGE:   return .ClampToEdge
+	case .Repeat:          return .Repeat
+	case .Mirrored_Repeat: return .MirrorRepeat
+	case .Clamp_To_Edge:   return .ClampToEdge
 	}
 	return .ClampToEdge
 }
 
-wgpu_compare :: proc(op: sdl.GPUCompareOp) -> wgpu.CompareFunction {
+wgpu_compare :: proc(op: Compare_Op) -> wgpu.CompareFunction {
 	switch op {
-	case .INVALID:          return .Undefined
-	case .NEVER:            return .Never
-	case .LESS:             return .Less
-	case .EQUAL:            return .Equal
-	case .LESS_OR_EQUAL:    return .LessEqual
-	case .GREATER:          return .Greater
-	case .NOT_EQUAL:        return .NotEqual
-	case .GREATER_OR_EQUAL: return .GreaterEqual
-	case .ALWAYS:           return .Always
+	case .Invalid:          return .Undefined
+	case .Never:            return .Never
+	case .Less:             return .Less
+	case .Equal:            return .Equal
+	case .Less_Or_Equal:    return .LessEqual
+	case .Greater:          return .Greater
+	case .Not_Equal:        return .NotEqual
+	case .Greater_Or_Equal: return .GreaterEqual
+	case .Always:           return .Always
 	}
 	return .Always
 }
 
-wgpu_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerCreateInfo) -> ^sdl.GPUSampler {
+wgpu_create_sampler :: proc(device: Device, #by_ptr info: Sampler_Desc) -> Sampler {
 	desc := wgpu.SamplerDescriptor {
 		addressModeU = wgpu_address(info.address_mode_u),
 		addressModeV = wgpu_address(info.address_mode_v),
 		addressModeW = wgpu_address(info.address_mode_w),
-		magFilter = .Linear if info.mag_filter == .LINEAR else .Nearest,
-		minFilter = .Linear if info.min_filter == .LINEAR else .Nearest,
-		mipmapFilter = .Linear if info.mipmap_mode == .LINEAR else .Nearest,
+		magFilter = .Linear if info.mag_filter == .Linear else .Nearest,
+		minFilter = .Linear if info.min_filter == .Linear else .Nearest,
+		mipmapFilter = .Linear if info.mipmap_mode == .Linear else .Nearest,
 		lodMinClamp = max(info.min_lod, 0),
 		lodMaxClamp = clamp(info.max_lod, max(info.min_lod, 0), 32),
 		compare = wgpu_compare(info.compare_op) if info.enable_compare else .Undefined,
@@ -275,10 +274,10 @@ wgpu_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSampler
 	}
 	sampler := wgpu.DeviceCreateSampler(wgpu_state.device, &desc)
 	if sampler == nil do wgpu_fail("WebGPU: the sampler could not be made")
-	return (^sdl.GPUSampler)(sampler)
+	return (Sampler)(sampler)
 }
 
-wgpu_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
+wgpu_release_sampler :: proc(device: Device, sampler: Sampler) {
 	if sampler != nil do wgpu.SamplerRelease(wgpu.Sampler(sampler))
 }
 
@@ -347,8 +346,8 @@ wgpu_parse_bindings :: proc(code: string, out: ^[dynamic]Wgpu_Binding) {
 	}
 }
 
-wgpu_create_shader :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUShaderCreateInfo) -> ^sdl.GPUShader {
-	code := string(info.code[:info.code_size])
+wgpu_create_shader :: proc(device: Device, #by_ptr info: Shader_Desc) -> Shader {
+	code := info.code
 	if reason := wgpu_unavailable(code); reason != "" {
 		wgpu_fail("WebGPU: this shader has no WGSL form (%s)", reason)
 		return nil
@@ -364,10 +363,10 @@ wgpu_create_shader :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUShaderCr
 	s.module, s.stage = module, info.stage
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
 	wgpu_parse_bindings(code, &s.bindings)
-	return (^sdl.GPUShader)(s)
+	return (Shader)(s)
 }
 
-wgpu_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
+wgpu_release_shader :: proc(device: Device, shader: Shader) {
 	s := (^Wgpu_Shader)(shader)
 	if s == nil do return
 	wgpu.ShaderModuleRelease(s.module)
@@ -442,100 +441,96 @@ wgpu_group_free :: proc(g: ^Wgpu_Group) {
 // ---- Graphics pipelines -------------------------------------------------------------
 
 @(private = "file")
-wgpu_vertex_format :: proc(format: sdl.GPUVertexElementFormat) -> wgpu.VertexFormat {
+wgpu_vertex_format :: proc(format: Vertex_Format) -> wgpu.VertexFormat {
 	#partial switch format {
-	case .INT:          return .Sint32
-	case .INT2:         return .Sint32x2
-	case .INT3:         return .Sint32x3
-	case .INT4:         return .Sint32x4
-	case .UINT:         return .Uint32
-	case .UINT2:        return .Uint32x2
-	case .UINT3:        return .Uint32x3
-	case .UINT4:        return .Uint32x4
-	case .FLOAT:        return .Float32
-	case .FLOAT2:       return .Float32x2
-	case .FLOAT3:       return .Float32x3
-	case .FLOAT4:       return .Float32x4
-	case .UBYTE4:       return .Uint8x4
-	case .UBYTE4_NORM:  return .Unorm8x4
-	case .BYTE4_NORM:   return .Snorm8x4
-	case .SHORT2:       return .Sint16x2
-	case .SHORT4:       return .Sint16x4
-	case .USHORT2:      return .Uint16x2
-	case .USHORT4:      return .Uint16x4
-	case .SHORT2_NORM:  return .Snorm16x2
-	case .SHORT4_NORM:  return .Snorm16x4
-	case .USHORT2_NORM: return .Unorm16x2
-	case .USHORT4_NORM: return .Unorm16x4
-	case .HALF2:        return .Float16x2
-	case .HALF4:        return .Float16x4
+	case .Int:          return .Sint32
+	case .Int2:         return .Sint32x2
+	case .Int3:         return .Sint32x3
+	case .Int4:         return .Sint32x4
+	case .Uint:         return .Uint32
+	case .Uint2:        return .Uint32x2
+	case .Uint3:        return .Uint32x3
+	case .Uint4:        return .Uint32x4
+	case .Float:        return .Float32
+	case .Float2:       return .Float32x2
+	case .Float3:       return .Float32x3
+	case .Float4:       return .Float32x4
+	case .Ubyte4:       return .Uint8x4
+	case .Ubyte4_Norm:  return .Unorm8x4
+	case .Byte4_Norm:   return .Snorm8x4
+	case .Short2_Norm:  return .Snorm16x2
+	case .Short4_Norm:  return .Snorm16x4
+	case .Ushort2_Norm: return .Unorm16x2
+	case .Ushort4_Norm: return .Unorm16x4
+	case .Half2:        return .Float16x2
+	case .Half4:        return .Float16x4
 	}
 	return .Float32x4
 }
 
 @(private = "file")
-wgpu_blend_factor :: proc(f: sdl.GPUBlendFactor) -> wgpu.BlendFactor {
+wgpu_blend_factor :: proc(f: Blend_Factor) -> wgpu.BlendFactor {
 	switch f {
-	case .INVALID, .ZERO:            return .Zero
-	case .ONE:                       return .One
-	case .SRC_COLOR:                 return .Src
-	case .ONE_MINUS_SRC_COLOR:       return .OneMinusSrc
-	case .DST_COLOR:                 return .Dst
-	case .ONE_MINUS_DST_COLOR:       return .OneMinusDst
-	case .SRC_ALPHA:                 return .SrcAlpha
-	case .ONE_MINUS_SRC_ALPHA:       return .OneMinusSrcAlpha
-	case .DST_ALPHA:                 return .DstAlpha
-	case .ONE_MINUS_DST_ALPHA:       return .OneMinusDstAlpha
-	case .CONSTANT_COLOR:            return .Constant
-	case .ONE_MINUS_CONSTANT_COLOR:  return .OneMinusConstant
-	case .SRC_ALPHA_SATURATE:        return .SrcAlphaSaturated
+	case .Invalid, .Zero:            return .Zero
+	case .One:                       return .One
+	case .Src_Color:                 return .Src
+	case .One_Minus_Src_Color:       return .OneMinusSrc
+	case .Dst_Color:                 return .Dst
+	case .One_Minus_Dst_Color:       return .OneMinusDst
+	case .Src_Alpha:                 return .SrcAlpha
+	case .One_Minus_Src_Alpha:       return .OneMinusSrcAlpha
+	case .Dst_Alpha:                 return .DstAlpha
+	case .One_Minus_Dst_Alpha:       return .OneMinusDstAlpha
+	case .Constant_Color:            return .Constant
+	case .One_Minus_Constant_Color:  return .OneMinusConstant
+	case .Src_Alpha_Saturate:        return .SrcAlphaSaturated
 	}
 	return .One
 }
 
 @(private = "file")
-wgpu_blend_op :: proc(op: sdl.GPUBlendOp) -> wgpu.BlendOperation {
+wgpu_blend_op :: proc(op: Blend_Op) -> wgpu.BlendOperation {
 	switch op {
-	case .INVALID, .ADD:     return .Add
-	case .SUBTRACT:          return .Subtract
-	case .REVERSE_SUBTRACT:  return .ReverseSubtract
-	case .MIN:               return .Min
-	case .MAX:               return .Max
+	case .Invalid, .Add:     return .Add
+	case .Subtract:          return .Subtract
+	case .Reverse_Subtract:  return .ReverseSubtract
+	case .Min:               return .Min
+	case .Max:               return .Max
 	}
 	return .Add
 }
 
 @(private = "file")
-wgpu_stencil_op :: proc(op: sdl.GPUStencilOp) -> wgpu.StencilOperation {
+wgpu_stencil_op :: proc(op: Stencil_Op) -> wgpu.StencilOperation {
 	switch op {
-	case .INVALID, .KEEP:        return .Keep
-	case .ZERO:                  return .Zero
-	case .REPLACE:               return .Replace
-	case .INCREMENT_AND_CLAMP:   return .IncrementClamp
-	case .DECREMENT_AND_CLAMP:   return .DecrementClamp
-	case .INVERT:                return .Invert
-	case .INCREMENT_AND_WRAP:    return .IncrementWrap
-	case .DECREMENT_AND_WRAP:    return .DecrementWrap
+	case .Invalid, .Keep:        return .Keep
+	case .Zero:                  return .Zero
+	case .Replace:               return .Replace
+	case .Increment_And_Clamp:   return .IncrementClamp
+	case .Decrement_And_Clamp:   return .DecrementClamp
+	case .Invert:                return .Invert
+	case .Increment_And_Wrap:    return .IncrementWrap
+	case .Decrement_And_Wrap:    return .DecrementWrap
 	}
 	return .Keep
 }
 
 @(private = "file")
-wgpu_stencil_face :: proc(s: sdl.GPUStencilOpState, on: bool) -> wgpu.StencilFaceState {
+wgpu_stencil_face :: proc(s: Stencil_Op_State, on: bool) -> wgpu.StencilFaceState {
 	if !on do return {compare = .Always, failOp = .Keep, depthFailOp = .Keep, passOp = .Keep}
 	return {compare = wgpu_compare(s.compare_op), failOp = wgpu_stencil_op(s.fail_op), depthFailOp = wgpu_stencil_op(s.depth_fail_op), passOp = wgpu_stencil_op(s.pass_op)}
 }
 
 // A pipeline as SDL_GPU describes it. WebGPU has no line fill (the wireframe overlay then
 // stays off, as on a device that cannot draw lines) and no depth bias on lines or points.
-wgpu_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUGraphicsPipelineCreateInfo) -> ^sdl.GPUGraphicsPipeline {
+wgpu_create_graphics_pipeline :: proc(device: Device, #by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
 	vs := (^Wgpu_Shader)(info.vertex_shader)
 	fs := (^Wgpu_Shader)(info.fragment_shader)
 	if vs == nil || fs == nil {
 		wgpu_fail("WebGPU: a pipeline needs both shaders")
 		return nil
 	}
-	if info.rasterizer_state.fill_mode == .LINE {
+	if info.rasterizer_state.fill_mode == .Line {
 		wgpu_fail("WebGPU draws no polygons as lines")
 		return nil
 	}
@@ -547,20 +542,18 @@ wgpu_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.
 	p.layout = wgpu.DeviceCreatePipelineLayout(wgpu_state.device, &{bindGroupLayoutCount = 4, bindGroupLayouts = raw_data(layouts[:])})
 
 	// Vertex buffers by slot: WebGPU numbers them densely from 0, as the renderer does.
-	vi := info.vertex_input_state
-	buffers := make([]wgpu.VertexBufferLayout, int(vi.num_vertex_buffers), context.temp_allocator)
-	attributes := make([]wgpu.VertexAttribute, int(vi.num_vertex_attributes), context.temp_allocator)
-	for i in 0 ..< int(vi.num_vertex_buffers) {
-		d := vi.vertex_buffer_descriptions[i]
+	vi := info.vertex_input
+	buffers := make([]wgpu.VertexBufferLayout, len(vi.buffers), context.temp_allocator)
+	attributes := make([]wgpu.VertexAttribute, len(vi.attributes), context.temp_allocator)
+	for d in vi.buffers {
 		if int(d.slot) >= len(buffers) do continue
-		buffers[d.slot] = {stepMode = .Instance if d.input_rate == .INSTANCE else .Vertex, arrayStride = u64(d.pitch)}
+		buffers[d.slot] = {stepMode = .Instance if d.input_rate == .Instance else .Vertex, arrayStride = u64(d.pitch)}
 	}
 	// Each buffer's attributes, in order, from one shared array.
 	n := 0
 	for slot in 0 ..< len(buffers) {
 		first := n
-		for j in 0 ..< int(vi.num_vertex_attributes) {
-			a := vi.vertex_attributes[j]
+		for a in vi.attributes {
 			if int(a.buffer_slot) != slot do continue
 			attributes[n] = {format = wgpu_vertex_format(a.format), offset = u64(a.offset), shaderLocation = a.location}
 			n += 1
@@ -569,10 +562,9 @@ wgpu_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.
 		buffers[slot].attributes = raw_data(attributes[first:]) if n > first else nil
 	}
 
-	targets := make([]wgpu.ColorTargetState, int(info.target_info.num_color_targets), context.temp_allocator)
+	targets := make([]wgpu.ColorTargetState, len(info.targets.color_targets), context.temp_allocator)
 	blends := make([]wgpu.BlendState, len(targets), context.temp_allocator)
-	for i in 0 ..< len(targets) {
-		d := info.target_info.color_target_descriptions[i]
+	for d, i in info.targets.color_targets {
 		bs := d.blend_state
 		targets[i] = {format = wgpu_format(d.format), writeMask = wgpu.ColorWriteMaskFlags_All}
 		if bs.enable_color_write_mask {
@@ -593,32 +585,32 @@ wgpu_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.
 	}
 
 	topology: wgpu.PrimitiveTopology
-	switch info.primitive_type {
-	case .TRIANGLELIST:  topology = .TriangleList
-	case .TRIANGLESTRIP: topology = .TriangleStrip
-	case .LINELIST:      topology = .LineList
-	case .LINESTRIP:     topology = .LineStrip
-	case .POINTLIST:     topology = .PointList
+	switch info.primitive {
+	case .Triangle_List:  topology = .TriangleList
+	case .Triangle_Strip: topology = .TriangleStrip
+	case .Line_List:      topology = .LineList
+	case .Line_Strip:     topology = .LineStrip
+	case .Point_List:     topology = .PointList
 	}
 	triangles := topology == .TriangleList || topology == .TriangleStrip
 	rs := info.rasterizer_state
 	cull: wgpu.CullMode = .None
-	if rs.cull_mode == .FRONT do cull = .Front
-	if rs.cull_mode == .BACK do cull = .Back
+	if rs.cull_mode == .Front do cull = .Front
+	if rs.cull_mode == .Back do cull = .Back
 	primitive := wgpu.PrimitiveState {
 		topology = topology,
-		frontFace = .CW if rs.front_face == .CLOCKWISE else .CCW,
+		frontFace = .CW if rs.front_face == .Clockwise else .CCW,
 		cullMode = cull,
-		// SDL_GPU clips depth unless told not to; WebGPU leaves it unclipped only with its feature.
+		// Depth is clipped unless the pipeline says not to; WebGPU leaves it unclipped only with its feature.
 		unclippedDepth = b32(!rs.enable_depth_clip && wgpu_state.depth_clip),
 	}
 	if topology == .TriangleStrip do primitive.stripIndexFormat = .Undefined
 
 	ds: wgpu.DepthStencilState
-	has_depth := info.target_info.has_depth_stencil_target
+	has_depth := info.targets.has_depth_stencil_target
 	if has_depth {
 		d := info.depth_stencil_state
-		format := info.target_info.depth_stencil_format
+		format := info.targets.depth_stencil_format
 		ds = {
 			format = wgpu_format(format),
 			depthWriteEnabled = .True if d.enable_depth_test && d.enable_depth_write else .False,
@@ -646,18 +638,18 @@ wgpu_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.
 		vertex = {module = vs.module, entryPoint = "main", bufferCount = uint(len(buffers)), buffers = raw_data(buffers)},
 		primitive = primitive,
 		depthStencil = &ds if has_depth else nil,
-		multisample = {count = wgpu_samples(info.multisample_state.sample_count), mask = max(u32), alphaToCoverageEnabled = b32(info.multisample_state.enable_alpha_to_coverage)},
+		multisample = {count = wgpu_samples(info.multisample_state.sample_count), mask = max(u32)},
 		fragment = &fragment,
 	})
 	if p.pipeline == nil {
-		wgpu_release_graphics_pipeline(device, (^sdl.GPUGraphicsPipeline)(p))
+		wgpu_release_graphics_pipeline(device, (Graphics_Pipeline)(p))
 		wgpu_fail("WebGPU: the graphics pipeline could not be made")
 		return nil
 	}
-	return (^sdl.GPUGraphicsPipeline)(p)
+	return (Graphics_Pipeline)(p)
 }
 
-wgpu_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, graphics_pipeline: ^sdl.GPUGraphicsPipeline) {
+wgpu_release_graphics_pipeline :: proc(device: Device, graphics_pipeline: Graphics_Pipeline) {
 	p := (^Wgpu_Pipeline)(graphics_pipeline)
 	if p == nil do return
 	if p.pipeline != nil do wgpu.RenderPipelineRelease(p.pipeline)
@@ -669,8 +661,8 @@ wgpu_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, graphics_pipeline
 
 // ---- Compute pipelines --------------------------------------------------------------
 
-wgpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
-	code := string(info.code[:info.code_size])
+wgpu_create_compute_pipeline :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
+	code := info.code
 	if reason := wgpu_unavailable(code); reason != "" {
 		wgpu_fail("WebGPU: this kernel has no WGSL form (%s)", reason)
 		return nil
@@ -693,14 +685,14 @@ wgpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.G
 	p.layout = wgpu.DeviceCreatePipelineLayout(wgpu_state.device, &{bindGroupLayoutCount = 3, bindGroupLayouts = raw_data(layouts[:])})
 	p.pipeline = wgpu.DeviceCreateComputePipeline(wgpu_state.device, &{layout = p.layout, compute = {module = module, entryPoint = "main"}})
 	if p.pipeline == nil {
-		wgpu_release_compute_pipeline(device, (^sdl.GPUComputePipeline)(p))
+		wgpu_release_compute_pipeline(device, (Compute_Pipeline)(p))
 		wgpu_fail("WebGPU: the compute pipeline could not be made")
 		return nil
 	}
-	return (^sdl.GPUComputePipeline)(p)
+	return (Compute_Pipeline)(p)
 }
 
-wgpu_release_compute_pipeline :: proc(device: ^sdl.GPUDevice, compute_pipeline: ^sdl.GPUComputePipeline) {
+wgpu_release_compute_pipeline :: proc(device: Device, compute_pipeline: Compute_Pipeline) {
 	p := (^Wgpu_Compute_Pipeline)(compute_pipeline)
 	if p == nil do return
 	if p.pipeline != nil do wgpu.ComputePipelineRelease(p.pipeline)

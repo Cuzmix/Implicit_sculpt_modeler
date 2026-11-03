@@ -107,8 +107,8 @@ vk_fail :: proc(format: string, args: ..any) {
 }
 
 // The device handle the app holds stands for the one Vulkan device.
-vk_device_handle :: proc() -> ^sdl.GPUDevice {
-	return (^sdl.GPUDevice)(&vk_state)
+vk_device_handle :: proc() -> Device {
+	return (Device)(&vk_state)
 }
 
 @(private = "file")
@@ -177,7 +177,7 @@ vk_unfit :: proc(physical: vk.PhysicalDevice, family: ^u32) -> string {
 
 // Creates the instance and the device, or returns false with the reason logged and kept for
 // backend_error (and the app then says why it cannot start).
-vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice, bool) {
+vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (Device, bool) {
 	vk.load_proc_addresses_global(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
 	if vk.CreateInstance == nil {
 		vk_fail("the loader has no vkCreateInstance")
@@ -448,7 +448,7 @@ vk_destroy_instance :: proc() {
 }
 
 // Waits for the GPU, then frees everything the backend still holds.
-vk_destroy_device :: proc(device: ^sdl.GPUDevice) {
+vk_destroy_device :: proc(device: Device) {
 	if vk_state.device == nil {
 		vk_destroy_instance()
 		return
@@ -481,70 +481,62 @@ vk_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	vk_destroy_instance()
 }
 
-vk_get_device_properties :: proc(device: ^sdl.GPUDevice) -> sdl.PropertiesID {
+vk_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
 	return vk_state.properties_id
 }
 
-vk_get_device_driver :: proc(device: ^sdl.GPUDevice) -> cstring {
+vk_get_device_driver :: proc(device: Device) -> cstring {
 	return "vulkan (own backend)"
 }
 
-// SDL_GPU's format table, for the formats this app uses.
-vk_format :: proc(format: sdl.GPUTextureFormat) -> vk.Format {
+// The Vulkan format of each of the gpu package's formats.
+vk_format :: proc(format: Format) -> vk.Format {
 	#partial switch format {
-	case .R8G8B8A8_UNORM:      return .R8G8B8A8_UNORM
-	case .R8G8B8A8_UNORM_SRGB: return .R8G8B8A8_SRGB
-	case .B8G8R8A8_UNORM:      return .B8G8R8A8_UNORM
-	case .B8G8R8A8_UNORM_SRGB: return .B8G8R8A8_SRGB
-	case .R8_UNORM:            return .R8_UNORM
-	case .R8G8_UNORM:          return .R8G8_UNORM
-	case .R16_FLOAT:           return .R16_SFLOAT
-	case .R16G16_FLOAT:        return .R16G16_SFLOAT
-	case .R16G16B16A16_FLOAT:  return .R16G16B16A16_SFLOAT
-	case .R11G11B10_UFLOAT:    return .B10G11R11_UFLOAT_PACK32
-	case .R32_FLOAT:           return .R32_SFLOAT
-	case .R32G32_FLOAT:        return .R32G32_SFLOAT
-	case .R32G32B32A32_FLOAT:  return .R32G32B32A32_SFLOAT
-	case .R32_UINT:            return .R32_UINT
-	case .R10G10B10A2_UNORM:   return .A2B10G10R10_UNORM_PACK32
-	case .D16_UNORM:           return .D16_UNORM
-	case .D24_UNORM:           return .X8_D24_UNORM_PACK32
-	case .D32_FLOAT:           return .D32_SFLOAT
-	case .D24_UNORM_S8_UINT:   return .D24_UNORM_S8_UINT
-	case .D32_FLOAT_S8_UINT:   return .D32_SFLOAT_S8_UINT
+	case .RGBA8_Unorm:      return .R8G8B8A8_UNORM
+	case .RGBA8_Srgb: return .R8G8B8A8_SRGB
+	case .BGRA8_Unorm:      return .B8G8R8A8_UNORM
+	case .BGRA8_Srgb: return .B8G8R8A8_SRGB
+	case .R8_Unorm:            return .R8_UNORM
+	case .RG8_Unorm:          return .R8G8_UNORM
+	case .R16_Float:           return .R16_SFLOAT
+	case .RG16_Float:        return .R16G16_SFLOAT
+	case .RGBA16_Float:  return .R16G16B16A16_SFLOAT
+	case .RG11B10_Float:    return .B10G11R11_UFLOAT_PACK32
+	case .R32_Float:           return .R32_SFLOAT
+	case .RG32_Float:        return .R32G32_SFLOAT
+	case .RGBA32_Float:  return .R32G32B32A32_SFLOAT
+	case .R32_Uint:            return .R32_UINT
+	case .RGB10A2_Unorm:   return .A2B10G10R10_UNORM_PACK32
+	case .D16_Unorm:           return .D16_UNORM
+	case .D24_Unorm:           return .X8_D24_UNORM_PACK32
+	case .D32_Float:           return .D32_SFLOAT
+	case .D24_Unorm_S8:   return .D24_UNORM_S8_UINT
+	case .D32_Float_S8:   return .D32_SFLOAT_S8_UINT
 	}
 	return .UNDEFINED
 }
 
-vk_is_depth :: proc(format: sdl.GPUTextureFormat) -> bool {
-	#partial switch format {
-	case .D16_UNORM, .D24_UNORM, .D32_FLOAT, .D24_UNORM_S8_UINT, .D32_FLOAT_S8_UINT:
-		return true
-	}
-	return false
-}
-
-vk_texture_supports_format :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, type: sdl.GPUTextureType, usage: sdl.GPUTextureUsageFlags) -> bool {
+vk_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	f := vk_format(format)
 	if f == .UNDEFINED do return false
 	flags: vk.ImageUsageFlags
-	if .SAMPLER in usage do flags += {.SAMPLED}
-	if .COLOR_TARGET in usage do flags += {.COLOR_ATTACHMENT}
-	if .DEPTH_STENCIL_TARGET in usage do flags += {.DEPTH_STENCIL_ATTACHMENT}
-	if usage & {.GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ, .COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} do flags += {.STORAGE}
+	if .Sampled in usage do flags += {.SAMPLED}
+	if .Color_Target in usage do flags += {.COLOR_ATTACHMENT}
+	if .Depth_Target in usage do flags += {.DEPTH_STENCIL_ATTACHMENT}
+	if usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write, .Storage_Read_Write} != {} do flags += {.STORAGE}
 	create: vk.ImageCreateFlags
-	if type == .CUBE || type == .CUBE_ARRAY do create += {.CUBE_COMPATIBLE}
+	if type == .Cube || type == .Cube_Array do create += {.CUBE_COMPATIBLE}
 	props: vk.ImageFormatProperties
 	return vk.GetPhysicalDeviceImageFormatProperties(vk_state.physical, f, .D3 if type == .D3 else .D2, .OPTIMAL, flags, create, &props) == .SUCCESS
 }
 
-vk_texture_supports_sample_count :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, sample_count: sdl.GPUSampleCount) -> bool {
+vk_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
 	limits := &vk_state.properties.limits
-	counts := limits.framebufferDepthSampleCounts if vk_is_depth(format) else limits.framebufferColorSampleCounts
+	counts := limits.framebufferDepthSampleCounts if format_is_depth(format) else limits.framebufferColorSampleCounts
 	return vk_samples(sample_count) <= counts
 }
 
-vk_samples :: proc(count: sdl.GPUSampleCount) -> vk.SampleCountFlags {
+vk_samples :: proc(count: Sample_Count) -> vk.SampleCountFlags {
 	switch count {
 	case ._1: return {._1}
 	case ._2: return {._2}
@@ -616,7 +608,7 @@ vk_wait_serial :: proc(serial: u64, queue := Vk_Queue.Graphics) -> bool {
 	return ok
 }
 
-vk_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
+vk_wait_for_idle :: proc(device: Device) -> bool {
 	ok := vk_wait_serial(vk_state.submitted)
 	ok = vk_wait_serial(vk_state.compute_submitted, .Compute) && ok
 	vk_collect()

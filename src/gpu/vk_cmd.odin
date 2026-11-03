@@ -275,7 +275,7 @@ vk_cmd_recycle :: proc(cmd: ^Vk_Cmd) {
 	append(&vk_state.free_cmds, cmd)
 }
 
-vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+vk_acquire_command_buffer :: proc(device: Device) -> Cmd {
 	vk_collect()
 	cmd: ^Vk_Cmd
 	if len(vk_state.free_cmds) > 0 {
@@ -304,21 +304,21 @@ vk_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuff
 		sdl.SetError("vkBeginCommandBuffer failed")
 		return nil
 	}
-	return (^sdl.GPUCommandBuffer)(cmd)
+	return (Cmd)(cmd)
 }
 
 // A command buffer for the compute queue (acquire_compute_command_buffer): compute
 // passes only (vk_check_compute_writes knows their writes, not a copy's), submitted with
 // vk_submit_compute.
-vk_acquire_compute_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+vk_acquire_compute_command_buffer :: proc(device: Device) -> Cmd {
 	cmd := (^Vk_Cmd)(vk_acquire_command_buffer(device))
 	if cmd != nil do cmd.queue = .Compute
-	return (^sdl.GPUCommandBuffer)(cmd)
+	return (Cmd)(cmd)
 }
 
 // Makes the graphics command buffer wait, before any of its work, for the compute
 // submission `fence` names, so it sees what that wrote.
-vk_wait_on :: proc(command_buffer: ^sdl.GPUCommandBuffer, fence: ^sdl.GPUFence) {
+vk_wait_on :: proc(command_buffer: Cmd, fence: Fence) {
 	cmd, f := (^Vk_Cmd)(command_buffer), (^Vk_Fence)(fence)
 	if cmd.queue == .Graphics && f.queue == .Compute do cmd.compute_wait = max(cmd.compute_wait, f.serial)
 }
@@ -469,27 +469,27 @@ vk_check_compute_writes :: proc(cmd: ^Vk_Cmd) {
 	}
 }
 
-vk_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+vk_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	_, ok := vk_submit((^Vk_Cmd)(command_buffer))
 	return ok
 }
 
-vk_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+vk_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
 	serial, ok := vk_submit((^Vk_Cmd)(command_buffer))
 	if !ok do return nil
 	fence := new(Vk_Fence)
 	fence.serial, fence.queue = serial, (^Vk_Cmd)(command_buffer).queue
-	return (^sdl.GPUFence)(fence)
+	return (Fence)(fence)
 }
 
 // Whether the recording holds anything for the GPU to run (Vk_Cmd.recorded), or a
 // swapchain image to present.
-vk_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+vk_command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
 	return cmd.recorded || len(cmd.presents) > 0
 }
 
-vk_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+vk_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Vk_Cmd)(command_buffer)
 	if len(cmd.presents) > 0 {
 		sdl.SetError("a command buffer holding a swapchain texture cannot be cancelled")
@@ -505,13 +505,13 @@ vk_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool 
 	return true
 }
 
-vk_query_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) -> bool {
+vk_query_fence :: proc(device: Device, fence: Fence) -> bool {
 	vk_collect()
 	f := (^Vk_Fence)(fence)
 	return vk_serial_done(f.queue, f.serial)
 }
 
-vk_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: u32) -> bool {
+vk_wait_for_fences :: proc(device: Device, wait_all: bool, fences: [^]Fence, num_fences: u32) -> bool {
 	if num_fences == 0 do return true
 	// Each queue's submissions finish in order, so all of a queue's fences are done when its
 	// latest is, and any one when its earliest is; one wait then covers both timelines.
@@ -535,7 +535,7 @@ vk_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^s
 	return ok
 }
 
-vk_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
+vk_release_fence :: proc(device: Device, fence: Fence) {
 	free((^Vk_Fence)(fence))
 }
 
@@ -632,15 +632,15 @@ vk_push_uniform :: proc(cmd: ^Vk_Cmd, stage: Vk_Stage, slot: u32, data: rawptr, 
 	cmd.bind_dirty = true
 }
 
-vk_push_vertex_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+vk_push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	vk_push_uniform((^Vk_Cmd)(command_buffer), .Vertex, slot_index, data, length)
 }
 
-vk_push_fragment_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+vk_push_fragment_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	vk_push_uniform((^Vk_Cmd)(command_buffer), .Fragment, slot_index, data, length)
 }
 
-vk_push_compute_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+vk_push_compute_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	vk_push_uniform((^Vk_Cmd)(command_buffer), .Compute, slot_index, data, length)
 }
 
@@ -773,7 +773,7 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 
 // ---- Render passes ------------------------------------------------------------------
 
-vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: u32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
+vk_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.recorded = true
 	width, height := max(u32), max(u32)
@@ -790,10 +790,10 @@ vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target
 			imageView   = img.level_views[info.mip_level],
 			imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
 			loadOp      = vk_load_op(info.load_op),
-			storeOp     = .STORE if info.store_op == .STORE || info.store_op == .RESOLVE_AND_STORE else .DONT_CARE,
+			storeOp     = .STORE if info.store_op == .Store || info.store_op == .Resolve_And_Store else .DONT_CARE,
 		}
 		c.clearValue.color.float32 = {info.clear_color.r, info.clear_color.g, info.clear_color.b, info.clear_color.a}
-		if info.store_op == .RESOLVE || info.store_op == .RESOLVE_AND_STORE {
+		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
 			rt := (^Vk_Texture)(info.resolve_texture)
 			resolve := vk_target(cmd, rt, info.resolve_mip_level, info.cycle_resolve_texture, .COLOR_ATTACHMENT_OPTIMAL)
 			c.resolveMode = {.AVERAGE}
@@ -814,14 +814,14 @@ vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target
 			imageView   = img.level_views[level],
 			imageLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 			loadOp      = vk_load_op(d.load_op),
-			storeOp     = .STORE if d.store_op == .STORE else .DONT_CARE,
+			storeOp     = .STORE if d.store_op == .Store else .DONT_CARE,
 		}
 		depth.clearValue.depthStencil = {depth = d.clear_depth, stencil = u32(d.clear_stencil)}
 		has_depth = true
 		if .STENCIL in t.aspect {
 			stencil = depth
 			stencil.loadOp = vk_load_op(d.stencil_load_op)
-			stencil.storeOp = .STORE if d.stencil_store_op == .STORE else .DONT_CARE
+			stencil.storeOp = .STORE if d.stencil_store_op == .Store else .DONT_CARE
 			has_stencil = true
 		}
 	}
@@ -845,20 +845,20 @@ vk_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target
 	cmd.vertex_storage = {}
 	cmd.fragment_storage = {}
 	cmd.samplers_bound = {}
-	return (^sdl.GPURenderPass)(cmd)
+	return (Render_Pass)(cmd)
 }
 
 @(private = "file")
-vk_load_op :: proc(op: sdl.GPULoadOp) -> vk.AttachmentLoadOp {
+vk_load_op :: proc(op: Load_Op) -> vk.AttachmentLoadOp {
 	switch op {
-	case .LOAD:      return .LOAD
-	case .CLEAR:     return .CLEAR
-	case .DONT_CARE: return .DONT_CARE
+	case .Load:      return .LOAD
+	case .Clear:     return .CLEAR
+	case .Dont_Care: return .DONT_CARE
 	}
 	return .LOAD
 }
 
-vk_end_render_pass :: proc(render_pass: ^sdl.GPURenderPass) {
+vk_end_render_pass :: proc(render_pass: Render_Pass) {
 	cmd := (^Vk_Cmd)(render_pass)
 	vk.CmdEndRendering(cmd.cb)
 	vk_targets_restore(cmd)
@@ -867,7 +867,7 @@ vk_end_render_pass :: proc(render_pass: ^sdl.GPURenderPass) {
 	cmd.pipeline = nil
 }
 
-vk_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pipeline: ^sdl.GPUGraphicsPipeline) {
+vk_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Vk_Cmd)(render_pass)
 	p := (^Vk_Pipeline)(graphics_pipeline)
 	vk.CmdBindPipeline(cmd.cb, .GRAPHICS, p.pipeline)
@@ -876,7 +876,7 @@ vk_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pipe
 	cmd.set_dirty = {true, true, true, true}
 }
 
-vk_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, bindings: [^]sdl.GPUBufferBinding, num_bindings: u32) {
+vk_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	buffers: [16]vk.Buffer
 	offsets: [16]vk.DeviceSize
@@ -888,14 +888,14 @@ vk_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32,
 	vk.CmdBindVertexBuffers(cmd.cb, first_slot, num_bindings, &buffers[0], &offsets[0])
 }
 
-vk_bind_index_buffer :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr binding: sdl.GPUBufferBinding, index_element_size: sdl.GPUIndexElementSize) {
+vk_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Vk_Cmd)(render_pass)
 	b := (^Vk_Buffer)(binding.buffer).active
 	vk_cmd_track_buffer(cmd, b)
-	vk.CmdBindIndexBuffer(cmd.cb, b.buffer, vk.DeviceSize(binding.offset), .UINT32 if index_element_size == ._32BIT else .UINT16)
+	vk.CmdBindIndexBuffer(cmd.cb, b.buffer, vk.DeviceSize(binding.offset), .UINT32 if index_element_size == .U32 else .UINT16)
 }
 
-vk_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+vk_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Vk_Buffer)(storage_buffers[i]).active
@@ -906,7 +906,7 @@ vk_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_sl
 }
 
 @(private = "file")
-vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	for i in 0 ..< num_bindings {
 		t := (^Vk_Texture)(bindings[i].texture)
 		s := (^Vk_Sampler)(bindings[i].sampler)
@@ -916,7 +916,7 @@ vk_bind_samplers :: proc(cmd: ^Vk_Cmd, first_slot: u32, bindings: [^]sdl.GPUText
 	}
 }
 
-vk_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+vk_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Vk_Buffer)(storage_buffers[i]).active
@@ -926,36 +926,36 @@ vk_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_
 	cmd.set_dirty[2] = true
 }
 
-vk_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+vk_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	vk_bind_samplers(cmd, first_slot, texture_sampler_bindings, num_bindings)
 	cmd.set_dirty[2] = true
 }
 
-vk_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.Rect) {
+vk_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
 	cmd := (^Vk_Cmd)(render_pass)
 	rect := vk.Rect2D{offset = {scissor.x, scissor.y}, extent = {u32(max(scissor.w, 0)), u32(max(scissor.h, 0))}}
 	vk.CmdSetScissor(cmd.cb, 0, 1, &rect)
 }
 
-vk_draw_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_vertices, num_instances, first_vertex, first_instance: u32) {
+vk_draw_primitives :: proc(render_pass: Render_Pass, num_vertices, num_instances, first_vertex, first_instance: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	vk.CmdDraw(cmd.cb, num_vertices, num_instances, first_vertex, first_instance)
 }
 
-vk_draw_indexed_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
+vk_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	vk.CmdDrawIndexed(cmd.cb, num_indices, num_instances, first_index, vertex_offset, first_instance)
 }
 
-vk_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, draw_count: u32) {
+vk_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	b := (^Vk_Buffer)(buffer).active
 	vk_cmd_track_buffer(cmd, b)
-	stride :: u32(size_of(sdl.GPUIndexedIndirectDrawCommand))
+	stride :: u32(size_of(Indexed_Indirect_Draw))
 	if vk_state.multi_draw || draw_count <= 1 {
 		vk.CmdDrawIndexedIndirect(cmd.cb, b.buffer, vk.DeviceSize(offset), draw_count, stride)
 	} else {
@@ -966,7 +966,7 @@ vk_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buf
 // Draws `draw_count` non-indexed commands from `offset`, `stride` bytes apart: a stride of
 // an indexed command (20) reads an indexed command's first four words as a non-indexed one,
 // so the index count and first index become the vertex count and first vertex.
-vk_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+vk_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	b := (^Vk_Buffer)(buffer).active
@@ -979,7 +979,7 @@ vk_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sd
 }
 
 // vk_draw_primitives_indirect with its count read from `count_buffer` when the GPU runs it.
-vk_draw_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset, max_draws, stride: u32) {
+vk_draw_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, count_buffer: Buffer, count_offset, max_draws, stride: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
@@ -990,18 +990,18 @@ vk_draw_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffe
 
 // Draws up to `max_draws` commands from `offset`, as many as the u32 at `count_offset` of
 // `count_buffer` says when the GPU runs it (vk_state.indirect_count).
-vk_draw_indexed_primitives_indirect_count :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, count_buffer: ^sdl.GPUBuffer, count_offset: u32, max_draws: u32) {
+vk_draw_indexed_primitives_indirect_count :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, count_buffer: Buffer, count_offset: u32, max_draws: u32) {
 	cmd := (^Vk_Cmd)(render_pass)
 	if !vk_bind_sets(cmd) do return
 	b, n := (^Vk_Buffer)(buffer).active, (^Vk_Buffer)(count_buffer).active
 	vk_cmd_track_buffer(cmd, b)
 	vk_cmd_track_buffer(cmd, n)
-	vk.CmdDrawIndexedIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, size_of(sdl.GPUIndexedIndirectDrawCommand))
+	vk.CmdDrawIndexedIndirectCount(cmd.cb, b.buffer, vk.DeviceSize(offset), n.buffer, vk.DeviceSize(count_offset), max_draws, size_of(Indexed_Indirect_Draw))
 }
 
 // ---- Compute passes -----------------------------------------------------------------
 
-vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
+vk_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: u32) -> Compute_Pass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.recorded = true
 	vk_memory_barrier(cmd)
@@ -1028,10 +1028,10 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
 	// A render pass leaves its fragment uniforms in sets[3], which a kernel with an array
 	// must never take for its own.
 	cmd.sets[3], cmd.array_count, cmd.accel = 0, 0, 0
-	return (^sdl.GPUComputePass)(cmd)
+	return (Compute_Pass)(cmd)
 }
 
-vk_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipeline: ^sdl.GPUComputePipeline) {
+vk_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	p := (^Vk_Pipeline)(compute_pipeline)
 	vk.CmdBindPipeline(cmd.cb, .COMPUTE, p.pipeline)
@@ -1040,14 +1040,14 @@ vk_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipe
 	cmd.set_dirty = {true, true, true, p.layout.sets[3] != 0}
 }
 
-vk_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+vk_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	vk_bind_samplers(cmd, first_slot, texture_sampler_bindings, num_bindings)
 	cmd.set_dirty[0] = true
 }
 
 // The textures a kernel's array holds this dispatch on, in order; the count is the set's.
-vk_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
+vk_bind_compute_texture_array :: proc(compute_pass: Compute_Pass, bindings: []Texture_Sampler_Binding) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	n := min(len(bindings), VK_TEXTURE_ARRAY_MAX)
 	for b, i in bindings[:n] {
@@ -1061,7 +1061,7 @@ vk_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, binding
 	cmd.set_dirty[3] = true
 }
 
-vk_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+vk_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Vk_Buffer)(storage_buffers[i]).active
@@ -1071,7 +1071,7 @@ vk_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first
 	cmd.set_dirty[0] = true
 }
 
-vk_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, groupcount_y, groupcount_z: u32) {
+vk_dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: u32) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	if !vk_bind_sets(cmd) do return
 	vk.CmdDispatch(cmd.cb, groupcount_x, groupcount_y, groupcount_z)
@@ -1079,7 +1079,7 @@ vk_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, gro
 	vk_memory_barrier(cmd)
 }
 
-vk_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
+vk_end_compute_pass :: proc(compute_pass: Compute_Pass) {
 	cmd := (^Vk_Cmd)(compute_pass)
 	vk_targets_restore(cmd)
 	vk_memory_barrier(cmd)
@@ -1089,14 +1089,14 @@ vk_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
 
 // ---- Copy passes --------------------------------------------------------------------
 
-vk_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCopyPass {
+vk_begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.pass = .Copy
 	cmd.recorded = true
-	return (^sdl.GPUCopyPass)(cmd)
+	return (Copy_Pass)(cmd)
 }
 
-vk_end_copy_pass :: proc(copy_pass: ^sdl.GPUCopyPass) {
+vk_end_copy_pass :: proc(copy_pass: Copy_Pass) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	cmd.pass = .None
 }
@@ -1106,7 +1106,7 @@ vk_subresource :: proc(t: ^Vk_Texture, level: u32) -> vk.ImageSubresourceLayers 
 	return {aspectMask = t.aspect, mipLevel = level, baseArrayLayer = 0, layerCount = 1}
 }
 
-vk_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureTransferInfo, #by_ptr destination: sdl.GPUTextureRegion, cycle: bool) {
+vk_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	src := (^Vk_Buffer)(source.transfer_buffer).active
 	t := (^Vk_Texture)(destination.texture)
@@ -1125,7 +1125,7 @@ vk_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GP
 	vk_targets_restore(cmd)
 }
 
-vk_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTransferBufferLocation, #by_ptr destination: sdl.GPUBufferRegion, cycle: bool) {
+vk_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	src := (^Vk_Buffer)(source.transfer_buffer).active
 	dst := (^Vk_Buffer)(destination.buffer)
@@ -1138,7 +1138,7 @@ vk_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPU
 	vk_memory_barrier(cmd)
 }
 
-vk_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferLocation, #by_ptr destination: sdl.GPUBufferLocation, size: u32, cycle: bool) {
+vk_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	src := (^Vk_Buffer)(source.buffer).active
 	dst := (^Vk_Buffer)(destination.buffer)
@@ -1151,7 +1151,7 @@ vk_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sd
 	vk_memory_barrier(cmd)
 }
 
-vk_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureLocation, #by_ptr destination: sdl.GPUTextureLocation, w, h, d: u32, cycle: bool) {
+vk_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	st := (^Vk_Texture)(source.texture)
 	dt := (^Vk_Texture)(destination.texture)
@@ -1169,7 +1169,7 @@ vk_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: 
 	vk_targets_restore(cmd)
 }
 
-vk_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureRegion, #by_ptr destination: sdl.GPUTextureTransferInfo) {
+vk_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	t := (^Vk_Texture)(source.texture)
 	dst := (^Vk_Buffer)(destination.transfer_buffer).active
@@ -1189,7 +1189,7 @@ vk_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sd
 	vk_memory_barrier(cmd)
 }
 
-vk_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferRegion, #by_ptr destination: sdl.GPUTransferBufferLocation) {
+vk_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	src := (^Vk_Buffer)(source.buffer).active
 	dst := (^Vk_Buffer)(destination.transfer_buffer).active
@@ -1202,7 +1202,7 @@ vk_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl
 }
 
 // Fills each level from the one above with a linear blit, as SDL_GPU does.
-vk_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
+vk_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.recorded = true
 	t := (^Vk_Texture)(texture)
@@ -1225,13 +1225,13 @@ vk_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, t
 
 // A named group of commands for capture tools, closed by vk_pop_debug_group in the same
 // command buffer.
-vk_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {
+vk_push_debug_group :: proc(command_buffer: Cmd, name: cstring) {
 	if !vk_state.labels || vk.CmdBeginDebugUtilsLabelEXT == nil do return
 	label := vk.DebugUtilsLabelEXT{sType = .DEBUG_UTILS_LABEL_EXT, pLabelName = name}
 	vk.CmdBeginDebugUtilsLabelEXT((^Vk_Cmd)(command_buffer).cb, &label)
 }
 
-vk_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {
+vk_pop_debug_group :: proc(command_buffer: Cmd) {
 	if !vk_state.labels || vk.CmdEndDebugUtilsLabelEXT == nil do return
 	vk.CmdEndDebugUtilsLabelEXT((^Vk_Cmd)(command_buffer).cb)
 }

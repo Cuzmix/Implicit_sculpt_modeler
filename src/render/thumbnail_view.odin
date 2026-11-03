@@ -33,7 +33,7 @@ thumbnail_view_destroy :: proc(r: ^Renderer, tv: ^Thumbnail_View) {
 // depth is transient, so a tile GPU gives it no memory. With `scene` the picture stands
 // on Renderer.background (its gradient, or the environment where that shows) and
 // Renderer.floor, as the viewport does, rather than on `background` alone.
-thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, view, proj: Mat4, items: []Draw_Item, background: [4]f32, supersample: u32 = THUMBNAIL_SUPERSAMPLE, keep_depth := false, scene := false) -> ^sdl.GPUTexture {
+thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: gpu.Cmd, size: [2]u32, view, proj: Mat4, items: []Draw_Item, background: [4]f32, supersample: u32 = THUMBNAIL_SUPERSAMPLE, keep_depth := false, scene := false) -> gpu.Texture {
 	if tv.failed || size.x == 0 || size.y == 0 do return nil
 	scale := max(supersample, 1)
 	if !viewport_target_resize(r, &tv.target, size.x * scale, size.y * scale, transient_depth = !keep_depth) {

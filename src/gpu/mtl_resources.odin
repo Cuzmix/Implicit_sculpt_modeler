@@ -42,7 +42,7 @@ Mtl_Texture_Backing :: struct {
 }
 
 Mtl_Texture :: struct {
-	info:      sdl.GPUTextureCreateInfo,
+	info:      Texture_Desc,
 	backings:  [dynamic]^Mtl_Texture_Backing,
 	active:    ^Mtl_Texture_Backing,
 	swapchain: bool, // a window's drawable: never cycled or freed here
@@ -54,14 +54,14 @@ Mtl_Texture :: struct {
 Mtl_Shader :: struct {
 	library:  ^MTL.Library,
 	function: ^MTL.Function,
-	stage:    sdl.GPUShaderStage,
+	stage:    Shader_Stage,
 	counts:   [4]u32, // samplers, storage textures, storage buffers, uniform buffers
 }
 
 Mtl_Pipeline :: struct {
 	state:         ^MTL.RenderPipelineState,
 	depth_stencil: ^MTL.DepthStencilState, // nil without a depth target
-	raster:        sdl.GPURasterizerState,
+	raster:        Rasterizer_State,
 	primitive:     MTL.PrimitiveType,
 	counts:        [8]u32, // the vertex shader's four counts, then the fragment shader's
 }
@@ -107,7 +107,7 @@ Mtl_Slots :: struct {
 // SDL_GPU's Metal slots: sampled textures and samplers from 0, then the read-only and
 // read-write storage textures; uniform buffers from buffer 0, then the read-only and
 // read-write storage buffers.
-mtl_slots_sdl :: proc(info: sdl.GPUComputePipelineCreateInfo) -> (slots: Mtl_Slots) {
+mtl_slots_sdl :: proc(info: Compute_Pipeline_Desc) -> (slots: Mtl_Slots) {
 	slots.accel = -1
 	slots.counts = {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
 	for i in 0 ..< info.num_samplers do slots.samplers[i] = {i, i}
@@ -156,41 +156,41 @@ mtl_name :: proc(resource: ^MTL.Resource, name: cstring) {
 	MTL.Resource_setLabel(resource, mtl_string(string(name)))
 }
 
-mtl_set_buffer_name :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer, text: cstring) {
+mtl_set_buffer_name :: proc(device: Device, buffer: Buffer, text: cstring) {
 	b := (^Mtl_Buffer)(buffer)
 	b.name = text
 	for backing in b.backings do mtl_name(backing.buffer, text)
 }
 
-mtl_set_texture_name :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture, text: cstring) {
+mtl_set_texture_name :: proc(device: Device, texture: Texture, text: cstring) {
 	t := (^Mtl_Texture)(texture)
 	t.name = text
 	for backing in t.backings do mtl_name(backing.texture, text)
 }
 
-mtl_create_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> ^sdl.GPUBuffer {
+mtl_create_buffer :: proc(device: Device, #by_ptr info: Buffer_Desc) -> Buffer {
 	b := mtl_buffer_make(info.size, {.StorageModePrivate})
 	if b == nil do log.errorf("Metal: a %d byte buffer could not be made", info.size)
-	return (^sdl.GPUBuffer)(b)
+	return (Buffer)(b)
 }
 
 // A device buffer in shared memory, filled by the CPU before its first use, where the GPU
 // shares the CPU's memory (every Apple silicon GPU); nil elsewhere. A cycle of it makes
 // another shared backing, which on unified memory costs what a private one would.
-mtl_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
+mtl_create_buffer_mapped :: proc(device: Device, #by_ptr info: Buffer_Desc) -> (Buffer, rawptr) {
 	if !MTL.Device_hasUnifiedMemory(mtl_state.device) do return nil, nil
 	b := mtl_buffer_make(info.size, MTL.ResourceStorageModeShared)
 	if b == nil do return nil, nil
-	return (^sdl.GPUBuffer)(b), MTL.Buffer_contentsPointer(b.active.buffer)
+	return (Buffer)(b), MTL.Buffer_contentsPointer(b.active.buffer)
 }
 
 // Transfer buffers are shared memory the CPU maps in place; an upload buffer is only
 // written by the CPU, so it is write-combined, as SDL_GPU makes it.
-mtl_create_transfer_buffer :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTransferBufferCreateInfo) -> ^sdl.GPUTransferBuffer {
-	options := MTL.ResourceOptions{.CPUCacheModeWriteCombined} if info.usage == .UPLOAD else MTL.ResourceStorageModeShared
+mtl_create_transfer_buffer :: proc(device: Device, #by_ptr info: Transfer_Buffer_Desc) -> Transfer_Buffer {
+	options := MTL.ResourceOptions{.CPUCacheModeWriteCombined} if info.usage == .Upload else MTL.ResourceStorageModeShared
 	b := mtl_buffer_make(info.size, options)
 	if b == nil do log.errorf("Metal: a %d byte transfer buffer could not be made", info.size)
-	return (^sdl.GPUTransferBuffer)(b)
+	return (Transfer_Buffer)(b)
 }
 
 // Frees what of a released buffer the GPU no longer uses, and the buffer with its last
@@ -213,15 +213,15 @@ mtl_buffer_reap :: proc(b: ^Mtl_Buffer) {
 	}
 }
 
-mtl_release_buffer :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
+mtl_release_buffer :: proc(device: Device, buffer: Buffer) {
 	b := (^Mtl_Buffer)(buffer)
 	if b == nil do return
 	b.released = true
 	mtl_buffer_reap(b)
 }
 
-mtl_release_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {
-	mtl_release_buffer(device, (^sdl.GPUBuffer)(transfer_buffer))
+mtl_release_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {
+	mtl_release_buffer(device, (Buffer)(transfer_buffer))
 }
 
 // Points `b` at a backing no command buffer uses, making one if every backing is in use.
@@ -242,13 +242,13 @@ mtl_buffer_for_write :: proc(b: ^Mtl_Buffer, cycle: bool) -> ^Mtl_Buffer_Backing
 	return b.active
 }
 
-mtl_map_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer, cycle: bool) -> rawptr {
+mtl_map_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
 	b := (^Mtl_Buffer)(transfer_buffer)
 	return MTL.Buffer_contentsPointer(mtl_buffer_for_write(b, cycle).buffer)
 }
 
 // Shared memory needs no flush on Apple silicon.
-mtl_unmap_transfer_buffer :: proc(device: ^sdl.GPUDevice, transfer_buffer: ^sdl.GPUTransferBuffer) {}
+mtl_unmap_transfer_buffer :: proc(device: Device, transfer_buffer: Transfer_Buffer) {}
 
 // ---- Textures -----------------------------------------------------------------------
 
@@ -269,9 +269,9 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 	MTL.TextureDescriptor_setArrayLength(desc, 1)
 	MTL.TextureDescriptor_setStorageMode(desc, .Memoryless if t.transient else .Private)
 	usage: MTL.TextureUsage
-	if info.usage & {.COLOR_TARGET, .DEPTH_STENCIL_TARGET} != {} do usage += {.RenderTarget}
-	if info.usage & {.SAMPLER, .GRAPHICS_STORAGE_READ, .COMPUTE_STORAGE_READ} != {} do usage += {.ShaderRead}
-	if info.usage & {.COMPUTE_STORAGE_WRITE, .COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE} != {} do usage += {.ShaderWrite}
+	if info.usage & {.Color_Target, .Depth_Target} != {} do usage += {.RenderTarget}
+	if info.usage & {.Sampled, .Graphics_Storage_Read, .Storage_Read} != {} do usage += {.ShaderRead}
+	if info.usage & {.Storage_Write, .Storage_Read_Write} != {} do usage += {.ShaderWrite}
 	MTL.TextureDescriptor_setUsage(desc, usage)
 	texture := MTL.Device_newTextureWithDescriptor(mtl_state.device, desc)
 	if texture == nil do return nil
@@ -282,18 +282,18 @@ mtl_texture_backing_make :: proc(t: ^Mtl_Texture) -> ^Mtl_Texture_Backing {
 	return backing
 }
 
-mtl_create_texture :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+mtl_create_texture :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	return mtl_texture_make(info, false)
 }
 
 // Memoryless: the texture lives in tile memory for its pass alone, which every Apple GPU
 // offers; its pass must neither load nor store it (transient.odin checks).
-mtl_create_texture_transient :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUTextureCreateInfo) -> ^sdl.GPUTexture {
+mtl_create_texture_transient :: proc(device: Device, #by_ptr info: Texture_Desc) -> Texture {
 	return mtl_texture_make(info, true)
 }
 
 @(private = "file")
-mtl_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sdl.GPUTexture {
+mtl_texture_make :: proc(info: Texture_Desc, transient: bool) -> Texture {
 	if info.type != .D2 || info.layer_count_or_depth > 1 {
 		log.errorf("Metal: only 2D textures are supported (asked for %v)", info.type)
 		return nil
@@ -312,7 +312,7 @@ mtl_texture_make :: proc(info: sdl.GPUTextureCreateInfo, transient: bool) -> ^sd
 		free(t)
 		return nil
 	}
-	return (^sdl.GPUTexture)(t)
+	return (Texture)(t)
 }
 
 mtl_texture_reap :: proc(t: ^Mtl_Texture) {
@@ -333,7 +333,7 @@ mtl_texture_reap :: proc(t: ^Mtl_Texture) {
 	}
 }
 
-mtl_release_texture :: proc(device: ^sdl.GPUDevice, texture: ^sdl.GPUTexture) {
+mtl_release_texture :: proc(device: Device, texture: Texture) {
 	t := (^Mtl_Texture)(texture)
 	if t == nil do return
 	t.released = true
@@ -357,14 +357,14 @@ mtl_texture_for_write :: proc(t: ^Mtl_Texture, cycle: bool) -> ^Mtl_Texture_Back
 // ---- Samplers and shaders -----------------------------------------------------------
 
 // A sampler handle is the Metal sampler itself.
-mtl_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerCreateInfo) -> ^sdl.GPUSampler {
+mtl_create_sampler :: proc(device: Device, #by_ptr info: Sampler_Desc) -> Sampler {
 	NS.scoped_autoreleasepool()
-	filter :: proc(f: sdl.GPUFilter) -> MTL.SamplerMinMagFilter {return .Linear if f == .LINEAR else .Nearest}
-	address :: proc(a: sdl.GPUSamplerAddressMode) -> MTL.SamplerAddressMode {
+	filter :: proc(f: Filter) -> MTL.SamplerMinMagFilter {return .Linear if f == .Linear else .Nearest}
+	address :: proc(a: Address_Mode) -> MTL.SamplerAddressMode {
 		switch a {
-		case .REPEAT:          return .Repeat
-		case .MIRRORED_REPEAT: return .MirrorRepeat
-		case .CLAMP_TO_EDGE:   return .ClampToEdge
+		case .Repeat:          return .Repeat
+		case .Mirrored_Repeat: return .MirrorRepeat
+		case .Clamp_To_Edge:   return .ClampToEdge
 		}
 		return .Repeat
 	}
@@ -375,17 +375,17 @@ mtl_create_sampler :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUSamplerC
 	MTL.SamplerDescriptor_setRAddressMode(desc, address(info.address_mode_w))
 	MTL.SamplerDescriptor_setMinFilter(desc, filter(info.min_filter))
 	MTL.SamplerDescriptor_setMagFilter(desc, filter(info.mag_filter))
-	MTL.SamplerDescriptor_setMipFilter(desc, .Linear if info.mipmap_mode == .LINEAR else .Nearest)
+	MTL.SamplerDescriptor_setMipFilter(desc, .Linear if info.mipmap_mode == .Linear else .Nearest)
 	MTL.SamplerDescriptor_setLodMinClamp(desc, info.min_lod)
 	MTL.SamplerDescriptor_setLodMaxClamp(desc, info.max_lod)
 	MTL.SamplerDescriptor_setMaxAnisotropy(desc, NS.UInteger(info.max_anisotropy) if info.enable_anisotropy else 1)
 	MTL.SamplerDescriptor_setCompareFunction(desc, mtl_compare(info.compare_op) if info.enable_compare else .Always)
 	sampler := MTL.Device_newSamplerState(mtl_state.device, desc)
 	if sampler == nil do sdl.SetError("Metal: the sampler could not be made")
-	return (^sdl.GPUSampler)(sampler)
+	return (Sampler)(sampler)
 }
 
-mtl_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
+mtl_release_sampler :: proc(device: Device, sampler: Sampler) {
 	if sampler != nil do NS.release((^MTL.SamplerState)(sampler))
 }
 
@@ -394,14 +394,14 @@ mtl_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
 // `exact`, which turns fast maths off: divisions, square roots and the rest are then
 // IEEE 754's, as SPIR-V's are under `-fp-mode precise` (create_compute_pipeline_exact).
 @(private = "file")
-mtl_compile :: proc(code: []u8, entrypoint: cstring, exact: bool) -> (^MTL.Library, ^MTL.Function) {
+mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool) -> (^MTL.Library, ^MTL.Function) {
 	options: ^MTL.CompileOptions
 	if exact {
 		options = MTL.CompileOptions_init(MTL.CompileOptions_alloc())
 		MTL.CompileOptions_setFastMathEnabled(options, false)
 	}
 	defer if options != nil do NS.release(options)
-	library, err := MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(string(code)), options)
+	library, err := MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(code), options)
 	if library == nil {
 		log.errorf("Metal: a shader did not compile: %s", mtl_error_text(err))
 		sdl.SetError("Metal: a shader did not compile")
@@ -418,22 +418,22 @@ mtl_compile :: proc(code: []u8, entrypoint: cstring, exact: bool) -> (^MTL.Libra
 	return library, function
 }
 
-mtl_create_shader :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUShaderCreateInfo) -> ^sdl.GPUShader {
+mtl_create_shader :: proc(device: Device, #by_ptr info: Shader_Desc) -> Shader {
 	NS.scoped_autoreleasepool()
-	if .MSL not_in info.format {
+	if info.format != .Msl {
 		sdl.SetError("Metal: shaders must be Metal source")
 		return nil
 	}
-	library, function := mtl_compile(info.code[:info.code_size], info.entrypoint, false)
+	library, function := mtl_compile(info.code, info.entrypoint, false)
 	if function == nil do return nil
 	s := new(Mtl_Shader)
 	s.library, s.function, s.stage = library, function, info.stage
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
-	return (^sdl.GPUShader)(s)
+	return (Shader)(s)
 }
 
 // A shader is only read while pipelines are made from it, so it goes at once.
-mtl_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
+mtl_release_shader :: proc(device: Device, shader: Shader) {
 	s := (^Mtl_Shader)(shader)
 	if s == nil do return
 	NS.release(s.function)
@@ -443,98 +443,98 @@ mtl_release_shader :: proc(device: ^sdl.GPUDevice, shader: ^sdl.GPUShader) {
 
 // ---- Pipelines ----------------------------------------------------------------------
 
-mtl_compare :: proc(op: sdl.GPUCompareOp) -> MTL.CompareFunction {
+mtl_compare :: proc(op: Compare_Op) -> MTL.CompareFunction {
 	switch op {
-	case .INVALID, .NEVER:  return .Never
-	case .LESS:             return .Less
-	case .EQUAL:            return .Equal
-	case .LESS_OR_EQUAL:    return .LessEqual
-	case .GREATER:          return .Greater
-	case .NOT_EQUAL:        return .NotEqual
-	case .GREATER_OR_EQUAL: return .GreaterEqual
-	case .ALWAYS:           return .Always
+	case .Invalid, .Never:  return .Never
+	case .Less:             return .Less
+	case .Equal:            return .Equal
+	case .Less_Or_Equal:    return .LessEqual
+	case .Greater:          return .Greater
+	case .Not_Equal:        return .NotEqual
+	case .Greater_Or_Equal: return .GreaterEqual
+	case .Always:           return .Always
 	}
 	return .Never
 }
 
 @(private = "file")
-mtl_blend_factor :: proc(f: sdl.GPUBlendFactor) -> MTL.BlendFactor {
+mtl_blend_factor :: proc(f: Blend_Factor) -> MTL.BlendFactor {
 	switch f {
-	case .INVALID, .ZERO:           return .Zero
-	case .ONE:                      return .One
-	case .SRC_COLOR:                return .SourceColor
-	case .ONE_MINUS_SRC_COLOR:      return .OneMinusSourceColor
-	case .DST_COLOR:                return .DestinationColor
-	case .ONE_MINUS_DST_COLOR:      return .OneMinusDestinationColor
-	case .SRC_ALPHA:                return .SourceAlpha
-	case .ONE_MINUS_SRC_ALPHA:      return .OneMinusSourceAlpha
-	case .DST_ALPHA:                return .DestinationAlpha
-	case .ONE_MINUS_DST_ALPHA:      return .OneMinusDestinationAlpha
-	case .CONSTANT_COLOR:           return .BlendColor
-	case .ONE_MINUS_CONSTANT_COLOR: return .OneMinusBlendColor
-	case .SRC_ALPHA_SATURATE:       return .SourceAlphaSaturated
+	case .Invalid, .Zero:           return .Zero
+	case .One:                      return .One
+	case .Src_Color:                return .SourceColor
+	case .One_Minus_Src_Color:      return .OneMinusSourceColor
+	case .Dst_Color:                return .DestinationColor
+	case .One_Minus_Dst_Color:      return .OneMinusDestinationColor
+	case .Src_Alpha:                return .SourceAlpha
+	case .One_Minus_Src_Alpha:      return .OneMinusSourceAlpha
+	case .Dst_Alpha:                return .DestinationAlpha
+	case .One_Minus_Dst_Alpha:      return .OneMinusDestinationAlpha
+	case .Constant_Color:           return .BlendColor
+	case .One_Minus_Constant_Color: return .OneMinusBlendColor
+	case .Src_Alpha_Saturate:       return .SourceAlphaSaturated
 	}
 	return .Zero
 }
 
 @(private = "file")
-mtl_blend_op :: proc(op: sdl.GPUBlendOp) -> MTL.BlendOperation {
+mtl_blend_op :: proc(op: Blend_Op) -> MTL.BlendOperation {
 	switch op {
-	case .INVALID, .ADD:    return .Add
-	case .SUBTRACT:         return .Subtract
-	case .REVERSE_SUBTRACT: return .ReverseSubtract
-	case .MIN:              return .Min
-	case .MAX:              return .Max
+	case .Invalid, .Add:    return .Add
+	case .Subtract:         return .Subtract
+	case .Reverse_Subtract: return .ReverseSubtract
+	case .Min:              return .Min
+	case .Max:              return .Max
 	}
 	return .Add
 }
 
 @(private = "file")
-mtl_stencil_op :: proc(op: sdl.GPUStencilOp) -> MTL.StencilOperation {
+mtl_stencil_op :: proc(op: Stencil_Op) -> MTL.StencilOperation {
 	switch op {
-	case .INVALID, .KEEP:      return .Keep
-	case .ZERO:                return .Zero
-	case .REPLACE:             return .Replace
-	case .INCREMENT_AND_CLAMP: return .IncrementClamp
-	case .DECREMENT_AND_CLAMP: return .DecrementClamp
-	case .INVERT:              return .Invert
-	case .INCREMENT_AND_WRAP:  return .IncrementWrap
-	case .DECREMENT_AND_WRAP:  return .DecrementWrap
+	case .Invalid, .Keep:      return .Keep
+	case .Zero:                return .Zero
+	case .Replace:             return .Replace
+	case .Increment_And_Clamp: return .IncrementClamp
+	case .Decrement_And_Clamp: return .DecrementClamp
+	case .Invert:              return .Invert
+	case .Increment_And_Wrap:  return .IncrementWrap
+	case .Decrement_And_Wrap:  return .DecrementWrap
 	}
 	return .Keep
 }
 
 @(private = "file")
-mtl_vertex_format :: proc(f: sdl.GPUVertexElementFormat) -> MTL.VertexFormat {
+mtl_vertex_format :: proc(f: Vertex_Format) -> MTL.VertexFormat {
 	#partial switch f {
-	case .INT:          return .Int
-	case .INT2:         return .Int2
-	case .INT3:         return .Int3
-	case .INT4:         return .Int4
-	case .UINT:         return .UInt
-	case .UINT2:        return .UInt2
-	case .UINT3:        return .UInt3
-	case .UINT4:        return .UInt4
-	case .FLOAT:        return .Float
-	case .FLOAT2:       return .Float2
-	case .FLOAT3:       return .Float3
-	case .FLOAT4:       return .Float4
-	case .UBYTE4:       return .UChar4
-	case .UBYTE4_NORM:  return .UChar4Normalized
-	case .BYTE4_NORM:   return .Char4Normalized
-	case .SHORT2_NORM:  return .Short2Normalized
-	case .SHORT4_NORM:  return .Short4Normalized
-	case .USHORT2_NORM: return .UShort2Normalized
-	case .USHORT4_NORM: return .UShort4Normalized
-	case .HALF2:        return .Half2
-	case .HALF4:        return .Half4
+	case .Int:          return .Int
+	case .Int2:         return .Int2
+	case .Int3:         return .Int3
+	case .Int4:         return .Int4
+	case .Uint:         return .UInt
+	case .Uint2:        return .UInt2
+	case .Uint3:        return .UInt3
+	case .Uint4:        return .UInt4
+	case .Float:        return .Float
+	case .Float2:       return .Float2
+	case .Float3:       return .Float3
+	case .Float4:       return .Float4
+	case .Ubyte4:       return .UChar4
+	case .Ubyte4_Norm:  return .UChar4Normalized
+	case .Byte4_Norm:   return .Char4Normalized
+	case .Short2_Norm:  return .Short2Normalized
+	case .Short4_Norm:  return .Short4Normalized
+	case .Ushort2_Norm: return .UShort2Normalized
+	case .Ushort4_Norm: return .UShort4Normalized
+	case .Half2:        return .Half2
+	case .Half4:        return .Half4
 	}
 	return .Invalid
 }
 
 // SDL names the channels red first; Metal's mask counts from alpha.
 @(private = "file")
-mtl_write_mask :: proc(mask: sdl.GPUColorComponentFlags) -> MTL.ColorWriteMask {
+mtl_write_mask :: proc(mask: Color_Components) -> MTL.ColorWriteMask {
 	out: MTL.ColorWriteMask
 	if .R in mask do out += {.Red}
 	if .G in mask do out += {.Green}
@@ -544,7 +544,7 @@ mtl_write_mask :: proc(mask: sdl.GPUColorComponentFlags) -> MTL.ColorWriteMask {
 }
 
 @(private = "file")
-mtl_stencil :: proc(s: sdl.GPUStencilOpState, ds: sdl.GPUDepthStencilState) -> ^MTL.StencilDescriptor {
+mtl_stencil :: proc(s: Stencil_Op_State, ds: Depth_Stencil_State) -> ^MTL.StencilDescriptor {
 	desc := MTL.StencilDescriptor_init(MTL.StencilDescriptor_alloc())
 	MTL.StencilDescriptor_setStencilCompareFunction(desc, mtl_compare(s.compare_op))
 	MTL.StencilDescriptor_setStencilFailureOperation(desc, mtl_stencil_op(s.fail_op))
@@ -558,7 +558,7 @@ mtl_stencil :: proc(s: sdl.GPUStencilOpState, ds: sdl.GPUDepthStencilState) -> ^
 // The depth-stencil state SDL_GPU makes for a pipeline with a depth target: a depth test
 // that is off compares Always and writes nothing, as on the other APIs.
 @(private = "file")
-mtl_depth_stencil_state :: proc(ds: sdl.GPUDepthStencilState) -> ^MTL.DepthStencilState {
+mtl_depth_stencil_state :: proc(ds: Depth_Stencil_State) -> ^MTL.DepthStencilState {
 	desc := MTL.DepthStencilDescriptor_init(MTL.DepthStencilDescriptor_alloc())
 	defer NS.release(desc)
 	if ds.enable_stencil_test {
@@ -574,19 +574,18 @@ mtl_depth_stencil_state :: proc(ds: sdl.GPUDepthStencilState) -> ^MTL.DepthStenc
 	return MTL.Device_newDepthStencilState(mtl_state.device, desc)
 }
 
-mtl_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUGraphicsPipelineCreateInfo) -> ^sdl.GPUGraphicsPipeline {
+mtl_create_graphics_pipeline :: proc(device: Device, #by_ptr info: Graphics_Pipeline_Desc) -> Graphics_Pipeline {
 	NS.scoped_autoreleasepool()
 	vertex, fragment := (^Mtl_Shader)(info.vertex_shader), (^Mtl_Shader)(info.fragment_shader)
 	if vertex == nil || fragment == nil do return nil
 	desc := MTL.RenderPipelineDescriptor_init(MTL.RenderPipelineDescriptor_alloc())
 	defer NS.release(desc)
 
-	ti := info.target_info
+	ti := info.targets
 	colors := MTL.RenderPipelineDescriptor_colorAttachments(desc)
-	for i in 0 ..< ti.num_color_targets {
-		d := ti.color_target_descriptions[i]
+	for d, i in ti.color_targets {
 		b := d.blend_state
-		mask := b.color_write_mask if b.enable_color_write_mask else {.R, .G, .B, .A}
+		mask := b.color_write_mask if b.enable_color_write_mask else Color_Components{.R, .G, .B, .A}
 		a := MTL.RenderPipelineColorAttachmentDescriptorArray_object(colors, NS.UInteger(i))
 		MTL.RenderPipelineColorAttachmentDescriptor_setPixelFormat(a, mtl_pixel_format(d.format))
 		MTL.RenderPipelineColorAttachmentDescriptor_setWriteMask(a, mtl_write_mask(mask))
@@ -599,7 +598,6 @@ mtl_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.G
 		MTL.RenderPipelineColorAttachmentDescriptor_setDestinationAlphaBlendFactor(a, mtl_blend_factor(b.dst_alpha_blendfactor))
 	}
 	MTL.RenderPipelineDescriptor_setRasterSampleCount(desc, mtl_samples(info.multisample_state.sample_count))
-	MTL.RenderPipelineDescriptor_setAlphaToCoverageEnabled(desc, info.multisample_state.enable_alpha_to_coverage)
 
 	depth_stencil: ^MTL.DepthStencilState
 	if ti.has_depth_stencil_target {
@@ -616,22 +614,20 @@ mtl_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.G
 	MTL.RenderPipelineDescriptor_setVertexFunction(desc, vertex.function)
 	MTL.RenderPipelineDescriptor_setFragmentFunction(desc, fragment.function)
 
-	vi := info.vertex_input_state
-	if vi.num_vertex_buffers > 0 {
+	vi := info.vertex_input
+	if len(vi.buffers) > 0 {
 		vd := MTL.VertexDescriptor_vertexDescriptor()
 		attributes := MTL.VertexDescriptor_attributes(vd)
-		for i in 0 ..< vi.num_vertex_attributes {
-			a := vi.vertex_attributes[i]
+		for a in vi.attributes {
 			ad := MTL.VertexAttributeDescriptorArray_object(attributes, NS.UInteger(a.location))
 			MTL.VertexAttributeDescriptor_setFormat(ad, mtl_vertex_format(a.format))
 			MTL.VertexAttributeDescriptor_setOffset(ad, NS.UInteger(a.offset))
 			MTL.VertexAttributeDescriptor_setBufferIndex(ad, NS.UInteger(MTL_FIRST_VERTEX_BUFFER + a.buffer_slot))
 		}
 		layouts := MTL.VertexDescriptor_layouts(vd)
-		for i in 0 ..< vi.num_vertex_buffers {
-			b := vi.vertex_buffer_descriptions[i]
+		for b in vi.buffers {
 			ld := MTL.VertexBufferLayoutDescriptorArray_object(layouts, NS.UInteger(MTL_FIRST_VERTEX_BUFFER + b.slot))
-			MTL.VertexBufferLayoutDescriptor_setStepFunction(ld, .PerInstance if b.input_rate == .INSTANCE else .PerVertex)
+			MTL.VertexBufferLayoutDescriptor_setStepFunction(ld, .PerInstance if b.input_rate == .Instance else .PerVertex)
 			MTL.VertexBufferLayoutDescriptor_setStepRate(ld, 1)
 			MTL.VertexBufferLayoutDescriptor_setStride(ld, NS.UInteger(b.pitch))
 		}
@@ -647,19 +643,19 @@ mtl_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.G
 	}
 	p := new(Mtl_Pipeline)
 	p.state, p.depth_stencil, p.raster = state, depth_stencil, info.rasterizer_state
-	switch info.primitive_type {
-	case .TRIANGLELIST:  p.primitive = .Triangle
-	case .TRIANGLESTRIP: p.primitive = .TriangleStrip
-	case .LINELIST:      p.primitive = .Line
-	case .LINESTRIP:     p.primitive = .LineStrip
-	case .POINTLIST:     p.primitive = .Point
+	switch info.primitive {
+	case .Triangle_List:  p.primitive = .Triangle
+	case .Triangle_Strip: p.primitive = .TriangleStrip
+	case .Line_List:      p.primitive = .Line
+	case .Line_Strip:     p.primitive = .LineStrip
+	case .Point_List:     p.primitive = .Point
 	}
 	copy(p.counts[0:4], vertex.counts[:])
 	copy(p.counts[4:8], fragment.counts[:])
-	return (^sdl.GPUGraphicsPipeline)(p)
+	return (Graphics_Pipeline)(p)
 }
 
-mtl_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUGraphicsPipeline) {
+mtl_release_graphics_pipeline :: proc(device: Device, pipeline: Graphics_Pipeline) {
 	p := (^Mtl_Pipeline)(pipeline)
 	if p == nil do return
 	NS.release(p.state)
@@ -670,19 +666,19 @@ mtl_release_graphics_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPU
 // Made as SDL_GPU's Metal backend makes it, keeping the counts its binding slots follow:
 // sampled textures and samplers from 0, then the read-only and read-write storage textures;
 // uniform buffers from buffer 0, then the read-only and read-write storage buffers.
-mtl_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+mtl_create_compute_pipeline :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	return mtl_compute_pipeline_make(info, false)
 }
 
 // The same with fast maths off, for kernels whose result must equal the CPU's.
-mtl_create_compute_pipeline_exact :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
+mtl_create_compute_pipeline_exact :: proc(device: Device, #by_ptr info: Compute_Pipeline_Desc) -> Compute_Pipeline {
 	return mtl_compute_pipeline_make(info, true)
 }
 
 @(private = "file")
-mtl_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, exact: bool) -> ^sdl.GPUComputePipeline {
+mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> Compute_Pipeline {
 	NS.scoped_autoreleasepool()
-	if .MSL not_in info.format {
+	if info.format != .Msl {
 		sdl.SetError("Metal: shaders must be Metal source")
 		return nil
 	}
@@ -690,7 +686,7 @@ mtl_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, exact:
 		sdl.SetError("Metal: a compute pipeline binds more than SDL_GPU allows")
 		return nil
 	}
-	library, function := mtl_compile(info.code[:info.code_size], info.entrypoint, exact)
+	library, function := mtl_compile(info.code, info.entrypoint, exact)
 	if function == nil do return nil
 	defer {
 		NS.release(function)
@@ -720,11 +716,11 @@ mtl_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, exact:
 	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
 	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
 	p.slots = mtl_slots_sdl(info)
-	return (^sdl.GPUComputePipeline)(p)
+	return (Compute_Pipeline)(p)
 }
 
 // Released at once: a command buffer keeps the pipeline state it used alive until it ends.
-mtl_release_compute_pipeline :: proc(device: ^sdl.GPUDevice, pipeline: ^sdl.GPUComputePipeline) {
+mtl_release_compute_pipeline :: proc(device: Device, pipeline: Compute_Pipeline) {
 	p := (^Mtl_Compute_Pipeline)(pipeline)
 	if p == nil do return
 	NS.release(p.state)

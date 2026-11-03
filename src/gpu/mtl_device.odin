@@ -59,13 +59,13 @@ Mtl_Objc_Anchor :: struct {
 }
 
 // The device handle the app holds stands for the one Metal device.
-mtl_device_handle :: proc() -> ^sdl.GPUDevice {
-	return (^sdl.GPUDevice)(&mtl_state)
+mtl_device_handle :: proc() -> Device {
+	return (Device)(&mtl_state)
 }
 
 // Makes the device and its queue, or returns false with the reason kept for
 // backend_error (and the app then says why it cannot start).
-mtl_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
+mtl_create_device :: proc(debug: bool) -> (Device, bool) {
 	NS.scoped_autoreleasepool()
 	// Metal reads its API validation switch when the device is made; SDL_GPU sets it for a
 	// debug device too.
@@ -100,7 +100,7 @@ mtl_create_device :: proc(debug: bool) -> (^sdl.GPUDevice, bool) {
 }
 
 // Waits for the GPU, then frees everything the backend still holds.
-mtl_destroy_device :: proc(device: ^sdl.GPUDevice) {
+mtl_destroy_device :: proc(device: Device) {
 	if mtl_state.device == nil do return
 	_ = mtl_wait_for_idle(device)
 	for len(mtl_state.windows) > 0 do mtl_release_window(device, mtl_state.windows[0].window)
@@ -116,76 +116,68 @@ mtl_destroy_device :: proc(device: ^sdl.GPUDevice) {
 	mtl_state = {}
 }
 
-mtl_get_device_properties :: proc(device: ^sdl.GPUDevice) -> sdl.PropertiesID {
+mtl_get_device_properties :: proc(device: Device) -> sdl.PropertiesID {
 	return mtl_state.properties_id
 }
 
-mtl_get_device_driver :: proc(device: ^sdl.GPUDevice) -> cstring {
+mtl_get_device_driver :: proc(device: Device) -> cstring {
 	return "metal (own backend)"
 }
 
-// SDL_GPU's Metal format table, for the formats this app uses. Depth24 exists only on some
+// The Metal format of each of the gpu package's formats. Depth24 exists only on some
 // Macs and never on the iPad, where SDL_GPU refuses D24 too.
-mtl_pixel_format :: proc(format: sdl.GPUTextureFormat) -> MTL.PixelFormat {
+mtl_pixel_format :: proc(format: Format) -> MTL.PixelFormat {
 	#partial switch format {
-	case .R8G8B8A8_UNORM:      return .RGBA8Unorm
-	case .R8G8B8A8_UNORM_SRGB: return .RGBA8Unorm_sRGB
-	case .B8G8R8A8_UNORM:      return .BGRA8Unorm
-	case .B8G8R8A8_UNORM_SRGB: return .BGRA8Unorm_sRGB
-	case .R8_UNORM:            return .R8Unorm
-	case .R8G8_UNORM:          return .RG8Unorm
-	case .R16_FLOAT:           return .R16Float
-	case .R16G16_FLOAT:        return .RG16Float
-	case .R16G16B16A16_FLOAT:  return .RGBA16Float
-	case .R11G11B10_UFLOAT:    return .RG11B10Float
-	case .R32_FLOAT:           return .R32Float
-	case .R32G32_FLOAT:        return .RG32Float
-	case .R32G32B32A32_FLOAT:  return .RGBA32Float
-	case .R32_UINT:            return .R32Uint
-	case .R10G10B10A2_UNORM:   return .RGB10A2Unorm
-	case .D16_UNORM:           return .Depth16Unorm
-	case .D32_FLOAT:           return .Depth32Float
-	case .D32_FLOAT_S8_UINT:   return .Depth32Float_Stencil8
-	case .D24_UNORM, .D24_UNORM_S8_UINT:
+	case .RGBA8_Unorm:      return .RGBA8Unorm
+	case .RGBA8_Srgb: return .RGBA8Unorm_sRGB
+	case .BGRA8_Unorm:      return .BGRA8Unorm
+	case .BGRA8_Srgb: return .BGRA8Unorm_sRGB
+	case .R8_Unorm:            return .R8Unorm
+	case .RG8_Unorm:          return .RG8Unorm
+	case .R16_Float:           return .R16Float
+	case .RG16_Float:        return .RG16Float
+	case .RGBA16_Float:  return .RGBA16Float
+	case .RG11B10_Float:    return .RG11B10Float
+	case .R32_Float:           return .R32Float
+	case .RG32_Float:        return .RG32Float
+	case .RGBA32_Float:  return .RGBA32Float
+	case .R32_Uint:            return .R32Uint
+	case .RGB10A2_Unorm:   return .RGB10A2Unorm
+	case .D16_Unorm:           return .Depth16Unorm
+	case .D32_Float:           return .Depth32Float
+	case .D32_Float_S8:   return .Depth32Float_Stencil8
+	case .D24_Unorm, .D24_Unorm_S8:
 		when !ODIN_PLATFORM_SUBTARGET_IOS do return .Depth24Unorm_Stencil8
 	}
 	return .Invalid
 }
 
 // The bytes one texel of `format` takes in a transfer buffer.
-mtl_texel_size :: proc(format: sdl.GPUTextureFormat) -> u32 {
+mtl_texel_size :: proc(format: Format) -> u32 {
 	#partial switch format {
-	case .R8_UNORM:                                   return 1
-	case .R8G8_UNORM, .R16_FLOAT, .D16_UNORM:         return 2
-	case .R16G16B16A16_FLOAT, .R32G32_FLOAT:          return 8
-	case .R32G32B32A32_FLOAT:                         return 16
-	case .D32_FLOAT_S8_UINT:                          return 8
+	case .R8_Unorm:                                   return 1
+	case .RG8_Unorm, .R16_Float, .D16_Unorm:         return 2
+	case .RGBA16_Float, .RG32_Float:          return 8
+	case .RGBA32_Float:                         return 16
+	case .D32_Float_S8:                          return 8
 	}
 	return 4
 }
 
-mtl_is_stencil :: proc(format: sdl.GPUTextureFormat) -> bool {
-	return format == .D24_UNORM_S8_UINT || format == .D32_FLOAT_S8_UINT
-}
-
-mtl_is_depth :: proc(format: sdl.GPUTextureFormat) -> bool {
-	#partial switch format {
-	case .D16_UNORM, .D24_UNORM, .D32_FLOAT, .D24_UNORM_S8_UINT, .D32_FLOAT_S8_UINT:
-		return true
-	}
-	return false
+mtl_is_stencil :: proc(format: Format) -> bool {
+	return format == .D24_Unorm_S8 || format == .D32_Float_S8
 }
 
 // SDL_GPU's answer: every format it maps is offered, a depth target only in a depth format,
 // and D24 only where the Mac has it.
-mtl_texture_supports_format :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, type: sdl.GPUTextureType, usage: sdl.GPUTextureUsageFlags) -> bool {
+mtl_texture_supports_format :: proc(device: Device, format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
 	if mtl_pixel_format(format) == .Invalid do return false
-	if .DEPTH_STENCIL_TARGET in usage && !mtl_is_depth(format) do return false
-	if format == .D24_UNORM || format == .D24_UNORM_S8_UINT do return mtl_state.depth24
+	if .Depth_Target in usage && !format_is_depth(format) do return false
+	if format == .D24_Unorm || format == .D24_Unorm_S8 do return mtl_state.depth24
 	return true
 }
 
-mtl_samples :: proc(count: sdl.GPUSampleCount) -> NS.UInteger {
+mtl_samples :: proc(count: Sample_Count) -> NS.UInteger {
 	switch count {
 	case ._1: return 1
 	case ._2: return 2
@@ -195,7 +187,7 @@ mtl_samples :: proc(count: sdl.GPUSampleCount) -> NS.UInteger {
 	return 1
 }
 
-mtl_texture_supports_sample_count :: proc(device: ^sdl.GPUDevice, format: sdl.GPUTextureFormat, sample_count: sdl.GPUSampleCount) -> bool {
+mtl_texture_supports_sample_count :: proc(device: Device, format: Format, sample_count: Sample_Count) -> bool {
 	return bool(MTL.Device_supportsTextureSampleCount(mtl_state.device, mtl_samples(sample_count)))
 }
 
@@ -224,7 +216,7 @@ mtl_wait_serial :: proc(serial: u64) -> bool {
 	return serial <= mtl_state.completed
 }
 
-mtl_wait_for_idle :: proc(device: ^sdl.GPUDevice) -> bool {
+mtl_wait_for_idle :: proc(device: Device) -> bool {
 	return mtl_wait_serial(mtl_state.submitted)
 }
 

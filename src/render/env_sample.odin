@@ -13,7 +13,7 @@ import sdl "vendor:sdl3"
 // of the sphere (sin θ) through Vose's alias method, in constant time, and a direction
 // is taken evenly within it. render_trace.comp.slang reads the table (env_sample, env_pdf).
 
-ENV_TABLE_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
+ENV_TABLE_FORMAT :: gpu.Format.RGBA32_Float
 // The table's size at most: fine enough to find a sun a degree or so across, and 2 MB.
 ENV_TABLE_WIDTH :: 512
 // The built-in studio's table: it is smooth but for its lights.
@@ -145,9 +145,9 @@ panorama_direction :: proc(x, y, width, height: int) -> [3]f32 {
 }
 
 // Uploads a table as an RGBA32F texture; nil, logged, when the device refuses.
-env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> ^sdl.GPUTexture {
+env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> gpu.Texture {
 	tex := gpu.create_texture(r.device, {
-		type = .D2, format = ENV_TABLE_FORMAT, usage = {.SAMPLER},
+		type = .D2, format = ENV_TABLE_FORMAT, usage = {.Sampled},
 		width = u32(t.width), height = u32(t.height), layer_count_or_depth = 1, num_levels = 1,
 	})
 	if tex == nil {

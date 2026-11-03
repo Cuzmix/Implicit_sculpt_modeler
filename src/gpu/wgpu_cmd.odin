@@ -75,7 +75,7 @@ Wgpu_Cmd :: struct {
 	resources_dirty:   bool,
 	// The open compute pass: the read-write bindings it began with, then what is bound.
 	compute_pipeline:  ^Wgpu_Compute_Pipeline,
-	compute_written:   [8]sdl.GPUStorageTextureReadWriteBinding,
+	compute_written:   [8]Storage_Texture_Binding,
 	compute_rw:        [8]^Wgpu_Buffer,
 	compute_writes:    [2]u32, // how many textures, then buffers
 	compute_textures:  [16]^Wgpu_Texture,
@@ -163,7 +163,7 @@ wgpu_cmd_recycle :: proc(cmd: ^Wgpu_Cmd) {
 	wgpu_reap()
 }
 
-wgpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBuffer {
+wgpu_acquire_command_buffer :: proc(device: Device) -> Cmd {
 	encoder := wgpu.DeviceCreateCommandEncoder(wgpu_state.device)
 	if encoder == nil {
 		wgpu_fail("WebGPU: no command encoder")
@@ -177,15 +177,15 @@ wgpu_acquire_command_buffer :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUCommandBu
 	cmd.pipeline, cmd.compute_pipeline = nil, nil
 	append(&cmd.uniforms, wgpu_uniform_chunk_get())
 	wgpu_state.open_cmds += 1
-	return (^sdl.GPUCommandBuffer)(cmd)
+	return (Cmd)(cmd)
 }
 
-wgpu_command_buffer_recorded :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+wgpu_command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	return cmd.recorded || cmd.presented
 }
 
-wgpu_cancel_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+wgpu_cancel_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	if cmd.render != nil || cmd.compute != nil {
 		wgpu_fail("WebGPU: cancelled inside a pass")
@@ -273,14 +273,14 @@ wgpu_submit :: proc(cmd: ^Wgpu_Cmd, want_fence: bool) -> (^Wgpu_Fence, bool) {
 	return fence if want_fence else nil, true
 }
 
-wgpu_submit_command_buffer :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> bool {
+wgpu_submit_command_buffer :: proc(command_buffer: Cmd) -> bool {
 	_, ok := wgpu_submit((^Wgpu_Cmd)(command_buffer), false)
 	return ok
 }
 
-wgpu_submit_command_buffer_and_acquire_fence :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUFence {
+wgpu_submit_command_buffer_and_acquire_fence :: proc(command_buffer: Cmd) -> Fence {
 	fence, ok := wgpu_submit((^Wgpu_Cmd)(command_buffer), true)
-	return (^sdl.GPUFence)(fence) if ok else nil
+	return (Fence)(fence) if ok else nil
 }
 
 // ---- Uniforms -----------------------------------------------------------------------
@@ -314,15 +314,15 @@ wgpu_push_uniform :: proc(cmd: ^Wgpu_Cmd, stage: Wgpu_Stage, slot, length: u32, 
 	cmd.uniforms_dirty[stage] = true
 }
 
-wgpu_push_vertex_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+wgpu_push_vertex_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	wgpu_push_uniform((^Wgpu_Cmd)(command_buffer), .Vertex, slot_index, length, data)
 }
 
-wgpu_push_fragment_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+wgpu_push_fragment_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	wgpu_push_uniform((^Wgpu_Cmd)(command_buffer), .Fragment, slot_index, length, data)
 }
 
-wgpu_push_compute_uniform_data :: proc(command_buffer: ^sdl.GPUCommandBuffer, slot_index: u32, data: rawptr, length: u32) {
+wgpu_push_compute_uniform_data :: proc(command_buffer: Cmd, slot_index: u32, data: rawptr, length: u32) {
 	wgpu_push_uniform((^Wgpu_Cmd)(command_buffer), .Compute, slot_index, length, data)
 }
 
@@ -362,7 +362,7 @@ wgpu_dummy :: proc() -> ^Wgpu_Dummies {
 	d := &wgpu_dummies
 	if d.buffer == nil {
 		d.buffer = wgpu.DeviceCreateBuffer(wgpu_state.device, &{usage = {.Storage, .Uniform, .CopyDst}, size = 256})
-		d.texture = (^Wgpu_Texture)(wgpu_create_texture(wgpu_device_handle(), {type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER}, width = 1, height = 1, layer_count_or_depth = 1, num_levels = 1}))
+		d.texture = (^Wgpu_Texture)(wgpu_create_texture(wgpu_device_handle(), {type = .D2, format = .RGBA8_Unorm, usage = {.Sampled}, width = 1, height = 1, layer_count_or_depth = 1, num_levels = 1}))
 		d.sampler = wgpu.DeviceCreateSampler(wgpu_state.device, &{addressModeU = .ClampToEdge, addressModeV = .ClampToEdge, addressModeW = .ClampToEdge, magFilter = .Linear, minFilter = .Linear, mipmapFilter = .Linear, lodMaxClamp = 32, maxAnisotropy = 1})
 	}
 	return d
@@ -449,17 +449,17 @@ wgpu_bind_draw :: proc(cmd: ^Wgpu_Cmd) -> bool {
 // ---- Render passes ------------------------------------------------------------------
 
 @(private = "file")
-wgpu_load :: proc(op: sdl.GPULoadOp) -> wgpu.LoadOp {
+wgpu_load :: proc(op: Load_Op) -> wgpu.LoadOp {
 	// WebGPU has no "don't care"; a clear costs a tiler nothing more.
-	return .Load if op == .LOAD else .Clear
+	return .Load if op == .Load else .Clear
 }
 
 @(private = "file")
-wgpu_store :: proc(op: sdl.GPUStoreOp) -> wgpu.StoreOp {
-	return .Store if op == .STORE || op == .RESOLVE_AND_STORE else .Discard
+wgpu_store :: proc(op: Store_Op) -> wgpu.StoreOp {
+	return .Store if op == .Store || op == .Resolve_And_Store else .Discard
 }
 
-wgpu_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_target_infos: [^]sdl.GPUColorTargetInfo, num_color_targets: u32, depth_stencil_target_info: Maybe(^sdl.GPUDepthStencilTargetInfo)) -> ^sdl.GPURenderPass {
+wgpu_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	cmd.recorded = true
 	width, height := max(u32), max(u32)
@@ -476,7 +476,7 @@ wgpu_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_targ
 			storeOp = wgpu_store(info.store_op),
 			clearValue = {f64(c.r), f64(c.g), f64(c.b), f64(c.a)},
 		}
-		if info.store_op == .RESOLVE || info.store_op == .RESOLVE_AND_STORE {
+		if info.store_op == .Resolve || info.store_op == .Resolve_And_Store {
 			colors[i].resolveTarget = wgpu_texture_level((^Wgpu_Texture)(info.resolve_texture), info.resolve_mip_level)
 		}
 	}
@@ -519,17 +519,17 @@ wgpu_begin_render_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, color_targ
 	cmd.fragment_samplers = {}
 	cmd.resources_dirty = true
 	cmd.uniforms_dirty[.Vertex], cmd.uniforms_dirty[.Fragment] = true, true
-	return (^sdl.GPURenderPass)(cmd)
+	return (Render_Pass)(cmd)
 }
 
-wgpu_end_render_pass :: proc(render_pass: ^sdl.GPURenderPass) {
+wgpu_end_render_pass :: proc(render_pass: Render_Pass) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	wgpu.RenderPassEncoderEnd(cmd.render)
 	wgpu.RenderPassEncoderRelease(cmd.render)
 	cmd.render = nil
 }
 
-wgpu_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pipeline: ^sdl.GPUGraphicsPipeline) {
+wgpu_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	p := (^Wgpu_Pipeline)(graphics_pipeline)
 	if p == nil || p == cmd.pipeline do return
@@ -539,7 +539,7 @@ wgpu_bind_graphics_pipeline :: proc(render_pass: ^sdl.GPURenderPass, graphics_pi
 	cmd.uniforms_dirty[.Vertex], cmd.uniforms_dirty[.Fragment] = true, true
 }
 
-wgpu_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, bindings: [^]sdl.GPUBufferBinding, num_bindings: u32) {
+wgpu_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		b := (^Wgpu_Buffer)(bindings[i].buffer)
@@ -550,29 +550,29 @@ wgpu_bind_vertex_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u3
 	}
 }
 
-wgpu_bind_index_buffer :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr binding: sdl.GPUBufferBinding, index_element_size: sdl.GPUIndexElementSize) {
+wgpu_bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	b := (^Wgpu_Buffer)(binding.buffer)
 	if b == nil do return
 	size := (b.size + 3) &~ 3
-	format: wgpu.IndexFormat = .Uint16 if index_element_size == ._16BIT else .Uint32
+	format: wgpu.IndexFormat = .Uint16 if index_element_size == .U16 else .Uint32
 	cmd.index_size = 2 if format == .Uint16 else 4
 	wgpu.RenderPassEncoderSetIndexBuffer(cmd.render, b.buffer, format, u64(binding.offset), u64(size - min(binding.offset, size)))
 }
 
-wgpu_bind_vertex_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+wgpu_bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.vertex_storage) do cmd.vertex_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
 	cmd.resources_dirty = true
 }
 
-wgpu_bind_fragment_storage_buffers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+wgpu_bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.fragment_storage) do cmd.fragment_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
 	cmd.resources_dirty = true
 }
 
-wgpu_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+wgpu_bind_fragment_samplers :: proc(render_pass: Render_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	for i in 0 ..< num_bindings {
 		slot := first_slot + i
@@ -583,7 +583,7 @@ wgpu_bind_fragment_samplers :: proc(render_pass: ^sdl.GPURenderPass, first_slot:
 	cmd.resources_dirty = true
 }
 
-wgpu_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.Rect) {
+wgpu_set_scissor :: proc(render_pass: Render_Pass, #by_ptr scissor: sdl.Rect) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	// WebGPU refuses a scissor past the target, where SDL_GPU clips it.
 	x0 := u32(clamp(scissor.x, 0, i32(cmd.pass_size.x)))
@@ -593,28 +593,28 @@ wgpu_set_scissor :: proc(render_pass: ^sdl.GPURenderPass, #by_ptr scissor: sdl.R
 	wgpu.RenderPassEncoderSetScissorRect(cmd.render, x0, y0, max(x1, x0) - x0, max(y1, y0) - y0)
 }
 
-wgpu_draw_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_vertices, num_instances, first_vertex, first_instance: u32) {
+wgpu_draw_primitives :: proc(render_pass: Render_Pass, num_vertices, num_instances, first_vertex, first_instance: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
 	wgpu.RenderPassEncoderDraw(cmd.render, num_vertices, num_instances, first_vertex, first_instance)
 }
 
-wgpu_draw_indexed_primitives :: proc(render_pass: ^sdl.GPURenderPass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
+wgpu_draw_indexed_primitives :: proc(render_pass: Render_Pass, num_indices, num_instances, first_index: u32, vertex_offset: i32, first_instance: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
 	wgpu.RenderPassEncoderDrawIndexed(cmd.render, num_indices, num_instances, first_index, vertex_offset, first_instance)
 }
 
 // WebGPU draws one indirect command per call, as Metal does.
-wgpu_draw_indexed_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset: u32, draw_count: u32) {
+wgpu_draw_indexed_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset: u32, draw_count: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
 	b := (^Wgpu_Buffer)(buffer)
-	stride :: u32(size_of(sdl.GPUIndexedIndirectDrawCommand))
+	stride :: u32(size_of(Indexed_Indirect_Draw))
 	for i in 0 ..< draw_count do wgpu.RenderPassEncoderDrawIndexedIndirect(cmd.render, b.buffer, u64(offset + i * stride))
 }
 
-wgpu_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^sdl.GPUBuffer, offset, draw_count, stride: u32) {
+wgpu_draw_primitives_indirect :: proc(render_pass: Render_Pass, buffer: Buffer, offset, draw_count, stride: u32) {
 	cmd := (^Wgpu_Cmd)(render_pass)
 	if !wgpu_bind_draw(cmd) do return
 	b := (^Wgpu_Buffer)(buffer)
@@ -623,7 +623,7 @@ wgpu_draw_primitives_indirect :: proc(render_pass: ^sdl.GPURenderPass, buffer: ^
 
 // ---- Compute passes -----------------------------------------------------------------
 
-wgpu_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_texture_bindings: [^]sdl.GPUStorageTextureReadWriteBinding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]sdl.GPUStorageBufferReadWriteBinding, num_storage_buffer_bindings: u32) -> ^sdl.GPUComputePass {
+wgpu_begin_compute_pass :: proc(command_buffer: Cmd, storage_texture_bindings: [^]Storage_Texture_Binding, num_storage_texture_bindings: u32, storage_buffer_bindings: [^]Storage_Buffer_Binding, num_storage_buffer_bindings: u32) -> Compute_Pass {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	cmd.recorded = true
 	if num_storage_texture_bindings > 8 || num_storage_buffer_bindings > 8 {
@@ -644,17 +644,17 @@ wgpu_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_t
 	cmd.compute_storage = {}
 	cmd.compute_dirty = true
 	cmd.uniforms_dirty[.Compute] = true
-	return (^sdl.GPUComputePass)(cmd)
+	return (Compute_Pass)(cmd)
 }
 
-wgpu_end_compute_pass :: proc(compute_pass: ^sdl.GPUComputePass) {
+wgpu_end_compute_pass :: proc(compute_pass: Compute_Pass) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
 	wgpu.ComputePassEncoderEnd(cmd.compute)
 	wgpu.ComputePassEncoderRelease(cmd.compute)
 	cmd.compute = nil
 }
 
-wgpu_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipeline: ^sdl.GPUComputePipeline) {
+wgpu_bind_compute_pipeline :: proc(compute_pass: Compute_Pass, compute_pipeline: Compute_Pipeline) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
 	p := (^Wgpu_Compute_Pipeline)(compute_pipeline)
 	if p == nil do return
@@ -664,7 +664,7 @@ wgpu_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pi
 	cmd.uniforms_dirty[.Compute] = true
 }
 
-wgpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+wgpu_bind_compute_samplers :: proc(compute_pass: Compute_Pass, first_slot: u32, texture_sampler_bindings: [^]Texture_Sampler_Binding, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings {
 		slot := first_slot + i
@@ -675,7 +675,7 @@ wgpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot
 	cmd.compute_dirty = true
 }
 
-wgpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+wgpu_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
 	for i in 0 ..< num_bindings do if first_slot + i < len(cmd.compute_storage) do cmd.compute_storage[first_slot + i] = (^Wgpu_Buffer)(storage_buffers[i])
 	cmd.compute_dirty = true
@@ -739,7 +739,7 @@ wgpu_bind_dispatch :: proc(cmd: ^Wgpu_Cmd) -> bool {
 	return true
 }
 
-wgpu_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, groupcount_y, groupcount_z: u32) {
+wgpu_dispatch_compute :: proc(compute_pass: Compute_Pass, groupcount_x, groupcount_y, groupcount_z: u32) {
 	cmd := (^Wgpu_Cmd)(compute_pass)
 	if !wgpu_bind_dispatch(cmd) do return
 	wgpu.ComputePassEncoderDispatchWorkgroups(cmd.compute, groupcount_x, groupcount_y, groupcount_z)
@@ -747,15 +747,15 @@ wgpu_dispatch_compute :: proc(compute_pass: ^sdl.GPUComputePass, groupcount_x, g
 
 // ---- Copy passes --------------------------------------------------------------------
 
-wgpu_begin_copy_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer) -> ^sdl.GPUCopyPass {
+wgpu_begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	cmd.recorded = true
-	return (^sdl.GPUCopyPass)(cmd)
+	return (Copy_Pass)(cmd)
 }
 
-wgpu_end_copy_pass :: proc(copy_pass: ^sdl.GPUCopyPass) {}
+wgpu_end_copy_pass :: proc(copy_pass: Copy_Pass) {}
 
-wgpu_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTransferBufferLocation, #by_ptr destination: sdl.GPUBufferRegion, cycle: bool) {
+wgpu_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffer_Location, #by_ptr destination: Buffer_Region, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	src := (^Wgpu_Transfer)(source.transfer_buffer)
 	dst := (^Wgpu_Buffer)(destination.buffer)
@@ -771,7 +771,7 @@ wgpu_upload_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.G
 	wgpu.CommandEncoderCopyBufferToBuffer(cmd.encoder, staging, u64(at), dst.buffer, u64(destination.offset), u64(size))
 }
 
-wgpu_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureTransferInfo, #by_ptr destination: sdl.GPUTextureRegion, cycle: bool) {
+wgpu_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer_Info, #by_ptr destination: Texture_Region, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	src := (^Wgpu_Transfer)(source.transfer_buffer)
 	t := (^Wgpu_Texture)(destination.texture)
@@ -800,7 +800,7 @@ wgpu_upload_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.
 		&{destination.w, destination.h, 1})
 }
 
-wgpu_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferLocation, #by_ptr destination: sdl.GPUBufferLocation, size: u32, cycle: bool) {
+wgpu_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	src := (^Wgpu_Buffer)(source.buffer)
 	dst := (^Wgpu_Buffer)(destination.buffer)
@@ -808,7 +808,7 @@ wgpu_copy_buffer_to_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: 
 	wgpu.CommandEncoderCopyBufferToBuffer(cmd.encoder, src.buffer, u64(source.offset), dst.buffer, u64(destination.offset), u64((size + 3) &~ 3))
 }
 
-wgpu_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureLocation, #by_ptr destination: sdl.GPUTextureLocation, w, h, d: u32, cycle: bool) {
+wgpu_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	src := (^Wgpu_Texture)(source.texture)
 	dst := (^Wgpu_Texture)(destination.texture)
@@ -819,7 +819,7 @@ wgpu_copy_texture_to_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source
 		&{w, h, 1})
 }
 
-wgpu_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUBufferRegion, #by_ptr destination: sdl.GPUTransferBufferLocation) {
+wgpu_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	src := (^Wgpu_Buffer)(source.buffer)
 	dst := (^Wgpu_Transfer)(destination.transfer_buffer)
@@ -832,7 +832,7 @@ wgpu_download_from_buffer :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: s
 	append(&cmd.downloads, d)
 }
 
-wgpu_download_from_texture :: proc(copy_pass: ^sdl.GPUCopyPass, #by_ptr source: sdl.GPUTextureRegion, #by_ptr destination: sdl.GPUTextureTransferInfo) {
+wgpu_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Region, #by_ptr destination: Texture_Transfer_Info) {
 	cmd := (^Wgpu_Cmd)(copy_pass)
 	t := (^Wgpu_Texture)(source.texture)
 	dst := (^Wgpu_Transfer)(destination.transfer_buffer)
@@ -892,10 +892,10 @@ wgpu_mip_pipeline :: proc(format: wgpu.TextureFormat) -> wgpu.RenderPipeline {
 	return p
 }
 
-wgpu_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer, texture: ^sdl.GPUTexture) {
+wgpu_generate_mipmaps_for_texture :: proc(command_buffer: Cmd, texture: Texture) {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	t := (^Wgpu_Texture)(texture)
-	if t == nil || t.info.num_levels < 2 || wgpu_is_depth(t.info.format) do return
+	if t == nil || t.info.num_levels < 2 || format_is_depth(t.info.format) do return
 	cmd.recorded = true
 	p := wgpu_mip_pipeline(t.format)
 	if p == nil do return
@@ -920,34 +920,34 @@ wgpu_generate_mipmaps_for_texture :: proc(command_buffer: ^sdl.GPUCommandBuffer,
 
 // Debug groups are not sent: WebGPU wants them balanced within each pass, where SDL_GPU
 // lets one span a pass's start or end.
-wgpu_push_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer, name: cstring) {}
-wgpu_pop_debug_group :: proc(command_buffer: ^sdl.GPUCommandBuffer) {}
+wgpu_push_debug_group :: proc(command_buffer: Cmd, name: cstring) {}
+wgpu_pop_debug_group :: proc(command_buffer: Cmd) {}
 
 // ---- The canvas ---------------------------------------------------------------------
 
-wgpu_claim_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> bool {
+wgpu_claim_window :: proc(device: Device, window: ^sdl.Window) -> bool {
 	return true
 }
 
-wgpu_release_window :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) {}
+wgpu_release_window :: proc(device: Device, window: ^sdl.Window) {}
 
 // The canvas presents what the frame drew when the page's task ends; its pace is the
 // browser's, the display's refresh.
-wgpu_window_supports_present_mode :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, present_mode: sdl.GPUPresentMode) -> bool {
-	return present_mode == .VSYNC
+wgpu_window_supports_present_mode :: proc(device: Device, window: ^sdl.Window, present_mode: Present_Mode) -> bool {
+	return present_mode == .Vsync
 }
 
-wgpu_set_swapchain_parameters :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window, composition: sdl.GPUSwapchainComposition, present_mode: sdl.GPUPresentMode) -> bool {
-	if composition != .SDR && composition != .SDR_LINEAR do return false
-	srgb := composition == .SDR_LINEAR
+wgpu_set_swapchain_parameters :: proc(device: Device, window: ^sdl.Window, composition: Swapchain_Composition, present_mode: Present_Mode) -> bool {
+	if composition != .Sdr && composition != .Sdr_Linear do return false
+	srgb := composition == .Sdr_Linear
 	if srgb != wgpu_state.srgb {
 		wgpu_state.srgb = srgb
 		wgpu_state.configured = {}
 	}
-	return present_mode == .VSYNC
+	return present_mode == .Vsync
 }
 
-wgpu_set_allowed_frames_in_flight :: proc(device: ^sdl.GPUDevice, frames: u32) -> bool {
+wgpu_set_allowed_frames_in_flight :: proc(device: Device, frames: u32) -> bool {
 	return true
 }
 
@@ -960,15 +960,15 @@ wgpu_srgb_of :: proc(format: wgpu.TextureFormat) -> wgpu.TextureFormat {
 	return format
 }
 
-wgpu_get_swapchain_texture_format :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUTextureFormat {
+wgpu_get_swapchain_texture_format :: proc(device: Device, window: ^sdl.Window) -> Format {
 	bgra := wgpu_state.canvas_format == .BGRA8Unorm
-	if wgpu_state.srgb do return .B8G8R8A8_UNORM_SRGB if bgra else .R8G8B8A8_UNORM_SRGB
-	return .B8G8R8A8_UNORM if bgra else .R8G8B8A8_UNORM
+	if wgpu_state.srgb do return .BGRA8_Srgb if bgra else .RGBA8_Srgb
+	return .BGRA8_Unorm if bgra else .RGBA8_Unorm
 }
 
 // The canvas's texture of this frame, the surface configured again first when the page
 // changed the canvas's size. A browser always has one, so waiting or not is the same.
-wgpu_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^sdl.Window, texture: ^^sdl.GPUTexture, width, height: ^u32, wait: bool) -> bool {
+wgpu_acquire_swapchain :: proc(command_buffer: Cmd, window: ^sdl.Window, texture: ^Texture, width, height: ^u32, wait: bool) -> bool {
 	s := &wgpu_state
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	if s.configured != s.canvas_size {
@@ -1002,10 +1002,10 @@ wgpu_acquire_swapchain :: proc(command_buffer: ^sdl.GPUCommandBuffer, window: ^s
 		texture = current.texture,
 		format = format,
 		swapchain = true,
-		info = {type = .D2, format = wgpu_get_swapchain_texture_format(nil, window), usage = {.COLOR_TARGET}, width = s.configured.x, height = s.configured.y, layer_count_or_depth = 1, num_levels = 1},
+		info = {type = .D2, format = wgpu_get_swapchain_texture_format(nil, window), usage = {.Color_Target}, width = s.configured.x, height = s.configured.y, layer_count_or_depth = 1, num_levels = 1},
 	}
 	t.view = wgpu.TextureCreateView(current.texture, &{format = format, dimension = ._2D, mipLevelCount = 1, arrayLayerCount = 1, aspect = .All})
-	texture^ = (^sdl.GPUTexture)(t)
+	texture^ = (Texture)(t)
 	width^, height^ = s.configured.x, s.configured.y
 	cmd.presented = true
 	return true

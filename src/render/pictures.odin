@@ -10,8 +10,8 @@ import sdl "vendor:sdl3"
 // the GPU. A picture keeps its own size at its cell's top left; the interface shows that
 // part alone (picture_uv).
 Pictures :: struct {
-	atlas:    ^sdl.GPUTexture,
-	transfer: ^sdl.GPUTransferBuffer, // PICTURES_PER_FRAME cells' worth, cycled each frame
+	atlas:    gpu.Texture,
+	transfer: gpu.Transfer_Buffer, // PICTURES_PER_FRAME cells' worth, cycled each frame
 	failed:   bool, // the device refused a texture or buffer; no picture is shown
 }
 
@@ -42,23 +42,23 @@ pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 // Uploads up to PICTURES_PER_FRAME of `items` into their cells on `cmd`, making the atlas
 // (cleared to transparent) on first use. Items out of range are skipped. False when there
 // is no atlas to upload into.
-pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, items: []Picture_Upload) -> bool {
+pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Picture_Upload) -> bool {
 	if p.failed do return false
 	CELL_BYTES :: PICTURE_PX * PICTURE_PX * 4
 	if p.atlas == nil {
 		SIZE :: PICTURE_PX * PICTURE_CELLS
 		p.atlas = gpu.create_texture(r.device, {
-			type = .D2, format = .R8G8B8A8_UNORM, usage = {.COLOR_TARGET, .SAMPLER},
+			type = .D2, format = .RGBA8_Unorm, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		p.transfer = gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = CELL_BYTES * PICTURES_PER_FRAME})
+		p.transfer = gpu.create_transfer_buffer(r.device, {usage = .Upload, size = CELL_BYTES * PICTURES_PER_FRAME})
 		if p.atlas == nil || p.transfer == nil {
 			log.errorf("picture textures: %s", sdl.GetError())
 			p.failed = true
 			return false
 		}
 		// A new texture holds anything: every cell starts empty.
-		color := sdl.GPUColorTargetInfo{texture = p.atlas, load_op = .CLEAR, store_op = .STORE}
+		color := gpu.Color_Target{texture = p.atlas, load_op = .Clear, store_op = .Store}
 		pass := gpu.begin_render_pass(cmd, &color, 1, nil)
 		gpu.end_render_pass(pass)
 	}
