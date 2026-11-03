@@ -62,6 +62,7 @@ File_Kind :: enum u8 {
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
+	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
 }
 
 File_Request :: struct {
@@ -264,7 +265,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
-	case .Alpha:                                                 dialog_open(app, userdata, ALPHA_FILTERS[:])
+	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
 	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
@@ -522,6 +523,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = pack_make(app, req.path)
 	case .Export_Vdm:
 		_ = vdm_export(app, req.path)
+	case .Skin_Map:
+		_ = skin_map_load(app, req.path)
 	case .Export_Workspace:
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:
