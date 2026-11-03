@@ -26,7 +26,9 @@ sculpt_gpu_install :: proc(app: ^App) {
 @(private = "file")
 sculpt_gpu_level :: proc(app: ^App, s: ^sculpt.Sculptor) -> (obj: ^Object, lv: ^sculpt.Level, gpu: ^render.Mesh_Buffers) {
 	for o in app.scene.objects {
-		if o.voxel != nil do continue
+		// An object freed before this one in scene_destroy has no levels left, and each
+		// level's sculptor syncs here as it is freed.
+		if o.voxel != nil || len(o.levels.levels) == 0 do continue
 		if current := sculpt.levels_current(&o.levels); &current.sculptor == s do return o, current, &o.gpu[o.levels.current]
 		if window := o.levels.hd.window; window != nil && &window.sculptor == s do return o, window, &o.hd_gpu
 	}
@@ -37,7 +39,7 @@ sculpt_gpu_level :: proc(app: ^App, s: ^sculpt.Sculptor) -> (obj: ^Object, lv: ^
 @(private = "file")
 sculpt_gpu_sculptor :: proc(app: ^App, gpu: ^render.Mesh_Buffers) -> ^sculpt.Sculptor {
 	for o in app.scene.objects {
-		if o.voxel != nil do continue
+		if o.voxel != nil || len(o.levels.levels) == 0 do continue
 		if &o.gpu[o.levels.current] == gpu do return &sculpt.levels_current(&o.levels).sculptor
 		if window := o.levels.hd.window; window != nil && &o.hd_gpu == gpu do return &window.sculptor
 	}
