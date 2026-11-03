@@ -371,6 +371,7 @@ link_send :: proc(app: ^App) {
 // would shape it. Returns its vertex and triangle counts.
 @(private = "file")
 link_object_ply :: proc(app: ^App, obj: ^Object, out: ^[dynamic]u8) -> (vertices, triangles: int) {
+	object_gpu_sync(obj)
 	lv := sculpt.levels_current(&obj.levels)
 	positions, indices := lv.mesh.positions[:], lv.mesh.indices[:]
 	packed: geom.Mesh

@@ -13,7 +13,9 @@
 // does), remeshed isotropically at the target edge (with the curvature target-length
 // field the core's resample builds under Adaptivity), parameterized (frame field,
 // singularity simplification, quad cover) and the quads extracted, then the islands
-// joined. The quad edge wanted is sqrt(area / quads) over the whole input, and each
+// joined. A density per vertex (Use paint, Use mask) shortens the isotropic target edge
+// where it asks for more quads, rides the isotropic remesh to its vertices, and scales the
+// cover per face, normalised so the count stays. The quad edge wanted is sqrt(area / quads) over the whole input, and each
 // island's parameterizer gets it as a multiple of that island's measured mean edge, which
 // is the number the cover multiplies by; the cover still lands short where the field has
 // curl it cannot flatten, so its area in cells is measured and a second cover corrects
@@ -64,6 +66,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using AutoRemesher::Vector3;
@@ -211,6 +214,19 @@ double meshArea(const std::vector<Vector3>& vertices, const std::vector<std::vec
     return area;
 }
 
+// The area weighted by the density (Qm_Params.density, one per vertex, the mean of a
+// triangle's corners on it): the area the quads are spread over as if it were even. The
+// plain area when there is no density.
+double densityArea(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+    const std::vector<double>& density)
+{
+    if (density.size() != vertices.size()) return meshArea(vertices, triangles);
+    double area = 0.0;
+    for (const auto& t : triangles)
+        area += Vector3::area(vertices[t[0]], vertices[t[1]], vertices[t[2]]) * (density[t[0]] + density[t[1]] + density[t[2]]) / 3.0;
+    return area;
+}
+
 // The vertices on an edge sharper than `sharpRadians`, marked for meshoptimizer to keep
 // (the core's markSharpEdgeVertices, serial).
 void markSharpVertices(const std::vector<Vector3>& vertices, const std::vector<unsigned int>& indices,
@@ -238,14 +254,18 @@ void markSharpVertices(const std::vector<Vector3>& vertices, const std::vector<u
 
 // An island far denser than its share of the target is decimated to `decimateTarget`
 // times that share first (the core's decimateIfTooDense): meshoptimizer welds, then
-// simplifies with sharp vertices kept. False when nothing was done.
+// simplifies with sharp vertices and the feature edges' vertices kept, and the feature
+// edges renumbered (one whose edge the simplification took out is dropped). False when
+// nothing was done.
 bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<size_t>>& triangles,
-    double voxelSize, double sharpDegrees)
+    std::vector<std::pair<size_t, size_t>>& features, std::vector<double>& density, double voxelSize, double sharpDegrees)
 {
     if (vertices.empty() || triangles.empty() || voxelSize <= 0.0) return false;
     if (vertices.size() > (size_t)std::numeric_limits<unsigned int>::max()) return false;
     const double targetArea = voxelSize * voxelSize * 0.86602540378 * 0.5;
-    const double wanted = meshArea(vertices, triangles) / targetArea;
+    // Where the density asks for smaller quads the isotropic remesh wants smaller
+    // triangles, so the triangles kept follow the density-weighted area.
+    const double wanted = densityArea(vertices, triangles, density) / targetArea;
     if (wanted < 1.0 || (double)triangles.size() < wanted * decimateTrigger) return false;
     const size_t goal = (size_t)(wanted * decimateTarget);
 
@@ -275,11 +295,23 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
     meshopt_remapVertexBuffer(weldedPositions.data(), positions.data(), vertices.size(), sizeof(float) * 3, remap.data());
     for (size_t v = 0; v < vertices.size(); ++v)
         if (~0u != remap[v]) weldedVertices[remap[v]] = vertices[v];
+    std::vector<double> weldedDensity;
+    if (density.size() == vertices.size()) {
+        weldedDensity.assign(welded, 1.0);
+        for (size_t v = 0; v < vertices.size(); ++v)
+            if (~0u != remap[v]) weldedDensity[remap[v]] = density[v];
+    }
 
     std::vector<unsigned char> lock;
     if (sharpDegrees > 0.0) {
         lock.assign(welded, 0);
         markSharpVertices(weldedVertices, indices, sharpDegrees * (M_PI / 180.0), lock);
+    }
+    if (!features.empty()) {
+        if (lock.empty()) lock.assign(welded, 0);
+        for (const auto& edge : features)
+            for (size_t v : { edge.first, edge.second })
+                if (v < remap.size() && ~0u != remap[v]) lock[remap[v]] = 1;
     }
     std::vector<unsigned int> decimated(indices.size());
     float error = 0.0f;
@@ -290,6 +322,7 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
 
     std::vector<size_t> outputOf(welded, std::numeric_limits<size_t>::max());
     std::vector<Vector3> outVertices;
+    std::vector<double> outDensity;
     std::vector<std::vector<size_t>> outTriangles;
     outTriangles.reserve(decimated.size() / 3);
     for (size_t i = 0; i + 2 < decimated.size(); i += 3) {
@@ -299,13 +332,36 @@ bool decimateIfDense(std::vector<Vector3>& vertices, std::vector<std::vector<siz
             if (outputOf[w] == std::numeric_limits<size_t>::max()) {
                 outputOf[w] = outVertices.size();
                 outVertices.push_back(weldedVertices[w]);
+                if (!weldedDensity.empty()) outDensity.push_back(weldedDensity[w]);
             }
             t[k] = outputOf[w];
         }
         outTriangles.push_back(std::move(t));
     }
+    if (!features.empty()) {
+        std::unordered_set<uint64_t> kept;
+        kept.reserve(3 * outTriangles.size());
+        for (const auto& t : outTriangles)
+            for (size_t k = 0; k < 3; ++k) {
+                const size_t a = t[k], b = t[(k + 1) % 3];
+                kept.insert(((uint64_t)std::min(a, b) << 32) | (uint64_t)std::max(a, b));
+            }
+        std::vector<std::pair<size_t, size_t>> renumbered;
+        renumbered.reserve(features.size());
+        for (const auto& edge : features) {
+            if (edge.first >= remap.size() || edge.second >= remap.size()) continue;
+            const unsigned int wa = remap[edge.first], wb = remap[edge.second];
+            if (~0u == wa || ~0u == wb) continue;
+            const size_t a = outputOf[wa], b = outputOf[wb];
+            if (a == std::numeric_limits<size_t>::max() || b == std::numeric_limits<size_t>::max() || a == b) continue;
+            if (!kept.count(((uint64_t)std::min(a, b) << 32) | (uint64_t)std::max(a, b))) continue;
+            renumbered.push_back({ a, b });
+        }
+        features = std::move(renumbered);
+    }
     vertices = std::move(outVertices);
     triangles = std::move(outTriangles);
+    if (!weldedDensity.empty()) density = std::move(outDensity);
     return true;
 }
 
@@ -384,11 +440,118 @@ std::vector<double> adaptiveTargetLengths(const std::vector<Vector3>& vertices,
     return lengths;
 }
 
+// The quad size per vertex blurred in the log over `rounds` rounds of half toward the
+// ring's mean: the field the size steers turns across the band a change is spread over,
+// and a step one triangle wide asks it to turn on the spot, which it cannot, so a few
+// pentagons come out there. Four rounds (about two quads wide at the isotropic mesh's
+// half-quad edge) left none on the test spheres and kept most of the contrast.
+std::vector<double> blurredScale(const std::vector<double>& scale, const std::vector<std::vector<size_t>>& triangles, int rounds)
+{
+    std::vector<std::vector<size_t>> ring(scale.size());
+    for (const auto& t : triangles)
+        for (size_t k = 0; k < 3; ++k) {
+            ring[t[k]].push_back(t[(k + 1) % 3]);
+            ring[t[k]].push_back(t[(k + 2) % 3]);
+        }
+    std::vector<double> logs(scale.size()), next(scale.size());
+    for (size_t v = 0; v < logs.size(); ++v) logs[v] = std::log(std::max(1e-6, scale[v]));
+    for (int r = 0; r < rounds; ++r) {
+        for (size_t v = 0; v < logs.size(); ++v) {
+            double sum = 0.0;
+            for (const size_t u : ring[v]) sum += logs[u];
+            next[v] = ring[v].empty() ? logs[v] : 0.5 * logs[v] + 0.5 * sum / (double)ring[v].size();
+        }
+        logs.swap(next);
+    }
+    std::vector<double> out(scale.size());
+    for (size_t v = 0; v < out.size(); ++v) out[v] = std::exp(logs[v]);
+    return out;
+}
+
+// Drops the feature chains too short to follow: a chain (edges joined end to end, apart
+// from the rest at junctions and loose ends) shorter than two quad edges would give the
+// quads nothing to run along, only a kink; a tiny group's border is such a chain.
+void dropShortFeatureChains(const std::vector<Vector3>& vertices, std::vector<std::pair<size_t, size_t>>& features, double quadEdge)
+{
+    if (features.empty()) return;
+    std::vector<size_t> degree(vertices.size(), 0);
+    for (const auto& edge : features) {
+        ++degree[edge.first];
+        ++degree[edge.second];
+    }
+    // A chain is a connected run of edges through vertices of degree two; edges meet at
+    // a junction (degree three or more) without joining chains, so each chain is a set
+    // of edges united through the degree-two vertices only.
+    std::vector<size_t> parent(features.size());
+    for (size_t e = 0; e < features.size(); ++e) parent[e] = e;
+    const auto find = [&](size_t e) {
+        while (parent[e] != e) {
+            parent[e] = parent[parent[e]];
+            e = parent[e];
+        }
+        return e;
+    };
+    std::vector<size_t> through(vertices.size(), std::numeric_limits<size_t>::max());
+    for (size_t e = 0; e < features.size(); ++e)
+        for (size_t v : { features[e].first, features[e].second }) {
+            if (degree[v] != 2) continue;
+            if (through[v] == std::numeric_limits<size_t>::max()) through[v] = e;
+            else parent[find(through[v])] = find(e);
+        }
+    std::vector<double> length(features.size(), 0.0);
+    for (size_t e = 0; e < features.size(); ++e)
+        length[find(e)] += (vertices[features[e].first] - vertices[features[e].second]).length();
+    std::vector<std::pair<size_t, size_t>> kept;
+    kept.reserve(features.size());
+    for (size_t e = 0; e < features.size(); ++e)
+        if (length[find(e)] >= 2.0 * quadEdge) kept.push_back(features[e]);
+    features = std::move(kept);
+}
+
+// Where the feature polylines run, per vertex: the vertices, with those inside a chain
+// (two feature edges) eased toward their chain neighbours a few times, each moved at most
+// its own edges' length, so a border jagged at the triangles' scale (a polygroup's, which
+// follows triangle edges) reads as the curve it draws rather than as teeth the quads
+// would have to follow, as ZRemesher's SmoothGroups eases a group's border. A junction,
+// a loose end and every other vertex stay as they are.
+std::vector<Vector3> smoothedFeaturePositions(const std::vector<Vector3>& vertices,
+    const std::vector<std::pair<size_t, size_t>>& features)
+{
+    std::vector<Vector3> positions = vertices;
+    std::vector<std::vector<size_t>> chain(vertices.size());
+    for (const auto& edge : features) {
+        if (edge.first >= vertices.size() || edge.second >= vertices.size()) continue;
+        chain[edge.first].push_back(edge.second);
+        chain[edge.second].push_back(edge.first);
+    }
+    std::vector<double> reach(vertices.size(), 0.0);
+    for (size_t v = 0; v < vertices.size(); ++v)
+        if (chain[v].size() == 2)
+            reach[v] = 0.5 * ((vertices[chain[v][0]] - vertices[v]).length() + (vertices[chain[v][1]] - vertices[v]).length());
+    const int rounds = 4;
+    for (int round = 0; round < rounds; ++round) {
+        std::vector<Vector3> eased = positions;
+        for (size_t v = 0; v < vertices.size(); ++v) {
+            if (chain[v].size() != 2) continue;
+            const Vector3 middle = (positions[chain[v][0]] + positions[chain[v][1]]) * 0.5;
+            Vector3 moved = positions[v] + (middle - positions[v]) * 0.5;
+            const Vector3 away = moved - vertices[v];
+            const double distance = away.length();
+            if (distance > reach[v] && distance > 0.0) moved = vertices[v] + away * (reach[v] / distance);
+            eased[v] = moved;
+        }
+        positions = std::move(eased);
+    }
+    return positions;
+}
+
 // One island of the input, remeshed on its own: its vertices and triangles (compacted),
 // the isotropic mesh they become, and the quads extracted from it.
 struct Island {
     std::vector<Vector3> vertices;
     std::vector<std::vector<size_t>> triangles;
+    std::vector<std::pair<size_t, size_t>> features; // feature edges, in the island's vertex numbers
+    std::vector<double> density; // per vertex, quads per area relative to the mean (Qm_Params.density); empty for none
     std::vector<Vector3> outVertices;
     std::vector<std::vector<size_t>> outFaces;
 };
@@ -413,10 +576,24 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
 
     handler.report(index, 0.0f, "Remeshing uniformly");
     const auto t0 = Clock::now();
-    decimateIfDense(vertices, triangles, voxelSize, params.sharp_degrees);
+    dropShortFeatureChains(vertices, island.features, quadEdge);
+    decimateIfDense(vertices, triangles, island.features, island.density, voxelSize, params.sharp_degrees);
     const auto t1 = Clock::now();
     stages.decimateUs += (long long)(1000.0 * milliseconds(t0, t1));
-    const std::vector<double> targetLengths = adaptiveTargetLengths(vertices, triangles, voxelSize, params.adaptivity);
+    std::vector<double> targetLengths = adaptiveTargetLengths(vertices, triangles, voxelSize, params.adaptivity);
+    // The density shortens the edges where it asks for more quads: a quad's edge goes as
+    // 1 / sqrt(density). The isotropic remesh carries that factor to its vertices (its
+    // payload), and the cover's scaling takes it per face from there.
+    const bool dense = island.density.size() == vertices.size();
+    std::vector<double> edgeFactor;
+    if (dense) {
+        edgeFactor.resize(vertices.size());
+        for (size_t v = 0; v < vertices.size(); ++v) edgeFactor[v] = 1.0 / std::sqrt(island.density[v]);
+        if (targetLengths.empty()) targetLengths.assign(vertices.size(), voxelSize);
+        for (size_t v = 0; v < vertices.size(); ++v) targetLengths[v] *= edgeFactor[v];
+    }
+    std::vector<double> vertexScale;
+    std::vector<char> cornerFeature;
     {
         AutoRemesher::IsotropicRemesher isotropic(vertices, triangles);
         isotropic.setProgressHandler(stageProgress(0.0f, islandResampleEnd));
@@ -424,9 +601,31 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         if (!targetLengths.empty()) isotropic.setVertexTargetEdgeLengths(&targetLengths);
         isotropic.setSharpEdgeDegrees(params.sharp_degrees);
         isotropic.setSmoothNormalDegrees(0.0);
+        if (dense) isotropic.setVertexPayloads(&edgeFactor);
+        std::vector<Vector3> featurePositions;
+        if (!island.features.empty()) {
+            featurePositions = smoothedFeaturePositions(vertices, island.features);
+            isotropic.setFeatureEdges(&island.features);
+            isotropic.setFeaturePositions(&featurePositions);
+        }
         isotropic.remesh();
         vertices = isotropic.remeshedVertices();
         triangles = isotropic.remeshedTriangles();
+        if (dense && isotropic.remeshedVertexPayloads().size() == vertices.size())
+            vertexScale = blurredScale(isotropic.remeshedVertexPayloads(), triangles, 4);
+        // The remeshed mesh's feature edges (the caller's, carried through, and the
+        // edges sharp by angle), as flags on the corners the parameterizer judges.
+        if (!island.features.empty()) {
+            std::unordered_set<uint64_t> featured;
+            for (const auto& edge : isotropic.remeshedFeatureEdges())
+                featured.insert(((uint64_t)std::min(edge.first, edge.second) << 32) | (uint64_t)std::max(edge.first, edge.second));
+            cornerFeature.assign(3 * triangles.size(), 0);
+            for (size_t f = 0; f < triangles.size(); ++f)
+                for (size_t k = 0; k < 3; ++k) {
+                    const size_t a = triangles[f][k], b = triangles[f][(k + 1) % 3];
+                    if (featured.count(((uint64_t)std::min(a, b) << 32) | (uint64_t)std::max(a, b))) cornerFeature[3 * f + k] = 1;
+                }
+        }
     }
     const auto t2 = Clock::now();
     stages.isotropicUs += (long long)(1000.0 * milliseconds(t1, t2));
@@ -451,7 +650,16 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         const double mean = measured.averageEdgeLength();
         scaling = mean > 0.0 ? quadEdge / mean : 1.0;
     }
-    const double cellsWanted = meshArea(vertices, triangles) / (quadEdge * quadEdge);
+    // A face whose quads are s times the size (the mean of its corners' vertexScale) covers
+    // 1 / s² as many cells.
+    double scaledArea = 0.0;
+    for (size_t f = 0; f < triangles.size(); ++f) {
+        const double a = Vector3::area(vertices[triangles[f][0]], vertices[triangles[f][1]], vertices[triangles[f][2]]);
+        const auto& t = triangles[f];
+        const double s = vertexScale.size() == vertices.size() ? (vertexScale[t[0]] + vertexScale[t[1]] + vertexScale[t[2]]) / 3.0 : 1.0;
+        scaledArea += a / (s * s);
+    }
+    const double cellsWanted = scaledArea / (quadEdge * quadEdge);
     std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> uvs;
     std::vector<std::vector<AutoRemesher::Vector2>> originalUvs;
     std::vector<size_t> singular;
@@ -466,6 +674,8 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         parameterizer.setGradientAdaptivity(params.adaptivity);
         parameterizer.setAnisotropy(params.anisotropy > 0.0f ? params.anisotropy : 1.0);
         parameterizer.setSharpEdgeDegrees(params.sharp_degrees);
+        if (!cornerFeature.empty()) parameterizer.setCornerFeatures(&cornerFeature);
+        if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
         bool parameterized = true;
         try {
             parameterized = parameterizer.parameterize();
@@ -501,6 +711,17 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     handler.report(index, islandParameterizeEnd, nullptr);
     AutoRemesher::QuadExtractor extractor(&vertices, &triangles, uvs.get());
     extractor.setOriginalTriangleUvs(&originalUvs);
+    // The feature edges as segments, so the extractor's smoothing keeps a quad vertex on
+    // them where the cover put it.
+    std::vector<std::pair<Vector3, Vector3>> featureSegments;
+    if (!cornerFeature.empty()) {
+        for (size_t c = 0; c < cornerFeature.size(); ++c)
+            if (cornerFeature[c]) {
+                const size_t a = triangles[c / 3][c % 3], b = triangles[c / 3][(c % 3 + 1) % 3];
+                if (a < b) featureSegments.push_back({ vertices[a], vertices[b] });
+            }
+        extractor.setFeatureSegments(&featureSegments);
+    }
     extractor.setSingularVertices(&singular);
     extractor.setProgressHandler(stageProgress(islandParameterizeEnd, 1.0f));
     if (extractor.extract()) {
@@ -597,22 +818,57 @@ extern "C" int qm_remesh(const float* positions, uint32_t vertex_count, const ui
         std::vector<Island> islands(islandFaces.size());
         handler.islandProgress.assign(islands.size(), 0.0f);
         handler.islandWeight.assign(islands.size(), 1.0f);
+        // A vertex belongs to one island (they are the connected pieces), so a feature
+        // edge goes to the island of its ends, in that island's vertex numbers.
+        const size_t none = std::numeric_limits<size_t>::max();
+        std::vector<size_t> islandOf(vertices.size(), none), localOf(vertices.size(), none);
         for (size_t i = 0; i < islands.size(); ++i) {
             Island& island = islands[i];
-            std::unordered_map<size_t, size_t> local;
-            local.reserve(2 * islandFaces[i].size());
             island.triangles.reserve(islandFaces[i].size());
             for (const auto& face : islandFaces[i]) {
                 std::vector<size_t> t(3);
                 for (size_t k = 0; k < 3; ++k) {
-                    const auto in = local.insert({ face[k], island.vertices.size() });
-                    if (in.second) island.vertices.push_back(vertices[face[k]]);
-                    t[k] = in.first->second;
+                    const size_t v = face[k];
+                    if (localOf[v] == none || islandOf[v] != i) {
+                        islandOf[v] = i;
+                        localOf[v] = island.vertices.size();
+                        island.vertices.push_back(vertices[v]);
+                    }
+                    t[k] = localOf[v];
                 }
                 island.triangles.push_back(std::move(t));
             }
             handler.islandWeight[i] = (float)((double)islandFaces[i].size() / (double)faces.size());
         }
+        // The density, relative to its mean over the area, so the count stays what was
+        // asked wherever the quads go; then each island takes its vertices' share.
+        if (nullptr != params->density && params->density_count == vertex_count) {
+            std::vector<double> density(vertex_count);
+            for (uint32_t v = 0; v < vertex_count; ++v) {
+                const double d = params->density[v];
+                density[v] = std::isfinite(d) ? std::max(1.0 / 16.0, std::min(16.0, d)) : 1.0;
+            }
+            const double mean = densityArea(vertices, faces, density) / area;
+            if (mean > 0.0)
+                for (double& d : density) d /= mean;
+            // An even density is none: the remesh then runs exactly as without it (the
+            // scaled field turns off the singularity simplification).
+            const auto [least, most] = std::minmax_element(density.begin(), density.end());
+            if (*most - *least < 1e-3) density.clear();
+            for (size_t v = 0; v < density.size(); ++v)
+                if (islandOf[v] != none) {
+                    auto& local = islands[islandOf[v]].density;
+                    if (local.size() != islands[islandOf[v]].vertices.size()) local.assign(islands[islandOf[v]].vertices.size(), 1.0);
+                    local[localOf[v]] = density[v];
+                }
+        }
+        if (nullptr != params->features)
+            for (uint32_t e = 0; e < params->feature_count; ++e) {
+                const uint32_t a = params->features[2 * e], b = params->features[2 * e + 1];
+                if (a >= vertices.size() || b >= vertices.size() || a == b) continue;
+                if (islandOf[a] == none || islandOf[a] != islandOf[b]) continue;
+                islands[islandOf[a]].features.push_back({ localOf[a], localOf[b] });
+            }
         islandFaces.clear();
         islandFaces.shrink_to_fit();
 

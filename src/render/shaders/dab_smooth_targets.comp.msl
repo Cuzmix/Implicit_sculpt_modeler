@@ -1,0 +1,367 @@
+// SDL_shadercross 1ff05bec5739 from dab_smooth_targets.comp.spv sha256 825bb37c0f363681a10fd5b8860d5115d64f1cc0d91c100e62e853e016418ed6
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+template<typename T>
+[[clang::optnone]] T spvFAdd(T l, T r)
+{
+    return fma(T(1), l, r);
+}
+
+template<typename T>
+[[clang::optnone]] T spvFSub(T l, T r)
+{
+    return fma(T(-1), r, l);
+}
+
+struct Dab_std430_logical
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint dab;
+    uint groups_x;
+    float rate;
+    uint stroke;
+};
+
+struct Dab_std430
+{
+    float4 center_r2;
+    float4 view_inv_r2;
+    float4 facing_amount;
+    float4 tilt0;
+    float4 tilt1;
+    float4 tilt2;
+    float4 misc;
+    uint4 slabs;
+};
+
+struct StructuredBuffer
+{
+    Dab_std430 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint2 _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    float _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    uint _member0[1];
+};
+
+struct RWStructuredBuffer_1
+{
+    float4 _member0[1];
+};
+
+static inline __attribute__((always_inline))
+bool slab_vertex(thread const Dab_std430_logical& d, uint3 group_id, uint3 local_id, thread uint& g, thread uint& v, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs)
+{
+    g = (group_id.y * Params.groups_x) + group_id.x;
+    v = 0u;
+    if (g >= d.slabs.y)
+    {
+        return false;
+    }
+    uint _216 = d.slabs.x + g;
+    if (local_id.x >= slabs._member0[_216].y)
+    {
+        return false;
+    }
+    v = slabs._member0[_216].x + local_id.x;
+    return true;
+}
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device RWStructuredBuffer& positions)
+{
+    uint _244 = 3u * v;
+    return float3(positions._member0[_244], positions._member0[_244 + 1u], positions._member0[_244 + 2u]);
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_2& indices [[buffer(1)]], device StructuredBuffer_2& offsets [[buffer(2)]], device StructuredBuffer_2& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer& positions [[buffer(6)]], device RWStructuredBuffer_1& scratch [[buffer(9)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    Dab_std430_logical _11;
+    _11.center_r2 = dabs._member0[Params.dab].center_r2;
+    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
+    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
+    _11.tilt0 = dabs._member0[Params.dab].tilt0;
+    _11.tilt1 = dabs._member0[Params.dab].tilt1;
+    _11.tilt2 = dabs._member0[Params.dab].tilt2;
+    _11.misc = dabs._member0[Params.dab].misc;
+    _11.slabs = dabs._member0[Params.dab].slabs;
+    uint g;
+    uint v;
+    bool _184 = slab_vertex(_11, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs);
+    if (!_184)
+    {
+        return;
+    }
+    float3 delta = spvFSub(at(v, positions), _11.center_r2.xyz);
+    if (dot(delta, delta) >= _11.center_r2.w)
+    {
+        return;
+    }
+    uint _279 = v + 1u;
+    uint k = offsets._member0[v];
+    float3 sum = float3(0.0);
+    uint odd = 0u;
+    float n = 0.0;
+    for (;;)
+    {
+        float3 sum_1;
+        uint odd_1;
+        float n_1;
+        bool _45_ladder_break = false;
+        do
+        {
+            if (!(k < offsets._member0[_279]))
+            {
+                _45_ladder_break = true;
+                break;
+            }
+            uint _295 = 3u * tris._member0[k];
+            uint _299 = _295 + 1u;
+            uint _302 = _295 + 2u;
+            sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_295], positions), at(indices._member0[_299], positions)), at(indices._member0[_302], positions)));
+            odd_1 = odd ^ (((indices._member0[_295] ^ indices._member0[_299]) ^ indices._member0[_302]) ^ v);
+            n_1 = spvFAdd(n, 3.0);
+            break;
+        } while(false);
+        if (_45_ladder_break)
+        {
+            break;
+        }
+        k++;
+        sum = sum_1;
+        odd = odd_1;
+        n = n_1;
+        continue;
+    }
+    if (n > 0.0)
+    {
+        sum /= float3(n);
+    }
+    else
+    {
+        sum = at(v, positions);
+    }
+    bool _24;
+    if (odd != 0u)
+    {
+        _24 = n <= 96.0;
+    }
+    else
+    {
+        _24 = false;
+    }
+    float3 q;
+    if (_24)
+    {
+        uint j = 0u;
+        spvUnsafeArray<uint, 64> seen;
+        spvUnsafeArray<uint, 64> times;
+        for (;;)
+        {
+            bool _62_ladder_break = false;
+            do
+            {
+                if (!(j < 64u))
+                {
+                    _62_ladder_break = true;
+                    break;
+                }
+                seen[j] = 0u;
+                times[j] = 0u;
+                break;
+            } while(false);
+            if (_62_ladder_break)
+            {
+                break;
+            }
+            j++;
+            continue;
+        }
+        k = offsets._member0[v];
+        uint count = 0u;
+        uint count_1;
+        uint count_2;
+        for (;;)
+        {
+            bool _72_ladder_break = false;
+            do
+            {
+                if (!(k < offsets._member0[_279]))
+                {
+                    _72_ladder_break = true;
+                    break;
+                }
+                uint i = 0u;
+                count_1 = count;
+                for (;;)
+                {
+                    bool _77_ladder_break = false;
+                    do
+                    {
+                        if (!(i < 3u))
+                        {
+                            _77_ladder_break = true;
+                            break;
+                        }
+                        uint _390 = (3u * tris._member0[k]) + i;
+                        if (indices._member0[_390] == v)
+                        {
+                            break;
+                        }
+                        j = 0u;
+                        for (;;)
+                        {
+                            if (j < count_1)
+                            {
+                                _24 = seen[j] != indices._member0[_390];
+                            }
+                            else
+                            {
+                                _24 = false;
+                            }
+                            if (!_24)
+                            {
+                                break;
+                            }
+                            j++;
+                            continue;
+                        }
+                        if (j == count_1)
+                        {
+                            seen[j] = indices._member0[_390];
+                            times[j] = 0u;
+                            count_2 = count_1 + 1u;
+                        }
+                        else
+                        {
+                            count_2 = count_1;
+                        }
+                        times[j]++;
+                        count_1 = count_2;
+                        break;
+                    } while(false);
+                    if (_77_ladder_break)
+                    {
+                        break;
+                    }
+                    i++;
+                    continue;
+                }
+                break;
+            } while(false);
+            if (_72_ladder_break)
+            {
+                break;
+            }
+            k++;
+            count = count_1;
+            continue;
+        }
+        j = 0u;
+        float3 border = float3(0.0);
+        float b = 0.0;
+        for (;;)
+        {
+            bool _106_ladder_break = false;
+            do
+            {
+                if (!(j < count))
+                {
+                    _106_ladder_break = true;
+                    break;
+                }
+                if (times[j] == 1u)
+                {
+                    border = spvFAdd(border, at(seen[j], positions));
+                    b = spvFAdd(b, 1.0);
+                }
+                break;
+            } while(false);
+            if (_106_ladder_break)
+            {
+                break;
+            }
+            j++;
+            continue;
+        }
+        if (b > 0.0)
+        {
+            q = border / float3(b);
+        }
+        else
+        {
+            q = sum;
+        }
+    }
+    else
+    {
+        q = sum;
+    }
+    scratch._member0[(g * 256u) + gl_LocalInvocationID.x] = float4(q, 1.0);
+}
+

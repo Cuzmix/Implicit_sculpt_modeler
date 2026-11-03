@@ -5,7 +5,7 @@ import "core:strings"
 
 import "../ui"
 
-// The object chip in the chip bar (the overhaul's round 3): what is selected, as ZBrush's
+// The object chip in the top bar (the overhaul's round 3): what is selected, as ZBrush's
 // SubTool name and Forger's object button show it, with what kind of thing it is and the
 // facts a sculptor checks before a stroke. A tap opens the object's menu under it; a long
 // press (or a right-click) opens the Scene card, where the objects are. With nothing

@@ -279,6 +279,7 @@ coverage_at :: #force_inline proc(c: Coverage, p: [2]f32) -> bool {
 @(private = "file")
 mask_commit :: proc(job: ^Mask_Job) -> bool {
 	s := job.s
+	_ = sculptor_gpu_sync(s)
 	// What a node ends with may match what it started with.
 	jobs.parallel_ranges(s.pool, len(s.nodes), job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Mask_Job)data

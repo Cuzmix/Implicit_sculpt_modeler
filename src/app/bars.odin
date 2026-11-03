@@ -44,6 +44,10 @@ Bar_Which :: enum u8 {
 	Dock_2,
 	Dock_3,
 	Dock_4,
+	// The top bar's three docks (kit_top_lens.odin): the file, the spaces and the app's.
+	Top_File,
+	Top_Spaces,
+	Top_App,
 }
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
@@ -75,6 +79,9 @@ BAR_ZONES := [Bar_Which]string {
 	.Dock_2       = "dock_2",
 	.Dock_3       = "dock_3",
 	.Dock_4       = "dock_4",
+	.Top_File     = "top_file",
+	.Top_Spaces   = "top_spaces",
+	.Top_App      = "top_app",
 }
 
 // The bar a zone name names.
@@ -86,6 +93,7 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 VIEW_RAIL_MAX :: 24
 OFFHAND_MAX :: 8
 USER_DOCK_MAX :: 12
+TOP_DOCK_MAX :: 10
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
 BAR_SLOTS_MAX :: 24
 
@@ -105,6 +113,12 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 	{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Show_Panel, int(Panel_Kind.Layers)}, {.Show_Panel, int(Panel_Kind.Material)},
 	{.Show_Panel, int(Panel_Kind.Symmetry)}, {.Show_Panel, int(Panel_Kind.Lights)},
 }
+
+// The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
+// tabs and the object chip; Search, History and Settings.
+TOP_FILE_DEFAULT :: [?]Bar_Slot{{.Main_Menu, 0}, {.File_Chip, 0}, {.Save_Scene, 0}, {.Undo, 0}, {.Redo, 0}}
+TOP_SPACES_DEFAULT :: [?]Bar_Slot{{.Space_Tabs, 0}, {.Object_Chip, 0}}
+TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.History_Panel, 0}, {.Settings, 0}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
 OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}
@@ -138,6 +152,7 @@ bars_reset :: proc(k: ^Kit_State) {
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
 	k.offhand = bar_fresh(.Offhand)
+	for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])
 	docks_clear(k)
 }
 
@@ -163,6 +178,15 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .Offhand:
 		d := OFFHAND_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_File:
+		d := TOP_FILE_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_Spaces:
+		d := TOP_SPACES_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Top_App:
+		d := TOP_APP_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 	}
 	// A new dock is empty but for its +.
@@ -182,6 +206,9 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
+	case .Top_File, .Top_Spaces, .Top_App:
+		d, _ := top_dock_of(which)
+		return &k.top_docks[d]
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 	}
 	i, _ := user_dock_of(which)
@@ -202,6 +229,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
+	case .Top_File, .Top_Spaces, .Top_App: return TOP_DOCK_MAX
 	}
 	return 0
 }
@@ -325,6 +353,9 @@ bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The brush bar"
+	case .Top_File:     return "The top bar's File dock"
+	case .Top_Spaces:   return "The top bar's Spaces dock"
+	case .Top_App:      return "The top bar's App dock"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)
 		return DOCK_TITLES[d]
@@ -597,6 +628,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 // island stand on (dock_side), and above the rows.
 bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
 	if d, ok := dock_of_bar(which); ok do return dock_side(app, d)
+	if _, top := top_dock_of(which); top do return .Below
 	return .Above_Center
 }
 

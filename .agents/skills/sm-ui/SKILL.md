@@ -35,8 +35,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens; never add a second chrome (`settings_load` passes over the old Classic lines). `kit_layout`
-  (`new_ui.odin`) lays out in order: the chip bar `kit_top_bar` (`kit_top_lens.odin`; each section `chip_section_draw`,
-  one taken out an island, `chip_islands.odin`), the readout ("points", readout.odin), the off-hand island ("brush bar"), the
+  (`new_ui.odin`) lays out in order: the top bar `kit_top_bar` (`kit_top_lens.odin`: three docks, `Top_Dock`, whose
+  chips `top_dock_draw` draws by command id), the readout ("points", readout.odin), the off-hand island ("brush bar"), the
   navigation head, the view rail ("view bar"), the person's docks, the shelf ("dock"), the action bar, the picker,
   Search and the menu. Keep-clear rules and Arrange find each by its container name (`ui.prev_rect`, or
   `prev_root_rect` from inside another root), so renaming one moves them all. The full map, bar by bar (fits,
@@ -333,7 +333,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| the Library | `kit_brushes.odin` (items, categories, `library_open_for`/`library_put`) and `kit_brush_sheet` in `lens_shelf.odin` (the sheet over `k.browser`); everything it lists is a `Brush_Item` (brush or preset slot, any other button as `slot.command`, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there; a dock's button is chosen here (`bar_choose`), never in Search |
+| the Library | `kit_brushes.odin` (items, categories, `library_open_for`/`library_put`) and `kit_brush_sheet` in `lens_shelf.odin` (the sheet over `k.browser`); everything it lists is a `Brush_Item` (brush or preset slot, any other button as `slot.command`, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there; a dock's button is chosen here (`bar_choose`), never in Search; it is the only Library: editing docks has no sheet of its own, and what one would hold lives in Settings (Bars: `arrange_show_chips`, `arrange_panel_rows`, `your_docks_rows`; Dial: `dial_sector_rows`) or the editing top bar (New dock, Mirror) |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,

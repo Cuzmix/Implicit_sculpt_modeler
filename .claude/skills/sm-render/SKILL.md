@@ -243,7 +243,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp.slang` pipeline,
   six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
   buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
-  dispatches one compute pass a step (the backends order passes, not dispatches inside one) in rows of at most 65535
+  dispatches one compute pass a step (the own backends put a full barrier after every dispatch, so dependent dispatches may chain inside one pass, as the sculpt kernels do) in rows of at most 65535
   groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp.slang` with the other shaders.
 

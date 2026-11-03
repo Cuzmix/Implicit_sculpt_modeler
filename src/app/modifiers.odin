@@ -159,7 +159,7 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 
 // What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
 // on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
-// (Library > Dial while arranging), not part of a workspace, since it belongs to the hand
+// (Settings > Dial), not part of a workspace, since it belongs to the hand
 // rather than the screen. Each space has its own four (PR 3b), as each asks something
 // else of the off hand: Model snaps and selects, Render places light and focus.
 Dial_Sector :: union {
@@ -178,7 +178,7 @@ DIAL_DEFAULTS := [Space][4]Dial_Sector {
 	.Render = {Bar_Slot{.Place_Light, 0}, Bar_Slot{.Brush_Pie, 0}, Bar_Slot{.Brush_Value, int(Brush_Value.Exposure)}, Bar_Slot{.Pick_Focus, 0}},
 }
 
-// The sectors' places, clockwise from the top, as Library > Dial names them.
+// The sectors' places, clockwise from the top, as Settings > Dial names them.
 @(rodata)
 DIAL_PLACES := [4]string{"Top", "Right", "Bottom", "Left"}
 

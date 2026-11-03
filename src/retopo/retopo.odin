@@ -2,6 +2,7 @@ package retopo
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:strings"
@@ -36,14 +37,98 @@ ENGINE_NAMES := [Engine]string {
 // long job's thread reads no interface state, and put back by Adjust last.
 Options :: struct {
 	engine:      Engine,
-	adaptivity:  f32, // 0 quads of one size, 1 smaller ones where the surface bends (AutoRemesher; fewer quads than asked)
+	adaptivity:  f32, // Adaptive size: 0 quads of one size, 1 smaller ones where the surface bends and larger where it is flat, at the same count (AutoRemesher)
 	// Keep symmetry: the planes the result is its own mirror image across (the brush's
 	// symmetry, through the centre its dabs mirror about), none for a whole remesh. The
 	// part on the + side of every plane is remeshed alone and mirrored, so the halves
 	// match quad for quad along the seam, with either engine.
 	mirror:      geom.Remesh_Mirror,
 	close_first: bool, // an open or unsound mesh is voxel remeshed first, whichever engine runs
+	// AutoRemesher's feature edges, as ZRemesher's KeepGroups and KeepCreases: the
+	// borders between the polygroups and the creased edges of `Source` are kept as quad
+	// edges, so the loops run along them; and an edge whose faces meet sharper than
+	// `edge_degrees` is kept too (90, or 0 for it, keeps right angles and sharper, as
+	// before; lower keeps softer edges). The built-in engine knows none of the three.
+	keep_groups:  bool,
+	keep_creases: bool,
+	edge_degrees: f32,
+	// AutoRemesher's density, as ZRemesher's Use PolyPaint: `Source.paint` red asks up to
+	// four times the quads per area, blue a quarter, white, grey and green leave it be;
+	// `Source.mask` asks up to twice as many where masked. The count stays what was asked
+	// (vertex_density).
+	use_paint: bool,
+	use_mask:  bool,
 }
+
+// What the input carries that the options may keep: per triangle its polygroup, the
+// creased edges as sculpt.sharp_key keys of the input's vertices, and per vertex its
+// paint and its mask. Any nil for none. The caller owns them; compute reads them only.
+Source :: struct {
+	groups:  []u16,
+	creases: []u64,
+	paint:   []sculpt.Color,
+	mask:    []u8,
+}
+
+// The density per vertex of `n` that Use paint and Use mask ask for (quads per area
+// relative to the rest, quadmesh.Params.density), or nil when neither gives anything:
+// paint 4^(coverage × (redness − blueness)), redness the red past the larger of green and
+// blue (blueness likewise), so pure red is 4, pure blue a quarter and white, grey or green
+// 1, as ZBrush reads polypaint; times 2^mask.
+vertex_density :: proc(n: int, paint: []sculpt.Color, mask: []u8, allocator := context.allocator) -> []f32 {
+	paint := paint if len(paint) == n else nil
+	mask := mask if len(mask) == n else nil
+	if paint == nil && mask == nil do return nil
+	density := make([]f32, n, allocator)
+	for &d, v in density {
+		exponent: f32
+		if paint != nil {
+			c := paint[v]
+			r, g, b := f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255
+			redness, blueness := max(r - max(g, b), 0), max(b - max(r, g), 0)
+			exponent = 2 * f32(c.a) / 255 * (redness - blueness)
+		}
+		if mask != nil do exponent += f32(mask[v]) / 255
+		d = math.pow(2, exponent)
+	}
+	return density
+}
+
+// The density of `from` (per vertex) at each vertex of `to`, read off the nearest point of
+// `from`'s surface: for a surface rebuilt where the old one lay (Close first). Parallel
+// over `to`'s vertices; the same result for any thread count.
+@(private = "file")
+density_resample :: proc(from: geom.Mesh, density: []f32, to: geom.Mesh, pool: ^jobs.Pool) -> []f32 {
+	out := make([]f32, len(to.positions))
+	bvh := geom.bvh_build_morton(from, geom.BVH_LEAF_SIZE, pool)
+	defer geom.bvh_destroy(&bvh)
+	Job :: struct {
+		from:    geom.Mesh,
+		bvh:     ^geom.Bvh,
+		density: []f32,
+		to:      geom.Mesh,
+		out:     []f32,
+	}
+	job := Job{from, &bvh, density, to, out}
+	jobs.parallel_ranges(pool, len(to.positions), &job, proc(data: rawptr, lo, hi: int) {
+		j := (^Job)(data)
+		hint := geom.BVH_NONE
+		for v in lo ..< hi {
+			tri, bary, _, ok := geom.bvh_closest(j.bvh^, j.from, j.to.positions[v], max(f32), hint)
+			if !ok {
+				j.out[v] = 1
+				continue
+			}
+			hint = tri
+			i := j.from.indices[3 * tri:][:3]
+			j.out[v] = bary[0] * j.density[i[0]] + bary[1] * j.density[i[1]] + bary[2] * j.density[i[2]]
+		}
+	}, 4096)
+	return out
+}
+
+// The edge angle `Options.edge_degrees` 0 stands for.
+EDGE_DEGREES_DEFAULT :: f32(90)
 
 // UV padding around each chart, in texels of the largest map size, so even a 4096 map
 // keeps charts apart when filtered.
@@ -96,9 +181,11 @@ Result :: struct {
 	ngons:     int, // and five corners or more
 	capped:    int, // AutoRemesher: triangles the input was decimated to first, 0 for none
 	closed:    int, // Close first: vertices of the voxel remesh that stood in for the input, 0 for none
+	features:  int, // AutoRemesher: polygroup borders and creased edges handed to it as feature edges
 	mirrored:  bool, // one part remeshed and mirrored, as the symmetry asked...
 	mirror:    geom.Remesh_Mirror, // ...across these planes
 	unmirrored: string, // symmetry asked but not kept: why (a literal, not owned)
+	unkept:    string, // feature edges handed over but remeshed without them in the end: why (a literal, not owned)
 	reason:    string, // owned: why AutoRemesher was not used, "" when it was
 	built:     bool,
 	retopo_ms: f64,
@@ -109,9 +196,10 @@ Result :: struct {
 // UVs and triangles; touches no object or interface, so a long job runs it on its own
 // thread with its own pool, and with `progress` it stops after a cancel, built false with
 // nothing to free. AutoRemesher gives way to the own engine when it is not built or
-// refuses the mesh, and `reason` then says why; the own engine knows no adaptivity, but
-// Close first and symmetry serve it too.
-compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> (r: Result) {
+// refuses the mesh, and `reason` then says why; the own engine knows no adaptivity and
+// no feature edges (`source`, per triangle and vertex of `view`), but Close first and
+// symmetry serve it too.
+compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, source := Source{}) -> (r: Result) {
 	start := time.tick_now()
 	from: f32 = 0
 	closed: geom.Mesh
@@ -119,7 +207,7 @@ compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool,
 	input := view
 	if options.engine == .Auto {
 		outcome: Quad_Outcome
-		r, outcome = quad_remesh_compute(view, quads, options, pool, progress)
+		r, outcome = quad_remesh_compute(view, quads, options, pool, progress, source)
 		if outcome != .Fallback do return
 		from = QUAD_SHARE_CHECKED
 	} else if options.close_first {
@@ -259,25 +347,128 @@ Quad_Outcome :: enum u8 {
 	Fallback, // only `reason` kept: the own engine runs instead
 }
 
+// The density of each vertex of the half (vertex_density) from the vertex it came from;
+// a cap's vertices, which come from none, take the half's lowest. The cap's polygons are
+// dropped, and a cap denser than the surface along its rim starves the dense parts: on a
+// sphere painted four times as dense above, cut in half, the upper part got 1.8 times
+// the quads of the lower with a cap at the mean density and 2.9 times with it at the
+// lowest; lower still, the parts below the rim gain instead. Nil for no density.
+@(private = "file")
+half_densities :: proc(half: geom.Mesh, origins: geom.Slice_From, density: []f32) -> []f32 {
+	if density == nil || len(origins.vertex) != len(half.positions) do return nil
+	out := make([]f32, len(half.positions))
+	lowest := max(f32)
+	for o, v in origins.vertex do if o != geom.SLICE_NONE {
+		out[v] = density[o]
+		lowest = min(lowest, out[v])
+	}
+	if lowest == max(f32) do lowest = 1
+	for o, v in origins.vertex do if o == geom.SLICE_NONE do out[v] = lowest
+	return out
+}
+
+// The feature edges of `m` for AutoRemesher, two vertex indices each, each edge once:
+// every edge between two triangles of different groups (`groups` per triangle, nil for
+// none) and every edge whose key is in `creases` (nil for none). An edge on the mesh's
+// border is none of AutoRemesher's concern here (it keeps a border as it is).
+@(private = "file")
+feature_edges :: proc(m: geom.Mesh, groups: []u16, creases: []u64) -> []u32 {
+	if groups == nil && creases == nil do return nil
+	triangles := len(m.indices) / 3
+	crease_set := make(map[u64]bool, len(creases), context.temp_allocator)
+	for key in creases do crease_set[key] = true
+	// The first triangle seen on each edge; an edge is listed when its second triangle
+	// comes with another group, or when it is creased (then at its first sight).
+	first := make(map[u64]u32, 3 * triangles, context.temp_allocator)
+	out := make([dynamic]u32)
+	for t in 0 ..< triangles {
+		for k in 0 ..< 3 {
+			a, b := m.indices[3 * t + k], m.indices[3 * t + (k + 1) % 3]
+			key := sculpt.sharp_key(a, b)
+			if other, seen := first[key]; seen {
+				if groups != nil && groups[other] != groups[t] && !crease_set[key] do append(&out, a, b)
+			} else {
+				first[key] = u32(t)
+				if crease_set[key] do append(&out, a, b)
+			}
+		}
+	}
+	return out[:]
+}
+
+// The groups and creases of a mirror cut's half, from the whole's through the cut's
+// origins: a cap's triangles form a group of their own (its rim is the seam, which is
+// kept sharp in any case), and a crease is kept where both ends came from the whole.
+@(private = "file")
+half_features :: proc(half: geom.Mesh, origins: geom.Slice_From, groups: []u16, creases: []u64) -> (half_groups: []u16, half_creases: []u64) {
+	if groups != nil && len(origins.triangle) == len(half.indices) / 3 {
+		half_groups = make([]u16, len(origins.triangle))
+		for t, i in origins.triangle do half_groups[i] = groups[t] if t != geom.SLICE_NONE else max(u16)
+	}
+	if creases != nil && len(origins.vertex) == len(half.positions) {
+		crease_set := make(map[u64]bool, len(creases), context.temp_allocator)
+		for key in creases do crease_set[key] = true
+		kept := make([dynamic]u64)
+		seen := make(map[u64]bool, len(creases), context.temp_allocator)
+		for t in 0 ..< len(half.indices) / 3 do for k in 0 ..< 3 {
+			a, b := half.indices[3 * t + k], half.indices[3 * t + (k + 1) % 3]
+			oa, ob := origins.vertex[a], origins.vertex[b]
+			if oa == geom.SLICE_NONE || ob == geom.SLICE_NONE || oa == ob do continue
+			key := sculpt.sharp_key(a, b)
+			if key in seen do continue
+			if crease_set[sculpt.sharp_key(oa, ob)] {
+				seen[key] = true
+				append(&kept, key)
+			}
+		}
+		half_creases = kept[:]
+	}
+	return
+}
+
 // AutoRemesher's half of compute: refuses what it cannot take (or runs forever
 // on) before it starts, decimates past the cap, remeshes, and turns the polygons into the
 // triangles the object is built of, with the quads and UVs when every polygon is a quad.
 @(private = "file")
-quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool, progress: ^jobs.Progress) -> (r: Result, outcome: Quad_Outcome) {
+quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool, progress: ^jobs.Progress, source: Source) -> (r: Result, outcome: Quad_Outcome) {
 	start := time.tick_now()
 	outcome = .Fallback
+	// The features kept follow the input through each step below: the groups per
+	// triangle and the creases as edge keys of the mesh in hand.
+	groups := source.groups if options.keep_groups && len(source.groups) == len(view.indices) / 3 else nil
+	creases := source.creases if options.keep_creases else nil
+	// The density per vertex follows the input the same way, through each step's vertex
+	// origins or, for Close first's new surface, by the nearest point of the one before.
+	density := vertex_density(len(view.positions), source.paint if options.use_paint else nil, source.mask if options.use_mask else nil)
+	defer delete(density)
 	// Fewer triangles first past the cap: more make AutoRemesher slower, not better, and
 	// the check below has no cancel and a serial pass or two, so it runs on the smaller mesh.
 	input := view
 	capped: geom.Mesh
 	defer geom.mesh_destroy(&capped)
+	capped_groups: [dynamic]u16
+	defer delete(capped_groups)
+	capped_from: [dynamic]u32
+	defer delete(capped_from)
 	if len(view.indices) / 3 > QUAD_REMESH_MAX_TRIANGLES {
 		ok: bool
-		capped, _, ok = geom.mesh_decimate(view, QUAD_REMESH_MAX_TRIANGLES, pool, progress = progress, share = {0, QUAD_SHARE_CAPPED})
+		// The group borders hold their shape through the decimation, as Decimate's Keep
+		// groups holds them; the creases do not survive it (a decimation moves the
+		// vertices they ran between), so a sculpt past the cap loses them.
+		capped, _, ok = geom.mesh_decimate(view, QUAD_REMESH_MAX_TRIANGLES, pool, progress = progress, share = {0, QUAD_SHARE_CAPPED}, from = &capped_from if density != nil else nil, guide = {labels = groups}, out_labels = &capped_groups if groups != nil else nil)
 		if jobs.progress_cancelled(progress) do return {}, .Cancelled
 		if ok {
 			input = capped
 			r.capped = len(capped.indices) / 3
+			groups = capped_groups[:] if groups != nil && len(capped_groups) == len(capped.indices) / 3 else nil
+			if creases != nil do log.infof("quad remesh: the creases are not kept through the decimation to %d triangles", r.capped)
+			creases = nil
+			if density != nil && len(capped_from) == len(capped.positions) {
+				kept := make([]f32, len(capped.positions))
+				for o, v in capped_from do kept[v] = density[o]
+				delete(density)
+				density = kept
+			}
 		}
 	}
 	// Close first: an open or unsound mesh becomes a closed one before anything judges it.
@@ -286,7 +477,17 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	if options.close_first {
 		closed, r.closed = quad_close_first(input, quads, pool, progress, {QUAD_SHARE_CAPPED, QUAD_SHARE_CHECKED})
 		if jobs.progress_cancelled(progress) do return {}, .Cancelled
-		if r.closed > 0 do input = closed
+		if r.closed > 0 {
+			if density != nil {
+				resampled := density_resample(input, density, closed, pool)
+				delete(density)
+				density = resampled
+			}
+			input = closed
+			// A new surface: nothing of the groups or creases lies on it.
+			if groups != nil || creases != nil do log.infof("quad remesh: the groups and creases are not kept through Close first")
+			groups, creases = nil, nil
+		}
 	}
 	// What AutoRemesher cannot take, or runs forever on, is refused before it starts.
 	whole := geom.mesh_integrity(input, pool)
@@ -314,16 +515,26 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	// the seam. A plane the mesh does not cross leaves it whole.
 	half: geom.Mesh
 	defer geom.mesh_destroy(&half)
+	half_groups: []u16
+	defer delete(half_groups)
+	half_creases: []u64
+	defer delete(half_creases)
+	half_density: []f32
+	defer delete(half_density)
 	mirror := options.mirror
 	snap: f32
 	asked := quads
 	if mirror.axes != {} {
 		ok: bool
-		half, ok = geom.mirror_cut(input, mirror, true, pool)
+		origins: geom.Slice_From
+		defer geom.slice_from_destroy(&origins)
+		half, ok = geom.mirror_cut(input, mirror, true, pool, from = &origins if groups != nil || creases != nil || density != nil else nil)
 		if ok {
+			half_groups, half_creases = half_features(half, origins, groups, creases)
+			half_density = half_densities(half, origins, density)
 			extent := c.bounds.hi - c.bounds.lo
 			snap = max(extent.x, extent.y, extent.z) * QUAD_SEAM_SNAP
-			total, cap := quad_cap_share(half, mirror, snap)
+			total, cap := quad_cap_share(half, mirror, snap, half_density)
 			parts := 0
 			for a in mirror.axes do if a do parts += 1
 			asked = int(f64(quads >> uint(parts)) * total / max(total - cap, total * 0.01))
@@ -333,10 +544,15 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		}
 	}
 	whole_input := input
-	if r.mirrored do input = half
+	whole_groups, whole_creases := groups, creases
+	input_density := density
+	if r.mirrored do input, groups, creases, input_density = half, half_groups, half_creases, half_density
 	params := quadmesh.DEFAULT_PARAMS
 	params.adaptivity = clamp(options.adaptivity, 0, 1)
 	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+	edge_degrees := options.edge_degrees if options.edge_degrees > 0 else EDGE_DEGREES_DEFAULT
+	features: []u32
+	defer delete(features)
 	out: quadmesh.Polygon_Mesh
 	defer quadmesh.polygon_mesh_destroy(&out)
 	seam: [dynamic]bool
@@ -351,7 +567,12 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	// laid across the cut that the plane did not catch), the whole mesh is remeshed instead.
 	for {
 		params.quads = asked
-		params.sharp_degrees = QUAD_SEAM_SHARP_DEGREES if r.mirrored else quadmesh.DEFAULT_PARAMS.sharp_degrees
+		params.sharp_degrees = min(QUAD_SEAM_SHARP_DEGREES, edge_degrees) if r.mirrored else edge_degrees
+		delete(features)
+		features = feature_edges(input, groups, creases)
+		params.features = features
+		r.features = len(features) / 2
+		params.density = input_density
 		err: quadmesh.Error
 		reason: string
 		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
@@ -379,6 +600,23 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		}
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
+		// Feature edges the field could not follow (many small groups, borders crossing at
+		// odd angles) can leave the quads torn or doubled up; then the mesh is remeshed
+		// without them, so the result is at least sound.
+		if r.features > 0 && (check.non_manifold_edges > 0 || (c.closed && !check.closed)) {
+			log.warnf("quad remesh: with %d feature edges the result had %d non-manifold and %d boundary edges, so the mesh is remeshed without them", r.features, check.non_manifold_edges, check.boundary_edges)
+			geom.mesh_destroy(&mesh)
+			sculpt.polys_destroy(&polys)
+			quadmesh.polygon_mesh_destroy(&out)
+			delete(seam)
+			seam = nil
+			delete(planes)
+			planes = nil
+			groups, creases, whole_groups, whole_creases = nil, nil, nil, nil
+			r.unkept = "the group and crease edges could not be followed"
+			if jobs.progress_cancelled(progress) do return {}, .Cancelled
+			continue
+		}
 		if !r.mirrored || check.non_manifold_edges == 0 do break
 		log.warnf("quad remesh: the mirrored halves left %d non-manifold edges along the seam, so the whole mesh is remeshed instead", check.non_manifold_edges)
 		geom.mesh_destroy(&mesh)
@@ -390,6 +628,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		planes = nil
 		r.mirrored, r.unmirrored = false, "the seam did not close"
 		input, asked = whole_input, quads
+		groups, creases, input_density = whole_groups, whole_creases, density
 		if jobs.progress_cancelled(progress) do return {}, .Cancelled
 	}
 	r.faces, r.quads, r.triangles, r.ngons = report.faces, report.quads, report.triangles, report.ngons
@@ -402,8 +641,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 	}
-	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s in %.0f ms; %s, %d boundary and %d non-manifold edges",
-		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", report.ms,
+	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges in %.0f ms; %s, %d boundary and %d non-manifold edges",
+		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, report.ms,
 		"closed" if check.closed else "open", check.boundary_edges, check.non_manifold_edges)
 	if jobs.progress_cancelled(progress) {
 		geom.mesh_destroy(&mesh)
@@ -490,12 +729,14 @@ polygon_mesh_triangulate :: proc(m: quadmesh.Polygon_Mesh, seam: []bool = nil, a
 }
 
 // The area of `m` and of its triangles lying on one of the planes of `mirror` (within
-// `snap`): a capped half's caps.
+// `snap`): a capped half's caps. With a density per vertex (nil for none) each triangle's
+// area counts times its corners' mean, as the quads are shared out by it.
 @(private = "file")
-quad_cap_share :: proc(m: geom.Mesh, mirror: geom.Remesh_Mirror, snap: f32) -> (total, cap: f64) {
+quad_cap_share :: proc(m: geom.Mesh, mirror: geom.Remesh_Mirror, snap: f32, density: []f32) -> (total, cap: f64) {
 	for k := 0; k < len(m.indices); k += 3 {
 		a, b, c := m.positions[m.indices[k]], m.positions[m.indices[k + 1]], m.positions[m.indices[k + 2]]
 		area := f64(linalg.length(linalg.cross(b - a, c - a))) / 2
+		if density != nil do area *= f64(density[m.indices[k]] + density[m.indices[k + 1]] + density[m.indices[k + 2]]) / 3
 		total += area
 		if flat_on(mirror, snap, a, b, c) != 0 do cap += area
 	}

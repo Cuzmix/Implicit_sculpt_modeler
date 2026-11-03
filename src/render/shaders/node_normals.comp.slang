@@ -24,6 +24,7 @@
 [[vk::binding(0, 2)]] cbuffer Params {
 	uint slab_count;
 	uint groups_x; // the dispatch's width, since many slabs need a second dimension
+	uint slab_first; // the first of its slabs in the list, after the dabs' (dab.slang)
 };
 
 static const uint SLAB = 256;
@@ -52,7 +53,7 @@ int2 encode(float3 n) {
 void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	uint g = group_id.y * groups_x + group_id.x;
 	if (g >= slab_count) return;
-	uint2 slab = slabs[g];
+	uint2 slab = slabs[slab_first + g];
 	if (local_id.x >= slab.y) return;
 	uint v = slab.x + local_id.x;
 	float3 sum = float3(0.0);

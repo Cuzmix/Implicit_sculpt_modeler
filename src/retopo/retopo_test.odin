@@ -2,6 +2,7 @@ package retopo
 
 @(require) import "core:log" // used only where AutoRemesher is not built
 import "core:math"
+import "core:math/linalg"
 import "core:strings"
 import "core:testing"
 
@@ -231,11 +232,12 @@ quad_remesh_closes_an_open_mesh_first :: proc(t: ^testing.T) {
 	testing.expectf(t, after.volume > 1.4 && after.volume < 2.8, "volume %.2f is not a half ball's", after.volume)
 }
 
-// Adaptivity trades the count for smaller quads where the surface bends.
+// Adaptive size puts smaller quads where the surface bends and larger ones where it is
+// flat, and the count stays what was asked: the triangles' areas spread wider than at Even.
 @(test)
-quad_remesh_adaptivity_makes_fewer_quads :: proc(t: ^testing.T) {
+quad_remesh_adaptive_size_keeps_the_count :: proc(t: ^testing.T) {
 	when !quadmesh.AVAILABLE {
-		log.info("quad remesh adaptivity: AutoRemesher is not built here, nothing to test")
+		log.info("quadmesh is not built on this platform")
 		return
 	}
 	m := geom.icosphere(5)
@@ -247,5 +249,118 @@ quad_remesh_adaptivity_makes_fewer_quads :: proc(t: ^testing.T) {
 	bent := compute(shape_view(&m), 3000, {engine = .Auto, adaptivity = 1}, nil)
 	defer result_destroy(&bent)
 	if !testing.expect(t, even.built && bent.built, "nothing built") do return
-	testing.expectf(t, bent.faces < even.faces, "adaptivity 1 gave %d faces, even %d", bent.faces, even.faces)
+	spread :: proc(m: geom.Mesh) -> f32 {
+		n := len(m.indices) / 3
+		areas := make([]f32, n, context.temp_allocator)
+		mean: f32
+		for tri in 0 ..< n {
+			a, b, c := m.positions[m.indices[3 * tri]], m.positions[m.indices[3 * tri + 1]], m.positions[m.indices[3 * tri + 2]]
+			areas[tri] = 0.5 * linalg.length(linalg.cross(b - a, c - a))
+			mean += areas[tri] / f32(n)
+		}
+		variance: f32
+		for a in areas do variance += (a - mean) * (a - mean) / f32(n)
+		return math.sqrt(variance) / mean
+	}
+	log.infof("adaptive size: even %d faces, area spread %.2f; adaptive %d faces, spread %.2f", even.faces, spread(even.mesh), bent.faces, spread(bent.mesh))
+	testing.expectf(t, bent.faces >= 2850 && bent.faces <= 3150, "adaptive size gave %d faces for 3000 asked", bent.faces)
+	testing.expectf(t, spread(bent.mesh) > 1.3 * spread(even.mesh), "adaptive size spread the areas %.2f against %.2f at Even", spread(bent.mesh), spread(even.mesh))
+}
+
+// Use paint: a sphere painted red on its upper half gets about four times the quads per area
+// there, the count staying what was asked; off, the paint changes nothing. Use mask: the
+// masked half gets about twice as many. With the mirror on, the half goes in with its paint.
+@(test)
+quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	paint := make([]sculpt.Color, len(m.positions))
+	defer delete(paint)
+	mask := make([]u8, len(m.positions))
+	defer delete(mask)
+	for p, v in m.positions do if p.z > 0 {
+		paint[v] = {255, 0, 0, 255}
+		mask[v] = 255
+	}
+	// Triangles above and below the equator: the halves have the same area, so their
+	// ratio is the ratio of quads per area.
+	halves :: proc(m: geom.Mesh) -> f32 {
+		upper, lower: int
+		for tri in 0 ..< len(m.indices) / 3 {
+			z := (m.positions[m.indices[3 * tri]].z + m.positions[m.indices[3 * tri + 1]].z + m.positions[m.indices[3 * tri + 2]].z) / 3
+			if z > 0 do upper += 1
+			else do lower += 1
+		}
+		return f32(upper) / f32(max(lower, 1))
+	}
+	source := Source{paint = paint, mask = mask}
+	painted := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true}, nil, source = source)
+	defer result_destroy(&painted)
+	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil, source = source)
+	defer result_destroy(&plain)
+	masked := compute(shape_view(&m), 2000, {engine = .Auto, use_mask = true}, nil, source = source)
+	defer result_destroy(&masked)
+	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, mirror = {axes = {true, false, false}}}, nil, source = source)
+	defer result_destroy(&mirrored)
+	if !testing.expect(t, painted.built && plain.built && masked.built && mirrored.built, "nothing built") do return
+	log.infof("paint: %d faces, %.2f times above; plain %d, %.2f; mask %d, %.2f; mirrored paint %d, %.2f", painted.faces, halves(painted.mesh), plain.faces, halves(plain.mesh), masked.faces, halves(masked.mesh), mirrored.faces, halves(mirrored.mesh))
+	for r in ([4]^Result{&painted, &plain, &masked, &mirrored}) {
+		testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
+		testing.expectf(t, r.quads == r.faces, "%d of %d faces are quads", r.quads, r.faces)
+	}
+	testing.expectf(t, halves(painted.mesh) >= 3 && halves(painted.mesh) <= 5, "red above gave %.2f times the quads", halves(painted.mesh))
+	testing.expectf(t, halves(plain.mesh) >= 0.85 && halves(plain.mesh) <= 1.15, "paint not used gave %.2f times the quads", halves(plain.mesh))
+	testing.expectf(t, halves(masked.mesh) >= 1.5 && halves(masked.mesh) <= 2.5, "the mask above gave %.2f times the quads", halves(masked.mesh))
+	testing.expectf(t, halves(mirrored.mesh) >= 3 && halves(mirrored.mesh) <= 5, "red above, mirrored, gave %.2f times the quads", halves(mirrored.mesh))
+}
+
+// Keep groups: a sphere whose top is one polygroup and the rest another hands the border
+// to AutoRemesher as feature edges (one per edge between the groups) and the quads come
+// back as before; with the mirror on, the half's border goes in too. Off, or without
+// groups, nothing is handed over.
+@(test)
+quad_remesh_keeps_group_borders :: proc(t: ^testing.T) {
+	when !quadmesh.AVAILABLE {
+		log.info("quadmesh is not built on this platform")
+		return
+	}
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	groups := make([]u16, len(m.indices) / 3)
+	defer delete(groups)
+	border := 0
+	side := make(map[u64]bool, len(m.indices), context.temp_allocator)
+	for tri in 0 ..< len(groups) {
+		c := (m.positions[m.indices[3 * tri]] + m.positions[m.indices[3 * tri + 1]] + m.positions[m.indices[3 * tri + 2]]) / 3
+		groups[tri] = 1 if c.z > 0.3 else 0
+		for k in 0 ..< 3 {
+			a, b := m.indices[3 * tri + k], m.indices[3 * tri + (k + 1) % 3]
+			key := sculpt.sharp_key(a, b)
+			if other, seen := side[key]; seen {
+				if other != (groups[tri] == 1) do border += 1
+			} else {
+				side[key] = groups[tri] == 1
+			}
+		}
+	}
+	view := shape_view(&m)
+	r := compute(view, 1500, {engine = .Auto, keep_groups = true}, nil, source = {groups = groups})
+	defer result_destroy(&r)
+	if !testing.expect(t, r.built, "nothing built") do return
+	testing.expect_value(t, r.engine, Engine.Auto)
+	testing.expect_value(t, r.features, border)
+	testing.expectf(t, r.quads >= 1350 && r.quads <= 1650 && r.quads == r.faces, "%d quads of %d faces for 1500 asked", r.quads, r.faces)
+	off := compute(view, 1500, {engine = .Auto, keep_groups = false}, nil, source = {groups = groups})
+	defer result_destroy(&off)
+	testing.expect_value(t, off.features, 0)
+	half := compute(view, 1500, {engine = .Auto, keep_groups = true, mirror = {axes = {true, false, false}}}, nil, source = {groups = groups})
+	defer result_destroy(&half)
+	if !testing.expect(t, half.built, "nothing built with the mirror") do return
+	testing.expect(t, half.mirrored, "not mirrored")
+	// The half carries its share of the border and its cap's rim, which goes in as a group border too.
+	testing.expectf(t, half.features > border / 3, "%d feature edges on the half for %d on the whole", half.features, border)
 }

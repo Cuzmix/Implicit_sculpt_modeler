@@ -3336,7 +3336,7 @@ SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top b
 WORKSPACE_CHIP = SPACE_TABS["sculpt"]
 WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
-TOP_UNDO, TOP_SEARCH = (150, 33), At("app island/Search commands", 1336, 30)
+TOP_UNDO, TOP_SEARCH = (150, 33), At("app dock/Search commands", 1336, 30)
 
 
 @scenario
@@ -4936,8 +4936,8 @@ def lens_shift_moves_lined_up_dividers():
 
 # Focus in Lens at 1600 x 900, the three-island top bar: the middle island's workspace chip
 # and X symmetry chip, and the right island's View layout and Passes.
-LENS_FOCUS = {"workspace": At("work island/Workspace", 770, 30), "symmetry": At("work island/Symmetry X", 838, 30),
-              "layout": At("app island/View layout", 1342, 30), "passes": At("app island/Passes", 1392, 30)}
+LENS_FOCUS = {"workspace": At("spaces dock/Workspace", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
+              "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Passes", 1392, 30)}
 
 
 @scenario
@@ -5693,80 +5693,90 @@ def export_sheet_checks_a_print():
     return Steps([run(0), run(1), run(2)])
 
 
-# Lens's Edit docks at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
-# and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
-# Dial tab's Put the dial back, the top bar's Done, the Rail's head, the dial's top sector,
-# and a dock menu's Put back as it comes and Delete dock.
-LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
-                "dial_reset": At("arrange library/Put the dial back as it comes", 520, 712), "done": At("arrange top bar/Done", 1014, 30),
+# Lens's Edit docks at 1440x900 (--script=customise_bars): the top bar's Done, the Rail's
+# head, the dial's top sector, and a dock menu's Put back as it comes and Delete dock.
+LENS_ARRANGE = {"done": At("arrange top bar/Done", 1014, 30),
                 "rail_tag": (1404, 67), "dial_top": (78, 778), "dock_reset": At("dock menu/Put back as it comes", 400, 500),
                 "dock_delete": At("dock menu/Delete dock", 400, 544)}
 
 
+# Settings > Dial's sector rows at 1440x900, found by Search settings: the Top and Bottom
+# sectors' selects, their lists' Choose a command... and Hide, and Put the dial back.
+DIAL_SECTORS = {"top": At("Top sector", 882, 502), "bottom": At("Bottom sector", 882, 606), "choose": At("Top sector/Choose a command...", 882, 772),
+                "hide": At("Bottom sector/Hide", 882, 684), "reset": At("Put the dial back as it comes", 822, 710)}
+
+
+def dial_sectors_shown(s):
+    """Settings opened by the top bar's button and searched for "sector": the Dial section."""
+    s.wait(6)
+    s.ftap(UI["settings"])
+    s.wait(12)
+    s.ftap(LENS_SETTINGS["search"])
+    s.wait(4)
+    s.add("text:sector")
+    s.wait(12)
+
+
 @scenario
-def lens_arrange_dial_sector_runs_a_command():
-    """Library > Dial puts Frame all on the dial's top sector through Search; after Done a tap there frames the scene and latches nothing."""
-    a = LENS_ARRANGE
+def settings_dial_sector_runs_a_command():
+    """Settings > Dial puts Frame all on the dial's top sector through Search; with Settings closed a tap there frames the scene and latches nothing."""
+    d = DIAL_SECTORS
     s = Script()
-    s.wait(6)
-    s.ftap(a["dial_tab"])
-    s.wait(6)
-    s.ftap(a["top"])
-    s.wait(6)
-    s.ftap(a["choose"])
+    dial_sectors_shown(s)
+    s.ftap(d["top"])
+    s.wait(8)
+    s.ftap(d["choose"])
     s.wait(8)
     s.type("frame all")
     s.wait(4)
     s.press("Return")
     s.wait(6)
-    s.ftap(a["done"])
-    s.wait(8)
-    s.ftap(a["dial_top"])
+    s.press("escape")
+    s.wait(10)
+    s.ftap(LENS_ARRANGE["dial_top"])
     s.wait(30)
-    return s, LENS_1440 + ["--script=customise_bars"], {"dial_sectors": lambda v: v.startswith("Frame_All,Brush_Pie"), "rail_latched": is_text("none"),
-                                                        "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1, "dabs": near(0)}
+    return s, LENS_1440, {"dial_sectors": lambda v: v.startswith("Frame_All,Brush_Pie"), "rail_latched": is_text("none"), "settings_open": near(0),
+                          "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1, "dabs": near(0)}
 
 
 @scenario
-def lens_arrange_reset_zone():
-    """A tap on a dock's head opens its menu; with Hide on the dial's bottom sector, the Dial tab's Put the dial back as it comes puts the dial back."""
-    a = LENS_ARRANGE
-    def run(reset):
-        s = Script()
-        s.wait(6)
-        s.ftap(a["rail_tag"])
-        s.wait(4)
-        if not reset:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_pop": is_text("dock_menu"), "dabs": near(0)})
-        s.press("escape")
-        s.wait(4)
-        s.ftap(a["dial_tab"])
-        s.wait(6)
-        s.ftap(a["bottom"])
-        s.wait(6)
-        s.ftap(a["hide"])
-        s.wait(6)
-        s.ftap(a["dial_reset"])
-        s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_resets": near(1), "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
-    return Steps([run(False), run(True)])
-
-
-@scenario
-def lens_arrange_dial_is_the_spaces():
-    """In Model, Library > Dial changes Model's dial: Hide on its bottom sector is Model's alone, which the settings file keeps as a dial_space line."""
-    a = LENS_ARRANGE
+def lens_arrange_head_opens_its_menu():
+    """While editing docks, a tap on a dock's head opens its menu."""
     s = Script()
     s.wait(6)
-    s.ftap(a["dial_tab"])
-    s.wait(6)
-    s.ftap(a["bottom"])
-    s.wait(6)
-    s.ftap(a["hide"])
-    s.wait(6)
-    s.ftap(a["done"])
+    s.ftap(LENS_ARRANGE["rail_tag"])
+    s.wait(4)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_pop": is_text("dock_menu"), "dabs": near(0)})
+
+
+@scenario
+def settings_dial_put_back():
+    """With Hide on the dial's bottom sector, Settings > Dial's Put the dial back as it comes puts the dial back."""
+    d = DIAL_SECTORS
+    s = Script()
+    dial_sectors_shown(s)
+    s.ftap(d["bottom"])
     s.wait(8)
-    return s, LENS_1440 + ["--script=space_switch model; customise_bars", f"--settings-file={settings_file()}"], camera_still({
+    s.ftap(d["hide"])
+    s.wait(8)
+    s.ftap(d["reset"])
+    s.wait(6)
+    return s, LENS_1440, camera_still({"arrange_resets": near(1), "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
+
+
+@scenario
+def settings_dial_is_the_spaces():
+    """In Model, Settings > Dial changes Model's dial: Hide on its bottom sector is Model's alone, which the settings file keeps as a dial_space line."""
+    d = DIAL_SECTORS
+    s = Script()
+    dial_sectors_shown(s)
+    s.ftap(d["bottom"])
+    s.wait(8)
+    s.ftap(d["hide"])
+    s.wait(8)
+    s.press("escape")
+    s.wait(8)
+    return s, LENS_1440 + ["--script=space_switch model", f"--settings-file={settings_file()}"], camera_still({
         "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "dial_spaces": near(1), "dabs": near(0),
         "@saved": saved_line("dial_space Model 2 modifier Hide")})
 
@@ -5781,8 +5791,6 @@ def lens_arrange_drags_the_rail_to_the_left():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(a["dial_tab"])
-    s.wait(4)
     s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
     s.wait(6)
     s.ftap(a["done"])
@@ -5806,8 +5814,6 @@ def lens_arrange_slides_the_shelf_along_the_bottom():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(a["dial_tab"])
-    s.wait(4)
     s.fdrag(line(SHELF_TAG, (80, 862), 30))
     s.wait(6)
     s.ftap(a["done"])
@@ -5829,8 +5835,6 @@ def lens_arrange_floats_the_shelf():
     def run(reset):
         s = Script()
         s.wait(6)
-        s.ftap(a["dial_tab"])
-        s.wait(4)
         s.mouse_drag(line(SHELF_TAG, (700, 700), 30))
         s.wait(6)
         if not reset:
@@ -5842,10 +5846,7 @@ def lens_arrange_floats_the_shelf():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
                                                                              "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
                                                                              "dabs": near(0)})
-        # Wider where it floats, the shelf was kept in the window, its head with it, clear
-        # of the Library, which is put away so the head's tap opens its menu.
-        s.ftap(LIBRARY_AWAY)
-        s.wait(4)
+        # Wider where it floats, the shelf was kept in the window, its head with it.
         s.ftap(At("arrange tag Shelf/Shelf", 600, 700))
         s.wait(6)
         s.ftap(a["dock_reset"])
@@ -5862,8 +5863,6 @@ def lens_arrange_floats_the_island():
     def run(reset):
         s = Script()
         s.wait(6)
-        s.ftap(a["dial_tab"])
-        s.wait(4)
         tag = At("arrange tag Offhand/Brush bar", 44, 338)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
@@ -5885,8 +5884,6 @@ def lens_arrange_pen_drop_left_handed():
     a = LENS_ARRANGE
     s = Script()
     s.wait(6)
-    s.ftap(1440 - a["dial_tab"][0], a["dial_tab"][1])
-    s.wait(4)
     x0, y0 = 1440 - a["rail_tag"][0], a["rail_tag"][1]
     s.add("pnear")
     s.add(f"pdown:{x0},{y0}")
@@ -5922,18 +5919,16 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
         "dock_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
 
 
-ARRANGE_DOCKS_TAB, DOCK_NEW = (542, 180), (520, 260)
-# A new dock floats in the middle, or beside the Library when that would cover it: its
-# first button (or, while empty, its +) is there.
-DOCK_ONE_ADD = (841, 417)
+# The top bar's New dock while editing at 1440x900. A new dock floats in the view's
+# middle: its first button (or, while empty, its +) is there.
+DOCK_NEW = At("arrange top bar/New dock", 578, 30)
+DOCK_ONE_ADD = (721, 417)
 
 
 @scenario
-def dock_new_from_the_library():
-    """Library > Docks > New dock makes Dock 1 floating in the middle with Arrange still on; its + picks Frame all in Search, and after Done a tap on the dock's button frames the scene."""
+def dock_new_from_the_top_bar():
+    """While editing, the top bar's New dock makes Dock 1 floating in the middle with editing still on; its + picks Frame all in Search, and after Done a tap on the dock's button frames the scene."""
     s = Script()
-    s.wait(6)
-    s.ftap(ARRANGE_DOCKS_TAB)
     s.wait(6)
     s.ftap(DOCK_NEW)
     s.wait(8)
@@ -5948,20 +5943,18 @@ def dock_new_from_the_library():
     s.ftap(DOCK_ONE_ADD)
     s.wait(10)
     return s, LENS_1440 + ["--script=customise_bars"], {"user_docks": is_text("1:1"), "docks_made": near(1), "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1,
-                                                          "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 814) < 2, "dabs": near(0)}
+                                                          "layout_user_dock_1": lambda v: abs(float(v.split(",")[0]) - 694) < 2, "dabs": near(0)}
 
 
 def dock_made(s):
-    """Library > Docks > New dock, from Arrange with the Library open."""
-    s.wait(6)
-    s.ftap(ARRANGE_DOCKS_TAB)
+    """The top bar's New dock, while editing docks."""
     s.wait(6)
     s.ftap(DOCK_NEW)
     s.wait(8)
 
 
 # The new dock's head, over its top-left.
-DOCK_ONE_TAG = (848, 386)
+DOCK_ONE_TAG = (680, 386)
 # A dock's ⋯ and its menu's More lines.
 DOCK_ONE_MORE, DOCK_MORE_LINES = At("user dock 1/More", 800, 440), At("More lines", 900, 440)
 
@@ -5974,8 +5967,8 @@ def dock_carried_to_the_left_edge():
     s.mouse_drag(line(DOCK_ONE_TAG, ARRANGE_LEFT_MID, 30))
     s.wait(6)
     return s, LENS_1440 + ["--script=customise_bars"], camera_still({
-        "dock_places": lambda v: v.startswith("offhand:float:814,390,") and ",dock1:left:" in v, "bar_carries": near(1),
-        "layout_user_dock_1": lambda v: float(v.split(",")[0]) < 40, "layout_brush_bar": lambda v: float(v.split(",")[0]) > 800, "dabs": near(0)})
+        "dock_places": lambda v: v.startswith("offhand:float:694,390,") and ",dock1:left:" in v, "bar_carries": near(1),
+        "layout_user_dock_1": lambda v: float(v.split(",")[0]) < 40, "layout_brush_bar": lambda v: float(v.split(",")[0]) > 600, "dabs": near(0)})
 
 
 @scenario
@@ -6042,8 +6035,6 @@ def dock_floats_in_line_with_its_neighbour():
     """The mouse carries a new dock's head to float with its top a few points off the Brush bar's: it lets go lined up with it."""
     s = Script()
     dock_made(s)
-    s.ftap(LIBRARY_AWAY)
-    s.wait(6)
     s.mouse_drag(line(DOCK_ONE_TAG, (500, 342), 30))
     s.wait(6)
     return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_aligns": near(1), "dock_places": lambda v: ",dock1:float:" in v, "dabs": near(0)})
@@ -6051,18 +6042,17 @@ def dock_floats_in_line_with_its_neighbour():
 
 @scenario
 def dock_new_left_handed_by_pen():
-    """Left-handed, the pen taps Library > Docks > New dock: the Library stands right of the middle, so the new dock floats left of it, and stays in the window."""
+    """Left-handed, the pen taps the top bar's New dock: the new dock floats in the view's middle."""
     s = Script()
     s.wait(6)
     s.add("pnear")
-    for x, y in [(1440 - ARRANGE_DOCKS_TAB[0], ARRANGE_DOCKS_TAB[1]), (1440 - DOCK_NEW[0], DOCK_NEW[1])]:
-        s.add(f"pdown:{x},{y}")
-        s.wait(2)
-        s.add("pup")
-        s.wait(6)
+    s.add(f"pdown:{DOCK_NEW[0]},{DOCK_NEW[1]}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(6)
     def dock(v):
         x, _, w, _ = (float(n) for n in v.split(","))
-        return 0 <= x and x + w <= 1440 - 790
+        return 600 < x and x + w < 840
     return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({"user_docks": is_text("1:0"), "layout_user_dock_1": dock, "dabs": near(0)})
 
 
@@ -6085,16 +6075,11 @@ def dock_stays_with_its_space():
     return Steps([run(False), run(True)])
 
 
-# The chip bar's sections in Arrange at 1440x900 (PR 14): Undo and Redo's middle, where an
-# island dropped in the view stands (its Redo button's middle), and Library > Docks' chip bar
-# toggles for Spaces, with the Model tab of the Spaces island it makes.
-# Undo stands after the file island's grip while arranging.
-CHIP_UNDO, CHIP_DROP, CHIP_ISLAND_REDO = (268, 30), (700, 420), (730, 424)
-# The file island's grip while arranging, and the bar's end corner it is carried to.
-GRIP_FILE, BAR_END = At("top bar/file island/grip file", 22, 30), (1380, 30)
-CHIP_SPACES_TOGGLE, CHIP_SPACES_MODEL = (692, 408), At("chip island spaces/Model", 789, 80)
-# The Library's close button.
-LIBRARY_AWAY = (753, 129)
+# The top bar's docks while editing at 1440x900: the File dock's Save, a spot on the App
+# dock's History (its end half), the App dock's +, and the Library's Wireframe.
+TOP_SAVE, TOP_HISTORY_END = At("top bar/file dock/Save scene", 149, 30), (1318, 30)
+TOP_APP_ADD = At("top bar/app dock/Add a button", 1406, 30)
+PICKER_WIREFRAME = At("sheet button/Wireframe", 1300, 160)
 
 
 def settings_hold(text):
@@ -6105,62 +6090,32 @@ def settings_hold(text):
 
 
 @scenario
-def chip_section_dragged_out_of_the_bar():
-    """In Arrange a finger drags Undo and Redo out of the chip bar into the view: after Done they stand there as an island, the bar closes up without them, and the settings file keeps the island."""
+def top_dock_button_carried_to_another_dock():
+    """Editing the docks, a finger carries Save from the top bar's File dock onto the App dock after History: it stands there, off the File dock, and the settings file keeps it."""
     s = Script()
     s.wait(6)
-    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
+    s.fdrag(line(TOP_SAVE, TOP_HISTORY_END, 30))
     s.wait(6)
     s.press("Escape")
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "chip_islands": lambda v: v.startswith("undo:6") and ":39" in v, "chip_carries": near(1), "bars_edit": near(0),
-        "layout_top_bar": is_text("8,4,1424,48"), "dabs": near(0), "@saved": settings_hold("chip_island undo ")})
+        "top_file": is_text("Main_Menu,File_Chip,Undo,Redo"), "top_app": is_text("Command_Palette,History_Panel,Save_Scene,Settings"),
+        "dabs": near(0), "@saved": settings_hold("bar top_app")})
 
 
 @scenario
-def top_island_carried_to_the_end_corner():
-    """In Arrange a finger drags the file island by its grip to the bar's end corner: it snaps there, Search's island takes its old corner, and the settings file keeps the order."""
+def top_dock_add_opens_the_library():
+    """Editing the docks, the App dock's + opens the Library on its Commands; Wireframe found by typing goes at the dock's end."""
     s = Script()
     s.wait(6)
-    s.fdrag(line(GRIP_FILE, BAR_END, 30))
+    s.ftap(TOP_APP_ADD)
     s.wait(6)
-    s.press("Escape")
-    s.wait(8)
-    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "top_order": is_text("app,work,file"), "island_carries": near(1), "chip_islands": is_text("none"), "bars_edit": near(0),
-        "dabs": near(0), "@saved": settings_hold("top_order app work file")})
-
-
-@scenario
-def chip_island_dragged_back_onto_the_bar():
-    """The mouse drags the Undo island it made back onto the chip bar: the section is in the bar again and nothing stands on its own."""
-    s = Script()
+    s.type("wiref")
+    s.wait(4)
+    s.ftap(PICKER_WIREFRAME)
     s.wait(6)
-    s.fdrag(line(CHIP_UNDO, CHIP_DROP, 30))
-    s.wait(8)
-    # The Library is put away first, as it covers the island.
-    s.ftap(LIBRARY_AWAY)
-    s.wait(6)
-    s.mouse_drag(line(CHIP_ISLAND_REDO, (600, 30), 30))
-    s.wait(6)
-    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"chip_islands": is_text("none"), "chip_carries": near(2), "dabs": near(0)})
-
-
-@scenario
-def chip_section_library_toggle_makes_a_working_island():
-    """Library > Docks' Spaces toggle stands the space tabs on their own under the bar; after Done a tap on the island's Model tab switches to Model, and the island stays (the chip bar is every space's)."""
-    s = Script()
-    s.wait(6)
-    s.ftap(ARRANGE_DOCKS_TAB)
-    s.wait(6)
-    s.ftap(CHIP_SPACES_TOGGLE)
-    s.wait(6)
-    s.press("Escape")
-    s.wait(8)
-    s.ftap(CHIP_SPACES_MODEL)
-    s.wait(8)
-    return s, LENS_1440 + ["--script=customise_bars"], {"chip_islands": lambda v: v.startswith("spaces:") and v.endswith(":58"), "space": is_text("model"), "dabs": near(0)}
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({
+        "library_for": is_text("top_app"), "library_puts": near(1), "top_app": is_text("Command_Palette,History_Panel,Settings,Wireframe"), "dabs": near(0)})
 
 
 @scenario
@@ -6170,8 +6125,6 @@ def lens_arrange_place_stays_with_its_space():
     def run(back):
         s = Script()
         s.wait(6)
-        s.ftap(a["dial_tab"])
-        s.wait(4)
         s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
         s.wait(6)
         s.ftap(a["done"])
@@ -8723,15 +8676,15 @@ def stroke_on_another_object_keeps_to_the_selected():
 # of the Library's cards, and the rail's button the Symmetry card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 254)
 RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
-PICKER_SYMMETRY = At("sheet button/Show_Panel/Symmetry", 1300, 160)
-PICKER_LIGHTS = At("sheet button/Show_Panel/Lights", 1300, 160)
-RAIL_SYMMETRY = At("view bar/Symmetry", 1563, 229)
+PICKER_TOOLS = At("sheet button/Show_Panel/Tools", 1300, 160)
+PICKER_ENVIRONMENT = At("sheet button/Show_Panel/Environment", 1300, 160)
+RAIL_TOOLS = At("view bar/Tools", 1563, 373)
 
 
 @scenario
 def rail_panels_picker_adds_a_card():
     """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
-    Symmetry and Lights cards: both go on the rail. The Symmetry button the rail gets docks the Symmetry card in the panels' column; nothing
+    Tools and Environment cards: both go on the rail. The Tools button the rail gets docks the Tools card in the panels' column; nothing
     turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
@@ -8739,22 +8692,22 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_ADD_CARDS)
     s.wait(6)
     # Its search field has the keys: a few letters bring each card into sight.
-    s.type("symm")
+    s.type("tool")
     s.wait(4)
-    s.ftap(PICKER_SYMMETRY)
+    s.ftap(PICKER_TOOLS)
     s.wait(4)
     for _ in range(4):
         s.press("Backspace")
-    s.type("light")
+    s.type("envir")
     s.wait(4)
-    s.ftap(PICKER_LIGHTS)
+    s.ftap(PICKER_ENVIRONMENT)
     s.wait(4)
     s.press("escape")
     s.wait(6)
-    s.ftap(RAIL_SYMMETRY)
+    s.ftap(RAIL_TOOLS)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Symmetry"), "library_puts": near(2),
-                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")})
+    return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Tools"), "library_puts": near(2),
+                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools,Show_Panel:Environment")})
 
 
 @scenario
