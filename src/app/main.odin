@@ -799,7 +799,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
-	app.skin_auto = true
+	app.skin_auto = false // a skin built at a press stalls that stroke, so it is added by hand unless asked for
 	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
