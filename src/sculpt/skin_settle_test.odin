@@ -40,7 +40,7 @@ settle_stroke :: proc(s: ^Sculptor, edge: f32) {
 	at := linalg.normalize(Vec3{0.1, 0.2, 1})
 	// A broad skin-only rise, several edges wide, as a stroke under Detail goes to Skin
 	// before a switch to Auto would leave it.
-	for _ in 0 ..< 4 do _ = apply_dab(s, {kind = .Draw, radius = 3 * edge, strength = 1, skin = true}, at)
+	for _ in 0 ..< 2 do _ = apply_dab(s, {kind = .Draw, radius = 5 * edge, strength = 1, skin = true}, at)
 }
 
 @(test)
