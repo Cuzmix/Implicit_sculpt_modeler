@@ -48,10 +48,12 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The positions and normals a stroke's earlier frames read back land in the mesh
 	// before the dabs, and the bounds of what landed are refit.
 	render.sculpt_gpu_frame(&app.renderer)
+	land_start := time.tick_now()
 	sculpt_gpu_landed(app)
 	if sg := app.renderer.sculpt_gpu.stats; sg.applied {
 		ring_push(&app.stats.gpu_sculpt_kb, sg.applied_kb)
 		ring_push(&app.stats.gpu_sculpt_apply_ms, sg.apply_ms)
+		ring_push(&app.stats.gpu_sculpt_land_ms, time.duration_milliseconds(time.tick_since(land_start)))
 	}
 	setting_up := frame_settle(app, loop) or_return
 	// Wait for the display, or the frame rate limit, and while timing the GPU for the

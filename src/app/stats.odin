@@ -49,10 +49,11 @@ Frame_Stats :: struct {
 	upload_kb:  Sample_Ring,
 	latency_ms: Sample_Ring, // newest input event to command buffer submit
 	display_ms: Sample_Ring, // newest input event to the frame on the screen, where the backend can tell (render.Present_Timing)
-	// Sculpt on the GPU, on frames a readback of normals landed: its packed normals and
-	// the time to decode them into the mesh.
+	// Sculpt on the GPU, on frames a readback landed: its size, the time to copy it into
+	// the mesh and the time to refit the bounds of what landed (sculptor_positions_landed).
 	gpu_sculpt_kb:       Sample_Ring,
 	gpu_sculpt_apply_ms: Sample_Ring,
+	gpu_sculpt_land_ms:  Sample_Ring,
 	dabs_total: int,
 	viewport:      render.Viewport_Stats, // last frame
 	cache_redraws: int,
