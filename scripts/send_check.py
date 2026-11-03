@@ -9,7 +9,7 @@ sender as a tablet runs it, over loopback.
    its own; a sender makes a sphere, sends it with --send-to and saves it. The two have
    never met, so they pair first: both logs must show the same six digits. Every chunk
    goes over, the receiver opens the scene and exits, and both print the same file hash
-   and the same mesh.
+   and the same mesh; the chunks go over shuffled and LZ4-coded, well under the file's size.
 2. A new receiver in the same folder, and the saved scene sent again by a new sender in
    its folder: they are paired already, so no code is shown, and the receiver builds the
    file from the copy it kept, so fewer chunks than the file has go over. The hashes and
@@ -156,6 +156,9 @@ def main():
     check("first: paired with the same code on both", codes_s and codes_s == codes_r, f"{codes_s} {codes_r}")
     went, total = chunks(r_log)
     check("first: every chunk went over", went is not None and went == total, f"{went} of {total}")
+    wire = int(stat(s_log, "send_wire_bytes") or 0)
+    size = os.path.getsize(scene) if os.path.exists(scene) else 0
+    check("first: the chunks went over packed, well under the file", 0 < wire < size * 0.7, f"{wire} of {size} bytes")
 
     s_log, r_log = round_trip(env, "again", ["--open=" + scene])
     check("again: no pairing", "Pairing with" not in s_log and "Paired with" not in r_log)

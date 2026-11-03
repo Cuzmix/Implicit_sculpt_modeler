@@ -21,6 +21,54 @@ send_header :: proc() {
 	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
+// The second table: every chunk of the first file compressed on its own, as a send would,
+// with LZ4 as it is and after shuffle4, on one thread: the share of the bytes left, the
+// coder's speed, and the decoder's.
+send_rows: [dynamic]string
+
+send_footer :: proc() {
+	fmt.println()
+	fmt.println("| Vertices | LZ4 left | LZ4 MB/s | Shuffled LZ4 left | Shuffle + LZ4 MB/s | Unshuffle + decode MB/s |")
+	fmt.println("| --- | --- | --- | --- | --- | --- |")
+	for row in send_rows {
+		fmt.println(row)
+		delete(row)
+	}
+	delete(send_rows)
+}
+
+@(private = "file")
+send_compression :: proc(vcount: int, data: []u8, chunks: []send.Chunk) {
+	out := make([]u8, send.lz4_bound(send.CHUNK_MAX))
+	defer delete(out)
+	shuffled := make([]u8, send.CHUNK_MAX)
+	defer delete(shuffled)
+	back := make([]u8, send.CHUNK_MAX)
+	defer delete(back)
+	plain_bytes, shuffled_bytes := 0, 0
+	t0 := time.tick_now()
+	for c in chunks do plain_bytes += send.lz4_compress(data[c.offset:][:c.size], out)
+	plain_ms := time.duration_milliseconds(time.tick_since(t0))
+	decode: time.Duration
+	t1 := time.tick_now()
+	for c in chunks {
+		piece := data[c.offset:][:c.size]
+		send.shuffle4(piece, shuffled[:c.size])
+		n := send.lz4_compress(shuffled[:c.size], out)
+		shuffled_bytes += n
+		td := time.tick_now()
+		m, ok := send.lz4_decompress(out[:n], shuffled[:c.size])
+		send.unshuffle4(shuffled[:c.size], back[:c.size])
+		decode += time.tick_since(td)
+		assert(ok && m == int(c.size) && string(back[:c.size]) == string(piece))
+	}
+	shuffled_ms := time.duration_milliseconds(time.tick_since(t1)) - time.duration_milliseconds(decode)
+	mb := f64(len(data)) / (1 << 20)
+	append(&send_rows, fmt.aprintf("| %s | %.0f%% | %.0f | %.0f%% | %.0f | %.0f |", thousands(vcount),
+		100 * f64(plain_bytes) / f64(len(data)), mb / (plain_ms / 1000), 100 * f64(shuffled_bytes) / f64(len(data)),
+		mb / (shuffled_ms / 1000), mb / (time.duration_milliseconds(decode) / 1000)))
+}
+
 run_send :: proc(target: int, pool: ^jobs.Pool) {
 	l: sculpt.Levels
 	sculpt.levels_init(&l, geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool), pool, node_triangles)
@@ -43,6 +91,7 @@ run_send :: proc(target: int, pool: ^jobs.Pool) {
 	assert(len(pooled) == len(base))
 	for c, i in pooled do assert(c == base[i])
 	delete(pooled)
+	send_compression(vcount, before[:], base)
 
 	// One stroke across the front, as the brush bench lays it.
 	s := &l.levels[0].sculptor

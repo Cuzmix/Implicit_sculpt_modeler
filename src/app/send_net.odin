@@ -386,6 +386,10 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 	sync.lock(&sh.lock)
 	sh.done, sh.total = 0, max(total, 1)
 	sync.unlock(&sh.lock)
+	scratch: send.Chunk_Scratch
+	defer send.chunk_scratch_destroy(&scratch)
+	// What crossed the network: the chunks as packed.
+	wire := 0
 	for i, k in need {
 		if sh.cut_after > 0 && k == sh.cut_after {
 			// As if the network went: the connection closes with no word to the receiver.
@@ -399,7 +403,8 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		}
 		ch := chunks[i]
 		clear(&body)
-		send.chunk_put(&body, i, job.data[ch.offset:][:ch.size])
+		send.chunk_put(&body, i, job.data[ch.offset:][:ch.size], &scratch)
+		wire += len(body)
 		if !conn_send(&c, .Chunk, body[:]) {
 			// The receiver keeps what came, so the next send asks only for the rest.
 			send_event(sh, .Warning, "", 0, "The connection to %s dropped after %d of %d chunks: Send again to carry on", theirs.name, k, len(need))
@@ -415,7 +420,8 @@ send_run :: proc(sh: ^Send_Shared, job: ^Send_Job) {
 		return
 	}
 	hd := fmt.tprintf("; the HD detail of %d objects stays here, as with Save", job.hd_dropped) if job.hd_dropped > 0 else ""
-	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %s, %d of %d chunks went over%s", theirs.name, export_size_label(len(job.data)), len(need), len(chunks), hd)
+	sync.atomic_add(&sh.wire_bytes, wire)
+	send_event(sh, .Sent, "", send_hash(offer.hash), "Sent the scene to %s: %s, %d of %d chunks went over as %s%s", theirs.name, export_size_label(len(job.data)), len(need), len(chunks), export_size_label(wire), hd)
 }
 
 @(private = "file")
@@ -668,11 +674,13 @@ receive_file :: proc(c: ^Conn, offer: send.Offer, path: string) -> (done: string
 	out := make([dynamic]u8, context.temp_allocator)
 	send.need_put(&out, need)
 	if !conn_send(c, .Need, out[:]) do return "", "the sender left"
+	scratch: send.Chunk_Scratch
+	defer send.chunk_scratch_destroy(&scratch)
 	for !send.rebuild_done(&r) {
 		kind, body, why, ok := conn_next(c)
 		if !ok do return "", send.REFUSAL_TEXT[why] if why != .None else "the sender left"
 		if kind != .Chunk do return "", send.REFUSAL_TEXT[.Damaged]
-		index, bytes, cok := send.chunk_get(body)
+		index, bytes, _, cok := send.chunk_get(body, offer, &scratch)
 		if !cok do return "", send.REFUSAL_TEXT[.Damaged]
 		switch send.rebuild_take(&r, index, bytes) {
 		case .Ok:

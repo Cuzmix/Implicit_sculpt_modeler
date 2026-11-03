@@ -219,17 +219,71 @@ need_get :: proc(body: []u8, o: Offer, allocator := context.allocator) -> (indic
 	return indices, true
 }
 
-chunk_put :: proc(out: ^[dynamic]u8, index: u32, data: []u8) {
-	put_u32(out, index)
-	append(out, ..data)
+// How a chunk travels: as it is, or shuffled and LZ4-coded when that leaves at most
+// PACK_KEEP of it (bench --send: about half of a scene file's chunk).
+Packing :: enum u8 {
+	Raw,
+	Shuffled_Lz4,
 }
 
+// A coded chunk is sent only when it is at most this share of the chunk, in eighths: less
+// saved than that is not worth the receiver's decoding.
+@(private = "file")
+PACK_KEEP_EIGHTHS :: 7
+
+// Scratch the coder and decoder reuse from chunk to chunk; chunk_scratch_destroy frees it.
+Chunk_Scratch :: struct {
+	shuffled: [dynamic]u8,
+	packed:   [dynamic]u8,
+}
+
+chunk_scratch_destroy :: proc(s: ^Chunk_Scratch) {
+	delete(s.shuffled)
+	delete(s.packed)
+	s^ = {}
+}
+
+// A chunk's frame body: its index, how it is packed, then its bytes, shuffled and coded
+// when that saves enough.
+chunk_put :: proc(out: ^[dynamic]u8, index: u32, data: []u8, scratch: ^Chunk_Scratch) {
+	put_u32(out, index)
+	resize(&scratch.shuffled, len(data))
+	resize(&scratch.packed, lz4_bound(len(data)))
+	shuffle4(data, scratch.shuffled[:])
+	n := lz4_compress(scratch.shuffled[:], scratch.packed[:])
+	if n * 8 <= len(data) * PACK_KEEP_EIGHTHS {
+		append(out, u8(Packing.Shuffled_Lz4))
+		append(out, ..scratch.packed[:n])
+	} else {
+		append(out, u8(Packing.Raw))
+		append(out, ..data)
+	}
+}
+
+// A chunk read from body against the offer it belongs to, decoded when coded; data
+// points into body or scratch. False when the index is not the offer's or the bytes do
+// not decode to the chunk's size (its hash is checked by rebuild_take).
 @(require_results)
-chunk_get :: proc(body: []u8) -> (index: u32, data: []u8, ok: bool) {
-	if len(body) < 4 do return 0, nil, false
+chunk_get :: proc(body: []u8, offer: Offer, scratch: ^Chunk_Scratch) -> (index: u32, data: []u8, packing: Packing, ok: bool) {
+	if len(body) < 5 do return 0, nil, .Raw, false
 	r := reader(body)
 	index = get_u32(&r)
-	return index, body[4:], true
+	if int(index) >= len(offer.chunks) || body[4] > u8(max(Packing)) do return 0, nil, .Raw, false
+	packing = Packing(body[4])
+	bytes := body[5:]
+	size := int(offer.chunks[index].size)
+	switch packing {
+	case .Raw:
+		return index, bytes, packing, len(bytes) == size
+	case .Shuffled_Lz4:
+		resize(&scratch.packed, size)
+		resize(&scratch.shuffled, size)
+		n := lz4_decompress(bytes, scratch.packed[:]) or_return
+		if n != size do return 0, nil, packing, false
+		unshuffle4(scratch.packed[:], scratch.shuffled[:])
+		return index, scratch.shuffled[:], packing, true
+	}
+	return 0, nil, .Raw, false
 }
 
 // Rebuilds an offered file on the receiving side from the chunks of a file it already
