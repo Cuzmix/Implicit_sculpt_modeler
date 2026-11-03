@@ -91,7 +91,7 @@ vdm_capture :: proc(s: ^Sculptor, pixels := VDM_CAPTURE_SIZE, allocator := conte
 		if h.tri == max(u32) do continue
 		i, j := k % size, k / size
 		rest := Vec3{mid.x + (2 * f32(i) / last - 1) * half, level, mid.z - (1 - 2 * f32(j) / last) * half}
-		off := vdm_capture_point(s, h.tri, h.b1, h.b2) - rest
+		off := skin_surface_at(s, h.tri, h.b1, h.b2) - rest
 		// Into the stamp's frame (x right, y up the image, z out), in radii.
 		vectors[k] = Vec3{off.x, -off.z, off.y} / half
 	}
@@ -99,30 +99,4 @@ vdm_capture :: proc(s: ^Sculptor, pixels := VDM_CAPTURE_SIZE, allocator := conte
 	a, ok = alpha_from_vectors(vectors, size, size, allocator)
 	if !ok do return {}, "the capture is empty"
 	return a, ""
-}
-
-// The surface's point at barycentric (b1, b2) of triangle t: on the detail skin where the
-// object has one, between the three samples of the skin's cell around it, else on the
-// triangle.
-@(private = "file")
-vdm_capture_point :: proc(s: ^Sculptor, t: u32, b1, b2: f32) -> Vec3 {
-	P := s.mesh.positions[:]
-	I := s.mesh.indices[:]
-	sk := s.skin
-	if sk == nil {
-		p0 := P[I[3 * t]]
-		return p0 + (P[I[3 * t + 1]] - p0) * b1 + (P[I[3 * t + 2]] - p0) * b2
-	}
-	S := sk.segments
-	fi, fj := clamp(b1, 0, 1) * f32(S), clamp(b2, 0, 1) * f32(S)
-	i0 := min(u32(fi), S - 1)
-	j0 := min(u32(fj), S - 1 - i0)
-	u, v := fi - f32(i0), fj - f32(j0)
-	if u + v <= 1 || i0 + j0 == S - 1 {
-		// The cell's lower triangle, the only one on the triangle's far edge.
-		c := skin_point(s, sk, t, i0, j0)
-		return c + (skin_point(s, sk, t, i0 + 1, j0) - c) * u + (skin_point(s, sk, t, i0, j0 + 1) - c) * v
-	}
-	c := skin_point(s, sk, t, i0 + 1, j0 + 1)
-	return c + (skin_point(s, sk, t, i0, j0 + 1) - c) * (1 - u) + (skin_point(s, sk, t, i0 + 1, j0) - c) * (1 - v)
 }

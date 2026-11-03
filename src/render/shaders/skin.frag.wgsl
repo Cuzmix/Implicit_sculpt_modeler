@@ -1,4 +1,4 @@
-// slangc wgsl from skin.frag.spv sha256 ea1e1a6051657ff6a87c2ac324bf44da2f58c43a09339b57fda4466030bfaf97
+// slangc wgsl from skin.frag.spv sha256 b7cdcf816b024bcc6392a9ac664ba84b89893fe7edb88dff4e357facc885483b
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -198,7 +198,7 @@ fn skin_view_normal_0() -> vec3<f32>
     var E_1 : u32 = frag_in_0.skin_meta_0.z;
     var tri_1 : u32 = frag_in_0.skin_tri_0.x;
     var rec_0 : vec4<u32> = skin_tris_0[tri_1];
-    var lead_0 : u32 = rec_0.w;
+    var lead_0 : u32 = ((rec_0.w) & (u32(3)));
     var gb_0 : vec3<f32> = frag_in_0.bary_0;
     var gv_0 : vec3<u32> = frag_in_0.skin_tri_0.yzw;
     var b_0 : vec3<f32>;
@@ -327,7 +327,27 @@ fn skin_detail_color_0( n_2 : vec3<f32>,  v_3 : vec3<f32>) -> vec3<f32>
     }
     var t_0 : vec3<f32> = normalize(cross(ref_1, m_0));
     var _S28 : vec3<f32> = vec3<f32>(0.5f);
-    return (vec3<f32>(clamp(2.0f * dot(s_0, t_0), -1.0f, 1.0f), clamp(2.0f * dot(s_0, cross(m_0, t_0)), -1.0f, 1.0f), dot(s_0, m_0)) * _S28 + _S28) * vec3<f32>((0.69999998807907104f + 0.30000001192092896f * clamp(dot(flat_n_1, v_3), 0.0f, 1.0f)));
+    var rgb_0 : vec3<f32> = vec3<f32>(clamp(2.0f * dot(s_0, t_0), -1.0f, 1.0f), clamp(2.0f * dot(s_0, cross(m_0, t_0)), -1.0f, 1.0f), dot(s_0, m_0)) * _S28 + _S28;
+    var heat_0 : u32 = ((skin_tris_0[frag_in_0.skin_tri_0.x].w) >> (u32(16)));
+    var rgb_1 : vec3<f32>;
+    if(heat_0 > u32(0))
+    {
+        var h_0 : f32 = f32(heat_0 - u32(1)) / 65534.0f;
+        if(h_0 < 0.5f)
+        {
+            rgb_1 = mix(vec3<f32>(0.15000000596046448f, 0.75f, 0.25f), vec3<f32>(0.94999998807907104f, 0.85000002384185791f, 0.20000000298023224f), vec3<f32>((h_0 * 2.0f)));
+        }
+        else
+        {
+            rgb_1 = mix(vec3<f32>(0.94999998807907104f, 0.85000002384185791f, 0.20000000298023224f), vec3<f32>(0.89999997615814209f, 0.15000000596046448f, 0.10000000149011612f), vec3<f32>((h_0 * 2.0f - 1.0f)));
+        }
+        rgb_1 = mix(rgb_0, rgb_1, vec3<f32>(0.69999998807907104f));
+    }
+    else
+    {
+        rgb_1 = rgb_0;
+    }
+    return rgb_1 * vec3<f32>((0.69999998807907104f + 0.30000001192092896f * clamp(dot(flat_n_1, v_3), 0.0f, 1.0f)));
 }
 
 fn opacity_0() -> f32
@@ -417,12 +437,12 @@ fn direct_sized_0( n_3 : vec3<f32>,  v_4 : vec3<f32>,  l_2 : vec3<f32>,  ls_0 : 
     {
         return color_0;
     }
-    var h_0 : vec3<f32> = normalize(ls_0 + v_4);
+    var h_1 : vec3<f32> = normalize(ls_0 + v_4);
     var _S36 : f32 = max(dot(n_3, v_4), 0.00009999999747379f);
-    var _S37 : f32 = max(dot(n_3, h_0), 0.0f);
+    var _S37 : f32 = max(dot(n_3, h_1), 0.0f);
     var a2_0 : f32 = a_1 * a_1;
     var d_1 : f32 = _S37 * _S37 * (a2_0 - 1.0f) + 1.0f;
-    return color_0 + vec3<f32>((a2_0 / (3.14159274101257324f * d_1 * d_1) * widened_0(a_1, spread_3) * (0.5f / max(mix(2.0f * _S35 * _S36, _S35 + _S36, a_1), 0.00009999999747379f)))) * (f0_0 + (vec3<f32>(1.0f) - f0_0) * vec3<f32>(pow(1.0f - max(dot(v_4, h_0), 0.0f), 5.0f))) * vec3<f32>(_S35) * vec3<f32>(shine_0);
+    return color_0 + vec3<f32>((a2_0 / (3.14159274101257324f * d_1 * d_1) * widened_0(a_1, spread_3) * (0.5f / max(mix(2.0f * _S35 * _S36, _S35 + _S36, a_1), 0.00009999999747379f)))) * (f0_0 + (vec3<f32>(1.0f) - f0_0) * vec3<f32>(pow(1.0f - max(dot(v_4, h_1), 0.0f), 5.0f))) * vec3<f32>(_S35) * vec3<f32>(shine_0);
 }
 
 fn direct_0( n_4 : vec3<f32>,  v_5 : vec3<f32>,  l_3 : vec3<f32>,  diffuse_1 : vec3<f32>,  f0_1 : vec3<f32>,  a_2 : f32,  shine_1 : f32) -> vec3<f32>
@@ -432,12 +452,12 @@ fn direct_0( n_4 : vec3<f32>,  v_5 : vec3<f32>,  l_3 : vec3<f32>,  diffuse_1 : v
     {
         return vec3<f32>(0.0f);
     }
-    var h_1 : vec3<f32> = normalize(l_3 + v_5);
+    var h_2 : vec3<f32> = normalize(l_3 + v_5);
     var _S39 : f32 = max(dot(n_4, v_5), 0.00009999999747379f);
-    var _S40 : f32 = max(dot(n_4, h_1), 0.0f);
+    var _S40 : f32 = max(dot(n_4, h_2), 0.0f);
     var a2_1 : f32 = a_2 * a_2;
     var d_2 : f32 = _S40 * _S40 * (a2_1 - 1.0f) + 1.0f;
-    return (diffuse_1 / vec3<f32>(3.14159274101257324f) + vec3<f32>((a2_1 / (3.14159274101257324f * d_2 * d_2) * (0.5f / max(mix(2.0f * _S38 * _S39, _S38 + _S39, a_2), 0.00009999999747379f)))) * (f0_1 + (vec3<f32>(1.0f) - f0_1) * vec3<f32>(pow(1.0f - max(dot(v_5, h_1), 0.0f), 5.0f))) * vec3<f32>(shine_1)) * vec3<f32>(_S38);
+    return (diffuse_1 / vec3<f32>(3.14159274101257324f) + vec3<f32>((a2_1 / (3.14159274101257324f * d_2 * d_2) * (0.5f / max(mix(2.0f * _S38 * _S39, _S38 + _S39, a_2), 0.00009999999747379f)))) * (f0_1 + (vec3<f32>(1.0f) - f0_1) * vec3<f32>(pow(1.0f - max(dot(v_5, h_2), 0.0f), 5.0f))) * vec3<f32>(shine_1)) * vec3<f32>(_S38);
 }
 
 fn env_brdf_0( n_dot_v_0 : f32,  rough_0 : f32) -> vec2<f32>
@@ -867,19 +887,19 @@ fn main( _S50 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
         var lit_1 : vec3<f32> = color_2 + Material_Uniforms_0.light_color_0[i_2].xyz * vec3<f32>((max((dot(n_9, l_5) + _S74) / (1.0f + _S74), 0.0f) * s_4));
         var _S80 : vec3<f32> = normalize(l_5 + v_6);
         var shrink_0 : f32 = 1.0f + Material_Uniforms_0.light_extra_0[i_2].x;
-        var h_2 : vec3<f32>;
+        var h_3 : vec3<f32>;
         if(spread_5 > 0.0f)
         {
             var shrink_1 : f32 = shrink_0 * widened_0(sqrt(2.0f / (shading_0.z + 2.0f)), spread_5);
-            h_2 = normalize(nearest_in_light_0(l_5, _S78, spread_5) + v_6);
+            h_3 = normalize(nearest_in_light_0(l_5, _S78, spread_5) + v_6);
             k_3 = shrink_1;
         }
         else
         {
-            h_2 = _S80;
+            h_3 = _S80;
             k_3 = shrink_0;
         }
-        var spec_0 : vec3<f32> = lit_0 + Material_Uniforms_0.light_color_0[i_2].xyz * vec3<f32>((pow(max(dot(n_9, h_2), 0.0f), shading_0.z) * shading_0.y * s_4 * k_3));
+        var spec_0 : vec3<f32> = lit_0 + Material_Uniforms_0.light_color_0[i_2].xyz * vec3<f32>((pow(max(dot(n_9, h_3), 0.0f), shading_0.z) * shading_0.y * s_4 * k_3));
         color_2 = lit_1;
         lit_0 = spec_0;
         i_2 = i_2 + i32(1);
