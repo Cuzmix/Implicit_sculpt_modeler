@@ -36,11 +36,11 @@ pin_section_keeps_and_unpins :: proc(t: ^testing.T) {
 	a: App
 	defer free_all(context.temp_allocator)
 	panels_default(&a.kit)
-	p, _ := panel_of_section(.Camera)
-	testing.expect(t, !command_checked(&a, .Pin_Section, int(Kit_Section.Camera)), "pinned before it was")
-	command_run(&a, .Pin_Section, int(Kit_Section.Camera))
+	p := Panel_Kind.Camera
+	testing.expect(t, !command_checked(&a, .Pin_Section, int(Panel_Kind.Camera)), "pinned before it was")
+	command_run(&a, .Pin_Section, int(Panel_Kind.Camera))
 	testing.expect(t, stack_kept(&a.kit.stack, p) && a.kit.inspector, "Pin did not keep it in a shown stack")
-	testing.expect(t, command_checked(&a, .Pin_Section, int(Kit_Section.Camera)), "Pin is not ticked")
-	command_run(&a, .Pin_Section, int(Kit_Section.Camera))
+	testing.expect(t, command_checked(&a, .Pin_Section, int(Panel_Kind.Camera)), "Pin is not ticked")
+	command_run(&a, .Pin_Section, int(Panel_Kind.Camera))
 	testing.expect(t, !stack_kept(&a.kit.stack, p), "a second Pin left it in")
 }

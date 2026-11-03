@@ -10,8 +10,8 @@ import "../ui"
 // did. A tap docks that palette, a tap on the lit one puts the column away, a tap on another
 // swaps the column to it. Main is the stack itself (the cards it keeps, in its own order,
 // with its folds, sizes and groups); a panel or a group shows only its panels, a group as
-// its tabs or one under another. Whatever opens a card of the stack by name (Show section,
-// Show panel, Search's Show where) shows Main, where that card is.
+// its tabs or one under another. Whatever opens a card of the stack by name (Open card,
+// Search's Show where) shows Main, where that card is.
 
 // Which rail palette the column shows; nil for Main.
 Rail_Dock :: Maybe(Bar_Slot)

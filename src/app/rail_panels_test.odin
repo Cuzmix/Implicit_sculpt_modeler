@@ -2,15 +2,8 @@ package main
 
 import "core:testing"
 
-// The cards come first in Panel_Kind, as Show panel's argument assumes.
-@(test)
-show_panel_takes_the_cards :: proc(t: ^testing.T) {
-	testing.expect_value(t, card(STACK_CARDS), STACK_CARD_COUNT)
-	for c in Panel_Kind do testing.expectf(t, (int(c) < STACK_CARD_COUNT) == (c in STACK_CARDS), "%v", c)
-}
-
-// The Panels picker puts a card on the rail as Show panel and a section's palette as Show
-// section, takes either off again with a second tap, keeps to the rail's cap, and the
+// The Panels picker puts a card or a section's card on the rail as Open card, takes either
+// off again with a second tap, keeps to the rail's cap, and the
 // rail's slot names come back from a saved settings file.
 @(test)
 panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
@@ -19,22 +12,19 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	bars_reset(&app.kit)
 	testing.expect(t, rail_panel_toggle(&app, .Tools))
 	testing.expect(t, rail_panel_toggle(&app, .Camera))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools,Show_Section:Camera")
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Material,Open_Card:Symmetry,Open_Card:Lights,Open_Card:Tools,Open_Card:Camera")
 	// A tap on the Material card's tile takes it off and a second puts it back at the foot.
 	_, on := rail_panel_at(&app, .Material)
 	testing.expect(t, on)
 	testing.expect(t, !rail_panel_toggle(&app, .Material))
 	testing.expect(t, rail_panel_toggle(&app, .Material))
 	testing.expect(t, !rail_panel_toggle(&app, .Tools))
-	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Symmetry,Show_Panel:Lights,Show_Section:Camera,Show_Panel:Material")
-	id, arg, ok := command_from_name("Show_Panel:Lights")
-	testing.expect(t, ok && id == .Show_Panel && Panel_Kind(arg) == .Lights)
-	// A card's twin section is named only as its card: a line naming the section is passed
-	// over, and the Objects card's old name is no command.
-	_, _, ok = command_from_name("Show_Section:Layers")
-	testing.expect(t, !ok)
-	id, arg, ok = command_from_name("Show_Section:Camera")
-	testing.expect(t, ok && id == .Show_Section && Kit_Section(arg) == .Camera)
+	testing.expect_value(t, bar_names(&app, .View_Rail), "Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Symmetry,Open_Card:Lights,Open_Card:Camera,Open_Card:Material")
+	id, arg, ok := command_from_name("Open_Card:Lights")
+	testing.expect(t, ok && id == .Open_Card && Panel_Kind(arg) == .Lights)
+	// The Objects card's old name is no command.
+	id, arg, ok = command_from_name("Open_Card:Camera")
+	testing.expect(t, ok && id == .Open_Card && Panel_Kind(arg) == .Camera)
 	_, _, ok = command_from_name("Objects_Card")
 	testing.expect(t, !ok)
 
@@ -52,7 +42,7 @@ panels_picker_puts_panels_on_the_rail :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&app, .View_Rail), before)
 }
 
-// Show panel opens its card in the stack, bringing back a card the stack left out, and
+// Open card opens its card in the stack, bringing back a card the stack left out, and
 // says so through its checked state.
 @(test)
 show_panel_opens_the_card :: proc(t: ^testing.T) {
@@ -61,7 +51,7 @@ show_panel_opens_the_card :: proc(t: ^testing.T) {
 	bars_reset(&app.kit)
 	stack_default(&app.kit)
 	testing.expect(t, .Lights in app.kit.stack.hidden)
-	command_run(&app, .Show_Panel, int(Panel_Kind.Lights))
+	command_run(&app, .Open_Card, int(Panel_Kind.Lights))
 	testing.expect(t, .Lights not_in app.kit.stack.hidden)
 	testing.expect(t, .Lights in app.kit.stack.open)
 	testing.expect(t, app.kit.inspector)

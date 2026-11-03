@@ -55,9 +55,9 @@ focus_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	u.focus_held = false
 	if u.focus_hit {
 		at := focus_point(app)
-		report(app, Kit_Section.Lens, {.Quiet}, "Focus at %.2f, %.2f, %.2f", at.x, at.y, at.z)
+		report(app, Panel_Kind.Lens, {.Quiet}, "Focus at %.2f, %.2f, %.2f", at.x, at.y, at.z)
 	} else {
-		report(app, Kit_Section.Lens, {.Warning}, "Pick focus: the press missed every object")
+		report(app, Panel_Kind.Lens, {.Warning}, "Pick focus: the press missed every object")
 	}
 	return true
 }

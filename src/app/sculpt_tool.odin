@@ -719,7 +719,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		return
 	}
 	if color_only && obj.voxel != nil {
-		if s.kind == .Press do report(app, Kit_Section.Paint_Color, {.Warning}, "Voxel clay has no polypaint: set the brush's channel to Sculpt, or convert the object to a mesh")
+		if s.kind == .Press do report(app, Panel_Kind.Paint_Color, {.Warning}, "Voxel clay has no polypaint: set the brush's channel to Sculpt, or convert the object to a mesh")
 		return
 	}
 	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
@@ -1924,7 +1924,7 @@ physics_allowed :: proc(app: ^App, obj: ^Object, st: ^Stroke, say: bool) -> bool
 	else if object_dynamic(obj) do why = "dynamic topology"
 	else if st.skin do why = "a detail skin stroke"
 	if why == "" do return true
-	if say do report(app, Kit_Section.Options, {.Warning}, "Physics does not run on %s: the stroke sculpts without it", why)
+	if say do report(app, Panel_Kind.Options, {.Warning}, "Physics does not run on %s: the stroke sculpts without it", why)
 	return false
 }
 

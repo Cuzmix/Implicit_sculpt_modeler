@@ -76,7 +76,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Material,Open_Card:Symmetry,Open_Card:Lights")
 	testing.expect(t, !bar_changed(&a, .View_Rail))
 	bar_remove(&a, .View_Rail, 2)
 	bar_put(&a, {which = .View_Rail, slot = 0, add = true}, {.Floor_Grid, 0})
@@ -121,7 +121,7 @@ bars_drag_and_drop :: proc(t: ^testing.T) {
 	defer results_destroy(&app)
 	bars_reset(&app.kit)
 	// The rail with four view tools.
-	rail_tools := [?]Bar_Slot{{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Show_Panel, int(Panel_Kind.Lights)}}
+	rail_tools := [?]Bar_Slot{{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Open_Card, int(Panel_Kind.Lights)}}
 	app.kit.view_rail = bar_list_of(rail_tools[:], bar_default_look(.View_Rail))
 	// The wireframe joins the rail's four, at its end, for the strip to take later.
 	bar_put(&app, {which = .View_Rail, slot = 4, add = true}, {.Wireframe, 0})

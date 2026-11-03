@@ -73,11 +73,11 @@ skin_stroke_allowed :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, sa
 	if obj.voxel != nil do return true
 	label := BRUSHES[kind].name
 	if object_skin(obj) == nil {
-		if say do report(app, Kit_Section.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (HD detail card) or set Detail goes to Auto", label, object_label(obj))
+		if say do report(app, Panel_Kind.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (HD detail card) or set Detail goes to Auto", label, object_label(obj))
 		return false
 	}
 	if sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 {
-		if say do report(app, Kit_Section.Layers, {.Warning}, "%s puts its detail in the skin, and sculpt layers record vertex moves only: stop the recording or set Detail goes to Auto", label)
+		if say do report(app, Panel_Kind.Layers, {.Warning}, "%s puts its detail in the skin, and sculpt layers record vertex moves only: stop the recording or set Detail goes to Auto", label)
 		return false
 	}
 	return true
@@ -103,13 +103,13 @@ skin_set :: proc(app: ^App, segments: u32, why := "") -> bool {
 	stroke_finish(app)
 	obj := selected_object(app)
 	if refused := skin_refusal(obj); refused != "" {
-		if segments != 0 || object_skin(obj) != nil do report(app, Kit_Section.Hd, {.Warning}, "%s", refused)
+		if segments != 0 || object_skin(obj) != nil do report(app, Panel_Kind.Hd, {.Warning}, "%s", refused)
 		return false
 	}
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_skin_change(s, segments) {
 		if sk := sculpt.sculptor_skin(s); segments != 0 && (sk == nil || sk.segments != segments) {
-			report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh for a skin: Rebuild or Close holes first", object_label(obj))
+			report(app, Panel_Kind.Hd, {.Warning}, "%s needs a closed mesh for a skin: Rebuild or Close holes first", object_label(obj))
 		}
 		return false
 	}
@@ -119,7 +119,7 @@ skin_set :: proc(app: ^App, segments: u32, why := "") -> bool {
 	if segments == 0 {
 		report(app, nil, {.Undo}, "Took the detail skin off %s", object_label(obj))
 	} else if why != "" {
-		report(app, Kit_Section.Hd, {.Undo}, "%s", why)
+		report(app, Panel_Kind.Hd, {.Undo}, "%s", why)
 	} else {
 		report(app, nil, {.Undo}, "%s has a detail skin of %d segments", object_label(obj), segments)
 	}
@@ -149,7 +149,7 @@ skin_apply :: proc(app: ^App) -> bool {
 	obj := selected_object(app)
 	if obj == nil do return true
 	if why := skin_apply_refusal(obj); why != "" {
-		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		report(app, Panel_Kind.Hd, {.Warning}, "%s", why)
 		return true
 	}
 	stroke_finish(app)
@@ -159,7 +159,7 @@ skin_apply :: proc(app: ^App) -> bool {
 	before := history_snapshot(app, obj, "apply detail skin")
 	if !sculpt.levels_skin_apply(levels, carry_layers = layers > 0) {
 		history_snapshot_drop(before)
-		report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh to apply its skin: Rebuild or Close holes first", object_label(obj))
+		report(app, Panel_Kind.Hd, {.Warning}, "%s needs a closed mesh to apply its skin: Rebuild or Close holes first", object_label(obj))
 		return true
 	}
 	history_record_swap(app, obj.id, before)
@@ -265,7 +265,7 @@ SQUEEZE_MIN_VERTICES :: 20_000
 skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	obj := selected_object(app)
 	if why := skin_squeeze_refusal(obj); why != "" {
-		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		report(app, Panel_Kind.Hd, {.Warning}, "%s", why)
 		return true
 	}
 	stroke_finish(app)
@@ -282,7 +282,7 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT, keep_thin = true}
 	mesh, built := geom.remesh_voxel_measured(source, area, bounds, max(samples / max(share, 1), 1000), &app.pool, options = remesh_options(setup, groups), report = &report_)
 	if !built {
-		report(app, Kit_Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
+		report(app, Panel_Kind.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
 		return true
 	}
 	surface := remesh_surface(report_, mesh, source, sculpt.sculptor_paint_shown(s), groups)
@@ -290,7 +290,7 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	segments := skin_carry_segments(len(mesh.indices) / 3, samples)
 	if segments == 0 {
 		geom.mesh_destroy(&mesh)
-		report(app, Kit_Section.Hd, {.Warning}, "The skin %s needs is past %s: squeeze by less", object_label(obj), bytes_label(SKIN_AUTO_BYTES))
+		report(app, Panel_Kind.Hd, {.Warning}, "The skin %s needs is past %s: squeeze by less", object_label(obj), bytes_label(SKIN_AUTO_BYTES))
 		return true
 	}
 	before := history_snapshot(app, obj, "squeeze")

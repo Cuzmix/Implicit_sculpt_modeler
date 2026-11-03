@@ -442,7 +442,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
-		// The inspector sections showing their More options, as Kit_Section names.
+		// The inspector sections showing their More options, as Panel_Kind names.
 		more := "none"
 		for open, sec in k.more {
 			if !open do continue
@@ -500,8 +500,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printf("stack_place=%s ", strings.to_lower(fmt.tprint(k.stack.place), context.temp_allocator))
 		pins := strings.builder_make(context.temp_allocator)
 		for c in k.stack.order {
-			sec, is := panel_section(c)
-			if !is || !k.stack.set || !stack_kept(&k.stack, c) do continue
+			sec := c
+			if !panel_is_section(c) || !k.stack.set || !stack_kept(&k.stack, c) do continue
 			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}

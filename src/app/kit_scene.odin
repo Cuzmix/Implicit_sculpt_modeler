@@ -299,7 +299,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 // The Scene card's sections in the order listed, after Objects.
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
-	{.Add, "Add object", kit_lens_scene, nil},
+	{.Scene, "Add object", kit_lens_scene, nil},
 	{.Look, "Look", kit_look, nil},
 	{.Material, "Material", kit_lens_material, nil},
 	{.Lights, "Lights", kit_lights, nil},

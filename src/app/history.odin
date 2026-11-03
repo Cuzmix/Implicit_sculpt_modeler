@@ -494,7 +494,7 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 		case .Invert: op = .Invert
 		case .Fill:   op = .Fill
 		case:
-			report(app, Kit_Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Voxels card)", MASK_COMMAND_NAMES[command], object_label(obj))
+			report(app, Panel_Kind.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Voxels card)", MASK_COMMAND_NAMES[command], object_label(obj))
 			return
 		}
 		changed = voxel.clay_mask_command(&vp.clay, op)
@@ -510,7 +510,7 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	// A tap that changed nothing still says so, without Undo.
 	flags := Report_Flags{.Quiet}
 	if toast do flags = {.Undo} if changed else {}
-	report(app, Kit_Section.Mask, flags, "%s%s in %.0f ms%s", MASK_COMMAND_NAMES[command], fmt.tprintf(", %d steps", steps) if command >= .Blur else "", ms, "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Mask, flags, "%s%s in %.0f ms%s", MASK_COMMAND_NAMES[command], fmt.tprintf(", %d steps", steps) if command >= .Blur else "", ms, "" if changed else ", nothing changed")
 }
 
 // Masks (or unmasks) what of the selected object falls inside `shape`, a polygon in
@@ -538,7 +538,7 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 		changed = sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
 	}
 	ms := time.duration_milliseconds(time.tick_since(start))
-	report(app, Kit_Section.Mask, {.Quiet}, "%s in %.0f ms%s", "Unmask shape" if unmask else "Mask shape", ms, "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Mask, {.Quiet}, "%s in %.0f ms%s", "Unmask shape" if unmask else "Mask shape", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, "Unmask shape" if unmask else "Mask shape")
 }
 
@@ -596,7 +596,7 @@ smooth_command :: proc(app: ^App, steps: int) {
 	changed, on_gpu := sculpt.sculptor_smooth_all(object_sculptor(obj), max(steps, 1), app.ui.smooth_strength, gpu)
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Deform, "Smooth all")
-	report(app, Kit_Section.Deform, {.Undo} if changed else {}, "Smoothed %s: %d step%s on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "" if steps <= 1 else "s", "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Deform, {.Undo} if changed else {}, "Smoothed %s: %d step%s on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "" if steps <= 1 else "s", "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
 	if changed do adjust_set(app, .Smooth_All, {}, obj.id)
 	if t := run.timing; on_gpu do report_detail(app, "GPU: upload %.1f ms (%.0f MB), compute %.1f ms, readback %.1f ms.", t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
 }
@@ -615,10 +615,10 @@ remove_stretching_command :: proc(app: ^App, _: int) {
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Stroke, "Remove stretching")
 	if splits == 0 {
-		report(app, Kit_Section.Topology, {}, "No edge of %s is longer than twice its median, so nothing split (%.0f ms)", object_label(obj), ms)
+		report(app, Panel_Kind.Topology, {}, "No edge of %s is longer than twice its median, so nothing split (%.0f ms)", object_label(obj), ms)
 		return
 	}
-	report(app, Kit_Section.Topology, {.Undo}, "Split %s edges of %s down to %.3g (%.0f ms)", count_label(splits), object_label(obj), detail, ms)
+	report(app, Panel_Kind.Topology, {.Undo}, "Split %s edges of %s down to %.3g (%.0f ms)", count_label(splits), object_label(obj), detail, ms)
 }
 
 // Makes the compute pipeline the first time the GPU is asked to smooth. False (and the
@@ -644,7 +644,7 @@ hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 	changed := sculpt.sculptor_hide_command(object_sculptor(obj), command)
 	hide_done(app, obj, changed, start, HIDE_COMMAND_NAMES[command])
 	if !changed && sculpt.sculptor_hide_refused_all(object_sculptor(obj)) {
-		report(app, Kit_Section.Visibility, {.Quiet}, "%s would hide everything, so nothing changed", HIDE_COMMAND_NAMES[command])
+		report(app, Panel_Kind.Visibility, {.Quiet}, "%s would hide everything, so nothing changed", HIDE_COMMAND_NAMES[command])
 	}
 }
 
@@ -688,10 +688,10 @@ hide_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) {
 hide_allowed :: proc(app: ^App, obj: ^Object) -> bool {
 	switch {
 	case object_in_hd(obj):
-		report(app, Kit_Section.Visibility, {.Warning}, "Hiding needs the HD window left first (A)")
+		report(app, Panel_Kind.Visibility, {.Warning}, "Hiding needs the HD window left first (A)")
 		return false
 	case object_dynamic(obj):
-		report(app, Kit_Section.Visibility, {.Warning}, "Hiding does not work with dynamic topology on")
+		report(app, Panel_Kind.Visibility, {.Warning}, "Hiding does not work with dynamic topology on")
 		return false
 	}
 	return true
@@ -700,7 +700,7 @@ hide_allowed :: proc(app: ^App, obj: ^Object) -> bool {
 @(private = "file")
 hide_done :: proc(app: ^App, obj: ^Object, changed: bool, start: time.Tick, what: string) {
 	hidden := sculpt.sculptor_hidden_count(object_sculptor(obj))
-	report(app, Kit_Section.Visibility, {.Quiet}, "%s: %s of %s triangles hidden, %.0f ms%s", what, thousands(hidden), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Visibility, {.Quiet}, "%s: %s of %s triangles hidden, %.0f ms%s", what, thousands(hidden), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if !changed do return
 	history_record(app, obj, .Hide, what)
 	render.viewport_invalidate(&app.target)
@@ -757,7 +757,7 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	sym := brush_symmetry(app, obj)
 	for img in sculpt.symmetry_images(sym) do append(&planes, sculpt.Clip_Plane{point = sculpt.sym_point(img, sym.sym_center, point), normal = img.turn * normal})
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
-	report(app, Kit_Section.Visibility, {.Quiet}, "Clip in %.0f ms%s", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+	report(app, Panel_Kind.Visibility, {.Quiet}, "Clip in %.0f ms%s", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Deform, "Clip")
 }
 

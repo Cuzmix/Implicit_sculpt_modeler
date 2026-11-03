@@ -257,7 +257,7 @@ brush_item_category :: proc(it: Brush_Item) -> Brush_Category {
 		s := it.slot
 		#partial switch s.command.id {
 		case .None:
-		case .Show_Panel, .Show_Section: return .Cards
+		case .Open_Card: return .Cards
 		case .Brush_Value:               return .Sliders
 		case:                            return .Commands
 		}

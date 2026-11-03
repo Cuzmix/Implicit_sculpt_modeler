@@ -5,51 +5,48 @@ import "../ui"
 
 // The sections of the three palettes, the tool's, the object's and the scene's, as ZBrush
 // for iPad's Tool palette has them. The tray that showed them one at a time is gone (round
-// 3, PR 9): each section is a card of the panel stack (Panel_Kind), which Show section
+// 3, PR 9): each section is a card of the panel stack (Panel_Kind), which Open card
 // brings in (tray_open) and Search's Show where opens on the control it marks (tray_show).
 // The names keep "tray" since commands, tests and the skills know them by it.
-
-// How many sections the tray has: Kit_Section's first ones, before the Stats panel's.
-TRAY_SECTIONS :: int(Kit_Section.Background) + 1
 
 // The narrowest safe area where the docked stack stands beside the view rather than pops
 // over it (stack_narrow).
 COLUMNS_MIN_W :: 1180
 
 // What a section is called: its card's title, and its name in Search.
-tray_section_title :: proc(sec: Kit_Section) -> string {
-	if sec == .Objects do return "Objects"
+tray_section_title :: proc(sec: Panel_Kind) -> string {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title
 	return ""
 }
 
-// The palette that holds section `sec`.
-section_palette :: proc(sec: Kit_Section) -> Kit_Tab {
+// The palette that holds section `sec` (Layers' card is the object's, the look's cards the
+// scene's).
+section_palette :: proc(sec: Panel_Kind) -> Kit_Tab {
 	#partial switch sec {
-	case .Preset ..= .Recorder:   return .Tool
-	case .Transform ..= .Extract: return .Object
+	case .Preset ..= .Recorder:           return .Tool
+	case .Transform ..= .Extract, .Layers: return .Object
 	}
 	return .Scene
 }
 
 // Whether the tray offers section `sec`: the brush's own ones only on the brushes that
-// have them (whatever the tool, which Show section switches to the brush).
-tray_offers :: proc(app: ^App, sec: Kit_Section) -> bool {
-	if section_palette(sec) != .Tool do return int(sec) < TRAY_SECTIONS
+// have them (whatever the tool, which Open card switches to the brush).
+tray_offers :: proc(app: ^App, sec: Panel_Kind) -> bool {
+	if !panel_is_section(sec) || section_palette(sec) != .Tool do return true
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.shown == nil || s.shown(app)
 	return false
 }
 
 // Opens the stack on section `sec`, closing Settings or Help, which share its place: its
-// card, or its own palette as the visit (stack_reveal; `exact` as stack_card_of has it).
-tray_open :: proc(app: ^App, sec: Kit_Section, exact := false) {
+// card, or its own palette as the visit (stack_reveal).
+tray_open :: proc(app: ^App, sec: Panel_Kind) {
 	side_panel_close(app)
 	app.kit.inspector = true
 	// The section is opened where it stands in Main, the stack itself.
 	app.kit.rail_dock = nil
-	stack_reveal(app, sec, exact)
+	stack_reveal(app, sec)
 }
 
 // Where each command's control is in the tray, for search's Show where: the section
@@ -57,7 +54,7 @@ tray_open :: proc(app: ^App, sec: Kit_Section, exact := false) {
 // that are not here have no control there, or only one that comes and goes with the
 // brush (the History brush's steps), or live on the bars alone.
 @(rodata)
-COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
+COMMAND_HOMES := #partial [Command_Id]Maybe(Panel_Kind) {
 	.Front_Only            = .Options,
 	.Lock_Plane            = .Options,
 	.Connected             = .Options,
@@ -111,8 +108,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Convert_To_Voxels     = .Voxels,
 	.Voxel_Res_Up          = .Voxels,
 	.Voxel_Res_Down        = .Voxels,
-	.Duplicate_Object      = .Objects,
-	.Delete_Object         = .Objects,
+	.Duplicate_Object      = .Scene,
+	.Delete_Object         = .Scene,
 	.Studio_Render         = .Render,
 	.Live_Occlusion        = .Look,
 	.Render_Mode           = .Render,
@@ -143,7 +140,7 @@ tray_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	case .New_Layer, .Layer_Edit:            app.ui.layers_paint = false
 	case .New_Paint_Layer, .Paint_Layer_Edit: app.ui.layers_paint = true
 	}
-	tray_open(app, sec, exact = true)
+	tray_open(app, sec)
 	k.more[sec] = true
 	k.pointed = {id, arg, k.ctx.time}
 	return true

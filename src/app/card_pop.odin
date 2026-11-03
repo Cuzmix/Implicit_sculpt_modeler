@@ -94,9 +94,8 @@ card_pop_place :: proc(app: ^App, size: [2]f32) {
 
 // Pops out the card that holds section `sec` (the Brush card for a brush section while
 // the brush is the tool, its group unfolded there).
-card_pop_section :: proc(app: ^App, sec: Kit_Section, at: ui.Rect, side: ui.Side) {
+card_pop_section :: proc(app: ^App, sec: Panel_Kind, at: ui.Rect, side: ui.Side) {
 	c := stack_card_of(app, sec)
-	if sec == .Add do app.kit.outliner.add, app.kit.outliner.add_at = true, {}
 	card_pop_toggle(app, c, at, side)
 	if c == .Brush do app.kit.stack.shut -= {sec}
 }

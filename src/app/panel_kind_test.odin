@@ -1,6 +1,5 @@
 package main
 
-import "core:fmt"
 import "core:strings"
 import "core:testing"
 
@@ -18,12 +17,6 @@ panel_kinds_read_back :: proc(t: ^testing.T) {
 		testing.expect(t, ok && kind == c, panel_word(c))
 		testing.expect(t, panel_kind_title(&app, c) != "")
 	}
-	for s in Kit_Section do if int(s) >= TRAY_SECTIONS {
-		_, ok := panel_of_section(s)
-		testing.expect(t, !ok, "a Stats section has no palette")
-		_, ok = panel_kind_from_name(fmt.tprintf("section:%v", s))
-		testing.expect(t, !ok)
-	}
 	for name in ([]string{"card:Nope", "section:", "section:Frame", "card:Mask", "window:Stats", "", "Brush"}) {
 		_, ok := panel_kind_from_name(name)
 		testing.expect(t, !ok, name)
@@ -35,31 +28,17 @@ panel_kinds_read_back :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// Each tray section has its own palette and each palette its own section, the full Layers,
-// Material and Lights sections beside their cards and Environment's its card.
+// A card of its own is named only as a card, a section's card only as a section: the
+// Layers card is no section.
 @(test)
-panel_of_section_is_one_to_one :: proc(t: ^testing.T) {
-	hit: bit_set[Panel_Kind]
-	for s in Kit_Section do if int(s) < TRAY_SECTIONS {
-		p, ok := panel_of_section(s)
-		testing.expect(t, ok, "every tray section has a palette")
-		// Objects and Add object share the Scene card; no two sections share a palette.
-		if p not_in CARDS_AS_SECTIONS do testing.expect(t, p not_in hit, "no two sections share a palette")
-		hit += {p}
-		if back, is := panel_section(p); is do testing.expect_value(t, back, s)
-		else do testing.expect(t, p in CARDS_AS_SECTIONS)
-	}
-	testing.expect_value(t, hit, STACK_SECTION_PANELS + CARDS_AS_SECTIONS)
-	// The Layers section is its card, one interface wherever it opens, named only as the
-	// card.
-	p, _ := panel_of_section(.Layers)
-	testing.expect_value(t, p, Panel_Kind.Layers)
+cards_and_sections_are_named_apart :: proc(t: ^testing.T) {
 	_, ok := panel_kind_from_name("section:Layers")
 	testing.expect(t, !ok)
 	_, ok = panel_from_word("section:Layers")
 	testing.expect(t, !ok)
-	testing.expect_value(t, panel_word(.Layers), "Layers")
-	free_all(context.temp_allocator)
+	_, ok = panel_kind_from_name("card:Mask")
+	testing.expect(t, !ok)
+	testing.expect(t, panel_is_section(.Mask) && !panel_is_section(.Layers))
 }
 
 // A fresh layout's stack writes nothing, as it did before sections could be cards; a layout

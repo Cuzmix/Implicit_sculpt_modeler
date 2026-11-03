@@ -52,7 +52,7 @@ kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 // One section of a palette that is not per object (the Brush and Scene cards): which
 // it is, its title, what it draws, and when it is offered (always, when nil).
 Kit_Tab_Section :: struct {
-	section: Kit_Section,
+	section: Panel_Kind,
 	title:   string,
 	draw:    proc(app: ^App),
 	shown:   proc(app: ^App) -> bool,

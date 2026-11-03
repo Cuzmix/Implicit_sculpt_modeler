@@ -49,7 +49,7 @@ layer_mask_paint :: proc(app: ^App, obj: ^Object, index: int) {
 	app.ui.layer_selected = index
 	if app.tool != .Brush || app.brush.kind != .Mask || app.brush.preset != 0 do _ = command_run(app, .Brush, int(sculpt.Brush_Kind.Mask))
 	l := &sculpt.sculptor_layers(object_sculptor(obj))[index]
-	report(app, Kit_Section.Layers, {.Quiet}, "Painting %s's mask: the mask brushes and commands paint it until you tap its square again", sculpt.sculptor_layer_name(l))
+	report(app, Panel_Kind.Layers, {.Quiet}, "Painting %s's mask: the mask brushes and commands paint it until you tap its square again", sculpt.sculptor_layer_name(l))
 }
 
 // Puts the sculpt mask back on the object whose layer mask is picked; with `restore`, and
@@ -109,7 +109,7 @@ layer_mask_edit :: proc(app: ^App, obj: ^Object, index: int, edit: Layer_Mask_Ed
 	case .From_Sculpt:
 		if sculpt.sculptor_layer_mask_from_sculpt(s) {
 			history_record(app, obj, .Mask, "Mask from the sculpt mask")
-			report(app, Kit_Section.Layers, {.Undo}, "The layer's mask is now the sculpt mask")
+			report(app, Panel_Kind.Layers, {.Undo}, "The layer's mask is now the sculpt mask")
 		}
 	}
 	if before != index do _ = sculpt.sculptor_layer_mask_pick(s, before)

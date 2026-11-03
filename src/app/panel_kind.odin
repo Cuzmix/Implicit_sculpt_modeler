@@ -5,91 +5,30 @@ import "core:strings"
 
 import "../ui"
 
-// What a panel holds (round 3, PR 4; one enum since PR 9): a card of the stack
-// (lens_stack.odin) or a tray section's palette. The groups hold these, so one set of procs
-// gives any of them its title, icon, folded line and content, and a group draws whatever it
-// holds without knowing which kind it is. A visiting section and a kept one draw through
-// panel_body alike, so the two never drift apart.
-
-// The palette that draws tray section `sec` as the tray did: Layers, Material, Lights
-// and Environment their cards, Objects and Add object the Scene card, so each has one
-// interface wherever it opens; false for the Stats panel's sections, which no palette
-// shows.
-panel_of_section :: proc(sec: Kit_Section) -> (Panel_Kind, bool) {
-	if int(sec) >= TRAY_SECTIONS do return .Brush, false
-	#partial switch sec {
-	case .Layers:      return .Layers, true
-	case .Material:    return .Material, true
-	case .Lights:      return .Lights, true
-	case .Objects, .Add: return .Scene, true
-	case .Environment: return .Environment, true
-	}
-	return PANEL_OF_SECTION[sec], true
-}
-
-// Whether section `sec` is a card's twin (Layers, Material, Lights, Environment, and
-// Objects and Add object the Scene card's): it has no card of its own, and is offered and
-// named only as that card (Show panel).
-section_is_card :: proc(sec: Kit_Section) -> bool {
-	p, ok := panel_of_section(sec)
-	return ok && !panel_is_section(p)
-}
-
-// The section card `p` draws; false for the cards of their own.
-panel_section :: proc(p: Panel_Kind) -> (Kit_Section, bool) {
-	if p not_in STACK_SECTION_PANELS do return .Preset, false
-	return SECTION_OF_PANEL[p], true
-}
-
-// Whether `p` is a section's card rather than a card of its own.
-panel_is_section :: proc(p: Panel_Kind) -> bool {
-	return p in STACK_SECTION_PANELS
-}
-// The cards that are a tray section too, drawn wherever that section opens.
-CARDS_AS_SECTIONS :: bit_set[Panel_Kind]{.Layers, .Scene, .Material, .Lights, .Environment}
-
-// The two directions of panel_of_section, as tables: the sections keep their order in
-// both enums, so these only spell it out.
-@(rodata)
-PANEL_OF_SECTION := #partial [Kit_Section]Panel_Kind {
-	.Preset = .Preset, .Stroke = .Stroke, .Paint_Color = .Paint_Color, .Recall = .Recall, .Falloff = .Falloff,
-	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
-	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
-	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
-	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
-	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
-	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera,
-	.Turntable = .Turntable, .Print = .Print, .Floor = .Floor, .Background = .Background,
-}
-
-@(rodata)
-SECTION_OF_PANEL := #partial [Panel_Kind]Kit_Section {
-	.Preset = .Preset, .Stroke = .Stroke, .Paint_Color = .Paint_Color, .Recall = .Recall, .Falloff = .Falloff,
-	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
-	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
-	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
-	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
-	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
-	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera, .Turntable = .Turntable,
-	.Print = .Print, .Floor = .Floor, .Background = .Background,
-}
+// What a panel holds: a card of its own (STACK_CARDS: Brush, Symmetry, Layers, Scene, Tools
+// and the look's cards) or a section's card (one of the three palettes' sections: the
+// brush's, the object's and the scene's). One enum names every card, so the stack, the
+// groups, the bars, Search, keys and scripts all say "card" the same way, and one set of
+// procs gives any of them its title, icon, folded line and content: a group draws whatever
+// it holds without knowing which kind it is, and a visiting section and a kept one draw
+// through panel_body alike, so the two never drift apart.
 
 // Its title, as its header shows it.
 panel_kind_title :: proc(app: ^App, kind: Panel_Kind) -> string {
-	if sec, ok := panel_section(kind); ok do return tray_section_title(sec)
+	if panel_is_section(kind) do return tray_section_title(kind)
 	return stack_title(app, kind)
 }
 
-// Its icon: the card's, or the one Show section has on a bar.
+// Its icon, as its header and its button on a bar show it.
 panel_kind_icon :: proc(app: ^App, kind: Panel_Kind) -> rune {
-	if sec, ok := panel_section(kind); ok do return bar_icon(app, {.Show_Section, int(sec)})
+	if panel_is_section(kind) do return SECTION_ICONS[kind]
 	if kind == .Brush do return stack_brush_icon(app)
 	return STACK_CARD_ICONS[kind]
 }
 
 // What it holds, in a few words, for its folded header.
 panel_kind_summary :: proc(app: ^App, kind: Panel_Kind) -> string {
-	if sec, ok := panel_section(kind); ok do return section_summary(app, sec)
+	if panel_is_section(kind) do return section_summary(app, kind)
 	return stack_summary(app, kind)
 }
 
@@ -103,11 +42,11 @@ panel_body :: proc(app: ^App, kind: Panel_Kind, inner: f32) {
 	defer k.in_tray = false
 	hints := hints_push(app)
 	defer k.ctx.hints = hints
-	sec, section := panel_section(kind)
-	if !section {
+	if !panel_is_section(kind) {
 		stack_card_body(app, kind, inner)
 		return
 	}
+	sec := kind
 	for s in OBJECT_SECTIONS do if s.section == sec do k.object_page = s.page
 	ctx := &app.kit.ctx
 	_, draw, obj_draw, found := bar_section(app, sec)
@@ -127,7 +66,7 @@ panel_body :: proc(app: ^App, kind: Panel_Kind, inner: f32) {
 // Its name in a group's line: `card:Brush` or `section:Stroke` (the full sections by their
 // section's name, `section:Layers`).
 panel_kind_name :: proc(kind: Panel_Kind) -> string {
-	if sec, ok := panel_section(kind); ok do return fmt.tprintf("section:%v", sec)
+	if panel_is_section(kind) do return fmt.tprintf("section:%v", kind)
 	return fmt.tprintf("card:%v", kind)
 }
 
@@ -139,11 +78,7 @@ panel_kind_from_name :: proc(name: string) -> (Panel_Kind, bool) {
 	case "card":
 		for c in STACK_CARDS do if which == fmt.tprint(c) do return c, true
 	case "section":
-		// Only a section with a card of its own: a card's twin is named as the card.
-		for sec in Kit_Section do if which == fmt.tprint(sec) {
-			p, ok := panel_of_section(sec)
-			if ok && panel_is_section(p) do return p, true
-		}
+		for p in STACK_SECTION_PANELS do if which == fmt.tprint(p) do return p, true
 	}
 	return .Brush, false
 }

@@ -69,10 +69,10 @@ shape_tool_pick :: proc(app: ^App, tool: union {
 	switch t in tool {
 	case Mask_Shape_Kind:
 		app.ui.mask_shape_kind = t
-		report(app, Kit_Section.Mask, {}, "Ctrl + drag on empty space (or Mask on the wheel) now masks a %s", strings.to_lower(MASK_SHAPE_NAMES[t], context.temp_allocator))
+		report(app, Panel_Kind.Mask, {}, "Ctrl + drag on empty space (or Mask on the wheel) now masks a %s", strings.to_lower(MASK_SHAPE_NAMES[t], context.temp_allocator))
 	case Gesture_Tool:
 		app.gesture = t
-		report(app, Kit_Section.Visibility, {}, "Ctrl + Shift + drag (or Hide on the wheel) now runs %s", GESTURE_NAMES[t])
+		report(app, Panel_Kind.Visibility, {}, "Ctrl + Shift + drag (or Hide on the wheel) now runs %s", GESTURE_NAMES[t])
 	}
 	app.kit.browser = false
 }

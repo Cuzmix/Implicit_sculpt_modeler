@@ -439,7 +439,7 @@ def eight_rail(step=""):
     had them before it started with four: Focus selected, Symmetry, Wireframe and the mini
     view between Camera and Lights, through the scenario's settings file (with `step`, a
     file of that step's own, so what an earlier step saved does not carry over)."""
-    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Show_Panel:Lights", "Thumbnail"]
+    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Open_Card:Lights", "Thumbnail"]
     lines = ["version 13", f"bar_count view_rail {len(rail)}"] + [f"bar view_rail {i} {c}" for i, c in enumerate(rail)]
     path = settings_file()[:-len(".txt")] + step + ".txt"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -691,7 +691,7 @@ def colour_well_opens_the_picker():
     """A tap on the Colour section's well opens the colour popover beside it, as
     Procreate's colour well does; a tap on a swatch in it sets the paint colour and puts it
     in the history, with the popover still open; a second tap on the well puts it away."""
-    setup = "--script=brush paint; show_section paint_color"
+    setup = "--script=brush paint; open_card paint_color"
     s = Script()
     s.ftap(COLOUR_WELL)
     s.wait(10)
@@ -1087,7 +1087,7 @@ def light_marker_dragged_in_the_viewport():
     s = Script()
     s.fdrag(line(LIGHT1_MARKER, (MIDDLE[0] + 0.5 * 378, MIDDLE[1]), 16))
     s.wait(4)
-    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+    return s, ["--script=open_card lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, 0.866)))})
 
 
@@ -1106,7 +1106,7 @@ def light_gizmo_arm_moves_the_light_along_x():
     x, y = MIDDLE
     s.fdrag(line((x + 40 * w[0], y + 40 * w[1]), (x + 120 * w[0], y + 120 * w[1]), 16))
     s.wait(4)
-    setup = "show_section lights; set light1_kind point; set light1_px 0; set light1_py 0; set light1_pz 1.5; wait 2"
+    setup = "open_card lights; set light1_kind point; set light1_px 0; set light1_py 0; set light1_pz 1.5; wait 2"
     # Where it stood: the orbit's centre plus 1.5 toward the eye, (0.80, 0.51, 1.16).
     at = lambda v: [float(x) for x in v.split(",")]
     return s, [f"--script={setup}"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
@@ -2649,7 +2649,7 @@ def palettes_only(section, setup=""):
     escaped = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in layout)
     with open(path, "w") as f:
         f.write(f"SCULPT_WORKSPACE 1\nname Palettes\nlayout {escaped}\n")
-    statements = ([setup] if setup else []) + ([] if section in CARD_SECTIONS else [f"show_section {section}"])
+    statements = ([setup] if setup else []) + ([] if section in CARD_SECTIONS else [f"open_card {section}"])
     return [f"--import-workspace={path}"] + ([f"--script={'; '.join(statements)}"] if statements else [])
 
 
@@ -3238,7 +3238,7 @@ def search_opens_a_section_by_name():
     s = Script()
     palette_run(s, "polypaint card")
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "palette_last": is_text("Show_Section:Paint"), "inspector_tab": is_text("object"), "tray_section": is_text("Paint")})
+    return s, [], camera_still({"dabs": near(0), "palette_last": is_text("Open_Card:Paint"), "inspector_tab": is_text("object"), "tray_section": is_text("Paint")})
 
 
 def saved_line(line):
@@ -3546,7 +3546,7 @@ def rail_panel_carried_onto_another_makes_a_group():
             s.ftap(DRAG_LAYERS)
         s.wait(6)
         return s
-    group = {"view_rail": is_text("Show_Panel:Scene,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layers+Material"),
+    group = {"view_rail": is_text("Open_Card:Scene,Rail_Group:0"), "rail_groups": is_text("0:tabs:0:Layers+Material"),
              "rail_joins": near(1), "dabs": near(0)}
     return Steps([(made("menu"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group_menu")))),
                   (made("tap"), DRAG_1280, camera_still(dict(group, bar_pop=is_text("group")))),
@@ -3817,7 +3817,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the readout over the view's top-left corner and the view rail's cards; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights"
+    rail = "Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Material,Open_Card:Symmetry,Open_Card:Lights"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -6374,7 +6374,7 @@ def small_window():
     s.ftap(200, 150)
     s.ftap(300, 700)
     s.ftap(150, 650)
-    return s, ["--width=1280", "--height=800", "--script=show_section mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 50,
+    return s, ["--width=1280", "--height=800", "--script=open_card mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 50,
                                                             "brush_radius_px": near(60)})
 
 
@@ -8725,8 +8725,8 @@ def stroke_on_another_object_keeps_to_the_selected():
 # of the Library's cards, and the rail's button the Symmetry card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 254)
 RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
-PICKER_TOOLS = At("sheet button/Show_Panel/Tools", 1300, 160)
-PICKER_ENVIRONMENT = At("sheet button/Show_Panel/Environment", 1300, 160)
+PICKER_TOOLS = At("sheet button/Open_Card/Tools", 1300, 160)
+PICKER_ENVIRONMENT = At("sheet button/Open_Card/Environment", 1300, 160)
 RAIL_TOOLS = At("view bar/Tools", 1563, 373)
 
 
@@ -8756,7 +8756,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_TOOLS)
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "rail_dock": is_text("Tools"), "library_puts": near(2),
-                                "view_rail": is_text("Inspector,Show_Panel:Scene,Show_Panel:Layers,Show_Panel:Material,Show_Panel:Symmetry,Show_Panel:Lights,Show_Panel:Tools,Show_Panel:Environment")})
+                                "view_rail": is_text("Inspector,Open_Card:Scene,Open_Card:Layers,Open_Card:Material,Open_Card:Symmetry,Open_Card:Lights,Open_Card:Tools,Open_Card:Environment")})
 
 
 @scenario
@@ -12123,7 +12123,7 @@ def library_alphas_survive_a_restart():
     return Steps([
         (Script(), [f"--settings-file={settings_file()}", "--script=alpha mine/rock"],
          {"library_alphas": near(1, 0), "library_skipped": near(1, 0), "alpha": is_text("mine/rock")}),
-        (Script(), [f"--settings-file={settings_file()}", "--script=show_section alpha"],
+        (Script(), [f"--settings-file={settings_file()}", "--script=open_card alpha"],
          {"library_alphas": near(1, 0), "alpha": is_text("mine/rock"), "@saved": saved(brush_alpha="mine/rock")}),
     ])
 
@@ -12171,7 +12171,7 @@ def content_pack_installs_and_removes():
     s.wait(5)
     folder = os.path.join(library_folder(), "rock-set")
     return Steps([
-        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; alpha rock-set/crack; show_section alpha"],
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; alpha rock-set/crack; open_card alpha"],
          {"packs": near(1, 0), "pack_alphas": near(2, 0), "packs_installed": near(1, 0), "alpha": is_text("rock-set/crack"),
           "@unpacked": lambda _: os.path.exists(os.path.join(folder, "alphas", "crack.png")) and not os.path.exists(os.path.join(folder, "macros"))}),
         (s, [f"--settings-file={settings_file()}"],
@@ -14296,7 +14296,7 @@ def search_opens_a_section_as_its_own_card():
     s.wait(6)
     palette_run(s, "selection sets card")
     s.wait(6)
-    return s, [], camera_still({"palette_last": is_text("Show_Section:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
+    return s, [], camera_still({"palette_last": is_text("Open_Card:Sets"), "stack_visit": is_text("Sets"), "stack_visits": near(2), "tray_section": is_text("Sets"),
                                 "stack": is_text("Brush,Symmetry,Layers,Scene,Tools,Sets+"), "dabs": near(0)})
 
 
