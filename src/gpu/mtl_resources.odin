@@ -1,5 +1,5 @@
 #+build darwin
-package render
+package gpu
 
 import "core:log"
 
@@ -46,7 +46,7 @@ Mtl_Texture :: struct {
 	backings:  [dynamic]^Mtl_Texture_Backing,
 	active:    ^Mtl_Texture_Backing,
 	swapchain: bool, // a window's drawable: never cycled or freed here
-	transient: bool, // memoryless, every backing (gpu_create_texture_transient)
+	transient: bool, // memoryless, every backing (create_texture_transient)
 	released:  bool,
 	name:      cstring, // for Xcode's GPU capture, given to every backing; a literal, never freed
 }
@@ -392,7 +392,7 @@ mtl_release_sampler :: proc(device: ^sdl.GPUDevice, sampler: ^sdl.GPUSampler) {
 // Compiles Metal source into a library and finds its entry point; nil, nil (with SDL's error
 // set) when either fails. As SDL_GPU does, with Metal's default options (fast maths) unless
 // `exact`, which turns fast maths off: divisions, square roots and the rest are then
-// IEEE 754's, as SPIR-V's are under `-fp-mode precise` (gpu_create_compute_pipeline_exact).
+// IEEE 754's, as SPIR-V's are under `-fp-mode precise` (create_compute_pipeline_exact).
 @(private = "file")
 mtl_compile :: proc(code: []u8, entrypoint: cstring, exact: bool) -> (^MTL.Library, ^MTL.Function) {
 	options: ^MTL.CompileOptions

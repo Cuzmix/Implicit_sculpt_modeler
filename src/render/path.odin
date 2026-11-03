@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "base:runtime"
 import "core:log"
 import "core:math"
@@ -29,7 +30,7 @@ RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT, string
 // only the own Vulkan backend binds, so it has no Metal source.
 // Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
 // named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
-when VULKAN {
+when gpu.VULKAN {
 	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv", string)
 	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv", string)
 }
@@ -363,13 +364,13 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 
 	rows := min(pr.rows, pr.height - pr.row)
 	if pr.async {
-		band := gpu_acquire_compute_command_buffer(r.device)
+		band := gpu.acquire_compute_command_buffer(r.device)
 		if band != nil {
 			{
 				debug_group(band, "Render mode band")
 				path_band_record(r, pr, band, rows, bounces)
 			}
-			fence := gpu_submit_compute(band)
+			fence := gpu.submit_compute(band)
 			if fence == nil {
 				log.errorf("render mode: a band could not be submitted (%s); it stays off", sdl.GetError())
 				pr.failed = true
@@ -400,12 +401,12 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
 	written := pr.guides[1 - pr.guide_at]
 	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = written[0]}, {texture = written[1]}}
-	pass := gpu_begin_compute_pass(cmd, &bindings[0], len(bindings), nil, 0)
+	pass := gpu.begin_compute_pass(cmd, &bindings[0], len(bindings), nil, 0)
 	if pr.rq {
-		gpu_bind_compute_pipeline(pass, pr.rq_pipeline)
-		gpu_bind_compute_accel(pass, pr.tracer.tlas)
+		gpu.bind_compute_pipeline(pass, pr.rq_pipeline)
+		gpu.bind_compute_accel(pass, pr.tracer.tlas)
 	} else {
-		gpu_bind_compute_pipeline(pass, pr.pipeline)
+		gpu.bind_compute_pipeline(pass, pr.pipeline)
 	}
 	// The image itself, not its prefiltered copy: the paths find its blur on their own,
 	// and the table is built over it.
@@ -427,16 +428,16 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		}
 	}
 	if pr.maps_array {
-		gpu_bind_compute_samplers(pass, 0, &samplers[0], 5)
-		gpu_bind_compute_texture_array(pass, samplers[5:][:3 * slots])
+		gpu.bind_compute_samplers(pass, 0, &samplers[0], 5)
+		gpu.bind_compute_texture_array(pass, samplers[5:][:3 * slots])
 	} else {
-		gpu_bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
+		gpu.bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
 	}
 	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
-	gpu_bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
-	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
-	gpu_dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
-	gpu_end_compute_pass(pass)
+	gpu.bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
+	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	gpu.dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
+	gpu.end_compute_pass(pass)
 }
 
 // A band on the compute queue that has finished: sizes the next by how long it took (three
@@ -445,17 +446,17 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 // older run only lets go of its fence.
 @(private = "file")
 path_band_collect :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool, interval: time.Duration) {
-	if pr.band_fence == nil || !gpu_query_fence(r.device, pr.band_fence) do return
+	if pr.band_fence == nil || !gpu.query_fence(r.device, pr.band_fence) do return
 	fence := pr.band_fence
 	pr.band_fence = nil
-	defer gpu_release_fence(r.device, fence)
+	defer gpu.release_fence(r.device, fence)
 	if pr.band_generation != pr.generation do return
 	if took := time.tick_since(pr.band_started); interval > 0 {
 		if took >= 3 * interval do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 		else if 2 * took < 3 * interval do pr.rows = min(pr.rows * 2, pr.height)
 	}
 	if !pr.band_last do return
-	gpu_wait_on(cmd, fence)
+	gpu.wait_on(cmd, fence)
 	path_sample_done(pr, cmd, vt, exposure, denoise)
 }
 
@@ -499,7 +500,7 @@ path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 		}
 	}
 	if pr.linear != nil do return true
-	pr.linear = gpu_create_texture(r.device, {
+	pr.linear = gpu.create_texture(r.device, {
 		type = .D2, format = RENDER_LINEAR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = pr.view_width, height = pr.view_height, layer_count_or_depth = 1, num_levels = 1,
 	})
@@ -517,19 +518,19 @@ path_render_reset :: proc(pr: ^Path_Render) {
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if pr.band_fence != nil do gpu_release_fence(r.device, pr.band_fence)
+	_ = gpu.wait_for_idle(r.device)
+	if pr.band_fence != nil do gpu.release_fence(r.device, pr.band_fence)
 	pr.band_fence = nil
-	if pr.pipeline != nil do gpu_release_compute_pipeline(r.device, pr.pipeline)
-	if pr.rq_pipeline != nil do gpu_release_compute_pipeline(r.device, pr.rq_pipeline)
-	if pr.display != nil do gpu_release_graphics_pipeline(r.device, pr.display)
-	if pr.display_linear != nil do gpu_release_graphics_pipeline(r.device, pr.display_linear)
-	if pr.atrous != nil do gpu_release_graphics_pipeline(r.device, pr.atrous)
-	if pr.sampler != nil do gpu_release_sampler(r.device, pr.sampler)
-	if pr.studio_table != nil do gpu_release_texture(r.device, pr.studio_table)
-	if pr.transfer != nil do gpu_release_transfer_buffer(r.device, pr.transfer)
+	if pr.pipeline != nil do gpu.release_compute_pipeline(r.device, pr.pipeline)
+	if pr.rq_pipeline != nil do gpu.release_compute_pipeline(r.device, pr.rq_pipeline)
+	if pr.display != nil do gpu.release_graphics_pipeline(r.device, pr.display)
+	if pr.display_linear != nil do gpu.release_graphics_pipeline(r.device, pr.display_linear)
+	if pr.atrous != nil do gpu.release_graphics_pipeline(r.device, pr.atrous)
+	if pr.sampler != nil do gpu.release_sampler(r.device, pr.sampler)
+	if pr.studio_table != nil do gpu.release_texture(r.device, pr.studio_table)
+	if pr.transfer != nil do gpu.release_transfer_buffer(r.device, pr.transfer)
 	path_targets_release(r, pr)
-	for b in pr.buffers do if b != nil do gpu_release_buffer(r.device, b)
+	for b in pr.buffers do if b != nil do gpu.release_buffer(r.device, b)
 	tracer_destroy(r, &pr.tracer)
 	// The counters outlive the device's objects, for the exit stats.
 	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes}
@@ -626,11 +627,11 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 // where the device refuses it (the log says why), and render mode keeps the named kernel.
 @(private = "file")
 path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
-	when VULKAN {
+	when gpu.VULKAN {
 		offered := r.caps.texture_arrays / 3
 		if offered <= RENDER_TEXTURED_MAX do return
 		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
-		pipeline = gpu_create_compute_pipeline_array(r.device, {
+		pipeline = gpu.create_compute_pipeline_array(r.device, {
 			code_size = len(RENDER_TRACE_MAPS_COMP_CODE), code = raw_data(RENDER_TRACE_MAPS_COMP_CODE), entrypoint = SHADER_ENTRY,
 			format = SHADER_FORMAT, num_samplers = 5, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
@@ -664,13 +665,13 @@ path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 		}
 		capacity: u32
 		// The array kind exists only under Vulkan (path_maps_pipeline).
-		when VULKAN {
+		when gpu.VULKAN {
 			if pr.maps_array {
 				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
 				capacity = 3 * pr.textured_max
 			}
 		}
-		pr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, info, capacity)
+		pr.rq_pipeline = gpu.create_compute_pipeline_traced(r.device, info, capacity)
 		if pr.rq_pipeline == nil {
 			log.warnf("render mode: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
 			pr.rq_failed = true
@@ -684,13 +685,13 @@ path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: bool) -> bool {
 	if pr.pipeline == nil {
 		usage := sdl.GPUTextureUsageFlags{.SAMPLER, .COMPUTE_STORAGE_WRITE}
-		if !gpu_texture_supports_format(r.device, RENDER_FORMAT, .D2, usage) || !gpu_texture_supports_format(r.device, RENDER_GUIDE_FORMAT, .D2, usage) {
+		if !gpu.texture_supports_format(r.device, RENDER_FORMAT, .D2, usage) || !gpu.texture_supports_format(r.device, RENDER_GUIDE_FORMAT, .D2, usage) {
 			log.warn("render mode: this device cannot write RGBA32F and RGBA16F from compute; it stays off")
 			return false
 		}
 		pr.pipeline, pr.maps_array, pr.textured_max = path_maps_pipeline(r)
 		if pr.pipeline == nil {
-			pr.pipeline = gpu_create_compute_pipeline(r.device, {
+			pr.pipeline = gpu.create_compute_pipeline(r.device, {
 				code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
 				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
@@ -699,11 +700,11 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 		}
 		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
 		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
-		pr.sampler = gpu_create_sampler(r.device, {
+		pr.sampler = gpu.create_sampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
-		pr.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = RENDER_TRANSFER_SIZE})
+		pr.transfer = gpu.create_transfer_buffer(r.device, {usage = .UPLOAD, size = RENDER_TRANSFER_SIZE})
 		studio := studio_table_build(context.temp_allocator)
 		pr.studio_table, pr.studio_mean = env_table_texture(r, studio), studio.mean
 		if pr.studio_table == nil || pr.pipeline == nil || pr.display == nil || pr.atrous == nil || pr.sampler == nil || pr.transfer == nil {
@@ -715,26 +716,26 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 	if pr.shown != nil && pr.view_width == vt.width && pr.view_height == vt.height && pr.half == half do return true
 	path_targets_release(r, pr)
 	for &t in pr.accum {
-		t = gpu_create_texture(r.device, {
+		t = gpu.create_texture(r.device, {
 			type = .D2, format = RENDER_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &pair in pr.guides {
 		for &t in pair {
-			t = gpu_create_texture(r.device, {
+			t = gpu.create_texture(r.device, {
 				type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
 				width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 			})
 		}
 	}
 	for &t in pr.filtered {
-		t = gpu_create_texture(r.device, {
+		t = gpu.create_texture(r.device, {
 			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	pr.shown = gpu_create_texture(r.device, {
+	pr.shown = gpu.create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
@@ -754,19 +755,19 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 @(private = "file")
 path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4) {
 	if pr.backdrop == nil {
-		pr.backdrop = gpu_create_texture(r.device, {
+		pr.backdrop = gpu.create_texture(r.device, {
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 		// Drawn into by the one pass below and never read: transient.
-		pr.backdrop_depth = gpu_create_texture_transient(r.device, {
+		pr.backdrop_depth = gpu.create_texture_transient(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 		if pr.backdrop == nil || pr.backdrop_depth == nil {
 			log.errorf("render mode: depth of field's backdrop: %s", sdl.GetError())
-			if pr.backdrop != nil do gpu_release_texture(r.device, pr.backdrop)
-			if pr.backdrop_depth != nil do gpu_release_texture(r.device, pr.backdrop_depth)
+			if pr.backdrop != nil do gpu.release_texture(r.device, pr.backdrop)
+			if pr.backdrop_depth != nil do gpu.release_texture(r.device, pr.backdrop_depth)
 			pr.backdrop, pr.backdrop_depth = nil, nil
 			return
 		}
@@ -774,7 +775,7 @@ path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer
 	pass := begin_mesh_pass(r, cmd, &r.single, pr.backdrop, pr.backdrop_depth, load = false, keep_depth = false, background = r.background.top)
 	draw_background(r, cmd, pass, &r.single, vt^, proj, flat_too = true)
 	draw_floor(r, cmd, pass, &r.single, view, proj)
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 }
 
 // The size render mode traces a `width` by `height` viewport at: the same, or with `half`
@@ -788,7 +789,7 @@ render_size :: proc(width, height: u32, half: bool) -> (u32, u32) {
 @(private = "file")
 path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
 	targets := [12]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth, pr.linear}
-	for t in targets do if t != nil do gpu_release_texture(r.device, t)
+	for t in targets do if t != nil do gpu.release_texture(r.device, t)
 	pr.backdrop, pr.backdrop_depth, pr.linear, pr.linear_valid = nil, nil, nil, false
 	// A band still running writes the old images: it is dropped when it ends.
 	pr.generation += 1
@@ -814,37 +815,37 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 		for i in 0 ..< passes {
 			src := pr.accum[pr.current] if i == 0 else pr.filtered[1 - out]
 			target := sdl.GPUColorTargetInfo{texture = pr.filtered[out], load_op = .DONT_CARE, store_op = .STORE}
-			pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-			gpu_bind_graphics_pipeline(pass, pr.atrous)
+			pass := gpu.begin_render_pass(cmd, &target, 1, nil)
+			gpu.bind_graphics_pipeline(pass, pr.atrous)
 			samplers := [3]sdl.GPUTextureSamplerBinding{{texture = src, sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}, {texture = guides[1], sampler = pr.sampler}}
-			gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+			gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 1 if pr.lens_on else 0}
-			gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-			gpu_draw_primitives(pass, 3, 1, 0, 0)
-			gpu_end_render_pass(pass)
+			gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+			gpu.draw_primitives(pass, 3, 1, 0, 0)
+			gpu.end_render_pass(pass)
 			out = 1 - out
 		}
 	}
 	target := sdl.GPUColorTargetInfo{texture = pr.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-	gpu_bind_graphics_pipeline(pass, pr.display)
+	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
+	gpu.bind_graphics_pipeline(pass, pr.display)
 	under := pr.backdrop if pr.lens_on && pr.backdrop != nil else vt.color
 	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = under, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}}
-	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 1 if pr.half else 0}
-	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-	gpu_draw_primitives(pass, 3, 1, 0, 0)
-	gpu_end_render_pass(pass)
+	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	gpu.draw_primitives(pass, 3, 1, 0, 0)
+	gpu.end_render_pass(pass)
 	pr.linear_valid = false
 	if !pr.linear_on do return
 	// The same again as exposed linear light, for the finishing stack.
 	target = {texture = pr.linear, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass = gpu_begin_render_pass(cmd, &target, 1, nil)
-	gpu_bind_graphics_pipeline(pass, pr.display_linear)
-	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-	gpu_draw_primitives(pass, 3, 1, 0, 0)
-	gpu_end_render_pass(pass)
+	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
+	gpu.bind_graphics_pipeline(pass, pr.display_linear)
+	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	gpu.draw_primitives(pass, 3, 1, 0, 0)
+	gpu.end_render_pass(pass)
 	pr.linear_valid = true
 }
 
@@ -1011,7 +1012,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	}
 
 	// Each item's own data, copied on the GPU.
-	copy_pass := gpu_begin_copy_pass(cmd)
+	copy_pass := gpu.begin_copy_pass(cmd)
 	paint_base := vertex_count * size_of(Normal_Packed)
 	for p in placed {
 		item := items[p.item]
@@ -1034,7 +1035,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 			gpu_copy(copy_pass, t.corners, pr.buffers[.Textured], p.tex_corner_off * size_of(u32), t.corner_count * size_of(u32))
 		}
 	}
-	gpu_end_copy_pass(copy_pass)
+	gpu.end_copy_pass(copy_pass)
 	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks)) &&
 		path_upload(r, pr, cmd, .Items, 0, slice.to_bytes(records)) &&
 		path_upload(r, pr, cmd, .Nodes, int(node_count) * size_of(geom.Gpu_Bvh_Node), slice.to_bytes(tlas[:])) &&
@@ -1170,7 +1171,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 @(private = "file")
 gpu_copy :: proc(pass: ^sdl.GPUCopyPass, src, dst: ^sdl.GPUBuffer, offset, size: u32) {
 	if src == nil || size == 0 do return
-	gpu_copy_buffer_to_buffer(pass, {buffer = src}, {buffer = dst, offset = offset}, size, false)
+	gpu.copy_buffer_to_buffer(pass, {buffer = src}, {buffer = dst, offset = offset}, size, false)
 }
 
 // Makes a scene buffer at least `size` bytes, a quarter again over when it grows.
@@ -1179,11 +1180,11 @@ path_buffer_ensure :: proc(r: ^Renderer, pr: ^Path_Render, which: Scene_Buffer, 
 	size := max(wanted, 64)
 	if pr.buffers[which] != nil && u32(size) <= pr.capacity[which] do return true
 	if pr.buffers[which] != nil {
-		_ = gpu_wait_for_idle(r.device)
-		gpu_release_buffer(r.device, pr.buffers[which])
+		_ = gpu.wait_for_idle(r.device)
+		gpu.release_buffer(r.device, pr.buffers[which])
 	}
 	capacity := u32(min(size + size / 4, TRACE_BUFFER_MAX))
-	pr.buffers[which] = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = capacity})
+	pr.buffers[which] = gpu.create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = capacity})
 	pr.capacity[which] = capacity if pr.buffers[which] != nil else 0
 	if pr.buffers[which] == nil {
 		log.errorf("render mode: a buffer of %d MB was refused (%s)", capacity >> 20, sdl.GetError())
@@ -1198,16 +1199,16 @@ path_buffer_ensure :: proc(r: ^Renderer, pr: ^Path_Render, which: Scene_Buffer, 
 path_upload :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, which: Scene_Buffer, offset: int, data: []u8) -> bool {
 	for at := 0; at < len(data); at += RENDER_TRANSFER_SIZE {
 		part := data[at:min(at + RENDER_TRANSFER_SIZE, len(data))]
-		dst := gpu_map_transfer_buffer(r.device, pr.transfer, true)
+		dst := gpu.map_transfer_buffer(r.device, pr.transfer, true)
 		if dst == nil {
 			log.errorf("render mode: upload failed (%s)", sdl.GetError())
 			return false
 		}
 		runtime.mem_copy_non_overlapping(dst, raw_data(part), len(part))
-		gpu_unmap_transfer_buffer(r.device, pr.transfer)
-		pass := gpu_begin_copy_pass(cmd)
-		gpu_upload_to_buffer(pass, {transfer_buffer = pr.transfer}, {buffer = pr.buffers[which], offset = u32(offset + at), size = u32(len(part))}, false)
-		gpu_end_copy_pass(pass)
+		gpu.unmap_transfer_buffer(r.device, pr.transfer)
+		pass := gpu.begin_copy_pass(cmd)
+		gpu.upload_to_buffer(pass, {transfer_buffer = pr.transfer}, {buffer = pr.buffers[which], offset = u32(offset + at), size = u32(len(part))}, false)
+		gpu.end_copy_pass(pass)
 	}
 	return true
 }

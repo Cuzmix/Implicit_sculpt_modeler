@@ -1,5 +1,5 @@
 #+build js
-package render
+package gpu
 
 import "base:runtime"
 import "core:fmt"
@@ -16,7 +16,7 @@ import wgpu "vendor:wgpu"
 // is no cycling, no reference counts and no waiting: a write recorded after a read lands
 // after it, a released object is destroyed once no open recording can name it, and a CPU
 // readback is the only thing that must wait, which it does by polling its fence
-// (gpu_query_fence), as every readback in render already does. The browser hands the
+// (query_fence), as every readback in render already does. The browser hands the
 // device over asynchronously, so the page starts it (wgpu_start) before the renderer is
 // made, and renderer_init takes the device that came back. Everything runs on the page's
 // one thread; the browser's callbacks arrive between frames.
@@ -387,7 +387,7 @@ wgpu_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
 // A page cannot block on the GPU. What a wait is for everywhere but a CPU readback (an
 // upload finished before the texture is drawn, a buffer idle before it is freed) the
 // queue's order already gives, so the waits answer true at once; a readback polls its
-// fence (gpu_query_fence) instead, which is what render's readbacks do.
+// fence (query_fence) instead, which is what render's readbacks do.
 wgpu_wait_for_fences :: proc(device: ^sdl.GPUDevice, wait_all: bool, fences: [^]^sdl.GPUFence, num_fences: u32) -> bool {
 	return true
 }

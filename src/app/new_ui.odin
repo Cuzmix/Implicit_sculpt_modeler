@@ -353,12 +353,6 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
-	// The rail palette the panel stack's column shows (nil for Main), its body's scroll,
-	// how many times a rail button docked one, and whether the rail just read needs Main
-	// put on it (rail_dock.odin).
-	rail_dock:        Rail_Dock,
-	rail_dock_scroll: f32,
-	rail_docks:       int,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
@@ -1654,7 +1648,6 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		s: Kit_Scroll
 		if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
 		if strip do kit_stack_strip(app)
-		else if _, rail := rail_dock_valid(k).?; rail do kit_rail_dock(app, stack_w - 2 * box.padding, max(p.room, PANEL_BODY_MIN))
 		else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
 		if !p.docked do kit_scroll_end(ctx, s)
 	}

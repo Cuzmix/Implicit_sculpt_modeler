@@ -1,8 +1,9 @@
 # The GPU backends in detail (sm-render)
 
-Read from sm-render's Rules when a change touches a backend itself (`vk_*.odin`, `mtl_*.odin`, `hal.odin`) or one
-of the capabilities only they offer. SDL_GPU is retired: these two backends are the only ones, Metal on Darwin and
-Vulkan everywhere else, chosen at compile time in `hal.odin` (`when METAL`).
+Read from sm-render's Rules when a change touches a backend itself (`src/gpu`: `vk_*.odin`, `mtl_*.odin`,
+`wgpu_*.odin`, `hal.odin`) or one of the capabilities only they offer. SDL_GPU is retired: these backends are the
+only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chosen at compile time in `hal.odin`
+(`when METAL`, `when WEBGPU`).
 
 - The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) was written to mirror
   SDL_GPU's own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
@@ -13,7 +14,7 @@ Vulkan everywhere else, chosen at compile time in `hal.odin` (`when METAL`).
   `renderer_init` returns false with the reason in `render.backend_error`, and the app shows it in the system's
   message box (`graphics_failed_text`, `platform_alert`) and ends: there is no fallback. `backend_select` loads
   the Vulkan loader before the window is made, as SDL makes Vulkan windows with it.
-  A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu_*` wrapper does, or the values arrive as
+  A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu.*` wrapper in `hal.odin` does, or the values arrive as
   garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
   the run (`render.validation_errors`); a render change that must not move a pixel passes
   `parity_check.py --compare <old build's run>` at 0 px.
@@ -33,32 +34,32 @@ Vulkan everywhere else, chosen at compile time in `hal.odin` (`when METAL`).
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app
   branches on caps, never on a backend's name. A new capability is a field there plus one `gpu_*` proc with an
-  Vulkan and a Metal answer (`gpu_set_allowed_frames_in_flight`, set between frames by `frame_pace`).
+  Vulkan and a Metal answer (`gpu.set_allowed_frames_in_flight`, set between frames by `frame_pace`).
 - Async compute (`Gpu_Caps.async_compute`, design notes/native-gpu/async-compute-design.md): a second queue of the
   graphics family (`vk_state.compute_queue`, else the same queue as `.Same_Queue`) with its own timeline
   (`compute_timeline`); `Vk_Cmd.queue` and `Vk_Fence.queue` say which timeline a serial counts on (`vk_serial_done`,
   `vk_wait_serial(serial, queue)`, `vk_wait_for_fences` waits on both). A compute submission waits for every graphics
   serial so far and never carries the setup buffer (submitted first on graphics); graphics reads a band's output only
-  after `gpu_wait_on` (ALL_COMMANDS). Under --gpu-debug `vk_check_compute_writes` fails a graphics submission using
+  after `gpu.wait_on` (ALL_COMMANDS). Under --gpu-debug `vk_check_compute_writes` fails a graphics submission using
   what compute wrote without such a wait, which one queue's barriers hide from the layer. Compute-queue command
   buffers are untimed and hold compute passes only. Render mode (`render_frame`'s `async`): one band in flight
   (`band_fence`), `generation` drops a stale band, no band in a frame that builds the scene, sample counting at
   collection; pictures stay synchronous.
 - Ray query (`Gpu_Caps.ray_query`, design notes/native-gpu/ray-query-design.md): the own Vulkan backend enables
   `VK_KHR_acceleration_structure`, `VK_KHR_ray_query` and buffer device addresses where all are offered. Build inputs
-  are buffers made with `accel_input` (`gpu_create_buffer`/`_mapped`), which alone get the device-address usages.
-  `gpu_build_blas` (a geometry per triangle run, opaque or not; a refit only with the same geometries and vertex
-  count, else a new structure the caller swaps in) and `gpu_build_tlas` (always a fresh build, its memory reused
+  are buffers made with `accel_input` (`gpu.create_buffer`/`_mapped`), which alone get the device-address usages.
+  `gpu.build_blas` (a geometry per triangle run, opaque or not; a refit only with the same geometries and vertex
+  count, else a new structure the caller swaps in) and `gpu.build_tlas` (always a fresh build, its memory reused
   when the instance count matches) record on the graphics queue outside passes, barriers both sides, one shared
   scratch buffer (`vk_accel.odin`). `Vk_Accel` counts command buffers and the top levels holding it.
-  `gpu_create_compute_pipeline_traced` puts the structure at set 3 binding 0 and a texture array, if any, at
+  `gpu.create_compute_pipeline_traced` puts the structure at set 3 binding 0 and a texture array, if any, at
   binding 1 (a variable-count binding must be last). `--gpu-debug` runs `ray_query_check` (`ray_query.odin`)
   at device creation; a wrong answer is a validation error.
   The traced studio uses it when `Renderer.ray_query` (Settings > Graphics > Ray tracing hardware): `trace_prepare_rq`
   keeps a `Trace_Mesh.blas` over the shown runs merged by opacity (not opaque if the CPU indices repeat a corner or
   `hidden_stamp != 0`), keyed by geometries, index_version, hidden_stamp and vertex count (else refit, rebuilt after
   `BLAS_REFITS_MAX`), and a top level per view, instance number = table row. `studio_trace_rq.comp.slang` traces once
-  in world space and confirms non-opaque candidates by reading indices through `gpu_buffer_address` (Slang pointers,
+  in world space and confirms non-opaque candidates by reading indices through `gpu.buffer_address` (Slang pointers,
   so `shaderInt64` is required); the tables are rewritten every sample since an upload's cycle moves the address.
   Any refusal returns the view to the walk, whose CPU trees are not built for the studio while it runs.
   The caller makes its kernel first (`trace_rq_kernel`, `path_rq_kernel`) and passes `ray_query`; `tr.rq` says if
@@ -76,7 +77,7 @@ Vulkan everywhere else, chosen at compile time in `hal.odin` (`when METAL`).
   other pipeline gets SDL's own table), and the entry is `main_0` (`RQ_EXT`, `RQ_ENTRY` in `shaders.odin`).
   `render_trace_maps_rq` stays Vulkan only (texture arrays). Builds use a `MTLAccelerationStructureCommandEncoder`
   per build outside passes, a fresh scratch each, refit in place (nil destination); instances are UserID descriptors
-  (68 bytes). At dispatch each instanced BLAS and each buffer read through `gpu_buffer_address` (`Mtl_Cmd.addressed`)
+  (68 bytes). At dispatch each instanced BLAS and each buffer read through `gpu.buffer_address` (`Mtl_Cmd.addressed`)
   is `useResource`d, since Metal does not track what is reached only through the TLAS or an address; `Mtl_Cmd.kept`
   retains structures, scratch and instance buffers until the command buffer finishes. `ray_query_trusted` runs the
   ray query check once before Metal's first traced kernel and keeps the walk if it fails (logged, not a validation
@@ -84,7 +85,7 @@ Vulkan everywhere else, chosen at compile time in `hal.odin` (`when METAL`).
 - GPU culling (`gpu_cull.odin`, `Gpu_Caps.gpu_cull`: own Vulkan with multiDrawIndirect + drawIndirectCount, not on
   lazily-allocated-memory tile GPUs): `prepare_draws` hands an item with chunk groups, no `hidden`, no simplify to
   `cull_count`/`cull_write` (`cull.slang`, the CPU's tests); commands after a 20-byte header (count, triangles,
-  frustum, back) in `mb.indirect`, drawn with `gpu_draw_indexed_primitives_indirect_count`. The GPU copy of the
+  frustum, back) in `mb.indirect`, drawn with `gpu.draw_indexed_primitives_indirect_count`. The GPU copy of the
   chunks (`Mesh_Cull`) re-uploads only groups whose `sculptor_chunk_stamps` stamp is newer, all on a new layout.
   Stats come back `CULL_SLOTS` frames late, per pass number in the frame (`gpu_cull_frame` each frame).
 - Present timing (`Gpu_Caps.present_timing`, `vk_present_learn` in `vk_swapchain.odin`): the own Vulkan backend's

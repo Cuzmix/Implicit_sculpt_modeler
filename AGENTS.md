@@ -56,7 +56,8 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point and set-up (`main.odin` `run`), the frame (`frame.odin`: `frame_settle`, `frame_events`, `frame_step`), the exit stats (`exit_stats.odin`), `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys (`Key`, `keys.odin`) and pointer (`device.odin`), system services (`platform.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by the own Vulkan backend (`vk_*.odin`), on Darwin the own Metal backend (`mtl_*.odin`) or on the web the WebGPU one (`wgpu_*.odin`), SDL_GPU retired (`backend.odin`); `shaders/` Slang with committed `.spv`, `.msl` and `.wgsl` (`shaders.odin` picks per platform) |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache, all through `gpu`; `shaders/` Slang with committed `.spv`, `.msl` and `.wgsl` (`shaders.odin` picks per platform) |
+| `src/gpu` | the GPU itself, imported by `render` alone: the seam `hal.odin` (SDL_GPU's names without the prefix: `gpu.create_texture`) answered by the own Vulkan backend (`vk_*.odin`), on Darwin the own Metal backend (`mtl_*.odin`) or on the web the WebGPU one (`wgpu_*.odin`), SDL_GPU retired (`backend.odin`); its counters (`gpu_counters.odin`). The GPU abstraction's plan (`notes/gpu-own-model/design.md`) grows here |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
@@ -85,11 +86,11 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
-  platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
+- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
+  platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `gpu` names the GPU API, imported by `render` alone: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
-  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `hal.odin`'s
-  `gpu_*` (Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `src/gpu/hal.odin`
+  (`gpu.*`: Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
@@ -106,7 +107,7 @@ skill whose description fits the request BEFORE you form a plan.
   this build writes: a format change edits the writer and the reader together and deletes the old reading, with no
   version branches, optional trailing fields, renamed-line aliases or one-time default conversions. A file an earlier
   build wrote is refused (or a settings line passed over), never converted. A damaged file is refused, never asserted on.
-- GPU: consume every `gpu_*` result (in `render`; `hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
+- GPU: consume every `gpu.*` result (`hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
   control or panel change. No handoff, status or notes files.

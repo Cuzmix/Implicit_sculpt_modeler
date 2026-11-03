@@ -1,5 +1,6 @@
 package render
 
+import "../gpu"
 import "core:log"
 import sdl "vendor:sdl3"
 
@@ -22,8 +23,8 @@ STEP_PICTURE_SLOTS :: STEP_PICTURE_CELLS * STEP_PICTURE_CELLS
 
 step_pictures_destroy :: proc(r: ^Renderer, s: ^Step_Pictures) {
 	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if s.atlas != nil do gpu_release_texture(r.device, s.atlas)
+	_ = gpu.wait_for_idle(r.device)
+	if s.atlas != nil do gpu.release_texture(r.device, s.atlas)
 	thumbnail_view_destroy(r, &s.scratch)
 	s^ = {}
 }
@@ -35,7 +36,7 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: ^sdl.GPUCommand
 	if s.failed || slot < 0 || slot >= STEP_PICTURE_SLOTS do return false
 	if s.atlas == nil {
 		SIZE :: STEP_PICTURE_PX * STEP_PICTURE_CELLS
-		s.atlas = gpu_create_texture(r.device, {
+		s.atlas = gpu.create_texture(r.device, {
 			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
@@ -46,18 +47,18 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: ^sdl.GPUCommand
 		}
 		// A new texture holds anything: every cell starts empty.
 		color := sdl.GPUColorTargetInfo{texture = s.atlas, load_op = .CLEAR, store_op = .STORE}
-		pass := gpu_begin_render_pass(cmd, &color, 1, nil)
-		gpu_end_render_pass(pass)
+		pass := gpu.begin_render_pass(cmd, &color, 1, nil)
+		gpu.end_render_pass(pass)
 	}
 	drawn := thumbnail_view_draw(r, &s.scratch, cmd, {STEP_PICTURE_PX, STEP_PICTURE_PX}, view, proj, items, background, supersample = 1)
 	if drawn == nil {
 		s.failed = s.scratch.failed
 		return false
 	}
-	copy_pass := gpu_begin_copy_pass(cmd)
+	copy_pass := gpu.begin_copy_pass(cmd)
 	x, y := u32(slot % STEP_PICTURE_CELLS) * STEP_PICTURE_PX, u32(slot / STEP_PICTURE_CELLS) * STEP_PICTURE_PX
-	gpu_copy_texture_to_texture(copy_pass, {texture = drawn}, {texture = s.atlas, x = x, y = y}, STEP_PICTURE_PX, STEP_PICTURE_PX, 1, cycle = false)
-	gpu_end_copy_pass(copy_pass)
+	gpu.copy_texture_to_texture(copy_pass, {texture = drawn}, {texture = s.atlas, x = x, y = y}, STEP_PICTURE_PX, STEP_PICTURE_PX, 1, cycle = false)
+	gpu.end_copy_pass(copy_pass)
 	return true
 }
 

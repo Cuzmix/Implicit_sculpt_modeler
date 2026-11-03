@@ -44,8 +44,6 @@ tray_offers :: proc(app: ^App, sec: Panel_Kind) -> bool {
 tray_open :: proc(app: ^App, sec: Panel_Kind) {
 	side_panel_close(app)
 	app.kit.inspector = true
-	// The section is opened where it stands in Main, the stack itself.
-	app.kit.rail_dock = nil
 	stack_reveal(app, sec)
 }
 

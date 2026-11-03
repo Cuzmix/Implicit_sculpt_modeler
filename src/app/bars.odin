@@ -519,9 +519,8 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Open_Card:       return card_pop_shows(k, stack_card_of(app, Panel_Kind(s.arg))) || rail_dock_is(app, s)
+	case .Open_Card:       return card_pop_shows(k, stack_card_of(app, Panel_Kind(s.arg)))
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
-	case .Inspector:       return rail_dock_is(app, s)
 	case .Command_Palette: return k.palette
 	}
 	return command_checked(app, s.id, s.arg)
@@ -594,7 +593,6 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
 	if pressed {
 		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
-		else if which == .View_Rail && rail_docks(k, s) do rail_dock_toggle(app, s)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
 	}
 	if k.bars_edit {

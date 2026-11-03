@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import vk "vendor:vulkan"
 

@@ -2,7 +2,7 @@
 package main
 
 // The web version (README "Web"): the whole app in a browser tab, drawn with WebGPU by
-// render's WebGPU backend (src/render/wgpu_*.odin). The page (web/index.html) answers
+// the WebGPU backend (src/gpu/wgpu_*.odin). The page (web/index.html) answers
 // SDL's procs with its own stand-in (web/sdl_web.js), which turns the canvas's DOM events
 // into SDL events, so the app's windows, input and panels run as they do on the desktop.
 //

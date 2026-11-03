@@ -1,5 +1,5 @@
 #+build darwin
-package render
+package gpu
 
 import "base:runtime"
 import "core:sync"
@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 
 // Windows the Metal backend presents to: SDL's Metal view of each window and its
 // CAMetalLayer, which hands out one drawable a frame. Up to mtl_state.frames frames are in
-// flight per window (gpu_set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds none free
+// flight per window (set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds none free
 // and hands back no texture, as SDL_GPU's non-waiting acquire does. While one frame is in
 // flight the layer keeps two drawables instead of three, so nextDrawable waits for the
 // display to let one go and the frame reads its input a refresh later, closer to when it is
@@ -45,7 +45,7 @@ Mtl_Window :: struct {
 	frame_serial: [FRAMES_IN_FLIGHT_MAX]u64,
 	frame:        int,
 	log:          ^Mtl_Present_Log, // nil when every log is taken
-	input_ns:     u64, // the input the next present shows (gpu_present_input), 0 for none
+	input_ns:     u64, // the input the next present shows (present_input), 0 for none
 }
 
 // Windows timed at once, and presents a log follows until they reach the screen.

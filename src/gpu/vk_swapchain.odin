@@ -1,5 +1,5 @@
 #+build !js
-package render
+package gpu
 
 import "core:log"
 
@@ -8,7 +8,7 @@ import vk "vendor:vulkan"
 
 // Windows the Vulkan backend presents to: a surface and swapchain each, remade when the
 // window's size changes or the swapchain goes out of date. Up to vk_state.frames frames are
-// in flight per window (gpu_set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds
+// in flight per window (set_allowed_frames_in_flight); acquiring the next waits for the oldest, or with `wait` false finds
 // none free and hands back no texture, as SDL_GPU's non-waiting acquire does.
 
 Vk_Window :: struct {

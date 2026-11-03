@@ -1,4 +1,4 @@
-package render
+package gpu
 
 import "core:sync"
 import "core:time"
@@ -11,7 +11,7 @@ import sdl "vendor:sdl3"
 // app records into it as well as the seam's own work. Whole-GPU waits and fence waits are
 // the stalls a ring or a ticket would remove; memory allocations (Vulkan) are what a
 // suballocator would fold into a few blocks.
-Gpu_Counters :: struct {
+Counters :: struct {
 	command_buffers: int,
 	encode_ns:       i64,
 	idle_waits:      int,
@@ -29,7 +29,7 @@ OPEN_MAX :: 16
 @(private = "file")
 counters: struct {
 	lock:  sync.Mutex,
-	total: Gpu_Counters,
+	total: Counters,
 	open:  [OPEN_MAX]struct {
 		cmd:   ^sdl.GPUCommandBuffer,
 		start: time.Tick,
@@ -37,14 +37,14 @@ counters: struct {
 }
 
 // The run's counts so far.
-gpu_counters :: proc() -> Gpu_Counters {
+counters :: proc() -> Counters {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
 	return counters.total
 }
 
 // Notes that `cmd` was acquired now (nil, a refused acquire, is not counted).
-gpu_count_acquire :: proc(cmd: ^sdl.GPUCommandBuffer) {
+count_acquire :: proc(cmd: ^sdl.GPUCommandBuffer) {
 	if cmd == nil do return
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
@@ -55,7 +55,7 @@ gpu_count_acquire :: proc(cmd: ^sdl.GPUCommandBuffer) {
 }
 
 // Notes that `cmd` was submitted or cancelled now, adding its recording time.
-gpu_count_finish :: proc(cmd: ^sdl.GPUCommandBuffer) {
+count_finish :: proc(cmd: ^sdl.GPUCommandBuffer) {
 	if cmd == nil do return
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
@@ -67,19 +67,19 @@ gpu_count_finish :: proc(cmd: ^sdl.GPUCommandBuffer) {
 	}
 }
 
-gpu_count_idle_wait :: proc() {
+count_idle_wait :: proc() {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
 	counters.total.idle_waits += 1
 }
 
-gpu_count_fence_wait :: proc() {
+count_fence_wait :: proc() {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
 	counters.total.fence_waits += 1
 }
 
-gpu_count_allocation :: proc(bytes: i64) {
+count_allocation :: proc(bytes: i64) {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
 	counters.total.allocations += 1

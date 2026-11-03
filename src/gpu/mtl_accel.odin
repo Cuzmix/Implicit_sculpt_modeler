@@ -1,5 +1,5 @@
 #+build darwin
-package render
+package gpu
 
 import "core:log"
 import "core:slice"
@@ -50,7 +50,7 @@ Mtl_Instance :: struct {
 }
 #assert(size_of(Mtl_Instance) == 68)
 
-// Whether fragment shaders can read barycentric coordinates (gpu_barycentric_offered):
+// Whether fragment shaders can read barycentric coordinates (barycentric_offered):
 // Apple silicon and recent Macs' GPUs.
 mtl_barycentric_offered :: proc() -> bool {
 	if mtl_state.device == nil do return false

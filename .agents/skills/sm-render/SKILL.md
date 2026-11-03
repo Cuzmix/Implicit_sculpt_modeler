@@ -197,7 +197,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
   .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
   `// vulkan only`: no .msl, slangc's profile warning quieted, loaded only off Darwin) reads `maps[]` at set 3 with
-  NonUniformResourceIndex, through `gpu_create_compute_pipeline_array`/`gpu_bind_compute_texture_array` (own Vulkan
+  NonUniformResourceIndex, through `gpu.create_compute_pipeline_array`/`gpu.bind_compute_texture_array` (own Vulkan
   with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
   `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
   own argument buffers (shadercross refuses set 3). A map's maps_stamp change
@@ -312,21 +312,25 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules
-- Only `render` names the GPU API; `app` imports `vendor:sdl3` for windows, events and the pen only, and reaches
-  the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`, `Sample_Count`, and `wait_idle`,
-  `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
-  (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
-  `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
-  SDL_GPU is retired: render calls the GPU only through the seam `hal.odin`, whose `gpu_*` procs keep SDL_GPU's
-  names and arguments (`gpu_create_texture` for `sdl.CreateGPUTexture`) and hand each call to the Metal backend
-  under `when METAL` (Darwin) and to the Vulkan backend otherwise; nothing else chooses a backend. The check fails
-  on any `sdl.*GPU*(` call anywhere in render, the seam included. SDL's types and info structs stay, as opaque
-  handles render never dereferences.
+- Only `src/gpu` talks to the GPU, and only `render` imports it; `app` imports `vendor:sdl3` for windows, events
+  and the pen only, and reaches the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`,
+  `Sample_Count`, and `wait_idle`, `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`,
+  `swapchain_acquire`, `ui_present` (each window's present pass), `renderer_ready`; the backend's own procs the app
+  needs (`backend_select`, `backend_error`, `window_flags`, `validation_errors`, `gpu_counters`) are named again
+  in `src/render/backend.odin`. `scripts/boundary_check.py` (run by `check`) fails on any native GPU import outside
+  `src/gpu`, any import of `gpu` outside render, and any `sdl.*GPU*` name outside the two; a new GPU need is a render
+  proc, never an app call.
+  SDL_GPU is retired: render calls the GPU only through the seam `src/gpu/hal.odin`, whose procs keep SDL_GPU's
+  names without the prefix and its arguments (`gpu.create_texture` for `sdl.CreateGPUTexture`) and hand each call to
+  the Metal backend under `when METAL` (Darwin), the WebGPU one under `when WEBGPU` and the Vulkan one otherwise;
+  nothing else chooses a backend. The check fails on any `sdl.*GPU*(` call anywhere. SDL's types and info structs
+  stay, as opaque handles render never dereferences, until the GPU abstraction's own types replace them
+  (`notes/gpu-own-model/design.md`, G1b).
   `render` never reads UI state.
 - Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.
 - Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
-  `SCULPT_SLAB` threads in a workgroup (`gpu_storage_buffers_per_stage`, `gpu_compute_group_threads`), and starts on
+  `SCULPT_SLAB` threads in a workgroup (`gpu.storage_buffers_per_stage`, `gpu.compute_group_threads`), and starts on
   wherever it is offered in a person's run (scripted runs keep the CPU as their oracle). A new kernel buffer raises
   the constant and both backends' binding arrays; a new per-mesh buffer joins `sculpt_lookup_make`'s budget check
   (a quarter of a card's memory, an eighth of a unified device's), past which that mesh sculpts on the CPU.
@@ -346,7 +350,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   their folded values (`studio_env.slang`). A first line `// slangc: -fp-mode precise` keeps every multiply and add
   unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` and `.msl` with the source; never
   hand-edit either (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
-  fast math; a kernel that must equal the CPU is made with `gpu_create_compute_pipeline_exact` (fast maths off under the
+  fast math; a kernel that must equal the CPU is made with `gpu.create_compute_pipeline_exact` (fast maths off under the
   own Metal backend). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.
 - The backends themselves, each capability only they offer (async compute, ray queries and Metal ray tracing, GPU
@@ -355,16 +359,16 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   says why in the system's message box and ends (no fallback), and the app branches on `render.caps`, never on a
   backend's name.
 - A new top-level pass function starts with `debug_group(cmd, "Name")` (`gpu.odin`, popped as the scope ends, so
-  call it outside any pass), and a long-lived texture or buffer gets `gpu_set_texture_name`/`gpu_set_buffer_name`
+  call it outside any pass), and a long-lived texture or buffer gets `gpu.set_texture_name`/`gpu.set_buffer_name`
   with a literal (the backends keep the pointer for later backings), so captures in Xcode and RenderDoc read.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf). Timestamps
   (`Gpu_Caps.timestamps`, `timing.odin`, `vk_timing.odin`) do not: a pass that should show in Stats passes a
   `Gpu_Span` to its `debug_group`; spans never nest (an inner one is left untimed), so their sum is the frame.
-- A target drawn by one pass and never read after makes its depth with `gpu_create_texture_transient`
+- A target drawn by one pass and never read after makes its depth with `gpu.create_texture_transient`
   (`viewport_target_resize(..., transient_depth = true)`): CLEAR/DONT_CARE only, never sampled or copied; debug checks it.
   A `Viewport_Target.tile` target (MSAA, transient targets, partial off; `--tile-msaa` forces it) keeps neither samples
   nor depth: `target_pass` must never load it, so a new viewport pass that loads goes after the resolve or skips tile.
-- Mapped device buffers (`gpu_create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
-  and closed with `gpu_buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
+- Mapped device buffers (`gpu.create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
+  and closed with `gpu.buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
 - A compute kernel never sums floats with atomics (order breaks determinism); one that wants subgroup operations or
   64-bit atomics adds the capability to `Gpu_Caps` with a plain path where it is missing.
