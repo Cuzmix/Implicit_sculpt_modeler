@@ -821,6 +821,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	} else if st.cloth {
 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
 		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, app.brush.cloth)
+		sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, app.brush.cloth))
 		return
 	} else {
 		object_dab(app, obj, brush, local, object_normal_local(obj, local))
@@ -1940,7 +1941,11 @@ physics_begin :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, local: Vec3)
 	case .Grab in flags:      reach = PHYSICS_GRAB_REACH
 	case:                     set.region = .Follows
 	}
+	// Until the Physics card, Physics collides with what the Cloth brush does.
+	c := app.brush.cloth
+	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
 	st.physics = sculpt.sculptor_physics_begin(object_sculptor(obj), brush, local, app.brush.physics_strength, reach, set) > 0
+	if st.physics do sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, set))
 }
 
 // One step of the stroke's cloth after its moves this frame, round where it is now: the

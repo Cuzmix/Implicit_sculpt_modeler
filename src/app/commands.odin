@@ -129,6 +129,8 @@ Command_Id :: enum u16 {
 	Morph_Delete,
 	New_Layer,
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
+	New_Paint_Layer,
+	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
 	Recall_Later,
 	Recall_Oldest,
@@ -267,6 +269,11 @@ Command_Id :: enum u16 {
 	Render_Preview, // grid.odin
 	View_Window, // view_window.odin
 	View_Windows_Close,
+	Pane_Tab_New, // grid_tabs.odin
+	Pane_Tab_Texture, // texture_tab.odin
+	Pane_Tab_Close,
+	Pane_Tab_Next,
+	Pane_Tab_Previous,
 	Clean_View, // lens_view.odin
 	View_Layout_Menu, // lens_chrome.odin
 	Pass_Menu, // passes.odin
@@ -1398,6 +1405,23 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, arg: int) {layer_action(app, Layer_Action(arg))},
 		enabled = proc(app: ^App, arg: int) -> bool {return layer_action_ready(app, Layer_Action(arg))},
 	},
+	.New_Paint_Layer = {
+		label = "New paint layer",
+		help = "Adds a paint layer above the picked one and picks it: the paint tools then paint it, over the layers below.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {paint_layer_add(app, selected_object(app))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return paint_ready(app, 0) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
+		},
+	},
+	.Paint_Layer_Edit = {
+		label = "Paint layer",
+		help = "Moves the picked paint layer up or down, merges it into the one below or deletes it.",
+		args = len(Paint_Layer_Action),
+		run = proc(app: ^App, arg: int) {paint_layer_edit(app, selected_object(app), Paint_Layer_Action(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {return paint_layer_ready(app, Paint_Layer_Action(arg))},
+	},
 	.Recall_Earlier = {
 		label = "History brush: earlier",
 		help = "Moves what the History brush paints back to one step earlier in the History.",
@@ -2413,6 +2437,41 @@ COMMANDS := [Command_Id]Command {
 		// With three open it still runs, to say why no fourth opens.
 		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
 	},
+	.Pane_Tab_New = {
+		label = "New tab",
+		help = "Adds a tab to the view pane you used last, from an angle none of its tabs shows, and shows it; the pane keeps every tab's camera and pass.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_New)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_New)},
+	},
+	.Pane_Tab_Texture = {
+		label = "New texture tab",
+		help = "Adds a tab to the view pane you used last that shows the selected object's maps flat: drag to pan, the wheel or a pinch to zoom, a double tap to fit.",
+		icon = ui.ICON_IMAGE,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Texture)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Texture)},
+	},
+	.Pane_Tab_Close = {
+		label = "Close tab",
+		help = "Closes the tab the view pane you used last shows, when it has another; Undo brings it back.",
+		icon = ui.ICON_CLOSE,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Close)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Close)},
+	},
+	.Pane_Tab_Next = {
+		label = "Next tab",
+		help = "Shows the next tab of the view pane you used last, round to the first.",
+		icon = ui.ICON_CHEVRON_RIGHT,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Next)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Next)},
+	},
+	.Pane_Tab_Previous = {
+		label = "Previous tab",
+		help = "Shows the tab before this one in the view pane you used last, round to the last.",
+		icon = ICON_CHEVRON_LEFT,
+		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Previous)},
+		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Previous)},
+	},
 	.Clean_View = {
 		label = "Clean view",
 		help = "Hides every control so you can judge the form, keeping only the dial unless Settings > Interface says otherwise; again, Escape or a four-finger tap brings them back.",
@@ -2789,6 +2848,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_F11, {}, false}, .Stats, 0},
 	{{KEY_F1, {}, false}, .Help, 0},
 	{{KEY_TAB, {}, false}, .Clean_View, 0},
+	{{KEY_TAB, {.Ctrl}, false}, .Pane_Tab_Next, 0},
+	{{KEY_TAB, {.Ctrl, .Shift}, false}, .Pane_Tab_Previous, 0},
 	{{KEY_K, {.Ctrl}, false}, .Command_Palette, 0},
 	{{KEY_SLASH, {}, false}, .Command_Palette, 0},
 	{{KEY_Q, {}, false}, .Pie, 0},
@@ -2904,6 +2965,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return TEXTURE_LOAD_NAMES[render.Texture_Map(arg)]
 	case .Layer_Edit:
 		return LAYER_ACTION_NAMES[Layer_Action(arg)]
+	case .Paint_Layer_Edit:
+		return PAINT_LAYER_ACTION_NAMES[Paint_Layer_Action(arg)]
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:

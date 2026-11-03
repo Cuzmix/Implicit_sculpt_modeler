@@ -21,15 +21,6 @@ Gpu_Caps :: struct {
 	// without frames waiting for the GPU (timing.odin): the own Vulkan backend where the
 	// device times graphics and compute alike and resets queries from the CPU.
 	timestamps:       bool,
-	// Threads in a subgroup (Vulkan) or SIMD-group (Metal) that compute kernels can reduce
-	// over with subgroup operations; 0 where the backend cannot tell. Nothing
-	// uses it yet: it is reported so a kernel designed for it knows which devices have it.
-	subgroup_size:    u32,
-	// 64-bit atomic operations on storage buffers: Vulkan's shaderBufferInt64Atomics
-	// (enabled where offered), Metal's Apple9 family (min and max only). Reported for a
-	// future GPU dynamic topology or BVH refit; never for summing floats, whose order
-	// would break the bit-identical rule.
-	int64_atomics:    bool,
 	// Loads write mesh buffers in place, with no copy through a transfer buffer and no
 	// wait for the GPU (gpu_create_buffer_mapped): memory both the CPU and GPU reach at
 	// full speed, which unified-memory GPUs and Resizable BAR desktops have.
@@ -48,10 +39,12 @@ Gpu_Caps :: struct {
 	// (gpu_build_blas, gpu_build_tlas, gpu_create_compute_pipeline_traced): the own Vulkan
 	// backend on a device with VK_KHR_ray_query, which hardware ray tracing GPUs have.
 	ray_query:         bool,
-	// Fragment shaders know where the pixel lies between the triangle's corners, so the
-	// wireframe is drawn in the shading pass itself (Renderer.wire_bary) instead of as the
-	// triangles again in lines: VK_KHR_fragment_shader_barycentric (desktop GPUs of the last
-	// years), Metal's barycentric coordinates (Apple silicon).
+	// Fragment shaders know where the pixel lies between the triangle's corners and which
+	// triangle it is (its primitive id, and the draw's first instance), so the wireframe,
+	// a polygon level's edges too, is drawn in the shading pass itself (wire_pipeline)
+	// instead of as lines in a second pass: VK_KHR_fragment_shader_barycentric with
+	// geometryShader and drawIndirectFirstInstance (desktop GPUs of the last years),
+	// Metal's barycentric coordinates (Apple silicon).
 	barycentric:       bool,
 	// Objects' chunks are culled on the GPU (gpu_cull.odin, Renderer.gpu_cull): see
 	// gpu_cull_offered.
@@ -110,7 +103,6 @@ caps_fill :: proc(r: ^Renderer) {
 	r.caps.present_timing = gpu_present_timing(r.device)
 	r.caps.display_link = gpu_display_link_offered()
 	r.caps.timestamps = gpu_timestamps_offered(r.device)
-	r.caps.subgroup_size, r.caps.int64_atomics = gpu_compute_features(r.device)
 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
 	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)

@@ -72,24 +72,44 @@ Grid_Tree :: struct {
 // A layout step that Undo takes back (lens_areas.odin): the tree and the panes as they
 // were, and when the step was made, which orders it among the scene's History steps.
 Grid_Step :: struct {
-	tree:  Grid_Tree,
-	views: [GRID_VIEWS]Second_View,
-	at:    time.Tick,
+	tree: Grid_Tree,
+	tabs: [GRID_VIEWS]Pane_Tabs,
+	at:   time.Tick,
 }
 
 GRID_UNDO :: 16
 
+// The layout steps to undo and to redo. Each step holds every view pane's tabs, a few
+// kilobytes, so the steps live on the heap, made with the first step (grid_step_push) and
+// freed by grid_undo_destroy, which keeps the App small enough to sit on a stack.
 Grid_Undo :: struct {
-	back:   [GRID_UNDO]Grid_Step,
-	back_n: int,
-	ahead:   [GRID_UNDO]Grid_Step,
+	back:    []Grid_Step, // GRID_UNDO of them once made; nil before the first step
+	back_n:  int,
+	ahead:   []Grid_Step,
 	ahead_n: int,
 }
 
-// The grid's choices, kept by workspaces (workspaces.odin): the tree and its view panes.
+// Forgets every layout step, keeping the room they took for the next.
+grid_undo_clear :: proc(g: ^View_Grid) {
+	g.undo.back_n, g.undo.ahead_n = 0, 0
+}
+
+grid_undo_destroy :: proc(g: ^View_Grid) {
+	delete(g.undo.back)
+	delete(g.undo.ahead)
+	g.undo = {}
+}
+
+// The grid's choices, kept by workspaces (workspaces.odin): the tree and its view panes'
+// tabs (grid_tabs.odin), each pane showing its active tab's view (grid_view).
 View_Grid :: struct {
 	tree:      Grid_Tree,
-	views:     [GRID_VIEWS]Second_View,
+	tabs:      [GRID_VIEWS]Pane_Tabs,
+	// The view panes a layout's `pane` lines have given a first tab since its `panes`
+	// line, so later lines add tabs; never kept.
+	tabs_read: bit_set[0 ..< GRID_VIEWS],
+	// Tabs shown, added and closed, for the exit stats; never kept.
+	tab_switches, tab_adds, tab_closes: int,
 	maximised: int, // the view pane filling the grid (1 to 3), 0 for none; never kept
 	// Counts every change to the tree, so what began on one layout (work in a pane) knows
 	// it is gone; never kept.
@@ -329,21 +349,11 @@ grid_tree_holds :: proc(t: ^Grid_Tree, n, m: int) -> bool {
 	return node.split && (grid_tree_holds(t, int(node.a), m) || grid_tree_holds(t, int(node.b), m))
 }
 
-// The pane under point `p` of a room one by one, or -1.
-grid_tree_pane_at :: proc(t: ^Grid_Tree, p: [2]f32) -> int {
-	cells, _ := grid_tree_unit(t)
-	for i in 0 ..< grid_tree_panes(t) {
-		c := cells[i]
-		if p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h do return i
-	}
-	return -1
-}
-
 // Puts tree `t` in place of the grid's, the view panes moving as `was` says (from
 // grid_tree_fill; the pictures follow in grid_pictures_follow), and counts the change.
 grid_tree_set :: proc(g: ^View_Grid, t: Grid_Tree, was: [GRID_VIEWS]int = {0, 1, 2}) {
-	old := g.views
-	for i in 0 ..< GRID_VIEWS do g.views[i] = old[was[i]]
+	old := g.tabs
+	for i in 0 ..< GRID_VIEWS do g.tabs[i] = old[was[i]]
 	g.tree = t
 	g.maximised = 0
 	g.serial += 1
@@ -363,7 +373,7 @@ grid_split_pane :: proc(g: ^View_Grid, pane: int, vertical: bool, share: f32, fi
 	a, b := old, added
 	if first do a, b = added, old
 	t.nodes[at] = {split = true, vertical = vertical, share = clamp(share, GRID_PANE_MIN, 1 - GRID_PANE_MIN), a = a, b = b}
-	g.views[n - 1] = view
+	g.tabs[n - 1] = pane_tabs_one(view)
 	grid_tree_set(g, grid_tree_normal(t, 0))
 	return n
 }
@@ -640,13 +650,13 @@ grid_views_default :: proc(preset: Grid_Preset) -> (views: [GRID_VIEWS]Second_Vi
 // Puts the grid back as a new user finds it: one view.
 grid_reset :: proc(g: ^View_Grid) {
 	g.tree, g.maximised = grid_preset_tree(.Single), 0
-	g.views = grid_views_default(.Four)
+	g.tabs = grid_tabs_of(grid_views_default(.Four))
 	g.serial += 1
 }
 
-// A layout's grid lines (workspaces.odin): none for one pane, so every layout saved
-// before the grid reads as it was; else the tree, then each view pane's camera and pass,
-// and its shading when not a fresh view's.
+// A layout's grid lines (workspaces.odin): none for one pane; else the tree, then each view
+// pane's tabs (grid_tab_lines): each tab's camera and pass, and its shading when not a
+// fresh view's.
 // A Free camera's turn is not kept, as the second view's is not.
 grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	g := &k.grid
@@ -656,7 +666,7 @@ grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&b, "panes ")
 	grid_tree_write(&b, &g.tree)
 	strings.write_byte(&b, '\n')
-	for &v, i in g.views[:n - 1] do fmt.sbprintf(&b, "pane %d %v %v%s\n", i + 1, v.camera, v.pass, second_shading_words(&v))
+	for i in 1 ..< n do grid_tab_lines(&b, g, i)
 	return strings.to_string(b)
 }
 
@@ -716,18 +726,15 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 		t, ok := grid_tree_read(f[1:])
 		if !ok do return
 		g.tree, g.maximised = t, 0
-		g.views = grid_views_default(.Four)
+		g.tabs = grid_tabs_of(grid_views_default(.Four))
+		g.tabs_read = {}
 		g.serial += 1
 	case f[0] == "pane" && len(f) >= 4:
 		i, ok := strconv.parse_int(f[1])
 		if !ok || i < 1 || i > GRID_VIEWS do return
-		v := &g.views[i - 1]
-		for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[2]) do v.camera = c
-		for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[3]) do v.pass = p
-		// The pane's shading follows its pass, in layouts since per-view shading; one
-		// without it is a fresh view's.
-		v.shading = {}
-		if len(f) > 4 do shading_words_read(&v.shading, f[4:])
+		grid_tab_line_read(g, i, f)
+	case f[0] == "pane_tab":
+		grid_tab_active_read(g, f)
 	}
 }
 
@@ -742,7 +749,7 @@ grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) -> (added: int, changed: bo
 	g.tree = grid_preset_tree(preset)
 	g.serial += 1
 	partners := grid_views_default(preset)
-	for i in had ..< grid_count(preset) do g.views[i - 1] = partners[i - 1]
+	for i in had ..< grid_count(preset) do g.tabs[i - 1] = pane_tabs_one(partners[i - 1])
 	return had, true
 }
 
@@ -964,7 +971,12 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	g := &k.grid
-	sv := &g.views[i - 1]
+	// A 2D tab draws itself, with no picture.
+	if tab := pane_tab_shown(g, i); tab.kind != .View {
+		kit_texture_tab(app, i, r, tab)
+		return
+	}
+	sv := grid_view(g, i)
 	ui.begin_at(ctx, fmt.tprintf("view pane %d", i), {r.x, r.y}, {width = r.w, height = r.h})
 	a := ui.area(ctx, "picture", {r.w, r.h})
 	working := g.work == i
@@ -1031,7 +1043,12 @@ grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms:
 			continue
 		}
 		if k.grid.work == i + 1 do continue
-		picture_frame(app, cmd, draws, froms, &k.grid.views[i], &pic, size, 1)
+		// A 2D tab draws no picture; the pane's is drawn again once a 3D tab shows.
+		if !pane_shows_view(&k.grid, i + 1) {
+			pic.shown, pic.key, pic.due = nil, 0, false
+			continue
+		}
+		picture_frame(app, cmd, draws, froms, grid_view(&k.grid, i + 1), &pic, size, 1)
 	}
 }
 
@@ -1042,6 +1059,7 @@ grid_due :: proc(app: ^App) -> bool {
 }
 
 grid_destroy :: proc(app: ^App) {
+	grid_undo_destroy(&app.kit.grid)
 	for &pic in app.panes do picture_destroy(app, &pic)
 	render.viewport_target_destroy(&app.renderer, &app.work_still)
 	cross_fade_destroy(app)
@@ -1085,7 +1103,7 @@ grid_work :: proc(app: ^App, n: int) {
 	// whose place was in that view's coordinates.
 	if place != g.last_place do app.double_tap.valid = false
 	g.last_place = place
-	if place != 0 && g.work == 0 && k.panes_work && grid_work_may_start(app) do grid_work_begin(app, place)
+	if place != 0 && g.work == 0 && k.panes_work && pane_shows_view(g, place) && grid_work_may_start(app) do grid_work_begin(app, place)
 }
 
 // Whether a press may take the main view's role into a view pane: not while something
@@ -1108,7 +1126,7 @@ grid_work_over :: proc(app: ^App) -> bool {
 grid_work_begin :: proc(app: ^App, i: int) {
 	k := &app.kit
 	g := &k.grid
-	sv := &g.views[i - 1]
+	sv := grid_view(g, i)
 	// What the main pane shows, taken while the main view is still its own: the studio
 	// render or live occlusion pause while a view pane is worked in.
 	g.work_shown = viewport_shown(app)
@@ -1129,7 +1147,7 @@ grid_work_begin :: proc(app: ^App, i: int) {
 grid_work_end :: proc(app: ^App) {
 	g := &app.kit.grid
 	if g.serial == g.work_serial && app.camera != g.work_from {
-		sv := &g.views[g.work - 1]
+		sv := grid_view(g, g.work)
 		#partial switch sv.camera {
 		case .Follow:
 			g.work_back = app.camera
@@ -1163,7 +1181,7 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 	}
 	if i := g.work_ended; i != 0 {
 		pic := &app.panes[i - 1]
-		sv := &g.views[i - 1]
+		sv := grid_view(g, i)
 		size := [2]u32{w, h}
 		if size == g.px[i - 1] && render.viewport_copy(&app.renderer, &pic.view.target, g.work_live, w, h) {
 			key, orbit := picture_key(app, sv, size, 1)
@@ -1183,7 +1201,7 @@ ICON_RENDER_PREVIEW :: rune(0xe48a)
 // The view pane (1 to 3) showing Render in the grid in use, 0 for none.
 render_preview_pane :: proc(k: ^Kit_State) -> int {
 	g := &k.grid
-	for i in 1 ..< grid_panes(g) do if g.views[i - 1].pass == .Render do return i
+	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) && grid_view(g, i).pass == .Render do return i
 	return 0
 }
 
@@ -1196,11 +1214,11 @@ render_preview_toggle :: proc(app: ^App) {
 	k := &app.kit
 	g := &k.grid
 	if i := render_preview_pane(k); i != 0 {
-		g.views[i - 1].pass = .Shaded
+		grid_view(g, i).pass = .Shaded
 		return
 	}
 	// From one view the grid goes Side by side first, a layout step Undo takes back.
 	if grid_panes(g) == 1 do grid_choose(app, .Side_By_Side)
-	sv := &g.views[0]
+	sv := grid_view(g, 1)
 	sv.camera, sv.pass = .Follow, .Render
 }

@@ -134,11 +134,12 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 
 // Carries the colours and groups of the current level to level `to` when they changed
 // since it became current; otherwise every level keeps its own, so a look at a coarser
-// level and back loses nothing.
+// level and back loses nothing. The paint layer stack itself always goes, so every level
+// shows the same layers, and the layers a level lacks take their colours.
 @(private)
 levels_carry_paint :: proc(l: ^Levels, to: int) {
 	s := &l.levels[l.current].sculptor
-	if s.color_edited do levels_carry_color(l, l.current, to)
+	levels_carry_color(l, l.current, to, all = s.color_edited)
 	if s.groups.edited do levels_carry_groups(l, l.current, to)
 	s.color_edited, s.groups.edited = false, false
 }
@@ -153,7 +154,7 @@ levels_paint_to_top :: proc(l: ^Levels) {levels_paint_to(l, len(l.levels) - 1)}
 levels_paint_to :: proc(l: ^Levels, to: int) {
 	if l.current == to do return
 	s := &l.levels[l.current].sculptor
-	if s.color_edited do levels_carry_color(l, l.current, to)
+	levels_carry_color(l, l.current, to, all = s.color_edited)
 	if s.groups.edited do levels_carry_groups(l, l.current, to)
 }
 

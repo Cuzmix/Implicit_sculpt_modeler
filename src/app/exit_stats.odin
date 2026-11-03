@@ -36,9 +36,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		draws, ms, turns, links, linked := 0, 0.0, 0, 0, 0
 		for pic in app.panes do draws, ms = draws + pic.draws, max(ms, pic.ms)
 		n := grid_panes(g)
-		for &v, i in g.views {
+		for &p, i in g.tabs do for &tab in p.tabs[:p.count] {
+			v := &tab.view
 			turns, linked = turns + v.turns, linked + v.linked
-			if i + 1 < n && second_linked(&v) do links += 1
+			if i + 1 < n && tab.view == grid_view(g, i + 1)^ && second_linked(v) do links += 1
 		}
 		// The shares of the first two splits, in the tree's order.
 		split: [2]f32
@@ -48,8 +49,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			found += 1
 		}
 		heavy := 0
-		for v, i in g.views do if i + 1 < n && second_pass_heavy(v.pass) do heavy += 1
-		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
+		for i in 1 ..< n do if pane_shows_view(g, i) && second_pass_heavy(grid_view(g, i).pass) do heavy += 1
+		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, grid_view(g, 1).camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
 		ar := &g.areas
 		tree := strings.builder_make(context.temp_allocator)
 		grid_tree_write(&tree, &g.tree)
@@ -59,12 +60,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// What each view pane shows, its shading mode or pass, with no spaces so the stat
 		// stays one word.
 		shows := strings.builder_make(context.temp_allocator)
-		for &v, i in g.views[:n - 1] {
-			if i > 0 do strings.write_byte(&shows, ',')
-			name, _ := strings.replace_all(second_shows_name(&v), " ", "_", context.temp_allocator)
+		// And how many tabs each view pane holds, which one it shows (from 1).
+		tabs := strings.builder_make(context.temp_allocator)
+		for i in 1 ..< n {
+			if i > 1 {
+				strings.write_byte(&shows, ',')
+				strings.write_byte(&tabs, ',')
+			}
+			name, _ := strings.replace_all(second_shows_name(grid_view(g, i)), " ", "_", context.temp_allocator)
 			strings.write_string(&shows, name)
+			fmt.sbprintf(&tabs, "%d", g.tabs[i - 1].count)
 		}
-		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", g.views[0].shading.lighting)
+		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.lighting)
+		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_kind=%v pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, pane_tab_shown(g, 1).kind, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
 		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
 	}
 	{
@@ -282,6 +290,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
 			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("stretch_repair_splits=%d stretch_repair_ms=%.2f", app.stretch_repair.splits, app.stretch_repair.ms)
+			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses)
 			fmt.printfln("skin_settle_strokes=%d skin_settle_vertices=%d skin_settle_ms=%.2f", app.skin_settle.strokes, app.skin_settle.vertices, app.skin_settle.ms)
 			skin_segments: u32
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments
@@ -670,7 +679,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
+	fmt.printfln("gpu_timestamps=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)

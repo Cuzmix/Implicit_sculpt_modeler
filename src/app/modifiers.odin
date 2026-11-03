@@ -31,10 +31,6 @@ Modifier :: enum u8 {
 }
 Modifiers :: bit_set[Modifier;u8]
 
-// Smooth, Mask and Hide are what a press does, one at a time (Smooth and Mask together
-// being Hide); Invert turns any of them (or the brush) the other way.
-RAIL_MODES :: Modifiers{.Smooth, .Mask, .Hide}
-
 // A press of a rail button shorter than this that sculpted nothing is a tap, which
 // latches; longer, or with a stroke made meanwhile, it only acted while held.
 RAIL_TAP :: 0.25 // seconds

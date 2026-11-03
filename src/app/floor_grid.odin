@@ -105,7 +105,6 @@ floor_scene_key :: proc(app: ^App) -> u64 {
 
 // The world box round every shown object's shown surface: a mesh object's current level
 // (never an HD window, which is part of it), a voxel object's clay.
-@(private = "file")
 floor_scene_bounds :: proc(app: ^App) -> geom.Aabb {
 	world := geom.AABB_EMPTY
 	for obj in app.scene.objects {

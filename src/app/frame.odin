@@ -321,7 +321,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				lights = viewport_lights(app),
 				matcap = material_matcap(app, material),
 				wireframe = overlay && app.polyframe_lines && !poly_edges,
-				paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
+				paint  = sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off,
 				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 				// A cage shows its edges, and its faces flat, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.
@@ -411,7 +411,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// silhouette without wires or paint.
 	if app.kit.grid.work != 0 {
 		// A heavy pass's picture stands on the background's colour alone.
-		if second_pass_heavy(app.kit.grid.views[app.kit.grid.work - 1].pass) {
+		if second_pass_heavy(grid_view(&app.kit.grid, app.kit.grid.work).pass) {
 			app.renderer.floor = {}
 			if _, own := pass_ground(shown_pass); !own {
 				top := app.renderer.background.top

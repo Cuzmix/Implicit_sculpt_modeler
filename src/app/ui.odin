@@ -74,6 +74,8 @@ Ui_State :: struct {
 	layer_wide:         bool, // the strength sliders go from -5 to 5 rather than -1 to 2
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
+	layers_paint:       bool, // the Layers card shows its Paint tab (paint layers) rather than its Sculpt tab
+	layer_drag_paint:   bool, // the drag is a paint layer's opacity (lens_paint_layers.odin), not a sculpt layer's strength
 	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
@@ -140,9 +142,6 @@ SPHERE_PRESETS := [?]struct {
 	{"10M", 10_000_000},
 	{"25M", 25_000_000},
 }
-
-// Measured at 25M vertices: mesh, sculpt nodes and topology together.
-BYTES_PER_VERTEX :: 108
 
 // What the viewport saw this frame, in window coordinates. This is the only thing the
 // camera and the tools read; none of them touches the interface directly.

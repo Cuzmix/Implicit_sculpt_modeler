@@ -15,10 +15,10 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   12 bins (`:72`); `bvh_build_morton(m, leaf_size, pool)` radix-sorts Morton codes in linear time and is what sculptors
   use (`:359`); `bvh_refit_leaves` marks a bit per node and walks from the highest index down, since children always
   have larger indices than their parent (`:205-231`); `bvh_raycast` finds the nearest hit on either face, closer child
-  first (`:253`); `bvh_query_sphere` returns a superset by leaf bounds (`:313`); `bvh_query_leaves` returns leaf indices
+  first (`:253`); `bvh_query_leaves` returns leaf indices
   (`:336`); `tri_bounds`, `leaf_bounds`, `RANGE_GRAIN = 1 << 16`. `bvh_build_over(boxes, first, count, leaf_of)` builds
   a tree whose leaves are runs of triangle ids (one per item, `leaf_size` 1) for dynamic topology's pages (`:443`): its
-  `tri_order` is nil and `tri_leaf` empty, which `leaf_bounds`, `bvh_raycast` and `bvh_query_sphere` handle and
+  `tri_order` is nil and `tri_leaf` empty, which `leaf_bounds` and `bvh_raycast` handle and
   `bvh_refit_triangles` does not.
 - Topology (`src/geom/topology.odin`): `Vertex_Faces` in CSR form; `vertex_faces_build(m, pool)` lists each vertex's
   triangles ascending whatever the thread timing (`:15-62`); `vertex_faces_of`; `mesh_sort_vertices_spatially` reorders
@@ -102,7 +102,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   way within reach, rays started 1e-3·reach behind the point and zero direction parts nudged to 1e-9 (else `ray_aabb` gets
   0×∞ = NaN for points on a box face, e.g. a mirror plane); used by `mesh_project_onto` and the app's Project detail.
 - Curve geometry (`src/geom/curve_mesh.odin`, README "Curve and insert tools"): `Curve_Point{p, n}` paths; `curve_resample`
-  (even arc-length steps, ends kept, smoothing), `curve_frames` (T, N ⟂ T, B = T×N), `curve_tube` (closed, capped),
+  (even arc-length steps, ends kept, smoothing), `curve_frames` (T, N ⟂ T, B = T×N),
   `curve_place` (copies of a part: x→B, y→N, z→−T so no mirror; `alternate` turns every other half round N),
   `curve_stitch_part`, `curve_tooth_part`, `any_square_to`. Tests in `curve_mesh_test.odin`.
 
@@ -128,7 +128,6 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 | You might expect | What happens |
 |---|---|
 | `b.tri_order[i]` works on any BVH | nil on a `bvh_build_over` tree (dynamic topology): go through `sculpt`'s `tri_node`, or the leaf's run of ids |
-| `bvh_query_sphere` returns the triangles inside the sphere | it returns every triangle of every leaf whose box touches it; filter yourself (`bvh.odin:311-312`) |
 | `normal_cone` leaves its argument alone | it normalises the face normals in place (`visibility.odin:36`) |
 | `cull_chunks` on chunks in any order | it merges adjacent ranges as it goes: chunks must be sorted by `first_index` |
 | `cull_chunks_grouped` with stale groups | groups must hold their chunks' bounds and cones: take them from `sculpt.sculptor_chunk_groups` after the flush, never cache them |

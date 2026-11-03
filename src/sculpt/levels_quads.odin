@@ -4,6 +4,7 @@ import "core:log"
 import "core:slice"
 
 import "../geom"
+import "../jobs"
 import "../uv"
 
 // The quads a retopologized object was made of (geom.mesh_retopo): the base level is
@@ -136,4 +137,55 @@ levels_polygon_edges :: proc(l: ^Levels, level: int, allocator := context.temp_a
 	pairs := make([]u32, 2 * len(unique), allocator)
 	for key, i in unique do pairs[2 * i], pairs[2 * i + 1] = u32(key >> 32), u32(key & 0xffff_ffff)
 	return pairs
+}
+
+// Level `level`'s polygon edges (`pairs`, as levels_polygon_edges makes them: lower first,
+// sorted) again per triangle, as the wireframe drawn in the shading reads them
+// (render.Mesh_Buffers.tri_edges): four bits a triangle, eight triangles a word, the first
+// lowest, bit k set where the edge across from the triangle's corner k is a polygon's
+// edge and clear where it only cuts a polygon into triangles (a quad's diagonal). Made
+// with `allocator`, in parallel over words, the same on every run.
+levels_polygon_tri_edges :: proc(l: ^Levels, level: int, pairs: []u32, allocator := context.allocator) -> []u32 {
+	indices := l.levels[level].mesh.indices[:]
+	tris := len(indices) / 3
+	Work :: struct {
+		indices: []u32,
+		pairs:   []u32,
+		first:   []u32, // where each lower vertex's edges start in pairs (by pair), up to the last lower vertex
+		words:   []u32,
+		tris:    int,
+	}
+	w := Work{indices = indices, pairs = pairs, tris = tris}
+	w.words = make([]u32, (tris + 7) / 8, allocator)
+	// The pairs are sorted by their lower vertex, so each one's run is found by counting.
+	last := u32(0)
+	for i := 0; i < len(pairs); i += 2 do last = max(last, pairs[i])
+	w.first = make([]u32, int(last) + 2, context.allocator)
+	defer delete(w.first)
+	for i := 0; i < len(pairs); i += 2 do w.first[pairs[i] + 1] += 1
+	for v in 1 ..< len(w.first) do w.first[v] += w.first[v - 1]
+	jobs.parallel_ranges(l.pool, len(w.words), &w, proc(data: rawptr, lo, hi: int) {
+		w := (^Work)(data)
+		has :: proc(w: ^Work, a, b: u32) -> bool {
+			lo, hi := min(a, b), max(a, b)
+			if int(lo) + 1 >= len(w.first) do return false
+			for e in w.first[lo] ..< w.first[lo + 1] do if w.pairs[2 * e + 1] == hi do return true
+			return false
+		}
+		for word in lo ..< hi {
+			bits: u32
+			for k in 0 ..< 8 {
+				t := 8 * word + k
+				if t >= w.tris do break
+				a, b, c := w.indices[3 * t], w.indices[3 * t + 1], w.indices[3 * t + 2]
+				drawn := u32(0)
+				if has(w, b, c) do drawn |= 1
+				if has(w, c, a) do drawn |= 2
+				if has(w, a, b) do drawn |= 4
+				bits |= drawn << (4 * u32(k))
+			}
+			w.words[word] = bits
+		}
+	}, grain = 1 << 14)
+	return w.words
 }

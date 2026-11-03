@@ -202,7 +202,7 @@ inspect_set :: proc(k: ^Kit_State, on: bool) {
 grid_lines_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
-	k.grid.undo = {}
+	grid_undo_clear(&k.grid)
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) > 0 do grid_layout_read(&k.grid, f)

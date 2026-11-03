@@ -6,7 +6,8 @@
     python scripts/shaders_wgsl.py --check   # fail on a missing or stale .wgsl, without slangc (build check runs it)
 
 The web version draws with WebGPU (src/render/wgpu_*.odin), which takes WGSL, so each
-src/render/shaders/name.stage.slang has a name.stage.wgsl beside its .spv and .msl, made by
+src/render/shaders/name.stage.slang has a name.stage.wgsl beside its .spv and .msl (but one
+whose first line is "// vulkan only", which the web never loads), made by
 slangc's own WGSL target with the flags the .spv is made with, and the web build embeds those
 (src/render/shaders.odin). The first line names the .spv made from the same source and its
 SHA-256, so --check finds a missing or stale one with no slangc installed, as shaders_msl.py
@@ -53,8 +54,16 @@ def sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def vulkan_only(source):
+    """Whether the Slang source marks itself as the Vulkan backend's alone (its first line),
+    as shaders_msl.py reads it: the web build never loads one, so it has no .wgsl."""
+    with open(os.path.join(SHADERS, source), encoding="utf-8") as f:
+        return f.readline().startswith("// vulkan only")
+
+
 def sources():
-    return sorted(f for f in os.listdir(SHADERS) if f.endswith(".slang") and f.split(".")[-2] in STAGES)
+    return sorted(f for f in os.listdir(SHADERS)
+                  if f.endswith(".slang") and f.split(".")[-2] in STAGES and not vulkan_only(f))
 
 
 def problem(source):

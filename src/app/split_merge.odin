@@ -128,9 +128,9 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode, keep_parts := tr
 	}
 	for p, k in pieces {
 		if k > 0 && !keep_parts do break
-		if s.color != nil {
+		if shown := sculpt.sculptor_paint_shown(s); shown != nil {
 			surfaces[k].color = make([]sculpt.Color, len(p.vertex_from))
-			for v, i in p.vertex_from do surfaces[k].color[i] = s.color[v]
+			for v, i in p.vertex_from do surfaces[k].color[i] = shown[v]
 		}
 		if groups := sculpt.sculptor_groups(s); groups != nil {
 			surfaces[k].groups = make([]u16, len(p.tri_from))
@@ -253,7 +253,7 @@ merge_meshes :: proc(objs: []^Object, into: Transform, table: ^[dynamic]Group_Ma
 	painted := false
 	for obj, k in objs {
 		meshes[k] = shape_in(obj, into)
-		painted ||= sculpt.sculptor_has_color(object_sculptor(obj)) && !object_dynamic(obj)
+		painted ||= sculpt.sculptor_paint_shows(object_sculptor(obj)) && !object_dynamic(obj)
 	}
 	defer for &m in meshes do geom.mesh_destroy(&m)
 	out = geom.mesh_join(meshes)
@@ -271,7 +271,7 @@ merge_meshes :: proc(objs: []^Object, into: Transform, table: ^[dynamic]Group_Ma
 	for obj, k in objs {
 		s := object_sculptor(obj)
 		vcount := len(meshes[k].positions)
-		if painted && s.color != nil && !object_dynamic(obj) do copy(surface.color[vertex:][:vcount], s.color)
+		if shown := sculpt.sculptor_paint_shown(s); painted && shown != nil && !object_dynamic(obj) do copy(surface.color[vertex:][:vcount], shown)
 		vertex += vcount
 	}
 	return out, surface, true

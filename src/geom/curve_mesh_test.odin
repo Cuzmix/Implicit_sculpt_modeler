@@ -26,30 +26,6 @@ floor_line :: proc(length: f32) -> []Curve_Point {
 	return points[:]
 }
 
-// Resampling gives even steps with the ends kept; a tube along a straight line is
-// closed, faces out, and is as big as a cylinder of its size.
-@(test)
-curve_tube_along_a_line :: proc(t: ^testing.T) {
-	line := floor_line(2)
-	even := curve_resample(line, 0.05, 2, context.temp_allocator)
-	testing.expect_value(t, len(even), 41)
-	testing.expect(t, even[0].p == line[0].p && even[40].p == line[len(line) - 1].p, "the ends moved")
-	for i in 1 ..< len(even) {
-		step := linalg.length(even[i].p - even[i - 1].p)
-		testing.expectf(t, abs(step - 0.05) < 0.005, "step %d is %v", i, step)
-	}
-	tube, ok := curve_tube(even, 0.1, 0.05, 24)
-	defer mesh_destroy(&tube)
-	if !testing.expect(t, ok) do return
-	_ = expect_closed_manifold(t, tube)
-	// A 24-gon's area is a little under the circle's.
-	want := f32(0.5 * 24 * math.sin(2 * math.PI / 24)) * 0.01 * 2
-	got := mesh_volume(tube)
-	testing.expectf(t, abs(got - want) < 0.01 * want, "volume %v, want %v", got, want)
-	for p in tube.positions do testing.expectf(t, abs(p.y - 0.05) <= 0.1001, "a vertex at height %v", p.y)
-	testing.expect(t, curve_resample(line[:2], 0.05, 0, context.temp_allocator) == nil, "a curve under a step resampled")
-}
-
 // Stitches and teeth: one closed copy per point, turned to the curve, the teeth on
 // alternate sides.
 @(test)

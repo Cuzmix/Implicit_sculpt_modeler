@@ -145,24 +145,6 @@ clay_mask_shape :: proc(c: ^Clay, inside: proc(p: Vec3, user: rawptr) -> bool, u
 	return undo_end(&c.history)
 }
 
-// The mask at object-space point `p`, trilinear between voxel centres, 0 to 1; 0 off the
-// bricks.
-mask_sample :: proc(v: ^Volume, p: Vec3) -> f32 {
-	g := voxel_coords(v, p)
-	f := linalg.floor(g)
-	i := [3]i32{i32(f.x), i32(f.y), i32(f.z)}
-	t := g - f
-	c: [8]f32
-	for k in 0 ..< 8 do c[k] = f32(mask_value(v, i + {i32(k & 1), i32(k >> 1 & 1), i32(k >> 2 & 1)}))
-	x0 := c[0] + (c[1] - c[0]) * t.x
-	x1 := c[2] + (c[3] - c[2]) * t.x
-	x2 := c[4] + (c[5] - c[4]) * t.x
-	x3 := c[6] + (c[7] - c[6]) * t.x
-	y0 := x0 + (x1 - x0) * t.y
-	y1 := x2 + (x3 - x2) * t.y
-	return (y0 + (y1 - y0) * t.z) / 255
-}
-
 // The mask at voxel `g`: its brick's, or 0 on a tile and outside the domain.
 mask_value :: proc(v: ^Volume, g: [3]i32) -> u8 {
 	if g.x < 0 || g.y < 0 || g.z < 0 do return 0

@@ -4886,6 +4886,39 @@ def lens_camera_chip_drags_a_pane_to_swap_or_dock():
 
 
 @scenario
+def lens_pane_tabs_add_show_and_undo():
+    """New tab on pane 1's head, then 3D view in its list, adds a Back tab and shows it; a tap on the Front tab shows that again, and Ctrl+Z instead takes the new tab back."""
+    def run(undo):
+        s = Script()
+        s.ftap(At("pane 1 new tab", 1010, 89))
+        s.wait(4)
+        s.ftap(At("3D view", 1060, 160))
+        s.wait(4)
+        if undo:
+            s.press("z", ("ctrl",))
+        else:
+            s.ftap(At("pane 1 tab 0", 890, 89))
+        s.wait(6)
+        if undo:
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("1,1"), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "grid_undos": near(1), "dabs": near(0)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("2,1"), "pane_tab": near(1), "pane_tab_camera": is_text("Front"), "pane_tab_adds": near(1), "pane_tab_switches": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_pane_texture_tab_from_new_tab():
+    """New tab, then Texture in its list, shows the selected object's maps flat in pane 1: a 2D tab, so the pane is not worked in and a drag on it lays no dab."""
+    s = Script()
+    s.ftap(At("pane 1 new tab", 1010, 89))
+    s.wait(4)
+    s.ftap(At("Texture", 1060, 200))
+    s.wait(4)
+    s.fdrag(line((1100, 300), (1200, 380), 8))
+    s.wait(6)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_tabs": is_text("2,1"), "pane_tab": near(2), "pane_tab_kind": is_text("Texture"), "pane_works": near(0), "dabs": near(0)})
+
+
+@scenario
 def lens_undo_takes_a_split_back():
     """Ctrl+Z after a corner split puts the three panes back, and Ctrl+Shift+Z splits again."""
     def run(redo):
@@ -12655,6 +12688,25 @@ def lattice_point_dragged():
     want = {"lattice_on": near(1, 0), "lattice_drags": near(1, 0), "lattice_last": under,
             "undo_steps": near(1, 0), "pose_drags": near(1, 0), "dabs": near(0)}
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
+
+
+@scenario
+def lattice_point_dragged_with_physics():
+    """With the Physics switch on, a mouse drag of the lattice's side point poses the sphere
+    with the cloth following it (one pose the cloth followed), still as one undo step that
+    moves the surface; the camera stays still."""
+    s = Script()
+    s.wait(3)
+    palette_run(s, "lattice")
+    s.wait(3)
+    s.press("Tab")
+    s.wait(3)
+    s.press("w")
+    s.wait(5)
+    s.mouse_drag(line(LATTICE_SIDE, (LATTICE_SIDE[0], LATTICE_SIDE[1] - 120), 10))
+    s.wait(5)
+    return s, ["--script=set physics on"], camera_still({"lattice_drags": near(1, 0), "pose_drags": near(1, 0), "physics_poses": near(1, 0),
+                                                        "undo_steps": near(1, 0), "dabs": near(0)})
 
 
 LATTICE_SIDE = (1032, 522)  # the cage's +x side middle point round the starting sphere

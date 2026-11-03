@@ -1328,6 +1328,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	curve_look_drag_end(app)
 	reshape_drag_end(app)
 	lattice_frame(app)
+	pose_physics_frame(app)
 	transform_drag_end(app)
 	light_drag_end(app)
 	tree_column_send(app)
@@ -2067,6 +2068,13 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
 			draws[i].image, draws[i].smooth = tex, true
 			if tex == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {
+			// A Texture tab's map: smoothed until its texels show as squares.
+			tab := pane_tab_shown(&app.kit.grid, int(c.image - KIT_TAB_IMAGE) + 1)
+			tex, _ := flat_texture(app, &tab.flat)
+			draws[i].image, draws[i].smooth = tex, tab.flat.zoom < TEXEL_GRID_ZOOM
+			if tex == nil || tab.kind != .Texture do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true

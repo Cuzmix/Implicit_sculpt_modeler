@@ -792,7 +792,6 @@ gpu_display_link_frames :: proc() -> u64 {
 gpu_shared_buffers_offered :: proc(device: ^sdl.GPUDevice) -> bool {
 	when METAL do return mtl_shared_buffers_offered()
 	else when WEBGPU do return wgpu_shared_buffers_offered()
-	else when WEBGPU do return false
 	else do return vk_state.shared_buffers
 }
 
@@ -811,16 +810,6 @@ gpu_buffer_filled :: proc(device: ^sdl.GPUDevice, buffer: ^sdl.GPUBuffer) {
 	when VULKAN {
 		vk_buffer_filled(device, buffer)
 	}
-}
-
-// The compute kernels' subgroup width (0 when unknown) and whether 64-bit buffer atomics
-// work.
-@(require_results)
-gpu_compute_features :: proc(device: ^sdl.GPUDevice) -> (subgroup_size: u32, int64_atomics: bool) {
-	when METAL do return mtl_compute_features()
-	else when WEBGPU do return wgpu_compute_features()
-	else when WEBGPU do return 0, false
-	else do return vk_state.subgroup_size, vk_state.int64_atomics
 }
 
 // GPU timestamps, the own Vulkan backend's only: Apple GPUs sample counters only where a

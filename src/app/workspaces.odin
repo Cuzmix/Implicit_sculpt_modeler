@@ -176,7 +176,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	// One view unless the layout names a grid; the layout steps named another layout.
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
-	k.grid.undo = {}
+	grid_undo_clear(&k.grid)
 	k.second_in_layout = false
 	groups := make([dynamic][]string, 0, 4, context.temp_allocator)
 	for line in strings.split_lines(text, context.temp_allocator) {
@@ -198,7 +198,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			k.second.shading = {}
 			if len(f) > 3 do shading_words_read(&k.second.shading, f[3:])
 			k.second_in_layout = true
-		case "panes", "pane":
+		case "panes", "pane", "pane_tab":
 			grid_layout_read(&k.grid, f)
 		case "open":
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true

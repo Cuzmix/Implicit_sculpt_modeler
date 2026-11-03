@@ -70,13 +70,6 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 	{0xe03f, 0xe03d, 0xe03e},
 }
 
-// The Objects card is the Scene card's Pictures now: what opens it (its command, a layout
-// that kept it open, Arrange's Show) shows the Scene card with pictures instead, so a
-// gesture or a workspace that named the card keeps working.
-objects_card_toggle :: proc(app: ^App) {
-	app.kit.objects_card = true
-}
-
 // Turns a request for the old floating card into the Scene card with its pictures; draws
 // nothing itself, so it never raises a window.
 kit_objects_card :: proc(app: ^App) -> (raised: bool) {
@@ -231,7 +224,7 @@ card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, line: Tree_Line, 
 // Whether the object's shown level carries polypaint.
 @(private = "file")
 object_has_paint :: proc(obj: ^Object) -> bool {
-	return sculpt.sculptor_has_color(&sculpt.levels_current(&obj.levels).sculptor)
+	return sculpt.sculptor_paint_shows(&sculpt.levels_current(&obj.levels).sculptor)
 }
 
 // The pictures' menus, drawn over everything with the other popovers: More and a row's.

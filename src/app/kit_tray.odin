@@ -34,17 +34,6 @@ section_palette :: proc(sec: Kit_Section) -> Kit_Tab {
 	return .Scene
 }
 
-// A palette's name where it stands for every tool's (search, Show where): the brush's,
-// whose sections it lists.
-palette_name :: proc(tab: Kit_Tab) -> string {
-	switch tab {
-	case .Tool:   return "Brush"
-	case .Object: return "Object"
-	case .Scene:  return "Scene"
-	}
-	return ""
-}
-
 // Whether the tray offers section `sec`: the brush's own ones only on the brushes that
 // have them (whatever the tool, which Show section switches to the brush).
 tray_offers :: proc(app: ^App, sec: Kit_Section) -> bool {
@@ -110,6 +99,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Show_Masked           = .Visibility,
 	.New_Layer             = .Layers,
 	.Layer_Edit            = .Layers,
+	.New_Paint_Layer       = .Layers,
+	.Paint_Layer_Edit      = .Layers,
 	.Paint                 = .Paint,
 	.Morph_Store           = .Morph,
 	.Morph_Delete          = .Morph,
@@ -147,6 +138,11 @@ tray_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	if !ok do return false
 	k := &app.kit
 	if section_palette(sec) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
+	// The Layers card's tab that holds the command.
+	#partial switch id {
+	case .New_Layer, .Layer_Edit:            app.ui.layers_paint = false
+	case .New_Paint_Layer, .Paint_Layer_Edit: app.ui.layers_paint = true
+	}
 	tray_open(app, sec, exact = true)
 	k.more[sec] = true
 	k.pointed = {id, arg, k.ctx.time}

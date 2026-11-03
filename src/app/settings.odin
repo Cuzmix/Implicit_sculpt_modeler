@@ -823,19 +823,16 @@ settings_load :: proc(app: ^App, path: string) {
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
-			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
-			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps, and a content
-			// pack's `<id>/<stem>` with packs' matcaps (which older versions read as none).
-			if len(f) >= 6 {
+			// custom_material r g b metallic roughness matcap: the matcap is 0 for none,
+			// 1 + a built-in's place or MATCAP_IMAGE, or a content pack's `<id>/<stem>`.
+			if len(f) == 7 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
 				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
-				if len(f) >= 7 {
-					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
-					if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
-					if c.matcap != 0 do c.idle = MATCAP_IDLE
-				}
+				c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+				if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
+				if c.matcap != 0 do c.idle = MATCAP_IDLE
 			}
 		case "matcap_image":
 			// matcap_image <path, escaped>: the image Load MatCap loaded last.

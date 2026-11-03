@@ -38,7 +38,12 @@ poly_edges_frame :: proc(app: ^App) {
 		source := sculpt.levels_polygon_source(&obj.levels, k)
 		if source == obj.poly_edges[k] do continue
 		pairs := sculpt.levels_polygon_edges(&obj.levels, k, context.temp_allocator)
-		_ = render.mesh_buffers_set_edges(&app.renderer, gpu, pairs)
+		// Where the wireframe is drawn in the shading pass, the same edges per triangle
+		// let it leave out the polygons' diagonals there instead of drawing every edge
+		// again as a line.
+		tri_edges: []u32
+		if render.caps(&app.renderer).barycentric && len(pairs) > 0 do tri_edges = sculpt.levels_polygon_tri_edges(&obj.levels, k, pairs, context.temp_allocator)
+		_ = render.mesh_buffers_set_edges(&app.renderer, gpu, pairs, tri_edges)
 		obj.poly_edges[k] = source
 	}
 }

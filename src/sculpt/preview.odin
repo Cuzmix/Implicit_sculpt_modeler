@@ -210,13 +210,14 @@ preview_draw :: proc(s: ^Sculptor, pixels: []u8) {
 	albedo := make([][3]f32, nv)
 	defer delete(albedo)
 	CLAY :: [3]f32{0.74, 0.52, 0.42} // linear light
+	shown := sculptor_paint_shown(s)
 	for p, v in mesh.positions {
 		up := p.y * cos_t + p.z * sin_t
 		depth := -p.y * sin_t + p.z * cos_t
 		screen[v] = {f32(W) * 0.5 + p.x * scale, f32(H) * 0.5 - up * scale, depth}
 		c := CLAY
-		if s.color != nil {
-			pc := s.color[v]
+		if shown != nil {
+			pc := shown[v]
 			if pc.a > 0 {
 				paint := [3]f32{srgb_to_linear(pc.r), srgb_to_linear(pc.g), srgb_to_linear(pc.b)}
 				c = linalg.lerp(c, paint, f32(pc.a) / 255)

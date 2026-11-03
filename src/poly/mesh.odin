@@ -223,20 +223,6 @@ find_half_edge :: proc(m: ^Mesh, a, b: u32) -> u32 {
 	return NONE
 }
 
-// Points vert_he[v] at the border half-edge leaving v when there is one, so walks round
-// a border vertex start at its gap. Actions call it on every vertex whose ring changed.
-vert_settle :: proc(m: ^Mesh, v: u32) {
-	h := m.vert_he[v]
-	if h == NONE do return
-	w := vertex_walk(m, v)
-	for o in vertex_walk_next(&w) {
-		if m.he_face[o] == NONE {
-			m.vert_he[v] = o
-			return
-		}
-	}
-}
-
 // The face's normal by Newell's method, unit length (zero for a degenerate face): right
 // for any planar polygon and the best fit for a bent one.
 face_normal :: proc(m: ^Mesh, f: u32) -> Vec3 {

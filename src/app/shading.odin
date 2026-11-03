@@ -132,7 +132,7 @@ second_shading_mode :: proc(sv: ^Second_View) -> (m: Shading_Mode, ok: bool) {
 main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 	g := &app.kit.grid
 	if g.work == 0 do return app.kit.passes.shading, false
-	sv := &g.views[g.work - 1]
+	sv := grid_view(g, g.work)
 	if sv.pass == .Shaded do return sv.shading, true
 	return {mode = .Material_Preview}, true
 }
@@ -142,8 +142,8 @@ main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	if main_shading_mode(app) == m do return true
 	g := &app.kit.grid
-	for &v in g.views[:grid_panes(g) - 1] {
-		if shown, ok := second_shading_mode(&v); ok && shown == m do return true
+	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) {
+		if shown, ok := second_shading_mode(grid_view(g, i)); ok && shown == m do return true
 	}
 	if app.kit.thumbnail {
 		if shown, ok := second_shading_mode(&app.kit.second); ok && shown == m do return true
@@ -188,16 +188,6 @@ shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 		if tex := material_matcap(app, {matcap = s.matcap}); tex != nil do return tex
 	}
 	return material_matcap(app, {matcap = SHADING_MATCAP_DEFAULT})
-}
-
-// The name of the MatCap Solid shades with.
-shading_matcap_name :: proc(app: ^App, s: View_Shading) -> string {
-	i := s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT
-	if s.matcap == MATCAP_IMAGE && app.matcap_image != nil do return "Imported"
-	if s.matcap >= PACK_MATCAP {
-		if mc, ok := pack_matcap_at(app, s.matcap - PACK_MATCAP); ok do return mc.stem
-	}
-	return string(MATCAP_RECIPES[i - 1].label)
 }
 
 // The pass a view in shading `s` draws its items in, where the pass picked is `p`: a pass

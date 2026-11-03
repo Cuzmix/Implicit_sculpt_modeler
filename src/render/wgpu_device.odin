@@ -426,10 +426,6 @@ wgpu_shared_buffers_offered :: proc() -> bool {
 	return false
 }
 
-wgpu_compute_features :: proc() -> (subgroup_size: u32, int64_atomics: bool) {
-	return 0, false
-}
-
 wgpu_create_buffer_mapped :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUBufferCreateInfo) -> (^sdl.GPUBuffer, rawptr) {
 	return nil, nil
 }

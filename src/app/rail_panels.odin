@@ -39,18 +39,6 @@ rail_panel_toggle :: proc(app: ^App, p: Panel_Kind) -> bool {
 PANEL_POP_W :: KIT_INSPECTOR_W
 PANEL_POP_PAD :: 12
 
-// The room a popover's scrolling body has under its head: down to the window's foot, or
-// above it up to the top bar where it opens above its button.
-panel_pop_room :: proc(app: ^App, root, body: string) -> f32 {
-	ctx := &app.kit.ctx
-	p := &app.kit.bar_pop
-	size, _ := ui.prev_layout(ctx, root)
-	area := ui.safe_area(ctx)
-	head := size.y - (ui.prev_rect(ctx, body).h if size.y > 0 else 0)
-	if p.side == .Above_Center do return max(p.at.y - area.y - kit_top() - 8 - head, 160)
-	return max(area.y + area.h - p.at.y - 8 - head, 160)
-}
-
 // A popover's head: its title and Close, with room for `extra` buttons the caller adds
 // between them (begun here, ended by the caller after them).
 panel_pop_head :: proc(app: ^App, name, title: string, extra: int) {

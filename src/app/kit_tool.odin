@@ -338,7 +338,10 @@ kit_stroke :: proc(app: ^App) {
 			_ = ui.switch_row(ctx, "Keep area", &c.keep_area)
 			_ = ui.switch_row(ctx, "Allow shrink", &c.allow_shrink)
 			_ = ui.switch_row(ctx, "Allow expand", &c.allow_expand)
-			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber.")
+			_ = ui.switch_row(ctx, "Collide with floor", &c.floor)
+			_ = ui.switch_row(ctx, "Collide with objects", &c.objects)
+			_ = ui.switch_row(ctx, "Self collision", &c.self_collide)
+			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. The collisions keep it on the floor (where the floor grid stands, at the bottom of the scene), out of the other objects and its folds out of each other; Physics strokes take them too.")
 			kit_more_end(app)
 		}
 	}
@@ -553,6 +556,10 @@ kit_move_tab :: proc(app: ^App) {
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
+		// The Brush card's own switch, here too as posing is where it changes what a drag does.
+		b := &app.brush
+		_ = ui.switch_row(ctx, "Physics", &b.physics, keys = command_hint(app, .Physics))
+		if b.physics do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	}
 	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
 	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")

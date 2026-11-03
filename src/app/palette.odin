@@ -29,18 +29,8 @@ Palette_Entry :: struct {
 	arg:  int,
 }
 
-// The most result rows shown at once (fewer when the window is short: palette_rows),
-// and how many recent entries are kept.
-PALETTE_ROWS :: 8
+// How many recent entries are kept.
 PALETTE_RECENT :: 8
-
-// How many result rows fit in `room` points of height under the Search button, besides
-// the field, the captions, the help, its row of buttons and the padding: from 2 up to
-// PALETTE_ROWS. A row is a touch target less 4, plus the column's gap of 2.
-palette_rows :: proc(room, target: f32) -> int {
-	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (74 + 2) + (target + 2)
-	return clamp(int((room - fixed) / (target - 2)), 2, PALETTE_ROWS)
-}
 
 // Other words each command is found by: names other apps give it and words people
 // reach for. The label itself is always searched; the help sentence is not, since it
@@ -164,6 +154,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Morph_Delete     = "morph target",
 	.New_Layer        = "sculpt layers record",
 	.Layer_Edit       = "sculpt layers copy flip negate combine order reorder apply flatten",
+	.New_Paint_Layer  = "polypaint colour color stack texture",
+	.Paint_Layer_Edit = "polypaint colour color stack combine order reorder flatten remove",
 	.Recall_Earlier   = "historyrecall local undo recall point",
 	.Recall_Later     = "historyrecall local undo recall point",
 	.Recall_Oldest    = "historyrecall local undo recall point first",
@@ -614,7 +606,7 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 }
 
 // The palette's popover under the Search button: the field, as many results as fit (up
-// to PALETTE_ROWS) with their shortcuts and states, the picked one's help, and how many
+// to LENS_SEARCH_ROWS) with their shortcuts and states, the picked one's help, and how many
 // more there are. Up and Down pick (the list scrolls to keep the pick in view), and so
 // do a pointer moving over a row and a press on one, so the pick's Put on a bar and the
 // footer's buttons follow the mouse, the pen and a finger; Enter or a tap runs, a long
@@ -628,7 +620,6 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	// Wide, centred under the top bar, its rows saying where each lives (lens_search.odin).
 	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
 	anchor, side := lens_search_anchor(app, search, width)
-	rows := palette_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, t.target)
 	was := k.palette
 	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
 	defer ui.popover_end(ctx)
@@ -672,7 +663,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if query != "" && !choosing {
 		hits, k.palette_groups = palette_group_hits(hits, entries)
 	}
-	rows = lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
+	rows := lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
 	n := len(hits)
 	if k.palette && n > 0 {
 		if key_pressed(d, KEY_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n

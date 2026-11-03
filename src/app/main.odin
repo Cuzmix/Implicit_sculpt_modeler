@@ -375,6 +375,11 @@ App :: struct {
 	polyframe_fill:  bool,
 	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
 	floor_state:     Floor_State,
+	// The other objects' distance volumes cloth strokes collide with (cloth_collide.odin),
+	// and how many were built, for the exit stats.
+	cloth_volumes:       [dynamic]Cloth_Volume_Kept,
+	cloth_volume_builds: int,
+	physics_poses:       int, // poses the cloth followed (pose_physics_begin), for the exit stats
 	background:      Background_Settings, // the viewport's background (background.odin)
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
@@ -654,6 +659,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
 	defer symmetry_lines_destroy(&app.sym_lines)
+	defer cloth_volumes_destroy(&app)
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)

@@ -49,8 +49,6 @@ Vk_State :: struct {
 	barycentric:       bool, // VK_KHR_fragment_shader_barycentric, enabled (Gpu_Caps.barycentric)
 	depth_clamp:       bool,
 	anisotropy:        bool,
-	subgroup_size:     u32, // 0 where compute shaders have no arithmetic subgroup operations
-	int64_atomics:     bool, // shaderBufferInt64Atomics, enabled
 	// A device-local, host-visible memory type on a heap big enough to hold meshes
 	// (vk_pick_shared_type): loads write mesh buffers there directly.
 	shared_buffers:    bool,
@@ -308,8 +306,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	have12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
 	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
-	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics, drawIndirectCount = have12.drawIndirectCount}
-	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, drawIndirectCount = have12.drawIndirectCount}
 	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
 	// sized when the array is bound, every element written, so not partially bound.
 	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
@@ -339,9 +336,11 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	}
 	// Where each pixel lies between its triangle's corners, read by the wireframe drawn in
 	// the shading (mesh_wire.frag.slang, Gpu_Caps.barycentric): one pass instead of the
-	// triangles again as lines.
+	// triangles again as lines. It also reads the triangle's number, to leave out a quad's
+	// diagonal: the primitive id, which the fragment stage has with geometryShader, plus
+	// the draw's first instance, which indirect draws carry with drawIndirectFirstInstance.
 	want_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR, fragmentShaderBarycentric = true}
-	if vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
+	if have.features.geometryShader && have.features.drawIndirectFirstInstance && vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
 		have_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR}
 		bary_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_bary}
 		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &bary_chain)
@@ -349,6 +348,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 			append(&device_extensions, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)
 			want_bary.pNext = f12.pNext
 			f12.pNext = &want_bary
+			features.features.geometryShader = true
 			vk_state.barycentric = true
 		}
 	}
@@ -400,11 +400,9 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		vk_state.async_compute = .Second_Queue
 	}
 
-	p11 := vk.PhysicalDeviceVulkan11Properties{sType = .PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES}
-	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES, pNext = &p11}
+	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES}
 	props2 := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &vk_state.driver}
 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
-	vk_state.driver.pNext = nil // p11 is gone after this proc
 	if vk_state.ray_query {
 		accel_props := vk.PhysicalDeviceAccelerationStructurePropertiesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR}
 		props_chain := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &accel_props}
@@ -418,9 +416,6 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		room := min(l.maxPerStageDescriptorSamplers, l.maxPerStageDescriptorSampledImages, l.maxPerStageResources, l.maxDescriptorSetSamplers, l.maxDescriptorSetSampledImages)
 		vk_state.texture_arrays = min(VK_TEXTURE_ARRAY_MAX, room - 16) if room > 16 else 0
 	}
-	// Subgroups are Vulkan 1.1 core, but a device may offer them to other stages only, or
-	// without the arithmetic (reduce and scan) operations a kernel would want.
-	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
 	vk.GetPhysicalDeviceMemoryProperties(vk_state.physical, &vk_state.memory)
 	vk_state.shared_type, vk_state.shared_buffers = vk_pick_shared_type(vk_state.memory)
 	for i in 0 ..< vk_state.memory.memoryTypeCount do if .LAZILY_ALLOCATED in vk_state.memory.memoryTypes[i].propertyFlags do vk_state.lazy_memory = true

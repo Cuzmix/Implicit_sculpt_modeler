@@ -53,6 +53,11 @@ Cloth_Settings :: struct {
 	keep_area:    bool,
 	allow_shrink: bool, // edges may grow shorter freely: the cloth crumples without pushing back
 	allow_expand: bool, // edges may grow longer freely: the cloth stretches like rubber
+	// What it collides with (cloth_collide.odin): the floor and the other objects, which
+	// the app gives it (sculptor_cloth_collide), and its own far parts.
+	floor:        bool,
+	objects:      bool,
+	self_collide: bool,
 }
 
 CLOTH_DEFAULTS :: Cloth_Settings {
@@ -78,6 +83,9 @@ Cloth :: struct {
 	// Physics (sculptor_physics_begin): how hard each round pulls a vertex toward where
 	// the tool driving it put it (its target), or 0 for the Cloth brush's own modes.
 	follow:     f32,
+	// Physics on a pose (sculptor_pose_physics): a vertex keeps its last target through
+	// frames the pose did not set it, as a pose holds still while the pointer does.
+	hold:       bool,
 	steps:      int, // steps taken this stroke, which ease the target modes in
 	brush:      Brush, // for the falloff shape and the symmetry, as the stroke began
 	images:     [dynamic; SYM_IMAGES_MAX]Sym_Image,
@@ -103,6 +111,13 @@ Cloth :: struct {
 	bend:       [dynamic]u32,
 	bend_len:   [dynamic]f32,
 	bend_at:    [dynamic]Vec3,
+	collide:    Cloth_Collisions, // what it collides with this stroke
+	// Self collision's grid (cloth_self_grid): the cell size, each vertex's slot, and the
+	// vertices by slot.
+	self_cell:  f32,
+	self_slot:  [dynamic]u32,
+	self_first: [dynamic]u32,
+	self_order: [dynamic]u32,
 }
 
 // How far around the brush the cloth reaches, in brush radii: far enough for folds to
@@ -244,9 +259,6 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 	slice.sort(c.leaves[:])
 	resize(&c.leaves, len(slice.unique(c.leaves[:])))
 	if len(c.leaves) == 0 do return cloth_abandon(s)
-	clear(&s.hit)
-	append(&s.hit, ..c.leaves[:])
-	if s.history.recording do record_hit(s, masks = false)
 	clear(&c.nodes)
 	for leaf in c.leaves do append(&c.nodes, s.node_of[leaf])
 	slice.sort(c.nodes[:])
@@ -273,8 +285,10 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 	m := s.mesh
 	reach2 := reach * reach
 	old := 0
+	kept := 0 // nodes holding a simulated vertex, moved to the front of c.nodes
 	for id in c.nodes {
 		n := s.nodes[id]
+		joined := len(c.verts)
 		for v in n.vert_first ..< n.vert_first + n.vert_count {
 			p := m.positions[v]
 			near2 := f32(math.F32_MAX)
@@ -284,6 +298,10 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 			}
 			if near2 >= reach2 do continue
 			w := shield(s.fade, s.mask, v)
+			// Over the whole model a masked or hidden vertex is held where it is, which
+			// its neighbours' links see as well outside the region as in it, so it stays
+			// out: a pose of a small free part simulates that part alone.
+			if set.region == .Whole && w <= 0 do continue
 			pin := 1 - w
 			if set.region != .Whole do pin = max(smoothstep(CLOTH_PIN_FROM, 1, linalg.sqrt(near2) / reach), pin)
 			for old < len(j.old_verts) && j.old_verts[old] < v do old += 1
@@ -307,8 +325,17 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 				append(&c.base, offset)
 			}
 		}
+		if len(c.verts) > joined {
+			c.nodes[kept] = id
+			kept += 1
+		}
 	}
-	if !slice.is_sorted(c.verts[:]) do return cloth_abandon(s)
+	resize(&c.nodes, kept)
+	if !slice.is_sorted(c.verts[:]) || kept == 0 do return cloth_abandon(s)
+	// Only what the cloth can move is recorded for undo and refreshed each step.
+	clear(&s.hit)
+	for id in c.nodes do append(&s.hit, s.nodes[id].leaf)
+	if s.history.recording do record_hit(s, masks = false)
 	n := len(c.verts)
 	resize(&c.next, n)
 	cloth_drives(s, at)
@@ -538,7 +565,7 @@ sculptor_physics_step :: proc(s: ^Sculptor, at, down: Vec3) -> int {
 		for i in lo ..< hi {
 			p := m.positions[c.verts[i]]
 			if p == c.pos[i] {
-				c.drive[i] = 0
+				if !c.hold do c.drive[i] = 0
 				continue
 			}
 			c.target[i], c.drive[i] = p, 1
@@ -595,6 +622,10 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
 			jobs.parallel_for(pool, chunks, &j, job_cloth_constrain)
 			c.pos, c.next = c.next, c.pos
 		}
+		if cloth_collides(c) {
+			cloth_collide_pass(s, pool)
+			c.pos, c.next = c.next, c.pos
+		}
 	}
 	c.last = offset
 	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
@@ -625,7 +656,9 @@ sculptor_cloth_end :: proc(s: ^Sculptor) {
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do clear(a)
 	clear(&c.turn)
 	clear(&c.images)
-	c.steps, c.last, c.link_mean = 0, {}, 0
+	c.steps, c.last, c.link_mean, c.hold = 0, {}, 0, false
+	clear(&c.collide.colliders)
+	c.collide = {colliders = c.collide.colliders}
 }
 
 // Nodes not in ascending vertex order cannot be looked up; that never happens for a
@@ -784,6 +817,8 @@ cloth_init :: proc(c: ^Cloth, allocator := context.allocator) {
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do a^ = make([dynamic]u32, 0, 1024, allocator)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do a^ = make([dynamic]f32, 0, 1024, allocator)
 	c.turn = make([dynamic]matrix[3, 3]f32, 0, 1024, allocator)
+	c.collide.colliders = make([dynamic]Cloth_Collider, allocator)
+	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do a^ = make([dynamic]u32, allocator)
 }
 
 @(private)
@@ -792,5 +827,7 @@ cloth_destroy :: proc(c: ^Cloth) {
 	for a in ([?]^[dynamic]u32{&c.leaves, &c.nodes, &c.verts, &c.first, &c.links, &c.bend_first, &c.bend}) do delete(a^)
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do delete(a^)
 	delete(c.turn)
+	delete(c.collide.colliders)
+	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do delete(a^)
 	c^ = {}
 }

@@ -1213,15 +1213,6 @@ shadow_rect :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
 	}
 }
 
-// A soft shadow under a circle: rings fading out, cheap and good enough at knob sizes.
-shadow_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) {
-	for k in 0 ..< 3 {
-		c := color
-		c.a = u8(f32(color.a) * (0.5 - f32(k) * 0.15))
-		fill_circle(ctx, center + {0, 1}, radius + f32(k) * 1.2, c)
-	}
-}
-
 // An image the app registered (such as the 3D viewport), stretched over `r`, multiplied by
 // `tint` (its alpha fades it).
 image :: proc(ctx: ^Context, r: Rect, image_id: u64, tint := Color{255, 255, 255, 255}) {

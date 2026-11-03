@@ -75,12 +75,6 @@ edit_face :: proc(e: ^Edit, verts: []u32, group: u16, from: u32 = NONE) -> int {
 	return len(e.faces) - 1
 }
 
-// Where face f of the cage sits in the edit, or -1 when it was removed.
-edit_find :: proc(e: ^Edit, f: u32) -> int {
-	for ef, i in e.faces do if ef.from == f do return i
-	return -1
-}
-
 // What edit_end made: the old vertex ids to the new (NONE for a dropped vertex), and for
 // each new face the edit face it was built from.
 Edit_Result :: struct {

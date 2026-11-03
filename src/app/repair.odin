@@ -175,9 +175,9 @@ repair_done :: proc(app: ^App, obj: ^Object, kind: Repair_Kind, start: time.Tick
 // after the highest), as ZBrush's Close Holes gives them, even on an object that had
 // none. Heap memory, or nil for what there is none of.
 repair_surface :: proc(s: ^sculpt.Sculptor, from: geom.Repair_Map) -> (surface: Surface) {
-	if s.color != nil {
+	if shown := sculpt.sculptor_paint_shown(s); shown != nil {
 		surface.color = make([]sculpt.Color, len(from.vertex_from))
-		for v, i in from.vertex_from do surface.color[i] = s.color[v]
+		for v, i in from.vertex_from do surface.color[i] = shown[v]
 	}
 	groups := sculpt.sculptor_groups(s)
 	capped := false
