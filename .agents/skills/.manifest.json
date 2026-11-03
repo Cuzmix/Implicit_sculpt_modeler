@@ -7,7 +7,7 @@
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
     "sm-design/SKILL.md": "79cad0ae1bc91a5f47c2986be2c1e1d628e15d6c16f40001fb86ddf4714590ce",
     "sm-figma-ui/SKILL.md": "2fe0014b56571b18d3c3e38777adfddc5c69d3a9ba8b846c7c55db9459da1ba2",
-    "sm-geom/SKILL.md": "e0f83de30314c53a9d6b12221c37810ad0759b7f62cfd343ad37ce8d0aba624c",
+    "sm-geom/SKILL.md": "a7f8e782c8bc13919812a1d6eee836d5e75c9f071df8e7f68054efd661f2aaea",
     "sm-lint/SKILL.md": "e55970828e9a71603dd884b967bca6b00d747f72133e07413680a025b46a42ed",
     "sm-odin/SKILL.md": "032c0bcf9d4189057207e7000967d8fc474deb3383841361ec3978bf60410eaf",
     "sm-perf/SKILL.md": "484ff4d7cb911fa312e2b9f726fe2612e82d3c031060c0a848926d621fae80c2",
@@ -18,8 +18,8 @@
     "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-store/SKILL.md": "54b69be9ef7d86c978c2131377ec1d4c11b8db0dd524036dbd570403be2244ae",
     "sm-touch-testing/SKILL.md": "703e542843c96e26ad651da9c047e80cb2cb212864e770b2c6836b03110dd809",
-    "sm-ui/SKILL.md": "4f828fc9b5ffda484ea525d161109a43b6edf9e1304100840d13ddbdd99f34a5",
-    "sm-ui/references/input-routing.md": "3eecae80807b62094b1c06cf3ecc915cfb368183a3af782e469d30387bf21a0a",
+    "sm-ui/SKILL.md": "cbb40d19810958024780a4fcdf112889c5d57bfb59d4d77f6df098d21c54629b",
+    "sm-ui/references/input-routing.md": "1c9681829ec9edbed6463694f7004f380d2c75588fdc94316d0608634afc4e26",
     "sm-ui/references/lens-layout.md": "62322028de131367197821c403f58b238fe346746245a5af1d8591455d835377"
   }
 }

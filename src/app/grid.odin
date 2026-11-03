@@ -349,16 +349,6 @@ grid_tree_holds :: proc(t: ^Grid_Tree, n, m: int) -> bool {
 	return node.split && (grid_tree_holds(t, int(node.a), m) || grid_tree_holds(t, int(node.b), m))
 }
 
-// The pane under point `p` of a room one by one, or -1.
-grid_tree_pane_at :: proc(t: ^Grid_Tree, p: [2]f32) -> int {
-	cells, _ := grid_tree_unit(t)
-	for i in 0 ..< grid_tree_panes(t) {
-		c := cells[i]
-		if p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h do return i
-	}
-	return -1
-}
-
 // Puts tree `t` in place of the grid's, the view panes moving as `was` says (from
 // grid_tree_fill; the pictures follow in grid_pictures_follow), and counts the change.
 grid_tree_set :: proc(g: ^View_Grid, t: Grid_Tree, was: [GRID_VIEWS]int = {0, 1, 2}) {

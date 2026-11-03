@@ -2364,13 +2364,6 @@ lights_default :: proc() -> Lights {
 	return l
 }
 
-// Where the studio turn of `lights` (Lights.rig) puts the view-space direction `dir`
-// given in the studio's own space.
-lights_turn :: proc(lights: Lights, dir: [3]f32) -> [3]f32 {
-	l := lights.rig if lights != {} else lights_default().rig
-	return l[0].xyz * dir.x + l[1].xyz * dir.y + l[2].xyz * dir.z
-}
-
 // The light that casts the studio render's shadow: the brightest one that is on and casts
 // shadows (its strength times its strongest colour channel), as the direction toward it in
 // view space from `centre` (the scene's middle, in view space), so a point, spot or area

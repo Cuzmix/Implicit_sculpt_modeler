@@ -423,8 +423,6 @@ sculptor_triangle_count :: proc(s: ^Sculptor) -> int {
 	return total
 }
 
-sculptor_is_dynamic :: proc(s: ^Sculptor) -> bool {return s.dyn != nil}
-
 // Bytes the dynamic layout adds: the triangle lists and per-node data (the mesh's
 // arrays, unused slots included, count as the mesh's own).
 sculptor_dyn_bytes :: proc(s: ^Sculptor) -> int {

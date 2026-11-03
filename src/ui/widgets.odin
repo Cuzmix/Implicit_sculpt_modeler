@@ -69,7 +69,6 @@ ICON_PAINTBRUSH :: rune(0xe2e7)
 ICON_PASTE :: rune(0xe3ec) // clipboard-paste
 ICON_TO_TOP :: rune(0xe460) // arrow-up-to-line
 ICON_TO_BOTTOM :: rune(0xe45a) // arrow-down-to-line
-ICON_DOTS :: rune(0xe0ed) // grip-horizontal: the handle a card is dragged by
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -689,138 +688,6 @@ Row_Toggle :: struct {
 	keys:  string, // the shortcut beside the tooltip
 }
 
-// What happened to a tree row: a list row's click and menu, which toggle was pressed
-// (-1 for none), whether the chevron folded or unfolded it, whether its grip is held
-// (the row is being dragged), and which toggle is held where a drag may run down the
-// column from it (-1 for none): at once for a mouse, and for a finger or the pen once it
-// has been held still long enough to show the toggle's tooltip, as a quicker drag up or
-// down scrolls the panel instead.
-Tree_Row_Result :: struct {
-	using row:   Row_Result,
-	toggled:     int,
-	folded:      bool,
-	grip:        bool,
-	held_toggle: int,
-}
-
-// A row of a tree, a touch target tall: list_row's label and detail, indented `depth`
-// steps, with a chevron that folds it when `open` is given (a folder), and `all_toggles` at
-// its right end, each a full touch target. Pressing a toggle or the chevron neither
-// selects the row nor opens its menu; past MAX_ROW_TOGGLES they are left out. `dim` fades
-// the label (an object out of view). With `grip` a handle takes the leading icon's place:
-// a press on it drags the row with any pointer, never scrolling the panel, and a tap on
-// it picks the row as a tap on the label does.
-tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, depth := 0, open: ^bool = nil, all_toggles: []Row_Toggle = nil, glyph: rune = 0, dim := false, grip := false) -> (res: Tree_Row_Result) {
-	ctx.controls += 1
-	t := ctx.theme
-	shown := label_text(s)
-	indent := f32(depth) * TREE_INDENT
-	w := fill_width(ctx)
-	if w <= 0 do w = indent + text_width(ctx, shown, t.text_size) + 24 + f32(len(all_toggles) + (1 if open != nil else 0)) * t.target
-	cell := place(ctx, {w, t.target})
-	vis := centered(cell, {w, t.row})
-	id := id_of(ctx, s)
-	res.toggled, res.held_toggle = -1, -1
-	res.rect = cell
-
-	// The toggles and the chevron take the press before the row, whose cell holds them,
-	// as the first widget laid out under the pointer wins it.
-	toggles := all_toggles[:min(len(all_toggles), MAX_ROW_TOGGLES)]
-	first := cell.x + cell.w - f32(len(toggles)) * t.target
-	toggle_hover, toggle_held: [MAX_ROW_TOGGLES]bool
-	for _, i in toggles {
-		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
-		tid := salt(id, u64(100 + i))
-		hovered, held, clicked, _ := interact(ctx, tid, r)
-		toggle_hover[i], toggle_held[i] = hovered, held
-		if clicked do res.toggled = i
-		if held && (ctx.press_won || long_happened(ctx, tid)) {
-			_ = claim_drag(ctx, -1)
-			res.held_toggle = i
-		}
-	}
-	x := vis.x + 12 + indent
-	chevron := Rect{cell.x + indent, cell.y, t.target, t.target}
-	chevron_hover, chevron_held := false, false
-	if open != nil {
-		clicked: bool
-		chevron_hover, chevron_held, clicked, _ = interact(ctx, salt(id, 99), chevron)
-		if clicked {
-			open^ = !open^
-			res.folded = true
-		}
-		x = chevron.x + t.target
-	}
-	// Centred on the grip's icon; beside a chevron, the chevron (laid out first) keeps its own.
-	grip_rect := Rect{x + t.icon_small * 0.5 - t.target * 0.5, cell.y, t.target, t.target}
-	grip_hover, grip_held := false, false
-	if grip {
-		clicked, pressed: bool
-		grip_hover, grip_held, clicked, pressed = interact(ctx, salt(id, 98), grip_rect)
-		if pressed do _ = claim_drag(ctx, -1)
-		res.grip = grip_held
-		// A tap picks the row; a press that went anywhere was a drag.
-		res.clicked = clicked && ctx.long.travel <= t.slop
-	}
-	body := Rect{cell.x, cell.y, first - cell.x, cell.h}
-	hovered, held, clicked, _ := interact(ctx, id, body)
-	res.clicked ||= clicked
-	res.menu = secondary(ctx)
-
-	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
-	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
-	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
-	mid := vis.y + vis.h * 0.5
-	if open != nil {
-		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
-		icon(ctx, ICON_CHEVRON_DOWN if open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
-		tip(ctx, salt(id, 99), chevron, "Fold" if open^ else "Unfold", label = false)
-	}
-	if grip {
-		center := [2]f32{x + t.icon_small * 0.5, mid}
-		_ = feedback(ctx, salt(id, 98), centered(grip_rect, {t.control, t.control}), t.radius_small, grip_hover, grip_held)
-		color := t.accent if grip_held else (t.text if grip_hover else t.text_tertiary)
-		icon(ctx, ICON_GRIP, center, t.icon_small, color)
-		tip(ctx, salt(id, 98), grip_rect, "Drag to move")
-		x += t.icon_small + 10
-	} else if glyph != 0 {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, mid}, t.icon_small, color_mix(t.text_secondary, t.accent, o))
-		x += t.icon_small + 10
-	}
-	label := color_fade(t.text, 0.45) if dim else t.text
-	font := Font.Semibold if selected else .Regular
-	// A long name is cut short of the detail rather than run under it; where that would
-	// leave the name too little room to read (a row indented deep in folders), the detail
-	// gives way instead, the name being what tells the rows apart.
-	room := first - 8 - x
-	detail := detail
-	if detail != "" {
-		rest := room - text_width(ctx, detail, t.small_size) - 12
-		if rest < TREE_NAME_MIN && text_width(ctx, shown, t.text_size, font) > rest do detail = ""
-		else do room = rest
-	}
-	text(ctx, text_fit(ctx, shown, t.text_size, room, font), x, mid, t.text_size, label, font)
-	if detail != "" do text(ctx, detail, first - 8, mid, t.small_size, t.text_tertiary, .Regular, .Right)
-	press_scale(ctx, mark, vis, scale)
-
-	for tg, i in toggles {
-		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
-		tid := salt(id, u64(100 + i))
-		box := centered(r, {t.control, t.control})
-		_ = feedback(ctx, tid, box, t.radius_small, toggle_hover[i], toggle_held[i])
-		color := t.text_secondary
-		if tg.lit do color = t.accent
-		if tg.faint do color = color_fade(t.text_secondary, 0.4)
-		if toggle_hover[i] && !tg.lit do color = t.text
-		icon(ctx, tg.glyph, {r.x + r.w * 0.5, mid}, t.icon_small, color)
-		// The tooltip a finger's hold showed goes once it slides down the column.
-		sliding := res.held_toggle == i && ctx.long.travel > t.slop
-		tip(ctx, tid, box, "" if sliding else tg.name, tg.keys)
-	}
-	return
-}
-
 // What happened to a thumbnail row: a list row's click and menu, which toggle was
 // pressed (-1 for none) and which is held (-1 for none), whether the switch under the
 // name or the chevron was, and whether the row's body is held and being dragged to a
@@ -1327,33 +1194,6 @@ Modifier_Look :: enum u8 {
 	Off,
 	Lit, // on while held, by a finger or the keyboard's modifier: outlined
 	Latched, // on until tapped again: filled
-}
-
-// A sticky modifier button (Smooth, Invert...) in a touch-target cell: an icon over a
-// caption. `name` is its tooltip, with `keys`, the keyboard modifier that does the same.
-// Returns true when clicked; whether that latches is the caller's to say.
-modifier_button :: proc(ctx: ^Context, name: string, glyph: rune, look: Modifier_Look, keys := "") -> bool {
-	ctx.controls += 1
-	t := ctx.theme
-	cell := place(ctx, {t.target, t.target + 4})
-	vis := centered(cell, {t.target - 4, t.target})
-	id := id_of(ctx, name)
-	hovered, held, clicked, _ := interact(ctx, id, cell)
-	lit := tween(ctx, salt(id, 1), 1 if look != .Off else 0, t.hover_time, class = MOTION_PRESS)
-	full := tween(ctx, salt(id, 2), 1 if look == .Latched else 0, t.indicator_time, class = MOTION_TABS)
-	mark := vertex_mark(ctx)
-	if full > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent, full))
-	if lit > 0 && full < 1 {
-		fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, lit * (1 - full)))
-		stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, lit * (1 - full)), 1.5)
-	}
-	scale := feedback(ctx, id, vis, t.radius_medium, hovered && look == .Off, held)
-	color := color_mix(color_mix(t.text_secondary, t.accent, lit), t.on_accent, full)
-	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 18}, t.icon_small, color)
-	text(ctx, label_text(name), vis.x + vis.w * 0.5, vis.y + 37, t.caption_size, color, .Semibold if look != .Off else .Regular, .Center)
-	press_scale(ctx, mark, vis, scale)
-	tip(ctx, id, vis, label_text(name), keys)
-	return clicked
 }
 
 // A readout the width of its column: `s` on the left and `value` on the right, in small

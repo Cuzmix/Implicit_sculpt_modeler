@@ -19,13 +19,6 @@ Object_Page :: enum u8 {
 	Build,
 }
 
-OBJECT_PAGE_NAMES := [Object_Page]string {
-	.Shape   = "Shape",
-	.Select  = "Select",
-	.Surface = "Surface",
-	.Build   = "Build",
-}
-
 // One section of the Object palette: the page it is on, which it is, its title and what
 // it draws.
 Object_Section :: struct {

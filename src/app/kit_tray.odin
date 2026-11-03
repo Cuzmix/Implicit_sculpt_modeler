@@ -34,17 +34,6 @@ section_palette :: proc(sec: Kit_Section) -> Kit_Tab {
 	return .Scene
 }
 
-// A palette's name where it stands for every tool's (search, Show where): the brush's,
-// whose sections it lists.
-palette_name :: proc(tab: Kit_Tab) -> string {
-	switch tab {
-	case .Tool:   return "Brush"
-	case .Object: return "Object"
-	case .Scene:  return "Scene"
-	}
-	return ""
-}
-
 // Whether the tray offers section `sec`: the brush's own ones only on the brushes that
 // have them (whatever the tool, which Show section switches to the brush).
 tray_offers :: proc(app: ^App, sec: Kit_Section) -> bool {

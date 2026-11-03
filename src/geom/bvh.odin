@@ -364,30 +364,6 @@ ray_triangle :: #force_inline proc(m: Mesh, tri: u32, origin, dir: Vec3) -> (t: 
 	return t, t > 0
 }
 
-// Appends every triangle whose leaf bounds overlap the sphere (a superset of the
-// triangles that actually touch it).
-bvh_query_sphere :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32) {
-	if len(b.nodes) == 0 do return
-	r2 := radius * radius
-	clear(&b.stack)
-	append(&b.stack, 0)
-	for len(b.stack) > 0 {
-		node := b.nodes[pop(&b.stack)]
-		closest := linalg.clamp(center, node.bounds.lo, node.bounds.hi)
-		d := closest - center
-		if linalg.dot(d, d) > r2 do continue
-		if node.count > 0 {
-			if b.tri_order == nil {
-				for i in node.first ..< node.first + node.count do append(out, i)
-			} else {
-				append(out, ..b.tri_order[node.first:node.first + node.count])
-			}
-		} else {
-			append(&b.stack, node.first, node.first + 1)
-		}
-	}
-}
-
 // Appends the index of every leaf whose bounds overlap the sphere.
 bvh_query_leaves :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32) {
 	if len(b.nodes) == 0 do return

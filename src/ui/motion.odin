@@ -63,7 +63,6 @@ MOTION_PANELS :: Motion_Class(2) // sections opening, windows sliding
 MOTION_TABS :: Motion_Class(3) // the indicator under a tab or a choice sliding
 MOTION_TOASTS :: Motion_Class(4) // notes rising and stacking
 MOTION_TOOLTIPS :: Motion_Class(5) // tooltips fading in
-MOTION_KIT_CLASSES :: 6
 MOTION_ALWAYS :: Motion_Class(255)
 
 // `duration` as the motion settings let it run for `class`: 0 when motion is off, or that
