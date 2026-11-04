@@ -366,6 +366,17 @@ history_drop_oldest :: proc(app: ^App, steps: int) -> (freed: int) {
 	return
 }
 
+// Forgets every step, the ones that could be redone too, so a heavy step has their memory
+// (memory_check.odin's Free history). Not while a stroke, a drag or the timeline is under
+// way, as Delete older history.
+history_free_all :: proc(app: ^App) {
+	if history_busy(app) || timeline_busy(app) do return
+	stroke_finish(app)
+	history_drop_redo(app)
+	_ = history_drop_oldest(app, history_step_count(app.history.done[:]))
+	app.stroke_end.valid = false
+}
+
 // Delete older history: forgets every step that could be undone, keeping the ones to
 // redo, and says how much it freed. Not while a stroke, a drag or the timeline is under
 // way.

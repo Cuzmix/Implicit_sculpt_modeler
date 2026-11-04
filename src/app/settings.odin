@@ -398,6 +398,7 @@ SETTINGS := [?]Setting {
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
 	{"history_limit_mb", offset_of(App, history_limit_mb), i32, 0, 65536},
+	{"memory_short", offset_of(App, memory_short), Memory_Short, 0, 0},
 	{"history_no_lights", offset_of(App, history_no_lights), bool, 0, 0},
 	{"history_no_tree", offset_of(App, history_no_tree), bool, 0, 0},
 	{"history_camera", offset_of(App, history_camera), bool, 0, 0},

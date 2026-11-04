@@ -128,6 +128,8 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 // Runs a deferred scene command (scene_apply) and, when a destructive one left an undo
 // step, reports it with Undo offered. Returns false only on a fatal GPU failure.
 scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
+	// A heavy step that would not fit the memory left waits for the person's answer.
+	if memory_check_holds(app, cmd) do return true
 	what := SCENE_REPORTS[cmd.kind]
 	if what.verb == "" do return scene_apply(app, cmd)
 	// A stroke still going ends first, as its own step, so it is not taken for the

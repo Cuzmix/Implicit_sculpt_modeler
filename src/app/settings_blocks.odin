@@ -428,6 +428,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "Undo steps kept")
 		if picked := ui.select(ctx, "Undo steps kept", UNDO_STEPS_NAMES[:], chosen); picked >= 0 do app.undo_steps = UNDO_STEPS[picked]
 		ui.paragraph(ctx, "Past either limit the oldest steps are forgotten, and the memory their strokes hold comes back; a bookmarked step is kept, and a note says so. Automatic gives each object's strokes and the rebuild copies their own share. A step's menu in the History panel has Delete everything older.")
+		ui.label(ctx, "When Remesh or Subdivide needs memory the history holds")
+		if picked := ui.select(ctx, "When a step needs memory", MEMORY_SHORT_NAMES[:], int(app.memory_short)); picked >= 0 do app.memory_short = Memory_Short(picked)
+		ui.paragraph(ctx, "Before a remesh or a subdivision that would not fit what this device leaves Sculpt, Ask shows what it needs and offers to free the history, a smaller count, or to continue anyway after an autosave. A step too big even with the history freed always asks.")
 		history_memory_rows(app)
 	case .History_Steps:
 		lights, tree := !app.history_no_lights, !app.history_no_tree
@@ -555,7 +558,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Crash_Log:
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
-	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0
+	case .Undo_History:    app.undo_steps, app.history_limit_mb, app.memory_short = 0, 0, .Ask
 	case .History_Steps:   app.history_no_lights, app.history_no_tree = false, false
 	case .History_Back:    app.history_camera, app.history_ungrouped, app.history_no_finger_scrub, app.history_pictures = false, false, false, false
 	}

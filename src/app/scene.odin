@@ -247,6 +247,8 @@ Scene_Command :: struct {
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
 	curve:    Curve_Look, // Curve_Look: what the selected curve makes and its options (look_drag as Cage_Look's)
+	// Remesh, Subdivide: the memory check before it passed or was answered (memory_check.odin).
+	checked:  bool,
 }
 
 scene_destroy :: proc(app: ^App) {
