@@ -254,7 +254,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   scissor, the atlas or the viewport texture bound. Atlas texture coordinates arrive in atlas pixels and the vertex
   shader divides by the size in its uniforms, so glyphs placed before a mid-frame atlas growth stay right. NDC y is
   flipped in the shader. `ui_pass_capture` redraws the same lists into an offscreen RGBA8 target for `--dump-screen`.
-- The navigation head (`src/render/nav_head.odin`, built and laid out by `src/app/nav_head.odin`): a small head mesh
+- The view gizmo's Model style (`src/render/nav_head.odin`, built by `src/app/nav_head.odin`, laid out with the Axes and Cube
+  styles, which the interface draws itself, by `src/app/view_gizmo.odin`): the head mesh or the person's own model
   drawn with the mesh pipeline into its own target, `NAV_HEAD_SUPERSAMPLE` (2) times the size shown, cleared to
   transparent (`begin_mesh_pass`'s `background`), and only when its key (the camera's turn, size, colour) changes. The
   kit shows it as image id `KIT_NAV_HEAD_IMAGE`; its `Ui_Draw.smooth` binds a linear sampler (a 2x2 box filter at

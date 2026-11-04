@@ -453,6 +453,18 @@ orbit_axis_view :: proc(c: ^Orbit, view: Axis_View) {
 	}
 }
 
+// Turns the camera to look at its target from direction `from` (world space, from the
+// target toward the eye; any length but zero), levelling the roll and keeping target and
+// distance: the view gizmo's cube corners and edges. Straight above or below, the yaw is
+// kept, so the view turns no further than it must.
+orbit_look_from :: proc(c: ^Orbit, from: Vec3) {
+	d := linalg.normalize0(from)
+	if d == {} do return
+	c.roll = 0
+	c.pitch = math.asin(clamp(d.y, -1, 1))
+	if abs(d.x) > 1e-6 || abs(d.z) > 1e-6 do c.yaw = math.atan2(d.x, d.z)
+}
+
 // The cosine of half a degree: how far from straight up the screen the world's up may lean
 // in a view still taken as level.
 LEVEL_COS :: 0.99996192

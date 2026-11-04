@@ -337,6 +337,13 @@ App :: struct {
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
 	nav_shown:      render.Texture,
+	// The person's own model for the view gizmo's Model style (view_gizmo.odin), with the
+	// name of the object it was made from; empty until one is taken. Its serial counts the
+	// models taken, and view_model_on says which the GPU holds (0 the head, a serial + 1).
+	view_model:        geom.Mesh,
+	view_model_name:   string,
+	view_model_serial: int,
+	view_model_on:     int,
 	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
 	// into and which object each of its cells shows.
 	thumbs:         render.Thumbs,
@@ -622,6 +629,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.path_render_destroy(&app.renderer, &app.path)
 	defer render.finish_destroy(&app.renderer, &app.finished)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
+	defer geom.mesh_destroy(&app.view_model)
+	defer delete(app.view_model_name)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer render.step_pictures_destroy(&app.renderer, &app.step_pictures)
 	defer render.step_pictures_destroy(&app.renderer, &app.layer_pictures)
@@ -818,6 +827,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	if m, name, ok := view_model_load(view_model_path(settings)); ok do app.view_model, app.view_model_name = m, name
 	pencil_init(&app, window)
 	app.pencil.no_leave = !PEN_LEAVE_SAID || opts.pen_no_leave
 	app.pencil.system_palms = SYSTEM_PALMS || opts.system_palms

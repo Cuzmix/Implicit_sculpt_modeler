@@ -52,6 +52,7 @@ Bar_Pop_Kind :: enum u8 {
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
+	View_Gizmo, // the view gizmo's style, held or right-clicked on it (view_gizmo.odin)
 }
 
 // The one popover the bars open: one at a time, beside the button that opened it.
@@ -241,6 +242,8 @@ kit_bar_popover :: proc(app: ^App) {
 		kit_value_menu(app)
 	case .Dock_Menu:
 		kit_dock_menu(app)
+	case .View_Gizmo:
+		kit_view_gizmo_pop(app)
 	}
 }
 

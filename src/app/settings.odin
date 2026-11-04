@@ -445,6 +445,9 @@ SETTINGS := [?]Setting {
 	{"pen_roll_model", N + offset_of(Nav_Prefs, pen_roll) + 0 * size_of(Roll_Action), Roll_Action, 0, 0},
 	{"pen_roll_empty", N + offset_of(Nav_Prefs, pen_roll) + 1 * size_of(Roll_Action), Roll_Action, 0, 0},
 	{"pen_grab_twist", N + offset_of(Nav_Prefs, grab_twist), bool, 0, 0},
+	{"view_gizmo", N + offset_of(Nav_Prefs, view_gizmo), View_Gizmo, 0, 0},
+	{"view_gizmo_model", N + offset_of(Nav_Prefs, gizmo_model), Gizmo_Model, 0, 0},
+	{"view_gizmo_axes", N + offset_of(Nav_Prefs, gizmo_axes), bool, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
