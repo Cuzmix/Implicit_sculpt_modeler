@@ -6,7 +6,8 @@ import "core:strings"
 
 import "../ui"
 
-// Edit docks (Arrange): every dock shows its outline and a head, the grip that carries it
+// Every dock carries a faint grip (dock_grip) and a faint corner, so moving or sizing one never
+// needs a mode. Edit docks (Arrange): every dock shows its outline and a head, the grip that carries it
 // to an edge or anywhere and a tap on which opens its menu (Lines, Names, Put back as it
 // comes, Delete for one of the person's), and a curved corner on the side facing the
 // view's middle that a drag turns into more or fewer lines, a whole button at a time. A
@@ -26,6 +27,9 @@ Arrange_State :: struct {
 	carry_from:  ui.Rect,
 	carry_press: [2]f32,
 	carrying:    bool,
+	// The control that took the press (the dock's grip or Arrange's head), so the other
+	// one, which also follows the dock each frame, leaves its carry alone.
+	carry_by:    ui.Id,
 	carries:     int, // docks let go (for the exit stats)
 	// The dock whose corner is dragged, its lines at the press and where the press was,
 	// and how many drags changed a dock's lines (for the exit stats).
@@ -162,20 +166,23 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 ARRANGE_DRAW_TIME :: 0.22
 ARRANGE_DRAW_STAGGER :: 0.025
 
-// While editing docks: each shown dock's outline, head and resize corner. Leaving forgets
-// any carry.
+// Every shown dock's faint resize corner, and the outline, edge strips and lining up of a
+// dock carried by its grip. While editing docks each dock also shows its outline and head,
+// and its corner in the accent.
 kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
-	if !k.bars_edit {
-		k.arrange.carry, k.arrange.carrying, k.arrange.resize = nil, false, nil
-		k.arrange.was_on = false
-		return
+	if !k.bars_edit do k.arrange.was_on = false
+	else {
+		if !k.arrange.was_on do k.arrange.openings += 1
+		k.arrange.was_on = true
 	}
-	if !k.arrange.was_on do k.arrange.openings += 1
-	k.arrange.was_on = true
 	ctx := &k.ctx
 	t := ctx.theme
 	top := kit_top() - 12
+	area := ui.safe_area(ctx)
+	// A carry whose dock went away under it (hidden, or Edit docks left mid-drag) ends with
+	// the press, as nothing else would see the release.
+	if c, ok := k.arrange.carry.?; ok && !dock_shown(k, c) && .Left not_in ctx.input.down do k.arrange.carry, k.arrange.carrying = nil, false
 	carried, carrying := k.arrange.carry.?
 	carrying &&= k.arrange.carrying
 	align_lines: [2]Align_Line
@@ -191,21 +198,28 @@ kit_arrange_lens :: proc(app: ^App) {
 			align_lines = lines
 			box = {moved.x - 4, moved.y - 4, moved.w + 8, moved.h + 8}
 		}
+		// On a dock in the window's end half the head ends at the outline's end corner, so
+		// it stays in the window, and the corner faces the middle; the shelf's head always
+		// starts at its start, its corner at its end.
+		end_half := d != .Shelf && box.x + box.w * 0.5 > area.x + area.w * 0.5
+		if !k.bars_edit {
+			// Outside Edit docks the shelf keeps its place, and only a carried dock is outlined.
+			if d == .Shelf do continue
+			if carrying && d == carried do ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent, 2)
+			else do arrange_resize_corner(app, d, box, !end_half, faint = true)
+			continue
+		}
 		// Each outline draws in as editing starts, one dock a moment after another: it fades
 		// in and settles from a touch larger onto its dock.
 		mark := ui.vertex_mark(ctx)
 		draw := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "arrange outline"), u64(d) + 64 * u64(k.arrange.openings)), 0, 1, ARRANGE_DRAW_TIME, .Linear, ARRANGE_DRAW_STAGGER * f32(d), motion_class(.Arrange))
 		menu := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == d
 		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if menu else ui.color_fade(t.accent, 0.5), 2 if menu else 1)
-		// The head at the outline's top left, kept under the top bar: the grip that carries
-		// the dock, a tap on which opens its menu.
+		// The head at the outline's top left, kept under the top bar: a second grip that
+		// carries the dock and names it, a tap on which opens its menu.
 		tag := arrange_dock_tag(app, d)
 		tw := ui.text_width(ctx, tag, t.small_size, .Semibold) + 30
-		// On a dock in the window's end half the head ends at the outline's end corner, so
-		// it stays in the window; the shelf's always starts at its start, its corner at its end.
 		at := [2]f32{box.x + 6, max(box.y - 11, top)}
-		area := ui.safe_area(ctx)
-		end_half := d != .Shelf && box.x + box.w * 0.5 > area.x + area.w * 0.5
 		if end_half do at.x = box.x + box.w - 6 - tw
 		at.x = clamp(at.x, area.x + 2, max(area.x + area.w - tw - 2, area.x + 2))
 		ui.begin_at(ctx, fmt.tprintf("arrange tag %v", d), at, {direction = .Row})
@@ -245,18 +259,18 @@ arrange_carry_box :: proc(app: ^App, b: Dock_Id, p: [2]f32) -> (box: ui.Rect, li
 
 // Follows a press on dock `b`'s head `a` (its outline `r`): past the slop it carries the
 // dock, and let go it puts the dock where it was dropped (dock_drop), lined up with its
-// neighbours where it floats.
-@(private = "file")
+// neighbours where it floats. Both a dock's own grip (dock_grip) and Arrange's head carry
+// a dock this way.
 arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	k := &app.kit
 	ctx := &k.ctx
 	s := &k.arrange
 	if a.pressed {
-		s.carry, s.carry_from, s.carry_press, s.carrying = b, r, a.mouse, false
+		s.carry, s.carry_from, s.carry_press, s.carrying, s.carry_by = b, r, a.mouse, false, a.id
 		return
 	}
 	carried, ok := s.carry.?
-	if !ok || carried != b do return
+	if !ok || carried != b || s.carry_by != a.id do return
 	if a.held {
 		d := a.mouse - s.carry_press
 		if !s.carrying && d.x * d.x + d.y * d.y > ctx.theme.slop * ctx.theme.slop {
@@ -282,10 +296,10 @@ DOCK_CORNER :: 22
 // Dock `d`'s resize corner on its outline `box`: on the side facing the view's middle, away
 // from its head (`right` on the screen's right; a left dock's right, a right dock's left;
 // the shelf's top end), a quarter curve following the
-// outline's round corner. A drag across the dock's lines adds or removes a whole line per
+// outline's round corner, `faint` outside Edit docks until the pointer is on it. A drag across the dock's lines adds or removes a whole line per
 // line's width (per tile row on the shelf), 1 to the dock's most.
 @(private = "file")
-arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool) {
+arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, faint := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -324,7 +338,9 @@ arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool) 
 		dx, dy := math.cos(ang) * rad, math.sin(ang) * rad
 		pts[i] = {o.x + (dx if right else -dx), o.y + (-dy if up else dy)}
 	}
-	ui.polyline(ctx, pts[:], t.accent, 3.5 if active || a.hovered else 2.5)
+	lit := active || a.hovered
+	ink := t.accent if !faint || lit else ui.color_fade(t.text_tertiary, 0.35)
+	ui.polyline(ctx, pts[:], ink, 3.5 if lit else (2 if faint else 2.5))
 	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if up else "lines"))
 }
 
