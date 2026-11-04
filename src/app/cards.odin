@@ -170,16 +170,24 @@ Cards :: struct {
 		at:    ui.Rect,
 		limit: f32,
 	},
+	// The floating cards (card_float.odin): which float, where each window is, and how far
+	// each body is scrolled.
+	floats:        bit_set[Card],
+	windows:       [Card]ui.Window,
+	float_scrolls: [Card]f32,
 	opens:    int,
 	folds:    int,
 	pins:     int,
 	closes:   int,
+	floated:  int, // cards torn out of a column
+	returned: int, // floating cards put back in a column
 	set:      bool, // cards_default has set it up (a Kit_State nothing has set up is a test's)
 }
 
 // The cards as a fresh layout has them: none open, the usual sections folded.
 cards_default :: proc(k: ^Kit_State) {
 	k.cards.columns = {}
+	k.cards.floats = {}
 	k.cards.shut = CARDS_SHUT_DEFAULT
 	k.cards.reveal, k.cards.revealed = nil, nil
 	k.cards.set = true

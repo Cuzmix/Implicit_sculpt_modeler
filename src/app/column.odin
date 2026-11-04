@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math/linalg"
 import "core:strings"
 
 import "../sculpt"
@@ -82,6 +83,7 @@ card_find :: proc(k: ^Kit_State, c: Card) -> (side: Column_Side, i: int, ok: boo
 
 // Whether card `c` shows now: in front in its column (or split beside the other).
 card_shown :: proc(app: ^App, c: Card) -> bool {
+	if c in app.kit.cards.floats do return true
 	side, i, ok := card_find(&app.kit, c)
 	if !ok do return false
 	col := &app.kit.cards.columns[side]
@@ -94,6 +96,10 @@ card_shown :: proc(app: ^App, c: Card) -> bool {
 card_toggle :: proc(app: ^App, c: Card, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	if !k.cards.set do cards_default(k)
+	if c in k.cards.floats {
+		card_close(app, c)
+		return
+	}
 	if s, i, ok := card_find(k, c); ok {
 		col := &k.cards.columns[s]
 		if !columns_split(app) && i < col.count - 1 {
@@ -111,6 +117,10 @@ card_toggle :: proc(app: ^App, c: Card, at: ui.Rect, side: ui.Side) {
 card_open :: proc(app: ^App, c: Card) {
 	k := &app.kit
 	if !k.cards.set do cards_default(k)
+	if c in k.cards.floats {
+		float_raise(k, Float_Ref(c))
+		return
+	}
 	if s, i, ok := card_find(k, c); ok {
 		col := &k.cards.columns[s]
 		if !columns_split(app) && i < col.count - 1 do column_close_unpinned(col)
@@ -170,6 +180,11 @@ column_close_unpinned :: proc(col: ^Column) -> (closed: bool) {
 // Closes card `c`, pinned or not.
 card_close :: proc(app: ^App, c: Card) {
 	k := &app.kit
+	if c in k.cards.floats {
+		k.cards.floats -= {c}
+		k.cards.closes += 1
+		return
+	}
 	s, i, ok := card_find(k, c)
 	if !ok do return
 	col := &k.cards.columns[s]
@@ -201,7 +216,7 @@ card_pinned :: proc(k: ^Kit_State, c: Card) -> bool {
 // Puts card `c` pinned in column `s` (a layout's `column` line), after the cards there.
 card_rest :: proc(k: ^Kit_State, s: Column_Side, c: Card) {
 	if !k.cards.set do cards_default(k)
-	if _, _, ok := card_find(k, c); ok do return
+	if _, _, ok := card_find(k, c); ok || c in k.cards.floats do return
 	col := &k.cards.columns[s]
 	if col.count == len(col.cards) do return
 	col.cards[col.count] = {card = c, pinned = true}
@@ -327,7 +342,7 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	shown := ui.presence(ctx, ui.salt(owner, 0x6f70656e), true, t.panel_time)
 	ui.begin_at(ctx, name, pos, {direction = .Column, gap = 6, padding = PAD, width = CARD_W, radius = t.radius_large, background = .Panel})
 	inner := f32(CARD_W - 2 * PAD)
-	card_head(app, entry, inner)
+	torn := card_head(app, c, entry.pinned, inner)
 	head := ctx.last_rect
 	height := max(room - 2 * PAD - head.h - 6, CARD_BODY_MIN)
 	scroll := kit_scroll_begin(ctx, "card body", &col.scrolls[c], owner, inner, height, 6)
@@ -345,21 +360,26 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	ui.end(ctx)
 	col.rects[i] = ui.last_ended(ctx)
 	if fade < 1 || shown < 1 do ui.transform_since(ctx, mark, fade * shown, 1, {}, {0, (1 - shown) * 12})
+	// Its title dragged past the slop tears the card out of the column: it floats on under
+	// the pointer from the next frame (card_float.odin).
+	if torn do card_float_tear(app, c, {col.rects[i].x, col.rects[i].y})
 }
 
 // A card's header: its icon, title and what it holds; the Symmetry card's axes as chips;
-// Pin and Close.
-@(private = "file")
-card_head :: proc(app: ^App, entry: ^Column_Card, inner: f32) {
+// Pin (in a column) or Put back (floating), and Close. Returns whether the title was
+// dragged past the slop, which tears a card in a column out to float.
+card_head :: proc(app: ^App, c: Card, pinned: bool, inner: f32, floating := false) -> (torn: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	c := entry.card
 	CHIP :: 26
 	ui.begin(ctx, "card head", {direction = .Row, width = inner, center = true})
 	extras: f32 = 2 * t.target
 	if c == .Symmetry do extras += 3 * CHIP + 4
 	head := ui.area(ctx, "card title", {max(inner - extras, t.target), t.target})
+	if head.pressed && !floating do _ = ui.claim_drag(ctx, -1)
+	torn = !floating && head.held && linalg.length(ctx.input.mouse - ctx.press_mouse) > t.slop
+	if !floating do ui.tip(ctx, head.id, head.rect, "Drag out to float", label = false)
 	y := head.rect.y + head.rect.h * 0.5
 	x := head.rect.x + 4
 	ui.icon(ctx, card_icon(app, c), {x + 8, y}, t.icon_small, t.text_secondary)
@@ -385,9 +405,14 @@ card_head :: proc(app: ^App, entry: ^Column_Card, inner: f32) {
 		}
 		ui.spacer(ctx, 4)
 	}
-	if ui.icon_button(ctx, "Unpin##pin" if entry.pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = entry.pinned) do card_pin(app, c)
+	if floating {
+		if ui.icon_button(ctx, "Put back beside the dock##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
+	} else if ui.icon_button(ctx, "Unpin##pin" if pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = pinned) {
+		card_pin(app, c)
+	}
 	if ui.icon_button(ctx, "Close##card", ui.ICON_CLOSE) do card_close(app, c)
 	ui.end(ctx)
+	return
 }
 
 // Card `c`'s scroll, wherever it is (its column's), for what scrolls it from inside (a

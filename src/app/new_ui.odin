@@ -262,7 +262,7 @@ Kit_State :: struct {
 	// (remembered by settings.odin), and the order every floating thing is drawn in, the
 	// last on top, so whichever was touched last is in front of all the others.
 	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window)]Float_Ref,
+	order:      [dynamic; len(Kit_Window) + len(Card)]Float_Ref,
 	// The floating panels' state and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
@@ -426,12 +426,14 @@ side_panel_close :: proc(app: ^App) {
 // Something that floats over the view and comes to the front when touched: a window.
 Float_Ref :: union {
 	Kit_Window,
+	Card,
 }
 
 // A panel as the floating order holds it.
 float_of :: proc(ref: Panel_Ref) -> Float_Ref {
 	switch r in ref {
 	case Kit_Window: return r
+	case Card:       return r
 	}
 	return nil
 }
@@ -1488,6 +1490,7 @@ kit_layout :: proc(app: ^App) {
 	for which in order {
 		switch w in which {
 		case Kit_Window: if panel_draw(app, w) do top = which
+		case Card:       if card_float_draw(app, w) do top = which
 		}
 	}
 	float_raise(k, top)
@@ -1559,6 +1562,8 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 		case .Colors:    return kit_colors_card(app)
 		case .Thumbnail: return kit_mini_view(app)
 		}
+	case Card:
+		return card_float_draw(app, w)
 	}
 	return false
 }

@@ -3301,6 +3301,76 @@ def pinned_card_stays_while_sculpting():
     return s, [], {"cards": is_text("left:;right:Tool*"), "card_pins": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 
 
+# The Tool card's title in the right column, where the view rail's Tool opens it.
+CARD_TITLE = At("card Tool/card head/card title", 1330, 102)
+CARD_GRIP = At("card Tool/card grip", 0, 0)
+
+
+def float_tool_card(s, finger=False):
+    """Opens the Tool card from the view rail and drags its title out over the view, which
+    floats it there."""
+    s.ftap(UI["inspector"])
+    s.wait(10)
+    path = line((1330, 102), (700, 300), 12)
+    if finger:
+        s.fdrag(path)
+    else:
+        s.mouse_drag(path)
+    s.wait(6)
+
+
+@scenario
+def card_title_dragged_out_floats_it():
+    """The Tool card's title dragged out of its column by the mouse or a finger tears the card
+    out: it floats where it was let go, out of the column, sculpting nothing."""
+    def run(finger):
+        s = Script()
+        float_tool_card(s, finger)
+        return s
+    want = {"cards": is_text("left:;right:"), "cards_float": is_text("Tool"), "card_floated": near(1), "dabs": near(0)}
+    return Steps([(run(False), [], camera_still(want)), (run(True), [], camera_still(want))])
+
+
+@scenario
+def floating_card_comes_back_pinned():
+    """A floating card goes back to the right column, pinned: carried by its grip to the
+    window's right side, held on its grip, or by its Put back button."""
+    def carried(s):
+        s.add(f"move:{where(CARD_GRIP)}")
+        s.wait(1)
+        s.add("down")
+        for k in range(1, 13):
+            s.wait(1)
+            s.add(f"move:{700 + 72 * k},{300}")
+        s.wait(1)
+        s.add("up")
+        s.wait(6)
+    def held(s):
+        long_press(s, CARD_GRIP)
+        s.wait(4)
+    def put_back(s):
+        s.ftap(At("card Tool/dock", 0, 0))
+        s.wait(6)
+    def run(how):
+        s = Script()
+        float_tool_card(s)
+        how(s)
+        return s
+    want = {"cards": is_text("left:;right:Tool*"), "cards_float": is_text("none"), "card_floated": near(1), "card_returned": near(1), "dabs": near(0)}
+    return Steps([(run(how), [], camera_still(want)) for how in (carried, held, put_back)])
+
+
+@scenario
+def floating_card_closes_from_its_dock_button():
+    """A tap on the dock button of a floating card closes it, as it closes the card in a
+    column (the layout's card_float line is cards_test.odin's)."""
+    s = Script()
+    float_tool_card(s)
+    s.ftap(UI["inspector"])
+    s.wait(6)
+    return s, [], camera_still({"cards_float": is_text("none"), "cards": is_text("left:;right:"), "card_closes": near(1), "dabs": near(0)})
+
+
 @scenario
 def window_drag_by_title_is_remembered():
     """A finger drags the Stats window by its title to exactly under the finger, turning nothing; it is saved."""

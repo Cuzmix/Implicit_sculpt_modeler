@@ -9,10 +9,10 @@ import "../ui"
 // and cards; Settings, Help and Macros are side panels. Folded, a floating panel keeps its
 // header. The cards that hold the controls open in columns beside the docks (column.odin).
 
-// A panel: one of the windows Panel options and Arrange place (a union, as the pinned
-// sections once shared it).
+// A panel: one of the windows Panel options and Arrange place, or a floating card.
 Panel_Ref :: union {
 	Kit_Window,
+	Card,
 }
 
 // The windows that are panels; Settings, Help, Macros and Library stay side panels.
@@ -28,7 +28,7 @@ Panel_Seen :: struct {
 
 // The panels' state in Kit_State.
 Panels :: struct {
-	seen:    [dynamic; len(Kit_Window)]Panel_Seen,
+	seen:    [dynamic; len(Kit_Window) + len(Card)]Panel_Seen,
 	// The panel menu (Panel options): open, for which panel, beside what.
 	menu:    bool,
 	menu_of: Panel_Ref,
@@ -71,6 +71,8 @@ panel_name :: proc(ref: Panel_Ref) -> string {
 	case Kit_Window:
 		names := [Kit_Window]string{.Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		return names[r]
+	case Card:
+		return card_root_name(r)
 	}
 	return ""
 }
@@ -84,6 +86,7 @@ panel_id :: proc(ref: Panel_Ref) -> ui.Id {
 panel_window :: proc(k: ^Kit_State, ref: Panel_Ref) -> ^ui.Window {
 	switch r in ref {
 	case Kit_Window:  return &k.windows[r]
+	case Card:        return &k.cards.windows[r]
 	}
 	return nil
 }
@@ -99,6 +102,8 @@ panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
 		case .Colors:    return k.colors_card
 		case .Thumbnail: return k.thumbnail
 		}
+	case Card:
+		return r in k.cards.floats
 	}
 	return false
 }
@@ -114,6 +119,8 @@ panel_set_open :: proc(app: ^App, ref: Panel_Ref, open: bool) {
 		case .Colors:    k.colors_card = open
 		case .Thumbnail: k.thumbnail = open
 		}
+	case Card:
+		if !open do card_close(app, r)
 	}
 }
 
@@ -143,6 +150,8 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 		case .Colors:    return "Colors"
 		case .Thumbnail: return "Thumbnail"
 		}
+	case Card:
+		return card_title(r)
 	}
 	return ""
 }
