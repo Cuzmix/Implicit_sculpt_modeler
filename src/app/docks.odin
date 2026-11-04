@@ -731,6 +731,10 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 	ctx := &k.ctx
 	t := ctx.theme
 	d := &k.docks[id]
+	// It slides in from its edge the first frames it shows, and off again as it hides
+	// (panel_motion.odin).
+	mark := ui.motion_mark(ctx)
+	defer dock_motion_end(app, id, mark)
 	which := dock_which(k, id)
 	used := bar_used(app, which)
 	root := DOCK_ROOTS[id]

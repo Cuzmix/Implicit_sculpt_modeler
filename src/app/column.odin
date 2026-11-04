@@ -263,8 +263,10 @@ kit_columns :: proc(app: ^App) {
 	if !k.cards.set do cards_default(k)
 	sheet := cards_as_sheet(k)
 	for &col, s in k.cards.columns {
-		if col.count == 0 do continue
-		if sheet && s == .Left && k.cards.columns[.Right].count > 0 do continue
+		if col.count == 0 || (sheet && s == .Left && k.cards.columns[.Right].count > 0) {
+			cards_leaving(app, s, {}, false)
+			continue
+		}
 		first := 0 if columns_split(app) && !sheet else col.count - 1
 		// The column is as wide as its widest card; a narrower one keeps to its dock's side.
 		w: f32 = 0
@@ -272,6 +274,16 @@ kit_columns :: proc(app: ^App) {
 		x, y, room, align := column_place(app, s, &col, w)
 		shown := col.count - first
 		each := room if shown == 1 else (room - CARD_GAP) * 0.5
+		// What the column stops showing slides back behind its dock, under what it shows.
+		now: bit_set[Card]
+		fresh := false
+		for i in first ..< col.count {
+			c := col.cards[i].card
+			now += {c}
+			if !ui.drawn_last(&k.ctx, k.moving.cards[c].drawn) do fresh = true
+		}
+		cards_leaving(app, s, now, fresh)
+		at, side := column_anchor(app, &col)
 		for i in first ..< col.count {
 			// Placed above its button, the card's foot stands at the button's head.
 			top := y
@@ -279,7 +291,7 @@ kit_columns :: proc(app: ^App) {
 				h := ui.prev_rect(&k.ctx, card_root_name(col.cards[i].card)).h
 				top = y + room - (h if h > 0 else room)
 			}
-			card_draw(app, &col, i, {x + (w - card_width(col.cards[i].card)) * align, top}, each)
+			card_draw(app, s, &col, i, {x + (w - card_width(col.cards[i].card)) * align, top}, each, at, side)
 			y += each + CARD_GAP
 		}
 		col.frame = k.frame
@@ -301,12 +313,7 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column, w: f32) -> (x, y, 
 		y = max(area.y + area.h * CARD_SHEET_TOP, area.y + kit_top())
 		return x, y, max(area.y + area.h - t.edge - y, CARD_BODY_MIN + t.target), 0.5
 	}
-	at, side := col.at, col.side
-	// A column no button opened follows the dock on the pen side's edge as it lays out,
-	// since the first frames know no width for it yet.
-	if at.w <= 0 do at, side = column_default_anchor(app)
-	// A left-handed layout mirrors the sides its buttons name.
-	if ctx.mirror && (side == .Left || side == .Right) do side = .Right if side == .Left else .Left
+	at, side := column_anchor(app, col)
 	bottom := area.y + area.h - t.edge
 	#partial switch side {
 	case .Left, .Right:
@@ -342,6 +349,16 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column, w: f32) -> (x, y, 
 	return
 }
 
+// The button column `col` opened from and which side of it its cards stand, as laid out:
+// a column no button opened follows the dock on the pen side's edge, since the first
+// frames know no width for it yet, and a left-handed layout mirrors the sides.
+column_anchor :: proc(app: ^App, col: ^Column) -> (at: ui.Rect, side: ui.Side) {
+	at, side = col.at, col.side
+	if at.w <= 0 do at, side = column_default_anchor(app)
+	if app.kit.ctx.mirror && (side == .Left || side == .Right) do side = .Right if side == .Left else .Left
+	return
+}
+
 // The root container name card `c` is laid out under.
 card_root_name :: proc(c: Card) -> string {
 	return fmt.tprintf("card %v", c)
@@ -350,7 +367,7 @@ card_root_name :: proc(c: Card) -> string {
 // One card at `pos`, at most `room` tall: its header (icon, title, what it holds; the
 // Symmetry card's axes; Pin and Close), then its body, scrolling where it is taller.
 @(private = "file")
-card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
+card_draw :: proc(app: ^App, s: Column_Side, col: ^Column, i: int, pos: [2]f32, room: f32, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -368,8 +385,7 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	}
 	owner := ui.hash_under(0, name)
 	fade := ui.tween(ctx, ui.salt(owner, 0x6a6465), PANEL_FADED if entry.faded else 1, t.hover_time)
-	mark := ui.vertex_mark(ctx)
-	shown := ui.presence(ctx, ui.salt(owner, 0x6f70656e), true, t.panel_time)
+	mark := ui.motion_mark(ctx)
 	width := card_width(c)
 	ui.begin_at(ctx, name, pos, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel})
 	inner := width - 2 * PAD
@@ -387,11 +403,14 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	}
 	ui.end(ctx)
 	col.rects[i] = ui.last_ended(ctx)
+	r := col.rects[i]
+	card_motion_end(app, s, c, mark, card_way(app, at, side, r.w, r.h), fade)
 	if c == .Colours do kit_colors_menus(app)
-	if fade < 1 || shown < 1 do ui.transform_since(ctx, mark, fade * shown, 1, {}, {0, (1 - shown) * 12})
 	// Its title dragged past the slop tears the card out of the column: it floats on under
-	// the pointer from the next frame (card_float.odin).
-	if torn do card_float_tear(app, c, {col.rects[i].x, col.rects[i].y})
+	// the pointer from the next frame (card_float.odin). The narrow window's sheet has no
+	// room to float in: dragged down, it follows the finger and is put away.
+	if cards_as_sheet(k) do card_sheet_pull(app, c, torn, r.h)
+	else if torn do card_float_tear(app, c, {r.x, r.y})
 }
 
 // Card `c`'s content under its head, `inner` wide and `height` tall, `owner` its root:

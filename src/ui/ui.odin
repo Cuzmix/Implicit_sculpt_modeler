@@ -222,6 +222,10 @@ Context :: struct {
 	theme:          Theme,
 	fonts:          Fonts,
 	draw:           Draw_List,
+	// Last frame's draw list, kept until the next frame starts, so what stopped being drawn
+	// can be copied from it and drawn a little longer as it leaves (copy_prev, motion.odin).
+	draw_prev:      Draw_List,
+	frame:          u64, // frames begun, for Draw_Range
 	active:         Id, // the widget the pointer pressed and still holds
 	active_seen:    bool, // ...drawn this frame: a held widget that disappears lets go
 	hot:            Id, // the widget under the pointer this frame
@@ -404,6 +408,7 @@ init :: proc(ctx: ^Context, theme := THEME_DARK) {
 destroy :: proc(ctx: ^Context) {
 	fonts_destroy(&ctx.fonts)
 	draw_list_destroy(&ctx.draw)
+	draw_list_destroy(&ctx.draw_prev)
 	delete(ctx.placed)
 	delete(ctx.placed_prev)
 	delete(ctx.stack)
@@ -431,8 +436,10 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	before := ctx.time
 	ctx.time += f64(clamp(input.dt, 0, 0.1))
 	if int(ctx.time) != int(before) do tween_prune(ctx)
+	ctx.draw, ctx.draw_prev = ctx.draw_prev, ctx.draw
 	draw_list_clear(&ctx.draw)
 	ctx.draw.keep = 0
+	ctx.frame += 1
 	clear(&ctx.stack)
 	ctx.overlaps_prev, ctx.overlap_prev = ctx.overlaps, ctx.overlap_first
 	ctx.overlaps, ctx.overlap_first = 0, {}
@@ -635,6 +642,13 @@ prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
 // Where the root container `name` (begun outside every container) was last frame, asked
 // from anywhere, inside another container too, where prev_rect would look for a child of
 // that container; empty the first frame.
+// Where root `name` was laid out this frame so far, empty when it has not been.
+root_rect :: proc(ctx: ^Context, name: string) -> Rect {
+	id := hash_under(0, name)
+	for p in ctx.placed do if p.id == id do return p.rect
+	return {}
+}
+
 prev_root_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	id := hash_under(0, name)
 	for p in ctx.placed_prev {

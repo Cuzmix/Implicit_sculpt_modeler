@@ -263,6 +263,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   animates; a command that jumps the camera glides instead: `before := camera_ease_begin(app)`, jump, `camera_ease_from(app, before)` (camera_ease.odin). `ctx.mirror_slide` (set from a tween on the hand in `kit_begin`) draws each outermost root
   part of the way back to its mirror image in `ui.end`, clips included: no app code for the hand switch's slide.
   Feedback flashes (feedback_motion.odin) draw over the viewport from a `Flash` stamped where the change happened.
+  Something that slides whole, its scrolling body too, takes `m := motion_mark(ctx)` before it is drawn and
+  `slide_since(ctx, m, opacity, offset, cut)` after (clips move with it; `cut` hides it behind a dock). What leaves is
+  drawn from last frame: note `range_end(ctx, m)` each frame, and the frame it is no longer drawn `copy_prev` it into a
+  `Draw_Copy` and `draw_copy` it for the leave's frames (triangles are found by vertex, as layer_mark moves indices).
+  Cards and docks do this in panel_motion.odin; a new panel that comes and goes joins it rather than redrawing inert.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and

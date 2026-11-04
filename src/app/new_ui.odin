@@ -94,6 +94,7 @@ Kit_State :: struct {
 	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	cards:      Cards, // the cards and the columns they open in (cards.odin, column.odin)
+	moving:     Panel_Motion, // cards and docks sliding in and out (panel_motion.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
 	pane_menu:  Pane_Menu, // a view pane's camera or pass list
 	bars_edit:  bool,
@@ -950,6 +951,7 @@ kit_destroy :: proc(app: ^App) {
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
+	panel_motion_destroy(&app.kit.moving)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -1350,6 +1352,7 @@ kit_layout :: proc(app: ^App) {
 	}
 	if k.clean {
 		kit_clean_view(app)
+		docks_leaving(app)
 		return
 	}
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
@@ -1395,6 +1398,8 @@ kit_layout :: proc(app: ^App) {
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
+	// A dock that stopped showing slides off its edge (panel_motion.odin).
+	docks_leaving(app)
 	kit_colour_island(app)
 	kit_action_bar(app)
 	stack_h := dock_stack(app)

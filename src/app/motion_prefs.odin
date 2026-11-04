@@ -32,6 +32,9 @@ Motion_Kind :: enum u8 {
 	Save_Tick, // the tick beside the file's status after a save
 	Look_Fade, // the view's last picture fading out when its pass or look changes (cross_fade.odin)
 	Mesh_Fade, // the old mesh's picture fading out when a long job swaps the new one in
+	Cards, // cards sliding out from their dock and back, and the narrow screen's sheet rising (panel_motion.odin)
+	Docks, // docks sliding off their edge as they hide and back as they show
+	Spaces, // the docks fading across when the space changes
 }
 
 #assert(int(Motion_Kind.Tooltips) == int(ui.MOTION_TOOLTIPS) && len(Motion_Kind) <= 32)
@@ -56,6 +59,9 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Save_Tick   = "Save tick",
 	.Look_Fade   = "Pass and look changes",
 	.Mesh_Fade   = "New mesh after a rebuild",
+	.Cards       = "Cards sliding",
+	.Docks       = "Docks sliding",
+	.Spaces      = "Switching space",
 }
 
 MOTION_LEVEL_NAMES := [ui.Motion_Level]string {

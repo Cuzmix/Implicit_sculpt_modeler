@@ -13,6 +13,8 @@ import "../ui"
 // The padding inside a sheet, and the margin it keeps from the window's sides and foot.
 SHEET_PAD :: 16
 SHEET_MARGIN :: 16
+// How dark the view goes behind an open sheet (alpha out of 255).
+SHEET_DIM :: 90
 
 // Whether Settings, Help or Macros is open: they are one at a time, each opening closing
 // the others (Export's sheet closes with what floats, kit_floats_close).
@@ -38,7 +40,15 @@ sheet_begin :: proc(app: ^App, name, title: string, glyph: rune, open: ^bool, wi
 	w := min(width, area.w - 2 * SHEET_MARGIN)
 	top := kit_top() + 8
 	at := ui.Rect{area.x + (area.w - w) * 0.5, top, 0, 0}
+	// The view dims behind it as it grows in, and brightens as it leaves.
+	dim := ui.tween_from(ctx, ui.salt(ui.hash_under(0, name), 0x6469_6d), 0, 1 if open^ else 0, t.popover_time, .Out_Cubic, class = ui.MOTION_POPOVERS)
+	if dim > 0 {
+		win := ctx.input.window
+		ui.fill_rect(ctx, {0, 0, win.x, win.y}, 0, {4, 6, 8, u8(SHEET_DIM * dim + 0.5)})
+	}
 	if !ui.popover_begin(ctx, name, open, at, .Pointer, {direction = .Column, gap = gap, padding = SHEET_PAD, width = w}) do return
+	// It grows from the middle of its top edge, as a sheet coming down from the top bar.
+	ctx.popup_origin = {at.x + w * 0.5, top}
 	inner = w - 2 * SHEET_PAD
 	room = max(area.y + area.h - top - SHEET_MARGIN - 2 * SHEET_PAD - t.target - gap, 160)
 

@@ -3936,6 +3936,25 @@ def lens_rail_opens_beside_itself():
     return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("look"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
+# The narrow window's sheet (under 900 points wide): the Tool card's head, where a drag
+# down starts.
+NARROW_SHEET_HEAD = (300, 438)
+
+
+@scenario
+def narrow_sheet_drag_down_puts_it_away():
+    """On a narrow window a drag down on the card's head past a third of its height puts the sheet away; a short one lets it spring back."""
+    def run(far):
+        s = Script()
+        s.wait(30)
+        x, y = NARROW_SHEET_HEAD
+        s.fdrag([(x, y + i * (20 if far else 6)) for i in range(11)])
+        s.wait(20)
+        return (s, ["--width=720", "--height=900", "--script=open_card tool"],
+                camera_still({"sheet_pulls": near(1 if far else 0), "cards": is_text("left:;right:" if far else "left:;right:Tool"), "dabs": near(0)}))
+    return Steps([run(True), run(False)])
+
+
 @scenario
 def lens_rail_second_view_splits_the_view():
     """The rail's Second view splits the view in two, the second pane with its own camera; again joins them."""
