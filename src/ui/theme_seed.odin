@@ -187,7 +187,7 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 	a := seed.accent
 	a.a = 255
 	t.accent = a
-	t.accent_soft = color_mix(solid, a, 0.22 if light else 0.17)
+	t.accent_soft = color_mix(solid, a, 0.3 if light else 0.17)
 	// The ink on the accent is white or the accent's own near-black, whichever reads better.
 	ink := color_mix(a, {0, 0, 0, 255}, 0.88)
 	white := Color{0xff, 0xff, 0xff, 0xff}

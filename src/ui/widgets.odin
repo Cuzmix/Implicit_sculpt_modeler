@@ -253,9 +253,11 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	case .Light, .Bordered:
 		fg = tone_color
 	}
-	// A disabled button keeps no tone: a dimmed Delete in red still reads as a live danger.
+	// A disabled button keeps no tone (a dimmed Delete in red still read as a live danger)
+	// and no fill, only a hairline, so it never passes for a live secondary button.
+	disabled_ring := !enabled && bg.a > 0
 	if !enabled {
-		bg = color_fade(t.fill, DISABLED_FADE) if bg.a > 0 else {}
+		bg = {}
 		fg = disabled_ink(t)
 	}
 	id := id_of(ctx, s)
@@ -265,7 +267,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	else if ctx.names.on do names_place(ctx, id, cell)
 	mark := vertex_mark(ctx)
 	if bg.a > 0 do fill_rect(ctx, vis, t.radius_medium, bg)
-	if variant == .Bordered do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
+	if variant == .Bordered || disabled_ring do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	x := vis.x + (vis.w - content) * 0.5
 	if icon_only {
