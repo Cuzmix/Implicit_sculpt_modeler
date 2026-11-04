@@ -7,7 +7,6 @@ import "core:math/linalg"
 import "core:slice"
 import "core:time"
 
-
 import "../geom"
 import "../jobs"
 
@@ -36,16 +35,9 @@ import "../jobs"
 // positions and indices they read: 28 bytes a vertex, uploaded once per mesh a slice a
 // frame before a stroke needs it (sculpt_gpu_prepare) and kept with the mesh's buffers.
 
-NODE_NORMALS_COMP_CODE :: #load("shaders/node_normals.comp" + SHADER_EXT, string)
-DAB_AREA_COMP_CODE :: #load("shaders/dab_area.comp" + SHADER_EXT, string)
-DAB_REDUCE_COMP_CODE :: #load("shaders/dab_reduce.comp" + SHADER_EXT, string)
-DAB_MOVE_COMP_CODE :: #load("shaders/dab_move.comp" + SHADER_EXT, string)
-DAB_SMOOTH_TARGETS_COMP_CODE :: #load("shaders/dab_smooth_targets.comp" + SHADER_EXT, string)
-DAB_SMOOTH_APPLY_COMP_CODE :: #load("shaders/dab_smooth_apply.comp" + SHADER_EXT, string)
-NODE_BOUNDS_COMP_CODE :: #load("shaders/node_bounds.comp" + SHADER_EXT, string)
-
-// Vertices a workgroup takes; matches numthreads in the kernels.
+// Vertices a workgroup takes: numthreads in every kernel.
 SCULPT_SLAB :: 256
+#assert(NODE_NORMALS_COMP.threadcount_x == SCULPT_SLAB && NODE_BOUNDS_COMP.threadcount_x == SCULPT_SLAB && DAB_AREA_COMP.threadcount_x == SCULPT_SLAB && DAB_REDUCE_COMP.threadcount_x == SCULPT_SLAB && DAB_MOVE_COMP.threadcount_x == SCULPT_SLAB && DAB_SMOOTH_TARGETS_COMP.threadcount_x == SCULPT_SLAB && DAB_SMOOTH_APPLY_COMP.threadcount_x == SCULPT_SLAB)
 // More slots than frames may be in flight, so a slot's readback is done when it comes round.
 SCULPT_SLOTS :: FRAMES_IN_FLIGHT_MAX + 1
 
@@ -652,32 +644,22 @@ sculpt_gpu_begin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Fac
 @(private = "file")
 sculpt_pipelines_make :: proc(r: ^Renderer) -> bool {
 	sg := &r.sculpt_gpu
-	make_one :: proc(r: ^Renderer, code: string, readonly, readwrite: u32, what: string) -> gpu.Compute_Pipeline {
-		p := gpu.create_compute_pipeline_exact({
-			code                          = code,
-			entrypoint                    = SHADER_ENTRY,
-			format                        = SHADER_FORMAT,
-			num_readonly_storage_buffers  = readonly,
-			num_readwrite_storage_buffers = readwrite,
-			num_uniform_buffers           = 1,
-			threadcount_x                 = SCULPT_SLAB,
-			threadcount_y                 = 1,
-			threadcount_z                 = 1,
-		})
+	make_one :: proc(r: ^Renderer, kernel: gpu.Compute_Pipeline_Desc, what: string) -> gpu.Compute_Pipeline {
+		p := gpu.create_compute_pipeline_exact(kernel)
 		if p == 0 do log.errorf("sculpt on the GPU: the %s kernel could not be made (%s); strokes stay on the CPU", what, gpu.last_error())
 		return p
 	}
-	sg.pipeline = make_one(r, NODE_NORMALS_COMP_CODE, 5, 1, "normals")
-	sg.bounds_pipeline = make_one(r, NODE_BOUNDS_COMP_CODE, 3, 1, "bounds")
+	sg.pipeline = make_one(r, NODE_NORMALS_COMP, "normals")
+	sg.bounds_pipeline = make_one(r, NODE_BOUNDS_COMP, "bounds")
 	if sg.bounds_pipeline == 0 {
 		sg.failed = true
 		return false
 	}
-	codes := [Sculpt_Dab_Stage]string{.Area = DAB_AREA_COMP_CODE, .Reduce = DAB_REDUCE_COMP_CODE, .Move = DAB_MOVE_COMP_CODE, .Smooth_Targets = DAB_SMOOTH_TARGETS_COMP_CODE, .Smooth_Apply = DAB_SMOOTH_APPLY_COMP_CODE}
+	kernels := [Sculpt_Dab_Stage]gpu.Compute_Pipeline_Desc{.Area = DAB_AREA_COMP, .Reduce = DAB_REDUCE_COMP, .Move = DAB_MOVE_COMP, .Smooth_Targets = DAB_SMOOTH_TARGETS_COMP, .Smooth_Apply = DAB_SMOOTH_APPLY_COMP}
 	names := [Sculpt_Dab_Stage]string{.Area = "dab area", .Reduce = "dab reduce", .Move = "dab move", .Smooth_Targets = "smooth targets", .Smooth_Apply = "smooth apply"}
 	ok := sg.pipeline != 0
 	for stage in Sculpt_Dab_Stage {
-		sg.dab_pipelines[stage] = make_one(r, codes[stage], 9, 5, names[stage])
+		sg.dab_pipelines[stage] = make_one(r, kernels[stage], names[stage])
 		ok = ok && sg.dab_pipelines[stage] != 0
 	}
 	if !ok do sg.failed = true

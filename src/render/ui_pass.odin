@@ -4,10 +4,6 @@ import "../gpu"
 import "base:intrinsics"
 import "core:log"
 
-
-UI_VERT_CODE :: #load("shaders/ui.vert" + SHADER_EXT, string)
-UI_FRAG_CODE :: #load("shaders/ui.frag" + SHADER_EXT, string)
-
 // One corner of an interface triangle, as the app's interface kit makes them (it mirrors
 // ui.Vertex; render does not import the kit). Matches ui.vert.slang.
 Ui_Vertex :: struct {
@@ -208,14 +204,8 @@ ui_pipeline :: proc(r: ^Renderer, up: ^Ui_Pass, format: gpu.Format) -> gpu.Graph
 		break
 	}
 	if slot < 0 do return 0
-	vert := gpu.create_shader({
-		code = UI_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex, num_uniform_buffers = 1,
-	})
-	frag := gpu.create_shader({
-		code = UI_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
-	})
+	vert := gpu.create_shader(UI_VERT)
+	frag := gpu.create_shader(UI_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 {

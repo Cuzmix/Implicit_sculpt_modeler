@@ -23,18 +23,16 @@ import "../jobs"
 // Anything the device refuses, or a mesh that cannot be traced, leaves that run on the
 // shadow-map gather, which stays as it was.
 
-STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT, string)
-// The same kernel over the driver's acceleration structures (Gpu_Caps.ray_query), whose
-// Metal source comes from slangc (RQ_EXT).
-STUDIO_TRACE_RQ_COMP_CODE :: #load("shaders/studio_trace_rq.comp" + RQ_EXT, string)
-STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT, string)
-BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT, string)
+// The kernels are STUDIO_TRACE_COMP, STUDIO_TRACE_RQ_COMP (the same over the driver's
+// acceleration structures, Gpu_Caps.ray_query, whose Metal source comes from slangc: RQ_EXT)
+// and BLAS_REFIT_COMP.
 
-// Matches numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
+// numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
 @(private = "file")
 TRACE_GROUP :: 8
 @(private = "file")
 REFIT_THREADS :: 64
+#assert(STUDIO_TRACE_COMP.threadcount_x == TRACE_GROUP && STUDIO_TRACE_COMP.threadcount_y == TRACE_GROUP && STUDIO_TRACE_RQ_COMP.threadcount_x == TRACE_GROUP && BLAS_REFIT_COMP.threadcount_x == REFIT_THREADS)
 // The widest dispatch every device must accept; more chunks spread over rows.
 @(private = "file")
 MAX_GROUPS_X :: 65535
@@ -331,17 +329,9 @@ tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 			log.warn("traced studio: this device cannot write R32_FLOAT from compute; the studio uses shadow maps")
 			return false
 		}
-		tr.trace_pipeline = gpu.create_compute_pipeline({
-			code = STUDIO_TRACE_COMP_CODE, entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 6, num_readwrite_storage_textures = 1,
-			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
-		})
-		tr.refit_pipeline = gpu.create_compute_pipeline({
-			code = BLAS_REFIT_COMP_CODE, entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_readonly_storage_buffers = 4, num_readwrite_storage_buffers = 1,
-			num_uniform_buffers = 1, threadcount_x = REFIT_THREADS, threadcount_y = 1, threadcount_z = 1,
-		})
-		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
+		tr.trace_pipeline = gpu.create_compute_pipeline(STUDIO_TRACE_COMP)
+		tr.refit_pipeline = gpu.create_compute_pipeline(BLAS_REFIT_COMP)
+		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG, STUDIO_ACCUM_FORMAT, additive = true)
 		if tr.trace_pipeline == 0 || tr.refit_pipeline == 0 || tr.add_pipeline == 0 {
 			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", gpu.last_error())
 			return false
@@ -503,11 +493,7 @@ trace_runs :: proc(item: Draw_Item) -> (ranges: [dynamic]geom.Index_Range, chunk
 trace_rq_kernel :: proc(r: ^Renderer, tr: ^Tracer) -> bool {
 	if !r.ray_query || !r.caps.ray_query || tr.rq_failed || !ray_query_trusted(r) do return false
 	if tr.rq_pipeline == 0 {
-		tr.rq_pipeline = gpu.create_compute_pipeline_traced({
-			code = STUDIO_TRACE_RQ_COMP_CODE, entrypoint = RQ_ENTRY,
-			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 2, num_readwrite_storage_textures = 1,
-			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
-		})
+		tr.rq_pipeline = gpu.create_compute_pipeline_traced(STUDIO_TRACE_RQ_COMP)
 		if tr.rq_pipeline == 0 {
 			log.warnf("traced studio: the ray query kernel could not be made (%s); it walks its own trees", gpu.last_error())
 			tr.rq_failed = true

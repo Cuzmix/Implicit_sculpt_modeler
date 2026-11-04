@@ -15,11 +15,6 @@ import "core:math/linalg"
 // the grain. With every control at its none value finish_active is false and nothing runs,
 // so the picture stays the viewport's to the bit.
 
-FINISH_FRAG_CODE :: #load("shaders/finish.frag" + SHADER_EXT, string)
-BLOOM_DOWN_FRAG_CODE :: #load("shaders/bloom_down.frag" + SHADER_EXT, string)
-BLOOM_UP_FRAG_CODE :: #load("shaders/bloom_up.frag" + SHADER_EXT, string)
-SHARPEN_FRAG_CODE :: #load("shaders/sharpen.frag" + SHADER_EXT, string)
-
 // The bloom chain's sizes at most, from half the picture's down: six halvings reach 1/64 of
 // it, a glow about a fifth of a 1440p picture across at the widest scatter.
 BLOOM_LEVELS_MAX :: 6
@@ -345,7 +340,7 @@ finish_key :: proc(source: gpu.Texture, width, height: u32, linear: bool, look: 
 @(private = "file")
 finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.pipeline == 0 {
-		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 2)
+		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG, VIEWPORT_COLOR_FORMAT)
 		f.sampler = gpu.create_sampler({
 			min_filter = .Linear, mag_filter = .Linear, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
@@ -376,8 +371,8 @@ finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 @(private = "file")
 finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look: Finish_Look) -> bool {
 	if look.sharpen > 0 {
-		if f.mid_pipeline == 0 do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, FINISH_MID_FORMAT, samplers = 2)
-		if f.sharpen_pipeline == 0 do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 1)
+		if f.mid_pipeline == 0 do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG, FINISH_MID_FORMAT)
+		if f.sharpen_pipeline == 0 do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG, VIEWPORT_COLOR_FORMAT)
 		if f.mid == 0 {
 			f.mid = gpu.create_texture({
 				type = .D2, format = FINISH_MID_FORMAT, usage = {.Color_Target, .Sampled},
@@ -394,8 +389,8 @@ finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look
 			// Packed floats where the device draws into them, at half half-floats' memory.
 			f.bloom_format = .RG11B10_Float
 			if !gpu.texture_supports_format(f.bloom_format, .D2, {.Color_Target, .Sampled}) do f.bloom_format = .RGBA16_Float
-			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG_CODE, f.bloom_format, samplers = 1)
-			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG_CODE, f.bloom_format, samplers = 2)
+			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG, f.bloom_format)
+			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG, f.bloom_format)
 			if f.down_pipeline == 0 || f.up_pipeline == 0 {
 				log.errorf("finishing: bloom setup failed (%s); the picture shows unfinished", gpu.last_error())
 				return false

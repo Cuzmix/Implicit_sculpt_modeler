@@ -355,9 +355,13 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   entry file whose `main` builds `name.stage.spv`, and `scripts/shaders_msl.py` turns that into `name.stage.msl` with
   SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots, but a compute kernel's read-write
   buffers land after the read-only ones it *reads*, so a kernel must read every read-only binding it declares, as
-  `dab.slang`'s `keep_bindings` does; `shaders_msl.py --check` fails on a gap); render `#load`s
-  `"shaders/name.stage" + SHADER_EXT` with `SHADER_ENTRY` and `SHADER_FORMAT` (`shaders.odin`), so Darwin embeds only
-  `.msl` and everything else only `.spv`; other `.slang` files are includes
+  `dab.slang`'s `keep_bindings` does; `shaders_msl.py --check` fails on a gap). `scripts/shaders_gen.py` writes each
+  shader's description into `shaders_gen.odin` from slangc's reflection: `NAME_STAGE` (`MESH_VERT`, `DAB_MOVE_COMP`), a
+  `gpu.Shader_Desc` or `gpu.Compute_Pipeline_Desc` with the `#load` of `"shaders/name.stage" + SHADER_EXT` (`RQ_EXT` for a
+  ray query kernel, the `.spv` under `when gpu.VULKAN` for a vulkan-only one), `SHADER_ENTRY`, `SHADER_FORMAT`
+  (`shaders.odin`), every count by SDL's sets and `numthreads`. Make pipelines from it (`gpu.create_shader(MESH_VERT)`)
+  and never write a count by hand; a constant the renderer dispatches or binds by (`SCULPT_SLAB`, `RENDER_SAMPLERS`)
+  is `#assert`ed against it. Darwin embeds only `.msl` and everything else only `.spv`; other `.slang` files are includes
   (`#include`, `#define TEXTURED` before `mesh_shading.slang`). Bindings are SDL's sets, written
   `[[vk::binding(binding, set)]]`; varyings carry `[[vk::location(n)]]`; vertex index is `SV_VulkanVertexID` (with
   base vertex, as GLSL's); globals that are not resources are `static`. slangc runs with `-matrix-layout-row-major
@@ -365,8 +369,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `float3x3(a, b, c)` takes columns and `M[i]` is column i, exactly as GLSL; `-O0` because spirv-opt turns `x / c`
   into `x * (1 / c)`, which moved pixels. Write constants Slang would compute per pixel (`normalize` of a literal) as
   their folded values (`studio_env.slang`). A first line `// slangc: -fp-mode precise` keeps every multiply and add
-  unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` and `.msl` with the source; never
-  hand-edit either (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
+  unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv`, `.msl`, `.wgsl` and `shaders_gen.odin`
+  with the source; never hand-edit any (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
   fast math; a kernel that must equal the CPU is made with `gpu.create_compute_pipeline_exact` (fast maths off under the
   own Metal backend). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.

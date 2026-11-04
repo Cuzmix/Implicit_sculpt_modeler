@@ -97,6 +97,9 @@ compile_shaders() {
 	python3 "$ROOT/scripts/shaders_msl.py"
 	# And its WGSL for the web version (scripts/shaders_wgsl.py), likewise checked.
 	python3 "$ROOT/scripts/shaders_wgsl.py"
+	# And its description in src/render/shaders_gen.odin, counts and thread groups from slangc's
+	# reflection (scripts/shaders_gen.py), likewise checked.
+	python3 "$ROOT/scripts/shaders_gen.py"
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
@@ -261,10 +264,11 @@ case "$mode" in
 		python3 "$ROOT/scripts/boundary_check.py"
 		python3 "$ROOT/scripts/shaders_msl.py" --check
 		python3 "$ROOT/scripts/shaders_wgsl.py" --check
+		python3 "$ROOT/scripts/shaders_gen.py" --check
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
+		echo "check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders and their descriptions current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"

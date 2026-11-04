@@ -24,19 +24,11 @@ import "../jobs"
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
-RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT, string)
-// The same kernel reading every map from one array (render_trace_maps.comp.slang), which
-// only the own Vulkan backend binds, so it has no Metal source.
-// Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
-// named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
-when gpu.VULKAN {
-	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv", string)
-	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv", string)
-}
-RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT, string)
-RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT, string)
-RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT, string)
-RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT, string)
+// The kernel is RENDER_TRACE_COMP (render_trace.comp.slang). RENDER_TRACE_MAPS_COMP is the
+// same kernel reading every map from one array, which only the own Vulkan backend binds, so
+// it has no Metal source. RENDER_TRACE_RQ_COMP and RENDER_TRACE_MAPS_RQ_COMP are both again
+// tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the named
+// kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
 
 RENDER_FORMAT :: gpu.Format.RGBA32_Float
 // The exposed light the finishing stack starts from (render_linear_texture).
@@ -215,6 +207,10 @@ Scene_Buffer :: enum {
 RENDER_TEXTURED_MAX :: 3
 @(private = "file")
 RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
+// What the renderer binds and dispatches agrees with the kernels' own counts (shaders_gen.odin).
+#assert(RENDER_TRACE_COMP.num_samplers == RENDER_SAMPLERS && RENDER_TRACE_RQ_COMP.num_samplers == RENDER_SAMPLERS)
+#assert(RENDER_TRACE_COMP.num_readonly_storage_buffers == len(Scene_Buffer) && RENDER_TRACE_RQ_COMP.num_readonly_storage_buffers == len(Scene_Buffer))
+#assert(RENDER_TRACE_COMP.threadcount_x == RENDER_GROUP && RENDER_TRACE_COMP.threadcount_y == RENDER_GROUP && RENDER_TRACE_RQ_COMP.threadcount_x == RENDER_GROUP)
 // ...and through one array of maps, where the device offers texture arrays
 // (Gpu_Caps.texture_arrays, at least four items' worth), or as many as it holds.
 @(private = "file")
@@ -487,7 +483,7 @@ render_linear_texture :: proc(pr: ^Path_Render) -> gpu.Texture {
 @(private = "file")
 path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 	if pr.display_linear == 0 {
-		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG_CODE, RENDER_LINEAR_FORMAT, samplers = 4)
+		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG, RENDER_LINEAR_FORMAT)
 		if pr.display_linear == 0 {
 			log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", gpu.last_error())
 			return false
@@ -622,11 +618,7 @@ path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: gpu.Compute_Pipeline, arr
 		offered := r.caps.texture_arrays / 3
 		if offered <= RENDER_TEXTURED_MAX do return
 		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
-		pipeline = gpu.create_compute_pipeline_array({
-			code = RENDER_TRACE_MAPS_COMP_CODE, entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_samplers = 5, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-		}, 3 * textured_max)
+		pipeline = gpu.create_compute_pipeline_array(RENDER_TRACE_MAPS_COMP, 3 * textured_max)
 		if pipeline == 0 {
 			log.warnf("render mode: the texture array kernel could not be made (%s); it shows %d textured objects' maps", gpu.last_error(), RENDER_TEXTURED_MAX)
 			return 0, false, 0
@@ -649,16 +641,12 @@ render_textured_max :: proc(pr: ^Path_Render) -> int {
 path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 	if !r.ray_query || !r.caps.ray_query || pr.rq_failed || !ray_query_trusted(r) do return false
 	if pr.rq_pipeline == 0 {
-		info := gpu.Compute_Pipeline_Desc {
-			code = RENDER_TRACE_RQ_COMP_CODE, entrypoint = RQ_ENTRY,
-			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-		}
+		info := RENDER_TRACE_RQ_COMP
 		capacity: u32
 		// The array kind exists only under Vulkan (path_maps_pipeline).
 		when gpu.VULKAN {
 			if pr.maps_array {
-				info.code, info.num_samplers = RENDER_TRACE_MAPS_RQ_COMP_CODE, 5
+				info = RENDER_TRACE_MAPS_RQ_COMP
 				capacity = 3 * pr.textured_max
 			}
 		}
@@ -682,15 +670,11 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 		}
 		pr.pipeline, pr.maps_array, pr.textured_max = path_maps_pipeline(r)
 		if pr.pipeline == 0 {
-			pr.pipeline = gpu.create_compute_pipeline({
-				code = RENDER_TRACE_COMP_CODE, entrypoint = SHADER_ENTRY,
-				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-			})
+			pr.pipeline = gpu.create_compute_pipeline(RENDER_TRACE_COMP)
 			pr.maps_array, pr.textured_max = false, RENDER_TEXTURED_MAX
 		}
-		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
-		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
+		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG, VIEWPORT_COLOR_FORMAT)
+		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG, RENDER_GUIDE_FORMAT)
 		pr.sampler = gpu.create_sampler({
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,

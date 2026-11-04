@@ -84,10 +84,11 @@ python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
+python "%ROOT%scripts\shaders_gen.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
+echo check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders and their descriptions current, the web version type-checks
 exit /b 0
 
 :web
@@ -244,6 +245,8 @@ rem query kernel's .metal with slangc alone (build.sh says more).
 python "%ROOT%scripts\shaders_msl.py" || exit /b 1
 rem And its WGSL for the web version, likewise checked.
 python "%ROOT%scripts\shaders_wgsl.py" || exit /b 1
+rem And its description in src\render\shaders_gen.odin from slangc's reflection, likewise checked.
+python "%ROOT%scripts\shaders_gen.py" || exit /b 1
 exit /b 0
 
 :shader

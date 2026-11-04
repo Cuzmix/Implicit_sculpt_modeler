@@ -12,13 +12,15 @@ import "../geom"
 // shader pulls its vertex from the mesh's own buffers, since a pixel needs its triangle's
 // number, which an indexed draw cannot give it.
 
-// The skinned vertex shader's storage buffers: paint, indices, positions, normals.
-SKIN_VERTEX_STORAGE :: 4
+// The skinned vertex shader's storage buffers: paint, indices, positions, normals. Each count
+// is the shader's own (shaders_gen.odin), so a buffer added to a shader without its binding
+// here fails to compile.
+SKIN_VERTEX_STORAGE :: SKIN_VERT.num_storage_buffers
 // The skinned fragment shader's: the samples' normals and the triangles' records.
-SKIN_FRAGMENT_STORAGE :: 2
+SKIN_FRAGMENT_STORAGE :: SKIN_FRAG.num_storage_buffers
 // The grid's vertex shader's (skin_tess.vert.slang): paint, indices, positions, normals,
 // and the samples' normals, the triangles' records and the samples' heights.
-SKIN_TESS_STORAGE :: 7
+SKIN_TESS_STORAGE :: SKIN_TESS_VERT.num_storage_buffers
 
 // Whether `item` draws with the skinned pipeline: its mesh has a skin uploaded and its
 // buffers can be read as storage.

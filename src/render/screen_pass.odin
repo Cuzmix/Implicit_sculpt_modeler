@@ -121,14 +121,8 @@ scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bo
 // with `cull_back`, the camera's (front faces, matching what the viewport drew).
 @(private)
 create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = SHADOW_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex, num_uniform_buffers = 1,
-	})
-	frag := gpu.create_shader({
-		code = SHADOW_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment,
-	})
+	vert := gpu.create_shader(SHADOW_VERT)
+	frag := gpu.create_shader(SHADOW_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 do return 0
@@ -153,14 +147,8 @@ create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> gpu.Graphics_Pi
 // pass can only clear whole.
 @(private)
 create_depth_clear_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = CLEAR_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex,
-	})
-	frag := gpu.create_shader({
-		code = SHADOW_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment,
-	})
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(SHADOW_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 do return 0
@@ -174,18 +162,12 @@ create_depth_clear_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
 	})
 }
 
-// A full-screen triangle (clear.vert.slang) through `frag_code`, which reads `samplers` samplers
-// and one uniform buffer, into one colour target; `additive` blends by adding.
+// A full-screen triangle (clear.vert.slang) through the fragment shader `fragment` into one
+// colour target; `additive` blends by adding.
 @(private)
-create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: string, format: gpu.Format, samplers: u32, additive := false) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = CLEAR_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex,
-	})
-	frag := gpu.create_shader({
-		code = frag_code, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment, num_samplers = samplers, num_uniform_buffers = 1,
-	})
+create_fullscreen_pipeline :: proc(r: ^Renderer, fragment: gpu.Shader_Desc, format: gpu.Format, additive := false) -> gpu.Graphics_Pipeline {
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(fragment)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 {

@@ -14,10 +14,9 @@ import "../geom"
 // The mesh the viewport draws is not touched: the caller writes the result back to the
 // CPU mesh, which uploads its changes the usual way.
 
-SMOOTH_ALL_COMP_CODE :: #load("shaders/smooth_all.comp" + SHADER_EXT, string)
-
-// Threads per workgroup; matches local_size_x in smooth_all.comp.slang.
+// Threads per workgroup: numthreads in smooth_all.comp.slang.
 SMOOTH_THREADS :: 256
+#assert(SMOOTH_ALL_COMP.threadcount_x == SMOOTH_THREADS)
 
 // The widest dispatch every device must accept; larger meshes spread over rows.
 @(private = "file")
@@ -58,17 +57,7 @@ smooth_timing_total :: proc(t: Smooth_Timing) -> f64 {
 
 smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 	// Exact (IEEE 754 arithmetic, no fast maths), so the result can equal the CPU's.
-	sc.pipeline = gpu.create_compute_pipeline_exact({
-		code                          = SMOOTH_ALL_COMP_CODE,
-		entrypoint                    = SHADER_ENTRY,
-		format                        = SHADER_FORMAT,
-		num_readonly_storage_buffers  = 5,
-		num_readwrite_storage_buffers = 1,
-		num_uniform_buffers           = 1,
-		threadcount_x                 = SMOOTH_THREADS,
-		threadcount_y                 = 1,
-		threadcount_z                 = 1,
-	})
+	sc.pipeline = gpu.create_compute_pipeline_exact(SMOOTH_ALL_COMP)
 	if sc.pipeline == 0 {
 		log.errorf("smooth compute: CreateGPUComputePipeline failed: %s", gpu.last_error())
 		return false

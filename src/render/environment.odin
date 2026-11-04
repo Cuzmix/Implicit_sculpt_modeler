@@ -56,8 +56,6 @@ Prefilter_Uniforms :: struct {
 	target: [4]f32, // xy: the level's size, z: the source mip a mirror reads
 }
 
-ENV_PREFILTER_FRAG_CODE :: #load("shaders/env_prefilter.frag" + SHADER_EXT, string)
-
 // Makes an environment from `pixels`, linear RGB rows top (straight up) to bottom,
 // `width` by `height` (2:1, at least 64 wide), and its harmonics `sh`: uploads it,
 // builds its mips and prefilters it on a command buffer of its own, waiting for the GPU,
@@ -188,14 +186,8 @@ environment_keyed :: proc(r: ^Renderer) -> Environment_Keyed {
 
 @(private = "file")
 create_prefilter_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = CLEAR_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex,
-	})
-	frag := gpu.create_shader({
-		code = ENV_PREFILTER_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
-	})
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(ENV_PREFILTER_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 {
