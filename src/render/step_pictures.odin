@@ -48,7 +48,7 @@ step_pictures_draw :: proc(r: ^Renderer, s: ^Step_Pictures, cmd: gpu.Cmd, slot: 
 		pass := gpu.begin_render_pass(cmd, &color, 1, nil)
 		gpu.end_render_pass(pass)
 	}
-	drawn := thumbnail_view_draw(r, &s.scratch, cmd, {STEP_PICTURE_PX, STEP_PICTURE_PX}, view, proj, items, background, supersample = 1)
+	drawn := thumbnail_view_draw(r, &s.scratch, cmd, {STEP_PICTURE_PX, STEP_PICTURE_PX}, view, proj, items, background, supersample = 1, cull = true)
 	if drawn == 0 {
 		s.failed = s.scratch.failed
 		return false

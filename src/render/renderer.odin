@@ -457,6 +457,10 @@ Draw_Item :: struct {
 	// Per chunk, then per group of `lod`: left out, whether culling is on or not (another
 	// item draws that part, as an HD window does); nil to draw everything.
 	hidden: []bool,
+	// Runs of the index buffer drawn one direct draw each instead of the whole mesh, when
+	// not nil: a picture that culled `chunks` for its own narrower view (thumbnail_view_draw
+	// with cull), which must not touch the indirect commands the viewport drew from.
+	ranges: []geom.Index_Range,
 }
 
 // How the viewport shows the meshes (Draw_Item.pass): shaded as the materials say, or
@@ -2255,7 +2259,12 @@ wire_color :: proc(r: ^Renderer) -> [4]f32 {
 draw_item_triangles :: proc(r: ^Renderer, pass: gpu.Render_Pass, item: Draw_Item, stats: ^Viewport_Stats) {
 	mb := item.mesh
 	gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)
-	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
+	if item.ranges != nil {
+		for run in item.ranges do gpu.draw_indexed_primitives(pass, run.index_count, 1, run.first_index, 0, 0)
+		if stats == nil do return
+		for run in item.ranges do stats.triangles += u64(run.index_count / 3)
+		stats.draws += u64(len(item.ranges))
+	} else if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
 		// The kernels wrote the commands and their count; prepare_draws counted the stats.
 		gpu.draw_indexed_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count)
 	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != 0 {
