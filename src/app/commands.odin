@@ -2450,12 +2450,10 @@ COMMANDS := [Command_Id]Command {
 		label = "Settings...",
 		help = "Opens the app's settings.",
 		icon = ui.ICON_SETTINGS,
-		// Unfolded and in front, wherever it was left, in Help's place (they share it).
+		// A sheet, closing Help or Macros (one sheet at a time).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			k.settings, k.help, k.macros = true, false, false
-			k.windows[.Settings].minimized = false
-			window_raise(k, .Settings)
 		},
 	},
 	.Main_Menu = {
@@ -2550,7 +2548,7 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {
 			coach_restart(app)
 			// The card shows only with nothing open over its place.
-			side_panel_close(app)
+			sheet_close(app)
 			if app.kit.palette do palette_close(app)
 			app.kit.menu = false
 		},

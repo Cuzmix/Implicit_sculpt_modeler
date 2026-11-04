@@ -462,27 +462,12 @@ kit_export_sheet :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.export
-	area := ui.safe_area(ctx)
-	width := min(f32(EXPORT_SHEET_W), area.w - 32)
-	at := ui.Rect{area.x + (area.w - width) * 0.5, kit_top() + 24, 0, 0}
-	PAD :: 16
-	if !ui.popover_begin(ctx, "export sheet", &s.open, at, .Pointer, {direction = .Column, gap = 12, padding = PAD, width = width}) do return
-	defer ui.popover_end(ctx)
+	// The sheet (sheet.odin), its head naming what ran last.
+	last := export_last_label(s.last_preset, s.last_format) if s.ran else ""
+	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = 12)
+	if !shown do return
+	defer sheet_end(app)
 	export_settle(s)
-	inner := width - 2 * PAD
-
-	// The head: Export, what ran last, and Close.
-	ui.begin(ctx, "export head", {direction = .Row, center = true, gap = 8, width = inner})
-	mark := ui.place(ctx, {t.icon_size, t.target})
-	ui.icon(ctx, ICON_DOWNLOAD, {mark.x + mark.w * 0.5, mark.y + mark.h * 0.5}, t.icon_size, t.text)
-	title := ui.place(ctx, {inner - mark.w - t.target - 16, t.target})
-	ui.text(ctx, "Export", title.x, title.y + title.h * 0.5, t.heading_size * 1.15, t.text, .Semibold)
-	if s.ran {
-		last := ui.text_fit(ctx, export_last_label(s.last_preset, s.last_format), t.small_size, title.w - 120)
-		ui.text(ctx, last, title.x + title.w, title.y + title.h * 0.5, t.small_size, t.text_secondary, .Regular, .Right)
-	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do s.open = false
-	ui.end(ctx)
 
 	// The presets, six across, or three a row on a narrow window.
 	GAP :: 10

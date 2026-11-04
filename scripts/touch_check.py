@@ -132,10 +132,10 @@ UI.update({
 })
 # Search's first row, while something is typed (left of its Put on a bar button).
 UI["palette_row1"] = (700, 150)
-# The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
-# Delete, rows 52 points apart.
-UI.update({f"macro{row + 1}_{part}": (x, 250 + 52 * row) for row in range(2)
-           for part, x in (("run", 1350), ("key", 1398), ("rename", 1445), ("delete", 1494))})
+# The Macros sheet (kit_macros.odin) with two macros: each row's Run, Key, Rename and
+# Delete, by name, rows 52 points apart.
+UI.update({f"macro{row + 1}_{part}": At(f"macro {part} {row + 1}", x, 258 + 52 * row) for row in range(2)
+           for part, x in (("run", 836), ("key", 884), ("rename", 932), ("delete", 980))})
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
 
@@ -2716,6 +2716,7 @@ def open_settings(s, tab):
 # The Settings sheet at 1600 x 900: its categories down the left, and its close button.
 SETTINGS_TABS = {"interface": (520, 228), "camera": (520, 276), "touch": (520, 324), "pen": (520, 372), "dial": (520, 420),
                  "performance": (520, 468), "frame_rate": (520, 516), "bars": (520, 564), "files": (520, 612), "keys": (520, 660)}
+SETTINGS_TABS = {k: (x, y - 24) for k, (x, y) in SETTINGS_TABS.items()}
 SETTINGS_CLOSE = (1152, 115)
 SETTINGS_RESET = (520, 716)
 
@@ -5486,7 +5487,7 @@ def tour_finishes_with_paint():
 
 # Lens's Settings sheet at 1440x900: the top bar's Settings, the side's Touch row and
 # its search field.
-SETTINGS_SHEET = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}
+SETTINGS_SHEET = {"open": (1410, 26), "touch": (380, 300), "search": (440, 172)}
 
 
 @scenario
@@ -5526,7 +5527,7 @@ def settings_sections_and_search():
 
 # The Export sheet at 1440x900: the Menu's Export... row, the Game engine preset card and
 # the second of a preset's format tabs (OBJ for the game engine).
-LENS_EXPORT = {"menu_row": (120, 482), "game": (490, 220), "second_format": (623, 332)}
+LENS_EXPORT = {"menu_row": (120, 482), "game": (490, 204), "second_format": (623, 316)}
 
 
 @scenario
@@ -5554,7 +5555,7 @@ def lens_export_sheet_picks_a_format():
 
 
 # The 3D print's options at 1440x900: its 3MF tab and the Only the selected objects switch.
-EXPORT_PRINT = {"3mf": (662, 332), "only_selected": (722, 382)}
+EXPORT_PRINT = {"3mf": (662, 316), "only_selected": (722, 366)}
 
 
 @scenario
@@ -5573,7 +5574,7 @@ def export_sheet_prints_every_object():
 
 # The game engine's options at 1440x900: the Decimate for this file only switch and the
 # Triangles slider's knob (half the triangles) beneath it once the switch is on.
-EXPORT_DECIMATE = {"switch": (722, 411), "knob": (663, 478)}
+EXPORT_DECIMATE = {"switch": (722, 395), "knob": (663, 462)}
 
 
 @scenario
@@ -5599,7 +5600,7 @@ def export_sheet_decimates_for_the_file():
 
 # The 3D print's options at 1440x900: the Hollow for this file only switch and, once it
 # is on, the Wall value beside it.
-EXPORT_HOLLOW = {"switch": (722, 550), "wall": (680, 550)}
+EXPORT_HOLLOW = {"switch": (722, 534), "wall": (680, 534)}
 
 
 @scenario
@@ -5623,7 +5624,7 @@ def export_sheet_hollows_a_print():
 
 # The Export sheet's checks at 1440x900: the Repair button on the holes' row of a sphere
 # cut in half.
-EXPORT_CHECKS = {"repair": (1136, 502)}
+EXPORT_CHECKS = {"repair": (1136, 486)}
 
 
 @scenario
@@ -6345,12 +6346,11 @@ def rail_clear(*others):
 
 # The action bar's buttons at 1600 x 900: Invert in the Mask group alone, Show all in the
 # Hidden group alone, on an 820 x 640 window the folded Mask button and the first row of
-# its popover, and on a 1400 x 900 window with Settings open the folded Mask button.
+# its popover.
 BAR_MASK_INVERT = (641, 764)
 BAR_SHOW_ALL = (729, 764)
 BAR_NARROW_MASK = (357, 514)
 BAR_NARROW_FIRST = (354, 202)
-BAR_SETTINGS_MASK = (700, 764)
 
 
 @scenario
@@ -6498,24 +6498,6 @@ def action_bar_folds_on_a_narrow_window():
     s.wait(8)
     return s, ["--width=820", "--height=640", "--script=hide x"], camera_still({"masked": near(0), "action_pop": near(0),
                                                                          "action_bar": is_text("hidden"), "dabs": near(0)})
-
-
-@scenario
-def action_bar_escape_closes_its_popover():
-    """With Settings open on a 1400 point window the bar folds; Escape closes Mask's popover first, and leaves Settings open."""
-    s = Script()
-    s.press("i", ("ctrl",))
-    s.wait(8)
-    s.press("k", ("ctrl",))
-    s.type("touch")
-    s.press("Return")
-    s.wait(12)
-    s.ftap(BAR_SETTINGS_MASK)
-    s.wait(12)
-    s.press("Escape")
-    s.wait(4)
-    return s, ["--width=1400", "--height=900"], {"action_pop": near(0), "masked": near(1), "action_bar": is_text("mask"),
-                                                 "settings_open": near(1)}
 
 
 @scenario
@@ -10001,7 +9983,7 @@ def help_f1_opens_keys():
     s.press("F1")
     s.wait(8)
     return s, [], camera_still({"help_open": near(1), "help_tab": is_text("Keys"), "dabs": near(0),
-                                "window_help": lambda v: v.startswith("1,0,") and not v.endswith(",0,0")})
+                                "sheet": is_text("help")})
 
 
 @scenario
@@ -10014,7 +9996,7 @@ def help_escape_closes_it():
     s.wait(8)
     s.press("Escape")
     s.wait(8)
-    return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(0), "window_help": lambda v: v.startswith("0,")}
+    return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(0), "sheet": is_text("none")}
 
 
 @scenario
@@ -10035,7 +10017,7 @@ def help_finger_scrolls_its_body():
     s = Script()
     s.press("F1")
     s.wait(8)
-    s.fdrag(line((1334, 700), (1338, 300), 20))
+    s.fdrag(line((800, 700), (804, 300), 20))
     s.wait(16)
     return s, [], camera_still({"help_open": near(1), "help_scroll": lambda v: float(v) > 100, "dabs": near(0)})
 
@@ -10053,7 +10035,7 @@ def help_gives_its_place_to_settings():
     s.press("Return")
     s.wait(8)
     return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(1),
-                   "settings_section": is_text("Touch"), "window_help": lambda v: v.startswith("0,")}
+                   "settings_section": is_text("Touch"), "sheet": is_text("settings")}
 
 
 @scenario
@@ -10067,7 +10049,7 @@ def settings_gives_its_place_to_help():
     s.press("F1")
     s.wait(8)
     return s, [], {"help_open": near(1), "settings_open": near(0), "settings_section": is_text("Touch"),
-                   "window_settings": lambda v: v == "0,0,0,0"}
+                   "sheet": is_text("help")}
 
 
 @scenario
@@ -11612,7 +11594,7 @@ def macros_panel_runs_renames_and_deletes():
 
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "macros": near(1, 0), "macros_run": near(1, 0), "macro_steps": near(2, 0), "undo_steps": near(1, 0),
-        "wireframe": near(1, 0), "window_macros": lambda v: v.startswith("1,0,"), "@the files": files})
+        "wireframe": near(1, 0), "sheet": is_text("macros"), "@the files": files})
 
 
 def export_keeps_layers(ext, read, blender_keys):

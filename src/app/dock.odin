@@ -104,7 +104,7 @@ GESTURE_ICONS := [Gesture_Tool]rune {
 // Picks `tool` and shows its settings: the Tool card, from its top.
 tool_settings_open :: proc(app: ^App, tool: Tool) {
 	command_run(app, TOOL_COMMANDS[tool])
-	side_panel_close(app)
+	sheet_close(app)
 	card_reveal(app, .Brush)
 }
 

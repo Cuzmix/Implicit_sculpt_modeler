@@ -140,7 +140,7 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	left := kit_left(app)
-	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else cards_right_room(app))
+	right := kit_right(app) + cards_right_room(app)
 	room := area.w - left - right
 	if room < least do return
 	w = min(most, room)
