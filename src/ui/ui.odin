@@ -639,9 +639,6 @@ prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	return {}
 }
 
-// Where the root container `name` (begun outside every container) was last frame, asked
-// from anywhere, inside another container too, where prev_rect would look for a child of
-// that container; empty the first frame.
 // Where root `name` was laid out this frame so far, empty when it has not been.
 root_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	id := hash_under(0, name)
@@ -649,6 +646,17 @@ root_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	return {}
 }
 
+// Where the outermost container open now stands, empty outside every container: what
+// is drawn inside it can be placed relative to it, so a move of the whole is told from
+// a move within it.
+open_root_rect :: proc(ctx: ^Context) -> Rect {
+	if len(ctx.stack) == 0 do return {}
+	return ctx.stack[0].rect
+}
+
+// Where the root container `name` (begun outside every container) was last frame, asked
+// from anywhere, inside another container too, where prev_rect would look for a child of
+// that container; empty the first frame.
 prev_root_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	id := hash_under(0, name)
 	for p in ctx.placed_prev {

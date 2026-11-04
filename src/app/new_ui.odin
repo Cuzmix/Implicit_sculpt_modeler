@@ -1423,6 +1423,7 @@ kit_layout :: proc(app: ^App) {
 	top: Maybe(Card)
 	order := k.order
 	for c in order do if card_float_draw(app, c) do top = c
+	floats_leaving(app)
 	if c, ok := top.?; ok do float_raise(k, c)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)

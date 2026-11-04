@@ -404,7 +404,7 @@ card_draw :: proc(app: ^App, s: Column_Side, col: ^Column, i: int, pos: [2]f32, 
 	ui.end(ctx)
 	col.rects[i] = ui.last_ended(ctx)
 	r := col.rects[i]
-	card_motion_end(app, s, c, mark, card_way(app, at, side, r.w, r.h), fade)
+	card_motion_end(app, s, c, mark, r, card_way(app, at, side, r.w, r.h), fade)
 	if c == .Colours do kit_colors_menus(app)
 	// Its title dragged past the slop tears the card out of the column: it floats on under
 	// the pointer from the next frame (card_float.odin). The narrow window's sheet has no
