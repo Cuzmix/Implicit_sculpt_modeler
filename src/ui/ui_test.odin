@@ -573,6 +573,23 @@ transforms_scale_about_their_origin_and_fade :: proc(t: ^testing.T) {
 	frame_end(&ctx)
 }
 
+@(test)
+maps_put_flat_drawing_onto_a_slanted_plane :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame_begin(&ctx, input_at({-1, -1}))
+	mark := vertex_mark(&ctx)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	// A quad from (10, 10) to (20, 20) mapped about its corner: x halves and leans down,
+	// y stays, and the corner lands on (50, 40).
+	draw_quad(&ctx.draw, {10, 10, 10, 10}, WHITE_UV, WHITE_UV, {255, 255, 255, 255})
+	map_since(&ctx, mark, {10, 10}, {50, 40}, {0.5, 0.5}, {0, 1})
+	testing.expect_value(t, ctx.draw.vertices[mark].pos, [2]f32{50, 40})
+	testing.expect_value(t, ctx.draw.vertices[mark + 2].pos, [2]f32{55, 55})
+	frame_end(&ctx)
+}
+
 // One frame with a 200 point column at the top left holding a drag value and a text
 // field, each a touch target tall. Returns whether each changed.
 @(private = "file")

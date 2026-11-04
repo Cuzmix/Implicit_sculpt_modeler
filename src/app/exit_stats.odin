@@ -452,7 +452,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The section Show where opened last, whether its mark is on a control, and the Mask
 		// section's Steps and Mask by kind.
-		fmt.printfln("card_section=%s card_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.cards.revealed.? or_else .Brush) if k.cards.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
+		fmt.printfln("card_section=%s card_marked=%d mask_steps=%d mask_by=%s nav_taps=%d view_gizmo=%v", fmt.tprint(k.cards.revealed.? or_else .Brush) if k.cards.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps, app.nav.view_gizmo)
 		fmt.printfln("tour=%d tour_shown=%d tour_step=%s tour_done=%d tour_finished=%d", k.tour.step, int(k.tour.shown), strings.to_lower(fmt.tprint(k.tour.showing), context.temp_allocator) if k.tour.shown else "none", int(k.tour.done), k.tour.finished)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and

@@ -31,6 +31,7 @@ Settings_Block :: enum u8 {
 	Panel_Places,
 	// Camera.
 	Orbit,
+	View_Gizmo,
 	Safe_Zone,
 	Pan_Zoom,
 	Mouse,
@@ -74,7 +75,7 @@ Settings_Entry :: struct {
 }
 
 @(rodata)
-SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.Safe_Zone, "SAFE ZONE"}, {.Pan_Zoom, "PAN AND ZOOM"}, {.Mouse, "WITH A MOUSE"}}
+SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.View_Gizmo, "VIEW GIZMO"}, {.Safe_Zone, "SAFE ZONE"}, {.Pan_Zoom, "PAN AND ZOOM"}, {.Mouse, "WITH A MOUSE"}}
 @(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 
@@ -99,6 +100,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pies             = "pies pie editor slices",
 	.Panel_Places     = "reset panel positions panels move",
 	.Orbit            = "orbit turntable trackball speed invert turn about pivot",
+	.View_Gizmo       = "view gizmo navigation head cube axes balls model orientation your own corner",
 	.Safe_Zone        = "safe zone edges edge width",
 	.Pan_Zoom         = "pan zoom speed mouse wheel pointer",
 	.Mouse            = "mouse controls",
@@ -303,6 +305,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if n.pivot == .Pointer do ui.paragraph(ctx, "A drag that starts off the model turns about the point under it, as deep as the middle of the view." if n.air_pivot else "A drag that starts off the model turns about the last stroke.")
 		_ = ui.switch_row(ctx, "Show the pivot dot", &n.pivot_dot)
 		ui.paragraph(ctx, "A double tap on the model pins the pivot there until the next stroke, whatever Turn about says.")
+	case .View_Gizmo:
+		view_gizmo_controls(app)
 	case .Safe_Zone:
 		_ = ui.switch_row(ctx, "Edges always turn the view", &n.edge_orbit)
 		if ui.slider(ctx, "Edge width", &n.edge_size, EDGE_MIN, EDGE_MAX, .Linear, fmt.tprintf("%.0f pt", n.edge_size), enabled = n.edge_orbit) do app.kit.edge_set_at = ctx.time
@@ -513,6 +517,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.orbit_style, n.limit_pitch, n.turntable_roll, n.orbit_speed = d.orbit_style, d.limit_pitch, d.turntable_roll, d.orbit_speed
 		n.invert_x, n.invert_y = d.invert_x, d.invert_y
 		n.pivot, n.air_pivot, n.pivot_dot = d.pivot, d.air_pivot, d.pivot_dot
+	case .View_Gizmo:      n.view_gizmo, n.gizmo_model, n.gizmo_axes = d.view_gizmo, d.gizmo_model, d.gizmo_axes
 	case .Safe_Zone:       n.edge_orbit, n.edge_size, n.edge_show = d.edge_orbit, d.edge_size, d.edge_show
 	case .Pan_Zoom:        n.pan_speed, n.zoom_speed, n.invert_wheel, n.wheel_toward = d.pan_speed, d.zoom_speed, d.invert_wheel, d.wheel_toward
 	case .Touch_Strength:  n.touch_strength = d.touch_strength

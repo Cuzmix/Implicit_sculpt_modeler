@@ -193,6 +193,18 @@ vertex_mark :: proc(ctx: ^Context) -> int {
 	return len(ctx.draw.vertices)
 }
 
+// Maps everything drawn since vertex `mark` from about point `from` onto a slanted plane
+// about `to` (points): `from + (x, y)` goes to `to + x * x_axis + y * y_axis`. Text laid out
+// flat and then mapped onto a face seen at a slant, as the view gizmo's cube names its
+// faces; in a parallel view the map is exact, so the words stay sharp at any turn.
+map_since :: proc(ctx: ^Context, mark: int, from, to, x_axis, y_axis: [2]f32) {
+	d := px(ctx)
+	for &v in ctx.draw.vertices[mark:] {
+		p := v.pos / d - from
+		v.pos = (to + p.x * x_axis + p.y * y_axis) * d
+	}
+}
+
 // Turns everything drawn since vertex `mark` by `radians` about `origin` (points): a
 // chevron opening its section.
 rotate_since :: proc(ctx: ^Context, mark: int, radians: f32, origin: [2]f32) {

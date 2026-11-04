@@ -3138,7 +3138,7 @@ def new_scene_from_the_palette():
 
 @scenario
 def nav_head_tap_looks_from_that_side():
-    """A click on the middle of the navigation head looks from the side facing the viewer (the front, from the start's view), then a finger's tap on its left side looks from the left; nothing is sculpted."""
+    """With the view gizmo's Model style, a click on the middle of the head looks from the side facing the viewer (the front, from the start's view), then a finger's tap on its left side looks from the left; nothing is sculpted."""
     s = Script()
     s.add("move:%d,%d" % UI["nav_head"])
     s.wait(2)
@@ -3149,12 +3149,12 @@ def nav_head_tap_looks_from_that_side():
     x, y = UI["nav_head"]
     s.ftap(x - 18, y)
     s.wait(4)
-    return s, [], {"dabs": near(0), "undo_steps": near(0), "nav_taps": near(2),
+    return s, ["--script=set view_gizmo model"], {"dabs": near(0), "undo_steps": near(0), "nav_taps": near(2),
                    "camera_yaw": near(-math.pi / 2, 1e-3), "camera_pitch": near(0), "camera_distance": near(3.5)}
 
 
 def nav_head_click(s):
-    """A click on the middle of the navigation head: Front view from the start's view."""
+    """A click on the middle of the view gizmo, in its Model style the head: Front view from the start's view."""
     s.add("move:%d,%d" % UI["nav_head"])
     s.wait(2)
     s.add("down")
@@ -3169,7 +3169,7 @@ def camera_glides_to_the_view_asked_for():
         s = Script()
         nav_head_click(s)
         s.wait(frames)
-        return s, ["--camera-ease"], dict({"dabs": near(0), "nav_taps": near(1), "camera_eases": near(1), "camera_ease_cuts": near(0)}, **checks)
+        return s, ["--camera-ease", "--script=set view_gizmo model"], dict({"dabs": near(0), "nav_taps": near(1), "camera_eases": near(1), "camera_ease_cuts": near(0)}, **checks)
     # The run's last check comes ten frames after the script ends: about half the glide.
     return Steps([run(0, {"camera_easing": near(1), "camera_yaw": lambda v: 0.01 < float(v) < 0.55}),
                   run(30, {"camera_easing": near(0), "camera_yaw": near(0), "camera_pitch": near(0), "camera_distance": near(3.5)})])
@@ -3186,8 +3186,46 @@ def camera_glide_gives_way_to_a_turn():
     off = Script()
     nav_head_click(off)
     off.wait(2)
-    return Steps([(s, ["--camera-ease", "--script=set orbit_style turntable"], {"dabs": near(0), "camera_easing": near(0), "camera_eases": near(1), "camera_ease_cuts": near(1)}),
-                  (off, ["--camera-ease", "--script=set motion reduced"], {"camera_easing": near(0), "camera_eases": near(0), "camera_yaw": near(0)})])
+    return Steps([(s, ["--camera-ease", "--script=set orbit_style turntable; set view_gizmo model"], {"dabs": near(0), "camera_easing": near(0), "camera_eases": near(1), "camera_ease_cuts": near(1)}),
+                  (off, ["--camera-ease", "--script=set motion reduced; set view_gizmo model"], {"camera_easing": near(0), "camera_eases": near(0), "camera_yaw": near(0)})])
+
+
+@scenario
+def view_gizmo_axes_and_cube_look_from_where_tapped():
+    """The view gizmo's Axes style (the default): a click on the Y ball, above the middle from the start's view, looks from the top. Its Cube style, from the front: a click on the front face's right edge looks from between the front and the right, at 45 degrees; nothing is sculpted."""
+    axes = Script()
+    axes.add("move:@navigation head/navigation head~0,-23")
+    axes.wait(2)
+    axes.add("down")
+    axes.wait(2)
+    axes.add("up")
+    axes.wait(4)
+    cube = Script()
+    cube.add("move:@navigation head/navigation head~16,0")
+    cube.wait(2)
+    cube.add("down")
+    cube.wait(2)
+    cube.add("up")
+    cube.wait(4)
+    return Steps([(axes, [], {"dabs": near(0), "nav_taps": near(1), "camera_yaw": near(0), "camera_pitch": near(math.pi / 2, 1e-3)}),
+                  (cube, ["--script=set view_gizmo cube; view_axis front"], {"dabs": near(0), "nav_taps": near(1), "camera_yaw": near(math.pi / 4, 1e-3), "camera_pitch": near(0)})])
+
+
+@scenario
+def view_gizmo_hold_picks_its_style():
+    """A right click on the view gizmo opens its style popover beside it; a click on Cube there makes the gizmo a cube, and the camera has not moved."""
+    s = Script()
+    s.add("move:%d,%d" % UI["nav_head"])
+    s.wait(2)
+    s.add("right")
+    s.wait(6)
+    s.add("move:@view gizmo pop/Cube")
+    s.wait(2)
+    s.add("down")
+    s.wait(2)
+    s.add("up")
+    s.wait(4)
+    return s, [], {"dabs": near(0), "nav_taps": near(0), "view_gizmo": is_text("Cube"), "camera_yaw": near(0.6), "camera_pitch": near(0.35)}
 
 
 @scenario

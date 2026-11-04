@@ -497,3 +497,25 @@ a_level_plane_lands_where_the_view_projects_it :: proc(t: ^testing.T) {
 	orbit_axis_view(&top, .Top)
 	testing.expect(t, !orbit_is_level(top), "the top view counts as level")
 }
+
+@(test)
+looking_from_a_direction_puts_the_eye_along_it :: proc(t: ^testing.T) {
+	dirs := [?]Vec3{{1, 1, 1}, {-1, 0, 1}, {0, -1, -1}, {1, 0, 0}, {0.2, 0.9, -0.4}}
+	for d in dirs {
+		c := orbit_default()
+		c.roll = 0.3
+		orbit_look_from(&c, d)
+		_, _, back := orbit_basis(c)
+		want := linalg.normalize(d)
+		testing.expectf(t, linalg.length(back - want) < 1e-5, "from %v the eye looks from %v", d, back)
+		testing.expect_value(t, c.roll, f32(0))
+	}
+	// Straight down keeps the yaw it had, and a zero direction changes nothing.
+	c := orbit_default()
+	orbit_look_from(&c, {0, 2, 0})
+	testing.expect_value(t, c.yaw, orbit_default().yaw)
+	testing.expectf(t, abs(c.pitch - math.PI / 2) < 1e-5, "pitch %v", c.pitch)
+	before := c
+	orbit_look_from(&c, {})
+	testing.expect(t, c == before)
+}
