@@ -24,17 +24,20 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   the run (`render.validation_errors`); a render change that must not move a pixel passes
   `parity_check.py --compare <old build's run>` at 0 px.
 - The Metal backend (`mtl_device.odin`, `mtl_resources.odin`, `mtl_cmd.odin`, `mtl_swapchain.odin`, `#+build darwin`)
-  was written to mirror SDL_GPU's own Metal backend (`deps/sdl3-src/src/gpu/metal/SDL_gpu_metal.m`): vertex buffers at buffer 14+,
-  uniforms at buffer(i) sent by `set*Bytes` at draw time (4096 bytes a slot), vertex storage buffers after the
-  uniforms, fragment textures and samplers at their slot, no viewport flip, cycling by backings and serials as the
-  tickets' values. Metal tracks hazards, so there are no barriers. Count objects by hand: a `new*`/`alloc` result is ours to
+  binds each shader's resources at the Metal slots slangc gave them, which the `.msl`'s second line lists
+  (`// slots ...`, `scripts/shaders_msl.py`) and `mtl_slots_parse` reads into the shader's or kernel's `Mtl_Slots`
+  when it is made (a count that disagrees with the shader's description fails it); vertex buffers sit at buffer 14+
+  (`MTL_FIRST_VERTEX_BUFFER`, which the script keeps every vertex shader's buffers below), uniforms are sent by
+  `set*Bytes` at draw or dispatch time (4096 bytes a slot), the entry point is slangc's `main_0`, there is no viewport
+  flip, and buffers cycle by backings with serials as the tickets' values. Metal tracks hazards, so there are no
+  barriers. Count objects by hand: a `new*`/`alloc` result is ours to
   release, an autoreleased one (command buffer, encoder, drawable) is retained while kept, and every proc opens
   `NS.scoped_autoreleasepool()`. The pinned Odin asserts ("missing procedure 'objc_lookUpClass'") on any objc
-  message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. Compute mirrors SDL's
-  slots too: uniforms at buffer 0+, then read-only and read-write storage buffers; sampled textures and samplers at 0+,
-  then read-only and read-write storage textures (each a view of one level and layer, made when the pass begins and
-  released when it ends); bindings reach the encoder at dispatch. It is the only backend on Apple's platforms and
-  has drawn on an iPad and a Mac; `maccheck` and `iphonecheck` only compile it here. `backend_fail` keeps a
+  message unless the package implements an objc class, which `Mtl_Objc_Anchor` does; keep it. A kernel's storage
+  textures are each a view of one level and layer, made when the pass begins and released when it ends; bindings
+  reach the encoder at dispatch. It is the only backend on Apple's platforms and
+  has drawn on an iPad and a Mac (before its shaders came from slangc, which awaits a device run); `maccheck` and
+  `iphonecheck` only compile it here. `backend_fail` keeps a
   backend's reason for `backend_error`.
 - What a device and backend can do is `render.Gpu_Caps` (`caps.odin`), filled by `caps_fill` after the device is made
   and read by the app through `render.caps`; a switch is set only once the backend holds what it needs, so the app

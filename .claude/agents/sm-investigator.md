@@ -23,8 +23,9 @@ you report; `git diff` at the end shows only what you propose as the fix, or not
      a missing canonical sort after a parallel fill, an atomic that should be a reduction, or temp memory shared
      across threads;
    - an SDL assert or GPU error: `--gpu-debug` with `SDL_ASSERT=abort` (what `smoke` does); the first validation
-     message names the object; suspect a buffer destroyed without `WaitForGPUIdle`, an upload outside a copy pass, or a
-     transfer buffer mapped without `cycle`;
+     message names the object; suspect a staged upload read before it was flushed (`gpu.flush_uploads`), a readback
+     read before its ticket is done, compute-queue output used without `gpu.wait_on`, or a copy pass's copies that
+     overlap without the range tracker seeing it (`vk_copy_access`);
    - wrong pixels or cracks: numbers first (`--check-mesh`, the exit stats), then `python scripts\ppm.py diff` against
      a known-good dump, `crop --scale 4` on the bbox it prints, `pixel` for exact values;
    - undo, levels or HD: the comparing tests (`undo_test`, `levels_test`, `hd_test`), then `expect_decoded`-style
