@@ -176,16 +176,22 @@ smooth_compute_run :: proc(
 		_:            [2]u32, // std140 rounds a uniform block up to 16 bytes
 	}
 	params := Params{vertex_count = u32(vcount), groups_x = u32(groups_x)}
-	gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+	push_compute(cmd, Smooth_All_Comp_Uniforms.Params, &params)
 	for step in 0 ..< steps {
 		src, dst := Smooth_Buffer.Pos_A, Smooth_Buffer.Pos_B
 		if step % 2 == 1 do src, dst = dst, src
 		// One pass a step: the backends order separate passes, so each step sees the last one's writes.
-		binding := gpu.Storage_Buffer_Binding{buffer = sc.buffers[dst]}
-		pass := gpu.begin_compute_pass(cmd, nil, 0, &binding, 1)
+		writes := [Smooth_All_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.dst = {buffer = sc.buffers[dst]}}
+		pass := begin_compute(cmd, &writes)
 		gpu.bind_compute_pipeline(pass, sc.pipeline)
-		reads := [5]gpu.Buffer{sc.buffers[.Indices], sc.buffers[.Offsets], sc.buffers[.Tris], sc.buffers[.Weights], sc.buffers[src]}
-		gpu.bind_compute_storage_buffers(pass, 0, raw_data(reads[:]), len(reads))
+		reads := [Smooth_All_Comp_Buffers]gpu.Buffer {
+			.indices = sc.buffers[.Indices],
+			.offsets = sc.buffers[.Offsets],
+			.tris    = sc.buffers[.Tris],
+			.weights = sc.buffers[.Weights],
+			.src     = sc.buffers[src],
+		}
+		bind_compute_storage(pass, &reads)
 		gpu.dispatch_compute(pass, u32(groups_x), u32(groups_y), 1)
 		gpu.end_compute_pass(pass)
 	}

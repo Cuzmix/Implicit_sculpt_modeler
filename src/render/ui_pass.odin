@@ -140,7 +140,7 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, pass: gpu.Render_
 	TURN := [4][2]f32{{1, 0}, {0, 1}, {-1, 0}, {0, -1}}
 	turn := TURN[turns & 3]
 	vu := Ui_Vertex_Uniforms{{f32(size.x), f32(size.y), turn.x, turn.y}}
-	gpu.push_vertex_uniform_data(cmd, 0, &vu, size_of(vu))
+	push_vertex(cmd, Ui_Vert_Uniforms.Ui_Vertex_Uniforms, &vu)
 	for d in draws {
 		if d.index_count == 0 do continue
 		x0, y0 := clamp(d.clip[0], 0, i32(size.x)), clamp(d.clip[1], 0, i32(size.y))
@@ -155,17 +155,17 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, pass: gpu.Render_
 		}
 		gpu.set_scissor(pass, {x0, y0, x1 - x0, y1 - y0})
 		fu: Ui_Fragment_Uniforms
-		binding := gpu.Texture_Sampler_Binding{sampler = up.sampler}
+		samplers := [Ui_Frag_Samplers]gpu.Texture_Sampler_Binding{.tex = {sampler = up.sampler}}
 		if d.image != 0 {
-			binding.texture = d.image
+			samplers[.tex].texture = d.image
 			fu.params = {1, 1, 1, 1 if d.smooth else 0}
-			if d.smooth do binding.sampler = up.smooth
+			if d.smooth do samplers[.tex].sampler = up.smooth
 		} else {
-			binding.texture = up.atlas
+			samplers[.tex].texture = up.atlas
 			fu.params = {1 / f32(up.atlas_size.x), 1 / f32(up.atlas_size.y), 0, 0}
 		}
-		gpu.bind_fragment_samplers(pass, 0, &binding, 1)
-		gpu.push_fragment_uniform_data(cmd, 0, &fu, size_of(fu))
+		bind_fragment_samplers(pass, &samplers)
+		push_fragment(cmd, Ui_Frag_Uniforms.Ui_Fragment_Uniforms, &fu)
 		gpu.draw_indexed_primitives(pass, d.index_count, 1, d.first_index, 0, 0)
 	}
 }

@@ -22,6 +22,10 @@ set 1, which the backends bind for both stages. Set 3 of a kernel holds what onl
 backends bind (an acceleration structure, an array of textures), which their _traced and _array
 pipeline makers add, so it is not counted either.
 
+Beside each constant are enums naming the shader's slots, one per kind it binds (Name_Samplers,
+_Textures, _Buffers, _Write_Textures, _Write_Buffers, _Uniforms), each member a parameter's name in
+the order of its slot, which the renderer indexes its binding arrays and uniform pushes by.
+
 A shader whose first line is "// vulkan only" has no Metal or WGSL source, so its constant
 exists only in the Vulkan build (`when gpu.VULKAN`) and embeds its .spv.
 
@@ -126,6 +130,28 @@ def counts(source, reflection):
     return c, group
 
 
+def slot_names(source, reflection):
+    """Each kind's parameter names in the order the backends bind them (SPIR-V set, then binding),
+    by the kind's enum suffix: what the shader's enums list."""
+    stage = source.split(".")[1]
+    resources, writes, uniforms = {"vert": (0, None, 1), "frag": (2, None, 3), "comp": (0, 1, 2)}[stage]
+    kinds = {k: [] for k in ("Samplers", "Textures", "Buffers", "Write_Textures", "Write_Buffers", "Uniforms")}
+    for p in sorted(reflection["parameters"], key=lambda p: (p["binding"].get("space", 0), p["binding"].get("index", 0))):
+        space, kind = p["binding"].get("space", 0), p["type"]
+        if kind["kind"] == "constantBuffer":
+            if space == uniforms:
+                kinds["Uniforms"].append(p["name"])
+            continue
+        if kind["kind"] != "resource" or space not in (resources, writes):
+            continue
+        shape, write = kind.get("baseShape"), space == writes
+        if shape == "texture2D":
+            kinds["Samplers" if kind.get("combined") else "Write_Textures" if write else "Textures"].append(p["name"])
+        elif shape == "structuredBuffer":
+            kinds["Write_Buffers" if write else "Buffers"].append(p["name"])
+    return kinds
+
+
 def entry(source, digest, reflection):
     """The lines of one shader's entry in shaders_gen.odin: its header and its constant."""
     name, stage = constant_name(source), source.split(".")[1]
@@ -153,6 +179,14 @@ def entry(source, digest, reflection):
     constant = f"{name} :: {kind}{body}"
     if vulkan_only:
         constant = "when gpu.VULKAN {\n" + "\n".join("\t" + l for l in constant.split("\n")) + "\n}"
+    # One enum per kind the shader binds, its members the parameters' names in slot order: the
+    # renderer's binding arrays are enumerated arrays of them, so a renamed, added or reordered
+    # parameter fails to compile where it is bound instead of binding the wrong buffer. They
+    # exist on every platform, a Vulkan-only shader's too, so checks that name them need no `when`.
+    title = "_".join(w.capitalize() for w in name.split("_"))
+    for suffix, names in slot_names(source, reflection).items():
+        if names:
+            constant += f"\n{title}_{suffix} :: enum u32 {{" + ", ".join(names) + "}"
     return f"// {base}.spv sha256 {digest}\n{constant}\n"
 
 

@@ -248,7 +248,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	for item in items {
 		mb := item.mesh
 		u := Shadow_Uniforms{light, item.model}
-		gpu.push_vertex_uniform_data(cmd, 0, &u, size_of(u))
+		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
 		vbufs := [1]gpu.Buffer_Binding{{buffer = mb.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)
@@ -272,9 +272,9 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	}
 	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.gather_pipeline)
-	samplers := [2]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], 2)
-	gpu.push_fragment_uniform_data(cmd, 0, &g, size_of(g))
+	samplers := [Studio_Gather_Frag_Samplers]gpu.Texture_Sampler_Binding{.view_depth = {texture = view_depth, sampler = st.sampler}, .shadow_depth = {texture = st.shadow, sampler = st.sampler}}
+	bind_fragment_samplers(pass, &samplers)
+	push_fragment(cmd, Studio_Gather_Frag_Uniforms.Gather_Uniforms, &g)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	st.samples += 1
@@ -321,9 +321,13 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	target := gpu.Color_Target{texture = to, load_op = .Dont_Care, store_op = .Store}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.reproject_pipeline)
-	samplers := [3]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}, {texture = st.prev_depth, sampler = st.sampler}, {texture = from, sampler = st.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu.push_fragment_uniform_data(cmd, 0, &u, size_of(u))
+	samplers := [Studio_Reproject_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.view_depth = {texture = view_depth, sampler = st.sampler},
+		.prev_depth = {texture = st.prev_depth, sampler = st.sampler},
+		.prev_accum = {texture = from, sampler = st.sampler},
+	}
+	bind_fragment_samplers(pass, &samplers)
+	push_fragment(cmd, Studio_Reproject_Frag_Uniforms.Reproject_Uniforms, &u)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	st.accum = to
@@ -341,8 +345,8 @@ studio_keep_depth :: proc(st: ^Studio, cmd: gpu.Cmd, view_depth: gpu.Texture) {
 	target := gpu.Color_Target{texture = st.prev_depth, load_op = .Dont_Care, store_op = .Store}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.keep_pipeline)
-	samplers := [1]gpu.Texture_Sampler_Binding{{texture = view_depth, sampler = st.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	samplers := [Studio_Depth_Keep_Frag_Samplers]gpu.Texture_Sampler_Binding{.view_depth = {texture = view_depth, sampler = st.sampler}}
+	bind_fragment_samplers(pass, &samplers)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	st.depth_kept = true
@@ -493,10 +497,14 @@ studio_composite :: proc(st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Target, ao, sh
 	target := gpu.Color_Target{texture = st.shown, load_op = .Dont_Care, store_op = .Store, cycle = true}
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, st.composite_pipeline)
-	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != 0 else vt.color, sampler = st.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	samplers := [Studio_Composite_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.view_color = {texture = vt.color, sampler = st.sampler},
+		.accum      = {texture = st.accum, sampler = st.sampler},
+		.under      = {texture = under if under != 0 else vt.color, sampler = st.sampler},
+	}
+	bind_fragment_samplers(pass, &samplers)
 	params := [4]f32{clamp(ao, 0, 1), 0 if no_shadows else clamp(shadow, 0, 1), STUDIO_CARRY_SETTLED if st.carried else 0, STUDIO_CARRY_KEY_SETTLED}
-	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	push_fragment(cmd, Studio_Composite_Frag_Uniforms.Composite_Uniforms, &params)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 }

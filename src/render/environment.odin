@@ -102,13 +102,13 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 		target := gpu.Color_Target{texture = env.prefiltered, mip_level = u32(level), load_op = .Dont_Care, store_op = .Store}
 		pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 		gpu.bind_graphics_pipeline(pass, pipeline)
-		binding := gpu.Texture_Sampler_Binding{texture = env.source, sampler = r.env_sampler}
-		gpu.bind_fragment_samplers(pass, 0, &binding, 1)
+		samplers := [Env_Prefilter_Frag_Samplers]gpu.Texture_Sampler_Binding{.source = {texture = env.source, sampler = r.env_sampler}}
+		bind_fragment_samplers(pass, &samplers)
 		u := Prefilter_Uniforms {
 			params = {f32(level) / f32(max(env.levels - 1, 1)), f32(width), f32(height), 0},
 			target = {f32(max(pw >> uint(level), 1)), f32(max(ph >> uint(level), 1)), 1, 0},
 		}
-		gpu.push_fragment_uniform_data(cmd, 0, &u, size_of(u))
+		push_fragment(cmd, Env_Prefilter_Frag_Uniforms.Prefilter_Uniforms, &u)
 		gpu.draw_primitives(pass, 3, 1, 0, 0)
 		gpu.end_render_pass(pass)
 	}
