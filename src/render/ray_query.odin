@@ -139,13 +139,14 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 			_, _ = gpu.submit(cmd)
 			return false
 		}
-		write := gpu.Storage_Buffer_Binding{buffer = hits}
-		pass := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+		writes := [Ray_Query_Check_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.hits = {buffer = hits}}
+		pass := begin_compute(cmd, &writes)
 		gpu.bind_compute_pipeline(pass, pipeline)
-		gpu.bind_compute_storage_buffers(pass, 0, &rays, 1)
+		reads := [Ray_Query_Check_Comp_Buffers]gpu.Buffer{.rays = rays}
+		bind_compute_storage(pass, &reads)
 		gpu.bind_compute_accel(pass, tlas)
 		count := u32(RAYS)
-		gpu.push_compute_uniform_data(cmd, 0, &count, size_of(count))
+		push_compute(cmd, Ray_Query_Check_Comp_Uniforms.Params, &count)
 		gpu.dispatch_compute(pass, 1, 1, 1)
 		gpu.end_compute_pass(pass)
 		download := gpu.download_buffer(cmd, hits, 0, RAYS * 32)

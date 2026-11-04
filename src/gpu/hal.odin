@@ -2,6 +2,7 @@ package gpu
 
 @(require) import "core:log" // used only by the Metal and WebGPU branches
 
+import "core:time"
 import sdl "vendor:sdl3"
 
 // The GPU seam: every GPU call render makes goes through one of these procs, answered by
@@ -71,6 +72,8 @@ async_compute_offered :: proc() -> Async_Compute {
 
 @(require_results)
 acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^u32) -> bool {
+	start := time.tick_now()
+	defer count_pause(command_buffer, time.tick_since(start))
 	when METAL do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	else when WEBGPU do return wgpu_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
 	else do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, false)
@@ -938,6 +941,8 @@ upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Transfer
 
 @(require_results)
 wait_and_acquire_swapchain_texture :: proc(command_buffer: Cmd, window: ^sdl.Window, swapchain_texture: ^Texture, swapchain_texture_width, swapchain_texture_height: ^u32) -> bool {
+	start := time.tick_now()
+	defer count_pause(command_buffer, time.tick_since(start))
 	when METAL do return mtl_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 	else when WEBGPU do return wgpu_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)
 	else do return vk_acquire_swapchain(command_buffer, window, swapchain_texture, swapchain_texture_width, swapchain_texture_height, true)

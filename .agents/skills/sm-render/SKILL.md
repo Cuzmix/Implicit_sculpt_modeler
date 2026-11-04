@@ -364,7 +364,14 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `when gpu.VULKAN` for a vulkan-only one), `SHADER_ENTRY`, `SHADER_FORMAT`
   (`shaders.odin`), every count by SDL's sets and `numthreads`. Make pipelines from it (`gpu.create_shader(MESH_VERT)`)
   and never write a count by hand; a constant the renderer dispatches or binds by (`SCULPT_SLAB`, `RENDER_SAMPLERS`)
-  is `#assert`ed against it. Darwin embeds only `.msl` and everything else only `.spv`; other `.slang` files are includes
+  is `#assert`ed against it. Beside each it writes one enum per kind of slot the shader binds, its members the
+  parameters' names in slot order (`Cull_Write_Comp_Buffers :: enum u32 {chunks, groups, totals}`; kinds `_Samplers`,
+  `_Textures`, `_Buffers`, `_Write_Textures`, `_Write_Buffers`, `_Uniforms`). Bind through them (`slots.odin`): a
+  binding array is an enumerated array with every member named, bound whole by `bind_compute_storage`,
+  `bind_fragment_samplers`, `begin_compute` and the rest, and a uniform push names its block
+  (`push_compute(cmd, Cull_Write_Comp_Uniforms.Cull_Uniforms, &u)`), so a renamed, added or reordered parameter fails to
+  compile where it is bound; an array one family of shaders shares is `#assert`ed against the others' enums (the mesh
+  shaders in renderer.odin, the dab kernels, the render kernels). Never bind by a positional array. Darwin embeds only `.msl` and everything else only `.spv`; other `.slang` files are includes
   (`#include`, `#define TEXTURED` before `mesh_shading.slang`). Bindings are SDL's sets, written
   `[[vk::binding(binding, set)]]`; varyings carry `[[vk::location(n)]]`; vertex index is `SV_VulkanVertexID` (with
   base vertex, as GLSL's); globals that are not resources are `static`. slangc runs with `-matrix-layout-row-major

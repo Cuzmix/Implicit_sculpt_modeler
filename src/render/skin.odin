@@ -12,16 +12,6 @@ import "../geom"
 // shader pulls its vertex from the mesh's own buffers, since a pixel needs its triangle's
 // number, which an indexed draw cannot give it.
 
-// The skinned vertex shader's storage buffers: paint, indices, positions, normals. Each count
-// is the shader's own (shaders_gen.odin), so a buffer added to a shader without its binding
-// here fails to compile.
-SKIN_VERTEX_STORAGE :: SKIN_VERT.num_storage_buffers
-// The skinned fragment shader's: the samples' normals and the triangles' records.
-SKIN_FRAGMENT_STORAGE :: SKIN_FRAG.num_storage_buffers
-// The grid's vertex shader's (skin_tess.vert.slang): paint, indices, positions, normals,
-// and the samples' normals, the triangles' records and the samples' heights.
-SKIN_TESS_STORAGE :: SKIN_TESS_VERT.num_storage_buffers
-
 // Whether `item` draws with the skinned pipeline: its mesh has a skin uploaded and its
 // buffers can be read as storage.
 @(private)
@@ -141,10 +131,11 @@ skin_tess_split :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32, 
 @(private)
 draw_skinned_item :: proc(r: ^Renderer, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
 	mb := item.mesh
-	vertex := [SKIN_VERTEX_STORAGE]gpu.Buffer{mb.paint if mb.paint != 0 else r.no_paint, mb.indices, mb.positions, mb.normals}
-	gpu.bind_vertex_storage_buffers(pass, 0, &vertex[0], len(vertex))
-	fragment := [SKIN_FRAGMENT_STORAGE]gpu.Buffer{mb.skin_normals, mb.skin_tris}
-	gpu.bind_fragment_storage_buffers(pass, 0, &fragment[0], len(fragment))
+	paint := mb.paint if mb.paint != 0 else r.no_paint
+	vertex := [Skin_Vert_Buffers]gpu.Buffer{.paint = paint, .indices = mb.indices, .positions = mb.positions, .normals = mb.normals}
+	bind_vertex_storage(pass, &vertex)
+	fragment := [Skin_Frag_Buffers]gpu.Buffer{.skin_normals = mb.skin_normals, .skin_tris = mb.skin_tris}
+	bind_fragment_storage(pass, &fragment)
 	STRIDE :: size_of(gpu.Indexed_Indirect_Draw)
 	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
 		gpu.draw_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count, STRIDE)
@@ -156,8 +147,16 @@ draw_skinned_item :: proc(r: ^Renderer, pass: gpu.Render_Pass, pipes: ^Mesh_Pipe
 		}
 		if mb.tess_draw_count == 0 || pipes.skin_tess == 0 do return
 		gpu.bind_graphics_pipeline(pass, pipes.skin_tess)
-		grid := [SKIN_TESS_STORAGE]gpu.Buffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights}
-		gpu.bind_vertex_storage_buffers(pass, 0, &grid[0], len(grid))
+		grid := [Skin_Tess_Vert_Buffers]gpu.Buffer {
+			.paint        = paint,
+			.indices      = mb.indices,
+			.positions    = mb.positions,
+			.normals      = mb.normals,
+			.skin_normals = mb.skin_normals,
+			.skin_tris    = mb.skin_tris,
+			.skin_heights = mb.skin_heights,
+		}
+		bind_vertex_storage(pass, &grid)
 		gpu.draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)
 		if stats != nil {
 			for v in mb.tess_visible[:mb.tess_draw_count] {

@@ -122,19 +122,20 @@ gpu_cull_item :: proc(r: ^Renderer, cmd: gpu.Cmd, item: Draw_Item, clip: Mat4, e
 	}
 	u := Cull_Uniforms{planes = geom.frustum_planes(clip), eye = {eye.x, eye.y, eye.z, 0}, counts = {chunks, groups, 1 if r.caps.barycentric else 0, 0}}
 	debug_group(cmd, "GPU culling")
-	write := gpu.Storage_Buffer_Binding{buffer = c.totals}
-	pass := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+	totals := [Cull_Count_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.totals = {buffer = c.totals}}
+	pass := begin_compute(cmd, &totals)
 	gpu.bind_compute_pipeline(pass, g.count_pipeline)
-	reads := [3]gpu.Buffer{c.records, c.groups, c.totals}
-	gpu.bind_compute_storage_buffers(pass, 0, &reads[0], 2)
-	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	counted := [Cull_Count_Comp_Buffers]gpu.Buffer{.chunks = c.records, .groups = c.groups}
+	bind_compute_storage(pass, &counted)
+	push_compute(cmd, Cull_Count_Comp_Uniforms.Cull_Uniforms, &u)
 	gpu.dispatch_compute(pass, groups, 1, 1)
 	gpu.end_compute_pass(pass)
-	write = {buffer = mb.indirect}
-	pass = gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+	commands := [Cull_Write_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.commands = {buffer = mb.indirect}}
+	pass = begin_compute(cmd, &commands)
 	gpu.bind_compute_pipeline(pass, g.write_pipeline)
-	gpu.bind_compute_storage_buffers(pass, 0, &reads[0], 3)
-	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	written := [Cull_Write_Comp_Buffers]gpu.Buffer{.chunks = c.records, .groups = c.groups, .totals = c.totals}
+	bind_compute_storage(pass, &written)
+	push_compute(cmd, Cull_Write_Comp_Uniforms.Cull_Uniforms, &u)
 	gpu.dispatch_compute(pass, groups, 1, 1)
 	gpu.end_compute_pass(pass)
 	c.culled = true

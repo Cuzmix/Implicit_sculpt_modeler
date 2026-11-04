@@ -209,7 +209,16 @@ RENDER_TEXTURED_MAX :: 3
 RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
 // What the renderer binds and dispatches agrees with the kernels' own counts (shaders_gen.odin).
 #assert(RENDER_TRACE_COMP.num_samplers == RENDER_SAMPLERS && RENDER_TRACE_RQ_COMP.num_samplers == RENDER_SAMPLERS)
-#assert(RENDER_TRACE_COMP.num_readonly_storage_buffers == len(Scene_Buffer) && RENDER_TRACE_RQ_COMP.num_readonly_storage_buffers == len(Scene_Buffer))
+// The scene's buffers bind in the kernels' slot order, under their names.
+#assert(len(Render_Trace_Comp_Buffers) == len(Scene_Buffer) && int(Render_Trace_Comp_Buffers.positions) == int(Scene_Buffer.Positions) && int(Render_Trace_Comp_Buffers.indices) == int(Scene_Buffer.Indices))
+#assert(int(Render_Trace_Comp_Buffers.attributes) == int(Scene_Buffer.Attributes) && int(Render_Trace_Comp_Buffers.nodes) == int(Scene_Buffer.Nodes) && int(Render_Trace_Comp_Buffers.order) == int(Scene_Buffer.Order))
+#assert(int(Render_Trace_Comp_Buffers.chunks) == int(Scene_Buffer.Chunks) && int(Render_Trace_Comp_Buffers.items) == int(Scene_Buffer.Items) && int(Render_Trace_Comp_Buffers.textured) == int(Scene_Buffer.Textured))
+// The four render kernels share their slots: the named maps' kernels all of them, the array's
+// the first five samplers, the maps then coming as the array.
+#assert(len(Render_Trace_Rq_Comp_Buffers) == len(Scene_Buffer) && len(Render_Trace_Maps_Comp_Buffers) == len(Scene_Buffer) && len(Render_Trace_Maps_Rq_Comp_Buffers) == len(Scene_Buffer))
+#assert(len(Render_Trace_Rq_Comp_Samplers) == RENDER_SAMPLERS && len(Render_Trace_Maps_Comp_Samplers) == int(Render_Trace_Comp_Samplers.map0) && len(Render_Trace_Maps_Rq_Comp_Samplers) == int(Render_Trace_Comp_Samplers.map0))
+#assert(len(Render_Trace_Rq_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures) && len(Render_Trace_Maps_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures) && len(Render_Trace_Maps_Rq_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures))
+#assert(int(Render_Trace_Comp_Samplers.map0) == 5 && len(Render_Trace_Comp_Samplers) == RENDER_SAMPLERS)
 #assert(RENDER_TRACE_COMP.threadcount_x == RENDER_GROUP && RENDER_TRACE_COMP.threadcount_y == RENDER_GROUP && RENDER_TRACE_RQ_COMP.threadcount_x == RENDER_GROUP)
 // ...and through one array of maps, where the device offers texture arrays
 // (Gpu_Caps.texture_arrays, at least four items' worth), or as many as it holds.
@@ -391,8 +400,12 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 	u := pr.uniforms
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
 	written := pr.guides[1 - pr.guide_at]
-	bindings := [3]gpu.Storage_Texture_Binding{{texture = pr.accum[1 - pr.current]}, {texture = written[0]}, {texture = written[1]}}
-	pass := gpu.begin_compute_pass(cmd, &bindings[0], len(bindings), nil, 0)
+	bindings := [Render_Trace_Comp_Write_Textures]gpu.Storage_Texture_Binding {
+		.next         = {texture = pr.accum[1 - pr.current]},
+		.guide_albedo = {texture = written[0]},
+		.guide_normal = {texture = written[1]},
+	}
+	pass := begin_compute(cmd, &bindings)
 	if pr.rq {
 		gpu.bind_compute_pipeline(pass, pr.rq_pipeline)
 		gpu.bind_compute_accel(pass, pr.tracer.tlas)
@@ -403,9 +416,15 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
 	table := r.environment.table if r.environment != nil else pr.studio_table
+	// The named samplers, then each item's three maps (Render_Trace_Comp_Samplers.map0 on, or
+	// the array's slots).
+	S :: Render_Trace_Comp_Samplers
 	samplers: [5 + 3 * RENDER_TEXTURED_ARRAY]gpu.Texture_Sampler_Binding
-	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
-	samplers[3], samplers[4] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}, {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
+	samplers[S.prev] = {texture = pr.accum[pr.current], sampler = pr.sampler}
+	samplers[S.environment_map] = {texture = env_map, sampler = r.env_sampler}
+	samplers[S.env_table] = {texture = table, sampler = pr.sampler}
+	samplers[S.prev_albedo] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}
+	samplers[S.prev_normal] = {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
 	// Every slot the kernel may read is given a texture, defaults where an item lacks a map:
 	// the named kernel's nine, and the array's slots in use (at least one, as a set is
 	// never empty).
@@ -419,14 +438,14 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 		}
 	}
 	if pr.maps_array {
-		gpu.bind_compute_samplers(pass, 0, &samplers[0], 5)
+		gpu.bind_compute_samplers(pass, 0, &samplers[0], len(Render_Trace_Maps_Comp_Samplers))
 		gpu.bind_compute_texture_array(pass, samplers[5:][:3 * slots])
 	} else {
 		gpu.bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
 	}
 	reads: [Scene_Buffer]gpu.Buffer = pr.buffers
-	gpu.bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
-	gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+	bind_compute_storage(pass, &reads)
+	push_compute(cmd, Render_Trace_Comp_Uniforms.Render_Uniforms, &u)
 	gpu.dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
 	gpu.end_compute_pass(pass)
 }
@@ -791,10 +810,14 @@ path_display :: proc(pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, expos
 			target := gpu.Color_Target{texture = pr.filtered[out], load_op = .Dont_Care, store_op = .Store}
 			pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 			gpu.bind_graphics_pipeline(pass, pr.atrous)
-			samplers := [3]gpu.Texture_Sampler_Binding{{texture = src, sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}, {texture = guides[1], sampler = pr.sampler}}
-			gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+			samplers := [Render_Atrous_Frag_Samplers]gpu.Texture_Sampler_Binding {
+				.src          = {texture = src, sampler = pr.sampler},
+				.guide_albedo = {texture = guides[0], sampler = pr.sampler},
+				.guide_normal = {texture = guides[1], sampler = pr.sampler},
+			}
+			bind_fragment_samplers(pass, &samplers)
 			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 1 if pr.lens_on else 0}
-			gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+			push_fragment(cmd, Render_Atrous_Frag_Uniforms.Atrous_Uniforms, &params)
 			gpu.draw_primitives(pass, 3, 1, 0, 0)
 			gpu.end_render_pass(pass)
 			out = 1 - out
@@ -804,10 +827,15 @@ path_display :: proc(pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, expos
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, pr.display)
 	under := pr.backdrop if pr.lens_on && pr.backdrop != 0 else vt.color
-	samplers := [4]gpu.Texture_Sampler_Binding{{texture = under, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	samplers := [Render_Display_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.view_color   = {texture = under, sampler = pr.sampler},
+		.accum        = {texture = pr.accum[pr.current], sampler = pr.sampler},
+		.denoised     = {texture = pr.filtered[1 - out], sampler = pr.sampler},
+		.guide_albedo = {texture = guides[0], sampler = pr.sampler},
+	}
+	bind_fragment_samplers(pass, &samplers)
 	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 1 if pr.half else 0}
-	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	push_fragment(cmd, Render_Display_Frag_Uniforms.Display_Uniforms, &params)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	pr.linear_valid = false
@@ -816,8 +844,10 @@ path_display :: proc(pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, expos
 	target = {texture = pr.linear, load_op = .Dont_Care, store_op = .Store, cycle = true}
 	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, pr.display_linear)
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu.push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	// The linear display shader reads the same slots.
+	#assert(len(Render_Display_Linear_Frag_Samplers) == len(Render_Display_Frag_Samplers) && int(Render_Display_Linear_Frag_Samplers.guide_albedo) == int(Render_Display_Frag_Samplers.guide_albedo))
+	bind_fragment_samplers(pass, &samplers)
+	push_fragment(cmd, Render_Display_Linear_Frag_Uniforms.Display_Uniforms, &params)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	pr.linear_valid = true

@@ -135,9 +135,9 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: gpu.Cmd, vt: ^Viewport_T
 	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, lao.gtao_pipeline)
 	gpu.set_scissor(pass, {ao_rect.x, ao_rect.y, ao_rect.w, ao_rect.h})
-	binding := gpu.Texture_Sampler_Binding{texture = depth, sampler = lao.sampler}
-	gpu.bind_fragment_samplers(pass, 0, &binding, 1)
-	gpu.push_fragment_uniform_data(cmd, 0, &g, size_of(g))
+	gtao := [Gtao_Frag_Samplers]gpu.Texture_Sampler_Binding{.view_depth = {texture = depth, sampler = lao.sampler}}
+	bind_fragment_samplers(pass, &gtao)
+	push_fragment(cmd, Gtao_Frag_Uniforms.Gtao_Uniforms, &g)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 
@@ -151,9 +151,13 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: gpu.Cmd, vt: ^Viewport_T
 	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(pass, lao.blur_pipeline)
 	gpu.set_scissor(pass, {blur_rect.x, blur_rect.y, blur_rect.w, blur_rect.h})
-	samplers := [3]gpu.Texture_Sampler_Binding{{texture = vt.color, sampler = lao.sampler}, {texture = lao.ao, sampler = lao.sampler}, {texture = depth, sampler = lao.sampler}}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu.push_fragment_uniform_data(cmd, 0, &b, size_of(b))
+	blur := [Ao_Blur_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.view_color = {texture = vt.color, sampler = lao.sampler},
+		.ao_map     = {texture = lao.ao, sampler = lao.sampler},
+		.view_depth = {texture = depth, sampler = lao.sampler},
+	}
+	bind_fragment_samplers(pass, &blur)
+	push_fragment(cmd, Ao_Blur_Frag_Uniforms.Blur_Uniforms, &b)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 	return true

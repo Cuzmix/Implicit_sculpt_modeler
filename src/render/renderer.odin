@@ -138,6 +138,16 @@ Floor_Uniforms :: struct {
 	center:        [4]f32,
 }
 
+// The mesh shaders bind as one family: the drawing loop binds mesh.vert's and mesh.frag's
+// slots whichever of these pipelines is bound, so each shader's matching slots sit where theirs do.
+#assert(int(Mesh_Wire_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint) && int(Skin_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint))
+#assert(int(Mesh_Wire_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Skin_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
+#assert(int(Skin_Tess_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Textured_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
+#assert(len(Mesh_Area_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Mesh_Wire_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Skin_Frag_Samplers) == len(Mesh_Frag_Samplers))
+#assert(int(Mesh_Area_Frag_Samplers.environment_map) == int(Mesh_Frag_Samplers.environment_map) && int(Mesh_Wire_Frag_Samplers.environment_map) == int(Mesh_Frag_Samplers.environment_map) && int(Skin_Frag_Samplers.environment_map) == int(Mesh_Frag_Samplers.environment_map))
+#assert(int(Mesh_Area_Frag_Uniforms.Slot_Uniforms) == int(Mesh_Frag_Uniforms.Slot_Uniforms) && int(Mesh_Wire_Frag_Uniforms.Slot_Uniforms) == int(Mesh_Frag_Uniforms.Slot_Uniforms) && int(Skin_Frag_Uniforms.Slot_Uniforms) == int(Mesh_Frag_Uniforms.Slot_Uniforms))
+#assert(int(Textured_Frag_Uniforms.Material_Uniforms) == int(Mesh_Frag_Uniforms.Material_Uniforms))
+
 // The pipelines that draw meshes into targets of one sample count.
 Mesh_Pipelines :: struct {
 	mesh:  gpu.Graphics_Pipeline,
@@ -1870,9 +1880,9 @@ draw_background :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes
 		uniforms.clip_to_env = to_env * linalg.inverse(proj)
 	}
 	gpu.bind_graphics_pipeline(pass, pipes.clear)
-	binding := environment_binding(r)
-	gpu.bind_fragment_samplers(pass, 0, &binding, 1)
-	gpu.push_fragment_uniform_data(cmd, 0, &uniforms, size_of(uniforms))
+	samplers := [Clear_Frag_Samplers]gpu.Texture_Sampler_Binding{.environment_map = environment_binding(r)}
+	bind_fragment_samplers(pass, &samplers)
+	push_fragment(cmd, Clear_Frag_Uniforms.Clear_Uniforms, &uniforms)
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 }
 
@@ -1955,7 +1965,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		frame.slot_group = SLOT_NONE
 		if slotted {
 			frame.slot_group = item.slots.groups
-			gpu.push_fragment_uniform_data(cmd, 1, &item.slots.uniforms, size_of(Slot_Uniforms))
+			push_fragment(cmd, Mesh_Frag_Uniforms.Slot_Uniforms, &item.slots.uniforms)
 		}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != 0 else 0}
@@ -1970,11 +1980,11 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			draw_textured_item(r, cmd, pass, item, &frame, &material, stats)
 			if item.wireframe && pipes.wire != 0 {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
-				gpu.push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
-				paint := [1]gpu.Buffer{r.no_paint}
-				gpu.bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
-				samplers := [2]gpu.Texture_Sampler_Binding{{texture = r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
-				gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+				push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
+				paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = r.no_paint}
+				bind_vertex_storage(pass, &paint)
+				samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
+				bind_fragment_samplers(pass, &samplers)
 				vbufs := [2]gpu.Buffer_Binding{{buffer = mb.positions}, {buffer = mb.normals}}
 				gpu.bind_vertex_buffers(pass, 0, &vbufs[0], len(vbufs))
 				wire_pass(r, cmd, pass, pipes, item)
@@ -1984,15 +1994,15 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			continue
 		}
 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
-		gpu.push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
-		gpu.push_fragment_uniform_data(cmd, 0, &material, size_of(material))
-		paint := [1]gpu.Buffer{mb.paint if mb.paint != 0 else r.no_paint}
-		gpu.bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
-		samplers := [2]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
-		gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+		push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
+		push_fragment(cmd, Mesh_Frag_Uniforms.Material_Uniforms, &material)
+		paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = mb.paint if mb.paint != 0 else r.no_paint}
+		bind_vertex_storage(pass, &paint)
+		samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
+		bind_fragment_samplers(pass, &samplers)
 		if main == pipes.mesh_wire {
-			edges := [1]gpu.Buffer{mb.tri_edges if poly_shaded else r.no_paint}
-			gpu.bind_fragment_storage_buffers(pass, 0, &edges[0], 1)
+			edges := [Mesh_Wire_Frag_Buffers]gpu.Buffer{.tri_edges = mb.tri_edges if poly_shaded else r.no_paint}
+			bind_fragment_storage(pass, &edges)
 		}
 		vbufs := [2]gpu.Buffer_Binding{{buffer = mb.positions}, {buffer = mb.normals}}
 		if skinned {
@@ -2030,9 +2040,9 @@ lines_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 	f := frame
 	f.view_proj = proj * nudge * view
 	f.options = {}
-	gpu.push_vertex_uniform_data(cmd, 0, &f, size_of(f))
+	push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &f)
 	lines := Material_Uniforms{base_color = CAGE_LINE_COLOR, params = {0, -1, 0, 0}}
-	gpu.push_fragment_uniform_data(cmd, 0, &lines, size_of(lines))
+	push_fragment(cmd, Mesh_Frag_Uniforms.Material_Uniforms, &lines)
 	gpu.bind_graphics_pipeline(pass, pipes.lines)
 	gpu.bind_index_buffer(pass, {buffer = mb.edges}, .U32)
 	gpu.draw_indexed_primitives(pass, mb.edge_indices, 1, 0, 0, 0)
@@ -2085,7 +2095,7 @@ mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32, tr
 @(private)
 wire_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, item: Draw_Item) {
 	wire := Material_Uniforms{base_color = wire_color(r), params = {0, -1, 0, 0}}
-	gpu.push_fragment_uniform_data(cmd, 0, &wire, size_of(wire))
+	push_fragment(cmd, Mesh_Frag_Uniforms.Material_Uniforms, &wire)
 	gpu.bind_graphics_pipeline(pass, pipes.wire)
 	draw_item_triangles(r, pass, item, nil)
 }
@@ -2131,7 +2141,7 @@ draw_floor :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 	for axis in 0 ..< 3 {
 		if !f.shown[axis] do continue
 		u.plane = {f32(axis), f.at[axis], 0, 0}
-		gpu.push_fragment_uniform_data(cmd, 0, &u, size_of(u))
+		push_fragment(cmd, Floor_Frag_Uniforms.Floor_Uniforms, &u)
 		gpu.draw_primitives(pass, 3, 1, 0, 0)
 	}
 }

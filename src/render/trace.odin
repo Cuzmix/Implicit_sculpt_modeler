@@ -224,11 +224,15 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 	if tr.rq do trace_rq_tables(r, tr, cmd, items)
 
 	// Every item's dispatch only stores 0, so one pass holds them all, unordered.
-	binding := gpu.Storage_Texture_Binding{texture = tr.visible}
-	pass := gpu.begin_compute_pass(cmd, &binding, 1, nil, 0)
+	// Both kernels write the visibility and read the depth at the same slots.
+	#assert(int(Studio_Trace_Rq_Comp_Write_Textures.visible) == int(Studio_Trace_Comp_Write_Textures.visible) && len(Studio_Trace_Rq_Comp_Write_Textures) == len(Studio_Trace_Comp_Write_Textures))
+	#assert(int(Studio_Trace_Rq_Comp_Samplers.view_depth) == int(Studio_Trace_Comp_Samplers.view_depth) && len(Studio_Trace_Rq_Comp_Samplers) == len(Studio_Trace_Comp_Samplers))
+	#assert(int(Studio_Trace_Rq_Comp_Uniforms.Trace_Uniforms) == int(Studio_Trace_Comp_Uniforms.Trace_Uniforms))
+	visible := [Studio_Trace_Comp_Write_Textures]gpu.Storage_Texture_Binding{.visible = {texture = tr.visible}}
+	pass := begin_compute(cmd, &visible)
 	gpu.bind_compute_pipeline(pass, tr.rq_pipeline if tr.rq else tr.trace_pipeline)
-	depth := gpu.Texture_Sampler_Binding{texture = view_depth, sampler = sampler}
-	gpu.bind_compute_samplers(pass, 0, &depth, 1)
+	depth := [Studio_Trace_Comp_Samplers]gpu.Texture_Sampler_Binding{.view_depth = {texture = view_depth, sampler = sampler}}
+	bind_compute_samplers(pass, &depth)
 	u := Trace_Uniforms {
 		inv_view_proj = linalg.inverse(proj * view),
 		key_base      = {light.base.x, light.base.y, light.base.z, 1 if light.key else 0},
@@ -239,11 +243,11 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 	}
 	if tr.rq {
 		// One dispatch traces every item, in world space.
-		reads := [2]gpu.Buffer{tr.rq_buffers[.Instances], tr.rq_buffers[.Runs]}
-		gpu.bind_compute_storage_buffers(pass, 0, raw_data(reads[:]), len(reads))
+		reads := [Studio_Trace_Rq_Comp_Buffers]gpu.Buffer{.instances = tr.rq_buffers[.Instances], .run_first = tr.rq_buffers[.Runs]}
+		bind_compute_storage(pass, &reads)
 		gpu.bind_compute_accel(pass, tr.tlas)
 		u.to_mesh = 1
-		gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+		push_compute(cmd, Studio_Trace_Rq_Comp_Uniforms.Trace_Uniforms, &u)
 		gpu.dispatch_compute(pass, (tr.width + TRACE_GROUP - 1) / TRACE_GROUP, (tr.height + TRACE_GROUP - 1) / TRACE_GROUP, 1)
 		tr.rq_samples += 1
 	}
@@ -252,10 +256,17 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
 		if tm == nil || tm.tlas_empty do continue
-		reads := [6]gpu.Buffer{item.mesh.positions, item.mesh.indices, tm.buffers[.Nodes], tm.buffers[.Order], tm.buffers[.Chunks], tm.buffers[.Tlas]}
-		gpu.bind_compute_storage_buffers(pass, 0, raw_data(reads[:]), len(reads))
+		reads := [Studio_Trace_Comp_Buffers]gpu.Buffer {
+			.positions = item.mesh.positions,
+			.indices   = item.mesh.indices,
+			.nodes     = tm.buffers[.Nodes],
+			.order     = tm.buffers[.Order],
+			.chunks    = tm.buffers[.Chunks],
+			.tlas      = tm.buffers[.Tlas],
+		}
+		bind_compute_storage(pass, &reads)
 		u.to_mesh = linalg.inverse(item.model)
-		gpu.push_compute_uniform_data(cmd, 0, &u, size_of(u))
+		push_compute(cmd, Studio_Trace_Comp_Uniforms.Trace_Uniforms, &u)
 		gpu.dispatch_compute(pass, (tr.width + TRACE_GROUP - 1) / TRACE_GROUP, (tr.height + TRACE_GROUP - 1) / TRACE_GROUP, 1)
 	}
 	gpu.end_compute_pass(pass)
@@ -267,10 +278,10 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 	}
 	add := gpu.begin_render_pass(cmd, &target, 1, nil)
 	gpu.bind_graphics_pipeline(add, tr.add_pipeline)
-	samplers := [2]gpu.Texture_Sampler_Binding{{texture = tr.visible, sampler = sampler}, {texture = view_depth, sampler = sampler}}
-	gpu.bind_fragment_samplers(add, 0, &samplers[0], 2)
+	samplers := [Studio_Trace_Add_Frag_Samplers]gpu.Texture_Sampler_Binding{.visible = {texture = tr.visible, sampler = sampler}, .view_depth = {texture = view_depth, sampler = sampler}}
+	bind_fragment_samplers(add, &samplers)
 	au := Add_Uniforms{inv_view_proj = u.inv_view_proj, params = {1 if light.key else 0, 0, 0, 0}, shadow = light.shadow}
-	gpu.push_fragment_uniform_data(cmd, 0, &au, size_of(au))
+	push_fragment(cmd, Studio_Trace_Add_Frag_Uniforms.Add_Uniforms, &au)
 	gpu.draw_primitives(add, 3, 1, 0, 0)
 	gpu.end_render_pass(add)
 	tr.samples += 1
@@ -430,12 +441,12 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, item: Draw_It
 		groups_x := min(groups, MAX_GROUPS_X)
 		groups_y := (groups + groups_x - 1) / max(groups_x, 1)
 		params := [4]u32{chunk_count, groups_x, 0, 0}
-		gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
-		binding := gpu.Storage_Buffer_Binding{buffer = tm.buffers[.Nodes]}
-		pass := gpu.begin_compute_pass(cmd, nil, 0, &binding, 1)
+		push_compute(cmd, Blas_Refit_Comp_Uniforms.Params, &params)
+		nodes := [Blas_Refit_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.nodes = {buffer = tm.buffers[.Nodes]}}
+		pass := begin_compute(cmd, &nodes)
 		gpu.bind_compute_pipeline(pass, tr.refit_pipeline)
-		reads := [4]gpu.Buffer{mb.positions, mb.indices, tm.buffers[.Order], tm.buffers[.Chunks]}
-		gpu.bind_compute_storage_buffers(pass, 0, raw_data(reads[:]), len(reads))
+		reads := [Blas_Refit_Comp_Buffers]gpu.Buffer{.positions = mb.positions, .indices = mb.indices, .order = tm.buffers[.Order], .chunks = tm.buffers[.Chunks]}
+		bind_compute_storage(pass, &reads)
 		if groups > 0 do gpu.dispatch_compute(pass, groups_x, groups_y, 1)
 		gpu.end_compute_pass(pass)
 		tm.refit_version = mb.version

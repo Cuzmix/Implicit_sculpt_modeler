@@ -56,7 +56,7 @@ view_depth_draw :: proc(r: ^Renderer, cmd: gpu.Cmd, depth_pipeline, clear_pipeli
 		// one too: the anti-aliased viewport then shades as the plain one does.
 		if blended(&r.single, item) do continue
 		u := Shadow_Uniforms{proj * view, item.model}
-		gpu.push_vertex_uniform_data(cmd, 0, &u, size_of(u))
+		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
 		vbufs := [1]gpu.Buffer_Binding{{buffer = item.mesh.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		draw_item_triangles(r, pass, item, nil)

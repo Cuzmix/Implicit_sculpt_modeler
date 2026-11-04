@@ -150,12 +150,22 @@ draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, it
 	tm := item.textured
 	for m in Texture_Map do material.maps[int(m)] = 1 if tm.maps[m] != 0 else 0
 	material.maps.w = f32(item.texture_view)
-	gpu.push_vertex_uniform_data(cmd, 0, frame, size_of(Frame_Uniforms))
-	gpu.push_fragment_uniform_data(cmd, 0, material, size_of(Material_Uniforms))
+	push_vertex(cmd, Textured_Vert_Uniforms.Frame_Uniforms, frame)
+	push_fragment(cmd, Textured_Frag_Uniforms.Material_Uniforms, material)
 	defaults := [Texture_Map]gpu.Texture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
-	samplers := [5]gpu.Texture_Sampler_Binding{{texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
-	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != 0 else defaults[m], sampler = r.texture_sampler}
-	gpu.bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	map_binding :: proc(r: ^Renderer, tm: ^Textured_Mesh, defaults: [Texture_Map]gpu.Texture, m: Texture_Map) -> gpu.Texture_Sampler_Binding {
+		return {texture = tm.maps[m] if tm.maps[m] != 0 else defaults[m], sampler = r.texture_sampler}
+	}
+	samplers := [Textured_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.matcap          = {texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler},
+		.environment_map = environment_binding(r),
+		.base_map        = map_binding(r, tm, defaults, .Base_Color),
+		.orm_map         = map_binding(r, tm, defaults, .Orm),
+		.normal_map      = map_binding(r, tm, defaults, .Normal),
+	}
+	// The see-through pipeline's fragment shader (textured_area.frag) reads the same maps.
+	#assert(len(Textured_Area_Frag_Samplers) == len(Textured_Frag_Samplers) && int(Textured_Area_Frag_Samplers.normal_map) == int(Textured_Frag_Samplers.normal_map))
+	bind_fragment_samplers(pass, &samplers)
 	vbuf := gpu.Buffer_Binding{buffer = tm.vertices}
 	gpu.bind_vertex_buffers(pass, 0, &vbuf, 1)
 	gpu.bind_index_buffer(pass, {buffer = tm.indices}, .U32)

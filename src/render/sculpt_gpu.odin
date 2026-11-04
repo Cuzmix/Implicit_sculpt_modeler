@@ -336,9 +336,9 @@ sculpt_gpu_kernels :: proc(r: ^Renderer) {
 	if r.caps.gpu_sculpt && !r.sculpt_gpu.failed && r.sculpt_gpu.pipeline == 0 do _ = sculpt_pipelines_make(r)
 }
 
-// The most storage buffers a sculpt kernel binds: the dab kernels' nine read-only
-// (dab.slang set 0) and five read-write (set 1).
-SCULPT_STORAGE_BUFFERS :: 14
+// The most storage buffers a sculpt kernel binds: the dab kernels' read-only (dab.slang set 0)
+// and read-write ones (set 1), counted from the shader.
+SCULPT_STORAGE_BUFFERS :: len(Dab_Move_Comp_Buffers) + len(Dab_Move_Comp_Write_Buffers)
 
 // The slots from the oldest submitted to the one this frame records into: the readbacks
 // land in the order they were submitted, so a newer never lands before an older.
@@ -963,15 +963,34 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		// stroke that keeps no heights binds the areas in their place, which no kernel
 		// then touches.
 		heights := ms.heights_buffer if ms.heights_buffer != 0 else sg.areas
-		writes := [5]gpu.Storage_Buffer_Binding{{buffer = mb.positions}, {buffer = sg.partials}, {buffer = sg.areas}, {buffer = sg.scratch}, {buffer = heights}}
-		compute := gpu.begin_compute_pass(cmd, nil, 0, &writes[0], len(writes))
+		// The five dab kernels share one set of slots, which these are typed by.
+		#assert(len(Dab_Area_Comp_Write_Buffers) == len(Dab_Move_Comp_Write_Buffers) && len(Dab_Reduce_Comp_Write_Buffers) == len(Dab_Move_Comp_Write_Buffers) && len(Dab_Smooth_Targets_Comp_Write_Buffers) == len(Dab_Move_Comp_Write_Buffers) && len(Dab_Smooth_Apply_Comp_Write_Buffers) == len(Dab_Move_Comp_Write_Buffers))
+		#assert(len(Dab_Area_Comp_Buffers) == len(Dab_Move_Comp_Buffers) && len(Dab_Reduce_Comp_Buffers) == len(Dab_Move_Comp_Buffers) && len(Dab_Smooth_Targets_Comp_Buffers) == len(Dab_Move_Comp_Buffers) && len(Dab_Smooth_Apply_Comp_Buffers) == len(Dab_Move_Comp_Buffers))
+		writes := [Dab_Move_Comp_Write_Buffers]gpu.Storage_Buffer_Binding {
+			.positions = {buffer = mb.positions},
+			.partials  = {buffer = sg.partials},
+			.areas     = {buffer = sg.areas},
+			.scratch   = {buffer = sg.scratch},
+			.heights   = {buffer = heights},
+		}
+		compute := begin_compute(cmd, &writes)
 		// A stroke with no mask, drawn falloff or fade binds the slabs in their place,
 		// which no kernel then reads (the record's flags say).
 		mask := ms.bytes[.Mask].buffer if masked else sg.slabs
 		falloffs := sg.tables if table_count > 0 else sg.slabs
 		fade := ms.bytes[.Fade].buffer if faded else sg.slabs
-		reads := [9]gpu.Buffer{mb.indices, ms.offsets, ms.tris, sg.slabs, sg.dabs, mb.normals, mask, falloffs, fade}
-		gpu.bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
+		reads := [Dab_Move_Comp_Buffers]gpu.Buffer {
+			.indices = mb.indices,
+			.offsets = ms.offsets,
+			.tris    = ms.tris,
+			.slabs   = sg.slabs,
+			.dabs    = sg.dabs,
+			.normals = mb.normals,
+			.mask    = mask,
+			.tables  = falloffs,
+			.fade    = fade,
+		}
+		bind_compute_storage(compute, &reads)
 		for d, i in ms.dabs {
 			count := int(records[i].slabs[1])
 			groups_x := max(min(count, MAX_SLAB_GROUPS_X), 1)
@@ -981,26 +1000,26 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 			// which lies on its plane (sculpt.dab_lay), Smooth's and Inflate's too.
 			if (d.kind != .Inflate && d.kind != .Smooth) || d.alpha != nil {
 				gpu.bind_compute_pipeline(compute, sg.dab_pipelines[.Area])
-				gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+				push_compute(cmd, Dab_Move_Comp_Uniforms.Params, &params)
 				gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 				gpu.bind_compute_pipeline(compute, sg.dab_pipelines[.Reduce])
-				gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+				push_compute(cmd, Dab_Move_Comp_Uniforms.Params, &params)
 				gpu.dispatch_compute(compute, 1, 1, 1)
 			}
 			if d.kind == .Smooth {
 				for pass_index in 0 ..< d.passes {
 					params.rate = d.rates[pass_index]
 					gpu.bind_compute_pipeline(compute, sg.dab_pipelines[.Smooth_Targets])
-					gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+					push_compute(cmd, Dab_Move_Comp_Uniforms.Params, &params)
 					gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 					gpu.bind_compute_pipeline(compute, sg.dab_pipelines[.Smooth_Apply])
-					gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+					push_compute(cmd, Dab_Move_Comp_Uniforms.Params, &params)
 					gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 				}
 				continue
 			}
 			gpu.bind_compute_pipeline(compute, sg.dab_pipelines[.Move])
-			gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+			push_compute(cmd, Dab_Move_Comp_Uniforms.Params, &params)
 			gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 		}
 		gpu.end_compute_pass(compute)
@@ -1016,12 +1035,12 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		groups_x := min(int(normals_count), MAX_SLAB_GROUPS_X)
 		groups_y := (int(normals_count) + groups_x - 1) / groups_x
 		params := Normals_Params{slab_count = normals_count, groups_x = u32(groups_x), first = normals_first}
-		write := gpu.Storage_Buffer_Binding{buffer = mb.normals}
-		compute := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+		writes := [Node_Normals_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.normals = {buffer = mb.normals}}
+		compute := begin_compute(cmd, &writes)
 		gpu.bind_compute_pipeline(compute, sg.pipeline)
-		reads := [5]gpu.Buffer{mb.indices, ms.offsets, ms.tris, mb.positions, sg.slabs}
-		gpu.bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
-		gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+		reads := [Node_Normals_Comp_Buffers]gpu.Buffer{.indices = mb.indices, .offsets = ms.offsets, .tris = ms.tris, .positions = mb.positions, .slabs = sg.slabs}
+		bind_compute_storage(compute, &reads)
+		push_compute(cmd, Node_Normals_Comp_Uniforms.Params, &params)
 		gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 		gpu.end_compute_pass(compute)
 	}
@@ -1035,12 +1054,12 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		groups_x := min(int(node_count), MAX_SLAB_GROUPS_X)
 		groups_y := (int(node_count) + groups_x - 1) / groups_x
 		params := Bounds_Params{node_count = node_count, groups_x = u32(groups_x)}
-		write := gpu.Storage_Buffer_Binding{buffer = sg.bounds}
-		compute := gpu.begin_compute_pass(cmd, nil, 0, &write, 1)
+		writes := [Node_Bounds_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.bounds = {buffer = sg.bounds}}
+		compute := begin_compute(cmd, &writes)
 		gpu.bind_compute_pipeline(compute, sg.bounds_pipeline)
-		reads := [3]gpu.Buffer{mb.positions, sg.nodes, ms.shared}
-		gpu.bind_compute_storage_buffers(compute, 0, &reads[0], len(reads))
-		gpu.push_compute_uniform_data(cmd, 0, &params, size_of(params))
+		reads := [Node_Bounds_Comp_Buffers]gpu.Buffer{.positions = mb.positions, .nodes = sg.nodes, .shared = ms.shared}
+		bind_compute_storage(compute, &reads)
+		push_compute(cmd, Node_Bounds_Comp_Uniforms.Params, &params)
 		gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 		gpu.end_compute_pass(compute)
 	}

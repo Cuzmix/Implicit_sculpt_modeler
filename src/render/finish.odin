@@ -147,26 +147,28 @@ finish_frame :: proc(r: ^Renderer, f: ^Finish, cmd: gpu.Cmd, source: gpu.Texture
 		f.bloomed += 1
 	}
 	u := finish_uniforms(look, linear, f32(width) / f32(max(height, 1)), !sharpen)
-	samplers := [2]gpu.Texture_Sampler_Binding{{texture = source, sampler = f.sampler}, {texture = glow, sampler = f.sampler}}
+	samplers := [Finish_Frag_Samplers]gpu.Texture_Sampler_Binding{.source = {texture = source, sampler = f.sampler}, .bloom = {texture = glow, sampler = f.sampler}}
 	if !sharpen {
-		finish_pass(cmd, f.shown, f.pipeline, samplers[:], &u, size_of(u))
+		finish_pass(cmd, f.shown, f.pipeline, &samplers, Finish_Frag_Uniforms.Finish_Uniforms, &u, size_of(u))
 		return true
 	}
 	f.sharpened += 1
-	finish_pass(cmd, f.mid, f.mid_pipeline, samplers[:], &u, size_of(u))
+	finish_pass(cmd, f.mid, f.mid_pipeline, &samplers, Finish_Frag_Uniforms.Finish_Uniforms, &u, size_of(u))
 	su := Pass_Uniforms{params = {clamp(look.sharpen, 0, 1), clamp(look.grain, 0, 1), clamp(look.grain_size, 1, 4), transmute(f32)look.seed}}
-	finish_pass(cmd, f.shown, f.sharpen_pipeline, {{texture = f.mid, sampler = f.sampler}}, &su, size_of(su.params))
+	graded := [Sharpen_Frag_Samplers]gpu.Texture_Sampler_Binding{.graded = {texture = f.mid, sampler = f.sampler}}
+	finish_pass(cmd, f.shown, f.sharpen_pipeline, &graded, Sharpen_Frag_Uniforms.Sharpen_Uniforms, &su, size_of(su.params))
 	return true
 }
 
-// One full-screen pass of `pipeline` into `target`, reading `samplers`.
+// One full-screen pass of `pipeline` into `target`, reading `samplers` (its fragment shader's
+// enum) and its uniform block `block`, `uniform_size` bytes of `uniforms`.
 @(private = "file")
-finish_pass :: proc(cmd: gpu.Cmd, target: gpu.Texture, pipeline: gpu.Graphics_Pipeline, samplers: []gpu.Texture_Sampler_Binding, uniforms: rawptr, uniform_size: int) {
+finish_pass :: proc(cmd: gpu.Cmd, target: gpu.Texture, pipeline: gpu.Graphics_Pipeline, samplers: ^[$E]gpu.Texture_Sampler_Binding, block: $B, uniforms: rawptr, uniform_size: int) {
 	info := gpu.Color_Target{texture = target, load_op = .Dont_Care, store_op = .Store, cycle = true}
 	pass := gpu.begin_render_pass(cmd, &info, 1, nil)
 	gpu.bind_graphics_pipeline(pass, pipeline)
-	gpu.bind_fragment_samplers(pass, 0, raw_data(samplers), u32(len(samplers)))
-	gpu.push_fragment_uniform_data(cmd, 0, uniforms, u32(uniform_size))
+	bind_fragment_samplers(pass, samplers)
+	gpu.push_fragment_uniform_data(cmd, u32(block), uniforms, u32(uniform_size))
 	gpu.draw_primitives(pass, 3, 1, 0, 0)
 	gpu.end_render_pass(pass)
 }
@@ -183,7 +185,8 @@ bloom_chain :: proc(f: ^Finish, cmd: gpu.Cmd, source: gpu.Texture, linear: bool,
 			params = {1 if i == 0 else 0, 1 if linear else 0, threshold, 0},
 			size = {1 / f32(size.x), 1 / f32(size.y), 0, 0},
 		}
-		finish_pass(cmd, f.down[i], f.down_pipeline, {{texture = input, sampler = f.sampler}}, &u, size_of(u))
+		down := [Bloom_Down_Frag_Samplers]gpu.Texture_Sampler_Binding{.input = {texture = input, sampler = f.sampler}}
+		finish_pass(cmd, f.down[i], f.down_pipeline, &down, Bloom_Down_Frag_Uniforms.Bloom_Down_Uniforms, &u, size_of(u))
 	}
 	if f.levels == 1 do return f.down[0]
 	// Unity HDRP's range of scatter: never all of one size.
@@ -192,7 +195,8 @@ bloom_chain :: proc(f: ^Finish, cmd: gpu.Cmd, source: gpu.Texture, linear: bool,
 		coarse := f.down[i + 1] if i == f.levels - 2 else f.up[i + 1]
 		size := f.level_size[i]
 		u := Pass_Uniforms{params = {scatter, 0, 0, 0}, size = {1 / f32(size.x), 1 / f32(size.y), 0, 0}}
-		finish_pass(cmd, f.up[i], f.up_pipeline, {{texture = coarse, sampler = f.sampler}, {texture = f.down[i], sampler = f.sampler}}, &u, size_of(u))
+		up := [Bloom_Up_Frag_Samplers]gpu.Texture_Sampler_Binding{.coarse = {texture = coarse, sampler = f.sampler}, .fine = {texture = f.down[i], sampler = f.sampler}}
+		finish_pass(cmd, f.up[i], f.up_pipeline, &up, Bloom_Up_Frag_Uniforms.Bloom_Up_Uniforms, &u, size_of(u))
 	}
 	return f.up[0]
 }
