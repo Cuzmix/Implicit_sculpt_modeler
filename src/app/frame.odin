@@ -496,6 +496,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The interface, the viewport image in it, into the swapchain.
 	kit_ready := false
 	dl := kit_frame_end(app)
+	gesture_edges_update(app)
 	if swapchain != 0 do kit_ready = kit_upload(app, present_cmd, dl)
 	app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
 	// Once ui.frame_end settled the held control and the field with the keys.

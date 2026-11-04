@@ -1,6 +1,11 @@
 package io.github.cuzmix.sculpt;
 
+import android.graphics.Rect;
 import android.view.MotionEvent;
+import android.view.View;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import org.libsdl.app.SDLActivity;
 
@@ -13,7 +18,8 @@ import org.libsdl.app.SDLActivity;
  * touch and hover event passes here before SDL's view sees it; for a stylus or its eraser,
  * the lean and the older samples go to libmain.so (android/app/jni/android_main.c), which
  * hands them to the app as SDL events ahead of the pen's own, and SDL then handles the
- * event as before.
+ * event as before. It also keeps the strips of the side edges where a dock stands from
+ * Android's back gesture (setGestureExclusion).
  */
 public class SculptActivity extends SDLActivity {
     /** The stylus's AXIS_TILT and AXIS_ORIENTATION, in radians. */
@@ -61,5 +67,23 @@ public class SculptActivity extends SDLActivity {
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
         lean(event);
         return super.dispatchGenericMotionEvent(event);
+    }
+
+    /**
+     * The strips of the side edges the app keeps from the system's back gesture, so a drag
+     * that starts on a dock standing on a side edge is the app's: `rects` holds left, top,
+     * right and bottom in the window's pixels for each, from libmain.so on the app's thread
+     * (src/app/gesture_edges.odin). Android keeps at most 200 dp of each edge's height for
+     * an app, the lowest first.
+     */
+    public void setGestureExclusion(int[] rects) {
+        final List<Rect> list = new ArrayList<>();
+        for (int i = 0; i + 3 < rects.length; i += 4) {
+            list.add(new Rect(rects[i], rects[i + 1], rects[i + 2], rects[i + 3]));
+        }
+        runOnUiThread(() -> {
+            View view = getWindow().getDecorView();
+            view.setSystemGestureExclusionRects(list);
+        });
     }
 }

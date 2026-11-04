@@ -444,6 +444,8 @@ App :: struct {
 	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
 	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
 	pacer:       Frame_Pacer,
+	// The side-edge strips kept from Android's back gesture (gesture_edges.odin).
+	gesture_edges: Gesture_Edges,
 	low_latency: Low_Latency, // how far the GPU may run behind (frame_rate.odin), applied as frame_rate is
 	display_link: bool, // Settings > System > Frame rate > Pace with the display: the Metal display link (a trial)
 	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)

@@ -192,3 +192,29 @@ JNIEXPORT void JNICALL Java_io_github_cuzmix_sculpt_SculptActivity_nativePenSamp
 	e.user.code = (Sint32)o.u;
 	SDL_PushEvent(&e);
 }
+
+/*
+ * The strips of the side edges the app keeps from Android's back gesture
+ * (src/app/gesture_edges.odin): `count` rectangles as left, top, right, bottom in the
+ * window's pixels, handed to SculptActivity.setGestureExclusion, which sets them on the
+ * window's view on its UI thread. Leaves no exception pending.
+ */
+void sculpt_android_gesture_exclusion(const int32_t *rects, int32_t count)
+{
+	JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+	if (!env) return;
+	jobject activity = (jobject)SDL_GetAndroidActivity();
+	if (!activity) return;
+	if ((*env)->PushLocalFrame(env, 8) == 0) {
+		jclass activity_class = (*env)->GetObjectClass(env, activity);
+		jmethodID set = activity_class ? (*env)->GetMethodID(env, activity_class, "setGestureExclusion", "([I)V") : NULL;
+		jintArray array = set ? (*env)->NewIntArray(env, count * 4) : NULL;
+		if (array) {
+			(*env)->SetIntArrayRegion(env, array, 0, count * 4, (const jint *)rects);
+			(*env)->CallVoidMethod(env, activity, set, array);
+		}
+		if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+		(*env)->PopLocalFrame(env, NULL);
+	}
+	(*env)->DeleteLocalRef(env, activity);
+}

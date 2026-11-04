@@ -79,6 +79,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`cards.windows[c]`), grabbed by the same press; `card_float_draw` draws it through `panel_begin(card = true)`
   among the windows (`Float_Ref` and `Panel_Ref` hold a `Card`); `card_float_return(app, c, side)` puts it back
   pinned (Put back, a hold on the grip, a drop past `CARD_RETURN_REACH` of a side); a `card_float` layout line.
+  Under `CARD_SHEET_BELOW` (900 pt) `cards_as_sheet` puts one card at a time over the lower part (`column_place`).
+  Android's side-edge gesture strips: `gesture_edges.odin`.
 - Layouts (`src/app/layouts.odin`, `k.layouts`): one per space, nothing named or saved. A layout is text,
   `kit_layout_text(k)` (`hidden`, `open`, `window`, `column`, `card_float`, dock and `bars` lines, places written
   right-handed) and `kit_layout_put(k, text)`. `shipped[s]` is `built_in_layout(s)`; `kept[s]` is a space left
