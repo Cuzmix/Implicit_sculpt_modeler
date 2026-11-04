@@ -6791,7 +6791,13 @@ def long_press_a_scene_row_opens_its_menu():
 THREE = ["--spheres=3", "--vertices=20000"]
 SCENE_ROWS_Y = [210, 264, 318]
 SCENE_EYE_X, SCENE_ROW_X, SCENE_MENU_X = 1400, 1300, 1496
-SPHERES3 = [(477, 397), (647, 437), (853, 485)]
+SPHERES3 = [(633, 397), (803, 437), (1009, 485)]
+
+
+def close_card(s):
+    """A click on empty view closes the open card that is not pinned, and goes no further."""
+    click(s, (300, 700))
+    s.wait(4)
 
 
 def scene_tab(s):
@@ -6838,7 +6844,7 @@ def objects_card_opens_with_pictures():
     """With Pictures the Scene card shows a tall row and a picture for each object, as the Objects card did."""
     s = Script()
     objects_card(s)
-    return s, pictures(), {"dabs": near(0), "window_objects": lambda v: v.startswith("0,"), "card_rows": near(3), "thumbs_drawn": near(3)}
+    return s, pictures(), {"dabs": near(0), "card_front": is_text("scene"), "card_rows": near(3), "thumbs_drawn": near(3)}
 
 
 @scenario
@@ -6904,8 +6910,9 @@ def objects_card_toggles_eye_paint_and_boolean():
 
 
 def card_slot(k):
-    """Where Store visibility's V`k` tile is, with the Actions open."""
-    return (CARD_SLOT_X0 + (k - 1) * CARD_SLOT_STEP, CARD_SLOT_Y)
+    """Store visibility's V`k` tile, with the Actions open, by its name: a hidden object's
+    Show all objects line pushes the Actions down."""
+    return At(f"objects card slots/V{k}", CARD_SLOT_X0 + (k - 1) * CARD_SLOT_STEP, CARD_SLOT_Y)
 
 
 CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1249, 36.5, 665
@@ -7039,12 +7046,14 @@ def scene_ghost_lets_a_click_through():
     ghost.ftap(At("Make a ghost", 1400, 500))
     ghost.wait(6)
     ghost.press("w")
+    close_card(ghost)
     click(ghost, SPHERES3[0])
     solid = Script()
     scene_tab(solid)
     solid.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
     solid.wait(6)
     solid.press("w")
+    close_card(solid)
     click(solid, SPHERES3[0])
     return Steps([
         (ghost, scene_args(), {"objects_ghost": near(1), "objects_shown": near(3), "selected": near(-1), "undo_steps": near(0)}),
@@ -7354,6 +7363,7 @@ def shift_click_rows_then_drag_moves_both():
         s.add("keyup:shift")
         s.wait(2)
         s.press("w")
+        close_card(s)
         s.mouse_drag(line(SPHERES3[0], (SPHERES3[0][0] + 80, SPHERES3[0][1]), 8))
         if undo:
             s.press("z", ["ctrl"])
@@ -7380,12 +7390,12 @@ def shift_click_objects_in_the_viewport():
     click(s, SPHERES3[2])
     s.add("keyup:shift")
     s.wait(2)
-    scene_tab(s)
+    lens_card_open(s, "scene")
     select_several(s)
     s.wait(4)
     s.ftap(300, 700)
     s.wait(6)
-    return s, scene_args(), {"selected_count": near(2), "selected": near(2), "undo_steps": near(0), "scene_positions": is_text("0.000:0.000:0.000,2.250:0.000:0.000,4.500:0.000:0.000")}
+    return s, THREE, {"selected_count": near(2), "selected": near(2), "undo_steps": near(0), "scene_positions": is_text("0.000:0.000:0.000,2.250:0.000:0.000,4.500:0.000:0.000")}
 
 
 @scenario
@@ -8502,7 +8512,7 @@ def background_hold_keeps_a_dropped_file():
 
 
 # The middle and right spheres of THREE on screen; the left one starts selected.
-SPHERE_2, SPHERE_3 = (647, 430), (860, 480)
+SPHERE_2, SPHERE_3 = (803, 437), (1009, 485)
 
 
 @scenario
@@ -10700,8 +10710,8 @@ def wipe_compare_from_the_pass_menu():
 
 
 # Proportion guides in the view grid's Four at 1600 x 900: the Brow tag in the Front pane
-# (top right), left of the panels.
-GUIDE_FRONT_BROW = (1450, 165)
+# (top right), left of the view rail.
+GUIDE_FRONT_BROW = (1504, 165)
 
 
 @scenario
