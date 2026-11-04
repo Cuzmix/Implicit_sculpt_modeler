@@ -547,6 +547,12 @@ bar_enabled :: proc(app: ^App, s: Bar_Slot) -> bool {
 // its section; the rest run (Retopologize too, its section being its long press's).
 bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
+	// Ctrl+Alt+click gives the button's command a key, as command_run does, before a card
+	// or a menu opens.
+	if bind_click(app) {
+		bind_open(app, s.id, s.arg, at)
+		return
+	}
 	#partial switch s.id {
 	case .Shading_Menu, .Camera_Menu, .View_Layout_Menu:
 		kind := Bar_Pop_Kind.Shading if s.id == .Shading_Menu else .Camera if s.id == .Camera_Menu else .View_Layout

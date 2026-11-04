@@ -46,8 +46,9 @@ Column :: struct {
 // The width of a card, and the gap between it and its dock and between two cards.
 CARD_W :: KIT_INSPECTOR_W
 CARD_GAP :: 8
-// The part of the window's height, from the top, that the pen side's column keeps to on a
-// tablet: the lower 42 % is where the pen hand's palm rests.
+// The part of the window's height, from the top, that the pen side's column keeps to while
+// the pen is in use: the lower 42 % is where the pen hand's palm rests (fingers alone rest
+// no palm there, so their column runs the whole height).
 CARD_PALM_TOP :: 0.58
 // The fewest points a card's body gets, however little room its column has.
 CARD_BODY_MIN :: 120
@@ -210,6 +211,10 @@ columns_update :: proc(app: ^App) {
 	ctx := &k.ctx
 	if !k.cards.set do cards_default(k)
 	if ctx.input.pressed == {} || !ctx.input.mouse_valid || !(ctx.pointer_root == 0 || ctx.viewport_drag) do return
+	// A press on what a card put in the view (a light's marker or gizmo, Place highlight's
+	// press, the Move tool's gizmo) is that card's work, so the cards stay.
+	at, size := ctx.input.mouse, ctx.input.window
+	if lights_take_press(app, at, size) || (app.tool == .Move && gizmo_pick(app, at, size) != .None) do return
 	closed := false
 	for &col in k.cards.columns do if column_close_unpinned(&col) do closed = true
 	if !closed do return
@@ -251,6 +256,9 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column) -> (x, y, room: f3
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	at, side := col.at, col.side
+	// A column no button opened follows the dock on the pen side's edge as it lays out,
+	// since the first frames know no width for it yet.
+	if at.w <= 0 do at, side = column_default_anchor(app)
 	// A left-handed layout mirrors the sides its buttons name.
 	if ctx.mirror && (side == .Left || side == .Right) do side = .Right if side == .Left else .Left
 	bottom := area.y + area.h - t.edge
@@ -276,7 +284,7 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column) -> (x, y, room: f3
 		if ctx.mirror do left = area.w - (left + CARD_W)
 		if hi + CARD_GAP > left && lo - CARD_GAP < left + CARD_W do bottom = min(bottom, area.y + area.h - dock_stack(app) - CARD_GAP)
 	}
-	if s == .Right && !columns_split(app) do bottom = min(bottom, area.y + area.h * CARD_PALM_TOP)
+	if s == .Right && app.device.pointer == .Pen do bottom = min(bottom, area.y + area.h * CARD_PALM_TOP)
 	room = max(bottom - y, CARD_BODY_MIN + t.target)
 	return
 }
@@ -365,7 +373,7 @@ card_head :: proc(app: ^App, entry: ^Column_Card, inner: f32) {
 		}
 		ui.spacer(ctx, 4)
 	}
-	if ui.icon_button(ctx, "Unpin" if entry.pinned else "Pin: keep it open while you sculpt", ICON_PIN, selected = entry.pinned) do card_pin(app, c)
+	if ui.icon_button(ctx, "Unpin##pin" if entry.pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = entry.pinned) do card_pin(app, c)
 	if ui.icon_button(ctx, "Close##card", ui.ICON_CLOSE) do card_close(app, c)
 	ui.end(ctx)
 }

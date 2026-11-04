@@ -257,6 +257,10 @@ kit_mask :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
+		// Whether the view darkens what is masked; the mask stays either way, and it is no
+		// undo step.
+		shown := !app.ui.mask_hidden
+		if ui.switch_row(ctx, "Show the mask", &shown) do app.ui.mask_hidden = !shown
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Cavity), int(sculpt.Mask_Command.Hidden), "Mask cavities", "Mask hidden")
