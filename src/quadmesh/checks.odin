@@ -21,6 +21,10 @@ Checks :: struct {
 	iso_open_edges:      int, // edges of one triangle
 	iso_nonmanifold:     int, // edges of three or more
 	iso_euler:           int, // vertices less edges plus triangles: what the quads should keep
+	iso_split_fans:      int, // the Odin remesh's: vertices added where a vertex joined fans of triangles (a pinch)
+	iso_torn_edges:      int, // and edges of three or more triangles, or of two running the same way, cut into borders
+	iso_dropped:         int, // and triangles that repeated a vertex, dropped
+	iso_capped:          int, // islands whose splits stopped at the cap
 	iso_min_angle:       f64, // degrees: the smallest corner of any triangle
 	iso_edge_spread:     f64, // the edges' standard deviation over their mean
 	covers:              int, // covers solved
@@ -63,6 +67,10 @@ checks_add :: proc(to: ^Checks, c: Checks) {
 	to.iso_open_edges += c.iso_open_edges
 	to.iso_nonmanifold += c.iso_nonmanifold
 	to.iso_euler += c.iso_euler
+	to.iso_split_fans += c.iso_split_fans
+	to.iso_torn_edges += c.iso_torn_edges
+	to.iso_dropped += c.iso_dropped
+	to.iso_capped += c.iso_capped
 	to.iso_min_angle, to.iso_edge_spread = angle, spread
 	to.covers += c.covers
 	to.cover_singular += c.cover_singular
@@ -98,8 +106,8 @@ checks_line :: proc(c: Checks) -> string {
 	vertices := 0
 	for n in c.quad_valence do vertices += n
 	regular := 100 * f64(c.quad_valence[4]) / f64(vertices) if vertices > 0 else 0
-	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_unpinched=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_euler=%d iso_min_angle=%.2f iso_edge_spread=%.3f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% quad_euler=%d cells_lost=%.1f%% extract_points=%d extract_holes=%d extract_open_seams=%d extract_unmatched=%d extract_filled=%d extract_patched=%d extract_dropped=%d extract_bad_cuts=%d extract_largest_cut=%d",
-		c.islands, c.thin_triangles, c.thin_decimated, c.thin_unpinched, c.thin_open_edges, c.thin_nonmanifold, c.iso_triangles, c.iso_open_edges, c.iso_nonmanifold, c.iso_euler, c.iso_min_angle, c.iso_edge_spread,
+	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_unpinched=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_euler=%d iso_split_fans=%d iso_torn_edges=%d iso_dropped=%d iso_capped=%d iso_min_angle=%.2f iso_edge_spread=%.3f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% quad_euler=%d cells_lost=%.1f%% extract_points=%d extract_holes=%d extract_open_seams=%d extract_unmatched=%d extract_filled=%d extract_patched=%d extract_dropped=%d extract_bad_cuts=%d extract_largest_cut=%d",
+		c.islands, c.thin_triangles, c.thin_decimated, c.thin_unpinched, c.thin_open_edges, c.thin_nonmanifold, c.iso_triangles, c.iso_open_edges, c.iso_nonmanifold, c.iso_euler, c.iso_split_fans, c.iso_torn_edges, c.iso_dropped, c.iso_capped, c.iso_min_angle, c.iso_edge_spread,
 		c.covers, c.cover_singular, c.cover_flipped, c.cover_cells, c.cover_cells_abs, c.cover_cells_wanted,
 		c.quad_faces, c.quad_quads, c.quad_triangles, c.quad_ngons, c.quad_open_edges, c.quad_nonmanifold,
 		c.quad_valence[1], c.quad_valence[2], c.quad_valence[3], c.quad_valence[4], c.quad_valence[5], c.quad_valence[6], regular, c.quad_euler, lost,

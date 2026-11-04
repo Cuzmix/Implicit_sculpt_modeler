@@ -312,12 +312,13 @@ along :: proc(e: Fixed) -> (d: u8, ok: bool) {
 	return 0, false
 }
 
-@(private = "file")
+// The next and the previous corner of corner c's triangle (corner c % 3 of triangle c / 3).
+@(private)
 corner_next :: #force_inline proc(c: u32) -> u32 {
 	return c - c % 3 + (c % 3 + 1) % 3
 }
 
-@(private = "file")
+@(private)
 corner_prev :: #force_inline proc(c: u32) -> u32 {
 	return c - c % 3 + (c % 3 + 2) % 3
 }

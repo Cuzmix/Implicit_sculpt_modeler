@@ -73,9 +73,13 @@ CLOSEST_STACK :: 64
 // every part of the tree is still looked at, so the answer is exact, but what the hint
 // found bounds it from the start, the nodes on the way are the ones the last query
 // read, and the far siblings are passed with one box each.
-bvh_closest :: proc(b: Bvh, m: Mesh, p: Vec3, max_dist: f32, hint := BVH_NONE) -> (tri: u32, bary: [3]f32, dist: f32, ok: bool) {
+//
+// `facing`, when not zero, takes only the triangles that face its way (their normal's
+// dot with it positive): a point on a thin part then finds its own side of the surface,
+// never the side facing away just behind it.
+bvh_closest :: proc(b: Bvh, m: Mesh, p: Vec3, max_dist: f32, hint := BVH_NONE, facing := Vec3{}) -> (tri: u32, bary: [3]f32, dist: f32, ok: bool) {
 	if len(b.nodes) == 0 || b.nodes[0].bounds.lo.x > b.nodes[0].bounds.hi.x do return
-	c := Closest{b = b, m = m, p = p, best = max_dist * max_dist}
+	c := Closest{b = b, m = m, p = p, best = max_dist * max_dist, facing = facing, faced = facing != {}}
 	if hint == BVH_NONE || b.tri_leaf == nil {
 		closest_descend(&c, 0)
 	} else {
@@ -96,9 +100,11 @@ Closest :: struct {
 	m:    Mesh,
 	p:    Vec3,
 	best: f32, // squared
-	tri:  u32,
-	bary: [3]f32,
-	ok:   bool,
+	tri:    u32,
+	bary:   [3]f32,
+	ok:     bool,
+	facing: Vec3,
+	faced:  bool, // facing is not zero
 }
 
 // Searches the subtree at `root` for anything nearer than the best so far.
@@ -116,7 +122,9 @@ closest_descend :: proc(c: ^Closest, root: u32) {
 		if node.count > 0 {
 			for i in node.first ..< node.first + node.count {
 				id := i if runs else b.tri_order[i]
-				q, w := closest_on_triangle(p, m.positions[m.indices[3 * id]], m.positions[m.indices[3 * id + 1]], m.positions[m.indices[3 * id + 2]])
+				t0, t1, t2 := m.positions[m.indices[3 * id]], m.positions[m.indices[3 * id + 1]], m.positions[m.indices[3 * id + 2]]
+				if c.faced && linalg.dot(linalg.cross(t1 - t0, t2 - t0), c.facing) <= 0 do continue
+				q, w := closest_on_triangle(p, t0, t1, t2)
 				if d := linalg.length2(q - p); d < c.best || (d == c.best && !c.ok) {
 					c.best, c.tri, c.bary, c.ok = d, id, w, true
 				}
