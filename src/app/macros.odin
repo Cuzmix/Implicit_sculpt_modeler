@@ -548,13 +548,11 @@ macro_delete :: proc(app: ^App, slot: int) -> bool {
 	return true
 }
 
-// Opens the Macros panel in the inspector's place, unfolded and in front.
+// Opens the Macros sheet, closing Settings or Help (one sheet at a time).
 macros_open :: proc(app: ^App) {
 	k := &app.kit
 	if k.settings do settings_close(app)
 	k.help, k.macros, k.macro_armed = false, true, 0
-	k.windows[.Macros].minimized = false
-	window_raise(k, .Macros)
 }
 
 // The red chip at the top of the viewport while a recording is on: what it holds so far,

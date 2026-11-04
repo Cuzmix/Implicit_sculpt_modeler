@@ -8,44 +8,34 @@ import "../ui"
 // Settings (Menu > Settings): the app's own preferences in one place, by section
 // (settings_sections.odin), each changed at once and remembered (settings.odin) when it
 // closes, when the app goes to the background and on exit. Brush and tool settings stay
-// with the tool, in the inspector; the drawing switches for comparing speed stay in the
-// Stats panel's Advanced view, being for development. A window wide enough has the sheet
-// (kit_settings_sheet), sections down its side and the open one beside them; a narrower
-// one has a panel in the inspector's place that drills down: Search settings over the
-// sections, and a tap on one shows its blocks under Back, as a phone's settings do. Both
-// are the same sections, search and resets.
+// with the tool, on its card; the drawing switches for comparing speed stay in the Stats
+// panel's Advanced view, being for development. It is a sheet (sheet.odin): one wide
+// enough has the sections down its side and the open one beside them (settings_columns);
+// a narrower one drills down, Search settings over the sections, and a tap on one shows
+// its blocks under Back, as a phone's settings do. Both are the same sections, search and
+// resets.
 
 // The interface sizes on offer, times what the display asks for. None is smaller than
 // what it asks for, so every touch target stays at least 48 points (sm-store).
 UI_SCALES := [?]f32{1, 1.15, 1.3, 1.5}
 
-// The narrow panel's width.
-KIT_SETTINGS_W :: 400
-
 // Seconds Reset all settings waits for its second tap.
 SETTINGS_WIPE_TIME :: 3
 
-kit_settings :: proc(app: ^App) -> (raised: bool) {
+kit_settings :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	was := k.settings
+	// The sheet's own id, named at the root (inside the sheet a name is the sheet's).
 	id := ui.id_of(ctx, "settings")
-	shown := ui.presence(ctx, id, k.settings, t.panel_time)
-	if shown <= 0 do return
-	if settings_sheet_fits(app) do return kit_settings_sheet(app, shown)
-	win := &k.windows[.Settings]
-	top := kit_top()
-	room := window_room(app, win^, top)
-	if !win.moved do room -= side_panel_below(app, KIT_SETTINGS_W)
-	inner := f32(KIT_SETTINGS_W - 2 * 16)
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
-	raised = raised_now
-	if closed do settings_close(app)
-	if !body {
-		ui.window_end(ctx)
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
+	inner, room, shown := sheet_begin(app, "settings", "Settings", ui.ICON_SETTINGS, &k.settings, SETTINGS_SHEET_W)
+	// A press outside, Close or Escape put it away: what it holds is remembered then.
+	if was && !k.settings do settings_close(app)
+	if !shown do return
+	defer sheet_end(app)
+	if inner >= SETTINGS_SHEET_W - 2 * SHEET_PAD {
+		settings_columns(app, id, inner, min(room, SETTINGS_SHEET_H))
 		return
 	}
 	q := settings_query(k)
@@ -63,7 +53,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	}
 
 	// The list or the section scrolls in the room left between the head and the buttons below.
-	body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
+	body_h := max(room - 3 * 8 - 2 * t.target, 120)
 	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, inner, body_h, 4)
 	k.settings_body = scroll.at
 	if k.settings_drill {
@@ -88,9 +78,6 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	if settings_wipe_button(app, (inner - 8) * 0.5) do settings_reset_all(app)
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
 }
 
 // Reset all settings, `width` wide: everything goes back only on a second tap, so a stray
@@ -108,7 +95,7 @@ settings_wipe_button :: proc(app: ^App, width: f32) -> bool {
 	return false
 }
 
-// Opens Settings as Menu > Settings does, on section `s` from its top (on the narrow panel,
+// Opens Settings as Menu > Settings does, on section `s` from its top (on a narrow sheet,
 // drilled into it); returns whether it ran.
 settings_open :: proc(app: ^App, s: Settings_Section) -> bool {
 	if !command_run(app, .Settings) do return false

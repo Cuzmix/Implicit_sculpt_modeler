@@ -16,7 +16,7 @@ Panel_Ref :: union {
 }
 
 // The windows that are panels; Settings, Help, Macros and Library stay side panels.
-PANEL_WINDOWS :: bit_set[Kit_Window]{.Stats, .Thumbnail}
+PANEL_WINDOWS :: bit_set[Kit_Window]{.Thumbnail}
 
 // What a panel was last laid out as: where, and in which frame.
 Panel_Seen :: struct {
@@ -69,7 +69,7 @@ panels_default :: proc(k: ^Kit_State) {
 panel_name :: proc(ref: Panel_Ref) -> string {
 	switch r in ref {
 	case Kit_Window:
-		names := [Kit_Window]string{.Stats = "stats", .Settings = "settings", .Help = "help", .Macros = "macros", .Thumbnail = "thumbnail"}
+		names := [Kit_Window]string{.Thumbnail = "thumbnail"}
 		return names[r]
 	case Card:
 		return card_root_name(r)
@@ -97,7 +97,6 @@ panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
 	switch r in ref {
 	case Kit_Window:
 		#partial switch r {
-		case .Stats:     return k.stats
 		case .Thumbnail: return k.thumbnail
 		}
 	case Card:
@@ -112,7 +111,6 @@ panel_set_open :: proc(app: ^App, ref: Panel_Ref, open: bool) {
 	switch r in ref {
 	case Kit_Window:
 		#partial switch r {
-		case .Stats:     k.stats = open
 		case .Thumbnail: k.thumbnail = open
 		}
 	case Card:
@@ -141,7 +139,6 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 	switch r in ref {
 	case Kit_Window:
 		#partial switch r {
-		case .Stats:     return "Statistics"
 		case .Thumbnail: return "Thumbnail"
 		}
 	case Card:

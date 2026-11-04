@@ -10,8 +10,8 @@ import "../ui"
 // a desktop app's preferences window and a tablet app's settings both lay them out, and
 // the section's blocks beside them, with Reset (the section's) at the end of its blocks
 // and Reset all settings at the side's foot. Touch lists every gesture as a row with what
-// it does, so the touch model is never hidden. A window too narrow for the sheet gets the
-// panel that drills down into the same sections (kit_settings).
+// it does, so the touch model is never hidden. A window too narrow for the columns gets
+// a sheet that drills down into the same sections (kit_settings).
 
 Settings_Section :: enum u8 {
 	Interface,
@@ -124,38 +124,19 @@ settings_section_reset :: proc(app: ^App, s: Settings_Section) {
 	for e in settings_section_entries(s) do settings_block_reset(app, e.block)
 }
 
-// The sheet's size, its side column's width and the narrowest window it shows on.
+// The sheet's width, its height at most and its side column's width.
 SETTINGS_SHEET_W :: 780
 SETTINGS_SHEET_H :: 600
 SETTINGS_SHEET_SIDE :: 190
-SETTINGS_SHEET_MIN_WINDOW :: 840
 
-// Whether the window has room for the sheet; a narrower one has the panel that drills down.
-settings_sheet_fits :: proc(app: ^App) -> bool {
-	return ui.safe_area(&app.kit.ctx).w >= SETTINGS_SHEET_MIN_WINDOW
-}
-
-kit_settings_sheet :: proc(app: ^App, shown: f32) -> (raised: bool) {
+// The sheet as wide as it asks: the sections down its side, the open one beside them,
+// `inner` wide and `height` tall, scrolling as sheet `id`'s.
+settings_columns :: proc(app: ^App, id: ui.Id, inner, height: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	id := ui.id_of(ctx, "settings")
-	win := &k.windows[.Settings]
-	top := kit_top()
-	PAD :: 16
 	GAP :: 16
-	height := clamp(window_room(app, win^, top) - 2 * PAD - t.target, 320, SETTINGS_SHEET_H)
-	body_w := f32(SETTINGS_SHEET_W - 2 * PAD - SETTINGS_SHEET_SIDE - GAP)
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .Center, .Start, {0, top + 8}, {direction = .Column, gap = 8, padding = PAD, width = SETTINGS_SHEET_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
-	raised = raised_now
-	if closed do settings_close(app)
-	if !body {
-		ui.window_end(ctx)
-		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
-		return
-	}
+	body_w := inner - SETTINGS_SHEET_SIDE - GAP
 	q := settings_query(k)
 	// A search that leaves the section open without a match moves to the first that has one.
 	if q != "" && !settings_section_matches(k.settings_section, q) {
@@ -190,21 +171,16 @@ kit_settings_sheet :: proc(app: ^App, shown: f32) -> (raised: bool) {
 	// The section: its name, then its blocks in a scroll.
 	ui.begin(ctx, "settings section", {direction = .Column, gap = 8, width = body_w, height = height})
 	head := ui.place(ctx, {body_w, t.target})
-	ui.text(ctx, SETTINGS_SECTION_NAMES[k.settings_section], head.x, head.y + head.h * 0.5, t.heading_size * 1.2, t.text, .Semibold)
+	ui.text(ctx, SETTINGS_SECTION_NAMES[k.settings_section], head.x, head.y + head.h * 0.5, t.heading_size, t.text, .Semibold)
 	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, body_w, height - t.target - 8, 4)
 	k.settings_body = scroll.at
 	name := strings.to_lower(SETTINGS_SECTION_NAMES[k.settings_section], context.temp_allocator)
-	entries := settings_section_entries(k.settings_section)
-	settings_entries_draw(app, entries, q, name)
+	settings_entries_draw(app, settings_section_entries(k.settings_section), q, name)
 	ui.spacer(ctx, 8)
 	if ui.button(ctx, fmt.tprintf("Reset %s settings", SETTINGS_SECTION_NAMES[k.settings_section]), .Bordered) do settings_section_reset(app, k.settings_section)
 	kit_scroll_end(ctx, scroll)
 	ui.end(ctx)
 	ui.end(ctx)
-
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
-	return
 }
 
 // The width of a gesture row's choice, on the row's right.

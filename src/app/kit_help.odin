@@ -24,9 +24,8 @@ HELP_TAB_NAMES := [Help_Tab]string {
 	.Glossary = "Glossary",
 }
 
-// The Help window's width: Settings', so swapping one for the other in their shared place
-// keeps the panel's edge where it was.
-KIT_HELP_W :: KIT_SETTINGS_W
+// The Help sheet's width, room for a key and what it does on one line.
+KIT_HELP_W :: 520
 
 // The registry's commands by the part of the app they act on, as Help groups their keys.
 Command_Group :: enum u8 {
@@ -336,70 +335,55 @@ help_name :: proc(id: Command_Id, arg: int) -> string {
 	return strings.trim_suffix(palette_label({.Command, id, arg}), "...")
 }
 
-// Opens Help on `tab` from its top, in Settings' place, unfolded and in front.
+// Opens Help on `tab` from its top, closing Settings or Macros (one sheet at a time).
 help_open :: proc(app: ^App, tab: Help_Tab) {
 	k := &app.kit
 	if k.settings do settings_close(app)
 	k.macros = false
 	k.help, k.help_tab, k.help_scroll = true, tab, 0
-	k.windows[.Help].minimized = false
-	window_raise(k, .Help)
 }
 
-kit_help :: proc(app: ^App) -> (raised: bool) {
+kit_help :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	// The sheet's own id, named at the root (inside the sheet a name is the sheet's).
 	id := ui.id_of(ctx, "help")
-	shown := ui.presence(ctx, id, k.help, t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Help]
-	top := kit_top()
-	room := window_room(app, win^, top)
-	if !win.moved do room -= side_panel_below(app, KIT_HELP_W)
-	inner := f32(KIT_HELP_W - 2 * 16)
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "help", "Help", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_HELP_W, radius = t.radius_large, background = .Panel, inert = !k.help}, "Esc")
-	raised = raised_now
-	if closed do k.help = false
-	if body {
-		// The tags over the screen itself, for learning it where it is used.
-		ui.begin(ctx, "help top", {direction = .Row, gap = 8})
-		half := (inner - 8) * 0.5
-		_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
-		_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
-		ui.end(ctx)
-		names: [len(Help_Tab)]string
-		for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
-		if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {
-			k.help_tab = Help_Tab(picked)
-			k.help_scroll = 0
-		}
-		body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
-		scroll := kit_scroll_begin(ctx, "help body", &k.help_scroll, id, inner, body_h, 4)
-		tool := kit_tool_name(app.tool)
-		switch k.help_tab {
-		case .Keys:
-			help_rows(app, help_key_rows(app), inner)
-			ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
-			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
-			if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Shortcuts)
-		case .Gestures:
-			ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
-			ui.spacer(ctx, 4)
-			help_rows(app, help_touch_rows(app), inner)
-			ui.paragraph(ctx, "Gestures turn on and off in Settings > Touch, the edges that turn the view in Settings > Camera, and the modifier buttons in Settings > Interface.")
-			if ui.button(ctx, "Touch settings", .Bordered, glyph = ui.ICON_SETTINGS) do settings_open(app, .Touch)
-			_ = command_button(app, .Coach_Tips, variant = .Bordered, glyph = ui.ICON_HELP)
-		case .Glossary:
-			help_glossary(app)
-		}
-		kit_scroll_end(ctx, scroll)
+	inner, room, shown := sheet_begin(app, "help", "Help", ui.ICON_HELP, &k.help, KIT_HELP_W)
+	if !shown do return
+	defer sheet_end(app)
+	// The tags over the screen itself, for learning it where it is used.
+	ui.begin(ctx, "help top", {direction = .Row, gap = 8})
+	half := (inner - 8) * 0.5
+	_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
+	_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
+	ui.end(ctx)
+	names: [len(Help_Tab)]string
+	for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
+	if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {
+		k.help_tab = Help_Tab(picked)
+		k.help_scroll = 0
 	}
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
+	body_h := max(room - 2 * 8 - 2 * t.target, 120)
+	scroll := kit_scroll_begin(ctx, "help body", &k.help_scroll, id, inner, body_h, 4)
+	tool := kit_tool_name(app.tool)
+	switch k.help_tab {
+	case .Keys:
+		help_rows(app, help_key_rows(app), inner)
+		ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
+		ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
+		if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Shortcuts)
+	case .Gestures:
+		ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
+		ui.spacer(ctx, 4)
+		help_rows(app, help_touch_rows(app), inner)
+		ui.paragraph(ctx, "Gestures turn on and off in Settings > Touch, the edges that turn the view in Settings > Camera, and the modifier buttons in Settings > Interface.")
+		if ui.button(ctx, "Touch settings", .Bordered, glyph = ui.ICON_SETTINGS) do settings_open(app, .Touch)
+		_ = command_button(app, .Coach_Tips, variant = .Bordered, glyph = ui.ICON_HELP)
+	case .Glossary:
+		help_glossary(app)
+	}
+	kit_scroll_end(ctx, scroll)
 }
 
 // The rows under a caption for each group. A row whose two halves fit side by side is one

@@ -8,7 +8,7 @@ import "../ui"
 
 // Cards (Panels v2): every control the docks do not hold lives on one card, and every
 // card is a task: Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Colours, Symmetry, Look,
-// Render and History. The sections the three palettes once had are folds inside them, each in exactly
+// Render, History and Details. The sections the three palettes once had are folds inside them, each in exactly
 // one card, so a control has one home and Search's Show where opens that card on it
 // (card_reveal). A card opens beside the dock button that asked for it, in the column on
 // that side of the screen (column.odin); nothing else shows a card's controls.
@@ -27,6 +27,7 @@ Card :: enum u8 {
 	Look,
 	Render,
 	History,
+	Details,
 }
 
 @(rodata)
@@ -43,6 +44,7 @@ CARD_NAMES := [Card]string {
 	.Look     = "Look",
 	.Render   = "Render",
 	.History  = "History",
+	.Details  = "Details",
 }
 
 @(rodata)
@@ -59,12 +61,14 @@ CARD_ICONS := [Card]rune {
 	.Look     = ICON_SHADING,
 	.Render   = ICON_RENDER_PREVIEW,
 	.History  = ui.ICON_HISTORY,
+	.Details  = ui.ICON_ACTIVITY,
 }
 
 // The cards that draw their whole body themselves, each with a scroll and controls of its
 // own that stay put under it (the Colours card's tabs along its foot, the History list's
-// rows drawn only where they show), so the card's body does not scroll them.
-OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History}
+// rows drawn only where they show, the Details card's Simple and Advanced tabs over its
+// numbers), so the card's body does not scroll them.
+OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details}
 
 // How wide card `c` is: the Colours card seven touch-sized swatches across, the History card
 // what its rows of controls need, every other card the same.
@@ -72,6 +76,7 @@ card_width :: proc(c: Card) -> f32 {
 	#partial switch c {
 	case .Colours: return COLORS_CARD_W
 	case .History: return KIT_HISTORY_CARD_W
+	case .Details: return DETAILS_CARD_W
 	}
 	return CARD_W
 }
@@ -101,6 +106,7 @@ Section :: enum u8 {
 	Symmetry,
 	Colours,
 	History,
+	Details,
 	// Mesh.
 	Levels,
 	Hd,
@@ -152,6 +158,7 @@ section_card :: proc(sec: Section) -> Card {
 	case .Symmetry:                return .Symmetry
 	case .Colours:                 return .Colours
 	case .History:                 return .History
+	case .Details:                 return .Details
 	case .Levels ..= .Project:     return .Mesh
 	case .Mask ..= .Visibility:    return .Mask
 	case .Transform ..= .Deformers: return .Deform
@@ -253,6 +260,7 @@ section_title :: proc(sec: Section) -> string {
 	case .Symmetry: return "Symmetry"
 	case .Colours:  return "Colours"
 	case .History:  return "History"
+	case .Details:  return "Details"
 	}
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title
@@ -281,6 +289,7 @@ SECTION_ICONS := [Section]rune {
 	.Symmetry    = ICON_SYMMETRY,
 	.Colours     = ICON_COLOUR,
 	.History     = ui.ICON_HISTORY,
+	.Details     = ui.ICON_ACTIVITY,
 	.Levels      = ICON_SUBDIVIDE,
 	.Hd          = ui.ICON_ZOOM_IN,
 	.Topology    = ICON_DYNTOPO,

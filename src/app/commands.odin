@@ -2164,11 +2164,11 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {return main_shading_mode(app) == .Solid && app.kit.passes.shading.lighting == Solid_Lighting(arg)},
 	},
 	.Stats = {
-		label = "Stats",
-		help = "Shows how smoothly the app runs.",
+		label = "Details",
+		help = "Shows the Details card: how smoothly the app runs, the mesh and the memory.",
 		icon = ui.ICON_ACTIVITY,
-		run = proc(app: ^App, _: int) {app.kit.stats = !app.kit.stats},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
+		run = proc(app: ^App, _: int) {if card_shown(app, .Details) do card_close(app, .Details); else do card_open(app, .Details)},
+		checked = proc(app: ^App, _: int) -> bool {return card_shown(app, .Details)},
 	},
 	.Open_Card = {
 		label = "Open card",
@@ -2450,12 +2450,10 @@ COMMANDS := [Command_Id]Command {
 		label = "Settings...",
 		help = "Opens the app's settings.",
 		icon = ui.ICON_SETTINGS,
-		// Unfolded and in front, wherever it was left, in Help's place (they share it).
+		// A sheet, closing Help or Macros (one sheet at a time).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			k.settings, k.help, k.macros = true, false, false
-			k.windows[.Settings].minimized = false
-			window_raise(k, .Settings)
 		},
 	},
 	.Main_Menu = {
@@ -2550,7 +2548,7 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {
 			coach_restart(app)
 			// The card shows only with nothing open over its place.
-			side_panel_close(app)
+			sheet_close(app)
 			if app.kit.palette do palette_close(app)
 			app.kit.menu = false
 		},

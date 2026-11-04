@@ -13,7 +13,7 @@ import "../ui"
 
 recover_shown :: proc(app: ^App) -> bool {
 	a := &app.autosave
-	return len(a.offers) > 0 && !a.offer_hidden && !side_panel_open(&app.kit) && !kit_floating(app)
+	return len(a.offers) > 0 && !a.offer_hidden && !sheet_open(&app.kit) && !kit_floating(app)
 }
 
 // The card's sentence for an offer: when, how much, and which file.

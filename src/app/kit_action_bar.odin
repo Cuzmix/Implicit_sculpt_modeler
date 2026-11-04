@@ -196,11 +196,11 @@ action_bar_room :: proc(app: ^App) -> f32 {
 	area := ui.safe_area(&k.ctx)
 	side := kit_left(app)
 	if across := rail_reach_across(app); across > 0 do side = max(side, across + 8)
-	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else cards_right_room(app)
+	panel := cards_right_room(app)
 	_, dock_hi := shelf_bottom_span(app)
 	right := kit_right(app)
 	beside := dock_hi + 8 <= area.w - right - panel
-	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, right + panel + 8)
+	if panel > 0 && beside do side = max(side, right + panel + 8)
 	side = max(side, right)
 	return area.w - 2 * side
 }

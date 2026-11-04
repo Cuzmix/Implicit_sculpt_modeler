@@ -57,7 +57,7 @@ re-check the stores' pages before a first submission, because they move every ye
   versions must go to the app's own folder (or the picked folder's tree, if the user granted one), never ask for
   broader storage access to keep them.
 - Apple 4.2 / 2.1: the build is complete, nothing says "coming soon", no placeholder screens, no debug panels
-  reachable by users (the Stats panel, F11 and Menu > Stats, is to be a developer flag only in store builds).
+  reachable by users (the Details card, F11 and Menu > More > Details, is to be a developer flag only in store builds).
 
 ## Files, storage and data
 - No access outside the app's own folders except through the system file picker (Storage Access Framework on
