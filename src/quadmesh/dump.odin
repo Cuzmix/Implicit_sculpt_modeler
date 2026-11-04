@@ -49,7 +49,7 @@ dump_cover :: proc(folder: string, island, pass: int, iso: Isotropic, cover: Cov
 	defer strings.builder_destroy(&b)
 	fmt.sbprintfln(&b, "# quadmesh stage 3, cover %d: scaling %.9g, cells %.1f off the caps, wanted %.1f, %d singular vertices", pass + 1, scaling, cells, wanted, len(cover.singular))
 	for p in iso.positions do fmt.sbprintfln(&b, "v %.9g %.9g %.9g", p.x, p.y, p.z)
-	for t in cover.uvs do for k in 0 ..< 3 do fmt.sbprintfln(&b, "vt %.9g %.9g", t[k][0], t[k][1])
+	for t in cover.uvs do for k in 0 ..< 3 do fmt.sbprintfln(&b, "vt %.17g %.17g", t[k][0], t[k][1])
 	for t, f in iso.triangles do fmt.sbprintfln(&b, "f %d/%d %d/%d %d/%d", t[0] + 1, 3 * f + 1, t[1] + 1, 3 * f + 2, t[2] + 1, 3 * f + 3)
 	for s in cover.singular do fmt.sbprintfln(&b, "p %d", s + 1)
 	dump_write(folder, island, fmt.tprintf("3_cover%d", pass + 1), b)

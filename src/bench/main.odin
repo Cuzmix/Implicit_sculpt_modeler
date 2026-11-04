@@ -20,7 +20,7 @@
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh);
-//                --core=cpp,odin runs it through each core named, one row each
+//                --core=cpp,driver,odin runs it through each core named, one row each
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)

@@ -59,8 +59,8 @@ Params :: struct {
 	cap:      geom.Remesh_Mirror,
 	cap_snap: f32,
 	// Which side runs the pipeline: the C++ core whole, or the Odin driver a stage at a
-	// time (driver.odin), where the stages are ported one by one and checked against the
-	// C++'s. Both give the same quads while every stage is the C++'s.
+	// time (driver.odin), with every stage the C++'s or with the stages ported so far in
+	// Odin, each checked against the C++'s.
 	core: Core,
 	// A folder each stage's output is written to (dump.odin; the driver only), or "".
 	dump: string,
@@ -69,12 +69,21 @@ Params :: struct {
 // Who runs the pipeline (Params.core).
 Core :: enum u8 {
 	Cpp, // qm_remesh: AutoRemesher's stages as the C++ boundary drives them
-	Odin, // the Odin driver, each stage the C++'s or, once ported, its Odin replacement
+	Driver, // the Odin driver with every stage the C++'s: qm_remesh's result bit for bit
+	Odin, // the Odin driver with the stages ported so far in Odin (the extraction), the rest the C++'s
 }
 
 CORE_NAMES := [Core]string {
-	.Cpp  = "cpp",
-	.Odin = "odin",
+	.Cpp    = "cpp",
+	.Driver = "driver",
+	.Odin   = "odin",
+}
+
+// What a result line says of who ran the pipeline: nothing for the C++ core.
+CORE_LABELS := [Core]string {
+	.Cpp    = "",
+	.Driver = "through the Odin driver",
+	.Odin   = "with the Odin extraction",
 }
 
 // AutoRemesher's own values.
@@ -146,7 +155,7 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 	switch params.core {
 	case .Cpp:
 		out, times, err, reason = cpp_remesh(positions, indices, params, progress, share, allocator)
-	case .Odin:
+	case .Driver, .Odin:
 		if params.dump != "" do _ = os.make_directory_all(params.dump)
 		out, times, report.checks, err, reason = driver_remesh(positions, indices, params, progress, share, allocator)
 	}

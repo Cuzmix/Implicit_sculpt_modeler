@@ -12,6 +12,7 @@ import "../geom"
 import "../hdri"
 import "../render"
 import "../png_write"
+import "../quadmesh"
 import "../sculpt"
 import "../ui"
 import "../retopo"
@@ -232,7 +233,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	// when it was not asked for.
 	engine := retopo.ENGINE_NAMES[res.engine]
 	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
-	if res.reason == "" && res.engine == .Auto && res.core == .Odin do engine = fmt.tprintf("%s through the Odin driver", engine)
+	if res.reason == "" && res.engine == .Auto && res.core != .Cpp do engine = fmt.tprintf("%s %s", engine, quadmesh.CORE_LABELS[res.core])
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)

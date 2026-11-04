@@ -24,7 +24,7 @@ both_cores :: proc(t: ^testing.T, name: string, positions: []geom.Vec3, indices:
 	p.core = .Cpp
 	cpp, cpp_report, cpp_err, cpp_reason := remesh(positions, indices, p)
 	defer polygon_mesh_destroy(&cpp)
-	p.core = .Odin
+	p.core = .Driver
 	odin, odin_report, odin_err, odin_reason := remesh(positions, indices, p)
 	defer polygon_mesh_destroy(&odin)
 	if !testing.expectf(t, cpp_err == .None && odin_err == .None, "%s: cpp %v %s, odin %v %s", name, cpp_err, cpp_reason, odin_err, odin_reason, loc = loc) do return

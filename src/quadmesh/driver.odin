@@ -309,7 +309,9 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		return
 	}
 	defer isotropic_destroy(&iso)
-	// The rest of the stages work on the isotropic mesh alone.
+	// The rest of the stages work on the isotropic mesh alone, but for the area the count
+	// was asked of.
+	island_area := counted_area(params, w.island.positions, w.island.triangles)
 	island_destroy(&w.island)
 	add_ns(&d.isotropic_ns, t1)
 	sync.atomic_add(&d.isotropic_triangles, len(iso.triangles))
@@ -348,6 +350,18 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		scaled_area += a / (s * s)
 	}
 	cells_wanted := scaled_area / (d.quad_edge * d.quad_edge)
+	// The isotropic mesh is smoother than the island, so smaller, and the core lands on
+	// that smaller area's share of the count, a few percent short of it on a detailed
+	// mesh; the Odin core lands on the count itself, the island's own share of it, its
+	// first cover's quads that much smaller.
+	if params.core == .Odin {
+		iso_area := f64(0)
+		for t, f in iso.triangles do if !cap_face[f] do iso_area += triangle_area(iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]])
+		if iso_area > 0 && island_area > 0 {
+			cells_wanted *= island_area / iso_area
+			if landing do scaling *= math.sqrt(iso_area / island_area)
+		}
+	}
 	guided: [][3]f64
 	defer delete(guided, heap)
 	guided, err = cpp_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, &reason)
@@ -420,7 +434,11 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 
 	t3 := time.tick_now()
 	tag = {d, i, ISLAND_PARAMETERIZE_END, 1}
-	w.quads, err = cpp_extract(iso, cover, &run, &reason)
+	if params.core == .Odin {
+		w.quads, err = odin_extract(iso, cover, &run, &reason, &w.checks)
+	} else {
+		w.quads, err = cpp_extract(iso, cover, &run, &reason)
+	}
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
