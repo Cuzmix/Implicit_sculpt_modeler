@@ -1,4 +1,4 @@
-// slangc metal from mesh_wire.frag.spv sha256 083725b1c1912aedf7b89ce4d85eb4407ee1abe23f15eacfa8963be578256f6e
+// slangc metal from mesh_wire.frag.spv sha256 5e656c634b45494108f2ccc0f7efd209642545fde041abcf7c5f92cfff8e9e10
 // slots s=0:0,1:1 rt= wt= rb=3 wb= u=1,2 a=
 #include <metal_stdlib>
 #include <metal_math>
@@ -1385,7 +1385,7 @@ float4 wire_over_0(float4 c_7, float3 bary_0, uint primitive_0, KernelContext_0 
     {
 
 #line 424
-        _S72 = ((&kernelContext_8->frag_in_0)->tri_base_0) != 4294967295U;
+        _S72 = ((&kernelContext_8->frag_in_0)->tri_base_0) != 2147483648U;
 
 #line 424
     }

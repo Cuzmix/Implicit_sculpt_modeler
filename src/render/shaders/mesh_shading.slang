@@ -416,7 +416,7 @@ float underside(float3 n, float3x3 rig) {
 [[vk::binding(2, 2)]] StructuredBuffer<uint> tri_edges;
 
 // render.WIRE_ALL_EDGES: a draw of triangles with no polygons behind them (a simplified copy).
-#define WIRE_ALL_EDGES 0xffffffffu
+#define WIRE_ALL_EDGES 0x80000000u
 
 float4 wire_over(float4 c, float3 bary, uint primitive) {
 	float3 per_px = max(fwidth(bary), float3(1e-8));

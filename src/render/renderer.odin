@@ -2240,8 +2240,10 @@ WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
 
 // The first instance of a simplified copy's draws where commands carry their first
 // triangle's number: none of its edges is a polygon's diagonal, so the wireframe draws
-// them all (mesh_shading.slang's WIRE_ALL_EDGES).
-WIRE_ALL_EDGES :: 0xffff_ffff
+// them all (mesh_shading.slang's WIRE_ALL_EDGES). The top bit, never a triangle's number:
+// with all 32 bits set, the first instance plus the one instance overflows 32 bits, and the
+// iPad drew none of those draws, so the simplified copies vanished while the view moved.
+WIRE_ALL_EDGES :: 0x8000_0000
 
 // The wireframe's colour, linear: the theme's, else WIRE_COLOR.
 @(private)
