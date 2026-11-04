@@ -43,7 +43,7 @@ ADJUST_STROKE_MAX :: f32(1.5)
 @(rodata)
 ADJUST_NAMES := [Adjust_Op]string {
 	.None       = "",
-	.Remesh     = "Remesh",
+	.Remesh     = "Voxel remesh",
 	.Decimate   = "Decimate",
 	.Mirror     = "Mirror",
 	.Retopo     = "Quad Remesh",

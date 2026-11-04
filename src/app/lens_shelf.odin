@@ -57,11 +57,16 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 }
 
 // The most tiles a page holds, and how many full-width tiles' room a tablet-shaped window
-// gives the page's row, so the shelf ends before the pen hand's palm (which holds twelve
-// at SHELF_TILE_MIN; Settings > Bars > Keep the shelf clear of the palm off gives it the
-// window's width). A desktop's window shows them all.
+// gives the page's row, so the shelf ends before the pen hand's palm (Settings > Bars >
+// Keep the shelf clear of the palm off gives it the window's width). Ten keeps a fresh
+// page's twelve tiles wide enough for their whole names on an iPad. A desktop's window
+// shows them all.
 SHELF_MAX :: 24
-SHELF_TABLET :: 8
+SHELF_TABLET :: 10
+// How far a tablet-shaped window's shelf stands toward the off-hand side, as a share of
+// the window's width: enough to clear the pen hand's palm, little enough that the dial's
+// side leaves the row its SHELF_TABLET tiles.
+SHELF_PALM_SHIFT :: 0.05
 // The narrowest a tile gets: a page with more tiles than fit at full width narrows them,
 // down to this, before any is left out, so a tile added in Arrange is never added out of
 // sight. Wide enough for the icon and a cut name, and still a finger's target.
@@ -340,10 +345,12 @@ shelf_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	// card and the action bar.
 	#partial switch s.id {
 	case .Dyntopo_Toggle: return "Dyntopo"
+	case .Remesh:         return "Voxel"
 	case .Model_Action:
 		#partial switch Model_Action(s.arg) {
 		case .Insert_Loop:  return "Add loop"
 		case .Remove_Loop:  return "Cut loop"
+		case .Close_Hole:   return "Fill hole"
 		}
 	}
 	return bar_label(app, s)
@@ -411,7 +418,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if palm else 0
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
-	if palm do shift = -area.w * 0.09
+	if palm do shift = -area.w * SHELF_PALM_SHIFT
 	// Between the dial's reach and as much on the other side, of the window or, with panes
 	// beside the main one, of the main pane, under which the shelf then stands, as the
 	// off-hand set stays with it.

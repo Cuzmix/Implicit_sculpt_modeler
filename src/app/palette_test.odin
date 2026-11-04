@@ -46,7 +46,7 @@ palette_tiers_rank_in_order :: proc(t: ^testing.T) {
 // The names other apps give a command find ours, and case and spaces do not matter.
 @(test)
 palette_finds_other_apps_names :: proc(t: ^testing.T) {
-	testing.expect_value(t, best("DynaMesh"), "Remesh")
+	testing.expect_value(t, best("DynaMesh"), "Voxel remesh")
 	testing.expect_value(t, best("zremesher"), "Quad Remesh")
 	testing.expect_value(t, best("  WIREFRAME "), "Wireframe")
 	testing.expect_value(t, best("clay"), "Clay brush")

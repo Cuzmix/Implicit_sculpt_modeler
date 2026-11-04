@@ -267,7 +267,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups, .Open_Section}},
 	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels, .Open_Section}},
 	{"Layer", "Layer (ZBrush, Nomad), shape key (Blender)", "Changes kept apart from the sculpt under them, which can be faded or turned off (Layers card). Not the Layer brush, which raises the surface evenly.", "", {}},
-	{"Remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
+	{"Voxel remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
 	{"Quad Remesh", "ZRemesher (ZBrush), QuadriFlow (Blender), auto-retopo (3DCoat)", "Builds a light mesh of quads over the sculpt, for animation, UVs and baking.", "zremesher quadriflow retopologize", {.Retopologize}},
 }
 

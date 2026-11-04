@@ -32,7 +32,7 @@ REBUILD_GOAL_NAMES := [Rebuild_Goal]string {
 // What Apply is called for each goal: the operation it runs. Quads says it makes a new
 // object, where the other two replace this one.
 REBUILD_VERBS := [Rebuild_Goal]string {
-	.Even  = "Remesh",
+	.Even  = "Voxel remesh",
 	.Fewer = "Decimate",
 	.Quads = "Quad Remesh (new object)",
 }
@@ -373,7 +373,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	inner := f32(ui.POPOVER_W - 24)
 	ui.begin(ctx, "remesh quick head", {direction = .Row, center = true})
 	ui.begin(ctx, "remesh quick title", {direction = .Column, width = inner - t.target})
-	ui.label(ctx, "Remesh", t.title_size, t.text, .Semibold)
+	ui.label(ctx, "Voxel remesh", t.title_size, t.text, .Semibold)
 	ui.end(ctx)
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.bar_pop.open = false
 	ui.end(ctx)
@@ -415,7 +415,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("Now %s vertices. Hold Density to see its cells.", count_label(now)))
 	}
-	if ui.button(ctx, "Remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
+	if ui.button(ctx, "Voxel remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
 		app.ui.rebuild_goal = .Even
 		rebuild_command(app)
 	}
