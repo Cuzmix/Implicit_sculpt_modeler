@@ -372,10 +372,11 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		settings_keys(app)
 
 	case .Statistics:
-		_ = ui.switch_row(ctx, "Show statistics", &k.stats, keys = command_hint(app, .Stats))
+		shown := card_shown(app, .Details)
+		if ui.switch_row(ctx, "Show the Details card", &shown, keys = command_hint(app, .Stats)) do command_run(app, .Stats)
 		detail := [2]string{"Simple", "Advanced"}
 		if picked := ui.tabs(ctx, "Statistics detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
-		ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the panel.")
+		ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the card.")
 		if app.diag.allowed {
 			_ = command_button(app, .Input_Diagnostics)
 			ui.paragraph(ctx, "A developer's screen of guided touch, Pencil and keyboard tests, with a report to export.")
@@ -536,7 +537,9 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		bind_reset_all(app)
 		n.mouse_scheme, n.right_click = d.mouse_scheme, d.right_click
 		k.keys_query = {}
-	case .Statistics:      k.stats, k.stats_advanced = false, false
+	case .Statistics:
+		card_close(app, .Details)
+		k.stats_advanced = false
 	case .Frame_Rate:
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.low_latency = LOW_LATENCY_DEFAULT

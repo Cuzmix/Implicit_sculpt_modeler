@@ -492,8 +492,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		sheet := "settings" if k.settings else "help" if k.help else "macros" if k.macros else "export" if k.export.open else "none"
 		sheet_rect := ui.prev_rect(&k.ctx, "export sheet" if sheet == "export" else sheet)
 		fmt.printfln("sheet=%s sheet_at=%.0f,%.0f,%.0f", sheet, sheet_rect.x, sheet_rect.y, sheet_rect.w)
-		open := [Kit_Window]bool{.Stats = k.stats, .Thumbnail = k.thumbnail}
-		names := [Kit_Window]string{.Stats = "stats", .Thumbnail = "thumbnail"}
+		open := [Kit_Window]bool{.Thumbnail = k.thumbnail}
+		names := [Kit_Window]string{.Thumbnail = "thumbnail"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			if which in PANEL_WINDOWS do r = panel_rect(app, which)

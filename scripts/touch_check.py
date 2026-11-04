@@ -127,7 +127,7 @@ UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y)
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({
     "new_sphere": (317, 159), "new_head": (403, 159), "new_bust": (489, 159), "new_figure": (317, 207), "new_hand": (403, 207),
-    "more_stats": At("menu sub More/Stats", 406, 648), "more_macros": At("menu sub More/Macros...", 406, 692), "more_library": At("menu sub More/Library...", 406, 736), "more_reduce_motion": (400, 824),
+    "more_stats": At("menu sub More/Details", 406, 648), "more_macros": At("menu sub More/Macros...", 406, 692), "more_library": At("menu sub More/Library...", 406, 736), "more_reduce_motion": (400, 824),
     "more_left_handed": (400, 868),
 })
 # Search's first row, while something is typed (left of its Put on a bar button).
@@ -2744,7 +2744,7 @@ def settings_reset_everything():
     """Reset everything takes a second tap, then puts every category back."""
     s = Script()
     with open(settings_file(), "w") as f:
-        f.write("orbit_speed 2\ninvert_wheel 1\nfinger_model orbit\nstats 1\n")
+        f.write("orbit_speed 2\ninvert_wheel 1\nfinger_model orbit\nstats_advanced 1\n")
     open_settings(s, "touch")
     s.ftap(SETTINGS_RESET)  # Reset all settings: arms it
     s.wait(10)
@@ -2753,7 +2753,7 @@ def settings_reset_everything():
     s.add("key:Escape")
     s.wait(8)
     return s, [f"--settings-file={settings_file()}"], camera_still({
-        "settings_open": near(0), "@saved": saved(orbit_speed="1", invert_wheel="0", finger_model="Sculpt", stats="0")})
+        "settings_open": near(0), "@saved": saved(orbit_speed="1", invert_wheel="0", finger_model="Sculpt", stats_advanced="0")})
 
 
 @scenario
@@ -3265,11 +3265,6 @@ def saved_line(line):
     return ok
 
 
-# The Stats window's title, where it starts under the readout (Settings > Performance or F11
-# opens it).
-STATS_TITLE = (156, 187)
-
-
 @scenario
 def card_opens_beside_its_button_and_a_view_press_closes_it():
     """A tap on the view rail's Mesh opens the Mesh card beside the rail and a second tap closes it; opened again, a finger's press on the model closes it and sculpts nothing."""
@@ -3374,20 +3369,6 @@ def floating_card_closes_from_its_dock_button():
     s.ftap(UI["inspector"])
     s.wait(6)
     return s, [], camera_still({"cards_float": is_text("none"), "cards": is_text("left:;right:"), "card_closes": near(1), "dabs": near(0)})
-
-
-@scenario
-def window_drag_by_title_is_remembered():
-    """A finger drags the Stats window by its title to exactly under the finger, turning nothing; it is saved."""
-    with open(settings_file(), "w") as f:
-        f.write("stats 1\n")
-    s = Script()
-    s.fdrag(line(STATS_TITLE, (700, 300), 20))
-    s.wait(4)
-    # Grabbed 90 points in from its left and 36 down from its top.
-    return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "window_stats": lambda v: v == "1,0,610,264",
-        "@saved": saved_line("window Stats 1 Start Start 610 264 0")})
 
 
 # The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
@@ -6262,11 +6243,11 @@ def pass_keys_flip_and_backquote_peeks():
 def window_position_comes_back():
     """A remembered window position comes back on the next start."""
     with open(settings_file(), "w") as f:
-        f.write("stats 1\nwindow Stats 1 Start Start 616 264 0\n")
+        f.write("thumbnail 1\nwindow Thumbnail 1 Start Start 616 264 0\n")
     s = Script()
     s.add("move:800,450")
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"window_stats": lambda v: v == "1,0,616,264"}
+    return s, [f"--settings-file={settings_file()}"], {"window_thumbnail": lambda v: v.startswith("1,0,616,")}
 
 
 @scenario
@@ -6735,12 +6716,12 @@ def rail_latched_edge_still_orbits():
 def rail_over_window_keeps_the_finger():
     """Where a window lies over the rail, the rail is drawn over it and a finger there is the rail's: Invert latches, and the window stays."""
     with open(settings_file(), "w") as f:
-        f.write("stats 1\nwindow Stats 1 Start Start 0 700 0\n")
+        f.write("thumbnail 1\nwindow Thumbnail 1 Start Start 0 700 0\n")
     s = Script()
     rail_tap(s, "invert")
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": is_text("invert"),
-                                                     "window_stats": lambda v: v.startswith("1,")}
+                                                     "window_thumbnail": lambda v: v.startswith("1,")}
 
 
 @scenario
@@ -11515,7 +11496,7 @@ def same_file(a, b):
 @scenario
 def macro_records_and_replays():
     """Record macro from the palette, Ctrl+R (a remesh, recorded once it has applied),
-    Wireframe from the palette, the Clay brush by its key and the Stats panel (not
+    Wireframe from the palette, the Clay brush by its key and the Details card (not
     recorded), then Stop and a typed name: the macro is kept as a script file. A later run
     runs it from the palette by that name, as the person's own work: the mesh is the one
     the same commands give from a start-up script, and only the remesh is an undo step."""

@@ -35,7 +35,7 @@ restore into. Dynamic topology undoes topology inside one sculptor by saving who
 
 ## Limits
 - About 37 bytes a base vertex plus 12 a vertex of each level above per snapshot. `SWAP_LIMIT_BYTES` (1.5 GB) over
-  all snapshots; past it the oldest swap entry and everything older in `done` go (never the newest). Stats panel shows
+  all snapshots; past it the oldest swap entry and everything older in `done` go (never the newest). Details card shows
   the total.
 - Cost: an object_put plus a `levels_read` per undo; 100k vertices ~0.1 s on the VM; a 10M scene read is ~3.4 s on
   the VM (much less on a desktop).
