@@ -10,7 +10,10 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
   that passes leave and restore, cycling by backings, deferred destruction by refcount, memory suballocated from shared
   blocks (`vk_memory.odin`: `vk_allocate` returns a `Vk_Memory`, bind at its `offset`, never map or free it yourself: a
-  host-visible block is mapped once and `Vk_Memory.mapped` points into it, `vk_memory_give` returns it), a flipped viewport, dynamic
+  host-visible block is mapped once and `Vk_Memory.mapped` points into it, `vk_memory_give` returns it), whole-memory
+  barriers at each pass's start and end and after each dispatch but between two copies of a copy pass only where they
+  touch the same buffer bytes and one writes (`vk_copy_access`; a copy proc names its buffer ranges to it, and a texture's own
+  layout barrier orders its pixels), a flipped viewport, dynamic
   rendering and a timeline semaphore whose serials are the tickets' values. It needs Vulkan 1.3 with dynamicRendering,
   synchronization2, timelineSemaphore and independentBlend (the Android manifest asks for 1.3 too); without them
   `renderer_init` returns false with the reason in `render.backend_error`, and the app shows it in the system's

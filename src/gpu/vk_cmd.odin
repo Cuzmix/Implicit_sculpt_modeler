@@ -10,7 +10,8 @@ import vk "vendor:vulkan"
 // layout (vk_default_layout) between passes: a pass moves what it writes into the layout it
 // needs and back when it ends, as SDL_GPU does, so command buffers recorded out of order
 // still agree on every layout. Barriers are conservative (all commands, all memory); the
-// pass structure keeps them few.
+// pass structure keeps them few, and inside a copy pass only a copy that touches what an
+// earlier copy of the pass wrote, or writes what one read, waits for it (Vk_Copy_Range).
 
 Vk_Stage :: enum u8 {
 	Vertex,
@@ -48,6 +49,20 @@ Vk_Target :: struct {
 	level:  u32,
 	layout: vk.ImageLayout,
 }
+
+// A buffer range a copy of the current copy pass read or wrote since its last barrier. The
+// pass begins and ends with a barrier, so its copies need one between them only where two
+// touch the same bytes and either writes: the staging flush's many uploads into different
+// ranges run with none.
+Vk_Copy_Range :: struct {
+	buffer:       vk.Buffer,
+	offset, size: vk.DeviceSize,
+	write:        bool,
+}
+
+// The ranges one copy pass remembers before it gives up and barriers anyway, which keeps the
+// overlap search short.
+VK_COPY_RANGES :: 32
 
 Vk_Sampled :: struct {
 	view:    vk.ImageView,
@@ -111,6 +126,8 @@ Vk_Cmd :: struct {
 	set_dirty:       [4]bool,
 	bind_dirty:      bool,
 	timed_slot:      int, // 1 + the timestamp slot this recording wrote into, 0 for none (vk_timing.odin)
+	copy_ranges:     [VK_COPY_RANGES]Vk_Copy_Range,
+	copy_count:      int,
 }
 
 @(private = "file")
@@ -180,6 +197,27 @@ vk_memory_barrier :: proc(cmd: ^Vk_Cmd) {
 	}
 	info := vk.DependencyInfo{sType = .DEPENDENCY_INFO, memoryBarrierCount = 1, pMemoryBarriers = &barrier}
 	vk.CmdPipelineBarrier2(cmd.cb, &info)
+	cmd.copy_count = 0
+	count_barrier()
+}
+
+// Before a copy that reads `reads` and writes `writes` in the current copy pass: a barrier
+// when either range overlaps one an earlier copy wrote, or the written one overlaps one an
+// earlier copy read; then both are remembered.
+@(private = "file")
+vk_copy_access :: proc(cmd: ^Vk_Cmd, reads, writes: Vk_Copy_Range) {
+	overlaps :: proc(a, b: Vk_Copy_Range) -> bool {
+		return a.buffer == b.buffer && a.offset < b.offset + b.size && b.offset < a.offset + a.size
+	}
+	hazard := cmd.copy_count + 2 > VK_COPY_RANGES
+	for r in cmd.copy_ranges[:cmd.copy_count] {
+		if hazard do break
+		hazard = (r.write && overlaps(r, reads)) || overlaps(r, writes)
+	}
+	if hazard do vk_memory_barrier(cmd)
+	cmd.copy_ranges[cmd.copy_count] = reads
+	cmd.copy_ranges[cmd.copy_count + 1] = writes
+	cmd.copy_count += 2
 }
 
 // Moves a texture level from its default layout to `layout` for the current pass, cycling
@@ -1066,11 +1104,13 @@ vk_begin_copy_pass :: proc(command_buffer: Cmd) -> Copy_Pass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.pass = .Copy
 	cmd.recorded = true
+	vk_memory_barrier(cmd)
 	return (Copy_Pass)(cmd)
 }
 
 vk_end_copy_pass :: proc(copy_pass: Copy_Pass) {
 	cmd := (^Vk_Cmd)(copy_pass)
+	vk_memory_barrier(cmd)
 	cmd.pass = .None
 }
 
@@ -1084,7 +1124,9 @@ vk_upload_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Trans
 	src := (^Vk_Buffer)(object(source.transfer_buffer)).active
 	t := (^Vk_Texture)(object(destination.texture))
 	vk_cmd_track_buffer(cmd, src)
-	vk_memory_barrier(cmd)
+	// The texture's own layout barrier orders it; the pixels read wait only for a copy of
+	// this pass that wrote them.
+	vk_copy_access(cmd, {src.buffer, vk.DeviceSize(source.offset), vk.DeviceSize(vk.WHOLE_SIZE) - vk.DeviceSize(source.offset), false}, {})
 	img := vk_target(cmd, t, destination.mip_level, cycle, .TRANSFER_DST_OPTIMAL)
 	region := vk.BufferImageCopy {
 		bufferOffset      = vk.DeviceSize(source.offset),
@@ -1105,10 +1147,9 @@ vk_upload_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Transfer_Buffe
 	if cycle && dst.active.refs > 0 do vk_buffer_cycle(dst)
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst.active)
-	vk_memory_barrier(cmd)
 	region := vk.BufferCopy{srcOffset = vk.DeviceSize(source.offset), dstOffset = vk.DeviceSize(destination.offset), size = vk.DeviceSize(destination.size)}
+	vk_copy_access(cmd, {src.buffer, region.srcOffset, region.size, false}, {dst.active.buffer, region.dstOffset, region.size, true})
 	vk.CmdCopyBuffer(cmd.cb, src.buffer, dst.active.buffer, 1, &region)
-	vk_memory_barrier(cmd)
 }
 
 vk_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Location, #by_ptr destination: Buffer_Location, size: u32, cycle: bool) {
@@ -1118,17 +1159,16 @@ vk_copy_buffer_to_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Lo
 	if cycle && dst.active.refs > 0 do vk_buffer_cycle(dst)
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst.active)
-	vk_memory_barrier(cmd)
 	region := vk.BufferCopy{srcOffset = vk.DeviceSize(source.offset), dstOffset = vk.DeviceSize(destination.offset), size = vk.DeviceSize(size)}
+	vk_copy_access(cmd, {src.buffer, region.srcOffset, region.size, false}, {dst.active.buffer, region.dstOffset, region.size, true})
 	vk.CmdCopyBuffer(cmd.cb, src.buffer, dst.active.buffer, 1, &region)
-	vk_memory_barrier(cmd)
 }
 
 vk_copy_texture_to_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_Location, #by_ptr destination: Texture_Location, w, h, d: u32, cycle: bool) {
 	cmd := (^Vk_Cmd)(copy_pass)
 	st := (^Vk_Texture)(object(source.texture))
 	dt := (^Vk_Texture)(object(destination.texture))
-	vk_memory_barrier(cmd)
+	// The two textures' layout barriers order the copy; no buffer takes part.
 	src := vk_target(cmd, st, source.mip_level, false, .TRANSFER_SRC_OPTIMAL)
 	dst := vk_target(cmd, dt, destination.mip_level, cycle, .TRANSFER_DST_OPTIMAL)
 	region := vk.ImageCopy {
@@ -1147,7 +1187,9 @@ vk_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_R
 	t := (^Vk_Texture)(object(source.texture))
 	dst := (^Vk_Buffer)(object(destination.transfer_buffer)).active
 	vk_cmd_track_buffer(cmd, dst)
-	vk_memory_barrier(cmd)
+	// The rows written wait for a copy of this pass that touched them; the pass's end, or a
+	// later copy that reads them, waits for these.
+	vk_copy_access(cmd, {}, {dst.buffer, vk.DeviceSize(destination.offset), vk.DeviceSize(vk.WHOLE_SIZE) - vk.DeviceSize(destination.offset), true})
 	img := vk_target(cmd, t, source.mip_level, false, .TRANSFER_SRC_OPTIMAL)
 	region := vk.BufferImageCopy {
 		bufferOffset      = vk.DeviceSize(destination.offset),
@@ -1159,7 +1201,6 @@ vk_download_from_texture :: proc(copy_pass: Copy_Pass, #by_ptr source: Texture_R
 	}
 	vk.CmdCopyImageToBuffer(cmd.cb, img.image, .TRANSFER_SRC_OPTIMAL, dst.buffer, 1, &region)
 	vk_targets_restore(cmd)
-	vk_memory_barrier(cmd)
 }
 
 vk_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Region, #by_ptr destination: Transfer_Buffer_Location) {
@@ -1168,10 +1209,9 @@ vk_download_from_buffer :: proc(copy_pass: Copy_Pass, #by_ptr source: Buffer_Reg
 	dst := (^Vk_Buffer)(object(destination.transfer_buffer)).active
 	vk_cmd_track_buffer(cmd, src)
 	vk_cmd_track_buffer(cmd, dst)
-	vk_memory_barrier(cmd)
 	region := vk.BufferCopy{srcOffset = vk.DeviceSize(source.offset), dstOffset = vk.DeviceSize(destination.offset), size = vk.DeviceSize(source.size)}
+	vk_copy_access(cmd, {src.buffer, region.srcOffset, region.size, false}, {dst.buffer, region.dstOffset, region.size, true})
 	vk.CmdCopyBuffer(cmd.cb, src.buffer, dst.buffer, 1, &region)
-	vk_memory_barrier(cmd)
 }
 
 // Fills each level from the one above with a linear blit, as SDL_GPU does.
