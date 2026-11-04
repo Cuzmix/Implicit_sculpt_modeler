@@ -244,13 +244,28 @@ columns_update :: proc(app: ^App) {
 	ctx.pointer_root = 0
 }
 
+// Under this width in points (an iPad in Split View, a phone), a card opens as a sheet over
+// the lower part of the window rather than beside a dock, where it would cover the model;
+// one card shows at a time, the pen side's first.
+CARD_SHEET_BELOW :: 900
+// Where the sheet's room starts down the window, as a share of its height: a short card
+// stands at the foot, a tall one scrolls in the lower part.
+CARD_SHEET_TOP :: 0.45
+
+// Whether cards open as a sheet over the lower part of the window (CARD_SHEET_BELOW).
+cards_as_sheet :: proc(k: ^Kit_State) -> bool {
+	return ui.safe_area(&k.ctx).w < CARD_SHEET_BELOW
+}
+
 // The cards in their columns, over the view and under the floating windows.
 kit_columns :: proc(app: ^App) {
 	k := &app.kit
 	if !k.cards.set do cards_default(k)
+	sheet := cards_as_sheet(k)
 	for &col, s in k.cards.columns {
 		if col.count == 0 do continue
-		first := 0 if columns_split(app) else col.count - 1
+		if sheet && s == .Left && k.cards.columns[.Right].count > 0 do continue
+		first := 0 if columns_split(app) && !sheet else col.count - 1
 		// The column is as wide as its widest card; a narrower one keeps to its dock's side.
 		w: f32 = 0
 		for i in first ..< col.count do w = max(w, card_width(col.cards[i].card))
@@ -260,7 +275,7 @@ kit_columns :: proc(app: ^App) {
 		for i in first ..< col.count {
 			// Placed above its button, the card's foot stands at the button's head.
 			top := y
-			if col.side == .Above_Center && shown == 1 {
+			if (col.side == .Above_Center || sheet) && shown == 1 {
 				h := ui.prev_rect(&k.ctx, card_root_name(col.cards[i].card)).h
 				top = y + room - (h if h > 0 else room)
 			}
@@ -281,6 +296,11 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column, w: f32) -> (x, y, 
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
+	if cards_as_sheet(k) {
+		x = area.x + max((area.w - w) * 0.5, t.edge)
+		y = max(area.y + area.h * CARD_SHEET_TOP, area.y + kit_top())
+		return x, y, max(area.y + area.h - t.edge - y, CARD_BODY_MIN + t.target), 0.5
+	}
 	at, side := col.at, col.side
 	// A column no button opened follows the dock on the pen side's edge as it lays out,
 	// since the first frames know no width for it yet.
