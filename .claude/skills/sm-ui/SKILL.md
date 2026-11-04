@@ -73,7 +73,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `section_on_screen(app, sec)` lights a section's button. Commands `Open_Card` (arg a `Card`) and `Open_Section`
   (arg a `Section`). Other panels only float: each panel proc calls `panel_begin(app, ref, title, x, y, offset, box)`
   … `panel_end`, never `ui.window_begin` itself. Exit stats `cards= cards_shut= card_opens= card_folds= card_pins=
-  card_closes= card_front= card_scroll= card_section= card_marked=`.
+  card_closes= card_front= card_scroll= card_section= card_marked= cards_float= card_floated= card_returned=`.
+  Floating cards (`card_float.odin`): `card_head` returns `torn` when the title is dragged past the slop and
+  `card_float_tear` takes the card out of its column into `cards.floats` with a `ui.Window` of its own
+  (`cards.windows[c]`), grabbed by the same press; `card_float_draw` draws it through `panel_begin(card = true)`
+  among the windows (`Float_Ref` and `Panel_Ref` hold a `Card`); `card_float_return(app, c, side)` puts it back
+  pinned (Put back, a hold on the grip, a drop past `CARD_RETURN_REACH` of a side); a `card_float` layout line.
 - Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
   `column` lines for the pinned cards, places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
   against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,

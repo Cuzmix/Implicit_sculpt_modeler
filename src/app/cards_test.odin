@@ -106,3 +106,30 @@ show_where_opens_the_card_on_its_section :: proc(t: ^testing.T) {
 		if s, ok := sec.?; ok do testing.expectf(t, section_title(s) != "", "%v's home has no title", id)
 	}
 }
+
+// A card floats out of its column and keeps its place in a layout; put back, it rests
+// pinned in the column; a dock button's tap on a floating card closes it.
+@(test)
+a_floating_card_keeps_its_place_and_comes_back_pinned :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a: App
+	k := &a.kit
+	cards_default(k)
+	card_open(&a, .Mask)
+	card_float_at(k, .Mask, {300, 200})
+	testing.expect_value(t, columns_text(k), "left:;right:")
+	testing.expect_value(t, cards_float_text(k), "Mask")
+	testing.expect(t, card_shown(&a, .Mask), "a floating card does not show")
+	text := kit_layout_text(k)
+	testing.expect(t, strings.contains(text, "card_float Mask Start Start 300 200 0\n"), "the layout lost the floating card")
+	again: Kit_State
+	kit_layout_put(&again, text)
+	testing.expect_value(t, cards_float_text(&again), "Mask")
+	testing.expect_value(t, again.cards.windows[.Mask].offset, [2]f32{300, 200})
+	card_float_return(&a, .Mask, .Right)
+	testing.expect_value(t, columns_text(k), "left:;right:Mask*")
+	testing.expect_value(t, cards_float_text(k), "none")
+	card_float_at(k, .Mask, {10, 10})
+	card_toggle(&a, .Mask, {1500, 200, 44, 44}, .Left)
+	testing.expect(t, !card_shown(&a, .Mask), "a dock button's tap left the floating card open")
+}

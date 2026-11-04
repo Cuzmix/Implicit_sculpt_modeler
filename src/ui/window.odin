@@ -149,7 +149,7 @@ card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor,
 		c := [2]f32{r.x + r.w * 0.5 + (f32(col) - 2.5) * 5, r.y + r.h * 0.5 + (f32(row) - 0.5) * 5}
 		fill_circle(ctx, c, 1.2, color)
 	}
-	tip(ctx, grip, hit, "Drag to move; hold to put back in the palette")
+	tip(ctx, grip, hit, "Drag to move; hold to put back")
 	// Large, as the cards' titles are: about half again the panels' headings; a card with
 	// no title goes straight on to its content.
 	if title == "" do return

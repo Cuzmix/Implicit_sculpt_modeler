@@ -119,7 +119,7 @@ layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
 }
 
 // The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,
-// the cards pinned in the columns, the docks and the bars, in that order. Places are written as they are for the
+// the cards pinned in the columns, the floating cards, the docks and the bars, in that order. Places are written as they are for the
 // right-handed layout, so a workspace saved with either hand reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
@@ -142,6 +142,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		window_save_line(&out, w, win)
 	}
 	columns_save(k, &out)
+	cards_float_save(k, &out)
 	// The docks, then the bars after a line that says the layout holds them.
 	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -161,6 +162,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	// in every workspace.
 	if !k.cards.set do cards_default(k)
 	k.cards.columns = {}
+	k.cards.floats = {}
 	k.hidden = {}
 	// Every dock as it comes, and none of the person's but those the layout names, with
 	// only the buttons it names.
@@ -200,6 +202,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
 		case "column":
 			columns_read(k, f)
+		case "card_float":
+			cards_float_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar", "bar_look":
