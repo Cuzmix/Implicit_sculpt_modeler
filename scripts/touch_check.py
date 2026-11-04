@@ -8121,11 +8121,11 @@ def memory_check_asks_before_a_remesh_too_big():
 
 @scenario
 def long_job_fades_to_the_new_mesh():
-    """A remesh run as a long job swaps the new mesh in under a fade of the old one's picture, which is over once the job has landed and a moment passed."""
+    """A remesh run as a long job lets the old object go once the new mesh is computed, the view holding its picture, and swaps the new mesh in under a fade of it, which is over once the job has landed and a moment passed."""
     s = Script()
     palette_run(s, "remesh")
     s.wait(240)
-    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "mesh_fades": near(1), "cross_fading": near(0), "undo_steps": near(1)})
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_holds": near(1), "view_holds": near(1), "mesh_fades": near(1), "cross_fading": near(0), "undo_steps": near(1)})
 
 
 @scenario

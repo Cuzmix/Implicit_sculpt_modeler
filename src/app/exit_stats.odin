@@ -222,8 +222,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
-		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app))
-		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes)
+		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds)
+		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d view_holds=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes, app.cross_fade.holds)
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
