@@ -1,606 +1,1164 @@
-// SDL_shadercross 1ff05bec5739 from skin_tess.vert.spv sha256 86761715b497e85df499a52459ed5e39951cb585729f148d90989a31e9d27921
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from skin_tess.vert.spv sha256 86761715b497e85df499a52459ed5e39951cb585729f148d90989a31e9d27921
+// slots s= rt= wt= rb=1,2,3,4,5,6,7 wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+struct SLANG_ParameterGroup_Frame_Uniforms_0
 {
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
+    matrix<float,int(4),int(4)>  view_proj_0;
+    matrix<float,int(4),int(4)>  view_0;
+    matrix<float,int(4),int(4)>  model_0;
+    float4 options_0;
+    array<uint4, int(4)> slot_group_0;
+    uint4 skin_0;
 };
 
-struct Mesh_Varyings
+
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+struct KernelContext_0
 {
-    float3 view_normal;
-    float3 view_pos;
-    float mask;
-    float4 paint;
-    float3 group;
-    float3 mesh_pos;
-    uint slot;
+    SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
+    uint device* indices_0;
+    packed_uint4 device* skin_tris_0;
+    float device* positions_0;
+    uint device* normals_0;
+    uint device* skin_heights_0;
+    uint device* skin_normals_0;
+    packed_uint2 device* paint_0;
 };
 
-struct Mesh_Vertex_Out
-{
-    float4 position;
-    Mesh_Varyings v;
-};
 
-struct _Array_std140_vector_uint_4_4
+#line 51
+float3 mesh_point_0(uint v_0, KernelContext_0 thread* kernelContext_0)
 {
-    uint4 data[4];
-};
 
-struct SLANG_ParameterGroup_Frame_Uniforms_std140
-{
-    float4x4 view_proj;
-    float4x4 view;
-    float4x4 model;
-    float4 options;
-    _Array_std140_vector_uint_4_4 slot_group;
-    uint4 skin;
-};
+#line 52
+    uint _S1 = 3U * v_0;
 
-struct StructuredBuffer
-{
-    uint _member0[1];
-};
-
-struct StructuredBuffer_1
-{
-    uint4 _member0[1];
-};
-
-struct StructuredBuffer_2
-{
-    float _member0[1];
-};
-
-struct StructuredBuffer_3
-{
-    uint2 _member0[1];
-};
-
-struct main0_out
-{
-    float3 entryPointParam_main_v_view_normal [[user(locn0)]];
-    float3 entryPointParam_main_v_view_pos [[user(locn1)]];
-    float entryPointParam_main_v_mask [[user(locn2)]];
-    float4 entryPointParam_main_v_paint [[user(locn3)]];
-    float3 entryPointParam_main_v_group [[user(locn4)]];
-    float3 entryPointParam_main_v_mesh_pos [[user(locn5)]];
-    uint entryPointParam_main_v_slot [[user(locn6)]];
-    float4 gl_Position [[position]];
-};
-
-static inline __attribute__((always_inline))
-float3 mesh_point(uint v, const device StructuredBuffer_2& positions)
-{
-    uint _269 = 3u * v;
-    return float3(positions._member0[_269], positions._member0[_269 + 1u], positions._member0[_269 + 2u]);
+#line 52
+    return float3(kernelContext_0->positions_0[_S1], kernelContext_0->positions_0[_S1 + 1U], kernelContext_0->positions_0[_S1 + 2U]);
 }
 
-static inline __attribute__((always_inline))
-float3 oct_decode(float2 e)
+
+#line 61 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+float3 oct_decode_0(float2 e_0)
 {
-    float3 _363 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
-    float3 v = _363;
-    if (_363.z < 0.0)
+
+#line 62
+    float _S2 = e_0.x;
+
+#line 62
+    float _S3 = e_0.y;
+
+#line 62
+    float3 _S4 = float3(e_0, 1.0f - abs(_S2) - abs(_S3));
+
+#line 62
+    thread float3 v_1 = _S4;
+    if((_S4.z) < 0.0f)
     {
-        float _346;
-        if (e.x >= 0.0)
+
+#line 63
+        float2 _S5 = float2(1.0f)  - abs(e_0.yx);
+
+#line 63
+        float _S6;
+
+#line 63
+        if(_S2 >= 0.0f)
         {
-            _346 = 1.0;
+
+#line 63
+            _S6 = 1.0f;
+
+#line 63
         }
         else
         {
-            _346 = -1.0;
+
+#line 63
+            _S6 = -1.0f;
+
+#line 63
         }
-        float _347;
-        if (e.y >= 0.0)
+
+#line 63
+        float _S7;
+
+#line 63
+        if(_S3 >= 0.0f)
         {
-            _347 = 1.0;
+
+#line 63
+            _S7 = 1.0f;
+
+#line 63
         }
         else
         {
-            _347 = -1.0;
+
+#line 63
+            _S7 = -1.0f;
+
+#line 63
         }
-        float2 _388 = (float2(1.0) - abs(e.yx)) * float2(_346, _347);
-        v.x = _388.x;
-        v.y = _388.y;
+
+#line 63
+        v_1.xy = _S5 * float2(_S6, _S7);
+
+#line 63
     }
-    return fast::normalize(v);
+    return normalize(v_1);
 }
 
-static inline __attribute__((always_inline))
-void decode_normal_mask(float2 normal_oct, thread float3& normal, thread float& mask)
+
+
+
+void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
-    int2 _333 = int2(round(fast::max(normal_oct, float2(-1.0)) * 32767.0));
-    normal = oct_decode(float2(_333 & int2(-16)) / float2(32767.0));
-    mask = float(((_333.x & 15) << 4) | (_333.y & 15)) / 255.0;
+
+#line 70
+    float2 _S8 = float2(32767.0f) ;
+    int2 _S9 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S8));
+    *normal_0 = oct_decode_0(float2(_S9 & (int2(int(-16)) )) / _S8);
+    *mask_0 = float((((_S9.x) & int(15)) << 4U) | ((_S9.y) & int(15))) / 255.0f;
+    return;
 }
 
-static inline __attribute__((always_inline))
-void mesh_normal_mask(uint v, thread float3& n, thread float& mask, const device StructuredBuffer& normals)
+
+#line 55 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+void mesh_normal_mask_0(uint v_2, float3 thread* n_0, float thread* mask_1, KernelContext_0 thread* kernelContext_1)
 {
-    decode_normal_mask(fast::max(float2(int2(int(normals._member0[v] << uint(16)) >> 16, int(normals._member0[v]) >> 16)) / float2(32767.0), float2(-1.0)), n, mask);
+
+#line 56
+    uint packed_0 = kernelContext_1->normals_0[v_2];
+    decode_normal_mask_0(max(float2(int2(int(packed_0 << 16U) >> 16U, int(packed_0) >> 16U)) / float2(32767.0f) , float2(-1.0f) ), n_0, mask_1);
+    return;
 }
 
-static inline __attribute__((always_inline))
-uint skin_index(uint i, uint j, uint S, uint V, uint E, uint tri, uint3 v, uint3 e)
+
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/skin_grid.slang"
+uint skin_index_0(uint i_0, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_0, uint3 v_3, uint3 e_1)
 {
-    bool _673 = i == 0u;
-    bool _648;
-    if (_673)
+
+#line 9
+    bool _S10 = i_0 == 0U;
+
+#line 9
+    bool _S11;
+
+#line 9
+    if(_S10)
     {
-        _648 = j == 0u;
+
+#line 9
+        _S11 = j_0 == 0U;
+
+#line 9
     }
     else
     {
-        _648 = false;
+
+#line 9
+        _S11 = false;
+
+#line 9
     }
-    if (_648)
+
+#line 9
+    if(_S11)
     {
-        return v.x;
+
+#line 9
+        return v_3.x;
     }
-    if (i == S)
+
+#line 10
+    if(i_0 == S_0)
     {
-        return v.y;
+
+#line 10
+        return v_3.y;
     }
-    if (j == S)
+
+#line 11
+    if(j_0 == S_0)
     {
-        return v.z;
+
+#line 11
+        return v_3.z;
     }
-    uint ref;
-    uint k;
-    if (j == 0u)
+
+#line 11
+    uint ref_0;
+
+#line 11
+    uint k_0;
+
+    if(j_0 == 0U)
     {
-        ref = e.x;
-        k = i;
+
+#line 13
+        ref_0 = e_1.x;
+
+#line 13
+        k_0 = i_0;
+
+#line 13
     }
     else
     {
-        if ((i + j) == S)
+
+#line 14
+        if((i_0 + j_0) == S_0)
         {
-            ref = e.y;
-            k = j;
+
+#line 14
+            ref_0 = e_1.y;
+
+#line 14
+            k_0 = j_0;
+
+#line 14
         }
         else
         {
-            uint _706;
-            uint _707;
-            if (_673)
+
+#line 14
+            uint _S12 = 0U;
+
+#line 14
+            uint _S13 = 0U;
+            if(_S10)
             {
-                _706 = e.z;
-                _707 = S - j;
+
+#line 15
+                _S13 = e_1.z;
+
+#line 15
+                _S12 = S_0 - j_0;
+
+#line 15
             }
             else
             {
-                uint _733 = j - 1u;
-                uint _734 = S - 2u;
-                uint _740 = S - 1u;
-                return (((V + (E * _740)) + (tri * ((_740 * _734) / 2u))) + ((_733 * _734) - ((_733 * (j - 2u)) / 2u))) + (i - 1u);
+
+#line 17
+                uint _S14 = j_0 - 1U;
+
+#line 17
+                uint _S15 = S_0 - 2U;
+                uint _S16 = S_0 - 1U;
+
+#line 18
+                return V_0 + E_0 * _S16 + tri_0 * (_S16 * _S15 / 2U) + (_S14 * _S15 - _S14 * (j_0 - 2U) / 2U) + (i_0 - 1U);
             }
-            ref = _706;
-            k = _707;
+
+#line 18
+            ref_0 = _S13;
+
+#line 18
+            k_0 = _S12;
+
+#line 14
         }
+
+#line 13
     }
-    uint along;
-    if ((ref & 1u) == 0u)
+
+#line 13
+    uint along_0;
+
+#line 20
+    if((ref_0 & 1U) == 0U)
     {
-        along = k;
+
+#line 20
+        along_0 = k_0;
+
+#line 20
     }
     else
     {
-        along = S - k;
+
+#line 20
+        along_0 = S_0 - k_0;
+
+#line 20
     }
-    return (V + ((ref >> 1u) * (S - 1u))) + (along - 1u);
+    return V_0 + (ref_0 >> 1U) * (S_0 - 1U) + (along_0 - 1U);
 }
 
-static inline __attribute__((always_inline))
-float half_bits(uint h)
+
+#line 62 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+float half_bits_0(uint h_0)
 {
-    uint e = (h >> 10u) & 31u;
-    float m = float(h & 1023u);
-    float v;
-    if (e == 0u)
+
+#line 63
+    uint e_2 = (h_0 >> 10U) & 31U;
+    float m_0 = float(h_0 & 1023U);
+
+#line 64
+    float v_4;
+    if(e_2 == 0U)
     {
-        v = m * exp2(-24.0);
+
+#line 65
+        v_4 = m_0 * exp2(-24.0f);
+
+#line 65
     }
     else
     {
-        v = (1.0 + (m / 1024.0)) * exp2(float(e) - 15.0);
+
+#line 65
+        v_4 = (1.0f + m_0 / 1024.0f) * exp2(float(e_2) - 15.0f);
+
+#line 65
     }
-    if ((h & 32768u) != 0u)
+    if((h_0 & 32768U) != 0U)
     {
-        v = -v;
+
+#line 66
+        v_4 = - v_4;
+
+#line 66
     }
-    return v;
+
+#line 66
+    return v_4;
 }
 
-static inline __attribute__((always_inline))
-float3 octahedral(uint p)
+float3 octahedral_0(uint p_0)
 {
-    return oct_decode(fast::max(float2(int2(int(p << uint(16)) >> 16, int(p) >> 16)) / float2(32767.0), float2(-1.0)));
+
+#line 70
+    return oct_decode_0(max(float2(int2(int(p_0 << 16U) >> 16U, int(p_0) >> 16U)) / float2(32767.0f) , float2(-1.0f) ));
 }
 
-static inline __attribute__((always_inline))
-float3 srgb_decode(float3 c)
+
+#line 21
+float3 srgb_decode_0(float3 c_0)
 {
-    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+
+#line 22
+    return mix(c_0 / float3(12.92000007629394531f) , pow((c_0 + float3(0.05499999970197678f) ) / float3(1.0549999475479126f) , float3(2.40000009536743164f) ), step(float3(0.04044999927282333f) , c_0));
 }
 
-static inline __attribute__((always_inline))
-float3 group_color(uint g)
+
+#line 13
+float3 group_color_0(uint g_0)
 {
-    float light;
-    if ((g & 1u) == 0u)
+
+#line 13
+    float3 _S17 = float3(3.0f) ;
+
+    float3 _S18 = float3(1.0f) ;
+
+#line 15
+    float3 rgb_0 = clamp(abs(fract(float3(fract(float(g_0) * 0.6180340051651001f + 0.11999999731779099f))  + float3(0.0f, 2.0f, 1.0f) / _S17) * float3(6.0f)  - _S17) - float3(1.0f) , float3(0.0f) , _S18);
+
+#line 15
+    float light_0;
+    if((g_0 & 1U) == 0U)
     {
-        light = 0.75;
+
+#line 16
+        light_0 = 0.75f;
+
+#line 16
     }
     else
     {
-        light = 0.550000011920928955078125;
+
+#line 16
+        light_0 = 0.55000001192092896f;
+
+#line 16
     }
-    return mix(float3(1.0), fast::clamp(abs((fract(float3(fract((float(g) * 0.61803400516510009765625) + 0.119999997317790985107421875)) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.550000011920928955078125)) * light;
+    return mix(_S18, rgb_0, float3(0.55000001192092896f) ) * float3(light_0) ;
 }
 
-vertex main0_out main0(constant SLANG_ParameterGroup_Frame_Uniforms_std140& Frame_Uniforms [[buffer(0)]], const device StructuredBuffer_3& paint [[buffer(1)]], const device StructuredBuffer& indices [[buffer(2)]], const device StructuredBuffer_2& positions [[buffer(3)]], const device StructuredBuffer& normals [[buffer(4)]], const device StructuredBuffer& skin_normals [[buffer(5)]], const device StructuredBuffer_1& skin_tris [[buffer(6)]], const device StructuredBuffer& skin_heights [[buffer(7)]], uint gl_VertexIndex [[vertex_id]])
+
+#line 17
+struct main_Result_0
 {
-    main0_out out = {};
-    uint per = (3u * Frame_Uniforms.skin.x) * Frame_Uniforms.skin.x;
-    uint tri = uint(int(gl_VertexIndex)) / per;
-    uint _165 = tri * per;
-    uint small = (uint(int(gl_VertexIndex)) - _165) / 3u;
-    uint c = (uint(int(gl_VertexIndex)) - _165) - (3u * small);
-    uint first = 0u;
-    uint j = 0u;
-    for (;;)
+    float4 position_0 [[position]];
+    float3 view_normal_0 [[user(NORMAL)]];
+    float3 view_pos_0 [[user(POSITION_1)]];
+    float mask_2 [[user(MASK)]];
+    float4 paint_1 [[user(COLOR)]];
+    float3 group_0 [[user(GROUP)]];
+    float3 mesh_pos_0 [[user(POSITION_2)]];
+    uint slot_0 [[user(SLOT)]];
+};
+
+
+#line 20 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+struct Mesh_Varyings_0
+{
+    float3 view_normal_1;
+    float3 view_pos_1;
+    float mask_3;
+    float4 paint_2;
+    [[flat]] float3 group_1;
+    float3 mesh_pos_1;
+    [[flat]] uint slot_1;
+};
+
+
+#line 56
+struct Mesh_Vertex_Out_0
+{
+    float4 position_1;
+    Mesh_Varyings_0 v_5;
+};
+
+
+#line 151 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+[[vertex]] main_Result_0 main_0(uint id_0 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* indices_1 [[buffer(2)]], packed_uint4 device* skin_tris_1 [[buffer(6)]], float device* positions_1 [[buffer(3)]], uint device* normals_1 [[buffer(4)]], uint device* skin_heights_1 [[buffer(7)]], uint device* skin_normals_1 [[buffer(5)]], packed_uint2 device* paint_3 [[buffer(1)]])
+{
+
+#line 151
+    Mesh_Vertex_Out_0 _S19;
+
+#line 151
+    thread KernelContext_0 kernelContext_2;
+
+#line 151
+    (&kernelContext_2)->Frame_Uniforms_0 = Frame_Uniforms_1;
+
+#line 151
+    (&kernelContext_2)->indices_0 = indices_1;
+
+#line 151
+    (&kernelContext_2)->skin_tris_0 = skin_tris_1;
+
+#line 151
+    (&kernelContext_2)->positions_0 = positions_1;
+
+#line 151
+    (&kernelContext_2)->normals_0 = normals_1;
+
+#line 151
+    (&kernelContext_2)->skin_heights_0 = skin_heights_1;
+
+#line 151
+    (&kernelContext_2)->skin_normals_0 = skin_normals_1;
+
+#line 151
+    (&kernelContext_2)->paint_0 = paint_3;
+
+#line 151
+    for(;;)
     {
-        uint _180 = 2u * (Frame_Uniforms.skin.x - j);
-        if (!(((first + _180) - 1u) <= small))
+
+#line 80
+        uint S_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.x;
+
+#line 80
+        uint V_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.y;
+
+#line 80
+        uint E_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.z;
+        uint per_0 = 3U * S_1 * S_1;
+        uint tri_1 = id_0 / per_0;
+        uint _S20 = id_0 - tri_1 * per_0;
+
+#line 83
+        uint small_0 = _S20 / 3U;
+        uint c_1 = _S20 - 3U * small_0;
+
+#line 84
+        uint first_0 = 0U;
+
+#line 84
+        uint j_1 = 0U;
+
+        for(;;)
         {
-            break;
-        }
-        first += (_180 - 1u);
-        j++;
-        continue;
-    }
-    uint _197 = first;
-    uint q = small - _197;
-    uint i = q >> 1u;
-    uint gi;
-    uint gj;
-    if ((q & 1u) == 0u)
-    {
-        if (c == 1u)
-        {
-            first = 1u;
-        }
-        else
-        {
-            first = 0u;
-        }
-        uint _209 = first;
-        if (c == 2u)
-        {
-            first = 1u;
-        }
-        else
-        {
-            first = 0u;
-        }
-        gi = i + _209;
-        gj = j + first;
-    }
-    else
-    {
-        if (c == 2u)
-        {
-            first = i;
-        }
-        else
-        {
-            first = i + 1u;
-        }
-        if (!(c == 0u))
-        {
-            j++;
-        }
-        gi = first;
-        gj = j;
-    }
-    uint _241 = 3u * tri;
-    uint _250 = _241 + 1u;
-    uint _253 = _241 + 2u;
-    uint3 v = uint3(indices._member0[_241], indices._member0[_250], indices._member0[_253]);
-    uint3 _13 = v;
-    float3 _264 = mesh_point(indices._member0[_241], positions);
-    float3 _285 = mesh_point(indices._member0[_250], positions);
-    float3 _286 = mesh_point(indices._member0[_253], positions);
-    spvUnsafeArray<float3, 3> P = spvUnsafeArray<float3, 3>({ _264, _285, _286 });
-    spvUnsafeArray<float3, 3> _20 = P;
-    spvUnsafeArray<float3, 3> N;
-    spvUnsafeArray<float, 3> M;
-    float3 _26 = N[0];
-    float _28 = M[0];
-    mesh_normal_mask(indices._member0[_241], _26, _28, normals);
-    N[0] = _26;
-    M[0] = _28;
-    float3 _29 = N[1];
-    float _30 = M[1];
-    mesh_normal_mask(indices._member0[_250], _29, _30, normals);
-    N[1] = _29;
-    M[1] = _30;
-    float3 _31 = N[2];
-    float _32 = M[2];
-    mesh_normal_mask(indices._member0[_253], _31, _32, normals);
-    N[2] = _31;
-    M[2] = _32;
-    float fS = float(Frame_Uniforms.skin.x);
-    float _442 = float(gi);
-    float _446 = float(gj);
-    float _448 = (1.0 - (_442 / fS)) - (_446 / fS);
-    float _449 = _442 / fS;
-    float _450 = _446 / fS;
-    float3 _33 = float3(_448, _449, _450);
-    bool _454 = gi == 0u;
-    bool _36;
-    if (_454)
-    {
-        _36 = gj == 0u;
-    }
-    else
-    {
-        _36 = false;
-    }
-    uint a;
-    uint k;
-    uint e;
-    float3 nb;
-    float3 b;
-    if (_36)
-    {
-        a = 3u;
-        k = 0u;
-        e = 0u;
-        nb = N[0];
-        b = _264;
-    }
-    else
-    {
-        if (gi == Frame_Uniforms.skin.x)
-        {
-            a = 3u;
-            k = 0u;
-            e = 0u;
-            nb = N[1];
-            b = _285;
-        }
-        else
-        {
-            if (gj == Frame_Uniforms.skin.x)
+
+#line 86
+            uint _S21 = 2U * (S_1 - j_1);
+
+#line 86
+            if((first_0 + _S21 - 1U) <= small_0)
             {
-                a = 3u;
-                k = 0u;
-                e = 0u;
-                nb = N[2];
-                b = _286;
             }
             else
             {
-                if (gj == 0u)
+
+#line 86
+                break;
+            }
+            uint _S22 = j_1 + 1U;
+
+#line 88
+            first_0 = first_0 + (_S21 - 1U);
+
+#line 88
+            j_1 = _S22;
+
+#line 86
+        }
+
+
+
+        uint q_0 = small_0 - first_0;
+        uint i_1 = q_0 >> 1U;
+
+#line 91
+        uint gi_0;
+
+#line 91
+        uint gj_0;
+
+        if((q_0 & 1U) == 0U)
+        {
+
+#line 94
+            if(c_1 == 1U)
+            {
+
+#line 94
+                first_0 = 1U;
+
+#line 94
+            }
+            else
+            {
+
+#line 94
+                first_0 = 0U;
+
+#line 94
+            }
+
+#line 94
+            uint _S23 = i_1 + first_0;
+            if(c_1 == 2U)
+            {
+
+#line 95
+                first_0 = 1U;
+
+#line 95
+            }
+            else
+            {
+
+#line 95
+                first_0 = 0U;
+
+#line 95
+            }
+
+#line 95
+            uint _S24 = j_1 + first_0;
+
+#line 95
+            gi_0 = _S23;
+
+#line 95
+            gj_0 = _S24;
+
+#line 93
+        }
+        else
+        {
+
+            if(c_1 == 2U)
+            {
+
+#line 97
+                first_0 = i_1;
+
+#line 97
+            }
+            else
+            {
+
+#line 97
+                first_0 = i_1 + 1U;
+
+#line 97
+            }
+            if(c_1 == 0U)
+            {
+            }
+            else
+            {
+
+#line 98
+                j_1 = j_1 + 1U;
+
+#line 98
+            }
+
+#line 98
+            gi_0 = first_0;
+
+#line 98
+            gj_0 = j_1;
+
+#line 93
+        }
+
+#line 100
+        uint _S25 = 3U * tri_1;
+
+#line 100
+        uint _S26 = (&kernelContext_2)->indices_0[_S25];
+
+#line 100
+        uint _S27 = (&kernelContext_2)->indices_0[_S25 + 1U];
+
+#line 100
+        uint _S28 = (&kernelContext_2)->indices_0[_S25 + 2U];
+
+#line 100
+        uint3 v_6 = uint3(_S26, _S27, _S28);
+
+#line 100
+        uint4 _S29 = uint4(*((&kernelContext_2)->skin_tris_0+tri_1)) ;
+
+#line 100
+        float3 _S30 = mesh_point_0(_S26, &kernelContext_2);
+
+#line 100
+        float3 _S31 = mesh_point_0(_S27, &kernelContext_2);
+
+#line 100
+        float3 _S32 = mesh_point_0(_S28, &kernelContext_2);
+
+        array<float3, int(3)> P_0 = { { _S30, _S31, _S32 } };
+        thread array<float3, int(3)> N_0;
+        thread array<float, int(3)> M_0;
+
+#line 104
+        mesh_normal_mask_0(_S26, &N_0[int(0)], &M_0[int(0)], &kernelContext_2);
+
+#line 104
+        mesh_normal_mask_0(_S27, &N_0[int(1)], &M_0[int(1)], &kernelContext_2);
+
+#line 104
+        mesh_normal_mask_0(_S28, &N_0[int(2)], &M_0[int(2)], &kernelContext_2);
+
+
+
+        float fS_0 = float(S_1);
+        float _S33 = float(gi_0);
+
+#line 109
+        float _S34 = float(gj_0);
+
+#line 109
+        float _S35 = 1.0f - _S33 / fS_0 - _S34 / fS_0;
+
+#line 109
+        float _S36 = _S33 / fS_0;
+
+#line 109
+        float _S37 = _S34 / fS_0;
+
+#line 109
+        float3 w_0 = float3(_S35, _S36, _S37);
+        float3 _S38 = float3(0.0f) ;
+
+        bool _S39 = gi_0 == 0U;
+
+#line 112
+        bool _S40;
+
+#line 112
+        if(_S39)
+        {
+
+#line 112
+            _S40 = gj_0 == 0U;
+
+#line 112
+        }
+        else
+        {
+
+#line 112
+            _S40 = false;
+
+#line 112
+        }
+
+#line 112
+        uint a_0;
+
+#line 112
+        uint k_1;
+
+#line 112
+        uint e_3;
+
+#line 112
+        float3 nb_0;
+
+#line 112
+        float3 b_0;
+
+#line 112
+        if(_S40)
+        {
+
+#line 112
+            a_0 = 3U;
+
+#line 112
+            k_1 = 0U;
+
+#line 112
+            e_3 = 0U;
+
+#line 112
+            nb_0 = N_0[int(0)];
+
+#line 112
+            b_0 = _S30;
+
+#line 112
+        }
+        else
+        {
+
+#line 113
+            if(gi_0 == S_1)
+            {
+
+#line 113
+                a_0 = 3U;
+
+#line 113
+                k_1 = 0U;
+
+#line 113
+                e_3 = 0U;
+
+#line 113
+                nb_0 = N_0[int(1)];
+
+#line 113
+                b_0 = _S31;
+
+#line 113
+            }
+            else
+            {
+
+#line 114
+                if(gj_0 == S_1)
                 {
-                    a = 0u;
-                    k = gi;
-                    e = skin_tris._member0[tri].x;
-                    nb = float3(0.0);
-                    b = float3(0.0);
+
+#line 114
+                    a_0 = 3U;
+
+#line 114
+                    k_1 = 0U;
+
+#line 114
+                    e_3 = 0U;
+
+#line 114
+                    nb_0 = N_0[int(2)];
+
+#line 114
+                    b_0 = _S32;
+
+#line 114
                 }
                 else
                 {
-                    if ((gi + gj) == Frame_Uniforms.skin.x)
+
+#line 115
+                    if(gj_0 == 0U)
                     {
-                        a = 1u;
-                        k = gj;
-                        e = skin_tris._member0[tri].y;
-                        nb = float3(0.0);
-                        b = float3(0.0);
+
+#line 115
+                        uint _S41 = _S29.x;
+
+#line 115
+                        a_0 = 0U;
+
+#line 115
+                        k_1 = gi_0;
+
+#line 115
+                        e_3 = _S41;
+
+#line 115
+                        nb_0 = _S38;
+
+#line 115
+                        b_0 = _S38;
+
+#line 115
                     }
                     else
                     {
-                        if (_454)
+
+#line 116
+                        if((gi_0 + gj_0) == S_1)
                         {
-                            a = 2u;
-                            k = Frame_Uniforms.skin.x - gj;
-                            e = skin_tris._member0[tri].z;
-                            nb = float3(0.0);
-                            b = float3(0.0);
+
+#line 116
+                            uint _S42 = _S29.y;
+
+#line 116
+                            a_0 = 1U;
+
+#line 116
+                            k_1 = gj_0;
+
+#line 116
+                            e_3 = _S42;
+
+#line 116
+                            nb_0 = _S38;
+
+#line 116
+                            b_0 = _S38;
+
+#line 116
                         }
                         else
                         {
-                            a = 3u;
-                            k = 0u;
-                            e = 0u;
-                            nb = ((N[0] * _448) + (N[1] * _449)) + (N[2] * _450);
-                            b = ((_264 * _448) + (_285 * _449)) + (_286 * _450);
+
+#line 117
+                            if(_S39)
+                            {
+
+#line 117
+                                uint _S43 = _S29.z;
+
+#line 117
+                                uint _S44 = S_1 - gj_0;
+
+#line 117
+                                a_0 = 2U;
+
+#line 117
+                                k_1 = _S44;
+
+#line 117
+                                e_3 = _S43;
+
+#line 117
+                                nb_0 = _S38;
+
+#line 117
+                                b_0 = _S38;
+
+#line 117
+                            }
+                            else
+                            {
+
+#line 117
+                                float3 _S45 = float3(_S35) ;
+
+#line 117
+                                float3 _S46 = float3(_S36) ;
+
+#line 117
+                                float3 _S47 = float3(_S37) ;
+
+                                float3 _S48 = _S30 * _S45 + _S31 * _S46 + _S32 * _S47;
+                                float3 _S49 = N_0[int(0)] * _S45 + N_0[int(1)] * _S46 + N_0[int(2)] * _S47;
+
+#line 120
+                                a_0 = 3U;
+
+#line 120
+                                k_1 = 0U;
+
+#line 120
+                                e_3 = 0U;
+
+#line 120
+                                nb_0 = _S49;
+
+#line 120
+                                b_0 = _S48;
+
+#line 117
+                            }
+
+#line 116
                         }
+
+#line 115
                     }
+
+#line 114
                 }
+
+#line 113
             }
+
+#line 112
         }
-    }
-    uint along;
-    if (a < 3u)
-    {
-        uint to_1 = (a + 1u) % 3u;
-        uint from;
-        uint to;
-        if ((e & 1u) == 1u)
+
+#line 112
+        uint m_1;
+
+#line 122
+        if(a_0 < 3U)
         {
-            along = Frame_Uniforms.skin.x - k;
-            from = to_1;
-            to = a;
+            uint to_0 = (a_0 + 1U) % 3U;
+
+#line 124
+            uint from_0;
+
+#line 124
+            uint to_1;
+            if((e_3 & 1U) == 1U)
+            {
+
+#line 125
+                m_1 = S_1 - k_1;
+
+#line 125
+                from_0 = to_0;
+
+#line 125
+                to_1 = a_0;
+
+#line 125
+            }
+            else
+            {
+
+#line 125
+                m_1 = k_1;
+
+#line 125
+                from_0 = a_0;
+
+#line 125
+                to_1 = to_0;
+
+#line 125
+            }
+
+#line 125
+            float3 _S50 = float3((float(m_1) / fS_0)) ;
+
+#line 131
+            float3 _S51 = P_0[from_0] + (P_0[to_1] - P_0[from_0]) * _S50;
+
+#line 131
+            nb_0 = N_0[from_0] + (N_0[to_1] - N_0[from_0]) * _S50;
+
+#line 131
+            b_0 = _S51;
+
+#line 122
+        }
+
+#line 134
+        float3 nu_0 = normalize(nb_0);
+
+#line 134
+        m_1 = 0U;
+
+#line 134
+        float3 curved_0 = _S38;
+
+        for(;;)
+        {
+
+#line 136
+            if(m_1 < 3U)
+            {
+            }
+            else
+            {
+
+#line 136
+                break;
+            }
+
+#line 136
+            float3 curved_1 = curved_0 + (b_0 - N_0[m_1] * float3(dot(b_0 - P_0[m_1], N_0[m_1])) ) * float3(w_0[m_1]) ;
+
+#line 136
+            m_1 = m_1 + 1U;
+
+#line 136
+            curved_0 = curved_1;
+
+#line 136
+        }
+        uint x_0 = skin_index_0(gi_0, gj_0, S_1, V_1, E_1, tri_1, v_6, _S29.xyz);
+
+        float3 in_position_0 = b_0 + nu_0 * float3((dot(curved_0 - b_0, nu_0) + half_bits_0(((&kernelContext_2)->skin_heights_0[x_0 >> 1U] >> (16U * (x_0 & 1U))) & 65535U))) ;
+
+        float3 in_normal_0 = octahedral_0((&kernelContext_2)->skin_normals_0[x_0]);
+
+#line 140
+        thread Mesh_Vertex_Out_0 o_0;
+
+        (&(&o_0)->v_5)->mask_3 = M_0[int(0)] * _S35 + M_0[int(1)] * _S36 + M_0[int(2)] * _S37;
+
+
+        uint _S52 = (_S29.w) & 3U;
+        (&(&o_0)->v_5)->paint_2 = float4(0.0f) ;
+        (&(&o_0)->v_5)->group_1 = float3(-1.0f) ;
+        (&(&o_0)->v_5)->slot_1 = 0U;
+        if(((&kernelContext_2)->Frame_Uniforms_0->options_0.x) > 0.5f)
+        {
+
+#line 149
+            m_1 = 0U;
+            for(;;)
+            {
+
+#line 150
+                if(m_1 < 3U)
+                {
+                }
+                else
+                {
+
+#line 150
+                    break;
+                }
+
+#line 151
+                float4 p_1 = unpack_unorm4x8_to_float((uint2(*((&kernelContext_2)->paint_0+v_6[m_1])) ).x);
+                (&(&o_0)->v_5)->paint_2 = (&(&o_0)->v_5)->paint_2 + float4(srgb_decode_0(p_1.xyz), p_1.w) * float4(w_0[m_1]) ;
+
+#line 150
+                m_1 = m_1 + 1U;
+
+#line 150
+            }
+
+#line 149
+        }
+
+#line 155
+        if(((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f)
+        {
+
+#line 155
+            _S40 = true;
+
+#line 155
         }
         else
         {
-            along = k;
-            from = a;
-            to = to_1;
+
+#line 155
+            _S40 = ((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f;
+
+#line 155
         }
-        float f = float(along) / fS;
-        nb = N[from] + ((N[to] - N[from]) * f);
-        b = _20[from] + ((_20[to] - _20[from]) * f);
-    }
-    float3 _600 = fast::normalize(nb);
-    along = 0u;
-    float3 curved = float3(0.0);
-    for (;;)
-    {
-        float3 curved_1;
-        bool _99_ladder_break = false;
-        do
+
+#line 155
+        if(_S40)
         {
-            if (!(along < 3u))
+
+#line 156
+            uint group_2 = ((uint2(*((&kernelContext_2)->paint_0+v_6[_S52])) ).y) & 65535U;
+            if(((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f)
             {
-                _99_ladder_break = true;
-                break;
+
+#line 157
+                (&(&o_0)->v_5)->group_1 = group_color_0(group_2);
+
+#line 157
             }
-            curved_1 = curved + ((b - (N[along] * dot(b - _20[along], N[along]))) * _33[along]);
-            break;
-        } while(false);
-        if (_99_ladder_break)
-        {
-            break;
-        }
-        along++;
-        curved = curved_1;
-        continue;
-    }
-    uint x = skin_index(gi, gj, Frame_Uniforms.skin.x, Frame_Uniforms.skin.y, Frame_Uniforms.skin.z, tri, v, skin_tris._member0[tri].xyz);
-    float3 in_position = b + (_600 * (dot(curved - b, _600) + half_bits((skin_heights._member0[x >> 1u] >> (16u * (x & 1u))) & 65535u)));
-    Mesh_Vertex_Out o;
-    o.v.mask = ((M[0] * _448) + (M[1] * _449)) + (M[2] * _450);
-    o.v.paint = float4(0.0);
-    o.v.group = float3(-1.0);
-    o.v.slot = 0u;
-    if (Frame_Uniforms.options.x > 0.5)
-    {
-        along = 0u;
-        for (;;)
-        {
-            bool _110_ladder_break = false;
-            do
+            if(((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f)
             {
-                if (!(along < 3u))
+
+#line 158
+                k_1 = 1U;
+                for(;;)
                 {
-                    _110_ladder_break = true;
-                    break;
-                }
-                float4 _883 = unpack_unorm4x8_to_float(paint._member0[_13[along]].x);
-                o.v.paint += (float4(srgb_decode(_883.xyz), _883.w) * _33[along]);
-                break;
-            } while(false);
-            if (_110_ladder_break)
-            {
-                break;
-            }
-            along++;
-            continue;
-        }
-    }
-    if (Frame_Uniforms.options.y > 0.5)
-    {
-        _36 = true;
-    }
-    else
-    {
-        _36 = Frame_Uniforms.options.z > 0.5;
-    }
-    if (_36)
-    {
-        uint group = paint._member0[_13[skin_tris._member0[tri].w & 3u]].y & 65535u;
-        if (Frame_Uniforms.options.y > 0.5)
-        {
-            o.v.group = group_color(group);
-        }
-        if (Frame_Uniforms.options.z > 0.5)
-        {
-            k = 1u;
-            for (;;)
-            {
-                bool _128_ladder_break = false;
-                do
-                {
-                    if (!(k < 16u))
+
+#line 159
+                    if(k_1 < 16U)
                     {
-                        _128_ladder_break = true;
+                    }
+                    else
+                    {
+
+#line 159
                         break;
                     }
-                    if (Frame_Uniforms.slot_group.data[k >> uint(2)][k & 3u] == group)
+
+#line 160
+                    if(((&kernelContext_2)->Frame_Uniforms_0->slot_group_0[k_1 >> 2U][k_1 & 3U]) == group_2)
                     {
-                        o.v.slot = k;
+
+#line 160
+                        (&(&o_0)->v_5)->slot_1 = k_1;
+
+#line 160
                     }
-                    break;
-                } while(false);
-                if (_128_ladder_break)
-                {
-                    break;
+
+#line 159
+                    k_1 = k_1 + 1U;
+
+#line 159
                 }
-                k++;
-                continue;
+
+#line 158
             }
+
+#line 155
         }
+
+#line 164
+        float4 world_0 = ((((&kernelContext_2)->Frame_Uniforms_0->model_0) * (float4(in_position_0, 1.0f))));
+        (&o_0)->position_1 = ((((&kernelContext_2)->Frame_Uniforms_0->view_proj_0) * (world_0)));
+        (&(&o_0)->v_5)->view_normal_1 = ((((((matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->view_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->model_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(2)].xyz))))) * (in_normal_0)));
+        (&(&o_0)->v_5)->view_pos_1 = ((((&kernelContext_2)->Frame_Uniforms_0->view_0) * (world_0))).xyz;
+        (&(&o_0)->v_5)->mesh_pos_1 = in_position_0;
+
+#line 168
+        _S19 = o_0;
+        break;
     }
-    float4 _1031 = Frame_Uniforms.model * float4(in_position, 1.0);
-    o.position = Frame_Uniforms.view_proj * _1031;
-    o.v.view_normal = (float3x3(Frame_Uniforms.view[0].xyz, Frame_Uniforms.view[1].xyz, Frame_Uniforms.view[2].xyz) * float3x3(Frame_Uniforms.model[0].xyz, Frame_Uniforms.model[1].xyz, Frame_Uniforms.model[2].xyz)) * octahedral(skin_normals._member0[x]);
-    o.v.view_pos = (Frame_Uniforms.view * _1031).xyz;
-    o.v.mesh_pos = in_position;
-    out.gl_Position = o.position;
-    out.entryPointParam_main_v_view_normal = o.v.view_normal;
-    out.entryPointParam_main_v_view_pos = o.v.view_pos;
-    out.entryPointParam_main_v_mask = o.v.mask;
-    out.entryPointParam_main_v_paint = o.v.paint;
-    out.entryPointParam_main_v_group = o.v.group;
-    out.entryPointParam_main_v_mesh_pos = o.v.mesh_pos;
-    out.entryPointParam_main_v_slot = o.v.slot;
-    return out;
+
+#line 169
+    thread main_Result_0 _S53;
+
+#line 169
+    (&_S53)->position_0 = _S19.position_1;
+
+#line 169
+    (&_S53)->view_normal_0 = _S19.v_5.view_normal_1;
+
+#line 169
+    (&_S53)->view_pos_0 = _S19.v_5.view_pos_1;
+
+#line 169
+    (&_S53)->mask_2 = _S19.v_5.mask_3;
+
+#line 169
+    (&_S53)->paint_1 = _S19.v_5.paint_2;
+
+#line 169
+    (&_S53)->group_0 = _S19.v_5.group_1;
+
+#line 169
+    (&_S53)->mesh_pos_0 = _S19.v_5.mesh_pos_1;
+
+#line 169
+    (&_S53)->slot_0 = _S19.v_5.slot_1;
+
+#line 169
+    return _S53;
 }
 

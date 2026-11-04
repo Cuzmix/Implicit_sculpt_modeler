@@ -24,8 +24,7 @@ import "../jobs"
 // shadow-map gather, which stays as it was.
 
 // The kernels are STUDIO_TRACE_COMP, STUDIO_TRACE_RQ_COMP (the same over the driver's
-// acceleration structures, Gpu_Caps.ray_query, whose Metal source comes from slangc: RQ_EXT)
-// and BLAS_REFIT_COMP.
+// acceleration structures, Gpu_Caps.ray_query) and BLAS_REFIT_COMP.
 
 // numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
 @(private = "file")

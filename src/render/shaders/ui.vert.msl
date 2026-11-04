@@ -1,48 +1,73 @@
-// SDL_shadercross 1ff05bec5739 from ui.vert.spv sha256 9d9cf5632916c5e2f9ef95d2be7feee6066296d6e560d2e1a267eb0355c06100
+// slangc metal from ui.vert.spv sha256 9d9cf5632916c5e2f9ef95d2be7feee6066296d6e560d2e1a267eb0355c06100
+// slots s= rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct Vertex_Out
+#line 3 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ui.vert.slang"
+struct main_Result_0
 {
-    float4 position;
-    float2 uv;
-    float4 color;
+    float4 position_0 [[position]];
+    float2 uv_0 [[user(TEXCOORD)]];
+    float4 color_0 [[user(COLOR)]];
 };
 
-struct SLANG_ParameterGroup_Ui_Vertex_Uniforms_std140
+
+#line 3
+struct vertexInput_0
 {
-    float4 target;
+    float2 pos_0 [[attribute(0)]];
+    float2 uv_1 [[attribute(1)]];
+    float4 color_1 [[attribute(2)]];
 };
 
-struct main0_out
+
+#line 16
+struct SLANG_ParameterGroup_Ui_Vertex_Uniforms_0
 {
-    float2 entryPointParam_main_uv [[user(locn0)]];
-    float4 entryPointParam_main_color [[user(locn1)]];
-    float4 gl_Position [[position]];
+    float4 target_0;
 };
 
-struct main0_in
+
+#line 9
+struct Vertex_Out_0
 {
-    float2 v_pos [[attribute(0)]];
-    float2 v_uv [[attribute(1)]];
-    float4 v_color [[attribute(2)]];
+    float4 position_1;
+    float2 uv_2;
+    float4 color_2;
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Ui_Vertex_Uniforms_std140& Ui_Vertex_Uniforms [[buffer(0)]])
+
+#line 9
+[[vertex]] main_Result_0 main_0(vertexInput_0 _S1 [[stage_in]], SLANG_ParameterGroup_Ui_Vertex_Uniforms_0 constant* Ui_Vertex_Uniforms_0 [[buffer(0)]])
 {
-    main0_out out = {};
-    Vertex_Out o;
-    o.uv = in.v_uv;
-    o.color = in.v_color;
-    float2 ndc = ((in.v_pos / Ui_Vertex_Uniforms.target.xy) * 2.0) - float2(1.0);
-    float _42 = ndc.x;
-    float _44 = -ndc.y;
-    o.position = float4((Ui_Vertex_Uniforms.target.z * _42) + (Ui_Vertex_Uniforms.target.w * _44), (Ui_Vertex_Uniforms.target.z * _44) - (Ui_Vertex_Uniforms.target.w * _42), 0.0, 1.0);
-    out.gl_Position = o.position;
-    out.entryPointParam_main_uv = o.uv;
-    out.entryPointParam_main_color = o.color;
-    return out;
+
+#line 23
+    thread Vertex_Out_0 o_0;
+    (&o_0)->uv_2 = _S1.uv_1;
+    (&o_0)->color_2 = _S1.color_1;
+    float2 ndc_0 = _S1.pos_0 / Ui_Vertex_Uniforms_0->target_0.xy * float2(2.0f)  - float2(1.0f) ;
+    float _S2 = ndc_0.x;
+
+#line 27
+    float _S3 = - ndc_0.y;
+
+    (&o_0)->position_1 = float4(Ui_Vertex_Uniforms_0->target_0.z * _S2 + Ui_Vertex_Uniforms_0->target_0.w * _S3, Ui_Vertex_Uniforms_0->target_0.z * _S3 - Ui_Vertex_Uniforms_0->target_0.w * _S2, 0.0f, 1.0f);
+
+#line 29
+    thread main_Result_0 _S4;
+
+#line 29
+    (&_S4)->position_0 = o_0.position_1;
+
+#line 29
+    (&_S4)->uv_0 = o_0.uv_2;
+
+#line 29
+    (&_S4)->color_0 = o_0.color_2;
+
+#line 29
+    return _S4;
 }
 

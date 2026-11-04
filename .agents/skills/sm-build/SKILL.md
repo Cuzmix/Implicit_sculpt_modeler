@@ -42,10 +42,8 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 - Shaders: Slang sources (`src/render/shaders/*.slang`, sm-render) compile to the committed `.spv` with slangc:
   `build.sh` uses `deps/slang/bin/slangc` (setup_deps takes it from the LunarG Vulkan SDK `VULKAN_SDK`, checked
   against `VULKAN_SDK_SHA256` in `scripts/versions.env`), `build.bat` `deps\slang\bin\slangc.exe` or one on PATH (the
-  Vulkan SDK installs it); without one the committed `.spv` are used as they are. When `deps/shadercross` exists
-  (`python scripts/build_shadercross.py`, which `setup_deps.sh` runs: CMake, git and a C++ compiler; three pinned builds,
-  SPIRV-Cross and SDL3 static, then the tool), each new `.spv` also becomes its `.msl` (`python scripts/shaders_msl.py`;
-  `--all` remakes every one), and every changed `.spv` is reflected into `src/render/shaders_gen.odin` (`python scripts/shaders_gen.py`). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
+  Vulkan SDK installs it); without one the committed `.spv` are used as they are. Each new `.spv` also gets its `.msl` from slangc's
+  Metal target with its slot table (`python scripts/shaders_msl.py`; `--all` remakes every one), and every changed `.spv` is reflected into `src/render/shaders_gen.odin` (`python scripts/shaders_gen.py`). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
 - VS Code: `.vscode/tasks.json` (one task per build mode and script, Windows and Linux, grouped Desktop, Test, Android,
   iPad, Build all and Clean, with an Odin problem matcher; the test picker lists the nineteen packages `build.sh test` runs) and `launch.json`
   (cppvsdbg on the PDBs, named by device; the build-and-run entries run build.bat or a script through cmd.exe under it;

@@ -1,129 +1,150 @@
-// SDL_shadercross 1ff05bec5739 from clear.frag.spv sha256 7cc459a12d95caee7fadd940b75c635a402449001dffe971a49c38e08004fc0c
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from clear.frag.spv sha256 7cc459a12d95caee7fadd940b75c635a402449001dffe971a49c38e08004fc0c
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
-{
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
-};
+#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.frag.slang"
+constant array<float, int(16)> BAYER_0 = { { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f } };
 
-struct SLANG_ParameterGroup_Clear_Uniforms_std140
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+float2 panorama_uv_0(float3 d_0)
 {
-    float4 top;
-    float4 bottom;
-    float4 extent;
-    float4 env;
-    float4x4 clip_to_env;
-};
 
-constant spvUnsafeArray<float, 16> _31 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
-
-struct main0_out
-{
-    float4 entryPointParam_main [[color(0)]];
-};
-
-static inline __attribute__((always_inline))
-float2 panorama_uv(float3 d)
-{
-    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
+    return float2(atan2(d_0.x, - d_0.z - 9.99999968265522539e-21f) * 0.15915493667125702f + 0.5f, acos(clamp(d_0.y, -1.0f, 1.0f)) * 0.31830990314483643f);
 }
 
-static inline __attribute__((always_inline))
-float3 tone_map(float3 c)
+
+#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+float3 tone_map_0(float3 c_0)
 {
-    float _167 = fast::min(c.x, fast::min(c.y, c.z));
-    float offset;
-    if (_167 < 0.07999999821186065673828125)
+
+    float _S1 = min(c_0.x, min(c_0.y, c_0.z));
+
+#line 21
+    float offset_0;
+    if(_S1 < 0.07999999821186066f)
     {
-        offset = _167 - ((6.25 * _167) * _167);
+
+#line 22
+        offset_0 = _S1 - 6.25f * _S1 * _S1;
+
+#line 22
     }
     else
     {
-        offset = 0.039999999105930328369140625;
+
+#line 22
+        offset_0 = 0.03999999910593033f;
+
+#line 22
     }
-    float3 _182 = c - float3(offset);
-    float _187 = fast::max(_182.x, fast::max(_182.y, _182.z));
-    if (_187 < 0.7599999904632568359375)
+    float3 _S2 = c_0 - float3(offset_0) ;
+    float _S3 = max(_S2.x, max(_S2.y, _S2.z));
+    if(_S3 < 0.75999999046325684f)
     {
-        return _182;
+
+#line 25
+        return _S2;
     }
-    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_187 + 0.2400000095367431640625) - 0.7599999904632568359375));
-    return mix(_182 * (new_peak / _187), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_187 - new_peak)) + 1.0))));
+    float new_peak_0 = 1.0f - 0.0576000027358532f / (_S3 + 0.24000000953674316f - 0.75999999046325684f);
+
+
+    return mix(_S2 * float3((new_peak_0 / _S3)) , float3(new_peak_0) , float3((1.0f - 1.0f / (0.15000000596046448f * (_S3 - new_peak_0) + 1.0f))) );
 }
 
-static inline __attribute__((always_inline))
-float3 srgb_encode(float3 c)
+
+#line 9
+float3 srgb_encode_0(float3 c_1)
 {
-    float3 _214 = fast::clamp(c, float3(0.0), float3(1.0));
-    return mix(_214 * 12.9200000762939453125, (powr(_214, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _214));
+
+#line 10
+    float3 _S4 = clamp(c_1, float3(0.0f) , float3(1.0f) );
+    return mix(float3(12.92000007629394531f)  * _S4, float3(1.0549999475479126f)  * pow(_S4, float3(0.4166666567325592f) ) - float3(0.05499999970197678f) , step(float3(0.00313080009073019f) , _S4));
 }
 
-static inline __attribute__((always_inline))
-float3 display_color(float3 c, float stops)
+
+#line 68
+float3 display_color_0(float3 c_2, float stops_0)
 {
-    return srgb_encode(tone_map(c * exp2(stops)));
+
+#line 69
+    return srgb_encode_0(tone_map_0(c_2 * float3(exp2(stops_0)) ));
 }
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Clear_Uniforms_std140& Clear_Uniforms [[buffer(0)]], texture2d<float> environment_map [[texture(0)]], sampler environment_mapSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+
+#line 90 "core"
+struct pixelOutput_0
 {
-    main0_out out = {};
-    int2 p = int2(gl_FragCoord.xy) & int2(3);
-    float dither = (((_31[(p.y * 4) + p.x] + 0.5) / 16.0) - 0.5) / 255.0;
-    if (Clear_Uniforms.env.x > 0.5)
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.frag.slang"
+struct SLANG_ParameterGroup_Clear_Uniforms_0
+{
+    float4 top_0;
+    float4 bottom_0;
+    float4 extent_0;
+    float4 env_0;
+    matrix<float,int(4),int(4)>  clip_to_env_0;
+};
+
+
+#line 8
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Clear_Uniforms_0 constant* Clear_Uniforms_0;
+    texture2d<float, access::sample> environment_map_texture_0;
+    sampler environment_map_sampler_0;
+};
+
+
+#line 24
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], SLANG_ParameterGroup_Clear_Uniforms_0 constant* Clear_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> environment_map_texture_1 [[texture(0)]], sampler environment_map_sampler_1 [[sampler(0)]])
+{
+
+#line 24
+    thread KernelContext_0 kernelContext_0;
+
+#line 24
+    (&kernelContext_0)->Clear_Uniforms_0 = Clear_Uniforms_1;
+
+#line 24
+    (&kernelContext_0)->environment_map_texture_0 = environment_map_texture_1;
+
+#line 24
+    (&kernelContext_0)->environment_map_sampler_0 = environment_map_sampler_1;
+
+    int2 p_0 = int2(frag_coord_0.xy) & (int2(int(3)) );
+    float dither_0 = ((BAYER_0[p_0.y * int(4) + p_0.x] + 0.5f) / 16.0f - 0.5f) / 255.0f;
+    if((Clear_Uniforms_1->env_0.x) > 0.5f)
     {
-        float2 ndc = float2(((2.0 * gl_FragCoord.x) / Clear_Uniforms.extent.y) - 1.0, 1.0 - ((2.0 * gl_FragCoord.y) / Clear_Uniforms.extent.x));
-        float4 _91 = Clear_Uniforms.clip_to_env * float4(ndc, 0.0, 1.0);
-        float4 _94 = Clear_Uniforms.clip_to_env * float4(ndc, 1.0, 1.0);
-        float4 _137 = environment_map.sample(environment_mapSmplr, panorama_uv(fast::normalize((_94.xyz / float3(_94.w)) - (_91.xyz / float3(_91.w)))), level(Clear_Uniforms.env.z));
-        out.entryPointParam_main = float4(display_color(_137.xyz * Clear_Uniforms.env.y, Clear_Uniforms.env.w) + float3(dither), 1.0);
-        return out;
+
+        float2 ndc_0 = float2(2.0f * frag_coord_0.x / (&kernelContext_0)->Clear_Uniforms_0->extent_0.y - 1.0f, 1.0f - 2.0f * frag_coord_0.y / (&kernelContext_0)->Clear_Uniforms_0->extent_0.x);
+        float4 a_0 = ((((&kernelContext_0)->Clear_Uniforms_0->clip_to_env_0) * (float4(ndc_0, 0.0f, 1.0f))));
+        float4 b_0 = ((((&kernelContext_0)->Clear_Uniforms_0->clip_to_env_0) * (float4(ndc_0, 1.0f, 1.0f))));
+
+#line 33
+        pixelOutput_0 _S5 = { float4(display_color_0((((&kernelContext_0)->environment_map_texture_0).sample(((&kernelContext_0)->environment_map_sampler_0), (panorama_uv_0(normalize(b_0.xyz / float3(b_0.w)  - a_0.xyz / float3(a_0.w) ))), level((Clear_Uniforms_1->env_0.z)))).xyz * float3(Clear_Uniforms_1->env_0.y) , Clear_Uniforms_1->env_0.w) + float3(dither_0) , 1.0f) };
+
+
+        return _S5;
     }
-    if (all(Clear_Uniforms.top == Clear_Uniforms.bottom))
+    if(all(((&kernelContext_0)->Clear_Uniforms_0->top_0) == ((&kernelContext_0)->Clear_Uniforms_0->bottom_0)))
     {
-        out.entryPointParam_main = Clear_Uniforms.top;
-        return out;
+
+#line 38
+        pixelOutput_0 _S6 = { (&kernelContext_0)->Clear_Uniforms_0->top_0 };
+
+#line 38
+        return _S6;
     }
-    float _259 = fast::clamp(gl_FragCoord.y / Clear_Uniforms.extent.x, 0.0, 1.0);
-    out.entryPointParam_main = float4(mix(Clear_Uniforms.top.xyz, Clear_Uniforms.bottom.xyz, float3(_259)) + float3(dither), mix(Clear_Uniforms.top.w, Clear_Uniforms.bottom.w, _259));
-    return out;
+    float t_0 = clamp(frag_coord_0.y / (&kernelContext_0)->Clear_Uniforms_0->extent_0.x, 0.0f, 1.0f);
+
+#line 40
+    pixelOutput_0 _S7 = { float4(mix((&kernelContext_0)->Clear_Uniforms_0->top_0.xyz, (&kernelContext_0)->Clear_Uniforms_0->bottom_0.xyz, float3(t_0) ) + float3(dither_0) , mix((&kernelContext_0)->Clear_Uniforms_0->top_0.w, (&kernelContext_0)->Clear_Uniforms_0->bottom_0.w, t_0)) };
+    return _S7;
 }
 

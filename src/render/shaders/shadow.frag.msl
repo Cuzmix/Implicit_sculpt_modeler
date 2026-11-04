@@ -1,10 +1,15 @@
-// SDL_shadercross 1ff05bec5739 from shadow.frag.spv sha256 a64ba17c5c6cc597c34c55839d04afec66cc69a2cfe58cea1e62764ea83888ae
+// slangc metal from shadow.frag.spv sha256 a64ba17c5c6cc597c34c55839d04afec66cc69a2cfe58cea1e62764ea83888ae
+// slots s= rt= wt= rb= wb= u= a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-fragment void main0()
+#line 2 "/home/user/Implicit_sculpt_modeler/src/render/shaders/shadow.frag.slang"
+[[fragment]] void main_0()
 {
+
+#line 3
+    return;
 }
 

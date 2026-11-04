@@ -1,147 +1,240 @@
-// SDL_shadercross 1ff05bec5739 from textured.vert.spv sha256 033fbac66fe4bb7b2434f90c061c869f285ab7326720bcd84fcaaa9a89c0603f
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from textured.vert.spv sha256 033fbac66fe4bb7b2434f90c061c869f285ab7326720bcd84fcaaa9a89c0603f
+// slots s= rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct Mesh_Varyings
+#line 61 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+float3 oct_decode_0(float2 e_0)
 {
-    float3 view_normal;
-    float3 view_pos;
-    float mask;
-    float4 paint;
-    float3 group;
-    float3 mesh_pos;
-    uint slot;
-    float2 uv;
-    float4 view_tangent;
-};
 
-struct Mesh_Vertex_Out
-{
-    float4 position;
-    Mesh_Varyings v;
-};
+#line 62
+    float _S1 = e_0.x;
 
-struct _Array_std140_vector_uint_4_4
-{
-    uint4 data[4];
-};
+#line 62
+    float _S2 = e_0.y;
 
-struct SLANG_ParameterGroup_Frame_Uniforms_std140
-{
-    float4x4 view_proj;
-    float4x4 view;
-    float4x4 model;
-    float4 options;
-    _Array_std140_vector_uint_4_4 slot_group;
-    uint4 skin;
-};
+#line 62
+    float3 _S3 = float3(e_0, 1.0f - abs(_S1) - abs(_S2));
 
-struct main0_out
-{
-    float3 entryPointParam_main_v_view_normal [[user(locn0)]];
-    float3 entryPointParam_main_v_view_pos [[user(locn1)]];
-    float entryPointParam_main_v_mask [[user(locn2)]];
-    float4 entryPointParam_main_v_paint [[user(locn3)]];
-    float3 entryPointParam_main_v_group [[user(locn4)]];
-    float3 entryPointParam_main_v_mesh_pos [[user(locn5)]];
-    uint entryPointParam_main_v_slot [[user(locn6)]];
-    float2 entryPointParam_main_v_uv [[user(locn7)]];
-    float4 entryPointParam_main_v_view_tangent [[user(locn8)]];
-    float4 gl_Position [[position]];
-};
-
-struct main0_in
-{
-    float3 in_position [[attribute(0)]];
-    float2 in_normal_oct [[attribute(1)]];
-    float4 in_tangent [[attribute(2)]];
-    float2 in_uv [[attribute(3)]];
-};
-
-static inline __attribute__((always_inline))
-float3 oct_decode(float2 e)
-{
-    float3 _78 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
-    float3 v = _78;
-    if (_78.z < 0.0)
+#line 62
+    thread float3 v_0 = _S3;
+    if((_S3.z) < 0.0f)
     {
-        float _61;
-        if (e.x >= 0.0)
+
+#line 63
+        float2 _S4 = float2(1.0f)  - abs(e_0.yx);
+
+#line 63
+        float _S5;
+
+#line 63
+        if(_S1 >= 0.0f)
         {
-            _61 = 1.0;
+
+#line 63
+            _S5 = 1.0f;
+
+#line 63
         }
         else
         {
-            _61 = -1.0;
+
+#line 63
+            _S5 = -1.0f;
+
+#line 63
         }
-        float _62;
-        if (e.y >= 0.0)
+
+#line 63
+        float _S6;
+
+#line 63
+        if(_S2 >= 0.0f)
         {
-            _62 = 1.0;
+
+#line 63
+            _S6 = 1.0f;
+
+#line 63
         }
         else
         {
-            _62 = -1.0;
+
+#line 63
+            _S6 = -1.0f;
+
+#line 63
         }
-        float2 _104 = (float2(1.0) - abs(e.yx)) * float2(_61, _62);
-        v.x = _104.x;
-        v.y = _104.y;
+
+#line 63
+        v_0.xy = _S4 * float2(_S5, _S6);
+
+#line 63
     }
-    return fast::normalize(v);
+    return normalize(v_0);
 }
 
-static inline __attribute__((always_inline))
-void decode_normal_mask(float2 normal_oct, thread float3& normal, thread float& mask)
+
+
+
+void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
-    int2 _48 = int2(round(fast::max(normal_oct, float2(-1.0)) * 32767.0));
-    normal = oct_decode(float2(_48 & int2(-16)) / float2(32767.0));
-    mask = float(((_48.x & 15) << 4) | (_48.y & 15)) / 255.0;
+
+#line 70
+    float2 _S7 = float2(32767.0f) ;
+    int2 _S8 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S7));
+    *normal_0 = oct_decode_0(float2(_S8 & (int2(int(-16)) )) / _S7);
+    *mask_0 = float((((_S8.x) & int(15)) << 4U) | ((_S8.y) & int(15))) / 255.0f;
+    return;
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Frame_Uniforms_std140& Frame_Uniforms [[buffer(0)]])
+
+#line 90 "core"
+struct main_Result_0
 {
-    main0_out out = {};
-    Mesh_Vertex_Out o;
-    float _17 = o.v.mask;
-    float3 in_normal;
-    decode_normal_mask(in.in_normal_oct, in_normal, _17);
-    o.v.mask = _17;
-    o.v.paint = float4(0.0);
-    o.v.group = float3(-1.0);
-    o.v.slot = 0u;
-    float4 _158 = Frame_Uniforms.model * float4(in.in_position, 1.0);
-    o.position = Frame_Uniforms.view_proj * _158;
-    float3x3 _182 = float3x3(Frame_Uniforms.view[0].xyz, Frame_Uniforms.view[1].xyz, Frame_Uniforms.view[2].xyz) * float3x3(Frame_Uniforms.model[0].xyz, Frame_Uniforms.model[1].xyz, Frame_Uniforms.model[2].xyz);
-    float _184 = length(_182[0]);
-    float3x3 _194 = float3x3(_182[0] / float3(_184), _182[1] / float3(_184), _182[2] / float3(_184));
-    o.v.view_normal = _194 * in_normal;
-    float _18;
-    if (in.in_tangent.w < 0.0)
+    float4 position_0 [[position]];
+    float3 view_normal_0 [[user(NORMAL)]];
+    float3 view_pos_0 [[user(POSITION_1)]];
+    float mask_1 [[user(MASK)]];
+    float4 paint_0 [[user(COLOR)]];
+    float3 group_0 [[user(GROUP)]];
+    float3 mesh_pos_0 [[user(POSITION_2)]];
+    uint slot_0 [[user(SLOT)]];
+    float2 uv_0 [[user(TEXCOORD)]];
+    float4 view_tangent_0 [[user(TANGENT)]];
+};
+
+
+#line 90
+struct vertexInput_0
+{
+    float3 in_position_0 [[attribute(0)]];
+    float2 in_normal_oct_0 [[attribute(1)]];
+    float4 in_tangent_0 [[attribute(2)]];
+    float2 in_uv_0 [[attribute(3)]];
+};
+
+
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+struct SLANG_ParameterGroup_Frame_Uniforms_0
+{
+    matrix<float,int(4),int(4)>  view_proj_0;
+    matrix<float,int(4),int(4)>  view_0;
+    matrix<float,int(4),int(4)>  model_0;
+    float4 options_0;
+    array<uint4, int(4)> slot_group_0;
+    uint4 skin_0;
+};
+
+
+
+
+struct Mesh_Varyings_0
+{
+    float3 view_normal_1;
+    float3 view_pos_1;
+    float mask_2;
+    float4 paint_1;
+    [[flat]] float3 group_1;
+    float3 mesh_pos_1;
+    [[flat]] uint slot_1;
+    float2 uv_1;
+    float4 view_tangent_1;
+};
+
+
+#line 56
+struct Mesh_Vertex_Out_0
+{
+    float4 position_1;
+    Mesh_Varyings_0 v_1;
+};
+
+
+#line 56
+[[vertex]] main_Result_0 main_0(vertexInput_0 _S9 [[stage_in]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0 [[buffer(0)]])
+{
+
+#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+    thread Mesh_Vertex_Out_0 o_0;
+    thread float3 in_normal_0;
+    decode_normal_mask_0(_S9.in_normal_oct_0, &in_normal_0, &(&(&o_0)->v_1)->mask_2);
+    (&(&o_0)->v_1)->paint_1 = float4(0.0f) ;
+    (&(&o_0)->v_1)->group_1 = float3(-1.0f) ;
+    (&(&o_0)->v_1)->slot_1 = 0U;
+    float4 world_0 = (((Frame_Uniforms_0->model_0) * (float4(_S9.in_position_0, 1.0f))));
+    (&o_0)->position_1 = (((Frame_Uniforms_0->view_proj_0) * (world_0)));
+
+
+    matrix<float,int(3),int(3)>  turn_0 = (((matrix<float,int(3),int(3)> (Frame_Uniforms_0->view_0[int(0)].xyz, Frame_Uniforms_0->view_0[int(1)].xyz, Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> (Frame_Uniforms_0->model_0[int(0)].xyz, Frame_Uniforms_0->model_0[int(1)].xyz, Frame_Uniforms_0->model_0[int(2)].xyz))));
+    matrix<float,int(3),int(3)>  _S10 = turn_0 / length(turn_0[int(0)]);
+    (&(&o_0)->v_1)->view_normal_1 = (((_S10) * (in_normal_0)));
+    float3 _S11 = (((_S10) * (_S9.in_tangent_0.xyz)));
+
+#line 26
+    float _S12;
+
+#line 26
+    if((_S9.in_tangent_0.w) < 0.0f)
     {
-        _18 = -1.0;
+
+#line 26
+        _S12 = -1.0f;
+
+#line 26
     }
     else
     {
-        _18 = 1.0;
+
+#line 26
+        _S12 = 1.0f;
+
+#line 26
     }
-    o.v.view_tangent = float4(_194 * in.in_tangent.xyz, _18);
-    o.v.view_pos = (Frame_Uniforms.view * _158).xyz;
-    o.v.mesh_pos = in.in_position;
-    o.v.uv = in.in_uv;
-    out.gl_Position = o.position;
-    out.entryPointParam_main_v_view_normal = o.v.view_normal;
-    out.entryPointParam_main_v_view_pos = o.v.view_pos;
-    out.entryPointParam_main_v_mask = o.v.mask;
-    out.entryPointParam_main_v_paint = o.v.paint;
-    out.entryPointParam_main_v_group = o.v.group;
-    out.entryPointParam_main_v_mesh_pos = o.v.mesh_pos;
-    out.entryPointParam_main_v_slot = o.v.slot;
-    out.entryPointParam_main_v_uv = o.v.uv;
-    out.entryPointParam_main_v_view_tangent = o.v.view_tangent;
-    return out;
+
+#line 26
+    (&(&o_0)->v_1)->view_tangent_1 = float4(_S11, _S12);
+    (&(&o_0)->v_1)->view_pos_1 = (((Frame_Uniforms_0->view_0) * (world_0))).xyz;
+    (&(&o_0)->v_1)->mesh_pos_1 = _S9.in_position_0;
+    (&(&o_0)->v_1)->uv_1 = _S9.in_uv_0;
+    Mesh_Vertex_Out_0 _S13 = o_0;
+
+#line 30
+    thread main_Result_0 _S14;
+
+#line 30
+    (&_S14)->position_0 = _S13.position_1;
+
+#line 30
+    (&_S14)->view_normal_0 = _S13.v_1.view_normal_1;
+
+#line 30
+    (&_S14)->view_pos_0 = _S13.v_1.view_pos_1;
+
+#line 30
+    (&_S14)->mask_1 = _S13.v_1.mask_2;
+
+#line 30
+    (&_S14)->paint_0 = _S13.v_1.paint_1;
+
+#line 30
+    (&_S14)->group_0 = _S13.v_1.group_1;
+
+#line 30
+    (&_S14)->mesh_pos_0 = _S13.v_1.mesh_pos_1;
+
+#line 30
+    (&_S14)->slot_0 = _S13.v_1.slot_1;
+
+#line 30
+    (&_S14)->uv_0 = _S13.v_1.uv_1;
+
+#line 30
+    (&_S14)->view_tangent_0 = _S13.v_1.view_tangent_1;
+
+#line 30
+    return _S14;
 }
 

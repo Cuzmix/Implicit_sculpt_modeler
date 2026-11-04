@@ -27,8 +27,8 @@ import "../jobs"
 // The kernel is RENDER_TRACE_COMP (render_trace.comp.slang). RENDER_TRACE_MAPS_COMP is the
 // same kernel reading every map from one array, which only the own Vulkan backend binds, so
 // it has no Metal source. RENDER_TRACE_RQ_COMP and RENDER_TRACE_MAPS_RQ_COMP are both again
-// tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the named
-// kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
+// tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the array one
+// stays Vulkan's.
 
 RENDER_FORMAT :: gpu.Format.RGBA32_Float
 // The exposed light the finishing stack starts from (render_linear_texture).

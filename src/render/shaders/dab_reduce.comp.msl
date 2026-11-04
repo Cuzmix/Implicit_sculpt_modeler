@@ -1,277 +1,444 @@
-// SDL_shadercross 1ff05bec5739 from dab_reduce.comp.spv sha256 f1eafbd2b49beb23c595af521dad0feb2beb4ff817dae283b4ab3ba37ac6fb18
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from dab_reduce.comp.spv sha256 f1eafbd2b49beb23c595af521dad0feb2beb4ff817dae283b4ab3ba37ac6fb18
+// slots s= rt= wt= rb=0,1,2,3,4,5,6,7,8 wb=9,10,11,12,13 u=14 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
+#line 84 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+struct SLANG_ParameterGroup_Params_0
 {
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
+    uint dab_0;
+    uint groups_x_0;
+    float rate_0;
+    uint stroke_0;
 };
 
-template<typename T>
-[[clang::optnone]] T spvFAdd(T l, T r)
+
+#line 65
+struct Dab_natural_0
 {
-    return fma(T(1), l, r);
+    packed_float4 center_r2_0;
+    packed_float4 view_inv_r2_0;
+    packed_float4 facing_amount_0;
+    packed_float4 tilt0_0;
+    packed_float4 tilt1_0;
+    packed_float4 tilt2_0;
+    packed_float4 misc_0;
+    packed_float4 alpha_up_0;
+    packed_uint4 slabs_0;
+};
+
+
+#line 10 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_reduce.comp.slang"
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Params_0 constant* Params_0;
+    uint device* indices_0;
+    uint device* offsets_0;
+    uint device* tris_0;
+    packed_uint2 device* slabs_1;
+    Dab_natural_0 device* dabs_0;
+    uint device* normals_0;
+    uint device* mask_0;
+    uint device* fade_0;
+    float device* positions_0;
+    float device* tables_0;
+    packed_float4 device* partials_0;
+    packed_float4 device* areas_0;
+    array<float4, int(256)> threadgroup* lane_normal_0;
+    array<float4, int(256)> threadgroup* lane_center_0;
+};
+
+
+#line 96 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+void keep_bindings_0(KernelContext_0 thread* kernelContext_0)
+{
+
+#line 97
+    if((kernelContext_0->Params_0->groups_x_0) == 0U)
+    {
+        *(kernelContext_0->positions_0+int(0)) = float(kernelContext_0->indices_0[int(0)] + kernelContext_0->offsets_0[int(0)] + kernelContext_0->tris_0[int(0)] + (uint2(*(kernelContext_0->slabs_1+int(0))) ).x + (uint4((kernelContext_0->dabs_0+int(0))->slabs_0) ).x + kernelContext_0->normals_0[int(0)] + kernelContext_0->mask_0[int(0)] + kernelContext_0->fade_0[int(0)]) + kernelContext_0->tables_0[int(0)];
+
+#line 97
+    }
+
+
+
+    return;
 }
 
-template<typename T>
-[[clang::optnone]] T spvFSub(T l, T r)
-{
-    return fma(T(-1), r, l);
-}
 
-struct SLANG_ParameterGroup_Params_std140
+#line 130
+float3 normalize0_0(float3 v_0)
 {
-    uint dab;
-    uint groups_x;
-    float rate;
-    uint stroke;
-};
 
-struct StructuredBuffer
-{
-    uint _member0[1];
-};
+#line 131
+    float l_0 = length(v_0);
 
-struct StructuredBuffer_1
-{
-    uint2 _member0[1];
-};
-
-struct Dab_std430
-{
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    float4 alpha_up;
-    uint4 slabs;
-};
-
-struct StructuredBuffer_2
-{
-    Dab_std430 _member0[1];
-};
-
-struct RWStructuredBuffer
-{
-    float _member0[1];
-};
-
-struct StructuredBuffer_3
-{
-    float _member0[1];
-};
-
-struct RWStructuredBuffer_1
-{
-    float4 _member0[1];
-};
-
-static inline __attribute__((always_inline))
-void keep_bindings(constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer& indices, device StructuredBuffer& offsets, device StructuredBuffer& tris, device StructuredBuffer_1& slabs, device StructuredBuffer_2& dabs, device StructuredBuffer& normals, device StructuredBuffer& mask, device StructuredBuffer& fade, device RWStructuredBuffer& positions, device StructuredBuffer_3& tables)
-{
-    if (Params.groups_x == 0u)
+#line 131
+    float3 _S1;
+    if(l_0 > 0.0f)
     {
-        positions._member0[0] = spvFAdd(float(((((((indices._member0[0] + offsets._member0[0]) + tris._member0[0]) + slabs._member0[0].x) + dabs._member0[0].slabs.x) + normals._member0[0]) + mask._member0[0]) + fade._member0[0]), tables._member0[0]);
-    }
-}
 
-static inline __attribute__((always_inline))
-float3 normalize0(float3 v)
-{
-    float _256 = length(v);
-    float3 _252;
-    if (_256 > 0.0)
-    {
-        _252 = v / float3(_256);
+#line 132
+        _S1 = v_0 / float3(l_0) ;
+
+#line 132
     }
     else
     {
-        _252 = float3(0.0);
+
+#line 132
+        _S1 = float3(0.0f) ;
+
+#line 132
     }
-    return _252;
+
+#line 132
+    return _S1;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer& indices [[buffer(1)]], device StructuredBuffer& offsets [[buffer(2)]], device StructuredBuffer& tris [[buffer(3)]], device StructuredBuffer_1& slabs [[buffer(4)]], device StructuredBuffer_2& dabs [[buffer(5)]], device StructuredBuffer& normals [[buffer(6)]], device StructuredBuffer& mask [[buffer(7)]], device StructuredBuffer_3& tables [[buffer(8)]], device StructuredBuffer& fade [[buffer(9)]], device RWStructuredBuffer& positions [[buffer(10)]], device RWStructuredBuffer_1& partials [[buffer(11)]], device RWStructuredBuffer_1& areas [[buffer(12)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+
+#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_reduce.comp.slang"
+[[kernel]] void main_0(uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(14)]], uint device* indices_1 [[buffer(0)]], uint device* offsets_1 [[buffer(1)]], uint device* tris_1 [[buffer(2)]], packed_uint2 device* slabs_2 [[buffer(3)]], Dab_natural_0 device* dabs_1 [[buffer(4)]], uint device* normals_1 [[buffer(5)]], uint device* mask_1 [[buffer(6)]], uint device* fade_1 [[buffer(8)]], float device* positions_1 [[buffer(9)]], float device* tables_1 [[buffer(7)]], packed_float4 device* partials_1 [[buffer(10)]], packed_float4 device* areas_1 [[buffer(11)]])
 {
-    threadgroup spvUnsafeArray<float4, 256> lane_normal;
-    threadgroup spvUnsafeArray<float4, 256> lane_center;
-    keep_bindings(Params, indices, offsets, tris, slabs, dabs, normals, mask, fade, positions, tables);
-    uint k = gl_LocalInvocationID.x;
-    float4 n = float4(0.0);
-    float4 c = float4(0.0);
-    uint4 _162;
-    for (;;)
+
+#line 13
+    uint4 _S2;
+
+#line 13
+    thread KernelContext_0 kernelContext_1;
+
+#line 13
+    (&kernelContext_1)->Params_0 = Params_1;
+
+#line 13
+    (&kernelContext_1)->indices_0 = indices_1;
+
+#line 13
+    (&kernelContext_1)->offsets_0 = offsets_1;
+
+#line 13
+    (&kernelContext_1)->tris_0 = tris_1;
+
+#line 13
+    (&kernelContext_1)->slabs_1 = slabs_2;
+
+#line 13
+    (&kernelContext_1)->dabs_0 = dabs_1;
+
+#line 13
+    (&kernelContext_1)->normals_0 = normals_1;
+
+#line 13
+    (&kernelContext_1)->mask_0 = mask_1;
+
+#line 13
+    (&kernelContext_1)->fade_0 = fade_1;
+
+#line 13
+    (&kernelContext_1)->positions_0 = positions_1;
+
+#line 13
+    (&kernelContext_1)->tables_0 = tables_1;
+
+#line 13
+    (&kernelContext_1)->partials_0 = partials_1;
+
+#line 13
+    (&kernelContext_1)->areas_0 = areas_1;
+
+#line 13
+    threadgroup array<float4, int(256)> lane_normal_1;
+
+#line 13
+    (&kernelContext_1)->lane_normal_0 = &lane_normal_1;
+
+#line 13
+    threadgroup array<float4, int(256)> lane_center_1;
+
+#line 13
+    (&kernelContext_1)->lane_center_0 = &lane_center_1;
+
+#line 13
+    keep_bindings_0(&kernelContext_1);
+
+#line 13
+    Dab_natural_0 device* _S3 = (&kernelContext_1)->dabs_0+(&kernelContext_1)->Params_0->dab_0;
+
+
+    float4 _S4 = float4(0.0f) ;
+
+    uint _S5 = local_id_0.x;
+
+#line 18
+    uint k_0 = _S5;
+
+#line 18
+    float4 n_0 = _S4;
+
+#line 18
+    float4 c_0 = _S4;
+
+#line 18
+    for(;;)
     {
-        float4 n_1;
-        float4 c_1;
-        bool _24_ladder_break = false;
-        do
+
+#line 18
+        uint4 _S6 = uint4(_S3->slabs_0) ;
+
+#line 18
+        _S2 = _S6;
+
+#line 18
+        if(k_0 < (_S6.y))
         {
-            _162 = dabs._member0[Params.dab].slabs;
-            if (!(k < _162.y))
-            {
-                _24_ladder_break = true;
-                break;
-            }
-            uint _170 = 2u * (_162.x + k);
-            n_1 = spvFAdd(n, partials._member0[_170]);
-            c_1 = spvFAdd(c, partials._member0[_170 + 1u]);
-            break;
-        } while(false);
-        if (_24_ladder_break)
-        {
-            break;
-        }
-        k += 256u;
-        n = n_1;
-        c = c_1;
-        continue;
-    }
-    lane_normal[gl_LocalInvocationID.x] = n;
-    lane_center[gl_LocalInvocationID.x] = c;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (gl_LocalInvocationID.x != 0u)
-    {
-        return;
-    }
-    k = 0u;
-    float4 sum_n = float4(0.0);
-    float4 sum_c = float4(0.0);
-    for (;;)
-    {
-        float4 sum_n_1;
-        float4 sum_c_1;
-        bool _36_ladder_break = false;
-        do
-        {
-            if (!(k < 256u))
-            {
-                _36_ladder_break = true;
-                break;
-            }
-            sum_n_1 = spvFAdd(sum_n, lane_normal[k]);
-            sum_c_1 = spvFAdd(sum_c, lane_center[k]);
-            break;
-        } while(false);
-        if (_36_ladder_break)
-        {
-            break;
-        }
-        k++;
-        sum_n = sum_n_1;
-        sum_c = sum_c_1;
-        continue;
-    }
-    float3 normal_1 = normalize0(sum_n.xyz);
-    float3 plane;
-    if (sum_n.w > 0.0)
-    {
-        plane = sum_c.xyz / float3(sum_n.w);
-    }
-    else
-    {
-        plane = float3(0.0);
-    }
-    float3 normal;
-    if ((_162.w & 8u) != 0u)
-    {
-        normal = normalize0(normal_1 * float3x3(dabs._member0[Params.dab].tilt0.xyz, dabs._member0[Params.dab].tilt1.xyz, dabs._member0[Params.dab].tilt2.xyz));
-    }
-    else
-    {
-        normal = normal_1;
-    }
-    float4 _308 = dabs._member0[Params.dab].tilt2;
-    areas._member0[5u * Params.dab] = float4(normal, 0.0);
-    areas._member0[(5u * Params.dab) + 1u] = float4(spvFAdd(plane, normal * _308.w), 0.0);
-    if ((_162.w & 256u) == 0u)
-    {
-        return;
-    }
-    float3 an;
-    if (all(normal == float3(0.0)))
-    {
-        an = float3(0.0, 0.0, 1.0);
-    }
-    else
-    {
-        an = normal;
-    }
-    float3 up = spvFSub(dabs._member0[Params.dab].alpha_up.xyz, an * dot(dabs._member0[Params.dab].alpha_up.xyz, an));
-    float3 helper;
-    if (dot(up, up) < 9.9999999600419720025001879548654e-13)
-    {
-        if (abs(an.x) < 0.89999997615814208984375)
-        {
-            helper = float3(1.0, 0.0, 0.0);
         }
         else
         {
-            helper = float3(0.0, 1.0, 0.0);
+
+#line 18
+            break;
         }
-        helper = cross(an, helper);
+
+#line 19
+        uint _S7 = 2U * (_S6.x + k_0);
+
+#line 19
+        float4 n_1 = n_0 + float4(*((&kernelContext_1)->partials_0+_S7)) ;
+        float4 c_1 = c_0 + float4(*((&kernelContext_1)->partials_0+(_S7 + 1U))) ;
+
+#line 18
+        k_0 = k_0 + 256U;
+
+#line 18
+        n_0 = n_1;
+
+#line 18
+        c_0 = c_1;
+
+#line 18
+    }
+
+
+
+    (*(&kernelContext_1)->lane_normal_0)[_S5] = n_0;
+    (*(&kernelContext_1)->lane_center_0)[_S5] = c_0;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if(_S5 != 0U)
+    {
+
+#line 25
+        return;
+    }
+
+#line 25
+    k_0 = 0U;
+
+#line 25
+    float4 sum_n_0 = _S4;
+
+#line 25
+    float4 sum_c_0 = _S4;
+
+
+    for(;;)
+    {
+
+#line 28
+        if(k_0 < 256U)
+        {
+        }
+        else
+        {
+
+#line 28
+            break;
+        }
+
+#line 29
+        float4 sum_n_1 = sum_n_0 + (*(&kernelContext_1)->lane_normal_0)[k_0];
+        float4 sum_c_1 = sum_c_0 + (*(&kernelContext_1)->lane_center_0)[k_0];
+
+#line 28
+        k_0 = k_0 + 1U;
+
+#line 28
+        sum_n_0 = sum_n_1;
+
+#line 28
+        sum_c_0 = sum_c_1;
+
+#line 28
+    }
+
+
+
+    float3 normal_0 = normalize0_0(sum_n_0.xyz);
+    float _S8 = sum_n_0.w;
+
+#line 33
+    float3 plane_0;
+
+#line 33
+    if(_S8 > 0.0f)
+    {
+
+#line 33
+        plane_0 = sum_c_0.xyz / float3(_S8) ;
+
+#line 33
     }
     else
     {
-        helper = up;
+
+#line 33
+        plane_0 = float3(0.0f) ;
+
+#line 33
     }
-    float3 v = helper / float3(length(helper));
-    float3 _383 = cross(v, an);
-    float3 u;
-    if ((_162.w & 512u) != 0u)
+    uint _S9 = _S2.w;
+
+#line 34
+    float3 normal_1;
+
+#line 34
+    if((_S9 & 8U) != 0U)
     {
-        u = -_383;
+
+#line 34
+        normal_1 = normalize0_0((((normal_0) * (matrix<float,int(3),int(3)> ((float4(_S3->tilt0_0) ).xyz, (float4(_S3->tilt1_0) ).xyz, (float4(_S3->tilt2_0) ).xyz)))));
+
+#line 34
     }
     else
     {
-        u = _383;
+
+#line 34
+        normal_1 = normal_0;
+
+#line 34
     }
-    float4 _395 = dabs._member0[Params.dab].misc;
-    float inv_r = 1.0 / _395.z;
-    areas._member0[(5u * Params.dab) + 2u] = float4(u * inv_r, 0.0);
-    areas._member0[(5u * Params.dab) + 3u] = float4(v * inv_r, 0.0);
-    areas._member0[(5u * Params.dab) + 4u] = float4(an * inv_r, 0.0);
+
+
+
+    float3 plane_1 = plane_0 + normal_1 * float3((float4(_S3->tilt2_0) ).w) ;
+
+#line 38
+    *((&kernelContext_1)->areas_0+5U * (&kernelContext_1)->Params_0->dab_0) = packed_float4(float4(normal_1, 0.0f)) ;
+
+#line 38
+    *((&kernelContext_1)->areas_0+(5U * (&kernelContext_1)->Params_0->dab_0 + 1U)) = packed_float4(float4(plane_1, 0.0f)) ;
+
+
+    if((_S9 & 256U) == 0U)
+    {
+
+#line 41
+        return;
+    }
+
+#line 41
+    float3 an_0;
+
+
+
+    if(all(normal_1 == (float3(0.0f) )))
+    {
+
+#line 45
+        an_0 = float3(0.0f, 0.0f, 1.0f);
+
+#line 45
+    }
+    else
+    {
+
+#line 45
+        an_0 = normal_1;
+
+#line 45
+    }
+    float3 _S10 = (float4(_S3->alpha_up_0) ).xyz;
+
+#line 46
+    float3 up_0 = _S10 - an_0 * float3(dot(_S10, an_0)) ;
+
+#line 46
+    float3 up_1;
+    if((dot(up_0, up_0)) < 9.999999960041972e-13f)
+    {
+
+#line 48
+        if((abs(an_0.x)) < 0.89999997615814209f)
+        {
+
+#line 48
+            up_1 = float3(1.0f, 0.0f, 0.0f);
+
+#line 48
+        }
+        else
+        {
+
+#line 48
+            up_1 = float3(0.0f, 1.0f, 0.0f);
+
+#line 48
+        }
+
+#line 48
+        up_1 = cross(an_0, up_1);
+
+#line 47
+    }
+    else
+    {
+
+#line 47
+        up_1 = up_0;
+
+#line 47
+    }
+
+
+
+    float3 v_1 = up_1 / float3(length(up_1)) ;
+    float3 u_0 = cross(v_1, an_0);
+
+#line 52
+    float3 u_1;
+    if((_S9 & 512U) != 0U)
+    {
+
+#line 53
+        u_1 = - u_0;
+
+#line 53
+    }
+    else
+    {
+
+#line 53
+        u_1 = u_0;
+
+#line 53
+    }
+
+#line 53
+    float3 _S11 = float3((1.0f / (float4(_S3->misc_0) ).z)) ;
+
+#line 53
+    *((&kernelContext_1)->areas_0+(5U * (&kernelContext_1)->Params_0->dab_0 + 2U)) = packed_float4(float4(u_1 * _S11, 0.0f)) ;
+
+#line 53
+    *((&kernelContext_1)->areas_0+(5U * (&kernelContext_1)->Params_0->dab_0 + 3U)) = packed_float4(float4(v_1 * _S11, 0.0f)) ;
+
+#line 53
+    *((&kernelContext_1)->areas_0+(5U * (&kernelContext_1)->Params_0->dab_0 + 4U)) = packed_float4(float4(an_0 * _S11, 0.0f)) ;
+
+#line 58
+    return;
 }
 

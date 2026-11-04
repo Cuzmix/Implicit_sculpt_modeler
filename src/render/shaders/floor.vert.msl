@@ -1,31 +1,47 @@
-// SDL_shadercross 1ff05bec5739 from floor.vert.spv sha256 aacdd9ba553dbbdaa5f6e58f759b2dd54dd5f5f1ec54e9d6e8d7f793d8c07c4a
+// slangc metal from floor.vert.spv sha256 aacdd9ba553dbbdaa5f6e58f759b2dd54dd5f5f1ec54e9d6e8d7f793d8c07c4a
+// slots s= rt= wt= rb= wb= u= a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct Vertex_Out
+#line 3 "/home/user/Implicit_sculpt_modeler/src/render/shaders/floor.vert.slang"
+struct main_Result_0
 {
-    float4 position;
-    float2 ndc;
+    float4 position_0 [[position]];
+    float2 ndc_0 [[user(TEXCOORD)]];
 };
 
-struct main0_out
+
+#line 3
+struct Vertex_Out_0
 {
-    float2 entryPointParam_main_ndc [[user(locn0)]];
-    float4 gl_Position [[position]];
+    float4 position_1;
+    float2 ndc_1;
 };
 
-vertex main0_out main0(uint gl_VertexIndex [[vertex_id]])
+
+#line 3
+[[vertex]] main_Result_0 main_0(uint vertex_0 [[vertex_id]])
 {
-    main0_out out = {};
-    int i = int(uint(int(gl_VertexIndex)));
-    float2 p = (float2(float((i << 1) & 2), float(i & 2)) * 2.0) - float2(1.0);
-    Vertex_Out o;
-    o.ndc = p;
-    o.position = float4(p, 1.0, 1.0);
-    out.gl_Position = o.position;
-    out.entryPointParam_main_ndc = o.ndc;
-    return out;
+
+#line 9
+    int i_0 = int(vertex_0);
+    float2 p_0 = float2(float((i_0 << 1U) & int(2)), float(i_0 & int(2))) * float2(2.0f)  - float2(1.0f) ;
+    thread Vertex_Out_0 o_0;
+    (&o_0)->ndc_1 = p_0;
+    (&o_0)->position_1 = float4(p_0, 1.0f, 1.0f);
+
+#line 13
+    thread main_Result_0 _S1;
+
+#line 13
+    (&_S1)->position_0 = o_0.position_1;
+
+#line 13
+    (&_S1)->ndc_0 = o_0.ndc_1;
+
+#line 13
+    return _S1;
 }
 

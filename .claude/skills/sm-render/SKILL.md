@@ -201,7 +201,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   NonUniformResourceIndex, through `gpu.create_compute_pipeline_array`/`gpu.bind_compute_texture_array` (own Vulkan
   with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
   `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
-  own argument buffers (shadercross refuses set 3). A map's maps_stamp change
+  own argument buffers. A map's maps_stamp change
   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
   Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
   old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
@@ -351,14 +351,17 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   wherever it is offered in a person's run (scripted runs keep the CPU as their oracle). A new kernel buffer raises
   the constant and both backends' binding arrays; a new per-mesh buffer joins `sculpt_lookup_make`'s budget check
   (a quarter of a card's memory, an eighth of a unified device's), past which that mesh sculpts on the CPU.
-- Shaders are Slang (one source for SPIR-V, Metal through it, WGSL later). `name.stage.slang` (vert, frag, comp) is an
-  entry file whose `main` builds `name.stage.spv`, and `scripts/shaders_msl.py` turns that into `name.stage.msl` with
-  SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots, but a compute kernel's read-write
-  buffers land after the read-only ones it *reads*, so a kernel must read every read-only binding it declares, as
-  `dab.slang`'s `keep_bindings` does; `shaders_msl.py --check` fails on a gap). `scripts/shaders_gen.py` writes each
+- Shaders are Slang (one source for SPIR-V, Metal and WGSL, all by slangc). `name.stage.slang` (vert, frag, comp) is an
+  entry file whose `main` builds `name.stage.spv`; `scripts/shaders_msl.py` makes `name.stage.msl` with slangc's Metal
+  target (`main` becomes `main_0`), whose second line `// slots s=T:S rt= wt= rb= wb= u= a=` maps each binding, in SPIR-V
+  set and binding order within its kind, to the Metal slot slangc gave it (`Mtl_Slots`, `mtl_slots_parse`; a pipeline
+  whose counts differ from its table is refused), and refuses a block laid out differently for Metal or a vertex
+  shader's buffer at or past `MTL_FIRST_VERTEX_BUFFER`. Varyings meet by semantic (`: NORMAL` becomes `user(NORMAL)`),
+  so a vertex and fragment shader drawn together share their semantics. Metal leaves out a binding nothing reads,
+  so kernels sharing one layout read each binding (`dab.slang`'s `keep_bindings`). `scripts/shaders_gen.py` writes each
   shader's description into `shaders_gen.odin` from slangc's reflection: `NAME_STAGE` (`MESH_VERT`, `DAB_MOVE_COMP`), a
-  `gpu.Shader_Desc` or `gpu.Compute_Pipeline_Desc` with the `#load` of `"shaders/name.stage" + SHADER_EXT` (`RQ_EXT` for a
-  ray query kernel, the `.spv` under `when gpu.VULKAN` for a vulkan-only one), `SHADER_ENTRY`, `SHADER_FORMAT`
+  `gpu.Shader_Desc` or `gpu.Compute_Pipeline_Desc` with the `#load` of `"shaders/name.stage" + SHADER_EXT` (the `.spv` under
+  `when gpu.VULKAN` for a vulkan-only one), `SHADER_ENTRY`, `SHADER_FORMAT`
   (`shaders.odin`), every count by SDL's sets and `numthreads`. Make pipelines from it (`gpu.create_shader(MESH_VERT)`)
   and never write a count by hand; a constant the renderer dispatches or binds by (`SCULPT_SLAB`, `RENDER_SAMPLERS`)
   is `#assert`ed against it. Darwin embeds only `.msl` and everything else only `.spv`; other `.slang` files are includes

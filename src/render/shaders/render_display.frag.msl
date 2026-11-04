@@ -1,163 +1,447 @@
-// SDL_shadercross 1ff05bec5739 from render_display.frag.spv sha256 e025e878a96555d028f2948b1b455e73f34df9ed7bee049f0119cfed37b7992c
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from render_display.frag.spv sha256 e025e878a96555d028f2948b1b455e73f34df9ed7bee049f0119cfed37b7992c
+// slots s=0:0,1:1,2:2,3:3 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct SLANG_ParameterGroup_Display_Uniforms_std140
+#line 16 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+struct SLANG_ParameterGroup_Display_Uniforms_0
 {
-    float4 params;
+    float4 params_0;
 };
 
-struct main0_out
+
+#line 1084 "core"
+struct KernelContext_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    texture2d<float, access::sample> view_color_texture_0;
+    sampler view_color_sampler_0;
+    SLANG_ParameterGroup_Display_Uniforms_0 constant* Display_Uniforms_0;
+    texture2d<float, access::sample> accum_texture_0;
+    sampler accum_sampler_0;
+    texture2d<float, access::sample> guide_albedo_texture_0;
+    sampler guide_albedo_sampler_0;
+    texture2d<float, access::sample> denoised_texture_0;
+    sampler denoised_sampler_0;
 };
 
-static inline __attribute__((always_inline))
-float4 traced(int2 q, constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms, texture2d<float> accum, sampler accumSmplr, texture2d<float> guide_albedo, sampler guide_albedoSmplr, texture2d<float> denoised, sampler denoisedSmplr)
+
+#line 25 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
 {
-    int2 _69 = int3(q, 0).xy;
-    float4 _74 = accum.read(uint2(_69), 0);
-    float3 mean;
-    if (Display_Uniforms.params.z > 0.5)
+
+#line 26
+    int3 _S1 = int3(q_0, int(0));
+
+#line 26
+    sampler _S2 = kernelContext_0->accum_sampler_0;
+
+#line 26
+    float4 _S3 = ((kernelContext_0->accum_texture_0).read(vec<uint,2>(((_S2)).xy), uint(((_S2)).z)));
+    float _S4 = _S3.w;
+
+#line 27
+    float covered_0 = _S4 / max(kernelContext_0->Display_Uniforms_0->params_0.y, 1.0f);
+    float3 _S5 = _S3.xyz / float3(max(_S4, 9.99999997475242708e-07f)) ;
+
+#line 28
+    float3 mean_0;
+    if((kernelContext_0->Display_Uniforms_0->params_0.z) > 0.5f)
     {
-        float4 _96 = guide_albedo.read(uint2(_69), 0);
-        float4 _101 = denoised.read(uint2(_69), 0);
-        if (_96.w > 0.0)
+
+#line 29
+        sampler _S6 = kernelContext_0->guide_albedo_sampler_0;
+
+#line 29
+        float4 _S7 = ((kernelContext_0->guide_albedo_texture_0).read(vec<uint,2>(((_S6)).xy), uint(((_S6)).z)));
+
+#line 29
+        sampler _S8 = kernelContext_0->denoised_sampler_0;
+
+        float3 _S9 = ((kernelContext_0->denoised_texture_0).read(vec<uint,2>(((_S8)).xy), uint(((_S8)).z))).xyz;
+
+#line 31
+        if((_S7.w) > 0.0f)
         {
-            mean = fast::max(_96.xyz, float3(0.0199999995529651641845703125));
+
+#line 31
+            mean_0 = max(_S7.xyz, float3(0.01999999955296516f) );
+
+#line 31
         }
         else
         {
-            mean = float3(1.0);
+
+#line 31
+            mean_0 = float3(1.0f) ;
+
+#line 31
         }
-        mean = _101.xyz * mean;
+
+#line 31
+        mean_0 = _S9 * mean_0;
+
+#line 29
     }
     else
     {
-        mean = _74.xyz / float3(fast::max(_74.w, 9.9999999747524270787835121154785e-07));
+
+#line 29
+        mean_0 = _S5;
+
+#line 29
     }
-    float4 _58;
-    if (_74.w > 0.0)
+
+#line 29
+    float4 _S10;
+
+
+
+    if(_S4 > 0.0f)
     {
-        _58 = float4(mean, _74.w / fast::max(Display_Uniforms.params.y, 1.0));
-    }
-    else
-    {
-        _58 = float4(0.0);
-    }
-    return _58;
-}
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> accum, sampler accumSmplr)
-{
-    uint2 _vecSize = uint2(accum.get_width(0u), accum.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(accum.get_num_mip_levels());
-    return int2(int(w), int(h));
-}
+#line 33
+        _S10 = float4(mean_0, covered_0);
 
-static inline __attribute__((always_inline))
-int2 texture_size_1(texture2d<float> view_color, sampler view_colorSmplr)
-{
-    uint2 _vecSize = uint2(view_color.get_width(0u), view_color.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(view_color.get_num_mip_levels());
-    return int2(int(w), int(h));
-}
-
-static inline __attribute__((always_inline))
-float4 blended(int2 q, float w, constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms, texture2d<float> accum, sampler accumSmplr, texture2d<float> guide_albedo, sampler guide_albedoSmplr, texture2d<float> denoised, sampler denoisedSmplr)
-{
-    float4 t = traced(q, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
-    float _210 = t.w;
-    return float4(t.xyz * _210, _210) * w;
-}
-
-static inline __attribute__((always_inline))
-float3 tone_map(float3 c)
-{
-    float _285 = fast::min(c.x, fast::min(c.y, c.z));
-    float offset;
-    if (_285 < 0.07999999821186065673828125)
-    {
-        offset = _285 - ((6.25 * _285) * _285);
+#line 33
     }
     else
     {
-        offset = 0.039999999105930328369140625;
+
+#line 33
+        _S10 = float4(0.0f) ;
+
+#line 33
     }
-    float3 _300 = c - float3(offset);
-    float _305 = fast::max(_300.x, fast::max(_300.y, _300.z));
-    if (_305 < 0.7599999904632568359375)
-    {
-        return _300;
-    }
-    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_305 + 0.2400000095367431640625) - 0.7599999904632568359375));
-    return mix(_300 * (new_peak / _305), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_305 - new_peak)) + 1.0))));
+
+#line 33
+    return _S10;
 }
 
-static inline __attribute__((always_inline))
-float3 srgb_encode(float3 c)
-{
-    float3 _332 = fast::clamp(c, float3(0.0), float3(1.0));
-    return mix(_332 * 12.9200000762939453125, (powr(_332, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _332));
-}
 
-static inline __attribute__((always_inline))
-float3 display_color(float3 c, float stops)
+#line 25
+float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
 {
-    return srgb_encode(tone_map(c * exp2(stops)));
-}
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms [[buffer(0)]], texture2d<float> view_color [[texture(0)]], texture2d<float> accum [[texture(1)]], texture2d<float> denoised [[texture(2)]], texture2d<float> guide_albedo [[texture(3)]], sampler view_colorSmplr [[sampler(0)]], sampler accumSmplr [[sampler(1)]], sampler denoisedSmplr [[sampler(2)]], sampler guide_albedoSmplr [[sampler(3)]], float4 gl_FragCoord [[position]])
-{
-    main0_out out = {};
-    int2 _27 = int2(gl_FragCoord.xy);
-    float4 _39 = view_color.read(uint2(int3(_27, 0).xy), 0);
-    float4 t;
-    if (Display_Uniforms.params.w < 0.5)
+#line 26
+    int3 _S11 = int3(q_1, int(0));
+
+#line 26
+    sampler _S12 = kernelContext_1->accum_sampler_0;
+
+#line 26
+    float4 _S13 = ((kernelContext_1->accum_texture_0).read(vec<uint,2>(((_S12)).xy), uint(((_S12)).z)));
+    float _S14 = _S13.w;
+
+#line 27
+    float covered_1 = _S14 / max(kernelContext_1->Display_Uniforms_0->params_0.y, 1.0f);
+    float3 _S15 = _S13.xyz / float3(max(_S14, 9.99999997475242708e-07f)) ;
+
+#line 28
+    float3 mean_1;
+    if((kernelContext_1->Display_Uniforms_0->params_0.z) > 0.5f)
     {
-        t = traced(_27, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
-    }
-    else
-    {
-        int2 hi = texture_size(accum, accumSmplr) - int2(1);
-        float2 at = ((gl_FragCoord.xy / float2(texture_size_1(view_color, view_colorSmplr))) * float2(hi + int2(1))) - float2(0.5);
-        int2 _192 = int2(floor(at));
-        float2 f = at - float2(_192);
-        float _197 = f.x;
-        float _198 = 1.0 - _197;
-        float _199 = f.y;
-        float _200 = 1.0 - _199;
-        float4 _232 = ((blended(clamp(_192, int2(0), hi), _198 * _200, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr) + blended(clamp(_192 + int2(1, 0), int2(0), hi), _197 * _200, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr)) + blended(clamp(_192 + int2(0, 1), int2(0), hi), _198 * _199, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr)) + blended(clamp(_192 + int2(1), int2(0), hi), _197 * _199, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
-        t = _232;
-        if (_232.w > 0.0)
+
+#line 29
+        sampler _S16 = kernelContext_1->guide_albedo_sampler_0;
+
+#line 29
+        float4 _S17 = ((kernelContext_1->guide_albedo_texture_0).read(vec<uint,2>(((_S16)).xy), uint(((_S16)).z)));
+
+#line 29
+        sampler _S18 = kernelContext_1->denoised_sampler_0;
+
+        float3 _S19 = ((kernelContext_1->denoised_texture_0).read(vec<uint,2>(((_S18)).xy), uint(((_S18)).z))).xyz;
+
+#line 31
+        if((_S17.w) > 0.0f)
         {
-            float4 _237 = t;
-            float4 _239 = t;
-            float3 _242 = _237.xyz / float3(_239.w);
-            t.x = _242.x;
-            t.y = _242.y;
-            t.z = _242.z;
+
+#line 31
+            mean_1 = max(_S17.xyz, float3(0.01999999955296516f) );
+
+#line 31
         }
-    }
-    float3 shown;
-    if (t.w > 0.0)
-    {
-        shown = display_color(t.xyz, Display_Uniforms.params.x);
+        else
+        {
+
+#line 31
+            mean_1 = float3(1.0f) ;
+
+#line 31
+        }
+
+#line 31
+        mean_1 = _S19 * mean_1;
+
+#line 29
     }
     else
     {
-        shown = _39.xyz;
+
+#line 29
+        mean_1 = _S15;
+
+#line 29
     }
-    out.entryPointParam_main = float4(mix(_39.xyz, shown, float3(fast::clamp(t.w, 0.0, 1.0))), 1.0);
-    return out;
+
+#line 29
+    float4 _S20;
+
+
+
+    if(_S14 > 0.0f)
+    {
+
+#line 33
+        _S20 = float4(mean_1, covered_1);
+
+#line 33
+    }
+    else
+    {
+
+#line 33
+        _S20 = float4(0.0f) ;
+
+#line 33
+    }
+
+#line 33
+    return _S20;
+}
+
+
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
+{
+
+#line 10
+    thread uint w_0;
+
+#line 10
+    thread uint h_0;
+
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
+}
+
+
+#line 37 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
+{
+
+#line 37
+    float4 _S21 = traced_1(q_2, kernelContext_2);
+
+    float _S22 = _S21.w;
+
+#line 39
+    return float4(_S21.xyz * float3(_S22) , _S22) * float4(w_1) ;
+}
+
+
+#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+float3 tone_map_0(float3 c_0)
+{
+
+    float _S23 = min(c_0.x, min(c_0.y, c_0.z));
+
+#line 21
+    float offset_0;
+    if(_S23 < 0.07999999821186066f)
+    {
+
+#line 22
+        offset_0 = _S23 - 6.25f * _S23 * _S23;
+
+#line 22
+    }
+    else
+    {
+
+#line 22
+        offset_0 = 0.03999999910593033f;
+
+#line 22
+    }
+    float3 _S24 = c_0 - float3(offset_0) ;
+    float _S25 = max(_S24.x, max(_S24.y, _S24.z));
+    if(_S25 < 0.75999999046325684f)
+    {
+
+#line 25
+        return _S24;
+    }
+    float new_peak_0 = 1.0f - 0.0576000027358532f / (_S25 + 0.24000000953674316f - 0.75999999046325684f);
+
+
+    return mix(_S24 * float3((new_peak_0 / _S25)) , float3(new_peak_0) , float3((1.0f - 1.0f / (0.15000000596046448f * (_S25 - new_peak_0) + 1.0f))) );
+}
+
+
+#line 9
+float3 srgb_encode_0(float3 c_1)
+{
+
+#line 10
+    float3 _S26 = clamp(c_1, float3(0.0f) , float3(1.0f) );
+    return mix(float3(12.92000007629394531f)  * _S26, float3(1.0549999475479126f)  * pow(_S26, float3(0.4166666567325592f) ) - float3(0.05499999970197678f) , step(float3(0.00313080009073019f) , _S26));
+}
+
+
+#line 68
+float3 display_color_0(float3 c_2, float stops_0)
+{
+
+#line 69
+    return srgb_encode_0(tone_map_0(c_2 * float3(exp2(stops_0)) ));
+}
+
+
+#line 69
+struct pixelOutput_0
+{
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 42 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_color_texture_1 [[texture(0)]], sampler view_color_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Display_Uniforms_0 constant* Display_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> accum_texture_1 [[texture(1)]], sampler accum_sampler_1 [[sampler(1)]], texture2d<float, access::sample> guide_albedo_texture_1 [[texture(3)]], sampler guide_albedo_sampler_1 [[sampler(3)]], texture2d<float, access::sample> denoised_texture_1 [[texture(2)]], sampler denoised_sampler_1 [[sampler(2)]])
+{
+
+#line 42
+    thread KernelContext_0 kernelContext_3;
+
+#line 42
+    (&kernelContext_3)->view_color_texture_0 = view_color_texture_1;
+
+#line 42
+    (&kernelContext_3)->view_color_sampler_0 = view_color_sampler_1;
+
+#line 42
+    (&kernelContext_3)->Display_Uniforms_0 = Display_Uniforms_1;
+
+#line 42
+    (&kernelContext_3)->accum_texture_0 = accum_texture_1;
+
+#line 42
+    (&kernelContext_3)->accum_sampler_0 = accum_sampler_1;
+
+#line 42
+    (&kernelContext_3)->guide_albedo_texture_0 = guide_albedo_texture_1;
+
+#line 42
+    (&kernelContext_3)->guide_albedo_sampler_0 = guide_albedo_sampler_1;
+
+#line 42
+    (&kernelContext_3)->denoised_texture_0 = denoised_texture_1;
+
+#line 42
+    (&kernelContext_3)->denoised_sampler_0 = denoised_sampler_1;
+    float2 _S27 = frag_coord_0.xy;
+
+#line 43
+    int2 _S28 = int2(_S27);
+    float3 under_0 = ((view_color_texture_1).read(vec<uint,2>(((view_color_sampler_1)).xy), uint(((view_color_sampler_1)).z))).xyz;
+    thread float4 t_0;
+    if((Display_Uniforms_1->params_0.w) < 0.5f)
+    {
+
+#line 46
+        float4 _S29 = traced_0(_S28, &kernelContext_3);
+        t_0 = _S29;
+
+#line 46
+    }
+    else
+    {
+
+#line 46
+        int2 _S30 = int2(int(1)) ;
+
+
+        int2 hi_0 = texture_size_0((&kernelContext_3)->accum_texture_0, (&kernelContext_3)->accum_sampler_0) - _S30;
+        float2 at_0 = _S27 / float2(texture_size_0((&kernelContext_3)->view_color_texture_0, (&kernelContext_3)->view_color_sampler_0)) * float2(hi_0 + _S30) - float2(0.5f) ;
+        int2 _S31 = int2(floor(at_0));
+        float2 f_0 = at_0 - float2(_S31);
+        int2 _S32 = int2(int(0)) ;
+
+#line 53
+        float _S33 = f_0.x;
+
+#line 53
+        float _S34 = 1.0f - _S33;
+
+#line 53
+        float _S35 = f_0.y;
+
+#line 53
+        float _S36 = 1.0f - _S35;
+
+#line 53
+        float4 _S37 = blended_0(clamp(_S31, _S32, hi_0), _S34 * _S36, &kernelContext_3);
+
+#line 53
+        float4 _S38 = blended_0(clamp(_S31 + int2(int(1), int(0)), _S32, hi_0), _S33 * _S36, &kernelContext_3);
+
+#line 53
+        float4 _S39 = _S37 + _S38;
+
+#line 53
+        float4 _S40 = blended_0(clamp(_S31 + int2(int(0), int(1)), _S32, hi_0), _S34 * _S35, &kernelContext_3);
+        float4 _S41 = _S39 + _S40;
+
+#line 54
+        float4 _S42 = blended_0(clamp(_S31 + int2(int(1), int(1)), _S32, hi_0), _S33 * _S35, &kernelContext_3);
+
+#line 54
+        float4 _S43 = _S41 + _S42;
+
+#line 53
+        t_0 = _S43;
+
+        if((_S43.w) > 0.0f)
+        {
+
+#line 55
+            t_0.xyz = t_0.xyz / float3(t_0.w) ;
+
+#line 55
+        }
+
+#line 46
+    }
+
+#line 46
+    float3 shown_0;
+
+#line 65
+    if((t_0.w) > 0.0f)
+    {
+
+#line 65
+        shown_0 = display_color_0(t_0.xyz, Display_Uniforms_1->params_0.x);
+
+#line 65
+    }
+    else
+    {
+
+#line 65
+        shown_0 = under_0;
+
+#line 65
+    }
+
+#line 65
+    pixelOutput_0 _S44 = { float4(mix(under_0, shown_0, float3(clamp(t_0.w, 0.0f, 1.0f)) ), 1.0f) };
+    return _S44;
 }
 

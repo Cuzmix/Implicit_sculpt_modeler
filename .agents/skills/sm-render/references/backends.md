@@ -73,10 +73,8 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
   in place (`Vk_Cmd.accel_writes`) waits for the last compute submission that traced it (`Vk_Accel.compute_read`).
 - Metal ray tracing (6.4, notes/native-gpu/metal-ray-tracing-design.md, `mtl_accel.odin`): offered where
   `supportsFamily(.Metal3) && supportsRaytracing`; `app.ray_query` defaults off on Darwin (settings v11 turns an old
-  file's on off once). A `// ray query` first line makes `shaders_msl.py` write `name.comp.metal` with slangc's Metal
-  target (not shadercross, which pins MSL 2.1); its second line `// slots s=T:S rt= wt= rb= wb= u= a=` maps SDL_GPU's
-  order to slangc's slots, from both targets' `-reflection-json`; `Mtl_Compute_Pipeline.slots` carries it (every
-  other pipeline gets SDL's own table), and the entry is `main_0` (`RQ_EXT`, `RQ_ENTRY` in `shaders.odin`).
+  file's on off once). A ray query kernel's `.msl` is slangc's like every shader's; its slot table's `a=` names the
+  structure's buffer slot, which `gpu.create_compute_pipeline_traced` requires.
   `render_trace_maps_rq` stays Vulkan only (texture arrays). Builds use a `MTLAccelerationStructureCommandEncoder`
   per build outside passes, a fresh scratch each, refit in place (nil destination); instances are UserID descriptors
   (68 bytes). At dispatch each instanced BLAS and each buffer read through `gpu.buffer_address` (`Mtl_Cmd.addressed`)

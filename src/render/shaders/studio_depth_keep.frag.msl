@@ -1,19 +1,40 @@
-// SDL_shadercross 1ff05bec5739 from studio_depth_keep.frag.spv sha256 9850cb5ec8220cde809fb6b13cf23c465f7c5e05908af7b0657c65aea3f43929
+// slangc metal from studio_depth_keep.frag.spv sha256 9850cb5ec8220cde809fb6b13cf23c465f7c5e05908af7b0657c65aea3f43929
+// slots s=0:0 rt= wt= rb= wb= u= a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct main0_out
+#line 4710 "hlsl.meta.slang"
+struct pixelOutput_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    float4 output_0 [[color(0)]];
 };
 
-fragment main0_out main0(texture2d<float> view_depth [[texture(0)]], sampler view_depthSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+
+#line 4710
+struct KernelContext_0
 {
-    main0_out out = {};
-    float4 _26 = view_depth.read(uint2(int3(int2(gl_FragCoord.xy), 0).xy), 0);
-    out.entryPointParam_main = float4(_26.x, 0.0, 0.0, 0.0);
-    return out;
+    texture2d<float, access::sample> view_depth_texture_0;
+    sampler view_depth_sampler_0;
+};
+
+
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_depth_keep.frag.slang"
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]])
+{
+
+#line 7
+    thread KernelContext_0 kernelContext_0;
+
+#line 7
+    (&kernelContext_0)->view_depth_texture_0 = view_depth_texture_1;
+
+#line 7
+    (&kernelContext_0)->view_depth_sampler_0 = view_depth_sampler_1;
+
+#line 7
+    pixelOutput_0 _S1 = { float4(((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x, 0.0f, 0.0f, 0.0f) };
+    return _S1;
 }
 
