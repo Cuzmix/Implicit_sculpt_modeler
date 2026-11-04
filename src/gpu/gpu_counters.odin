@@ -6,8 +6,9 @@ import "core:time"
 
 // What the GPU seam did over the run, for the exit stats: the baseline the GPU abstraction's
 // steps are measured against (notes/gpu-own-model/design.md, G0). Recording time is the CPU
-// time from acquiring a command buffer to submitting or cancelling it, so it counts what the
-// app records into it as well as the seam's own work. Whole-GPU waits and waits on a ticket
+// time from acquiring a command buffer to submitting or cancelling it, less the time spent in
+// it waiting for a swapchain image (the display), so it counts what the app records into it
+// as well as the seam's own work, and not vsync. Whole-GPU waits and waits on a ticket
 // not yet done are the CPU's stalls on the GPU; memory allocations (Vulkan) are the blocks
 // resources share and large resources' own memory (vk_memory.odin); barriers (Vulkan) are the
 // whole-memory barriers recorded, to which copies of a copy pass into separate buffer ranges
@@ -33,8 +34,9 @@ counters: struct {
 	lock:  sync.Mutex,
 	total: Counters,
 	open:  [OPEN_MAX]struct {
-		cmd:   Cmd,
-		start: time.Tick,
+		cmd:    Cmd,
+		start:  time.Tick,
+		paused: time.Duration, // waiting for the display while it was open
 	},
 }
 
@@ -51,7 +53,7 @@ count_acquire :: proc(cmd: Cmd) {
 	sync.mutex_lock(&counters.lock)
 	defer sync.mutex_unlock(&counters.lock)
 	for &o in counters.open do if o.cmd == nil {
-		o.cmd, o.start = cmd, time.tick_now()
+		o.cmd, o.start, o.paused = cmd, time.tick_now(), 0
 		return
 	}
 }
@@ -63,8 +65,20 @@ count_finish :: proc(cmd: Cmd) {
 	defer sync.mutex_unlock(&counters.lock)
 	counters.total.command_buffers += 1
 	for &o in counters.open do if o.cmd == cmd {
-		counters.total.encode_ns += i64(time.tick_since(o.start))
+		counters.total.encode_ns += i64(max(time.tick_since(o.start) - o.paused, 0))
 		o.cmd = nil
+		return
+	}
+}
+
+// Notes that `cmd`, open, spent `waited` waiting for a swapchain image, which its recording
+// time leaves out.
+count_pause :: proc(cmd: Cmd, waited: time.Duration) {
+	if cmd == nil do return
+	sync.mutex_lock(&counters.lock)
+	defer sync.mutex_unlock(&counters.lock)
+	for &o in counters.open do if o.cmd == cmd {
+		o.paused += waited
 		return
 	}
 }

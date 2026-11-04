@@ -12,9 +12,11 @@ import vk "vendor:vulkan"
 // request over half a block, or for lazily allocated memory (a transient attachment, which
 // takes no memory where the tile memory holds it), gets memory of its own.
 //
-// Blocks are kept apart by memory type, by whether buffer device addresses may point into
-// them, and by buffers against images, so bufferImageGranularity never applies between two
-// neighbours. A host-visible block is mapped once, when it is made, and each allocation's
+// Blocks are kept apart by memory type and by buffers against images, so
+// bufferImageGranularity never applies between two neighbours. Where buffer device addresses
+// are on (ray query), every buffer block is allocated so that one may point into it, so the
+// few buffers that need an address share blocks with the rest rather than reserving their own.
+// A host-visible block is mapped once, when it is made, and each allocation's
 // mapping points into it. Each block keeps its free spans in order of offset, takes the first
 // that fits (with the allocation's alignment) and merges a freed span with its neighbours. An
 // emptied block is freed unless it is the last of its kind, so a resource made and released
@@ -71,6 +73,8 @@ vk_block_size :: proc(type: u32) -> vk.DeviceSize {
 // `dedicated`.
 vk_memory_take :: proc(reqs: vk.MemoryRequirements, type: u32, address, image: bool, dedicated := false) -> (Vk_Memory, bool) {
 	block_size := vk_block_size(type)
+	address := address
+	if vk_state.ray_query && !image do address = true
 	if dedicated || reqs.size > block_size / 2 {
 		memory, ok := vk_memory_allocate(reqs.size, type, address)
 		if !ok do return {}, false
