@@ -6,9 +6,10 @@ import "core:testing"
 
 import "../geom"
 
-// The Odin extraction against the C++'s, fed the same cover (the C++'s): every cell of the
-// cover a quad, nothing open, the surface's Euler characteristic kept, and no fewer quads
-// than the C++ extraction gave.
+// The Odin core against the driver (every stage the C++'s): every cell of the cover a
+// quad, nothing open, the surface's Euler characteristic kept, and the count asked within
+// 4 % (the Odin isotropic mesh is not the C++'s, so neither is its cover, and the two
+// counts land apart by a few quads either way).
 @(private = "file")
 odin_against_driver :: proc(t: ^testing.T, name: string, positions: []geom.Vec3, indices: []u32, params: Params, euler: int, loc := #caller_location) -> (odin_report: Report) {
 	p := params
@@ -26,11 +27,11 @@ odin_against_driver :: proc(t: ^testing.T, name: string, positions: []geom.Vec3,
 	testing.expectf(t, c.quad_euler == euler, "%s: Euler characteristic %d, the surface's %d", name, c.quad_euler, euler, loc = loc)
 	testing.expectf(t, c.extract_unmatched == 0 && c.extract_holes == 0 && c.extract_filled == 0 && c.extract_dropped == 0, "%s: %s", name, checks_line(c), loc = loc)
 	testing.expectf(t, f64(report.faces) == math.round(c.cover_cells_abs), "%s: %d quads for the cover's %.1f cells", name, report.faces, c.cover_cells_abs, loc = loc)
-	testing.expectf(t, report.faces >= cpp_report.faces, "%s: %d quads, fewer than the C++ extraction's %d", name, report.faces, cpp_report.faces, loc = loc)
+	testing.expectf(t, abs(f64(report.faces - params.quads)) <= 0.04 * f64(params.quads), "%s: %d quads for the %d asked", name, report.faces, params.quads, loc = loc)
 	return report
 }
 
-// A sphere: every cell of a fold-free cover becomes a quad, at the C++'s count or more.
+// A sphere: every cell of a fold-free cover becomes a quad, about the count asked.
 @(test)
 odin_extraction_makes_every_cell_a_quad :: proc(t: ^testing.T) {
 	when !AVAILABLE {

@@ -45,6 +45,7 @@ Driver :: struct {
 	voxel_size:      f64,
 	quad_edge:       f64,
 	threads:         int,
+	pool:            ^jobs.Pool, // the Odin stages' loops, while the islands run one at a time
 	islands:         []Island_Work,
 	lock:            sync.Mutex, // over the progress, the cancel and the reasons
 	island_progress: []f32,
@@ -128,6 +129,16 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 
 	if !driver_whole(d, PARALLEL_PHASE_BEGIN, "Remeshing uniformly") do return {}, {}, {}, .Cancelled, ""
 	if count <= 1 || d.threads <= 1 {
+		// One island at a time: its Odin stages spread their loops over the threads.
+		stage_pool: jobs.Pool
+		if params.core == .Odin && d.threads > 1 {
+			jobs.pool_init(&stage_pool, d.threads - 1, heap)
+			d.pool = &stage_pool
+		}
+		defer if d.pool != nil {
+			jobs.pool_destroy(&stage_pool)
+			d.pool = nil
+		}
 		for i in 0 ..< count {
 			island_remesh(d, i, false)
 			if d.cancelled || d.fatal != .None do break
@@ -211,7 +222,7 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 }
 
 // The area of an equilateral triangle of unit edge, as the core writes it.
-@(private = "file")
+@(private)
 EQUILATERAL_AREA :: f64(0.86602540378 * 0.5)
 
 // A reason in temp memory, as `remesh` returns them.
@@ -285,7 +296,15 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	reason: Reason
 	if !driver_report(d, i, 0) do return
 	t0 := time.tick_now()
-	thin, decimated, added, err := cpp_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), &reason)
+	thin: Island
+	decimated: bool
+	added: int
+	err: Stage_Error
+	if params.core == .Odin {
+		thin, decimated, err = odin_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), d.pool)
+	} else {
+		thin, decimated, added, err = cpp_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), &reason)
+	}
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
@@ -301,9 +320,13 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 
 	t1 := time.tick_now()
 	tag := Stage_Tag{d, i, 0, ISLAND_RESAMPLE_END}
-	run := Stage_Run{d.threads, serial, driver_stage_progress, &tag}
+	run := Stage_Run{d.threads, serial, driver_stage_progress, &tag, d.pool}
 	iso: Isotropic
-	iso, err = cpp_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason)
+	if params.core == .Odin {
+		iso, err = odin_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason, &w.checks)
+	} else {
+		iso, err = cpp_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason)
+	}
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return

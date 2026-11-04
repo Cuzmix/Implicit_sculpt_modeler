@@ -8,12 +8,13 @@ import "core:strings"
 // Params.dump: each stage of each island written to a folder as an OBJ file, for looking at
 // a stage on its own (scripts/quadmesh_view.py draws a cover with its grid lines and folds;
 // the app's --import shows the rest): island<i>_1_thin.obj (the island the isotropic remesh
-// gets, its feature edges as lines), island<i>_2_isotropic.obj (the triangles the cover is
-// solved on, feature edges as lines), island<i>_3_cover<k>.obj (cover k of the landing: the
-// isotropic mesh with each corner's UV, the singular vertices as points, its scaling and
-// cells in the header) and island<i>_4_quads.obj (the quads, the island's checks in the
-// header), and island<i>_checks.txt (the checks line). A file that cannot be written is
-// skipped: the dump is a looking aid and never fails a remesh.
+// gets, its feature edges as lines, each vertex's density and refinement as `# vd` comment
+// lines, positions in full so it reads back exactly), island<i>_2_isotropic.obj (the
+// triangles the cover is solved on, feature edges as lines), island<i>_3_cover<k>.obj
+// (cover k of the landing: the isotropic mesh with each corner's UV, the singular vertices
+// as points, its scaling and cells in the header) and island<i>_4_quads.obj (the quads,
+// the island's checks in the header), and island<i>_checks.txt (the checks line). A file
+// that cannot be written is skipped: the dump is a looking aid and never fails a remesh.
 
 @(private)
 dump_thin :: proc(folder: string, island: int, before, after: Island) {
@@ -23,6 +24,12 @@ dump_thin :: proc(folder: string, island: int, before, after: Island) {
 	fmt.sbprintfln(&b, "# quadmesh stage 1, thin: %d triangles in, %d out, %d feature edges", len(before.triangles), len(after.triangles), len(after.features))
 	dump_mesh(&b, after.positions, after.triangles)
 	for e in after.features do fmt.sbprintfln(&b, "l %d %d", e[0] + 1, e[1] + 1)
+	// Each vertex's density and refinement as comments (1 where none was given), so the
+	// island the isotropic remesh got can be read back whole and run again.
+	dense, refined := len(after.density) == len(after.positions), len(after.refine) == len(after.positions)
+	if dense || refined {
+		for v in 0 ..< len(after.positions) do fmt.sbprintfln(&b, "# vd %.17g %.17g", after.density[v] if dense else 1, after.refine[v] if refined else 1)
+	}
 	dump_write(folder, island, "1_thin", b)
 }
 
@@ -83,7 +90,7 @@ dump_begin :: proc() -> strings.Builder {
 
 @(private = "file")
 dump_mesh :: proc(b: ^strings.Builder, positions: [][3]f64, triangles: [][3]u32) {
-	for p in positions do fmt.sbprintfln(b, "v %.9g %.9g %.9g", p.x, p.y, p.z)
+	for p in positions do fmt.sbprintfln(b, "v %.17g %.17g %.17g", p.x, p.y, p.z)
 	for t in triangles do fmt.sbprintfln(b, "f %d %d %d", t[0] + 1, t[1] + 1, t[2] + 1)
 }
 

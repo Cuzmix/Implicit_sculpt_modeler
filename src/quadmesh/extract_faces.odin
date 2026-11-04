@@ -582,7 +582,9 @@ grid_cell :: proc(g: ^Surface_Grid, p: [3]f64) -> [3]i64 {
 	return {i64(math.floor(q.x)), i64(math.floor(q.y)), i64(math.floor(q.z))}
 }
 
-@(private = "file")
+// A grid cell's key: 21 bits an axis, so cells far apart may share a key, which only
+// adds candidates a query then measures.
+@(private)
 grid_key :: proc(c: [3]i64) -> u64 {
 	return u64(c.x & 0x1fffff) << 42 | u64(c.y & 0x1fffff) << 21 | u64(c.z & 0x1fffff)
 }
@@ -640,7 +642,8 @@ surface_grid_closest :: proc(g: ^Surface_Grid, positions: [][3]f64, triangles: [
 	return best
 }
 
-@(private = "file")
+// An undirected edge's key: its smaller vertex, then its larger.
+@(private)
 edge_key :: #force_inline proc(a, b: u32) -> u64 {
 	return u64(min(a, b)) << 32 | u64(max(a, b))
 }
@@ -705,13 +708,13 @@ shape_quality :: proc(q: [][3]f64) -> f64 {
 	return worst
 }
 
-@(private = "file")
-cross3 :: proc(a, b: [3]f64) -> [3]f64 {
+@(private)
+cross3 :: #force_inline proc(a, b: [3]f64) -> [3]f64 {
 	return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}
 }
 
-@(private = "file")
-dot3 :: proc(a, b: [3]f64) -> f64 {
+@(private)
+dot3 :: #force_inline proc(a, b: [3]f64) -> f64 {
 	return a.x * b.x + a.y * b.y + a.z * b.z
 }
 

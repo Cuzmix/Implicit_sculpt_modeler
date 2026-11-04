@@ -19,7 +19,8 @@ import "../jobs"
 // then open edges stay exactly where they are.
 Simplify_Guide :: struct {
 	// Per vertex of `positions`: how many times dearer moving it is (1 as usual), so the
-	// detail that matters to the user (masked, or where the paint changes) goes last.
+	// detail that matters to the user (masked, or where the paint changes) goes last. An
+	// infinite weight never moves its vertex (others may still collapse into it).
 	weight:        []f32,
 	// Per triangle of `indices`: a label (a polygroup). An edge between two labels is a
 	// feature line: its vertices move only along it and its shape is held, as an open
@@ -385,6 +386,8 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 		clear(&candidates)
 		for u in 0 ..< vcount {
 			if locked[u] || !alive[u] do continue
+			// An infinite weight holds the vertex where it is.
+			if weight != nil && weight[u] > max(f32) do continue
 			best, best_cost := EMPTY, max(f64)
 			// A vertex on a feature line goes only along it.
 			on_line := features && rail[u][0] != EMPTY

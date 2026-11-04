@@ -70,7 +70,7 @@ Params :: struct {
 Core :: enum u8 {
 	Cpp, // qm_remesh: AutoRemesher's stages as the C++ boundary drives them
 	Driver, // the Odin driver with every stage the C++'s: qm_remesh's result bit for bit
-	Odin, // the Odin driver with the stages ported so far in Odin (the extraction), the rest the C++'s
+	Odin, // the Odin driver with the stages ported so far in Odin (thinning, isotropic remesh, extraction), the rest the C++'s
 }
 
 CORE_NAMES := [Core]string {
@@ -83,7 +83,7 @@ CORE_NAMES := [Core]string {
 CORE_LABELS := [Core]string {
 	.Cpp    = "",
 	.Driver = "through the Odin driver",
-	.Odin   = "with the Odin extraction",
+	.Odin   = "with the stages ported to Odin",
 }
 
 // AutoRemesher's own values.

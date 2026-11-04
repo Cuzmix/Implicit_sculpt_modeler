@@ -2,6 +2,8 @@ package quadmesh
 
 import "base:runtime"
 
+import "../jobs"
+
 // What the stages hand each other (driver.odin), whichever side runs a stage: an island
 // of the input, the isotropic mesh, a quad cover and the quads. Positions are f64, as the
 // C++ core keeps them, so a stage's output goes into the next unchanged and the driver's
@@ -101,10 +103,12 @@ reason_set :: proc(r: ^Reason, text: string) {
 }
 
 // How a stage runs: the threads its own loops may use, whether it stays on this thread
-// (one island of several, whose threads are the parallelism), and where its own 0..1 goes.
+// (one island of several, whose threads are the parallelism), where its own 0..1 goes,
+// and the pool the Odin stages' loops run on (nil: this thread alone).
 Stage_Run :: struct {
 	threads:  int,
 	serial:   bool,
 	progress: proc(tag: rawptr, fraction: f32) -> bool, // false cancels; nil for none
 	tag:      rawptr,
+	pool:     ^jobs.Pool,
 }
