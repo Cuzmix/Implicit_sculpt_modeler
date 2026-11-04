@@ -98,7 +98,7 @@ coach_shown :: proc(app: ^App) -> bool {
 	if !app.coach_run || k.coach == COACH_DONE || app.tool != .Brush do return false
 	// The recovery card and a macro recording's chip take the place first.
 	if recover_shown(app) || app.macro.recording do return false
-	return !side_panel_open(k) && !kit_floating(app)
+	return !sheet_open(k) && !kit_floating(app)
 }
 
 // Counts what was done since the last frame. A step moves on only once its gesture is

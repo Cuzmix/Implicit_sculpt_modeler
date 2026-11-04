@@ -398,26 +398,11 @@ Kit_State :: struct {
 // Minimise and Close.
 Kit_Window :: enum u8 {
 	Stats,
-	Settings,
-	Help,
-	Macros,
 	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
-// The order the windows start in, back to front: Settings, Help and Macros over the rest,
-// as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail, .Stats, .Settings, .Help, .Macros}
-
-// Settings, Help and Macros share one place on the right: one at a time.
-side_panel_open :: proc(k: ^Kit_State) -> bool {
-	return k.settings || k.help || k.macros
-}
-
-// Closes Settings, Help or Macros, whichever is open.
-side_panel_close :: proc(app: ^App) {
-	if app.kit.settings do settings_close(app)
-	app.kit.help, app.kit.macros = false, false
-}
+// The order the windows start in, back to front.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail, .Stats}
 
 // Something that floats over the view and comes to the front when touched: a window.
 Float_Ref :: union {
@@ -1279,7 +1264,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// Settings or Help. An Escape that ended typing in a field (Settings > Keys'
 		// search) was the field's. The recovery card, when nothing is above it, waits
 		// for the next start.
-		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
+		if k.recover_shown && quiet && !shape_waits && !sheet_open(k) do app.autosave.offer_hidden = true
 		if app.diag.open && quiet do diag_close(app)
 		else if k.home && quiet do home_close(app)
 		else if k.clean && quiet do clean_view_set(app, false)
@@ -1289,7 +1274,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 			clear(&app.curve.placing)
 			clear(&app.curve.placing_n)
 		} else if shape_waits && quiet do app.shape_pending.request = .Cancel
-		else if side_panel_open(k) && quiet do side_panel_close(app)
+		else if sheet_open(k) && quiet do sheet_close(app)
 		// A job is cancelled last, once nothing else took the key.
 		else if long_job_busy(app) && quiet do long_job_cancel(app)
 		if k.palette do palette_close(app)
@@ -1501,7 +1486,9 @@ kit_layout :: proc(app: ^App) {
 	// aside while one is open).
 	kit_modifier_rail(app)
 
-	// What floats over the panels comes last, so it is drawn and hit tested on top.
+	// What floats over the panels comes last, so it is drawn and hit tested on top: first
+	// the sheet that is open, then what floats from it.
+	kit_sheets(app)
 	// The Library, over the shelf, or under the menu while the shelf is hidden.
 	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) else .Above_Center)
 	kit_shelf_quick(app)
@@ -1553,9 +1540,6 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 	case Kit_Window:
 		switch w {
 		case .Stats:     return kit_stats(app)
-		case .Settings:  return kit_settings(app)
-		case .Help:      return kit_help(app)
-		case .Macros:    return kit_macros(app)
 		case .Thumbnail: return kit_mini_view(app)
 		}
 	case Card:
@@ -1679,7 +1663,7 @@ kit_field_of_view :: proc(app: ^App) {
 // Picks brush `kind` and shows its settings: the Tool card, from its top.
 brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	command_run(app, .Brush, int(kind))
-	side_panel_close(app)
+	sheet_close(app)
 	card_reveal(app, .Brush)
 }
 
