@@ -53,11 +53,12 @@ summary.
   Bars (`bars.odin`): `Bar_Which` is View_Rail, the `Shelf_*` pages (each space's from `shelf_pages_of`),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
-  View_Rail) go in workspace layouts, the pages, the pie and the island only in settings. Brush values
+  View_Rail) go in each space's layout, the pages, the pie and the island only in settings. Brush values
   (`brush_values.odin`) are `Brush_Value` slots (one argument per value); their look is the bar's
   (`Bar_List.looks`, kept parallel by insert, remove and move; `bar_look` turns a Slider off the island into a
   Chip), and `value_item` draws every look, a Chip claiming the drag only across its bar (`claim_drag`). Customise bars (`k.bars_edit`) is
-  Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, the
+  Arrange (`lens_arrange.odin`); `k.edit_dock` set by a dock's Edit buttons (`dock_edit_buttons`) edits that dock alone, so ask
+  `dock_editing(k, id)` or `bar_editing(k, which)`, never `k.bars_edit`, for whether a dock's + and rings show: a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, the
   Library (`bar_choose` -> `library_open_for`, `library_put` -> `bar_put`) chooses its button; Arrange's sheet's Panels tab is
   `arrange_show_chips` + `arrange_panel_rows` (every window Hidden/Shown), and
   `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
@@ -90,7 +91,7 @@ summary.
   An object's spaces dots (`Object.spaces_off`, `ui.Thumb_Row.dots`) feed `object_flags`, so leaving an object out of
   the current space is exactly an eye turned off there; anything that asks whether an object shows goes through
   `object_shown`/`object_pickable`, never `obj.off` alone. The look's sections (Material, Lights, Environment, Floor, Background) are the Look card's.
-  `built_in_layout(b)` gives each built-in workspace's layout.
+  `built_in_layout(s)` gives each space's layout as it ships.
   Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; each `Settings_Section`
   (`settings_sections.odin`) is a list of `Settings_Entry`, shown by the sheet and by the narrow window's
   drill-down panel (`kit_settings.odin`, under 840 points) alike. A new setting goes in a block, its default in `settings_block_reset`, and its search words in

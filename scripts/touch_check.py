@@ -121,8 +121,7 @@ UI = {
 MENU_ROWS = {"home": ("Home", 84), "new": ("New", 129), "open": ("Open scene...", 173), "recent": ("Open recent", 217),
              "save": ("Save scene", 261), "save_as": ("Save scene as...", 305), "save_copy": ("Save a copy...", 349),
              "earlier_saves": ("Earlier saves...", 393), "import": ("Import", 438), "export": ("Export...", 482),
-             "send": ("send", 526), "workspaces": ("Workspaces", 571), "customise": ("Edit docks...", 615),
-             "settings": ("Settings...", 659), "help": ("Help and shortcuts", 703), "more": ("More", 747)}
+             "send": ("send", 526), "settings": ("Settings...", 571), "help": ("Help and shortcuts", 615), "more": ("More", 659)}
 UI.update({f"menu_{name}": At(f"menu body/{label}", 120, y) for name, (label, y) in MENU_ROWS.items()})
 # New's submenu of starts, and More's rows, beside the menu.
 UI.update({
@@ -3416,48 +3415,56 @@ def floating_card_closes_from_its_dock_button():
 # The space tabs centred in the top bar's middle island, by name (and where each was at 1600 x 900).
 SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top bar/Spaces/Model", 673, 26),
               "render": At("top bar/Spaces/Render", 765, 26), "chevron": At("top bar/space tabs/Layouts", 834, 26)}
-WORKSPACE_CHIP = SPACE_TABS["sculpt"]
-WORKSPACE_ROWS = {"sculpt": 97, "save": 142, "save_as": 186, "export": 230, "import": 274, "revert": 318, "reset": 362, "focus": 407, "inspect": 451}
+LAYOUT_CHIP = SPACE_TABS["sculpt"]
+# The layout menu's rows under the lit tab: the three spaces, Reset layout, Focus and Inspect.
+LAYOUT_ROWS = {"sculpt": At("layout menu/Sculpt##layout menu", 669, 99), "model": At("layout menu/Model##layout menu", 669, 143),
+               "render": At("layout menu/Render##layout menu", 669, 187), "reset": At("layout menu/Reset layout", 669, 232),
+               "focus": At("layout menu/Focus mode", 669, 277), "inspect": At("layout menu/Inspect", 669, 321)}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
 TOP_UNDO, TOP_SEARCH = (150, 33), At("app dock/Search commands", 1336, 30)
 
 
 @scenario
-def workspace_menu_turns_focus_on():
+def layout_menu_turns_focus_on():
     """The lit tab's menu, then Focus mode: the side bars and the action bar go and the menu with them, and the layout is unchanged."""
     s = Script()
-    s.ftap(WORKSPACE_CHIP)
+    s.ftap(LAYOUT_CHIP)
     s.wait(10)
-    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["focus"])
+    s.ftap(LAYOUT_ROWS["focus"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "focus_mode": near(1), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
-                                "workspace_menu": near(0), "workspace_modified": near(0)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "focus_mode": near(1), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
+                                "layout_menu": near(0), "layout_modified": near(0)})
 
 
 @scenario
-def a_closed_panel_marks_the_workspace_and_revert_puts_it_back():
-    """Pinning the Tool card marks Sculpt as changed; Revert in the switcher's menu lets the pin go and clears the mark."""
+def a_pinned_card_marks_the_layout_and_reset_puts_it_back():
+    """Pinning the Tool card marks Sculpt's layout as changed; Reset layout in the tab's menu lets the pin go and clears the mark."""
     s = Script()
     pin_tool_card(s)
-    s.ftap(WORKSPACE_CHIP)
+    s.ftap(LAYOUT_CHIP)
     s.wait(10)
-    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["revert"])
+    s.ftap(LAYOUT_ROWS["reset"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "workspace_modified": near(0),
+    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "layout_modified": near(0), "layout_resets": near(1),
                                 "cards": lambda v: "*" not in v})
 
 
 @scenario
-def a_changed_workspace_shows_its_mark():
-    """Pinning the Tool card leaves Sculpt marked as changed."""
-    s = Script()
-    pin_tool_card(s)
-    return s, [], camera_still({"dabs": near(0), "workspace_modified": near(1)})
+def a_changed_layout_shows_its_mark():
+    """Pinning the Tool card leaves Sculpt's layout marked as changed, and a switch to Model keeps it so."""
+    def run(switch):
+        s = Script()
+        pin_tool_card(s)
+        if switch:
+            s.ftap(SPACE_TABS["model"])
+            s.wait(10)
+        return s, [], camera_still({"dabs": near(0), "layout_modified": near(0 if switch else 1), "layouts_changed": is_text("sculpt")})
+    return Steps([run(False), run(True)])
 
 
 @scenario
 def focus_moves_undo_and_search_to_the_top_bar():
-    """In Focus (an older script's `workspace focus`) a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
+    """In Focus a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
@@ -3465,7 +3472,7 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s.wait(4)
     s.ftap(TOP_SEARCH)
     s.wait(10)
-    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Sculpt"), "focus_mode": near(1)}
+    return s, ["--script=focus_mode on"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "space": is_text("sculpt"), "focus_mode": near(1)}
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
@@ -3482,8 +3489,8 @@ def space_tab_switches_to_model():
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"), "workspace": is_text("Model"),
-                                "workspace_menu": near(0), "space_switches": near(1)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"),
+                                "layout_menu": near(0), "space_switches": near(1)})
 
 
 @scenario
@@ -3496,7 +3503,7 @@ def space_lit_tab_and_chevron_open_the_menu():
     s.wait(10)
     s.ftap(SPACE_TABS["chevron"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "workspace_menu": near(1), "space_switches": near(0)})
+    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "layout_menu": near(1), "space_switches": near(0)})
 
 
 @scenario
@@ -3508,7 +3515,7 @@ def space_tab_gives_back_the_brush():
     s.ftap(SPACE_TABS["sculpt"])
     s.wait(10)
     return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
-                                                        "workspace": is_text("Sculpt"), "space_switches": near(2)})
+                                                        "space_switches": near(2)})
 
 
 @scenario
@@ -3519,7 +3526,7 @@ def a_press_in_render_turns_the_view():
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
-    return s, [], {"dabs": near(0), "space": is_text("render"), "workspace": is_text("Render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+    return s, [], {"dabs": near(0), "space": is_text("render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 # Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
@@ -4885,9 +4892,9 @@ def lens_shift_moves_lined_up_dividers():
     return Steps([run(True), run(False)])
 
 
-# Focus in Lens at 1600 x 900, the three-island top bar: the middle island's workspace chip
+# Focus in Lens at 1600 x 900, the three-island top bar: the middle island's space chip
 # and X symmetry chip, and the right island's View layout and Passes.
-LENS_FOCUS = {"workspace": At("spaces dock/Workspace", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
+LENS_FOCUS = {"space": At("spaces dock/Space##chip", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
               "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Passes", 1392, 30)}
 
 
@@ -4900,7 +4907,7 @@ def lens_focus_draws_islands():
     s.wait(4)
     s.ftap(LENS_FOCUS["passes"])
     s.wait(6)
-    return s, ["--script=focus_mode on"], camera_still({"workspace": is_text("Sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+    return s, ["--script=focus_mode on"], camera_still({"space": is_text("sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
 
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
@@ -5276,13 +5283,13 @@ def lens_pass_popover_groups_the_passes():
     s.wait(8)
     s.ftap(LENS_INSPECT["curvature"])
     s.wait(8)
-    return s, LENS_1440, camera_still({"workspace": is_text("Sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"space": is_text("sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
 # Render at 1440x900: its tab, then on its stack the Lights card's Intensity (the picked
 # light's) and Add point light, the Lights card's chevron, the Red wax sphere of the
 # Material card once Lights is folded, and Undo on the top bar.
-LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 526), "add": At("add point light", 1201, 500),
+LENS_STUDIO = {"render_tab": (685, 26), "intensity": (1218, 526), "add": At("add point light", 1201, 500),
                "folds": [At("card Look/card body/Look", 1218, 150), At("card Look/card body/Material", 1218, 199), At("card Look/card body/Lights", 1218, 248)],
                "red_wax": At("material card Materials 1", 1180, 745), "undo": (268, 25)}
 
@@ -5291,15 +5298,15 @@ LENS_STUDIO = {"workspace": (685, 26), "intensity": (1218, 526), "add": At("add 
 def render_pins_the_look_card():
     """Render pins the Look card, the mini view rendering; a tap on a sphere in its Material section puts that material on."""
     s = Script()
-    s.ftap(LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
     s.ftap(LENS_STUDIO["red_wax"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"workspace": is_text("Render"), "space": is_text("render"), "cards": is_text("left:;right:Look*"),
+    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Look*"),
                                        "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Red_wax"), "dabs": near(0)})
 
 
-# The Render workspace's Material card at 1440x900 with the Lights card folded (its
+# The Render space's Material card at 1440x900 with the Lights card folded (its
 # chevron): the tabs, Favourites, the Clay and Gold spheres of Materials, the first MatCap
 # (Red wax), and a point off the grid, over the view.
 LENS_MATERIALS = {"lights_fold": At("card Look/card body/Look", 1218, 150), "matcaps": (1218, 241), "favourites": (1146, 283), "clay": (1105, 349),
@@ -5313,7 +5320,7 @@ def material_card_scrub_previews_and_keeps():
     Neither is an undo step, as a material pick is not."""
     def run(keep):
         s = Script()
-        s.ftap(LENS_STUDIO["workspace"])
+        s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
         s.ftap(LENS_MATERIALS["lights_fold"])
         s.wait(10)
@@ -5333,7 +5340,7 @@ def material_card_matcap_tab_puts_a_matcap_on():
     """The Material card's Matcaps tab shows the built-in MatCaps as their own pictures; a tap on
     Red wax shades the sphere with it."""
     s = Script()
-    s.ftap(LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
     s.ftap(LENS_MATERIALS["lights_fold"])
     s.wait(10)
@@ -5349,7 +5356,7 @@ def material_card_favourites_hold_a_sphere():
     """A right-click on Gold adds it to the Material card's favourites without putting it on;
     Favourites then shows Gold alone, first in the grid, where a tap puts it on."""
     s = Script()
-    s.ftap(LENS_STUDIO["workspace"])
+    s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
     s.ftap(LENS_MATERIALS["lights_fold"])
     s.wait(10)
@@ -5369,7 +5376,7 @@ def lens_lights_card_picks_and_adds():
     """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
     def run(add):
         s = Script()
-        s.ftap(LENS_STUDIO["workspace"])
+        s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
         # Look and Material folded bring the Look card's Lights section up into sight, and
         # a tap unfolds it.
@@ -5897,7 +5904,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
 
 # The top bar's New dock while editing at 1440x900. A new dock floats in the view's
 # middle: its first button (or, while empty, its +) is there.
-DOCK_NEW = At("arrange top bar/New dock", 578, 30)
+DOCK_NEW = At("arrange top bar/New dock", 650, 30)
 DOCK_ONE_ADD = (721, 417)
 
 
@@ -6055,17 +6062,17 @@ def dock_corner_adds_lines_without_edit_docks():
 
 @scenario
 def dock_more_held_starts_editing():
-    """A long press on the Brush bar's ⋯ starts editing docks, with no menu left open; a tap on it opens its menu, which ends with Edit docks."""
+    """A long press on the Brush bar's ⋯ starts editing its buttons alone, with no menu left open; a tap on it opens its menu, whose Edit buttons does the same."""
     def run(hold):
         s = Script()
         s.wait(6)
         s.ftap(OFFHAND_MORE, hold=50 if hold else 2)
         s.wait(8)
         if hold:
-            return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
-        s.ftap(At("dock menu/Edit docks", 200, 600))
+            return s, LENS_1440, camera_still({"bars_edit": near(1), "edit_dock": is_text("offhand"), "bar_pop": is_text("none"), "dabs": near(0)})
+        s.ftap(At("dock menu/Edit buttons", 200, 600))
         s.wait(8)
-        return s, LENS_1440, camera_still({"bars_edit": near(1), "bar_pop": is_text("none"), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"bars_edit": near(1), "edit_dock": is_text("offhand"), "bar_pop": is_text("none"), "dabs": near(0)})
     return Steps([run(True), run(False)])
 
 
@@ -6246,29 +6253,23 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 
 @scenario
-def save_as_new_workspace_is_remembered():
-    """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
-    s = Script()
-    s.ftap(WORKSPACE_CHIP)
-    s.wait(10)
-    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["save_as"])
-    s.wait(10)
-    return s, [f"--settings-file={settings_file()}"], camera_still({
-        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(4),
-        "@saved": saved_line("workspace 3 Workspace%201")})
-
-
-@scenario
-def the_current_workspace_comes_back():
-    """A settings file from before spaces naming Inspect as current starts in Sculpt with Inspect on: the view grid's four panes, the brush bar and dock aside."""
-    with open(settings_file(), "w") as f:
-        f.write("version 3\nworkspace_current 2\n")
-    s = Script()
-    s.add("move:800,450")
-    s.wait(10)
-    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "inspect_mode": near(1),
-                                                                     "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"),
-                                                                     "grid": is_text("Four")})
+def each_space_keeps_its_layout_in_settings():
+    """Model's layout with the Tool card pinned, then Render in front: the settings keep Model's layout and Render as current, and a fresh run with them starts in Render with Model marked."""
+    path = settings_file()
+    def first():
+        s = Script()
+        s.ftap(SPACE_TABS["model"])
+        s.wait(10)
+        pin_tool_card(s)
+        s.ftap(SPACE_TABS["render"])
+        s.wait(10)
+        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "space": is_text("render"), "layouts_changed": is_text("model"),
+                                                            "@saved": saved_line("space_current Render")})
+    def second():
+        s = Script()
+        s.wait(10)
+        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "space": is_text("render"), "layout_modified": near(0), "layouts_changed": is_text("model")})
+    return Steps([first(), second()])
 
 
 # The view's shading chip at 1600 x 900, and the Wireframe, Normals and Wipe compare rows
@@ -6279,7 +6280,7 @@ PASS_MENU_WIREFRAME = (220, 158)
 
 @scenario
 def shading_chip_picks_wireframe_then_solid():
-    """A tap on the view's shading chip lists the shading modes; Wireframe there draws every edge, closes the list and marks the workspace, and Solid from it again comes back to the workspace's own shading, the list staying open for Solid's options."""
+    """A tap on the view's shading chip lists the shading modes; Wireframe there draws every edge, closes the list and marks the layout, and Solid from it again comes back to the layout's own shading, the list staying open for Solid's options."""
     def run(back):
         s = Script()
         s.ftap(PASS_CHIP)
@@ -6292,20 +6293,20 @@ def shading_chip_picks_wireframe_then_solid():
             s.ftap(PASS_MENU_WIREFRAME[0], PASS_MENU_WIREFRAME[1] + 44)
             s.wait(10)
         return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "shading_mode": is_text("Solid" if back else "Wireframe"),
-                                    "pass_menu": near(1 if back else 0), "workspace_modified": near(0 if back else 1)})
+                                    "pass_menu": near(1 if back else 0), "layout_modified": near(0 if back else 1)})
     return Steps([run(False), run(True)])
 
 
 @scenario
 def pass_chip_picks_normals_from_its_list():
-    """A tap on the view's pass chip opens the list of passes; Normals there shows the normals and marks the workspace."""
+    """A tap on the view's pass chip opens the list of passes; Normals there shows the normals and marks the layout."""
     s = Script()
     s.ftap(PASS_CHIP)
     s.wait(10)
     s.ftap(PASS_NORMALS)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "pass": is_text("Normals"), "pass_shown": is_text("Normals"), "pass_menu": near(0),
-                                "workspace_modified": near(1)})
+                                "layout_modified": near(1)})
 
 
 @scenario
@@ -6319,7 +6320,7 @@ def pass_chip_held_peeks_until_lifted():
             s.add("fup:0")
             s.wait(10)
         return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "pass_shown": is_text("Shaded" if lift else "Normals"),
-                                    "pass_menu": near(0), "workspace_modified": near(0)})
+                                    "pass_menu": near(0), "layout_modified": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -10921,32 +10922,6 @@ def guides_are_saved_with_the_scene():
                   (opened, [f"--open={path}"], {"guides": near(1), "guide_heights": lambda v: v == moved.get("heights")})])
 
 
-def workspace_file():
-    """The workspace file of the scenario running on this thread."""
-    return os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".workspace")
-
-
-@scenario
-def workspace_file_carries_a_layout():
-    """Sculpt with four panes exported to a file and imported in a fresh run comes back as a workspace of one's own, "Sculpt 2", with its four panes, unchanged from what it saved."""
-    path = workspace_file()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.exists(path):
-        os.remove(path)
-    return Steps([(Script(), ["--script=view_grid four", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
-                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt%202"), "workspace_imports": near(1), "workspace_count": near(4),
-                                                               "workspace_modified": near(0), "space": is_text("sculpt"), "grid": is_text("Four")})])
-
-
-@scenario
-def workspace_file_damaged_is_refused():
-    """A file that is not a workspace file is refused with a note: no workspace is added and the layout stays Sculpt's."""
-    path = workspace_file()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write("SCULPT_WORKSPACE 9\nname Future\nlayout open\n")
-    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(3)}
-
 
 @scenario
 def view_pane_drag_turns_its_own_camera():
@@ -11086,7 +11061,7 @@ def view_pane_studio_stroke_in_it_gathers_again():
 
 @scenario
 def view_pane_shading_is_its_own():
-    """Wireframe in the Front pane's Shows draws that pane in Wireframe only: the other panes and the main view stay Solid, and the workspace is marked."""
+    """Wireframe in the Front pane's Shows draws that pane in Wireframe only: the other panes and the main view stay Solid, and the layout is marked."""
     s = Script()
     s.wait(30)
     s.ftap(FOUR_FRONT_PASS)
@@ -11094,7 +11069,7 @@ def view_pane_shading_is_its_own():
     s.ftap(FOUR_FRONT_PASS[0], 170)
     s.wait(30)
     return s, ["--script=view_grid four"], camera_still({"pane_shows": is_text("Wireframe,Solid,Solid"), "shading_mode": is_text("Solid"), "pane_menu": near(0),
-                                                         "workspace_modified": near(1), "dabs": near(0)})
+                                                         "layout_modified": near(1), "dabs": near(0)})
 
 
 @scenario

@@ -12,7 +12,7 @@ shelf_pin_puts_the_brush_first :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
-	defer workspaces_destroy(&app.kit)
+	defer layouts_destroy(&app.kit)
 	elastic := Bar_Slot{.Brush, int(sculpt.Brush_Kind.Elastic)}
 	count := len(bar_used(&app, .Shelf_Curve))
 	shelf_pin(&app, elastic, .Shelf_Curve)

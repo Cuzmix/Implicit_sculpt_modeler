@@ -244,15 +244,7 @@ Command_Id :: enum u16 {
 	Open_Card, // the argument is the Card (cards.odin)
 	Open_Section, // the argument is the Section: its card, opened on it
 	Panels_Reset,
-	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
-	Workspace_Save,
-	Workspace_Save_As,
-	Workspace_Revert,
-	Workspace_Reset,
-	Workspace_Rename,
-	Workspace_Delete,
-	Workspace_Export, // workspace_file.odin
-	Workspace_Import,
+	Layout_Reset, // layouts.odin
 	Space_Switch, // the argument is the Space (spaces.odin)
 	Focus_Mode,
 	Inspect_Mode,
@@ -2204,86 +2196,12 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PANEL,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
 	},
-	.Workspace = {
-		label = "Workspace",
-		help = "Switches to this workspace's layout of bars and panels, as you left it.",
-		icon = ui.ICON_PANEL,
-		args = WORKSPACE_SLOTS,
-		run = proc(app: ^App, arg: int) {workspace_switch(&app.kit, arg)},
-		enabled = proc(app: ^App, arg: int) -> bool {return arg < len(app.kit.workspaces.list) && app.kit.workspaces.list[arg].used},
-		checked = proc(app: ^App, arg: int) -> bool {return app.kit.workspaces.current == arg},
-	},
-	.Workspace_Save = {
-		label = "Save workspace",
-		help = "Keeps the bars and panels as they are now as this workspace's layout.",
-		icon = ui.ICON_SAVE,
-		run = proc(app: ^App, _: int) {workspace_save(&app.kit)},
-		enabled = proc(app: ^App, _: int) -> bool {return app.kit.workspaces.modified},
-	},
-	.Workspace_Save_As = {
-		label = "Save as a new workspace",
-		help = "Keeps the bars and panels as they are now as a new workspace of your own, and switches to it.",
-		icon = ui.ICON_PLUS,
-		run = proc(app: ^App, _: int) {_ = workspace_save_as(&app.kit)},
-		enabled = proc(app: ^App, _: int) -> bool {
-			for ws, slot in app.kit.workspaces.list do if slot >= len(Built_In) && !ws.used do return true
-			return false
-		},
-	},
-	.Workspace_Revert = {
-		label = "Revert workspace",
-		help = "Puts this workspace's saved layout back, dropping the changes since.",
-		icon = ui.ICON_UNDO,
-		run = proc(app: ^App, _: int) {workspace_revert(&app.kit)},
-		enabled = proc(app: ^App, _: int) -> bool {return app.kit.workspaces.modified},
-	},
-	.Workspace_Reset = {
-		label = "Reset workspace",
-		help = "Puts this built-in workspace back as it comes with the app.",
+	.Layout_Reset = {
+		label = "Reset layout",
+		help = "Puts this space's layout (its docks, cards, view grid and pass) back as it ships.",
 		icon = ui.ICON_HISTORY,
-		run = proc(app: ^App, _: int) {workspace_reset(&app.kit)},
-		enabled = proc(app: ^App, _: int) -> bool {
-			w := &app.kit.workspaces
-			b, built_in := workspace_built_in(w.current)
-			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b))
-		},
-	},
-	.Workspace_Rename = {
-		label = "Rename workspace...",
-		help = "Gives this workspace of your own another name.",
-		icon = ui.ICON_PENCIL,
-		run = proc(app: ^App, _: int) {
-			k := &app.kit
-			k.rename = {open = true, id = k.workspaces.current, workspace = true, at = k.workspaces.menu_at}
-		},
-		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
-	},
-	.Workspace_Delete = {
-		label = "Delete workspace...",
-		help = "Deletes this workspace of your own, after asking, and goes to its space's own layout.",
-		icon = ui.ICON_TRASH,
-		run = proc(app: ^App, _: int) {
-			w := &app.kit.workspaces
-			kit_floats_close(&app.kit)
-			w.menu, w.deleting = true, true
-		},
-		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
-	},
-	.Workspace_Export = {
-		label = "Export workspace...",
-		help = "Writes this workspace's layout as it is now (bars, docks, the cards pinned, view grid and pass) to a small file, to take to another device or give to someone.",
-		icon = ui.ICON_EXPORT,
-		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Workspace)},
-	},
-	.Workspace_Import = {
-		label = "Import workspace...",
-		help = "Reads a workspace file as a new workspace of your own and switches to it.",
-		icon = ui.ICON_IMPORT,
-		run = proc(app: ^App, _: int) {file_dialog(app, .Import_Workspace)},
-		enabled = proc(app: ^App, _: int) -> bool {
-			for ws, slot in app.kit.workspaces.list do if slot >= len(Built_In) && !ws.used do return true
-			return false
-		},
+		run = proc(app: ^App, _: int) {layout_reset(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.kit.layouts.modified},
 	},
 	.Space_Switch = {
 		label = "Space",
@@ -2458,7 +2376,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Main_Menu = {
 		label = "Menu",
-		help = "Opens the menu: new, open, save, import, export, workspaces, and the rest of the app.",
+		help = "Opens the menu: new, open, save, import, export, and the rest of the app.",
 		icon = ui.ICON_MENU,
 		run = proc(app: ^App, _: int) {
 			app.kit.menu = !app.kit.menu
@@ -2520,12 +2438,12 @@ COMMANDS := [Command_Id]Command {
 		icon = ICON_CUSTOMISE,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.bars_edit = !k.bars_edit
+			k.bars_edit, k.edit_dock = !k.bars_edit, nil
 			// The bars show whole: Settings, over the view rail's side, closes (saving).
 			if k.bars_edit && k.settings do settings_close(app)
 			kit_floats_close(k)
 		},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.bars_edit},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.bars_edit && app.kit.edit_dock == nil},
 	},
 	.New_Dock = {
 		label = "New dock",
@@ -2924,10 +2842,6 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
 	case .Space_Switch:
 		return fmt.tprintf("Space: %s", SPACE_NAMES[Space(arg)])
-	case .Workspace:
-		// An own workspace's name is the user's, which no label here knows; menus show it.
-		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)
-		return fmt.tprintf("Workspace: your own %d", arg - len(Built_In) + 1)
 	case .Gizmo:
 		if gizmo.Mode(arg) == .All do return "Move, turn and scale gizmo"
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))

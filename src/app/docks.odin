@@ -135,6 +135,30 @@ Dock_Place :: struct {
 	at:    [2]f32,
 }
 
+// Whether dock `d`'s buttons are being edited: every dock's in Edit docks, only its own
+// when Edit buttons in its menu began it.
+dock_editing :: proc(k: ^Kit_State, d: Dock_Id) -> bool {
+	if !k.bars_edit do return false
+	one, only := k.edit_dock.?
+	return !only || one == d
+}
+
+// Whether the buttons of bar `which` are being edited (dock_editing for the dock that
+// holds it; a bar no dock holds is edited only in Edit docks).
+bar_editing :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
+	if !k.bars_edit do return false
+	one, only := k.edit_dock.?
+	return !only || dock_which(k, one) == which
+}
+
+// Starts editing the buttons of dock `d` alone: its + and the rings on its buttons.
+dock_edit_buttons :: proc(app: ^App, d: Dock_Id) {
+	k := &app.kit
+	if k.settings do settings_close(app)
+	kit_floats_close(k)
+	k.bars_edit, k.edit_dock = true, d
+}
+
 // The bar list behind dock `d`: the shelf's is the page it shows.
 dock_which :: proc(k: ^Kit_State, d: Dock_Id) -> Bar_Which {
 	switch d {
@@ -590,8 +614,8 @@ dock_looks_text :: proc(k: ^Kit_State) -> string {
 }
 
 // The person's own docks: up to four, made by New dock, floating where
-// they are made until carried to an edge. Each space and workspace keeps its own, as the
-// rail's buttons are the screen's; the built-in workspaces have none.
+// they are made until carried to an edge. Each space's layout keeps its own, as the
+// rail's buttons are the screen's; none ships with one.
 
 // The size a new dock's outline is taken to have, for where it first floats.
 @(private = "file")
@@ -615,7 +639,7 @@ user_dock_id :: proc(i: int) -> Dock_Id {
 // (where its + is); Focus mode and Inspect put it away with the rest of the view's chrome.
 user_dock_shown :: proc(k: ^Kit_State, i: int) -> bool {
 	if !k.docks[user_dock_id(i)].used do return false
-	return k.bars_edit || (k.dock_lists[i].count > 0 && !k.focus_mode && !k.inspect.on)
+	return dock_editing(k, user_dock_id(i)) || (k.dock_lists[i].count > 0 && !k.focus_mode && !k.inspect.on)
 }
 
 // Where a new dock floats: its outline's top-left at the safe area's middle, in layout
@@ -640,7 +664,7 @@ user_docks_used :: proc(k: ^Kit_State) -> int {
 }
 
 // Makes the first free dock: floating in the middle (beside the Library), empty but for
-// its +. Opens Arrange first, as only Arrange fills it. False when
+// its +. Starts editing its buttons, as only that fills it. False when
 // all four are in use.
 user_dock_new :: proc(app: ^App) -> bool {
 	k := &app.kit
@@ -650,7 +674,7 @@ user_dock_new :: proc(app: ^App) -> bool {
 		d^ = {used = true, place = {edge = .Float, at = user_dock_spot(k)}}
 		k.dock_lists[i] = bar_fresh(user_dock_which(i))
 		k.dock_scroll[user_dock_id(i)] = 0
-		if !k.bars_edit do command_run(app, .Customise_Bars)
+		if !dock_editing(k, user_dock_id(i)) do dock_edit_buttons(app, user_dock_id(i))
 		k.arrange.docks_made += 1
 		report(app, nil, {}, "Made %s: its + adds a button, and its head carries it to an edge", DOCK_TITLES[user_dock_id(i)])
 		return true
@@ -710,9 +734,9 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 	which := dock_which(k, id)
 	used := bar_used(app, which)
 	root := DOCK_ROOTS[id]
-	more := k.bars_edit || !d.more_off
+	more := dock_editing(k, id) || !d.more_off
 	// A brush bar with nothing in it and no More is put away.
-	if len(used) == 0 && !k.bars_edit && !more do return
+	if len(used) == 0 && !dock_editing(k, id) && !more do return
 	size, _ := ui.prev_layout(ctx, root)
 	x, y, offset, room := dock_anchor(app, id, size)
 	lines := dock_lines(k, id)
@@ -728,7 +752,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		return
 	}
 	// The foot under the buttons: the + while arranging and the ⋯, each a target and a gap.
-	foot: f32 = 2 * 3 + DOCK_GRIP_H + 3 + (t.target + 6 if k.bars_edit else 0) + (t.target + 7 if more else 0)
+	foot: f32 = 2 * 3 + DOCK_GRIP_H + 3 + (t.target + 6 if dock_editing(k, id) else 0) + (t.target + 7 if more else 0)
 	// Sliders until the buttons outgrow the room, then the last sliders as chips.
 	sliders := 0
 	tall := dock_rows_tall(app, id, used, lines, len(used))
@@ -750,7 +774,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 			s := used[j]
 			v, value := value_of(s)
 			switch {
-			case value && v_slider(k, which, j) && shown < sliders && !k.bars_edit:
+			case value && v_slider(k, which, j) && shown < sliders && !dock_editing(k, id):
 				dock_slider(app, id, j, v, width)
 				shown += 1
 				if id == .Offhand do k.island_sliders += {v}
@@ -763,7 +787,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		if lines > 1 do ui.end(ctx)
 	}
 	kit_scroll_end(ctx, scroll)
-	if k.bars_edit do bar_add_button(app, which, len(used), width)
+	if dock_editing(k, id) do bar_add_button(app, which, len(used), width)
 	if more do dock_more_button(app, id, width * f32(lines))
 	ui.end(ctx)
 
@@ -797,7 +821,7 @@ kit_dock_row :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, x, y: ui.Anchor, 
 		ui.end(ctx)
 	}
 	ui.end(ctx)
-	if k.bars_edit do bar_add_button(app, which, len(used), width)
+	if dock_editing(k, id) do bar_add_button(app, which, len(used), width)
 	if more do dock_more_button(app, id, width, row = true)
 	ui.end(ctx)
 }
@@ -885,15 +909,15 @@ dock_more_button :: proc(app: ^App, id: Dock_Id, width: f32, row := false) {
 	}
 	open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == id
 	if ui.icon_button(ctx, fmt.tprintf("More##%s", DOCK_ROOTS[id]), ui.ICON_MORE, open, keys = "", width = width) do dock_menu_toggle(app, id, ctx.last_rect)
-	dock_more_hold(app)
+	dock_more_hold(app, id)
 }
 
-// A long press (or a right click) on a dock's ⋯, the widget just drawn, starts editing
-// docks, as a home screen's icons start moving under a held finger.
-dock_more_hold :: proc(app: ^App) {
-	if app.kit.bars_edit || !ui.secondary(&app.kit.ctx) do return
+// A long press (or a right click) on dock `id`'s ⋯, the widget just drawn, starts editing
+// its buttons, as a home screen's icons start moving under a held finger.
+dock_more_hold :: proc(app: ^App, id: Dock_Id) {
+	if dock_editing(&app.kit, id) || !ui.secondary(&app.kit.ctx) do return
 	app.kit.bar_pop.open = false
-	command_run(app, .Customise_Bars)
+	dock_edit_buttons(app, id)
 }
 
 // Opens dock `id`'s menu beside `at`, or closes it when it shows already.
@@ -943,15 +967,19 @@ kit_dock_menu :: proc(app: ^App) {
 		names := [len(Dock_Names)]string{DOCK_NAMES_SHOWN[.Wide], DOCK_NAMES_SHOWN[.Always], DOCK_NAMES_SHOWN[.Off]}
 		if picked := ui.tabs(ctx, "Names##dock menu", names[:], int(d.names), W / 3); picked >= 0 do d.names = Dock_Names(picked)
 	}
-	if !k.bars_edit && ui.menu_item(ctx, "Hide this button", glyph = ui.ICON_EYE_OFF) {
+	editing := dock_editing(k, id)
+	if !editing && ui.menu_item(ctx, "Hide this button", glyph = ui.ICON_EYE_OFF) {
 		d.more_off = true
 		p.open = false
-		report(app, nil, {}, "Edit docks shows the ⋯ again")
-	} else if k.bars_edit && d.more_off && ui.menu_item(ctx, "Show this button", glyph = ui.ICON_EYE) {
+		report(app, nil, {}, "A tap on the dock's grip opens this menu again")
+	} else if editing && d.more_off && ui.menu_item(ctx, "Show this button", glyph = ui.ICON_EYE) {
 		d.more_off = false
 	}
-	if !k.bars_edit {
-		if command_menu_item(app, .Customise_Bars, label = "Edit docks") do p.open = false
+	if !editing {
+		if ui.menu_item(ctx, "Edit buttons", glyph = ICON_CUSTOMISE) {
+			p.open = false
+			dock_edit_buttons(app, id)
+		}
 		return
 	}
 	ui.divider(ctx, W, across = true)
@@ -971,7 +999,7 @@ your_docks_rows :: proc(app: ^App, width: f32) {
 	ctx := &k.ctx
 	ui.caption(ctx, fmt.tprintf("YOUR DOCKS  %d OF %d", user_docks_used(k), USER_DOCKS))
 	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = width)
-	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each workspace keeps its own docks.")
+	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each space's layout keeps its own docks.")
 }
 
 // How tall a dock's grip is, in points: a strip at the dock's start that is easy to find

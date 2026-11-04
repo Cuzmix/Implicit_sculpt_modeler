@@ -854,10 +854,10 @@ settings_load :: proc(app: ^App, path: string) {
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
 		case "window":
 			window_load_line(&app.kit, f)
-		case "workspace", "workspace_saved", "workspace_live", "workspace_current", "workspace_space":
-			workspaces_load_line(&app.kit, f)
-		case "space_layouts":
-			spaces_load_line(&app.kit, f)
+		case "space_layout", "space_current":
+			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
+			// how it ships; space_current <Space>: the space in front.
+			layouts_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -1058,7 +1058,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
-	workspaces_loaded(&app.kit)
+	layouts_loaded(&app.kit)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -1159,7 +1159,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	themes_save(&app.kit, &out)
 	for w, which in k.windows do window_save_line(&out, which, w)
-	workspaces_save(&app.kit, &out)
+	layouts_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

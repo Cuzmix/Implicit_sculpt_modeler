@@ -7,13 +7,14 @@ import "core:strings"
 import "../ui"
 
 // Every dock carries a faint grip (dock_grip) and a faint corner, so moving or sizing one never
-// needs a mode. Edit docks (Arrange): every dock shows its outline and a head, the grip that carries it
-// to an edge or anywhere and a tap on which opens its menu (Lines, Names, Put back as it
-// comes, Delete for one of the person's), and a curved corner on the side facing the
+// needs a mode. Edit docks (Arrange), or Edit buttons in one dock's menu for that dock alone
+// (k.edit_dock, dock_editing): each dock edited shows its outline, rings on its buttons and
+// its +, a tap on its grip opens its menu (Lines, Names, Put back as it comes, Delete for
+// one of the person's), and a curved corner on the side facing the
 // view's middle that a drag turns into more or fewer lines, a whole button at a time. A
 // floating dock carried near another lines up with it (soft alignment), a faint line
-// showing which edge. The top bar's workspace pill gives way to what editing needs (New
-// dock, Mirror, Reset workspace, Save as new, Done). The ringed buttons of every dock
+// showing which edge. The top bar's space tabs give way to what editing needs (New
+// dock, Mirror, Reset layout, Done). The ringed buttons of every dock
 // change what each holds, and its + opens the Library to add one. Which bars show, the
 // panels' places and the dial's sectors are Settings' (Bars and Wheel).
 
@@ -95,39 +96,37 @@ dial_reset :: proc(app: ^App) {
 	report(app, nil, {}, "The dial is as it comes again")
 }
 
-// The top bar's controls while editing docks, in place of the workspace pill: what is
-// being edited, New dock, Mirror, Reset workspace, Save as new and Done. Returns their width;
+// The top bar's controls while editing docks, in place of the space tabs: what is being
+// edited, New dock, Mirror, Reset layout and Done. Returns their width;
 // arrange_top_width says it before they are drawn.
 arrange_top_controls :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	w := &k.workspaces
 	ui.begin(ctx, "arrange top bar", {direction = .Row, gap = 6, center = true})
 	start := ctx.last_rect.x
 	title := arrange_title(app)
 	r := ui.place(ctx, {ui.text_width(ctx, title, t.text_size, .Semibold) + 18, t.target})
 	ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.accent, .Semibold)
-	if w.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
+	if k.layouts.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
 	labels := ARRANGE_TOP_LABELS
 	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
 	_ = command_button(app, .Left_Handed, label = "Mirror", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
-	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
-	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[3]))
-	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[4])) do k.bars_edit = false
+	_ = command_button(app, .Layout_Reset, label = "Reset layout", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
+	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[3])) do k.bars_edit = false
 	end := ctx.last_rect
 	ui.end(ctx)
 	return end.x + end.w - start
 }
 
 @(private = "file")
-ARRANGE_TOP_LABELS := [5]string{"New dock", "Mirror", "Reset workspace", "Save as new", "Done"}
+ARRANGE_TOP_LABELS := [4]string{"New dock", "Mirror", "Reset layout", "Done"}
 
 @(private = "file")
 arrange_title :: proc(app: ^App) -> string {
 	k := &app.kit
-	name := workspace_name(k, k.workspaces.current) if len(k.workspaces.list) > 0 else "Sculpt"
-	return fmt.tprintf("Editing %s", name)
+	if one, only := k.edit_dock.?; only do return fmt.tprintf("Editing %s", DOCK_TITLES[one])
+	return fmt.tprintf("Editing %s", SPACE_NAMES[k.spaces.current])
 }
 
 @(private = "file")
@@ -185,7 +184,7 @@ kit_arrange_lens :: proc(app: ^App) {
 		// The corner faces the view's middle: a column's on its side toward it, a row's on
 		// its end, toward the middle up or down.
 		end_half := !dock_row(k, d) && box.x + box.w * 0.5 > area.x + area.w * 0.5
-		if !k.bars_edit {
+		if !dock_editing(k, d) {
 			arrange_resize_corner(app, d, box, !end_half, faint = true)
 			continue
 		}

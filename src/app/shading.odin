@@ -15,7 +15,7 @@ import "../render"
 //
 // A view's shading is its own (View_Shading): the main view keeps it in Passes, and each
 // other view (a view pane, the second view, a view window) in its Second_View, shown while
-// its pass is Shaded, its Render pass being its Rendered; the workspace's layout writes
+// its pass is Shaded, its Render pass being its Rendered; the space's layout writes
 // them. The objects keep only their materials: each frame the draw items are made once, as
 // their materials say, and shading_items rewrites each view's copy of them by its shading,
 // from what each item was made of (Item_From).

@@ -12,7 +12,7 @@ spaces_app :: proc() -> ^App {
 	k := &a.kit
 	bars_reset(k)
 	panels_default(k)
-	workspaces_init(k)
+	layouts_init(k)
 	a.tool = .Brush
 	a.brush.kind = .Clay
 	space_follow(a)
@@ -21,7 +21,7 @@ spaces_app :: proc() -> ^App {
 
 @(private = "file")
 spaces_app_free :: proc(a: ^App) {
-	workspaces_destroy(&a.kit)
+	layouts_destroy(&a.kit)
 	free(a)
 }
 
@@ -33,11 +33,10 @@ the_tool_picks_its_space :: proc(t: ^testing.T) {
 	k := &a.kit
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
 
-	// The Model tool is Model, with Model's layout; Move keeps the space it is picked in.
+	// The Model tool is Model; Move keeps the space it is picked in.
 	model_pick_action(a, .Inset)
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Model)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Model))
 	a.tool = .Move
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Model)
@@ -46,7 +45,6 @@ the_tool_picks_its_space :: proc(t: ^testing.T) {
 	command_run(a, .Brush, int(sculpt.Brush_Kind.Draw))
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Sculpt))
 	testing.expect(t, k.shelf.page != .Model)
 	testing.expect_value(t, k.spaces.switches, 2)
 }
@@ -73,7 +71,6 @@ a_tab_gives_the_space_its_tool_back :: proc(t: ^testing.T) {
 	command_run(a, .Space_Switch, int(Space.Sculpt))
 	command_run(a, .Space_Switch, int(Space.Render))
 	testing.expect_value(t, a.tool, Tool.Brush)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Render))
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Render)
 	command_run(a, .Brush, int(sculpt.Brush_Kind.Clay))
@@ -86,59 +83,60 @@ a_tab_gives_the_space_its_tool_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.tool, Tool.Model)
 }
 
+// Each space keeps its own layout: a change made in Model is kept when Sculpt is picked
+// and comes back with Model, the tabs' dots say which spaces differ from how they ship,
+// and Reset layout puts the current one back as it ships.
 @(test)
 each_space_comes_back_on_its_own_layout :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	a := spaces_app()
 	defer spaces_app_free(a)
 	k := &a.kit
+	layouts_frame(k)
+	for s in Space do testing.expect(t, !layout_changed(k, s), "every space starts as it ships")
 	command_run(a, .Space_Switch, int(Space.Model))
 	k.thumbnail = true
-	testing.expect(t, workspace_save_as(k))
-	mine := k.workspaces.current
-	testing.expect_value(t, workspace_space(k, mine), Space.Model)
+	layouts_frame(k)
+	testing.expect(t, layout_changed(k, .Model))
+	testing.expect(t, command_enabled(a, .Layout_Reset, 0))
 	command_run(a, .Space_Switch, int(Space.Sculpt))
+	layouts_frame(k)
 	testing.expect(t, !k.thumbnail)
+	testing.expect(t, !layout_changed(k, .Sculpt))
+	testing.expect(t, layout_changed(k, .Model), "Model's dot stays while Sculpt is in front")
 	command_run(a, .Space_Switch, int(Space.Model))
-	testing.expect_value(t, k.workspaces.current, mine)
+	layouts_frame(k)
 	testing.expect(t, k.thumbnail, "Model's own layout did not come back")
-	// Deleting it leaves Model on its built-in.
-	workspace_delete(k)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Model))
+	command_run(a, .Layout_Reset, 0)
+	layouts_frame(k)
+	testing.expect(t, !k.thumbnail)
+	testing.expect(t, !layout_changed(k, .Model))
+	testing.expect_value(t, k.layouts.resets, 1)
 	testing.expect_value(t, k.spaces.current, Space.Model)
 }
 
+// Each space's layout round-trips through settings, as does the space in front.
 @(test)
-names_of_the_old_workspaces_still_read :: proc(t: ^testing.T) {
-	id, arg, ok := command_from_name("Workspace:Studio")
-	testing.expect(t, ok && id == .Workspace && arg == int(Built_In.Render))
-	id, _, ok = command_from_name("Workspace:Focus")
-	testing.expect(t, ok && id == .Focus_Mode)
-	id, _, ok = command_from_name("Workspace:Inspect")
-	testing.expect(t, ok && id == .Inspect_Mode)
-	id, arg, ok = command_from_name(command_name(.Space_Switch, int(Space.Render)))
-	testing.expect(t, ok && id == .Space_Switch && arg == int(Space.Render))
-}
-
-// A script written before spaces names the old workspaces: Focus and Inspect turn their
-// views on, Studio is Render's layout, and the new names read as they say.
-@(test)
-old_workspace_names_in_a_script_still_run :: proc(t: ^testing.T) {
-	s := script_parse("workspace focus\nworkspace inspect\nworkspace studio\nspace_switch model\nfocus_mode off", "old")
-	defer script_destroy(&s)
-	testing.expect_value(t, len(s.errors), 0)
-	if !testing.expect_value(t, len(s.statements), 5) do return
-	st := s.statements
-	testing.expect_value(t, st[0].command, Command_Id.Focus_Mode)
-	testing.expect_value(t, st[0].toggle, Script_Toggle.On)
-	testing.expect_value(t, st[1].command, Command_Id.Inspect_Mode)
-	testing.expect_value(t, st[1].toggle, Script_Toggle.On)
-	testing.expect_value(t, st[2].command, Command_Id.Workspace)
-	testing.expect_value(t, st[2].arg, int(Built_In.Render))
-	testing.expect_value(t, st[3].command, Command_Id.Space_Switch)
-	testing.expect_value(t, Space(st[3].arg), Space.Model)
-	testing.expect_value(t, st[4].command, Command_Id.Focus_Mode)
-	testing.expect_value(t, st[4].toggle, Script_Toggle.Off)
+the_layouts_read_back :: proc(t: ^testing.T) {
+	path := "build/layouts_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	command_run(a, .Space_Switch, int(Space.Model))
+	a.kit.thumbnail = true
+	command_run(a, .Space_Switch, int(Space.Render))
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app()
+	defer spaces_app_free(b)
+	settings_load(b, path)
+	k := &b.kit
+	layouts_frame(k)
+	testing.expect_value(t, k.spaces.current, Space.Render)
+	testing.expect(t, !layout_changed(k, .Render))
+	testing.expect(t, layout_changed(k, .Model))
+	command_run(b, .Space_Switch, int(Space.Model))
+	testing.expect(t, k.thumbnail, "Model's layout read back")
 }
 
 // Each space has its own dial: switching space switches the sectors the rail reads, a

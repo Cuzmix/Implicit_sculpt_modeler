@@ -20,6 +20,10 @@ new_docks_float_and_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !user_dock_new(&app))
 	testing.expect_value(t, user_docks_used(k), USER_DOCKS)
 	testing.expect(t, k.bars_edit)
+	// Each new dock is the one being filled: only its buttons are edited.
+	testing.expect_value(t, k.edit_dock, Maybe(Dock_Id)(Dock_Id.Dock_4))
+	testing.expect(t, dock_editing(k, .Dock_4) && !dock_editing(k, .Dock_1) && !dock_editing(k, .Rail))
+	testing.expect(t, bar_editing(k, user_dock_which(3)) && !bar_editing(k, .View_Rail))
 	testing.expect_value(t, k.docks[.Dock_2].place, Dock_Place{edge = .Float, at = user_dock_middle(k)})
 	testing.expect_value(t, user_dock_middle(k), [2]f32{774, 390})
 

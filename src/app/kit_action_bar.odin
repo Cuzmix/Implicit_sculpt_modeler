@@ -167,7 +167,7 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	return
 }
 
-// Whether the bar is laid out at all: on in Settings and in the workspace, with something to
+// Whether the bar is laid out at all: on in Settings and in the layout, with something to
 // show.
 action_bar_shown :: proc(app: ^App) -> bool {
 	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && action_groups_now(app) != {}
@@ -177,7 +177,7 @@ action_bar_shown :: proc(app: ^App) -> bool {
 // layout: what the toasts and the cards keep clear of at the bottom middle.
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
-	// No dock (the workspace hides it), no lift either.
+	// No dock (the layout hides it), no lift either.
 	if dock := shelf_bottom_size(app); dock.y > 0 do h = dock.y + dock_lift(app)
 	h += colour_island_lift(app)
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP

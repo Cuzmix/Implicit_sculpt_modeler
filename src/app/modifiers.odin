@@ -155,7 +155,7 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 
 // What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
 // on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
-// (Settings > Dial), not part of a workspace, since it belongs to the hand
+// (Settings > Dial), not part of a layout, since it belongs to the hand
 // rather than the screen. Each space has its own four (PR 3b), as each asks something
 // else of the off hand: Model snaps and selects, Render places light and focus.
 Dial_Sector :: union {
@@ -561,7 +561,7 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	if rail_shown(k) != .Left || k.docks[.Offhand].edge != .Default do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
-	// No brush bar (the workspace hides it), nothing to keep clear of.
+	// No brush bar (the layout hides it), nothing to keep clear of.
 	if bar.y <= 0 do return t.edge
 	if brush_bar_top(app) + bar.y + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
 	return t.edge

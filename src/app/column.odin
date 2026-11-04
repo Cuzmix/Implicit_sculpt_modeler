@@ -497,7 +497,7 @@ column_rest_rect :: proc(app: ^App, s: Column_Side) -> ui.Rect {
 }
 
 // The columns' lines in a layout: `column left|right <card>` for each pinned card, which a
-// workspace keeps open; cards opened for a moment are no layout's.
+// layout keeps open; cards opened for a moment are no layout's.
 columns_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	for &col, s in k.cards.columns {
 		for i in 0 ..< col.count {
