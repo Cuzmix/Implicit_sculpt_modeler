@@ -515,22 +515,6 @@ Material_Uniforms :: struct {
 #assert(offset_of(Material_Uniforms, pass) == 1136)
 #assert(offset_of(Material_Uniforms, maps) == 896)
 
-MESH_VERT_CODE :: #load("shaders/mesh.vert" + SHADER_EXT, string)
-MESH_FRAG_CODE :: #load("shaders/mesh.frag" + SHADER_EXT, string)
-MESH_AREA_FRAG_CODE :: #load("shaders/mesh_area.frag" + SHADER_EXT, string)
-MESH_WIRE_FRAG_CODE :: #load("shaders/mesh_wire.frag" + SHADER_EXT, string)
-MESH_WIRE_VERT_CODE :: #load("shaders/mesh_wire.vert" + SHADER_EXT, string)
-TEXTURED_VERT_CODE :: #load("shaders/textured.vert" + SHADER_EXT, string)
-SKIN_VERT_CODE :: #load("shaders/skin.vert" + SHADER_EXT, string)
-SKIN_FRAG_CODE :: #load("shaders/skin.frag" + SHADER_EXT, string)
-SKIN_TESS_VERT_CODE :: #load("shaders/skin_tess.vert" + SHADER_EXT, string)
-TEXTURED_FRAG_CODE :: #load("shaders/textured.frag" + SHADER_EXT, string)
-TEXTURED_AREA_FRAG_CODE :: #load("shaders/textured_area.frag" + SHADER_EXT, string)
-CLEAR_VERT_CODE :: #load("shaders/clear.vert" + SHADER_EXT, string)
-CLEAR_FRAG_CODE :: #load("shaders/clear.frag" + SHADER_EXT, string)
-FLOOR_VERT_CODE :: #load("shaders/floor.vert" + SHADER_EXT, string)
-FLOOR_FRAG_CODE :: #load("shaders/floor.frag" + SHADER_EXT, string)
-
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
 	r.background = {BACKGROUND, BACKGROUND}
@@ -795,28 +779,13 @@ lights_have_area :: proc(l: Lights) -> bool {
 // buffers in the vertex stage, and the clay's own fragment stage.
 @(private)
 create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_Count, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false) -> gpu.Graphics_Pipeline {
-	vert_spv, frag_code := MESH_VERT_CODE, MESH_AREA_FRAG_CODE if area else MESH_FRAG_CODE
-	if wire_bary do vert_spv, frag_code = MESH_WIRE_VERT_CODE, MESH_WIRE_FRAG_CODE
-	if textured do vert_spv, frag_code = TEXTURED_VERT_CODE, TEXTURED_AREA_FRAG_CODE if area else TEXTURED_FRAG_CODE
-	if skinned do vert_spv, frag_code = SKIN_VERT_CODE, SKIN_FRAG_CODE
-	if skin_tess do vert_spv = SKIN_TESS_VERT_CODE
-	vert := gpu.create_shader({
-		code                = vert_spv,
-		entrypoint          = SHADER_ENTRY,
-		format              = SHADER_FORMAT,
-		stage               = .Vertex,
-		num_uniform_buffers = 1,
-		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else 1)),
-	})
-	frag := gpu.create_shader({
-		code                = frag_code,
-		entrypoint          = SHADER_ENTRY,
-		format              = SHADER_FORMAT,
-		stage               = .Fragment,
-		num_samplers        = 5 if textured else 2,
-		num_uniform_buffers = 1 if textured else 2,
-		num_storage_buffers = SKIN_FRAGMENT_STORAGE if skinned else (1 if wire_bary else 0),
-	})
+	vert_desc, frag_desc := MESH_VERT, MESH_AREA_FRAG if area else MESH_FRAG
+	if wire_bary do vert_desc, frag_desc = MESH_WIRE_VERT, MESH_WIRE_FRAG
+	if textured do vert_desc, frag_desc = TEXTURED_VERT, TEXTURED_AREA_FRAG if area else TEXTURED_FRAG
+	if skinned do vert_desc, frag_desc = SKIN_VERT, SKIN_FRAG
+	if skin_tess do vert_desc = SKIN_TESS_VERT
+	vert := gpu.create_shader(vert_desc)
+	frag := gpu.create_shader(frag_desc)
 	// Shaders are only needed until the pipeline is built.
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
@@ -910,14 +879,8 @@ BLEND_OVER :: gpu.Blend_State {
 
 @(private)
 create_floor_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = FLOOR_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex,
-	})
-	frag := gpu.create_shader({
-		code = FLOOR_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment, num_uniform_buffers = 1,
-	})
+	vert := gpu.create_shader(FLOOR_VERT)
+	frag := gpu.create_shader(FLOOR_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 {
@@ -945,14 +908,8 @@ create_floor_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Gr
 
 @(private)
 create_clear_pipeline :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> gpu.Graphics_Pipeline {
-	vert := gpu.create_shader({
-		code = CLEAR_VERT_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Vertex,
-	})
-	frag := gpu.create_shader({
-		code = CLEAR_FRAG_CODE, entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .Fragment, num_samplers = 1, num_uniform_buffers = 1,
-	})
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(CLEAR_FRAG)
 	defer if vert != 0 do gpu.release_shader(vert)
 	defer if frag != 0 do gpu.release_shader(frag)
 	if vert == 0 || frag == 0 {

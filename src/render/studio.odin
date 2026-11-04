@@ -100,13 +100,6 @@ STUDIO_CARRY_KEY_SETTLED :: 2.0
 // frame of a turn. Traced samples cost by pixels, not triangles, and always add.
 STUDIO_MOVING_TRIANGLES :: 2_000_000
 
-SHADOW_VERT_CODE :: #load("shaders/shadow.vert" + SHADER_EXT, string)
-SHADOW_FRAG_CODE :: #load("shaders/shadow.frag" + SHADER_EXT, string)
-STUDIO_GATHER_FRAG_CODE :: #load("shaders/studio_gather.frag" + SHADER_EXT, string)
-STUDIO_COMPOSITE_FRAG_CODE :: #load("shaders/studio_composite.frag" + SHADER_EXT, string)
-STUDIO_REPROJECT_FRAG_CODE :: #load("shaders/studio_reproject.frag" + SHADER_EXT, string)
-STUDIO_DEPTH_KEEP_FRAG_CODE :: #load("shaders/studio_depth_keep.frag" + SHADER_EXT, string)
-
 // Matches Reproject_Uniforms in studio_reproject.frag.slang.
 @(private = "file")
 Reproject_Uniforms :: struct {
@@ -573,10 +566,10 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	if st.shadow_pipeline == 0 {
 		st.shadow_pipeline = create_shadow_pipeline(r, cull_back = false)
 		st.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
-		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
-		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 3)
-		st.reproject_pipeline = create_fullscreen_pipeline(r, STUDIO_REPROJECT_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 3)
-		st.keep_pipeline = create_fullscreen_pipeline(r, STUDIO_DEPTH_KEEP_FRAG_CODE, STUDIO_PREV_DEPTH_FORMAT, samplers = 1)
+		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG, STUDIO_ACCUM_FORMAT, additive = true)
+		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG, VIEWPORT_COLOR_FORMAT)
+		st.reproject_pipeline = create_fullscreen_pipeline(r, STUDIO_REPROJECT_FRAG, STUDIO_ACCUM_FORMAT)
+		st.keep_pipeline = create_fullscreen_pipeline(r, STUDIO_DEPTH_KEEP_FRAG, STUDIO_PREV_DEPTH_FORMAT)
 		st.sampler = gpu.create_sampler({
 			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
 			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,

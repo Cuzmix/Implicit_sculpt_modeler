@@ -5,7 +5,6 @@ import "core:log"
 import "core:mem"
 import "core:slice"
 
-
 import "../geom"
 
 // GPU culling (native GPU plan 2.4 and 2.5; design notes/native-gpu/gpu-culling-design.md):
@@ -26,11 +25,9 @@ import "../geom"
 // ring of slots and read CULL_SLOTS frames on, by when that frame is done, and added to the pass with the
 // same number in its frame (cull_call); the numbers are those of a few frames back.
 
-// Vulkan only, so no Metal source is made for them.
-when gpu.VULKAN {
-	CULL_COUNT_COMP_CODE :: #load("shaders/cull_count.comp.spv", string)
-	CULL_WRITE_COMP_CODE :: #load("shaders/cull_write.comp.spv", string)
-}
+// The kernels, CULL_COUNT_COMP and CULL_WRITE_COMP, are Vulkan's only, so no Metal source is
+// made for them; their groups are the chunk groups.
+when gpu.VULKAN do #assert(CULL_COUNT_COMP.threadcount_x == geom.CHUNK_GROUP && CULL_WRITE_COMP.threadcount_x == geom.CHUNK_GROUP)
 
 // Words of the indirect buffer's header: one command's size, so the commands after it
 // keep their stride.
@@ -162,14 +159,8 @@ gpu_cull_kernels :: proc(r: ^Renderer) -> bool {
 	g := &r.gpu_culling
 	if g.count_pipeline != 0 && g.write_pipeline != 0 do return true
 	when gpu.VULKAN {
-		info := gpu.Compute_Pipeline_Desc {
-			code = CULL_COUNT_COMP_CODE, entrypoint = SHADER_ENTRY, format = SHADER_FORMAT,
-			num_readonly_storage_buffers = 2, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
-			threadcount_x = geom.CHUNK_GROUP, threadcount_y = 1, threadcount_z = 1,
-		}
-		g.count_pipeline = gpu.create_compute_pipeline(info)
-		info.code, info.num_readonly_storage_buffers = CULL_WRITE_COMP_CODE, 3
-		g.write_pipeline = gpu.create_compute_pipeline(info)
+		g.count_pipeline = gpu.create_compute_pipeline(CULL_COUNT_COMP)
+		g.write_pipeline = gpu.create_compute_pipeline(CULL_WRITE_COMP)
 	}
 	if g.count_pipeline == 0 || g.write_pipeline == 0 {
 		log.warnf("GPU culling: the kernels could not be made (%s); the CPU culls", gpu.last_error())

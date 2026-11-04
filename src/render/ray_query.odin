@@ -5,7 +5,6 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 
-
 // The ray query check, run when the device is made under --gpu-debug where Gpu_Caps.ray_query
 // is true: a bottom level over a fixture of two triangles (an opaque geometry and one that
 // is not), a top level of two instances of it (one moved and scaled), and rays whose
@@ -21,8 +20,6 @@ Ray_Query_Check :: enum u8 {
 	Passed,
 	Failed,
 }
-
-RAY_QUERY_CHECK_COMP_CODE :: #load("shaders/ray_query_check.comp" + RQ_EXT, string)
 
 @(private = "file")
 Rq_Ray :: struct {
@@ -84,11 +81,7 @@ ray_query_check_run :: proc(r: ^Renderer) -> bool {
 	indices := gpu.create_buffer({usage = {.Index}, size = size_of(RQ_INDICES)}, accel_input = true)
 	rays := gpu.create_buffer({usage = {.Storage_Read}, size = RAYS * 32})
 	hits := gpu.create_buffer({usage = {.Storage_Write}, size = RAYS * 32})
-	pipeline := gpu.create_compute_pipeline_traced({
-		code = RAY_QUERY_CHECK_COMP_CODE, entrypoint = RQ_ENTRY,
-		format = SHADER_FORMAT, num_readonly_storage_buffers = 1, num_readwrite_storage_buffers = 1, num_uniform_buffers = 1,
-		threadcount_x = 64, threadcount_y = 1, threadcount_z = 1,
-	})
+	pipeline := gpu.create_compute_pipeline_traced(RAY_QUERY_CHECK_COMP)
 	blas, tlas: ^gpu.Gpu_Accel
 	defer {
 		gpu.release_accel(tlas)
