@@ -679,9 +679,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
 	// The GPU seam's own counts (render/gpu_counters.odin): the CPU time spent recording
-	// command buffers, the stalls on the whole GPU or on one submission, and memory allocations.
+	// command buffers, the stalls on the whole GPU or on one submission, memory allocations and barriers.
 	gc := render.gpu_counters()
-	fmt.printfln("encode_ms=%.2f encode_cmds=%d encode_ms_per_cmd=%.3f gpu_idle_waits=%d gpu_ticket_waits=%d gpu_allocations=%d gpu_allocated_mb=%.1f", f64(gc.encode_ns) / 1e6, gc.command_buffers, f64(gc.encode_ns) / 1e6 / f64(max(gc.command_buffers, 1)), gc.idle_waits, gc.ticket_waits, gc.allocations, f64(gc.allocated_bytes) / (1 << 20))
+	fmt.printfln("encode_ms=%.2f encode_cmds=%d encode_ms_per_cmd=%.3f gpu_idle_waits=%d gpu_ticket_waits=%d gpu_allocations=%d gpu_allocated_mb=%.1f gpu_barriers=%d", f64(gc.encode_ns) / 1e6, gc.command_buffers, f64(gc.encode_ns) / 1e6 / f64(max(gc.command_buffers, 1)), gc.idle_waits, gc.ticket_waits, gc.allocations, f64(gc.allocated_bytes) / (1 << 20), gc.barriers)
 	fmt.printfln("gpu_timestamps=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {

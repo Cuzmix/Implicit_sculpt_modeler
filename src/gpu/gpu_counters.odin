@@ -9,7 +9,9 @@ import "core:time"
 // time from acquiring a command buffer to submitting or cancelling it, so it counts what the
 // app records into it as well as the seam's own work. Whole-GPU waits and waits on a ticket
 // not yet done are the CPU's stalls on the GPU; memory allocations (Vulkan) are the blocks
-// resources share and large resources' own memory (vk_memory.odin).
+// resources share and large resources' own memory (vk_memory.odin); barriers (Vulkan) are the
+// whole-memory barriers recorded, to which copies of a copy pass into separate buffer ranges
+// add none.
 Counters :: struct {
 	command_buffers: int,
 	encode_ns:       i64,
@@ -17,6 +19,7 @@ Counters :: struct {
 	ticket_waits:    int,
 	allocations:     int,
 	allocated_bytes: i64,
+	barriers:        int,
 }
 
 // Command buffers being recorded and when each was acquired: a few at a time (a frame's, a
@@ -64,6 +67,11 @@ count_finish :: proc(cmd: Cmd) {
 		o.cmd = nil
 		return
 	}
+}
+
+// One whole-memory barrier recorded: atomic rather than locked, as a frame records many.
+count_barrier :: proc() {
+	sync.atomic_add(&counters.total.barriers, 1)
 }
 
 count_idle_wait :: proc() {
