@@ -82,6 +82,8 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\send" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
+rem The interface's computed qualities (contrast, literal sizes, shared icons) only get better.
+python "%ROOT%scripts\ui_audit.py" --quiet || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_gen.py" --check || exit /b 1

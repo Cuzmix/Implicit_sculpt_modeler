@@ -681,7 +681,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	m := &k.bar_slot
 	used := bar_used(app, m.which)
 	if m.slot >= len(used) do m.open = false
-	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = 4, padding = 10, width = 268}) do return
+	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	s := used[m.slot]
 	ui.begin(ctx, "bar slot head", {direction = .Row, center = true})

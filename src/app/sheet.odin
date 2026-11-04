@@ -56,9 +56,9 @@ sheet_begin :: proc(app: ^App, name, title: string, glyph: rune, open: ^bool, wi
 	mark := ui.place(ctx, {t.icon_size, t.target})
 	ui.icon(ctx, glyph, {mark.x + mark.w * 0.5, mark.y + mark.h * 0.5}, t.icon_size, t.text)
 	head := ui.place(ctx, {inner - mark.w - t.target - 16, t.target})
-	ui.text(ctx, title, head.x, head.y + head.h * 0.5, t.heading_size * 1.15, t.text, .Semibold)
+	ui.text(ctx, title, head.x, head.y + head.h * 0.5, t.heading_size, t.text, .Semibold)
 	if note != "" {
-		fit := ui.text_fit(ctx, note, t.small_size, head.w - ui.text_width(ctx, title, t.heading_size * 1.15) - 24)
+		fit := ui.text_fit(ctx, note, t.small_size, head.w - ui.text_width(ctx, title, t.heading_size) - 24)
 		ui.text(ctx, fit, head.x + head.w, head.y + head.h * 0.5, t.small_size, t.text_secondary, .Regular, .Right)
 	}
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do open^ = false

@@ -882,7 +882,7 @@ kit_shelf_page_menu :: proc(app: ^App) {
 	sh := &k.shelf
 	p := sh.menu_page
 	if sh.menu && (!shelf_page_used(k, p) || shelf_page_space(k, p) != k.spaces.current) do sh.menu = false
-	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	name := shelf_page_name(k, p)
@@ -946,7 +946,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = 12, width = 360}) do return
+	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
 	defer ui.popover_end(ctx)
 	kind := app.brush.kind
 	cur := brush_item_current(app)
@@ -1114,7 +1114,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		on := library_on_bar(app, l.item) if adding else brush_item_on(app, l.item)
 		ui.fill_rect(ctx, a.rect, t.radius_large, t.accent_soft if on else t.surface)
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_large, t.fill_hover)
-		ui.stroke_rect(ctx, a.rect, t.radius_large, t.accent if on else t.border, 1)
+		// The one selected look, a soft fill with the name in the accent; no ring of its own.
+		if !on do ui.stroke_rect(ctx, a.rect, t.radius_large, t.border, 1)
 		lens_stroke_preview(ctx, {a.rect.x + 8, a.rect.y + 8, a.rect.w - 16, 70}, l.item, app)
 		name := ui.text_fit(ctx, l.name, t.small_size, a.rect.w - 40, .Semibold)
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)

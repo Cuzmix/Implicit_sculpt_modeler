@@ -422,7 +422,7 @@ kit_view_gizmo_pop :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	p := &k.bar_pop
-	if !ui.popover_begin(ctx, "view gizmo pop", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = 280}) do return
+	if !ui.popover_begin(ctx, "view gizmo pop", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "VIEW GIZMO")
 	view_gizmo_controls(app)

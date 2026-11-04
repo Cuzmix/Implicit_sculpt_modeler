@@ -1626,7 +1626,7 @@ kit_folder_menu :: proc(app: ^App) {
 	ctx := &k.ctx
 	f := folder_by_id(app, k.folder_menu_id)
 	if f == nil do k.folder_menu = false
-	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = 6, width = 232}) do return
+	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_PENCIL) {
 		rename_open(app, -f.id, k.folder_menu_at)
@@ -1715,7 +1715,7 @@ kit_rename :: proc(app: ^App) {
 		ctx.text_focus = 0
 		r.typing = false
 	}
-	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
+	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""

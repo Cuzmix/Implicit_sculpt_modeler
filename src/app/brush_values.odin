@@ -322,7 +322,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
 	fg := t.accent if lit || scrubbing else t.text
-	if !enabled do fg = ui.color_fade(t.text_secondary, 0.35)
+	if !enabled do fg = ui.disabled_ink(t)
 	cx := pill.x + pill.w * 0.5
 	ui.icon(ctx, BRUSH_VALUE_ICONS[v], {cx, pill.y + pill.h * 0.36}, t.icon_size - 2, fg)
 	ui.text(ctx, value_short(app, v), cx, pill.y + pill.h * 0.72, t.caption_size, fg if lit || scrubbing else t.text_secondary, .Semibold, .Center)
@@ -374,7 +374,7 @@ kit_value_pop :: proc(app: ^App) {
 	t := ctx.theme
 	p := &k.bar_pop
 	v := p.value
-	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = VALUE_POP_W}) do return
+	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	ui.begin(ctx, "value head", {direction = .Row, center = true, gap = 8})
 	g := ui.area(ctx, "value glyph", {t.icon_small, t.target}, drag = false)
@@ -395,7 +395,7 @@ kit_value_pop :: proc(app: ^App) {
 	steps := value_steps(v)
 	if len(steps) == 0 do return
 	ui.begin(ctx, "value steps", {direction = .Row, gap = 6})
-	w := (VALUE_POP_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))
+	w := (ui.POPOVER_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))
 	for s in steps {
 		on := abs(value_get(app, v) - s) < 1e-3 * max(1, abs(s))
 		if ui.toggle_button(ctx, fmt.tprintf("%s##value step %v", value_step_text(v, s), s), on, w) && enabled do value_set(app, v, s)
@@ -403,8 +403,6 @@ kit_value_pop :: proc(app: ^App) {
 	ui.end(ctx)
 	if !enabled do ui.paragraph(ctx, "Spacing is for a stroke of dabs: Spray and Roll space their own.")
 }
-
-VALUE_POP_W :: 300
 
 // A value item's menu: how it shows, its brush settings, its moves, another value after
 // it, and Remove.
@@ -418,7 +416,7 @@ kit_value_menu :: proc(app: ^App) {
 		p.open = false
 		return
 	}
-	if !ui.popover_begin(ctx, "bar value menu", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+	if !ui.popover_begin(ctx, "bar value menu", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, fmt.tprintf("%s · SHOW AS", strings.to_upper(BRUSH_VALUE_NAMES[v], context.temp_allocator)))
 	look := bar_look(k, which, slot)

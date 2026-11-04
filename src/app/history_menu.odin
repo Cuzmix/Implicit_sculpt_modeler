@@ -117,7 +117,7 @@ kit_history_menu :: proc(app: ^App) {
 		tl.menu = false
 		return
 	}
-	if !ui.popover_begin(ctx, "history step menu", &tl.menu, tl.menu_rect, tl.menu_side, {direction = .Column, gap = 0, padding = 6, width = 300}) do return
+	if !ui.popover_begin(ctx, "history step menu", &tl.menu, tl.menu_rect, tl.menu_side, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	e := history_entry_at(app, head)
 	done := len(app.history.done)

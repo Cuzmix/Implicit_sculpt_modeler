@@ -219,7 +219,7 @@ kit_scene_pictures_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.card
-	if ui.popover_begin(ctx, "objects card more", &c.more, c.more_at, .Below, {direction = .Column, padding = 6, width = 248}) {
+	if ui.popover_begin(ctx, "objects card more", &c.more, c.more_at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		picked := false
 		// A tap adds to the selection instead of replacing it, as Shift + click does.
 		if ui.menu_item(ctx, "Select several", checked = k.select_several, hint = "Shift + click") do k.select_several = !k.select_several
@@ -236,7 +236,7 @@ kit_scene_pictures_menus :: proc(app: ^App) {
 	}
 	obj := object_by_id(app, c.menu_id)
 	if obj == nil do c.menu = false
-	if !ui.popover_begin(ctx, "objects card row menu", &c.menu, c.menu_at, .Pointer, {direction = .Column, padding = 6, width = 248}) do return
+	if !ui.popover_begin(ctx, "objects card row menu", &c.menu, c.menu_at, .Pointer, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	if c.menu_all {

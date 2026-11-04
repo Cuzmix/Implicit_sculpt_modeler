@@ -213,7 +213,7 @@ kit_layout_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	l := &k.layouts
-	if !ui.popover_begin(ctx, "layout menu", &l.menu, l.menu_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "layout menu", &l.menu, l.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "  SPACES")
 	picked := false

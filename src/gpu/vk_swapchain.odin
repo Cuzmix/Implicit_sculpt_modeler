@@ -140,7 +140,10 @@ vk_swapchain_make :: proc(w: ^Vk_Window) -> bool {
 	pw, ph: i32
 	_ = sdl.GetWindowSizeInPixels(w.window, &pw, &ph)
 	extent := caps.currentExtent
-	if extent.width == max(u32) {
+	// SDL's offscreen driver gives a headless surface, whose fixed extent (1280 x 720 on
+	// SwiftShader) is no window's: there the window's own size is the one wanted, so
+	// screenshots and scripted runs see every size they ask for.
+	if extent.width == max(u32) || sdl.GetCurrentVideoDriver() == "offscreen" {
 		extent = {clamp(u32(max(pw, 0)), caps.minImageExtent.width, caps.maxImageExtent.width), clamp(u32(max(ph, 0)), caps.minImageExtent.height, caps.maxImageExtent.height)}
 	}
 	old := w.swapchain
