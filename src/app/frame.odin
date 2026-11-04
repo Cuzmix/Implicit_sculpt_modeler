@@ -558,6 +558,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
 		}
+		// What the frame took besides its dabs, for the next frame's brush budget.
+		app.stroke.frame_other_ms = max(time.duration_milliseconds(cpu_time) - sculpted.brush_ms - sculpted.raycast_ms, 0)
 		app.stats.dabs_total += sculpted.dabs
 	}
 	// A scripted stroke or replay changes the scene with no input to show for it.

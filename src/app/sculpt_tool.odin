@@ -239,6 +239,10 @@ Sample_Kind :: enum u8 {
 
 Stroke :: struct {
 	active:   bool,
+	// The dabs' time a frame may take (stroke_budget_ms), set at the frame's start, and the
+	// last sculpting frame's CPU time besides its dabs and raycasts (frame.odin).
+	budget_ms:      f64,
+	frame_other_ms: f64,
 	skin:     bool, // the stroke writes into the object's detail skin (stroke_to_skin)
 	object:   int, // id of the object being sculpted
 	pos:      [2]f32, // viewport position the stroke has reached; trails the cursor with lazy mouse
@@ -434,6 +438,13 @@ MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
 // A run on the interface's fixed clock (--ui-dt) has no such limit: where the stroke
 // stops would depend on how busy the machine is, and the dabs after it on that.
 MAX_BRUSH_MS_PER_FRAME :: 10
+// Within that, the dabs take what the display's beat leaves after the rest of a sculpting
+// frame's CPU work (Stroke.frame_other_ms: the flush's normals, the upload, the drawing),
+// less BRUSH_SLACK_MS, so a heavy brush on a dense mesh lags the pointer a little rather
+// than making the frame miss the display; never less than MIN_BRUSH_MS_PER_FRAME, so the
+// stroke always moves on (stroke_budget_ms).
+MIN_BRUSH_MS_PER_FRAME :: 2
+BRUSH_SLACK_MS :: 1.5
 MAX_PENDING_SAMPLES :: 4096 // beyond this a lagging stroke drops its oldest samples
 // The most pointer samples the stabiliser averages: at a pen's 240 Hz, a fifteenth of a
 // second, past which the brush lags too far to steer.
@@ -450,6 +461,7 @@ LEAN_FULL :: 60
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
 	app.alpha_roll = input.pen_roll
 	alpha_lean_take(app, input.pen_tilt)
+	app.stroke.budget_ms = stroke_budget_ms(app)
 	// How many samples a stroke's frames bring, for the exit stats (pen_samples.odin).
 	defer if app.stroke.active do pen_samples_count(app, len(input.samples))
 	if input.size.x <= 0 || input.size.y <= 0 {
@@ -1075,10 +1087,33 @@ dot_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: In
 	stroke_dab(app, obj, input, inv, s.pos, s.pressure, s.tilt, res)
 }
 
+// The time this frame's dabs may take: the display's beat (or the frame limit's) less
+// the rest of the last sculpting frame's CPU work and BRUSH_SLACK_MS, between
+// MIN_BRUSH_MS_PER_FRAME and MAX_BRUSH_MS_PER_FRAME; MAX_BRUSH_MS_PER_FRAME with no beat
+// (Unlimited).
+stroke_budget_ms :: proc(app: ^App) -> f64 {
+	hz: f32
+	switch app.frame_rate {
+	case .Match_Display: hz = display_refresh(app.window)
+	case .Limit:         hz = f32(clamp(app.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
+	case .Unlimited:
+	}
+	if hz <= 0 do return MAX_BRUSH_MS_PER_FRAME
+	return clamp(1000 / f64(hz) - app.stroke.frame_other_ms - BRUSH_SLACK_MS, MIN_BRUSH_MS_PER_FRAME, MAX_BRUSH_MS_PER_FRAME)
+}
+
+// Whether the frame's dabs have used their time (Stroke.budget_ms, or the ceiling where
+// no frame set one), only on the real clock.
+@(private = "file")
+stroke_out_of_time :: proc(app: ^App, res: ^Sculpt_Frame_Result) -> bool {
+	budget := app.stroke.budget_ms if app.stroke.budget_ms > 0 else MAX_BRUSH_MS_PER_FRAME
+	return app.kit.fixed_dt == 0 && res.brush_ms + res.raycast_ms >= budget
+}
+
 // Moves the stroke in a straight line on screen to `target`, where the pressure is
 // `pressure` and the pen leans `tilt`, with a dab every spacing pixels. Returns false,
 // with the stroke stopped partway, once the frame has used MAX_DABS_PER_FRAME dabs or
-// MAX_BRUSH_MS_PER_FRAME (only on the real clock).
+// its dabs' time (stroke_out_of_time).
 @(private = "file")
 stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, bounded := true) -> bool {
 	st := &app.stroke
@@ -1094,7 +1129,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.pos, st.pressure, st.tilt = target, pressure, tilt
 			return true
 		}
-		slow := app.kit.fixed_dt == 0 && res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME
+		slow := stroke_out_of_time(app, res)
 		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || slow) do return false
 		if need > 0 {
 			f := need / l
@@ -1862,7 +1897,7 @@ stroke_edit_lay :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Res
 	lay.invert, lay.alt, lay.smooth, lay.mask = st.invert, false, false, false
 	if lay.size.x <= 0 || lay.size.y <= 0 do lay.size = e.size
 	for e.lay_at < len(e.samples) {
-		slow := app.kit.fixed_dt == 0 && res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME
+		slow := stroke_out_of_time(app, res)
 		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || slow) do return false
 		s := e.samples[e.lay_at]
 		if e.lay_at > 0 do e.travel += linalg.length(s.p - e.samples[e.lay_at - 1].p)

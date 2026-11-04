@@ -3,6 +3,7 @@ package gpu
 import "base:intrinsics"
 import "core:mem"
 import "core:sync"
+import "core:time"
 
 // Uploads and downloads through transfer memory the package owns, so render makes no
 // transfer buffers, maps nothing and opens no copy pass to move bytes between the CPU and
@@ -26,10 +27,15 @@ import "core:sync"
 // and the block is free again once every readback in it is released and its copies have
 // run. Larger blocks are made for large transfers (a power of two in size, so a stroke's
 // growing ones reuse them) and kept while the free blocks of a kind hold no more than
-// STAGING_KEEP; past that the largest go.
+// STAGING_KEEP; past that the largest go. While large blocks are in use (a stroke on the
+// GPU reading back tens of megabytes a frame), the kept amount grows to one such block
+// for each frame that may be in flight and one more, for STAGING_RECENT after the last:
+// otherwise each frame's block would be released as the next is made, and the backend
+// would allocate and free that much memory every frame.
 
 STAGING_BLOCK :: 4 << 20
 STAGING_KEEP :: 64 << 20
+STAGING_RECENT :: 2 * time.Second
 // Buffer copies start on 16 bytes; texture copies on 256, which every backend takes.
 @(private = "file")
 STAGING_ALIGN_BUFFER :: 16
@@ -93,6 +99,10 @@ staging: struct {
 	open:      [dynamic]^Staging_Cmd,
 	spares:    [dynamic]^Staging_Cmd,
 	records:   [dynamic]^Readback_Record,
+	// The largest block taken lately, of each kind (uploads, downloads), and when: what
+	// staging_trim keeps room for.
+	recent:    [2]u32,
+	recent_at: [2]time.Tick,
 }
 
 // ---- Uploads ------------------------------------------------------------------------
@@ -345,6 +355,9 @@ staging_block :: proc(free: ^[dynamic]^Staging_Block, size: u32, usage: Transfer
 	for b, i in free {
 		if b.size >= size && (best < 0 || b.size < free[best].size) do best = i
 	}
+	kind := 1 if usage == .Download else 0
+	if size >= staging.recent[kind] || time.tick_since(staging.recent_at[kind]) > STAGING_RECENT do staging.recent[kind] = size
+	staging.recent_at[kind] = time.tick_now()
 	if best >= 0 {
 		b := free[best]
 		unordered_remove(free, best)
@@ -387,13 +400,22 @@ staging_retire :: proc(b: ^Staging_Block) {
 	}
 }
 
-// Releases the largest of the free blocks while they hold more than STAGING_KEEP (the
-// backend frees each once no work in flight uses it).
+// Releases the largest of the free blocks while they hold more than STAGING_KEEP, or room
+// for a block as large as the largest taken lately for every frame in flight and one
+// more while those are recent (the backend frees each once no work in flight uses it).
 @(private = "file")
 staging_trim :: proc(blocks: ^[dynamic]^Staging_Block) {
+	kind := 1 if blocks == &staging.down_free else 0
+	keep := u64(STAGING_KEEP)
+	if time.tick_since(staging.recent_at[kind]) <= STAGING_RECENT {
+		// The block size made for the largest recent transfer, as staging_block rounds it.
+		size := u64(staging.recent[kind])
+		if size > STAGING_BLOCK do size = u64(1) << u64(64 - intrinsics.count_leading_zeros(size - 1))
+		keep = max(keep, (FRAMES_IN_FLIGHT_MAX + 1) * size)
+	}
 	kept: u64
 	for b in blocks do kept += u64(b.size)
-	for kept > STAGING_KEEP && len(blocks) > 1 {
+	for kept > keep && len(blocks) > 1 {
 		largest := 0
 		for b, j in blocks do if b.size > blocks[largest].size do largest = j
 		b := blocks[largest]

@@ -457,6 +457,10 @@ Draw_Item :: struct {
 	// Per chunk, then per group of `lod`: left out, whether culling is on or not (another
 	// item draws that part, as an HD window does); nil to draw everything.
 	hidden: []bool,
+	// Runs of the index buffer drawn one direct draw each instead of the whole mesh, when
+	// not nil: a picture that culled `chunks` for its own narrower view (thumbnail_view_draw
+	// with cull), which must not touch the indirect commands the viewport drew from.
+	ranges: []geom.Index_Range,
 }
 
 // How the viewport shows the meshes (Draw_Item.pass): shaded as the materials say, or
@@ -1270,29 +1274,72 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers
 		r.last_version += 1
 		mb.version = r.last_version
 	}
-	for x in ranges {
+	// The staging memory is taken range by range here (gpu.stage_buffer holds a lock), then
+	// filled in pieces across the pool: a large brush on a dense mesh uploads millions of
+	// vertices a frame, which one thread packed in milliseconds.
+	Piece :: struct {
+		first, count: u32,
+		positions:    []geom.Vec3,
+		normals:      []Normal_Packed, // nil when positions_only
+	}
+	Fill :: struct {
+		positions, normals: []geom.Vec3, // the mesh's
+		mask:   []u8,
+		pieces: []Piece,
+	}
+	pieces := make([dynamic]Piece, 0, 64, context.temp_allocator)
+	vertices: u32
+	// A refused range ends the staging, and what was staged before it is still filled:
+	// staged memory is uploaded whatever it holds.
+	staging: for x in ranges {
 		if x.count == 0 do continue
 		assert(x.first + x.count <= mb.vertex_capacity)
 		dst_p := gpu.stage_buffer(cmd, mb.positions, x.first * size_of(geom.Vec3), x.count * size_of(geom.Vec3))
 		if dst_p == nil {
 			log.errorf("brush upload failed: %s", gpu.last_error())
-			return
+			break staging
 		}
-		copy(slice.reinterpret([]geom.Vec3, dst_p), mesh.positions[x.first:][:x.count])
-		if positions_only do continue
-		dst_n := gpu.stage_buffer(cmd, mb.normals, x.first * size_of(Normal_Packed), x.count * size_of(Normal_Packed))
-		if dst_n == nil {
-			log.errorf("brush upload failed: %s", gpu.last_error())
-			return
+		positions := slice.reinterpret([]geom.Vec3, dst_p)
+		normals: []Normal_Packed
+		if !positions_only {
+			dst_n := gpu.stage_buffer(cmd, mb.normals, x.first * size_of(Normal_Packed), x.count * size_of(Normal_Packed))
+			if dst_n == nil {
+				log.errorf("brush upload failed: %s", gpu.last_error())
+				// The positions just staged go up with the rest.
+				for at: u32 = 0; at < x.count; at += UPLOAD_PIECE {
+					count := min(UPLOAD_PIECE, x.count - at)
+					append(&pieces, Piece{x.first + at, count, positions[at:][:count], nil})
+				}
+				break staging
+			}
+			normals = slice.reinterpret([]Normal_Packed, dst_n)
 		}
-		out := slice.reinterpret([]Normal_Packed, dst_n)
-		if mask != nil {
-			for n, k in mesh.normals[x.first:][:x.count] do out[k] = pack_normal(n, mask[x.first + u32(k)])
-		} else {
-			for n, k in mesh.normals[x.first:][:x.count] do out[k] = pack_normal(n, 0)
+		for at: u32 = 0; at < x.count; at += UPLOAD_PIECE {
+			count := min(UPLOAD_PIECE, x.count - at)
+			append(&pieces, Piece{x.first + at, count, positions[at:][:count], normals[at:][:count] if normals != nil else nil})
 		}
+		vertices += x.count
 	}
+	fill := Fill{mesh.positions[:], mesh.normals[:], mask, pieces[:]}
+	jobs.parallel_for(r.pool if vertices >= UPLOAD_PARALLEL_VERTS else nil, len(pieces), &fill, proc(data: rawptr, i: int) {
+		f := cast(^Fill)data
+		p := f.pieces[i]
+		copy(p.positions, f.positions[p.first:][:p.count])
+		if p.normals == nil do return
+		if f.mask != nil {
+			for n, k in f.normals[p.first:][:p.count] do p.normals[k] = pack_normal(n, f.mask[p.first + u32(k)])
+		} else {
+			for n, k in f.normals[p.first:][:p.count] do p.normals[k] = pack_normal(n, 0)
+		}
+	})
 }
+
+// The vertices a worker packs at a time for a brush upload, and the fewest a frame uploads
+// before the packing is spread over the pool (below it, waking the workers costs more).
+@(private)
+UPLOAD_PIECE :: 1 << 14
+@(private)
+UPLOAD_PARALLEL_VERTS :: 1 << 15
 
 // Records copies of the paint data (colours, nil for none, and the groups vertices
 // carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
@@ -2255,7 +2302,12 @@ wire_color :: proc(r: ^Renderer) -> [4]f32 {
 draw_item_triangles :: proc(r: ^Renderer, pass: gpu.Render_Pass, item: Draw_Item, stats: ^Viewport_Stats) {
 	mb := item.mesh
 	gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)
-	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
+	if item.ranges != nil {
+		for run in item.ranges do gpu.draw_indexed_primitives(pass, run.index_count, 1, run.first_index, 0, 0)
+		if stats == nil do return
+		for run in item.ranges do stats.triangles += u64(run.index_count / 3)
+		stats.draws += u64(len(item.ranges))
+	} else if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
 		// The kernels wrote the commands and their count; prepare_draws counted the stats.
 		gpu.draw_indexed_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count)
 	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != 0 {
