@@ -101,7 +101,7 @@ history_tint_boxes_follow_the_step :: proc(t: ^testing.T) {
 	_, _, _, ok = history_tint_box(&app, 1, 1)
 	testing.expect(t, !ok)
 
-	app.kit.history = true
+	card_open(&app, .History)
 	app.timeline.tint_kept, app.timeline.tint_kept_at = e.at, 1
 	app.kit.ctx.time = 1
 	app.kit.ctx.input.pressed = {.Left}

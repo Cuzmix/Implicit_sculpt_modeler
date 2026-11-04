@@ -77,7 +77,7 @@ quick_scrub_button :: proc(app: ^App, by: Quick_Scrub_By) {
 	} else {
 		begin = ui.held_long(ctx)
 	}
-	if ui.secondary(ctx) do app.kit.history = true
+	if ui.secondary(ctx) do card_open(app, .History)
 	if begin && app.timeline.quick.by == .Off do quick_scrub_begin(app, by, ctx.press_mouse.x)
 }
 
@@ -153,7 +153,7 @@ quick_scrub_end :: proc(app: ^App, opened: bool) {
 		done := tl.target if tl.seeking else len(app.history.done)
 		q.last = history_place_of(places[:], done) - history_place_of(places[:], q.began)
 	} else if opened && q.by != .Fingers {
-		app.kit.history = true
+		card_open(app, .History)
 	}
 	q.by = .Off
 }

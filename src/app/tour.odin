@@ -123,7 +123,7 @@ tour_update :: proc(app: ^App) {
 		case .Spaces:   did = k.spaces.switches > tr.switches
 		case .Dial:     did = app.stroke.active && (app.rail.press.mods != {} || app.rail.latched != {})
 		case .Cards:    did = pressed_in
-		case .History:  did = k.history
+		case .History:  did = card_shown(app, .History)
 		case .Paint:    did = (app.brush.channel != .Sculpt || .Paint in BRUSHES[app.brush.kind].flags) && (app.stroke.active || tr.paint)
 		}
 		if did do tr.done, tr.done_at = true, ctx.time

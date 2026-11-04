@@ -19,13 +19,13 @@ import "../ui"
 // How long the tint takes to come up, in seconds of the interface's clock.
 HISTORY_TINT_RISE :: 0.15
 
-// Before the History panel lays out its rows: what they rested on last frame is forgotten,
+// Before the History card lays out its rows: what they rested on last frame is forgotten,
 // and a press anywhere ends the menu's kept tint, as it ends a popover.
 history_tint_frame :: proc(app: ^App) {
 	tl := &app.timeline
 	ctx := &app.kit.ctx
 	tl.tint_hover = {}
-	if tl.tint_kept != {} && (ctx.input.pressed != {} && ctx.time > tl.tint_kept_at || !app.kit.history) do tl.tint_kept = {}
+	if tl.tint_kept != {} && (ctx.input.pressed != {} && ctx.time > tl.tint_kept_at || !card_shown(app, .History)) do tl.tint_kept = {}
 }
 
 // A row or block of the step whose first entry was made at `at` is rested on or pressed.

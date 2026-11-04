@@ -294,9 +294,10 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 				else do palette_open(app)
 			}
 			search_anchor^ = ctx.last_rect
-		case .History_Panel:
-			if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
-			k.history_at = ctx.last_rect
+		case .Open_Card:
+			bar_slot_button(app, which, i, s)
+			// The History card's button, which the tour lights.
+			if Card(s.arg) == .History do k.history_at = ctx.last_rect
 		case .Settings:
 			_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
 		case:

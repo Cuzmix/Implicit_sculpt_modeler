@@ -101,7 +101,7 @@ kit_offer_line :: proc(app: ^App) -> bool {
 	t := ctx.theme
 	fits, offer := space_fit(app)
 	k.offer = .None if fits else offer.fix
-	if fits || .Action_Bar in k.hidden || k.history do return false
+	if fits || .Action_Bar in k.hidden do return false
 	room := action_bar_room(app)
 	button_w := ui.text_width(ctx, offer.label, t.text_size, .Semibold) + t.icon_small + 6 + 28
 	dock := shelf_bottom_size(app)

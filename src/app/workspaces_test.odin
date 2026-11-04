@@ -111,7 +111,8 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	workspace_switch(&a.kit, int(Built_In.Render))
 	a.kit.thumbnail = false
 	workspace_switch(&a.kit, len(Built_In))
-	a.kit.colors_card = true
+	card_open(&a, .Colours)
+	card_pin(&a, .Colours)
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -122,7 +123,7 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	w := &b.kit.workspaces
 	testing.expect_value(t, w.current, len(Built_In))
 	testing.expect_value(t, workspace_name(&b.kit, w.current), "Two words")
-	testing.expect(t, b.kit.stats && b.kit.colors_card, "the current layout came back without its changes")
+	testing.expect(t, b.kit.stats && card_pinned(&b.kit, .Colours), "the current layout came back without its changes")
 	workspaces_frame(&b.kit)
 	testing.expect(t, w.modified, "the current workspace's changes came back as saved")
 	testing.expect_value(t, b.kit.spaces.layout[.Render], int(Built_In.Render))

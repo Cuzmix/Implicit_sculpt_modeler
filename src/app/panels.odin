@@ -5,8 +5,8 @@ import "core:strings"
 
 import "../ui"
 
-// The floating panels: Stats, History, the Colors card and the thumbnail float as windows
-// and cards; Settings, Help and Macros are side panels. Folded, a floating panel keeps its
+// The floating panels: Stats and the thumbnail float as windows, a card torn out of its
+// column as a card; Settings, Help and Macros are side panels. Folded, a floating panel keeps its
 // header. The cards that hold the controls open in columns beside the docks (column.odin).
 
 // A panel: one of the windows Panel options and Arrange place, or a floating card.
@@ -16,7 +16,7 @@ Panel_Ref :: union {
 }
 
 // The windows that are panels; Settings, Help, Macros and Library stay side panels.
-PANEL_WINDOWS :: bit_set[Kit_Window]{.Stats, .History, .Colors, .Thumbnail}
+PANEL_WINDOWS :: bit_set[Kit_Window]{.Stats, .Thumbnail}
 
 // What a panel was last laid out as: where, and in which frame.
 Panel_Seen :: struct {
@@ -69,7 +69,7 @@ panels_default :: proc(k: ^Kit_State) {
 panel_name :: proc(ref: Panel_Ref) -> string {
 	switch r in ref {
 	case Kit_Window:
-		names := [Kit_Window]string{.Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Colors = "colors card", .Thumbnail = "thumbnail"}
+		names := [Kit_Window]string{.Stats = "stats", .Settings = "settings", .Help = "help", .Macros = "macros", .Thumbnail = "thumbnail"}
 		return names[r]
 	case Card:
 		return card_root_name(r)
@@ -98,8 +98,6 @@ panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
 	case Kit_Window:
 		#partial switch r {
 		case .Stats:     return k.stats
-		case .History:   return k.history
-		case .Colors:    return k.colors_card
 		case .Thumbnail: return k.thumbnail
 		}
 	case Card:
@@ -115,8 +113,6 @@ panel_set_open :: proc(app: ^App, ref: Panel_Ref, open: bool) {
 	case Kit_Window:
 		#partial switch r {
 		case .Stats:     k.stats = open
-		case .History:   k.history = open
-		case .Colors:    k.colors_card = open
 		case .Thumbnail: k.thumbnail = open
 		}
 	case Card:
@@ -146,8 +142,6 @@ panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
 	case Kit_Window:
 		#partial switch r {
 		case .Stats:     return "Statistics"
-		case .History:   return "History"
-		case .Colors:    return "Colors"
 		case .Thumbnail: return "Thumbnail"
 		}
 	case Card:

@@ -235,17 +235,17 @@ colors_palettes_add_and_delete :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_new(&c), -1)
 }
 
-// One headless frame of the Colors card, in a window `window` points big; returns where
-// the card was laid out.
+// One headless frame of the columns with the Colours card open, in a window `window` points
+// big; returns where the card was laid out.
 @(private = "file")
 colors_card_frame :: proc(app: ^App, window: [2]f32) -> ui.Rect {
 	k := &app.kit
 	ui.frame_begin(&k.ctx, {window = window, pixel_density = 1, dt = 1.0 / 60})
-	_ = kit_colors_card(app)
+	kit_columns(app)
 	ui.frame_end(&k.ctx)
 	free_all(context.temp_allocator)
 	k.frame += 1
-	return panel_rect(app, Kit_Window.Colors)
+	return card_rect(app, .Colours)
 }
 
 // On Palettes the card keeps the Disc's size, so its tabs stay where they were and the
@@ -259,7 +259,7 @@ colors_palettes_keep_the_discs_size :: proc(t: ^testing.T) {
 	defer workspaces_destroy(&app.kit)
 	k := &app.kit
 	c := &k.colors
-	k.colors_card = true
+	card_open(&app, .Colours)
 	for own in ([2]bool{false, true}) {
 		if own {
 			testing.expect(t, palette_new(c) == 0)

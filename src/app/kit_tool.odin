@@ -92,7 +92,7 @@ kit_brush_colors :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
 	}
 	_ = kit_color(app, "brush colour", &b.color)
-	_ = command_button(app, .Colors_Card, label = "Open Colors", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
+	_ = command_button(app, .Open_Card, int(Card.Colours), label = "Open Colours", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
 	_ = ui.switch_row(ctx, "Smooth blurs, Invert erases", &b.paint_dial, .Paint in BRUSHES[b.kind].flags || channel_brush(b.kind))
 	if kit_more(app, .Paint_Color) {
 		ui.caption(ctx, "SECONDARY")

@@ -222,7 +222,6 @@ Kit_State :: struct {
 	// Its size across and its turn when two fingers began resizing and turning it.
 	wheel_from_size: f32,
 	wheel_from_turn: f32,
-	history:    bool, // the History panel, over the dock
 	// The command palette (palette.odin): open, what is typed, the picked result and the
 	// first shown, the recents (most recent first), and for the exit stats how many
 	// entries it ran and the last one.
@@ -336,7 +335,6 @@ Kit_State :: struct {
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
-	colors_card:    bool,
 	colors:         Colors_Card,
 	// The second view (thumbnail.odin): open, its camera and pass, mirrored, and its
 	// picture's size in pixels as laid out this frame (zero while it is not).
@@ -400,17 +398,15 @@ Kit_State :: struct {
 // Minimise and Close.
 Kit_Window :: enum u8 {
 	Stats,
-	History,
 	Settings,
 	Help,
 	Macros,
-	Colors, // the Colors card (kit_colors.odin), beside the brush bar
 	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
 // The order the windows start in, back to front: Settings, Help and Macros over the rest,
 // as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail, .Stats, .Settings, .Help, .Macros}
 
 // Settings, Help and Macros share one place on the right: one at a time.
 side_panel_open :: proc(k: ^Kit_State) -> bool {
@@ -1484,6 +1480,8 @@ kit_layout :: proc(app: ^App) {
 	// the last drawn is hit tested first. One pressed comes to the front from the next frame
 	// on.
 	columns_update(app)
+	// The History card lights the steps it shows; its tint follows every frame, card or none.
+	history_tint_frame(app)
 	kit_columns(app)
 	top: Float_Ref
 	order := k.order
@@ -1555,11 +1553,9 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 	case Kit_Window:
 		switch w {
 		case .Stats:     return kit_stats(app)
-		case .History:   return kit_history_panel(app)
 		case .Settings:  return kit_settings(app)
 		case .Help:      return kit_help(app)
 		case .Macros:    return kit_macros(app)
-		case .Colors:    return kit_colors_card(app)
 		case .Thumbnail: return kit_mini_view(app)
 		}
 	case Card:

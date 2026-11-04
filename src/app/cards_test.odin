@@ -11,7 +11,7 @@ every_section_has_one_card :: proc(t: ^testing.T) {
 	for sec in Section {
 		held[section_card(sec)] += 1
 		testing.expectf(t, section_title(sec) != "", "%v has no title", sec)
-		if sec == .Brush || sec == .Symmetry do continue
+		if sec == .Brush || sec == .Symmetry || section_card(sec) in OWN_BODY_CARDS do continue
 		_, draw, obj_draw, found := bar_section(nil, sec)
 		testing.expectf(t, found && (draw != nil || obj_draw != nil), "%v has nothing that draws it", sec)
 	}

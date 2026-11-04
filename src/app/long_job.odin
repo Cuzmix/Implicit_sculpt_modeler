@@ -106,7 +106,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Screenshot, .Screenshot_Transparent,
 	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Gizmo, .Gizmo_Snap,
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
-	.Swap_Colors, .Colors_Card, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
+	.Swap_Colors, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
 	.Brush_Value, .Brush_Reset,
 	.Frame_All,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
@@ -116,7 +116,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
 	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,
-	.Input_Diagnostics, .History_Panel, .Pencil_Preferred, .Pen_As_Empty,
+	.Input_Diagnostics, .Pencil_Preferred, .Pen_As_Empty,
 }
 
 // What a job is called while it runs, and what it is, by its command.

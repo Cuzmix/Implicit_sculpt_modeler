@@ -175,7 +175,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Pen_Squeeze_Shelf       = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Panels   = {.Pen_As_Empty, 0},
 	.Pen_Squeeze_Panels      = {.Pen_As_Empty, 0},
-	.Pen_Double_Tap_History  = {.History_Panel, 0},
+	.Pen_Double_Tap_History  = {.Open_Card, int(Card.History)},
 	.Pen_Squeeze_History     = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Nav_Head = {.Reset_Camera, 0},
 	.Pen_Squeeze_Nav_Head    = {.Pen_As_Empty, 0},

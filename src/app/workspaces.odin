@@ -40,10 +40,11 @@ WORKSPACE_NAME :: 32
 WORKSPACE_CHIP_ROOM :: 160
 
 // The panels a layout opens and closes. Settings, Help, Macros and Library are opened
-// from the menu and History by a long press on Undo, so none of them changes a layout.
-LAYOUT_PANELS :: [?]Kit_Window{.Stats, .Colors, .Thumbnail}
+// from the menu, so none of them changes a layout; the cards are its column and
+// card_float lines.
+LAYOUT_PANELS :: [?]Kit_Window{.Stats, .Thumbnail}
 // The windows whose place and fold a layout keeps.
-LAYOUT_WINDOWS :: [?]Kit_Window{.Stats, .History, .Colors, .Thumbnail}
+LAYOUT_WINDOWS :: [?]Kit_Window{.Stats, .Thumbnail}
 
 Workspace :: struct {
 	used:  bool,
@@ -111,10 +112,7 @@ workspace_built_in :: proc(slot: int) -> (Built_In, bool) {
 // The flag that says whether a layout panel is open.
 @(private = "file")
 layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
-	#partial switch w {
-	case .Colors:    return &k.colors_card
-	case .Thumbnail: return &k.thumbnail
-	}
+	if w == .Thumbnail do return &k.thumbnail
 	return &k.stats
 }
 

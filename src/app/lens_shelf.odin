@@ -80,7 +80,7 @@ SHELF_SCULPT :: [?]Bar_Slot {
 }
 SHELF_PAINT :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Paint)}, {.Brush, int(sculpt.Brush_Kind.Mask)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
-	{.Colors_Card, 0}, {.Swap_Colors, 0}, {.Paint_Channel, 0},
+	{.Open_Card, int(Card.Colours)}, {.Swap_Colors, 0}, {.Paint_Channel, 0},
 }
 SHELF_MOVE :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Grab)}, {.Brush, int(sculpt.Brush_Kind.Snake_Hook)}, {.Brush, int(sculpt.Brush_Kind.Cloth)},

@@ -24,7 +24,7 @@ stay in step through the tokens: every colour, size, radius, type size and durat
   Icon button, Segment, Switch and Vertical slider with their variants) and two frames of the same layout: Desktop
   (Windows, Linux) 1440 x 900 and Tablet (Android, later iPad) 1366 x 1024. Check with `get_metadata` (no node id
   lists the pages) that it still has what you need: the app has grown past it (the inspector's Object and Scene
-  tabs, Settings, Stats and History panels are only in code).
+  tabs, Settings, Stats and History cards are only in code).
 - Bolt approves a design in Figma (or as a spec) before it is built; until then build nothing that depends on it.
 
 ## 1. Prepare
