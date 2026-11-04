@@ -45,6 +45,10 @@ Stroke_Gpu :: struct {
 	// mesh; false where one is recorded this frame and not yet submitted, which cannot be
 	// waited for (the caller then tries again next frame).
 	sync:    proc(data: rawptr, s: ^Sculptor) -> bool,
+	// Whether a readback of `s`'s mesh is recorded or submitted and not yet written into
+	// the mesh, without waiting: for work that can wait a frame for it rather than wait
+	// for the GPU (sculptor_lod_update). Nil reads as none.
+	pending: proc(data: rawptr, s: ^Sculptor) -> bool,
 	// Reads the GPU's normals of `ranges` back with the frame's readbacks, nothing
 	// recomputed (the normals the stroke's flushes left there); false leaves them to the
 	// CPU.

@@ -1216,6 +1216,13 @@ sculpt_gpu_sync :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 	return true
 }
 
+// Whether a slot holds a readback of `mb` not yet applied (recorded this frame, or
+// submitted and not yet landed at a frame's start), without waiting for any.
+sculpt_gpu_pending :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
+	for &s in r.sculpt_gpu.slots do for e in s.entries do if e.mesh == mb do return true
+	return false
+}
+
 // Drops everything a mesh's buffers hold for sculpting on the GPU, readbacks under way
 // included (their CPU mesh may be going with them); the buffers they read into stay with
 // the GPU layer until it is done with them.

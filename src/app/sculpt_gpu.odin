@@ -17,7 +17,7 @@ import "../sculpt"
 
 // Sets the sculptor's callbacks once, at start-up.
 sculpt_gpu_install :: proc(app: ^App) {
-	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync, normals_back = sculpt_gpu_normals_back, normals_now = sculpt_gpu_normals_now}
+	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync, pending = sculpt_gpu_pending, normals_back = sculpt_gpu_normals_back, normals_now = sculpt_gpu_normals_now}
 }
 
 // The object and level sculpted by `s`, and the GPU buffers that draw it: the current
@@ -210,6 +210,14 @@ sculpt_gpu_sync :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
 	exact := render.sculpt_gpu_sync(&app.renderer, gpu)
 	sculpt_gpu_landed(app)
 	return exact
+}
+
+// Whether a readback of the mesh is on its way, not yet landed (render.sculpt_gpu_pending).
+@(private = "file")
+sculpt_gpu_pending :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
+	app := cast(^App)data
+	_, _, gpu := sculpt_gpu_level(app, s)
+	return gpu != nil && render.sculpt_gpu_pending(&app.renderer, gpu)
 }
 
 // Refits the sculptors' bounds for every readback of positions that landed since the

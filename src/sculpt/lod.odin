@@ -157,8 +157,12 @@ sculptor_lod_pending :: proc(s: ^Sculptor) -> int {
 // as sculptor_lod_uploads does.
 sculptor_lod_update :: proc(s: ^Sculptor, finish := false, budget := LOD_FRAME_BUDGET) -> (ranges: []geom.Index_Range, all: bool) {
 	l := &s.lod
-	// The copies are built from the mesh as the GPU left it; a readback not yet
-	// submitted this frame lands next frame, when the copies can wait for it.
+	// The copies are built from the mesh as the GPU left it. A readback still on its way
+	// lands at a later frame's start, and the copies wait for it rather than for the GPU:
+	// this runs after the frame's submit, where a sync would wait for the whole frame's
+	// GPU work, a stall no frame time shows. A caller that needs every copy now (finish)
+	// waits as before.
+	if !finish && stroke_gpu.pending != nil && stroke_gpu.pending(stroke_gpu.data, s) do return
 	if !sculptor_gpu_sync(s, normals = false) do return
 	start := time.tick_now()
 	last: time.Duration // the previous batch's time
