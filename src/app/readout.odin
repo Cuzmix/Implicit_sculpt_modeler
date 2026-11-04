@@ -75,12 +75,13 @@ kit_readout :: proc(app: ^App) {
 		w := READOUT_BAR_W + 6 + ui.text_width(ctx, text, t.small_size)
 		line := ui.place(ctx, {w, t.small_size + 4})
 		bar := ui.Rect{line.x + 6, line.y + (line.h - READOUT_BAR_H) * 0.5, READOUT_BAR_W, READOUT_BAR_H}
-		ui.fill_rect(ctx, bar, READOUT_BAR_H * 0.5, t.fill_hover)
+		_, faint := readout_inks(t)
+		ui.fill_rect(ctx, bar, READOUT_BAR_H * 0.5, ui.color_fade(faint, 0.3))
 		if ram > 0 {
 			full := clamp(f32(r.memory) / f32(ram), 0.02, 1)
-			ui.fill_rect(ctx, {bar.x, bar.y, bar.w * full, bar.h}, READOUT_BAR_H * 0.5, t.text_tertiary)
+			ui.fill_rect(ctx, {bar.x, bar.y, bar.w * full, bar.h}, READOUT_BAR_H * 0.5, faint)
 		}
-		ui.text(ctx, text, bar.x + bar.w + 6, line.y + line.h * 0.5, t.small_size, t.text_tertiary)
+		ui.text(ctx, text, bar.x + bar.w + 6, line.y + line.h * 0.5, t.small_size, faint)
 	}
 	if ms, ok := readout_gpu_ms(app); ok do readout_line(ctx, fmt.tprintf("GPU %.1f ms", ms))
 	ui.end(ctx)
@@ -97,8 +98,9 @@ readout_word :: proc(ctx: ^ui.Context, name, text: string, lit: bool, keys: stri
 	if a.held do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_pressed)
 	else if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_hover)
 	cy := a.rect.y + a.rect.h * 0.5
-	ui.text(ctx, text, a.rect.x + 6, cy, t.small_size, t.accent if lit else t.text_secondary, .Semibold)
-	ui.icon(ctx, ui.ICON_CHEVRON_DOWN, {a.rect.x + a.rect.w - 10, cy}, t.icon_small - 4, t.text_tertiary)
+	ink, faint := readout_inks(t)
+	ui.text(ctx, text, a.rect.x + 6, cy, t.small_size, t.accent if lit else ink, .Semibold)
+	ui.icon(ctx, ui.ICON_CHEVRON_DOWN, {a.rect.x + a.rect.w - 10, cy}, t.icon_small - 4, faint)
 	ui.tip(ctx, a.id, a.rect, name[:len(name) - len("##readout")], keys)
 	return a
 }
@@ -108,7 +110,18 @@ readout_word :: proc(ctx: ^ui.Context, name, text: string, lit: bool, keys: stri
 readout_line :: proc(ctx: ^ui.Context, text: string) {
 	t := ctx.theme
 	r := ui.place(ctx, {ui.text_width(ctx, text, t.small_size) + 6, t.small_size + 4})
-	ui.text(ctx, text, r.x + 6, r.y + r.h * 0.5, t.small_size, t.text_tertiary)
+	_, faint := readout_inks(t)
+	ui.text(ctx, text, r.x + 6, r.y + r.h * 0.5, t.small_size, faint)
+}
+
+// The readout's inks, its words' and its faint lines'. It stands on the view itself, not
+// on a panel, and the view's ground is dark under every theme, so a light theme's dark
+// inks would sink into it: there they are taken from its light surfaces instead, at
+// about the steps a dark theme's labels and hints stand from its text.
+@(private = "file")
+readout_inks :: proc(t: ui.Theme) -> (ink, faint: ui.Color) {
+	if ui.color_luminance(t.text) > ui.color_luminance(t.surface) do return t.text_secondary, t.text_tertiary
+	return ui.color_mix(t.surface_raised, t.text, 0.25), ui.color_mix(t.surface_raised, t.text, 0.42)
 }
 
 // The GPU's typical time a frame: the 3D drawing while the GPU is timed, else the frame's

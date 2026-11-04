@@ -1114,7 +1114,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		on := library_on_bar(app, l.item) if adding else brush_item_on(app, l.item)
 		ui.fill_rect(ctx, a.rect, t.radius_large, t.accent_soft if on else t.surface)
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_large, t.fill_hover)
-		ui.stroke_rect(ctx, a.rect, t.radius_large, t.accent if on else t.border, 1)
+		// The one selected look, a soft fill with the name in the accent; no ring of its own.
+		if !on do ui.stroke_rect(ctx, a.rect, t.radius_large, t.border, 1)
 		lens_stroke_preview(ctx, {a.rect.x + 8, a.rect.y + 8, a.rect.w - 16, 70}, l.item, app)
 		name := ui.text_fit(ctx, l.name, t.small_size, a.rect.w - 40, .Semibold)
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)

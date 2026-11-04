@@ -63,7 +63,8 @@ an_accent_alone_leaves_the_greys_exact :: proc(t: ^testing.T) {
 }
 
 // Every built-in theme can be read: labels on the panels at 4.5 to 1 or better (WCAG
-// AA), hints and the accent at 3, and the ink on the accent at 4.5.
+// AA), hints too, wells plain against the panel at 1.3, the accent at 3, and the ink on
+// the accent at 4.5.
 @(test)
 every_seed_keeps_its_text_readable :: proc(t: ^testing.T) {
 	for seed, i in EVERY_SEED {
@@ -71,7 +72,8 @@ every_seed_keeps_its_text_readable :: proc(t: ^testing.T) {
 		ground := Color{th.surface.r, th.surface.g, th.surface.b, 255}
 		testing.expectf(t, color_contrast(th.text, ground) >= 7, "seed %d text %.2f", i, color_contrast(th.text, ground))
 		testing.expectf(t, color_contrast(th.text_secondary, ground) >= 4.5, "seed %d labels %.2f", i, color_contrast(th.text_secondary, ground))
-		testing.expectf(t, color_contrast(th.text_tertiary, ground) >= 3, "seed %d hints %.2f", i, color_contrast(th.text_tertiary, ground))
+		testing.expectf(t, color_contrast(th.text_tertiary, ground) >= 4.5, "seed %d hints %.2f", i, color_contrast(th.text_tertiary, ground))
+		testing.expectf(t, color_contrast(th.fill, ground) >= 1.3, "seed %d wells %.2f", i, color_contrast(th.fill, ground))
 		testing.expectf(t, color_contrast(th.accent, ground) >= 3, "seed %d accent %.2f", i, color_contrast(th.accent, ground))
 		testing.expectf(t, color_contrast(th.on_accent, th.accent) >= 4.5, "seed %d on accent %.2f", i, color_contrast(th.on_accent, th.accent))
 		testing.expectf(t, color_contrast(th.on_chosen, th.chosen) >= 3, "seed %d chosen tile %.2f", i, color_contrast(th.on_chosen, th.chosen))

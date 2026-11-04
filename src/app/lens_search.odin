@@ -167,7 +167,7 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	if picked do ui.fill_rect(ctx, full, t.radius_small + 2, ui.color_fade(t.accent, 0.16))
 	if a.held do ui.fill_rect(ctx, full, t.radius_small + 2, t.fill_pressed)
 	else if a.hovered && !picked do ui.fill_rect(ctx, full, t.radius_small + 2, t.fill_hover)
-	fg := t.text if enabled else ui.color_fade(t.text_secondary, 0.4)
+	fg := t.text if enabled else ui.disabled_ink(t)
 	mid := r.y + r.h * 0.5
 	ui.icon(ctx, palette_icon(e), {r.x + 10 + t.icon_small * 0.5, mid}, t.icon_small, fg if !enabled else t.text_secondary)
 	x := r.x + 20 + t.icon_small
