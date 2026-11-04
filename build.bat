@@ -134,7 +134,10 @@ rem A Vulkan validation message fails it.
 exit /b 0
 
 :release
-"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+rem The linker map (build\sculpt.map) names every procedure's address without changing the
+rem code, so scripts\crash_symbolize.py can name a crash log's frames; -debug would also
+rem define ODIN_DEBUG, which turns on the tracking allocator.
+"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% -extra-linker-flags:"/MAP:%ROOT%build\sculpt.map" || exit /b 1
 exit /b 0
 
 :test
