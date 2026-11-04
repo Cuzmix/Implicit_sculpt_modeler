@@ -177,11 +177,15 @@ bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32,
 }
 
 // Whether the recording holds anything for the GPU to run (a pass, a build, a mipmap
-// chain) or a swapchain image to present. One that holds neither is as well cancelled
-// as submitted: a submit of nothing still wakes the GPU and its driver. A timestamp
-// alone is not work: a query never written reads as unavailable and is left out.
+// chain, a copy staged and not yet recorded) or a swapchain image to present. One that
+// holds none of these is as well cancelled as submitted: a submit of nothing still wakes
+// the GPU and its driver. A staged copy counts: a cancel drops it, and a frame that drew
+// nothing but uploaded (a simplified copy built while the app rested) lost those bytes,
+// leaving the buffer's old ones where the draws then read. A timestamp alone is not work:
+// a query never written reads as unavailable and is left out.
 @(require_results)
 command_buffer_recorded :: proc(command_buffer: Cmd) -> bool {
+	if staging_pending(command_buffer) do return true
 	when METAL do return mtl_command_buffer_recorded(command_buffer)
 	else when WEBGPU do return wgpu_command_buffer_recorded(command_buffer)
 	else do return vk_command_buffer_recorded(command_buffer)
