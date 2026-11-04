@@ -85,7 +85,7 @@ pinned_cards_are_the_layouts :: proc(t: ^testing.T) {
 	testing.expect_value(t, kit_layout_text(&again), text)
 	render: Kit_State
 	kit_layout_put(&render, built_in_layout(.Render))
-	testing.expect(t, card_pinned(&render, .Look) && render.thumbnail)
+	testing.expect(t, card_pinned(&render, .Look))
 }
 
 // Show where opens the section's card, unfolds the section and marks it for the scroll; a

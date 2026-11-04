@@ -33,7 +33,7 @@ card_float_tear :: proc(app: ^App, c: Card, pos: [2]f32) {
 	k.cards.floats += {c}
 	k.cards.float_scrolls[c] = col.scrolls[c]
 	k.cards.floated += 1
-	float_raise(k, Float_Ref(c))
+	float_raise(k, c)
 	ui.window_grab(ctx, w, card_root_name(c), ctx.input.mouse - pos, card = true)
 }
 
@@ -48,7 +48,7 @@ card_float_at :: proc(k: ^Kit_State, c: Card, offset: [2]f32) {
 	}
 	k.cards.windows[c] = {moved = true, x = .Start, y = .Start, offset = offset}
 	k.cards.floats += {c}
-	float_raise(k, Float_Ref(c))
+	float_raise(k, c)
 }
 
 // Puts floating card `c` back in column `s`, pinned.

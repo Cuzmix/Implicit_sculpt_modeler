@@ -21,29 +21,6 @@ ZONE_NAMES := [Zone]string {
 	.Action_Bar = "Next steps",
 }
 
-// The panels the drawer lists: every window a layout keeps.
-@(private = "file")
-arrange_panels :: proc(app: ^App) -> []Panel_Ref {
-	out := make([dynamic]Panel_Ref, context.temp_allocator)
-	for w in LAYOUT_PANELS do append(&out, Panel_Ref(w))
-	return out[:]
-}
-
-// Where a panel is, as the drawer's choice shows it: 0 hidden, 1 shown.
-@(private = "file")
-ARRANGE_SHOWN := [?]string{"Hidden", "Shown"}
-
-@(private = "file")
-arrange_place :: proc(app: ^App, ref: Panel_Ref) -> int {
-	return 1 if panel_open(app, ref) else 0
-}
-
-// Puts panel `ref` where the drawer's choice says: hidden, or shown.
-@(private = "file")
-arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
-	panel_set_open(app, ref, place != 0)
-}
-
 // The Show chips: one for each bar, lit while the layout shows it.
 arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
@@ -65,22 +42,6 @@ arrange_show_chips :: proc(app: ^App) {
 zone_toggle :: proc(k: ^Kit_State, z: Zone) {
 	k.hidden ~= {z}
 	if z in k.hidden do kit_floats_close(k)
-}
-
-// Every panel with where it is, to be changed with a tap: Settings > Bars.
-arrange_panel_rows :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	ui.caption(ctx, "PANELS")
-	for ref in arrange_panels(app) {
-		ui.begin(ctx, fmt.tprintf("arrange %s", panel_name(ref)), {direction = .Row, gap = 8, center = true})
-		r := ui.place(ctx, {120, t.target})
-		ui.text(ctx, panel_title(app, ref), r.x, r.y + r.h * 0.5, t.text_size, t.text)
-		now := arrange_place(app, ref)
-		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), ARRANGE_SHOWN[:], now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
-		ui.end(ctx)
-	}
-	ui.paragraph(ctx, "A card opens beside the dock button that holds it; its Pin keeps it open in the space's layout.")
 }
 
 // While arranging: each hidden bar as an outline where it would be, with Show.

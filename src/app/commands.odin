@@ -237,7 +237,7 @@ Command_Id :: enum u16 {
 	Shading_Mode, // the argument is the Shading_Mode (shading.odin)
 	Solid_Lighting, // the argument is the Solid_Lighting
 	Floor_Grid,
-	Thumbnail,
+	Second_View,
 	Transparency,
 	// The app
 	Stats,
@@ -2080,12 +2080,12 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.floor.on = !app.floor.on},
 		checked = proc(app: ^App, _: int) -> bool {return app.floor.on},
 	},
-	.Thumbnail = {
+	.Second_View = {
 		label = "Second view",
-		help = "Shows the scene again in a window of its own (the thumbnail): following the camera or from the front, side or top, as a silhouette, shaded or a pass, and flipped if you like, to judge the whole form as if from across the room.",
+		help = "Splits the view in two: the view you sculpt in and a pane with its own camera and pass (following the camera or from the front, side or top, as a silhouette, shaded or a pass), to judge the whole form as if from across the room. Again joins them.",
 		icon = rune(0xe3b2), // picture-in-picture
-		run = proc(app: ^App, _: int) {app.kit.thumbnail = !app.kit.thumbnail},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.thumbnail},
+		run = proc(app: ^App, _: int) {grid_choose(app, .Single if grid_panes(&app.kit.grid) > 1 else .Side_By_Side)},
+		checked = proc(app: ^App, _: int) -> bool {return grid_panes(&app.kit.grid) > 1},
 	},
 	.Transparency = {
 		label = "Transparency",

@@ -102,7 +102,7 @@ UI = {
     "passes": At("view bar/Passes", 1563, 133), "camera": At("view bar/Camera", 1563, 181),
     "frame": At("view bar/Focus selected", 1563, 229), "sym_x": At("view bar/Symmetry across X", 1563, 277),
     "wireframe": At("view bar/Wireframe", 1563, 325), "lights": At("view bar/Lights", 1563, 373),
-    "mini": At("view bar/Second view", 1563, 421),
+    "second": At("view bar/Second view", 1563, 421),
     # The shelf: All at the off-hand end, then after the divider the Brushes page's tiles,
     # Remesh and Dyntopo last.
     "browser": At("dock/All", 411, 833),
@@ -439,10 +439,10 @@ def value_bars(island=(), strip=()):
 
 def eight_rail(step=""):
     """Arguments that start the run with the view rail's eight view tools, as a fresh install
-    had them before it started with four: Focus selected, Symmetry, Wireframe and the mini
+    had them before it started with four: Focus selected, Symmetry, Wireframe and Second
     view between Camera and Lights, through the scenario's settings file (with `step`, a
     file of that step's own, so what an earlier step saved does not carry over)."""
-    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Open_Section:Lights", "Thumbnail"]
+    rail = ["View_Layout_Menu", "Pass_Menu", "Camera_Menu", "Focus_Selected", "Symmetry_X", "Wireframe", "Open_Section:Lights", "Second_View"]
     lines = ["version 13", f"bar_count view_rail {len(rail)}"] + [f"bar view_rail {i} {c}" for i, c in enumerate(rail)]
     path = settings_file()[:-len(".txt")] + step + ".txt"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -809,10 +809,10 @@ def finish_blooms_and_sharpens_the_render_and_second_view():
     s = Script()
     s.press("r", mods=("shift",))
     s.wait(40)
-    return s, ["--script=set finish_bloom 0.5; set finish_sharpen 0.5; thumbnail on; set second_pass studio"], camera_still({
+    return s, ["--script=set finish_bloom 0.5; set finish_sharpen 0.5; render_preview"], camera_still({
         "render_switch": near(1), "finish": near(1), "finish_bloomed": lambda v: int(v) > 0,
         "finish_bloom_levels": lambda v: int(v) > 1, "finish_sharpened": lambda v: int(v) > 0,
-        "thumbnail_finish_passes": lambda v: int(v) > 0, "dabs": near(0), "undo_steps": near(0)})
+        "pane_finish_passes": lambda v: int(v) > 0, "dabs": near(0), "undo_steps": near(0)})
 
 
 @scenario
@@ -3853,17 +3853,14 @@ def a_stroke_under_a_pinned_card_fades_it():
 
 
 # Lens's chrome round the view at 1440x900: the island's Size slider, the readout,
-# the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
-# camera, it stands at the bottom of the pen side).
+# and the view rail's buttons.
 LENS_ISLAND_SIZE = (42, 380)
 LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
 # Where eight_rail() puts them.
 LENS_RAIL = {"layout": (1403, 85), "passes": (1403, 133), "camera": (1403, 181), "lights": (1403, 373)}
-# The mini view's button where eight_rail() puts it.
-LENS_RAIL_MINI = (1403, 421)
+# Second view's button where eight_rail() puts it.
+LENS_RAIL_SECOND = (1403, 421)
 LENS_1440 = ["--width=1440", "--height=900"]
-LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
-LENS_MINI_PICTURE = (1285, 720)
 
 
 def rect_x(lo, hi):
@@ -3940,27 +3937,18 @@ def lens_rail_opens_beside_itself():
 
 
 @scenario
-def lens_rail_mini_view_turns_it_on():
-    """The rail's Mini view shows the second view as the mini view at the pen side's bottom."""
+def lens_rail_second_view_splits_the_view():
+    """The rail's Second view splits the view in two, the second pane with its own camera; again joins them."""
     s = Script()
-    s.ftap(LENS_RAIL_MINI)
+    s.ftap(LENS_RAIL_SECOND)
     s.wait(10)
-    return s, LENS_1440 + eight_rail(), camera_still({"thumbnail": near(1), "mini": rect_x(1150, 1250)})
-
-
-@scenario
-def lens_mini_view_tap_swaps_the_cameras():
-    """A tap on the mini view's picture gives the main view its Front camera, and a second tap swaps back."""
-    s = Script()
-    s.ftap(LENS_MINI_PICTURE)
-    s.wait(10)
-    second = Script()
-    second.ftap(LENS_MINI_PICTURE)
-    second.wait(10)
-    second.ftap(LENS_MINI_PICTURE)
-    second.wait(10)
-    return Steps([(s, LENS_1440 + LENS_MINI, {"mini_swaps": near(1), "camera_ortho": near(1), "second_camera": is_text("Free")}),
-                  (second, LENS_1440 + LENS_MINI, camera_still({"mini_swaps": near(2), "camera_ortho": near(0)}))])
+    again = Script()
+    again.ftap(LENS_RAIL_SECOND)
+    again.wait(10)
+    again.ftap(LENS_RAIL_SECOND)
+    again.wait(10)
+    return Steps([(s, LENS_1440 + eight_rail("1"), camera_still({"grid": is_text("Side_By_Side"), "grid_panes": near(2)})),
+                  (again, LENS_1440 + eight_rail("2"), camera_still({"grid_panes": near(1)}))])
 
 
 @scenario
@@ -5296,14 +5284,14 @@ LENS_STUDIO = {"render_tab": (685, 26), "intensity": (1218, 526), "add": At("add
 
 @scenario
 def render_pins_the_look_card():
-    """Render pins the Look card, the mini view rendering; a tap on a sphere in its Material section puts that material on."""
+    """Render pins the Look card; a tap on a sphere in its Material section puts that material on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
     s.ftap(LENS_STUDIO["red_wax"])
     s.wait(10)
     return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Look*"),
-                                       "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Red_wax"), "dabs": near(0)})
+                                       "selected_material": is_text("Red_wax"), "dabs": near(0)})
 
 
 # The Render space's Material card at 1440x900 with the Lights card folded (its
@@ -6345,17 +6333,6 @@ def pass_keys_flip_and_backquote_peeks():
 
 
 @scenario
-def window_position_comes_back():
-    """A remembered window position comes back on the next start."""
-    with open(settings_file(), "w") as f:
-        f.write("thumbnail 1\nwindow Thumbnail 1 Start Start 616 264 0\n")
-    s = Script()
-    s.add("move:800,450")
-    s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"window_thumbnail": lambda v: v.startswith("1,0,616,")}
-
-
-@scenario
 def small_window():
     """A 1280 x 800 window (a tablet's size): the pinned Mask card's tall Mask section scrolls from the first touch and far-apart taps turn nothing."""
     s = Script()
@@ -6815,18 +6792,6 @@ def rail_latched_edge_still_orbits():
     rail_tap(s, "mask")
     s.fdrag(past_slop((1320, 868), (1520, 868), 20))
     return s, [], {"camera_yaw": lambda v: abs(float(v) - 0.6) > 0.05, "dabs": near(0), "masked": near(0)}
-
-
-@scenario
-def rail_over_window_keeps_the_finger():
-    """Where a window lies over the rail, the rail is drawn over it and a finger there is the rail's: Invert latches, and the window stays."""
-    with open(settings_file(), "w") as f:
-        f.write("thumbnail 1\nwindow Thumbnail 1 Start Start 0 700 0\n")
-    s = Script()
-    rail_tap(s, "invert")
-    s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": is_text("invert"),
-                                                     "window_thumbnail": lambda v: v.startswith("1,")}
 
 
 @scenario
@@ -10653,99 +10618,6 @@ def first_save():
     return s, [f"--save={path}"], {"@saved": lambda _: os.path.exists(path)}
 
 
-# The second view (Lens's mini view, lens_chrome.odin) at 1600 x 900 with --script=thumbnail
-# on, in the pen side's lower corner: the chip over its picture, which shows the choices under
-# it, and the picture's middle while they are shut. With them shown the picture moves up:
-# its middle, the camera and pass lists and their rows, then Flip, Link and Close.
-SECOND_CHIP, SECOND_PICTURE_SHUT = (1445, 703), (1445, 790)
-SECOND_PICTURE, SECOND_CAMERA, SECOND_PASS = (1445, 622), (1445, 752), (1445, 806)
-SECOND_FRONT, SECOND_SHADED, SECOND_NORMALS = (1395, 394), (1400, 492), (1400, 536)
-THUMBNAIL_FLIP, SECOND_LINK, THUMBNAIL_CLOSE = (1386, 859), (1437, 859), (1491, 859)
-
-
-def second_choices(s):
-    """Waits for the mini view and taps its chip to show the choices under its picture."""
-    s.wait(4)
-    s.ftap(SECOND_CHIP)
-
-
-@scenario
-def thumbnail_switches_to_shaded_and_flips():
-    """The second view's pass list picks Shaded and its Flip mirrors it, sculpting nothing."""
-    s = Script()
-    second_choices(s)
-    s.wait(4)
-    s.ftap(SECOND_PASS)
-    s.wait(4)
-    s.ftap(SECOND_SHADED)
-    s.wait(4)
-    s.ftap(THUMBNAIL_FLIP)
-    s.wait(10)
-    return s, ["--script=thumbnail on"], camera_still({"thumbnail": near(1, 0), "second_pass": is_text("Shaded"), "thumbnail_flip": near(1, 0),
-                                                     "thumbnail_draws": lambda v: int(v) >= 2, "dabs": near(0)})
-
-
-@scenario
-def second_view_looks_from_the_front_in_normals():
-    """The second view's camera list picks Front and its pass list Normals: it draws again from the front, the main camera untouched."""
-    s = Script()
-    second_choices(s)
-    s.wait(4)
-    s.ftap(SECOND_CAMERA)
-    s.wait(4)
-    s.ftap(SECOND_FRONT)
-    s.wait(4)
-    s.ftap(SECOND_PASS)
-    s.wait(4)
-    s.ftap(SECOND_NORMALS)
-    s.wait(10)
-    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Front"), "second_pass": is_text("Normals"),
-                                                     "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
-
-
-@scenario
-def second_view_drag_turns_its_own_camera():
-    """A finger dragged across the second view's picture, looking from the front, turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
-    s = Script()
-    second_choices(s)
-    s.wait(4)
-    s.ftap(SECOND_CAMERA)
-    s.wait(4)
-    s.ftap(SECOND_FRONT)
-    s.wait(4)
-    x, y = SECOND_PICTURE
-    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
-    s.wait(6)
-    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Free"), "second_turns": lambda v: int(v) >= 5,
-                                                     "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
-
-
-@scenario
-def second_view_linked_drag_turns_the_main_camera():
-    """The second view starts linked: a finger dragged across its picture turns the main camera, and the view stays linked; nothing is sculpted."""
-    s = Script()
-    s.wait(4)
-    x, y = SECOND_PICTURE_SHUT
-    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
-    s.wait(6)
-    return s, ["--script=thumbnail on"], {"second_camera": is_text("Follow"), "second_linked": lambda v: int(v) >= 5, "second_turns": near(0),
-                                         "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "dabs": near(0)}
-
-
-@scenario
-def second_view_unlinks_to_free():
-    """The second view's link button lets it go to its own Free camera at the view it shows; a drag then turns only it."""
-    s = Script()
-    second_choices(s)
-    s.wait(4)
-    s.ftap(SECOND_LINK)
-    s.wait(4)
-    x, y = SECOND_PICTURE
-    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
-    s.wait(6)
-    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Free"), "second_turns": lambda v: int(v) >= 5, "second_linked": near(0), "dabs": near(0)})
-
-
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
 TRANSPARENT_SWITCH = At("card Look/Screenshots without background", *in_section((1378, 506), "background"))
@@ -11258,20 +11130,6 @@ def view_pane_maximises_and_restores():
         return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0),
                                                                      "readout": near(1 if restore else 0)}))
     return Steps([run(False), run(True)])
-
-
-@scenario
-def thumbnail_follows_a_stroke_and_closes():
-    """A stroke on the model draws the thumbnail again; its Close shuts the window."""
-    s = Script()
-    s.wait(4)
-    s.mouse_drag([(800, 450), (830, 465), (860, 480)])
-    s.wait(12)
-    second_choices(s)
-    s.wait(6)
-    s.ftap(THUMBNAIL_CLOSE)
-    s.wait(4)
-    return s, ["--script=thumbnail on"], {"thumbnail": near(0, 0), "thumbnail_draws": lambda v: int(v) >= 2, "dabs": lambda v: int(v) > 0}
 
 
 # Scene > 3D print at 1600x900: the inches tab, and the Height value's middle.

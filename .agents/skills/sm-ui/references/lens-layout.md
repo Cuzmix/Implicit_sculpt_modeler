@@ -64,10 +64,9 @@ summary.
   `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
   polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A card or section button (and a long press's section, a value menu's or quick
   menu's settings) opens its card in the column beside it (`card_toggle`, `bar_section_toggle`; column.odin). `corner = true` on `icon_button` draws the triangle that says a long press does more.
-  An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
-  press). Thumbnail = `kit_mini_view`. The shelf's pages are
+  An overlay on a panel's own area takes no hits from a `begin_at` root. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_lines_layout`/`shelf_fit` decide how many tiles (in the dock's lines as rows)
-  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (the windows): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
+  show; ask a child's `prev_rect` inside its parent. `k.order` holds the floating cards: `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The cards and their columns are `cards.odin` and `column.odin` (SKILL.md, Cards and columns). The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and

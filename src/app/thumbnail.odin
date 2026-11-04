@@ -9,18 +9,17 @@ import "../camera"
 import "../render"
 import "../ui"
 
-// The second view (Camera > Second view), grown from the thumbnail window: the scene small,
-// as a sculptor steps back to judge the whole. Its idea comes from ZBrush's thumbnail view,
-// a silhouette of the model beside the work; from painters' and digital painting apps'
-// habit of flipping the picture to see its proportions afresh; and from Blender's and
-// ZBrush's front, side and top views, which check a likeness and its symmetry from the
-// sides the working view is not on. It follows the camera, or looks along an axis
+// A second view: what a view pane or a view window shows (Second view splits the view in
+// two, grid.odin), the scene again as a sculptor steps back to judge the whole. Its idea
+// comes from ZBrush's thumbnail view, a silhouette of the model beside the work, and from
+// Blender's and ZBrush's front, side and top views, which check a likeness and its symmetry
+// from the sides the working view is not on. It follows the camera, or looks along an axis
 // (orthographic, at the camera's target and distance), or turns on its own once its
 // picture is dragged; it shows a silhouette, the shading, or one of the cheap passes
-// (passes.odin); Flip mirrors it, and Maximise makes a floating one large. Redrawn only
-// when what it shows changed, once a stroke or a turn of the view is over, and at most
-// every THUMBNAIL_EVERY seconds, so a big mesh is never drawn twice a frame while you work;
-// a drag on the picture redraws it every frame, as nothing else moves then.
+// (passes.odin). Redrawn only when what it shows changed, once a stroke or a turn of the
+// view is over, and at most every THUMBNAIL_EVERY seconds, so a big mesh is never drawn
+// twice a frame while you work; a drag on the picture redraws it every frame, as nothing
+// else moves then.
 
 THUMBNAIL_EVERY :: 0.1
 
@@ -298,22 +297,6 @@ picture_finish :: proc(app: ^App, cmd: render.Cmd, sv: ^Second_View, pic: ^Pictu
 	_ = render.finish_frame(&app.renderer, &pic.finished, cmd, source, target.width, target.height, linear, look, u64(pic.version))
 }
 
-thumbnail_destroy :: proc(app: ^App) {
-	picture_destroy(app, &app.thumbnail)
-}
-
-// Draws the second view on `cmd` when the window is laid out and what it shows changed,
-// from the frame's `draws`, as their materials made them from `froms`.
-thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From) {
-	k := &app.kit
-	size := k.thumbnail_px
-	if !k.thumbnail || k.home || size.x == 0 || size.y == 0 {
-		app.thumbnail.shown, app.thumbnail.due = 0, false
-		return
-	}
-	picture_frame(app, cmd, draws, froms, &k.second, &app.thumbnail, size, render.THUMBNAIL_SUPERSAMPLE)
-}
-
 // What second view `sv`'s picture at `size` and `supersample` shows, as one number (never 0),
 // and the camera it is seen through.
 picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32) -> (key: u64, orbit: camera.Orbit) {
@@ -549,7 +532,7 @@ second_view_input :: proc(app: ^App, ctx: ^ui.Context, scale: f32, sv: ^Second_V
 		sv.last = a.mouse
 	} else if !a.clicked {
 		// The release keeps it for its own frame, so a caller that answers a tap on the
-		// picture (the mini view's swap) does not take the end of a drag for one.
+		// picture does not take the end of a drag for one.
 		sv.dragging = false
 	}
 	if a.hovered && ctx.input.wheel != 0 {

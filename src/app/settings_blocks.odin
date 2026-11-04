@@ -216,10 +216,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
-		// What the edit mode's own sheet held: which bars this space's layout shows, the panels'
-		// places and the person's docks, so the Library is the one picker.
+		// What the edit mode's own sheet held: which bars this space's layout shows and the
+		// person's docks, so the Library is the one picker.
 		arrange_show_chips(app)
-		arrange_panel_rows(app)
 		_ = command_button(app, .Panels_Reset, label = "Put the panels back as they come", variant = .Bordered, width = ui.fill_width(ctx))
 		your_docks_rows(app, ui.fill_width(ctx))
 	case .Top_Bar:

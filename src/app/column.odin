@@ -118,7 +118,7 @@ card_open :: proc(app: ^App, c: Card) {
 	k := &app.kit
 	if !k.cards.set do cards_default(k)
 	if c in k.cards.floats {
-		float_raise(k, Float_Ref(c))
+		float_raise(k, c)
 		return
 	}
 	if s, i, ok := card_find(k, c); ok {

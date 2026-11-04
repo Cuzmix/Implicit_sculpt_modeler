@@ -96,10 +96,6 @@ Kit_State :: struct {
 	cards:      Cards, // the cards and the columns they open in (cards.odin, column.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
 	pane_menu:  Pane_Menu, // a view pane's camera or pass list
-	// The mini view (lens_chrome.odin): its choices shown under the picture, and how
-	// often a tap on it swapped it with the main view, for the exit stats.
-	mini_rows:  bool,
-	mini_swaps: int,
 	bars_edit:  bool,
 	// The one dock whose buttons are being edited, when Edit buttons in its menu began it;
 	// nil while Edit docks edits every dock.
@@ -260,11 +256,9 @@ Kit_State :: struct {
 	// rather than running anything (palette_open_for, from Settings > Touch's Any
 	// command...; bar_choose, from a bar's slot while customising).
 	palette_for:    Palette_For,
-	// The panels as windows: where each was dragged to and whether it is folded
-	// (remembered by settings.odin), and the order every floating thing is drawn in, the
-	// last on top, so whichever was touched last is in front of all the others.
-	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + len(Card)]Float_Ref,
+	// The order the floating cards are drawn in, the last on top, so whichever was touched
+	// last is in front of all the others.
+	order:      [dynamic; len(Card)]Card,
 	// The floating panels' state and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
@@ -339,17 +333,7 @@ Kit_State :: struct {
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors:         Colors_Card,
-	// The second view (thumbnail.odin): open, its camera and pass, mirrored, and its
-	// picture's size in pixels as laid out this frame (zero while it is not).
-	thumbnail:        bool,
-	second:           Second_View,
-	// The layout put in place names the second view's camera and pass (a `thumbnail`
-	// line, as Studio's does in Lens), so it writes them back; other layouts leave them to
-	// the settings.
-	second_in_layout: bool,
 	grid:             View_Grid,
-	thumbnail_flip:   bool,
-	thumbnail_px:     [2]u32,
 	// Which Stats sections are open, and which sections show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
 	stats_open: [Stats_Section]bool,
@@ -397,38 +381,8 @@ Kit_State :: struct {
 	ms:         f64, // last frame's layout and tessellation, CPU
 }
 
-// The panels that behave as windows (ui.Window): each has a title bar to drag it by,
-// Minimise and Close.
-Kit_Window :: enum u8 {
-	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
-}
-
-// The order the windows start in, back to front.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail}
-
-// Something that floats over the view and comes to the front when touched: a window.
-Float_Ref :: union {
-	Kit_Window,
-	Card,
-}
-
-// A panel as the floating order holds it.
-float_of :: proc(ref: Panel_Ref) -> Float_Ref {
-	switch r in ref {
-	case Kit_Window: return r
-	case Card:       return r
-	}
-	return nil
-}
-
-// Brings window `which` in front of the others.
-window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
-	float_raise(k, float_of(which))
-}
-
-// Brings `which` in front of every other floating thing.
-float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
-	if which == nil do return
+// Brings floating card `which` in front of the others.
+float_raise :: proc(k: ^Kit_State, which: Card) {
 	for w, i in k.order {
 		if w != which do continue
 		ordered_remove(&k.order, i)
@@ -437,10 +391,10 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 	if len(k.order) < cap(k.order) do append(&k.order, which)
 }
 
-// Puts every window back where it starts, in the starting order (panels_default), and
-// every bar shown.
+// Puts every floating card back where a card is torn out to, in the starting order
+// (panels_default), and every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
-	k.windows = {}
+	k.cards.windows = {}
 	panels_default(k)
 	// Every bar comes back too, so a layout that hides them is never a dead end.
 	k.hidden = {}
@@ -509,13 +463,6 @@ kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 			ui.fill_rect(ctx, {r.x, r.y + r.h - FADE + f32(i) * h, r.w, h}, 0, ui.color_fade(ctx.theme.surface, f32(i + 1) / STEPS))
 		}
 	}
-}
-
-// Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
-// right, -1 the left), `default` (as the layout mirrors it) until it is moved.
-window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 {
-	side, _ := ui.mirrored(ctx, default, {})
-	return 1 if (w.x if w.moved else side) == .End else -1
 }
 
 // The Stats panel's sections, each folding (kit_stats.odin).
@@ -934,10 +881,8 @@ KIT_NAV_HEAD_IMAGE :: 2
 KIT_THUMBS_IMAGE :: 3
 // ...and the atlas of the Home screen's pictures of scenes (home.odin).
 KIT_PICTURES_IMAGE :: 4
-// ...and the thumbnail window's picture of the scene (thumbnail.odin).
-KIT_THUMBNAIL_IMAGE :: 5
 // The view panes' pictures (grid.odin), one id each from here.
-KIT_PANE_IMAGE :: 6
+KIT_PANE_IMAGE :: 5
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -1112,7 +1057,7 @@ kit_theme :: proc(app: ^App) -> ui.Theme {
 kit_mirror :: proc(k: ^Kit_State) {
 	if k.ctx.mirror == k.placed_mirrored do return
 	k.placed_mirrored = k.ctx.mirror
-	for &w in k.windows do window_mirror(&w)
+	for &w in k.cards.windows do window_mirror(&w)
 	k.wheel_offset.x = -k.wheel_offset.x
 }
 
@@ -1470,15 +1415,10 @@ kit_layout :: proc(app: ^App) {
 	// The History card lights the steps it shows; its tint follows every frame, card or none.
 	history_tint_frame(app)
 	kit_columns(app)
-	top: Float_Ref
+	top: Maybe(Card)
 	order := k.order
-	for which in order {
-		switch w in which {
-		case Kit_Window: if panel_draw(app, w) do top = which
-		case Card:       if card_float_draw(app, w) do top = which
-		}
-	}
-	float_raise(k, top)
+	for c in order do if card_float_draw(app, c) do top = c
+	if c, ok := top.?; ok do float_raise(k, c)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)
 	// The dial over every bar, panel, window and card, so a finger on it is always its
@@ -1535,20 +1475,6 @@ kit_layout :: proc(app: ^App) {
 	tour_update(app)
 	kit_tour(app)
 	kit_help_labels_note(app)
-}
-
-// Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
-// true when a press landed on it, to bring it to the front.
-panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
-	switch w in which {
-	case Kit_Window:
-		switch w {
-		case .Thumbnail: return kit_mini_view(app)
-		}
-	case Card:
-		return card_float_draw(app, w)
-	}
-	return false
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1622,7 +1548,7 @@ kit_shading_menu :: proc(app: ^App) {
 }
 
 // The Camera menu (the right bar's Camera button): the projection and its field of view,
-// framing, the views stepped through, the thumbnail, the view grid and the camera's settings.
+// framing, the views stepped through, the second view, the view grid and the camera's settings.
 kit_camera_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -1639,7 +1565,7 @@ kit_camera_menu :: proc(app: ^App) {
 	// The menu stays open over these, to step back or forward several views.
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
-	_ = command_menu_item(app, .Thumbnail)
+	_ = command_menu_item(app, .Second_View)
 	_ = command_menu_item(app, .View_Guides)
 	if app.scene.guides.shown do _ = command_menu_item(app, .View_Guides_Reset)
 	// The view grid's presets, the menu staying open to try them.
@@ -1829,8 +1755,7 @@ kit_rename :: proc(app: ^App) {
 // studio render's or live occlusion's while on, viewport_shown) where the kit drew
 // KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
 // objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
-// KIT_PICTURES_IMAGE, the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE and the
-// History's pictures of steps and the Layers panel's of layers where it drew
+// KIT_PICTURES_IMAGE, the History's pictures of steps and the Layers panel's of layers where it drew
 // KIT_STEP_PICTURES_IMAGE and KIT_LAYER_PICTURES_IMAGE, and the MatCaps' pictures where the
 // Material card drew KIT_MATCAP_IMAGE plus one's number.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
@@ -1853,10 +1778,6 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
 			if app.thumbs.atlas == 0 do draws[i].index_count = 0
-		}
-		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
-			draws[i].image, draws[i].smooth = picture_shown(&app.thumbnail), true
-			if app.thumbnail.shown == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_PANE_IMAGE && c.image < KIT_PANE_IMAGE + GRID_VIEWS {
 			pic := picture_shown(&app.panes[c.image - KIT_PANE_IMAGE])

@@ -137,16 +137,12 @@ main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 	return {mode = .Material_Preview}, true
 }
 
-// Whether any view showing now is in mode `m`: the main view, a view pane, the second view
-// or a view window.
+// Whether any view showing now is in mode `m`: the main view, a view pane or a view window.
 shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	if main_shading_mode(app) == m do return true
 	g := &app.kit.grid
 	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) {
 		if shown, ok := second_shading_mode(grid_view(g, i)); ok && shown == m do return true
-	}
-	if app.kit.thumbnail {
-		if shown, ok := second_shading_mode(&app.kit.second); ok && shown == m do return true
 	}
 	for w in app.view_windows.open {
 		if w == nil do continue
