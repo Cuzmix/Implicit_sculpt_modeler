@@ -42,9 +42,9 @@ WORKSPACE_CHIP_ROOM :: 160
 // The panels a layout opens and closes. Settings, Help, Macros and Library are opened
 // from the menu, so none of them changes a layout; the cards are its column and
 // card_float lines.
-LAYOUT_PANELS :: [?]Kit_Window{.Stats, .Thumbnail}
+LAYOUT_PANELS :: [?]Kit_Window{.Thumbnail}
 // The windows whose place and fold a layout keeps.
-LAYOUT_WINDOWS :: [?]Kit_Window{.Stats, .Thumbnail}
+LAYOUT_WINDOWS :: [?]Kit_Window{.Thumbnail}
 
 Workspace :: struct {
 	used:  bool,
@@ -112,8 +112,7 @@ workspace_built_in :: proc(slot: int) -> (Built_In, bool) {
 // The flag that says whether a layout panel is open.
 @(private = "file")
 layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
-	if w == .Thumbnail do return &k.thumbnail
-	return &k.stats
+	return &k.thumbnail
 }
 
 // The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,

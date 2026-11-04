@@ -2164,11 +2164,11 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {return main_shading_mode(app) == .Solid && app.kit.passes.shading.lighting == Solid_Lighting(arg)},
 	},
 	.Stats = {
-		label = "Stats",
-		help = "Shows how smoothly the app runs.",
+		label = "Details",
+		help = "Shows the Details card: how smoothly the app runs, the mesh and the memory.",
 		icon = ui.ICON_ACTIVITY,
-		run = proc(app: ^App, _: int) {app.kit.stats = !app.kit.stats},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
+		run = proc(app: ^App, _: int) {if card_shown(app, .Details) do card_close(app, .Details); else do card_open(app, .Details)},
+		checked = proc(app: ^App, _: int) -> bool {return card_shown(app, .Details)},
 	},
 	.Open_Card = {
 		label = "Open card",

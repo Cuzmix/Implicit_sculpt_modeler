@@ -138,8 +138,8 @@ Kit_State :: struct {
 	pie_scroll: f32,
 	pie_runs:   int, // commands run from a user pie, for the exit stats
 	laying_out: bool, // kit_layout is running: a command run now came from a control
-	stats:      bool, // the Stats panel (F11)
-	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
+	stats_advanced: bool, // the Details card shows every measurement by its exact name, not the simple view
+	details_scroll: f32, // how far the Details card's numbers are scrolled
 	settings:   bool, // the Settings panel (Menu > Settings)
 	// The section open (settings_sections.odin), whether the narrow panel shows it rather
 	// than the list of sections, and what Search settings holds.
@@ -397,12 +397,11 @@ Kit_State :: struct {
 // The panels that behave as windows (ui.Window): each has a title bar to drag it by,
 // Minimise and Close.
 Kit_Window :: enum u8 {
-	Stats,
 	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
 // The order the windows start in, back to front.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail, .Stats}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Thumbnail}
 
 // Something that floats over the view and comes to the front when touched: a window.
 Float_Ref :: union {
@@ -1539,7 +1538,6 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 	switch w in which {
 	case Kit_Window:
 		switch w {
-		case .Stats:     return kit_stats(app)
 		case .Thumbnail: return kit_mini_view(app)
 		}
 	case Card:

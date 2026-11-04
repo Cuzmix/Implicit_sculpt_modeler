@@ -35,21 +35,22 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	testing.expect(t, !w.modified, "the starting layout reads as changed")
 
 	// A change lights the dot; Render shows its thumbnail; back on Sculpt the change is there.
-	k.stats = true
+	card_open(&a, .Details)
+	card_pin(&a, .Details)
 	workspaces_frame(k)
-	testing.expect(t, w.modified, "opening Stats is no change")
+	testing.expect(t, w.modified, "pinning Details is no change")
 	workspace_switch(k, int(Built_In.Render))
-	testing.expect(t, k.thumbnail && !k.stats, "Render is not in place")
+	testing.expect(t, k.thumbnail && !card_pinned(k, .Details), "Render is not in place")
 	testing.expect_value(t, k.spaces.current, Space.Render)
 	testing.expect_value(t, rail_shown(k), k.rail_side)
 	workspace_switch(k, int(Built_In.Sculpt))
 	workspaces_frame(k)
-	testing.expect(t, k.stats && k.hidden == {} && w.modified, "Sculpt lost its change")
+	testing.expect(t, card_pinned(k, .Details) && k.hidden == {} && w.modified, "Sculpt lost its change")
 
 	// Revert drops it; Save keeps the next one.
 	workspace_revert(k)
 	workspaces_frame(k)
-	testing.expect(t, !k.stats && !w.modified, "Revert left the change")
+	testing.expect(t, !card_pinned(k, .Details) && !w.modified, "Revert left the change")
 	// A card pinned is the layout's.
 	card_open(&a, .Mesh)
 	card_pin(&a, .Mesh)
@@ -84,15 +85,15 @@ a_workspace_reads_the_same_with_either_hand :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	k: Kit_State
 	panels_default(&k)
-	k.stats = true
-	k.windows[.Stats] = {moved = true, x = .Start, offset = {40, 200}}
+	k.thumbnail = true
+	k.windows[.Thumbnail] = {moved = true, x = .Start, offset = {40, 200}}
 	right := kit_layout_text(&k)
 	// The same place, seen left-handed: on the other side, written as before.
 	k.ctx.mirror = true
-	window_mirror(&k.windows[.Stats])
+	window_mirror(&k.windows[.Thumbnail])
 	testing.expect(t, kit_layout_text(&k) == right, "a left-handed layout is written differently")
 	kit_layout_put(&k, right)
-	testing.expect_value(t, k.windows[.Stats].x, ui.Anchor.End)
+	testing.expect_value(t, k.windows[.Thumbnail].x, ui.Anchor.End)
 }
 
 @(test)
@@ -105,7 +106,7 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	workspaces_init(&a.kit)
 	defer workspaces_destroy(&a.kit)
 	// An own workspace, then Render changed and left, then the own one changed and current.
-	a.kit.stats = true
+	a.kit.thumbnail = true
 	_ = workspace_save_as(&a.kit)
 	workspace_rename(&a.kit, len(Built_In), "Two words")
 	workspace_switch(&a.kit, int(Built_In.Render))
@@ -123,7 +124,7 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	w := &b.kit.workspaces
 	testing.expect_value(t, w.current, len(Built_In))
 	testing.expect_value(t, workspace_name(&b.kit, w.current), "Two words")
-	testing.expect(t, b.kit.stats && card_pinned(&b.kit, .Colours), "the current layout came back without its changes")
+	testing.expect(t, b.kit.thumbnail && card_pinned(&b.kit, .Colours), "the current layout came back without its changes")
 	workspaces_frame(&b.kit)
 	testing.expect(t, w.modified, "the current workspace's changes came back as saved")
 	testing.expect_value(t, b.kit.spaces.layout[.Render], int(Built_In.Render))
@@ -137,14 +138,14 @@ an_older_settings_file_keeps_its_layout_as_sculpt :: proc(t: ^testing.T) {
 	path := "build/workspaces_old_test.txt"
 	defer os.remove(path)
 	defer free_all(context.temp_allocator)
-	_ = os.write_entire_file(path, transmute([]u8)string("stats 1\nwindow Stats 1 Start Start 616 264 0\n"))
+	_ = os.write_entire_file(path, transmute([]u8)string("thumbnail 1\nwindow Thumbnail 1 Start Start 616 264 0\n"))
 	a: App
 	panels_default(&a.kit)
 	workspaces_init(&a.kit)
 	defer workspaces_destroy(&a.kit)
 	settings_load(&a, path)
 	workspaces_frame(&a.kit)
-	testing.expect(t, a.kit.stats && !a.kit.workspaces.modified, "an older file's layout shows as a change")
+	testing.expect(t, a.kit.thumbnail && !a.kit.workspaces.modified, "an older file's layout shows as a change")
 	testing.expect_value(t, a.kit.workspaces.current, int(Built_In.Sculpt))
 }
 
@@ -182,7 +183,7 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	testing.expect_value(t, k.view_rail.count, fresh)
 	bar_remove(&a, .View_Rail, 0)
 	rail := k.view_rail.count
-	kit_layout_put(k, "open Stats\n")
+	kit_layout_put(k, "open Thumbnail\n")
 	testing.expect_value(t, k.view_rail.count, rail)
 }
 

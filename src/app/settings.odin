@@ -375,7 +375,6 @@ SETTINGS := [?]Setting {
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
-	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"thumbnail", K + offset_of(Kit_State, thumbnail), bool, 0, 0},
 	{"second_camera", K + offset_of(Kit_State, second) + offset_of(Second_View, camera), Second_Camera, 0, 0},
 	{"second_pass", K + offset_of(Kit_State, second) + offset_of(Second_View, pass), Second_Pass, 0, 0},

@@ -93,15 +93,15 @@ each_space_comes_back_on_its_own_layout :: proc(t: ^testing.T) {
 	defer spaces_app_free(a)
 	k := &a.kit
 	command_run(a, .Space_Switch, int(Space.Model))
-	k.stats = true
+	k.thumbnail = true
 	testing.expect(t, workspace_save_as(k))
 	mine := k.workspaces.current
 	testing.expect_value(t, workspace_space(k, mine), Space.Model)
 	command_run(a, .Space_Switch, int(Space.Sculpt))
-	testing.expect(t, !k.stats)
+	testing.expect(t, !k.thumbnail)
 	command_run(a, .Space_Switch, int(Space.Model))
 	testing.expect_value(t, k.workspaces.current, mine)
-	testing.expect(t, k.stats, "Model's own layout did not come back")
+	testing.expect(t, k.thumbnail, "Model's own layout did not come back")
 	// Deleting it leaves Model on its built-in.
 	workspace_delete(k)
 	testing.expect_value(t, k.workspaces.current, int(Built_In.Model))
