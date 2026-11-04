@@ -256,7 +256,7 @@ DOCK_CORNER :: 22
 // Dock `d`'s resize corner on its outline `box`: on the side facing the view's middle, away
 // from its head (`right` on the screen's right; a left dock's right, a right dock's left;
 // the shelf's top end), a quarter curve following the
-// outline's round corner, `faint` outside Edit docks until the pointer is on it. A drag across the dock's lines adds or removes a whole line per
+// outline's round corner, `faint` (outside Edit docks) hidden until the pointer is on it. A drag across the dock's lines adds or removes a whole line per
 // line's width (per tile row on the shelf), 1 to the dock's most.
 @(private = "file")
 arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, faint := false) {
@@ -302,8 +302,14 @@ arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, 
 		pts[i] = {o.x + (dx if right else -dx), o.y + (-dy if up else dy)}
 	}
 	lit := active || a.hovered
-	ink := t.accent if !faint || lit else ui.color_fade(t.text_tertiary, 0.35)
-	ui.polyline(ctx, pts[:], ink, 3.5 if lit else (2 if faint else 2.5))
+	// Outside Edit docks the corner is drawn only while the pointer is on it or it is
+	// dragged: a faint arc at rest read as a stray mark or a loading spinner, and showed
+	// over sheets above the dock. Edit docks shows every corner.
+	if faint && !lit {
+		ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if row else "lines"))
+		return
+	}
+	ui.polyline(ctx, pts[:], t.accent, 3.5 if lit else 2.5)
 	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if row else "lines"))
 }
 
