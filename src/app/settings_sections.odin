@@ -68,7 +68,7 @@ SETTINGS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Objects,
 @(rodata)
 SETTINGS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
-SETTINGS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}, {.Graphics, ""}}
+SETTINGS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}, {.Graphics, ""}, {.Mesh_Size, "MESH SIZE"}}
 @(rodata)
 SETTINGS_FRAME_RATE := [?]Settings_Entry{{.Frame_Rate, ""}}
 @(rodata)

@@ -479,6 +479,15 @@ App :: struct {
 	memory_ask:       Memory_Ask,
 	memory_short:     Memory_Short,
 	memory_free_test: int,
+	// Largest remesh and Largest subdivision level in vertices (Settings > Performance >
+	// Mesh size); 0 is Automatic, from the device's memory (mesh_limits.odin).
+	remesh_most:      i32,
+	subdivide_most:   i32,
+	mesh_limited:     int, // remeshes held to Largest remesh, for the exit stats
+	// The system warned that memory runs low; history_cap drops old steps at the next
+	// frame with nothing under way.
+	memory_low:          bool,
+	memory_low_warnings: int,
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file

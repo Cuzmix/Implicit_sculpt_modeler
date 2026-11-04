@@ -1081,7 +1081,7 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Subdivide}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
-			return obj != nil && can_subdivide(obj)
+			return obj != nil && can_subdivide(app, obj)
 		},
 	},
 	.Level_Up = {
@@ -3133,10 +3133,10 @@ MASK_COMMAND_LABELS := [sculpt.Mask_Command]string {
 
 // Whether a level can be added: within the memory limit, with no HD step and dynamic
 // topology off (the Subdivide button's and Ctrl+D's rule).
-can_subdivide :: proc(obj: ^Object) -> bool {
+can_subdivide :: proc(app: ^App, obj: ^Object) -> bool {
 	levels := &obj.levels
-	_, _, bytes := sculpt.levels_subdivide_estimate(levels)
-	return len(levels.levels) < sculpt.MAX_LEVELS && bytes <= MAX_SUBDIVIDE_BYTES && levels.hd.steps == 0 && !object_dynamic(obj)
+	vertices, _, bytes := sculpt.levels_subdivide_estimate(levels)
+	return len(levels.levels) < sculpt.MAX_LEVELS && mesh_subdivide_fits(app, vertices, bytes) && levels.hd.steps == 0 && !object_dynamic(obj)
 }
 
 brush_size_step :: proc(app: ^App, up: bool) {

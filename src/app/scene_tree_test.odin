@@ -477,7 +477,7 @@ the_swap_limit_drops_an_arrange_head :: proc(t: ^testing.T) {
 	history_record_swap(&app, 10, history_snapshot(&app, nil, "delete object"), chain = true)
 	history_record_swap(&app, 11, history_snapshot(&app, nil, "delete object"), chain = true)
 	testing.expect_value(t, len(app.history.done), 3)
-	app.history.swap_bytes = SWAP_LIMIT_BYTES + 1
+	app.history.swap_bytes = history_swap_limit(&app.history) + 1
 	history_record_swap(&app, 12, history_snapshot(&app, nil, "add object"))
 	testing.expect_value(t, len(app.history.done), 1)
 	testing.expect(t, !app.history.done[0].chain && app.history.done[0].id == 12)

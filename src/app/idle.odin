@@ -192,6 +192,10 @@ lifecycle_watch :: proc "c" (userdata: rawptr, e: ^sdl.Event) -> bool {
 	w := cast(^Lifecycle_Watch)userdata
 	context = w.ctx
 	#partial switch e.type {
+	case .LOW_MEMORY:
+		// Old steps go at the next frame with nothing under way (history_low_memory).
+		w.app.memory_low = true
+		log.warn("lifecycle: the system says memory is low")
 	case .DID_ENTER_BACKGROUND:
 		app_background(w.app)
 	case .DID_ENTER_FOREGROUND:

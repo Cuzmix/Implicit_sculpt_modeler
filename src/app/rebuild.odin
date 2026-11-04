@@ -339,7 +339,8 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 kit_remesh_density :: proc(app: ^App, obj: ^Object, label: string) {
 	ctx := &app.kit.ctx
 	if app.ui.remesh_by == .Vertices {
-		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+		// The slider stops at Largest remesh (Settings > Performance > Mesh size).
+		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, i32(mesh_remesh_most(app)))
 		return
 	}
 	mm := &app.ui.remesh_cell_mm

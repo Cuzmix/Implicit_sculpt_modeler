@@ -136,8 +136,8 @@ skin_apply_refusal :: proc(obj: ^Object) -> string {
 	case len(levels.levels) + steps > sculpt.MAX_LEVELS: return fmt.tprintf("Apply adds %d levels and the object has room for %d.", steps, sculpt.MAX_LEVELS - len(levels.levels))
 	case levels.rule != .Loop: return "Apply builds Loop levels, and this object subdivides as Catmull-Clark."
 	}
-	if _, _, bytes := sculpt.levels_skin_apply_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
-		return fmt.tprintf("Apply would need about %s; the limit is %s.", bytes_label(bytes), bytes_label(MAX_SUBDIVIDE_BYTES))
+	if _, _, bytes := sculpt.levels_skin_apply_estimate(levels); bytes > mesh_bytes_most() {
+		return fmt.tprintf("Apply would need about %s; the limit is %s.", bytes_label(bytes), bytes_label(mesh_bytes_most()))
 	}
 	return ""
 }
