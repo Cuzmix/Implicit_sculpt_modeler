@@ -4,7 +4,9 @@ name: iPad build
 # on the iPad, or with "testflight" ticked a store build signed with the distribution
 # certificate and sent to App Store Connect for TestFlight (README "iPad", the secrets it
 # names). It runs only when started by hand (Actions > iPad build > Run workflow), so the
-# macOS minutes a private repository pays for go only to builds someone asked for.
+# macOS minutes a private repository pays for go only to builds someone asked for. The
+# app's Odin side compiles on Linux into one object (`object`), where Odin's pinned release
+# runs and a minute costs a tenth of a Mac's; the Mac only links and packages it (`ipa`).
 on:
   workflow_dispatch:
     inputs:
@@ -21,8 +23,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  object:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pins
+        run: grep -E '^ODIN_TAG=' scripts/versions.env >> "$GITHUB_ENV"
+
+      - name: Odin, the pinned release
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/odin.tar.gz" \
+            "https://github.com/odin-lang/Odin/releases/download/$ODIN_TAG/odin-linux-amd64-$ODIN_TAG.tar.gz"
+          mkdir -p deps
+          tar -xzf "$RUNNER_TEMP/odin.tar.gz" -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP"/odin-linux-amd64-* deps/odin
+          deps/odin/odin version
+
+      - name: The app for the iPad, as one object
+        env:
+          # A developer build unless it goes to TestFlight: Input diagnostics is reachable
+          # (README "Input diagnostics"), and its reports name the commit. A store build
+          # never is one, which build.sh ios refuses to sign.
+          SCULPT_DIAGNOSTICS: ${{ inputs.testflight && '0' || '1' }}
+        run: SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh iphonecheck
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sculpt-ios-object
+          path: build/ios/sculpt.o
+          if-no-files-found: error
+          retention-days: 1
+
   ipa:
-    runs-on: macos-26
+    needs: object
+    # A store build needs Apple's newest SDK and stays on the Apple-silicon image. A plain
+    # build takes GitHub's Intel Macs, with the same macOS 26 and Xcode 26: they are a pool
+    # apart from the Apple-silicon ones, which can be too few to start a job at all ("The
+    # job was not acquired by Runner"). It runs no Odin, which has no Intel Mac release.
+    runs-on: ${{ inputs.testflight && 'macos-26' || 'macos-26-intel' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +72,14 @@ jobs:
           grep -E '^(ODIN|SDL|UFBX)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
           grep -E '^IOS_MIN=' build.sh >> "$GITHUB_ENV"
 
+      - name: The app's object, from Linux
+        uses: actions/download-artifact@v4
+        with:
+          name: sculpt-ios-object
+          path: ${{ runner.temp }}/object
+
+      # Only for the sources it holds (vendor/stb, which build.sh ios compiles): its Odin is
+      # Apple silicon's, and the object came from Linux.
       - name: Odin, the pinned release
         run: |
           curl -fsSL -o "$RUNNER_TEMP/odin.tar.gz" \
@@ -69,10 +117,8 @@ jobs:
         if: ${{ !inputs.testflight }}
         env:
           BUILD_NUMBER: ${{ github.run_number }}
-          # A developer build: Input diagnostics is reachable (README "Input diagnostics"),
-          # and its reports name the commit.
-          SCULPT_DIAGNOSTICS: "1"
-        run: SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh ios
+          SCULPT_IOS_OBJECT: ${{ runner.temp }}/object/sculpt.o
+        run: ./build.sh ios
 
       # The store build: the distribution certificate goes into a keychain of the run's own,
       # deleted with the runner, and the profile and API key into files of the run's temp
@@ -115,8 +161,9 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          SCULPT_IOS_OBJECT: ${{ runner.temp }}/object/sculpt.o
         run: |
-          SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh ios
+          ./build.sh ios
           ./build.sh iosupload
 
       - uses: actions/upload-artifact@v4
