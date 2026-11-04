@@ -27,7 +27,7 @@ Vk_Pass :: enum u8 {
 
 Vk_Uniform_Block :: struct {
 	buffer: vk.Buffer,
-	memory: vk.DeviceMemory,
+	memory: Vk_Memory,
 	mapped: [^]u8,
 }
 
@@ -206,7 +206,7 @@ vk_cmd_free :: proc(cmd: ^Vk_Cmd) {
 	for pool in cmd.pools do vk.DestroyDescriptorPool(vk_state.device, pool, nil)
 	for block in cmd.blocks {
 		vk.DestroyBuffer(vk_state.device, block.buffer, nil)
-		vk.FreeMemory(vk_state.device, block.memory, nil)
+		vk_memory_give(block.memory)
 		free(block)
 	}
 	vk.FreeCommandBuffers(vk_state.device, vk_state.command_pool, 1, &cmd.cb)
@@ -568,14 +568,13 @@ vk_uniform_space :: proc(cmd: ^Vk_Cmd, size: u32) -> (^Vk_Uniform_Block, u32) {
 			vk.GetBufferMemoryRequirements(vk_state.device, block.buffer, &reqs)
 			ok: bool
 			block.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {.DEVICE_LOCAL})
-			data: rawptr
-			if !ok || vk.BindBufferMemory(vk_state.device, block.buffer, block.memory, 0) != .SUCCESS || vk.MapMemory(vk_state.device, block.memory, 0, vk.DeviceSize(vk.WHOLE_SIZE), {}, &data) != .SUCCESS {
+			if !ok || block.memory.mapped == nil || vk.BindBufferMemory(vk_state.device, block.buffer, block.memory.memory, block.memory.offset) != .SUCCESS {
 				vk.DestroyBuffer(vk_state.device, block.buffer, nil)
-				if block.memory != 0 do vk.FreeMemory(vk_state.device, block.memory, nil)
+				vk_memory_give(block.memory)
 				free(block)
 				return nil, 0
 			}
-			block.mapped = ([^]u8)(data)
+			block.mapped = block.memory.mapped
 			append(&cmd.blocks, block)
 		}
 		cmd.blocks_used += 1

@@ -463,6 +463,7 @@ vk_destroy_device :: proc() {
 	delete(vk_state.set_layouts)
 	vk_timing_destroy()
 	vk_accel_destroy()
+	vk_memory_destroy()
 	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
 	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
 	if vk_state.compute_timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.compute_timeline, nil)
@@ -539,21 +540,14 @@ vk_memory_type :: proc(bits: u32, want, prefer: vk.MemoryPropertyFlags) -> (u32,
 	return 0, false
 }
 
-vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryPropertyFlags, device_address := false) -> (vk.DeviceMemory, bool) {
+// Memory for `reqs` of a type with every property in `want`, preferring `prefer`
+// (vk_memory.odin): `device_address` for a buffer whose address a shader or an acceleration
+// structure build reads, which the memory must allow, `image` for an image's, and `dedicated`
+// for memory of its own.
+vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryPropertyFlags, device_address := false, image := false, dedicated := false) -> (Vk_Memory, bool) {
 	index, ok := vk_memory_type(reqs.memoryTypeBits, want, prefer)
-	if !ok do return 0, false
-	return vk_allocate_type(reqs.size, index, device_address)
-}
-
-// Memory of one type; `device_address` for a buffer whose address a shader or an
-// acceleration structure build reads, which the memory must allow.
-vk_allocate_type :: proc(size: vk.DeviceSize, index: u32, device_address: bool) -> (vk.DeviceMemory, bool) {
-	flags := vk.MemoryAllocateFlagsInfo{sType = .MEMORY_ALLOCATE_FLAGS_INFO, flags = {.DEVICE_ADDRESS}}
-	info := vk.MemoryAllocateInfo{sType = .MEMORY_ALLOCATE_INFO, pNext = &flags if device_address else nil, allocationSize = size, memoryTypeIndex = index}
-	memory: vk.DeviceMemory
-	if vk.AllocateMemory(vk_state.device, &info, nil, &memory) != .SUCCESS do return 0, false
-	count_allocation(i64(size))
-	return memory, true
+	if !ok do return {}, false
+	return vk_memory_take(reqs, index, device_address, image, dedicated)
 }
 
 // Records the GPU's progress on both queues and recycles the command buffers it has

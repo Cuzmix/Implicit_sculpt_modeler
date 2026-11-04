@@ -25,7 +25,7 @@ Vk_Host :: enum u8 {
 
 Vk_Buffer_Backing :: struct {
 	buffer: vk.Buffer,
-	memory: vk.DeviceMemory,
+	memory: Vk_Memory,
 	mapped: [^]u8,
 	refs:   i32,
 	stamp:  u64,
@@ -46,7 +46,7 @@ Vk_Buffer :: struct {
 
 Vk_Image :: struct {
 	image:       vk.Image,
-	memory:      vk.DeviceMemory,
+	memory:      Vk_Memory,
 	view:        vk.ImageView,   // every level, for sampling; 0 for textures never sampled
 	level_views: []vk.ImageView, // one per level, for render targets and storage writes
 	refs:        i32,
@@ -239,21 +239,21 @@ vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
 		// Exactly the type caps chose, never another that happens to match its flags on a
 		// smaller heap.
 		if vk_state.shared_buffers && reqs.memoryTypeBits & (1 << vk_state.shared_type) != 0 {
-			backing.memory, ok = vk_allocate_type(reqs.size, vk_state.shared_type, address)
+			backing.memory, ok = vk_memory_take(reqs, vk_state.shared_type, address, false)
 		}
 	}
 	if !ok && host == .None do backing.memory, ok = vk_allocate(reqs, {}, {}, address)
-	if !ok || vk.BindBufferMemory(vk_state.device, backing.buffer, backing.memory, 0) != .SUCCESS {
+	if !ok || vk.BindBufferMemory(vk_state.device, backing.buffer, backing.memory.memory, backing.memory.offset) != .SUCCESS {
 		vk_buffer_backing_destroy(backing)
 		return nil
 	}
 	if host != .None {
-		data: rawptr
-		if vk.MapMemory(vk_state.device, backing.memory, 0, vk.DeviceSize(vk.WHOLE_SIZE), {}, &data) != .SUCCESS {
+		// Every host type is host-visible, so its block is mapped already.
+		if backing.memory.mapped == nil {
 			vk_buffer_backing_destroy(backing)
 			return nil
 		}
-		backing.mapped = ([^]u8)(data)
+		backing.mapped = backing.memory.mapped
 	}
 	vk_name(.BUFFER, u64(backing.buffer), b.name)
 	append(&b.backings, backing)
@@ -263,7 +263,7 @@ vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
 @(private = "file")
 vk_buffer_backing_destroy :: proc(backing: ^Vk_Buffer_Backing) {
 	if backing.buffer != 0 do vk.DestroyBuffer(vk_state.device, backing.buffer, nil)
-	if backing.memory != 0 do vk.FreeMemory(vk_state.device, backing.memory, nil)
+	vk_memory_give(backing.memory)
 	free(backing)
 }
 
@@ -333,12 +333,11 @@ vk_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc, accel_input := false)
 	return b, b.active.mapped
 }
 
-// Ends a mapped buffer's fill: the mapping goes, so nothing writes the buffer after the
-// GPU may have begun to read it.
+// Ends a mapped buffer's fill: the buffer forgets its mapping (its block stays mapped for
+// its neighbours), so nothing writes the buffer after the GPU may have begun to read it.
 vk_buffer_filled :: proc(buffer: Buffer) {
 	b := (^Vk_Buffer)(object(buffer))
 	if b == nil || b.active.mapped == nil || b.host != .Shared do return
-	vk.UnmapMemory(vk_state.device, b.active.memory)
 	b.active.mapped = nil
 }
 
@@ -449,8 +448,9 @@ vk_image_backing_make :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) -> ^Vk_Image {
 	reqs: vk.MemoryRequirements
 	vk.GetImageMemoryRequirements(vk_state.device, img.image, &reqs)
 	ok: bool
-	img.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {.LAZILY_ALLOCATED} if t.transient else {})
-	if !ok || vk.BindImageMemory(vk_state.device, img.image, img.memory, 0) != .SUCCESS {
+	// A transient attachment's lazily allocated memory is its own: it may take none at all.
+	img.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {.LAZILY_ALLOCATED} if t.transient else {}, image = true, dedicated = t.transient)
+	if !ok || vk.BindImageMemory(vk_state.device, img.image, img.memory.memory, img.memory.offset) != .SUCCESS {
 		vk_image_backing_destroy(img)
 		return nil
 	}
@@ -484,7 +484,7 @@ vk_image_backing_destroy :: proc(img: ^Vk_Image) {
 	delete(img.level_views)
 	if img.view != 0 do vk.DestroyImageView(vk_state.device, img.view, nil)
 	if img.image != 0 do vk.DestroyImage(vk_state.device, img.image, nil)
-	if img.memory != 0 do vk.FreeMemory(vk_state.device, img.memory, nil)
+	vk_memory_give(img.memory)
 	free(img)
 }
 

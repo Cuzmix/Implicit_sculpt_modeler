@@ -8,8 +8,8 @@ import "core:time"
 // steps are measured against (notes/gpu-own-model/design.md, G0). Recording time is the CPU
 // time from acquiring a command buffer to submitting or cancelling it, so it counts what the
 // app records into it as well as the seam's own work. Whole-GPU waits and waits on a ticket
-// not yet done are the CPU's stalls on the GPU; memory allocations (Vulkan) are what a
-// suballocator would fold into a few blocks.
+// not yet done are the CPU's stalls on the GPU; memory allocations (Vulkan) are the blocks
+// resources share and large resources' own memory (vk_memory.odin).
 Counters :: struct {
 	command_buffers: int,
 	encode_ns:       i64,

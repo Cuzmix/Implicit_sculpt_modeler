@@ -8,7 +8,9 @@ only ones, Metal on Darwin, WebGPU in a browser and Vulkan everywhere else, chos
 - The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) was written to mirror
   SDL_GPU's own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
-  that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
+  that passes leave and restore, cycling by backings, deferred destruction by refcount, memory suballocated from shared
+  blocks (`vk_memory.odin`: `vk_allocate` returns a `Vk_Memory`, bind at its `offset`, never map or free it yourself: a
+  host-visible block is mapped once and `Vk_Memory.mapped` points into it, `vk_memory_give` returns it), a flipped viewport, dynamic
   rendering and a timeline semaphore whose serials are the tickets' values. It needs Vulkan 1.3 with dynamicRendering,
   synchronization2, timelineSemaphore and independentBlend (the Android manifest asks for 1.3 too); without them
   `renderer_init` returns false with the reason in `render.backend_error`, and the app shows it in the system's
