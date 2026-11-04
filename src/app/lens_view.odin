@@ -50,9 +50,19 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 		if r.x + r.w * 0.5 < mid do lo.x = max(lo.x, r.x + r.w + 8)
 		else do hi.x = min(hi.x, r.x - 8)
 	}
-	// A floating bar stands over the view rather than down a side; the shelf is the
-	// bottom's, above.
-	for b in Dock_Id do if b != .Shelf && dock_edge(k, b) != .Float do side(ui.prev_rect(ctx, DOCK_ROOTS[b]), mid, &lo, &hi)
+	// A floating bar stands over the view rather than down a side; the shelf at the bottom
+	// is counted above, and a row on the top or the bottom edge takes its height off there.
+	for b in Dock_Id {
+		if b == .Shelf && dock_edge(k, b) == .Bottom do continue
+		if !dock_shown(k, b) do continue
+		r := ui.prev_root_rect(ctx, DOCK_ROOTS[b])
+		switch dock_edge(k, b) {
+		case .Float:
+		case .Top:    if r.h > 0 do lo.y = max(lo.y, r.y + r.h + 8)
+		case .Bottom: if r.h > 0 do hi.y = min(hi.y, r.y - 8)
+		case .Default, .Left, .Right: side(r, mid, &lo, &hi)
+		}
+	}
 	// A card pinned in a column stays, so the view keeps clear of it.
 	for s in Column_Side do side(column_rest_rect(app, s), mid, &lo, &hi)
 	// A panel shown last frame and tall enough to stand down a side.

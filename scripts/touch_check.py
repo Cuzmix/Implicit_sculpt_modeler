@@ -4017,9 +4017,10 @@ def lens_shelf_shows_every_tile_it_adds():
     tablet = ["--width=1180", "--height=820"]
     # The tablet's palm-safe row holds twelve at the narrowest, so a thirteenth is refused
     # there; a desktop window, or the tablet with Keep the shelf clear of the palm off, shows
-    # it (a page holds up to 24).
-    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 13, 24),
-                  run(tablet + ["--script=set shelf_palm 0"], 1, 13, 18)])
+    # it (a page holds up to 24; the shelf's grip takes a tile's room from 24 at 1440 points
+    # and 18 on the tablet).
+    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 13, 23),
+                  run(tablet + ["--script=set shelf_palm 0"], 1, 13, 17)])
 
 
 # At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
@@ -5774,7 +5775,8 @@ def lens_arrange_drags_the_rail_to_the_left():
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
-SHELF_TAG = (300, 796)
+# The shelf's grip at 1440x900 while editing docks, where its Add tile moves it in.
+SHELF_TAG = (267, 833)
 
 
 def dock_centre_x(v):
@@ -5821,7 +5823,7 @@ def lens_arrange_floats_the_shelf():
                                                                              "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
                                                                              "dabs": near(0)})
         # Wider where it floats, the shelf was kept in the window, its head with it.
-        s.ftap(At("arrange tag Shelf/Shelf", 600, 700))
+        s.ftap(At("dock/Move Shelf", 600, 700))
         s.wait(6)
         s.ftap(a["dock_reset"])
         s.wait(6)
@@ -5837,7 +5839,7 @@ def lens_arrange_floats_the_island():
     def run(reset):
         s = Script()
         s.wait(6)
-        tag = At("arrange tag Offhand/Brush bar", 44, 338)
+        tag = At("brush bar/Move Brush bar", 39, 343)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
         if not reset:
@@ -5877,7 +5879,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
     """Left-handed in portrait, the pen drags the Shelf tag to the screen's bottom right: the shelf stands at the layout's start end of the bottom, which is the screen's right, still clear of the dial in that corner."""
     s = Script()
     s.wait(6)
-    x0, y0 = 240, 1176
+    x0, y0 = 186, 1210
     s.add("pnear")
     s.add(f"pdown:{x0},{y0}")
     for x, y in line((x0, y0), (700, 1250), 30)[1:]:
@@ -5928,7 +5930,7 @@ def dock_made(s):
 
 
 # The new dock's head, over its top-left.
-DOCK_ONE_TAG = (680, 386)
+DOCK_ONE_TAG = (721, 397)
 # A dock's ⋯ and its menu's More lines.
 DOCK_ONE_MORE, DOCK_MORE_LINES = At("user dock 1/More", 800, 440), At("More lines", 900, 440)
 
@@ -5959,7 +5961,7 @@ def dock_lines_then_delete():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:0"), "dock_looks": lambda v: ",dock1:2:" in v, "bar_pop": is_text("dock_menu"), "dabs": near(0)})
         s.press("escape")
         s.wait(4)
-        s.ftap(At("arrange tag Dock_1/Dock 1", 848, 386))
+        s.ftap(At("user dock 1/Move Dock 1", 848, 386))
         s.wait(6)
         s.ftap(LENS_ARRANGE["dock_delete"])
         s.wait(6)
@@ -6009,6 +6011,38 @@ def dock_grip_carries_it_without_edit_docks():
     return Steps([run(False), run(True)])
 
 
+# The shelf's grip at 1440x900, at its start.
+SHELF_GRIP = At("dock/Move Shelf", 300, 833)
+
+
+@scenario
+def dock_on_the_top_edge_is_a_row():
+    """A finger drags the view rail's grip under the top bar: the rail stands on the top edge as a row, its buttons side by side, and nothing is sculpted."""
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(RAIL_GRIP, (720, 110), 30))
+    s.wait(8)
+    return s, LENS_1440, camera_still({"dock_places": lambda v: ",rail:top:" in v, "bar_carries": near(1), "dabs": near(0),
+                                       "layout_view_bar": lambda v: float(v.split(",")[2]) > 3 * float(v.split(",")[3])})
+
+
+@scenario
+def shelf_grip_moves_it_to_the_top():
+    """A finger drags the shelf's grip up under the top bar: the shelf stands along the top, its page names under it; dragged back down to the middle it is where it comes again."""
+    def run(back):
+        s = Script()
+        s.wait(6)
+        s.fdrag(line(SHELF_GRIP, (300, 100), 30))
+        s.wait(8)
+        if not back:
+            return s, LENS_1440, camera_still({"dock_places": lambda v: ",shelf:top:" in v, "dabs": near(0), "layout_dock": lambda v: float(v.split(",")[1]) < 120})
+        s.fdrag(line(At("dock/Move Shelf", 300, 90), (300, 860), 30))
+        s.wait(8)
+        # Let go near the bottom's middle, it is back where it comes.
+        return s, LENS_1440, camera_still({"dock_places": lambda v: v.endswith(",shelf:default"), "dabs": near(0), "layout_dock": lambda v: float(v.split(",")[1]) > 700})
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def dock_corner_adds_lines_without_edit_docks():
     """Outside Edit docks a finger drags the Brush bar's faint corner one line's width toward the middle: the bar stands in two lines and nothing is sculpted."""
@@ -6040,7 +6074,7 @@ def dock_floats_in_line_with_its_neighbour():
     """The mouse carries a new dock's head to float with its top a few points off the Brush bar's: it lets go lined up with it."""
     s = Script()
     dock_made(s)
-    s.mouse_drag(line(DOCK_ONE_TAG, (500, 342), 30))
+    s.mouse_drag(line(DOCK_ONE_TAG, (541, 349), 30))
     s.wait(6)
     return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_aligns": near(1), "dock_places": lambda v: ",dock1:float:" in v, "dabs": near(0)})
 
@@ -13054,8 +13088,9 @@ def rebuild_density_shows_the_cells():
 # Remesh's quick menu (kit_remesh_quick, rebuild.odin), a long press on the shelf's Remesh
 # at 1600x900: Density's track, its Half / Same / Double, the Remesh button and More
 # options.
-REMESH_QUICK = {"density": (1060, 590), "half": (989, 637), "same": (1084, 637), "double": (1178, 637),
-                "remesh": (1084, 715), "more": (1023, 767)}
+REMESH_QUICK = {"density": At("bar remesh/Density", 1060, 576), "half": At("bar remesh/remesh quick steps/Half", 1037, 632),
+                "same": At("bar remesh/remesh quick steps/Same", 1131, 632), "double": At("bar remesh/remesh quick steps/Double", 1226, 632),
+                "remesh": At("bar remesh/quick", 1131, 710), "more": At("bar remesh/More options", 1131, 762)}
 
 
 @scenario

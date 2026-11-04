@@ -1489,7 +1489,7 @@ kit_layout :: proc(app: ^App) {
 	// the sheet that is open, then what floats from it.
 	kit_sheets(app)
 	// The Library, over the shelf, or under the menu while the shelf is hidden.
-	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) else .Above_Center)
+	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) || dock_side(app, .Shelf) == .Below else .Above_Center)
 	kit_shelf_quick(app)
 	kit_shelf_page_menu(app)
 	kit_arrange_ghosts(app)

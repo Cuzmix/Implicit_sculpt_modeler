@@ -27,8 +27,8 @@ Arrange_State :: struct {
 	carry_from:  ui.Rect,
 	carry_press: [2]f32,
 	carrying:    bool,
-	// The control that took the press (the dock's grip or Arrange's head), so the other
-	// one, which also follows the dock each frame, leaves its carry alone.
+	// The grip that took the press, so another dock's grip, which also follows each frame,
+	// leaves the carry alone.
 	carry_by:    ui.Id,
 	carries:     int, // docks let go (for the exit stats)
 	// The dock whose corner is dragged, its lines at the press and where the press was,
@@ -46,23 +46,6 @@ Arrange_State :: struct {
 	// The person's docks made and deleted (for the exit stats).
 	docks_made:    int,
 	docks_deleted: int,
-}
-
-// The dock's head: its title, with the shelf's page and how many buttons it holds.
-@(private = "file")
-arrange_dock_tag :: proc(app: ^App, d: Dock_Id) -> string {
-	k := &app.kit
-	#partial switch d {
-	case .Shelf:
-		// Counted among the pages the space shows.
-		pages := shelf_pages(k, k.spaces.current)
-		at := 1
-		for p, i in pages do if p == k.shelf.page do at = i + 1
-		return fmt.tprintf("Shelf · %s · %d of %d", shelf_page_name(k, k.shelf.page), at, len(pages))
-	case .Offhand:
-		return DOCK_TITLES[d]
-	}
-	return fmt.tprintf("%s · %d", DOCK_TITLES[d], len(bar_used(app, dock_which(k, d))))
 }
 
 // Whether Put back as it comes has anything to put back for dock `d`: the brush bar only
@@ -166,9 +149,9 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 ARRANGE_DRAW_TIME :: 0.22
 ARRANGE_DRAW_STAGGER :: 0.025
 
-// Every shown dock's faint resize corner, and the outline, edge strips and lining up of a
-// dock carried by its grip. While editing docks each dock also shows its outline and head,
-// and its corner in the accent.
+// Every shown dock's resize corner, and the outline, edge strips and lining up of a dock
+// carried by its grip. While editing docks each dock also shows its outline, and its corner
+// is in the accent rather than faint.
 kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
 	if !k.bars_edit do k.arrange.was_on = false
@@ -178,9 +161,8 @@ kit_arrange_lens :: proc(app: ^App) {
 	}
 	ctx := &k.ctx
 	t := ctx.theme
-	top := kit_top() - 12
 	area := ui.safe_area(ctx)
-	// A carry whose dock went away under it (hidden, or Edit docks left mid-drag) ends with
+	// A carry whose dock went away under it (hidden, or a layout put in mid-drag) ends with
 	// the press, as nothing else would see the release.
 	if c, ok := k.arrange.carry.?; ok && !dock_shown(k, c) && .Left not_in ctx.input.down do k.arrange.carry, k.arrange.carrying = nil, false
 	carried, carrying := k.arrange.carry.?
@@ -197,16 +179,14 @@ kit_arrange_lens :: proc(app: ^App) {
 			moved, lines := arrange_carry_box(app, d, ctx.input.mouse)
 			align_lines = lines
 			box = {moved.x - 4, moved.y - 4, moved.w + 8, moved.h + 8}
+			ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent, 2)
+			continue
 		}
-		// On a dock in the window's end half the head ends at the outline's end corner, so
-		// it stays in the window, and the corner faces the middle; the shelf's head always
-		// starts at its start, its corner at its end.
-		end_half := d != .Shelf && box.x + box.w * 0.5 > area.x + area.w * 0.5
+		// The corner faces the view's middle: a column's on its side toward it, a row's on
+		// its end, toward the middle up or down.
+		end_half := !dock_row(k, d) && box.x + box.w * 0.5 > area.x + area.w * 0.5
 		if !k.bars_edit {
-			// Outside Edit docks the shelf keeps its place, and only a carried dock is outlined.
-			if d == .Shelf do continue
-			if carrying && d == carried do ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent, 2)
-			else do arrange_resize_corner(app, d, box, !end_half, faint = true)
+			arrange_resize_corner(app, d, box, !end_half, faint = true)
 			continue
 		}
 		// Each outline draws in as editing starts, one dock a moment after another: it fades
@@ -215,26 +195,7 @@ kit_arrange_lens :: proc(app: ^App) {
 		draw := ui.tween_from(ctx, ui.salt(ui.hash_under(0, "arrange outline"), u64(d) + 64 * u64(k.arrange.openings)), 0, 1, ARRANGE_DRAW_TIME, .Linear, ARRANGE_DRAW_STAGGER * f32(d), motion_class(.Arrange))
 		menu := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == d
 		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if menu else ui.color_fade(t.accent, 0.5), 2 if menu else 1)
-		// The head at the outline's top left, kept under the top bar: a second grip that
-		// carries the dock and names it, a tap on which opens its menu.
-		tag := arrange_dock_tag(app, d)
-		tw := ui.text_width(ctx, tag, t.small_size, .Semibold) + 30
-		at := [2]f32{box.x + 6, max(box.y - 11, top)}
-		if end_half do at.x = box.x + box.w - 6 - tw
-		at.x = clamp(at.x, area.x + 2, max(area.x + area.w - tw - 2, area.x + 2))
-		ui.begin_at(ctx, fmt.tprintf("arrange tag %v", d), at, {direction = .Row})
-		a := ui.area(ctx, fmt.tprintf("%s##arrange tag", DOCK_TITLES[d]), {tw, 22})
-		ui.fill_rect(ctx, a.rect, t.radius_medium, t.accent if menu else t.surface_raised)
-		ui.stroke_rect(ctx, a.rect, t.radius_medium, ui.color_fade(t.accent, 0.7), 1)
-		ink := t.frame if menu else t.accent
-		ui.icon(ctx, ui.ICON_GRIP, {a.rect.x + 11, a.rect.y + a.rect.h * 0.5}, 14, ink)
-		ui.text(ctx, tag, a.rect.x + 22, a.rect.y + a.rect.h * 0.5, t.small_size, ink, .Semibold)
-		ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to move %s to an edge or anywhere; tap for its lines, names and reset", DOCK_TITLES[d]))
-		was_carrying := carrying && d == carried
-		arrange_carry_follow(app, d, r, a)
-		if a.clicked && !was_carrying do dock_menu_toggle(app, d, a.rect)
-		ui.end(ctx)
-		if !(carrying && d == carried) do arrange_resize_corner(app, d, box, !end_half)
+		arrange_resize_corner(app, d, box, !end_half)
 		if draw < 1 {
 			e := ui.ease(.Out_Cubic, draw)
 			ui.transform_since(ctx, mark, e, 1.03 - 0.03 * e, {box.x + box.w * 0.5, box.y + box.h * 0.5})
@@ -259,8 +220,7 @@ arrange_carry_box :: proc(app: ^App, b: Dock_Id, p: [2]f32) -> (box: ui.Rect, li
 
 // Follows a press on dock `b`'s head `a` (its outline `r`): past the slop it carries the
 // dock, and let go it puts the dock where it was dropped (dock_drop), lined up with its
-// neighbours where it floats. Both a dock's own grip (dock_grip) and Arrange's head carry
-// a dock this way.
+// neighbours where it floats. A dock's grip (dock_grip) carries it this way.
 arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -303,7 +263,10 @@ arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, 
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	up := d == .Shelf
+	// A row's corner stands on its edge facing the middle: the top of a bottom row, the
+	// foot of a top one; its drag adds rows toward the middle.
+	row := dock_row(k, d)
+	up := row && dock_edge(k, d) != .Top
 	cx := box.x + box.w - DOCK_CORNER + 6 if right else box.x - 6
 	cy := box.y - 6 if up else box.y + box.h - DOCK_CORNER + 6
 	ui.begin_at(ctx, fmt.tprintf("dock corner %v", d), {cx, cy}, {direction = .Row})
@@ -319,9 +282,9 @@ arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, 
 	if dragged, ok := s.resize.?; ok && dragged == d {
 		active = a.held
 		// A line is a column's width across a side dock and a row of tiles up the shelf.
-		cell := max(box.w - 14, t.target) / f32(lines) if !up else max(box.h - 14, t.target) / f32(lines)
+		cell := max(box.w - 14, t.target) / f32(lines) if !row else max(box.h - 14, t.target) / f32(lines)
 		delta := (a.mouse.x - s.resize_press.x) * (1 if right else -1)
-		if up do delta = s.resize_press.y - a.mouse.y
+		if row do delta = (s.resize_press.y - a.mouse.y) if up else (a.mouse.y - s.resize_press.y)
 		want := clamp(s.resize_lines + int(math.round(delta / cell)), 1, dock_lines_most(d))
 		if a.held && want != lines do k.docks[d].more_lines = u8(want - 1)
 		if !a.held {
@@ -341,11 +304,11 @@ arrange_resize_corner :: proc(app: ^App, d: Dock_Id, box: ui.Rect, right: bool, 
 	lit := active || a.hovered
 	ink := t.accent if !faint || lit else ui.color_fade(t.text_tertiary, 0.35)
 	ui.polyline(ctx, pts[:], ink, 3.5 if lit else (2 if faint else 2.5))
-	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if up else "lines"))
+	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to give %s more or fewer %s", DOCK_TITLES[d], "rows" if row else "lines"))
 }
 
-// While bar `b` is carried: the edges it may go on as strips down the window's sides (or
-// along its bottom for the shelf), the one the pointer is near lit.
+// While dock `b` is carried: the edges it may go on as strips down the window's sides and
+// along the top (under the top bar) and the bottom, the one the pointer is nearest lit.
 @(private = "file")
 arrange_drop_edges :: proc(app: ^App, b: Dock_Id) {
 	k := &app.kit
@@ -353,21 +316,22 @@ arrange_drop_edges :: proc(app: ^App, b: Dock_Id) {
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	m := ctx.input.mouse
-	if b == .Shelf {
-		lo, hi := shelf_across(app)
-		x0, x1 := area.x + lo, area.x + hi
-		if ctx.mirror do x0, x1 = area.x + area.w - hi, area.x + area.w - lo
-		near := m.y > area.y + area.h - DOCK_REACH
-		ui.fill_rect(ctx, {x0, area.y + area.h - 8, x1 - x0, 6}, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
-		return
-	}
-	for edge in ([]Dock_Edge{.Left, .Right}) {
-		lo, hi := dock_room(app, edge)
-		screen_left := (edge == .Left) != ctx.mirror
-		x := area.x + 4 if screen_left else area.x + area.w - 10
-		near := m.x < area.x + DOCK_REACH if screen_left else m.x > area.x + area.w - DOCK_REACH
-		strip := ui.Rect{x, area.y + lo, 6, hi - lo}
-		ui.fill_rect(ctx, strip, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
+	near := dock_drop(app, b, {m.x, m.y, 1, 1}, m, -1e9).edge
+	lo, hi := shelf_across(app)
+	x0, x1 := area.x + lo, area.x + hi
+	if ctx.mirror do x0, x1 = area.x + area.w - hi, area.x + area.w - lo
+	for edge in dock_edges(b) {
+		strip: ui.Rect
+		switch edge {
+		case .Left, .Right:
+			top, bottom := dock_room(app, edge)
+			screen_left := (edge == .Left) != ctx.mirror
+			strip = {area.x + 4 if screen_left else area.x + area.w - 10, area.y + top, 6, bottom - top}
+		case .Top:    strip = {x0, area.y + TOP_BAR_H + 2, x1 - x0, 6}
+		case .Bottom: strip = {x0, area.y + area.h - 8, x1 - x0, 6}
+		case .Default, .Float: continue
+		}
+		ui.fill_rect(ctx, strip, 3, t.accent if near == edge || (near == .Default && edge == DOCK_HOME[b]) else ui.color_fade(t.accent, 0.35))
 	}
 }
 
