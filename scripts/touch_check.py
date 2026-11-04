@@ -13029,8 +13029,9 @@ def rebuild_density_shows_the_cells():
 # Remesh's quick menu (kit_remesh_quick, rebuild.odin), a long press on the shelf's Remesh
 # at 1600x900: Density's track, its Half / Same / Double, the Remesh button and More
 # options.
-REMESH_QUICK = {"density": (1060, 590), "half": (989, 637), "same": (1084, 637), "double": (1178, 637),
-                "remesh": (1084, 715), "more": (1023, 767)}
+REMESH_QUICK = {"density": At("bar remesh/Density", 1060, 576), "half": At("bar remesh/remesh quick steps/Half", 1037, 632),
+                "same": At("bar remesh/remesh quick steps/Same", 1131, 632), "double": At("bar remesh/remesh quick steps/Double", 1226, 632),
+                "remesh": At("bar remesh/quick", 1131, 710), "more": At("bar remesh/More options", 1131, 762)}
 
 
 @scenario
