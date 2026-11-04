@@ -338,7 +338,7 @@ MESH_AREA_FRAG :: gpu.Shader_Desc{
 Mesh_Area_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Area_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh_wire.frag.spv sha256 5e656c634b45494108f2ccc0f7efd209642545fde041abcf7c5f92cfff8e9e10
+// mesh_wire.frag.spv sha256 083725b1c1912aedf7b89ce4d85eb4407ee1abe23f15eacfa8963be578256f6e
 MESH_WIRE_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_wire.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
