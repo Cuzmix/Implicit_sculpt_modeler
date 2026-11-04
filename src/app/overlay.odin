@@ -665,7 +665,7 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		slot := pie_slot(app, 0, p.hover)
 		if slot.id != .None {
 			ui.text(ctx, ui.text_fit(ctx, shelf_label(app, slot), t.small_size, PIE_INNER * 2 - 8, .Semibold), c.x, c.y - 7, t.small_size, t.accent, .Semibold, .Center)
-			ui.text(ctx, "lift to pick" if p.hold || p.pressed_on > 0 else "tap to pick", c.x, c.y + 8, t.small_size - 1, t.text_tertiary, .Regular, .Center)
+			ui.text(ctx, "lift to pick" if p.hold || p.pressed_on > 0 else "tap to pick", c.x, c.y + 8, t.caption_size, t.text_tertiary, .Regular, .Center)
 		}
 	}
 	if p.hover >= 0 {

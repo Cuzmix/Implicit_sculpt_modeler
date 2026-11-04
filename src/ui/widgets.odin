@@ -309,14 +309,12 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // tabs and segmented controls alike. `item_width` 0 shares the column's fill width out
 // evenly, or fits each label. `accent` fills the marker with the accent (the tool in
 // use). Returns the option chosen this frame, or -1.
-// `tints`, when given, light the chosen option in its own colour (a soft fill and the
-// text in the colour), as the app's working spaces are told apart.
 // With `dragged`, the options are drag sources too, as a thumb_row with `drags` is: a mouse
 // drags one at once, a finger or the pen once it has held past the long press (so a swipe
 // still scrolls the panel round the row), and `dragged^` is the option carried past the
 // slop; a press that went further than the slop is no tap. `stacked` (with `glyphs`) puts
 // each option's icon over its name.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil, dragged: ^int = nil, stacked := false) -> int {
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, dragged: ^int = nil, stacked := false) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
@@ -354,16 +352,12 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		if clicked do picked = i
 		over ||= hovered
 		on := i == chosen
-		tinted := i < len(tints) && i < len(tints_soft)
 		// The chosen option has the one selected look every control shares, a soft fill
-		// with its ink in the accent and no outline; a space's tint takes the accent's place.
-		if on {
-			if tinted do indicator(ctx, r, t.radius_small + 1, tints_soft[i])
-			else do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.accent_soft)
-		}
+		// with its ink in the accent and no outline.
+		if on do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.accent_soft)
 		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time, class = MOTION_TABS)
 		_ = feedback(ctx, id, r, t.radius_small + 1, hovered && !on, held && !on)
-		lit := tints[i] if tinted else (t.on_accent if accent else t.accent)
+		lit := t.on_accent if accent else t.accent
 		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), lit, o)
 		x := r.x + r.w * 0.5
 		if has_glyph && stack {
@@ -926,10 +920,10 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	if !enabled do fg = disabled_ink(t)
 	x := vis.x + 10
 	glyph_color := fg if tone == .Danger || !enabled else t.text_secondary
-	if glyph != 0 && !trailing {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
-		x += t.icon_small + 10
-	}
+	// Every row keeps the icon's column, with an icon or without, so a menu's labels all
+	// start at one x.
+	if glyph != 0 && !trailing do icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	x += t.icon_small + 10
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
 	if starred {
 		after := x + text_width(ctx, shown, t.text_size) + 6 + t.icon_small * 0.35

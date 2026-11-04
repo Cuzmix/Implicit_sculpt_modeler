@@ -169,7 +169,7 @@ kit_panel_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	m := &k.panels
-	if !ui.popover_begin(ctx, "panel menu", &m.menu, m.menu_at, .Below, {direction = .Column, padding = 6, width = 248}) do return
+	if !ui.popover_begin(ctx, "panel menu", &m.menu, m.menu_at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ref := m.menu_of
 	w := panel_window(k, ref)

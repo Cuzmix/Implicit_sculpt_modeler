@@ -201,7 +201,7 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	ui.spacer(ctx, PAD)
 	words := ui.place(ctx, {size.x - 2 * PAD - button_w - 2 * 12, FOOT_H})
 	ui.text(ctx, "Continue" if kind != .Start else "Start sculpting", words.x, words.y + 22, t.small_size, t.text_secondary)
-	ui.text(ctx, ui.text_fit(ctx, name, t.heading_size * 1.5, words.w, .Semibold), words.x, words.y + 48, t.heading_size * 1.5, t.text, .Semibold)
+	ui.text(ctx, ui.text_fit(ctx, name, t.display_size, words.w, .Semibold), words.x, words.y + 48, t.display_size, t.text, .Semibold)
 	ui.text(ctx, ui.text_fit(ctx, line, t.small_size, words.w), words.x, words.y + 74, t.small_size, t.text_tertiary if tile.state == .Missing else t.text_secondary)
 	pressed := ui.button(ctx, fmt.tprintf("%s##home continue", label), .Solid, .Danger if armed else .Accent, width = button_w)
 	ui.end(ctx)

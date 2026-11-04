@@ -593,7 +593,7 @@ kit_macro_save :: proc(app: ^App) {
 		// Closed by Escape, Back or a tap elsewhere rather than Save: as Discard.
 		if m := &app.macro; len(m.entries) > 0 && !m.recording do macro_discard(app)
 	}
-	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = 4, padding = 12, width = 300}) do return
+	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	m := &app.macro
 	n := len(m.entries)

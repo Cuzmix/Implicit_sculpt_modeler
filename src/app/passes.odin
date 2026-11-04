@@ -233,7 +233,7 @@ kit_pass_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ps := &k.passes
-	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	lens_pass_menu(app)
 }

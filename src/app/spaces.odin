@@ -196,8 +196,9 @@ spaces_destroy :: proc(k: ^Kit_State) {
 
 // The space tabs, in the top bar's middle: a tap on another space switches to it (Ctrl+1
 // to 3 do too); a tap on the lit one, or on the chevron after them, opens the layout menu.
-// The lit tab is tinted with the space's colour; every tab whose layout differs from how
-// it ships carries the amber dot. Returns the width laid out.
+// The chosen tab has the one selected look, with the space's own colour as a dot at its
+// top left; every tab whose layout differs from how it ships carries the amber dot.
+// Returns the width laid out.
 top_space_tabs :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
@@ -206,17 +207,15 @@ top_space_tabs :: proc(app: ^App) -> f32 {
 	names: [len(Space)]string
 	glyphs: [len(Space)]rune
 	keys: [len(Space)]string
-	tints, soft: [len(Space)]ui.Color
 	for s in Space {
 		names[s] = SPACE_NAMES[s]
 		glyphs[s] = SPACE_ICONS[s]
 		keys[s] = command_hint(app, .Space_Switch, int(s))
-		tints[s], soft[s] = t.tints[int(s)], t.tints_soft[int(s)]
 	}
 	ui.begin(ctx, "space tabs", {direction = .Row, center = true, background = .Track, radius = t.radius_medium + 1.5})
 	start := ctx.last_rect.x
 	chosen := int(k.spaces.current)
-	picked := ui.tabs(ctx, "Spaces", names[:], chosen, glyphs = glyphs[:], keys = keys[:], tints = tints[:], tints_soft = soft[:])
+	picked := ui.tabs(ctx, "Spaces", names[:], chosen, glyphs = glyphs[:], keys = keys[:])
 	seg := ctx.last_rect
 	if picked >= 0 {
 		if picked == chosen {
@@ -230,7 +229,10 @@ top_space_tabs :: proc(app: ^App) -> f32 {
 	x := start + 3
 	for name, i in names {
 		sw := space_tab_width(ctx, name)
-		if i == chosen do w.menu_at = {x, seg.y, sw, seg.h}
+		if i == chosen {
+			w.menu_at = {x, seg.y, sw, seg.h}
+			ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[i])
+		}
 		if layout_changed(k, Space(i)) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}

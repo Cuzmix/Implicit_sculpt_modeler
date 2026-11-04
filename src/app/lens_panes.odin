@@ -237,7 +237,7 @@ kit_pane_menu :: proc(app: ^App) {
 	g := &k.grid
 	if m.open && (m.pane < 1 || m.pane >= grid_panes(g)) do m.open = false
 	// As wide as the main view's list, for Solid's tabs.
-	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
 	sv := grid_view(g, m.pane)

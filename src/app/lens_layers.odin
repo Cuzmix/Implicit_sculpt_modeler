@@ -354,7 +354,7 @@ kit_layer_menu :: proc(app: ^App) {
 		lp.menu = false
 		return
 	}
-	if !ui.popover_begin(ctx, "layer menu", &lp.menu, lp.menu_at, .Pointer if lp.menu_at.w <= 1 else .Above_Center, {direction = .Column, gap = 0, padding = 6, width = 280}) do return
+	if !ui.popover_begin(ctx, "layer menu", &lp.menu, lp.menu_at, .Pointer if lp.menu_at.w <= 1 else .Above_Center, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	l := &layers[i]
 	allowed := layers_allowed(obj)

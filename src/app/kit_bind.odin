@@ -53,7 +53,7 @@ kit_bind_popover :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	b := &k.bind
-	if !ui.popover_begin(ctx, "assign key", &b.open, b.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 340}) do return
+	if !ui.popover_begin(ctx, "assign key", &b.open, b.at, .Below, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
 	defer ui.popover_end(ctx)
 	if b.open && b.state != .Taken do bind_listen(app)
 
