@@ -34,9 +34,13 @@ Cross_Fade :: struct {
 	// What the main pane showed last frame, at what size: the source of the next still.
 	last:      render.Texture,
 	last_size: [2]u32,
+	// Held: the still stays whole over the view, the camera kept where it was, until a
+	// long job's new mesh is ready (cross_fade_unhold); the old object is gone meanwhile.
+	hold:      bool,
 	// For the exit stats.
 	looks:     int,
 	meshes:    int,
+	holds:     int,
 }
 
 // How long each fade runs: a look change is a glance, a new mesh a little longer, so the
@@ -79,6 +83,40 @@ cross_fade_start :: proc(app: ^App, kind: Motion_Kind) {
 	else do f.meshes += 1
 }
 
+// Holds last frame's picture of the main pane over the view, the camera still, so a long
+// job can let the old object go before its new mesh is ready (long_job_hold): false when
+// there is no picture to hold or something else drives the view, and the object stays.
+// Unlike a fade it holds with motion reduced too, since nothing moves while it holds.
+cross_fade_hold :: proc(app: ^App) -> bool {
+	f := &app.cross_fade
+	if app.kit.grid.work != 0 || turntable_recording(app) || timeline_busy(app) || replay_busy(app) do return false
+	if f.last == 0 || f.last_size != {app.target.width, app.target.height} || !cross_fade_source_alive(app, f.last) do return false
+	f.on, f.kind, f.at, f.copy, f.camera, f.hold = true, .Mesh_Fade, app.kit.ctx.time, true, app.camera, true
+	f.holds += 1
+	return true
+}
+
+// Once a frame while held, at the frame's start: the camera goes back to where the held
+// picture shows it, so a turn or a zoom does not move the view under it.
+cross_fade_hold_camera :: proc(app: ^App) {
+	if app.cross_fade.hold do app.camera = app.cross_fade.camera
+}
+
+// Ends the hold: the held picture fades out over the new mesh from now (`fade`, when it
+// is ready and that motion is on), or goes at once.
+cross_fade_unhold :: proc(app: ^App, fade: bool) {
+	f := &app.cross_fade
+	if !f.hold do return
+	f.hold = false
+	app.camera = f.camera
+	f.at = app.kit.ctx.time
+	if fade && ui.motion_duration(&app.kit.ctx, motion_class(.Mesh_Fade), 1) > 0 {
+		f.meshes += 1
+	} else {
+		f.on = false
+	}
+}
+
 // Whether `tex` is still a texture the viewport owns: the target's colour or one of the
 // pictures shown in its place. A switch turned off this frame may have released its own.
 @(private = "file")
@@ -92,6 +130,7 @@ cross_fade_source_alive :: proc(app: ^App, tex: render.Texture) -> bool {
 cross_fade_alpha :: proc(app: ^App) -> f32 {
 	f := &app.cross_fade
 	if !f.on do return 0
+	if f.hold do return 1
 	run := ui.motion_duration(&app.kit.ctx, motion_class(f.kind), LOOK_FADE_SECONDS if f.kind == .Look_Fade else MESH_FADE_SECONDS)
 	t := f32(app.kit.ctx.time - f.at) / max(run, 1e-6)
 	if run <= 0 || t >= 1 || t < 0 || f.camera != app.camera || app.kit.grid.work != 0 {

@@ -16,6 +16,7 @@ import "../jobs"
 import "../sculpt"
 import "../ui"
 import "../voxel"
+import "../render"
 import "../retopo"
 
 // Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
@@ -38,6 +39,14 @@ import "../retopo"
 // refused with a note. When it is done, the next frame's start rebuilds the object as the
 // command does when it runs at once, with the same undo step and report. Scripted runs
 // and small objects run at once as before, so their results and timings stay as they were.
+//
+// A remesh runs in two phases. Once the new mesh is computed, the thread waits while the
+// frame lets the old object go (long_job_hold): the view keeps its last picture, the camera
+// still, and a 12-vertex stand-in the size of a dot takes the object's place, so nothing
+// that reads the object finds it missing. The thread then makes the new mesh ready to
+// sculpt without the old one beside it, about 1.8 GB less at 15M, and the held picture
+// fades into it. An object whose old surface the rebuild still reads (sculpt layers, a
+// detail skin, a cage, dynamic topology) keeps the one phase, drawn throughout.
 
 // Below this many vertices a job is over too soon for a ring to say anything: it runs at
 // once, as before.
@@ -61,6 +70,16 @@ Long_Job :: struct {
 	// The thread's input (its own copy, for the jobs that read a mesh) and output.
 	input:      geom.Mesh,
 	borrowed:   bool, // `input` is the object's own level, read in place (Remesh), not a copy
+	// The two phases of a remesh: `two_phase` when the object may go before the result is
+	// ready; `computed_mesh` (atomic) once the thread waits on `resume` with the new mesh;
+	// `resumed` once the frame let it go on; `held` when the old object went meanwhile.
+	two_phase:     bool,
+	computed_mesh: bool,
+	resume:        sync.Sema,
+	resumed:       bool,
+	held:          bool,
+	sets_lost:     int, // the old object's selection sets, counted as it went, for the note
+	holds:         int,
 	area:       f64,
 	bounds:     geom.Aabb,
 	mesh:       geom.Mesh,
@@ -260,6 +279,8 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	// compacted into a copy first, as the commands read it. Quad Remesh works out normals
 	// on its input and Convert to voxels keeps to a copy as before.
 	j.borrowed = cmd.kind == .Remesh && !object_dynamic(obj)
+	j.two_phase = j.borrowed && long_job_holdable(obj)
+	j.computed_mesh, j.resume, j.resumed, j.held, j.sets_lost = false, {}, false, false, 0
 	if j.borrowed {
 		m := object_mesh(obj)
 		j.input = {positions = m.positions, indices = m.indices}
@@ -343,6 +364,12 @@ long_job_thread :: proc(data: rawptr) {
 	case .Remesh:
 		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
 		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups, j.mask)
+		// The input is read for the last time: the frame may let the old object go before
+		// the new one is made ready (long_job_hold), and says when to go on.
+		if j.two_phase && j.built && !jobs.progress_cancelled(&j.progress) {
+			sync.atomic_store(&j.computed_mesh, true)
+			sync.sema_wait(&j.resume)
+		}
 		long_job_prepare(j, normals = false)
 	case .Decimate:
 		src := Decimate_Source{mesh = j.input, color = j.color, groups = j.groups, mask = j.mask}
@@ -448,6 +475,11 @@ long_job_drop :: proc(j: ^Long_Job) {
 // failure, as scene_run does.
 long_job_frame :: proc(app: ^App) -> bool {
 	j := &app.long_job
+	if j.on && j.two_phase && !j.resumed && sync.atomic_load(&j.computed_mesh) {
+		if obj := object_by_id(app, j.id); obj != nil do long_job_hold(app, j, obj)
+		long_job_resume(j)
+	}
+	cross_fade_hold_camera(app)
 	if !j.on || !sync.atomic_load(&j.done) do return true
 	long_job_join(j)
 	cancelled := jobs.progress_cancelled(&j.progress)
@@ -463,6 +495,7 @@ long_job_frame :: proc(app: ^App) -> bool {
 	noun := job_noun(j)
 	if j.importing do return import_job_finish(app, cancelled, label)
 	if cancelled || !j.built || obj == nil {
+		cross_fade_unhold(app, fade = false)
 		history_snapshot_drop(before)
 		long_job_drop(j)
 		switch {
@@ -489,6 +522,8 @@ long_job_frame :: proc(app: ^App) -> bool {
 	autosave_settle(app)
 	app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
+	// The old object's sets went as it was let go, before the reset above.
+	if j.held do app.sets_lost = j.sets_lost
 	ok, applied := true, true
 	#partial switch cmd.kind {
 	case .Remesh, .Decimate:
@@ -535,9 +570,12 @@ long_job_frame :: proc(app: ^App) -> bool {
 			history_record_swap(app, obj.id, before)
 		}
 	}
+	held := j.held
 	long_job_drop(j)
-	// The old mesh's picture, still in the viewport, fades into the new one.
-	if ok do cross_fade_start(app, .Mesh_Fade)
+	// The old mesh's picture, still in the viewport (or held there while it was gone),
+	// fades into the new one.
+	if held do cross_fade_unhold(app, fade = ok)
+	else if ok do cross_fade_start(app, .Mesh_Fade)
 	return scene_run_finish(app, cmd, label, j.source, j.start, ok, obj if cmd.kind != .Retopo else selected_object(app))
 }
 
@@ -575,9 +613,64 @@ long_job_name :: proc(app: ^App, label: string, source: int, start: time.Tick) {
 	j.label, j.source, j.start, j.named = strings.clone(label), source, start, true
 }
 
-// Asks the job to stop; it does at its next check, and the next frame drops it.
+// Asks the job to stop; it does at its next check, and the next frame drops it. Not once
+// a remesh let the old object go: only its new mesh is left to show, a moment away.
 long_job_cancel :: proc(app: ^App) {
-	if app.long_job.on do jobs.progress_cancel(&app.long_job.progress)
+	j := &app.long_job
+	if !j.on do return
+	if j.held {
+		report(app, nil, {}, "Almost ready: the old mesh has already gone to make room")
+		return
+	}
+	jobs.progress_cancel(&j.progress)
+	long_job_resume(j)
+}
+
+// Lets a remesh's thread go on past its wait, once (a thread that never waits leaves the
+// count to the next job's start, which sets it back).
+@(private = "file")
+long_job_resume :: proc(j: ^Long_Job) {
+	if !j.two_phase || j.resumed do return
+	j.resumed = true
+	sync.sema_post(&j.resume)
+}
+
+// Whether a remesh of `obj` may let it go before the new mesh is ready: not when the
+// rebuild still reads its old surface (sculpt layers carried, a detail skin carried, a
+// cage or a dynamic layout), nor for clay or a curve.
+@(private = "file")
+long_job_holdable :: proc(obj: ^Object) -> bool {
+	if object_dynamic(obj) || obj.voxel != nil || obj.cage != nil || obj.curve != nil do return false
+	if sculpt.levels_skin(&obj.levels) != nil do return false
+	for lv in obj.levels.levels do if len(lv.sculptor.layers.list) > 0 do return false
+	return true
+}
+
+// The old object let go while its remesh is made ready, when the view can hold its last
+// picture: its levels and GPU buffers go, and a stand-in of 12 vertices, a dot at its
+// middle, keeps every reader of the object (the panels, the other views) on a valid mesh
+// until remesh_apply rebuilds it. Its strokes go from the History now, as the rebuild
+// would take them.
+@(private = "file")
+long_job_hold :: proc(app: ^App, j: ^Long_Job, obj: ^Object) {
+	if !cross_fade_hold(app) do return
+	j.input = {}
+	j.sets_lost = len(sculpt.levels_sets(&obj.levels))
+	history_forget_strokes(app, obj.id)
+	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	obj.poly_edges = {}
+	texture_preview_release(app, obj)
+	sculpt.levels_destroy(&obj.levels)
+	stand := geom.icosphere(0)
+	middle := (j.bounds.lo + j.bounds.hi) * 0.5
+	for &p in stand.positions do p = middle + p * 1e-5
+	sculpt.levels_init(&obj.levels, stand, &app.pool)
+	gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, nil)
+	if ok do obj.gpu[0] = gpu
+	else do log.warnf("long job: no buffers for the stand-in: %s", platform_error())
+	j.held = true
+	j.holds += 1
+	log.infof("long job: let %s go while the remesh is made ready", object_label(obj))
 }
 
 // Waits for the job's thread and frees its pool.
@@ -593,7 +686,8 @@ long_job_join :: proc(j: ^Long_Job) {
 // When the app ends: a job still running stops and everything it held goes.
 long_job_stop :: proc(app: ^App) {
 	j := &app.long_job
-	long_job_cancel(app)
+	if j.on do jobs.progress_cancel(&j.progress)
+	long_job_resume(j)
 	long_job_join(j)
 	history_snapshot_drop(j.before)
 	long_job_drop(j)
