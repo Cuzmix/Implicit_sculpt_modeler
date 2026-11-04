@@ -882,7 +882,7 @@ kit_shelf_page_menu :: proc(app: ^App) {
 	sh := &k.shelf
 	p := sh.menu_page
 	if sh.menu && (!shelf_page_used(k, p) || shelf_page_space(k, p) != k.spaces.current) do sh.menu = false
-	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	name := shelf_page_name(k, p)
@@ -946,7 +946,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = 12, width = 360}) do return
+	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
 	defer ui.popover_end(ctx)
 	kind := app.brush.kind
 	cur := brush_item_current(app)

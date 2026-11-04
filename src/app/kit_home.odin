@@ -230,7 +230,7 @@ kit_home_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	h := &app.home
-	if !ui.popover_begin(ctx, "home menu", &k.home_menu, k.home_menu_at, .Below, {direction = .Column, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "home menu", &k.home_menu, k.home_menu_at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	i := k.home_menu_item
 	if k.home_tab == .Recent && i < len(app.recent_scenes) {
 		if ui.menu_item(ctx, "Remove from Recent", glyph = ui.ICON_CLOSE) {

@@ -70,22 +70,18 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 // How long a mouse rests on a submenu's row before the submenu opens, in seconds.
 MENU_REST :: 0.25
 
-// The menu's and its submenus' widths, in points.
-LENS_MENU_W :: 264
-LENS_SUBMENU_W :: 264
-
 // The menu under the menu button, and the submenu open beside it.
 kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.menu do k.menu_sub = .None
 	owner := ui.id_of(ctx, "menu")
-	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = LENS_MENU_W}) do return
+	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = ui.MENU_W}) do return
 	// On a short window the list scrolls rather than running off the bottom.
 	area := ui.safe_area(ctx)
 	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
 	_, natural := ui.prev_layout(ctx, "menu body")
-	body_w := LENS_MENU_W - 2 * 6 - (f32(10) if natural.y > room else 0)
+	body_w := ui.MENU_W - 2 * 6 - (f32(10) if natural.y > room else 0)
 	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
 	pick := false
 	if command_menu_item(app, .Home) do pick = true
@@ -157,13 +153,13 @@ kit_submenu :: proc(app: ^App) {
 	if k.menu_sub == .None || k.menu_sub == .Main do return
 	open := true
 	sub := k.menu_sub
-	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = 6, width = LENS_SUBMENU_W}) do return
+	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = 6, width = ui.MENU_W}) do return
 	pick := false
 	switch sub {
 	case .None, .Main:
 	case .New:
 		ui.caption(ctx, "  NEW SCENE")
-		pick = menu_new_scenes(app, LENS_SUBMENU_W - 2 * 6)
+		pick = menu_new_scenes(app, ui.MENU_W - 2 * 6)
 	case .Recent:
 		pick = lens_recent_list(app)
 		ui.divider(ctx, across = true)

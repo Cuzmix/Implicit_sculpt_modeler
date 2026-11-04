@@ -213,13 +213,11 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 	}
 	t.knob_on = t.on_accent
 	t.camera[0] = a
-	// The space tints read on the frame: darker on a light one, with soft fills mixed
-	// toward the surface either way.
+	// The space tints read on the frame: darker on a light one.
 	for i in 0 ..< len(t.tints) {
 		tint := base.tints[i]
 		if light do tint = color_mix(tint, {0, 0, 0, 255}, 0.3)
 		t.tints[i] = tint
-		t.tints_soft[i] = color_mix(solid, tint, 0.16 if light else 0.2)
 	}
 	r := CORNER_RADII[seed.corners]
 	t.radius_small, t.radius_medium, t.radius_large = r[0], r[1], r[2]
@@ -458,17 +456,11 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 
 // `t` with the colours set by hand put over it. The panels keep the seed's opacity, so a
 // hand-set surface colour still lets the view show through as much as before, and the
-// selection keeps its own so the faces under it still show. A space's soft fill follows
-// its tint, mixed toward the panels as theme_derive mixes it.
+// selection keeps its own so the faces under it still show.
 theme_overrides_apply :: proc(t: ^Theme, o: Theme_Overrides) {
 	for token in o.set {
 		c := o.colors[token]
 		p := theme_token(t, token)
 		p^ = {c.r, c.g, c.b, p.a if token == .Surface || token == .Selection else 255}
-	}
-	solid := Color{t.surface.r, t.surface.g, t.surface.b, 255}
-	light := color_luminance(solid) > 0.5
-	for token, i in ([3]Theme_Token{.Space_Sculpt, .Space_Model, .Space_Render}) {
-		if token in o.set do t.tints_soft[i] = color_mix(solid, t.tints[i], 0.16 if light else 0.2)
 	}
 }

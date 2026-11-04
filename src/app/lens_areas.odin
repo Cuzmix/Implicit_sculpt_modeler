@@ -599,7 +599,7 @@ kit_divider_menu :: proc(app: ^App) {
 	g := &k.grid
 	m := &g.areas.menu
 	if m.open && (m.serial != g.serial || m.node >= g.tree.count || !g.tree.nodes[m.node].split) do m.open = false
-	if !ui.popover_begin(ctx, "divider menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "divider menu", &m.open, m.at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	node := g.tree.nodes[m.node]
 	n := grid_panes(g)

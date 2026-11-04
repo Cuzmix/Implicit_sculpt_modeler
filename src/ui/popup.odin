@@ -359,3 +359,11 @@ popover_origin :: proc(anchor: Rect, side: Side, pos, size: [2]f32) -> [2]f32 {
 	}
 	return pos
 }
+
+// The widths and insets popovers take, so that menus and small forms line up wherever
+// they open, and a popover never has a width of its own.
+MENU_W :: 264 // a menu: a list of actions, as the main menu
+MENU_PAD :: 6
+POPOVER_W :: 300 // a small form: a few controls under a title
+POPOVER_WIDE_W :: 340 // a form with a text field or a code to read
+POPOVER_PAD :: 12

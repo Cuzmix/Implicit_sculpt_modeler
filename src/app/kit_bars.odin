@@ -198,11 +198,11 @@ kit_bar_popover :: proc(app: ^App) {
 	p := &k.bar_pop
 	switch p.kind {
 	case .Symmetry:
-		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 248}) do return
+		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		symmetry_controls(app)
 	case .Polyframe:
-		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 220}) do return
+		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "POLYFRAME SHOWS")
 		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = 4})
@@ -210,15 +210,15 @@ kit_bar_popover :: proc(app: ^App) {
 		if ui.toggle_button(ctx, "Fill", app.polyframe_fill, 96, tooltip = "The selected object's polygroups in their colours") do app.polyframe_fill = !app.polyframe_fill
 		ui.end(ctx)
 	case .Remesh_Quick:
-		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = REMESH_QUICK_W}) do return
+		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		kit_remesh_quick(app)
 	case .Shading:
-		if !ui.popover_begin(ctx, "bar shading", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		if !ui.popover_begin(ctx, "bar shading", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 		defer ui.popover_end(ctx)
 		kit_shading_menu(app)
 	case .Camera:
-		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 		defer ui.popover_end(ctx)
 		kit_camera_menu(app)
 	case .View_Layout:

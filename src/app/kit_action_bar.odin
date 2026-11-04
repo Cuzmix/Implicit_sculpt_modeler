@@ -318,7 +318,7 @@ kit_action_popover :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.action_pop do return
-	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 6, width = 200}) {
+	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		for a in action_list(app, k.action_group) {
 			if action_button(app, a, ui.fill_width(ctx)) do k.action_pop = false
 		}

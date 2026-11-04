@@ -187,7 +187,7 @@ kit_tour :: proc(app: ^App) {
 	mark := ui.vertex_mark(ctx)
 	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = 6, padding = 16, width = W, radius = t.radius_large, background = .Panel})
 	ui.label(ctx, fmt.tprintf("%d of %d", int(s) + 1, len(Tour_Step)), t.small_size, t.text_secondary)
-	ui.label(ctx, TOUR_TITLES[s], t.text_size + 2, t.text, .Semibold)
+	ui.label(ctx, TOUR_TITLES[s], t.title_size, t.text, .Semibold)
 	ui.paragraph(ctx, TOUR_TEXT[s])
 	if tr.done do ui.label(ctx, "That's it", t.small_size, t.accent, .Semibold)
 	ui.spacer(ctx, 4)

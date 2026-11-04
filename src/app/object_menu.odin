@@ -192,7 +192,7 @@ kit_object_menu :: proc(app: ^App) {
 	ready := obj != nil && obj.id == k.object_menu_id
 	if !ready && !k.object_menu_wait do k.object_menu = false
 	if ready do k.object_menu_wait = false
-	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = OBJECT_MENU_W}) do return
+	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if !ready {
 		ui.paragraph(ctx, "Selecting it...")
@@ -264,15 +264,12 @@ kit_object_menu :: proc(app: ^App) {
 	if picked do k.object_menu = false
 }
 
-// Wide enough for the quick row's five touch targets and the padding round them.
-OBJECT_MENU_W :: 268
-
 // The head: the type's icon, the name, the type and how big it is; not pressable.
 @(private = "file")
 object_menu_head :: proc(app: ^App, obj: ^Object, kind: Object_Type) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	a := ui.area(ctx, "object menu head", {OBJECT_MENU_W - 12, t.target})
+	a := ui.area(ctx, "object menu head", {ui.MENU_W - 2 * ui.MENU_PAD, t.target})
 	y := a.rect.y + a.rect.h * 0.5
 	ui.icon(ctx, OBJECT_TYPE_ICONS[kind], {a.rect.x + 18, y}, t.icon_small, t.text_secondary)
 	name := object_label(obj)
@@ -298,7 +295,7 @@ object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 kit_scene_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "scene menu", &k.scene_menu, k.scene_menu_at, k.scene_menu_side, {direction = .Column, padding = 6, width = SCENE_MENU_W}) do return
+	if !ui.popover_begin(ctx, "scene menu", &k.scene_menu, k.scene_menu_at, k.scene_menu_side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	n := len(app.scene.objects)
 	ui.caption(ctx, fmt.tprintf("SCENE · %d OBJECT%s", n, "" if n == 1 else "S"))
@@ -308,8 +305,6 @@ kit_scene_menu :: proc(app: ^App) {
 	}
 	if picked do k.scene_menu = false
 }
-
-SCENE_MENU_W :: 220
 
 // How long one finger held still on the view takes to open the menu there: longer than a
 // control's long press, since a finger resting on the view is more often about to turn it.

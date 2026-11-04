@@ -12,7 +12,8 @@ What is counted (each a number; lower is better):
   contrast_fails     token pairs under their floor in the literal themes (theme.odin):
                      text 7:1, secondary 4.5:1 and tertiary 4.5:1 on a panel, the accent's
                      text 4.5:1 on it, a well 1.3:1 and a hairline 1.2:1 against a panel
-  popover_widths     distinct literal widths given to popovers (a token each is the aim)
+  popover_widths     distinct widths given to popovers, a number or a name (the ui
+                     package's few popover widths are the aim)
   literal_spacing    paddings and gaps written as a number other than 0 in src/app
   type_arithmetic    type sizes scaled by hand (`text_size * 1.4`) instead of a ramp step
   color_literals     colours written as bytes in src/app outside the theme files
@@ -110,8 +111,8 @@ def scan():
     widths, spacing, arithmetic, colors = set(), [], [], []
     for path in sources(APP):
         text = strip_comments(path.read_text())
-        for m in re.finditer(r"popover_begin\([^\n]*?width\s*=\s*(\d+)", text):
-            widths.add(int(m.group(1)))
+        for m in re.finditer(r"popover_begin\([^\n]*?width\s*=\s*([^,}\n]+)", text):
+            widths.add(m.group(1).strip())
         for m in re.finditer(r"\b(padding|gap)\s*=\s*(\d+(?:\.\d+)?)\b", text):
             if float(m.group(2)) != 0:
                 spacing.append(f"{path.name}:{text[:m.start()].count(chr(10)) + 1} {m.group(0)}")
@@ -192,7 +193,7 @@ def main(argv=None):
     for name, pair, r, floor, ok in detail["contrast"]:
         if verbose or not ok:
             print(f"  {'ok  ' if ok else 'FAIL'} {name:14} {pair:24} {r:5.2f}:1 (floor {floor}:1)")
-    print(f"popover widths: {', '.join(map(str, detail['widths']))}")
+    print(f"popover widths: {', '.join(detail['widths'])}")
     if verbose:
         for line in detail["spacing"]:
             print(f"  spacing {line}")

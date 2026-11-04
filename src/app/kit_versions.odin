@@ -13,7 +13,7 @@ import "../ui"
 kit_versions :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "versions", &k.versions, anchor, .Below, {direction = .Column, padding = 6, width = 300}) do return
+	if !ui.popover_begin(ctx, "versions", &k.versions, anchor, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	ui.caption(ctx, fmt.tprintf("  EARLIER SAVES OF %s", strings.to_upper(filepath.base(app.scene_path), context.temp_allocator)))
 	if len(app.versions) == 0 {
 		ui.paragraph(ctx, "None yet: each save over this file keeps the one it replaces.")

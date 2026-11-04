@@ -390,7 +390,7 @@ kit_scene_add_menu :: proc(app: ^App) {
 	if !ol.add do return
 	// Opened before the card was laid out: under its Add.
 	if ol.add_at.w <= 0 do ol.add_at = ui.prev_rect(ctx, "Add##scene add")
-	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
@@ -494,7 +494,7 @@ kit_scene_spaces_menu :: proc(app: ^App) {
 		ol.spaces = false
 		return
 	}
-	if !ui.popover_begin(ctx, "scene spaces menu", &ol.spaces, ol.spaces_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "scene spaces menu", &ol.spaces, ol.spaces_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ui.label(ctx, fmt.tprintf("SHOW %s IN", strings.to_upper(object_label(obj), context.temp_allocator)), t.caption_size, t.text_tertiary, .Semibold)
 	for s in Space {

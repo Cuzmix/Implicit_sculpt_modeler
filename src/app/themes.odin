@@ -766,7 +766,7 @@ kit_theme_menus :: proc(app: ^App) {
 	ts := &k.themes
 	if ts.menu && !k.settings do ts.menu = false
 	if ts.code.open && !k.settings do ts.code.open = false
-	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 240}) {
+	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		r := theme_ref_valid(k, ts.menu_of)
 		if r.user >= 0 && ui.menu_item(ctx, "Rename...##theme", glyph = ui.ICON_PENCIL) {
 			k.rename = {open = true, theme = int(r.user) + 1, at = ts.menu_at}
@@ -791,7 +791,7 @@ kit_theme_menus :: proc(app: ^App) {
 	// Opened low on the screen (Share code at the page's foot), it opens upward, so the
 	// field and its buttons stay on screen.
 	side := ui.Side.Above if c.at.y > ctx.input.window.y * 0.5 else .Below
-	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = 6, padding = 12, width = 340}) {
+	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) {
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "IMPORT A THEME" if c.importing else "SHARE THIS THEME")
 		ui.paragraph(ctx, "Paste a theme code; Import adds it to your themes and shows it." if c.importing else "Copy this code and paste it into Import code on any device. It is plain text, so it fits in a message.")

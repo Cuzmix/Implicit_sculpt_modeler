@@ -357,13 +357,6 @@ remesh_cell_vertices :: proc(app: ^App, obj: ^Object, cell: f32) -> int {
 	return object_vertex_count(obj)
 }
 
-// The Remesh button's quick menu, its long press on the bottom bar, after Nomad's voxel
-// popup and the reference app's long press on its remesh: the density with the object's
-// own count a tap away, the checkerboard on the object while Density is held (as in the
-// Rebuild section, whose even goal it sets), and one big Remesh. Fewer polygons and quads
-// are under More options, the Rebuild section itself.
-REMESH_QUICK_W :: 300
-
 remesh_quick_open :: proc(app: ^App, at: ui.Rect, side := ui.Side.Above_Center) {
 	if bar_pop_showing(app, .Remesh_Quick) {
 		app.kit.bar_pop.open = false
@@ -377,7 +370,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	inner := f32(REMESH_QUICK_W - 24)
+	inner := f32(ui.POPOVER_W - 24)
 	ui.begin(ctx, "remesh quick head", {direction = .Row, center = true})
 	ui.begin(ctx, "remesh quick title", {direction = .Column, width = inner - t.target})
 	ui.label(ctx, "Remesh", t.title_size, t.text, .Semibold)
