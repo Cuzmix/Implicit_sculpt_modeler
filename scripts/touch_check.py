@@ -3639,7 +3639,8 @@ def bar_search_row_dragged_onto_the_rail():
     s.wait(8)
     s.type("remesh")
     s.wait(4)
-    s.fdrag(line(DRAG_ROW1, (DRAG_RAIL["focus"][0], DRAG_RAIL["focus"][1] + 10), 16))
+    # The rail's grip stands its buttons 17 points lower than DRAG_RAIL's centres.
+    s.fdrag(line(DRAG_ROW1, (DRAG_RAIL["focus"][0], DRAG_RAIL["focus"][1] + 27), 16))
     s.wait(4)
     return s, DRAG_1280 + eight_rail(), camera_still({"dabs": near(0), "palette": near(0), "bar_drops": near(1),
                                        "view_rail": lambda v: "Focus_Selected,Remesh" in v})
@@ -5947,6 +5948,37 @@ def dock_corner_adds_lines():
         s.wait(6)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"dock_looks": lambda v: v.startswith("offhand:1:"), "dock_resizes": near(2), "dabs": near(0)})
     return Steps([run(False), run(True)])
+
+
+# The view rail's grip and the brush bar's faint corner at 1440x900, there without Edit docks.
+RAIL_GRIP = At("view bar/Move View rail", 1403, 68)
+OFFHAND_CORNER_NAMED = At("dock corner Offhand/Resize Brush bar", 65, 659)
+
+
+@scenario
+def dock_grip_carries_it_without_edit_docks():
+    """Outside Edit docks a finger drags the view rail's faint grip to the left edge: the rail stands on the left and the brush bar swaps to the right, with no stroke; a tap on the grip opens the rail's menu."""
+    def run(tap):
+        s = Script()
+        s.wait(6)
+        if tap:
+            s.ftap(RAIL_GRIP)
+            s.wait(6)
+            return s, LENS_1440, camera_still({"bar_pop": is_text("dock_menu"), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+        s.fdrag(line(RAIL_GRIP, ARRANGE_LEFT_MID, 30))
+        s.wait(6)
+        return s, LENS_1440, camera_still({"dock_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def dock_corner_adds_lines_without_edit_docks():
+    """Outside Edit docks a finger drags the Brush bar's faint corner one line's width toward the middle: the bar stands in two lines and nothing is sculpted."""
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(OFFHAND_CORNER_NAMED, (OFFHAND_CORNER_NAMED[0] + 60, OFFHAND_CORNER_NAMED[1]), 12))
+    s.wait(6)
+    return s, LENS_1440, camera_still({"dock_looks": lambda v: v.startswith("offhand:2:"), "dock_resizes": near(1), "dabs": near(0)})
 
 
 @scenario

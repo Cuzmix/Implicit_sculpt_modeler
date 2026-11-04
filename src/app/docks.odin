@@ -659,7 +659,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		width = t.target + longest + 10
 	}
 	// The foot under the buttons: the + while arranging and the ⋯, each a target and a gap.
-	foot: f32 = 2 * 3 + (t.target + 6 if k.bars_edit else 0) + (t.target + 7 if more else 0)
+	foot: f32 = 2 * 3 + DOCK_GRIP_H + 3 + (t.target + 6 if k.bars_edit else 0) + (t.target + 7 if more else 0)
 	// Sliders until the buttons outgrow the room, then the last sliders as chips.
 	sliders := 0
 	tall := dock_rows_tall(app, id, used, lines, len(used))
@@ -671,6 +671,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		tall = dock_rows_tall(app, id, used, lines, sliders)
 	}
 	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	dock_grip(app, id, width * f32(lines))
 	scroll := kit_scroll_begin(ctx, fmt.tprintf("%s body", root), &k.dock_scroll[id], ui.id_of(ctx, root), width * f32(lines), max(room - foot, t.target * 2), 0)
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
 	shown := 0
@@ -864,4 +865,28 @@ your_docks_rows :: proc(app: ^App, width: f32) {
 	ui.caption(ctx, fmt.tprintf("YOUR DOCKS  %d OF %d", user_docks_used(k), USER_DOCKS))
 	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = width)
 	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each workspace keeps its own docks.")
+}
+
+// How tall a dock's grip is, in points: a strip at the dock's start that is easy to find
+// with a finger without taking a button's room.
+DOCK_GRIP_H :: 14
+
+// Dock `id`'s grip, `width` wide, at its start: a faint pill that brightens under the
+// pointer. A drag carries the dock to an edge or anywhere, as Arrange's head does (the
+// outline, edge strips and lining up draw in kit_arrange_lens), and a tap opens its menu.
+// It is there all the time, so moving a dock never needs Edit docks.
+dock_grip :: proc(app: ^App, id: Dock_Id, width: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	a := ui.area(ctx, fmt.tprintf("Move %s##dock grip", DOCK_TITLES[id]), {width, DOCK_GRIP_H})
+	carried, carrying := k.arrange.carry.?
+	carrying &&= k.arrange.carrying && carried == id
+	lit := a.hovered || a.held || carrying
+	pill := ui.Rect{a.rect.x + a.rect.w * 0.5 - 11, a.rect.y + a.rect.h * 0.5 - 2, 22, 4}
+	ui.fill_rect(ctx, pill, 2, ui.color_fade(t.text_secondary if lit else t.text_tertiary, 0.9 if lit else 0.35))
+	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to move %s to an edge or anywhere; tap for its lines, names and reset", DOCK_TITLES[id]))
+	was_carrying := carrying
+	arrange_carry_follow(app, id, ui.prev_root_rect(ctx, DOCK_ROOTS[id]), a)
+	if a.clicked && !was_carrying do dock_menu_toggle(app, id, a.rect)
 }
