@@ -635,8 +635,8 @@ kit_user_docks :: proc(app: ^App) {
 // where the room is less than they need, then the ⋯ More (and while arranging the + that
 // adds one). A brush value shown as a slider stands as a tall slider a thumb drags without
 // looking (Size and Strength on the brush bar at first); a window too short for every
-// slider shows the last ones as chips. A card's button pops its card out beside it
-// (card_pop.odin).
+// slider shows the last ones as chips. A card's button opens its card in the column
+// beside it (column.odin).
 kit_dock :: proc(app: ^App, id: Dock_Id) {
 	k := &app.kit
 	ctx := &k.ctx

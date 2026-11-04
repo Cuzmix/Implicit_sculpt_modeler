@@ -48,7 +48,7 @@ palette_group :: proc(e: Palette_Entry) -> Palette_Group {
 	#partial switch e.id {
 	// A preset is a brush, as the shelf and the picker show it, so it never pushes a command down.
 	case .Brush, .Brush_Preset:                 return .Brushes
-	case .Open_Card, .Pin_Section, .Settings, .Help: return .Panels
+	case .Open_Card, .Open_Section, .Settings, .Help: return .Panels
 	}
 	return .Commands
 }
@@ -71,31 +71,20 @@ palette_group_hits :: proc(hits: []Palette_Hit, entries: []Palette_Entry) -> (ou
 @(rodata)
 TOP_BAR_COMMANDS := [?]Command_Id{.Undo, .Redo, .Command_Palette, .Settings, .Workspace}
 
-// Where the entry lives, as its second line says it: a Settings tab, a panel, the shelf
-// page or the picker for a brush, the tray's section a command's control is in, a bar it
-// is on, the menu (and its submenu) or the top bar; "" where only keys or gestures run it.
+// Where the entry lives, as its second line says it: a Settings tab, a card, the shelf
+// page or the picker for a brush, the card and section a command's control is in, a bar
+// it is on, the menu (and its submenu) or the top bar; "" where only keys or gestures run
+// it.
 palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Settings_Section do return "Settings"
-	if e.id == .Open_Card && panel_is_section(Panel_Kind(e.arg)) {
-		sec := Panel_Kind(e.arg)
-		if c := stack_card_of(app, sec); c != .Brush {
-			// A tab says which group's card holds it.
-			if s := &app.kit.stack; s.set && c in s.joined do return fmt.tprintf("Panel · %s tab of %s", panel_kind_title(app, c), stack_title(app, stack_host(s, c)))
-			return fmt.tprintf("Panel · %s card", panel_kind_title(app, c))
-		}
-		return "Panel · Brush card"
-	}
+	if e.id == .Open_Section do return fmt.tprintf("%s card", card_title(section_card(Section(e.arg))))
 	s := Bar_Slot{e.id, e.arg}
 	if shelf_holds_brushes(e.id) {
 		for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 		return "Brush picker"
 	}
-	// A command's home is its section as the tray drew it: the Brush card's group, or the
-	// section's own card.
-	if sec, ok := COMMAND_HOMES[e.id].?; ok {
-		if section_palette(sec) == .Tool do return fmt.tprintf("Brush card · %s", tray_section_title(sec))
-		return fmt.tprintf("%s card", panel_kind_title(app, sec))
-	}
+	// A command's home is its section on its card.
+	if sec, ok := COMMAND_HOMES[e.id].?; ok do return fmt.tprintf("%s card · %s", card_title(section_card(sec)), section_title(sec))
 	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
 	for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"
@@ -187,8 +176,8 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	right := r.x + r.w - 10
 	keys_w := ui.text_width(ctx, keys, t.small_size) + 12 if keys != "" && !checked else (t.icon_small + 12 if checked else 0)
 	room := right - x - keys_w
-	// A section by its own name, the palette it is on said under it.
-	name := tray_section_title(Panel_Kind(e.arg)) if e.kind == .Command && e.id == .Open_Card && panel_is_section(Panel_Kind(e.arg)) else ui.label_text(title)
+	// A section by its own name, the card it is on said under it.
+	name := section_title(Section(e.arg)) if e.kind == .Command && e.id == .Open_Section else ui.label_text(title)
 	shown_title := ui.text_fit(ctx, name, t.text_size, room)
 	if lives == "" {
 		ui.text(ctx, shown_title, x, mid, t.text_size, fg)

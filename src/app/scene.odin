@@ -915,7 +915,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if cmd.kind != .Curve_Look || !cmd.look_drag do curve_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
-		report(app, Panel_Kind.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
+		report(app, Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.curve != nil && cmd.kind in CURVE_REFUSED_SCENE {
@@ -923,7 +923,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return true
 	}
 	if obj := selected_object(app); obj != nil && cmd.kind in SKIN_REFUSED_SCENE && object_top_skin(obj) != nil {
-		report(app, Panel_Kind.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (HD detail card)", cmd.kind, object_label(obj))
+		report(app, Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (HD detail card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {
@@ -1201,7 +1201,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			else do history_snapshot_drop(before)
 			// Its vertices are numbered afresh, so the selection sets went; Undo brings them back.
 			if changed && cmd.on && sets > 0 {
-				report(app, Panel_Kind.Topology, {.Undo}, "Dynamic topology on: %d selection set%s went, as the vertices are numbered afresh", sets, "" if sets == 1 else "s")
+				report(app, Section.Topology, {.Undo}, "Dynamic topology on: %d selection set%s went, as the vertices are numbered afresh", sets, "" if sets == 1 else "s")
 				app.sets_noted = sets
 			}
 			return ok
@@ -1553,7 +1553,7 @@ skin_carry_onto :: proc(app: ^App, obj: ^Object, old: ^sculpt.Levels, segments: 
 	src := &old.levels[len(old.levels) - 1].sculptor
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_skin_set(s, segments) {
-		report(app, Panel_Kind.Hd, {.Warning}, "The detail of %s could not be carried: the new mesh takes no skin (open or not manifold)", object_label(obj))
+		report(app, Section.Hd, {.Warning}, "The detail of %s could not be carried: the new mesh takes no skin (open or not manifold)", object_label(obj))
 		return
 	}
 	// Far enough to find the old surface across what a rebuild smooths away, a few of the
@@ -1565,7 +1565,7 @@ skin_carry_onto :: proc(app: ^App, obj: ^Object, old: ^sculpt.Levels, segments: 
 	app.stats.skin_carry_ms = time.duration_milliseconds(time.tick_since(start))
 	app.skin_carry = rep
 	size := linalg.length(bounds.hi - bounds.lo)
-	report(app, Panel_Kind.Hd, {}, "Carried the detail of %s onto a skin of %d segments: off by %.3f%% of its size at worst, %.4f%% on average%s", object_label(obj), segments, 100 * rep.worst / size, 100 * rep.mean / size, ", with sideways offsets" if rep.side else "")
+	report(app, Section.Hd, {}, "Carried the detail of %s onto a skin of %d segments: off by %.3f%% of its size at worst, %.4f%% on average%s", object_label(obj), segments, 100 * rep.worst / size, 100 * rep.mean / size, ", with sideways offsets" if rep.side else "")
 }
 
 // Takes the level the object is on out of its levels when it has layers, for

@@ -206,10 +206,10 @@ kit_button_pair :: proc(ctx: ^ui.Context, a, b: string, enabled_a := true, enabl
 	return
 }
 
-// The rest of an inspector section after its basic controls (at most five), under a
+// The rest of a card's section after its basic controls (at most five), under a
 // More options fold that `sec` remembers, or shown outright with Show every option
 // (ui.more). Returns true when there is a body to fill, which kit_more_end closes.
-kit_more :: proc(app: ^App, sec: Panel_Kind) -> bool {
+kit_more :: proc(app: ^App, sec: Section) -> bool {
 	k := &app.kit
 	return ui.more(&k.ctx, fmt.tprintf("more##%v", sec), &k.more[sec], k.all_options)
 }

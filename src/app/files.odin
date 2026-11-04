@@ -2199,7 +2199,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_quad_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
 		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
-			report(app, Panel_Kind.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
+			report(app, Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
 		}
 		lv := sculpt.levels_current(&obj.levels)
 		obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)

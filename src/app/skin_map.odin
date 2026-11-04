@@ -94,7 +94,7 @@ skin_map_load :: proc(app: ^App, path: string) -> bool {
 	}
 	history_record(app, obj, .Deform, "Map into skin")
 	app.skin_maps_loaded += 1
-	report(app, Panel_Kind.Hd, {.Undo}, "Read %s (%d by %d, %s) into the skin of %s", name, m.width, m.height, SKIN_MAP_KIND_NAMES[m.kind], object_label(obj))
+	report(app, Section.Hd, {.Undo}, "Read %s (%d by %d, %s) into the skin of %s", name, m.width, m.height, SKIN_MAP_KIND_NAMES[m.kind], object_label(obj))
 	return true
 }
 

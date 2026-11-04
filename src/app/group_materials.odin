@@ -77,7 +77,7 @@ group_material_apply :: proc(app: ^App, cmd: Scene_Command) {
 	// The autosave thread may be writing the table.
 	autosave_settle(app)
 	if why := group_material_set(obj, cmd.group, cmd.material, cmd.on); why != "" {
-		report(app, Panel_Kind.Material, {.Warning}, "Group %d keeps its material: %s", cmd.group, why)
+		report(app, Section.Material, {.Warning}, "Group %d keeps its material: %s", cmd.group, why)
 		return
 	}
 	app.scene_edits += 1
@@ -303,7 +303,7 @@ group_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	origin, dir := mouse_ray(app.camera, gesture_start(input), input.size)
 	index, _, hit := scene_raycast(app, origin, dir)
 	if !hit || app.scene.objects[index] != obj {
-		report(app, Panel_Kind.Material, {.Warning}, "Pick a group: the press missed %s", object_label(obj))
+		report(app, Section.Material, {.Warning}, "Pick a group: the press missed %s", object_label(obj))
 		return true
 	}
 	s := object_sculptor(obj)
@@ -312,7 +312,7 @@ group_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	group, on := sculpt.sculptor_group_at(s, to_local(t, origin), to_local_dir(t, dir))
 	if !on do return true
 	if group == 0 {
-		report(app, Panel_Kind.Material, {.Warning}, "Group 0 shows the object's own material: make a group of the part first (Polygroups card)")
+		report(app, Section.Material, {.Warning}, "Group 0 shows the object's own material: make a group of the part first (Polygroups card)")
 		return true
 	}
 	u.group_target, u.group_target_id = group, obj.id

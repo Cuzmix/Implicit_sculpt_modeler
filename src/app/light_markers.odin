@@ -56,9 +56,9 @@ Light_Press :: struct {
 // edge is smaller).
 LIGHT_MARKER_PX :: 15
 
-// Whether the Lights card is on screen, so the markers are up.
+// Whether the Lights section is on screen, so the markers are up.
 lights_section_shown :: proc(app: ^App) -> bool {
-	return palette_on_screen(app, .Lights)
+	return section_on_screen(app, .Lights)
 }
 
 // Where a point or spot light is in the scene.
@@ -163,7 +163,7 @@ light_marker_room :: proc(app: ^App, size: [2]f32) -> (lo, hi: [2]f32) {
 	// A window too small for the bars keeps its edge alone.
 	if hi.x - lo.x < size.x * 0.25 do lo.x, hi.x = inset, size.x - inset
 	if hi.y - lo.y < size.y * 0.25 do lo.y, hi.y = inset, size.y - inset
-	panel := panel_rect(app, Kit_Window.Inspector)
+	panel := card_rect(app, .Look)
 	if panel.w <= 0 do return
 	left, right := panel.x * k.scale - o.x, (panel.x + panel.w) * k.scale - o.x
 	// Off the side the palette stands on, unless that leaves too little room to show.
@@ -296,11 +296,11 @@ light_marker_pressed :: proc(app: ^App, at, size: [2]f32) -> bool {
 // off, so the press after it does what the lit sector says.
 light_place_command :: proc(app: ^App) {
 	if app.ui.light_place && !lights_section_shown(app) {
-		tray_open(app, .Lights)
+		card_reveal(app, .Lights)
 		return
 	}
 	app.ui.light_place = !app.ui.light_place
-	if app.ui.light_place do tray_open(app, .Lights)
+	if app.ui.light_place do card_reveal(app, .Lights)
 }
 
 // Whether a press at `at` is the lights' rather than a tool's: on a marker, or anywhere

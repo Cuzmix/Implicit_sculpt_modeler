@@ -70,19 +70,6 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 	{0xe03f, 0xe03d, 0xe03e},
 }
 
-// Turns a request for the old floating card into the Scene card with its pictures; draws
-// nothing itself, so it never raises a window.
-kit_objects_card :: proc(app: ^App) -> (raised: bool) {
-	k := &app.kit
-	if !k.objects_card do return
-	k.objects_card = false
-	k.scene_pictures = true
-	side_panel_close(app)
-	k.inspector = true
-	stack_reveal_card(app, .Scene)
-	return
-}
-
 // The Actions' content: Store visibility's V1 to V8, then a section for each action.
 card_actions :: proc(app: ^App, inner: f32) {
 	ctx := &app.kit.ctx
@@ -228,7 +215,7 @@ object_has_paint :: proc(obj: ^Object) -> bool {
 }
 
 // The pictures' menus, drawn over everything with the other popovers: More and a row's.
-kit_objects_card_menus :: proc(app: ^App) {
+kit_scene_pictures_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.card

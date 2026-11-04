@@ -759,13 +759,13 @@ view_grid_room :: proc(app: ^App) -> ui.Rect {
 	return {0, 0, win.x, win.y}
 }
 
-// Where the stack docked on the left ends, so a pane's head that would lie under it starts right of
-// it instead while the panes run under the panels; 0 with none.
+// Where a card pinned on the left ends, so a pane's head that would lie under it starts right of
+// it instead while the panes run under the cards; 0 with none.
 grid_left_column_edge :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	edge: f32 = 0
 	for side in Column_Side {
-		c := k.panels.rect[side]
+		c := column_rest_rect(app, side)
 		if c.w > 0 && c.x + c.w * 0.5 < k.ctx.input.window.x * 0.5 do edge = max(edge, c.x + c.w + GRID_COLUMN_GAP)
 	}
 	return edge

@@ -43,7 +43,7 @@ Tour :: struct {
 TOUR_TITLES := [Tour_Step]string {
 	.Spaces   = "Three spaces, one model",
 	.Dial     = "The dial is under your thumb",
-	.Palettes = "Palettes down the side",
+	.Palettes = "Cards beside the docks",
 	.History  = "Every step, kept",
 	.Paint    = "Paint with the same brushes",
 }
@@ -51,7 +51,7 @@ TOUR_TITLES := [Tour_Step]string {
 TOUR_TEXT := [Tour_Step]string {
 	.Spaces   = "Sculpt, Model and Render each keep their own tools and layout. Tap Model, then Sculpt to come back.",
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
-	.Palettes = "Each card is a palette: fold it to its header, drag it out to float it, or join it to the card above as a tab. Search finds any section by name. Tap one to try it.",
+	.Palettes = "A dock button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
 	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
 }
@@ -76,7 +76,7 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 		if r.outer <= 0 do return {}
 		return {r.center.x - r.outer * 0.5, r.center.y - r.outer * 0.5, r.outer, r.outer}
 	case .Palettes:
-		for c in k.panels.rect do if c.w > 0 do return c
+		for s in Column_Side do if c := column_rest_rect(app, s); c.w > 0 do return c
 		return ui.prev_rect(&k.ctx, "view bar")
 	case .History:
 		return k.history_at

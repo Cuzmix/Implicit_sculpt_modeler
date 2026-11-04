@@ -105,7 +105,7 @@ kit_guides :: proc(app: ^App, r: ui.Rect, o: camera.Orbit, name: string) {
 	area := ui.safe_area(ctx)
 	right := min(r.x + r.w, area.x + area.w - kit_right(app)) - 6
 	for side in Column_Side {
-		c := k.panels.rect[side]
+		c := column_rest_rect(app, side)
 		if c.w > 0 && c.x > r.x && c.x < right do right = min(right, c.x - GRID_COLUMN_GAP)
 	}
 	top := max(r.y, kit_top() - 8)

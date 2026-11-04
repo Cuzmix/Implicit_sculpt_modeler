@@ -113,7 +113,6 @@ lens_focal_mm :: proc(fov_y: f32) -> f32 {
 // A dock button's name beside its icon: one short word where the command's name is long.
 rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
-	case .Inspector:        return "Main"
 	case .View_Layout_Menu: return "Layout"
 	case .Focus_Selected:   return "Frame"
 	case .Symmetry_X:       return "Symmetry"
@@ -144,7 +143,7 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 	// side.
 	if k.docks[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
 	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, DOCK_ROOTS[user_dock_id(i)]), area, mid, near_top, ctx.mirror, &reach)
-	for c in k.panels.rect do take(c, area, mid, near_top, ctx.mirror, &reach)
+	for s in Column_Side do take(column_rest_rect(app, s), area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
 	return reach
 }

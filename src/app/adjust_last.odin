@@ -54,9 +54,9 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Model      = "model action",
 }
 
-// The inspector section whose settings each operation takes.
+// The card section whose settings each operation takes.
 @(rodata)
-ADJUST_SECTIONS := [Adjust_Op]Panel_Kind {
+ADJUST_SECTIONS := [Adjust_Op]Section {
 	.None       = .Remesh,
 	.Remesh     = .Remesh,
 	.Decimate   = .Remesh,

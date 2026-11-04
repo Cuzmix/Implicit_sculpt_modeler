@@ -242,9 +242,8 @@ Command_Id :: enum u16 {
 	Transparency,
 	// The app
 	Stats,
-	Inspector,
-	Open_Card, // the argument is the card's Panel_Kind
-	Pin_Section, // the argument is a section's Panel_Kind (panels.odin)
+	Open_Card, // the argument is the Card (cards.odin)
+	Open_Section, // the argument is the Section: its card, opened on it
 	Panels_Reset,
 	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
 	Workspace_Save,
@@ -1471,7 +1470,7 @@ COMMANDS := [Command_Id]Command {
 		help = "Opens the Deformers card on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
 		args = DEFORMERS,
 		run = proc(app: ^App, arg: int) {
-			tray_open(app, .Deformers)
+			card_reveal(app, .Deformers)
 			deformer_pick(app, arg)
 		},
 		// Not while an Amount or a lattice point is dragged: either would lose its places.
@@ -1482,7 +1481,7 @@ COMMANDS := [Command_Id]Command {
 		help = "Opens the Deformation card on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
 		args = len(Reshape_Choice),
 		run = proc(app: ^App, arg: int) {
-			tray_open(app, .Deform)
+			card_reveal(app, .Deform)
 			if !app.ui.reshape.drag.active do app.ui.reshape.choice = Reshape_Choice(arg)
 		},
 		enabled = has_object,
@@ -2180,64 +2179,37 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.kit.stats = !app.kit.stats},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
 	},
-	.Inspector = {
-		label = "Main palette",
-		help = "Shows or hides the main palette in the panel stack's column: the cards the stack keeps, in its order. On the view rail it is Main.",
-		icon = ui.ICON_PANEL,
-		// While Settings or Help has its place, it comes back in their place rather than
-		// changing unseen.
-		// On a narrow window a docked tray's column pops over the view or goes away, the
-		// tray staying in it (panels.odin).
-		run = proc(app: ^App, _: int) {
-			k := &app.kit
-			if side_panel_open(k) {
-				side_panel_close(app)
-				k.inspector = true
-			} else if _, docked := stack_docked(k); docked && stack_narrow(app) && k.inspector {
-				stack_pop(app, !k.panels.popped)
-			} else do k.inspector = !k.inspector
-		},
-		checked = proc(app: ^App, _: int) -> bool {
-			k := &app.kit
-			if _, docked := stack_docked(k); docked && stack_narrow(app) do return k.inspector && k.panels.popped
-			return k.inspector
-		},
-	},
 	.Open_Card = {
 		label = "Open card",
-		help = "Opens this card (a section of the brush's opens the Brush card on it, switching to the brush); on a bar, beside its button.",
+		help = "Opens this card beside its button (from Search or a key, on the pen side); again, closes it. Pin keeps it open while you sculpt.",
 		icon = ui.ICON_PANEL,
-		args = len(Panel_Kind),
+		args = len(Card),
 		run = proc(app: ^App, arg: int) {
-			p := Panel_Kind(arg)
-			if panel_is_section(p) && section_palette(p) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
-			tray_open(app, p)
+			c := Card(arg)
+			if card_shown(app, c) do card_close(app, c)
+			else do card_open(app, c)
 		},
-		// The brush's Colour and History brush sections only for the brushes that have them.
-		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Panel_Kind(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return !panel_is_section(Panel_Kind(arg)) && palette_on_screen(app, Panel_Kind(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return card_shown(app, Card(arg))},
 	},
-	.Pin_Section = {
-		label = "Pin to the stack",
-		help = "Keeps this section as a card of the panel stack, at its foot, for good; again, leaves it out.",
+	.Open_Section = {
+		label = "Open section",
+		help = "Opens the card that holds this section, unfolded and scrolled to it (a section of the brush's switches to the brush).",
 		icon = ui.ICON_PANEL,
-		args = len(Panel_Kind),
-		run = proc(app: ^App, arg: int) {
-			p := Panel_Kind(arg)
-			on := !(app.kit.stack.set && stack_kept(&app.kit.stack, p))
-			stack_keep(&app.kit, p, on)
-			app.kit.inspector = true
-			if on do stack_pop_open(app)
+		args = len(Section),
+		run = proc(app: ^App, arg: int) {card_reveal(app, Section(arg))},
+		// The History brush's section only on that brush.
+		enabled = proc(app: ^App, arg: int) -> bool {
+			sec := Section(arg)
+			return sec != .Recall || app.tool != .Brush || section_offered(app, sec)
 		},
-		enabled = proc(app: ^App, arg: int) -> bool {return panel_is_section(Panel_Kind(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {
-			p := Panel_Kind(arg)
-			return app.kit.stack.set && stack_kept(&app.kit.stack, p)
+			sec := Section(arg)
+			return card_shown(app, section_card(sec)) && sec not_in app.kit.cards.shut
 		},
 	},
 	.Panels_Reset = {
 		label = "Reset panels",
-		help = "Puts every panel back where it starts (the panel stack docked on the right, the others floating) and shows every bar.",
+		help = "Puts every panel back where it starts and shows every bar.",
 		icon = ui.ICON_PANEL,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
 	},
@@ -2308,7 +2280,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Workspace_Export = {
 		label = "Export workspace...",
-		help = "Writes this workspace's layout as it is now (bars, panels, columns, the stack, view grid and pass) to a small file, to take to another device or give to someone.",
+		help = "Writes this workspace's layout as it is now (bars, docks, the cards pinned, view grid and pass) to a small file, to take to another device or give to someone.",
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Workspace)},
 	},
@@ -2960,13 +2932,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
 	case .Open_Card:
-		p := Panel_Kind(arg)
-		if !panel_is_section(p) do return fmt.tprintf("%s card", STACK_CARD_NAMES[p])
-		if section_palette(p) == .Tool do return fmt.tprintf("Brush card: %s", tray_section_title(p))
-		return fmt.tprintf("%s card", tray_section_title(p))
-	case .Pin_Section:
-		p := Panel_Kind(arg)
-		return fmt.tprintf("Pin %s to the stack", tray_section_title(p) if panel_is_section(p) else STACK_CARD_NAMES[p])
+		return fmt.tprintf("%s card", card_title(Card(arg)))
+	case .Open_Section:
+		sec := Section(arg)
+		return fmt.tprintf("%s card: %s", card_title(section_card(sec)), section_title(sec))
 	case .View_Pass:
 		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
@@ -3052,9 +3021,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 // The shortcut and the gesture, as a tooltip shows them beside a control's name:
 // "Ctrl+Z · Two-finger tap", either alone, or "". Every control that runs a command
 // asks for it just before it is laid out, which is where search's Show where finds the
-// control to mark (tray_mark).
+// control to mark (card_mark).
 command_hint :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
-	tray_mark(app, id, arg)
+	card_mark(app, id, arg)
 	return hint_join(command_keys(app, id, arg), command_gesture(app, id, arg))
 }
 

@@ -73,7 +73,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.lighting)
 		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_kind=%v pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, pane_tab_shown(g, 1).kind, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
-		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
+		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open))
 	}
 	{
 		vws := &app.view_windows
@@ -202,7 +202,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s folder_parents=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places), strings.to_string(parents))
 		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d import_quads_joined=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes, app.import_joined)
-		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
+		// The Scene card's pictures: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
 		paint_off, booleans := 0, 0
 		for obj in app.scene.objects {
@@ -393,14 +393,14 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
 		fmt.printfln("labels_on=%d labels_kept=%d labels_shows=%d labels_drawn=%d labels_dropped=%d", int(help_labels_on(&app.kit)), int(app.kit.labels.latched), app.kit.labels.shows, app.kit.ctx.labels.drawn, app.kit.ctx.labels.dropped)
-		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(section_palette(app.kit.stack.revealed.? or_else .Preset)), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
+		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d card_front=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, card_front_text(&app.kit), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
-		// The stack scrolls in its column's body while docked and in its own while floating.
-		tray_scroll := app.kit.scroll
-		if _, docked := stack_docked(&app.kit); docked do tray_scroll = app.kit.panels.scroll
-		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", tray_scroll, app.kit.settings_scroll, int(app.kit.settings))
+		// How far the card in front of the pen side's column is scrolled.
+		card_scroll: f32
+		if col := &app.kit.cards.columns[.Right]; col.count > 0 do card_scroll = col.scrolls[col.cards[col.count - 1].card]
+		fmt.printfln("card_scroll=%.1f settings_scroll=%.1f settings_open=%d", card_scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
@@ -436,13 +436,13 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		for obj in app.scene.objects do if obj.locked do locks += 1
 		recording, level := -1, -1
 		if obj := selected_object(app); obj != nil do recording, level = sculpt.sculptor_layer_recording(object_sculptor(obj)), obj.levels.current
-		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d tools_tab=%s mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, strings.to_lower(TOOLS_TAB_NAMES[k.tools_tab], context.temp_allocator), int(app.ui.mask_hidden), level)
+		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, int(app.ui.mask_hidden), level)
 		spaces_off := 0
 		for obj in app.scene.objects do if obj.spaces_off != {} do spaces_off += 1
 		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
-		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
-		// The inspector sections showing their More options, as Panel_Kind names.
+		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f", int(k.help), k.help_tab, k.help_scroll)
+		// The sections showing their More options, as Section names.
 		more := "none"
 		for open, sec in k.more {
 			if !open do continue
@@ -450,9 +450,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			more = name if more == "none" else strings.concatenate({more, "+", name}, context.temp_allocator)
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
-		// The section the tray's open palette shows, whether Show where's mark is on a
-		// control, and the Mask section's Steps and Mask by kind.
-		fmt.printfln("tray_section=%s tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.stack.revealed.? or_else .Preset) if k.stack.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
+		// The section Show where opened last, whether its mark is on a control, and the Mask
+		// section's Steps and Mask by kind.
+		fmt.printfln("card_section=%s card_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.cards.revealed.? or_else .Brush) if k.cards.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
 		fmt.printfln("tour=%d tour_shown=%d tour_step=%s tour_done=%d tour_finished=%d", k.tour.step, int(k.tour.shown), strings.to_lower(fmt.tprint(k.tour.showing), context.temp_allocator) if k.tour.shown else "none", int(k.tour.done), k.tour.finished)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
@@ -488,28 +488,17 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(app)
 		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(app), app.timeline.menus, app.timeline.tints, int(history_tint_step(app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(app)), int(app.history_pictures))
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
+		open := [Kit_Window]bool{.Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
+		names := [Kit_Window]string{.Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			if which in PANEL_WINDOWS do r = panel_rect(app, which)
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
 		}
 		fmt.println()
-		// Where the stack goes (in layout terms), and which sections are kept in it.
-		fmt.printf("stack_place=%s ", strings.to_lower(fmt.tprint(k.stack.place), context.temp_allocator))
-		pins := strings.builder_make(context.temp_allocator)
-		for c in k.stack.order {
-			sec := c
-			if !panel_is_section(c) || !k.stack.set || !stack_kept(&k.stack, c) do continue
-			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
-			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
-		}
-		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
-		// On a narrow window, the side whose docked stack is popped over the view.
-		popped := "none"
-		if side, docked := stack_docked(k); docked && k.panels.popped do popped = "left" if side == .Left else "right"
-		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(stack_narrow(app)), popped, k.panels.pops)
+		// The cards in their columns (pinned ones marked *), the sections folded, and how
+		// often cards opened, folded, pinned and closed.
+		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d panel_menu=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, int(k.panels.menu))
 		// The workspace (its name escaped, as it may hold spaces), whether its layout has
 		// changes not saved, how many there are, and the zones hidden (by it or a view toggle).
 		if w := &k.workspaces; len(w.list) > 0 {
@@ -536,9 +525,6 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
-			fmt.printfln("stack_visit=%s stack_visits=%d", stack_visit_text(k), k.stack.visits)
-			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_sections=%s stack_section_folds=%d stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), stack_sections_text(k), k.stack.section_folds, k.stack.drops, stack_carry_text(k), k.stack.target.kind)
-			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, int(tray_width(app)))
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
@@ -548,11 +534,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
-		// The side bars' popover: what it shows, or none; the card popped out of a button
-		// and how many times one popped; the look.
+		// The side bars' popover: what it shows, or none; the look.
 		pop := "none"
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.kind), context.temp_allocator)
-		fmt.printfln("bar_pop=%s card_pop=%s card_pops=%d look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(card_pop_text(k), context.temp_allocator), k.card_pop.pops, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
+		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
 		// The theme shown: its name, whether a control moved it from what was saved, its mode
 		// and accent, and how many themes of their own the settings hold.
@@ -577,13 +562,17 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_search=%d brush_browser_picks=%d library_for=%s library_puts=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(k.brushes.searching), k.brushes.picks, library_for_text(app), k.brushes.puts)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
+		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
-			if name == "inspector" do r = panel_rect(app, Kit_Window.Inspector)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)
 		}
-		for r, side in k.panels.rect do fmt.printf("layout_%s_column=%.0f,%.0f,%.0f,%.0f ", "left" if side == .Left else "right", r.x, r.y, r.w, r.h)
+		// Each column's front card, where it was laid out.
+		for &col, side in k.cards.columns {
+			r: ui.Rect
+			if col.count > 0 && col.frame >= k.frame - 1 do r = col.rects[col.count - 1]
+			fmt.printf("layout_%s_column=%.0f,%.0f,%.0f,%.0f ", "left" if side == .Left else "right", r.x, r.y, r.w, r.h)
+		}
 		fmt.println()
 	}
 	if opts.check_mesh {

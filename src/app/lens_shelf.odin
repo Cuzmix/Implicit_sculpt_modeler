@@ -101,7 +101,7 @@ SHELF_MODEL :: [?]Bar_Slot {
 // app. A brush picked from All goes back to Sculpt, as the space follows the tool.
 SHELF_RENDER :: [?]Bar_Slot {
 	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Shading_Mode, int(Shading_Mode.Material_Preview)}, {.Shading_Mode, int(Shading_Mode.Solid)},
-	{.Open_Card, int(Panel_Kind.Material)}, {.Open_Card, int(Panel_Kind.Lights)}, {.Open_Card, int(Panel_Kind.Environment)},
+	{.Open_Section, int(Section.Material)}, {.Open_Section, int(Section.Lights)}, {.Open_Section, int(Section.Environment)},
 	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
 }
 
@@ -933,8 +933,8 @@ brush_picker_toggle :: proc(app: ^App) {
 }
 
 // A long-pressed tile's quick settings, over it: the brush's name with its favourite star,
-// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Pin to the stack keeps
-// the stroke's section as a card of the stack, and All settings opens the brush's.
+// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Stroke settings opens
+// the Tool card on the Stroke section, and All settings opens the brush's.
 kit_shelf_quick :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -988,8 +988,7 @@ kit_shelf_quick :: proc(app: ^App) {
 			else do shelf_pin(app, slot, which)
 		}
 	}
-	pinned := command_checked(app, .Pin_Section, int(Panel_Kind.Stroke))
-	if command_button(app, .Pin_Section, int(Panel_Kind.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
+	if command_button(app, .Open_Section, int(Section.Stroke), label = "Stroke settings", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {
 		sh.quick = false
 		brush_item_settings(app, cur)

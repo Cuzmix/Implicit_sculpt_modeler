@@ -14,7 +14,7 @@ import "../ui"
 Op_Result :: struct {
 	text:    string, // owned: one line, past tense, with how long it took
 	detail:  string, // owned: more for the section that ran it (the GPU's split), or ""
-	section: Maybe(Panel_Kind), // the inspector section that shows it as its last; nil for file notes
+	section: Maybe(Section), // the inspector section that shows it as its last; nil for file notes
 	flags:   Report_Flags,
 	undo:    Maybe(Undo_Mark), // with Undo offered: the step it takes back
 	at:      time.Tick,
@@ -37,7 +37,7 @@ Report_Flag :: enum u8 {
 Report_Flags :: bit_set[Report_Flag;u8]
 
 // Logs `format` and keeps it as the latest result.
-report :: proc(app: ^App, section: Maybe(Panel_Kind), flags: Report_Flags, format: string, args: ..any) {
+report :: proc(app: ^App, section: Maybe(Section), flags: Report_Flags, format: string, args: ..any) {
 	text := fmt.aprintf(format, ..args)
 	if .Warning in flags do log.warn(text)
 	else do log.info(text)
@@ -80,7 +80,7 @@ report_detail :: proc(app: ^App, format: string, args: ..any) {
 }
 
 // The latest result if it belongs to `section`: what the section shows as its last.
-result_for :: proc(app: ^App, section: Panel_Kind) -> (Op_Result, bool) {
+result_for :: proc(app: ^App, section: Section) -> (Op_Result, bool) {
 	if s, ok := app.result.section.?; ok && s == section && app.result.text != "" do return app.result, true
 	return {}, false
 }
@@ -92,7 +92,7 @@ results_destroy :: proc(app: ^App) {
 }
 
 // The section's last result, if the latest is its: the line, and any detail under it.
-kit_last_result :: proc(app: ^App, section: Panel_Kind) {
+kit_last_result :: proc(app: ^App, section: Section) {
 	r, ok := result_for(app, section)
 	if !ok do return
 	ctx := &app.kit.ctx
@@ -105,7 +105,7 @@ kit_last_result :: proc(app: ^App, section: Panel_Kind) {
 @(private = "file")
 SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 	verb:    string,
-	section: Maybe(Panel_Kind),
+	section: Maybe(Section),
 } {
 	.Delete        = {"Deleted %s", nil},
 	.Remesh        = {"Remeshed %s", .Remesh},

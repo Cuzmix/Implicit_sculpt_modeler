@@ -13,12 +13,11 @@ built_in_workspaces_read_back_as_written :: proc(t: ^testing.T) {
 		kit_layout_put(&s, text)
 		testing.expectf(t, kit_layout_text(&s) == text, "%v does not read back as written:\n%s", b, text)
 	}
-	// Sculpt is the layout as it starts: the tray docked on the right, open, the bars as
-	// installed, and nothing else.
+	// Sculpt is the layout as it starts: no card pinned, the bars as installed, and nothing
+	// else.
 	k: Kit_State
 	bars_reset(&k)
 	panels_default(&k)
-	k.inspector = true
 	testing.expect(t, kit_layout_text(&k) == built_in_layout(.Sculpt), "Sculpt is not the starting layout")
 }
 
@@ -29,7 +28,6 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	k := &a.kit
 	bars_reset(k)
 	panels_default(k)
-	k.inspector = true
 	workspaces_init(k)
 	defer workspaces_destroy(k)
 	w := &k.workspaces
@@ -52,13 +50,15 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	workspace_revert(k)
 	workspaces_frame(k)
 	testing.expect(t, !k.stats && !w.modified, "Revert left the change")
-	command_run(&a, .Pin_Section, int(Panel_Kind.Remesh))
+	// A card pinned is the layout's.
+	card_open(&a, .Mesh)
+	card_pin(&a, .Mesh)
 	workspace_save(k)
 	workspaces_frame(k)
 	testing.expect(t, !w.modified, "Save left the dot")
 	testing.expect(t, command_enabled(&a, .Workspace_Reset), "a changed built-in cannot be reset")
 	workspace_reset(k)
-	testing.expect(t, !command_checked(&a, .Pin_Section, int(Panel_Kind.Remesh)) && !command_enabled(&a, .Workspace_Reset), "Reset left the pin")
+	testing.expect(t, !card_pinned(k, .Mesh) && !command_enabled(&a, .Workspace_Reset), "Reset left the pin")
 
 	// Save as new: an own workspace, current, named; the one it came from as saved.
 	k.thumbnail = true
@@ -102,7 +102,6 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	a: App
 	panels_default(&a.kit)
-	a.kit.inspector = true
 	workspaces_init(&a.kit)
 	defer workspaces_destroy(&a.kit)
 	// An own workspace, then Render changed and left, then the own one changed and current.
@@ -128,8 +127,8 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect(t, w.modified, "the current workspace's changes came back as saved")
 	testing.expect_value(t, b.kit.spaces.layout[.Render], int(Built_In.Render))
 	workspace_switch(&b.kit, int(Built_In.Render))
-	// In Lens, Render's Lights are a card of the stack.
-	testing.expect(t, !b.kit.thumbnail && .Lights not_in b.kit.stack.hidden, "Render came back without how it was left")
+	// Render pins the Look card.
+	testing.expect(t, !b.kit.thumbnail && card_pinned(&b.kit, .Look), "Render came back without how it was left")
 }
 
 @(test)
@@ -140,7 +139,6 @@ an_older_settings_file_keeps_its_layout_as_sculpt :: proc(t: ^testing.T) {
 	_ = os.write_entire_file(path, transmute([]u8)string("stats 1\nwindow Stats 1 Start Start 616 264 0\n"))
 	a: App
 	panels_default(&a.kit)
-	a.kit.inspector = true
 	workspaces_init(&a.kit)
 	defer workspaces_destroy(&a.kit)
 	settings_load(&a, path)
@@ -156,7 +154,6 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	k := &a.kit
 	bars_reset(k)
 	panels_default(k)
-	k.inspector = true
 	workspaces_init(k)
 	defer workspaces_destroy(k)
 	w := &k.workspaces
@@ -180,7 +177,7 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	testing.expect(t, k.shelf.lists == shelf, "a workspace changed the shelf")
 
 	// A layout written before workspaces held the bars keeps the bars as they are.
-	kit_layout_put(k, "open Inspector\n")
+	kit_layout_put(k, "open Thumbnail\n")
 	testing.expect_value(t, k.view_rail.count, fresh)
 	bar_remove(&a, .View_Rail, 0)
 	rail := k.view_rail.count

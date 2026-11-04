@@ -105,13 +105,12 @@ Bar_List :: struct {
 	count: int,
 }
 
-// What a fresh install has. The view rail holds the cards, so it reads as "my panels": Main,
-// then the Scene, Layers, Material, Symmetry and Lights cards, each the same card the stack
-// shows (the layers' pictures, the material's look pad). The view's own settings are the
-// readout's menus (readout.odin).
+// What a fresh install has. The view rail holds the cards a sculptor reaches for, each
+// opening beside its button: Tool, Layers, Scene, Mesh, Mask and Symmetry. The view's own
+// settings are the readout's menus (readout.odin).
 VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
-	{.Inspector, 0}, {.Open_Card, int(Panel_Kind.Scene)}, {.Open_Card, int(Panel_Kind.Layers)}, {.Open_Card, int(Panel_Kind.Material)},
-	{.Open_Card, int(Panel_Kind.Symmetry)}, {.Open_Card, int(Panel_Kind.Lights)},
+	{.Open_Card, int(Card.Tool)}, {.Open_Card, int(Card.Layers)}, {.Open_Card, int(Card.Scene)}, {.Open_Card, int(Card.Mesh)},
+	{.Open_Card, int(Card.Mask)}, {.Open_Card, int(Card.Symmetry)},
 }
 
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
@@ -433,8 +432,8 @@ bar_slot_moved :: proc(app: ^App, slot: int) {
 bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Tool_Move:    return "Gizmo"
-	case .Inspector:    return "Main palette"
-	case .Open_Card:    if s.arg >= 0 && s.arg < len(Panel_Kind) do return panel_kind_title(app, Panel_Kind(s.arg))
+	case .Open_Card:    if s.arg >= 0 && s.arg < len(Card) do return card_title(Card(s.arg))
+	case .Open_Section: if s.arg >= 0 && s.arg < len(Section) do return section_title(Section(s.arg))
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
@@ -466,7 +465,6 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Transparency:    return ICON_TRANSPARENCY
 	case .Ghost_Object:    return ui.ICON_GHOST
 	case .Solo_Object:     return ICON_SOLO
-	case .Inspector:       return ui.ICON_PANEL
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
 	case .Brush_Preset:    return preset_slot_icon(app, s.arg)
@@ -477,7 +475,8 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Thumbnail:       return ICON_MINI_VIEW
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
-	case .Open_Card:       return panel_kind_icon(app, Panel_Kind(s.arg)) if s.arg >= 0 && s.arg < len(Panel_Kind) else ui.ICON_PANEL
+	case .Open_Card:       return card_icon(app, Card(s.arg)) if s.arg >= 0 && s.arg < len(Card) else ui.ICON_PANEL
+	case .Open_Section:    return SECTION_ICONS[Section(s.arg)] if s.arg >= 0 && s.arg < len(Section) else ui.ICON_PANEL
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})
@@ -485,7 +484,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 
 // The section a slot's long press opens, for the commands that have one.
 @(private = "file")
-bar_more_section :: proc(id: Command_Id) -> (Panel_Kind, bool) {
+bar_more_section :: proc(id: Command_Id) -> (Section, bool) {
 	#partial switch id {
 	case .Studio_Render:  return .Render, true
 	case .Floor_Grid:     return .Floor, true
@@ -495,6 +494,17 @@ bar_more_section :: proc(id: Command_Id) -> (Panel_Kind, bool) {
 	case .Live_Boolean:   return .Booleans, true
 	}
 	return {}, false
+}
+
+// Opens the card that holds section `sec` beside the button at `at`, on the section, or
+// closes it when the section shows already.
+bar_section_toggle :: proc(app: ^App, sec: Section, at: ui.Rect, side: ui.Side) {
+	if section_on_screen(app, sec) {
+		card_close(app, section_card(sec))
+		return
+	}
+	if !card_shown(app, section_card(sec)) do card_toggle(app, section_card(sec), at, side)
+	card_reveal(app, sec)
 }
 
 // Whether a slot's button does more on a long press (the triangle in its corner).
@@ -510,7 +520,7 @@ bar_has_more :: proc(id: Command_Id) -> bool {
 bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	k := &app.kit
 	p := &k.bar_pop
-	if sec, ok := bar_more_section(s.id); ok && card_pop_shows(k, stack_card_of(app, sec)) do return true
+	if sec, ok := bar_more_section(s.id); ok && section_on_screen(app, sec) do return true
 	#partial switch s.id {
 	case .Symmetry_X:      return app.brush.symmetry != {} || app.brush.radial_on
 	case .Tool_Move:       return app.tool == .Move
@@ -519,7 +529,8 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
-	case .Open_Card:       return card_pop_shows(k, stack_card_of(app, Panel_Kind(s.arg)))
+	case .Open_Card:       return card_shown(app, Card(s.arg))
+	case .Open_Section:    return section_on_screen(app, Section(s.arg))
 	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Command_Palette: return k.palette
 	}
@@ -543,8 +554,11 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	case .Pass_Menu:
 		k.passes.menu_at, k.passes.menu_side = at, side
 	case .Open_Card:
-		// A card on a dock pops out beside the button (card_pop.odin).
-		card_pop_section(app, Panel_Kind(s.arg), at, side)
+		// A card on a dock opens beside the button (column.odin).
+		card_toggle(app, Card(s.arg), at, side)
+		return
+	case .Open_Section:
+		bar_section_toggle(app, Section(s.arg), at, side)
 		return
 	case .Brush_Value:
 		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)
@@ -561,7 +575,7 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 // What a long press (or a right-click) on a slot's button does, for one that has more.
 bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	if sec, ok := bar_more_section(s.id); ok {
-		card_pop_section(app, sec, at, side)
+		bar_section_toggle(app, sec, at, side)
 		return
 	}
 	#partial switch s.id {

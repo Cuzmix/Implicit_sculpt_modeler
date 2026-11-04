@@ -14,7 +14,6 @@ tab_is_clean_view_and_b_the_brush_picker :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, owner(app, Chord{key = KEY_TAB}), Command_Id.Clean_View)
 	testing.expect_value(t, owner(app, Chord{key = KEY_B}), Command_Id.Brush_Picker)
-	testing.expect_value(t, command_keys(app, .Inspector), "")
 	keymap_rebuild(app)
 	testing.expect_value(t, owner(app, Chord{key = KEY_TAB}), Command_Id.Clean_View)
 }

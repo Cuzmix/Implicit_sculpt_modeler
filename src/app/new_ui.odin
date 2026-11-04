@@ -19,16 +19,9 @@ import "../ui"
 // The interface: one layout for every screen, drawn by the ui kit over a viewport that
 // fills the window (the design spec "Sculpt UI redesign", laid out as ZBrush for iPad).
 // The top bar holds files and the app's panels, the brush bar runs down the left and the
-// view bar down the right, the palette tray (the tool, the object and the scene) sits
-// beside the view bar, the bottom bar holds the brushes and the mesh tools, and the
+// view bar down the right, the cards open beside the dock buttons that ask for them
+// (cards.odin, column.odin), the bottom bar holds the brushes and the mesh tools, and the
 // History opens over it. Everything the app shows is drawn by the kit (src/ui).
-
-// The palette tray's palettes (kit_tray.odin).
-Kit_Tab :: enum u8 {
-	Tool,
-	Object,
-	Scene,
-}
 
 Kit_State :: struct {
 	ctx:        ui.Context,
@@ -36,17 +29,14 @@ Kit_State :: struct {
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
-	inspector:  bool, // the panel stack is open
-	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
 	pen_page:    int, // the Brush card's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
-	// Search's Show where (tray_show): the command whose control the tray marks, since
-	// when; and whether the tray's content is being drawn, where the mark is looked for.
+	// Search's Show where (card_show): the command whose control a card marks, and since
+	// when.
 	pointed:    struct {
 		id:    Command_Id,
 		arg:   int,
 		since: f64,
 	},
-	in_tray:    bool,
 	nav:        Nav_State, // the navigation head (nav_head.odin)
 	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
@@ -88,8 +78,6 @@ Kit_State :: struct {
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
-	// The card popped out of a dock's button (card_pop.odin).
-	card_pop:   Card_Pop,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
@@ -105,10 +93,9 @@ Kit_State :: struct {
 	value_scrubs:    int,
 	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
-	stack:      Lens_Stack, // the tray, as a stack of cards (lens_stack.odin)
+	cards:      Cards, // the cards and the columns they open in (cards.odin, column.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
 	pane_menu:  Pane_Menu, // a view pane's camera or pass list
-	in_stack:   bool, // the Brush card's groups are being drawn: sections leave out what it shows above them
 	// The mini view (lens_chrome.odin): its choices shown under the picture, and how
 	// often a tap on it swapped it with the main view, for the exit stats.
 	mini_rows:  bool,
@@ -203,9 +190,6 @@ Kit_State :: struct {
 	clean_dial:   bool,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
-	// On a window narrower than COLUMNS_MIN_W the docked stack pops over the view only
-	// while asked for, as popovers from the rails do (Settings > Interface; panels.odin).
-	column_popovers: bool,
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
 	// lines drawn this frame and the frames a guide moved, for the exit stats.
 	guide_held:  ui.Id,
@@ -267,7 +251,6 @@ Kit_State :: struct {
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
 	material_card:  Material_Card, // the Material card's tab and scrub (lens_materials.odin)
-	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
 	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
 	palette_bar_puts: int,
@@ -277,11 +260,10 @@ Kit_State :: struct {
 	palette_for:    Palette_For,
 	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order every floating thing is drawn in, the
-	// last on top: windows and the stack's floated cards in one
-	// order, so whichever was touched last is in front of all the others.
+	// last on top, so whichever was touched last is in front of all the others.
 	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + len(Panel_Kind)]Float_Ref,
-	// Lens's panels: the two columns and the panel menu (panels.odin).
+	order:      [dynamic; len(Kit_Window)]Float_Ref,
+	// The floating panels' state and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// The on-screen keyboard is away while text input is on (SDL_EVENT_SCREEN_KEYBOARD_HIDDEN
@@ -346,12 +328,10 @@ Kit_State :: struct {
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
-	// (kit_scene.odin), and the inspector's body as last laid out and how far it scrolls,
-	// which a drag near its edge scrolls.
+	// (kit_scene.odin).
 	tree_drag:      Tree_Drag,
 	tree_column:    Tree_Column,
-	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
-	objects_card:   bool,
+	// The Scene card's pictures' menus and Actions (scene_pictures.odin).
 	card:           Objects_Card,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
@@ -369,22 +349,19 @@ Kit_State :: struct {
 	grid:             View_Grid,
 	thumbnail_flip:   bool,
 	thumbnail_px:     [2]u32,
-	inspector_body: ui.Rect,
-	inspector_limit:  f32,
-	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
 	// Which Stats sections are open, and which sections show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
 	stats_open: [Stats_Section]bool,
-	more:       [Panel_Kind]bool,
+	more:       [Section]bool,
 	all_options: bool,
 	// Every paragraph of the cards and Settings shown whole rather than as a one-line hint
-	// with a ? (Settings > Interface > Inspector, ui.hint_line).
+	// with a ? (Settings > Interface > Cards, ui.hint_line).
 	explain_all: bool,
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
 	// The brush values the off-hand island showed as sliders, and the frame it last drew,
-	// so the Brush card leaves Size and Strength to it (stack_brush).
+	// so the Tool card leaves Size and Strength to it (card_brush).
 	island_sliders: bit_set[Brush_Value],
 	island_frame:   int,
 	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
@@ -401,7 +378,6 @@ Kit_State :: struct {
 	history_at:  ui.Rect, // where the History button was drawn last, which the tour lights
 	coach_shown: bool,
 	coach_last:  Coach_Step,
-	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_mesh:   int, // a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	add_size:   int, // into SPHERE_PRESETS
@@ -423,39 +399,33 @@ Kit_State :: struct {
 // The panels that behave as windows (ui.Window): each has a title bar to drag it by,
 // Minimise and Close.
 Kit_Window :: enum u8 {
-	Inspector,
 	Stats,
 	History,
 	Settings,
 	Help,
 	Macros,
-	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
 	Colors, // the Colors card (kit_colors.odin), beside the brush bar
 	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
 // The order the windows start in, back to front: Settings, Help and Macros over the rest,
 // as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros}
 
-// Settings, Help and Macros share the inspector's place on the right: one at a time, with
-// the inspector hidden while one is open.
+// Settings, Help and Macros share one place on the right: one at a time.
 side_panel_open :: proc(k: ^Kit_State) -> bool {
 	return k.settings || k.help || k.macros
 }
 
-// Closes Settings, Help or Macros, whichever is open, giving the place back to the
-// inspector.
+// Closes Settings, Help or Macros, whichever is open.
 side_panel_close :: proc(app: ^App) {
 	if app.kit.settings do settings_close(app)
 	app.kit.help, app.kit.macros = false, false
 }
 
-// Something that floats over the view and comes to the front when touched: a window or
-// a card floated out of Lens's stack.
+// Something that floats over the view and comes to the front when touched: a window.
 Float_Ref :: union {
 	Kit_Window,
-	Panel_Kind,
 }
 
 // A panel as the floating order holds it.
@@ -466,12 +436,12 @@ float_of :: proc(ref: Panel_Ref) -> Float_Ref {
 	return nil
 }
 
-// Brings `which` (a window, or a floating card of the stack) in front of the others.
+// Brings window `which` in front of the others.
 window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
 	float_raise(k, float_of(which))
 }
 
-// Brings `which` in front of every other floating thing, the stack's cards too.
+// Brings `which` in front of every other floating thing.
 float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 	if which == nil do return
 	for w, i in k.order {
@@ -482,13 +452,11 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 	if len(k.order) < cap(k.order) do append(&k.order, which)
 }
 
-// Puts every window back where it starts, open and in the starting order, the stack back
-// docked on the right (panels_default) and every bar shown.
+// Puts every window back where it starts, in the starting order (panels_default), and
+// every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
 	panels_default(k)
-	if !k.stack.set do stack_default(k)
-	k.stack.place = .Right
 	// Every bar comes back too, so a workspace that hides them is never a dead end.
 	k.hidden = {}
 }
@@ -992,7 +960,6 @@ KIT_INSPECTOR_W :: 312
 kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
-	k.inspector = true
 	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
 	k.stats_open[.Frame], k.stats_open[.Sculpting] = true, true
@@ -1001,7 +968,6 @@ kit_init :: proc(app: ^App) {
 	k.surface_ring = true
 	k.symmetry_line = true
 	k.panes_work = true
-	k.column_popovers = true
 	k.clean_dial = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
@@ -1015,7 +981,7 @@ kit_init :: proc(app: ^App) {
 	grid_reset(&k.grid)
 	k.pies = PIE_DEFAULTS
 	panels_default(k)
-	stack_default(k)
+	cards_default(k)
 	workspaces_init(k)
 	k.last_frame = time.tick_now()
 }
@@ -1031,8 +997,8 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.panels.menu, k.workspaces.menu, k.passes.menu = false, false, false
-	k.shelf.quick, k.shelf.menu, k.stack.menu, k.export.open = false, false, false, false
-	k.stack.tab_open, k.pane_menu.open, k.grid.areas.menu.open = false, false, false
+	k.shelf.quick, k.shelf.menu, k.export.open = false, false, false
+	k.pane_menu.open, k.grid.areas.menu.open = false, false
 	k.ctx.select_open = 0
 }
 
@@ -1041,7 +1007,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1319,7 +1285,6 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if app.diag.open && quiet do diag_close(app)
 		else if k.home && quiet do home_close(app)
 		else if k.clean && quiet do clean_view_set(app, false)
-		else if k.panels.popped && quiet do stack_pop(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if edit_waits && quiet do stroke_edit_cancel(app)
 		else if placing && quiet {
@@ -1512,27 +1477,20 @@ kit_layout :: proc(app: ^App) {
 	kit_recover(app)
 	kit_macro_chip(app)
 
-	// The docked stack, under the windows (panels.odin); then the windows and floating
-	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
-	// front from the next frame on. The docked stack is its column's, shown or not.
-	stack_frame_begin(k)
-	kit_stack_dock(app, panel_draw)
-	// A card floated out of the stack another way than by hand (a layout read, a pane
-	// closed) joins the order on top.
-	for c in k.stack.floated do if !slice.contains(k.order[:], Float_Ref(c)) do float_raise(k, c)
+	// The cards in their columns, under the windows (column.odin): a press on the view
+	// closes those not pinned first, so it never sculpts. Then the windows, back to front:
+	// the last drawn is hit tested first. One pressed comes to the front from the next frame
+	// on.
+	columns_update(app)
+	kit_columns(app)
 	top: Float_Ref
 	order := k.order
 	for which in order {
 		switch w in which {
-		case Kit_Window: if panel_float_draw(app, w) do top = which
-		case Panel_Kind:
-			// The stack's floating cards (lens_stack.odin), among the panels.
-			if stack_float_card(app, w) do top = which
+		case Kit_Window: if panel_draw(app, w) do top = which
 		}
 	}
 	float_raise(k, top)
-	// While a palette is carried, where it would go.
-	stack_carry_update(app)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)
 	// The dial over every bar, panel, window and card, so a finger on it is always its
@@ -1565,7 +1523,7 @@ kit_layout :: proc(app: ^App) {
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_scene_menu(app)
-	kit_objects_card_menus(app)
+	kit_scene_pictures_menus(app)
 	kit_folder_menu(app)
 	kit_theme_menus(app)
 	kit_rename(app)
@@ -1579,8 +1537,6 @@ kit_layout :: proc(app: ^App) {
 	kit_macro_save(app)
 	kit_pie_editor(app)
 	kit_panel_menu(app)
-	kit_stack_menu(app)
-	kit_stack_tab(app)
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
@@ -1589,78 +1545,22 @@ kit_layout :: proc(app: ^App) {
 	kit_help_labels_note(app)
 }
 
-// Lays out panel `which` where it floats, if it does (the docked stack is its column's).
-// Returns true when a press landed on it, to bring it to the front.
-panel_float_draw :: proc(app: ^App, which: Panel_Ref) -> bool {
-	if _, docked := stack_docked(&app.kit); docked && which == Panel_Ref(Kit_Window.Inspector) do return false
-	return panel_draw(app, which)
-}
-
 // Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
 // true when a press landed on it, to bring it to the front.
 panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 	switch w in which {
 	case Kit_Window:
 		switch w {
-		case .Inspector: return kit_inspector(app)
 		case .Stats:     return kit_stats(app)
 		case .History:   return kit_history_panel(app)
 		case .Settings:  return kit_settings(app)
 		case .Help:      return kit_help(app)
 		case .Macros:    return kit_macros(app)
-		case .Objects:   return kit_objects_card(app)
 		case .Colors:    return kit_colors_card(app)
 		case .Thumbnail: return kit_mini_view(app)
 		}
 	}
 	return false
-}
-
-// The palette tray, laid out as the panel stack (lens_stack.odin): its cards down the pen
-// side under the top bar, sliding in from the right (Tab or Close hides it, the Palettes
-// button brings it back). Floating, it scrolls when its cards are taller than the room
-// under the title bar, with the wheel or by dragging it (a finger or a pen has no wheel).
-// Returns true when a press landed on it, to bring it to the front.
-@(private = "file")
-kit_inspector :: proc(app: ^App) -> (raised: bool) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	// Settings or Help takes its place while open.
-	shown := ui.presence(ctx, panel_id(Kit_Window.Inspector), k.inspector && !side_panel_open(k), t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Inspector]
-	top := kit_top()
-	right := kit_right(app)
-	PADDING :: 12
-
-	mark := ui.vertex_mark(ctx)
-	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
-	// own surface; floating, one window round them all.
-	strip := stack_strip_shown(app)
-	stack_w := STACK_STRIP_W if strip else stack_width(k)
-	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
-	if _, docked := stack_docked(k); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
-	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector))
-	raised = p.raised
-	if p.closed do k.inspector = false
-	if p.body {
-		s: Kit_Scroll
-		if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
-		if strip do kit_stack_strip(app)
-		else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
-		if !p.docked do kit_scroll_end(ctx, s)
-	}
-	panel_end(app, &p)
-	if k.inspector && !side_panel_open(k) && p.body && !strip do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
-}
-
-// The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
-// clear of it.
-tray_width :: proc(app: ^App) -> f32 {
-	return stack_width(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1729,7 +1629,7 @@ kit_shading_menu :: proc(app: ^App) {
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
 		at := app.kit.bar_pop.at
 		app.kit.bar_pop.open = false
-		card_pop_section(app, .Look, at, .Left)
+		card_toggle(app, .Look, at, .Left)
 	}
 }
 
@@ -1775,13 +1675,11 @@ kit_field_of_view :: proc(app: ^App) {
 	if ui.slider(ctx, "Field of view", &degrees, lo, hi, .Linear, fmt.tprintf("%.0f°", degrees)) do camera.orbit_set_fov(&app.camera, math.to_radians(math.round(degrees)))
 }
 
-// Picks brush `kind` and shows its settings: the tray, on the tool's palette, from the top.
+// Picks brush `kind` and shows its settings: the Tool card, from its top.
 brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
-	k := &app.kit
 	command_run(app, .Brush, int(kind))
 	side_panel_close(app)
-	k.inspector, k.stack.revealed = true, nil
-	stack_reveal_card(app, .Brush)
+	card_reveal(app, .Brush)
 }
 
 // Opens folder `id`'s menu at `at`.

@@ -66,7 +66,7 @@ object_scene_kind :: proc(obj: ^Object) -> Scene_Kind {
 	return .Meshes
 }
 
-// The card's content, as the stack draws it.
+// The Scene section's content, as the Scene card draws it.
 kit_lens_scene :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -120,7 +120,7 @@ kit_lens_scene :: proc(app: ^App) {
 				k.tree_rows += 1
 			}
 		}
-		kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit}, ui.THUMB_INDENT)
+		if scroll := card_scroll(k, .Scene); scroll != nil do kit_tree_drags(app, spots[:], {k.cards.bodies[.Scene].at, scroll, k.cards.bodies[.Scene].limit}, ui.THUMB_INDENT)
 	}
 	if kind == .All || kind == .Lights do scene_light_rows(app, query, kind == .Lights)
 	switch {
@@ -317,7 +317,7 @@ scene_light_rows :: proc(app: ^App, query: string, only: bool) {
 		}
 		if row.clicked || row.menu {
 			app.light_pick = i
-			tray_open(app, .Lights)
+			card_reveal(app, .Lights)
 		}
 		k.scene_rows += 1
 	}
@@ -474,7 +474,7 @@ lens_scene_sets :: proc(app: ^App) {
 		}
 		if row.menu {
 			app.ui.set_selected = i
-			tray_open(app, .Sets)
+			card_reveal(app, .Sets)
 		}
 	}
 	_ = command_button(app, .Store_Selection_Set, glyph = ui.ICON_PLUS, width = ui.fill_width(ctx), variant = .Light)

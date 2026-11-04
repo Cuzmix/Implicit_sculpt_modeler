@@ -159,9 +159,8 @@ tree_drop :: proc(spots: []Tree_Spot, dragged: int, at: [2]f32, indent: f32 = ui
 
 // Notes what a row's grip and toggles hold this frame: `grip`, whether whatever drags the
 // row is held, and `held_toggle`, which toggle is (0 the ghost, 1 the eye; -1 none).
-// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene card's tree and the
-// Objects card both drag through this, never both at once (the card and the tray share
-// their place, so only one is open).
+// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene card's tree and its
+// pictures both drag through this, never both at once (the card shows one of them).
 kit_row_drags :: proc(app: ^App, grip: bool, held_toggle: int, rect: ui.Rect, key: int, ghost, off: bool) {
 	k := &app.kit
 	if grip {

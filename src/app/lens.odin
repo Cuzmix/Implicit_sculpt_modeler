@@ -55,9 +55,9 @@ focus_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	u.focus_held = false
 	if u.focus_hit {
 		at := focus_point(app)
-		report(app, Panel_Kind.Lens, {.Quiet}, "Focus at %.2f, %.2f, %.2f", at.x, at.y, at.z)
+		report(app, Section.Lens, {.Quiet}, "Focus at %.2f, %.2f, %.2f", at.x, at.y, at.z)
 	} else {
-		report(app, Panel_Kind.Lens, {.Warning}, "Pick focus: the press missed every object")
+		report(app, Section.Lens, {.Warning}, "Pick focus: the press missed every object")
 	}
 	return true
 }
@@ -67,7 +67,7 @@ focus_pick_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 focus_marker_shown :: proc(app: ^App) -> bool {
 	u := &app.ui
 	if u.focus_armed || u.focus_held do return true
-	return app.render_dof && palette_on_screen(app, .Lens)
+	return app.render_dof && section_on_screen(app, .Lens)
 }
 
 // The focus marker, in the light markers' style: a ring on a dark plate with four ticks

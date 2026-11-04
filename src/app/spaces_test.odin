@@ -12,7 +12,6 @@ spaces_app :: proc() -> ^App {
 	k := &a.kit
 	bars_reset(k)
 	panels_default(k)
-	k.inspector = true
 	workspaces_init(k)
 	a.tool = .Brush
 	a.brush.kind = .Clay
@@ -238,12 +237,12 @@ place_light_opens_the_lights :: proc(t: ^testing.T) {
 	a := spaces_app()
 	defer spaces_app_free(a)
 	a.scene.lights.count = 1
-	a.kit.inspector = false
+	card_close(a, .Look)
 	testing.expect(t, !lights_section_shown(a))
 	command_run(a, .Place_Light)
 	testing.expect(t, a.ui.light_place && lights_section_shown(a))
 	testing.expect(t, command_checked(a, .Place_Light, 0))
-	a.kit.inspector = false
+	card_close(a, .Look)
 	command_run(a, .Place_Light)
 	testing.expect(t, a.ui.light_place && lights_section_shown(a), "the closed section opened again")
 	command_run(a, .Place_Light)

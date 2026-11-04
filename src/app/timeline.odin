@@ -341,17 +341,15 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	} else {
 		dock := shelf_bottom_size(app)
 		// Centred over the dock, as wide as fits between the panel on the right (Settings or
-		// Help in the inspector's place, else the inspector) and the same margin on the other
-		// side, within its least and most.
-		right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0
+		// Help, else a card pinned there) and the same margin on the other side, within its
+		// least and most.
+		right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else cards_right_room(app)
 		side := max(kit_right(app) + right, kit_left(app))
 		width = clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
 		p = panel_begin(app, Kit_Window.History, "History", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
 	}
 	raised = p.raised
 	if p.closed do k.history = false
-	// Docked, its rows take the column's width.
-	if p.docked && p.body do width = p.scroll.at.w + 2 * 10
 	if !p.body {
 		panel_end(app, &p)
 		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})

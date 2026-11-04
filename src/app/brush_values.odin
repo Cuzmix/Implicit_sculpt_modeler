@@ -68,7 +68,7 @@ VALUE_LOOK_NAMES := [Value_Look]string {
 
 // The section each value's settings are in, which its menu's Brush settings opens.
 @(rodata)
-BRUSH_VALUE_SECTIONS := [Brush_Value]Panel_Kind {
+BRUSH_VALUE_SECTIONS := [Brush_Value]Section {
 	.Size        = .Pen,
 	.Strength    = .Pen,
 	.Focal_Shift = .Falloff,
@@ -435,7 +435,7 @@ kit_value_menu :: proc(app: ^App) {
 		at, side := p.at, p.side
 		if v == .Exposure do k.more[.Material] = true
 		p.open = false
-		card_pop_section(app, BRUSH_VALUE_SECTIONS[v], at, side)
+		bar_section_toggle(app, BRUSH_VALUE_SECTIONS[v], at, side)
 		return
 	}
 	column := bar_column(which)

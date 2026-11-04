@@ -53,7 +53,8 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 	// A floating bar stands over the view rather than down a side; the shelf is the
 	// bottom's, above.
 	for b in Dock_Id do if b != .Shelf && dock_edge(k, b) != .Float do side(ui.prev_rect(ctx, DOCK_ROOTS[b]), mid, &lo, &hi)
-	for c in k.panels.rect do side(c, mid, &lo, &hi)
+	// A card pinned in a column stays, so the view keeps clear of it.
+	for s in Column_Side do side(column_rest_rect(app, s), mid, &lo, &hi)
 	// A panel shown last frame and tall enough to stand down a side.
 	for s in k.panels.seen do if s.frame >= k.frame - 1 && s.rect.h > area.h * 0.3 do side(s.rect, mid, &lo, &hi)
 	if hi.x - lo.x < area.w * 0.3 || hi.y - lo.y < area.h * 0.3 do return area

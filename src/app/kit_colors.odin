@@ -15,7 +15,7 @@ import "../geom"
 // Eyedropper and Close; then one of Procreate's five ways to pick, chosen by the tabs along
 // the bottom: Disc, Classic, Harmony, Value and Palettes. Under the first four, the last
 // colours picked and the default palette. It stays open while you paint, as both apps'
-// cards do; the dots drag it, and holding them puts it back in the tray's Colour section.
+// cards do; the dots drag it, and holding them puts it back in the Paint card's Colour section.
 // The design and which app each part comes from: notes/colors/colors-card-design.md.
 
 // The card's width: seven touch-sized swatches across inside its padding.
@@ -133,7 +133,6 @@ Colors_Card :: struct {
 	swatch_menu:     bool,
 	swatch_menu_at:  ui.Rect,
 	swatch_menu_of:  [2]int, // the palette (yours) and the swatch
-	tray_was:        bool,
 	// The colour popover (kit_color_popover), which a tap on any colour field's well
 	// opens: open, which field (its well's id) and where; the field's colour as it last
 	// showed it, what the popover set and whether the field is still to take that (next
@@ -397,7 +396,7 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 	if p.closed do k.colors_card = false
 	if p.dock && k.colors_card {
 		k.colors_card = false
-		tray_open(app, .Paint_Color)
+		card_reveal(app, .Paint_Color)
 	}
 	if !p.body {
 		panel_end(app, &p)
@@ -465,7 +464,7 @@ kit_color_popover :: proc(app: ^App) {
 	inner := f32(SWATCH_COLUMNS * SWATCH_SIDE)
 	owner := ui.id_of(ctx, "colour popover")
 	// Beside the field, toward the middle of the window, so the field and its panel stay
-	// in view: left of a field in the tray, right of one in a card at the left.
+	// in view: left of a field in a card at the right, right of one in a card at the left.
 	side := ui.Side.Left if c.pop_at.x + c.pop_at.w * 0.5 > ctx.input.window.x * 0.5 else ui.Side.Right
 	if !ui.popover_begin(ctx, "colour popover", &c.pop, c.pop_at, side, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W}) do return
 	// The pickers set `shown`; the card's pending history pick is kept apart from this one.
@@ -1092,7 +1091,7 @@ eyedropper_command :: proc(app: ^App) {
 	if u.viewport_hovered && !u.eyedrop_armed {
 		if rgb, ok := color_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
-			report(app, Panel_Kind.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
+			report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
 		return
 	}
@@ -1115,9 +1114,9 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	u.eyedrop_held = false
 	if u.eyedrop_hit {
 		colors_pick(app, u.eyedrop_color)
-		report(app, Panel_Kind.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
+		report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
 	} else {
-		report(app, Panel_Kind.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
+		report(app, Section.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
 	}
 	return true
 }

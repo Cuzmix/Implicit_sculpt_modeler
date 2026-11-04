@@ -6,7 +6,7 @@ import "../ui"
 
 // The contextual action bar: above the shelf, the next steps for what is active on
 // the selected object, so a tablet user masks, then inverts or blurs without opening the
-// inspector, its Object palette and the Select page. It shows only while something applies: the
+// Mask card. It shows only while something applies: the
 // Move tool's gizmo, an HD window open, a mask, hidden parts, or an operation that can
 // still be adjusted (adjust_last.odin). HD refuses hidden parts and hiding is refused in HD, so at most three
 // groups show. Each button runs its
@@ -174,7 +174,7 @@ action_bar_shown :: proc(app: ^App) -> bool {
 }
 
 // The height of the dock and, when it is shown, the action bar above it, from last frame's
-// layout: what the toasts and the inspector keep clear of at the bottom middle.
+// layout: what the toasts and the cards keep clear of at the bottom middle.
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
 	// No dock (the workspace hides it), no lift either.
@@ -196,9 +196,8 @@ action_bar_room :: proc(app: ^App) -> f32 {
 	area := ui.safe_area(&k.ctx)
 	side := kit_left(app)
 	if across := rail_reach_across(app); across > 0 do side = max(side, across + 8)
-	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else tray_width(app) if k.inspector else 0
+	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else cards_right_room(app)
 	_, dock_hi := shelf_bottom_span(app)
-	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).
 	right := kit_right(app)
 	beside := dock_hi + 8 <= area.w - right - panel
 	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, right + panel + 8)
