@@ -46,9 +46,9 @@ float3 at_0(int2 p_0, KernelContext_0 thread* kernelContext_0)
 {
 
 #line 18
-    sampler _S1 = kernelContext_0->graded_sampler_0;
+    float4 _S1 = ((kernelContext_0->graded_texture_0).read(uint2((clamp(p_0, int2(int(0)) , texture_size_0(kernelContext_0->graded_texture_0, kernelContext_0->graded_sampler_0) - int2(int(1)) )))));
 
-    return saturate(((kernelContext_0->graded_texture_0).read(vec<uint,2>(((_S1)).xy), uint(((_S1)).z))).xyz);
+    return saturate(_S1.xyz);
 }
 
 
@@ -186,13 +186,13 @@ struct pixelOutput_0
 
 #line 43
     float3 w_1 = sqrt(saturate(min(lo_1, float3(2.0f)  - hi_1) / max(hi_1, float3(0.00000999999974738f) ))) * smoothstep(float3(0.0058823530562222f) , float3(0.01568627543747425f) , float3(0.5f)  * (hi_1 - lo_1)) * float3((-1.0f / mix(8.0f, 5.0f, saturate((&kernelContext_1)->Sharpen_Uniforms_0->params_0.x)))) ;
+    float3 sharp_0 = saturate((w_1 * (_S8 + _S10 + _S12 + _S14) + _S11) / (float3(1.0f)  + float3(4.0f)  * w_1));
 
-#line 43
-    sampler _S16 = (&kernelContext_1)->graded_sampler_0;
+#line 44
+    float4 _S16 = (((&kernelContext_1)->graded_texture_0).read(uint2((_S6))));
 
-#line 43
-    pixelOutput_0 _S17 = { float4(grain_and_dither_0(saturate((w_1 * (_S8 + _S10 + _S12 + _S14) + _S11) / (float3(1.0f)  + float3(4.0f)  * w_1)), _S5, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.y, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.z, (as_type<uint>(((&kernelContext_1)->Sharpen_Uniforms_0->params_0.w)))), (((&kernelContext_1)->graded_texture_0).read(vec<uint,2>(((_S16)).xy), uint(((_S16)).z))).w) };
-
+#line 44
+    pixelOutput_0 _S17 = { float4(grain_and_dither_0(sharp_0, _S5, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.y, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.z, (as_type<uint>(((&kernelContext_1)->Sharpen_Uniforms_0->params_0.w)))), _S16.w) };
 
     return _S17;
 }

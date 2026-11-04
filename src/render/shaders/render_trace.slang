@@ -672,10 +672,10 @@ float3 env_sample(out float pdf) {
 	int count = ts.x * ts.y;
 	float u = rnd() * float(count);
 	int i = min(int(u), count - 1);
-	float4 e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+	float4 e = load_texel(env_table, int2(i % ts.x, i / ts.x));
 	if (frac(u) >= e.x) {
 		i = int(e.y);
-		e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+		e = load_texel(env_table, int2(i % ts.x, i / ts.x));
 	}
 	float2 uv = (float2(i % ts.x, i / ts.x) + float2(rnd(), rnd())) / float2(ts);
 	float3 local = panorama_dir(uv);
@@ -688,7 +688,7 @@ float env_pdf(float3 d) {
 	float3 local = mul(d, transpose(env_frame()));
 	int2 ts = texture_size(env_table);
 	int2 at = min(int2(panorama_uv(local) * float2(ts)), ts - 1);
-	return env_table.Load(int3(at, 0)).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+	return load_texel(env_table, at).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
 }
 
 // One light's light at a surface (next-event estimation): the environment or a light,
@@ -970,13 +970,13 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	}
 	float lum = luminance(radiance);
 	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
-	float4 sum = first ? float4(0.0) : prev.Load(int3(px, 0));
+	float4 sum = first ? float4(0.0) : load_texel(prev, px);
 	next[px] = sum + float4(radiance, covered);
 	if (lens) {
 		// Running means over the samples whose ray met the scene, the share that did in
 		// the colour's a, so the colour divided out is the colour the blurred light has.
-		float4 prev_a = first ? float4(0.0) : prev_albedo.Load(int3(px, 0));
-		float4 prev_n = first ? float4(0.0) : prev_normal.Load(int3(px, 0));
+		float4 prev_a = first ? float4(0.0) : load_texel(prev_albedo, px);
+		float4 prev_n = first ? float4(0.0) : load_texel(prev_normal, px);
 		float done = float(counts.x);
 		float hit = guide_a.a, hits_before = prev_a.a * done;
 		float hits = hits_before + hit;

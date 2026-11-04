@@ -581,8 +581,8 @@ bool occluded_0(float3 o_2, float3 d_1, float tmax_2, KernelContext_0 thread* ke
     }
 
 #line 191
-    sampler _S31 = (&kernelContext_4)->view_depth_sampler_0;
-    float d_2 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S31)).xy), uint(((_S31)).z))).x;
+    float4 _S31 = (((&kernelContext_4)->view_depth_texture_0).read(uint2((_S29))));
+    float d_2 = _S31.x;
     if(d_2 >= 1.0f)
     {
 
@@ -604,25 +604,25 @@ bool occluded_0(float3 o_2, float3 d_1, float tmax_2, KernelContext_0 thread* ke
     int2 _S34 = int2(int(0)) ;
 
 #line 198
-    sampler _S35 = (&kernelContext_4)->view_depth_sampler_0;
+    float4 _S35 = (((&kernelContext_4)->view_depth_texture_0).read(uint2((clamp(_S29 - _S33, _S34, hi_1)))));
 
 #line 198
-    float dl_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S35)).xy), uint(((_S35)).z))).x;
+    float dl_0 = _S35.x;
 
 #line 198
-    sampler _S36 = (&kernelContext_4)->view_depth_sampler_0;
-    float dr_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S36)).xy), uint(((_S36)).z))).x;
+    float4 _S36 = (((&kernelContext_4)->view_depth_texture_0).read(uint2((clamp(_S29 + _S33, _S34, hi_1)))));
+    float dr_0 = _S36.x;
     int2 _S37 = int2(int(0), int(1));
 
 #line 200
-    sampler _S38 = (&kernelContext_4)->view_depth_sampler_0;
+    float4 _S38 = (((&kernelContext_4)->view_depth_texture_0).read(uint2((clamp(_S29 - _S37, _S34, hi_1)))));
 
 #line 200
-    float du_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S38)).xy), uint(((_S38)).z))).x;
+    float du_0 = _S38.x;
 
 #line 200
-    sampler _S39 = (&kernelContext_4)->view_depth_sampler_0;
-    float dd_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S39)).xy), uint(((_S39)).z))).x;
+    float4 _S39 = (((&kernelContext_4)->view_depth_texture_0).read(uint2((clamp(_S29 + _S37, _S34, hi_1)))));
+    float dd_0 = _S39.x;
 
 #line 201
     float3 px_r_0;

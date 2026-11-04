@@ -98,16 +98,19 @@ struct pixelOutput_0
 #line 27
     (&kernelContext_1)->ao_map_sampler_0 = ao_map_sampler_1;
     int2 _S1 = int2(frag_coord_0.xy);
-    int3 _S2 = int3(_S1, int(0));
 
-#line 29
-    float4 _S3 = ((view_color_texture_1).read(vec<uint,2>(((view_color_sampler_1)).xy), uint(((view_color_sampler_1)).z)));
-    float d_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+#line 28
+    float4 _S2 = ((view_color_texture_1).read(uint2((_S1))));
+
+#line 28
+    float4 _S3 = ((view_depth_texture_1).read(uint2((_S1))));
+
+    float d_0 = _S3.x;
     if(d_0 >= 1.0f)
     {
 
 #line 31
-        pixelOutput_0 _S4 = { _S3 };
+        pixelOutput_0 _S4 = { _S2 };
         return _S4;
     }
 
@@ -181,8 +184,8 @@ struct pixelOutput_0
             int2 t_0 = clamp(_S10 + int2(x_0, y_0), _S11, _S6 - _S7);
 
 #line 42
-            sampler _S12 = (&kernelContext_1)->view_depth_sampler_0;
-            float td_0 = (((&kernelContext_1)->view_depth_texture_0).read(vec<uint,2>(((_S12)).xy), uint(((_S12)).z))).x;
+            float4 _S12 = (((&kernelContext_1)->view_depth_texture_0).read(uint2((clamp(t_0 * _S9 + int2((scale_0 / int(2))) , _S11, _S8)))));
+            float td_0 = _S12.x;
             if(td_0 >= 1.0f)
             {
 
@@ -201,12 +204,12 @@ struct pixelOutput_0
             float _S14 = max(1.0f - abs(_S13 - _S5) / (&kernelContext_1)->Blur_Uniforms_0->params_0.y, 0.0f);
 
 #line 45
-            sampler _S15 = (&kernelContext_1)->ao_map_sampler_0;
+            float4 _S15 = (((&kernelContext_1)->ao_map_texture_0).read(uint2((t_0))));
 
             float weight_2 = weight_0 + _S14;
 
 #line 47
-            sum_0 = sum_0 + _S14 * (((&kernelContext_1)->ao_map_texture_0).read(vec<uint,2>(((_S15)).xy), uint(((_S15)).z))).x;
+            sum_0 = sum_0 + _S14 * _S15.x;
 
 #line 47
             weight_0 = weight_2;
@@ -287,7 +290,7 @@ struct pixelOutput_0
     }
 
 #line 53
-    pixelOutput_0 _S17 = { float4(_S3.xyz * float3(mix(1.0f, sum_0 * sum_0 * (3.0f - 2.0f * sum_0), weight_0)) , _S3.w) };
+    pixelOutput_0 _S17 = { float4(_S2.xyz * float3(mix(1.0f, sum_0 * sum_0 * (3.0f - 2.0f * sum_0), weight_0)) , _S2.w) };
 
     return _S17;
 }

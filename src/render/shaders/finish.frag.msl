@@ -577,7 +577,7 @@ struct pixelOutput_0
     float2 _S27 = frag_coord_0.xy;
 
 #line 180
-    float4 _S28 = ((source_texture_1).read(vec<uint,2>(((source_sampler_1)).xy), uint(((source_sampler_1)).z)));
+    float4 _S28 = ((source_texture_1).read(uint2((int2(_S27)))));
 
 #line 187
     thread float3 c_12;

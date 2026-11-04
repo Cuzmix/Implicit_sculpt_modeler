@@ -5,14 +5,14 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 4710 "hlsl.meta.slang"
+#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
 struct pixelOutput_0
 {
     float4 output_0 [[color(0)]];
 };
 
 
-#line 4710
+#line 22
 struct KernelContext_0
 {
     texture2d<float, access::sample> view_depth_texture_0;
@@ -20,21 +20,24 @@ struct KernelContext_0
 };
 
 
-#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_depth_keep.frag.slang"
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_depth_keep.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]])
 {
 
-#line 7
+#line 8
     thread KernelContext_0 kernelContext_0;
 
-#line 7
+#line 8
     (&kernelContext_0)->view_depth_texture_0 = view_depth_texture_1;
 
-#line 7
+#line 8
     (&kernelContext_0)->view_depth_sampler_0 = view_depth_sampler_1;
 
-#line 7
-    pixelOutput_0 _S1 = { float4(((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x, 0.0f, 0.0f, 0.0f) };
-    return _S1;
+#line 8
+    float4 _S1 = ((view_depth_texture_1).read(uint2((int2(frag_coord_0.xy)))));
+
+#line 8
+    pixelOutput_0 _S2 = { float4(_S1.x, 0.0f, 0.0f, 0.0f) };
+    return _S2;
 }
 

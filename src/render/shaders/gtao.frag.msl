@@ -5,10 +5,10 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 27 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
+#line 28 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
 constant array<float, int(16)> BAYER_0 = { { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f } };
 
-#line 12
+#line 13
 struct SLANG_ParameterGroup_Gtao_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_proj_0;
@@ -26,17 +26,17 @@ struct KernelContext_0
 };
 
 
-#line 35 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
+#line 36 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
 float depth_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 35
-    sampler _S1 = kernelContext_0->view_depth_sampler_0;
-    return ((kernelContext_0->view_depth_texture_0).read(vec<uint,2>(((_S1)).xy), uint(((_S1)).z))).x;
+#line 36
+    float4 _S1 = ((kernelContext_0->view_depth_texture_0).read(uint2((clamp(px_0, int2(int(0)) , int2(kernelContext_0->Gtao_Uniforms_0->size_0.xy) - int2(int(1)) )))));
+    return _S1.x;
 }
 
 
-#line 29
+#line 30
 float3 view_at_0(int2 px_1, float depth_0, KernelContext_0 thread* kernelContext_1)
 {
     float4 v_0 = (((kernelContext_1->Gtao_Uniforms_0->inv_proj_0) * (float4(float2(2.0f * (float(px_1.x) + 0.5f) / kernelContext_1->Gtao_Uniforms_0->size_0.x - 1.0f, 1.0f - 2.0f * (float(px_1.y) + 0.5f) / kernelContext_1->Gtao_Uniforms_0->size_0.y), depth_0, 1.0f))));
@@ -44,7 +44,7 @@ float3 view_at_0(int2 px_1, float depth_0, KernelContext_0 thread* kernelContext
 }
 
 
-#line 32
+#line 33
 struct pixelOutput_0
 {
     float4 output_0 [[color(0)]];
@@ -55,184 +55,184 @@ struct pixelOutput_0
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], SLANG_ParameterGroup_Gtao_Uniforms_0 constant* Gtao_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]])
 {
 
-#line 39
+#line 40
     thread KernelContext_0 kernelContext_2;
 
-#line 39
+#line 40
     (&kernelContext_2)->Gtao_Uniforms_0 = Gtao_Uniforms_1;
 
-#line 39
+#line 40
     (&kernelContext_2)->view_depth_texture_0 = view_depth_texture_1;
 
-#line 39
+#line 40
     (&kernelContext_2)->view_depth_sampler_0 = view_depth_sampler_1;
     int2 _S2 = int2(frag_coord_0.xy);
     int scale_0 = int(Gtao_Uniforms_1->size_0.z);
 
     int2 px_2 = _S2 * int2(scale_0)  + int2((scale_0 / int(2))) ;
 
-#line 43
+#line 44
     float _S3 = depth_at_0(px_2, &kernelContext_2);
 
     if(_S3 >= 1.0f)
     {
 
-#line 45
+#line 46
         pixelOutput_0 _S4 = { float4(1.0f)  };
         return _S4;
     }
 
-#line 46
+#line 47
     float3 _S5 = view_at_0(px_2, _S3, &kernelContext_2);
 
-#line 46
+#line 47
     float3 v_1;
 
 
     if((Gtao_Uniforms_1->size_0.w) > 0.5f)
     {
 
-#line 49
+#line 50
         v_1 = float3(0.0f, 0.0f, 1.0f);
 
-#line 49
+#line 50
     }
     else
     {
 
-#line 49
+#line 50
         v_1 = normalize(- _S5);
 
-#line 49
+#line 50
     }
 
 
 
     int2 _S6 = int2(int(1), int(0));
 
-#line 53
+#line 54
     int2 _S7 = px_2 - _S6;
 
-#line 53
+#line 54
     float _S8 = depth_at_0(_S7, &kernelContext_2);
 
-#line 53
+#line 54
     int2 _S9 = px_2 + _S6;
 
-#line 53
+#line 54
     float _S10 = depth_at_0(_S9, &kernelContext_2);
     int2 _S11 = int2(int(0), int(1));
 
-#line 54
+#line 55
     int2 _S12 = px_2 - _S11;
 
-#line 54
+#line 55
     float _S13 = depth_at_0(_S12, &kernelContext_2);
 
-#line 54
+#line 55
     int2 _S14 = px_2 + _S11;
 
-#line 54
+#line 55
     float _S15 = depth_at_0(_S14, &kernelContext_2);
 
-#line 54
+#line 55
     float3 right_0;
     if((abs(_S10 - _S3)) < (abs(_S3 - _S8)))
     {
 
-#line 55
+#line 56
         float3 _S16 = view_at_0(_S9, _S10, &kernelContext_2);
 
-#line 55
+#line 56
         right_0 = _S16 - _S5;
 
-#line 55
+#line 56
     }
     else
     {
 
-#line 55
+#line 56
         float3 _S17 = view_at_0(_S7, _S8, &kernelContext_2);
 
-#line 55
+#line 56
         right_0 = _S5 - _S17;
 
-#line 55
+#line 56
     }
 
-#line 55
+#line 56
     float3 down_0;
     if((abs(_S15 - _S3)) < (abs(_S3 - _S13)))
     {
 
-#line 56
+#line 57
         float3 _S18 = view_at_0(_S14, _S15, &kernelContext_2);
 
-#line 56
+#line 57
         down_0 = _S18 - _S5;
 
-#line 56
+#line 57
     }
     else
     {
 
-#line 56
+#line 57
         float3 _S19 = view_at_0(_S12, _S13, &kernelContext_2);
 
-#line 56
+#line 57
         down_0 = _S5 - _S19;
 
-#line 56
+#line 57
     }
     float3 n_0 = normalize(cross(right_0, down_0));
 
-#line 57
+#line 58
     float3 n_1;
     if((dot(n_0, v_1)) < 0.0f)
     {
 
-#line 58
+#line 59
         n_1 = - n_0;
 
-#line 58
+#line 59
     }
     else
     {
 
-#line 58
+#line 59
         n_1 = n_0;
 
-#line 58
+#line 59
     }
 
     float reach_0 = (&kernelContext_2)->Gtao_Uniforms_0->params_0.x;
     float _S20 = reach_0 * (&kernelContext_2)->Gtao_Uniforms_0->params_0.y;
 
-#line 61
+#line 62
     float visibility_0;
 
-#line 61
+#line 62
     if((Gtao_Uniforms_1->size_0.w) > 0.5f)
     {
 
-#line 61
+#line 62
         visibility_0 = 1.0f;
 
-#line 61
+#line 62
     }
     else
     {
 
-#line 61
+#line 62
         visibility_0 = - _S5.z;
 
-#line 61
+#line 62
     }
     float _S21 = min(_S20 / visibility_0, (&kernelContext_2)->Gtao_Uniforms_0->params_0.z);
     if(_S21 < 1.29999995231628418f)
     {
 
-#line 63
+#line 64
         pixelOutput_0 _S22 = { float4(1.0f)  };
         return _S22;
     }
@@ -240,42 +240,42 @@ struct pixelOutput_0
 
     int _S24 = _S2.y;
 
-#line 68
+#line 69
     int _S25 = _S2.x;
     float _S26 = (BAYER_0[(_S24 & int(3)) * int(4) + (_S25 & int(3))] + 0.5f) / 16.0f;
     float _S27 = (float((_S25 - _S24) & int(3)) + 0.5f) / 4.0f;
     float _S28 = 1.29999995231628418f / _S21;
 
-#line 71
+#line 72
     int slice_0 = int(0);
 
-#line 71
+#line 72
     visibility_0 = 0.0f;
 
 
     for(;;)
     {
 
-#line 74
+#line 75
         if(slice_0 < int(2))
         {
         }
         else
         {
 
-#line 74
+#line 75
             break;
         }
 
-#line 75
+#line 76
         float phi_0 = (float(slice_0) + _S26) * 3.14159274101257324f / 2.0f;
 
         float _S29 = cos(phi_0);
 
-#line 77
+#line 78
         float _S30 = sin(phi_0);
 
-#line 77
+#line 78
         float2 omega_0 = float2(_S29, _S30);
         float3 dir_0 = float3(_S29, - _S30, 0.0f);
         float3 ortho_0 = dir_0 - float3(dot(dir_0, v_1))  * v_1;
@@ -287,87 +287,87 @@ struct pixelOutput_0
 
         float low_plus_0 = cos(gamma_0 + 1.57079637050628662f);
 
-#line 86
+#line 87
         float low_minus_0 = cos(gamma_0 - 1.57079637050628662f);
 
-#line 86
+#line 87
         float horizon_plus_0 = low_plus_0;
 
-#line 86
+#line 87
         float horizon_minus_0 = low_minus_0;
 
-#line 86
+#line 87
         int step_0 = int(0);
 
         for(;;)
         {
 
-#line 88
+#line 89
             if(step_0 < int(6))
             {
             }
             else
             {
 
-#line 88
+#line 89
                 break;
             }
 
-#line 89
+#line 90
             float s_0 = (float(step_0) + _S27) / 6.0f;
 
             int2 _S31 = int2(round(omega_0 * float2((s_0 * s_0 + _S28))  * float2(_S21) ));
 
-#line 91
+#line 92
             float horizon_plus_1 = horizon_plus_0;
 
-#line 91
+#line 92
             float horizon_minus_1 = horizon_minus_0;
 
-#line 91
+#line 92
             int side_0 = int(0);
             for(;;)
             {
 
-#line 92
+#line 93
                 if(side_0 < int(2))
                 {
                 }
                 else
                 {
 
-#line 92
+#line 93
                     break;
                 }
 
-#line 93
+#line 94
                 bool _S32 = side_0 == int(0);
 
-#line 93
+#line 94
                 int2 q_0;
 
-#line 93
+#line 94
                 if(_S32)
                 {
 
-#line 93
+#line 94
                     q_0 = px_2 + _S31;
 
-#line 93
+#line 94
                 }
                 else
                 {
 
-#line 93
+#line 94
                     q_0 = px_2 - _S31;
 
-#line 93
+#line 94
                 }
 
-#line 93
+#line 94
                 float _S33 = depth_at_0(q_0, &kernelContext_2);
 
-#line 93
+#line 94
                 float3 _S34 = view_at_0(q_0, _S33, &kernelContext_2);
                 float3 delta_0 = _S34 - _S5;
                 float dist_0 = length(delta_0);
@@ -376,62 +376,62 @@ struct pixelOutput_0
                 if(_S32)
                 {
 
-#line 98
+#line 99
                     horizon_plus_1 = max(horizon_plus_1, mix(low_plus_0, c_0, w_0));
 
-#line 98
+#line 99
                 }
                 else
                 {
 
-#line 98
+#line 99
                     horizon_minus_1 = max(horizon_minus_1, mix(low_minus_0, c_0, w_0));
 
-#line 98
+#line 99
                 }
 
-#line 92
+#line 93
                 side_0 = side_0 + int(1);
 
-#line 92
+#line 93
             }
 
-#line 88
+#line 89
             int _S35 = step_0 + int(1);
 
-#line 88
+#line 89
             horizon_plus_0 = horizon_plus_1;
 
-#line 88
+#line 89
             horizon_minus_0 = horizon_minus_1;
 
-#line 88
+#line 89
             step_0 = _S35;
 
-#line 88
+#line 89
         }
 
-#line 105
+#line 106
         float _S36 = 2.0f * (gamma_0 + clamp(- acos(clamp(horizon_minus_0, -1.0f, 1.0f)) - gamma_0, -1.57079637050628662f, 1.57079637050628662f));
 
-#line 105
+#line 106
         float _S37 = sin(gamma_0);
         float _S38 = 2.0f * (gamma_0 + clamp(acos(clamp(horizon_plus_0, -1.0f, 1.0f)) - gamma_0, -1.57079637050628662f, 1.57079637050628662f));
         float visibility_1 = visibility_0 + projected_len_0 * ((cos_n_0 + _S36 * _S37 - cos(_S36 - gamma_0)) / 4.0f + (cos_n_0 + _S38 * _S37 - cos(_S38 - gamma_0)) / 4.0f);
 
-#line 74
+#line 75
         slice_0 = slice_0 + int(1);
 
-#line 74
+#line 75
         visibility_0 = visibility_1;
 
-#line 74
+#line 75
     }
 
-#line 74
+#line 75
     pixelOutput_0 _S39 = { float4(max(visibility_0 / 2.0f, 0.0f))  };
 
-#line 112
+#line 113
     return _S39;
 }
 
