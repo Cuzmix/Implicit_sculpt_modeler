@@ -10,8 +10,8 @@ import CA "vendor:darwin/QuartzCore"
 // Command buffers, passes and tickets of the Metal backend. A render pass is a render
 // command encoder, a compute pass a compute encoder and a copy pass a blit encoder, each
 // retained while open. Bindings are
-// kept on the command buffer and sent to the encoder at the next draw, at SDL_GPU's Metal
-// slots, since where a storage buffer goes depends on the bound pipeline's uniform count.
+// kept on the command buffer and sent to the encoder at the next draw, at the slots the
+// bound pipeline's shaders name (Mtl_Slots), which only the pipeline knows.
 
 Mtl_Stage :: enum u8 {
 	Vertex,
@@ -53,7 +53,7 @@ Mtl_Cmd :: struct {
 	index_type:        MTL.IndexType,
 	uniforms:          [Mtl_Stage][4]Mtl_Uniform,
 	vertex_storage:    [8]^MTL.Buffer,
-	fragment_storage:  [8]^MTL.Buffer, // after the fragment stage's uniforms, as SDL_GPU places them
+	fragment_storage:  [8]^MTL.Buffer,
 	fragment_textures: [16]^MTL.Texture,
 	fragment_samplers: [16]^MTL.SamplerState,
 	storage_dirty:     bool,
@@ -267,27 +267,27 @@ mtl_bind_draw :: proc(cmd: ^Mtl_Cmd) -> bool {
 	if p == nil || enc == nil do return false
 	c := p.counts
 	if cmd.storage_dirty {
-		for i in 0 ..< c[2] do MTL.RenderCommandEncoder_setVertexBuffer(enc, cmd.vertex_storage[i], 0, NS.UInteger(c[3] + i))
-		for i in 0 ..< c[6] do MTL.RenderCommandEncoder_setFragmentBuffer(enc, cmd.fragment_storage[i], 0, NS.UInteger(c[7] + i))
+		for i in 0 ..< c[2] do MTL.RenderCommandEncoder_setVertexBuffer(enc, cmd.vertex_storage[i], 0, NS.UInteger(p.vertex_slots.ro_buffers[i]))
+		for i in 0 ..< c[6] do MTL.RenderCommandEncoder_setFragmentBuffer(enc, cmd.fragment_storage[i], 0, NS.UInteger(p.fragment_slots.ro_buffers[i]))
 		cmd.storage_dirty = false
 	}
 	if cmd.samplers_dirty {
 		for i in 0 ..< c[4] {
-			MTL.RenderCommandEncoder_setFragmentTexture(enc, cmd.fragment_textures[i], NS.UInteger(i))
-			MTL.RenderCommandEncoder_setFragmentSamplerState(enc, cmd.fragment_samplers[i], NS.UInteger(i))
+			MTL.RenderCommandEncoder_setFragmentTexture(enc, cmd.fragment_textures[i], NS.UInteger(p.fragment_slots.samplers[i][0]))
+			MTL.RenderCommandEncoder_setFragmentSamplerState(enc, cmd.fragment_samplers[i], NS.UInteger(p.fragment_slots.samplers[i][1]))
 		}
 		cmd.samplers_dirty = false
 	}
 	for i in 0 ..< c[3] {
 		u := &cmd.uniforms[.Vertex][i]
 		if !u.dirty do continue
-		MTL.RenderCommandEncoder_setVertexBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(i))
+		MTL.RenderCommandEncoder_setVertexBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(p.vertex_slots.uniforms[i]))
 		u.dirty = false
 	}
 	for i in 0 ..< c[7] {
 		u := &cmd.uniforms[.Fragment][i]
 		if !u.dirty do continue
-		MTL.RenderCommandEncoder_setFragmentBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(i))
+		MTL.RenderCommandEncoder_setFragmentBytes(enc, u.data[:u.length if u.length > 0 else MTL_UNIFORM_RANGE], NS.UInteger(p.fragment_slots.uniforms[i]))
 		u.dirty = false
 	}
 	return true
@@ -620,7 +620,7 @@ mtl_bind_compute_storage_buffers :: proc(compute_pass: Compute_Pass, first_slot:
 	cmd.storage_dirty = true
 }
 
-// Sends what changed since the last dispatch, at the pipeline's slots (SDL_GPU's but for traced kernels). A uniform slot nothing
+// Sends what changed since the last dispatch, at the pipeline's slots. A uniform slot nothing
 // was pushed to gets the whole 4 KiB block, as for draws.
 @(private = "file")
 mtl_bind_dispatch :: proc(cmd: ^Mtl_Cmd) -> bool {

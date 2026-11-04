@@ -1,474 +1,899 @@
-// SDL_shadercross 1ff05bec5739 from studio_trace.comp.spv sha256 01c0be6d1e268688eb222b306753773626b0d1d05ef6ff3227d26533aa965c5b
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from studio_trace.comp.spv sha256 01c0be6d1e268688eb222b306753773626b0d1d05ef6ff3227d26533aa965c5b
+// slots s=0:0 rt= wt=1 rb=0,1,2,3,4,5 wb= u=6 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
-};
 
-struct SLANG_ParameterGroup_Trace_Uniforms_std140
-{
-    float4x4 inv_view_proj;
-    float4x4 to_mesh;
-    float4 key_base;
-    float4 key_side;
-    float4 key_up;
-    float4 params;
-    float4 sphere;
-};
+#line 10
+    thread uint w_0;
 
-struct Node_std430_logical
-{
-    float3 lo;
-    uint first;
-    float3 hi;
-    uint count;
-};
+#line 10
+    thread uint h_0;
 
-struct Node_std430
-{
-    packed_float3 lo;
-    uint first;
-    packed_float3 hi;
-    uint count;
-};
+#line 10
+    thread uint levels_0;
 
-struct StructuredBuffer
-{
-    Node_std430 _member0[1];
-};
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
 
-struct StructuredBuffer_1
-{
-    uint4 _member0[1];
-};
-
-struct StructuredBuffer_2
-{
-    uint _member0[1];
-};
-
-struct StructuredBuffer_3
-{
-    float _member0[1];
-};
-
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
-{
-    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(view_depth.get_num_mip_levels());
-    return int2(int(w), int(h));
+    return int2(int(w_0), int(h_0));
 }
 
-static inline __attribute__((always_inline))
-float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Trace_Uniforms_std140& Trace_Uniforms)
+
+#line 54 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace.comp.slang"
+struct SLANG_ParameterGroup_Trace_Uniforms_0
 {
-    float2 uv = frag / size;
-    float4 _154 = Trace_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
-    return _154.xyz / float3(_154.w);
+    matrix<float,int(4),int(4)>  inv_view_proj_0;
+    matrix<float,int(4),int(4)>  to_mesh_0;
+    float4 key_base_0;
+    float4 key_side_0;
+    float4 key_up_0;
+    float4 params_0;
+    float4 sphere_0;
+};
+
+
+#line 50
+struct Node_natural_0
+{
+    packed_float3 lo_0;
+    uint first_0;
+    packed_float3 hi_0;
+    uint count_0;
+};
+
+
+#line 5423 "hlsl.meta.slang"
+struct KernelContext_0
+{
+    texture2d<float, access::sample> view_depth_texture_0;
+    sampler view_depth_sampler_0;
+    SLANG_ParameterGroup_Trace_Uniforms_0 constant* Trace_Uniforms_0;
+    Node_natural_0 device* tlas_0;
+    packed_uint4 device* chunks_0;
+    Node_natural_0 device* nodes_0;
+    uint device* order_0;
+    uint device* indices_0;
+    float device* positions_0;
+    texture2d<float, access::read_write> visible_0;
+};
+
+
+#line 70 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace.comp.slang"
+float3 world_at_0(float2 frag_0, float depth_0, float2 size_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 71
+    float2 uv_0 = frag_0 / size_0;
+    float4 w_1 = (((kernelContext_0->Trace_Uniforms_0->inv_view_proj_0) * (float4(uv_0.x * 2.0f - 1.0f, 1.0f - uv_0.y * 2.0f, depth_0, 1.0f))));
+    return w_1.xyz / float3(w_1.w) ;
 }
 
-static inline __attribute__((always_inline))
-float2 pixel_hash(uint2 v)
+
+#line 176
+float2 pixel_hash_0(uint2 v_0)
 {
-    uint2 _274 = (v * uint2(1664525u)) + uint2(1013904223u);
-    uint2 _268 = _274;
-    _268.x += (_274.y * 1664525u);
-    _268.y += (_268.x * 1664525u);
-    uint2 _289 = _268;
-    uint2 _293 = _268;
-    uint2 _294 = _293 ^ (_289 >> uint2(16u));
-    _268 = _294;
-    _268.x += (_294.y * 1664525u);
-    _268.y += (_268.x * 1664525u);
-    uint2 _307 = _268;
-    uint2 _310 = _268;
-    uint2 _311 = _310 ^ (_307 >> uint2(16u));
-    _268 = _311;
-    return float2(_311 >> uint2(8u)) / float2(16777216.0);
+
+#line 177
+    uint2 _S1 = v_0 * uint2(1664525U)  + uint2(1013904223U) ;
+
+#line 176
+    thread uint2 _S2 = _S1;
+
+    _S2.x = _S2.x + _S1.y * 1664525U;
+    _S2.y = _S2.y + _S2.x * 1664525U;
+
+#line 179
+    uint2 _S3 = uint2(16U) ;
+    uint2 _S4 = _S2 ^ (_S2 >> _S3);
+
+#line 180
+    _S2 = _S4;
+    _S2.x = _S2.x + _S4.y * 1664525U;
+    _S2.y = _S2.y + _S2.x * 1664525U;
+    uint2 _S5 = _S2 ^ (_S2 >> _S3);
+
+#line 183
+    _S2 = _S5;
+    return float2(_S5 >> (uint2(8U) )) / float2(1.6777216e+07f) ;
 }
 
-static inline __attribute__((always_inline))
-bool enters(thread const Node_std430_logical& n, float3 o, float3 inv, float tmax)
+
+#line 104
+bool enters_0(const Node_natural_0 thread* n_0, float3 o_0, float3 inv_0, float tmax_0)
 {
-    if (n.lo.x > n.hi.x)
+
+#line 104
+    float3 _S6 = float3(n_0->lo_0) ;
+
+#line 104
+    float3 _S7 = float3(n_0->hi_0) ;
+    if((_S6.x) > (_S7.x))
     {
+
+#line 105
         return false;
     }
-    float3 t0 = (n.lo - o) * inv;
-    float3 t1 = (n.hi - o) * inv;
-    float3 _657 = fast::min(t0, t1);
-    float3 _658 = fast::max(t0, t1);
-    return fast::max(fast::max(_657.x, _657.y), fast::max(_657.z, 0.0)) <= fast::min(fast::min(_658.x, tmax), fast::min(_658.y, _658.z));
+
+#line 106
+    float3 t0_0 = (_S6 - o_0) * inv_0;
+
+#line 106
+    float3 t1_0 = (_S7 - o_0) * inv_0;
+    float3 near_0 = min(t0_0, t1_0);
+
+#line 107
+    float3 far_0 = max(t0_0, t1_0);
+    return (max(max(near_0.x, near_0.y), max(near_0.z, 0.0f))) <= (min(min(far_0.x, tmax_0), min(far_0.y, far_0.z)));
 }
 
-static inline __attribute__((always_inline))
-float3 vertex0(uint v, const device StructuredBuffer_3& positions)
+
+#line 99
+float3 vertex_0(uint v_1, KernelContext_0 thread* kernelContext_1)
 {
-    uint _844 = 3u * v;
-    return float3(positions._member0[_844], positions._member0[_844 + 1u], positions._member0[_844 + 2u]);
+
+#line 100
+    uint _S8 = 3U * v_1;
+
+#line 100
+    return float3(kernelContext_1->positions_0[_S8], kernelContext_1->positions_0[_S8 + 1U], kernelContext_1->positions_0[_S8 + 2U]);
 }
 
-static inline __attribute__((always_inline))
-bool hits(uint tri, float3 o, float3 d, float tmax, const device StructuredBuffer_2& indices, const device StructuredBuffer_3& positions)
+
+#line 113
+bool hits_0(uint tri_0, float3 o_1, float3 d_0, float tmax_1, KernelContext_0 thread* kernelContext_2)
 {
-    uint _810 = 3u * tri;
-    uint _815 = _810 + 1u;
-    uint _818 = _810 + 2u;
-    bool _786;
-    if (indices._member0[_810] == indices._member0[_815])
+
+#line 114
+    uint _S9 = 3U * tri_0;
+
+#line 114
+    uint a_0 = kernelContext_2->indices_0[_S9];
+
+#line 114
+    uint b_0 = kernelContext_2->indices_0[_S9 + 1U];
+
+#line 114
+    uint c_0 = kernelContext_2->indices_0[_S9 + 2U];
+
+#line 114
+    bool _S10;
+    if(a_0 == b_0)
     {
-        _786 = true;
+
+#line 115
+        _S10 = true;
+
+#line 115
     }
     else
     {
-        _786 = indices._member0[_815] == indices._member0[_818];
+
+#line 115
+        _S10 = b_0 == c_0;
+
+#line 115
     }
-    if (_786)
+
+#line 115
+    if(_S10)
     {
-        _786 = true;
+
+#line 115
+        _S10 = true;
+
+#line 115
     }
     else
     {
-        _786 = indices._member0[_810] == indices._member0[_818];
+
+#line 115
+        _S10 = a_0 == c_0;
+
+#line 115
     }
-    if (_786)
+
+#line 115
+    if(_S10)
     {
+
+#line 115
         return false;
     }
-    float3 p0 = vertex0(indices._member0[_810], positions);
-    float3 e1 = vertex0(indices._member0[_815], positions) - p0;
-    float3 e2 = vertex0(indices._member0[_818], positions) - p0;
-    float3 _864 = cross(d, e2);
-    float _865 = dot(e1, _864);
-    if (_865 == 0.0)
+
+#line 115
+    float3 _S11 = vertex_0(a_0, kernelContext_2);
+
+#line 115
+    float3 _S12 = vertex_0(b_0, kernelContext_2);
+
+    float3 e1_0 = _S12 - _S11;
+
+#line 117
+    float3 _S13 = vertex_0(c_0, kernelContext_2);
+
+#line 117
+    float3 e2_0 = _S13 - _S11;
+    float3 pv_0 = cross(d_0, e2_0);
+    float det_0 = dot(e1_0, pv_0);
+    if(det_0 == 0.0f)
     {
+
+#line 120
         return false;
     }
-    float f = 1.0 / _865;
-    float3 tv = o - p0;
-    float u = dot(tv, _864) * f;
-    if (u < 0.0)
+
+#line 121
+    float f_0 = 1.0f / det_0;
+    float3 tv_0 = o_1 - _S11;
+    float u_0 = dot(tv_0, pv_0) * f_0;
+    if(u_0 < 0.0f)
     {
-        _786 = true;
+
+#line 124
+        _S10 = true;
+
+#line 124
     }
     else
     {
-        _786 = u > 1.0;
+
+#line 124
+        _S10 = u_0 > 1.0f;
+
+#line 124
     }
-    if (_786)
+
+#line 124
+    if(_S10)
     {
+
+#line 124
         return false;
     }
-    float3 _883 = cross(tv, e1);
-    float v = dot(d, _883) * f;
-    if (v < 0.0)
+
+#line 125
+    float3 qv_0 = cross(tv_0, e1_0);
+    float v_2 = dot(d_0, qv_0) * f_0;
+    if(v_2 < 0.0f)
     {
-        _786 = true;
+
+#line 127
+        _S10 = true;
+
+#line 127
     }
     else
     {
-        _786 = (u + v) > 1.0;
+
+#line 127
+        _S10 = (u_0 + v_2) > 1.0f;
+
+#line 127
     }
-    if (_786)
+
+#line 127
+    if(_S10)
     {
+
+#line 127
         return false;
     }
-    float t = dot(e2, _883) * f;
-    if (t > 0.0)
+
+#line 128
+    float t_0 = dot(e2_0, qv_0) * f_0;
+    if(t_0 > 0.0f)
     {
-        _786 = t < tmax;
+
+#line 129
+        _S10 = t_0 < tmax_1;
+
+#line 129
     }
     else
     {
-        _786 = false;
+
+#line 129
+        _S10 = false;
+
+#line 129
     }
-    return _786;
+
+#line 129
+    return _S10;
 }
 
-static inline __attribute__((always_inline))
-bool occluded(float3 o, float3 d, float tmax, const device StructuredBuffer& tlas, const device StructuredBuffer_1& chunks, const device StructuredBuffer& nodes, const device StructuredBuffer_2& order, const device StructuredBuffer_2& indices, const device StructuredBuffer_3& positions)
+
+bool occluded_0(float3 o_2, float3 d_1, float tmax_2, KernelContext_0 thread* kernelContext_3)
 {
-    float3 _592 = float3(1.0) / select(d, float3(9.9999996826552253889678874634872e-21), d == float3(0.0));
-    spvUnsafeArray<uint, 114> stack;
-    stack[0] = 0u;
-    uint4 ch = uint4(0u);
-    int top = 1;
-    Node_std430_logical _549;
-    Node_std430_logical _550;
-    uint _552;
-    for (;;)
+
+    float3 _S14 = float3(1.0f)  / select(d_1, float3(9.99999968265522539e-21f) , d_1 == (float3(0.0f) ));
+    thread array<uint, int(114)> stack_0;
+
+    stack_0[int(0)] = 0U;
+
+#line 139
+    uint4 ch_0 = uint4(0U) ;
+
+#line 139
+    int top_0 = int(1);
+
+    for(;;)
     {
-        if (!(top > 0))
+
+#line 141
+        if(top_0 > int(0))
         {
+        }
+        else
+        {
+
+#line 141
             break;
         }
-        int _601 = top;
-        int top_1 = _601 - 1;
-        uint e = stack[top_1];
-        if ((e & 2147483648u) == 0u)
+
+#line 142
+        int top_1 = top_0 - int(1);
+
+#line 142
+        uint e_0 = stack_0[top_1];
+        if(((stack_0[top_1]) & 2147483648U) == 0U)
         {
-            _549.lo = float3(tlas._member0[e].lo);
-            _549.first = tlas._member0[e].first;
-            _549.hi = float3(tlas._member0[e].hi);
-            _549.count = tlas._member0[e].count;
-            if (!enters(_549, o, _592, tmax))
+
+#line 143
+            thread Node_natural_0 _S15 = kernelContext_3->tlas_0[e_0];
+
+#line 143
+            bool _S16 = enters_0(&_S15, o_2, _S14, tmax_2);
+
+            if(!_S16)
             {
-                top = top_1;
+
+#line 145
+                top_0 = top_1;
+
+#line 145
                 continue;
             }
-            if (_549.count == 0u)
+
+#line 146
+            if(((&_S15)->count_0) == 0U)
             {
-                int top_2 = top_1 + 1;
-                stack[top_1] = _549.first;
-                stack[top_2] = _549.first + 1u;
-                top = top_2 + 1;
+
+#line 147
+                int top_2 = top_1 + int(1);
+
+#line 147
+                stack_0[top_1] = (&_S15)->first_0;
+                int _S17 = top_2 + int(1);
+
+#line 148
+                stack_0[top_2] = (&_S15)->first_0 + 1U;
+
+#line 148
+                top_0 = _S17;
+
+#line 146
             }
             else
             {
-                stack[top_1] = 2147483648u;
-                ch = chunks._member0[_549.first];
-                top = top_1 + 1;
+
+#line 146
+                uint4 _S18 = uint4(*(kernelContext_3->chunks_0+(&_S15)->first_0)) ;
+
+#line 153
+                int _S19 = top_1 + int(1);
+
+#line 153
+                stack_0[top_1] = 2147483648U;
+
+#line 153
+                ch_0 = _S18;
+
+#line 153
+                top_0 = _S19;
+
+#line 146
             }
+
+#line 155
             continue;
         }
-        uint _708 = ch.x + (e & 2147483647u);
-        _550.lo = float3(nodes._member0[_708].lo);
-        _550.first = nodes._member0[_708].first;
-        _550.hi = float3(nodes._member0[_708].hi);
-        _550.count = nodes._member0[_708].count;
-        if (!enters(_550, o, _592, tmax))
+
+#line 155
+        thread Node_natural_0 _S20 = kernelContext_3->nodes_0[ch_0.x + (e_0 & 2147483647U)];
+
+#line 155
+        bool _S21 = enters_0(&_S20, o_2, _S14, tmax_2);
+
+
+        if(!_S21)
         {
-            top = top_1;
+
+#line 158
+            top_0 = top_1;
+
+#line 158
             continue;
         }
-        if (_550.count == 0u)
+
+#line 158
+        uint _S22 = (&_S20)->count_0;
+        if(((&_S20)->count_0) == 0U)
         {
-            int top_3 = top_1 + 1;
-            stack[top_1] = 2147483648u | _550.first;
-            stack[top_3] = 2147483648u | (_550.first + 1u);
-            top = top_3 + 1;
+
+#line 160
+            int top_3 = top_1 + int(1);
+
+#line 160
+            stack_0[top_1] = 2147483648U | ((&_S20)->first_0);
+            int _S23 = top_3 + int(1);
+
+#line 161
+            stack_0[top_3] = 2147483648U | ((&_S20)->first_0 + 1U);
+
+#line 161
+            top_0 = _S23;
             continue;
         }
-        uint j = _550.first;
-        for (;;)
+
+#line 162
+        uint _S24 = (&_S20)->first_0;
+
+#line 162
+        uint j_0 = (&_S20)->first_0;
+
+        for(;;)
         {
-            bool _569_ladder_break = false;
-            do
+
+#line 164
+            if(j_0 < (_S24 + _S22))
             {
-                if (!(j < (_550.first + _550.count)))
-                {
-                    _569_ladder_break = true;
-                    break;
-                }
-                uint at = ch.y + j;
-                uint _756 = at >> uint(1);
-                if ((at & 1u) == 0u)
-                {
-                    _552 = order._member0[_756] & 65535u;
-                }
-                else
-                {
-                    _552 = order._member0[_756] >> uint(16);
-                }
-                if (hits(ch.z + _552, o, d, tmax, indices, positions))
-                {
-                    return true;
-                }
-                break;
-            } while(false);
-            if (_569_ladder_break)
+            }
+            else
             {
+
+#line 164
                 break;
             }
-            j++;
-            continue;
+
+#line 165
+            uint at_0 = ch_0.y + j_0;
+            uint word_0 = kernelContext_3->order_0[at_0 >> 1U];
+            uint _S25 = ch_0.z;
+
+#line 167
+            uint _S26;
+
+#line 167
+            if((at_0 & 1U) == 0U)
+            {
+
+#line 167
+                _S26 = word_0 & 65535U;
+
+#line 167
+            }
+            else
+            {
+
+#line 167
+                _S26 = word_0 >> 16U;
+
+#line 167
+            }
+
+#line 167
+            bool _S27 = hits_0(_S25 + _S26, o_2, d_1, tmax_2, kernelContext_3);
+            if(_S27)
+            {
+
+#line 168
+                return true;
+            }
+
+#line 164
+            j_0 = j_0 + 1U;
+
+#line 164
         }
-        top = top_1;
-        continue;
+
+#line 164
+        top_0 = top_1;
+
+#line 141
     }
+
+#line 171
     return false;
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Trace_Uniforms_std140& Trace_Uniforms [[buffer(0)]], const device StructuredBuffer_3& positions [[buffer(1)]], const device StructuredBuffer_2& indices [[buffer(2)]], const device StructuredBuffer& nodes [[buffer(3)]], const device StructuredBuffer_2& order [[buffer(4)]], const device StructuredBuffer_1& chunks [[buffer(5)]], const device StructuredBuffer& tlas [[buffer(6)]], texture2d<float> view_depth [[texture(0)]], texture2d<float, access::write> visible [[texture(1)]], sampler view_depthSmplr [[sampler(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+
+#line 188
+[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], uint3 global_id_0 [[thread_position_in_grid]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Trace_Uniforms_0 constant* Trace_Uniforms_1 [[buffer(6)]], Node_natural_0 device* tlas_1 [[buffer(5)]], packed_uint4 device* chunks_1 [[buffer(4)]], Node_natural_0 device* nodes_1 [[buffer(2)]], uint device* order_1 [[buffer(3)]], uint device* indices_1 [[buffer(1)]], float device* positions_1 [[buffer(0)]], texture2d<float, access::read_write> visible_1 [[texture(1)]])
 {
-    float2 _89 = float2(texture_size(view_depth, view_depthSmplr));
-    int2 _95 = int2(gl_GlobalInvocationID.xy);
-    bool _7;
-    if (_95.x >= int(_89.x))
+
+#line 188
+    thread KernelContext_0 kernelContext_4;
+
+#line 188
+    (&kernelContext_4)->view_depth_texture_0 = view_depth_texture_1;
+
+#line 188
+    (&kernelContext_4)->view_depth_sampler_0 = view_depth_sampler_1;
+
+#line 188
+    (&kernelContext_4)->Trace_Uniforms_0 = Trace_Uniforms_1;
+
+#line 188
+    (&kernelContext_4)->tlas_0 = tlas_1;
+
+#line 188
+    (&kernelContext_4)->chunks_0 = chunks_1;
+
+#line 188
+    (&kernelContext_4)->nodes_0 = nodes_1;
+
+#line 188
+    (&kernelContext_4)->order_0 = order_1;
+
+#line 188
+    (&kernelContext_4)->indices_0 = indices_1;
+
+#line 188
+    (&kernelContext_4)->positions_0 = positions_1;
+
+#line 188
+    (&kernelContext_4)->visible_0 = visible_1;
+    float2 _S28 = float2(texture_size_0(view_depth_texture_1, view_depth_sampler_1));
+    int2 _S29 = int2(global_id_0.xy);
+
+#line 190
+    bool _S30;
+    if((_S29.x) >= int(_S28.x))
     {
-        _7 = true;
+
+#line 191
+        _S30 = true;
+
+#line 191
     }
     else
     {
-        _7 = _95.y >= int(_89.y);
+
+#line 191
+        _S30 = (_S29.y) >= int(_S28.y);
+
+#line 191
     }
-    if (_7)
+
+#line 191
+    if(_S30)
     {
+
+#line 191
         return;
     }
-    float4 _121 = view_depth.read(uint2(int3(_95, 0).xy), 0);
-    if (_121.x >= 1.0)
+
+#line 191
+    sampler _S31 = (&kernelContext_4)->view_depth_sampler_0;
+    float d_2 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S31)).xy), uint(((_S31)).z))).x;
+    if(d_2 >= 1.0f)
     {
+
+#line 193
         return;
     }
-    float2 frag = float2(_95) + float2(0.5);
-    float3 p = world_at(frag, _121.x, _89, Trace_Uniforms);
-    int2 hi = int2(_89) - int2(1);
-    float4 _174 = view_depth.read(uint2(int3(clamp(_95 - int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _183 = view_depth.read(uint2(int3(clamp(_95 + int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _193 = view_depth.read(uint2(int3(clamp(_95 - int2(0, 1), int2(0), hi), 0).xy), 0);
-    float4 _202 = view_depth.read(uint2(int3(clamp(_95 + int2(0, 1), int2(0), hi), 0).xy), 0);
-    float3 px_r;
-    if (abs(_183.x - _121.x) < abs(_121.x - _174.x))
+
+#line 194
+    float2 frag_1 = float2(_S29) + float2(0.5f) ;
+
+#line 194
+    float3 _S32 = world_at_0(frag_1, d_2, _S28, &kernelContext_4);
+
+
+    int2 hi_1 = int2(_S28) - int2(int(1)) ;
+    int2 _S33 = int2(int(1), int(0));
+
+#line 198
+    int2 _S34 = int2(int(0)) ;
+
+#line 198
+    sampler _S35 = (&kernelContext_4)->view_depth_sampler_0;
+
+#line 198
+    float dl_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S35)).xy), uint(((_S35)).z))).x;
+
+#line 198
+    sampler _S36 = (&kernelContext_4)->view_depth_sampler_0;
+    float dr_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S36)).xy), uint(((_S36)).z))).x;
+    int2 _S37 = int2(int(0), int(1));
+
+#line 200
+    sampler _S38 = (&kernelContext_4)->view_depth_sampler_0;
+
+#line 200
+    float du_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S38)).xy), uint(((_S38)).z))).x;
+
+#line 200
+    sampler _S39 = (&kernelContext_4)->view_depth_sampler_0;
+    float dd_0 = (((&kernelContext_4)->view_depth_texture_0).read(vec<uint,2>(((_S39)).xy), uint(((_S39)).z))).x;
+
+#line 201
+    float3 px_r_0;
+    if((abs(dr_0 - d_2)) < (abs(d_2 - dl_0)))
     {
-        px_r = world_at(frag + float2(1.0, 0.0), _183.x, _89, Trace_Uniforms) - p;
+
+#line 202
+        float3 _S40 = world_at_0(frag_1 + float2(1.0f, 0.0f), dr_0, _S28, &kernelContext_4);
+
+#line 202
+        px_r_0 = _S40 - _S32;
+
+#line 202
     }
     else
     {
-        px_r = p - world_at(frag - float2(1.0, 0.0), _174.x, _89, Trace_Uniforms);
+
+#line 202
+        float3 _S41 = world_at_0(frag_1 - float2(1.0f, 0.0f), dl_0, _S28, &kernelContext_4);
+
+#line 202
+        px_r_0 = _S32 - _S41;
+
+#line 202
     }
-    float3 px_d;
-    if (abs(_202.x - _121.x) < abs(_121.x - _193.x))
+
+#line 202
+    float3 px_d_0;
+    if((abs(dd_0 - d_2)) < (abs(d_2 - du_0)))
     {
-        px_d = world_at(frag + float2(0.0, 1.0), _202.x, _89, Trace_Uniforms) - p;
-    }
-    else
-    {
-        px_d = p - world_at(frag - float2(0.0, 1.0), _193.x, _89, Trace_Uniforms);
-    }
-    float3 _244 = fast::normalize(cross(px_d, px_r));
-    float3 _247 = fast::normalize(world_at(frag, 0.0, _89, Trace_Uniforms) - p);
-    float3 n;
-    if (dot(_244, _247) < 0.0)
-    {
-        n = -_244;
-    }
-    else
-    {
-        n = _244;
-    }
-    uint2 _261 = uint2(_95);
-    float2 _322 = fract(Trace_Uniforms.params.xy + pixel_hash(_261));
-    if (Trace_Uniforms.key_base.w > 0.5)
-    {
-        _7 = Trace_Uniforms.params.w > 0.5;
+
+#line 203
+        float3 _S42 = world_at_0(frag_1 + float2(0.0f, 1.0f), dd_0, _S28, &kernelContext_4);
+
+#line 203
+        px_d_0 = _S42 - _S32;
+
+#line 203
     }
     else
     {
-        _7 = false;
+
+#line 203
+        float3 _S43 = world_at_0(frag_1 - float2(0.0f, 1.0f), du_0, _S28, &kernelContext_4);
+
+#line 203
+        px_d_0 = _S32 - _S43;
+
+#line 203
     }
-    float3 dir;
-    float s;
-    if (_7)
+    float3 n_1 = normalize(cross(px_d_0, px_r_0));
+
+#line 204
+    float3 _S44 = world_at_0(frag_1, 0.0f, _S28, &kernelContext_4);
+    float3 toward_eye_0 = normalize(_S44 - _S32);
+
+#line 205
+    float3 n_2;
+    if((dot(n_1, toward_eye_0)) < 0.0f)
     {
-        float3 to = Trace_Uniforms.sphere.xyz - p;
-        float _346 = dot(to, to);
-        float _349 = Trace_Uniforms.sphere.w * Trace_Uniforms.sphere.w;
-        if (_346 <= _349)
+
+#line 206
+        n_2 = - n_1;
+
+#line 206
+    }
+    else
+    {
+
+#line 206
+        n_2 = n_1;
+
+#line 206
+    }
+
+    uint2 _S45 = uint2(_S29);
+
+#line 208
+    float2 r2_0 = fract((&kernelContext_4)->Trace_Uniforms_0->params_0.xy + pixel_hash_0(_S45));
+
+
+
+    float _S46 = (as_type<float>((2139095040U)));
+    if(((&kernelContext_4)->Trace_Uniforms_0->key_base_0.w) > 0.5f)
+    {
+
+#line 213
+        _S30 = ((&kernelContext_4)->Trace_Uniforms_0->params_0.w) > 0.5f;
+
+#line 213
+    }
+    else
+    {
+
+#line 213
+        _S30 = false;
+
+#line 213
+    }
+
+#line 213
+    float3 dir_0;
+
+#line 213
+    float tmax_3;
+
+#line 213
+    if(_S30)
+    {
+
+
+        float3 to_0 = (&kernelContext_4)->Trace_Uniforms_0->sphere_0.xyz - _S32;
+        float d2_0 = dot(to_0, to_0);
+
+#line 218
+        float r_0 = (&kernelContext_4)->Trace_Uniforms_0->sphere_0.w;
+        float _S47 = r_0 * r_0;
+
+#line 219
+        if(d2_0 <= _S47)
         {
+
+#line 219
             return;
         }
-        float3 axis = to * rsqrt(_346);
-        if (abs(axis.y) < 0.9900000095367431640625)
+
+#line 220
+        float3 axis_0 = to_0 * float3(rsqrt(d2_0)) ;
+        if((abs(axis_0.y)) < 0.99000000953674316f)
         {
-            px_r = float3(0.0, 1.0, 0.0);
+
+#line 221
+            px_r_0 = float3(0.0f, 1.0f, 0.0f);
+
+#line 221
         }
         else
         {
-            px_r = float3(1.0, 0.0, 0.0);
+
+#line 221
+            px_r_0 = float3(1.0f, 0.0f, 0.0f);
+
+#line 221
         }
-        float3 _368 = fast::normalize(cross(axis, px_r));
-        float a = 6.283185482025146484375 * _322.y;
-        float3 dir_1 = to + (((_368 * cos(a)) + (cross(_368, axis) * sin(a))) * ((Trace_Uniforms.sphere.w * sqrt(_346 / (_346 - _349))) * sqrt(_322.x)));
-        if (dot(n, dir_1) <= 0.0)
+
+#line 221
+        float3 side_0 = normalize(cross(axis_0, px_r_0));
+
+        float a_1 = 6.28318548202514648f * r2_0.y;
+        float3 dir_1 = to_0 + (side_0 * float3(cos(a_1))  + cross(side_0, axis_0) * float3(sin(a_1)) ) * float3((r_0 * sqrt(d2_0 / (d2_0 - _S47)) * sqrt(r2_0.x))) ;
+        if((dot(n_2, dir_1)) <= 0.0f)
         {
+
+#line 225
             return;
         }
-        s = 1.0;
-        dir = dir_1;
+
+#line 225
+        tmax_3 = 1.0f;
+
+#line 225
+        dir_0 = dir_1;
+
+#line 213
     }
     else
     {
-        if (Trace_Uniforms.key_base.w > 0.5)
+
+#line 227
+        if(((&kernelContext_4)->Trace_Uniforms_0->key_base_0.w) > 0.5f)
         {
-            float a_1 = 6.283185482025146484375 * _322.y;
-            float3 _423 = fast::normalize(Trace_Uniforms.key_base.xyz + (((Trace_Uniforms.key_side.xyz * cos(a_1)) + (Trace_Uniforms.key_up.xyz * sin(a_1))) * (Trace_Uniforms.key_side.w * sqrt(_322.x))));
-            if (dot(n, _423) <= 0.0)
+
+#line 228
+            float a_2 = 6.28318548202514648f * r2_0.y;
+            float3 dir_2 = normalize((&kernelContext_4)->Trace_Uniforms_0->key_base_0.xyz + ((&kernelContext_4)->Trace_Uniforms_0->key_side_0.xyz * float3(cos(a_2))  + (&kernelContext_4)->Trace_Uniforms_0->key_up_0.xyz * float3(sin(a_2)) ) * float3(((&kernelContext_4)->Trace_Uniforms_0->key_side_0.w * sqrt(r2_0.x))) );
+
+
+            if((dot(n_2, dir_2)) <= 0.0f)
             {
+
+#line 232
                 return;
             }
-            dir = _423;
+
+#line 232
+            dir_0 = dir_2;
+
+#line 227
         }
         else
         {
-            if (n.z >= 0.0)
+
+#line 235
+            float _S48 = n_2.z;
+
+#line 235
+            if(_S48 >= 0.0f)
             {
-                s = 1.0;
+
+#line 235
+                tmax_3 = 1.0f;
+
+#line 235
             }
             else
             {
-                s = -1.0;
+
+#line 235
+                tmax_3 = -1.0f;
+
+#line 235
             }
-            float a_2 = (-1.0) / (s + n.z);
-            float b = (n.x * n.y) * a_2;
-            float _466 = _322.x;
-            float _467 = sqrt(_466);
-            float phi = 6.283185482025146484375 * _322.y;
-            dir = fast::normalize(((float3(1.0 + (((s * n.x) * n.x) * a_2), s * b, (-s) * n.x) * (_467 * cos(phi))) + (float3(b, s + ((n.y * n.y) * a_2), -n.y) * (_467 * sin(phi)))) + (n * sqrt(fast::max(1.0 - _466, 0.0))));
+            float a_3 = -1.0f / (tmax_3 + _S48);
+            float _S49 = n_2.x;
+
+#line 237
+            float _S50 = n_2.y;
+
+#line 237
+            float b_1 = _S49 * _S50 * a_3;
+
+
+            float _S51 = r2_0.x;
+
+#line 240
+            float r_1 = sqrt(_S51);
+
+#line 240
+            float phi_0 = 6.28318548202514648f * r2_0.y;
+
+#line 240
+            dir_0 = normalize(float3(1.0f + tmax_3 * _S49 * _S49 * a_3, tmax_3 * b_1, - tmax_3 * _S49) * float3((r_1 * cos(phi_0)))  + float3(b_1, tmax_3 + _S50 * _S50 * a_3, - _S50) * float3((r_1 * sin(phi_0)))  + n_2 * float3(sqrt(max(1.0f - _S51, 0.0f))) );
+
+#line 227
         }
-        s = as_type<float>(2139095040u);
+
+#line 227
+        tmax_3 = _S46;
+
+#line 213
     }
-    float3 o = p + ((n + _247) * (Trace_Uniforms.params.z + fast::min(2.0 * length(world_at(frag + float2(1.0, 0.0), _121.x, _89, Trace_Uniforms) - p), 100.0 * Trace_Uniforms.params.z)));
-    if (s == 1.0)
+
+#line 213
+    float3 _S52 = world_at_0(frag_1 + float2(1.0f, 0.0f), d_2, _S28, &kernelContext_4);
+
+#line 250
+    float3 o_3 = _S32 + (n_2 + toward_eye_0) * float3(((&kernelContext_4)->Trace_Uniforms_0->params_0.z + min(2.0f * length(_S52 - _S32), 100.0f * (&kernelContext_4)->Trace_Uniforms_0->params_0.z))) ;
+
+
+    if(tmax_3 == 1.0f)
     {
-        dir = (p + dir) - o;
+
+#line 253
+        dir_0 = _S32 + dir_0 - o_3;
+
+#line 253
     }
-    if (occluded((Trace_Uniforms.to_mesh * float4(o, 1.0)).xyz, float3x3(Trace_Uniforms.to_mesh[0].xyz, Trace_Uniforms.to_mesh[1].xyz, Trace_Uniforms.to_mesh[2].xyz) * dir, s, tlas, chunks, nodes, order, indices, positions))
+
+#line 253
+    bool _S53 = occluded_0(((((&kernelContext_4)->Trace_Uniforms_0->to_mesh_0) * (float4(o_3, 1.0f)))).xyz, (((matrix<float,int(3),int(3)> ((&kernelContext_4)->Trace_Uniforms_0->to_mesh_0[int(0)].xyz, (&kernelContext_4)->Trace_Uniforms_0->to_mesh_0[int(1)].xyz, (&kernelContext_4)->Trace_Uniforms_0->to_mesh_0[int(2)].xyz)) * (dir_0))), tmax_3, &kernelContext_4);
+
+#line 259
+    if(_S53)
     {
-        visible.write(float4(0.0), uint2(_261));
+
+#line 259
+        (&kernelContext_4)->visible_0.write(float4(0.0f) ,_S45);
+
+#line 259
     }
+
+    return;
 }
 

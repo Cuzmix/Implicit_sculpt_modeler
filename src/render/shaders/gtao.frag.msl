@@ -1,277 +1,437 @@
-// SDL_shadercross 1ff05bec5739 from gtao.frag.spv sha256 010cfb70d8ebda4d93a14b591d351523c866328085bfa651ec75b9310d4b969e
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from gtao.frag.spv sha256 010cfb70d8ebda4d93a14b591d351523c866328085bfa651ec75b9310d4b969e
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
+#line 27 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
+constant array<float, int(16)> BAYER_0 = { { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f } };
+
+#line 12
+struct SLANG_ParameterGroup_Gtao_Uniforms_0
 {
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
+    matrix<float,int(4),int(4)>  inv_proj_0;
+    float4 size_0;
+    float4 params_0;
 };
 
-struct SLANG_ParameterGroup_Gtao_Uniforms_std140
+
+#line 1084 "core"
+struct KernelContext_0
 {
-    float4x4 inv_proj;
-    float4 size;
-    float4 params;
+    SLANG_ParameterGroup_Gtao_Uniforms_0 constant* Gtao_Uniforms_0;
+    texture2d<float, access::sample> view_depth_texture_0;
+    sampler view_depth_sampler_0;
 };
 
-constant spvUnsafeArray<float, 16> _285 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
 
-struct main0_out
+#line 35 "/home/user/Implicit_sculpt_modeler/src/render/shaders/gtao.frag.slang"
+float depth_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
 {
-    float4 entryPointParam_main [[color(0)]];
-};
 
-static inline __attribute__((always_inline))
-float depth_at(int2 px, constant SLANG_ParameterGroup_Gtao_Uniforms_std140& Gtao_Uniforms, texture2d<float> view_depth, sampler view_depthSmplr)
-{
-    float4 _135 = view_depth.read(uint2(int3(clamp(px, int2(0), int2(Gtao_Uniforms.size.xy) - int2(1)), 0).xy), 0);
-    return _135.x;
+#line 35
+    sampler _S1 = kernelContext_0->view_depth_sampler_0;
+    return ((kernelContext_0->view_depth_texture_0).read(vec<uint,2>(((_S1)).xy), uint(((_S1)).z))).x;
 }
 
-static inline __attribute__((always_inline))
-float3 view_at(int2 px, float depth, constant SLANG_ParameterGroup_Gtao_Uniforms_std140& Gtao_Uniforms)
+
+#line 29
+float3 view_at_0(int2 px_1, float depth_0, KernelContext_0 thread* kernelContext_1)
 {
-    float4 _177 = Gtao_Uniforms.inv_proj * float4(float2(((2.0 * (float(px.x) + 0.5)) / Gtao_Uniforms.size.x) - 1.0, 1.0 - ((2.0 * (float(px.y) + 0.5)) / Gtao_Uniforms.size.y)), depth, 1.0);
-    return _177.xyz / float3(_177.w);
+    float4 v_0 = (((kernelContext_1->Gtao_Uniforms_0->inv_proj_0) * (float4(float2(2.0f * (float(px_1.x) + 0.5f) / kernelContext_1->Gtao_Uniforms_0->size_0.x - 1.0f, 1.0f - 2.0f * (float(px_1.y) + 0.5f) / kernelContext_1->Gtao_Uniforms_0->size_0.y), depth_0, 1.0f))));
+    return v_0.xyz / float3(v_0.w) ;
 }
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Gtao_Uniforms_std140& Gtao_Uniforms [[buffer(0)]], texture2d<float> view_depth [[texture(0)]], sampler view_depthSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+
+#line 32
+struct pixelOutput_0
 {
-    main0_out out = {};
-    int2 _93 = int2(gl_FragCoord.xy);
-    int scale = int(Gtao_Uniforms.size.z);
-    int2 px = (_93 * int2(scale)) + int2(scale / 2);
-    float d = depth_at(px, Gtao_Uniforms, view_depth, view_depthSmplr);
-    if (d >= 1.0)
+    float4 output_0 [[color(0)]];
+};
+
+
+
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], SLANG_ParameterGroup_Gtao_Uniforms_0 constant* Gtao_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]])
+{
+
+#line 39
+    thread KernelContext_0 kernelContext_2;
+
+#line 39
+    (&kernelContext_2)->Gtao_Uniforms_0 = Gtao_Uniforms_1;
+
+#line 39
+    (&kernelContext_2)->view_depth_texture_0 = view_depth_texture_1;
+
+#line 39
+    (&kernelContext_2)->view_depth_sampler_0 = view_depth_sampler_1;
+    int2 _S2 = int2(frag_coord_0.xy);
+    int scale_0 = int(Gtao_Uniforms_1->size_0.z);
+
+    int2 px_2 = _S2 * int2(scale_0)  + int2((scale_0 / int(2))) ;
+
+#line 43
+    float _S3 = depth_at_0(px_2, &kernelContext_2);
+
+    if(_S3 >= 1.0f)
     {
-        out.entryPointParam_main = float4(1.0);
-        return out;
+
+#line 45
+        pixelOutput_0 _S4 = { float4(1.0f)  };
+        return _S4;
     }
-    float3 p = view_at(px, d, Gtao_Uniforms);
-    float3 v;
-    if (Gtao_Uniforms.size.w > 0.5)
+
+#line 46
+    float3 _S5 = view_at_0(px_2, _S3, &kernelContext_2);
+
+#line 46
+    float3 v_1;
+
+
+    if((Gtao_Uniforms_1->size_0.w) > 0.5f)
     {
-        v = float3(0.0, 0.0, 1.0);
-    }
-    else
-    {
-        v = fast::normalize(-p);
-    }
-    int2 _195 = px - int2(1, 0);
-    float dl = depth_at(_195, Gtao_Uniforms, view_depth, view_depthSmplr);
-    int2 _198 = px + int2(1, 0);
-    float dr = depth_at(_198, Gtao_Uniforms, view_depth, view_depthSmplr);
-    int2 _200 = px - int2(0, 1);
-    float du = depth_at(_200, Gtao_Uniforms, view_depth, view_depthSmplr);
-    int2 _203 = px + int2(0, 1);
-    float dd = depth_at(_203, Gtao_Uniforms, view_depth, view_depthSmplr);
-    float3 right;
-    if (abs(dr - d) < abs(d - dl))
-    {
-        right = view_at(_198, dr, Gtao_Uniforms) - p;
-    }
-    else
-    {
-        right = p - view_at(_195, dl, Gtao_Uniforms);
-    }
-    float3 down;
-    if (abs(dd - d) < abs(d - du))
-    {
-        down = view_at(_203, dd, Gtao_Uniforms) - p;
-    }
-    else
-    {
-        down = p - view_at(_200, du, Gtao_Uniforms);
-    }
-    float3 _236 = fast::normalize(cross(right, down));
-    float3 n;
-    if (dot(_236, v) < 0.0)
-    {
-        n = -_236;
+
+#line 49
+        v_1 = float3(0.0f, 0.0f, 1.0f);
+
+#line 49
     }
     else
     {
-        n = _236;
+
+#line 49
+        v_1 = normalize(- _S5);
+
+#line 49
     }
-    float visibility;
-    if (Gtao_Uniforms.size.w > 0.5)
+
+
+
+    int2 _S6 = int2(int(1), int(0));
+
+#line 53
+    int2 _S7 = px_2 - _S6;
+
+#line 53
+    float _S8 = depth_at_0(_S7, &kernelContext_2);
+
+#line 53
+    int2 _S9 = px_2 + _S6;
+
+#line 53
+    float _S10 = depth_at_0(_S9, &kernelContext_2);
+    int2 _S11 = int2(int(0), int(1));
+
+#line 54
+    int2 _S12 = px_2 - _S11;
+
+#line 54
+    float _S13 = depth_at_0(_S12, &kernelContext_2);
+
+#line 54
+    int2 _S14 = px_2 + _S11;
+
+#line 54
+    float _S15 = depth_at_0(_S14, &kernelContext_2);
+
+#line 54
+    float3 right_0;
+    if((abs(_S10 - _S3)) < (abs(_S3 - _S8)))
     {
-        visibility = 1.0;
+
+#line 55
+        float3 _S16 = view_at_0(_S9, _S10, &kernelContext_2);
+
+#line 55
+        right_0 = _S16 - _S5;
+
+#line 55
     }
     else
     {
-        visibility = -p.z;
+
+#line 55
+        float3 _S17 = view_at_0(_S7, _S8, &kernelContext_2);
+
+#line 55
+        right_0 = _S5 - _S17;
+
+#line 55
     }
-    float _262 = visibility;
-    float _266 = fast::min((Gtao_Uniforms.params.x * Gtao_Uniforms.params.y) / _262, Gtao_Uniforms.params.z);
-    if (_266 < 1.2999999523162841796875)
+
+#line 55
+    float3 down_0;
+    if((abs(_S15 - _S3)) < (abs(_S3 - _S13)))
     {
-        out.entryPointParam_main = float4(1.0);
-        return out;
+
+#line 56
+        float3 _S18 = view_at_0(_S14, _S15, &kernelContext_2);
+
+#line 56
+        down_0 = _S18 - _S5;
+
+#line 56
     }
-    float _275 = (-1.0) / (0.6150000095367431640625 * Gtao_Uniforms.params.x);
-    int _277 = _93.y;
-    int _282 = _93.x;
-    float _303 = (_285[((_277 & 3) * 4) + (_282 & 3)] + 0.5) / 16.0;
-    float _309 = (float((_282 - _277) & 3) + 0.5) / 4.0;
-    float _310 = 1.2999999523162841796875 / _266;
-    int slice = 0;
-    visibility = 0.0;
-    float horizon_plus_1;
-    float horizon_minus_1;
-    int2 q;
-    float horizon_plus_2;
-    float horizon_minus_2;
-    for (;;)
+    else
     {
-        float visibility_1;
-        bool _53_ladder_break = false;
-        do
+
+#line 56
+        float3 _S19 = view_at_0(_S12, _S13, &kernelContext_2);
+
+#line 56
+        down_0 = _S5 - _S19;
+
+#line 56
+    }
+    float3 n_0 = normalize(cross(right_0, down_0));
+
+#line 57
+    float3 n_1;
+    if((dot(n_0, v_1)) < 0.0f)
+    {
+
+#line 58
+        n_1 = - n_0;
+
+#line 58
+    }
+    else
+    {
+
+#line 58
+        n_1 = n_0;
+
+#line 58
+    }
+
+    float reach_0 = (&kernelContext_2)->Gtao_Uniforms_0->params_0.x;
+    float _S20 = reach_0 * (&kernelContext_2)->Gtao_Uniforms_0->params_0.y;
+
+#line 61
+    float visibility_0;
+
+#line 61
+    if((Gtao_Uniforms_1->size_0.w) > 0.5f)
+    {
+
+#line 61
+        visibility_0 = 1.0f;
+
+#line 61
+    }
+    else
+    {
+
+#line 61
+        visibility_0 = - _S5.z;
+
+#line 61
+    }
+    float _S21 = min(_S20 / visibility_0, (&kernelContext_2)->Gtao_Uniforms_0->params_0.z);
+    if(_S21 < 1.29999995231628418f)
+    {
+
+#line 63
+        pixelOutput_0 _S22 = { float4(1.0f)  };
+        return _S22;
+    }
+    float _S23 = -1.0f / (0.61500000953674316f * reach_0);
+
+    int _S24 = _S2.y;
+
+#line 68
+    int _S25 = _S2.x;
+    float _S26 = (BAYER_0[(_S24 & int(3)) * int(4) + (_S25 & int(3))] + 0.5f) / 16.0f;
+    float _S27 = (float((_S25 - _S24) & int(3)) + 0.5f) / 4.0f;
+    float _S28 = 1.29999995231628418f / _S21;
+
+#line 71
+    int slice_0 = int(0);
+
+#line 71
+    visibility_0 = 0.0f;
+
+
+    for(;;)
+    {
+
+#line 74
+        if(slice_0 < int(2))
         {
-            if (!(slice < 2))
-            {
-                _53_ladder_break = true;
-                break;
-            }
-            float phi = ((float(slice) + _303) * 3.1415927410125732421875) / 2.0;
-            float _322 = cos(phi);
-            float _323 = sin(phi);
-            float2 omega = float2(_322, _323);
-            float3 dir = float3(_322, -_323, 0.0);
-            float3 ortho = dir - (v * dot(dir, v));
-            float3 _334 = fast::normalize(cross(ortho, v));
-            float3 projected = n - (_334 * dot(n, _334));
-            float _340 = length(projected);
-            float _346 = fast::clamp(dot(projected, v) / fast::max(_340, 9.9999999747524270787835121154785e-07), -1.0, 1.0);
-            float gamma = float(int(sign(dot(ortho, projected)))) * acos(_346);
-            float _355 = cos(gamma + 1.57079637050628662109375);
-            float _357 = cos(gamma - 1.57079637050628662109375);
-            float horizon_plus = _355;
-            float horizon_minus = _357;
-            int _step = 0;
-            for (;;)
-            {
-                bool _58_ladder_break = false;
-                do
-                {
-                    if (!(_step < 6))
-                    {
-                        _58_ladder_break = true;
-                        break;
-                    }
-                    float s = (float(_step) + _309) / 6.0;
-                    int2 _374 = int2(round((omega * ((s * s) + _310)) * _266));
-                    horizon_plus_1 = horizon_plus;
-                    horizon_minus_1 = horizon_minus;
-                    int side = 0;
-                    for (;;)
-                    {
-                        bool _63_ladder_break = false;
-                        do
-                        {
-                            if (!(side < 2))
-                            {
-                                _63_ladder_break = true;
-                                break;
-                            }
-                            bool _384 = side == 0;
-                            if (_384)
-                            {
-                                q = px + _374;
-                            }
-                            else
-                            {
-                                q = px - _374;
-                            }
-                            float3 delta = view_at(q, depth_at(q, Gtao_Uniforms, view_depth, view_depthSmplr), Gtao_Uniforms) - p;
-                            float _397 = length(delta);
-                            float c = dot(delta, v) / fast::max(_397, 9.9999999747524270787835121154785e-07);
-                            float _405 = fast::clamp((_397 * _275) + 1.62601625919342041015625, 0.0, 1.0);
-                            if (_384)
-                            {
-                                horizon_plus_2 = fast::max(horizon_plus_1, mix(_355, c, _405));
-                                horizon_minus_2 = horizon_minus_1;
-                            }
-                            else
-                            {
-                                horizon_plus_2 = horizon_plus_1;
-                                horizon_minus_2 = fast::max(horizon_minus_1, mix(_357, c, _405));
-                            }
-                            break;
-                        } while(false);
-                        if (_63_ladder_break)
-                        {
-                            break;
-                        }
-                        horizon_plus_1 = horizon_plus_2;
-                        horizon_minus_1 = horizon_minus_2;
-                        side++;
-                        continue;
-                    }
-                    break;
-                } while(false);
-                if (_58_ladder_break)
-                {
-                    break;
-                }
-                horizon_plus = horizon_plus_1;
-                horizon_minus = horizon_minus_1;
-                _step++;
-                continue;
-            }
-            float _457 = 2.0 * (gamma + fast::clamp((-acos(fast::clamp(horizon_minus, -1.0, 1.0))) - gamma, -1.57079637050628662109375, 1.57079637050628662109375));
-            float _458 = sin(gamma);
-            float _465 = 2.0 * (gamma + fast::clamp(acos(fast::clamp(horizon_plus, -1.0, 1.0)) - gamma, -1.57079637050628662109375, 1.57079637050628662109375));
-            visibility_1 = visibility + (_340 * ((((_346 + (_457 * _458)) - cos(_457 - gamma)) / 4.0) + (((_346 + (_465 * _458)) - cos(_465 - gamma)) / 4.0)));
-            break;
-        } while(false);
-        if (_53_ladder_break)
+        }
+        else
         {
+
+#line 74
             break;
         }
-        slice++;
-        visibility = visibility_1;
-        continue;
+
+#line 75
+        float phi_0 = (float(slice_0) + _S26) * 3.14159274101257324f / 2.0f;
+
+        float _S29 = cos(phi_0);
+
+#line 77
+        float _S30 = sin(phi_0);
+
+#line 77
+        float2 omega_0 = float2(_S29, _S30);
+        float3 dir_0 = float3(_S29, - _S30, 0.0f);
+        float3 ortho_0 = dir_0 - float3(dot(dir_0, v_1))  * v_1;
+        float3 axis_0 = normalize(cross(ortho_0, v_1));
+        float3 projected_0 = n_1 - axis_0 * float3(dot(n_1, axis_0)) ;
+        float projected_len_0 = length(projected_0);
+        float cos_n_0 = clamp(dot(projected_0, v_1) / max(projected_len_0, 9.99999997475242708e-07f), -1.0f, 1.0f);
+        float gamma_0 = float((int(sign((dot(ortho_0, projected_0)))))) * acos(cos_n_0);
+
+        float low_plus_0 = cos(gamma_0 + 1.57079637050628662f);
+
+#line 86
+        float low_minus_0 = cos(gamma_0 - 1.57079637050628662f);
+
+#line 86
+        float horizon_plus_0 = low_plus_0;
+
+#line 86
+        float horizon_minus_0 = low_minus_0;
+
+#line 86
+        int step_0 = int(0);
+
+        for(;;)
+        {
+
+#line 88
+            if(step_0 < int(6))
+            {
+            }
+            else
+            {
+
+#line 88
+                break;
+            }
+
+#line 89
+            float s_0 = (float(step_0) + _S27) / 6.0f;
+
+            int2 _S31 = int2(round(omega_0 * float2((s_0 * s_0 + _S28))  * float2(_S21) ));
+
+#line 91
+            float horizon_plus_1 = horizon_plus_0;
+
+#line 91
+            float horizon_minus_1 = horizon_minus_0;
+
+#line 91
+            int side_0 = int(0);
+            for(;;)
+            {
+
+#line 92
+                if(side_0 < int(2))
+                {
+                }
+                else
+                {
+
+#line 92
+                    break;
+                }
+
+#line 93
+                bool _S32 = side_0 == int(0);
+
+#line 93
+                int2 q_0;
+
+#line 93
+                if(_S32)
+                {
+
+#line 93
+                    q_0 = px_2 + _S31;
+
+#line 93
+                }
+                else
+                {
+
+#line 93
+                    q_0 = px_2 - _S31;
+
+#line 93
+                }
+
+#line 93
+                float _S33 = depth_at_0(q_0, &kernelContext_2);
+
+#line 93
+                float3 _S34 = view_at_0(q_0, _S33, &kernelContext_2);
+                float3 delta_0 = _S34 - _S5;
+                float dist_0 = length(delta_0);
+                float c_0 = dot(delta_0, v_1) / max(dist_0, 9.99999997475242708e-07f);
+                float w_0 = clamp(dist_0 * _S23 + 1.62601625919342041f, 0.0f, 1.0f);
+                if(_S32)
+                {
+
+#line 98
+                    horizon_plus_1 = max(horizon_plus_1, mix(low_plus_0, c_0, w_0));
+
+#line 98
+                }
+                else
+                {
+
+#line 98
+                    horizon_minus_1 = max(horizon_minus_1, mix(low_minus_0, c_0, w_0));
+
+#line 98
+                }
+
+#line 92
+                side_0 = side_0 + int(1);
+
+#line 92
+            }
+
+#line 88
+            int _S35 = step_0 + int(1);
+
+#line 88
+            horizon_plus_0 = horizon_plus_1;
+
+#line 88
+            horizon_minus_0 = horizon_minus_1;
+
+#line 88
+            step_0 = _S35;
+
+#line 88
+        }
+
+#line 105
+        float _S36 = 2.0f * (gamma_0 + clamp(- acos(clamp(horizon_minus_0, -1.0f, 1.0f)) - gamma_0, -1.57079637050628662f, 1.57079637050628662f));
+
+#line 105
+        float _S37 = sin(gamma_0);
+        float _S38 = 2.0f * (gamma_0 + clamp(acos(clamp(horizon_plus_0, -1.0f, 1.0f)) - gamma_0, -1.57079637050628662f, 1.57079637050628662f));
+        float visibility_1 = visibility_0 + projected_len_0 * ((cos_n_0 + _S36 * _S37 - cos(_S36 - gamma_0)) / 4.0f + (cos_n_0 + _S38 * _S37 - cos(_S38 - gamma_0)) / 4.0f);
+
+#line 74
+        slice_0 = slice_0 + int(1);
+
+#line 74
+        visibility_0 = visibility_1;
+
+#line 74
     }
-    out.entryPointParam_main = float4(fast::max(visibility / 2.0, 0.0));
-    return out;
+
+#line 74
+    pixelOutput_0 _S39 = { float4(max(visibility_0 / 2.0f, 0.0f))  };
+
+#line 112
+    return _S39;
 }
 

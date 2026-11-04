@@ -1,186 +1,296 @@
-// SDL_shadercross 1ff05bec5739 from blas_refit.comp.spv sha256 7025cc138e90d09c7dd4b21a01acbb9d43b161987c35280d807d1d29878bedda
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from blas_refit.comp.spv sha256 7025cc138e90d09c7dd4b21a01acbb9d43b161987c35280d807d1d29878bedda
+// slots s= rt= wt= rb=0,1,2,3 wb=4 u=5 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct Node_std430_logical
+#line 25 "/home/user/Implicit_sculpt_modeler/src/render/shaders/blas_refit.comp.slang"
+struct SLANG_ParameterGroup_Params_0
 {
-    float3 lo;
-    uint first;
-    float3 hi;
-    uint count;
+    uint chunk_count_0;
+    uint groups_x_0;
 };
 
-struct SLANG_ParameterGroup_Params_std140
+
+#line 23
+struct Node_natural_0
 {
-    uint chunk_count;
-    uint groups_x;
+    packed_float3 lo_0;
+    uint first_0;
+    packed_float3 hi_0;
+    uint count_0;
 };
 
-struct StructuredBuffer
+
+
+struct KernelContext_0
 {
-    uint4 _member0[1];
+    SLANG_ParameterGroup_Params_0 constant* Params_0;
+    packed_uint4 device* chunks_0;
+    Node_natural_0 device* nodes_0;
+    uint device* order_0;
+    uint device* indices_0;
+    float device* positions_0;
 };
 
-struct Node_std430
-{
-    packed_float3 lo;
-    uint first;
-    packed_float3 hi;
-    uint count;
-};
 
-struct RWStructuredBuffer
+#line 32
+float3 at_0(uint v_0, KernelContext_0 thread* kernelContext_0)
 {
-    Node_std430 _member0[1];
-};
 
-struct StructuredBuffer_1
-{
-    uint _member0[1];
-};
+#line 33
+    uint _S1 = 3U * v_0;
 
-struct StructuredBuffer_2
-{
-    float _member0[1];
-};
-
-static inline __attribute__((always_inline))
-float3 at(uint v, device StructuredBuffer_2& positions)
-{
-    uint _258 = 3u * v;
-    return float3(positions._member0[_258], positions._member0[_258 + 1u], positions._member0[_258 + 2u]);
+#line 33
+    return float3(kernelContext_0->positions_0[_S1], kernelContext_0->positions_0[_S1 + 1U], kernelContext_0->positions_0[_S1 + 2U]);
 }
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_2& positions [[buffer(1)]], device StructuredBuffer_1& indices [[buffer(2)]], device StructuredBuffer_1& order [[buffer(3)]], device StructuredBuffer& chunks [[buffer(4)]], device RWStructuredBuffer& nodes [[buffer(5)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+
+[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], uint3 global_id_0 [[thread_position_in_grid]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(5)]], packed_uint4 device* chunks_1 [[buffer(3)]], Node_natural_0 device* nodes_1 [[buffer(4)]], uint device* order_1 [[buffer(2)]], uint device* indices_1 [[buffer(1)]], float device* positions_1 [[buffer(0)]])
 {
-    uint c = (((gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x) * 64u) + gl_LocalInvocationID.x;
-    if (c >= Params.chunk_count)
+
+#line 37
+    thread KernelContext_0 kernelContext_1;
+
+#line 37
+    (&kernelContext_1)->Params_0 = Params_1;
+
+#line 37
+    (&kernelContext_1)->chunks_0 = chunks_1;
+
+#line 37
+    (&kernelContext_1)->nodes_0 = nodes_1;
+
+#line 37
+    (&kernelContext_1)->order_0 = order_1;
+
+#line 37
+    (&kernelContext_1)->indices_0 = indices_1;
+
+#line 37
+    (&kernelContext_1)->positions_0 = positions_1;
+    uint c_0 = (group_id_0.y * Params_1->groups_x_0 + group_id_0.x) * 64U + local_id_0.x;
+    if(c_0 >= (Params_1->chunk_count_0))
     {
+
+#line 39
         return;
     }
-    uint4 _98 = chunks._member0[c];
-    uint k = _98.w;
-    Node_std430_logical _12;
-    float3 lo;
-    float3 hi;
-    Node_std430_logical _16;
-    Node_std430_logical _17;
-    uint _19;
-    bool _22;
-    bool _23;
-    float3 lo_1;
-    float3 hi_1;
-    for (;;)
+
+#line 39
+    uint4 _S2 = uint4(*((&kernelContext_1)->chunks_0+c_0)) ;
+
+    uint _S3 = _S2.x;
+
+#line 41
+    uint k_0 = _S2.w;
+    for(;;)
     {
-        bool _30_ladder_break = false;
-        do
+
+#line 42
+        if(k_0 > 0U)
         {
-            if (!(k > 0u))
-            {
-                _30_ladder_break = true;
-                break;
-            }
-            uint i = (_98.x + k) - 1u;
-            _12.lo = float3(nodes._member0[i].lo);
-            _12.first = nodes._member0[i].first;
-            _12.hi = float3(nodes._member0[i].hi);
-            _12.count = nodes._member0[i].count;
-            if (nodes._member0[i].count == 0u)
-            {
-                uint _139 = _98.x + _12.first;
-                _16.lo = float3(nodes._member0[_139].lo);
-                _16.first = nodes._member0[_139].first;
-                _16.hi = float3(nodes._member0[_139].hi);
-                _16.count = nodes._member0[_139].count;
-                uint _157 = _139 + 1u;
-                _17.lo = float3(nodes._member0[_157].lo);
-                _17.first = nodes._member0[_157].first;
-                _17.hi = float3(nodes._member0[_157].hi);
-                _17.count = nodes._member0[_157].count;
-                lo = fast::min(float3(nodes._member0[_139].lo), float3(nodes._member0[_157].lo));
-                hi = fast::max(_16.hi, _17.hi);
-            }
-            else
-            {
-                lo = float3(3.0000000054977557577780399428115e+38);
-                hi = float3(-3.0000000054977557577780399428115e+38);
-                uint j = _12.first;
-                for (;;)
-                {
-                    bool _37_ladder_break = false;
-                    do
-                    {
-                        if (!(j < (_12.first + nodes._member0[i].count)))
-                        {
-                            _37_ladder_break = true;
-                            break;
-                        }
-                        uint at_order = _98.y + j;
-                        uint _198 = at_order >> uint(1);
-                        if ((at_order & 1u) == 0u)
-                        {
-                            _19 = order._member0[_198] & 65535u;
-                        }
-                        else
-                        {
-                            _19 = order._member0[_198] >> uint(16);
-                        }
-                        uint _219 = 3u * (_98.z + _19);
-                        uint _224 = _219 + 1u;
-                        uint _227 = _219 + 2u;
-                        if (indices._member0[_219] == indices._member0[_224])
-                        {
-                            _22 = true;
-                        }
-                        else
-                        {
-                            _22 = indices._member0[_224] == indices._member0[_227];
-                        }
-                        if (_22)
-                        {
-                            _23 = true;
-                        }
-                        else
-                        {
-                            _23 = indices._member0[_219] == indices._member0[_227];
-                        }
-                        if (_23)
-                        {
-                            lo_1 = lo;
-                            hi_1 = hi;
-                            break;
-                        }
-                        float3 p0 = at(indices._member0[_219], positions);
-                        float3 p1 = at(indices._member0[_224], positions);
-                        float3 p2 = at(indices._member0[_227], positions);
-                        lo_1 = fast::min(lo, fast::min(p0, fast::min(p1, p2)));
-                        hi_1 = fast::max(hi, fast::max(p0, fast::max(p1, p2)));
-                        break;
-                    } while(false);
-                    if (_37_ladder_break)
-                    {
-                        break;
-                    }
-                    lo = lo_1;
-                    hi = hi_1;
-                    j++;
-                    continue;
-                }
-            }
-            nodes._member0[i].lo = lo;
-            nodes._member0[i].hi = hi;
-            break;
-        } while(false);
-        if (_30_ladder_break)
+        }
+        else
         {
+
+#line 42
             break;
         }
-        k--;
-        continue;
+
+#line 43
+        uint i_0 = _S3 + k_0 - 1U;
+
+#line 43
+        Node_natural_0 device* _S4 = (&kernelContext_1)->nodes_0+i_0;
+        Node_natural_0 n_0 = *_S4;
+        float3 _S5 = float3(3.00000000549775576e+38f) ;
+
+#line 45
+        float3 _S6 = float3(-3.00000000549775576e+38f) ;
+
+#line 45
+        float3 lo_1;
+
+#line 45
+        float3 hi_1;
+        if(((*_S4).count_0) == 0U)
+        {
+
+#line 47
+            uint _S7 = _S3 + n_0.first_0;
+
+#line 47
+            Node_natural_0 device* _S8 = (&kernelContext_1)->nodes_0+_S7;
+
+#line 47
+            Node_natural_0 device* _S9 = (&kernelContext_1)->nodes_0+(_S7 + 1U);
+
+            float3 _S10 = max(float3((*_S8).hi_0) , float3((*_S9).hi_0) );
+
+#line 49
+            lo_1 = min(float3((*_S8).lo_0) , float3((*_S9).lo_0) );
+
+#line 49
+            hi_1 = _S10;
+
+#line 46
+        }
+        else
+        {
+
+#line 46
+            lo_1 = _S5;
+
+#line 46
+            hi_1 = _S6;
+
+#line 46
+            uint j_0 = n_0.first_0;
+
+#line 51
+            for(;;)
+            {
+
+#line 51
+                if(j_0 < (n_0.first_0 + n_0.count_0))
+                {
+                }
+                else
+                {
+
+#line 51
+                    break;
+                }
+
+#line 52
+                uint at_order_0 = _S2.y + j_0;
+                uint word_0 = (&kernelContext_1)->order_0[at_order_0 >> 1U];
+                uint _S11 = _S2.z;
+
+#line 54
+                uint _S12;
+
+#line 54
+                if((at_order_0 & 1U) == 0U)
+                {
+
+#line 54
+                    _S12 = word_0 & 65535U;
+
+#line 54
+                }
+                else
+                {
+
+#line 54
+                    _S12 = word_0 >> 16U;
+
+#line 54
+                }
+                uint _S13 = 3U * (_S11 + _S12);
+
+#line 55
+                uint a_0 = (&kernelContext_1)->indices_0[_S13];
+
+#line 55
+                uint b_0 = (&kernelContext_1)->indices_0[_S13 + 1U];
+
+#line 55
+                uint d_0 = (&kernelContext_1)->indices_0[_S13 + 2U];
+
+#line 55
+                bool _S14;
+                if(a_0 == b_0)
+                {
+
+#line 56
+                    _S14 = true;
+
+#line 56
+                }
+                else
+                {
+
+#line 56
+                    _S14 = b_0 == d_0;
+
+#line 56
+                }
+
+#line 56
+                bool _S15;
+
+#line 56
+                if(_S14)
+                {
+
+#line 56
+                    _S15 = true;
+
+#line 56
+                }
+                else
+                {
+
+#line 56
+                    _S15 = a_0 == d_0;
+
+#line 56
+                }
+
+#line 56
+                if(_S15)
+                {
+
+#line 56
+                    j_0 = j_0 + 1U;
+
+#line 51
+                    continue;
+                }
+
+#line 51
+                float3 _S16 = at_0(a_0, &kernelContext_1);
+
+#line 51
+                float3 _S17 = at_0(b_0, &kernelContext_1);
+
+#line 51
+                float3 _S18 = at_0(d_0, &kernelContext_1);
+
+#line 59
+                float3 _S19 = max(hi_1, max(_S16, max(_S17, _S18)));
+
+#line 59
+                lo_1 = min(lo_1, min(_S16, min(_S17, _S18)));
+
+#line 59
+                hi_1 = _S19;
+
+#line 51
+                j_0 = j_0 + 1U;
+
+#line 51
+            }
+
+#line 46
+        }
+
+#line 46
+        ((&kernelContext_1)->nodes_0+i_0)->lo_0 = packed_float3(lo_1) ;
+
+#line 46
+        ((&kernelContext_1)->nodes_0+i_0)->hi_0 = packed_float3(hi_1) ;
+
+#line 42
+        k_0 = k_0 - 1U;
+
+#line 42
     }
+
+#line 65
+    return;
 }
 

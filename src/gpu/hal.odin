@@ -166,7 +166,7 @@ bind_vertex_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, s
 	else do vk_bind_vertex_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 }
 
-// Read-only storage buffers for the fragment stage, after its samplers (SDL_GPU's slots).
+// Read-only storage buffers for the fragment stage, in the order the shader declares them.
 bind_fragment_storage_buffers :: proc(render_pass: Render_Pass, first_slot: u32, storage_buffers: [^]Buffer, num_bindings: u32) {
 	when METAL do mtl_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
 	else when WEBGPU do wgpu_bind_fragment_storage_buffers(render_pass, first_slot, storage_buffers, num_bindings)
@@ -377,8 +377,8 @@ build_tlas :: proc(command_buffer: Cmd, instances: []Tlas_Instance, update: ^Gpu
 
 // A compute pipeline that traces against the top level at set 3, binding 0 in SPIR-V, and
 // also reads an array of up to `capacity` sampled textures at binding 1 (none for 0); nil
-// with SDL's error set where ray queries are not offered. Under Metal the code is slangc's
-// Metal source with its slot table (RQ_EXT), and texture arrays are not offered.
+// with SDL's error set where ray queries are not offered. Under Metal the kernel's slot
+// table must name its structure, and texture arrays are not offered.
 @(require_results)
 create_compute_pipeline_traced :: proc(#by_ptr createinfo: Compute_Pipeline_Desc, capacity: u32 = 0) -> Compute_Pipeline {
 	when METAL {

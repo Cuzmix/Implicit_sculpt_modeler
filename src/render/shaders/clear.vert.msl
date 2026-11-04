@@ -1,19 +1,27 @@
-// SDL_shadercross 1ff05bec5739 from clear.vert.spv sha256 68a8f109a83f930712bb14f07ade79583d5e556bd943527c9219bb7205f7c58d
+// slangc metal from clear.vert.spv sha256 68a8f109a83f930712bb14f07ade79583d5e556bd943527c9219bb7205f7c58d
+// slots s= rt= wt= rb= wb= u= a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct main0_out
+#line 3 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.vert.slang"
+struct vertexOutput_0
 {
-    float4 gl_Position [[position]];
+    float4 output_0 [[position]];
 };
 
-vertex main0_out main0(uint gl_VertexIndex [[vertex_id]])
+
+#line 3
+[[vertex]] vertexOutput_0 main_0(uint vertex_0 [[vertex_id]])
 {
-    main0_out out = {};
-    int i = int(uint(int(gl_VertexIndex)));
-    out.gl_Position = float4((float2(float((i << 1) & 2), float(i & 2)) * 2.0) - float2(1.0), 1.0, 1.0);
-    return out;
+
+#line 4
+    int i_0 = int(vertex_0);
+
+#line 4
+    vertexOutput_0 _S1 = { float4(float2(float((i_0 << 1U) & int(2)), float(i_0 & int(2))) * float2(2.0f)  - float2(1.0f) , 1.0f, 1.0f) };
+
+    return _S1;
 }
 

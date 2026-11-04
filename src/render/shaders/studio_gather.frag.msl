@@ -1,286 +1,571 @@
-// SDL_shadercross 1ff05bec5739 from studio_gather.frag.spv sha256 a2b5bb1ba5f07cf3b06c709c2f9e52355ea4c3ec406031729408d10cd1090f7c
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from studio_gather.frag.spv sha256 a2b5bb1ba5f07cf3b06c709c2f9e52355ea4c3ec406031729408d10cd1090f7c
+// slots s=0:0,1:1 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct _Array_std140_vector_float_4_8
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    float4 data[8];
+
+#line 10
+    thread uint w_0;
+
+#line 10
+    thread uint h_0;
+
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
+}
+
+
+#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_gather.frag.slang"
+struct SLANG_ParameterGroup_Gather_Uniforms_0
+{
+    matrix<float,int(4),int(4)>  inv_view_proj_0;
+    matrix<float,int(4),int(4)>  light_view_proj_0;
+    float4 light_dir_0;
+    float4 params_0;
+    array<float4, int(8)> shadow_pos_0;
+    array<float4, int(8)> shadow_shape_0;
+    array<float4, int(8)> shadow_spot_0;
+    float4 shadow_pick_0;
 };
 
-struct SLANG_ParameterGroup_Gather_Uniforms_std140
+
+#line 1084 "core"
+struct KernelContext_0
 {
-    float4x4 inv_view_proj;
-    float4x4 light_view_proj;
-    float4 light_dir;
-    float4 params;
-    _Array_std140_vector_float_4_8 shadow_pos;
-    _Array_std140_vector_float_4_8 shadow_shape;
-    _Array_std140_vector_float_4_8 shadow_spot;
-    float4 shadow_pick;
+    texture2d<float, access::sample> view_depth_texture_0;
+    sampler view_depth_sampler_0;
+    SLANG_ParameterGroup_Gather_Uniforms_0 constant* Gather_Uniforms_0;
+    texture2d<float, access::sample> shadow_depth_texture_0;
+    sampler shadow_depth_sampler_0;
 };
 
-struct main0_out
-{
-    float4 entryPointParam_main [[color(0)]];
-};
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
+#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_gather.frag.slang"
+float3 world_at_0(float2 frag_0, float depth_0, float2 size_0, KernelContext_0 thread* kernelContext_0)
 {
-    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(view_depth.get_num_mip_levels());
-    return int2(int(w), int(h));
+
+#line 25
+    float2 uv_0 = frag_0 / size_0;
+    float4 w_1 = (((kernelContext_0->Gather_Uniforms_0->inv_view_proj_0) * (float4(uv_0.x * 2.0f - 1.0f, 1.0f - uv_0.y * 2.0f, depth_0, 1.0f))));
+    return w_1.xyz / float3(w_1.w) ;
 }
 
-static inline __attribute__((always_inline))
-float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+
+#line 24
+float3 world_at_1(float2 frag_1, float depth_1, float2 size_1, KernelContext_0 thread* kernelContext_1)
 {
-    float2 uv = frag / size;
-    float4 _140 = Gather_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
-    return _140.xyz / float3(_140.w);
+
+#line 25
+    float2 uv_1 = frag_1 / size_1;
+    float4 w_2 = (((kernelContext_1->Gather_Uniforms_0->inv_view_proj_0) * (float4(uv_1.x * 2.0f - 1.0f, 1.0f - uv_1.y * 2.0f, depth_1, 1.0f))));
+    return w_2.xyz / float3(w_2.w) ;
 }
 
-static inline __attribute__((always_inline))
-float3 depth_normal(int2 _151, float2 _152, float _153, float3 _154, float2 _155, texture2d<float> view_depth, sampler view_depthSmplr, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+
+#line 16 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+float3 depth_normal_0(texture2d<float, access::sample> view_depth_texture_1, sampler view_depth_sampler_1, int2 px_0, float2 frag_2, float d_0, float3 p_0, float2 size_2, KernelContext_0 thread* kernelContext_2)
 {
-    int2 hi = int2(_155) - int2(1);
-    float4 _184 = view_depth.read(uint2(int3(clamp(_151 - int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _193 = view_depth.read(uint2(int3(clamp(_151 + int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _203 = view_depth.read(uint2(int3(clamp(_151 - int2(0, 1), int2(0), hi), 0).xy), 0);
-    float4 _212 = view_depth.read(uint2(int3(clamp(_151 + int2(0, 1), int2(0), hi), 0).xy), 0);
-    float3 px_r;
-    if (abs(_193.x - _153) < abs(_153 - _184.x))
+
+#line 17
+    int2 hi_0 = int2(size_2) - int2(int(1)) ;
+    int2 _S1 = int2(int(1), int(0));
+
+#line 18
+    int2 _S2 = int2(int(0)) ;
+
+#line 18
+    float dl_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    float dr_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    int2 _S3 = int2(int(0), int(1));
+
+#line 20
+    float du_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    float dd_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+
+#line 21
+    float3 px_r_0;
+    if((abs(dr_0 - d_0)) < (abs(d_0 - dl_0)))
     {
-        px_r = world_at(_152 + float2(1.0, 0.0), _193.x, _155, Gather_Uniforms) - _154;
+
+#line 22
+        float3 _S4 = world_at_1(frag_2 + float2(1.0f, 0.0f), dr_0, size_2, kernelContext_2);
+
+#line 22
+        px_r_0 = _S4 - p_0;
+
+#line 22
     }
     else
     {
-        px_r = _154 - world_at(_152 - float2(1.0, 0.0), _184.x, _155, Gather_Uniforms);
+
+#line 22
+        float3 _S5 = world_at_1(frag_2 - float2(1.0f, 0.0f), dl_0, size_2, kernelContext_2);
+
+#line 22
+        px_r_0 = p_0 - _S5;
+
+#line 22
     }
-    float3 px_d;
-    if (abs(_212.x - _153) < abs(_153 - _203.x))
+
+#line 22
+    float3 px_d_0;
+    if((abs(dd_0 - d_0)) < (abs(d_0 - du_0)))
     {
-        px_d = world_at(_152 + float2(0.0, 1.0), _212.x, _155, Gather_Uniforms) - _154;
+
+#line 23
+        float3 _S6 = world_at_1(frag_2 + float2(0.0f, 1.0f), dd_0, size_2, kernelContext_2);
+
+#line 23
+        px_d_0 = _S6 - p_0;
+
+#line 23
     }
     else
     {
-        px_d = _154 - world_at(_152 - float2(0.0, 1.0), _203.x, _155, Gather_Uniforms);
+
+#line 23
+        float3 _S7 = world_at_1(frag_2 - float2(0.0f, 1.0f), du_0, size_2, kernelContext_2);
+
+#line 23
+        px_d_0 = p_0 - _S7;
+
+#line 23
     }
-    float3 _253 = fast::normalize(cross(px_d, px_r));
-    float3 n;
-    if (dot(_253, world_at(_152, 0.0, _155, Gather_Uniforms) - _154) < 0.0)
+    float3 n_0 = normalize(cross(px_d_0, px_r_0));
+
+#line 24
+    float3 _S8 = world_at_1(frag_2, 0.0f, size_2, kernelContext_2);
+
+#line 24
+    float3 n_1;
+
+    if((dot(n_0, _S8 - p_0)) < 0.0f)
     {
-        n = -_253;
+
+#line 26
+        n_1 = - n_0;
+
+#line 26
     }
     else
     {
-        n = _253;
+
+#line 26
+        n_1 = n_0;
+
+#line 26
     }
-    return n;
+    return n_1;
 }
 
-static inline __attribute__((always_inline))
-float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
+
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/light_window.slang"
+float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_0, float3 l_0)
 {
-    float k;
-    if (shape.y > 0.0)
+    float _S9 = shape_0.y;
+
+#line 9
+    float k_0;
+
+#line 9
+    if(_S9 > 0.0f)
     {
-        float x = d2 / (shape.y * shape.y);
-        float _399 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
-        k = _399 * _399;
+
+#line 10
+        float x_0 = d2_0 / (_S9 * _S9);
+        float w_3 = clamp(1.0f - x_0 * x_0, 0.0f, 1.0f);
+
+#line 11
+        k_0 = w_3 * w_3;
+
+#line 9
     }
     else
     {
-        k = 1.0;
+
+#line 9
+        k_0 = 1.0f;
+
+#line 9
     }
-    if (pos.w > 2.5)
+
+#line 14
+    float _S10 = pos_0.w;
+
+#line 14
+    if(_S10 > 2.5f)
     {
-        k *= fast::max(dot(-l, spot.xyz), 0.0);
+
+#line 14
+        k_0 = k_0 * max(dot(- l_0, spot_0.xyz), 0.0f);
+
+#line 14
     }
     else
     {
-        if (pos.w > 1.5)
+
+#line 16
+        if(_S10 > 1.5f)
         {
-            k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+
+#line 16
+            k_0 = k_0 * smoothstep(spot_0.w, shape_0.z, dot(- l_0, spot_0.xyz));
+
+#line 16
         }
+
+#line 14
     }
-    return k;
+
+#line 19
+    return k_0;
 }
 
-static inline __attribute__((always_inline))
-float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+
+#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+float shadow_light_0(int i_0, float3 p_1, float3 n_2, KernelContext_0 thread* kernelContext_3)
 {
-    if (Gather_Uniforms.shadow_shape.data[i].w == 0.0)
+
+#line 35
+    float4 pos_1 = kernelContext_3->Gather_Uniforms_0->shadow_pos_0[i_0];
+    if((kernelContext_3->Gather_Uniforms_0->shadow_shape_0[i_0].w) == 0.0f)
     {
-        return 0.0;
+
+#line 36
+        return 0.0f;
     }
-    if (Gather_Uniforms.shadow_pos.data[i].w < 0.5)
+
+#line 37
+    if((pos_1.w) < 0.5f)
     {
-        return fast::max(dot(n, Gather_Uniforms.shadow_pos.data[i].xyz), 0.0);
+
+#line 37
+        return max(dot(n_2, pos_1.xyz), 0.0f);
     }
-    float3 to = Gather_Uniforms.shadow_pos.data[i].xyz - p;
-    float _357 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
-    float3 l = to * rsqrt(_357);
-    return (fast::max(dot(n, l), 0.0) * ((Gather_Uniforms.shadow_shape.data[i].x * Gather_Uniforms.shadow_shape.data[i].x) / _357)) * light_window(Gather_Uniforms.shadow_pos.data[i], Gather_Uniforms.shadow_shape.data[i], Gather_Uniforms.shadow_spot.data[i], _357, l);
+
+#line 38
+    float3 to_0 = pos_1.xyz - p_1;
+    float _S11 = max(dot(to_0, to_0), 9.99999993922529029e-09f);
+    float3 l_1 = to_0 * float3(rsqrt(_S11)) ;
+    float ref_0 = kernelContext_3->Gather_Uniforms_0->shadow_shape_0[i_0].x;
+    return max(dot(n_2, l_1), 0.0f) * (ref_0 * ref_0 / _S11) * light_window_0(pos_1, kernelContext_3->Gather_Uniforms_0->shadow_shape_0[i_0], kernelContext_3->Gather_Uniforms_0->shadow_spot_0[i_0], _S11, l_1);
 }
 
-static inline __attribute__((always_inline))
-float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
-{
-    int i = 0;
-    float total = Gather_Uniforms.shadow_pick.z;
-    float unshadowed = Gather_Uniforms.shadow_pick.z;
-    for (;;)
-    {
-        float total_1;
-        bool _288_ladder_break = false;
-        do
-        {
-            if (!(i < 8))
-            {
-                _288_ladder_break = true;
-                break;
-            }
-            float lit = abs(Gather_Uniforms.shadow_shape.data[i].w) * shadow_light(i, p, n, Gather_Uniforms);
-            total_1 = total + lit;
-            if (Gather_Uniforms.shadow_shape.data[i].w < 0.0)
-            {
-                unshadowed += lit;
-            }
-            break;
-        } while(false);
-        if (_288_ladder_break)
-        {
-            break;
-        }
-        i++;
-        total = total_1;
-        continue;
-    }
-    if (total <= 0.0)
-    {
-        return float2(-1.0, 0.0);
-    }
-    return float2(Gather_Uniforms.shadow_pick.y * shadow_light(int(Gather_Uniforms.shadow_pick.x), p, n, Gather_Uniforms), unshadowed) / float2(total);
-}
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms [[buffer(0)]], texture2d<float> view_depth [[texture(0)]], texture2d<float> shadow_depth [[texture(1)]], sampler view_depthSmplr [[sampler(0)]], sampler shadow_depthSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+#line 53
+float2 shadow_weight_0(float3 p_2, float3 n_3, KernelContext_0 thread* kernelContext_4)
 {
-    main0_out out = {};
-    float2 _86 = float2(texture_size(view_depth, view_depthSmplr));
-    int2 _91 = int2(gl_FragCoord.xy);
-    float4 _99 = view_depth.read(uint2(int3(_91, 0).xy), 0);
-    if (_99.x >= 1.0)
+
+#line 54
+    float _S12 = kernelContext_4->Gather_Uniforms_0->shadow_pick_0.z;
+    float _S13 = kernelContext_4->Gather_Uniforms_0->shadow_pick_0.z;
+
+#line 55
+    int i_1 = int(0);
+
+#line 55
+    float total_0 = _S12;
+
+#line 55
+    float unshadowed_0 = _S13;
+    for(;;)
     {
-        out.entryPointParam_main = float4(0.0);
-        return out;
-    }
-    float3 p = world_at(gl_FragCoord.xy, _99.x, _86, Gather_Uniforms);
-    float3 _148 = depth_normal(_91, gl_FragCoord.xy, _99.x, p, _86, view_depth, view_depthSmplr, Gather_Uniforms);
-    float _271 = dot(_148, Gather_Uniforms.light_dir.xyz);
-    bool key = Gather_Uniforms.light_dir.w > 0.5;
-    float2 weight;
-    if (key)
-    {
-        float2 weight_1 = shadow_weight(p, _148, Gather_Uniforms);
-        if (weight_1.x < 0.0)
+
+#line 56
+        if(i_1 < int(8))
         {
-            out.entryPointParam_main = float4(0.0, 0.0, 1.0, 1.0);
-            return out;
-        }
-        weight = weight_1;
-    }
-    else
-    {
-        weight = float2(0.0);
-    }
-    float4 _11;
-    if (_271 <= 0.0)
-    {
-        if (key)
-        {
-            _11 = float4(0.0, 0.0, 1.0, 1.0) * (weight.x + weight.y);
         }
         else
         {
-            _11 = float4(0.0);
-        }
-        out.entryPointParam_main = _11;
-        return out;
-    }
-    float4 _509 = Gather_Uniforms.light_view_proj * float4(p + (_148 * Gather_Uniforms.params.y), 1.0);
-    float3 s = _509.xyz / float3(_509.w);
-    float2 _520 = float2((s.x * 0.5) + 0.5, 0.5 - (s.y * 0.5));
-    int y = -1;
-    float lit = 0.0;
-    float _18;
-    for (;;)
-    {
-        bool _33_ladder_break = false;
-        do
-        {
-            if (!(y <= 1))
-            {
-                _33_ladder_break = true;
-                break;
-            }
-            int x = -1;
-            for (;;)
-            {
-                float lit_1;
-                bool _38_ladder_break = false;
-                do
-                {
-                    if (!(x <= 1))
-                    {
-                        _38_ladder_break = true;
-                        break;
-                    }
-                    float4 _543 = shadow_depth.sample(shadow_depthSmplr, (_520 + (float2(float(x), float(y)) * Gather_Uniforms.params.z)));
-                    if ((s.z - Gather_Uniforms.params.x) <= _543.x)
-                    {
-                        _18 = 1.0;
-                    }
-                    else
-                    {
-                        _18 = 0.0;
-                    }
-                    lit_1 = lit + _18;
-                    break;
-                } while(false);
-                if (_38_ladder_break)
-                {
-                    break;
-                }
-                x++;
-                lit = lit_1;
-                continue;
-            }
-            break;
-        } while(false);
-        if (_33_ladder_break)
-        {
+
+#line 56
             break;
         }
-        y++;
-        continue;
+
+#line 57
+        float c_0 = kernelContext_4->Gather_Uniforms_0->shadow_shape_0[i_1].w;
+        float _S14 = abs(c_0);
+
+#line 58
+        float _S15 = shadow_light_0(i_1, p_2, n_3, kernelContext_4);
+
+#line 58
+        float lit_0 = _S14 * _S15;
+        float total_1 = total_0 + lit_0;
+        if(c_0 < 0.0f)
+        {
+
+#line 60
+            unshadowed_0 = unshadowed_0 + lit_0;
+
+#line 60
+        }
+
+#line 56
+        i_1 = i_1 + int(1);
+
+#line 56
+        total_0 = total_1;
+
+#line 56
     }
-    float lit_2 = lit / 9.0;
-    if (key)
+
+#line 62
+    if(total_0 <= 0.0f)
     {
-        _11 = float4(0.0, 0.0, (lit_2 * weight.x) + weight.y, weight.x + weight.y);
+
+#line 62
+        return float2(-1.0f, 0.0f);
+    }
+
+#line 63
+    float _S16 = kernelContext_4->Gather_Uniforms_0->shadow_pick_0.y;
+
+#line 63
+    float _S17 = shadow_light_0(int(kernelContext_4->Gather_Uniforms_0->shadow_pick_0.x), p_2, n_3, kernelContext_4);
+
+#line 63
+    return float2(_S16 * _S17, unshadowed_0) / float2(total_0) ;
+}
+
+
+#line 63
+struct pixelOutput_0
+{
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 32 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_gather.frag.slang"
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_2 [[texture(0)]], sampler view_depth_sampler_2 [[sampler(0)]], SLANG_ParameterGroup_Gather_Uniforms_0 constant* Gather_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> shadow_depth_texture_1 [[texture(1)]], sampler shadow_depth_sampler_1 [[sampler(1)]])
+{
+
+#line 32
+    thread KernelContext_0 kernelContext_5;
+
+#line 32
+    (&kernelContext_5)->view_depth_texture_0 = view_depth_texture_2;
+
+#line 32
+    (&kernelContext_5)->view_depth_sampler_0 = view_depth_sampler_2;
+
+#line 32
+    (&kernelContext_5)->Gather_Uniforms_0 = Gather_Uniforms_1;
+
+#line 32
+    (&kernelContext_5)->shadow_depth_texture_0 = shadow_depth_texture_1;
+
+#line 32
+    (&kernelContext_5)->shadow_depth_sampler_0 = shadow_depth_sampler_1;
+    float2 _S18 = float2(texture_size_0(view_depth_texture_2, view_depth_sampler_2));
+    float2 _S19 = frag_coord_0.xy;
+
+#line 34
+    int2 _S20 = int2(_S19);
+    float d_1 = ((view_depth_texture_2).read(vec<uint,2>(((view_depth_sampler_2)).xy), uint(((view_depth_sampler_2)).z))).x;
+    if(d_1 >= 1.0f)
+    {
+
+#line 36
+        pixelOutput_0 _S21 = { float4(0.0f)  };
+        return _S21;
+    }
+
+#line 37
+    float3 _S22 = world_at_0(_S19, d_1, _S18, &kernelContext_5);
+
+#line 37
+    float3 _S23 = depth_normal_0((&kernelContext_5)->view_depth_texture_0, (&kernelContext_5)->view_depth_sampler_0, _S20, _S19, d_1, _S22, _S18, &kernelContext_5);
+
+#line 43
+    float cosine_0 = dot(_S23, (&kernelContext_5)->Gather_Uniforms_0->light_dir_0.xyz);
+    bool key_0 = ((&kernelContext_5)->Gather_Uniforms_0->light_dir_0.w) > 0.5f;
+
+
+    float2 _S24 = float2(0.0f) ;
+
+#line 47
+    float2 weight_0;
+    if(key_0)
+    {
+
+#line 48
+        float2 _S25 = shadow_weight_0(_S22, _S23, &kernelContext_5);
+
+        if((_S25.x) < 0.0f)
+        {
+
+#line 50
+            pixelOutput_0 _S26 = { float4(0.0f, 0.0f, 1.0f, 1.0f) };
+            return _S26;
+        }
+
+#line 51
+        weight_0 = _S25;
+
+#line 48
     }
     else
     {
-        _11 = float4(lit_2 * _271, _271, 0.0, 0.0);
+
+#line 48
+        weight_0 = _S24;
+
+#line 48
     }
-    out.entryPointParam_main = _11;
-    return out;
+
+#line 48
+    float4 _S27;
+
+#line 54
+    if(cosine_0 <= 0.0f)
+    {
+
+        if(key_0)
+        {
+
+#line 57
+            _S27 = float4(0.0f, 0.0f, 1.0f, 1.0f) * float4((weight_0.x + weight_0.y)) ;
+
+#line 57
+        }
+        else
+        {
+
+#line 57
+            _S27 = float4(0.0f) ;
+
+#line 57
+        }
+
+#line 57
+        pixelOutput_0 _S28 = { _S27 };
+
+#line 57
+        return _S28;
+    }
+    float4 c_1 = ((((&kernelContext_5)->Gather_Uniforms_0->light_view_proj_0) * (float4(_S22 + _S23 * float3((&kernelContext_5)->Gather_Uniforms_0->params_0.y) , 1.0f))));
+    float3 s_0 = c_1.xyz / float3(c_1.w) ;
+    float2 _S29 = float2(s_0.x * 0.5f + 0.5f, 0.5f - s_0.y * 0.5f);
+
+#line 61
+    int y_0 = int(-1);
+
+#line 61
+    float lit_1 = 0.0f;
+
+    for(;;)
+    {
+
+#line 63
+        if(y_0 <= int(1))
+        {
+        }
+        else
+        {
+
+#line 63
+            break;
+        }
+
+#line 63
+        int x_1 = int(-1);
+        for(;;)
+        {
+
+#line 64
+            if(x_1 <= int(1))
+            {
+            }
+            else
+            {
+
+#line 64
+                break;
+            }
+
+#line 65
+            float2 _S30 = _S29 + float2(float(x_1), float(y_0)) * float2((&kernelContext_5)->Gather_Uniforms_0->params_0.z) ;
+
+#line 65
+            ;
+
+#line 65
+            float _S31;
+            if((s_0.z - (&kernelContext_5)->Gather_Uniforms_0->params_0.x) <= ((((&kernelContext_5)->shadow_depth_texture_0).sample(((&kernelContext_5)->shadow_depth_sampler_0), (_S30))).x))
+            {
+
+#line 66
+                _S31 = 1.0f;
+
+#line 66
+            }
+            else
+            {
+
+#line 66
+                _S31 = 0.0f;
+
+#line 66
+            }
+
+#line 66
+            float lit_2 = lit_1 + _S31;
+
+#line 64
+            x_1 = x_1 + int(1);
+
+#line 64
+            lit_1 = lit_2;
+
+#line 64
+        }
+
+#line 63
+        y_0 = y_0 + int(1);
+
+#line 63
+    }
+
+#line 69
+    float lit_3 = lit_1 / 9.0f;
+    if(key_0)
+    {
+
+#line 70
+        float _S32 = weight_0.x;
+
+#line 70
+        float _S33 = weight_0.y;
+
+#line 70
+        _S27 = float4(0.0f, 0.0f, lit_3 * _S32 + _S33, _S32 + _S33);
+
+#line 70
+    }
+    else
+    {
+
+#line 70
+        _S27 = float4(lit_3 * cosine_0, cosine_0, 0.0f, 0.0f);
+
+#line 70
+    }
+
+#line 70
+    pixelOutput_0 _S34 = { _S27 };
+
+#line 70
+    return _S34;
 }
 

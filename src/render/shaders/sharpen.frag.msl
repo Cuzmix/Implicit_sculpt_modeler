@@ -1,106 +1,199 @@
-// SDL_shadercross 1ff05bec5739 from sharpen.frag.spv sha256 1cf0840b1af5897bdec06a7096de32ca98fff55a9f872f5481f956da61542d7e
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from sharpen.frag.spv sha256 1cf0840b1af5897bdec06a7096de32ca98fff55a9f872f5481f956da61542d7e
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct SLANG_ParameterGroup_Sharpen_Uniforms_std140
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    float4 params;
+
+#line 10
+    thread uint w_0;
+
+#line 10
+    thread uint h_0;
+
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
+}
+
+
+#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+struct SLANG_ParameterGroup_Sharpen_Uniforms_0
+{
+    float4 params_0;
 };
 
-struct main0_out
+
+#line 1084 "core"
+struct KernelContext_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    texture2d<float, access::sample> graded_texture_0;
+    sampler graded_sampler_0;
+    SLANG_ParameterGroup_Sharpen_Uniforms_0 constant* Sharpen_Uniforms_0;
 };
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> graded, sampler gradedSmplr)
+
+#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+float3 at_0(int2 p_0, KernelContext_0 thread* kernelContext_0)
 {
-    uint2 _vecSize = uint2(graded.get_width(0u), graded.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(graded.get_num_mip_levels());
-    return int2(int(w), int(h));
+
+#line 18
+    sampler _S1 = kernelContext_0->graded_sampler_0;
+
+    return saturate(((kernelContext_0->graded_texture_0).read(vec<uint,2>(((_S1)).xy), uint(((_S1)).z))).xyz);
 }
 
-static inline __attribute__((always_inline))
-float3 saturate0(float3 x)
+
+#line 6 "/home/user/Implicit_sculpt_modeler/src/render/shaders/finish_grain.slang"
+float lattice_noise_0(int2 p_1, uint seed_0)
 {
-    return fast::clamp(x, float3(0.0), float3(1.0));
+
+#line 7
+    uint h_1 = ((uint(p_1.x) * 2376512323U) ^ (uint(p_1.y) * 3625334849U)) ^ (seed_0 * 3407524639U);
+
+    uint h_2 = (h_1 ^ (h_1 >> 15U)) * 739982445U;
+
+    uint h_3 = (h_2 ^ (h_2 >> 12U)) * 695872825U;
+
+    return float(h_3 ^ (h_3 >> 15U)) / 2.147483648e+09f - 1.0f;
 }
 
-static inline __attribute__((always_inline))
-float3 at(int2 p, texture2d<float> graded, sampler gradedSmplr)
+
+
+float grain_at_0(float2 px_0, float size_0, uint seed_1)
 {
-    float4 _65 = graded.read(uint2(int3(clamp(p, int2(0), texture_size(graded, gradedSmplr) - int2(1)), 0).xy), 0);
-    return saturate0(_65.xyz);
+
+#line 19
+    float2 at_1 = px_0 / float2(size_0) ;
+    int2 _S2 = int2(floor(at_1));
+    float2 f_0 = at_1 - float2(_S2);
+    float2 f_1 = f_0 * f_0 * (float2(3.0f)  - float2(2.0f)  * f_0);
+    float _S3 = f_1.x;
+
+    return mix(mix(lattice_noise_0(_S2, seed_1), lattice_noise_0(_S2 + int2(int(1), int(0)), seed_1), _S3), mix(lattice_noise_0(_S2 + int2(int(0), int(1)), seed_1), lattice_noise_0(_S2 + int2(int(1), int(1)), seed_1), _S3), f_1.y);
 }
 
-static inline __attribute__((always_inline))
-float lattice_noise(int2 p, uint seed)
+
+
+float gradient_noise_0(float2 px_1)
 {
-    uint h = ((uint(p.x) * 2376512323u) ^ (uint(p.y) * 3625334849u)) ^ (seed * 3407524639u);
-    uint h_1 = (h ^ (h >> uint(15))) * 739982445u;
-    uint h_2 = (h_1 ^ (h_1 >> uint(12))) * 695872825u;
-    return (float(h_2 ^ (h_2 >> uint(15))) / 2147483648.0) - 1.0;
+
+#line 31
+    return fract(52.98291778564453125f * fract(dot(px_1, float2(0.06711056083440781f, 0.00583714991807938f))));
 }
 
-static inline __attribute__((always_inline))
-float grain_at(float2 px, float size, uint seed)
-{
-    float2 at_1 = px / float2(size);
-    int2 _218 = int2(floor(at_1));
-    float2 f = at_1 - float2(_218);
-    float2 f_1 = (f * f) * (float2(3.0) - (f * 2.0));
-    float _265 = f_1.x;
-    return mix(mix(lattice_noise(_218, seed), lattice_noise(_218 + int2(1, 0), seed), _265), mix(lattice_noise(_218 + int2(0, 1), seed), lattice_noise(_218 + int2(1), seed), _265), f_1.y);
-}
 
-static inline __attribute__((always_inline))
-float gradient_noise(float2 px)
-{
-    return fract(52.98291778564453125 * fract(dot(px, float2(0.067110560834407806396484375, 0.005837149918079376220703125))));
-}
 
-static inline __attribute__((always_inline))
-float3 grain_and_dither(float3 e, float2 px, float strength, float size, uint seed)
+
+float3 grain_and_dither_0(float3 e_0, float2 px_2, float strength_0, float size_1, uint seed_2)
 {
-    float3 _189;
-    if (strength > 0.0)
+
+#line 37
+    float3 _S4;
+    if(strength_0 > 0.0f)
     {
-        float _201 = fast::clamp(dot(e, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)), 0.0, 1.0);
-        _189 = e + float3(((((0.119999997317790985107421875 * strength) * 4.0) * _201) * (1.0 - _201)) * grain_at(px, size, seed));
+
+#line 39
+        float l_0 = clamp(dot(e_0, float3(0.2125999927520752f, 0.71520000696182251f, 0.07220000028610229f)), 0.0f, 1.0f);
+
+#line 39
+        _S4 = e_0 + float3((0.11999999731779099f * strength_0 * 4.0f * l_0 * (1.0f - l_0) * grain_at_0(px_2, size_1, seed_2))) ;
+
+#line 38
     }
     else
     {
-        _189 = e;
+
+#line 38
+        _S4 = e_0;
+
+#line 38
     }
-    return _189 + float3((gradient_noise(px) - 0.5) / 255.0);
+
+
+
+    return _S4 + float3(((gradient_noise_0(px_2) - 0.5f) / 255.0f)) ;
 }
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Sharpen_Uniforms_std140& Sharpen_Uniforms [[buffer(0)]], texture2d<float> graded [[texture(0)]], sampler gradedSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+
+#line 42
+struct pixelOutput_0
 {
-    main0_out out = {};
-    int2 _14 = int2(gl_FragCoord.xy);
-    float3 a = at(_14 + int2(-1), graded, gradedSmplr);
-    float3 b = at(_14 + int2(0, -1), graded, gradedSmplr);
-    float3 c = at(_14 + int2(1, -1), graded, gradedSmplr);
-    float3 d = at(_14 + int2(-1, 0), graded, gradedSmplr);
-    float3 e = at(_14, graded, gradedSmplr);
-    float3 f = at(_14 + int2(1, 0), graded, gradedSmplr);
-    float3 g = at(_14 + int2(-1, 1), graded, gradedSmplr);
-    float3 h = at(_14 + int2(0, 1), graded, gradedSmplr);
-    float3 i = at(_14 + int2(1), graded, gradedSmplr);
-    float3 _104 = fast::min(fast::min(fast::min(d, e), fast::min(f, b)), h);
-    float3 lo = _104 + fast::min(_104, fast::min(fast::min(a, c), fast::min(g, i)));
-    float3 _113 = fast::max(fast::max(fast::max(d, e), fast::max(f, b)), h);
-    float3 hi = _113 + fast::max(_113, fast::max(fast::max(a, c), fast::max(g, i)));
-    float3 w = (sqrt(saturate0(fast::min(lo, float3(2.0) - hi) / fast::max(hi, float3(9.9999997473787516355514526367188e-06)))) * smoothstep(float3(0.0058823530562222003936767578125), float3(0.01568627543747425079345703125), (hi - lo) * 0.5)) * ((-1.0) / mix(8.0, 5.0, fast::clamp(Sharpen_Uniforms.params.x, 0.0, 1.0)));
-    float4 _168 = graded.read(uint2(int3(_14, 0).xy), 0);
-    out.entryPointParam_main = float4(grain_and_dither(saturate0(((w * (((b + d) + f) + h)) + e) / (float3(1.0) + (w * 4.0))), gl_FragCoord.xy, Sharpen_Uniforms.params.y, Sharpen_Uniforms.params.z, as_type<uint>(Sharpen_Uniforms.params.w)), _168.w);
-    return out;
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 23 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> graded_texture_1 [[texture(0)]], sampler graded_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Sharpen_Uniforms_0 constant* Sharpen_Uniforms_1 [[buffer(0)]])
+{
+
+#line 23
+    thread KernelContext_0 kernelContext_1;
+
+#line 23
+    (&kernelContext_1)->graded_texture_0 = graded_texture_1;
+
+#line 23
+    (&kernelContext_1)->graded_sampler_0 = graded_sampler_1;
+
+#line 23
+    (&kernelContext_1)->Sharpen_Uniforms_0 = Sharpen_Uniforms_1;
+    float2 _S5 = frag_coord_0.xy;
+
+#line 24
+    int2 _S6 = int2(_S5);
+
+#line 24
+    float3 _S7 = at_0(_S6 + int2(int(-1), int(-1)), &kernelContext_1);
+
+#line 24
+    float3 _S8 = at_0(_S6 + int2(int(0), int(-1)), &kernelContext_1);
+
+#line 24
+    float3 _S9 = at_0(_S6 + int2(int(1), int(-1)), &kernelContext_1);
+
+#line 24
+    float3 _S10 = at_0(_S6 + int2(int(-1), int(0)), &kernelContext_1);
+
+#line 24
+    float3 _S11 = at_0(_S6, &kernelContext_1);
+
+#line 24
+    float3 _S12 = at_0(_S6 + int2(int(1), int(0)), &kernelContext_1);
+
+#line 24
+    float3 _S13 = at_0(_S6 + int2(int(-1), int(1)), &kernelContext_1);
+
+#line 24
+    float3 _S14 = at_0(_S6 + int2(int(0), int(1)), &kernelContext_1);
+
+#line 24
+    float3 _S15 = at_0(_S6 + int2(int(1), int(1)), &kernelContext_1);
+
+#line 33
+    float3 lo_0 = min(min(min(_S10, _S11), min(_S12, _S8)), _S14);
+    float3 lo_1 = lo_0 + min(lo_0, min(min(_S7, _S9), min(_S13, _S15)));
+    float3 hi_0 = max(max(max(_S10, _S11), max(_S12, _S8)), _S14);
+    float3 hi_1 = hi_0 + max(hi_0, max(max(_S7, _S9), max(_S13, _S15)));
+
+#line 43
+    float3 w_1 = sqrt(saturate(min(lo_1, float3(2.0f)  - hi_1) / max(hi_1, float3(0.00000999999974738f) ))) * smoothstep(float3(0.0058823530562222f) , float3(0.01568627543747425f) , float3(0.5f)  * (hi_1 - lo_1)) * float3((-1.0f / mix(8.0f, 5.0f, saturate((&kernelContext_1)->Sharpen_Uniforms_0->params_0.x)))) ;
+
+#line 43
+    sampler _S16 = (&kernelContext_1)->graded_sampler_0;
+
+#line 43
+    pixelOutput_0 _S17 = { float4(grain_and_dither_0(saturate((w_1 * (_S8 + _S10 + _S12 + _S14) + _S11) / (float3(1.0f)  + float3(4.0f)  * w_1)), _S5, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.y, (&kernelContext_1)->Sharpen_Uniforms_0->params_0.z, (as_type<uint>(((&kernelContext_1)->Sharpen_Uniforms_0->params_0.w)))), (((&kernelContext_1)->graded_texture_0).read(vec<uint,2>(((_S16)).xy), uint(((_S16)).z))).w) };
+
+
+    return _S17;
 }
 

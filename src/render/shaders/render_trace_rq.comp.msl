@@ -41,7 +41,7 @@ using namespace metal;
                 }
             
 
-#line 9 "common.slang"
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -61,7 +61,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 142 "render_trace.slang"
+#line 142 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 struct SLANG_ParameterGroup_Render_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_view_proj_0;
@@ -232,7 +232,7 @@ struct RayDesc_0
 };
 
 
-#line 361 "render_trace.slang"
+#line 361 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 bool trace_0(float3 o_0, float3 d_0, float t_max_0, bool any_0, Hit_0 thread* hit_0, KernelContext_0 thread* kernelContext_4)
 {
 
@@ -514,7 +514,7 @@ float sphere_cone_0(int i_1, float3 p_0, KernelContext_0 thread* kernelContext_6
 }
 
 
-#line 7 "light_window.slang"
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/light_window.slang"
 float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_1, float3 l_0)
 {
     float _S21 = shape_0.y;
@@ -577,7 +577,7 @@ float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_1, fl
 }
 
 
-#line 623 "render_trace.slang"
+#line 623 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 float light_falloff_0(int i_2, float d2_2, float3 l_1, KernelContext_0 thread* kernelContext_7)
 {
 
@@ -795,7 +795,7 @@ float3 lights_met_0(float3 o_2, float3 d_3, float t_hit_0, bool escaped_0, float
 }
 
 
-#line 8 "panorama.slang"
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
 float2 panorama_uv_0(float3 d_4)
 {
 
@@ -803,7 +803,7 @@ float2 panorama_uv_0(float3 d_4)
 }
 
 
-#line 22 "studio_env.slang"
+#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_env.slang"
 float3 lobe_0(float3 dir_0, float3 toward_0, float3 color_1, float sharp_0, float rough_0)
 {
 
@@ -824,7 +824,7 @@ float3 studio_0(float3 dir_1, float rough_1)
 }
 
 
-#line 655 "render_trace.slang"
+#line 655 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 float3 environment_0(float3 d_5, KernelContext_0 thread* kernelContext_9)
 {
 
@@ -899,7 +899,7 @@ float3 vertex_0(uint v_0, KernelContext_0 thread* kernelContext_12)
 }
 
 
-#line 8 "skin_grid.slang"
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/skin_grid.slang"
 uint skin_index_0(uint i_4, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_1, uint3 v_1, uint3 e_1)
 {
 
@@ -1238,7 +1238,7 @@ void skin_grid_corners_0(uint S_1, uint V_1, uint E_1, uint tri_2, uint4 rec_0, 
 }
 
 
-#line 213 "render_trace.slang"
+#line 213 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 float3 oct_decode_0(float2 e_2)
 {
 
@@ -1526,7 +1526,7 @@ float4 map_at_0(uint slot_0, uint kind_0, float2 uv_2, float lod_0, KernelContex
 }
 
 
-#line 4 "common.slang"
+#line 4 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
 float glsl_mod_0(float x_3, float y_0)
 {
 
@@ -1535,7 +1535,7 @@ float glsl_mod_0(float x_3, float y_0)
 }
 
 
-#line 297 "render_trace.slang"
+#line 297 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 float3 uv_checker_0(float2 uv_3)
 {
 
@@ -1561,7 +1561,7 @@ float3 uv_checker_0(float2 uv_3)
 }
 
 
-#line 15 "panorama.slang"
+#line 15 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
 float3 panorama_dir_0(float2 uv_4)
 {
 
@@ -1573,7 +1573,7 @@ float3 panorama_dir_0(float2 uv_4)
 }
 
 
-#line 670 "render_trace.slang"
+#line 670 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_trace.slang"
 float3 env_sample_0(float thread* pdf_0, KernelContext_0 thread* kernelContext_18)
 {
 

@@ -3,16 +3,13 @@ package gpu
 
 import "core:log"
 import "core:slice"
-import "core:strconv"
-import "core:strings"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 
 // Ray tracing under the own Metal backend (native GPU plan 6.4,
 // notes/native-gpu/metal-ray-tracing-design.md): Metal's acceleration structures, built as
 // the Vulkan backend builds them (vk_accel.odin) and traced by the same kernels, whose Metal
-// source slangc's Metal target makes (scripts/shaders_msl.py), since SDL_shadercross's Metal
-// language cannot name a structure. Apple's GPUs from the A14 and M1 trace in software and
+// source slangc makes as every shader's (scripts/shaders_msl.py). Apple's GPUs from the A14 and M1 trace in software and
 // the M3 and A17 Pro in hardware; the app offers it on any of them, off by default on
 // Apple's platforms, and checks it against the ray query check's known answers before the
 // first kernel traces (ray_query_trusted).
@@ -263,64 +260,13 @@ mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 	return MTL.Buffer_gpuAddress(b.buffer)
 }
 
-// A traced kernel's pipeline: Metal source from slangc, whose second line maps SDL_GPU's
-// slots to slangc's (scripts/shaders_msl.py); the counts in `info` must match that table.
+// A traced kernel's pipeline: one whose slot table (scripts/shaders_msl.py) names the
+// acceleration structure it traces against.
 mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	slots, ok := mtl_slots_parse(info.code)
-	counts := [6]u32{info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
-	if !ok || slots.counts != counts || slots.accel < 0 {
-		log.errorf("Metal: a traced kernel's slot table does not match its pipeline (%v against %v)", slots.counts, counts)
-		fail(.Invalid, "Metal: a traced kernel's slot table does not match its pipeline")
+	if !ok || slots.accel < 0 {
+		fail(.Invalid, "Metal: a traced kernel's slot table names no acceleration structure")
 		return nil
 	}
-	pipeline := mtl_create_compute_pipeline(info)
-	if pipeline != nil do (^Mtl_Compute_Pipeline)(pipeline).slots = slots
-	return pipeline
-}
-
-// Reads a slangc kernel's slot table, the second line of its source:
-// "// slots s=T:S,T:S rt=T wt=T rb=B wb=B u=B a=B".
-mtl_slots_parse :: proc(code: string) -> (slots: Mtl_Slots, ok: bool) {
-	slots.accel = -1
-	text := code
-	_ = strings.split_lines_iterator(&text) or_return
-	line := strings.split_lines_iterator(&text) or_return
-	fields := strings.trim_prefix(line, "// slots ")
-	if len(fields) == len(line) do return
-	for field in strings.split_iterator(&fields, " ") {
-		key, _, values := strings.partition(field, "=")
-		n := 0
-		list := values
-		for value in strings.split_iterator(&list, ",") {
-			if key == "s" {
-				t, _, s := strings.partition(value, ":")
-				tex, tok := strconv.parse_int(t)
-				samp, sok := strconv.parse_int(s)
-				if !tok || !sok || n >= MTL_SAMPLERS do return
-				slots.samplers[n] = {u32(tex), u32(samp)}
-			} else {
-				at, vok := strconv.parse_int(value)
-				if !vok do return
-				switch key {
-				case "rt": if n >= MTL_SAMPLERS do return; slots.ro_textures[n] = u32(at)
-				case "wt": if n >= MTL_COMPUTE_WRITES do return; slots.rw_textures[n] = u32(at)
-				case "rb": if n >= MTL_STORAGE_BUFFERS do return; slots.ro_buffers[n] = u32(at)
-				case "wb": if n >= MTL_COMPUTE_WRITES do return; slots.rw_buffers[n] = u32(at)
-				case "u":  if n >= 4 do return; slots.uniforms[n] = u32(at)
-				case "a":  if n >= 1 do return; slots.accel = i32(at)
-				case:      return
-				}
-			}
-			n += 1
-		}
-		switch key {
-		case "s":  slots.counts[0] = u32(n)
-		case "rt": slots.counts[1] = u32(n)
-		case "wt": slots.counts[2] = u32(n)
-		case "rb": slots.counts[3] = u32(n)
-		case "wb": slots.counts[4] = u32(n)
-		case "u":  slots.counts[5] = u32(n)
-		}
-	}
-	return slots, true
+	return mtl_create_compute_pipeline(info)
 }

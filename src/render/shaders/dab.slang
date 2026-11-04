@@ -88,11 +88,11 @@ struct Dab {
 	uint stroke;   // the stroke's number for the heights (FLAG_ONCE)
 };
 
-// SDL_shadercross gives a kernel's read-write buffers the Metal slots after the read-only
-// ones the kernel reads, while the Metal backend binds them after all nine the kernels
-// declare (render.sculpt_gpu.odin). So every kernel reads each read-only buffer here,
-// behind a test no dispatch passes (groups_x is never 0), and the slots agree on Metal;
-// on Vulkan the bindings are numbered as declared either way.
+// Every kernel reads each buffer here, behind a test no dispatch passes (groups_x is never
+// 0), so each target's code keeps all fourteen bindings the kernels share and every backend
+// binds the same layout for all five (render.sculpt_gpu.odin), whichever buffers a kernel
+// itself reads: slangc's Metal and WGSL leave out a binding nothing reads, which would leave
+// a gap the slot tables and WebGPU's layouts would have to know about.
 void keep_bindings() {
 	if (groups_x == 0) {
 		uint any = indices[0] + offsets[0] + tris[0] + slabs[0].x + dabs[0].slabs.x + normals[0] + mask[0] + fade[0];

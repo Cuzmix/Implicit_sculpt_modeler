@@ -2,6 +2,8 @@
 package gpu
 
 import "core:log"
+import "core:strconv"
+import "core:strings"
 
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
@@ -13,8 +15,8 @@ import MTL "vendor:darwin/Metal"
 // resource frees a backing once nothing uses it. Samplers and pipelines go at once, since a
 // Metal command buffer keeps what it uses alive until it finishes.
 
-// Vertex buffers sit above the uniform and storage buffers of the vertex stage, at
-// SDL_GPU's slots, which the Metal shaders are compiled for.
+// Vertex buffers sit above the uniform and storage buffers of the vertex stage, which
+// scripts/shaders_msl.py keeps below this slot.
 MTL_FIRST_VERTEX_BUFFER :: 14
 
 Mtl_Buffer_Backing :: struct {
@@ -55,6 +57,7 @@ Mtl_Shader :: struct {
 	function: ^MTL.Function,
 	stage:    Shader_Stage,
 	counts:   [4]u32, // samplers, storage textures, storage buffers, uniform buffers
+	slots:    Mtl_Slots,
 }
 
 Mtl_Pipeline :: struct {
@@ -63,6 +66,10 @@ Mtl_Pipeline :: struct {
 	raster:        Rasterizer_State,
 	primitive:     MTL.PrimitiveType,
 	counts:        [8]u32, // the vertex shader's four counts, then the fragment shader's
+	// Where each stage's bindings go (Mtl_Slots); a graphics stage uses the sampler,
+	// read-only texture and buffer and uniform slots.
+	vertex_slots:   Mtl_Slots,
+	fragment_slots: Mtl_Slots,
 }
 
 // The limits per compute pipeline, which size the command buffer's binding arrays:
@@ -86,10 +93,9 @@ Mtl_Compute_Pipeline :: struct {
 	slots:              Mtl_Slots,
 }
 
-// Where each of a compute pipeline's bindings goes, in SDL_GPU's order of each kind. A
-// pipeline from an .msl takes SDL_GPU's own Metal slots (mtl_slots_sdl); a traced kernel's
-// Metal source comes from slangc, which numbers them its own way and writes them on its
-// second line (mtl_slots_parse).
+// Where each of a shader's or kernel's bindings goes, in the renderer's order of each kind
+// (its SPIR-V set and binding). slangc numbers Metal's slots its own way and the shader's
+// Metal source names them on its second line (scripts/shaders_msl.py, mtl_slots_parse).
 Mtl_Slots :: struct {
 	samplers:    [MTL_SAMPLERS][2]u32, // each sampled texture's texture slot, then its sampler's
 	ro_textures: [MTL_SAMPLERS]u32,
@@ -103,19 +109,64 @@ Mtl_Slots :: struct {
 	counts:      [6]u32,
 }
 
-// SDL_GPU's Metal slots: sampled textures and samplers from 0, then the read-only and
-// read-write storage textures; uniform buffers from buffer 0, then the read-only and
-// read-write storage buffers.
-mtl_slots_sdl :: proc(info: Compute_Pipeline_Desc) -> (slots: Mtl_Slots) {
+// Reads a shader's slot table, the second line of its Metal source:
+// "// slots s=T:S,T:S rt=T wt=T rb=B wb=B u=B a=B".
+mtl_slots_parse :: proc(code: string) -> (slots: Mtl_Slots, ok: bool) {
 	slots.accel = -1
-	slots.counts = {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
-	for i in 0 ..< info.num_samplers do slots.samplers[i] = {i, i}
-	for i in 0 ..< info.num_readonly_storage_textures do slots.ro_textures[i] = info.num_samplers + i
-	for i in 0 ..< info.num_readwrite_storage_textures do slots.rw_textures[i] = info.num_samplers + info.num_readonly_storage_textures + i
-	for i in 0 ..< info.num_uniform_buffers do slots.uniforms[i] = i
-	for i in 0 ..< info.num_readonly_storage_buffers do slots.ro_buffers[i] = info.num_uniform_buffers + i
-	for i in 0 ..< info.num_readwrite_storage_buffers do slots.rw_buffers[i] = info.num_uniform_buffers + info.num_readonly_storage_buffers + i
-	return
+	text := code
+	_ = strings.split_lines_iterator(&text) or_return
+	line := strings.split_lines_iterator(&text) or_return
+	fields := strings.trim_prefix(line, "// slots ")
+	if len(fields) == len(line) do return
+	for field in strings.split_iterator(&fields, " ") {
+		key, _, values := strings.partition(field, "=")
+		n := 0
+		list := values
+		for value in strings.split_iterator(&list, ",") {
+			if key == "s" {
+				t, _, s := strings.partition(value, ":")
+				tex, tok := strconv.parse_int(t)
+				samp, sok := strconv.parse_int(s)
+				if !tok || !sok || n >= MTL_SAMPLERS do return
+				slots.samplers[n] = {u32(tex), u32(samp)}
+			} else {
+				at, vok := strconv.parse_int(value)
+				if !vok do return
+				switch key {
+				case "rt": if n >= MTL_SAMPLERS do return; slots.ro_textures[n] = u32(at)
+				case "wt": if n >= MTL_COMPUTE_WRITES do return; slots.rw_textures[n] = u32(at)
+				case "rb": if n >= MTL_STORAGE_BUFFERS do return; slots.ro_buffers[n] = u32(at)
+				case "wb": if n >= MTL_COMPUTE_WRITES do return; slots.rw_buffers[n] = u32(at)
+				case "u":  if n >= 4 do return; slots.uniforms[n] = u32(at)
+				case "a":  if n >= 1 do return; slots.accel = i32(at)
+				case:      return
+				}
+			}
+			n += 1
+		}
+		switch key {
+		case "s":  slots.counts[0] = u32(n)
+		case "rt": slots.counts[1] = u32(n)
+		case "wt": slots.counts[2] = u32(n)
+		case "rb": slots.counts[3] = u32(n)
+		case "wb": slots.counts[4] = u32(n)
+		case "u":  slots.counts[5] = u32(n)
+		}
+	}
+	return slots, true
+}
+
+// The slot table of `code`, which must name exactly the bindings `counts` gives (the
+// counts' order of Mtl_Slots.counts); false, with the error set, when it does not.
+@(private = "file")
+mtl_slots_for :: proc(code: string, counts: [6]u32) -> (Mtl_Slots, bool) {
+	slots, ok := mtl_slots_parse(code)
+	if !ok || slots.counts != counts {
+		log.errorf("Metal: a shader's slot table does not match its description (%v against %v)", slots.counts, counts)
+		fail(.Invalid, "Metal: a shader's slot table does not match its description")
+		return {}, false
+	}
+	return slots, true
 }
 
 // ---- Buffers ------------------------------------------------------------------------
@@ -406,7 +457,7 @@ mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool) -> (^MTL.Lib
 		fail(.Refused, "Metal: a shader did not compile")
 		return nil, nil
 	}
-	entry := string(entrypoint) if entrypoint != nil else "main0"
+	entry := string(entrypoint) if entrypoint != nil else "main_0"
 	function := MTL.Library_newFunctionWithName(library, mtl_string(entry))
 	if function == nil {
 		NS.release(library)
@@ -423,10 +474,12 @@ mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
 		fail(.Invalid, "Metal: shaders must be Metal source")
 		return nil
 	}
+	slots, ok := mtl_slots_for(info.code, {info.num_samplers, info.num_storage_textures, 0, info.num_storage_buffers, 0, info.num_uniform_buffers})
+	if !ok do return nil
 	library, function := mtl_compile(info.code, info.entrypoint, false)
 	if function == nil do return nil
 	s := new(Mtl_Shader)
-	s.library, s.function, s.stage = library, function, info.stage
+	s.library, s.function, s.stage, s.slots = library, function, info.stage, slots
 	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
 	return s
 }
@@ -652,6 +705,7 @@ mtl_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> ra
 	}
 	copy(p.counts[0:4], vertex.counts[:])
 	copy(p.counts[4:8], fragment.counts[:])
+	p.vertex_slots, p.fragment_slots = vertex.slots, fragment.slots
 	return p
 }
 
@@ -664,9 +718,7 @@ mtl_release_graphics_pipeline :: proc(pipeline: rawptr) {
 	})
 }
 
-// Made as SDL_GPU's Metal backend makes it, keeping the counts its binding slots follow:
-// sampled textures and samplers from 0, then the read-only and read-write storage textures;
-// uniform buffers from buffer 0, then the read-only and read-write storage buffers.
+// Keeps the counts and the slot table its bindings go to (Mtl_Slots).
 mtl_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
 	return mtl_compute_pipeline_make(info, false)
 }
@@ -687,6 +739,8 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> r
 		fail(.Unsupported, "Metal: a compute pipeline binds more than the Metal backend binds")
 		return nil
 	}
+	slots, ok := mtl_slots_for(info.code, {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers})
+	if !ok do return nil
 	library, function := mtl_compile(info.code, info.entrypoint, exact)
 	if function == nil do return nil
 	defer {
@@ -716,7 +770,7 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> r
 	p.samplers, p.readonly_textures, p.readwrite_textures = info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures
 	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
 	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
-	p.slots = mtl_slots_sdl(info)
+	p.slots = slots
 	return p
 }
 

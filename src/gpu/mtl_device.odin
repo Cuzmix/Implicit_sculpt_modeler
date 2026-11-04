@@ -15,7 +15,7 @@ import sdl "vendor:sdl3"
 // by hand: what a new* or alloc call returns is ours to release, and what Metal hands back
 // autoreleased (command buffers, encoders, drawables) is retained for as long as it is
 // kept. It draws frames and runs compute kernels (the traced studio, render mode, Smooth all
-// on the GPU) at SDL_GPU's binding slots; the kernel that must equal the CPU is compiled
+// on the GPU) at the slots each shader's Metal source names (Mtl_Slots); the kernel that must equal the CPU is compiled
 // with fast maths off (create_compute_pipeline_exact), which SDL_GPU cannot do.
 // Everything runs on the thread that drives render.
 

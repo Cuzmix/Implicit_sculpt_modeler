@@ -23,8 +23,7 @@ backends bind (an acceleration structure, an array of textures), which their _tr
 pipeline makers add, so it is not counted either.
 
 A shader whose first line is "// vulkan only" has no Metal or WGSL source, so its constant
-exists only in the Vulkan build (`when gpu.VULKAN`) and embeds its .spv. One whose first line is
-"// ray query" embeds the ray query code and entry point (RQ_EXT, RQ_ENTRY).
+exists only in the Vulkan build (`when gpu.VULKAN`) and embeds its .spv.
 
 Each entry is preceded by a line naming its .spv and that file's SHA-256, so --check finds a
 missing or stale one with no slangc installed, as shaders_msl.py and shaders_wgsl.py do, and
@@ -131,12 +130,10 @@ def entry(source, digest, reflection):
     """The lines of one shader's entry in shaders_gen.odin: its header and its constant."""
     name, stage = constant_name(source), source.split(".")[1]
     line = first_line(source)
-    vulkan_only, ray_query = line.startswith("// vulkan only"), line.startswith("// ray query")
+    vulkan_only = line.startswith("// vulkan only")
     base = source[:-len(".slang")]
     if vulkan_only:
         code, entrypoint = f'#load("shaders/{base}.spv", string)', 'cstring("main")'
-    elif ray_query:
-        code, entrypoint = f'#load("shaders/{base}" + RQ_EXT, string)', "RQ_ENTRY"
     else:
         code, entrypoint = f'#load("shaders/{base}" + SHADER_EXT, string)', "SHADER_ENTRY"
     c, group = counts(source, reflection)

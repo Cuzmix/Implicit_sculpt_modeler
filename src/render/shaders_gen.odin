@@ -351,8 +351,8 @@ NODE_NORMALS_COMP :: gpu.Compute_Pipeline_Desc{
 
 // ray_query_check.comp.spv sha256 fe0652b4a07d5eb132524facd8b48c185074b8cc3914ddf3ff72d27829c3ac77
 RAY_QUERY_CHECK_COMP :: gpu.Compute_Pipeline_Desc{
-	code = #load("shaders/ray_query_check.comp" + RQ_EXT, string),
-	entrypoint = RQ_ENTRY,
+	code = #load("shaders/ray_query_check.comp" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	num_samplers = 0,
 	num_readonly_storage_textures = 0,
@@ -455,8 +455,8 @@ when gpu.VULKAN {
 
 // render_trace_rq.comp.spv sha256 89fc923d77c57d992ad44258eb0a20035697de8e11188ed3cf67a610595b81f6
 RENDER_TRACE_RQ_COMP :: gpu.Compute_Pipeline_Desc{
-	code = #load("shaders/render_trace_rq.comp" + RQ_EXT, string),
-	entrypoint = RQ_ENTRY,
+	code = #load("shaders/render_trace_rq.comp" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	num_samplers = 14,
 	num_readonly_storage_textures = 0,
@@ -635,8 +635,8 @@ STUDIO_TRACE_ADD_FRAG :: gpu.Shader_Desc{
 
 // studio_trace_rq.comp.spv sha256 7fe039f4e2f2892d887ce9f23c542abc06e9cde6d8179ba55c69c2794e48300b
 STUDIO_TRACE_RQ_COMP :: gpu.Compute_Pipeline_Desc{
-	code = #load("shaders/studio_trace_rq.comp" + RQ_EXT, string),
-	entrypoint = RQ_ENTRY,
+	code = #load("shaders/studio_trace_rq.comp" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	num_samplers = 1,
 	num_readonly_storage_textures = 0,

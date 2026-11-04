@@ -1,201 +1,426 @@
-// SDL_shadercross 1ff05bec5739 from studio_trace_add.frag.spv sha256 a035bc36ededd91e986bb2774b8124d7f6b1d42549b5d634b7357b8b5da70759
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from studio_trace_add.frag.spv sha256 a035bc36ededd91e986bb2774b8124d7f6b1d42549b5d634b7357b8b5da70759
+// slots s=0:0,1:1 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct _Array_std140_vector_float_4_8
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    float4 data[8];
-};
 
-struct SLANG_ParameterGroup_Add_Uniforms_std140
-{
-    float4x4 inv_view_proj;
-    float4 params;
-    _Array_std140_vector_float_4_8 shadow_pos;
-    _Array_std140_vector_float_4_8 shadow_shape;
-    _Array_std140_vector_float_4_8 shadow_spot;
-    float4 shadow_pick;
-};
+#line 10
+    thread uint w_0;
 
-struct main0_out
-{
-    float4 entryPointParam_main [[color(0)]];
-};
+#line 10
+    thread uint h_0;
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
-{
-    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(view_depth.get_num_mip_levels());
-    return int2(int(w), int(h));
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
 }
 
-static inline __attribute__((always_inline))
-float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+
+#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+struct SLANG_ParameterGroup_Add_Uniforms_0
 {
-    float2 uv = frag / size;
-    float4 _115 = Add_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
-    return _115.xyz / float3(_115.w);
+    matrix<float,int(4),int(4)>  inv_view_proj_0;
+    float4 params_0;
+    array<float4, int(8)> shadow_pos_0;
+    array<float4, int(8)> shadow_shape_0;
+    array<float4, int(8)> shadow_spot_0;
+    float4 shadow_pick_0;
+};
+
+
+#line 1084 "core"
+struct KernelContext_0
+{
+    texture2d<float, access::sample> view_depth_texture_0;
+    sampler view_depth_sampler_0;
+    texture2d<float, access::sample> visible_texture_0;
+    sampler visible_sampler_0;
+    SLANG_ParameterGroup_Add_Uniforms_0 constant* Add_Uniforms_0;
+};
+
+
+#line 21 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+float3 world_at_0(float2 frag_0, float depth_0, float2 size_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 22
+    float2 uv_0 = frag_0 / size_0;
+    float4 w_1 = (((kernelContext_0->Add_Uniforms_0->inv_view_proj_0) * (float4(uv_0.x * 2.0f - 1.0f, 1.0f - uv_0.y * 2.0f, depth_0, 1.0f))));
+    return w_1.xyz / float3(w_1.w) ;
 }
 
-static inline __attribute__((always_inline))
-float3 depth_normal(int2 _126, float2 _127, float _128, float3 _129, float2 _130, texture2d<float> view_depth, sampler view_depthSmplr, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+
+#line 21
+float3 world_at_1(float2 frag_1, float depth_1, float2 size_1, KernelContext_0 thread* kernelContext_1)
 {
-    int2 hi = int2(_130) - int2(1);
-    float4 _158 = view_depth.read(uint2(int3(clamp(_126 - int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _167 = view_depth.read(uint2(int3(clamp(_126 + int2(1, 0), int2(0), hi), 0).xy), 0);
-    float4 _177 = view_depth.read(uint2(int3(clamp(_126 - int2(0, 1), int2(0), hi), 0).xy), 0);
-    float4 _186 = view_depth.read(uint2(int3(clamp(_126 + int2(0, 1), int2(0), hi), 0).xy), 0);
-    float3 px_r;
-    if (abs(_167.x - _128) < abs(_128 - _158.x))
-    {
-        px_r = world_at(_127 + float2(1.0, 0.0), _167.x, _130, Add_Uniforms) - _129;
-    }
-    else
-    {
-        px_r = _129 - world_at(_127 - float2(1.0, 0.0), _158.x, _130, Add_Uniforms);
-    }
-    float3 px_d;
-    if (abs(_186.x - _128) < abs(_128 - _177.x))
-    {
-        px_d = world_at(_127 + float2(0.0, 1.0), _186.x, _130, Add_Uniforms) - _129;
-    }
-    else
-    {
-        px_d = _129 - world_at(_127 - float2(0.0, 1.0), _177.x, _130, Add_Uniforms);
-    }
-    float3 _227 = fast::normalize(cross(px_d, px_r));
-    float3 n;
-    if (dot(_227, world_at(_127, 0.0, _130, Add_Uniforms) - _129) < 0.0)
-    {
-        n = -_227;
-    }
-    else
-    {
-        n = _227;
-    }
-    return n;
+
+#line 22
+    float2 uv_1 = frag_1 / size_1;
+    float4 w_2 = (((kernelContext_1->Add_Uniforms_0->inv_view_proj_0) * (float4(uv_1.x * 2.0f - 1.0f, 1.0f - uv_1.y * 2.0f, depth_1, 1.0f))));
+    return w_2.xyz / float3(w_2.w) ;
 }
 
-static inline __attribute__((always_inline))
-float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
+
+#line 16 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+float3 depth_normal_0(texture2d<float, access::sample> view_depth_texture_1, sampler view_depth_sampler_1, int2 px_0, float2 frag_2, float d_0, float3 p_0, float2 size_2, KernelContext_0 thread* kernelContext_2)
 {
-    float k;
-    if (shape.y > 0.0)
+
+#line 17
+    int2 hi_0 = int2(size_2) - int2(int(1)) ;
+    int2 _S1 = int2(int(1), int(0));
+
+#line 18
+    int2 _S2 = int2(int(0)) ;
+
+#line 18
+    float dl_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    float dr_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    int2 _S3 = int2(int(0), int(1));
+
+#line 20
+    float du_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+    float dd_0 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+
+#line 21
+    float3 px_r_0;
+    if((abs(dr_0 - d_0)) < (abs(d_0 - dl_0)))
     {
-        float x = d2 / (shape.y * shape.y);
-        float _364 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
-        k = _364 * _364;
+
+#line 22
+        float3 _S4 = world_at_1(frag_2 + float2(1.0f, 0.0f), dr_0, size_2, kernelContext_2);
+
+#line 22
+        px_r_0 = _S4 - p_0;
+
+#line 22
     }
     else
     {
-        k = 1.0;
+
+#line 22
+        float3 _S5 = world_at_1(frag_2 - float2(1.0f, 0.0f), dl_0, size_2, kernelContext_2);
+
+#line 22
+        px_r_0 = p_0 - _S5;
+
+#line 22
     }
-    if (pos.w > 2.5)
+
+#line 22
+    float3 px_d_0;
+    if((abs(dd_0 - d_0)) < (abs(d_0 - du_0)))
     {
-        k *= fast::max(dot(-l, spot.xyz), 0.0);
+
+#line 23
+        float3 _S6 = world_at_1(frag_2 + float2(0.0f, 1.0f), dd_0, size_2, kernelContext_2);
+
+#line 23
+        px_d_0 = _S6 - p_0;
+
+#line 23
     }
     else
     {
-        if (pos.w > 1.5)
+
+#line 23
+        float3 _S7 = world_at_1(frag_2 - float2(0.0f, 1.0f), du_0, size_2, kernelContext_2);
+
+#line 23
+        px_d_0 = p_0 - _S7;
+
+#line 23
+    }
+    float3 n_0 = normalize(cross(px_d_0, px_r_0));
+
+#line 24
+    float3 _S8 = world_at_1(frag_2, 0.0f, size_2, kernelContext_2);
+
+#line 24
+    float3 n_1;
+
+    if((dot(n_0, _S8 - p_0)) < 0.0f)
+    {
+
+#line 26
+        n_1 = - n_0;
+
+#line 26
+    }
+    else
+    {
+
+#line 26
+        n_1 = n_0;
+
+#line 26
+    }
+    return n_1;
+}
+
+
+#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/light_window.slang"
+float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_0, float3 l_0)
+{
+    float _S9 = shape_0.y;
+
+#line 9
+    float k_0;
+
+#line 9
+    if(_S9 > 0.0f)
+    {
+
+#line 10
+        float x_0 = d2_0 / (_S9 * _S9);
+        float w_3 = clamp(1.0f - x_0 * x_0, 0.0f, 1.0f);
+
+#line 11
+        k_0 = w_3 * w_3;
+
+#line 9
+    }
+    else
+    {
+
+#line 9
+        k_0 = 1.0f;
+
+#line 9
+    }
+
+#line 14
+    float _S10 = pos_0.w;
+
+#line 14
+    if(_S10 > 2.5f)
+    {
+
+#line 14
+        k_0 = k_0 * max(dot(- l_0, spot_0.xyz), 0.0f);
+
+#line 14
+    }
+    else
+    {
+
+#line 16
+        if(_S10 > 1.5f)
         {
-            k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+
+#line 16
+            k_0 = k_0 * smoothstep(spot_0.w, shape_0.z, dot(- l_0, spot_0.xyz));
+
+#line 16
         }
+
+#line 14
     }
-    return k;
+
+#line 19
+    return k_0;
 }
 
-static inline __attribute__((always_inline))
-float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+
+#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+float shadow_light_0(int i_0, float3 p_1, float3 n_2, KernelContext_0 thread* kernelContext_3)
 {
-    if (Add_Uniforms.shadow_shape.data[i].w == 0.0)
+
+#line 35
+    float4 pos_1 = kernelContext_3->Add_Uniforms_0->shadow_pos_0[i_0];
+    if((kernelContext_3->Add_Uniforms_0->shadow_shape_0[i_0].w) == 0.0f)
     {
-        return 0.0;
+
+#line 36
+        return 0.0f;
     }
-    if (Add_Uniforms.shadow_pos.data[i].w < 0.5)
+
+#line 37
+    if((pos_1.w) < 0.5f)
     {
-        return fast::max(dot(n, Add_Uniforms.shadow_pos.data[i].xyz), 0.0);
+
+#line 37
+        return max(dot(n_2, pos_1.xyz), 0.0f);
     }
-    float3 to = Add_Uniforms.shadow_pos.data[i].xyz - p;
-    float _322 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
-    float3 l = to * rsqrt(_322);
-    return (fast::max(dot(n, l), 0.0) * ((Add_Uniforms.shadow_shape.data[i].x * Add_Uniforms.shadow_shape.data[i].x) / _322)) * light_window(Add_Uniforms.shadow_pos.data[i], Add_Uniforms.shadow_shape.data[i], Add_Uniforms.shadow_spot.data[i], _322, l);
+
+#line 38
+    float3 to_0 = pos_1.xyz - p_1;
+    float _S11 = max(dot(to_0, to_0), 9.99999993922529029e-09f);
+    float3 l_1 = to_0 * float3(rsqrt(_S11)) ;
+    float ref_0 = kernelContext_3->Add_Uniforms_0->shadow_shape_0[i_0].x;
+    return max(dot(n_2, l_1), 0.0f) * (ref_0 * ref_0 / _S11) * light_window_0(pos_1, kernelContext_3->Add_Uniforms_0->shadow_shape_0[i_0], kernelContext_3->Add_Uniforms_0->shadow_spot_0[i_0], _S11, l_1);
 }
 
-static inline __attribute__((always_inline))
-float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+
+#line 53
+float2 shadow_weight_0(float3 p_2, float3 n_3, KernelContext_0 thread* kernelContext_4)
 {
-    int i = 0;
-    float total = Add_Uniforms.shadow_pick.z;
-    float unshadowed = Add_Uniforms.shadow_pick.z;
-    for (;;)
+
+#line 54
+    float _S12 = kernelContext_4->Add_Uniforms_0->shadow_pick_0.z;
+    float _S13 = kernelContext_4->Add_Uniforms_0->shadow_pick_0.z;
+
+#line 55
+    int i_1 = int(0);
+
+#line 55
+    float total_0 = _S12;
+
+#line 55
+    float unshadowed_0 = _S13;
+    for(;;)
     {
-        float total_1;
-        bool _253_ladder_break = false;
-        do
+
+#line 56
+        if(i_1 < int(8))
         {
-            if (!(i < 8))
-            {
-                _253_ladder_break = true;
-                break;
-            }
-            float lit = abs(Add_Uniforms.shadow_shape.data[i].w) * shadow_light(i, p, n, Add_Uniforms);
-            total_1 = total + lit;
-            if (Add_Uniforms.shadow_shape.data[i].w < 0.0)
-            {
-                unshadowed += lit;
-            }
-            break;
-        } while(false);
-        if (_253_ladder_break)
+        }
+        else
         {
+
+#line 56
             break;
         }
-        i++;
-        total = total_1;
-        continue;
+
+#line 57
+        float c_0 = kernelContext_4->Add_Uniforms_0->shadow_shape_0[i_1].w;
+        float _S14 = abs(c_0);
+
+#line 58
+        float _S15 = shadow_light_0(i_1, p_2, n_3, kernelContext_4);
+
+#line 58
+        float lit_0 = _S14 * _S15;
+        float total_1 = total_0 + lit_0;
+        if(c_0 < 0.0f)
+        {
+
+#line 60
+            unshadowed_0 = unshadowed_0 + lit_0;
+
+#line 60
+        }
+
+#line 56
+        i_1 = i_1 + int(1);
+
+#line 56
+        total_0 = total_1;
+
+#line 56
     }
-    if (total <= 0.0)
+
+#line 62
+    if(total_0 <= 0.0f)
     {
-        return float2(-1.0, 0.0);
+
+#line 62
+        return float2(-1.0f, 0.0f);
     }
-    return float2(Add_Uniforms.shadow_pick.y * shadow_light(int(Add_Uniforms.shadow_pick.x), p, n, Add_Uniforms), unshadowed) / float2(total);
+
+#line 63
+    float _S16 = kernelContext_4->Add_Uniforms_0->shadow_pick_0.y;
+
+#line 63
+    float _S17 = shadow_light_0(int(kernelContext_4->Add_Uniforms_0->shadow_pick_0.x), p_2, n_3, kernelContext_4);
+
+#line 63
+    return float2(_S16 * _S17, unshadowed_0) / float2(total_0) ;
 }
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms [[buffer(0)]], texture2d<float> visible [[texture(0)]], texture2d<float> view_depth [[texture(1)]], sampler visibleSmplr [[sampler(0)]], sampler view_depthSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+
+#line 63
+struct pixelOutput_0
 {
-    main0_out out = {};
-    int2 _20 = int2(gl_FragCoord.xy);
-    int2 _24 = int3(_20, 0).xy;
-    float4 _32 = view_depth.read(uint2(_24), 0);
-    if (_32.x >= 1.0)
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 29 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_2 [[texture(1)]], sampler view_depth_sampler_2 [[sampler(1)]], texture2d<float, access::sample> visible_texture_1 [[texture(0)]], sampler visible_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Add_Uniforms_0 constant* Add_Uniforms_1 [[buffer(0)]])
+{
+
+#line 29
+    thread KernelContext_0 kernelContext_5;
+
+#line 29
+    (&kernelContext_5)->view_depth_texture_0 = view_depth_texture_2;
+
+#line 29
+    (&kernelContext_5)->view_depth_sampler_0 = view_depth_sampler_2;
+
+#line 29
+    (&kernelContext_5)->visible_texture_0 = visible_texture_1;
+
+#line 29
+    (&kernelContext_5)->visible_sampler_0 = visible_sampler_1;
+
+#line 29
+    (&kernelContext_5)->Add_Uniforms_0 = Add_Uniforms_1;
+    float2 _S18 = frag_coord_0.xy;
+
+#line 30
+    int2 _S19 = int2(_S18);
+    int3 _S20 = int3(_S19, int(0));
+
+#line 31
+    float d_1 = ((view_depth_texture_2).read(vec<uint,2>(((view_depth_sampler_2)).xy), uint(((view_depth_sampler_2)).z))).x;
+    if(d_1 >= 1.0f)
     {
-        out.entryPointParam_main = float4(0.0);
-        return out;
+
+#line 32
+        pixelOutput_0 _S21 = { float4(0.0f)  };
+        return _S21;
     }
-    float4 _48 = visible.read(uint2(_24), 0);
-    if (Add_Uniforms.params.x < 0.5)
+
+#line 33
+    sampler _S22 = (&kernelContext_5)->visible_sampler_0;
+
+    float v_0 = (((&kernelContext_5)->visible_texture_0).read(vec<uint,2>(((_S22)).xy), uint(((_S22)).z))).x;
+    if(((&kernelContext_5)->Add_Uniforms_0->params_0.x) < 0.5f)
     {
-        out.entryPointParam_main = float4(_48.x, 1.0, 0.0, 0.0);
-        return out;
+
+#line 36
+        pixelOutput_0 _S23 = { float4(v_0, 1.0f, 0.0f, 0.0f) };
+        return _S23;
     }
-    float2 _92 = float2(texture_size(view_depth, view_depthSmplr));
-    float3 p = world_at(gl_FragCoord.xy, _32.x, _92, Add_Uniforms);
-    float2 weight = shadow_weight(p, depth_normal(_20, gl_FragCoord.xy, _32.x, p, _92, view_depth, view_depthSmplr, Add_Uniforms), Add_Uniforms);
-    float _436 = weight.x;
-    if (_436 < 0.0)
+
+    float2 _S24 = float2(texture_size_0((&kernelContext_5)->view_depth_texture_0, (&kernelContext_5)->view_depth_sampler_0));
+
+#line 40
+    float3 _S25 = world_at_0(_S18, d_1, _S24, &kernelContext_5);
+
+#line 40
+    float3 _S26 = depth_normal_0((&kernelContext_5)->view_depth_texture_0, (&kernelContext_5)->view_depth_sampler_0, _S19, _S18, d_1, _S25, _S24, &kernelContext_5);
+
+#line 40
+    float2 _S27 = shadow_weight_0(_S25, _S26, &kernelContext_5);
+
+
+    float _S28 = _S27.x;
+
+#line 43
+    if(_S28 < 0.0f)
     {
-        out.entryPointParam_main = float4(0.0, 0.0, 1.0, 1.0);
-        return out;
+
+#line 43
+        pixelOutput_0 _S29 = { float4(0.0f, 0.0f, 1.0f, 1.0f) };
+        return _S29;
     }
-    float _443 = weight.y;
-    out.entryPointParam_main = float4(0.0, 0.0, (_48.x * _436) + _443, _436 + _443);
-    return out;
+    float _S30 = _S27.y;
+
+#line 46
+    pixelOutput_0 _S31 = { float4(0.0f, 0.0f, v_0 * _S28 + _S30, _S28 + _S30) };
+
+#line 46
+    return _S31;
 }
 
