@@ -351,5 +351,5 @@ print_check_row :: proc(ctx: ^ui.Context, ok: bool, text: string, w: f32, button
 ICON_CHECK_OK :: rune(0xe226)
 @(private = "file")
 ICON_CHECK_WAIT :: rune(0xe296)
-@(private = "file")
+// A warning's triangle, which the memory check's popup shows too (memory_check.odin).
 ICON_CHECK_WARN :: rune(0xe193)

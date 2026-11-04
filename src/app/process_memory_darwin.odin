@@ -11,3 +11,27 @@ process_memory :: proc() -> int {
 	if darwin.proc_pid_rusage(posix.getpid(), .V0, &info) != 0 do return 0
 	return int(info.ri_phys_footprint)
 }
+
+when ODIN_PLATFORM_SUBTARGET_IOS {
+	foreign import memory_libsystem "system:System"
+
+	@(default_calling_convention = "c")
+	foreign memory_libsystem {
+		// libSystem's own count (os/proc.h, iOS 13): what this app may still take before
+		// iPadOS ends it, its limit less its footprint.
+		os_proc_available_memory :: proc() -> uint ---
+	}
+}
+
+// How much more memory the app can take before the system ends it or runs short, in
+// bytes, for the check before a heavy step (memory_check.odin). On the iPad it is the
+// system's own number, the one Nomad shows as Free. The Mac pages to disk and compresses
+// memory rather than ending the app, and gives no limit to measure against, so it says 0,
+// which the check takes as unknown.
+memory_headroom :: proc() -> int {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		return int(os_proc_available_memory())
+	} else {
+		return 0
+	}
+}

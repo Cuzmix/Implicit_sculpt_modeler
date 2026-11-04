@@ -8065,6 +8065,27 @@ def import_nests_the_files_folders():
 
 
 @scenario
+def memory_check_asks_before_a_remesh_too_big():
+    """Remesh again (Ctrl+R) on a 200k sphere with 50 MB said to be left (--memory-free) does
+    not fit: the popup holds the remesh back. Cancel leaves the scene as it was; the smaller
+    count it offers remeshes to about 110k; Continue anyway writes an autosave first and then
+    remeshes at the full count."""
+    def run(answer, checks, more=()):
+        s = Script()
+        s.add("move:800,450")
+        s.wait(10)
+        s.press("r", ("ctrl",))
+        s.wait(6)
+        s.ftap(f"@{answer}")
+        s.wait(30)
+        return s, ["--vertices=200000", "--memory-free=50", *more], camera_still({"memory_asks": near(1), "memory_asking": near(0), "dabs": near(0), **checks})
+    return Steps([run("memory cancel", {"memory_cancelled": near(1), "undo_steps": near(0), "vertices": lambda v: 190000 <= int(v) <= 210000}),
+                  run("memory smaller", {"memory_smaller": near(1), "undo_steps": near(1), "vertices": lambda v: 90000 <= int(v) <= 150000}),
+                  run("memory go on", {"memory_continued": near(1), "undo_steps": near(1), "autosaves": near(1), "vertices": lambda v: 180000 <= int(v) <= 220000},
+                      ["--autosave=600", "--autosave-rest=0.2", "--check-autosave", f"--autosave-folder={autosave_folder()}"])])
+
+
+@scenario
 def long_job_fades_to_the_new_mesh():
     """A remesh run as a long job swaps the new mesh in under a fade of the old one's picture, which is over once the job has landed and a moment passed."""
     s = Script()

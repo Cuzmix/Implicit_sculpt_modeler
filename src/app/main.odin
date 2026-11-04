@@ -74,6 +74,7 @@ Options :: struct {
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
+	memory_free: int `usage:"Take this many MB as what the system leaves the app, in place of asking it, so the memory check before Remesh and Subdivide can be tried on any machine: for testing it."`,
 	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
 	camera_ease: bool `usage:"Let Frame all, Focus selected, Reset camera, the axis views and Previous and Next view glide in a scripted run too, which otherwise jumps: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
@@ -472,6 +473,12 @@ App :: struct {
 	history_ungrouped: bool,
 	history_no_finger_scrub: bool, // two fingers held then slid do not scrub the History (History > Settings)
 	history_pictures:  bool, // the History list shows each step's picture (History > Settings)
+	// The check before a heavy step (memory_check.odin): what it holds back while the person
+	// decides, the answer remembered (Settings > Files > Undo history), and --memory-free's
+	// stand-in for what the system says is left, in MB (0 to ask the system).
+	memory_ask:       Memory_Ask,
+	memory_short:     Memory_Short,
+	memory_free_test: int,
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
@@ -899,6 +906,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	interactive := run_interactive(opts)
 	app.camera_ease.allowed = interactive || opts.camera_ease
 	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
+	app.memory_free_test = opts.memory_free
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)

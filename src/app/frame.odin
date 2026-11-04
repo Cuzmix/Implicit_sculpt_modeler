@@ -135,7 +135,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	sculpted: Sculpt_Frame_Result
 	// While a job holds the scene no tool acts on the view: a press there only says to
 	// wait (the camera above still turns).
-	job_holds := long_job_busy(app)
+	job_holds := long_job_busy(app) || memory_ask_holds(app)
 	if !job_holds do shape_pending_frame(app, input.size)
 	// A gizmo drag the tool changed under ends as it is.
 	if app.tool != .Move do move_end(app)
@@ -144,7 +144,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// viewport, is no tool's.
 	if job_holds {
 		brush_stroke_finish(app)
-		if input.press do long_job_refuse(app)
+		// The memory check's autosave says so in its own popup.
+		if input.press && long_job_busy(app) do long_job_refuse(app)
 	} else if group_pick_frame(app, input) || eyedropper_frame(app, input) || focus_pick_frame(app, input) || lights_viewport_frame(app, input) {
 		brush_stroke_finish(app)
 	} else {
@@ -606,7 +607,11 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	file_next := file_pending_kind()
 	saves := bit_set[File_Kind]{.Save, .Save_Copy}
 	save_pending(app, app.ui.scene_command.kind != .None || (file_next != .None && !(file_next in saves && app.saving.kind in saves)))
-	// The scene holds still while a job runs on it (long_job.odin).
+	// The memory check's ask goes with its object, and lets its step run after the autosave.
+	memory_ask_frame(app)
+	// The scene holds still while a job runs on it (long_job.odin), and while Continue
+	// anyway's autosave reads it.
+	if app.ui.scene_command.kind != .None && memory_ask_holds(app) do app.ui.scene_command = {}
 	if app.ui.scene_command.kind != .None && long_job_busy(app) {
 		app.ui.scene_command = {}
 		long_job_refuse(app)

@@ -1527,6 +1527,8 @@ kit_layout :: proc(app: ^App) {
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
+	// Over everything: it holds back a step until it is answered.
+	kit_memory_ask(app)
 	tour_update(app)
 	kit_tour(app)
 	kit_help_labels_note(app)
