@@ -87,7 +87,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/odin" deps
           tar -xzf "$RUNNER_TEMP/odin.tar.gz" -C "$RUNNER_TEMP/odin"
           mv "$RUNNER_TEMP"/odin/odin-macos-arm64-* deps/odin
-          deps/odin/odin version
 
       - name: SDL source, the pinned tag
         run: git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git deps/sdl3-src
