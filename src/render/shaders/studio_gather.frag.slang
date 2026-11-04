@@ -32,7 +32,7 @@ float3 world_at(float2 frag, float depth, float2 size) {
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	float2 size = float2(texture_size(view_depth));
 	int2 px = int2(frag_coord.xy);
-	float d = view_depth.Load(int3(px, 0)).r;
+	float d = load_texel(view_depth, px).r;
 	if (d >= 1.0) {
 		return float4(0.0);
 	}

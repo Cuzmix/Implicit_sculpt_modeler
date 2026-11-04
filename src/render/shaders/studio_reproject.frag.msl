@@ -71,25 +71,25 @@ float3 normal_at_0(int2 px_0, float2 frag_1, float d_0, float3 p_0, float2 size_
     int2 _S2 = int2(int(0)) ;
 
 #line 42
-    sampler _S3 = kernelContext_1->view_depth_sampler_0;
+    float4 _S3 = ((kernelContext_1->view_depth_texture_0).read(uint2((clamp(px_0 - _S1, _S2, hi_0)))));
 
 #line 42
-    float dl_0 = ((kernelContext_1->view_depth_texture_0).read(vec<uint,2>(((_S3)).xy), uint(((_S3)).z))).x;
+    float dl_0 = _S3.x;
 
 #line 42
-    sampler _S4 = kernelContext_1->view_depth_sampler_0;
-    float dr_0 = ((kernelContext_1->view_depth_texture_0).read(vec<uint,2>(((_S4)).xy), uint(((_S4)).z))).x;
+    float4 _S4 = ((kernelContext_1->view_depth_texture_0).read(uint2((clamp(px_0 + _S1, _S2, hi_0)))));
+    float dr_0 = _S4.x;
     int2 _S5 = int2(int(0), int(1));
 
 #line 44
-    sampler _S6 = kernelContext_1->view_depth_sampler_0;
+    float4 _S6 = ((kernelContext_1->view_depth_texture_0).read(uint2((clamp(px_0 - _S5, _S2, hi_0)))));
 
 #line 44
-    float du_0 = ((kernelContext_1->view_depth_texture_0).read(vec<uint,2>(((_S6)).xy), uint(((_S6)).z))).x;
+    float du_0 = _S6.x;
 
 #line 44
-    sampler _S7 = kernelContext_1->view_depth_sampler_0;
-    float dd_0 = ((kernelContext_1->view_depth_texture_0).read(vec<uint,2>(((_S7)).xy), uint(((_S7)).z))).x;
+    float4 _S7 = ((kernelContext_1->view_depth_texture_0).read(uint2((clamp(px_0 + _S5, _S2, hi_0)))));
+    float dd_0 = _S7.x;
 
 #line 45
     float3 px_r_0;
@@ -194,65 +194,68 @@ struct pixelOutput_0
 
 #line 53
     int2 _S14 = int2(_S13);
-    float d_1 = ((view_depth_texture_1).read(vec<uint,2>(((view_depth_sampler_1)).xy), uint(((view_depth_sampler_1)).z))).x;
+
+#line 53
+    float4 _S15 = ((view_depth_texture_1).read(uint2((_S14))));
+    float d_1 = _S15.x;
     if(d_1 >= 1.0f)
     {
 
 #line 55
-        pixelOutput_0 _S15 = { float4(0.0f)  };
+        pixelOutput_0 _S16 = { float4(0.0f)  };
 
 #line 55
-        return _S15;
+        return _S16;
     }
 
 #line 55
-    float3 _S16 = world_at_0(_S13, d_1, _S12, &kernelContext_3);
+    float3 _S17 = world_at_0(_S13, d_1, _S12, &kernelContext_3);
 
 #line 55
-    float3 _S17 = normal_at_0(_S14, _S13, d_1, _S16, _S12, &kernelContext_3);
+    float3 _S18 = normal_at_0(_S14, _S13, d_1, _S17, _S12, &kernelContext_3);
 
 #line 55
-    float3 _S18 = world_at_0(_S13 + float2(1.0f, 0.0f), d_1, _S12, &kernelContext_3);
+    float3 _S19 = world_at_0(_S13 + float2(1.0f, 0.0f), d_1, _S12, &kernelContext_3);
 
 #line 60
-    float footprint_0 = length(_S18 - _S16);
+    float footprint_0 = length(_S19 - _S17);
 
 #line 60
-    float3 _S19 = world_at_0(_S13, 0.0f, _S12, &kernelContext_3);
-    float distance_0 = length(_S16 - _S19);
-    float _S20 = 0.5f * footprint_0 + 0.00300000002607703f * distance_0;
+    float3 _S20 = world_at_0(_S13, 0.0f, _S12, &kernelContext_3);
+    float distance_0 = length(_S17 - _S20);
+    float _S21 = 0.5f * footprint_0 + 0.00300000002607703f * distance_0;
 
 
 
-    float _S21 = 0.10000000149011612f * distance_0 + 4.0f * footprint_0;
+    float _S22 = 0.10000000149011612f * distance_0 + 4.0f * footprint_0;
 
-    float4 c_0 = ((((&kernelContext_3)->Reproject_Uniforms_0->prev_view_proj_0) * (float4(_S16, 1.0f))));
-    float _S22 = c_0.w;
+    float4 c_0 = ((((&kernelContext_3)->Reproject_Uniforms_0->prev_view_proj_0) * (float4(_S17, 1.0f))));
+    float _S23 = c_0.w;
 
 #line 69
-    if(_S22 <= 0.0f)
+    if(_S23 <= 0.0f)
     {
 
 #line 69
-        pixelOutput_0 _S23 = { float4(0.0f)  };
+        pixelOutput_0 _S24 = { float4(0.0f)  };
 
 #line 69
-        return _S23;
+        return _S24;
     }
 
 #line 69
-    float2 _S24 = float2(0.5f) ;
-    float2 at_0 = float2(c_0.x / _S22 * 0.5f + 0.5f, 0.5f - c_0.y / _S22 * 0.5f) * _S12 - _S24;
-    int2 _S25 = int2(floor(at_0));
-    float2 _S26 = at_0 - float2(_S25);
-    int2 _S27 = int2(_S12) - int2(int(1)) ;
-    float4 _S28 = float4(0.0f) ;
+    float2 _S25 = float2(0.5f) ;
+    float2 at_0 = float2(c_0.x / _S23 * 0.5f + 0.5f, 0.5f - c_0.y / _S23 * 0.5f) * _S12 - _S25;
+    int2 _S26 = int2(floor(at_0));
+    float2 _S27 = at_0 - float2(_S26);
+    int2 _S28 = int2(_S12) - int2(int(1)) ;
+    float4 _S29 = float4(0.0f) ;
 
 #line 74
     int y_0 = int(0);
 
 #line 74
-    float4 sum_0 = _S28;
+    float4 sum_0 = _S29;
 
 #line 74
     float total_0 = 0.0f;
@@ -294,15 +297,15 @@ struct pixelOutput_0
             }
 
 #line 78
-            int2 q_0 = _S25 + int2(x_0, y_0);
+            int2 q_0 = _S26 + int2(x_0, y_0);
 
 #line 78
-            bool _S29;
+            bool _S30;
             if(any(q_0 < (int2(int(0)) )))
             {
 
 #line 79
-                _S29 = true;
+                _S30 = true;
 
 #line 79
             }
@@ -310,13 +313,13 @@ struct pixelOutput_0
             {
 
 #line 79
-                _S29 = any(q_0 > _S27);
+                _S30 = any(q_0 > _S28);
 
 #line 79
             }
 
 #line 79
-            if(_S29)
+            if(_S30)
             {
 
 #line 79
@@ -327,14 +330,14 @@ struct pixelOutput_0
             }
 
 #line 77
-            float _S30;
+            float _S31;
 
 
             if(x_0 == int(1))
             {
 
 #line 80
-                _S30 = _S26.x;
+                _S31 = _S27.x;
 
 #line 80
             }
@@ -342,20 +345,20 @@ struct pixelOutput_0
             {
 
 #line 80
-                _S30 = 1.0f - _S26.x;
+                _S31 = 1.0f - _S27.x;
 
 #line 80
             }
 
 #line 80
-            float _S31;
+            float _S32;
 
 #line 80
             if(y_0 == int(1))
             {
 
 #line 80
-                _S31 = _S26.y;
+                _S32 = _S27.y;
 
 #line 80
             }
@@ -363,13 +366,13 @@ struct pixelOutput_0
             {
 
 #line 80
-                _S31 = 1.0f - _S26.y;
+                _S32 = 1.0f - _S27.y;
 
 #line 80
             }
 
 #line 80
-            float w_3 = _S30 * _S31;
+            float w_3 = _S31 * _S32;
             if(w_3 <= 0.0f)
             {
 
@@ -380,15 +383,11 @@ struct pixelOutput_0
                 continue;
             }
 
-
-
-            int3 _S32 = int3(q_0, int(0));
-
-#line 82
-            sampler _S33 = (&kernelContext_3)->prev_depth_sampler_0;
+#line 77
+            float4 _S33 = (((&kernelContext_3)->prev_depth_texture_0).read(uint2((q_0))));
 
 #line 82
-            float qd_0 = (((&kernelContext_3)->prev_depth_texture_0).read(vec<uint,2>(((_S33)).xy), uint(((_S33)).z))).x;
+            float qd_0 = _S33.x;
             if(qd_0 >= 1.0f)
             {
 
@@ -400,14 +399,14 @@ struct pixelOutput_0
             }
 
 #line 77
-            float3 _S34 = prev_world_at_0(float2(q_0) + _S24, qd_0, _S12, &kernelContext_3);
+            float3 _S34 = prev_world_at_0(float2(q_0) + _S25, qd_0, _S12, &kernelContext_3);
 
 #line 85
-            float3 off_0 = _S34 - _S16;
+            float3 off_0 = _S34 - _S17;
 
 #line 85
             bool _S35;
-            if((abs(dot(_S17, off_0))) > _S20)
+            if((abs(dot(_S18, off_0))) > _S21)
             {
 
 #line 86
@@ -419,7 +418,7 @@ struct pixelOutput_0
             {
 
 #line 86
-                _S35 = (length(off_0)) > _S21;
+                _S35 = (length(off_0)) > _S22;
 
 #line 86
             }
@@ -436,13 +435,13 @@ struct pixelOutput_0
             }
 
 #line 77
-            sampler _S36 = (&kernelContext_3)->prev_accum_sampler_0;
+            float4 _S36 = (((&kernelContext_3)->prev_accum_texture_0).read(uint2((q_0))));
 
 #line 88
             float total_2 = total_1 + w_3;
 
 #line 88
-            sum_1 = sum_1 + float4(w_3)  * (((&kernelContext_3)->prev_accum_texture_0).read(vec<uint,2>(((_S36)).xy), uint(((_S36)).z)));
+            sum_1 = sum_1 + float4(w_3)  * _S36;
 
 #line 88
             total_1 = total_2;
@@ -470,7 +469,7 @@ struct pixelOutput_0
     {
 
 #line 91
-        pixelOutput_0 _S37 = { _S28 };
+        pixelOutput_0 _S37 = { _S29 };
 
 #line 91
         return _S37;

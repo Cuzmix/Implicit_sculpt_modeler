@@ -31,19 +31,14 @@ struct KernelContext_0
 float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 26
-    int3 _S1 = int3(q_0, int(0));
+#line 25
+    float4 _S1 = ((kernelContext_0->accum_texture_0).read(uint2((q_0))));
 
-#line 26
-    sampler _S2 = kernelContext_0->accum_sampler_0;
-
-#line 26
-    float4 _S3 = ((kernelContext_0->accum_texture_0).read(vec<uint,2>(((_S2)).xy), uint(((_S2)).z)));
-    float _S4 = _S3.w;
+    float _S2 = _S1.w;
 
 #line 27
-    float covered_0 = _S4 / max(kernelContext_0->Display_Uniforms_0->params_0.y, 1.0f);
-    float3 _S5 = _S3.xyz / float3(max(_S4, 9.99999997475242708e-07f)) ;
+    float covered_0 = _S2 / max(kernelContext_0->Display_Uniforms_0->params_0.y, 1.0f);
+    float3 _S3 = _S1.xyz / float3(max(_S2, 9.99999997475242708e-07f)) ;
 
 #line 28
     float3 mean_0;
@@ -51,22 +46,19 @@ float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
     {
 
 #line 29
-        sampler _S6 = kernelContext_0->guide_albedo_sampler_0;
+        float4 _S4 = ((kernelContext_0->guide_albedo_texture_0).read(uint2((q_0))));
 
 #line 29
-        float4 _S7 = ((kernelContext_0->guide_albedo_texture_0).read(vec<uint,2>(((_S6)).xy), uint(((_S6)).z)));
+        float4 _S5 = ((kernelContext_0->denoised_texture_0).read(uint2((q_0))));
 
-#line 29
-        sampler _S8 = kernelContext_0->denoised_sampler_0;
-
-        float3 _S9 = ((kernelContext_0->denoised_texture_0).read(vec<uint,2>(((_S8)).xy), uint(((_S8)).z))).xyz;
+        float3 _S6 = _S5.xyz;
 
 #line 31
-        if((_S7.w) > 0.0f)
+        if((_S4.w) > 0.0f)
         {
 
 #line 31
-            mean_0 = max(_S7.xyz, float3(0.01999999955296516f) );
+            mean_0 = max(_S4.xyz, float3(0.01999999955296516f) );
 
 #line 31
         }
@@ -80,7 +72,7 @@ float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
         }
 
 #line 31
-        mean_0 = _S9 * mean_0;
+        mean_0 = _S6 * mean_0;
 
 #line 29
     }
@@ -88,21 +80,21 @@ float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
     {
 
 #line 29
-        mean_0 = _S5;
+        mean_0 = _S3;
 
 #line 29
     }
 
 #line 29
-    float4 _S10;
+    float4 _S7;
 
 
 
-    if(_S4 > 0.0f)
+    if(_S2 > 0.0f)
     {
 
 #line 33
-        _S10 = float4(mean_0, covered_0);
+        _S7 = float4(mean_0, covered_0);
 
 #line 33
     }
@@ -110,13 +102,13 @@ float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
     {
 
 #line 33
-        _S10 = float4(0.0f) ;
+        _S7 = float4(0.0f) ;
 
 #line 33
     }
 
 #line 33
-    return _S10;
+    return _S7;
 }
 
 
@@ -124,19 +116,14 @@ float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
 float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
 {
 
-#line 26
-    int3 _S11 = int3(q_1, int(0));
+#line 25
+    float4 _S8 = ((kernelContext_1->accum_texture_0).read(uint2((q_1))));
 
-#line 26
-    sampler _S12 = kernelContext_1->accum_sampler_0;
-
-#line 26
-    float4 _S13 = ((kernelContext_1->accum_texture_0).read(vec<uint,2>(((_S12)).xy), uint(((_S12)).z)));
-    float _S14 = _S13.w;
+    float _S9 = _S8.w;
 
 #line 27
-    float covered_1 = _S14 / max(kernelContext_1->Display_Uniforms_0->params_0.y, 1.0f);
-    float3 _S15 = _S13.xyz / float3(max(_S14, 9.99999997475242708e-07f)) ;
+    float covered_1 = _S9 / max(kernelContext_1->Display_Uniforms_0->params_0.y, 1.0f);
+    float3 _S10 = _S8.xyz / float3(max(_S9, 9.99999997475242708e-07f)) ;
 
 #line 28
     float3 mean_1;
@@ -144,22 +131,19 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
     {
 
 #line 29
-        sampler _S16 = kernelContext_1->guide_albedo_sampler_0;
+        float4 _S11 = ((kernelContext_1->guide_albedo_texture_0).read(uint2((q_1))));
 
 #line 29
-        float4 _S17 = ((kernelContext_1->guide_albedo_texture_0).read(vec<uint,2>(((_S16)).xy), uint(((_S16)).z)));
+        float4 _S12 = ((kernelContext_1->denoised_texture_0).read(uint2((q_1))));
 
-#line 29
-        sampler _S18 = kernelContext_1->denoised_sampler_0;
-
-        float3 _S19 = ((kernelContext_1->denoised_texture_0).read(vec<uint,2>(((_S18)).xy), uint(((_S18)).z))).xyz;
+        float3 _S13 = _S12.xyz;
 
 #line 31
-        if((_S17.w) > 0.0f)
+        if((_S11.w) > 0.0f)
         {
 
 #line 31
-            mean_1 = max(_S17.xyz, float3(0.01999999955296516f) );
+            mean_1 = max(_S11.xyz, float3(0.01999999955296516f) );
 
 #line 31
         }
@@ -173,7 +157,7 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
         }
 
 #line 31
-        mean_1 = _S19 * mean_1;
+        mean_1 = _S13 * mean_1;
 
 #line 29
     }
@@ -181,21 +165,21 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
     {
 
 #line 29
-        mean_1 = _S15;
+        mean_1 = _S10;
 
 #line 29
     }
 
 #line 29
-    float4 _S20;
+    float4 _S14;
 
 
 
-    if(_S14 > 0.0f)
+    if(_S9 > 0.0f)
     {
 
 #line 33
-        _S20 = float4(mean_1, covered_1);
+        _S14 = float4(mean_1, covered_1);
 
 #line 33
     }
@@ -203,13 +187,13 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
     {
 
 #line 33
-        _S20 = float4(0.0f) ;
+        _S14 = float4(0.0f) ;
 
 #line 33
     }
 
 #line 33
-    return _S20;
+    return _S14;
 }
 
 
@@ -238,12 +222,12 @@ float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
 {
 
 #line 37
-    float4 _S21 = traced_1(q_2, kernelContext_2);
+    float4 _S15 = traced_1(q_2, kernelContext_2);
 
-    float _S22 = _S21.w;
+    float _S16 = _S15.w;
 
 #line 39
-    return float4(_S21.xyz * float3(_S22) , _S22) * float4(w_1) ;
+    return float4(_S15.xyz * float3(_S16) , _S16) * float4(w_1) ;
 }
 
 
@@ -262,18 +246,18 @@ float3 neutral_inverse_0(float3 y_0)
 
 
 
-    float _S23 = min(max(y_0.x, max(y_0.y, y_0.z)), 0.99554997682571411f);
+    float _S17 = min(max(y_0.x, max(y_0.y, y_0.z)), 0.99554997682571411f);
 
 #line 51
     float3 c_1;
-    if(_S23 >= 0.75999999046325684f)
+    if(_S17 >= 0.75999999046325684f)
     {
 
-        float peak_0 = 0.51999998092651367f + 0.0576000027358532f / (1.0f - _S23);
-        float g_0 = 1.0f - 1.0f / (0.15000000596046448f * (peak_0 - _S23) + 1.0f);
+        float peak_0 = 0.51999998092651367f + 0.0576000027358532f / (1.0f - _S17);
+        float g_0 = 1.0f - 1.0f / (0.15000000596046448f * (peak_0 - _S17) + 1.0f);
 
 #line 56
-        c_1 = (min(y_0, float3(_S23) ) - float3((g_0 * _S23)) ) / float3((1.0f - g_0))  * float3((peak_0 / _S23)) ;
+        c_1 = (min(y_0, float3(_S17) ) - float3((g_0 * _S17)) ) / float3((1.0f - g_0))  * float3((peak_0 / _S17)) ;
 
 #line 52
     }
@@ -287,15 +271,15 @@ float3 neutral_inverse_0(float3 y_0)
     }
 
 #line 62
-    float _S24 = max(min(c_1.x, min(c_1.y, c_1.z)), 0.0f);
+    float _S18 = max(min(c_1.x, min(c_1.y, c_1.z)), 0.0f);
 
 #line 62
     float offset_0;
-    if(_S24 < 0.03999999910593033f)
+    if(_S18 < 0.03999999910593033f)
     {
 
 #line 63
-        offset_0 = 0.40000000596046448f * sqrt(_S24) - _S24;
+        offset_0 = 0.40000000596046448f * sqrt(_S18) - _S18;
 
 #line 63
     }
@@ -351,18 +335,21 @@ struct pixelOutput_0
 
 #line 42
     (&kernelContext_3)->denoised_sampler_0 = denoised_sampler_1;
-    float2 _S25 = frag_coord_0.xy;
+    float2 _S19 = frag_coord_0.xy;
 
 #line 43
-    int2 _S26 = int2(_S25);
-    float3 under_0 = ((view_color_texture_1).read(vec<uint,2>(((view_color_sampler_1)).xy), uint(((view_color_sampler_1)).z))).xyz;
+    int2 _S20 = int2(_S19);
+
+#line 43
+    float4 _S21 = ((view_color_texture_1).read(uint2((_S20))));
+    float3 under_0 = _S21.xyz;
     thread float4 t_0;
     if((Display_Uniforms_1->params_0.w) < 0.5f)
     {
 
 #line 46
-        float4 _S27 = traced_0(_S26, &kernelContext_3);
-        t_0 = _S27;
+        float4 _S22 = traced_0(_S20, &kernelContext_3);
+        t_0 = _S22;
 
 #line 46
     }
@@ -370,50 +357,50 @@ struct pixelOutput_0
     {
 
 #line 46
-        int2 _S28 = int2(int(1)) ;
+        int2 _S23 = int2(int(1)) ;
 
 
-        int2 hi_0 = texture_size_0((&kernelContext_3)->accum_texture_0, (&kernelContext_3)->accum_sampler_0) - _S28;
-        float2 at_0 = _S25 / float2(texture_size_0((&kernelContext_3)->view_color_texture_0, (&kernelContext_3)->view_color_sampler_0)) * float2(hi_0 + _S28) - float2(0.5f) ;
-        int2 _S29 = int2(floor(at_0));
-        float2 f_0 = at_0 - float2(_S29);
-        int2 _S30 = int2(int(0)) ;
-
-#line 53
-        float _S31 = f_0.x;
+        int2 hi_0 = texture_size_0((&kernelContext_3)->accum_texture_0, (&kernelContext_3)->accum_sampler_0) - _S23;
+        float2 at_0 = _S19 / float2(texture_size_0((&kernelContext_3)->view_color_texture_0, (&kernelContext_3)->view_color_sampler_0)) * float2(hi_0 + _S23) - float2(0.5f) ;
+        int2 _S24 = int2(floor(at_0));
+        float2 f_0 = at_0 - float2(_S24);
+        int2 _S25 = int2(int(0)) ;
 
 #line 53
-        float _S32 = 1.0f - _S31;
+        float _S26 = f_0.x;
 
 #line 53
-        float _S33 = f_0.y;
+        float _S27 = 1.0f - _S26;
 
 #line 53
-        float _S34 = 1.0f - _S33;
+        float _S28 = f_0.y;
 
 #line 53
-        float4 _S35 = blended_0(clamp(_S29, _S30, hi_0), _S32 * _S34, &kernelContext_3);
+        float _S29 = 1.0f - _S28;
 
 #line 53
-        float4 _S36 = blended_0(clamp(_S29 + int2(int(1), int(0)), _S30, hi_0), _S31 * _S34, &kernelContext_3);
+        float4 _S30 = blended_0(clamp(_S24, _S25, hi_0), _S27 * _S29, &kernelContext_3);
 
 #line 53
-        float4 _S37 = _S35 + _S36;
+        float4 _S31 = blended_0(clamp(_S24 + int2(int(1), int(0)), _S25, hi_0), _S26 * _S29, &kernelContext_3);
 
 #line 53
-        float4 _S38 = blended_0(clamp(_S29 + int2(int(0), int(1)), _S30, hi_0), _S32 * _S33, &kernelContext_3);
-        float4 _S39 = _S37 + _S38;
+        float4 _S32 = _S30 + _S31;
+
+#line 53
+        float4 _S33 = blended_0(clamp(_S24 + int2(int(0), int(1)), _S25, hi_0), _S27 * _S28, &kernelContext_3);
+        float4 _S34 = _S32 + _S33;
 
 #line 54
-        float4 _S40 = blended_0(clamp(_S29 + int2(int(1), int(1)), _S30, hi_0), _S31 * _S33, &kernelContext_3);
+        float4 _S35 = blended_0(clamp(_S24 + int2(int(1), int(1)), _S25, hi_0), _S26 * _S28, &kernelContext_3);
 
 #line 54
-        float4 _S41 = _S39 + _S40;
+        float4 _S36 = _S34 + _S35;
 
 #line 53
-        t_0 = _S41;
+        t_0 = _S36;
 
-        if((_S41.w) > 0.0f)
+        if((_S36.w) > 0.0f)
         {
 
 #line 55
@@ -448,7 +435,7 @@ struct pixelOutput_0
     }
 
 #line 62
-    pixelOutput_0 _S42 = { float4(mix(below_0, shown_0, float3(clamp(t_0.w, 0.0f, 1.0f)) ), 1.0f) };
-    return _S42;
+    pixelOutput_0 _S37 = { float4(mix(below_0, shown_0, float3(clamp(t_0.w, 0.0f, 1.0f)) ), 1.0f) };
+    return _S37;
 }
 

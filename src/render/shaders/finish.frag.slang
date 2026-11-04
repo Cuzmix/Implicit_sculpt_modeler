@@ -178,7 +178,7 @@ float3 bloomed(float3 c, float2 frag) {
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
-	float4 s = source.Load(int3(px, 0));
+	float4 s = load_texel(source, px);
 	// What Neutral gives back short of the colour shown: nothing for its own colours but
 	// what an 8-bit step loses near white, where the shoulder is steep; much for a colour
 	// it never shows (a MatCap's highlight, a wire, a picked background), whose light is

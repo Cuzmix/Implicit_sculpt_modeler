@@ -12,14 +12,14 @@ struct pixelOutput_0
 };
 
 
-#line 10 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_composite.frag.slang"
+#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_composite.frag.slang"
 struct SLANG_ParameterGroup_Composite_Uniforms_0
 {
     float4 params_0;
 };
 
 
-#line 10
+#line 11
 struct KernelContext_0
 {
     texture2d<float, access::sample> view_color_texture_0;
@@ -32,114 +32,116 @@ struct KernelContext_0
 };
 
 
-#line 17
+#line 18
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_color_texture_1 [[texture(0)]], sampler view_color_sampler_1 [[sampler(0)]], texture2d<float, access::sample> accum_texture_1 [[texture(1)]], sampler accum_sampler_1 [[sampler(1)]], SLANG_ParameterGroup_Composite_Uniforms_0 constant* Composite_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> under_texture_1 [[texture(2)]], sampler under_sampler_1 [[sampler(2)]])
 {
 
-#line 17
+#line 18
     thread KernelContext_0 kernelContext_0;
 
-#line 17
+#line 18
     (&kernelContext_0)->view_color_texture_0 = view_color_texture_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->view_color_sampler_0 = view_color_sampler_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->accum_texture_0 = accum_texture_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->accum_sampler_0 = accum_sampler_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->Composite_Uniforms_0 = Composite_Uniforms_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->under_texture_0 = under_texture_1;
 
-#line 17
+#line 18
     (&kernelContext_0)->under_sampler_0 = under_sampler_1;
-
-    int3 _S1 = int3(int2(frag_coord_0.xy), int(0));
-
-#line 19
-    float4 _S2 = ((view_color_texture_1).read(vec<uint,2>(((view_color_sampler_1)).xy), uint(((view_color_sampler_1)).z)));
+    int2 _S1 = int2(frag_coord_0.xy);
 
 #line 19
-    float4 _S3 = ((accum_texture_1).read(vec<uint,2>(((accum_sampler_1)).xy), uint(((accum_sampler_1)).z)));
+    float4 _S2 = ((view_color_texture_1).read(uint2((_S1))));
+
+#line 19
+    float4 _S3 = ((accum_texture_1).read(uint2((_S1))));
+
 
     float _S4 = _S3.y;
 
-#line 21
+#line 22
     float ao_0;
 
-#line 21
+#line 22
     if(_S4 > 0.0f)
     {
 
-#line 21
+#line 22
         ao_0 = _S3.x / _S4;
 
-#line 21
+#line 22
     }
     else
     {
 
-#line 21
+#line 22
         ao_0 = 1.0f;
 
-#line 21
+#line 22
     }
     float _S5 = _S3.w;
 
-#line 22
+#line 23
     float lit_0;
 
-#line 22
+#line 23
     if(_S5 > 0.0f)
     {
 
-#line 22
+#line 23
         lit_0 = _S3.z / _S5;
 
-#line 22
+#line 23
     }
     else
     {
 
-#line 22
+#line 23
         lit_0 = 1.0f;
 
-#line 22
+#line 23
     }
 
 
     if(((&kernelContext_0)->Composite_Uniforms_0->params_0.z) > 0.0f)
     {
 
-#line 25
+#line 26
         lit_0 = mix(1.0f, lit_0, saturate(_S5 / (&kernelContext_0)->Composite_Uniforms_0->params_0.w));
 
-#line 25
+#line 26
     }
 
     float shade_0 = mix(1.0f, ao_0 * ao_0 * (3.0f - 2.0f * ao_0), (&kernelContext_0)->Composite_Uniforms_0->params_0.x) * mix(1.0f, lit_0, (&kernelContext_0)->Composite_Uniforms_0->params_0.y);
     if(((&kernelContext_0)->Composite_Uniforms_0->params_0.z) <= 0.0f)
     {
 
-#line 28
+#line 29
         pixelOutput_0 _S6 = { float4(_S2.xyz * float3(shade_0) , _S2.w) };
 
-#line 28
+#line 29
         return _S6;
     }
 
-#line 28
-    sampler _S7 = (&kernelContext_0)->under_sampler_0;
+#line 30
+    float settled_0 = saturate(_S4 / (&kernelContext_0)->Composite_Uniforms_0->params_0.z);
 
-#line 28
-    pixelOutput_0 _S8 = { float4(mix((((&kernelContext_0)->under_texture_0).read(vec<uint,2>(((_S7)).xy), uint(((_S7)).z))).xyz, _S2.xyz * float3(shade_0) , float3(saturate(_S4 / (&kernelContext_0)->Composite_Uniforms_0->params_0.z)) ), _S2.w) };
+#line 30
+    float4 _S7 = (((&kernelContext_0)->under_texture_0).read(uint2((_S1))));
 
+#line 30
+    pixelOutput_0 _S8 = { float4(mix(_S7.xyz, _S2.xyz * float3(shade_0) , float3(settled_0) ), _S2.w) };
     return _S8;
 }
 

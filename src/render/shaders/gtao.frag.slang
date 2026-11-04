@@ -7,6 +7,7 @@
 // the 4 x 4 blur after (ao_blur.frag.slang) averages away: thirty-two directions a pixel, the
 // same every frame, so a partial redraw matches the full one.
 // SDL_GPU SPIR-V conventions: fragment samplers in set 2, uniform buffers in set 3.
+#include "common.slang"
 [[vk::binding(0, 2)]] Sampler2D view_depth;
 
 [[vk::binding(0, 3)]] cbuffer Gtao_Uniforms {
@@ -33,7 +34,7 @@ float3 view_at(int2 px, float depth) {
 }
 
 float depth_at(int2 px) {
-	return view_depth.Load(int3(clamp(px, int2(0), int2(size.xy) - 1), 0)).r;
+	return load_texel(view_depth, clamp(px, int2(0), int2(size.xy) - 1)).r;
 }
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {

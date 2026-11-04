@@ -52,38 +52,30 @@ struct KernelContext_0
 float3 light_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 28
-    int3 _S1 = int3(px_0, int(0));
+#line 27
+    float4 _S1 = ((kernelContext_0->src_texture_0).read(uint2((px_0))));
 
-#line 28
-    sampler _S2 = kernelContext_0->src_sampler_0;
-
-#line 28
-    float4 _S3 = ((kernelContext_0->src_texture_0).read(vec<uint,2>(((_S2)).xy), uint(((_S2)).z)));
     if((kernelContext_0->Atrous_Uniforms_0->params_0.z) < 0.5f)
     {
 
 #line 29
-        return _S3.xyz;
+        return _S1.xyz;
     }
 
 #line 30
-    float3 mean_0 = _S3.xyz / float3(max(_S3.w, 1.0f)) ;
+    float3 mean_0 = _S1.xyz / float3(max(_S1.w, 1.0f)) ;
 
 #line 30
-    sampler _S4 = kernelContext_0->guide_albedo_sampler_0;
+    float4 _S2 = ((kernelContext_0->guide_albedo_texture_0).read(uint2((px_0))));
 
 #line 30
-    float4 _S5 = ((kernelContext_0->guide_albedo_texture_0).read(vec<uint,2>(((_S4)).xy), uint(((_S4)).z)));
+    float3 _S3;
 
-#line 30
-    float3 _S6;
-
-    if((_S5.w) > 0.0f)
+    if((_S2.w) > 0.0f)
     {
 
 #line 32
-        _S6 = mean_0 / max(_S5.xyz, float3(0.01999999955296516f) );
+        _S3 = mean_0 / max(_S2.xyz, float3(0.01999999955296516f) );
 
 #line 32
     }
@@ -91,13 +83,13 @@ float3 light_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
     {
 
 #line 32
-        _S6 = mean_0;
+        _S3 = mean_0;
 
 #line 32
     }
 
 #line 32
-    return _S6;
+    return _S3;
 }
 
 float luminance_0(float3 c_0)
@@ -142,31 +134,28 @@ struct pixelOutput_0
 
 #line 39
     (&kernelContext_1)->guide_normal_sampler_0 = guide_normal_sampler_1;
-    int2 _S7 = int2(frag_coord_0.xy);
-    int2 _S8 = texture_size_0(src_texture_1, src_sampler_1) - int2(int(1)) ;
+    int2 _S4 = int2(frag_coord_0.xy);
+    int2 _S5 = texture_size_0(src_texture_1, src_sampler_1) - int2(int(1)) ;
 
 #line 41
-    float3 _S9 = light_at_0(_S7, &kernelContext_1);
+    float3 _S6 = light_at_0(_S4, &kernelContext_1);
 
-    int3 _S10 = int3(_S7, int(0));
+#line 41
+    float4 _S7 = (((&kernelContext_1)->guide_albedo_texture_0).read(uint2((_S4))));
 
-#line 43
-    sampler _S11 = (&kernelContext_1)->guide_albedo_sampler_0;
 
-#line 43
-    float4 _S12 = (((&kernelContext_1)->guide_albedo_texture_0).read(vec<uint,2>(((_S11)).xy), uint(((_S11)).z)));
-    if((_S12.w) <= 0.0f)
+    if((_S7.w) <= 0.0f)
     {
 
 #line 44
-        pixelOutput_0 _S13 = { float4(_S9, 1.0f) };
-        return _S13;
+        pixelOutput_0 _S8 = { float4(_S6, 1.0f) };
+        return _S8;
     }
 
 #line 45
-    sampler _S14 = (&kernelContext_1)->guide_normal_sampler_0;
+    float4 _S9 = (((&kernelContext_1)->guide_normal_texture_0).read(uint2((_S4))));
 
-    thread float4 gn_0 = (((&kernelContext_1)->guide_normal_texture_0).read(vec<uint,2>(((_S14)).xy), uint(((_S14)).z)));
+    thread float4 gn_0 = _S9;
     if(((&kernelContext_1)->Atrous_Uniforms_0->params_0.w) > 0.5f)
     {
 
@@ -175,15 +164,15 @@ struct pixelOutput_0
 
 #line 48
     }
-    int _S15 = int((&kernelContext_1)->Atrous_Uniforms_0->params_0.x);
-    float _S16 = luminance_0(_S9);
-    float3 _S17 = float3(0.0f) ;
+    int _S10 = int((&kernelContext_1)->Atrous_Uniforms_0->params_0.x);
+    float _S11 = luminance_0(_S6);
+    float3 _S12 = float3(0.0f) ;
 
 #line 51
     int y_0 = int(-2);
 
 #line 51
-    float3 sum_0 = _S17;
+    float3 sum_0 = _S12;
 
 #line 51
     float total_0 = 0.0f;
@@ -225,15 +214,12 @@ struct pixelOutput_0
             }
 
 #line 55
-            int2 q_0 = clamp(_S7 + int2(x_0, y_0) * int2(_S15) , int2(int(0)) , _S8);
-            int3 _S18 = int3(q_0, int(0));
+            int2 q_0 = clamp(_S4 + int2(x_0, y_0) * int2(_S10) , int2(int(0)) , _S5);
 
-#line 56
-            sampler _S19 = (&kernelContext_1)->guide_albedo_sampler_0;
+#line 55
+            float4 _S13 = (((&kernelContext_1)->guide_albedo_texture_0).read(uint2((q_0))));
 
-#line 56
-            float4 _S20 = (((&kernelContext_1)->guide_albedo_texture_0).read(vec<uint,2>(((_S19)).xy), uint(((_S19)).z)));
-            if((_S20.w) <= 0.0f)
+            if((_S13.w) <= 0.0f)
             {
 
 #line 57
@@ -244,11 +230,11 @@ struct pixelOutput_0
             }
 
 #line 54
-            sampler _S21 = (&kernelContext_1)->guide_normal_sampler_0;
+            float4 _S14 = (((&kernelContext_1)->guide_normal_texture_0).read(uint2((q_0))));
 
 
 
-            thread float4 qn_0 = (((&kernelContext_1)->guide_normal_texture_0).read(vec<uint,2>(((_S21)).xy), uint(((_S21)).z)));
+            thread float4 qn_0 = _S14;
             if(((&kernelContext_1)->Atrous_Uniforms_0->params_0.w) > 0.5f)
             {
 
@@ -259,18 +245,18 @@ struct pixelOutput_0
             }
 
 #line 59
-            float3 _S22 = light_at_0(q_0, &kernelContext_1);
+            float3 _S15 = light_at_0(q_0, &kernelContext_1);
 
 #line 64
-            float3 da_0 = _S12.xyz - _S20.xyz;
+            float3 da_0 = _S7.xyz - _S13.xyz;
 
-            float _S23 = luminance_0(_S22);
-            float w_1 = KERNEL_0[abs(x_0)] * KERNEL_0[abs(y_0)] * pow(max(dot(gn_0.xyz, qn_0.xyz), 0.0f), 64.0f) * exp(- abs(gn_0.w - qn_0.w) / (0.00999999977648258f * gn_0.w * float(_S15) + 9.99999997475242708e-07f)) * exp(- dot(da_0, da_0) / 0.00999999977648258f) * exp(- (abs(_S23 - _S16) / (0.5f * (_S23 + _S16) + 0.00100000004749745f)) / (&kernelContext_1)->Atrous_Uniforms_0->params_0.y);
+            float _S16 = luminance_0(_S15);
+            float w_1 = KERNEL_0[abs(x_0)] * KERNEL_0[abs(y_0)] * pow(max(dot(gn_0.xyz, qn_0.xyz), 0.0f), 64.0f) * exp(- abs(gn_0.w - qn_0.w) / (0.00999999977648258f * gn_0.w * float(_S10) + 9.99999997475242708e-07f)) * exp(- dot(da_0, da_0) / 0.00999999977648258f) * exp(- (abs(_S16 - _S11) / (0.5f * (_S16 + _S11) + 0.00100000004749745f)) / (&kernelContext_1)->Atrous_Uniforms_0->params_0.y);
 
             float total_2 = total_1 + w_1;
 
 #line 69
-            sum_1 = sum_1 + _S22 * float3(w_1) ;
+            sum_1 = sum_1 + _S15 * float3(w_1) ;
 
 #line 69
             total_1 = total_2;
@@ -306,15 +292,15 @@ struct pixelOutput_0
     {
 
 #line 72
-        sum_0 = _S9;
+        sum_0 = _S6;
 
 #line 72
     }
 
 #line 72
-    pixelOutput_0 _S24 = { float4(sum_0, 1.0f) };
+    pixelOutput_0 _S17 = { float4(sum_0, 1.0f) };
 
 #line 72
-    return _S24;
+    return _S17;
 }
 

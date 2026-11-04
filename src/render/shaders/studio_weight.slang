@@ -15,10 +15,10 @@
 // the eye.
 float3 depth_normal(Sampler2D view_depth, int2 px, float2 frag, float d, float3 p, float2 size) {
 	int2 hi = int2(size) - 1;
-	float dl = view_depth.Load(int3(clamp(px - int2(1, 0), int2(0), hi), 0)).r;
-	float dr = view_depth.Load(int3(clamp(px + int2(1, 0), int2(0), hi), 0)).r;
-	float du = view_depth.Load(int3(clamp(px - int2(0, 1), int2(0), hi), 0)).r;
-	float dd = view_depth.Load(int3(clamp(px + int2(0, 1), int2(0), hi), 0)).r;
+	float dl = load_texel(view_depth, clamp(px - int2(1, 0), int2(0), hi)).r;
+	float dr = load_texel(view_depth, clamp(px + int2(1, 0), int2(0), hi)).r;
+	float du = load_texel(view_depth, clamp(px - int2(0, 1), int2(0), hi)).r;
+	float dd = load_texel(view_depth, clamp(px + int2(0, 1), int2(0), hi)).r;
 	float3 px_r = abs(dr - d) < abs(d - dl) ? world_at(frag + float2(1, 0), dr, size) - p : p - world_at(frag - float2(1, 0), dl, size);
 	float3 px_d = abs(dd - d) < abs(d - du) ? world_at(frag + float2(0, 1), dd, size) - p : p - world_at(frag - float2(0, 1), du, size);
 	float3 n = normalize(cross(px_d, px_r));

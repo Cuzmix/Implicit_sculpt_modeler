@@ -23,12 +23,12 @@
 
 // Traced pixel `q`'s mean radiance, and the share of its samples that met the scene.
 float4 traced(int2 q) {
-	float4 sum = accum.Load(int3(q, 0));
+	float4 sum = load_texel(accum, q);
 	float covered = sum.a / max(params.y, 1.0);
 	float3 mean = sum.rgb / max(sum.a, 1e-6);
 	if (params.z > 0.5) {
-		float4 a = guide_albedo.Load(int3(q, 0));
-		mean = denoised.Load(int3(q, 0)).rgb * (a.a > 0.0 ? max(a.rgb, float3(0.02)) : float3(1.0));
+		float4 a = load_texel(guide_albedo, q);
+		mean = load_texel(denoised, q).rgb * (a.a > 0.0 ? max(a.rgb, float3(0.02)) : float3(1.0));
 	}
 	return sum.a > 0.0 ? float4(mean, covered) : float4(0.0);
 }
@@ -41,7 +41,7 @@ float4 blended(int2 q, float w) {
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
-	float3 under = view_color.Load(int3(px, 0)).rgb;
+	float3 under = load_texel(view_color, px).rgb;
 	float4 t;
 	if (params.w < 0.5) {
 		t = traced(px);
