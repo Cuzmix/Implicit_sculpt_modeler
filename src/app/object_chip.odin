@@ -117,16 +117,18 @@ top_object_chip :: proc(app: ^App, c: Object_Chip, fit: Object_Chip_Fit) {
 	lit := k.object_menu && obj != nil && k.object_menu_id == obj.id
 	if a.held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if a.hovered || lit do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
-	// The selection does not fit the space: the chip rings in amber, and its tooltip says
-	// what the offer line over the dock says (offers.odin).
+	// The selection does not fit the space: the chip's icon turns amber with a dot by it,
+	// and its tooltip says what the offer line over the dock says (offers.odin). A ring
+	// read as the chip being selected, which is the soft fill's job alone.
 	fits, offer := space_fit(app)
-	if !fits do ui.stroke_rect(ctx, pill, t.radius_medium, t.warning, 1.5)
+	glyph_color := t.warning if !fits else (t.text_tertiary if c.empty else t.text)
+	if !fits do ui.fill_circle(ctx, {pill.x + pill.w - 5, pill.y + 5}, 3.5, t.warning)
 	cy := pill.y + pill.h * 0.5
 	if fit == .Icon {
-		ui.icon(ctx, c.glyph, {pill.x + pill.w * 0.5, cy}, t.icon_small, t.text_tertiary if c.empty else t.text)
+		ui.icon(ctx, c.glyph, {pill.x + pill.w * 0.5, cy}, t.icon_small, glyph_color)
 	} else {
 		x := pill.x + LENS_CHIP_PAD
-		ui.icon(ctx, c.glyph, {x + t.icon_small * 0.5, cy}, t.icon_small, t.text_tertiary if c.empty else t.text)
+		ui.icon(ctx, c.glyph, {x + t.icon_small * 0.5, cy}, t.icon_small, glyph_color)
 		x += t.icon_small + 6
 		ui.text(ctx, c.name, x, cy, t.small_size, t.text_tertiary if c.empty else (t.accent if lit else t.text), .Semibold)
 		x += ui.text_width(ctx, c.name, t.small_size, .Semibold)

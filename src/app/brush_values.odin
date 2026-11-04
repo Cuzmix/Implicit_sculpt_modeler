@@ -322,7 +322,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
 	fg := t.accent if lit || scrubbing else t.text
-	if !enabled do fg = ui.color_fade(t.text_secondary, 0.35)
+	if !enabled do fg = ui.disabled_ink(t)
 	cx := pill.x + pill.w * 0.5
 	ui.icon(ctx, BRUSH_VALUE_ICONS[v], {cx, pill.y + pill.h * 0.36}, t.icon_size - 2, fg)
 	ui.text(ctx, value_short(app, v), cx, pill.y + pill.h * 0.72, t.caption_size, fg if lit || scrubbing else t.text_secondary, .Semibold, .Center)
