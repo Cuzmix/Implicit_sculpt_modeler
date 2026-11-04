@@ -5,6 +5,7 @@ import "core:reflect"
 import "core:slice"
 import "core:strings"
 
+import "../poly"
 import "../ui"
 
 // The command palette: every command the registry holds, and each Settings tab, found
@@ -503,6 +504,8 @@ palette_enabled :: proc(app: ^App, e: Palette_Entry) -> bool {
 palette_icon :: proc(e: Palette_Entry) -> rune {
 	if e.kind == .Settings_Section do return ui.ICON_SETTINGS
 	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
+	if e.id == .Model_Action && e.arg >= 0 && e.arg < len(Model_Action) do return MODEL_ACTION_ICONS[Model_Action(e.arg)]
+	if e.id == .Add_Cage && e.arg >= 0 && e.arg < len(poly.Primitive) do return PRIMITIVE_ICONS[poly.Primitive(e.arg)]
 	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
 }
 

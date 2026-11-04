@@ -99,6 +99,53 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Loop_Curve     = "Loop to curve",
 }
 
+// Each action's icon (Lucide), one apiece, drawn from what it does to the cage: a face
+// pushed out, a face inside a face, a loop across a quad, two edges pulled together.
+// The shelf, the dial, Search and every menu show these, so no two actions share a glyph,
+// and none is a brush's.
+@(rodata)
+MODEL_ACTION_ICONS := [Model_Action]rune {
+	.Extrude        = 0xe42f, // square-arrow-up
+	.Inset          = 0xe613, // square-square
+	.Move           = 0xe125, // move
+	.Delete         = 0xe179, // square-x
+	.Polygroup      = 0xe469, // group
+	.Flip           = 0xe04a, // arrow-down-up: the faces turned over
+	.Insert_Loop    = 0xe597, // between-horizontal-start
+	.Remove_Loop    = 0xe175, // square-minus
+	.Collapse       = 0xe11f, // minimize-2
+	.Spin           = 0xe14d, // rotate-cw
+	.Close_Hole     = 0xe4b5, // circle-dashed, the app's mark for a hole's open border
+	.Extrude_Edge   = 0xe45f, // arrow-up-from-line
+	.Bridge         = 0xe442, // unfold-horizontal
+	.Weld           = 0xe451, // combine
+	.Connect        = 0xe109, // link-2
+	.Dissolve_Point = 0xe5e6, // diamond-minus
+	.Select         = 0xe257, // scan
+	.Crease         = 0xe533, // tangent
+	.Crease_Point   = 0xe2d2, // diamond
+	.Bevel          = 0xe12a, // octagon: corners cut
+	.Circle_Loop    = 0xe07a, // circle
+	.Space_Loop     = 0xe275, // align-horizontal-space-around
+	.Flatten_Loop   = 0xe277, // align-vertical-justify-center
+	.Knife          = 0xe2f0, // slice
+	.Align          = 0xe03c, // align-center
+	.Spine          = 0xe35c, // bone
+	.Topo           = 0xe547, // waypoints
+	.Loop_Curve     = 0xe612, // chart-spline
+}
+
+// Each primitive cage's icon (Lucide), its own shape.
+@(rodata)
+PRIMITIVE_ICONS := [poly.Primitive]rune {
+	.Cube     = 0xe529, // cuboid
+	.Plane    = 0xe16b, // square
+	.Cylinder = 0xe52a, // cylinder
+	.Sphere   = 0xe634, // volleyball: a ball of patches
+	.Torus    = 0xe534, // torus
+	.Cone     = 0xe528, // cone
+}
+
 // Each action as an undo step names it, in the History panel and the undo button's tip.
 @(rodata)
 MODEL_ACTION_WHAT := [Model_Action]string {
