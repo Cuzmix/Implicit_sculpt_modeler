@@ -62,6 +62,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\bench" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\fbx" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\quadmesh" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\sparse" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\geom" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
@@ -90,7 +91,7 @@ python "%ROOT%scripts\shaders_gen.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 22 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders and their descriptions current, the web version type-checks
+echo check: 23 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders and their descriptions current, the web version type-checks
 exit /b 0
 
 :web
@@ -158,6 +159,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\sparse" -out:"%ROOT%build\test_sparse.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\quadmesh" -out:"%ROOT%build\test_quadmesh.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\retopo" -out:"%ROOT%build\test_retopo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\send" -out:"%ROOT%build\test_send.exe" %COMMON% || exit /b 1

@@ -33,7 +33,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py --changed                # each PR of a series: only what the branch's changes reach; the full gate ends the series
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, uv, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app
+    build.bat test                                    # odin test on geom, uv, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, sparse, quadmesh, retopo, send, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -68,6 +68,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
+| `src/sparse` | sparse symmetric systems, no meshes: triplets to compressed columns, the AMD order (SuiteSparse's, BSD), an LDLᵀ whose symbolic pass is kept for refactoring, conjugate gradients; Quad Remesh's field and cover solve with it |
 | `src/zip` | ZIP archives in, as content packs come: entries, names checked against zip slip and case clashes, inflating capped by the declared size |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/luau` | the binding to Luau (script plugins): the C API the plugins use, linked from `deps/luau` on the desktop builds only (`AVAILABLE`) |
@@ -89,7 +90,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
+- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `sparse`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
   platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `gpu` names the GPU API, imported by `render` alone: `app` holds `render.Cmd`, `render.Texture`,
   `render.Ticket` and `render.Sample_Count` and calls render's procs (`cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `src/gpu/hal.odin`
