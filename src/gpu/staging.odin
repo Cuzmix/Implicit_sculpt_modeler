@@ -276,6 +276,14 @@ staging_cmd :: proc(cmd: Cmd) -> ^Staging_Cmd {
 	return sc
 }
 
+// Whether `cmd` has copies staged that its next pass or its submit will record.
+@(private)
+staging_pending :: proc(cmd: Cmd) -> bool {
+	sync.mutex_guard(&staging.mutex)
+	sc, _ := staging_find(cmd)
+	return sc != nil && len(sc.copies) > 0
+}
+
 @(private = "file")
 staging_find :: proc(cmd: Cmd) -> (^Staging_Cmd, int) {
 	for sc, i in staging.open do if sc.cmd == cmd do return sc, i
