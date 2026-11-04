@@ -5268,7 +5268,7 @@ def lens_context_bar_extracts_the_mask():
 # Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
 # chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
 # options, while nothing is recent.
-LENS_INSPECT = {"tab": (504, 26), "inspect": (504, 451), "pass_chip": At("readout/Shading", 165, 75), "curvature": (305, 540)}
+LENS_INSPECT = {"tab": (504, 26), "inspect": At("layout menu/Inspect", 504, 321), "pass_chip": At("readout/Shading", 165, 75), "curvature": (305, 540)}
 
 
 @scenario
